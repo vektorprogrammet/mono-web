@@ -766,7 +766,7 @@ Runs background workers on the Effect clock.
 Runs the Effect programs behind Promise callbacks that a third-party library calls, inside the scope of the layer that owns the library.
 
 - `makeBetterAuthCallbackRunner`: Creates the runner for Better Auth's Promise callbacks: it forks each program into a fiber set that the current scope owns, so closing the scope interrupts the callbacks still running.
-  [packages/database/src/auth-engine.ts:37](../packages/database/src/auth-engine.ts#L37), no consumers.
+  [packages/database/src/auth-engine.ts:39](../packages/database/src/auth-engine.ts#L39), no consumers.
 
 ## pagination
 

@@ -1,9 +1,10 @@
-import { DatabasePgPool } from "./pg-pool.js";
+import { DatabasePgPool, pgQuery } from "./pg-pool.js";
 import {
   isNativePasswordHash,
-  nativeAndLegacyPasswordCodec,
-  PasswordHashCapacityError,
-  PasswordInputTooLongError,
+  nativePasswordHash,
+  verifyNativeOrLegacyPassword,
+  type PasswordHashCapacityError,
+  type PasswordInputTooLongError,
 } from "./password-codec.js";
 import { betterAuth, createLocalAccountIssuer, type BetterAuthOptions } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
@@ -18,6 +19,7 @@ import {
   FiberSet,
   Layer,
   Effect,
+  Match,
   Schema,
   Option,
   Predicate,
@@ -58,174 +60,213 @@ export const makeAuthPool = (config: AuthEngineConfig) =>
     application_name: "vektorprogrammet-auth",
   });
 
-const passwordUnavailable = (cause: unknown): never => {
-  if (cause instanceof PasswordHashCapacityError)
-    throw new APIError("SERVICE_UNAVAILABLE", {
-      code: "PASSWORD_HASH_CAPACITY",
-      message: "Sign-in is temporarily unavailable",
-    });
+/** The password codec's capacity and input limits, as the API errors Better Auth answers with. */
+const passwordUnavailable = Match.type<
+  PasswordHashCapacityError | PasswordInputTooLongError
+>().pipe(
+  Match.tag(
+    "PasswordHashCapacityError",
+    () =>
+      new APIError("SERVICE_UNAVAILABLE", {
+        code: "PASSWORD_HASH_CAPACITY",
+        message: "Sign-in is temporarily unavailable",
+      }),
+  ),
+  Match.tag(
+    "PasswordInputTooLongError",
+    () =>
+      new APIError("BAD_REQUEST", {
+        code: "PASSWORD_TOO_LONG",
+        message: "Password exceeds the input limit",
+      }),
+  ),
+  Match.exhaustive,
+);
 
-  if (cause instanceof PasswordInputTooLongError)
-    throw new APIError("BAD_REQUEST", {
-      code: "PASSWORD_TOO_LONG",
-      message: "Password exceeds the input limit",
-    });
-  throw cause;
-};
+const hashEnginePassword = (password: string) =>
+  nativePasswordHash(password).pipe(Effect.mapError(passwordUnavailable));
 
-const enginePasswordCodec = {
-  hash: (password: string) =>
-    nativeAndLegacyPasswordCodec.hash(password).catch(passwordUnavailable),
-  verify: (input: { hash: string; password: string }) =>
-    nativeAndLegacyPasswordCodec.verify(input).catch(passwordUnavailable),
-};
+const verifyEnginePassword = (input: { hash: string; password: string }) =>
+  verifyNativeOrLegacyPassword(input).pipe(Effect.mapError(passwordUnavailable));
+
+type PasswordVerifier = (input: { hash: string; password: string }) => Promise<boolean>;
 
 /** Request-scoped evidence only. Account persistence belongs to the successful session lifecycle. */
 interface VerifiedCredentialEvidence {
   hash?: string;
 }
 
-const makeCredentialLifecycleHooks = (database: Pool) => {
-  const verified = new WeakMap<typeof enginePasswordCodec.verify, VerifiedCredentialEvidence>();
+const makeCredentialLifecycleHooks = (database: Pool, run: BetterAuthCallbackRunner) => {
+  const verified = new WeakMap<PasswordVerifier, VerifiedCredentialEvidence>();
 
   return {
-    before: createAuthMiddleware(async (ctx) => {
-      let access: { personId: string; revision: number } | undefined;
+    before: createAuthMiddleware((ctx) =>
+      run(
+        Effect.gen(function* () {
+          let access: { personId: string; revision: number } | undefined;
 
-      if (ctx.path === "/reset-password") {
-        access = (
-          await database.query<{ personId: string; revision: number }>(
-            'SELECT u.id AS "personId",u.access_revision AS revision FROM auth.verification v JOIN auth."user" u ON u.id=v.value WHERE v.identifier=$1 AND NOT u.access_disabled',
-            ["reset-password:" + (ctx.body?.token ?? "")],
-          )
-        ).rows[0];
+          if (ctx.path === "/reset-password") {
+            access = (yield* pgQuery<{ personId: string; revision: number }>(
+              database,
+              'SELECT u.id AS "personId",u.access_revision AS revision FROM auth.verification v JOIN auth."user" u ON u.id=v.value WHERE v.identifier=$1 AND NOT u.access_disabled',
+              ["reset-password:" + (ctx.body?.token ?? "")],
+            )).rows[0];
 
-        if (!access)
-          throw new APIError("BAD_REQUEST", { code: "INVALID_TOKEN", message: "Invalid token" });
-      } else if (ctx.path === "/sign-in/email") {
-        access = (
-          await database.query<{ personId: string; revision: number }>(
-            'SELECT id AS "personId",access_revision AS revision FROM auth."user" WHERE lower(email)=lower($1) AND NOT access_disabled',
-            [ctx.body?.email ?? ""],
-          )
-        ).rows[0];
+            if (!access) {
+              return yield* Effect.fail(
+                new APIError("BAD_REQUEST", { code: "INVALID_TOKEN", message: "Invalid token" }),
+              );
+            }
+          } else if (ctx.path === "/sign-in/email") {
+            access = (yield* pgQuery<{ personId: string; revision: number }>(
+              database,
+              'SELECT id AS "personId",access_revision AS revision FROM auth."user" WHERE lower(email)=lower($1) AND NOT access_disabled',
+              [ctx.body?.email ?? ""],
+            )).rows[0];
 
-        if (!access)
-          throw new APIError("UNAUTHORIZED", {
-            code: "INVALID_EMAIL_OR_PASSWORD",
-            message: "Invalid email or password",
-          });
-      } else {
-        const cookie = getSessionCookie(ctx.headers ?? new Headers());
+            if (!access) {
+              return yield* Effect.fail(
+                new APIError("UNAUTHORIZED", {
+                  code: "INVALID_EMAIL_OR_PASSWORD",
+                  message: "Invalid email or password",
+                }),
+              );
+            }
+          } else {
+            const cookie = getSessionCookie(ctx.headers ?? new Headers());
 
-        if (cookie !== null) {
-          const token = cookie.slice(0, cookie.lastIndexOf("."));
-          access = (
-            await database.query<{ personId: string; revision: number }>(
-              'SELECT "userId" AS "personId",access_revision AS revision FROM auth.usable_human_sessions WHERE token=$1',
-              [token],
-            )
-          ).rows[0];
+            if (cookie !== null) {
+              const token = cookie.slice(0, cookie.lastIndexOf("."));
+              access = (yield* pgQuery<{ personId: string; revision: number }>(
+                database,
+                'SELECT "userId" AS "personId",access_revision AS revision FROM auth.usable_human_sessions WHERE token=$1',
+                [token],
+              )).rows[0];
 
-          // Sign-out must clear the cookies of a revoked or expired session, never refuse them.
-          if (!access && ctx.path !== "/request-password-reset" && ctx.path !== "/sign-out") {
-            if (ctx.path === "/get-session") return ctx.json(null);
-            throw new APIError("UNAUTHORIZED", {
-              code: "INVALID_SESSION",
-              message: "Session unavailable",
-            });
+              // Sign-out must clear the cookies of a revoked or expired session, never refuse them.
+              if (!access && ctx.path !== "/request-password-reset" && ctx.path !== "/sign-out") {
+                // better-call's `json` answers synchronously, although its type is a Promise.
+                if (ctx.path === "/get-session") {
+                  return yield* Effect.promise(() => Promise.resolve(ctx.json(null)));
+                }
+
+                return yield* Effect.fail(
+                  new APIError("UNAUTHORIZED", {
+                    code: "INVALID_SESSION",
+                    message: "Session unavailable",
+                  }),
+                );
+              }
+            }
           }
-        }
-      }
 
-      if (ctx.path !== "/sign-in/email")
-        return { context: { context: { nativeAccessEvidence: access } } };
-      const evidence: VerifiedCredentialEvidence = {};
+          if (ctx.path !== "/sign-in/email")
+            return { context: { context: { nativeAccessEvidence: access } } };
+          const evidence: VerifiedCredentialEvidence = {};
 
-      const verify: typeof enginePasswordCodec.verify = async (input) => {
-        const valid = await enginePasswordCodec.verify(input);
+          const verify: PasswordVerifier = (input) =>
+            run(
+              verifyEnginePassword(input).pipe(
+                Effect.tap((valid) =>
+                  Effect.sync(() => {
+                    if (valid) evidence.hash = input.hash;
+                  }),
+                ),
+              ),
+            );
 
-        if (valid) evidence.hash = input.hash;
+          verified.set(verify, evidence);
 
-        return valid;
-      };
+          return {
+            context: {
+              context: {
+                nativeAccessEvidence: access,
+                password: { ...ctx.context.password, verify },
+              },
+            },
+          };
+        }),
+      ),
+    ),
+    after: createAuthMiddleware((ctx) =>
+      run(
+        Effect.gen(function* () {
+          if (ctx.path === "/get-session") {
+            const result = ctx.context.returned;
 
-      verified.set(verify, evidence);
+            if (
+              result &&
+              (result === null || Predicate.isObjectOrArray(result)) &&
+              "session" in result &&
+              result.session &&
+              (result.session === null || Predicate.isObjectOrArray(result.session)) &&
+              "id" in result.session
+            ) {
+              const usable = yield* pgQuery(
+                database,
+                `SELECT 1 FROM auth.usable_human_sessions WHERE id=$1`,
+                [result.session.id],
+              );
 
-      return {
-        context: {
-          context: { nativeAccessEvidence: access, password: { ...ctx.context.password, verify } },
-        },
-      };
-    }),
-    after: createAuthMiddleware(async (ctx) => {
-      if (ctx.path === "/get-session") {
-        const result = ctx.context.returned;
+              if (usable.rowCount !== 1) {
+                deleteSessionCookie(ctx);
 
-        if (
-          result &&
-          (result === null || Predicate.isObjectOrArray(result)) &&
-          "session" in result &&
-          result.session &&
-          (result.session === null || Predicate.isObjectOrArray(result.session)) &&
-          "id" in result.session
-        ) {
-          const usable = await database.query(
-            `SELECT 1 FROM auth.usable_human_sessions WHERE id=$1`,
-            [result.session.id],
-          );
-
-          if (usable.rowCount !== 1) {
-            deleteSessionCookie(ctx);
-
-            return ctx.json(null);
+                // better-call's `json` answers synchronously, although its type is a Promise.
+                return yield* Effect.promise(() => Promise.resolve(ctx.json(null)));
+              }
+            }
           }
-        }
-      }
 
-      if (ctx.path !== "/sign-in/email") return;
-      const evidence = verified.get(ctx.context.password.verify);
-      verified.delete(ctx.context.password.verify);
-      const session = ctx.context.newSession;
-      const returned = ctx.context.returned;
+          if (ctx.path !== "/sign-in/email") return;
+          const evidence = verified.get(ctx.context.password.verify);
+          verified.delete(ctx.context.password.verify);
+          const session = ctx.context.newSession;
+          const returned = ctx.context.returned;
 
-      if (
-        !evidence?.hash ||
-        !session ||
-        returned instanceof APIError ||
-        !returned ||
-        !(returned === null || Predicate.isObjectOrArray(returned)) ||
-        !("token" in returned) ||
-        returned.token !== session.session.token ||
-        !("user" in returned) ||
-        !returned.user ||
-        !(returned.user === null || Predicate.isObjectOrArray(returned.user)) ||
-        !("id" in returned.user) ||
-        returned.user.id !== session.user.id
-      )
-        return;
+          if (
+            !evidence?.hash ||
+            !session ||
+            returned instanceof APIError ||
+            !returned ||
+            !(returned === null || Predicate.isObjectOrArray(returned)) ||
+            !("token" in returned) ||
+            returned.token !== session.session.token ||
+            !("user" in returned) ||
+            !returned.user ||
+            !(returned.user === null || Predicate.isObjectOrArray(returned.user)) ||
+            !("id" in returned.user) ||
+            returned.user.id !== session.user.id
+          )
+            return;
+          const verifiedHash = evidence.hash;
 
-      try {
-        const usable = await database.query(
-          `SELECT 1 FROM auth.usable_human_sessions WHERE id=$1`,
-          [session.session.id],
-        );
+          yield* Effect.gen(function* () {
+            const usable = yield* pgQuery(
+              database,
+              `SELECT 1 FROM auth.usable_human_sessions WHERE id=$1`,
+              [session.session.id],
+            );
 
-        if (usable.rowCount !== 1)
-          throw new APIError("UNAUTHORIZED", {
-            code: "INVALID_EMAIL_OR_PASSWORD",
-            message: "Invalid email or password",
-          });
-        const current = isNativePasswordHash(evidence.hash);
+            if (usable.rowCount !== 1) {
+              return yield* Effect.fail(
+                new APIError("UNAUTHORIZED", {
+                  code: "INVALID_EMAIL_OR_PASSWORD",
+                  message: "Invalid email or password",
+                }),
+              );
+            }
 
-        const replacement = current
-          ? evidence.hash
-          : await enginePasswordCodec.hash(ctx.body.password);
+            const current = isNativePasswordHash(verifiedHash);
 
-        // A later reset revokes the session, which already exists. An earlier reset
-        // loses this exact-hash predicate; remove its stale session in the same statement.
-        const result = await database.query<{ accepted: boolean }>(
-          `WITH matched AS (
+            const replacement = current
+              ? verifiedHash
+              : yield* hashEnginePassword(ctx.body.password);
+
+            // A later reset revokes the session, which already exists. An earlier reset
+            // loses this exact-hash predicate; remove its stale session in the same statement.
+            const result = yield* pgQuery<{ accepted: boolean }>(
+              database,
+              `WITH matched AS (
             ${
               current
                 ? 'SELECT id FROM auth."account" WHERE "userId"=$1 AND "accountId"=$1 AND "providerId"=\'credential\' AND issuer=$2 AND password=$3'
@@ -234,35 +275,48 @@ const makeCredentialLifecycleHooks = (database: Pool) => {
           ), revoked AS (
             DELETE FROM auth."session" WHERE token=$4 AND NOT EXISTS(SELECT 1 FROM matched) RETURNING id
           ) SELECT EXISTS(SELECT 1 FROM matched) AS accepted`,
-          current
-            ? [
-                session.user.id,
-                createLocalAccountIssuer("credential"),
-                evidence.hash,
-                session.session.token,
-              ]
-            : [
-                session.user.id,
-                createLocalAccountIssuer("credential"),
-                evidence.hash,
-                session.session.token,
-                replacement,
-              ],
-        );
+              current
+                ? [
+                    session.user.id,
+                    createLocalAccountIssuer("credential"),
+                    verifiedHash,
+                    session.session.token,
+                  ]
+                : [
+                    session.user.id,
+                    createLocalAccountIssuer("credential"),
+                    verifiedHash,
+                    session.session.token,
+                    replacement,
+                  ],
+            );
 
-        if (!result.rows[0]?.accepted)
-          throw new APIError("UNAUTHORIZED", {
-            code: "INVALID_EMAIL_OR_PASSWORD",
-            message: "Invalid email or password",
-          });
-      } catch (cause) {
-        // Cookie cleanup also removes the earlier success Set-Cookie header.
-        deleteSessionCookie(ctx);
-        ctx.context.newSession = null;
-        await ctx.context.internalAdapter.deleteSession(session.session.token);
-        throw cause;
-      }
-    }),
+            if (!result.rows[0]?.accepted) {
+              return yield* Effect.fail(
+                new APIError("UNAUTHORIZED", {
+                  code: "INVALID_EMAIL_OR_PASSWORD",
+                  message: "Invalid email or password",
+                }),
+              );
+            }
+          }).pipe(
+            // Any failure ends the new session; a failing cleanup replaces the failure.
+            Effect.catchCause((cause) =>
+              Effect.gen(function* () {
+                // Cookie cleanup also removes the earlier success Set-Cookie header.
+                deleteSessionCookie(ctx);
+                ctx.context.newSession = null;
+                yield* Effect.promise(() =>
+                  ctx.context.internalAdapter.deleteSession(session.session.token),
+                );
+
+                return yield* Effect.failCause(cause);
+              }),
+            ),
+          );
+        }),
+      ),
+    ),
   };
 };
 
@@ -280,69 +334,84 @@ const decodeNativeAccessEvidence = flow(
 
 const makeAccessDatabaseHooks = (
   database: Pool,
+  run: BetterAuthCallbackRunner,
 ): NonNullable<BetterAuthOptions["databaseHooks"]> => {
-  const accessRevision = async (context: GenericEndpointContext | null, personId?: string) => {
-    const evidence = Option.getOrUndefined(decodeNativeAccessEvidence(context?.context));
+  const accessRevision = (context: GenericEndpointContext | null, personId?: string) =>
+    Effect.gen(function* () {
+      const evidence = Option.getOrUndefined(decodeNativeAccessEvidence(context?.context));
 
-    if (evidence && (personId === undefined || personId === evidence.personId))
-      return evidence.revision;
+      if (evidence && (personId === undefined || personId === evidence.personId))
+        return evidence.revision;
 
-    // Internal adapter provisioning has no endpoint context. HTTP and direct API
-    // password changes must carry the revision captured before credential work.
-    if (context == null && personId !== undefined) {
-      const row = (
-        await database.query<{ revision: number }>(
+      // Internal adapter provisioning has no endpoint context. HTTP and direct API
+      // password changes must carry the revision captured before credential work.
+      if (context == null && personId !== undefined) {
+        const row = (yield* pgQuery<{ revision: number }>(
+          database,
           'SELECT access_revision AS revision FROM auth."user" WHERE id=$1 AND NOT access_disabled',
           [personId],
-        )
-      ).rows[0];
+        )).rows[0];
 
-      if (row) return row.revision;
-    }
+        if (row) return row.revision;
+      }
 
-    throw new APIError("UNAUTHORIZED", {
-      code: "INVALID_SESSION",
-      message: "Account access unavailable",
+      return yield* Effect.fail(
+        new APIError("UNAUTHORIZED", {
+          code: "INVALID_SESSION",
+          message: "Account access unavailable",
+        }),
+      );
     });
-  };
 
   return {
     account: {
       create: {
-        before: async (data, ctx) => ({
-          data: { ...data, accessRevision: await accessRevision(ctx, data.userId) },
-        }),
+        before: (data, ctx) =>
+          run(
+            Effect.map(accessRevision(ctx, data.userId), (revision) => ({
+              data: { ...data, accessRevision: revision },
+            })),
+          ),
       },
       update: {
-        before: async (data, ctx) =>
-          "password" in data
-            ? { data: { ...data, accessRevision: await accessRevision(ctx) } }
-            : { data },
+        before: (data, ctx) =>
+          run(
+            "password" in data
+              ? Effect.map(accessRevision(ctx), (revision) => ({
+                  data: { ...data, accessRevision: revision },
+                }))
+              : Effect.succeed({ data }),
+          ),
       },
     },
     session: {
       create: {
-        before: async (data, ctx) => {
-          const evidence = Option.getOrUndefined(decodeNativeAccessEvidence(ctx?.context));
+        before: (data, ctx) =>
+          run(
+            Effect.gen(function* () {
+              const evidence = Option.getOrUndefined(decodeNativeAccessEvidence(ctx?.context));
 
-          const revision =
-            evidence?.personId === data.userId
-              ? evidence.revision
-              : (
-                  await database.query<{ revision: number }>(
-                    'SELECT access_revision AS revision FROM auth."user" WHERE id=$1 AND NOT access_disabled',
-                    [data.userId],
-                  )
-                ).rows[0]?.revision;
+              const revision =
+                evidence?.personId === data.userId
+                  ? evidence.revision
+                  : (yield* pgQuery<{ revision: number }>(
+                      database,
+                      'SELECT access_revision AS revision FROM auth."user" WHERE id=$1 AND NOT access_disabled',
+                      [data.userId],
+                    )).rows[0]?.revision;
 
-          if (revision === undefined)
-            throw new APIError("UNAUTHORIZED", {
-              code: "INVALID_SESSION",
-              message: "Account access unavailable",
-            });
+              if (revision === undefined) {
+                return yield* Effect.fail(
+                  new APIError("UNAUTHORIZED", {
+                    code: "INVALID_SESSION",
+                    message: "Account access unavailable",
+                  }),
+                );
+              }
 
-          return { data: { ...data, accessRevision: revision } };
-        },
+              return { data: { ...data, accessRevision: revision } };
+            }),
+          ),
       },
     },
   };
@@ -358,7 +427,10 @@ export const makeAuthEngineOptions = (
     enabled: true,
     disableSignUp: true,
     minPasswordLength: 12,
-    password: enginePasswordCodec,
+    password: {
+      hash: (password) => run(hashEnginePassword(password)),
+      verify: (input) => run(verifyEnginePassword(input)),
+    },
     resetPasswordTokenExpiresIn: 60 * 60,
     revokeSessionsOnPasswordReset: true,
   };
@@ -380,8 +452,8 @@ export const makeAuthEngineOptions = (
     database,
     trustedOrigins: [...config.trustedOrigins],
     plugins: [...oauthPlugins(config.oauth)],
-    hooks: makeCredentialLifecycleHooks(database),
-    databaseHooks: makeAccessDatabaseHooks(database),
+    hooks: makeCredentialLifecycleHooks(database, run),
+    databaseHooks: makeAccessDatabaseHooks(database, run),
     account: {
       additionalFields: {
         accessRevision: {

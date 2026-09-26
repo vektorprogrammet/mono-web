@@ -149,23 +149,20 @@ try {
 
   secrets.push(...values, ...hashes);
 
+  const verify = (input: { hash: string; password: string }) =>
+    Effect.runPromise(verifyNativeOrLegacyPassword(input));
+
   for (let i = 0; i < values.length; i++) {
     assert.ok(
-      await verifyNativeOrLegacyPassword({ hash: hashes[i]!, password: values[i]! }),
+      await verify({ hash: hashes[i]!, password: values[i]! }),
       "PHP/bcrypt cross-runtime verification",
     );
-    assert.equal(
-      await verifyNativeOrLegacyPassword({ hash: hashes[i]!, password: "wrong-password" }),
-      false,
-    );
+    assert.equal(await verify({ hash: hashes[i]!, password: "wrong-password" }), false);
   }
 
+  assert.equal(await verify({ hash: hashes[0]!, password: values[0]! + "\0tail" }), false);
   assert.equal(
-    await verifyNativeOrLegacyPassword({ hash: hashes[0]!, password: values[0]! + "\0tail" }),
-    false,
-  );
-  assert.equal(
-    await verifyNativeOrLegacyPassword({ hash: hashes[0]!, password: values[0]!.normalize("NFD") }),
+    await verify({ hash: hashes[0]!, password: values[0]!.normalize("NFD") }),
     false,
     "legacy bytes must not undergo NFKC normalization",
   );

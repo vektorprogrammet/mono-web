@@ -363,7 +363,7 @@ export const OnboardingApiHandlers = (input: {
           ? {
               mode: "NewAccount" as const,
               personId: PersonId.make(crypto.randomUUID()),
-              passwordHash: yield* Effect.promise(() => hashOnboardingPassword(body.password)),
+              passwordHash: yield* hashOnboardingPassword(body.password).pipe(Effect.orDie),
             }
           : null;
 

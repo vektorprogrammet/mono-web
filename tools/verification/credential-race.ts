@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import { createLocalAccountIssuer } from "better-auth";
 import type { AuthEngine } from "@vektorprogrammet/database/auth-engine";
 import { nativePasswordHash } from "@vektorprogrammet/database/password-codec";
+import { Effect } from "effect";
 
 /** Real engine/database regression: reset completes after verification but before session creation. */
 export const proveCredentialResetRace = async (input: {
@@ -16,7 +17,7 @@ export const proveCredentialResetRace = async (input: {
 }) => {
   const context = await input.engine.$context;
   const originalCreate = context.internalAdapter.createSession.bind(context.internalAdapter);
-  const nativeHash = await nativePasswordHash(input.password);
+  const nativeHash = await Effect.runPromise(nativePasswordHash(input.password));
 
   for (const [id, hash] of [
     ["race-legacy", input.legacyHash],
