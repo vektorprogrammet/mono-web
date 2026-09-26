@@ -166,7 +166,7 @@ The `legacy-data` devenv profile cannot build while the home binary cache answer
 - Homelab branch `feat/btrbk-root-offload-ironwolf` (in `/srv/share/projects/homelab-btrbk-offload`) is built, not merged or deployed.
   It keeps root snapshots 7d locally, sends the latest to the IronWolf until 2026-10-04 and 4w 6m after, caps `@downloads` at 2540G,
   ages `/tmp` at 7d, and makes a dead binary cache non-fatal. Merge it into homelab `main` and rebuild the workstation from the homelab justfile, following the steps in its docs.
-- Replace the `BWS_ACCESS_TOKEN` repository secret with a valid access token of the machine account `vektorprogrammet-ci`, which reads Bitwarden project `2ddfeed1-59d8-4139-b6b0-b4d1001edcfc` on `vault.bitwarden.eu` (tokens set at 11:30Z and 12:14Z were both refused with `invalid_client` by `vault.bitwarden.eu`; confirm the token works locally against the EU and US clouds with `bws project list --server-url`).
+- `BWS_ACCESS_TOKEN` holds the access token of the machine account `vektorprogrammet-ci`, which reads Bitwarden project `2ddfeed1-59d8-4139-b6b0-b4d1001edcfc` in the US cloud (`vault.bitwarden.com`).
   After the first secretspec preview deploy passes, delete the superseded `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` GitHub secrets.
 - Before any production use of reach and delegation: classify the Styret and national teams, recognize independent departments,
   and issue the Økonomi delegations, each by explicit command (see Production gates).
