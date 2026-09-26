@@ -8,7 +8,7 @@
  * from what the browser recorded, and fails on any difference.
  */
 import assert from "node:assert/strict";
-import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { Effect, Option, Schema } from "effect";
 import type { Pool, PoolClient } from "pg";
 import type {

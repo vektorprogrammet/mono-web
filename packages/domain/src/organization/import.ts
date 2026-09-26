@@ -1,5 +1,5 @@
 import { flow, Match, Array, Predicate, Effect, Schema } from "effect";
-import { canonicalJson, sha256Hex } from "../tutor/evidence.js";
+import { canonicalJson, sha256Hex } from "../shared-kernel/index.js";
 import { normalizeRfc3339Instant } from "../time.js";
 import {
   Department,

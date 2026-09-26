@@ -1,7 +1,7 @@
 import { Predicate } from "effect";
 import { expect, it } from "@effect/vitest";
 import { DepartmentId, PersonId } from "../organization/schema.js";
-import { canonicalJson } from "../tutor/evidence.js";
+import { canonicalJson } from "../shared-kernel/index.js";
 import {
   importLegacyReceipt,
   importLegacyReceipts,

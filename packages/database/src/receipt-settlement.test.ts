@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { Database } from "./service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
-import { sha256Hex } from "@vektorprogrammet/domain/evidence";
+import { sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
   ReceiptId,
   ReceiptSettlementCommandRequestSchema,

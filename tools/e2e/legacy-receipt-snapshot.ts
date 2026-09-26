@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { canonicalJsonValue } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonValue } from "@vektorprogrammet/domain/shared-kernel";
 import {
   decodeReviewedReceiptSnapshot,
   ReceiptReview,

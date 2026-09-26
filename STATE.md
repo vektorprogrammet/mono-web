@@ -22,7 +22,7 @@ Operator decisions:
 - `main` is pushed to `origin` (2026-09-25), so hosted CI runs.
   The SDK is not published (operator decision, 2026-09-25). `@vektorprogrammet/sdk` is private; the Release SDK workflow and Changesets are removed.
 
-Development stays local. `bun dev` starts both frontends and the native Bun backend; PostgreSQL is a separate prerequisite.
+Development stays local. `just dev` starts both frontends and the native Bun backend; PostgreSQL is a separate prerequisite.
 See [local development](README.md#local-native-development). External delivery is disabled in local development.
 
 ## Evidence boundary

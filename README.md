@@ -39,18 +39,39 @@ The local development instructions below do not establish migration completion.
 
 ## Repository map
 
-```text
-apps/backend       native Effect HTTP process and workers
-apps/homepage      public React application
-apps/dashboard     authenticated React Router and Foldkit application
-packages/domain    business values, transitions, failures, and authority
-packages/database  PostgreSQL migrations, persistence, locks, audit, and outbox
-packages/http-api  transport schemas, middleware contracts, and OpenAPI
-packages/sdk       generated native API client
-tools/verification cross-application PostgreSQL proofs and migration rehearsals
-tools              other bounded development and migration tools
-docs               intended system, architecture, operations, and active specs
-```
+[//]: # "layout: generated from tools/conventions/src/layout.ts by just layout write; do not edit"
+
+| Path                    | Holds                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| `apps/backend`          | Native Effect HTTP process and workers                                          |
+| `apps/dashboard`        | Authenticated React Router and Foldkit application                              |
+| `apps/docs`             | Documentation site that renders the repository documents                        |
+| `apps/homepage`         | Public React application                                                        |
+| `packages/domain`       | Business values, transitions, failures, and authority                           |
+| `packages/database`     | PostgreSQL schema, persistence, locks, audit, and outbox                        |
+| `packages/http-api`     | HTTP contracts, middleware declarations, and OpenAPI                            |
+| `packages/sdk`          | Generated native API client                                                     |
+| `tools/acceptance`      | Local API and browser acceptance probes of single journeys                      |
+| `tools/conventions`     | Layout declaration and check; generated README and AGENTS.md sections           |
+| `tools/e2e`             | Golden journeys, local journey drivers, and legacy migration commands           |
+| `tools/oxlint`          | Project Oxlint rules                                                            |
+| `tools/placements-docs` | Placements API reference generation and checks                                  |
+| `tools/postgres`        | Disposable PostgreSQL clusters of the selected major                            |
+| `tools/scripts`         | Local launcher, Git hook runner, job measurement, preview deployment, changelog |
+| `tools/source-safety`   | Staged-tree scan for credentials and personal data                              |
+| `tools/verification`    | Cross-application PostgreSQL proofs and migration rehearsals                    |
+| `infra`                 | Worker preview deployment configuration                                         |
+| `docs`                  | Intended system, architecture, operations, and active specifications            |
+| `patches`               | Dependency patches that `patchedDependencies` in package.json applies           |
+| `.github`               | Checks, Tests, Docs, and preview workflows and their actions                    |
+| `.claude`               | Claude Code settings and project rules                                          |
+
+Apps and packages never import `tools/`.
+Context folders in `packages/domain/src`, `packages/database/src`, `apps/backend/src`, and `apps/dashboard/app/foldkit` carry the kebab-case name of a bounded context in [docs/model/contexts.cml](docs/model/contexts.cml).
+Code that several contexts share lives in `shared-kernel`.
+`just layout` checks the tree against [tools/conventions/src/layout.ts](tools/conventions/src/layout.ts), which lists the exceptions and their reasons.
+
+[//]: # "layout: end"
 
 The legacy Symfony source lives in the separate
 [vektorprogrammet](https://github.com/vektorprogrammet/vektorprogrammet) repository. It is an input to
@@ -73,14 +94,14 @@ See [development practices](AGENTS.md#building-reference) before changing it.
 
 The `legacy-data` profile adds the legacy data tools: MariaDB, to restore and read legacy-shaped databases, and the
 PHP 8.4 CLI without Composer, to make legacy-format bcrypt hashes. Enter it with `devenv --profile legacy-data shell`.
-`rehearsal:account-cohort` and the `rehearsal:legacy-*` scripts refuse to start without it. The default shell has no
+`just rehearsal account-cohort` and the `legacy-*` rehearsals refuse to start without it. The default shell has no
 legacy tools.
 [devenv.lock](devenv.lock) pins nixpkgs. Bun and Playwright come from the historical nixpkgs revision that shipped
 their exact versions, selected through the `nixpkgs-multiverse` input.
 The Checks and Tests workflows run their steps in the same shell through [.github/actions/devenv](.github/actions/devenv/action.yml).
 
 `devenv shell` installs the Git hooks, except when `CI` is set. Hooks check; they never rewrite or restage files.
-The pre-commit hook checks formatting and lint on staged files.
+Every hook runs a `just` recipe. The pre-commit hook checks formatting and lint on staged files.
 Then it type checks and tests the packages that the staged change modifies.
 It uses a temporary Git worktree of the staged tree, so unstaged and untracked files do not change the result.
 A change outside all packages, for example to documentation only, runs no type check or test.
@@ -88,12 +109,16 @@ A merge without conflicts type checks and tests the merge result, including the 
 Every commit, including a merge, also scans each file in the staged tree with
 [tools/source-safety](tools/source-safety/src/source-safety.ts), whatever the task cache holds. The scan rejects
 paths that name credential, backup, or database material, secrets and personal data in dotenv files and SQL, and
-invalid UTF-8. `bun run source-safety` runs it by hand; `bun run check` includes it.
-The pre-push hook runs `bun run check` and the tests of packages changed from `main`.
+invalid UTF-8. `just source-safety` runs it by hand; `just check` includes it.
+Every commit, including a merge, also checks the staged tree against the [repository map](#repository-map) with
+`just layout --staged`: the declared top-level entries and package directories, bounded context folder names, no
+`tools/` import from apps or packages, root scripts, recipe mentions in documentation, and the generated sections.
+`just layout` checks the working tree; `just check` includes it.
+The pre-push hook runs `just check` and the tests of packages changed from `main`.
 It checks the working tree, not the pushed commits. Push from a clean worktree.
 While hooks run, the hook runner (prek) moves unstaged changes aside and restores them afterwards.
 Hook type checks and tests wait for a machine-wide slot, as described in [AGENTS.md](AGENTS.md#verification-and-resources).
-Run a hook manually with `prek run` or `prek run --hook-stage pre-push`, or skip hooks once with `git commit --no-verify`.
+Run the hooks by hand with `just hooks` or `just hooks --hook-stage pre-push`, or skip them once with `git commit --no-verify`.
 
 The root manifest declares a type-only Effect patch. It preserves union-command
 requests and callable Fetch inputs across runtimes. SDK type checks cover both
@@ -111,16 +136,47 @@ Tests, proofs, journeys, and CI use only the selected PostgreSQL major. The
 and fails for any other major. The devenv package includes the contrib extensions, such as `btree_gist`.
 The Tests workflow runs every suite with the default major and the backend and database suites with each other supported major.
 
-Run commands inside `devenv shell`, from this repository root:
+Run commands inside `devenv shell`, from this repository root. The root [justfile](justfile) is the command surface:
+`just` lists its recipes, and hooks and CI workflows call them.
+
+[//]: # "commands: generated from the justfile by just layout write; do not edit"
+
+| Group     | Recipe                            | Does                                                                                                                                                                                                                  |
+| --------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| check     | `just check [args...]`            | Check layout, source safety, format, lint, types, and the HTTP contract. Arguments go to Turbo.                                                                                                                       |
+| check     | `just check-types [args...]`      | Type check every package and assert the HTTP contract. Arguments go to Turbo.                                                                                                                                         |
+| check     | `just format [args...]`           | Format with Oxfmt, or check the format with `just format --check`.                                                                                                                                                    |
+| check     | `just layout [args...]`           | Check the repository layout and the generated README and AGENTS.md sections; `just layout write` renders them.                                                                                                        |
+| check     | `just lint [args...]`             | Lint with Oxlint.                                                                                                                                                                                                     |
+| check     | `just measure [args...]`          | Run a heavy job with resource measurement, or show the ledger with `just measure --report`.                                                                                                                           |
+| check     | `just source-safety`              | Scan every file in the Git index for credentials, personal data, and SQL data.                                                                                                                                        |
+| check     | `just test [args...]`             | Test every package, a heavy job (AGENTS.md#verification-and-resources). Arguments go to Turbo.                                                                                                                        |
+| develop   | `just build [args...]`            | Build every package through Turbo. Arguments go to Turbo.                                                                                                                                                             |
+| develop   | `just changelog [args...]`        | Regenerate CHANGELOG.md from conventional commits, or compare it with `--check`.                                                                                                                                      |
+| develop   | `just dev [args...]`              | Start the homepage, dashboard, and backend against BACKEND_PG_URL. `devenv up` runs it.                                                                                                                               |
+| develop   | `just docs [script]`              | Serve the documentation site, or run another of its scripts, such as `just docs build`.                                                                                                                               |
+| develop   | `just seed`                       | Provision the native journey accounts in the `devenv up` database.                                                                                                                                                    |
+| hooks     | `just check-staged [args...]`     | Type check and test the packages that the staged tree changes (pre-commit and merge hooks).                                                                                                                           |
+| hooks     | `just hook-slot [args...]`        | Run a command in one of the machine-wide hook slots (pre-push hooks).                                                                                                                                                 |
+| hooks     | `just hooks [args...]`            | Run the Git hooks by hand, for example `just hooks --hook-stage pre-push`.                                                                                                                                            |
+| journeys  | `just fixture <name> [args...]`   | Build a PostgreSQL fixture in JOURNEY_SEED_PG_URL: recommendation-preupgrade.                                                                                                                                         |
+| journeys  | `just golden <journey>`           | Run a golden journey: school-service, recruitment, reimbursement, or team-application.                                                                                                                                |
+| journeys  | `just proof <name> [args...]`     | Run a PostgreSQL proof: authorization-rules, completion-receipt, delivery-recovery, or rule-reconciliation.                                                                                                           |
+| migration | `just migration <name> [args...]` | Run an operator migration command: legacy-service (the service cutover) or legacy-receipt.                                                                                                                            |
+| migration | `just rehearsal <name> [args...]` | Run a migration rehearsal: organization-import, receipt-import, current-assignment, or, in the legacy-data profile, account-cohort, legacy-current-assignment, legacy-organization, legacy-receipt, legacy-candidate. |
+
+[//]: # "commands: end"
+
+A fresh checkout builds, checks, and tests with:
 
 ```bash
 devenv shell
 bun install --frozen-lockfile
-bun run build --concurrency=1
-bun run check-types --concurrency=1
-bun run test --concurrency=1
-bun run lint
-bun run format:check
+just build --concurrency=1
+just check-types --concurrency=1
+just test --concurrency=1
+just lint
+just format --check
 ```
 
 Start heavy jobs only under the admission rule in [AGENTS.md](AGENTS.md#verification-and-resources). Turbo concurrency does not bound each package runner.
@@ -131,7 +187,7 @@ Do not pass Vitest flags through the domain aggregate script.
 An affected package graph can run separately:
 
 ```bash
-bun run turbo -F @vektorprogrammet/backend check-types --concurrency=1
+just check-types -F @vektorprogrammet/backend --concurrency=1
 bun run --cwd packages/http-api generate
 ```
 
@@ -149,8 +205,8 @@ A link to a published document opens its page. A link to another repository file
 
 ```bash
 bun install --frozen-lockfile
-bun run --cwd apps/docs dev
-bun run --cwd apps/docs build
+just docs
+just docs build
 ```
 
 Every Markdown file in `docs/` and `docs/specs/` must appear in a navigation section.
@@ -163,29 +219,29 @@ Use a dedicated local PostgreSQL database with synthetic data. Do not use a shar
 The backend applies schema migrations and can write application data. The launcher does not create or reset PostgreSQL.
 
 `devenv up` starts the devenv PostgreSQL service on `127.0.0.1:$PGPORT` (5480), creates the `vektorprogrammet`
-database and owner role on first start, and then runs `bun dev` with `BACKEND_PG_URL` set to that database.
+database and owner role on first start, and then runs `just dev` with `BACKEND_PG_URL` set to that database.
 The data stays in `.devenv/state/postgres`. If the port is taken, `devenv up` stops and names the process that holds it.
 Export `BETTER_AUTH_SECRET` first: at least 32 characters, stable across restarts.
 `devenv up postgres` starts only the database. Without `devenv up`, set `BACKEND_PG_URL` in your shell
 to a loopback PostgreSQL database URL without query parameters.
 
 ```bash
-bun dev --help
+just dev --help
 devenv up
 ```
 
-`bun dev` starts the homepage, dashboard, and native Bun backend through the existing Turbo tasks.
+`just dev` starts the homepage, dashboard, and native Bun backend through the existing Turbo tasks.
 Its help output defines the ports, dashboard mount, and private-file paths. All HTTP listeners use `127.0.0.1`.
 Database records and private files persist across restarts. Ctrl+C stops the owned application tasks, not existing services.
 
 While `devenv up` runs, provision the native journey accounts of a new synthetic database before sign-in:
 
 ```bash
-JOURNEY_SEED_PG_URL="postgresql://vektorprogrammet@127.0.0.1:$PGPORT/vektorprogrammet" \
-  NATIVE_IDENTITY_DEPLOYMENT=local \
-  NATIVE_IDENTITY_TRUSTED_ORIGINS='["http://127.0.0.1:5173"]' \
-  bun --no-env-file apps/dashboard/e2e/native-users-journey-seed.mjs
+just seed
 ```
+
+The recipe runs [the seed](apps/dashboard/e2e/native-users-journey-seed.mjs) against the `devenv up` database with the
+local identity deployment and the default dashboard origin.
 
 The seed creates synthetic profiles and authority facts. Its source defines the development account credentials.
 Open the homepage URL printed by the launcher, select **Logg inn**, and sign in to the dashboard.
@@ -204,8 +260,8 @@ No development command authorizes production access or cloud provisioning.
 Run the original synthetic boundary and the reviewed-source journey separately:
 
 ```bash
-bun run rehearsal:current-assignment
-devenv --profile legacy-data shell -- bun run rehearsal:legacy-current-assignment --evidence-dir=/tmp/vektor-assignment-review
+just rehearsal current-assignment
+devenv --profile legacy-data shell -- just rehearsal legacy-current-assignment --evidence-dir=/tmp/vektor-assignment-review
 ```
 
 The reviewed-source journey also requires the selected PostgreSQL major. Its evidence directory must not exist.
@@ -215,7 +271,7 @@ It removes those instances after the run and retains an owner-only `report.json`
 The operator cutover command requires explicit assignment and Organization choices. Its help output defines the connection and review-file arguments:
 
 ```bash
-bun --no-env-file tools/e2e/run-legacy-service-cutover.ts --help
+just migration legacy-service --help
 ```
 
 `--current-assignments=none` leaves current assignments unimported. A private review file selects the reviewed-source path.
@@ -227,7 +283,7 @@ Current production data, human review, provider acceptance, and cutover authorit
 Run the reviewed Organization journey:
 
 ```bash
-devenv --profile legacy-data shell -- bun run rehearsal:legacy-organization --evidence-dir=/tmp/vektor-organization-review
+devenv --profile legacy-data shell -- just rehearsal legacy-organization --evidence-dir=/tmp/vektor-organization-review
 ```
 
 This journey requires the selected PostgreSQL major and a new evidence directory. It uses synthetic records and private, disposable databases.
@@ -242,7 +298,7 @@ Current source data, human review, provider acceptance, and cutover authority re
 Run the reviewed receipt journey:
 
 ```bash
-devenv --profile legacy-data shell -- bun run rehearsal:legacy-receipt --evidence-dir=/tmp/vektor-receipt-review
+devenv --profile legacy-data shell -- just rehearsal legacy-receipt --evidence-dir=/tmp/vektor-receipt-review
 ```
 
 This journey requires the selected PostgreSQL major, a clean committed tree, and a new evidence directory.
@@ -251,7 +307,7 @@ It uses invented records, private file bytes, and disposable databases. It does 
 The receipt command runs separately, after accepted Person and reference reconciliation:
 
 ```bash
-bun run migration:legacy-receipt --help
+just migration legacy-receipt --help
 ```
 
 The [review schema](packages/domain/src/receipt/review.ts) defines the required source, ownership, department, date, account, and file evidence.
@@ -265,7 +321,7 @@ Legacy refunded status never creates settlement evidence. Historical import stil
 Run the combined synthetic journey:
 
 ```bash
-devenv --profile legacy-data shell -- bun run rehearsal:legacy-candidate --evidence-dir=/tmp/vektor-candidate-review
+devenv --profile legacy-data shell -- just rehearsal legacy-candidate --evidence-dir=/tmp/vektor-candidate-review
 ```
 
 The command requires the selected PostgreSQL major, a clean committed tree, and a new evidence directory.

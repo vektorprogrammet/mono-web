@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { postgresProgram } from "@monoweb/postgres";
 import { databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
-import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { Effect, flow, Predicate, Redacted, Schema } from "effect";
 import { Pool } from "pg";
 

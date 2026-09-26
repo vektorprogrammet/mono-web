@@ -220,14 +220,17 @@ export default defineConfig({
       },
     },
     {
-      files: ["tools/source-safety/tests/source-safety.test.ts"],
+      files: [
+        "tools/source-safety/tests/source-safety.test.ts",
+        "tools/conventions/tests/layout.test.ts",
+      ],
       rules: {
-        // Bun runs this suite; it drives the Node-compatible Git and filesystem seams.
+        // Bun runs these suites; they drive the Node-compatible Git and filesystem seams.
         "effect/no-cross-runtime": "off",
       },
     },
     {
-      files: ["tools/acceptance/password-recovery-check.ts", "scripts/changelog.ts"],
+      files: ["tools/acceptance/password-recovery-check.ts", "tools/scripts/changelog.ts"],
       rules: {
         // These Bun entrypoints intentionally use Bun-native lifecycle APIs beside Node compatibility APIs.
         "effect/no-cross-runtime": "off",

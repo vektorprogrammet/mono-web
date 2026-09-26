@@ -1,4 +1,4 @@
-import { canonicalJsonValue } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonValue } from "@vektorprogrammet/domain/shared-kernel";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import type { DepartmentId } from "@vektorprogrammet/domain/organization";

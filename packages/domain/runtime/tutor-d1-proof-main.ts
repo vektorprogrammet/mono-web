@@ -10,7 +10,7 @@ import {
   canonicalJson,
   canonicalJsonBytes,
   sha256Hex,
-} from "../src/tutor/evidence.js";
+} from "../src/shared-kernel/index.js";
 import {
   REPLAY_SQL,
   type BatchPlan,

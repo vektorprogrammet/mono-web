@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { describe, expect, it } from "vitest";
 import { flow, Schema } from "effect";
 import {

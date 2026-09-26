@@ -173,17 +173,17 @@ jobs:
 
       - name: Build
         if: ${{ matrix.postgres == needs.postgresql.outputs.major }}
-        run: bun turbo build
+        run: just build
 
       # One package at a time, as the pre-push hook runs them. The runner has 4 vCPUs, and
       # concurrent suites that each start PGlite, PostgreSQL clusters, and worker pools time out.
       - name: Test
         if: ${{ matrix.postgres == needs.postgresql.outputs.major }}
-        run: bun turbo test --concurrency=1
+        run: just test --concurrency=1
 
       - name: Test backend and database
         if: ${{ matrix.postgres != needs.postgresql.outputs.major }}
-        run: bun turbo test --concurrency=1 --filter=@vektorprogrammet/backend --filter=@vektorprogrammet/database
+        run: just test --concurrency=1 --filter=@vektorprogrammet/backend --filter=@vektorprogrammet/database
 
       - name: Prove Receipt authority against PostgreSQL
         env:

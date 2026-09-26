@@ -2,7 +2,7 @@ import type {
   PersonCohortReport,
   PersonCohortSnapshot,
 } from "@vektorprogrammet/database/person-cohort";
-import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
   decodeReviewedOrganizationSnapshot,
   organizationSnapshotDigest,

@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { Predicate, Cause, Config, Effect, Layer, Redacted, Schema } from "effect";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { Database, type DatabaseOperations } from "../src/service.js";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/shared-kernel";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { ProfileLive } from "@vektorprogrammet/database/profile";

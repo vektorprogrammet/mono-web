@@ -15,7 +15,11 @@ import {
 import { NotificationGateway } from "@vektorprogrammet/domain/notification";
 import { Profile, type ProfileOperations } from "@vektorprogrammet/domain/profile";
 import { personProfileDisplayName } from "@vektorprogrammet/domain/profile";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/shared-kernel";
 import { flow, Data, Predicate, Effect, Schema } from "effect";
 import {
   RecruitmentNotificationEffectId,

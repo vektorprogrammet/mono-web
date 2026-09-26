@@ -1,6 +1,6 @@
 import { flow, Option, Predicate, Result, Schema } from "effect";
 import { normalizeRfc3339Instant } from "../time.js";
-import { canonicalJson } from "../tutor/evidence.js";
+import { canonicalJson } from "../shared-kernel/index.js";
 import {
   importLegacyOrganization,
   type LegacyDepartmentRow,

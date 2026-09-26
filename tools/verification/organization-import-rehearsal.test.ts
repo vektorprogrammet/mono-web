@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { importLegacyOrganizationEffect } from "@vektorprogrammet/domain/organization";
-import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { Database } from "@vektorprogrammet/database";
 import { DatabaseTest } from "@vektorprogrammet/database/live";
 import { Schema, Predicate, Effect, Layer } from "effect";

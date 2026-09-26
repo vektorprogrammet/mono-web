@@ -1,5 +1,5 @@
 import { flow, Predicate, Effect, Schema } from "effect";
-import { canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
+import { canonicalJsonBytes, sha256Hex } from "../shared-kernel/index.js";
 import { OrganizationDecodeError, OrganizationRoleDenied } from "./errors.js";
 import {
   CreateDepartmentCommandSchema,

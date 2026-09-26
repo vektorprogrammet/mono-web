@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 // The package index pulls Bun's global types into this program; the subpath does not.
 import * as BunRuntime from "@effect/platform-bun/BunRuntime";
 import * as BunServices from "@effect/platform-bun/BunServices";
-import { sha256Hex, canonicalJsonBytes } from "@vektorprogrammet/domain/evidence";
+import { sha256Hex, canonicalJsonBytes } from "@vektorprogrammet/domain/shared-kernel";
 import { Effect, FileSystem, Schema, Stream } from "effect";
 import { ChildProcess } from "effect/unstable/process";
 import {

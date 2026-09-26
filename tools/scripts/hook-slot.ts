@@ -3,7 +3,7 @@ import { closeSync, ftruncateSync, mkdirSync, openSync, readFileSync, writeSync 
 import { join } from "node:path";
 
 const usage = `Usage:
-  bun scripts/hook-slot.ts --class <job-class> -- <command...>
+  just hook-slot --class <job-class> -- <command...>
 
 Runs the command through measure-job while this process holds one of N
 machine-wide hook slots. A slot is a flock(1) lock on

@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { Database, type DatabaseOperations } from "../src/service.js";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/shared-kernel";
 import {
   CreateDepartmentCommandSchema,
   Organization,

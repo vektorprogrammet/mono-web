@@ -3,7 +3,11 @@ import { DatabasePgPool } from "../src/pg-pool.js";
 import { Layer, ManagedRuntime } from "effect";
 import assert from "node:assert/strict";
 import { Database } from "../src/service.js";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/shared-kernel";
 import { createLocalAccountIssuer } from "better-auth";
 import { Cause, Predicate, Config, Effect, Redacted } from "effect";
 import { Pool } from "pg";

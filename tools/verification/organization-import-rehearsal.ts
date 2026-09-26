@@ -5,7 +5,11 @@ import {
   LegacyTeamRowSchema,
   type OrganizationImportResult,
 } from "@vektorprogrammet/domain/organization";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/shared-kernel";
 import { flow, Predicate, Data, Effect, Schema } from "effect";
 import type { DatabaseOperations } from "@vektorprogrammet/database";
 

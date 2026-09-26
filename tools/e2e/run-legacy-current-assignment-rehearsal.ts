@@ -10,7 +10,7 @@ import { databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
 import { decodePersonCohort, importPersonCohort } from "@vektorprogrammet/database/person-cohort";
-import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
   CurrentAssignmentReview,
   type ReconciledCurrentAssignmentSnapshot,

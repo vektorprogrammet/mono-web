@@ -2,7 +2,7 @@ import { NativeAuthEngine, NativeAuthEngineLive } from "./auth-engine.js";
 import { PasswordRecovery } from "./password-recovery.js";
 import { OAuthHandlers, OAuthLive } from "./oauth-live.js";
 import { ServicePrincipalGrantAuthorityLive } from "./service-principal-grants-live.js";
-import { canonicalJsonValue } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonValue } from "@vektorprogrammet/domain/shared-kernel";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { getSessionCookie } from "better-auth/cookies";
 import { Context, Effect, Layer, Schema } from "effect";

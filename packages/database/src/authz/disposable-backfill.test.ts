@@ -1,7 +1,7 @@
 import { PersonId, DepartmentId } from "@vektorprogrammet/domain/organization";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
-import { canonicalJsonBytes } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonBytes } from "@vektorprogrammet/domain/shared-kernel";
 import { AuthzRuleScopeSchema, RECEIPT_DOMAIN_ID } from "@vektorprogrammet/domain/authz";
 import {
   DisposableAuthzRuleSubjectAuthoringSchema,

@@ -1,6 +1,6 @@
 import { DateTime, Effect, Predicate, Schema } from "effect";
 import { SqlSchema } from "effect/unstable/sql";
-import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
   School,

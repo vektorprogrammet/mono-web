@@ -1,6 +1,6 @@
-import { canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
+import { canonicalJsonBytes, sha256Hex } from "../shared-kernel/index.js";
 
-export { canonicalJson } from "../tutor/evidence.js";
+export { canonicalJson } from "../shared-kernel/index.js";
 
 import {
   ApplicantIdSchema,

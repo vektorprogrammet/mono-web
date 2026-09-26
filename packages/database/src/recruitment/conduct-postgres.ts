@@ -9,7 +9,11 @@ import {
   type OrganizationOperations,
 } from "@vektorprogrammet/domain/organization";
 import { PersonId } from "@vektorprogrammet/domain/organization";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/shared-kernel";
 import { flow, Effect, Schema } from "effect";
 import {
   CorrectionHistoryOriginalSchema,

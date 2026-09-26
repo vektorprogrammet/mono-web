@@ -93,7 +93,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           PREVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: bun run deploy:preview -- "${{ github.event.pull_request.number }}"
+        run: bun tools/scripts/deploy-preview.ts "${{ github.event.pull_request.number }}"
 
       - name: Probe application documents and built assets
         env:

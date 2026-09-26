@@ -9,7 +9,7 @@ import {
 import { sharedPgLayer } from "../pg-pool.js";
 import { Database } from "../service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { Predicate, Cause, Effect } from "effect";
 import {
   ReceiptId,

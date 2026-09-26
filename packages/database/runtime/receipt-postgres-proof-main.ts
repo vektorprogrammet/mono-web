@@ -2,7 +2,11 @@ import { randomBytes } from "node:crypto";
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { Config, Effect, Redacted } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/shared-kernel";
 import {
   makeReceiptAuxiliaryRecording,
   makeReceiptFileRecording,

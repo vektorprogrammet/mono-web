@@ -1,6 +1,6 @@
 import { flow, Effect, Schema } from "effect";
 import { Database } from "../service.js";
-import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
   CreateSocialEventCommand,
   SocialEventListResource,

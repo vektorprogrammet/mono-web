@@ -17,7 +17,7 @@ Every same-repository pull request gets current Cloudflare Worker Preview URLs f
 - A preview URL has the form `https://pr-<number>-vektor-preview-<app>.<subdomain>.workers.dev`.
 - If a Worker does not exist, `wrangler preview` creates it as an empty parent Worker with these two settings.
   Wrangler 4.125.0 added this step ([workers-sdk#15174](https://github.com/cloudflare/workers-sdk/pull/15174)). The workspace pins Wrangler 4.136.1.
-- `scripts/deploy-preview.ts` never runs `wrangler deploy`. Thus no pull-request build becomes a production version.
+- `tools/scripts/deploy-preview.ts` never runs `wrangler deploy`. Thus no pull-request build becomes a production version.
 - The Cloudflare API token needs the account permission Workers Scripts: Edit. The token creates the Workers on first use and the previews on each run.
 
 ## Boundaries

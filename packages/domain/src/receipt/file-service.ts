@@ -1,5 +1,5 @@
 import { Predicate, Context, Effect, Layer } from "effect";
-import { canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
+import { canonicalJsonBytes, sha256Hex } from "../shared-kernel/index.js";
 import type { ReceiptOutboxRequest } from "./effects.js";
 import {
   ReceiptFileEffectConflict,

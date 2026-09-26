@@ -12,7 +12,7 @@
  */
 import { join } from "node:path";
 import type * as BunServices from "@effect/platform-bun/BunServices";
-import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { Effect, Exit, FileSystem, Scope } from "effect";
 import {
   runTeamApplicationBrowser,

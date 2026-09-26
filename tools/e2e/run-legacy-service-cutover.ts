@@ -1,7 +1,7 @@
 import { selectLegacyTargetTransport } from "./legacy-database-transport";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
   importPersonCohort,
   type PersonCohortReport,

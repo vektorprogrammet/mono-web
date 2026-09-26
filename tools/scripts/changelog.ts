@@ -37,7 +37,7 @@ if (check) {
 
   if (expected === null || !Buffer.from(expected).equals(Buffer.from(actual))) {
     await Effect.runPromise(
-      Console.error("CHANGELOG.md is out of date. Run `bun run changelog` and commit the result."),
+      Console.error("CHANGELOG.md is out of date. Run `just changelog` and commit the result."),
     );
     process.exit(1);
   }

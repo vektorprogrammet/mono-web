@@ -7,7 +7,11 @@
  */
 import { Rfc3339InstantSchema } from "@vektorprogrammet/domain/admission-period";
 import { Database, type DatabaseOperations } from "../service.js";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/shared-kernel";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { flow, Predicate, DateTime, Effect, Schema } from "effect";
 

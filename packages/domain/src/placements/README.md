@@ -222,7 +222,7 @@ An agent reader is useful evidence for command completeness, but it does not pro
 The [local school-service gate](../../../../docs/web-system-functional-testing.md#local-school-service-gate) owns prerequisites for this accepted real-boundary command:
 
 ```bash
-bun run test:golden-school-service
+just golden school-service
 ```
 
 That command exercises real browser, HTTP, PostgreSQL, and loopback notification boundaries.

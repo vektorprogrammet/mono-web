@@ -31,7 +31,10 @@ export const organizationImportSourceDigest = async (): Promise<string> =>
       readFile(new URL("../../../domain/src/organization/lifecycle.ts", import.meta.url), "utf8"),
       readFile(new URL("../../../domain/src/organization/schema.ts", import.meta.url), "utf8"),
       readFile(new URL("../../../domain/src/time.ts", import.meta.url), "utf8"),
-      readFile(new URL("../../../domain/src/tutor/evidence.ts", import.meta.url), "utf8"),
+      readFile(
+        new URL("../../../domain/src/shared-kernel/canonical-json.ts", import.meta.url),
+        "utf8",
+      ),
       readFile(
         new URL("../../migrations/0066-reviewed-organization-cohort.sql", import.meta.url),
         "utf8",

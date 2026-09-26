@@ -2,7 +2,7 @@ import {
   canonicalJsonBytes,
   canonicalJsonValue,
   sha256Hex,
-} from "@vektorprogrammet/domain/evidence";
+} from "@vektorprogrammet/domain/shared-kernel";
 import { ReceiptOutboxRequestSchema } from "@vektorprogrammet/domain/receipt";
 /** 0095: owned local PostgreSQL/auth/SDK/files import and restore rehearsal. */
 import assert from "node:assert/strict";

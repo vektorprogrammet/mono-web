@@ -4,7 +4,7 @@ import {
   SchoolServiceNotificationRequest,
   type SchoolServiceNotificationRequest as SchoolServiceNotificationRequestType,
 } from "@vektorprogrammet/domain/placements";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { flow, Data, DateTime, Predicate, Effect, Schema } from "effect";
 import { Database, type DatabaseOperations } from "../service.js";
 import {

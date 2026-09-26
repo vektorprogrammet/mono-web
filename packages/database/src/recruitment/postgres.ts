@@ -11,7 +11,7 @@ import {
   canonicalJson,
   canonicalJsonBytes,
   sha256Hex,
-} from "@vektorprogrammet/domain/evidence";
+} from "@vektorprogrammet/domain/shared-kernel";
 import { flow, Predicate, Effect, Schema } from "effect";
 import {
   RecruitmentAssignmentObservationSchema,

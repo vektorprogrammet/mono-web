@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = fileURLToPath(new URL("../", import.meta.url));
+const root = fileURLToPath(new URL("../../", import.meta.url));
 
 const fail = (message: string): never => {
   process.stderr.write(`Local development: ${message}\n`);
@@ -13,7 +13,7 @@ const fail = (message: string): never => {
 const args = process.argv.slice(2).filter((argument) => argument !== "--");
 
 if (args.length === 1 && (args[0] === "--help" || args[0] === "-h")) {
-  process.stdout.write(`Usage: bun dev [--help]
+  process.stdout.write(`Usage: just dev [--help]
 
 \`devenv up\` starts the devenv PostgreSQL service and then this launcher with
 BACKEND_PG_URL set to that service's database.
@@ -37,7 +37,7 @@ All HTTP listeners use 127.0.0.1. Ports must be distinct.
 The launcher does not create, reset, or seed a database or accounts.
 The backend applies its schema migrations and can write application data.
 Use a dedicated database, never a shared database or a production tunnel.
-Run the native identity seed separately; see README.md.
+Provision the native journey accounts separately with \`just seed\`; see README.md.
 Receipt files and database contents persist across restarts.
 External delivery is disabled. Queued delivery does not prove mail delivery.
 Backend package .env files are disabled; provider environment is not inherited.
@@ -46,7 +46,7 @@ Ctrl+C stops the application tasks owned by Turbo, not existing services.
   process.exit(0);
 }
 
-if (args.length !== 0) fail("Unknown argument. Use bun dev --help.");
+if (args.length !== 0) fail("Unknown argument. Use just dev --help.");
 
 const postgresUrl = process.env.BACKEND_PG_URL;
 
@@ -185,7 +185,7 @@ let turbo: string;
 try {
   turbo = turboRequire.resolve(`turbo-${platform}-${architecture}/bin/${executable}`);
 } catch {
-  fail("The installed Turbo binary is missing. Run bun install before bun dev.");
+  fail("The installed Turbo binary is missing. Run bun install before just dev.");
 }
 
 process.stdout.write(

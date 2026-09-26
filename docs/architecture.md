@@ -296,7 +296,7 @@ The root supervises failure and interruption; a failed worker stops the process.
 Claims retain domain-specific recovery rules. Ambiguous or stale reset attempts quarantine; receipt attempts retain immutable envelopes and fenced recovery.
 The [delivery guide](delivery-recovery.md) defines configuration, retry limits, and operator recovery.
 
-`bun dev` selects the local Bun backend and both frontend development servers.
+`just dev` selects the local Bun backend and both frontend development servers.
 The existing Turbo tasks own these processes; PostgreSQL remains a separately managed prerequisite.
 The launcher requires a dedicated loopback database and disables external delivery.
 See [local development](../README.md#local-native-development) for the executable configuration interface.

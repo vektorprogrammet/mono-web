@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { flow, Option, Predicate, Schema } from "effect";
 import type { Pool, PoolClient } from "pg";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import {
   PersonContactEmail,

@@ -2,7 +2,7 @@ import { Database, type DatabaseOperations } from "../service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import assert from "node:assert/strict";
 import { Predicate, Effect } from "effect";
-import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
   RECEIPT_PAGE_SIZE,
   type ReceiptCursorPosition,

@@ -1,4 +1,8 @@
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/shared-kernel";
 import type { Pool, PoolClient } from "pg";
 import type { LegacySourceSnapshot } from "./legacy-source-snapshot";
 import { flow } from "effect";

@@ -1,6 +1,6 @@
 import { Schema, Match, Predicate, Cause, Context, Effect, Result } from "effect";
 import { DomainProcess, writeStandardError, writeStandardOutput } from "../runtime-services.js";
-import { canonicalJson } from "./evidence.js";
+import { canonicalJson } from "../shared-kernel/index.js";
 
 const SPEC_ID = "0017";
 

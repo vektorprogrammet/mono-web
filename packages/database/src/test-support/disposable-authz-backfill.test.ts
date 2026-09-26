@@ -6,7 +6,7 @@ import {
   persistDisposableAuthzBackfill,
 } from "../authz/disposable-backfill.js";
 import { Database } from "../service.js";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { Effect } from "effect";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { makeControlledTestRuntime } from "../../test/runtime.js";

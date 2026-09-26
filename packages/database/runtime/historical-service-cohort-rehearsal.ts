@@ -1,4 +1,4 @@
-import { canonicalJsonValue } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonValue } from "@vektorprogrammet/domain/shared-kernel";
 /** 0108 owned synthetic PostgreSQL historical assistant service journey. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";

@@ -23,7 +23,7 @@
 import { Brand, Effect } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { AUTHZ_LOCK_PROTOCOL } from "@vektorprogrammet/domain/authz";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import type { ReceiptImportResult } from "@vektorprogrammet/domain/receipt";
 import type { DatabaseOperations } from "./service.js";
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { DateTime, Schema } from "effect";
 import { Instant } from "../time.js";
-import { canonicalJson } from "./evidence.js";
+import { canonicalJson } from "./canonical-json.js";
 
 describe("canonical JSON", () => {
   it("rejects values whose entries are not their encoding, at any depth", () => {

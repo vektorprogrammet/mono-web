@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { PrincipalSchema, composeCapabilityEvidence } from "@vektorprogrammet/domain/authz";
 import { readApplicableAuthorizationRules } from "./authz/postgres.js";
 import { Database, type DatabaseOperations } from "./service.js";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
   ReceiptCommandRequestSchema,

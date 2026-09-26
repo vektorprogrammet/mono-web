@@ -5,7 +5,7 @@ import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import { Pool } from "pg";
 import { expect, it } from "vitest";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { flow, Schema } from "effect";
 import { databaseMigrationDefinitions } from "./migrations.js";

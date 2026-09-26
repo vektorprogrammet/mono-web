@@ -11,7 +11,7 @@ import { constants } from "node:fs";
 import { open, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { Match, Predicate, Schema } from "effect";
-import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { PersonId, DepartmentId } from "@vektorprogrammet/domain/organization";
 
 import type { ReceiptFileStore } from "./filesystem.js";
