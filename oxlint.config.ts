@@ -304,6 +304,11 @@ export default defineConfig({
       ],
       rules: { "anti-slop/no-raw-advisory-lock-sql": "off" },
     },
+    {
+      // Journey fixtures derive window bounds from tools/e2e/journey-clock.ts, so none expires.
+      files: ["apps/*/e2e/**", "tools/e2e/**", "tools/acceptance/**", "tools/verification/**"],
+      rules: { "anti-slop/no-literal-window-instant": "error" },
+    },
   ],
   ignorePatterns: [
     "tools/oxlint/anti-slop/**",

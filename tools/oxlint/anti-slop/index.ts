@@ -6,6 +6,7 @@ import { noConditionalEmptyObjectSpreadRule } from "./rules/no-conditional-empty
 import { noKnownValueWideningRule } from "./rules/no-known-value-widening.ts";
 import { noLeadershipReachRule } from "./rules/no-leadership-reach.ts";
 import { noJsonTextParameterRule } from "./rules/no-json-text-parameter.ts";
+import { noLiteralWindowInstantRule } from "./rules/no-literal-window-instant.ts";
 import { noModuleMockingRule } from "./rules/no-module-mocking.ts";
 import { noObjectParametersRule } from "./rules/no-object-parameters.ts";
 import { noReduceAccumulatorCopyRule } from "./rules/no-reduce-accumulator-copy.ts";
@@ -34,6 +35,7 @@ const antiSlopPlugin = eslintCompatPlugin({
     "no-known-value-widening": noKnownValueWideningRule,
     "no-leadership-reach": noLeadershipReachRule,
     "no-module-mocking": noModuleMockingRule,
+    "no-literal-window-instant": noLiteralWindowInstantRule,
     "no-object-parameters": noObjectParametersRule,
     "no-raw-advisory-lock-sql": noRawAdvisoryLockSqlRule,
     "no-reflect-apply": noReflectApplyRule,
