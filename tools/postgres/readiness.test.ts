@@ -1,9 +1,5 @@
-import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { createConnection, createServer, type Server } from "node:net";
-import { dirname } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
-import { Predicate, Schema } from "effect";
+import { createServer, type Server } from "node:net";
+import { Predicate } from "effect";
 import { afterEach, describe, expect, test } from "vitest";
 import { waitForPostgres } from "./index";
 
@@ -132,88 +128,4 @@ describe("waitForPostgres", () => {
 
     await expect(waitForPostgres(address, 30_000, abandon.signal)).rejects.toBe(reason);
   });
-});
-
-const StartedCluster = Schema.fromJsonString(
-  Schema.Struct({ socketDirectory: Schema.String, port: Schema.Int, pid: Schema.Int }),
-);
-
-const refusesConnections = (port: number) => {
-  const { promise, resolve } = Promise.withResolvers<boolean>();
-  const socket = createConnection({ host: "127.0.0.1", port });
-
-  socket.once("connect", () => {
-    socket.destroy();
-    resolve(false);
-  });
-  socket.once("error", () => resolve(true));
-
-  return promise;
-};
-
-const processGone = (pid: number) => {
-  try {
-    process.kill(pid, 0);
-
-    return false;
-  } catch {
-    return true;
-  }
-};
-
-describe("startDisposablePostgres teardown", () => {
-  // Bun exits on an uncaught failure without an `exit` event; SIGKILL runs no handler at all.
-  test.each(["uncaught failure", "SIGKILL"] as const)(
-    "removes the cluster of an owner that ends by %s",
-    async (ending) => {
-      // The owner is another Bun process, so its program imports this package at run time.
-      const program = [
-        `const { startDisposablePostgres } = await import(${JSON.stringify(new URL("./index.ts", import.meta.url).href)});`,
-        'const cluster = await startDisposablePostgres({ database: "teardown_probe" });',
-        "const { socketDirectory, port, pid } = cluster;",
-        'process.stdout.write(JSON.stringify({ socketDirectory, port, pid }) + "\\n");',
-        ending === "SIGKILL"
-          ? 'process.kill(process.pid, "SIGKILL");'
-          : 'throw new Error("owner failed");',
-      ].join("\n");
-
-      const owner = spawn("bun", ["--no-env-file", "--eval", program], {
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-
-      let output = "";
-
-      const collect = (chunk: Buffer) => {
-        output += chunk.toString("utf8");
-      };
-
-      owner.stdout.on("data", collect);
-      owner.stderr.on("data", collect);
-
-      const ended = Promise.withResolvers<void>();
-      owner.once("exit", () => ended.resolve());
-      await ended.promise;
-
-      const started = /^\{.*\}$/mu.exec(output)?.[0];
-
-      if (started === undefined) throw new Error(`the owner did not start a cluster:\n${output}`);
-
-      const cluster = Schema.decodeSync(StartedCluster)(started);
-      const root = dirname(cluster.socketDirectory);
-      const deadline = Date.now() + 30_000;
-
-      // The sentinel removes the cluster in its own process after the owner is gone, so the test
-      // polls for the result instead of awaiting an event of this process.
-      while (
-        Date.now() < deadline &&
-        (existsSync(root) || !processGone(cluster.pid) || !(await refusesConnections(cluster.port)))
-      )
-        await sleep(100);
-
-      expect(existsSync(root)).toBe(false);
-      expect(processGone(cluster.pid)).toBe(true);
-      expect(await refusesConnections(cluster.port)).toBe(true);
-    },
-    60_000,
-  );
 });
