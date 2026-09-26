@@ -1,4 +1,8 @@
-import { Predicate } from "effect";
+import {
+  RecruitmentReadInvitationResponseProblem,
+  RecruitmentRequestNewInvitationTimeProblem,
+} from "@vektorprogrammet/http-api";
+import { Predicate, Result, Schema } from "effect";
 import {
   postgresComposeEnvironment,
   postgresComposeFile,
@@ -907,32 +911,36 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
   };
 }
 
-const nativeProblemKeys = ["code", "detail", "status", "title", "type"];
-
 const nativeMutationHeaders = (capability, etag) => ({
   "content-type": "application/json",
   "if-match": etag,
   [invitationCapabilityHeader]: capability,
 });
 
-async function expectNativeProblem(path, init, expectedStatus, expectedCode) {
+/**
+ * Decodes a failure through the endpoint's declared problem union: every required member with
+ * its registry value, the optional `instance`, a validation code's `validation` extension, and
+ * no undeclared member.
+ */
+async function expectNativeProblem(path, init, expectedStatus, expectedCode, declaredProblems) {
   const response = await fetch(new URL(path, backendOrigin), init);
   const responseText = await response.text();
   assertNoRawCapability(responseText, `Native ${expectedCode} response`);
   const problem = JSON.parse(responseText);
 
+  const decoded = Schema.decodeUnknownResult(declaredProblems, { onExcessProperty: "error" })(
+    problem,
+  );
+
   if (
     response.status !== expectedStatus ||
     !response.headers.get("content-type")?.startsWith("application/problem+json") ||
-    problem?.status !== expectedStatus ||
-    problem?.code !== expectedCode ||
-    problem?.type !== `urn:vektorprogrammet:problem:v0.2:${expectedCode}` ||
-    !Predicate.isString(problem?.title) ||
-    !Predicate.isString(problem?.detail) ||
-    JSON.stringify(Object.keys(problem).sort()) !== JSON.stringify(nativeProblemKeys)
+    Result.isFailure(decoded) ||
+    decoded.success.code !== expectedCode ||
+    decoded.success.status !== expectedStatus
   ) {
     throw new Error(
-      `Native ${expectedCode} boundary did not return exact Problem Details: ${JSON.stringify({
+      `Native ${expectedCode} boundary did not return its declared Problem Details: ${JSON.stringify({
         status: response.status,
         contentType: response.headers.get("content-type"),
         code: problem?.code,
@@ -941,14 +949,15 @@ async function expectNativeProblem(path, init, expectedStatus, expectedCode) {
           problem === null || !Predicate.isObjectOrArray(problem)
             ? []
             : Object.keys(problem).sort(),
+        decodeFailure: Result.isFailure(decoded) ? String(decoded.failure) : undefined,
       })}`,
     );
   }
 
   return {
     status: response.status,
-    code: problem.code,
-    type: problem.type,
+    code: decoded.success.code,
+    type: decoded.success.type,
     responseKeys: Object.keys(problem).sort(),
     rawCapabilityObserved: false,
   };
@@ -979,6 +988,7 @@ async function exerciseNativeBoundaryFailures() {
       { headers: { [invitationCapabilityHeader]: malformedCapability } },
       404,
       "resource.not-found",
+      RecruitmentReadInvitationResponseProblem,
     ),
     duplicateJsonMember: await expectNativeProblem(
       basePath,
@@ -989,6 +999,7 @@ async function exerciseNativeBoundaryFailures() {
       },
       400,
       "request.malformed",
+      RecruitmentRequestNewInvitationTimeProblem,
     ),
     capabilityTokenMessage: await expectNativeProblem(
       basePath,
@@ -999,6 +1010,7 @@ async function exerciseNativeBoundaryFailures() {
       },
       422,
       "validation.failed",
+      RecruitmentRequestNewInvitationTimeProblem,
     ),
     overlongBody: await expectNativeProblem(
       basePath,
@@ -1009,6 +1021,7 @@ async function exerciseNativeBoundaryFailures() {
       },
       413,
       "request.too-large",
+      RecruitmentRequestNewInvitationTimeProblem,
     ),
   };
 }
