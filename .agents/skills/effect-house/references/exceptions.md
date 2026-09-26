@@ -13,12 +13,13 @@ A site that cannot follow an Effect rule is an exception with a lifecycle (FX012
 - An `@effect-diagnostics` or `@effect-diagnostics-next-line` directive that lowers a rule.
 - A non-native substitute without a suppression, such as a Promise bridge or another package where Effect has the construct. Name the id in a comment at the site.
 
-`oxlint.config.ts` also turns some Effect rules off for listed files, with the reason beside each override. The registry does not cover those overrides.
+No override of `oxlint.config.ts` turns an Effect rule off or down for a file. [tools/conventions/tests/oxlint-groups.test.ts](../../../../tools/conventions/tests/oxlint-groups.test.ts) rejects such an override for the `effect` and `effecttsgo` rules. The `effectNative` rules are off outside the core Effect packages by scope, not as an exception.
 
 ## Before you add one
 
 Establish that no native form serves, in this order: an Effect construct, a composition of constructs, a small construct built from Effect, a boundary adapter. Search the installed guidance and source for the capability first (`effect-first`).
 Unfamiliarity is not a missing capability. A performance concern needs a measured, unmet requirement (FX016).
+Where a rule offers a precise expectation, such as `@effect-expect-leaking` for `leaking-requirements`, use it instead of a disable comment and register it the same way: the expectation names what it accepts, so a new finding still fails.
 
 ## The entry
 

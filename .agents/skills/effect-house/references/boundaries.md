@@ -3,16 +3,15 @@
 ## Services return Effects (FX003)
 
 A service that one Effect layer offers to another returns Effects with typed failures.
-A Promise interface between Effect layers is the defect that slices E1 and E2 of [docs/specs/effect-diagnostics.md](../../../../docs/specs/effect-diagnostics.md) remove; the specification records how far each has come.
+A Promise interface between Effect layers is a defect; in core Effect code, `effecttsgo/async-function` and `effecttsgo/new-promise` reject one.
 Precedents: `Identity`, `AuthEngineService`, `OAuthCredentialAuthority.resolve`, `PasswordRecovery`, and `ReceiptFileStore` return Effects.
 
 A program runs only at an owned edge:
 
 - a composition root, such as `apps/backend/src/main.ts`, a `*-main.ts` program, or a CLI;
-- a runtime bridge (below);
-- a named adapter that [oxlint.config.ts](../../../../oxlint.config.ts) exempts from `effect/no-premature-execution`, with the reason beside it.
+- a runtime bridge (below).
 
-Do not add a file to that exemption to silence the rule. Register an exception instead ([exceptions.md](exceptions.md)).
+In libraries, services, and adapters, `effect/no-premature-execution` rejects a program, and no override of [oxlint.config.ts](../../../../oxlint.config.ts) exempts a file from it. A site that cannot follow the rule registers an exception ([exceptions.md](exceptions.md)).
 
 The raw node-postgres modules run their queries through `pgQuery`, `pgWithClient`, and `pgTransaction` in [packages/database/src/pg-pool.ts](../../../../packages/database/src/pg-pool.ts), which fail with `PgQueryError`. A module leaves that set when it moves to Effect SQL.
 

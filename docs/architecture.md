@@ -81,6 +81,10 @@ Required rules:
   lifecycle. A total local calculation stays a direct function.
 - Concrete runtimes and vendors belong in Layer implementations and composition
   roots.
+- Core Effect code, in `packages/domain`, `packages/database`, `packages/http-api`, and `apps/backend`,
+  reaches the clock, randomness, timers, the network, the environment, Node built-ins, and the console through Effect services,
+  and uses Effect programs, tagged errors, and Schema instead of Promises, native errors, and `JSON`.
+  Oxlint rejects the platform forms there (the `effectNative` rules of the Effect language service); the other apps, packages, and tools are not Effect programs.
 - Do not add a microservice until an observed operational need requires an
   independent deployment boundary.
 - Oxlint rejects the selected browser-to-database, product-to-proof, and cross-package source imports, including relative paths.
