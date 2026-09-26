@@ -4,7 +4,11 @@ import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import { Profile, type ProfileOperations } from "@vektorprogrammet/domain/profile";
 import { PersonId } from "@vektorprogrammet/domain/organization";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/shared-kernel";
 import { Match, flow, Predicate, Effect, Schema } from "effect";
 import {
   RecruitmentInvitationResponseStateSchema,

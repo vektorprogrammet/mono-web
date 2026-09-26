@@ -9,7 +9,11 @@ import { Organization } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { normalizeRfc3339Instant, Rfc3339InstantSchema } from "@vektorprogrammet/domain/time";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/shared-kernel";
 import {
   PublishObservationSchema,
   UnpublishObservationSchema,

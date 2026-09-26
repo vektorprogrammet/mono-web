@@ -18,7 +18,11 @@ import {
 import type { OrganizationAuthorityInstant } from "@vektorprogrammet/domain/organization";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { Equal, flow, Predicate, Effect, Schema } from "effect";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/shared-kernel";
 import {
   mapExistingReceiptApprovalActor,
   mapReceiptOwnerActor,

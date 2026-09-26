@@ -7,7 +7,7 @@ import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application"
 import { Database, type DatabaseOperations } from "../service.js";
 
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
-import { sha256Hex } from "@vektorprogrammet/domain/evidence";
+import { sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { Match, Effect, Schema } from "effect";
 import {
   RecruitmentApplicationNotFound,

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { canonicalJson, canonicalJsonBytes } from "@vektorprogrammet/domain/evidence";
+import { canonicalJson, canonicalJsonBytes } from "@vektorprogrammet/domain/shared-kernel";
 import { parseJsonWithUniqueMembers } from "@vektorprogrammet/domain/http-semantics";
 import {
   type IdempotencyKey,

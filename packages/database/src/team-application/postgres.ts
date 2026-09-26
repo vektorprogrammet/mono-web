@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { DateTime, Effect, flow, Match, Option, Predicate, Schema } from "effect";
 import { SqlSchema } from "effect/unstable/sql";
 import type * as Statement from "effect/unstable/sql/Statement";
-import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { Department, Team, TeamId } from "@vektorprogrammet/domain/organization";
 import {
   decodeTeamApplicationCursor,

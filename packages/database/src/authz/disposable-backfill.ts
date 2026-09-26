@@ -7,7 +7,11 @@ import { flow, Match, Predicate, Data, Effect, Schema } from "effect";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/shared-kernel";
 import { normalizeRfc3339Instant, Rfc3339InstantSchema } from "@vektorprogrammet/domain/time";
 import {
   createAuthzRule,

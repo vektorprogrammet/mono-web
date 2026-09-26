@@ -9,7 +9,11 @@ import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { Database } from "../src/service.js";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/shared-kernel";
 import { Schema, Predicate, Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "../src/layers.js";
 import { databaseSchemaRevision } from "../src/migrations.js";

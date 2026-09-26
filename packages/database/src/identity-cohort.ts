@@ -3,7 +3,7 @@ import { createLocalAccountIssuer } from "better-auth";
 import { flow, Option, Schema } from "effect";
 import type { Pool, PoolClient } from "pg";
 import { ContactEmail } from "@vektorprogrammet/domain/contact";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { isSupportedLegacyPasswordHash } from "./password-codec.js";
 
 const Id = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9._:-]{1,128}$/)));

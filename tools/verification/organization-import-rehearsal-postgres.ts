@@ -3,7 +3,7 @@ import {
   canonicalJsonValue,
   canonicalJsonBytes,
   sha256Hex,
-} from "@vektorprogrammet/domain/evidence";
+} from "@vektorprogrammet/domain/shared-kernel";
 import { Schema, Record as EffectRecord, Effect } from "effect";
 
 export interface StableTableProjection {

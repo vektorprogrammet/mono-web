@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { expect, it } from "@effect/vitest";
-import { canonicalJson } from "../tutor/evidence.js";
+import { canonicalJson } from "../shared-kernel/index.js";
 import {
   encodedOrganizationImportResult,
   importLegacyOrganization,

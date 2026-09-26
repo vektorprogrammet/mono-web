@@ -1,48 +1,5 @@
-import { Schema, flow, Match, Predicate } from "effect";
-import { sha256 } from "@noble/hashes/sha2.js";
-import { bytesToHex } from "@noble/hashes/utils.js";
+import { canonicalJson, sha256Hex } from "../shared-kernel/index.js";
 import type { Evidence } from "./schema.js";
-
-export const canonicalJsonValue = Match.type<unknown>().pipe(
-  Match.when(Predicate.isNull, () => null),
-  Match.when(Predicate.isString, (value) => value),
-  Match.when(Predicate.isBoolean, (value) => value),
-  Match.when(Predicate.isNumber, (value) => (Number.isFinite(value) ? value : null)),
-  Match.when(Array.isArray, (values): Schema.Json => values.map(canonicalJsonValue)),
-  Match.when(Predicate.isObjectOrArray, (input): Schema.Json => {
-    const prototype = Object.getPrototypeOf(input);
-
-    // Entries of a DateTime, Date, class instance, or byte array are not its encoded value.
-    if (prototype !== Object.prototype && prototype !== null)
-      throw new Error("canonical JSON accepts plain data only; encode through the owning schema");
-
-    const output: Record<string, Schema.Json> = {};
-
-    for (const [key, value] of Object.entries(input).sort(([left], [right]) =>
-      left < right ? -1 : left > right ? 1 : 0,
-    ))
-      output[key] = canonicalJsonValue(value);
-
-    return output;
-  }),
-  Match.orElse((): never => {
-    throw new Error("canonical JSON cannot contain undefined or executable values");
-  }),
-);
-
-const encodeJsonValue = (value: Schema.Json): string => {
-  const encoded = JSON.stringify(value);
-
-  if (encoded === undefined) throw new Error("canonical JSON encoding failed");
-
-  return encoded;
-};
-
-export const canonicalJson = flow(canonicalJsonValue, encodeJsonValue);
-
-export const canonicalJsonBytes = flow(canonicalJson, (json) => new TextEncoder().encode(json));
-
-export const sha256Hex = (bytes: Uint8Array): string => bytesToHex(sha256(bytes));
 
 export const canonicalEvidenceJson = (evidence: Evidence): string => {
   const orderedEntries = [

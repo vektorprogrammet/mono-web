@@ -41,7 +41,7 @@ import {
   canonicalJsonBytes,
   canonicalJsonValue,
   sha256Hex,
-} from "@vektorprogrammet/domain/evidence";
+} from "@vektorprogrammet/domain/shared-kernel";
 import {
   Identity,
   IdentityActor,

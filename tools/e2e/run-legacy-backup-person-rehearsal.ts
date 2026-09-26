@@ -31,7 +31,11 @@ import {
   type PersonCohortSnapshot,
 } from "@vektorprogrammet/database/person-cohort";
 import { readOwnProfile } from "@vektorprogrammet/database/profile";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/shared-kernel";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { flow, Predicate, Effect, Redacted, Schema, SchemaTransformation } from "effect";
 import { Pool } from "pg";

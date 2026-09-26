@@ -1,7 +1,7 @@
 import { SqlError } from "effect/unstable/sql/SqlError";
 import * as D1Client from "@effect/sql-d1/D1Client";
 import { Data, Record, flow, Result, Predicate, Effect, Schema } from "effect";
-import { canonicalJsonBytes, canonicalJson, sha256Hex } from "../src/tutor/evidence.js";
+import { canonicalJsonBytes, canonicalJson, sha256Hex } from "../src/shared-kernel/index.js";
 import {
   ConductInterviewV1Schema,
   DescriptorSchema,

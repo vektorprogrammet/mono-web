@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { Pool } from "pg";
 import { flow, Effect, Redacted } from "effect";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { parseDisposableCohortDatabaseUrl, readPrivateCohortJson } from "./cohort-cli.js";
 import { databaseHealth } from "./service.js";
 import { DatabaseLive } from "./layers.js";

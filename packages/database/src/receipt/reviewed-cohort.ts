@@ -15,7 +15,7 @@ import {
   type ReceiptSourceRow,
   type ReviewedReceiptSnapshot,
 } from "@vektorprogrammet/domain/receipt";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import { lockReceiptImportSource, storeReceiptImportResult } from "./postgres.js";
@@ -33,7 +33,7 @@ export const receiptImportSourceDigest = async (): Promise<string> =>
         "../../../domain/src/receipt/import.ts",
         "../../../domain/src/receipt/schema.ts",
         "../../../domain/src/time.ts",
-        "../../../domain/src/tutor/evidence.ts",
+        "../../../domain/src/shared-kernel/canonical-json.ts",
         "../../migrations/0067-reviewed-receipt-cohort.sql",
       ].map((path) => readFile(new URL(path, import.meta.url), "utf8")),
     ),

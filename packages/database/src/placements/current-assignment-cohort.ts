@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { flow, Option, Schema } from "effect";
 import type { Pool, PoolClient } from "pg";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { DepartmentId, SemesterId } from "@vektorprogrammet/domain/organization";
 import { SchoolId } from "@vektorprogrammet/domain/schools";
 

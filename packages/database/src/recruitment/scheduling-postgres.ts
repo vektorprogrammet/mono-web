@@ -16,7 +16,11 @@ import {
   type PersonProfile,
 } from "@vektorprogrammet/domain/profile";
 import { compareRfc3339Instants } from "@vektorprogrammet/domain/time";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/shared-kernel";
 import { flow, Predicate, Effect, Schema } from "effect";
 import {
   RecruitmentScheduleObservationSchema,

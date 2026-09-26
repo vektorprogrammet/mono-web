@@ -1,6 +1,6 @@
 import { flow } from "effect";
 
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
+import { canonicalJson, canonicalJsonBytes, sha256Hex } from "../shared-kernel/index.js";
 
 /** Canonical JSON bytes used for command replay identity. */
 export const admissionPeriodCommandBytes = canonicalJsonBytes;

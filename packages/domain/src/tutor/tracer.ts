@@ -11,7 +11,7 @@ import {
   type StreamKey,
   type TutorDecodeError,
 } from "./schema.js";
-import { canonicalJson } from "./evidence.js";
+import { canonicalJson } from "../shared-kernel/index.js";
 
 export const FIXTURE_CONDUCTED_AT = "2026-08-11T09:03:00Z";
 

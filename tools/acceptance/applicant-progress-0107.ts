@@ -2,7 +2,7 @@ import {
   canonicalJson,
   canonicalJsonBytes,
   sha256Hex,
-} from "../../packages/domain/src/tutor/evidence.js";
+} from "../../packages/domain/src/shared-kernel/index.js";
 import {
   FinalizeInterviewCommandSchema,
   FinalizeInterviewObservationSchema,

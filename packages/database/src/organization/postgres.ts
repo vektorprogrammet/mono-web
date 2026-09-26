@@ -1,4 +1,4 @@
-import { canonicalJsonValue } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonValue } from "@vektorprogrammet/domain/shared-kernel";
 import { Database, type DatabaseOperations } from "../service.js";
 import { lockPersonAuthorization } from "./authority-postgres.js";
 import * as Statement from "effect/unstable/sql/Statement";

@@ -1,6 +1,6 @@
 import { Cause, Effect } from "effect";
 import { writeStandardError, writeStandardOutput } from "../runtime-services.js";
-import { canonicalJson } from "./evidence.js";
+import { canonicalJson } from "../shared-kernel/index.js";
 import { FIXTURE_ID, runTutorFixture } from "./fixture.js";
 
 export const main = (args: ReadonlyArray<string>) =>

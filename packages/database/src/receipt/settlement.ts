@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { flow, Predicate, Effect, Schema } from "effect";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/shared-kernel";
 import { compareRfc3339Instants } from "@vektorprogrammet/domain/time";
 import {
   RECEIPT_PAGE_SIZE,

@@ -1,7 +1,7 @@
 import { flow, Predicate, Effect, Schema } from "effect";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
-import { sha256Hex } from "@vektorprogrammet/domain/evidence";
+import { sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
   ReturningAssistantObservationSchema,
   canonicalJson,

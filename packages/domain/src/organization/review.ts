@@ -1,5 +1,5 @@
 import { Option, Schema } from "effect";
-import { canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
+import { canonicalJsonBytes, sha256Hex } from "../shared-kernel/index.js";
 import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
 import { appointmentStateAt } from "./lifecycle.js";
 import { DepartmentId, PersonId } from "./schema.js";
