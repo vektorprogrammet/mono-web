@@ -622,6 +622,11 @@ export const databaseMigrationDefinitions = [
     name: "team-application-outbox-claim-columns",
     url: new URL("../migrations/0079-team-application-outbox-claim-columns.sql", import.meta.url),
   },
+  {
+    id: "80_days-served-and-certificates",
+    name: "days-served-and-certificates",
+    url: new URL("../migrations/0080-days-served-and-certificates.sql", import.meta.url),
+  },
 ] as const;
 
 /**

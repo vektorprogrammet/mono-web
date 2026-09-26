@@ -1,7 +1,7 @@
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
-import { Delegation } from "@vektorprogrammet/domain/authz";
+import { certificateIssuerBasis, Delegation, IssuerBasis } from "@vektorprogrammet/domain/authz";
 import {
   CreateOrganizationGlobalAdministratorGrantInputSchema,
   EndOrganizationGlobalAdministratorGrantInputSchema,
@@ -16,6 +16,10 @@ import {
   type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
 import {
+  CertificateIssuer,
+  DepartmentId,
+  IssuerSeatFacts,
+  issuerSeatTitle,
   OrganizationAuthorityRecordNotFound,
   OrganizationAuthorityWriteConflict,
   OrganizationDecodeError,
@@ -526,3 +530,131 @@ export const resolveOrganizationPersonAuthorityForRead = (
       "None",
     );
   });
+
+/** A department with the facts that decide which board governs it. */
+export const GovernedDepartmentRow = Schema.Struct({
+  departmentId: DepartmentId,
+  name: Schema.String,
+  independent: Schema.Boolean,
+});
+
+export type GovernedDepartmentRow = typeof GovernedDepartmentRow.Type;
+
+/**
+ * The active departments, or one department, with their independence. `ForShare` keeps the
+ * independence of the read departments fixed until the caller's transaction ends.
+ */
+export const readGovernedDepartmentsWithSql = (
+  sql: DatabaseOperations,
+  departmentId: DepartmentId | null,
+  lockMode: OrganizationAuthorityRowLockMode,
+): Effect.Effect<
+  ReadonlyArray<GovernedDepartmentRow>,
+  OrganizationDecodeError | OrganizationPersistenceError
+> =>
+  sql`
+    SELECT department_id AS "departmentId", name, independent
+    FROM public.organization_departments
+    WHERE active AND (${departmentId}::text IS NULL OR department_id = ${departmentId})
+    ORDER BY name, department_id
+    ${lockMode === "ForShare" ? sql`FOR SHARE` : sql``}
+  `.pipe(
+    Effect.flatMap((rows) =>
+      Schema.decodeUnknownEffect(Schema.Array(GovernedDepartmentRow))(rows, {
+        onExcessProperty: "error",
+      }).pipe(Effect.mapError((cause) => decodeError("decode governed departments", cause))),
+    ),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(
+        new OrganizationPersistenceError({
+          operation: "read governed departments",
+          message: String(cause),
+          cause,
+        }),
+      ),
+    ),
+  );
+
+const SeatFactsRow = Schema.Struct({
+  issuerName: Schema.String,
+  position: Schema.NullOr(Schema.String),
+  unitName: Schema.NullOr(Schema.String),
+});
+
+/**
+ * The issuer that a certificate of the department names for this authority: the person's name
+ * and the title of the seat, or the grant, that authorizes them. None without a basis.
+ */
+export const certificateIssuerWithSql = (
+  sql: DatabaseOperations,
+  authority: OrganizationPersonAuthority,
+  department: GovernedDepartmentRow,
+): Effect.Effect<
+  Option.Option<CertificateIssuer>,
+  OrganizationDecodeError | OrganizationPersistenceError
+> =>
+  Effect.gen(function* () {
+    const basis = certificateIssuerBasis(authority, department);
+
+    if (Option.isNone(basis)) return Option.none();
+
+    const membershipId = IssuerBasis.$match(basis.value, {
+      BoardSeat: ({ membershipId }): string | null => membershipId,
+      DerivedSeat: ({ membershipId }) => membershipId,
+      GlobalAdministrator: () => null,
+    });
+
+    const rows = yield* sql`
+      SELECT
+        profile.first_name || ' ' || profile.last_name AS "issuerName",
+        membership.position_name AS position,
+        COALESCE(team.name, board.name) AS "unitName"
+      FROM public.person_profiles AS profile
+      LEFT JOIN public.organization_memberships AS membership
+        ON membership.membership_id = ${membershipId} AND membership.person_id = profile.person_id
+      LEFT JOIN public.organization_teams AS team ON team.team_id = membership.team_id
+      LEFT JOIN public.organization_national_boards AS board ON board.board_id = membership.board_id
+      WHERE profile.person_id = ${authority.personId}
+    `;
+
+    const [facts] = yield* Schema.decodeUnknownEffect(Schema.Array(SeatFactsRow))(rows, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError((cause) => decodeError("decode certificate issuer seat", cause)));
+
+    if (facts === undefined || (membershipId !== null && facts.unitName === null))
+      return yield* decodeError("decode certificate issuer seat", "the authorizing seat is absent");
+
+    const unitName = facts.unitName ?? "";
+
+    const title = issuerSeatTitle(
+      IssuerBasis.$match(basis.value, {
+        BoardSeat: () =>
+          IssuerSeatFacts.BoardSeat({ position: facts.position, boardName: unitName }),
+        DerivedSeat: () =>
+          IssuerSeatFacts.DerivedSeat({ position: facts.position, teamName: unitName }),
+        GlobalAdministrator: () => IssuerSeatFacts.GlobalAdministrator(),
+      }),
+    );
+
+    return Option.some(
+      yield* Schema.decodeEffect(CertificateIssuer)(
+        {
+          personId: authority.personId,
+          name: facts.issuerName,
+          seatTitle: title,
+          basis: basis.value._tag,
+        },
+        { onExcessProperty: "error" },
+      ).pipe(Effect.mapError((cause) => decodeError("decode certificate issuer", cause))),
+    );
+  }).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(
+        new OrganizationPersistenceError({
+          operation: "read certificate issuer seat",
+          message: String(cause),
+          cause,
+        }),
+      ),
+    ),
+  );

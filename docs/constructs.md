@@ -653,13 +653,14 @@ Transaction-scoped PostgreSQL advisory locks under registered keys.
   [packages/database/src/advisory-lock.ts:144](../packages/database/src/advisory-lock.ts#L144), 1 consumer:
   - [apps/backend/src/http-api/receipt-transaction.ts](../apps/backend/src/http-api/receipt-transaction.ts)
 - `lockOrganizationAdministratorSet`: Acquire before any person lock when changing the usable administrator set.
-  [packages/database/src/organization/authority-postgres.ts:36](../packages/database/src/organization/authority-postgres.ts#L36), 1 consumer:
+  [packages/database/src/organization/authority-postgres.ts:40](../packages/database/src/organization/authority-postgres.ts#L40), 1 consumer:
   - [packages/database/src/organization/lifecycle-postgres.ts](../packages/database/src/organization/lifecycle-postgres.ts)
 - `lockPersonAuthorization`: Serializes one person's protected command with person-keyed authority writers.
-  [packages/database/src/organization/authority-postgres.ts:44](../packages/database/src/organization/authority-postgres.ts#L44), 9 consumers:
+  [packages/database/src/organization/authority-postgres.ts:48](../packages/database/src/organization/authority-postgres.ts#L48), 10 consumers:
   - [packages/database/src/authz/delegation-postgres.ts](../packages/database/src/authz/delegation-postgres.ts)
   - [packages/database/src/organization/lifecycle-postgres.ts](../packages/database/src/organization/lifecycle-postgres.ts)
   - [packages/database/src/organization/postgres.ts](../packages/database/src/organization/postgres.ts)
+  - [packages/database/src/placements/certificates.ts](../packages/database/src/placements/certificates.ts)
   - [packages/database/src/receipt/authority-postgres.ts](../packages/database/src/receipt/authority-postgres.ts)
   - [packages/database/src/receipt/postgres.ts](../packages/database/src/receipt/postgres.ts)
   - [packages/database/src/receipt/settlement.ts](../packages/database/src/receipt/settlement.ts)
@@ -796,7 +797,7 @@ Keyset cursors and pages over ordered PostgreSQL reads.
 Canonical JSON and SHA-256 digests that evidence and idempotency identities hash.
 
 - `canonicalJsonValue`: The plain JSON value of a datum, with sorted object keys and non-finite numbers as `null`.
-  [packages/domain/src/shared-kernel/canonical-json.ts:72](../packages/domain/src/shared-kernel/canonical-json.ts#L72), 17 consumers:
+  [packages/domain/src/shared-kernel/canonical-json.ts:72](../packages/domain/src/shared-kernel/canonical-json.ts#L72), 18 consumers:
   - [packages/database/runtime/historical-service-cohort-rehearsal.ts](../packages/database/runtime/historical-service-cohort-rehearsal.ts)
   - [packages/database/src/admission-period/postgres.ts](../packages/database/src/admission-period/postgres.ts)
   - [packages/database/src/application/postgres.ts](../packages/database/src/application/postgres.ts)
@@ -804,6 +805,7 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [packages/database/src/auth-live.ts](../packages/database/src/auth-live.ts)
   - [packages/database/src/content/postgres.ts](../packages/database/src/content/postgres.ts)
   - [packages/database/src/organization/postgres.ts](../packages/database/src/organization/postgres.ts)
+  - [packages/database/src/placements/certificates.ts](../packages/database/src/placements/certificates.ts)
   - [packages/database/src/profile/postgres.ts](../packages/database/src/profile/postgres.ts)
   - [packages/database/src/receipt/postgres.ts](../packages/database/src/receipt/postgres.ts)
   - [packages/database/src/receipt/settlement.ts](../packages/database/src/receipt/settlement.ts)
@@ -1009,7 +1011,7 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
 - `ReceiptE2EBarrierArrival`: `false` for unprobed requests; `true` once all three lanes are synchronized.
   [apps/backend/src/receipt/e2e-support.ts:17](../apps/backend/src/receipt/e2e-support.ts#L17), no consumers.
 - `selectDatabaseMigration`: Selects the registered migration `id` and the migrations that run before it; an absent id throws and names the nearest registered ids.
-  [packages/database/src/migrations.ts:687](../packages/database/src/migrations.ts#L687), 9 consumers:
+  [packages/database/src/migrations.ts:692](../packages/database/src/migrations.ts#L692), 9 consumers:
   - [packages/database/runtime/schema-boundary-postgres-proof-main.ts](../packages/database/runtime/schema-boundary-postgres-proof-main.ts)
   - [packages/database/src/database.test.ts](../packages/database/src/database.test.ts)
   - [packages/database/src/migration-registry.test.ts](../packages/database/src/migration-registry.test.ts)

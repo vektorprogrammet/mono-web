@@ -1,15 +1,19 @@
 import { flow, Predicate, DateTime, Effect, Schema } from "effect";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
+  derivedBoardSeats,
   reaches,
   reachScopes,
   ReachScope,
   ReachTarget,
   scopeCovers,
+  SeatBoard,
 } from "@vektorprogrammet/domain/authz";
 import {
   Appointment,
   AppointmentManagement,
+  BoardRosterSeat,
+  BoardRosters,
   DepartmentId,
   DepartmentRecognition,
   OrganizationLifecycleCommand,
@@ -19,6 +23,7 @@ import {
   transitionTeamClassification,
   appointmentStateAt,
   OrganizationLifecycleResult,
+  MembershipId,
   PersonId,
   TeamClassification,
   TeamId,
@@ -205,6 +210,144 @@ export const readAppointmentManagement = Effect.fn("readAppointmentManagement")(
             .map(({ targetKind: _kind, targetId: _id, ...row }) => row),
           governance: governor ? yield* governanceFor(sql) : null,
         });
+      }),
+    )
+    .pipe(Effect.mapError(failure));
+});
+
+const RosterBoardRow = Schema.Struct({
+  kind: Schema.Literals(["Team", "NationalBoard"]),
+  id: Schema.String,
+  name: Schema.String,
+  departmentId: Schema.NullOr(DepartmentId),
+});
+
+const AppointedSeatRow = Schema.Struct({
+  kind: Schema.Literals(["Team", "NationalBoard"]),
+  unitId: Schema.String,
+  appointmentId: Schema.String,
+  personId: PersonId,
+  name: Schema.String,
+  position: Schema.NullOr(Schema.String),
+});
+
+const LeadershipRow = Schema.Struct({
+  membershipId: MembershipId,
+  personId: PersonId,
+  teamId: TeamId,
+  teamName: Schema.String,
+  departmentId: DepartmentId,
+  unitKind: Schema.Literals(["Team", "DepartmentBoard"]),
+  teamScope: Schema.Literals(["HomeDepartment", "National"]),
+  active: Schema.Boolean,
+  unitLeader: Schema.Boolean,
+  name: Schema.String,
+});
+
+/**
+ * The rosters of the certificate-issuing boards that the reader can already read: Styret of an
+ * independent department, and Hovedstyret. Each lists the appointed seats and the seats that
+ * current team leadership derives at this instant. Derived seats are computed here, never stored.
+ */
+export const readBoardRosters = Effect.fn("readBoardRosters")(function* (actorPersonId: PersonId) {
+  const sql = yield* Database;
+
+  return yield* sql
+    .withTransaction(
+      Effect.gen(function* () {
+        yield* lockPersonAuthorization(sql, actorPersonId);
+        const now = DateTime.formatIso(yield* DateTime.now);
+        const authority = yield* authorityFor(sql, actorPersonId, now);
+        const units = (yield* unitsFor(sql)).filter((unit) => allowedUnit(authority, unit));
+
+        const boards = (yield* decode(Schema.Array(RosterBoardRow))(
+          yield* sql`SELECT 'Team'::text AS kind, t.team_id AS id, t.name, t.department_id AS "departmentId"
+            FROM organization_teams t JOIN organization_departments d ON d.department_id=t.department_id
+            WHERE t.kind='DepartmentBoard' AND t.active AND d.active AND d.independent
+            UNION ALL SELECT 'NationalBoard', board_id, name, NULL FROM organization_national_boards
+            ORDER BY 3,2`,
+        )).filter((board) =>
+          units.some((unit) => unit.kind === board.kind && unit.id === board.id),
+        );
+
+        const appointed = yield* decode(Schema.Array(AppointedSeatRow))(
+          yield* sql`SELECT CASE WHEN m.board_id IS NULL THEN 'Team' ELSE 'NationalBoard' END AS kind,
+            COALESCE(m.team_id,m.board_id) AS "unitId", m.membership_id AS "appointmentId",
+            m.person_id AS "personId", p.first_name || ' ' || p.last_name AS name, m.position_name AS position
+            FROM organization_memberships m JOIN person_profiles p ON p.person_id=m.person_id
+            WHERE (m.team_id IS NOT NULL OR m.board_id IS NOT NULL) AND NOT m.is_suspended
+              AND m.start_at <= ${now}::timestamptz AND (m.end_at IS NULL OR ${now}::timestamptz < m.end_at)
+            ORDER BY p.first_name,p.last_name,m.membership_id`,
+        );
+
+        const leaderships = yield* decode(Schema.Array(LeadershipRow))(
+          yield* sql`SELECT m.membership_id AS "membershipId", m.person_id AS "personId",
+            t.team_id AS "teamId", t.name AS "teamName", t.department_id AS "departmentId",
+            t.kind AS "unitKind", t.team_scope AS "teamScope",
+            (m.start_at <= ${now}::timestamptz AND (m.end_at IS NULL OR ${now}::timestamptz < m.end_at)
+              AND NOT m.is_suspended AND t.active AND d.active) AS active,
+            m.is_team_leader AS "unitLeader", p.first_name || ' ' || p.last_name AS name
+            FROM organization_memberships m JOIN organization_teams t ON t.team_id=m.team_id
+            JOIN organization_departments d ON d.department_id=t.department_id
+            JOIN person_profiles p ON p.person_id=m.person_id
+            WHERE m.is_team_leader AND t.kind='Team'
+            ORDER BY p.first_name,p.last_name,m.membership_id`,
+        );
+
+        const source = new Map(leaderships.map((row) => [row.membershipId, row] as const));
+        const derived = derivedBoardSeats(leaderships);
+        const invalid = () => fail("Invalid");
+
+        return yield* Effect.forEach(boards, (board) =>
+          Effect.gen(function* () {
+            const appointedSeats = yield* Effect.forEach(
+              appointed.filter((seat) => seat.kind === board.kind && seat.unitId === board.id),
+              ({ appointmentId, personId, name, position }) =>
+                BoardRosterSeat.cases.AppointedSeat.makeEffect({
+                  personId,
+                  name,
+                  appointmentId,
+                  position,
+                }).pipe(Effect.mapError(invalid)),
+            );
+
+            const derivedSeats = yield* Effect.forEach(
+              derived.filter((seat) =>
+                SeatBoard.$match(seat.board, {
+                  DepartmentBoard: ({ departmentId }) =>
+                    board.kind === "Team" && board.departmentId === departmentId,
+                  NationalBoard: () => board.kind === "NationalBoard",
+                }),
+              ),
+              (seat) => {
+                const leadership = source.get(seat.sourceMembershipId);
+
+                return leadership === undefined
+                  ? Effect.fail(invalid())
+                  : BoardRosterSeat.cases.DerivedSeat.makeEffect({
+                      personId: seat.personId,
+                      name: leadership.name,
+                      sourceAppointmentId: seat.sourceMembershipId,
+                      sourceTeamId: seat.sourceTeamId,
+                      sourceTeamName: leadership.teamName,
+                    }).pipe(Effect.mapError(invalid));
+              },
+            );
+
+            return {
+              target: { kind: board.kind, id: board.id },
+              name: board.name,
+              departmentId: board.departmentId,
+              seats: [...appointedSeats, ...derivedSeats],
+            };
+          }),
+        ).pipe(
+          Effect.flatMap((rosters) =>
+            BoardRosters.makeEffect({ evaluatedAt: now, boards: rosters }).pipe(
+              Effect.mapError(invalid),
+            ),
+          ),
+        );
       }),
     )
     .pipe(Effect.mapError(failure));

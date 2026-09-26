@@ -77,5 +77,6 @@
   "76_reach-and-delegation": "ea7ad5562544a4b3fff34c2c2020164f39fa3b0db6fa07896fb21cfce802e33c",
   "77_oauth-refresh-elapsed-windows": "42a6b36376e6a3e025b9eea971b406076f6b9e50d1d4ab8e6d122d7bdc46d779",
   "78_team-application-persisted-queue": "74f7316d14a71b0c6169d0d151df905ba4838cdeec36053e8e7895795a079b65",
-  "79_team-application-outbox-claim-columns": "70acda46f84c2ca8a79841049fc73739fe358ddc48f7b2551d7dcc09b3d77c44"
+  "79_team-application-outbox-claim-columns": "70acda46f84c2ca8a79841049fc73739fe358ddc48f7b2551d7dcc09b3d77c44",
+  "80_days-served-and-certificates": "d4d949dec00502d5e11ad554fbb456edb5b37bd116bae00006cf8eb8954e61c2"
 }

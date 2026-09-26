@@ -63,3 +63,71 @@ Changing placement or dated-service outcomes; inferring dates from placements; a
 ## Acceptance
 
 A golden journey (`just` set, hosted CI) exercises journeys 1 to 4 against PostgreSQL. Its fault modes are a stale revision on confirmation, a revoked seat between page load and issue, and a database failure at commit, each followed by recovery in the same request. Every falsifier above has a test that fails when the rule breaks.
+
+## Progress
+
+Branch `feat/certificates-0926` (CertificatesBuild, 2026-09-26). The domain and persistence layers are committed. The branch is not ready to merge: migration 0078 has no database tests yet, and nothing serves it.
+
+### Done
+
+- Domain, `packages/domain`:
+  - `authz/delegation.ts`: the delegable capability `placements.days-served` (board leaders and global administrators; `TeamArea`). The department grants it to Skolekoordinering by delegation.
+  - `authz/reach.ts`: `certificateIssuerBasis` implements journey 3. An appointed seat comes first, then a derived seat, then the global-administrator grant. `derivedBoardSeats` projects current team leadership onto Styret or Hovedstyret. No reach reads a derived seat.
+  - `organization/board-roster.ts`: `BoardRosters`, `CertificateIssuer`, and `issuerSeatTitle`.
+  - `placements/days-served.ts`: distinct Oslo dates plus accepted legacy totals, the calculated count, the entry version (revision and evidence digest), the confirmation, the command, and name-keyed pages of 50.
+  - `placements/certificate.ts`: the content (confirmed totals above zero, oldest first), the content hash, the preview with each semester's status, the issue, and the scopes.
+  - `placements/certificate-failures.ts`: typed failures without HTTP status.
+  - Service contracts: `Placements` gains `readCertificateScopes`, `readDaysServed`, `confirmDaysServed`, `listCertificates`, `readCertificate`, and `issueCertificate`. These resolve authority themselves in the caller's transaction. `Organization` gains `readBoardRosters`.
+  - Tests that fail when a rule breaks: `authz/certificate-issuer.test.ts` (journey 3 matrix, derived seats end with leadership and give no administration), `placements/days-served.test.ts` (one count per date, legacy totals as totals, version), and `placements/certificate.test.ts` (confirmed semesters only, confirmed total, stable hash).
+- Persistence, `packages/database`:
+  - `migrations/0078-days-served-and-certificates.sql` (checksum recorded): the capability check, and `days_served_confirmations` (append-only, a trigger allows only the next revision). Also `certificate_issues` (append-only, `issued_by_person_id <> person_id`).
+  - `placements/certificates.ts`: counted attendance is `Completed` decisions of dated commitments only. Unfulfilled outcomes, standalone occurrences, placements, and `workdays` never count. The assistants of a scope are those with counted attendance, an accepted legacy total, an active placement, or a confirmation. Commands take the department row lock, then the person lock and the `ForShare` authority.
+  - `organization/authority-postgres.ts`: `readGovernedDepartmentsWithSql` and `certificateIssuerWithSql`. `organization/lifecycle-postgres.ts`: `readBoardRosters`, which has the visibility of appointment management. `PlacementsLive` and `OrganizationLive` wire them.
+
+### Remaining steps
+
+1. `packages/database/src/placements/certificates.test.ts` on `DatabaseTestLive`. Seed like `organization/mailing-lists.test.ts`, and build dated service with `mutatePlacementBoard` and `mutateCoverageBoard` like `placements/postgres.test.ts`. `readBoardRosters` needs `auth."user"` rows, because `authorityFor` checks `accountAccessEnabled`. A standalone occurrence needs its insert guard disabled around the seed row. Cover each falsifier:
+   - a placement with `workdays` 8 and no attendance counts 0;
+   - two completed blocks on one date count 1; an Unfulfilled outcome with attendance and a standalone occurrence count 0;
+   - the certificate lists only confirmed semesters of the department, with the confirmed total;
+   - a correction adds revision 2, keeps revision 1, and leaves decisions and occurrences unchanged; `UPDATE` and `DELETE` fail; a stale precondition writes nothing;
+   - two issues of unchanged data record two rows with one content hash;
+   - the journey 3 matrix through `issueCertificate`, including a team leader of a department that is not independent;
+   - the roster shows a derived seat, stores no membership, and drops the seat when the leadership ends; issuing then fails;
+   - the assistant is denied, and a direct self-issue insert violates `certificate_issues_not_own`.
+2. HTTP contract, `packages/http-api/src/certificates.ts`, group `certificates`:
+   - `GET /api/certificate-scopes`;
+   - `GET /api/departments/:departmentId/semesters/:semesterId/days-served?cursor`;
+   - `POST /api/departments/:departmentId/semesters/:semesterId/days-served/:personId`, with `IdempotencyIfMatchHeaders`, payload `{ total }`, and the entry with `etag`;
+   - `GET /api/departments/:departmentId/certificates?cursor`;
+   - `GET /api/departments/:departmentId/certificates/:personId`, the preview with `etag` from `contentSha256`;
+   - `POST /api/departments/:departmentId/certificates/:personId/issues`, with `IdempotencyIfMatchHeaders`, answering `application/pdf` through `HttpApiSchema.asUint8Array`.
+   In the organization group, add `GET /api/organization/board-rosters` with `organization.manage-appointments` and `organization.appointment-management`. Add `placements.days-served` and `certificates.issue` to `CAPABILITY_TYPES` in `authz/access.ts`, and reuse the resolver `placements.explicit-department`. Add problem `certificate.empty` (409). Add every operation to `packages/http-api/test/native-api.test.ts`, then regenerate OpenAPI and the SDK.
+3. Backend, `apps/backend/src/placements/certificates-http.ts`, following `team-application/http.ts`:
+   - Run commands through `executeNativeHttpCommandPostgres` with `retry: "serialization-once"`.
+   - Derive the entry `etag` with `deriveStrongETag(daysServedEntryVersion(entry))`, and the certificate `etag` from the content hash.
+   - Answer a PDF capsule (`content-type: application/pdf`) rendered on the server from the issue with Helvetica and WinAnsi text. It prints the assistant, the department, the semesters with schools and days, the issuer's name and seat title, and `issuedOn`.
+   - Add `readBoardRosters` to `organization/http.ts` and wire `router.ts`.
+   - Tests: a stale `If-Match` answers 412 and writes nothing; a denial answers 403; an exact replay returns the same PDF; a commit failure is recovered in the same request. For the commit failure, a deferred constraint trigger raises SQLSTATE 40001 once, like `http-api/receipt-transaction.test.ts`.
+4. Dashboard: the folder `apps/dashboard/app/foldkit/certificates` needs a `tools/conventions/src/layout.ts` exception (context Placements) and its guide. Replace the heading in `routes/dashboard.attester._index.tsx` with one Foldkit Model:
+   - the scope choice;
+   - days served per assistant, with the evidence and a confirm or adjust action that reloads on 412;
+   - the certificate list and preview, which names the unconfirmed semesters before download;
+   - the board rosters.
+   Add `update.test.ts` and `view.test.ts`.
+5. Golden journey: `tools/e2e/golden-certificates.ts`, its evidence module, and `apps/dashboard/e2e/golden-certificates-browser.ts` on `golden-harness.ts`. It covers journeys 1 to 4 and three faults, each followed by recovery:
+   - a stale revision on confirmation;
+   - the issuer's derived seat ended between page load and issue, then a new appointment;
+   - the 40001 trigger at commit, recovered in the same request.
+   Add `certificates` to the `golden` recipe, run `just layout write`, and pass 3 runs through `just measure`.
+6. Update `docs/system.md` (Certificates; the derived seat roster under Organization administration), `STATE.md`, and `docs/model/contexts.cml`. There, `Certificate` becomes cumulative per assistant and department, and the capabilities become `placements.days-served` and `certificates.issue`. Then remove this specification.
+
+### Decisions this specification did not cover
+
+- A confirmed zero is no service: that semester is absent from the certificate and shown as confirmed zero. With no included semester, issue fails with `CertificateEmpty`.
+- A certificate's schools are the schools of the evidence that its confirmation saw, stored in `evidence_json`.
+- The content hash covers the assistant's and the department's names. A rename gives a new hash.
+- An issuer who is also the assistant cannot issue their own certificate: the falsifier on assistant downloads wins over journey 3.
+- Seat titles: `position, board` for an appointed seat, `position, team` for a derived seat (`Styremedlem` or `Leder` when the position is absent), and `Global administrator`.
+- Names outside WinAnsi cannot be printed by the standard PDF fonts. The renderer must fail closed or embed a font; choose before step 3.
+- Confirmation is allowed before the semester ends, and a coordinator can confirm their own total.

@@ -22,6 +22,14 @@ import {
   readOwnCoverage,
 } from "./coverage.js";
 import { readPlacementDraft } from "./draft.js";
+import {
+  confirmDaysServed,
+  issueCertificate,
+  listCertificates,
+  readCertificate,
+  readCertificateScopes,
+  readDaysServed,
+} from "./certificates.js";
 
 const sqlField = (cause: unknown, field: "code" | "constraint", depth = 0): string | null => {
   if (depth >= 8 || !Predicate.isObjectOrArray(cause)) return null;
@@ -145,6 +153,26 @@ export const PlacementsLive = Layer.effect(
       readDraft: (scope) => run(readPlacementDraft(scope)),
       readOwnCoverage: (scope, personId) => run(readOwnCoverage(scope, personId)),
       readCoverageBoard: (scope) => run(readCoverageBoard(scope)),
+      readCertificateScopes: (principal) =>
+        readCertificateScopes(principal).pipe(Effect.provideService(Database, database)),
+      readDaysServed: (principal, scope, cursor) =>
+        readDaysServed(principal, scope, cursor).pipe(Effect.provideService(Database, database)),
+      confirmDaysServed: (principal, command, checkPrecondition) =>
+        confirmDaysServed(principal, command, checkPrecondition).pipe(
+          Effect.provideService(Database, database),
+        ),
+      listCertificates: (principal, departmentId, cursor) =>
+        listCertificates(principal, departmentId, cursor).pipe(
+          Effect.provideService(Database, database),
+        ),
+      readCertificate: (principal, departmentId, personId) =>
+        readCertificate(principal, departmentId, personId).pipe(
+          Effect.provideService(Database, database),
+        ),
+      issueCertificate: (principal, command, checkPrecondition) =>
+        issueCertificate(principal, command, checkPrecondition).pipe(
+          Effect.provideService(Database, database),
+        ),
       execute,
     });
   }),

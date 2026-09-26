@@ -1,5 +1,15 @@
 import { Context, Data, type Effect } from "effect";
 import type { DepartmentId, OrganizationPersonAuthority, PersonId } from "../organization/index.js";
+import type {
+  CertificateAssistant,
+  CertificateIssue,
+  CertificatePreview,
+  CertificatePrincipal,
+  CertificateScopes,
+  IssueCertificateCommand,
+} from "./certificate.js";
+import type { CertificateCommandFailure, CertificateReadFailure } from "./certificate-failures.js";
+import type { AssistantPage, ConfirmDaysServedCommand, DaysServedEntry } from "./days-served.js";
 import type { PlacementFailure } from "./policy.js";
 import type { PlacementDraft } from "./scheduler.js";
 import type {
@@ -51,9 +61,22 @@ export interface PlacementExecution {
   readonly commandId: string;
 }
 
+/** One page of the assistants of a department and semester, with the scope's labels. */
+export interface DaysServedPage extends AssistantPage<DaysServedEntry> {
+  readonly departmentName: string;
+  readonly semester: (typeof PlacementScopes.Type)["semesters"][number];
+}
+
+/** One page of the assistants with service facts in a department. */
+export interface CertificateAssistantPage extends AssistantPage<CertificateAssistant> {
+  readonly departmentName: string;
+}
+
 /**
- * Trusted server operations, not an authentication or authorization boundary.
- * Callers authorize reads and writes before invocation.
+ * Trusted server operations, not an authentication boundary. The placement operations expect
+ * callers to authorize reads and writes before invocation. The days-served and certificate
+ * operations resolve the principal's current Organization authority themselves, on the caller's
+ * transaction connection; commands hold their locks, facts, and history in that transaction.
  * The concrete Layer captures Database; execute also retains callback requirements.
  */
 export interface PlacementsOperations {
@@ -105,6 +128,51 @@ export interface PlacementsOperations {
     input: PlacementExecution,
     checkPrecondition: (current: PlacementSnapshot) => Effect.Effect<void, E, R>,
   ) => Effect.Effect<PlacementSnapshot, PlacementOperationFailure | E, R>;
+  /** The departments where the principal confirms days served or issues certificates. */
+  readonly readCertificateScopes: (
+    principal: CertificatePrincipal,
+  ) => Effect.Effect<CertificateScopes, CertificateReadFailure>;
+  /**
+   * One bounded page of the assistants of a department and semester: everyone with counted
+   * attendance, an accepted legacy total, an active placement, or a confirmation there. Requires
+   * `placements.days-served` in the department.
+   */
+  readonly readDaysServed: (
+    principal: CertificatePrincipal,
+    scope: PlacementScope,
+    cursor?: string,
+  ) => Effect.Effect<DaysServedPage, CertificateReadFailure>;
+  /**
+   * Appends the next confirmation of one assistant's total under the department lock, after the
+   * transport precondition on the fresh entry. Never changes an earlier confirmation or a service
+   * fact. The callback grants no authority and must not write business state.
+   */
+  readonly confirmDaysServed: <E, R>(
+    principal: CertificatePrincipal,
+    command: ConfirmDaysServedCommand,
+    checkPrecondition: (current: DaysServedEntry) => Effect.Effect<void, E, R>,
+  ) => Effect.Effect<DaysServedEntry, CertificateCommandFailure | E, R>;
+  /** One bounded page of the assistants with service facts in a department; issuers only. */
+  readonly listCertificates: (
+    principal: CertificatePrincipal,
+    departmentId: DepartmentId,
+    cursor?: string,
+  ) => Effect.Effect<CertificateAssistantPage, CertificateReadFailure>;
+  /** The certificate that the principal would issue now, and the semesters it leaves out. */
+  readonly readCertificate: (
+    principal: CertificatePrincipal,
+    departmentId: DepartmentId,
+    personId: PersonId,
+  ) => Effect.Effect<CertificatePreview, CertificateReadFailure>;
+  /**
+   * Records one issue of the current certificate under the department lock, after the transport
+   * precondition on the fresh preview: who, when, the authorizing seat, and the content hash.
+   */
+  readonly issueCertificate: <E, R>(
+    principal: CertificatePrincipal,
+    command: IssueCertificateCommand,
+    checkPrecondition: (current: CertificatePreview) => Effect.Effect<void, E, R>,
+  ) => Effect.Effect<CertificateIssue, CertificateCommandFailure | E, R>;
 }
 
 /** The portable service key. The server entry point supplies its database-backed Layer. */
