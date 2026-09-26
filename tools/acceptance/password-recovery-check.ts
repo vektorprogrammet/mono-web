@@ -299,7 +299,7 @@ try {
   );
 
   const resetUrl = received[0]!.text.match(
-    /https:\/\/[^\s]+\/api\/auth\/reset-password\/[^\s]+/u,
+    /https?:\/\/[^\s]+\/api\/auth\/reset-password\/[^\s]+/u,
   )?.[0];
 
   assert.ok(resetUrl, "password reset email contains its reset link");
