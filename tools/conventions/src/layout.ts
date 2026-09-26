@@ -202,13 +202,13 @@ export const toolImportExceptions = [
       "packages/database/runtime/",
     ],
     reason:
-      "Test harnesses, browser evidence drivers, and PostgreSQL proofs start disposable clusters of the selected major through the one toolchain.",
+      "Test harnesses, browser evidence drivers, and PostgreSQL proofs start disposable clusters of the selected major through the one toolchain and reserve their loopback ports through it.",
   },
   {
     tool: "tools/e2e",
     importers: ["apps/dashboard/e2e/", "apps/homepage/e2e/"],
     reason:
-      "Browser evidence drivers share the golden harness: loopback ports, the local backend environment, evidence digests, and the delivery sink.",
+      "Browser evidence drivers share the golden harness: the local backend environment, evidence digests, and the delivery sink.",
   },
 ] satisfies ReadonlyArray<ToolImportException>;
 
