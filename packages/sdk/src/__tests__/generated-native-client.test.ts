@@ -31,7 +31,7 @@ describe("generated NativeApi client", () => {
     let requestHeaders: Headers | undefined;
 
     const fetch: FetchCapability = async (input, init) => {
-      requestUrl = String(input);
+      requestUrl = new Request(input).url;
       requestHeaders = new Headers(init?.headers);
 
       return new Response("", { status: 500 });
