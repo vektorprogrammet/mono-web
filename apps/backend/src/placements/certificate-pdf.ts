@@ -1,90 +1,68 @@
 /**
- * The PDF of one recorded certificate issue, rendered on the server. It uses the standard
- * Helvetica fonts with WinAnsi encoding and embeds no font, so the same issue always renders the
- * same bytes. Text that WinAnsi cannot encode fails closed before the issue commits.
+ * The PDF of one recorded certificate issue, rendered on the server. It embeds subsets of Noto
+ * Sans Regular and Bold under the SIL Open Font License (`fonts/provenance.json` names the release
+ * and the checksums), so every name that the fonts cover prints, and the same issue always renders
+ * the same bytes. Text that no embedded glyph covers fails closed before the issue commits.
  */
 import type { CertificateIssue } from "@vektorprogrammet/domain/placements";
-import { Data, Result } from "effect";
+import { Context, Data, Effect, FileSystem, Layer, Path, Result } from "effect";
+import { sha256Hex } from "../http-semantics.js";
+import { parseTrueType, type TrueTypeFont, type TrueTypeSubset } from "./true-type.js";
 
-/** A text on the certificate that the standard fonts cannot print. */
+/** A text on the certificate that no glyph of the embedded fonts covers. */
 export class CertificateUnprintable extends Data.TaggedError("CertificateUnprintable")<{
   readonly field: "assistant" | "department" | "school" | "issuer" | "seat";
 }> {}
 
-/** The WinAnsi bytes of the code points above Latin-1 that the encoding has. */
-const winAnsiExtras = new Map<number, number>([
-  [0x20ac, 0x80],
-  [0x201a, 0x82],
-  [0x0192, 0x83],
-  [0x201e, 0x84],
-  [0x2026, 0x85],
-  [0x2020, 0x86],
-  [0x2021, 0x87],
-  [0x02c6, 0x88],
-  [0x2030, 0x89],
-  [0x0160, 0x8a],
-  [0x2039, 0x8b],
-  [0x0152, 0x8c],
-  [0x017d, 0x8e],
-  [0x2018, 0x91],
-  [0x2019, 0x92],
-  [0x201c, 0x93],
-  [0x201d, 0x94],
-  [0x2022, 0x95],
-  [0x2013, 0x96],
-  [0x2014, 0x97],
-  [0x02dc, 0x98],
-  [0x2122, 0x99],
-  [0x0161, 0x9a],
-  [0x203a, 0x9b],
-  [0x0153, 0x9c],
-  [0x017e, 0x9e],
-  [0x0178, 0x9f],
-]);
+/** The faces of the certificate. */
+export interface CertificateFaces {
+  readonly regular: TrueTypeFont;
+  readonly bold: TrueTypeFont;
+}
 
-/** Helvetica advance widths in 1/1000 em for the WinAnsi bytes 32 to 255; 0 marks no glyph. */
-const helveticaWidths = [
-  // 32-63
-  278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556,
-  556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584, 556,
-  // 64-95
-  1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778, 667, 778, 722,
-  667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556,
-  // 96-127
-  333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556, 556, 556, 333,
-  500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584, 0,
-  // 128-159
-  556, 0, 222, 556, 333, 1000, 556, 556, 333, 1000, 667, 333, 1000, 0, 611, 0, 0, 222, 222, 333,
-  333, 350, 556, 1000, 333, 1000, 500, 333, 944, 0, 500, 667,
-  // 160-191
-  278, 333, 556, 556, 556, 556, 260, 556, 333, 737, 370, 556, 584, 333, 737, 333, 400, 584, 333,
-  333, 333, 556, 537, 278, 333, 333, 365, 556, 834, 834, 834, 611,
-  // 192-223
-  667, 667, 667, 667, 667, 667, 1000, 722, 667, 667, 667, 667, 278, 278, 278, 278, 722, 722, 778,
-  778, 778, 778, 778, 584, 778, 722, 722, 722, 722, 667, 667, 611,
-  // 224-255
-  556, 556, 556, 556, 556, 556, 889, 500, 556, 556, 556, 556, 278, 278, 278, 278, 556, 556, 556,
-  556, 556, 556, 556, 584, 611, 556, 556, 556, 556, 500, 556, 500,
-];
+export class CertificateFonts extends Context.Service<CertificateFonts, CertificateFaces>()(
+  "@vektorprogrammet/backend/CertificateFonts",
+) {}
 
-/** The WinAnsi bytes of a text, or none when a character has no glyph in the standard fonts. */
-const winAnsi = (text: string): Result.Result<ReadonlyArray<number>, undefined> => {
-  const bytes: Array<number> = [];
+/** Reads and parses the certificate fonts once, when the process composes its handlers. */
+export const CertificateFontsLive = Layer.effect(
+  CertificateFonts,
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
 
-  for (const character of text) {
-    const codePoint = character.codePointAt(0) ?? 0;
+    const face = (file: string) =>
+      path.fromFileUrl(new URL(`fonts/${file}`, import.meta.url)).pipe(
+        Effect.flatMap((location) => fs.readFile(location)),
+        Effect.flatMap((bytes) => Effect.fromResult(parseTrueType(bytes))),
+      );
 
-    const byte =
-      (codePoint >= 0x20 && codePoint <= 0x7e) || (codePoint >= 0xa0 && codePoint <= 0xff)
-        ? codePoint
-        : winAnsiExtras.get(codePoint);
+    return {
+      regular: yield* face("NotoSans-Regular.ttf"),
+      bold: yield* face("NotoSans-Bold.ttf"),
+    };
+  }).pipe(Effect.orDie),
+);
 
-    if (byte === undefined) return Result.fail(undefined);
+/** Controls draw nothing that a reader could check, so they count as unprintable. */
+const isControl = (codePoint: number) =>
+  codePoint < 0x20 || (codePoint >= 0x7f && codePoint < 0xa0);
 
-    bytes.push(byte);
-  }
+/** The code points of a text in composed form, or none when a face lacks a glyph for one. */
+const printable = (faces: CertificateFaces, text: string) => {
+  const codePoints = Array.from(
+    text.normalize("NFC"),
+    (character) => character.codePointAt(0) ?? 0,
+  );
 
-  return Result.succeed(bytes);
+  return codePoints.every(
+    (codePoint) =>
+      !isControl(codePoint) &&
+      faces.regular.glyphOf(codePoint) !== 0 &&
+      faces.bold.glyphOf(codePoint) !== 0,
+  )
+    ? Result.succeed<ReadonlyArray<number>>(codePoints)
+    : Result.fail(undefined);
 };
 
 const PAGE_WIDTH = 595.28;
@@ -95,97 +73,105 @@ const MARGIN = 62;
 
 const BOTTOM = 72;
 
-/** The bold face is at most about a tenth wider than the regular face. */
-const BOLD_FACTOR = 1.1;
+type Face = "F1" | "F2";
 
 interface Font {
-  readonly name: "F1" | "F2";
+  readonly face: Face;
   readonly size: number;
 }
 
-const regular = (size: number): Font => ({ name: "F1", size });
+const regular = (size: number): Font => ({ face: "F1", size });
 
-const bold = (size: number): Font => ({ name: "F2", size });
+const bold = (size: number): Font => ({ face: "F2", size });
 
-const widthOf = (bytes: ReadonlyArray<number>, font: Font) =>
-  (bytes.reduce((total, byte) => total + (helveticaWidths[byte - 32] ?? 0), 0) * font.size) /
-  (font.name === "F2" ? 1000 / BOLD_FACTOR : 1000);
-
-/** Breaks encoded text at spaces into lines no wider than `maxWidth`; a long word keeps its line. */
-const wrap = (
-  bytes: ReadonlyArray<number>,
-  font: Font,
-  maxWidth: number,
-): ReadonlyArray<ReadonlyArray<number>> => {
-  const words: Array<Array<number>> = [[]];
-
-  for (const byte of bytes) {
-    if (byte === 0x20) words.push([]);
-    else words.at(-1)?.push(byte);
-  }
-
-  const lines: Array<ReadonlyArray<number>> = [];
-  let line: ReadonlyArray<number> = [];
-
-  for (const word of words.filter((candidate) => candidate.length > 0)) {
-    const candidate = line.length === 0 ? word : [...line, 0x20, ...word];
-
-    if (line.length > 0 && widthOf(candidate, font) > maxWidth) {
-      lines.push(line);
-      line = word;
-    } else line = candidate;
-  }
-
-  return line.length === 0 ? lines : [...lines, line];
-};
-
-/** One byte inside a PDF literal string: delimiters escaped, bytes above ASCII as octal. */
-const escaped = (byte: number) => {
-  if (byte === 0x28 || byte === 0x29 || byte === 0x5c) return `\\${String.fromCharCode(byte)}`;
-
-  return byte < 0x80 ? String.fromCharCode(byte) : `\\${byte.toString(8).padStart(3, "0")}`;
-};
+/** One line of text at its position. Its glyphs are numbered once the subsets are known. */
+interface Run {
+  readonly font: Font;
+  readonly x: number;
+  readonly y: number;
+  readonly text: ReadonlyArray<number>;
+}
 
 const number = (value: number) => value.toFixed(2).replace(/\.?0+$/u, "");
 
-/** Content streams of pages laid out from the top; a line that does not fit opens a page. */
+/** The text and the strokes of one page. */
+interface Page {
+  readonly runs: Array<Run>;
+  readonly strokes: Array<string>;
+}
+
+/** Content of pages laid out from the top; a line that does not fit opens a page. */
 class Layout {
-  readonly pages: Array<Array<string>> = [[]];
+  readonly pages: Array<Page> = [{ runs: [], strokes: [] }];
+  readonly #faces: Readonly<Record<Face, TrueTypeFont>>;
   #y = PAGE_HEIGHT - MARGIN;
+
+  constructor(faces: CertificateFaces) {
+    this.#faces = { F1: faces.regular, F2: faces.bold };
+  }
 
   #room(height: number) {
     if (this.#y - height < BOTTOM) {
-      this.pages.push([]);
+      this.pages.push({ runs: [], strokes: [] });
       this.#y = PAGE_HEIGHT - MARGIN;
     }
   }
 
-  #current() {
-    return this.pages.at(-1) ?? [];
+  #current(): Page {
+    return this.pages.at(-1) ?? { runs: [], strokes: [] };
   }
 
-  text(bytes: ReadonlyArray<number>, font: Font, x: number) {
-    this.#current().push(
-      `BT /${font.name} ${number(font.size)} Tf 1 0 0 1 ${number(x)} ${number(this.#y)} Tm (${bytes.map(escaped).join("")}) Tj ET`,
+  #width(text: ReadonlyArray<number>, font: Font) {
+    const face = this.#faces[font.face];
+
+    const units = text.reduce(
+      (total, codePoint) => total + face.advanceOf(face.glyphOf(codePoint)),
+      0,
     );
+
+    return (units * font.size) / face.unitsPerEm;
+  }
+
+  /** Breaks text at spaces into lines no wider than `maxWidth`; a long word keeps its line. */
+  #wrap(text: ReadonlyArray<number>, font: Font, maxWidth: number) {
+    const words: Array<Array<number>> = [[]];
+
+    for (const codePoint of text) {
+      if (codePoint === 0x20) words.push([]);
+      else words.at(-1)?.push(codePoint);
+    }
+
+    const lines: Array<ReadonlyArray<number>> = [];
+    let line: ReadonlyArray<number> = [];
+
+    for (const word of words.filter((candidate) => candidate.length > 0)) {
+      const candidate = line.length === 0 ? word : [...line, 0x20, ...word];
+
+      if (line.length > 0 && this.#width(candidate, font) > maxWidth) {
+        lines.push(line);
+        line = word;
+      } else line = candidate;
+    }
+
+    return line.length === 0 ? lines : [...lines, line];
   }
 
   /** One line of text, advanced by its leading. */
-  line(bytes: ReadonlyArray<number>, font: Font, x = MARGIN) {
+  line(text: ReadonlyArray<number>, font: Font, x = MARGIN) {
     const leading = font.size * 1.4;
 
     this.#room(leading);
     this.#y -= leading;
-    this.text(bytes, font, x);
+    this.#current().runs.push({ font, x, y: this.#y, text });
   }
 
-  paragraph(bytes: ReadonlyArray<number>, font: Font) {
-    for (const line of wrap(bytes, font, PAGE_WIDTH - 2 * MARGIN)) this.line(line, font);
+  paragraph(text: ReadonlyArray<number>, font: Font) {
+    for (const line of this.#wrap(text, font, PAGE_WIDTH - 2 * MARGIN)) this.line(line, font);
   }
 
   /** A table row: every cell wraps in its column, and the row keeps its cells on one page. */
   row(cells: ReadonlyArray<readonly [ReadonlyArray<number>, number, number]>, font: Font) {
-    const wrapped = cells.map(([bytes, x, width]) => [wrap(bytes, font, width), x] as const);
+    const wrapped = cells.map(([text, x, width]) => [this.#wrap(text, font, width), x] as const);
     const leading = font.size * 1.4;
     const height = Math.max(...wrapped.map(([lines]) => lines.length)) * leading;
 
@@ -194,12 +180,8 @@ class Layout {
     const top = this.#y;
 
     for (const [lines, x] of wrapped) {
-      this.#y = top;
-
-      for (const line of lines) {
-        this.#y -= leading;
-        this.text(line, font, x);
-      }
+      for (const [index, line] of lines.entries())
+        this.#current().runs.push({ font, x, y: top - (index + 1) * leading, text: line });
     }
 
     this.#y = top - height;
@@ -208,7 +190,7 @@ class Layout {
   rule() {
     this.#room(8);
     this.#y -= 6;
-    this.#current().push(
+    this.#current().strokes.push(
       `0.5 w ${number(MARGIN)} ${number(this.#y)} m ${number(PAGE_WIDTH - MARGIN)} ${number(this.#y)} l S`,
     );
   }
@@ -224,28 +206,138 @@ const norwegianDate = (isoDate: string) => isoDate.split("-").toReversed().join(
 
 const encoder = new TextEncoder();
 
+const hex4 = (value: number) => value.toString(16).toUpperCase().padStart(4, "0");
+
+/** A code point in UTF-16BE, as a ToUnicode map writes it. */
+const utf16 = (codePoint: number) =>
+  codePoint > 0xffff
+    ? hex4(0xd800 + ((codePoint - 0x10000) >> 10)) + hex4(0xdc00 + ((codePoint - 0x10000) & 0x3ff))
+    : hex4(codePoint);
+
+/** One numbered object of the document: a dictionary, and the stream that follows it if any. */
+interface PdfObject {
+  readonly dictionary: string;
+  readonly stream?: Uint8Array;
+}
+
+const stream = (bytes: Uint8Array, entries = ""): PdfObject => ({
+  dictionary: `<< /Length ${bytes.length}${entries} >>`,
+  stream: bytes,
+});
+
 /** Serializes numbered objects with a cross-reference table. */
-const serialize = (objects: ReadonlyArray<string>): Uint8Array<ArrayBuffer> => {
+const serialize = (objects: ReadonlyArray<PdfObject>): Uint8Array<ArrayBuffer> => {
   // The binary marker after the header tells transfer tools that the file is not text.
-  const header = [...encoder.encode("%PDF-1.4\n%"), 0xe2, 0xe3, 0xcf, 0xd3, 0x0a];
+  const chunks: Array<Uint8Array> = [
+    Uint8Array.from([...encoder.encode("%PDF-1.4\n%"), 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]),
+  ];
+
   const offsets: Array<number> = [];
-  let body = "";
+  let length = chunks[0]?.length ?? 0;
+
+  const append = (chunk: Uint8Array) => {
+    chunks.push(chunk);
+    length += chunk.length;
+  };
 
   for (const [index, object] of objects.entries()) {
-    offsets.push(header.length + body.length);
-    body += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    offsets.push(length);
+
+    if (object.stream === undefined)
+      append(encoder.encode(`${index + 1} 0 obj\n${object.dictionary}\nendobj\n`));
+    else {
+      append(encoder.encode(`${index + 1} 0 obj\n${object.dictionary}\nstream\n`));
+      append(object.stream);
+      append(encoder.encode("\nendstream\nendobj\n"));
+    }
   }
 
-  const xref = [
-    `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`,
-    ...offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`),
-  ].join("");
+  const xref = length;
 
-  const trailer = `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R /Info 2 0 R >>\nstartxref\n${
-    header.length + body.length
-  }\n%%EOF\n`;
+  append(
+    encoder.encode(
+      [
+        `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`,
+        ...offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`),
+        `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R /Info 2 0 R >>\nstartxref\n${xref}\n%%EOF\n`,
+      ].join(""),
+    ),
+  );
 
-  return Uint8Array.from([...header, ...encoder.encode(body + xref + trailer)]);
+  const document = new Uint8Array(length);
+  let position = 0;
+
+  for (const chunk of chunks) {
+    document.set(chunk, position);
+    position += chunk.length;
+  }
+
+  return document;
+};
+
+/** The ToUnicode map of a subset: each drawn glyph and the character that it shows. */
+const toUnicode = (characters: ReadonlyArray<readonly [number, number]>) => {
+  const blocks: Array<string> = [];
+
+  // A block maps at most 100 codes.
+  for (let start = 0; start < characters.length; start += 100) {
+    const block = characters.slice(start, start + 100);
+
+    blocks.push(
+      `${block.length} beginbfchar\n${block.map(([glyph, codePoint]) => `<${hex4(glyph)}> <${utf16(codePoint)}>`).join("\n")}\nendbfchar`,
+    );
+  }
+
+  return [
+    "/CIDInit /ProcSet findresource begin",
+    "12 dict begin",
+    "begincmap",
+    "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def",
+    "/CMapName /Adobe-Identity-UCS def",
+    "/CMapType 2 def",
+    "1 begincodespacerange",
+    "<0000> <FFFF>",
+    "endcodespacerange",
+    ...blocks,
+    "endcmap",
+    "CMapName currentdict /defineresource pop",
+    "end",
+    "end",
+  ].join("\n");
+};
+
+/**
+ * The five objects of one embedded face, starting at object `first`: the composite font, its
+ * glyph-indexed descendant, the descriptor, the subset program, and the ToUnicode map.
+ */
+const faceObjects = (
+  first: number,
+  font: TrueTypeFont,
+  subset: TrueTypeSubset,
+  characters: ReadonlyArray<readonly [number, number]>,
+): ReadonlyArray<PdfObject> => {
+  const scale = (value: number) => Math.round((value * 1000) / font.unitsPerEm);
+
+  // A subset font's name starts with a tag of six capital letters that names the subset.
+  const tag = Array.from(sha256Hex(subset.program).slice(0, 6), (digit) =>
+    String.fromCharCode(65 + Number.parseInt(digit, 16)),
+  ).join("");
+
+  const name = `${tag}+${font.postScriptName}`;
+
+  return [
+    {
+      dictionary: `<< /Type /Font /Subtype /Type0 /BaseFont /${name} /Encoding /Identity-H /DescendantFonts [${first + 1} 0 R] /ToUnicode ${first + 4} 0 R >>`,
+    },
+    {
+      dictionary: `<< /Type /Font /Subtype /CIDFontType2 /BaseFont /${name} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor ${first + 2} 0 R /W [0 [${subset.advances.map(scale).join(" ")}]] /CIDToGIDMap /Identity >>`,
+    },
+    {
+      dictionary: `<< /Type /FontDescriptor /FontName /${name} /Flags 4 /FontBBox [${font.boundingBox.map(scale).join(" ")}] /ItalicAngle 0 /Ascent ${scale(font.ascent)} /Descent ${scale(font.descent)} /CapHeight ${scale(font.capHeight)} /StemV 80 /FontFile2 ${first + 3} 0 R >>`,
+    },
+    stream(subset.program, ` /Length1 ${subset.program.length}`),
+    stream(encoder.encode(toUnicode(characters))),
+  ];
 };
 
 /**
@@ -254,12 +346,14 @@ const serialize = (objects: ReadonlyArray<string>): Uint8Array<ArrayBuffer> => {
  */
 export const renderCertificatePdf = (
   issue: CertificateIssue,
+  faces: CertificateFaces,
 ): Result.Result<Uint8Array<ArrayBuffer>, CertificateUnprintable> =>
   Result.gen(function* () {
     const encode = (text: string, field: CertificateUnprintable["field"]) =>
-      Result.mapError(winAnsi(text), () => new CertificateUnprintable({ field }));
+      Result.mapError(printable(faces, text), () => new CertificateUnprintable({ field }));
 
-    const fixed = (text: string) => Result.getOrThrow(winAnsi(text));
+    // The fixed wording is Norwegian, which both faces cover.
+    const fixed = (text: string) => Result.getOrThrow(printable(faces, text));
     const { content, issuer } = issue;
     const assistant = yield* encode(content.assistantName, "assistant");
     const department = yield* encode(content.departmentName, "department");
@@ -277,7 +371,7 @@ export const renderCertificatePdf = (
     );
 
     const total = content.semesters.reduce((sum, semester) => sum + semester.days, 0);
-    const layout = new Layout();
+    const layout = new Layout(faces);
     const columns = { period: MARGIN, schools: MARGIN + 130, days: PAGE_WIDTH - MARGIN - 60 };
     const schoolsWidth = columns.days - columns.schools - 12;
 
@@ -341,27 +435,67 @@ export const renderCertificatePdf = (
     layout.paragraph(seatTitle, regular(11));
     layout.line(fixed(`Utstedt ${norwegianDate(issue.issuedOn)}`), regular(11));
 
+    const runs = layout.pages.flatMap((page) => page.runs);
+
+    // Each face embeds the glyphs that its runs draw, numbered in the order that they appear.
+    const embedded = (face: Face, font: TrueTypeFont) => {
+      const drawn = new Map<number, number>();
+
+      for (const run of runs.filter((candidate) => candidate.font.face === face))
+        for (const codePoint of run.text) {
+          const glyph = font.glyphOf(codePoint);
+
+          if (!drawn.has(glyph)) drawn.set(glyph, codePoint);
+        }
+
+      const subset = font.subset(drawn.keys());
+
+      return {
+        font,
+        subset,
+        characters: [...drawn].map(
+          ([glyph, codePoint]) => [subset.glyphs.get(glyph) ?? 0, codePoint] as const,
+        ),
+      };
+    };
+
+    const fonts = { F1: embedded("F1", faces.regular), F2: embedded("F2", faces.bold) };
+
+    const textOperator = (run: Run) => {
+      const { font, subset } = fonts[run.font.face];
+
+      const glyphs = run.text
+        .map((codePoint) => hex4(subset.glyphs.get(font.glyphOf(codePoint)) ?? 0))
+        .join("");
+
+      return `BT /${run.font.face} ${number(run.font.size)} Tf 1 0 0 1 ${number(run.x)} ${number(run.y)} Tm <${glyphs}> Tj ET`;
+    };
+
+    // Objects: catalog, info, pages, five for each face, then a page and its content per page.
+    const pageObject = (index: number) => 14 + index * 2;
     const pageCount = layout.pages.length;
-    // Objects: catalog, info, pages, two fonts, then a page and its content for each page.
-    const pageObject = (index: number) => 6 + index * 2;
 
-    const pages = layout.pages.flatMap((operations, index) => {
-      const stream = operations.join("\n");
-
-      return [
-        `<< /Type /Page /Parent 3 0 R /MediaBox [0 0 ${number(PAGE_WIDTH)} ${number(PAGE_HEIGHT)}] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents ${pageObject(index) + 1} 0 R >>`,
-        `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
-      ];
-    });
+    const pages = layout.pages.flatMap(
+      (page, index): ReadonlyArray<PdfObject> => [
+        {
+          dictionary: `<< /Type /Page /Parent 3 0 R /MediaBox [0 0 ${number(PAGE_WIDTH)} ${number(PAGE_HEIGHT)}] /Resources << /Font << /F1 4 0 R /F2 9 0 R >> >> /Contents ${pageObject(index) + 1} 0 R >>`,
+        },
+        stream(encoder.encode([...page.strokes, ...page.runs.map(textOperator)].join("\n"))),
+      ],
+    );
 
     const created = issue.issuedAt.replace(/[-:]/gu, "").replace(/T/u, "").slice(0, 14);
 
     return serialize([
-      "<< /Type /Catalog /Pages 3 0 R >>",
-      `<< /Title (Attest) /Producer (Vektorprogrammet) /CreationDate (D:${created}Z) >>`,
-      `<< /Type /Pages /Kids [${Array.from({ length: pageCount }, (_, index) => `${pageObject(index)} 0 R`).join(" ")}] /Count ${pageCount} >>`,
-      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
-      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
+      { dictionary: "<< /Type /Catalog /Pages 3 0 R >>" },
+      {
+        dictionary: `<< /Title (Attest) /Producer (Vektorprogrammet) /CreationDate (D:${created}Z) >>`,
+      },
+      {
+        dictionary: `<< /Type /Pages /Kids [${Array.from({ length: pageCount }, (_, index) => `${pageObject(index)} 0 R`).join(" ")}] /Count ${pageCount} >>`,
+      },
+      ...faceObjects(4, fonts.F1.font, fonts.F1.subset, fonts.F1.characters),
+      ...faceObjects(9, fonts.F2.font, fonts.F2.subset, fonts.F2.characters),
       ...pages,
     ]);
   });

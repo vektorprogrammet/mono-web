@@ -74,7 +74,12 @@ import {
   semanticRequestDigest,
 } from "../http-semantics.js";
 import { genericContext } from "../native-operation.js";
-import { type CertificateUnprintable, renderCertificatePdf } from "./certificate-pdf.js";
+import {
+  type CertificateFaces,
+  CertificateFonts,
+  type CertificateUnprintable,
+  renderCertificatePdf,
+} from "./certificate-pdf.js";
 
 /** A total is a small integer; the body is bounded well above it. */
 const MAX_CONFIRMATION_BYTES = 1_024;
@@ -414,7 +419,12 @@ const confirmDaysServed = (
     return yield* commandOutcomeResponse(outcome);
   });
 
-const issueCertificate = (request: Request, departmentId: DepartmentId, personId: PersonId) =>
+const issueCertificate = (
+  request: Request,
+  departmentId: DepartmentId,
+  personId: PersonId,
+  faces: CertificateFaces,
+) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
 
@@ -463,7 +473,7 @@ const issueCertificate = (request: Request, departmentId: DepartmentId, personId
           ).pipe(
             Effect.flatMap((issue) =>
               Effect.map(
-                Effect.fromResult(renderCertificatePdf(issue)),
+                Effect.fromResult(renderCertificatePdf(issue, faces)),
                 (pdf): NativeHttpResponseCapsule => ({
                   status: 200,
                   mediaType: "application/pdf",
@@ -488,12 +498,12 @@ const issueCertificate = (request: Request, departmentId: DepartmentId, personId
     return yield* commandOutcomeResponse(outcome);
   });
 
-/** Native HttpApi handlers of days served and certificates. */
+/** Native HttpApi handlers of days served and certificates; the fonts load once, with the group. */
 export const CertificatesApiHandlers = HttpApiBuilder.group(
   ExternalNativeApi,
   "certificates",
   (handlers) =>
-    Effect.succeed(
+    CertificateFonts.useSync((faces) =>
       handlers
         .handleRaw("readCertificateScopes", ({ request }) => webHandler(request, readScopes))
         .handleRaw("listDaysServed", ({ request, params }) =>
@@ -516,7 +526,7 @@ export const CertificatesApiHandlers = HttpApiBuilder.group(
         )
         .handleRaw("issueCertificate", ({ request, params }) =>
           webHandler(request, (webRequest) =>
-            issueCertificate(webRequest, params.departmentId, params.personId),
+            issueCertificate(webRequest, params.departmentId, params.personId, faces),
           ),
         ),
     ),

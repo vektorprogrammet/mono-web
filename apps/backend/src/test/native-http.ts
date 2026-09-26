@@ -37,6 +37,7 @@ import {
   TeamApplicationsApi,
 } from "@vektorprogrammet/http-api";
 import { TeamApplicationsApiHandlers } from "../team-application/http.js";
+import { CertificateFontsLive } from "../placements/certificate-pdf.js";
 import { CertificatesApiHandlers } from "../placements/certificates-http.js";
 import { Context, Effect, Layer, Option, type Crypto, type FileSystem, type Path } from "effect";
 import {
@@ -436,7 +437,7 @@ export const makeTeamApplicationsTestHttp = <S extends TestServiceLayer>(
 export const makeCertificatesTestHttp = <S extends TestServiceLayer>(services: S) => ({
   fetch: testFetch(
     HttpApiBuilder.layer(certificatesContract).pipe(
-      Layer.provide(CertificatesApiHandlers),
+      Layer.provide(CertificatesApiHandlers.pipe(Layer.provide(CertificateFontsLive))),
       Layer.provide(NativeHttpApiMiddlewareLive),
     ),
     services,
