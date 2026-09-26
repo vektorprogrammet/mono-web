@@ -284,7 +284,7 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     "/api/onboarding/claim",
     "onboarding.claim",
     expectedAccess({
-      credentials: ["BetterAuthCookie", "OAuthUserBearer", "ObjectCapability"],
+      credentials: ["BetterAuthCookie", "ObjectCapability"],
       principals: ["Person", "CapabilityHolder"],
       capability: "onboarding.claim",
       resolver: "onboarding.claim",
@@ -1184,8 +1184,8 @@ describe("native API reflection", () => {
   it("declares the body token and the existing-account Person credential without inventing a header scheme", () => {
     const spec = OpenApi.fromApi(ExternalNativeApi);
     const claim = spec.paths["/api/onboarding/claim"]!.post!;
-    // New-account mode needs no HTTP scheme; existing-account mode needs a session or bearer.
-    expect(claim.security).toEqual([{}, { cookieHeader: [] }, { oauthUserBearer: [] }]);
+    // New-account mode needs no HTTP scheme; existing-account mode needs the browser session.
+    expect(claim.security).toEqual([{}, { cookieHeader: [] }]);
     expect(claim).toHaveProperty("x-vektor-body-capability",{
       type: "onboarding.claim",
       pointer: "/token",
@@ -1194,10 +1194,10 @@ describe("native API reflection", () => {
     expect(claim).toHaveProperty("x-vektor-conditional-credential",{
       when: { pointer: "/mode", equals: "ExistingAccount" },
       principalKind: "Person",
-      mechanisms: ["BetterAuthCookie", "OAuthUserBearer"],
+      mechanisms: ["BetterAuthCookie"],
     });
     expect(claim).toMatchObject({ "x-vektor-access": {
-      acceptedCredentials: ["BetterAuthCookie", "OAuthUserBearer", "ObjectCapability"],
+      acceptedCredentials: ["BetterAuthCookie", "ObjectCapability"],
       principalKinds: ["Person", "CapabilityHolder"],
       capabilities: { one: "onboarding.claim" },
       requirements: [{ id: "onboarding.claim-token" }],

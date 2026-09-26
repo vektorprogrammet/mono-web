@@ -1017,7 +1017,12 @@ const sameCredentialMechanism = (left: CredentialMechanism, right: CredentialMec
     (Predicate.isTagged(right, "ObjectCapability") &&
       left.capabilityType === right.capabilityType));
 
-const credentialMatchesAccessSpec = (
+/**
+ * Whether an AccessSpec accepts a resolved credential: the spec declares its mechanism, and the
+ * credential names the principal kind that mechanism resolves. This is the credential stage of
+ * every access evaluation; a handler that authorizes in parts uses it for the same answer.
+ */
+export const credentialMatchesAccessSpec = (
   spec: AccessSpec,
   credential: Extract<CredentialOutcome, { readonly _tag: "Accepted" }>,
 ): boolean =>

@@ -119,7 +119,8 @@ export const ClaimOnboardingEndpoint = HttpApiEndpoint.post("claim", "/api/onboa
     annotateAccessSpec(
       e,
       // New-account mode: the token holder is the principal. Existing-account mode: the
-      // session or delegated bearer names the principal, and the token is its requirement.
+      // browser session names the principal, and the token is its requirement. A delegated
+      // bearer cannot make the claim, so the AccessSpec does not accept one.
       makeAccessSpec({
         exposure: "External",
         acceptedCredentials: [
@@ -127,7 +128,6 @@ export const ClaimOnboardingEndpoint = HttpApiEndpoint.post("claim", "/api/onboa
             capabilityType: CapabilityTypeId.make("onboarding.claim"),
           }),
           CredentialMechanismSchema.cases.BetterAuthCookie.make({}),
-          CredentialMechanismSchema.cases.OAuthUserBearer.make({}),
         ],
         principalKinds: ["CapabilityHolder", "Person"],
         capabilities: CapabilityExpressionSchema.cases.One.make({
@@ -143,7 +143,7 @@ export const ClaimOnboardingEndpoint = HttpApiEndpoint.post("claim", "/api/onboa
   .annotateMerge(
     operationAnnotations(
       "Claim applicant account invitation",
-      "The body token is required in both modes and works once. In new-account mode the token is the one credential, so a session cookie or bearer beside it is rejected. In existing-account mode a session cookie or delegated bearer names the one principal, and the token is its requirement onboarding.claim-token: it must name an open invitation.",
+      "The body token is required in both modes and works once. In new-account mode the token is the one credential, so a session cookie or bearer beside it is rejected. In existing-account mode the browser session names the one principal, and the token is its requirement onboarding.claim-token: it must name an open invitation. A delegated bearer cannot make the claim.",
     ),
   );
 
