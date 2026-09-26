@@ -11,8 +11,11 @@ Status: open on the branch `build/lead-constructs-0926` on 2026-09-26. Remove th
 
 ## Remaining steps
 
+The branch is rebased onto `main` at b6a5fdaa. On the rebased tree the scoped rule run reports 0 findings, all anti-slop RuleTester tests pass (37 of 37), and `packages/database/migrations/checksums.json` records migration 76.
+
 Run each heavy step alone, under the heavy lock, and record its exit code and evidence.
 
+0. Switch the rule-reconciliation proof's local lookup of migration 26 to `selectDatabaseMigration`, as RedSuites noted when it landed the lookup on `main`.
 1. Rerun the suites whose files the journey-clock commit changed:
    - `just e2e scheduling`: the schedule and the seed timeline now derive from the backend's clock, and the spec reads `SCHEDULING_E2E_SCHEDULED_AT`.
    - `just e2e interview-response`: the windows derive from the runner's pin, and the spec reads it as `ADMISSION_FIXED_NOW`. The suite is red on `main` for an unrelated reason, the exact problem-key list; check that this is still the only failure.
