@@ -79,6 +79,7 @@ import {
 } from "@vektorprogrammet/http-api";
 import { DateTime, Effect, Layer, Option, Predicate, Schema } from "effect";
 import { describe, expect, it } from "@effect/vitest";
+import { jsonText } from "../http-api/problem.js";
 import { PreconditionDecision, evaluateMutationPrecondition } from "../http-semantics.js";
 import { makeRecruitmentTestHttp } from "../test/native-http.js";
 import { recruitmentInterviewAccessContext } from "./http-access.js";
@@ -301,11 +302,11 @@ const rejectInvitation = () => invitation(":reject", { body: "{}" });
 
 const problemOf = (response: Response) =>
   Effect.gen(function* () {
-    return {
-      status: response.status,
-      code: Schema.decodeUnknownSync(NativeProblem)(yield* Effect.promise(() => response.json()))
-        .code,
-    };
+    const problem = yield* Schema.decodeUnknownEffect(NativeProblem)(
+      yield* Effect.promise(() => response.json()),
+    );
+
+    return { status: response.status, code: problem.code };
   });
 
 describe("native recruitment HTTP boundary", () => {
@@ -315,7 +316,7 @@ describe("native recruitment HTTP boundary", () => {
       transitions.length = 0;
 
       const accepted = yield* http.fetch(
-        invitation(":reject", { body: JSON.stringify({ message: "Another time" }) }),
+        invitation(":reject", { body: yield* jsonText({ message: "Another time" }) }),
       );
 
       expect(accepted.status).toBe(204);
@@ -343,7 +344,7 @@ describe("native recruitment HTTP boundary", () => {
       expect(
         yield* problemOf(
           yield* http.fetch(
-            invitation(":confirm", { body: JSON.stringify({ unexpected: "x".repeat(256) }) }),
+            invitation(":confirm", { body: yield* jsonText({ unexpected: "x".repeat(256) }) }),
           ),
         ),
       ).toEqual({ status: 400, code: "request.malformed" });
@@ -427,7 +428,7 @@ describe("native recruitment HTTP boundary", () => {
         ["", undefined],
         [":confirm", "{}"],
         [":reject", "{}"],
-        [":request-new-time", JSON.stringify({ message: "Kan vi møtes torsdag?" })],
+        [":request-new-time", yield* jsonText({ message: "Kan vi møtes torsdag?" })],
       ] as const;
 
       const answer = (response: Response) =>
