@@ -74,6 +74,13 @@ const effectConfig = {
       severityOverrides: { "no-ambient-authority": "error" },
     },
     group({
+      // The SDK selects FetchHttpClient, closes the environment, and runs each operation for Promise callers.
+      files: ["packages/sdk/src/effect-client.ts", "packages/sdk/src/promise.ts"],
+      role: "composition-root",
+      platform: "portable",
+      strictness: "recommended",
+    }),
+    group({
       files: [
         "tools/acceptance/**/*.ts",
         "tools/verification/**/*.ts",
@@ -266,8 +273,6 @@ export default defineConfig({
         "apps/backend/src/native-operation.ts",
         "packages/database/src/oauth-live.ts",
         "packages/database/src/password-recovery.ts",
-        "packages/sdk/src/effect-client.ts",
-        "packages/sdk/src/promise.ts",
       ],
       rules: {
         // These named adapters are the explicit Effect-to-Promise or synchronous interoperability seam.
