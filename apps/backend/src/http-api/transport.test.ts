@@ -230,7 +230,7 @@ describe("request schema error coverage", () => {
       const gaps: Array<string> = [];
 
       for (const { operation, declared, error } of checks) {
-        const { code } = Schema.decodeUnknownSync(NativeProblem)(
+        const { code } = yield* Schema.decodeUnknownEffect(NativeProblem)(
           yield* Effect.promise(() => requestSchemaErrorResponse(error).json()),
         );
 
