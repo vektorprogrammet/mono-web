@@ -108,7 +108,7 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
   The first secretspec deploy (draft PR #24, run `36239143975`) reached Bitwarden, which refused the machine-account token with `invalid_client`; no preview has deployed yet. They have no backend, so pages that read the API show the unavailable state.
   A native backend preview host is the planned follow-up: full-stack per-PR previews on DigitalOcean App Platform (`digitalocean/app_action` with `deploy_pr_preview`) so previews rehearse the production platform.
 - The `dev-main` stage was torn down on 2026-09-26: its Workers, custom domain, route, tunnel, tunnel DNS records, and workstation units are gone. `vektor.phibkro.org` is free for a future staging deployment of `main`.
-  Retired Cloudflare Workers still deployed: p20 (homepage, dashboard, preview worker), p001 (homepage, dashboard), the superseded development backend (routes `vektor.phibkro.org/api/*` and `/health`), and `vektor-migration-docs`.
+  The retired Workers (p20 homepage, dashboard and preview worker; p001 homepage and dashboard; the superseded development backend; `vektor-migration-docs`), their routes `vektor.phibkro.org/api/*` and `/health`, and the custom domains `p001`, `p001-dashboard`, `p20.vektor.phibkro.org` and `vector-docs.phibkro.org` were deleted on 2026-09-26 (operator decision).
 - Hosted `Tests` run `36191536836` passed every job at `6c812703`, including the PostgreSQL 17 lane.
   The `Browser journeys` matrix runs every `just golden`, `just e2e`, `just proof`, and `just rehearsal` name that no other hosted job runs; `just layout write` generates its legs from the justfile, and `just layout` fails on a Playwright spec or acceptance probe that no name runs and no exclusion lists ([hosted journeys](docs/web-system-functional-testing.md#hosted-journeys)).
   Hosted run `36219552428` passed 16 of its first 17 legs; `e2e contact` failed because it served a homepage build it did not make, and its runner now builds one.
@@ -166,8 +166,8 @@ The `legacy-data` devenv profile cannot build while the home binary cache answer
 - Homelab branch `feat/btrbk-root-offload-ironwolf` (in `/srv/share/projects/homelab-btrbk-offload`) is built, not merged or deployed.
   It keeps root snapshots 7d locally, sends the latest to the IronWolf until 2026-10-04 and 4w 6m after, caps `@downloads` at 2540G,
   ages `/tmp` at 7d, and makes a dead binary cache non-fatal. Merge it into homelab `main` and rebuild the workstation from the homelab justfile, following the steps in its docs.
-- Replace the `BWS_ACCESS_TOKEN` repository secret with a valid access token of the machine account `vektorprogrammet-ci`, which reads Bitwarden project `2ddfeed1-59d8-4139-b6b0-b4d1001edcfc` on `vault.bitwarden.eu` (the current one is refused with `invalid_client`).
-  After the first secretspec preview deploy passes, delete the superseded `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` GitHub secrets, and decide whether to delete the retired Cloudflare Workers listed above.
+- Replace the `BWS_ACCESS_TOKEN` repository secret with a valid access token of the machine account `vektorprogrammet-ci`, which reads Bitwarden project `2ddfeed1-59d8-4139-b6b0-b4d1001edcfc` on `vault.bitwarden.eu` (tokens set at 11:30Z and 12:14Z were both refused with `invalid_client` by `vault.bitwarden.eu`; confirm the token works locally against the EU and US clouds with `bws project list --server-url`).
+  After the first secretspec preview deploy passes, delete the superseded `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` GitHub secrets.
 - Before any production use of reach and delegation: classify the Styret and national teams, recognize independent departments,
   and issue the Økonomi delegations, each by explicit command (see Production gates).
 
