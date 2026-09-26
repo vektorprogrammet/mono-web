@@ -572,9 +572,9 @@ export const databaseMigrationDefinitions = [
     url: new URL("../migrations/0073-retire-native-school-surveys.sql", import.meta.url),
   },
   {
-    id: "75_application-availability",
+    id: "74_application-availability",
     name: "application-availability",
-    url: new URL("../migrations/0075-application-availability.sql", import.meta.url),
+    url: new URL("../migrations/0074-application-availability.sql", import.meta.url),
   },
 ] as const;
 
