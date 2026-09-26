@@ -22,7 +22,7 @@ export interface TextPictureParagraphApiProps {
 export const TextPictureParagraph = ({
   title,
   text,
-  pictureOnLeft = true,
+  pictureOnLeft,
   image,
 }: TextPictureParagraphProps) => {
   return (

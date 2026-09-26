@@ -7,7 +7,6 @@ import {
   Link,
   NavLink,
   Outlet,
-  type To,
   useLoaderData,
   useLocation,
 } from "react-router";
@@ -77,7 +76,7 @@ function AppHeader() {
   );
 }
 
-function NavTabs({ routes }: { routes: Array<{ name: string; path: To }> }) {
+function NavTabs({ routes }: { routes: Array<{ name: string; path: string }> }) {
   const location = useLocation();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const tabRefs = useRef(new Map<string, HTMLAnchorElement>());
@@ -96,11 +95,11 @@ function NavTabs({ routes }: { routes: Array<{ name: string; path: To }> }) {
 
     const activeKey = routes
       .find((route) => {
-        const routePath = route.path.toString();
+        const routePath = route.path;
 
         return pathname === routePath || pathname.startsWith(`${routePath}/`);
       })
-      ?.path.toString();
+      ?.path;
 
     if (!activeKey) {
       setIndicator(null);
@@ -130,7 +129,7 @@ function NavTabs({ routes }: { routes: Array<{ name: string; path: To }> }) {
         />
       )}
       {routes.map((route) => {
-        const routeKey = route.path.toString();
+        const routeKey = route.path;
 
         return (
           <NavLink
@@ -166,7 +165,7 @@ function LoginButtons() {
   );
 }
 
-const MobileMenu = ({ routes }: { routes: Array<{ name: string; path: To }> }) => {
+const MobileMenu = ({ routes }: { routes: Array<{ name: string; path: string }> }) => {
   return (
     <div className="md:hidden">
       <Drawer>

@@ -116,7 +116,7 @@ describe("homepage contact-message boundary", () => {
     expect(JSON.stringify(result)).not.toContain(values.email);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(String(url)).toBe("http://api.test/api/contact-messages");
+    expect(new Request(url).url).toBe("http://api.test/api/contact-messages");
     expect(await new Response(init?.body).json()).toEqual({
       ...values,
       departmentId: department.departmentId,

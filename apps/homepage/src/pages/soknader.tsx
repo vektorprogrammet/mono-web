@@ -80,7 +80,7 @@ function Applications({
       {applications.map((application) => {
         return (
           <div
-            key={application.toString()}
+            key={application.role}
             className="mx-4 mt-4 max-w-lg rounded-sm border-2 border-gray-200 p-2 shadow-md"
           >
             <h1 className="mt-2 font-medium text-2xl text-vektor-darblue">
