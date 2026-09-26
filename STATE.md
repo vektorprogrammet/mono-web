@@ -105,7 +105,7 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
 - Hand-written operation ids outside content, hand-written dashboard navigation paths, a fixed admissions `retry-after`, and fixed ports in older browser runners.
 - PR previews (operator decision, 2026-09-25): Cloudflare Worker Previews of the homepage and dashboard only, as `vektor-preview-homepage` and `vektor-preview-dashboard`, which `wrangler preview` creates on first use ([contract](docs/specs/worker-pr-previews.md)).
   Their Cloudflare token (Workers Editor on the two preview Workers only) and account id live in Bitwarden Secrets Manager; `secretspec.toml` profile `preview` gives them to the deploy and delete steps, and GitHub holds only the read-only `BWS_ACCESS_TOKEN`. The parent Workers were created on 2026-09-26 and hold no version.
-  The first secretspec deploy (draft PR #24, run `36239143975`) reached Bitwarden, which refused the machine-account token with `invalid_client`; no preview has deployed yet. They have no backend, so pages that read the API show the unavailable state.
+  Draft PR #24 proved the path on 2026-09-26: run `36242120400` read both secrets from Bitwarden (US cloud) through secretspec, deployed both previews, passed the document and asset probes, and posted the review comment; closing the PR ran the cleanup, and the Cloudflare API then listed no previews or versions on either Worker. The homepage preview hostname answered 404 at once, but `pr-24-vektor-preview-dashboard` still served the app 7 minutes later. `wrangler preview delete` is an open beta; recheck a closed PR's dashboard hostname and report upstream if it keeps serving. They have no backend, so pages that read the API show the unavailable state.
   A native backend preview host is the planned follow-up: full-stack per-PR previews on DigitalOcean App Platform (`digitalocean/app_action` with `deploy_pr_preview`) so previews rehearse the production platform.
 - The `dev-main` stage was torn down on 2026-09-26: its Workers, custom domain, route, tunnel, tunnel DNS records, and workstation units are gone. `vektor.phibkro.org` is free for a future staging deployment of `main`.
   The retired Workers (p20 homepage, dashboard and preview worker; p001 homepage and dashboard; the superseded development backend; `vektor-migration-docs`), their routes `vektor.phibkro.org/api/*` and `/health`, and the custom domains `p001`, `p001-dashboard`, `p20.vektor.phibkro.org` and `vector-docs.phibkro.org` were deleted on 2026-09-26 (operator decision).
@@ -142,7 +142,7 @@ PGlite performance and full native composition are unmeasured.
 ### Lead handoff
 
 Updated 2026-09-26 at `b1c4a8a0`. A new lead resumes from this section, `AGENTS.md`, and `docs/specs/`, not from chat or session files.
-No product branch is in flight. Draft PR #24 (branch `test/preview-secretspec-0926`, an empty commit) exists only to prove the secretspec preview deploy and delete: rerun its failed deploy after the operator replaces `BWS_ACCESS_TOKEN`, check both preview URLs, then close it to exercise the delete.
+No product branch is in flight.
 `spike/persisted-queue-outbox-0925` (worktree `mono-web-pq-spike-0925`, one commit) is an unlanded Effect PersistedQueue delivery spike for the [infrastructure ports](docs/specs/infrastructure-ports.md) outbox; decide it there.
 
 How work runs: one writer per worktree and branch; heavy commands go through `just measure`, whose machine-wide lock serialises every agent;
@@ -166,8 +166,7 @@ The `legacy-data` devenv profile cannot build while the home binary cache answer
 - Homelab branch `feat/btrbk-root-offload-ironwolf` (in `/srv/share/projects/homelab-btrbk-offload`) is built, not merged or deployed.
   It keeps root snapshots 7d locally, sends the latest to the IronWolf until 2026-10-04 and 4w 6m after, caps `@downloads` at 2540G,
   ages `/tmp` at 7d, and makes a dead binary cache non-fatal. Merge it into homelab `main` and rebuild the workstation from the homelab justfile, following the steps in its docs.
-- `BWS_ACCESS_TOKEN` holds the access token of the machine account `vektorprogrammet-ci`, which reads Bitwarden project `2ddfeed1-59d8-4139-b6b0-b4d1001edcfc` in the US cloud (`vault.bitwarden.com`).
-  After the first secretspec preview deploy passes, delete the superseded `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` GitHub secrets.
+- `BWS_ACCESS_TOKEN` (the only preview secret in GitHub) holds the access token of the machine account `vektorprogrammet-ci`, which reads Bitwarden project `2ddfeed1-59d8-4139-b6b0-b4d1001edcfc` in the US cloud; the Cloudflare token is its key `WORKERS_EDIT_CLOUDFLARE_API_TOKEN`. Rotate both before they expire.
 - Before any production use of reach and delegation: classify the Styret and national teams, recognize independent departments,
   and issue the Økonomi delegations, each by explicit command (see Production gates).
 
