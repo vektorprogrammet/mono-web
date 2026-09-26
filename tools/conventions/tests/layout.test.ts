@@ -3,7 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { checkLayout, type Finding } from "../src/check.js";
-import { boundedContextNames, contextFolderName } from "../src/cml.js";
+import { boundedContextNames, contextFolderName, readContextModel } from "../src/cml.js";
 import { readJustfile } from "../src/justfile.js";
 import { readRepository, repositoryRoot, type Repository } from "../src/repository.js";
 
@@ -18,6 +18,7 @@ const withFiles = (files: Readonly<Record<string, string>>): Repository => ({
   paths: [...new Set([...base.paths, ...Object.keys(files)])].sort(),
   links: base.links,
   read: (path) => files[path] ?? base.read(path),
+  readLink: base.readLink,
 });
 
 const findingsFor = (
@@ -102,5 +103,49 @@ describe("CML bounded context names", () => {
       "team-applications",
       "hk-dir-catalogue",
     ]);
+  });
+});
+
+describe("CML context map", () => {
+  test("reads the upstream side of each arrow, and a partnership as symmetric", () => {
+    const model = readContextModel(
+      [
+        'BoundedContext Upstream implements Area { Aggregate Owned { responsibilities = "Owns it" } }',
+        "BoundedContext Downstream",
+        "ContextMap Map {",
+        "  contains Upstream, Downstream",
+        "  Upstream [U,OHS,PL] -> [D,CF] Downstream { exposedAggregates = Owned, Other }",
+        '  Downstream [D,ACL] <- [U] Upstream { implementationTechnology = "Import" }',
+        "  Upstream [P]<->[P] Downstream : Pact",
+        "}",
+      ].join("\n"),
+    );
+
+    expect(model.errors).toEqual([]);
+    expect(model.contexts[0]?.aggregates).toEqual([
+      { name: "Owned", responsibilities: ["Owns it"] },
+    ]);
+
+    expect(
+      model.relationships.map(({ upstream, downstream, downstreamRoles, symmetric }) => [
+        upstream,
+        downstream,
+        downstreamRoles.join(","),
+        symmetric,
+      ]),
+    ).toEqual([
+      ["Upstream", "Downstream", "D,CF", false],
+      ["Upstream", "Downstream", "D,ACL", false],
+      ["Upstream", "Downstream", "P", true],
+    ]);
+
+    expect(model.relationships[0]?.exposedAggregates).toEqual(["Owned", "Other"]);
+    expect(model.relationships[1]?.implementationTechnology).toBe("Import");
+  });
+
+  test("reports a relationship notation that it does not read", () => {
+    expect(
+      readContextModel("ContextMap Map { Upstream Partnership Downstream }").errors,
+    ).toHaveLength(1);
   });
 });

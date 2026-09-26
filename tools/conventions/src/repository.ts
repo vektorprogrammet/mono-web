@@ -4,7 +4,7 @@
  * records; the hook runner sets unstaged changes aside, so the files on disk hold the staged content.
  */
 import { spawnSync } from "node:child_process";
-import { lstatSync, readFileSync, type Stats } from "node:fs";
+import { lstatSync, readFileSync, readlinkSync, type Stats } from "node:fs";
 import { join } from "node:path";
 
 export interface Repository {
@@ -14,6 +14,8 @@ export interface Repository {
   /** The paths that are symbolic links, such as a `CLAUDE.md` beside its `AGENTS.md`. */
   readonly links: ReadonlySet<string>;
   readonly read: (path: string) => string;
+  /** The target of a symbolic link, as the link stores it. */
+  readonly readLink: (path: string) => string;
 }
 
 const git = (root: string, args: ReadonlyArray<string>): string => {
@@ -69,5 +71,6 @@ export const readRepository = (root: string, staged: boolean): Repository => {
     paths: paths.sort(),
     links,
     read: (path) => readFileSync(join(root, path), "utf8"),
+    readLink: (path) => readlinkSync(join(root, path)),
   };
 };

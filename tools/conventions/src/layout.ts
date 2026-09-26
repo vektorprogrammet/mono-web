@@ -56,7 +56,8 @@ export const packageDirectories = {
   "packages/http-api": "HTTP contracts, middleware declarations, and OpenAPI",
   "packages/sdk": "Generated native API client",
   "tools/acceptance": "Local API and browser acceptance probes of single journeys",
-  "tools/conventions": "Layout declaration and check; generated README and AGENTS.md sections",
+  "tools/conventions":
+    "Layout, module guide, and construct catalogue checks and their generated files",
   "tools/e2e": "Golden journeys, local journey drivers, and legacy migration commands",
   "tools/oxlint": "Project Oxlint rules",
   "tools/placements-docs": "Placements API reference generation and checks",
@@ -173,6 +174,20 @@ export const contextLayers = {
     scheduling: { context: "Recruitment", reason: "Interview scheduling." },
   },
 } satisfies Readonly<Record<string, Readonly<Record<string, FolderException>>>>;
+
+/**
+ * What each context layer holds. The module guide of every folder in a layer states it.
+ */
+export const contextLayerRoles = {
+  "packages/domain/src":
+    "The domain layer holds business values, state transitions, failures, capability requirements, and service contracts. It imports no database, HTTP, application, browser, provider, or migration-tool code.",
+  "packages/database/src":
+    "The persistence layer holds PostgreSQL adapters and service Layers. They keep state, revision, command receipts, audit, and outbox writes in the caller's transaction, and own SQL projections, joins, ordering, scope, and storage codecs.",
+  "apps/backend/src":
+    "The backend layer holds HTTP handlers, delivery workers, and provider adapters that the native process composes. It keeps response receipts and preconditions in the transport, and provider I/O after commit.",
+  "apps/dashboard/app/foldkit":
+    "The dashboard layer holds authenticated journeys: one Foldkit Model per workflow renders server-owned facts and submits commands through the generated SDK.",
+} satisfies Readonly<Record<keyof typeof contextLayers, string>>;
 
 /**
  * Apps and packages never import tools. Each exception names the tool, the importing directories,

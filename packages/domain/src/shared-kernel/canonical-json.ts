@@ -10,6 +10,11 @@ import { Schema, flow, Match, Predicate } from "effect";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
+/**
+ * The plain JSON value of a datum, with sorted object keys and non-finite numbers as `null`.
+ *
+ * @construct digest
+ */
 export const canonicalJsonValue = Match.type<unknown>().pipe(
   Match.when(Predicate.isNull, () => null),
   Match.when(Predicate.isString, (value) => value),
@@ -45,8 +50,23 @@ const encodeJsonValue = (value: Schema.Json): string => {
   return encoded;
 };
 
+/**
+ * The canonical JSON text of a datum.
+ *
+ * @construct digest
+ */
 export const canonicalJson = flow(canonicalJsonValue, encodeJsonValue);
 
+/**
+ * The UTF-8 bytes of the canonical JSON text of a datum.
+ *
+ * @construct digest
+ */
 export const canonicalJsonBytes = flow(canonicalJson, (json) => new TextEncoder().encode(json));
 
+/**
+ * The lowercase hexadecimal SHA-256 digest of bytes.
+ *
+ * @construct digest
+ */
 export const sha256Hex = (bytes: Uint8Array): string => bytesToHex(sha256(bytes));

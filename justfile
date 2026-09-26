@@ -36,15 +36,25 @@ build *args:
 changelog *args:
     bun tools/scripts/changelog.ts "$@"
 
-# Check layout, source safety, format, lint, types, and the HTTP contract. Arguments go to Turbo.
+# Check layout, constructs, guides, source safety, format, lint, types, and the HTTP contract. Arguments go to Turbo.
 [group('check')]
-check *args: layout source-safety (format "--check") lint
+check *args: layout constructs guides source-safety (format "--check") lint
     bun x turbo check-types "$@"
 
 # Check the repository layout and the generated README and AGENTS.md sections; `just layout write` renders them.
 [group('check')]
 layout *args:
     bun --no-env-file tools/conventions/src/cli.ts layout "$@"
+
+# Check docs/constructs.md against the @construct tags and the imports; `just constructs write` renders it.
+[group('check')]
+constructs *args:
+    bun --no-env-file tools/conventions/src/cli.ts constructs "$@"
+
+# Check the AGENTS.md guide and CLAUDE.md link of every app, package, and context folder; `just guides write` renders them.
+[group('check')]
+guides *args:
+    bun --no-env-file tools/conventions/src/cli.ts guides "$@"
 
 # Scan every file in the Git index for credentials, personal data, and SQL data.
 [group('check')]

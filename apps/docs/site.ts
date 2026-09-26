@@ -40,6 +40,7 @@ export const sections = [
     text: "Developer guides",
     sources: [
       "docs/module-developer-documentation.md",
+      "docs/constructs.md",
       "packages/domain/src/placements/README.md",
       "packages/domain/src/substitutes/README.md",
       "packages/domain/src/receipt/README.md",

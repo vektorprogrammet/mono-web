@@ -69,7 +69,11 @@ export const supportedPostgresMajors = decodePostgresMajors(
 /** The highest supported major, which runs when `VEKTOR_POSTGRES_MAJOR` is unset. */
 export const defaultPostgresMajor = selectPostgresMajor(supportedPostgresMajors, undefined);
 
-/** The major that `VEKTOR_POSTGRES_MAJOR` selects, or the default. */
+/**
+ * The major that `VEKTOR_POSTGRES_MAJOR` selects, or the default.
+ *
+ * @construct test-harness
+ */
 export const selectedPostgresMajor = selectPostgresMajor(
   supportedPostgresMajors,
   process.env.VEKTOR_POSTGRES_MAJOR,
@@ -122,14 +126,27 @@ const resolveBinDirectory = () => {
 
 let binDirectory: string | undefined;
 
-/** Absolute path of a program of the selected PostgreSQL major. */
+/**
+ * Absolute path of a program of the selected PostgreSQL major.
+ *
+ * @construct test-harness
+ */
 export const postgresProgram = (program: PostgresProgram): string =>
   join((binDirectory ??= resolveBinDirectory()), program);
 
-/** Compose file of the disposable `receipt-postgres` container. */
+/**
+ * Compose file of the disposable `receipt-postgres` container.
+ *
+ * @construct test-harness
+ */
 export const postgresComposeFile = fileURLToPath(new URL("./compose.yml", import.meta.url));
 
-/** Compose interpolates the image on every command, so each one needs the selected major. */
+/**
+ * Adds the selected major to the environment of a Compose command. Compose interpolates the
+ * image on every command, so each one needs it.
+ *
+ * @construct test-harness
+ */
 export const postgresComposeEnvironment = <
   Environment extends Readonly<Record<string, string | undefined>>,
 >(

@@ -334,11 +334,15 @@ const commandMentionFindings = (
   });
 
 const sectionFindings = (repository: Repository, justfile: Justfile): ReadonlyArray<Finding> => {
-  const bodies = renderSections(justfile);
+  const sections = renderSections(justfile);
 
   return Object.entries(generatedFiles).flatMap(([path, ids]) => {
     const text = repository.read(path);
-    const spliced = spliceSections(text, ids, bodies);
+
+    const spliced = spliceSections(
+      text,
+      ids.map((id) => sections[id]),
+    );
 
     return [
       ...spliced.missing.map((id) => ({

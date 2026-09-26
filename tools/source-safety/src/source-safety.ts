@@ -15,8 +15,10 @@ const unsafePathSegmentPattern =
 const unsafePathExtensionPattern =
   /\.(?:pem|key|p12|pfx|jks|keystore|sqlite|sqlite3|db|dump|bak|backup)$/i;
 
+// Source code, migrations, and the module guides of the database package. Its other files are
+// judged by their path class, which `database` in the path makes unsafe.
 const databaseSourceCodePathPattern =
-  /^packages\/database\/(?:package\.json|tsconfig\.json|(?:src|runtime|test|examples)\/(?:[^/]+\/)*[^/]+\.ts|migrations\/(?:[^/]+\/)*[^/]+\.sql)$/;
+  /^packages\/database\/(?:package\.json|tsconfig\.json|(?:src\/[^/]+\/)?(?:AGENTS|CLAUDE)\.md|(?:src|runtime|test|examples)\/(?:[^/]+\/)*[^/]+\.ts|migrations\/(?:[^/]+\/)*[^/]+\.sql)$/;
 
 /**
  * Reviewed tracked source whose path resembles a blocked class. Each entry records why the
