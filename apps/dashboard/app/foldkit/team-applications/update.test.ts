@@ -101,7 +101,7 @@ const wire = (respond: () => Response) => {
   const sent: SentRequest[] = [];
 
   const fetch: FetchCapability = async (input, init) => {
-    const request = new Request(String(input), init);
+    const request = new Request(input, init);
     sent.push({
       method: request.method,
       url: request.url,

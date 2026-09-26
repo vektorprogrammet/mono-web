@@ -22,6 +22,7 @@ import { requireAuth } from "../lib/auth.server";
 import { nativeProblemFrom } from "../lib/native-problem";
 import { semesterLabel } from "../lib/semester-label";
 import { DATED_SERVICE_ELEMENT } from "../foldkit/dated-school-service/elements";
+import { formText } from "../lib/form-text";
 import type { Route } from "./+types/dashboard.assistenter._index";
 
 const privateData = <T,>(value: T, status = 200) =>
@@ -102,7 +103,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
-  const form = await request.formData();
+  const form: FormData = await request.formData();
 
   try {
     const headers = Schema.decodeUnknownSync(IdempotencyIfMatchHeaders)({
@@ -219,7 +220,7 @@ export async function action({ request }: Route.ActionArgs) {
           success: true as const,
           message: `${choices.length} ${choices.length === 1 ? "plassering" : "plasseringer"} fra utkastet er opprettet.`,
           conflict: false,
-          commandId: String(form.get("commandId")),
+          commandId: formText(form, "commandId"),
         });
       }
 
@@ -305,7 +306,7 @@ export async function action({ request }: Route.ActionArgs) {
       success: true as const,
       message: "Endringen er lagret.",
       conflict: false,
-      commandId: String(form.get("commandId")),
+      commandId: formText(form, "commandId"),
     });
   } catch (cause) {
     const problem = nativeProblemFrom(cause);
@@ -360,7 +361,7 @@ export async function action({ request }: Route.ActionArgs) {
           : (Option.getOrUndefined(Record.get<string, string>(messages, problem?.code ?? "")) ??
             "Endringen kunne ikke lagres. Kontroller feltene og prøv igjen."),
         conflict,
-        commandId: String(form.get("commandId")),
+        commandId: formText(form, "commandId"),
       },
       problem?.status ?? 422,
     );

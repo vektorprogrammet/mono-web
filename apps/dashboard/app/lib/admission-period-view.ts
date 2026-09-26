@@ -1,5 +1,6 @@
 import { Predicate, Schema, Data, flow } from "effect";
 import { nativeProblemFrom as decodeNativeProblem, type NativeProblemSummary as DecodedNativeProblem, nativeFailureFrom } from "./native-problem";
+import { formText } from "./form-text";
 import { AdmissionPeriodId } from "@vektorprogrammet/http-api"
 import {
   AdmissionPeriodManagementItem,
@@ -204,12 +205,6 @@ const validationField = (
   }
 };
 
-const firstText = (form: FormData, name: string): string => {
-  const value = form.get(name);
-
-  return Predicate.isString(value) ? value : "";
-};
-
 const formError = (
   field?: AdmissionPeriodUiErrorField,
   message = errorMessages.AdmissionPeriodFormError,
@@ -246,20 +241,20 @@ export function parseAdmissionPeriodForm(
   form: FormData,
   fallbackCommandId: string,
 ): AdmissionPeriodFormParseResult {
-  const intent = firstText(form, "_intent");
-  const commandId = firstText(form, "commandId").trim() || fallbackCommandId;
+  const intent = formText(form, "_intent");
+  const commandId = formText(form, "commandId").trim() || fallbackCommandId;
 
   if (intent === "revise") {
     const draft: AdmissionPeriodRevisionDraft = {
-      startAt: firstText(form, "startAt"),
-      endAt: firstText(form, "endAt"),
+      startAt: formText(form, "startAt"),
+      endAt: formText(form, "endAt"),
     };
 
-    const admissionPeriodId = firstText(form, "admissionPeriodId").trim();
+    const admissionPeriodId = formText(form, "admissionPeriodId").trim();
     let etag: StrongETagValue | undefined;
 
     try {
-      etag = Schema.decodeSync(StrongETag)(firstText(form, "etag").trim());
+      etag = Schema.decodeSync(StrongETag)(formText(form, "etag").trim());
     } catch {
       etag = undefined;
     }
@@ -320,10 +315,10 @@ export function parseAdmissionPeriodForm(
   }
 
   const draft: AdmissionPeriodDraft = {
-    semesterId: firstText(form, "semesterId"),
-    departmentId: firstText(form, "departmentId"),
-    startAt: firstText(form, "startAt"),
-    endAt: firstText(form, "endAt"),
+    semesterId: formText(form, "semesterId"),
+    departmentId: formText(form, "departmentId"),
+    startAt: formText(form, "startAt"),
+    endAt: formText(form, "endAt"),
   };
 
   const failure = (error: AdmissionPeriodUiError): AdmissionPeriodFormParseResult => ({

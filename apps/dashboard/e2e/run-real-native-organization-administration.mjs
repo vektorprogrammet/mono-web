@@ -1,4 +1,4 @@
-import { Predicate } from "effect";
+import { Order, Predicate } from "effect";
 import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -660,7 +660,7 @@ const hasExactKeys = (value, expectedKeys) =>
   value !== null &&
   Predicate.isObjectOrArray(value) &&
   !Array.isArray(value) &&
-  JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expectedKeys].sort());
+  JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expectedKeys].sort(Order.String));
 
 const assertStrongEtag = (etag, label) => {
   if (!Predicate.isString(etag) || !/^"vkr2\.[A-Za-z0-9_-]{43}"$/u.test(etag)) {
@@ -1054,11 +1054,11 @@ async function main() {
           )
           .map(({ sessionPersonId }) => sessionPersonId),
       ),
-    ].sort();
+    ].sort(Order.String);
 
     assertEqual(
       resolvedSessionPersonIds,
-      [adminPersonId, memberPersonId].sort(),
+      [adminPersonId, memberPersonId].sort(Order.String),
       "Native Organization session PersonIds",
     );
     const database = await readDatabaseEvidence(baseEnvironment);

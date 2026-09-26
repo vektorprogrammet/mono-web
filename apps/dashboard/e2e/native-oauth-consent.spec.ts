@@ -48,9 +48,9 @@ const openSignedLogin = async (page: Page) => {
   return { ...authorization, loginUrl: new URL(page.url()) };
 };
 
-const dsl = realRun ? test.describe : test.describe.skip;
+test.describe("native OAuth dashboard consent", () => {
+  test.skip(!realRun, "run through the native OAuth loopback runner");
 
-dsl("native OAuth dashboard consent", () => {
   test("rejects a wrong pending request and a tampered provider signature", async ({ page }) => {
     const { loginUrl } = await openSignedLogin(page);
     const wrong = new URL(loginUrl);

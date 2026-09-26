@@ -181,7 +181,7 @@ const hasExactKeys = (value, expectedKeys) =>
   value !== null &&
   Predicate.isObjectOrArray(value) &&
   !Array.isArray(value) &&
-  JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expectedKeys].sort());
+  JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expectedKeys].sort(Order.String));
 
 const schoolsUnavailableProblem = {
   type: "urn:vektorprogrammet:problem:v0.2:schools.unavailable",

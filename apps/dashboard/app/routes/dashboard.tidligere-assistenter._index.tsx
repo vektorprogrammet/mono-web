@@ -1,13 +1,14 @@
 import { ReturningAssistantRegistrationInputSchema } from "@vektorprogrammet/http-api"
 import { PersonId } from "@vektorprogrammet/http-api"
 import { IdempotencyHeaders } from "@vektorprogrammet/http-api";
-import { Record, Option, Schema } from "effect";
+import { Record, Option, Predicate, Schema } from "effect";
 import { data, useFetcher, useLoaderData, useNavigation, useRouteError, useSearchParams } from "react-router";
 import { useState, useSyncExternalStore, type FormEvent } from "react";
 import { Button } from "../components/ui/button";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import { nativeProblemFrom } from "../lib/native-problem";
+import { formText } from "../lib/form-text";
 import type { Route } from "./+types/dashboard.tidligere-assistenter._index";
 
 const privateData = <T,>(value: T, status = 200) =>
@@ -64,7 +65,7 @@ export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
   const form = await request.formData();
-  const commandId = String(form.get("commandId") || crypto.randomUUID());
+  const commandId = formText(form, "commandId") || crypto.randomUUID();
 
   try {
     const payload = Schema.decodeUnknownSync(ReturningAssistantRegistrationInputSchema)({
@@ -324,7 +325,7 @@ export default function TidligereAssistenter() {
     setPeriodFormOverride(selectedId, { persistenceError: null });
     const draft = new FormData(event.currentTarget);
     draft.delete("commandId");
-    const entries = [...draft].map(([name, value]) => ({ name, value: String(value) }));
+    const entries = [...draft].map(([name, value]) => ({ name, value: Predicate.isString(value) ? value : value.name }));
     const signature = JSON.stringify(entries);
     const field = event.currentTarget.elements.namedItem("commandId");
 
@@ -340,7 +341,7 @@ export default function TidligereAssistenter() {
 
       try {
         payload = Schema.decodeUnknownSync(ReturningAssistantRegistrationInputSchema)({
-          commandId: String(payloadForm.get("commandId") || ""),
+          commandId: formText(payloadForm, "commandId"),
           admissionPeriodId: payloadForm.get("admissionPeriodId"),
           expectedRevision: Number(payloadForm.get("expectedRevision")),
           yearOfStudy: Number(payloadForm.get("yearOfStudy")),

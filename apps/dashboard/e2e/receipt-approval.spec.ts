@@ -2021,7 +2021,7 @@ test.describe("Native scoped Receipt approval journey", () => {
           concurrent: [
             concurrentApproveResponse.status(),
             concurrentRejectResponse.status(),
-          ].sort(),
+          ].sort((left, right) => left - right),
         },
         approvalFile: {
           missingSession: unauthenticatedApprovalFileResponse.status(),

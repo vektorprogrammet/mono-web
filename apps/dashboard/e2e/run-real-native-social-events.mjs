@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { startDisposablePostgres } from "@monoweb/postgres";
 import { chromium } from "@playwright/test";
 import pg from "pg";
+import { Order } from "effect";
 
 const { Client } = pg;
 
@@ -641,7 +642,7 @@ const exerciseJourney = async ({ browser, ledger }) => {
   const equalRows = listed.body.events.filter(({ startAt }) => startAt === sameStart);
   assert.deepEqual(
     equalRows.map(({ eventId }) => eventId),
-    [equalA.body.eventId, equalB.body.eventId].sort(),
+    [equalA.body.eventId, equalB.body.eventId].sort(Order.String),
   );
 
   const { timeLabel } = await import("../app/foldkit/social-events/view.ts");

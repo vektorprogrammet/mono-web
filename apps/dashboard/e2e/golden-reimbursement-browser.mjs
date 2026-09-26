@@ -422,9 +422,9 @@ export const runReimbursementBrowser = async ({
     for (let index = 2; index < 51; index++) await submitBounded(index);
     const pendingBounds = [];
 
-    for (const [actor, path, expected] of [
-      [fresh, "/api/receipts", 52],
-      [approver, "/api/receipt-approval-queue?status=Pending", 51],
+    for (const { actor, path, expected } of [
+      { actor: fresh, path: "/api/receipts", expected: 52 },
+      { actor: approver, path: "/api/receipt-approval-queue?status=Pending", expected: 51 },
     ]) {
       const ids = [];
       const sizes = [];

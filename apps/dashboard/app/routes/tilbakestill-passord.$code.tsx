@@ -2,14 +2,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, Link, redirect, useActionData } from "react-router";
 import { setLegacySymfonyPassword } from "../server/legacy-symfony-password-recovery.server";
+import { formText } from "../lib/form-text";
 import type { Route } from "./+types/tilbakestill-passord.$code";
 
 export async function action({ request, params }: Route.ActionArgs) {
   if (process.env.PASSWORD_RECOVERY_ENGINE !== "legacy-symfony")
     return { error: "Denne lenken tilhører en annen innloggingstjeneste.", success: false };
   const form = await request.formData();
-  const password = form.get("password")?.toString() ?? "";
-  const confirmPassword = form.get("confirmPassword")?.toString() ?? "";
+  const password = formText(form, "password");
+  const confirmPassword = formText(form, "confirmPassword");
 
   if (!password || !confirmPassword) {
     return { error: "Begge passordfeltene er påkrevd" };

@@ -19,6 +19,7 @@ import {
   oauthNoStoreHeaders,
   sessionCookieFromResponse,
 } from "../lib/oauth.server";
+import { formText } from "../lib/form-text";
 import type { Route } from "./+types/login";
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -61,8 +62,8 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   const form = await request.formData();
-  const email = form.get("email")?.toString() ?? "";
-  const password = form.get("password")?.toString() ?? "";
+  const email = formText(form, "email");
+  const password = formText(form, "password");
 
   if (!email || !password) {
     return loginError("E-post og passord er påkrevd");

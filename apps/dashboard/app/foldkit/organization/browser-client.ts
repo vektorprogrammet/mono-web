@@ -1,14 +1,28 @@
 import type { DepartmentJson,
 FieldOfStudyJson,
 TeamJson, } from "@vektorprogrammet/http-api"
-import { createEffectClient } from "@vektorprogrammet/sdk/effect";
-import { Effect } from "effect";
+import { createEffectClient, type EffectSdkFailure } from "@vektorprogrammet/sdk/effect";
+import { Data, Effect } from "effect";
 import { resolveBrowserApiUrl } from "../../lib/browser-api";
 
+/** A catalog read that sent no cache validators was answered 304 Not Modified. */
+export class OrganizationCatalogNotModified extends Data.TaggedError(
+  "OrganizationCatalogNotModified",
+)<{ readonly message: string }> {}
+
 export interface OrganizationCatalogOperations {
-  readonly listDepartments: Effect.Effect<readonly DepartmentJson[], unknown>;
-  readonly listTeams: Effect.Effect<readonly TeamJson[], unknown>;
-  readonly listFieldOfStudies: Effect.Effect<readonly FieldOfStudyJson[], unknown>;
+  readonly listDepartments: Effect.Effect<
+    readonly DepartmentJson[],
+    EffectSdkFailure<"organization", "listDepartments"> | OrganizationCatalogNotModified
+  >;
+  readonly listTeams: Effect.Effect<
+    readonly TeamJson[],
+    EffectSdkFailure<"organization", "listTeams"> | OrganizationCatalogNotModified
+  >;
+  readonly listFieldOfStudies: Effect.Effect<
+    readonly FieldOfStudyJson[],
+    EffectSdkFailure<"organization", "listFieldOfStudies"> | OrganizationCatalogNotModified
+  >;
 }
 
 export interface OrganizationCatalogClient {
@@ -27,7 +41,11 @@ export const createBrowserOrganizationCatalogClient = (): OrganizationCatalogCli
         .pipe(
           Effect.flatMap(({ body }) =>
             body === undefined
-              ? Effect.fail(new Error("listDepartments returned 304 without cache validators"))
+              ? Effect.fail(
+                  new OrganizationCatalogNotModified({
+                    message: "listDepartments returned 304 without cache validators",
+                  }),
+                )
               : Effect.succeed(body),
           ),
         ),
@@ -36,7 +54,11 @@ export const createBrowserOrganizationCatalogClient = (): OrganizationCatalogCli
         .pipe(
           Effect.flatMap(({ body }) =>
             body === undefined
-              ? Effect.fail(new Error("listTeams returned 304 without cache validators"))
+              ? Effect.fail(
+                  new OrganizationCatalogNotModified({
+                    message: "listTeams returned 304 without cache validators",
+                  }),
+                )
               : Effect.succeed(body),
           ),
         ),
@@ -45,7 +67,11 @@ export const createBrowserOrganizationCatalogClient = (): OrganizationCatalogCli
         .pipe(
           Effect.flatMap(({ body }) =>
             body === undefined
-              ? Effect.fail(new Error("listFieldOfStudies returned 304 without cache validators"))
+              ? Effect.fail(
+                  new OrganizationCatalogNotModified({
+                    message: "listFieldOfStudies returned 304 without cache validators",
+                  }),
+                )
               : Effect.succeed(body),
           ),
         ),

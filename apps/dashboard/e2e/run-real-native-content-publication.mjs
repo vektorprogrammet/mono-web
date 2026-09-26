@@ -348,13 +348,25 @@ try {
 
   const offSpecAliasChecks = [];
 
-  for (const [method, pathname, body] of [
-    ["POST", "/api/admin/content", { operation: "publish", commandId: "alias-1", articleId: 1 }],
-    ["PUT", "/api/admin/content/drafts/1", { commandId: "alias-2" }],
-    ["PATCH", "/api/admin/content/drafts/1", { commandId: "alias-3" }],
-    ["POST", "/api/admin/content/drafts/1/publish", { commandId: "alias-4" }],
-    ["POST", "/api/admin/content/drafts/1/unpublish", { commandId: "alias-5" }],
-    ["PATCH", "/api/admin/content/articles/1", { commandId: "alias-6" }],
+  for (const { method, pathname, body } of [
+    {
+      method: "POST",
+      pathname: "/api/admin/content",
+      body: { operation: "publish", commandId: "alias-1", articleId: 1 },
+    },
+    { method: "PUT", pathname: "/api/admin/content/drafts/1", body: { commandId: "alias-2" } },
+    { method: "PATCH", pathname: "/api/admin/content/drafts/1", body: { commandId: "alias-3" } },
+    {
+      method: "POST",
+      pathname: "/api/admin/content/drafts/1/publish",
+      body: { commandId: "alias-4" },
+    },
+    {
+      method: "POST",
+      pathname: "/api/admin/content/drafts/1/unpublish",
+      body: { commandId: "alias-5" },
+    },
+    { method: "PATCH", pathname: "/api/admin/content/articles/1", body: { commandId: "alias-6" } },
   ]) {
     const response = await fetch(`${backendOrigin}${pathname}`, {
       method,

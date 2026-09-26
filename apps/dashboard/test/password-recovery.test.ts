@@ -51,8 +51,8 @@ describe("native credential recovery route boundary", () => {
         await requestPasswordReset(routeArgs(formRequest("/glemt-passord", { email }), {})),
       ).toEqual({ success: true, error: null });
       const [url, init] = fetchMock.mock.calls.at(-1)!;
-      expect(String(url)).toBe(backendOrigin + "/api/auth/request-password-reset");
-      expect(JSON.parse(String(init?.body))).toEqual({
+      expect(new Request(url).url).toBe(backendOrigin + "/api/auth/request-password-reset");
+      expect(await new Response(init?.body).json()).toEqual({
         email,
         redirectTo: dashboardOrigin + "/tilbakestill-passord",
       });
@@ -74,8 +74,8 @@ describe("native credential recovery route boundary", () => {
     if (!(result instanceof Response)) throw new Error("Expected password recovery redirect");
     expect(result.headers.get("location")).toBe("/login?reset=true");
     const [url, init] = fetchMock.mock.calls[0]!;
-    expect(String(url)).toBe(backendOrigin + "/api/auth/reset-password");
-    expect(JSON.parse(String(init?.body))).toEqual({
+    expect(new Request(url).url).toBe(backendOrigin + "/api/auth/reset-password");
+    expect(await new Response(init?.body).json()).toEqual({
       token: resetFields.token,
       newPassword: resetFields.password,
     });

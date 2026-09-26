@@ -6,7 +6,7 @@ import type {
   SchoolManagement,
 } from "@vektorprogrammet/http-api";
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
-import { createEffectClient } from "@vektorprogrammet/sdk/effect";
+import { createEffectClient, type EffectSdkFailure } from "@vektorprogrammet/sdk/effect";
 import { Effect } from "effect";
 import { resolveBrowserApiUrl } from "../../lib/browser-api";
 import { nativeProblemFrom } from "../../lib/native-problem";
@@ -21,10 +21,13 @@ export interface SchoolsDirectoryClient {
     readonly listSchools: (
       input?: SchoolsListInput,
     ) => Effect.Effect<SchoolDirectory, SchoolsBridgeFailure>;
-    readonly readManagement: () => Effect.Effect<SchoolManagement, unknown>;
+    readonly readManagement: () => Effect.Effect<
+      SchoolManagement,
+      EffectSdkFailure<"directory", "readSchoolManagement">
+    >;
     readonly executeCommand: (
       command: SchoolCommand,
-    ) => Effect.Effect<SchoolCommandResult, unknown>;
+    ) => Effect.Effect<SchoolCommandResult, EffectSdkFailure<"directory", "executeSchoolCommand">>;
   };
 }
 

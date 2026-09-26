@@ -5,11 +5,12 @@ import {
   createPasswordRecoveryClient,
   requireNativePasswordRecovery,
 } from "../server/password-recovery.server";
+import { formText } from "../lib/form-text";
 import type { Route } from "./+types/glemt-passord";
 
 export async function action({ request }: Route.ActionArgs) {
   const form = await request.formData();
-  const email = form.get("email")?.toString() ?? "";
+  const email = formText(form, "email");
 
   if (!email) {
     return { error: "E-post er påkrevd", success: false };

@@ -22,6 +22,7 @@ import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import { nativeProblemFrom } from "../lib/native-problem";
 import { semesterLabel } from "../lib/semester-label";
+import { formText } from "../lib/form-text";
 import type { Route } from "./+types/dashboard.vikarer._index";
 
 const privateData = <T,>(value: T, status = 200) =>
@@ -111,9 +112,9 @@ const failureMessage = (code: string | undefined) => {
 export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
-  const form = await request.formData();
-  const applicationId = String(form.get("applicationId") ?? "");
-  const commandId = String(form.get("commandId") ?? "");
+  const form: FormData = await request.formData();
+  const applicationId = formText(form, "applicationId");
+  const commandId = formText(form, "commandId");
 
   const command = Schema.decodeUnknownOption(RecordOutcomeRequest)({
     params: { applicationId: form.get("applicationId") },

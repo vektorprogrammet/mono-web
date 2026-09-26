@@ -243,15 +243,15 @@ const existing={...common,appointmentId:row?.appointmentId,expectedRevision:row?
 const interval={position:model.position.trim()||null,leadership:model.leadership,startAt:model.startAt?model.startAt+(model.startAt.length===16?":00.000":"")+"Z":"",endAt:model.endAt?model.endAt+(model.endAt.length===16?":00.000":"")+"Z":null};
 
 const parsed = Match.value(message.action).pipe(
-Match.when("Appoint",()=>parseAppoint({...common,...interval,personId:model.personId,target:unit?.target}).pipe(Option.map(OrganizationLifecycleCommand.cases.Appoint.make))),
-Match.when("ReviseAppointment",()=>parseReviseAppointment({...existing,...interval}).pipe(Option.map(OrganizationLifecycleCommand.cases.ReviseAppointment.make))),
-Match.when("EndAppointment",()=>parseEndAppointment({...existing,endAt:interval.endAt}).pipe(Option.map(OrganizationLifecycleCommand.cases.EndAppointment.make))),
-Match.when("SuspendAppointment",()=>parseSuspendAppointment(existing).pipe(Option.map(OrganizationLifecycleCommand.cases.SuspendAppointment.make))),
-Match.when("ReinstateAppointment",()=>parseReinstateAppointment(existing).pipe(Option.map(OrganizationLifecycleCommand.cases.ReinstateAppointment.make))),
-Match.when("CreateNationalBoard",()=>parseCreateNationalBoard({...common,name:model.boardName.trim()}).pipe(Option.map(OrganizationLifecycleCommand.cases.CreateNationalBoard.make))),
-Match.whenOr("DisableAccount", "EnableAccount",()=>parseChangeAccountAccess({...common,personId:account?.personId,expectedRevision:account?.revision,disabled:message.action==="DisableAccount"}).pipe(Option.map(OrganizationLifecycleCommand.cases.ChangeAccountAccess.make))),
-Match.when("ClassifyTeam",()=>parseClassifyTeam({...common,teamId:classified?.teamId,unitKind:model.unitKind,teamScope:model.teamScope,expectedRevision:classified?.revision}).pipe(Option.map(OrganizationLifecycleCommand.cases.ClassifyTeam.make))),
-Match.whenOr("RecogniseDepartment", "WithdrawRecognition",()=>parseRecogniseDepartment({...common,departmentId:recognised?.departmentId,independent:message.action==="RecogniseDepartment",expectedRevision:recognised?.revision}).pipe(Option.map(OrganizationLifecycleCommand.cases.RecogniseDepartment.make))),
+Match.when("Appoint",()=>parseAppoint({...common,...interval,personId:model.personId,target:unit?.target}).pipe(Option.map((input)=>OrganizationLifecycleCommand.cases.Appoint.make(input)))),
+Match.when("ReviseAppointment",()=>parseReviseAppointment({...existing,...interval}).pipe(Option.map((input)=>OrganizationLifecycleCommand.cases.ReviseAppointment.make(input)))),
+Match.when("EndAppointment",()=>parseEndAppointment({...existing,endAt:interval.endAt}).pipe(Option.map((input)=>OrganizationLifecycleCommand.cases.EndAppointment.make(input)))),
+Match.when("SuspendAppointment",()=>parseSuspendAppointment(existing).pipe(Option.map((input)=>OrganizationLifecycleCommand.cases.SuspendAppointment.make(input)))),
+Match.when("ReinstateAppointment",()=>parseReinstateAppointment(existing).pipe(Option.map((input)=>OrganizationLifecycleCommand.cases.ReinstateAppointment.make(input)))),
+Match.when("CreateNationalBoard",()=>parseCreateNationalBoard({...common,name:model.boardName.trim()}).pipe(Option.map((input)=>OrganizationLifecycleCommand.cases.CreateNationalBoard.make(input)))),
+Match.whenOr("DisableAccount", "EnableAccount",()=>parseChangeAccountAccess({...common,personId:account?.personId,expectedRevision:account?.revision,disabled:message.action==="DisableAccount"}).pipe(Option.map((input)=>OrganizationLifecycleCommand.cases.ChangeAccountAccess.make(input)))),
+Match.when("ClassifyTeam",()=>parseClassifyTeam({...common,teamId:classified?.teamId,unitKind:model.unitKind,teamScope:model.teamScope,expectedRevision:classified?.revision}).pipe(Option.map((input)=>OrganizationLifecycleCommand.cases.ClassifyTeam.make(input)))),
+Match.whenOr("RecogniseDepartment", "WithdrawRecognition",()=>parseRecogniseDepartment({...common,departmentId:recognised?.departmentId,independent:message.action==="RecogniseDepartment",expectedRevision:recognised?.revision}).pipe(Option.map((input)=>OrganizationLifecycleCommand.cases.RecogniseDepartment.make(input)))),
 Match.exhaustive);
 
 if(Option.isNone(parsed))return ({ model: {...model,notice:Notice.cases.Failure.make({message:"Fyll ut person, enhet, tidsrom og begrunnelse for valgt handling."})}, commands: [] });

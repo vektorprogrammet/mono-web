@@ -89,7 +89,7 @@ describe("Content workspace failure classification", () => {
           sticky: false,
         })
         .pipe(
-          Effect.map(() => undefined),
+          Effect.asVoid,
           Effect.catch((error) => Effect.succeed(failureFrom(error))),
         ),
     );
@@ -163,7 +163,7 @@ describe("Content workspace failure classification", () => {
       createBrowserContentWorkspaceClient("/content")
         .content.readContentWorkspace
         .pipe(
-          Effect.map(() => undefined),
+          Effect.asVoid,
           Effect.catch((error) => Effect.succeed(failureFrom(error))),
         ),
     );

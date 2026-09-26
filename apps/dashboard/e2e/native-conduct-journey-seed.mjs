@@ -81,24 +81,38 @@ const timesA = { ...interviewTimes(0), scheduledAt: fromJourneyNow(-2) };
 const timesB = { ...interviewTimes(1), scheduledAt: fromJourneyNow(-2, 90) };
 
 const questions = [
-  ["q0", 0, "Fortell kort om motivasjonen din.", null, "text", []],
-  [
-    "q1",
-    1,
-    "Hvilket arbeidsområde interesserer deg mest?",
-    "Velg ett område.",
-    "list",
-    ["Produkt", "Teknologi", "Organisasjon"],
-  ],
-  ["q2", 2, "Hvordan foretrekker du å lære?", null, "radio", ["Praksis", "Samtale", "Lesing"]],
-  [
-    "q3",
-    3,
-    "Hvilke styrker tar du med deg?",
-    "Velg minst ett alternativ.",
-    "check",
-    ["Samarbeid", "Struktur", "Nysgjerrighet"],
-  ],
+  {
+    id: "q0",
+    ordinal: 0,
+    prompt: "Fortell kort om motivasjonen din.",
+    help: null,
+    kind: "text",
+    alternatives: [],
+  },
+  {
+    id: "q1",
+    ordinal: 1,
+    prompt: "Hvilket arbeidsområde interesserer deg mest?",
+    help: "Velg ett område.",
+    kind: "list",
+    alternatives: ["Produkt", "Teknologi", "Organisasjon"],
+  },
+  {
+    id: "q2",
+    ordinal: 2,
+    prompt: "Hvordan foretrekker du å lære?",
+    help: null,
+    kind: "radio",
+    alternatives: ["Praksis", "Samtale", "Lesing"],
+  },
+  {
+    id: "q3",
+    ordinal: 3,
+    prompt: "Hvilke styrker tar du med deg?",
+    help: "Velg minst ett alternativ.",
+    kind: "check",
+    alternatives: ["Samarbeid", "Struktur", "Nysgjerrighet"],
+  },
 ];
 
 const sql = `
@@ -152,7 +166,7 @@ INSERT INTO recruitment_interview_schemas (interview_schema_id, name, question_c
 VALUES ('${schemaId}', 'Førstegangsintervju 0063', ${questions.length}, TRUE, 0) ON CONFLICT (interview_schema_id) DO NOTHING;
 INSERT INTO public.recruitment_interview_schema_questions (interview_schema_id, question_id, ordinal, prompt, help_text, kind, alternatives)
 VALUES
-${questions.map(([id, ordinal, prompt, help, kind, alternatives]) => ` ('${schemaId}', '${schemaId}-${id}', ${ordinal}, '${prompt}', ${help === null ? "NULL" : `'${help}'`}, '${kind}', '${JSON.stringify(alternatives)}'::jsonb)`).join(",\n")}
+${questions.map(({ id, ordinal, prompt, help, kind, alternatives }) => ` ('${schemaId}', '${schemaId}-${id}', ${ordinal}, '${prompt}', ${help === null ? "NULL" : `'${help}'`}, '${kind}', '${JSON.stringify(alternatives)}'::jsonb)`).join(",\n")}
 ON CONFLICT (interview_schema_id, question_id) DO NOTHING;
 INSERT INTO recruitment_interviews (interview_id, application_id, department_id, interviewer_person_id, interview_schema_id, assigned_by_person_id, assigned_at, revision)
 VALUES

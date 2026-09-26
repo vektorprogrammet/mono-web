@@ -20,7 +20,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  const form = await request.formData();
+  const form: FormData = await request.formData();
 
   try {
     const mode = form.get("mode");

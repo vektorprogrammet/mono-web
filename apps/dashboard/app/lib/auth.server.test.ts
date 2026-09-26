@@ -161,7 +161,7 @@ describe("native dashboard authentication", () => {
     expect(init?.method).toBe("POST");
     expect(init?.redirect).toBe("manual");
     expect(new Headers(init?.headers).get("Origin")).toBe("https://dashboard.example");
-    expect(JSON.parse(String(init?.body))).toEqual({
+    expect(await new Response(init?.body).json()).toEqual({
       email: "ada@example.com",
       password: "correct horse",
     });
@@ -198,7 +198,7 @@ describe("native dashboard authentication", () => {
       "https://dashboard.example/dashboard/oauth/consent?next=signed",
     );
     const [, init] = fetchMock.mock.calls[0];
-    expect(JSON.parse(String(init?.body))).toEqual({
+    expect(await new Response(init?.body).json()).toEqual({
       email: "ada@example.com",
       password: "correct horse",
       oauth_query: query,

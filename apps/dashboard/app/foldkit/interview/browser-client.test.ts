@@ -51,7 +51,10 @@ describe("browser invitation response bridge", () => {
       client.requestNewInvitationTime({ etag, message: "Kan vi møtes torsdag?" }),
     );
 
-    const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)));
+    const bodies = await Promise.all(
+      fetchMock.mock.calls.map(([, init]) => new Response(init?.body).json()),
+    );
+
     expect(bodies).toEqual([
       { operation: "readInvitationResponse" },
       { operation: "confirmInvitation", etag },
@@ -60,7 +63,7 @@ describe("browser invitation response bridge", () => {
     ]);
     expect(
       fetchMock.mock.calls.every(
-        ([url]) => new URL(String(url)).href === "https://dashboard.test/dashboard/interview",
+        ([url]) => new Request(url).url === "https://dashboard.test/dashboard/interview",
       ),
     ).toBe(true);
     expect(fetchMock.mock.calls.every(([, init]) => init?.credentials === "same-origin")).toBe(

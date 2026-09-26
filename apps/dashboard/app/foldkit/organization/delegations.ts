@@ -625,13 +625,13 @@ export const embedDelegationManagement = (container: HTMLElement): (() => void) 
                 holders: model.holders,
                 startAt: instant(model.startAt),
                 endAt: model.endAt.length === 0 ? null : instant(model.endAt),
-              }).pipe(Option.map(DelegationCommand.cases.IssueDelegation.make))
+              }).pipe(Option.map((input) => DelegationCommand.cases.IssueDelegation.make(input)))
             : parseEnd({
                 ...common,
                 delegationId: current?.delegationId,
                 expectedRevision: current?.revision,
                 endAt: instant(model.endAt),
-              }).pipe(Option.map(DelegationCommand.cases.EndDelegation.make));
+              }).pipe(Option.map((input) => DelegationCommand.cases.EndDelegation.make(input)));
 
         if (Option.isNone(parsed))
           return {

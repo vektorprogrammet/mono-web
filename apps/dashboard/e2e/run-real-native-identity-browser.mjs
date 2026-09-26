@@ -1,5 +1,5 @@
 import { NativeProblem, SessionResponse } from "@vektorprogrammet/http-api";
-import { Predicate, Schema } from "effect";
+import { Order, Predicate, Schema } from "effect";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
@@ -665,7 +665,7 @@ const main = async () => {
           projection.current === true &&
           Predicate.isString(projection.sessionId) &&
           projection.sessionId.length > 0 &&
-          [...projection.keys].sort().join(",") === sessionFields.join(","),
+          [...projection.keys].sort(Order.String).join(",") === sessionFields.join(","),
       ),
       "successful session projections must be exact credential-free metadata",
     );
@@ -900,9 +900,9 @@ const main = async () => {
   } catch (error) {
     failure = error;
 
-    for (const [label, child] of [
-      ["backend", backend],
-      ["dashboard", dashboard],
+    for (const { label, child } of [
+      { label: "backend", child: backend },
+      { label: "dashboard", child: dashboard },
     ]) {
       if (child !== undefined) process.stderr.write(`${label} output tail:\n${child.outputTail()}\n`);
     }
@@ -916,9 +916,9 @@ const main = async () => {
 
   const cleanupErrors = [];
 
-  for (const [label, child] of [
-    ["dashboard", dashboard],
-    ["backend", backend],
+  for (const { label, child } of [
+    { label: "dashboard", child: dashboard },
+    { label: "backend", child: backend },
   ]) {
     try {
       await stop(child);

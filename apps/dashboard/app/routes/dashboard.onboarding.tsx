@@ -6,6 +6,7 @@ import { Form, data, useFetcher, useLoaderData } from "react-router";
 import { Button } from "../components/ui/button";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
+import { formText } from "../lib/form-text";
 import type { Route } from "./+types/dashboard.onboarding";
 
 const privateData = <T,>(value: T, status = 200) =>
@@ -34,7 +35,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
-  const form = await request.formData();
+  const form: FormData = await request.formData();
 
   try {
     await createAuthenticatedClient(cookie, request).onboarding.command({
@@ -51,7 +52,7 @@ export async function action({ request }: Route.ActionArgs) {
 
     return privateData({
       ok: true,
-      commandId: String(form.get("commandId")),
+      commandId: formText(form, "commandId"),
       message: "Endringen er lagret. Leveringsstatus vises i oversikten.",
     });
   } catch {

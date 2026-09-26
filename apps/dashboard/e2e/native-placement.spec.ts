@@ -8,6 +8,7 @@ import type {
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type BrowserContext, type Page, type Locator } from "@playwright/test";
+import { Order } from "effect";
 
 const manifestPath = process.env.PLACEMENT_JOURNEY_MANIFEST;
 
@@ -627,8 +628,8 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       outcome: "Completed",
       evidenceSource: `Skole Beta kontakt, telefon ${manifest.coverage.serviceDate}`,
     });
-    expect([...completed.decision.attendedPersonIds].sort()).toEqual(
-      [manifest.leaderId, manifest.coverage.candidateId].sort(),
+    expect([...completed.decision.attendedPersonIds].sort(Order.String)).toEqual(
+      [manifest.leaderId, manifest.coverage.candidateId].sort(Order.String),
     );
 
     const leaderAbsence = page.locator(
@@ -784,8 +785,8 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
 
     expect(coveredOccurrence).toBeDefined();
     expect(uncoveredOccurrence).toBeDefined();
-    expect([...coveredOccurrence.attendedPersonIds].sort()).toEqual(
-      [manifest.leaderId, manifest.coverage.candidateId].sort(),
+    expect([...coveredOccurrence.attendedPersonIds].sort(Order.String)).toEqual(
+      [manifest.leaderId, manifest.coverage.candidateId].sort(Order.String),
     );
     expect(uncoveredOccurrence.attendedPersonIds).toEqual([manifest.volunteerId]);
     expect(
