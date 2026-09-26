@@ -205,7 +205,7 @@ export function parsePublicApplicationForm(formData: FormData): ParsedPublicAppl
       onExcessProperty: "error",
     });
 
-    const commandId = Schema.decodeUnknownSync(IdempotencyKey)(decoded.commandId);
+    const commandId = Schema.decodeSync(IdempotencyKey)(decoded.commandId);
 
     // The contract decodes the stated availability, so an answer that drifts from it fails here.
     const payload = Schema.decodeUnknownSync(SubmitApplicationRequest)(

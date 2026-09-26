@@ -100,7 +100,7 @@ export const authenticateContactIngress = (
     )
       return null;
 
-    const visitorIp = Schema.decodeUnknownSync(ContactVisitorIpSchema)(
+    const visitorIp = Schema.decodeSync(ContactVisitorIpSchema)(
       canonicalContactIp(request.headers.get(CONTACT_IP_HEADER) ?? ""),
     );
 

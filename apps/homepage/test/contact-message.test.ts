@@ -40,7 +40,7 @@ import { ContactVisitorIp } from "@vektorprogrammet/http-api"
 import { makeNativeProblem } from "@vektorprogrammet/http-api";
 
 const makeDepartment = (overrides: Partial<typeof DepartmentJsonSchema.Encoded> = {}): DepartmentJson =>
-  Schema.decodeUnknownSync(DepartmentJsonSchema)({
+  Schema.decodeSync(DepartmentJsonSchema)({
     departmentId: "department-17",
     name: "Vektorprogrammet Ås",
     shortName: "Ås",

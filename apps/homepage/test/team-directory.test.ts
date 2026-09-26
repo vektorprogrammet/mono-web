@@ -9,7 +9,7 @@ import { contactDepartmentSlug } from "../src/lib/contact-message";
 import { projectTeamDirectory } from "../src/lib/team-directory";
 
 const department = (overrides: Partial<typeof DepartmentJsonSchema.Encoded> = {}) =>
-  Schema.decodeUnknownSync(DepartmentJsonSchema)({
+  Schema.decodeSync(DepartmentJsonSchema)({
     departmentId: "department-aas",
     name: "Vektorprogrammet Ås",
     shortName: "Ås",
@@ -26,7 +26,7 @@ const department = (overrides: Partial<typeof DepartmentJsonSchema.Encoded> = {}
   });
 
 const team = (overrides: Partial<typeof TeamJsonSchema.Encoded> = {}) =>
-  Schema.decodeUnknownSync(TeamJsonSchema)({
+  Schema.decodeSync(TeamJsonSchema)({
     teamId: "team-it",
     departmentId: "department-aas",
     name: "IT",
@@ -41,7 +41,7 @@ const team = (overrides: Partial<typeof TeamJsonSchema.Encoded> = {}) =>
   });
 
 const intake = (overrides: Partial<typeof TeamApplicationIntakeListItem.Encoded> = {}) =>
-  Schema.decodeUnknownSync(TeamApplicationIntakeListItem)({
+  Schema.decodeSync(TeamApplicationIntakeListItem)({
     teamId: "team-it",
     open: true,
     deadline: null,

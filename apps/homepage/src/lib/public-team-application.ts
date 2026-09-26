@@ -242,7 +242,7 @@ export function parsePublicTeamApplicationForm(
   formData: FormData,
 ): ParsedPublicTeamApplicationForm {
   const values = fieldRecord((field) => memberText(formData, field));
-  const commandId = Schema.decodeUnknownOption(IdempotencyKey)(memberText(formData, "commandId"));
+  const commandId = Schema.decodeOption(IdempotencyKey)(memberText(formData, "commandId"));
   const fieldErrors: Partial<Record<TeamApplicationFieldName, string>> = {};
 
   for (const field of teamApplicationFieldNames) {
@@ -253,7 +253,7 @@ export function parsePublicTeamApplicationForm(
 
   const hasFieldErrors = Object.keys(fieldErrors).length > 0;
 
-  const payload = Schema.decodeUnknownOption(TeamApplicationInput)(values, {
+  const payload = Schema.decodeOption(TeamApplicationInput)(values, {
     onExcessProperty: "error",
   });
 

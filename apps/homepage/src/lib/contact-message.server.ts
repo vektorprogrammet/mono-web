@@ -105,7 +105,7 @@ export async function submitContactMessage(
   let payload: ContactMessagePayload;
 
   try {
-    payload = Schema.decodeUnknownSync(ContactMessage)(
+    payload = Schema.decodeSync(ContactMessage)(
       { ...values, departmentId: page.selectedDepartment.departmentId },
       { onExcessProperty: "error" },
     );

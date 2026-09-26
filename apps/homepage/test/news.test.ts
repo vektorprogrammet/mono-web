@@ -135,7 +135,7 @@ describe("news loaders", () => {
   });
 
   it("degrades a vanished department filter to the unfiltered listing with a notice", () => {
-    const departments = [Schema.decodeUnknownSync(DepartmentJsonSchema)({ departmentId: "department-a", name: "Alfa", shortName: "ALFA", email: "alfa@example.test", address: "A 1", city: "Trondheim", latitude: "0", longitude: "0", slackChannel: null, logoPath: null, active: true, revision: 0 })];
+    const departments = [Schema.decodeSync(DepartmentJsonSchema)({ departmentId: "department-a", name: "Alfa", shortName: "ALFA", email: "alfa@example.test", address: "A 1", city: "Trondheim", latitude: "0", longitude: "0", slackChannel: null, logoPath: null, active: true, revision: 0 })];
     const resolvedKnown = resolveDepartmentFilter(departments, "ALFA");
     expect(resolvedKnown).toEqual({ departmentId: "department-a", degraded: false });
 
