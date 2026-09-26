@@ -128,6 +128,76 @@ jobs:
           if-no-files-found: error
           path: ${{ steps.golden.outputs.artifact_paths }}
 
+  # One journey per leg, so each leg owns its runner, disposable PostgreSQL, loopback ports,
+  # and Chromium. Several runners bind fixed loopback ports (5174, 55446, 45160-45163), so
+  # never run two journeys on one runner. The timeout is three times the longest local run
+  # (91 s, proof delivery-recovery), rounded up to 5 minutes; every journey took 9-91 s.
+  browser-journeys:
+    name: Browser journeys (${{ matrix.recipe }} ${{ matrix.suite }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { recipe: golden, suite: recruitment }
+          - { recipe: golden, suite: team-application }
+          - { recipe: e2e, suite: admission-periods }
+          - { recipe: e2e, suite: approval }
+          - { recipe: e2e, suite: conduct }
+          - { recipe: e2e, suite: contact }
+          - { recipe: e2e, suite: content-publication }
+          - { recipe: e2e, suite: organization }
+          - { recipe: e2e, suite: owner }
+          - { recipe: e2e, suite: profile }
+          - { recipe: e2e, suite: recruitment }
+          - { recipe: e2e, suite: scheduling }
+          - { recipe: e2e, suite: schools }
+          - { recipe: e2e, suite: settlement }
+          - { recipe: e2e, suite: social-events }
+          - { recipe: e2e, suite: substitutes }
+          - { recipe: proof, suite: delivery-recovery }
+    defaults:
+      run:
+        shell: devenv shell bash -- -e {0}
+    steps:
+      - uses: actions/checkout@v4
+        timeout-minutes: 2
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/devenv
+        timeout-minutes: 3
+      - name: Build the devenv shell
+        timeout-minutes: 5
+        run: bun --version
+      - name: Install frozen dependencies
+        timeout-minutes: 3
+        run: bun install --frozen-lockfile
+      - name: Create private resource summary directory
+        timeout-minutes: 1
+        run: install -d -m 700 "$RUNNER_TEMP/browser-journey"
+      - name: Run the journey
+        timeout-minutes: 7
+        env:
+          RECIPE: ${{ matrix.recipe }}
+          SUITE: ${{ matrix.suite }}
+        run: >-
+          /usr/bin/time --verbose --output="$RUNNER_TEMP/browser-journey/resources.txt"
+          timeout --signal=TERM --kill-after=1m 5m
+          just "$RECIPE" "$SUITE"
+      # Only the resource summary: journey evidence stays in the log, not in an artifact.
+      - name: Upload the resource summary
+        timeout-minutes: 2
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: browser-journey-${{ matrix.recipe }}-${{ matrix.suite }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/browser-journey
+          if-no-files-found: error
+          retention-days: 1
+
   # One lane per supported PostgreSQL major. The default major runs every suite. The
   # other majors run the backend and database suites, which exercise PostgreSQL.
   ts:
@@ -284,7 +354,7 @@ jobs:
           CI: "true"
         run: |
           set -Eeuo pipefail
-          bun run --cwd apps/dashboard e2e:real-identity \
+          just e2e identity \
             | tee "$RUNNER_TEMP/native-identity-0065/receipt.json"
           test -s "$RUNNER_TEMP/native-identity-0065/receipt.json"
       - name: Upload sanitized native Identity evidence
@@ -333,7 +403,7 @@ jobs:
             --verbose \
             --output="$evidence_dir/resources.txt" \
             timeout --signal=TERM --kill-after=4m 15m \
-            bun run --cwd apps/homepage e2e:applicant:real
+            just e2e applicant
           test -s "$PUBLIC_APPLICATION_EVIDENCE_PATH"
 
       - name: Upload sanitized applicant evidence

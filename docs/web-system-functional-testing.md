@@ -328,7 +328,7 @@ It does not manufacture a confirmed roster, dated service, or attendance.
 
 The command retains sanitized receipts, observations, diagnostics, and separate visual evidence outside the checkout.
 It checks source identity after execution and removes owned processes, PostgreSQL, credentials, private traces, and local Worker state.
-The source-owned runner defines the artifact inventory. This command does not add a hosted CI job or broaden the school-service upload contract.
+The source-owned runner defines the artifact inventory. The hosted `Browser journeys` job runs it; see [Hosted journeys](#hosted-journeys).
 See [STATE.md](../STATE.md) for the exercised revision and evidence limits.
 
 ### Claim to settlement evidence
@@ -376,6 +376,38 @@ The generated upload set contains only checked evidence and the bounded CI summa
 [STATE.md](../STATE.md#evidence-boundary) records integrated acceptance and remaining evidence limits.
 The golden school-service journey (slice A) and its CI gate (slice B) are accepted; the gate runs in the hosted `Tests` workflow.
 The wrapper `tools/e2e/golden-school-service-ci.mjs` and its evidence checks own the failure criteria.
+
+### Hosted journeys
+
+The hosted `Tests` workflow runs these journeys on each push to `main` and each pull request.
+Run the same journey locally with the listed command.
+
+| Command                        | Hosted job                                                        |
+| ------------------------------ | ----------------------------------------------------------------- |
+| `just golden school-service`   | `Golden school-service`, through the CI wrapper above             |
+| `just e2e identity`            | `Native identity browser evidence`                                |
+| `just e2e applicant`           | `Public applicant`                                                |
+| `just golden recruitment`      | `Browser journeys`                                                |
+| `just golden team-application` | `Browser journeys`                                                |
+| `just e2e <suite>`             | `Browser journeys`, for every other suite that `just e2e` accepts |
+| `just proof delivery-recovery` | `Browser journeys`                                                |
+
+`Browser journeys` runs one journey on each runner, with `fail-fast` off.
+Each journey starts its own PostgreSQL, ports, and Chromium; some runners use fixed ports, so two journeys must not share a runner.
+The job uploads only the `/usr/bin/time` resource summary. Journey evidence stays in the job log.
+
+These commands are not hosted:
+
+| Command                                       | Reason                                                                                                                    |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `just golden reimbursement`                   | Fails on `main`: an oversized receipt upload returns 200, not 413 (`apps/dashboard/e2e/golden-reimbursement-browser.mjs`) |
+| `just e2e interview-response`                 | Fails on `main`: the `validation.failed` Problem Details has a `validation` member that the runner does not accept        |
+| `just proof authorization-rules`              | Fails on `main` in the shared rule-reconciliation migration proof                                                         |
+| `just proof rule-reconciliation`              | Fails on `main` in the shared rule-reconciliation migration proof                                                         |
+| `just proof completion-receipt`               | Needs a conducted interview in its database; `just e2e conduct` runs it                                                   |
+| `bun run --cwd apps/dashboard e2e:real-oauth` | Needs an external topology; without one, Playwright skips every test                                                      |
+
+Add a journey to the matrix only after it passes locally on `main`.
 
 ## Development sequence
 

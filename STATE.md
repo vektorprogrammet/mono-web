@@ -109,6 +109,9 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
 - The `dev-main` stage was torn down on 2026-09-26: its Workers, custom domain, route, tunnel, tunnel DNS records, and workstation units are gone. `vektor.phibkro.org` is free for a future staging deployment of `main`.
   Retired Cloudflare Workers still deployed: p20 (homepage, dashboard, preview worker), p001 (homepage, dashboard), the superseded development backend (routes `vektor.phibkro.org/api/*` and `/health`), and `vektor-migration-docs`.
 - Hosted `Tests` run `36191536836` passed every job at `6c812703`, including the PostgreSQL 17 lane.
+  The `Browser journeys` matrix adds 16 browser journeys and `just proof delivery-recovery` to `Tests`; no hosted run has exercised it yet ([hosted journeys](docs/web-system-functional-testing.md#hosted-journeys)).
+  Red on `main` at `f9f943f7` and not hosted: `just golden reimbursement` (an oversized upload returns 200, not 413), `just e2e interview-response` (the runner rejects the `validation` member of `validation.failed`),
+  and `just proof authorization-rules` and `rule-reconciliation` (`rule-reconciliation-migration-postgres-proof.ts:184` expects migration 26 to fail, but `migrate26` runs the last migration).
 - The golden CI gate once failed at `ae5928fe` after a dashboard GET returned HTTP 503; a later diagnostic run passed and the cause is unproven. Evidence: `/tmp/golden-ci-success-ae5928fe`.
 - `devenv shell` is the toolchain entry: Bun, Node, PostgreSQL, openssl, Chromium, and prek Git hooks; `--profile legacy-data` adds MariaDB and the PHP 8.4 CLI for the legacy data rehearsals. CI runs in the same shell; its hosted cost is unmeasured.
 - Placement drafts take a new applicant's application availability once the interview is conducted, as the legacy scheduler took every interviewed applicant (`packages/database/src/placements/draft.ts`).
