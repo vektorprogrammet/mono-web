@@ -77,7 +77,7 @@ The first new contract joins a complete workflow without reseeding intermediate 
 From a clean committed tree, run:
 
 ```bash
-bun run test:golden-school-service
+just golden school-service
 ```
 
 Use the versions in the root manifest and lockfile. Install dependencies with `bun install --frozen-lockfile`.
@@ -110,8 +110,8 @@ Neither mode substitutes for the required golden browser command.
 These test-driver faults establish that missing work cannot pass:
 
 ```bash
-GOLDEN_SCHOOL_SERVICE_FAULT=omit-attendance bun run test:golden-school-service
-GOLDEN_SCHOOL_SERVICE_FAULT=absent-browser-evidence bun run test:golden-school-service
+GOLDEN_SCHOOL_SERVICE_FAULT=omit-attendance just golden school-service
+GOLDEN_SCHOOL_SERVICE_FAULT=absent-browser-evidence just golden school-service
 ```
 
 Both commands must exit unsuccessfully. They change only the test driver, not production behavior.
@@ -300,7 +300,7 @@ Fixtures create prerequisites, not the outcomes under test. Independent PostgreS
 Use the local gate prerequisites and a clean committed checkout:
 
 ```bash
-bun run test:golden-recruitment
+just golden recruitment
 ```
 
 The runner builds the homepage and dashboard from that source. It serves the homepage through an owned local HTTPS Worker.
@@ -328,7 +328,7 @@ The [Receipt guide](../packages/domain/src/receipt/README.md) explains its servi
 Use the local gate prerequisites and a clean committed checkout:
 
 ```bash
-bun run test:golden-reimbursement
+just golden reimbursement
 ```
 
 The journey uses synthetic people, disposable PostgreSQL, private local files, and a loopback notification provider.

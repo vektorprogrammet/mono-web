@@ -50,7 +50,8 @@ Keep infrastructure dependencies separate from the application catalog.
 `devenv shell` is the entry point. Run commands inside it, or one at a time with `devenv shell -- <command>`.
 Legacy data rehearsals that start MariaDB or the PHP CLI need `devenv --profile legacy-data shell`.
 [README.md#toolchain](README.md#toolchain) lists what devenv provides and the local commands.
-Package manifests own exact scripts. Use `bun run`, not `bun test`, for package scripts.
+The root [justfile](justfile) is the command surface: `just` lists its recipes, and hooks and CI workflows call them.
+Package manifests own the per-package scripts that recipes and Turbo run. Use `bun run`, not `bun test`, for package scripts.
 
 For focused Vitest checks, invoke Vitest directly through the package:
 
@@ -158,18 +159,18 @@ Use the installed Arbitrary API with bounded runs, deterministic seeds, and type
 Valid schema generation does not cover malformed wire input.
 
 Full end-to-end suites dominate machine load. Only the orchestrating lead starts them, one at a time.
-They are the golden journeys (`test:golden-*`) and their CI wrappers, `verify:delivery-recovery`,
+They are the golden journeys (`just golden <journey>`) and their CI wrappers, `just proof delivery-recovery`,
 and the browser evidence suites (`e2e:*:real`, `e2e:real-*`).
 A worker that needs one reports the exact command to the lead and does not start it.
 
 All other checks and tests can run at the same time under the admission rule below.
-Heavy jobs are real PostgreSQL tests, browsers and dev servers, `turbo check-types`, and `turbo test`.
+Heavy jobs are real PostgreSQL tests, browsers and dev servers, `just check-types`, and `just test`.
 Each agent runs at most one heavy job at a time.
-Run a heavy job through `bun run measure-job --class <class> -- <command...>` to record its resource use.
+Run a heavy job through `just measure --class <class> -- <command...>` to record its resource use.
 The ledger is `${XDG_STATE_HOME:-~/.local/state}/vektorprogrammet/job-ledger.jsonl`.
 It is machine runtime evidence. Do not commit it.
 
-Before a heavy job, run `bun run measure-job --report`. Read the max peak RSS and max mean cores of the class.
+Before a heavy job, run `just measure --report`. Read the max peak RSS and max mean cores of the class.
 If the class has no ledger row, measure it first while no other heavy job runs.
 Start the job only if both conditions are true:
 
@@ -181,7 +182,7 @@ Memory is the hard limit, and CPU is the soft limit because oversubscription onl
 If a condition is false, wait and check again.
 Load and `MemAvailable` lag a job that started in the last minute. Include its peak RSS and mean cores before you compare.
 
-Git hooks do not use the admission rule. Their type checks and tests run through `scripts/hook-slot.ts`.
+Git hooks do not use the admission rule. Their type checks and tests run through `just hook-slot` (`tools/scripts/hook-slot.ts`).
 It holds one of N machine-wide slots, a `flock` lock on `${XDG_RUNTIME_DIR:-/tmp}/vektorprogrammet/hook-slot-<n>`.
 If all slots are busy, the hook shows the slot holders and waits.
 The lock is released when the hook process stops, also on a signal.

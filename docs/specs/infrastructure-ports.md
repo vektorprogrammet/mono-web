@@ -49,4 +49,4 @@ The same commit can run locally, in CI, in a preview, and on a host such as a co
 4. The backend runs its tests against a PostgreSQL connection through a transaction pooler (PgBouncer in transaction mode) with no failures.
 5. One image built from the commit serves the homepage, dashboard, and backend behind the router in a compose stack with a local PostgreSQL, and the golden journey passes against it.
 6. A lint rule rejects provider and runtime imports outside Layer modules, with a negative control.
-7. `bun run check` and the hosted Checks and Tests workflows pass.
+7. `just check` and the hosted Checks and Tests workflows pass.

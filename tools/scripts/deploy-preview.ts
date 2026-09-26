@@ -5,7 +5,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Schema } from "effect";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const homepageRoot = resolve(root, "apps/homepage");
 
@@ -29,7 +29,7 @@ const fail: (message: string) => never = (message) => {
 };
 
 if (pullRequestNumber === undefined || !/^[1-9]\d*$/.test(pullRequestNumber)) {
-  fail("Usage: bun run deploy:preview -- <pull-request-number>");
+  fail("Usage: bun tools/scripts/deploy-preview.ts <pull-request-number>");
 }
 
 const previewName = `pr-${pullRequestNumber}`;

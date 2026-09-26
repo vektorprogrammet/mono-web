@@ -100,6 +100,7 @@ in
 
   packages = [
     pkgs.git
+    pkgs.just
     pkgs.openssl
   ];
 
@@ -130,25 +131,26 @@ in
     ];
   };
 
-  # `devenv up` starts PostgreSQL, then `bun dev` against it.
+  # `devenv up` starts PostgreSQL, then `just dev` against it.
   processes.app = lib.mkIf (!config.devenv.isTesting) {
-    exec = "bun run dev";
+    exec = "just dev";
     env.BACKEND_PG_URL = "postgresql://vektorprogrammet@127.0.0.1:${toString config.env.PGPORT}/vektorprogrammet";
     after = [ "devenv:processes:postgres" ];
   };
 
+  # Every hook runs a `just` recipe; the justfile is the one command surface.
   git-hooks.hooks = {
     # Staged files only. .oxfmtrc.json owns the formatter scope, also for explicit paths.
     format = {
       enable = true;
-      entry = "${hookEnv} bun x oxfmt --check --no-error-on-unmatched-pattern";
+      entry = "${hookEnv} just format --check --no-error-on-unmatched-pattern";
       stages = [ "pre-commit" ];
       priority = 0;
       fail_fast = true;
     };
     lint = {
       enable = true;
-      entry = "${hookEnv} bun x oxlint --no-error-on-unmatched-pattern";
+      entry = "${hookEnv} just lint --no-error-on-unmatched-pattern";
       files = "\\.(js|jsx|mjs|cjs|ts|tsx|mts|cts)$";
       stages = [ "pre-commit" ];
       priority = 0;
@@ -157,7 +159,7 @@ in
     # The whole staged tree, whatever the task cache holds: no credential, personal data, or
     # literal SQL data enters the public repository.
     source-safety = hook {
-      entry = "${hookEnv} bun --no-env-file tools/source-safety/src/check.ts";
+      entry = "${hookEnv} just source-safety";
       stages = [
         "pre-commit"
         "pre-merge-commit"
@@ -167,24 +169,24 @@ in
     };
     # Type checks and tests of the packages that the staged tree changes.
     changed-packages = hook {
-      entry = "${hookEnv} bun --no-env-file scripts/check-staged.ts --class hook-pre-commit";
+      entry = "${hookEnv} just check-staged --class hook-pre-commit";
       stages = [ "pre-commit" ];
       priority = 1;
     };
     # A merge without conflicts skips pre-commit. Its staged tree is the merge result.
     merged-packages = hook {
-      entry = "${hookEnv} bun --no-env-file scripts/check-staged.ts --class hook-pre-merge-commit --dependents";
+      entry = "${hookEnv} just check-staged --class hook-pre-merge-commit --dependents";
       stages = [ "pre-merge-commit" ];
     };
     push-check = hook {
-      # `bun run` appends the flag to the last command of `check`, `turbo check-types`.
-      entry = "${hookEnv} bun --no-env-file scripts/hook-slot.ts --class hook-pre-push-check -- bun run check --concurrency=1";
+      # `just check` passes its arguments to `turbo check-types`.
+      entry = "${hookEnv} just hook-slot --class hook-pre-push-check -- just check --concurrency=1";
       stages = [ "pre-push" ];
       priority = 0;
       fail_fast = true;
     };
     push-test = hook {
-      entry = "${hookEnv} bun --no-env-file scripts/hook-slot.ts --class hook-pre-push-test -- bun x turbo run test --affected --concurrency=1";
+      entry = "${hookEnv} just hook-slot --class hook-pre-push-test -- just test --affected --concurrency=1";
       stages = [ "pre-push" ];
       priority = 1;
     };

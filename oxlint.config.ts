@@ -227,7 +227,7 @@ export default defineConfig({
       },
     },
     {
-      files: ["tools/acceptance/password-recovery-check.ts", "scripts/changelog.ts"],
+      files: ["tools/acceptance/password-recovery-check.ts", "tools/scripts/changelog.ts"],
       rules: {
         // These Bun entrypoints intentionally use Bun-native lifecycle APIs beside Node compatibility APIs.
         "effect/no-cross-runtime": "off",

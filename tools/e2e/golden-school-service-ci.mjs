@@ -41,7 +41,7 @@ const git = (...args) => {
 const summary = {
   schema_version: "golden-school-service-ci/v1",
   passed: false,
-  command: "bun run test:golden-school-service",
+  command: "bun --no-env-file tools/e2e/placement-check.ts --golden-school-service",
   command_exit_code: null,
   command_signal: null,
   interruption: null,
@@ -117,12 +117,16 @@ try {
   assert.ok(summary.interruption === null, "interrupted before command start");
   phase = "golden command";
 
-  const child = spawn("bun", ["run", "test:golden-school-service"], {
-    cwd: root,
-    env: environment,
-    detached: true,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const child = spawn(
+    "bun",
+    ["--no-env-file", "tools/e2e/placement-check.ts", "--golden-school-service"],
+    {
+      cwd: root,
+      env: environment,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
 
   summary.process_groups_drained = false;
 

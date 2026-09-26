@@ -1,7 +1,7 @@
 /**
  * Checks every file in the Git index against the source-safety rules. In a commit hook the
  * index is the tree the commit records; in CI it is the checkout. It runs in the pre-commit
- * hook and in `bun run check`, so no task cache can skip it.
+ * hook and in `just check`, so no task cache can skip it.
  */
 import { spawnSync } from "node:child_process";
 import {

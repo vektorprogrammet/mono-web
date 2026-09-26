@@ -5,8 +5,8 @@ import { dirname, join } from "node:path";
 import { Option, Schema } from "effect";
 
 const usage = `Usage:
-  bun run measure-job --class <job-class> [--ledger <path>] -- <command...>
-  bun run measure-job --report [--ledger <path>]
+  just measure --class <job-class> [--ledger <path>] -- <command...>
+  just measure --report [--ledger <path>]
 
 Runs the command and samples its process tree every ${500} ms through /proc.
 Appends one JSON line per run to the machine-local ledger:

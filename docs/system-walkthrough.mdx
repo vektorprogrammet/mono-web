@@ -294,7 +294,7 @@ There is no Cloudflare Worker backend composition.
 Hyperdrive transport conflicts with the PostgreSQL advisory-lock requirements of the native system.
 Provider selection and deployed acceptance remain separate work.
 
-Local `bun dev` starts the backend and both frontend development servers through the existing workspace tasks.
+Local `just dev` starts the backend and both frontend development servers through the existing workspace tasks.
 It requires a separate, dedicated loopback PostgreSQL database and a stable authentication secret.
 The launcher disables external delivery.
 
@@ -310,7 +310,7 @@ A complete restore needs the database, private files, and required secrets.
 The combined local rehearsal exposed why the authentication secret must remain stable across restore.
 Restoring database rows alone is not a complete application restore.
 
-Sources: [composition root](../apps/backend/src/main.ts), [local launcher](../scripts/dev.ts), [development setup](../README.md#local-native-development), [runtime composition](architecture.md#runtime-composition).
+Sources: [composition root](../apps/backend/src/main.ts), [local launcher](../tools/scripts/dev.ts), [development setup](../README.md#local-native-development), [runtime composition](architecture.md#runtime-composition).
 
 ## 9. Migration preserves meaning, not PHP structure
 

@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { Schema } from "effect";
 
 const usage = `Usage:
-  bun scripts/check-staged.ts --class <job-class> [--dependents]
+  just check-staged --class <job-class> [--dependents]
 
 Runs \`turbo run check-types test\` for the packages that the staged tree
 changes compared with HEAD. With --dependents, it also runs them for the

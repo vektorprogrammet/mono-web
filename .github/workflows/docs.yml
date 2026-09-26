@@ -48,7 +48,7 @@ jobs:
         run: bun run --cwd tools/placements-docs docs:ci "$RUNNER_TEMP/placements-api"
       - name: Build the site and check its links
         timeout-minutes: 5
-        run: bun run --cwd apps/docs build
+        run: just docs build
       - name: Publish the Placements API reference with the site
         timeout-minutes: 1
         run: |

@@ -34,6 +34,6 @@ jobs:
         timeout-minutes: 3
         run: bun install --frozen-lockfile
       # Type checks run the Turbo `generate` tasks, which derive and assert the HTTP contract artifacts.
-      - name: Check format, lint, types, and HTTP contract
+      - name: Check source safety, format, lint, types, and HTTP contract
         timeout-minutes: 12
-        run: bun run check
+        run: just check
