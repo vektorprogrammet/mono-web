@@ -5,7 +5,7 @@ Status: frozen for implementation on 2026-09-26 (operator decisions below). Remo
 ## Goal
 
 Hand-written documentation has one source: MDX pages in `apps/docs`, written with Fumadocs and mdxcn components, published as a static site.
-The root `docs/` folder holds only Markdown generated from those pages, so agents and GitHub readers keep plain `.md` files at the paths they already use.
+The root `docs/` folder stops being where docs are written. It holds only generated artifacts of any file type: Markdown rendered from the Fumadocs pages at the paths agents and GitHub readers already use, and outputs of other generators. Every file in it names its generator.
 Vocs is removed.
 
 ## Operator decisions (2026-09-26)
@@ -21,7 +21,7 @@ Vocs is removed.
 - **Generated paths stay stable.** The generated Markdown keeps today's paths, such as `docs/system.md`, `docs/specs/<name>.md`, and `packages/domain/src/receipt/README.md`. Existing links from `AGENTS.md`, `STATE.md`, the effect-house overlay, the homelab projects-tier extension, and code comments keep working.
 - **Each generated file is marked.** It begins with a do-not-edit marker that names its MDX source. A check fails when a generated file differs from a fresh render (drift), and also when someone edits it by hand. Hooks and CI run that check.
 - **Specs.** A spec's source is `apps/docs/content/docs/specs/<name>.mdx`. `docs/specs/<name>.md` is its generated read path. The spec convention in `AGENTS.md` and `tools/conventions/src/check.ts` moves to the source path. A worker bound to a spec edits the source and reads either one.
-- **Non-Markdown files leave `docs/`.** The formal models `docs/model/authority.als` and `contexts.cml` move to `model/` at the repository root. The exception registry `docs/effect-exceptions.json` moves to `tools/conventions/effect-exceptions.json`. Update their readers (`tools/scripts/model.ts`, `tools/conventions/src/{layout,exceptions}.ts`) and `tools/conventions/src/layout.ts` together.
+- **Hand-authored files leave `docs/`.** Each moves to where it is authored. The formal models `docs/model/authority.als` and `contexts.cml` go to `model/` at the repository root. The exception registry `docs/effect-exceptions.json` goes to `tools/conventions/effect-exceptions.json`. Update their readers (`tools/scripts/model.ts`, `tools/conventions/src/{layout,exceptions}.ts`) in the same commit. A file a generator writes may stay in `docs/`, whatever its type.
 - **Generated content from code.** Generators such as the construct catalogue, the module guides' hosted-journeys sections, and the effect-house references write MDX into `apps/docs/content/docs/**`. The site renders it, and it reaches `docs/` through the same Markdown generation. Each generator declares its output path in one constant.
 - **mdxcn.** The existing graph components in `apps/docs/components/mdxcn` (with `provenance.json`) move into the Fumadocs app's MDX component map, under their existing license and provenance. New mdxcn components are installed through its registry CLI, never copied by hand.
 - **Hosting.** The GitHub Pages workflow `.github/workflows/docs.yml` keeps publishing from `main`, with the new static output directory, and still includes the Placements API reference. No other deployment is created.
@@ -30,11 +30,19 @@ Vocs is removed.
 
 1. `just docs build` builds the static site from a clean checkout. Every moved page renders, has a `title` and a `description`, and appears in the navigation from `meta.json` in today's section order: Start, the system pages, Operations, Specs, Testing. Links between pages resolve; the build fails on a broken internal link.
 2. `just docs generate` writes `docs/**` and the module-guide READMEs. `just docs check` fails on a drift and on a hand edit (negative controls for both), and runs in `just check`, the pre-commit hook, and hosted Checks.
-3. `docs/` contains only generated `.md` files. The layout check enforces that.
+3. Every file in `docs/` is the output of a registered generator, and a hand-authored file there fails the layout check (negative control). The generators are listed in one place, with the output path of each.
 4. `rg -l vocs` finds nothing outside git history and the changelog. `site.ts`, `sync-pages.ts`, and `vocs.config.ts` are gone.
 5. The mdxcn graph components render on the system walkthrough page.
 6. The docs workflow publishes the new build to Pages on `main`: the first run after landing succeeds, and the site answers.
 7. `just check` and the hosted Checks and Tests workflows pass.
+
+## Documentation that must change
+
+`docs/` stops being where docs are written, so every instruction that tells a writer to edit a file there changes to the source in `apps/docs/content/docs`, and says that `docs/` is a generated read path:
+
+- `AGENTS.md` (Authority, the spec convention, the documentation rules), `README.md`, `apps/docs/AGENTS.md`, `tools/conventions/AGENTS.md`, `STATE.md` (Lead handoff), and the effect-house overlay.
+- Generated guides and the layout description in `tools/conventions/src/layout.ts`.
+- Outside this repository: the cross-project rule "specs live in `docs/specs/`" in `/srv/share/projects/homelab/docs/PROJECTS.md` (lines 186-193 and 433). The lead changes it in the homelab repository to say this: a repository that generates its docs keeps the spec source where its docs site says, and still serves the read path `docs/specs/`.
 
 ## Non-goals
 
