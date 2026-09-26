@@ -136,6 +136,11 @@ export const exclusions: ReadonlyArray<Exclusion> = [
     file: "apps/homepage/e2e/preview-smoke.spec.ts",
     reason: "Needs a deployed preview origin in PREVIEW_BASE_URL; without one, every test skips",
   },
+  {
+    file: "apps/homepage/e2e/homepage-dev-journey.spec.ts",
+    reason:
+      "Needs a native backend: its Playwright web server serves the homepage alone, and the home page reads news from the API since 4efd0a2c, so it answers 503; it needs a runner that owns PostgreSQL, the backend, and the homepage",
+  },
 ];
 
 const sameJourney = (left: Journey, right: Journey): boolean =>

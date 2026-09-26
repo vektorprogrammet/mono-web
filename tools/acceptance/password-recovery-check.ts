@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { Predicate, Console, Effect, Layer, Schema } from "effect";
-import { MailDeliveryRequest, Mail } from "@vektorprogrammet/domain/mail";
+import { MailDeliveryRequest, Mail } from "../../packages/domain/src/mail.js";
 import { stopOwnedProcess } from "./owned-process.js";
 import { type DisposablePostgres, startDisposablePostgres } from "../postgres/index.ts";
 import { drainPasswordResetMail } from "../../packages/database/src/password-recovery.js";

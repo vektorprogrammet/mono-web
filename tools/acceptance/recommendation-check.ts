@@ -2479,9 +2479,11 @@ try {
     await locker.query("COMMIT");
     locker.release();
     heldIdentityClient = undefined;
+    // Finalization retries a serialization failure once (74b037e2), so the request that waited on
+    // the link answers with the self-denial of its retry instead of 409 transaction.conflict.
     const staleIdentity = await waiting;
-    assert.equal(staleIdentity.status, 409);
-    assert.equal((await staleIdentity.json()).code, "transaction.conflict");
+    assert.equal(staleIdentity.status, 403);
+    assert.equal((await staleIdentity.json()).code, "authority.denied");
     assert.equal(
       (
         await post(
@@ -2520,7 +2522,7 @@ try {
   assert.equal((await waitingRead).status, 403);
   assert.equal(await lifecycleSnapshot(), lifecycleBeforeSelf);
   recordGate(
-    "known self denied before read/finalize/cancel and both receipt layers; different Person allowed; real waiting serializable snapshot fails409 then self-denial",
+    "known self denied before read/finalize/cancel and both receipt layers; different Person allowed; a finalization waiting on the identity link retries its serialization failure once and is denied as self",
   );
   let immutable = false;
 
