@@ -11,3 +11,5 @@ export * from "./policy.js";
 export * from "./service.js";
 
 export * from "./current-assignment-contracts.js";
+
+export * from "./scheduler.js";
