@@ -376,7 +376,19 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
           await expect(importedMemberRow).toHaveCount(1);
           await expect(importedMemberRow).toContainText(expectedDepartmentName);
           await expect(importedMemberRow).toContainText(expectedMemberEmail);
-          await page.getByRole("tab", { name: "Inaktive Brukere" }).click();
+          // A click before React hydration moves focus but never selects the tab, so retry it.
+          const inactiveTab = page.getByRole("tab", { name: "Inaktive Brukere" });
+
+          await expect
+            .poll(
+              async () => {
+                await inactiveTab.click();
+
+                return await inactiveTab.getAttribute("aria-selected");
+              },
+              { timeout: 10_000 },
+            )
+            .toBe("true");
 
           const administratorRow = page
             .getByRole("row")
