@@ -44,6 +44,7 @@
     "!/packages/sdk/scripts/",
     "!/tools/",
     "/tools/*",
+    "!/tools/conventions/",
     "!/tools/verification/",
     "!/tools/source-safety/",
     "!/tools/e2e/",

@@ -167,6 +167,17 @@ in
       priority = 0;
       fail_fast = true;
     };
+    # The whole staged tree against the layout declaration, the context map, and the generated
+    # README and AGENTS.md sections.
+    layout = hook {
+      entry = "${hookEnv} just layout --staged";
+      stages = [
+        "pre-commit"
+        "pre-merge-commit"
+      ];
+      priority = 0;
+      fail_fast = true;
+    };
     # Type checks and tests of the packages that the staged tree changes.
     changed-packages = hook {
       entry = "${hookEnv} just check-staged --class hook-pre-commit";

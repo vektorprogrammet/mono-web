@@ -220,9 +220,12 @@ export default defineConfig({
       },
     },
     {
-      files: ["tools/source-safety/tests/source-safety.test.ts"],
+      files: [
+        "tools/source-safety/tests/source-safety.test.ts",
+        "tools/conventions/tests/layout.test.ts",
+      ],
       rules: {
-        // Bun runs this suite; it drives the Node-compatible Git and filesystem seams.
+        // Bun runs these suites; they drive the Node-compatible Git and filesystem seams.
         "effect/no-cross-runtime": "off",
       },
     },

@@ -53,6 +53,34 @@ Legacy data rehearsals that start MariaDB or the PHP CLI need `devenv --profile 
 The root [justfile](justfile) is the command surface: `just` lists its recipes, and hooks and CI workflows call them.
 Package manifests own the per-package scripts that recipes and Turbo run. Use `bun run`, not `bun test`, for package scripts.
 
+<!-- commands: generated from the justfile by `just layout write`; do not edit -->
+
+| Group     | Recipe                            | Does                                                                                                                                                                                                                  |
+| --------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| check     | `just check [args...]`            | Check layout, source safety, format, lint, types, and the HTTP contract. Arguments go to Turbo.                                                                                                                       |
+| check     | `just check-types [args...]`      | Type check every package and assert the HTTP contract. Arguments go to Turbo.                                                                                                                                         |
+| check     | `just format [args...]`           | Format with Oxfmt, or check the format with `just format --check`.                                                                                                                                                    |
+| check     | `just layout [args...]`           | Check the repository layout and the generated README and AGENTS.md sections; `just layout write` renders them.                                                                                                        |
+| check     | `just lint [args...]`             | Lint with Oxlint.                                                                                                                                                                                                     |
+| check     | `just measure [args...]`          | Run a heavy job with resource measurement, or show the ledger with `just measure --report`.                                                                                                                           |
+| check     | `just source-safety`              | Scan every file in the Git index for credentials, personal data, and SQL data.                                                                                                                                        |
+| check     | `just test [args...]`             | Test every package, a heavy job (AGENTS.md#verification-and-resources). Arguments go to Turbo.                                                                                                                        |
+| develop   | `just build [args...]`            | Build every package through Turbo. Arguments go to Turbo.                                                                                                                                                             |
+| develop   | `just changelog [args...]`        | Regenerate CHANGELOG.md from conventional commits, or compare it with `--check`.                                                                                                                                      |
+| develop   | `just dev [args...]`              | Start the homepage, dashboard, and backend against BACKEND_PG_URL. `devenv up` runs it.                                                                                                                               |
+| develop   | `just docs [script]`              | Serve the documentation site, or run another of its scripts, such as `just docs build`.                                                                                                                               |
+| develop   | `just seed`                       | Provision the native journey accounts in the `devenv up` database.                                                                                                                                                    |
+| hooks     | `just check-staged [args...]`     | Type check and test the packages that the staged tree changes (pre-commit and merge hooks).                                                                                                                           |
+| hooks     | `just hook-slot [args...]`        | Run a command in one of the machine-wide hook slots (pre-push hooks).                                                                                                                                                 |
+| hooks     | `just hooks [args...]`            | Run the Git hooks by hand, for example `just hooks --hook-stage pre-push`.                                                                                                                                            |
+| journeys  | `just fixture <name> [args...]`   | Build a PostgreSQL fixture in JOURNEY_SEED_PG_URL: recommendation-preupgrade.                                                                                                                                         |
+| journeys  | `just golden <journey>`           | Run a golden journey: school-service, recruitment, reimbursement, or team-application.                                                                                                                                |
+| journeys  | `just proof <name> [args...]`     | Run a PostgreSQL proof: authorization-rules, completion-receipt, delivery-recovery, or rule-reconciliation.                                                                                                           |
+| migration | `just migration <name> [args...]` | Run an operator migration command: legacy-service (the service cutover) or legacy-receipt.                                                                                                                            |
+| migration | `just rehearsal <name> [args...]` | Run a migration rehearsal: organization-import, receipt-import, current-assignment, or, in the legacy-data profile, account-cohort, legacy-current-assignment, legacy-organization, legacy-receipt, legacy-candidate. |
+
+<!-- commands: end -->
+
 For focused Vitest checks, invoke Vitest directly through the package:
 
 ```bash
@@ -65,22 +93,44 @@ The domain aggregate `test` script also runs fixture programs and D1 proofs.
 Do not append Vitest flags to that aggregate script.
 Focused Vitest does not prove those additional gates or the dashboard bundle gate.
 
-## Packages
+## Layout
 
-| Path                  | Responsibility                                           |
-| --------------------- | -------------------------------------------------------- |
-| `apps/backend`        | Native Effect HTTP process and workers                   |
-| `apps/homepage`       | Public React application                                 |
-| `apps/dashboard`      | Authenticated React Router and Foldkit application       |
-| `packages/domain`     | Business values, transitions, failures, and authority    |
-| `packages/database`   | PostgreSQL schema, persistence, locks, audit, and outbox |
-| `packages/http-api`   | HTTP contracts, middleware declarations, and OpenAPI     |
-| `packages/sdk`        | Generated native API client                              |
-| `tools/e2e`           | Disposable local journey drivers                         |
-| `tools/source-safety` | Staged-tree scan for credentials and personal data       |
+<!-- layout: generated from tools/conventions/src/layout.ts by `just layout write`; do not edit -->
+
+| Path                    | Holds                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| `apps/backend`          | Native Effect HTTP process and workers                                          |
+| `apps/dashboard`        | Authenticated React Router and Foldkit application                              |
+| `apps/docs`             | Documentation site that renders the repository documents                        |
+| `apps/homepage`         | Public React application                                                        |
+| `packages/domain`       | Business values, transitions, failures, and authority                           |
+| `packages/database`     | PostgreSQL schema, persistence, locks, audit, and outbox                        |
+| `packages/http-api`     | HTTP contracts, middleware declarations, and OpenAPI                            |
+| `packages/sdk`          | Generated native API client                                                     |
+| `tools/acceptance`      | Local API and browser acceptance probes of single journeys                      |
+| `tools/conventions`     | Layout declaration and check; generated README and AGENTS.md sections           |
+| `tools/e2e`             | Golden journeys, local journey drivers, and legacy migration commands           |
+| `tools/oxlint`          | Project Oxlint rules                                                            |
+| `tools/placements-docs` | Placements API reference generation and checks                                  |
+| `tools/postgres`        | Disposable PostgreSQL clusters of the selected major                            |
+| `tools/scripts`         | Local launcher, Git hook runner, job measurement, preview deployment, changelog |
+| `tools/source-safety`   | Staged-tree scan for credentials and personal data                              |
+| `tools/verification`    | Cross-application PostgreSQL proofs and migration rehearsals                    |
+| `infra`                 | Worker preview deployment configuration                                         |
+| `docs`                  | Intended system, architecture, operations, and active specifications            |
+| `patches`               | Dependency patches that `patchedDependencies` in package.json applies           |
+| `.github`               | Checks, Tests, Docs, and preview workflows and their actions                    |
+| `.claude`               | Claude Code settings and project rules                                          |
+
+Apps and packages never import `tools/`.
+Context folders in `packages/domain/src`, `packages/database/src`, `apps/backend/src`, and `apps/dashboard/app/foldkit` carry the kebab-case name of a bounded context in [docs/model/contexts.cml](docs/model/contexts.cml).
+Code that several contexts share lives in `shared-kernel`.
+`just layout` checks the tree against [tools/conventions/src/layout.ts](tools/conventions/src/layout.ts), which lists the exceptions and their reasons.
+
+<!-- layout: end -->
 
 Keep the dependency graph in [docs/architecture.md](docs/architecture.md).
-Product packages must not import migration tools or application source.
+Product packages must not import application source.
 
 ## TypeScript conventions
 
