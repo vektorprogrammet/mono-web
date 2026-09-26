@@ -43,7 +43,7 @@
     "e2e:real-profile": "node e2e/run-real-native-profile-self-edit.mjs",
     "e2e:real-identity": "bun --no-env-file e2e/run-real-native-identity-browser.mjs",
     "e2e:real-oauth": "node ./node_modules/@playwright/test/cli.js test e2e/native-oauth-consent.spec.ts --project=chromium --workers=1 --retries=0",
-    "e2e:sign-in-pages": "node ./node_modules/@playwright/test/cli.js test e2e/auth.spec.ts e2e/password-reset.spec.ts --project=chromium --workers=1 --retries=0 --reporter=line",
+    "e2e:sign-in-pages": "API_URL=http://127.0.0.1:9 node ./node_modules/@playwright/test/cli.js test e2e/auth.spec.ts e2e/password-reset.spec.ts --project=chromium --workers=1 --retries=0 --reporter=line",
     "e2e:unavailable-projections": "API_URL=http://127.0.0.1:8791 VITE_API_URL=http://127.0.0.1:8791 node ./node_modules/@playwright/test/cli.js test e2e/dashboard-list-type-boundary.spec.ts --project=chromium --workers=1 --retries=0 --reporter=line"
   },
   "dependencies": {

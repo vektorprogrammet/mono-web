@@ -91,10 +91,15 @@ if (contentHomepageHost !== undefined) {
   contentChromiumLaunchOptions.args = [`--host-resolver-rules=MAP ${contentHomepageHost} 127.0.0.1`];
 }
 
+// The suites load the production build of the current source. A dev server optimizes each
+// dependency it first meets during a test and then reloads the page, which aborts a navigation.
+// server.mjs proxies /api to API_URL, which each suite's script names: a fixture origin, or a
+// closed port for sign-in pages that send no session cookie and so call no API.
 const dashboardServer = {
-  command: "bun run dev --host 127.0.0.1 --port 5174",
-  url: genericDashboardOrigin,
-  timeout: 120_000,
+  command: "bun --no-env-file run build && bun --no-env-file server.mjs",
+  env: { HOST: "127.0.0.1", PORT: "5174", NODE_ENV: "production" },
+  url: new URL("login", dashboardBaseUrl(genericDashboardOrigin, process.env)).toString(),
+  timeout: 300_000,
   reuseExistingServer: false,
   stdout: "pipe" as const,
   gracefulShutdown: { signal: "SIGTERM" as const, timeout: 5_000 },
