@@ -165,6 +165,18 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
   ],
   [
     "GET",
+    "/api/organization/delegations",
+    "organization.readDelegationManagement",
+    person("organization.manage-delegations", "organization.delegation-management", [], "SnapshotRead"),
+  ],
+  [
+    "POST",
+    "/api/organization/delegations/commands",
+    "organization.executeDelegation",
+    person("organization.manage-delegations", "organization.delegation-management", [], "Transaction"),
+  ],
+  [
+    "GET",
     "/api/admission-outcomes/scopes",
     "admissionOutcomes.listScopes",
     person("admissions.outcomes.read", "admissions.application-outcomes", [], "SnapshotRead"),
@@ -916,6 +928,7 @@ const entityMutationOperations = [
 
 const bodyPreconditionMutationOperations = [
   "organization.executeLifecycle",
+  "organization.executeDelegation",
   "directory.executeSchoolCommand",
   "recruitment.maintainRecruitment",
 ] as const;
@@ -941,6 +954,7 @@ const privateBinaryReadOperations = [
 
 const privateReadOperations = [
   "organization.readAppointmentManagement",
+  "organization.readDelegationManagement",
   "onboarding.readBoard",
   "onboarding.claim",
   "placements.listScopes",

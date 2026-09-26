@@ -65,6 +65,8 @@ export const AdvisoryLockKey = {
   /** Organization lifecycle command receipt. */
   organizationLifecycleCommand: (commandId: string) =>
     advisoryLockKey(`organization-lifecycle:${commandId}`),
+  /** Delegation command receipt. */
+  delegationCommand: (commandId: string) => advisoryLockKey(`delegation-command:${commandId}`),
   /** Own-Profile command receipt. Bare. */
   profileCommand: (commandId: string) => advisoryLockKey(commandId),
   /** Receipt command receipt, shared by receipt and settlement commands. */

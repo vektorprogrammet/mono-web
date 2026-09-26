@@ -1,11 +1,14 @@
 import { createBrowserOrganizationCatalogClient } from "./browser-client";
 import { embedOrganizationCatalog } from "./main";
+import { embedDelegationManagement } from "./delegations";
 import { embedAppointmentManagement } from "./management";
 import type { OrganizationCatalogKind } from "./model";
 
 export const TEAM_CATALOG_ELEMENT = "vektor-team-catalog";
 
 export const FIELD_OF_STUDY_CATALOG_ELEMENT = "vektor-field-of-study-catalog";
+
+export const DELEGATION_MANAGEMENT_ELEMENT = "vektor-delegation-management";
 
 const defineOrganizationCatalogElement = (
   elementName: string,
@@ -53,8 +56,46 @@ const defineOrganizationCatalogElement = (
   );
 };
 
+const defineDelegationManagementElement = (): void => {
+  if (customElements.get(DELEGATION_MANAGEMENT_ELEMENT) !== undefined) return;
+
+  customElements.define(
+    DELEGATION_MANAGEMENT_ELEMENT,
+    class extends HTMLElement {
+      readonly #container = document.createElement("div");
+      #dispose: (() => void) | undefined;
+
+      connectedCallback(): void {
+        if (this.#dispose !== undefined) return;
+        this.#container.id = "foldkit-delegation-management";
+        this.replaceChildren(this.#container);
+
+        try {
+          this.#dispose = embedDelegationManagement(this.#container);
+        } catch (cause) {
+          const error = document.createElement("section");
+          error.setAttribute("role", "alert");
+          const heading = document.createElement("h1");
+          heading.textContent = "Delegeringene kunne ikke vises";
+          const guidance = document.createElement("p");
+          guidance.textContent = "Last siden på nytt og prøv igjen.";
+          error.replaceChildren(heading, guidance);
+          this.#container.replaceChildren(error);
+          globalThis.reportError(cause);
+        }
+      }
+
+      disconnectedCallback(): void {
+        this.#dispose?.();
+        this.#dispose = undefined;
+      }
+    },
+  );
+};
+
 export const registerOrganizationCatalogElement = (): void => {
   if (typeof window === "undefined" || typeof customElements === "undefined") return;
   defineOrganizationCatalogElement(TEAM_CATALOG_ELEMENT, "Team");
   defineOrganizationCatalogElement(FIELD_OF_STUDY_CATALOG_ELEMENT, "FieldOfStudy");
+  defineDelegationManagementElement();
 };

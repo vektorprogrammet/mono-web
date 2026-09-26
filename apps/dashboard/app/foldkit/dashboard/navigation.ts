@@ -109,6 +109,10 @@ export const navigationSections: ReadonlyArray<NavigationSection> = [
         kind: "link",
         link: leaderLink("Teaminteresse", "/dashboard/teaminteresse"),
       },
+      {
+        kind: "link",
+        link: departmentLink("Delegeringer", "/dashboard/delegeringer"),
+      },
     ],
   },
   {

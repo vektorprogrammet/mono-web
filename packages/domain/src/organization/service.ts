@@ -5,6 +5,11 @@
  */
 import { Context, Effect } from "effect";
 import type {
+  DelegationCommand,
+  DelegationManagement,
+  DelegationResult,
+} from "../authz/delegation.js";
+import type {
   AppointmentManagement,
   OrganizationLifecycleCommand,
   OrganizationLifecycleResult,
@@ -87,6 +92,15 @@ export interface OrganizationOperations {
     command: OrganizationLifecycleCommand,
     actorPersonId: PersonId,
   ) => Effect.Effect<OrganizationLifecycleResult, OrganizationLifecycleFailure>;
+  /** The teams, delegations and history within the person's `delegations.manage` reach. */
+  readonly readDelegationManagement: (
+    actorPersonId: PersonId,
+  ) => Effect.Effect<DelegationManagement, OrganizationLifecycleFailure>;
+  /** Issues or ends one delegation under current authority, with receipt and history. */
+  readonly executeDelegation: (
+    command: DelegationCommand,
+    actorPersonId: PersonId,
+  ) => Effect.Effect<DelegationResult, OrganizationLifecycleFailure>;
   readonly readDepartment: (
     departmentId: DepartmentId,
   ) => Effect.Effect<Department, OrganizationReadError>;
