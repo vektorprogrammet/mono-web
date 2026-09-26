@@ -1,5 +1,5 @@
 import { runCurrentAssignmentCohortCli } from "./current-assignment-cohort-cli.js";
-import { CurrentAssignmentFailure } from "@vektorprogrammet/placements/server";
+import { CurrentAssignmentFailure } from "@vektorprogrammet/database/placements";
 
 try {
   await runCurrentAssignmentCohortCli();

@@ -21,7 +21,6 @@
     "@vektorprogrammet/database": "workspace:*",
     "@vektorprogrammet/domain": "workspace:*",
     "@vektorprogrammet/http-api": "workspace:*",
-    "@vektorprogrammet/placements": "workspace:*",
     "@vektorprogrammet/sdk": "workspace:*",
     "better-auth": "1.7.1",
     "effect": "catalog:effect-v4",

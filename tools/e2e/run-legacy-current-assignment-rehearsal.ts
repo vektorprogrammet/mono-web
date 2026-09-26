@@ -14,11 +14,11 @@ import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence
 import {
   CurrentAssignmentReview,
   type ReconciledCurrentAssignmentSnapshot,
-} from "@vektorprogrammet/placements/contracts";
+} from "@vektorprogrammet/domain/placements";
 import {
   decodeReconciledCurrentAssignmentSnapshot,
   importReconciledCurrentAssignmentCohort,
-} from "@vektorprogrammet/placements/server";
+} from "@vektorprogrammet/database/placements";
 import { Effect, flow, Predicate, Redacted, Schema } from "effect";
 import { Pool } from "pg";
 import { buildLegacyReferences, seedLegacyReferences } from "./legacy-cutover-references";

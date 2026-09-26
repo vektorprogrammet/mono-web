@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
-import { databaseHealth } from "@vektorprogrammet/database";
-import { DatabaseTest } from "@vektorprogrammet/database/live";
-import { importPersonCohort, PersonMapping } from "@vektorprogrammet/database/person-cohort";
+import { databaseHealth } from "../service.js";
+import { DatabaseTest } from "../layers.js";
+import { importPersonCohort, PersonMapping } from "../person-cohort.js";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { flow, ManagedRuntime, Schema } from "effect";

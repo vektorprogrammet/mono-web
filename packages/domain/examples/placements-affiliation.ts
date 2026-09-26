@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { nextAffiliationStatus } from "@vektorprogrammet/placements/contracts";
+import { nextAffiliationStatus } from "@vektorprogrammet/domain/placements";
 
 const requested = nextAffiliationStatus("Absent", "Request");
 

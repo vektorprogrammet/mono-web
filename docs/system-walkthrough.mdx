@@ -211,8 +211,8 @@ Two Effect concepts explain the structure:
 The program's dependencies and possible failures remain visible in its types.
 A pure local calculation remains a function. It does not need a service wrapper merely to follow a pattern.
 
-Most portable contracts live in `packages/domain`.
-Placements has separate contracts and server exports in `packages/placements`.
+Portable contracts live in `packages/domain`; their PostgreSQL implementations live in `packages/database`.
+Placements exports its contracts as `@vektorprogrammet/domain/placements` and its database Layer as `@vektorprogrammet/database/placements`.
 Its service owns complete commands and queries; it is not only a schema collection.
 
 The Placements HTTP adapter handles transport concerns and calls the service inside the native command transaction.
@@ -221,7 +221,7 @@ The service holds the department lock across its precondition, transition, audit
 This boundary permits changes to SQL or internal structure without changing what a caller's operation means.
 It does not imply that every older module already has the same boundary. Substitutes still has direct backend-to-database calls.
 
-Sources: [domain services](architecture.md#domain-services), [Placements service](../packages/placements/src/service.ts), [Placements HTTP adapter](../apps/backend/src/placements/http.ts), [package exports](../packages/placements/package.json).
+Sources: [domain services](architecture.md#domain-services), [Placements service](../packages/domain/src/placements/service.ts), [Placements HTTP adapter](../apps/backend/src/placements/http.ts), [domain exports](../packages/domain/package.json), [database exports](../packages/database/package.json).
 
 ## 7. Transactions protect facts; workers deliver effects
 

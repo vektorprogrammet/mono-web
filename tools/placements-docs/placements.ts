@@ -18,7 +18,10 @@ import {
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 
-const packageRoot = resolve(root, "packages/placements");
+const toolRoot = fileURLToPath(new URL("./", import.meta.url));
+
+// The Placements context spans the portable domain entry and its database-backed entry.
+const packageRoots = ["packages/domain", "packages/database"].map((path) => resolve(root, path));
 
 const [mode, destination, ...extra] = process.argv.slice(2);
 
@@ -40,36 +43,38 @@ const sourceUrl = revision
   ? `https://github.com/vektorprogrammet/mono-web/blob/${revision}/{path}#L{line}`
   : `${pathToFileURL(root).href}{path}#L{line}`;
 
-const manifest = Schema.decodeSync(
-  Schema.fromJsonString(Schema.Struct({ exports: Schema.Record(Schema.String, Schema.String) })),
-)(await readFile(resolve(packageRoot, "package.json"), "utf8"));
+const Manifest = Schema.fromJsonString(
+  Schema.Struct({ exports: Schema.Record(Schema.String, Schema.String) }),
+);
 
-const entryPoints = Object.entries(manifest.exports).map(([name, source]) => {
-  assert(name.startsWith("./"), "Expected explicit package exports");
-  const entry = resolve(packageRoot, source);
-  publicFile(root, tracked, entry);
+const entryPoints = await Promise.all(
+  packageRoots.map(async (packageRoot) => {
+    const manifest = Schema.decodeSync(Manifest)(
+      await readFile(resolve(packageRoot, "package.json"), "utf8"),
+    );
 
-  return entry;
-});
+    const source = manifest.exports["./placements"];
+    assert(source, "Expected an explicit ./placements package export");
+    const entry = resolve(packageRoot, source);
+    publicFile(root, tracked, entry);
+
+    return entry;
+  }),
+);
 
 let interrupted = false;
 
 const controller = new AbortController();
 
-const run = (script: string) =>
-  runDocumentationCommand(
-    process.execPath,
-    ["--no-env-file", "run", "--cwd", packageRoot, script],
-    root,
-    controller.signal,
-  );
+const run = (args: ReadonlyArray<string>) =>
+  runDocumentationCommand(process.execPath, ["--no-env-file", ...args], root, controller.signal);
 
 const render = async (directory: string) => {
   const app = await Application.bootstrap({
     name: "Placements developer guide",
     entryPoints,
-    tsconfig: resolve(packageRoot, "tsconfig.json"),
-    readme: resolve(packageRoot, "README.md"),
+    tsconfig: resolve(toolRoot, "tsconfig.json"),
+    readme: resolve(root, "packages/domain/src/placements/README.md"),
     basePath: root,
     displayBasePath: root,
     disableGit: true,
@@ -159,8 +164,9 @@ try {
 
     try {
       if (mode === "ci") {
-        await run("check-types");
-        await run("docs:examples");
+        for (const packageRoot of packageRoots)
+          await run(["run", "--cwd", packageRoot, "check-types"]);
+        await run(["run", "--cwd", toolRoot, "docs:examples"]);
       }
 
       await render(output);

@@ -1,4 +1,4 @@
-import { Database } from "@vektorprogrammet/database";
+import { Database } from "../service.js";
 import { Effect, Layer, Match, Predicate } from "effect";
 import {
   Placements,
@@ -6,7 +6,7 @@ import {
   PlacementPersistenceError,
   type PlacementExecution,
   type PlacementSnapshot,
-} from "../contracts.js";
+} from "@vektorprogrammet/domain/placements";
 import {
   lockPlacementDepartment,
   mutateAffiliation,

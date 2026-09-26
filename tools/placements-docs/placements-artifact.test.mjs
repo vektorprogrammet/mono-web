@@ -229,7 +229,7 @@ test("generated API source links resolve to actual repository source", async () 
     }
 
     assert(
-      [...links].some((href) => href.includes("/packages/placements/src/service.ts#L")),
+      [...links].some((href) => href.includes("/packages/domain/src/placements/service.ts#L")),
       "The public service has no source link",
     );
 

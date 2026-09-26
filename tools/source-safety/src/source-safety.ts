@@ -16,7 +16,7 @@ const unsafePathExtensionPattern =
   /\.(?:pem|key|p12|pfx|jks|keystore|sqlite|sqlite3|db|dump|bak|backup)$/i;
 
 const databaseSourceCodePathPattern =
-  /^packages\/database\/(?:package\.json|tsconfig\.json|(?:src|runtime|test)\/(?:[^/]+\/)*[^/]+\.ts|migrations\/(?:[^/]+\/)*[^/]+\.sql)$/;
+  /^packages\/database\/(?:package\.json|tsconfig\.json|(?:src|runtime|test|examples)\/(?:[^/]+\/)*[^/]+\.ts|migrations\/(?:[^/]+\/)*[^/]+\.sql)$/;
 
 /**
  * Reviewed tracked source whose path resembles a blocked class. Each entry records why the

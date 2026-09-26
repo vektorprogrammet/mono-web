@@ -1,5 +1,5 @@
 import { Database, IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
-import { Placements } from "@vektorprogrammet/placements/contracts";
+import { Placements } from "@vektorprogrammet/domain/placements";
 import { Substitutes } from "@vektorprogrammet/domain/substitutes";
 import { TeamApplications } from "@vektorprogrammet/domain/team-application";
 import {

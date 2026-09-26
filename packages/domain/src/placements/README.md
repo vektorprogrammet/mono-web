@@ -1,49 +1,51 @@
 # Placements developer guide
 
 Placements owns volunteer affiliation, school placement, demand, rosters, and dated school-service commands.
-This guide serves consumers of the package and maintainers of its implementation.
-The [module documentation roadmap](../../docs/module-developer-documentation.md) defines the documentation contract.
+This guide serves consumers of the Placements context and maintainers of its implementation.
+Its portable contracts live in `packages/domain/src/placements`; its PostgreSQL implementation lives in `packages/database/src/placements`.
+The [module documentation roadmap](../../../../docs/module-developer-documentation.md) defines the documentation contract.
 
 ## Purpose and ownership
 
-The [intended system](../../docs/system.md#school-demand-and-placement) owns business meaning.
-Its [dated service rules](../../docs/system.md#dated-school-service) define valid outcomes.
-The [architecture](../../docs/architecture.md#ownership) owns dependency direction and runtime responsibilities.
+The [intended system](../../../../docs/system.md#school-demand-and-placement) owns business meaning.
+Its [dated service rules](../../../../docs/system.md#dated-school-service) define valid outcomes.
+The [architecture](../../../../docs/architecture.md#ownership) owns dependency direction and runtime responsibilities.
 
 Placements does not own sign-in, HTTP preconditions, HTTP response receipts, or provider configuration.
 The server entry point also exposes reviewed assignment-import helpers.
 Those helpers are migration tools, not a shortcut for ordinary user commands.
 The reference lists them because the export map exposes them, not because this guide authorizes a migration.
 
-The [package manifest](package.json) owns supported imports:
+The [domain manifest](../../package.json) and the [database manifest](../../../database/package.json) own supported imports:
 
-- `@vektorprogrammet/placements/contracts`: portable schemas, decisions, failures, and the service key.
-- `@vektorprogrammet/placements/server`: database-backed composition, delivery operations, and cohort import.
+- `@vektorprogrammet/domain/placements`: portable schemas, decisions, failures, and the service key.
+- `@vektorprogrammet/database/placements`: database-backed composition, delivery operations, and cohort import.
 
-There is no supported package-root import.
+No other Placements import path is supported.
 Private source links explain implementation. They do not authorize private imports or direct table integration.
 
 ## Use it
 
 ### Prerequisites
 
-Use the toolchain from the [root manifest](../../package.json) and lockfile.
+Use the toolchain from the [root manifest](../../../../package.json) and lockfile.
 From the repository root, install dependencies with `bun install --frozen-lockfile`.
 The commands below run from that root.
 They need no credentials, external provider, PostgreSQL server, browser, or E2E CI branch.
 
 ### Run the examples
 
-1. Run the application compiler check:
+1. Run the application compiler check for both packages:
 
    ```bash
-   bun run --cwd packages/placements check-types
+   bun run --cwd packages/domain check-types
+   bun run --cwd packages/database check-types
    ```
 
 2. Run both executable examples:
 
    ```bash
-   bun run --cwd packages/placements docs:examples
+   bun run --cwd tools/placements-docs docs:examples
    ```
 
 The first example prints `Absent -> Pending; repeated Request rejected; Withdraw -> Inactive`.
@@ -56,11 +58,11 @@ It checks a successful scope read and a typed failure for an unknown department.
 A caller must select an existing scope before another attempt. Another attempt with the same missing scope does not recover it.
 
 The following inclusions render the exact executable files.
-In a Markdown source viewer, open [affiliation.ts](examples/affiliation.ts) and [read-scopes.ts](examples/read-scopes.ts).
+In a Markdown source viewer, open [placements-affiliation.ts](../../examples/placements-affiliation.ts) and [placements-read-scopes.ts](../../../database/examples/placements-read-scopes.ts).
 
-{@includeCode ./examples/affiliation.ts}
+{@includeCode ../../examples/placements-affiliation.ts}
 
-{@includeCode ./examples/read-scopes.ts}
+{@includeCode ../../../database/examples/placements-read-scopes.ts}
 
 These examples do not prove HTTP authorization, PostgreSQL concurrency, business-write atomicity, or real-provider delivery.
 The synthetic authority does not authenticate a real person.
@@ -71,13 +73,13 @@ PGlite evidence is embedded-database composition evidence, not production databa
 Choose a new output directory outside the repository:
 
 ```bash
-bun run --cwd packages/placements docs:generate /tmp/placements-guide
-bun run --cwd packages/placements docs:check /tmp/placements-guide
+bun run --cwd tools/placements-docs docs:generate /tmp/placements-guide
+bun run --cwd tools/placements-docs docs:check /tmp/placements-guide
 ```
 
 Open `/tmp/placements-guide/index.html` in a local browser.
-The generated navigation contains `contracts` and `server` modules, with signatures, source comments, and links to their declarations.
-The reference contains only declarations reachable through the package export map.
+The generated navigation contains the `@vektorprogrammet/domain/placements` and `@vektorprogrammet/database/placements` modules, with signatures, source comments, and links to their declarations.
+The reference contains only declarations reachable through those two export-map entries.
 It does not present private adapters as entry points.
 
 Source links in generated HTML open raw file copies.
@@ -93,10 +95,10 @@ Generated output is local and untracked. No hosted documentation website is nece
 
 ## Contract
 
-The [public service declaration](src/service.ts) owns API-specific guarantees and typed dependencies.
+The [public service declaration](service.ts) owns API-specific guarantees and typed dependencies.
 The generated `PlacementsOperations` reference renders those comments directly.
-The [schemas](src/schema.ts) own accepted values and results.
-The [policy declarations](src/policy.ts) own decision functions and failure codes.
+The [schemas](schema.ts) own accepted values and results.
+The [policy declarations](policy.ts) own decision functions and failure codes.
 This guide explains their relationship without maintaining a second signature list.
 
 `PlacementsLive` captures `Database` when the Layer acquires its service.
@@ -113,7 +115,7 @@ An Effect requirement expresses composition, not permission to act for a person.
 | Persistence failure | `PlacementPersistenceError` distinguishes transaction conflicts from internal errors. Its cause stays internal.                             |
 | Success             | `execute` returns a snapshot within the caller's transaction. This is not yet a commit or a provider acknowledgement.                       |
 
-The [HTTP adapter](../../apps/backend/src/placements/http.ts) shows the complete production call boundary.
+The [HTTP adapter](../../../../apps/backend/src/placements/http.ts) shows the complete production call boundary.
 It resolves current authority and receipt identity before the service executes.
 It evaluates the ETag precondition under the department lock.
 A read preflight or a successful pure policy calculation does not replace this boundary.
@@ -129,11 +131,11 @@ Abrupt process termination, such as `SIGKILL`, does not run JavaScript finalizer
 
 Production composition differs from this fixture:
 
-- [Database Layers](../database/src/layers.ts) supply the adapter and run migrations.
-- [Backend composition](../../apps/backend/src/main.ts) shares the database Layer and supervises workers.
-- [HTTP command transactions](../../apps/backend/src/http-api/receipt-transaction.ts) own authority preparation, receipt lookup, replay, and transaction completion.
-- [Notification worker](../../apps/backend/src/placements/notification.ts) supplies the roster interpreter and recovery schedule.
-- [Dispatch worker](../../apps/backend/src/placements/dispatch-notification.ts) supplies the dispatch interpreter and recovery schedule.
+- [Database Layers](../../../database/src/layers.ts) supply the adapter and run migrations.
+- [Backend composition](../../../../apps/backend/src/main.ts) shares the database Layer and supervises workers.
+- [HTTP command transactions](../../../../apps/backend/src/http-api/receipt-transaction.ts) own authority preparation, receipt lookup, replay, and transaction completion.
+- [Notification worker](../../../../apps/backend/src/placements/notification.ts) supplies the roster interpreter and recovery schedule.
+- [Dispatch worker](../../../../apps/backend/src/placements/dispatch-notification.ts) supplies the dispatch interpreter and recovery schedule.
 
 A new server caller must preserve those responsibilities rather than call `execute` without an authorized transaction.
 The read example deliberately performs no mutation and requires no synthetic command receipt.
@@ -150,19 +152,19 @@ HTTP caller: current authority + receipt identity
   -> worker claim transaction -> interpreter -> delivery acknowledgement
 ```
 
-The [service implementation](src/server/service.ts) chooses the mutation path and holds the department lock.
-The [placement adapter](src/server/postgres.ts) and [coverage adapter](src/server/coverage.ts) implement reads and durable transitions.
+The [service implementation](../../../database/src/placements/service.ts) chooses the mutation path and holds the department lock.
+The [placement adapter](../../../database/src/placements/postgres.ts) and [coverage adapter](../../../database/src/placements/coverage.ts) implement reads and durable transitions.
 Their table layouts are private implementation details.
 
 The department lock keeps the checked snapshot and subsequent transition within one serialized department operation.
 The caller transaction keeps business facts, audit/history, required notifications, and the response receipt together.
-The [service checks](src/server/service.test.ts) cover rejected preconditions and rollback when the caller cannot finish its receipt.
+The [service checks](../../../database/src/placements/service.test.ts) cover rejected preconditions and rollback when the caller cannot finish its receipt.
 The guide does not replace these behavioral checks with source-text assertions.
 
 ### Retry and interruption
 
 The Placements service does not install a retry policy.
-The HTTP adapter selects `serialization-once` in the [receipt transaction owner](../../apps/backend/src/http-api/receipt-transaction.ts).
+The HTTP adapter selects `serialization-once` in the [receipt transaction owner](../../../../apps/backend/src/http-api/receipt-transaction.ts).
 That owner repeats preparation and execution after a retryable rollback, so authority must remain inside preparation.
 Provider I/O must remain outside the business transaction.
 
@@ -173,7 +175,7 @@ A caller must not invent a new command identity merely because the first respons
 
 ### Outbox and delivery
 
-[Roster delivery](src/server/outbox.ts) and [dispatch delivery](src/server/dispatch-outbox.ts) claim durable work before invoking an interpreter.
+[Roster delivery](../../../database/src/placements/outbox.ts) and [dispatch delivery](../../../database/src/placements/dispatch-outbox.ts) claim durable work before invoking an interpreter.
 They fence acknowledgement updates with the claim identity.
 The worker can recover stale claims after interruption or process loss.
 An interpreter can succeed before acknowledgement persists, so a later delivery attempt can repeat the external effect.
@@ -181,7 +183,7 @@ The provider boundary must handle the stable logical effect identity. These func
 
 A committed command means durable business state and required queued work.
 An interpreter success means that interpreter returned successfully, not that a real provider satisfied a separate acceptance contract.
-The [durable-effects rules](../../docs/system.md#durable-effects) remain authoritative.
+The [durable-effects rules](../../../../docs/system.md#durable-effects) remain authoritative.
 
 ## Change and check it
 
@@ -198,7 +200,7 @@ An independent reader can perform these tasks without private implementation coa
 For a bounded change, use a disposable copy or a clean branch:
 
 1. Add a sentence to the public `readOwnAffiliation` comment that clarifies its missing-department failure.
-2. Run `check-types` and `docs:examples` with the commands above.
+2. Run the compiler checks and `docs:examples` with the commands above.
 3. Run `docs:check` against the earlier output. Expect a nonzero stale-output result.
 4. Generate into a new directory. Then run `docs:check` against it. Expect success.
 5. Read the rendered comment beside the generated signature.
@@ -209,15 +211,15 @@ An agent reader is useful evidence for command completeness, but it does not pro
 
 ### Required checks and limits
 
-| Change or failure                                        | Relevant check                                                       | Limit                                                                    |
-| -------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Broken public import or invalid TypeScript               | `bun run --cwd packages/placements check-types`                      | Compiler success does not prove runtime behavior.                        |
-| Wrong example result or failure handling                 | `bun run --cwd packages/placements docs:examples`                    | The examples cover only their declared pure and PGlite paths.            |
-| Changed declaration, comment, example, or generated file | `bun run --cwd packages/placements docs:check /tmp/placements-guide` | Freshness is not a review of explanatory meaning.                        |
-| Broken guide link or API reference                       | Generation and its link validation                                   | External URL availability requires separate review.                      |
-| Changed durable command behavior                         | Existing focused service checks and the golden command below         | A documentation-only change does not require another E2E implementation. |
+| Change or failure                                        | Relevant check                                                                                | Limit                                                                    |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Broken public import or invalid TypeScript               | `bun run --cwd packages/domain check-types` and `bun run --cwd packages/database check-types` | Compiler success does not prove runtime behavior.                        |
+| Wrong example result or failure handling                 | `bun run --cwd tools/placements-docs docs:examples`                                           | The examples cover only their declared pure and PGlite paths.            |
+| Changed declaration, comment, example, or generated file | `bun run --cwd tools/placements-docs docs:check /tmp/placements-guide`                        | Freshness is not a review of explanatory meaning.                        |
+| Broken guide link or API reference                       | Generation and its link validation                                                            | External URL availability requires separate review.                      |
+| Changed durable command behavior                         | Existing focused service checks and the golden command below                                  | A documentation-only change does not require another E2E implementation. |
 
-The [local school-service gate](../../docs/web-system-functional-testing.md#local-school-service-gate) owns prerequisites for this accepted real-boundary command:
+The [local school-service gate](../../../../docs/web-system-functional-testing.md#local-school-service-gate) owns prerequisites for this accepted real-boundary command:
 
 ```bash
 bun run test:golden-school-service
@@ -241,13 +243,13 @@ From a clean checkout, run the CI command:
 
 ```bash
 export PLACEMENTS_DOCS_EXPECTED_REVISION="$(git rev-parse HEAD)"
-bun run --cwd packages/placements docs:ci /tmp/placements-ci-guide
+bun run --cwd tools/placements-docs docs:ci /tmp/placements-ci-guide
 ```
 
 Before you consume a retained CI artifact, check it against the expected checkout revision:
 
 ```bash
-bun run --cwd packages/placements docs:accept /tmp/placements-ci-guide
+bun run --cwd tools/placements-docs docs:accept /tmp/placements-ci-guide
 ```
 
 Supply the expected revision from the checkout or trusted workflow, never from the artifact receipt.
@@ -264,8 +266,8 @@ The job can serve as a required check, but repository administrators must config
 
 ### Tool choice
 
-The [documentation tool manifest](../../tools/placements-docs/package.json) pins TypeDoc and its compatible documentation-only TypeScript compiler.
-The application and example compiler remains the version in the Placements manifest.
+The [documentation tool manifest](../../../../tools/placements-docs/package.json) pins TypeDoc and its compatible documentation-only TypeScript compiler.
+The application and example compiler remains the version in the domain and database manifests.
 The separate parser compiler is not an application type-check substitute.
 
 The bounded Effect docgen qualification used `@effect/docgen` 0.5.2 against the actual package sources and TypeScript 7.0.2.
@@ -275,10 +277,10 @@ This result does not establish that every docgen feature is incompatible with th
 The pilot avoids duplicate barrel documentation and uses TypeDoc to follow the existing reexports instead.
 
 TypeDoc generates the local reference, renders this guide, and includes the exact example files through its built-in include directive.
-The [Placements documentation command](../../tools/placements-docs/placements.ts) derives entry points from the export map and compares fresh output.
+The [Placements documentation command](../../../../tools/placements-docs/placements.ts) derives entry points from the `./placements` export of each manifest and compares fresh output.
 It does not parse TypeScript itself.
-The [documentation site](../../apps/docs/site.ts) renders this guide beside the other repository documents and links the generated reference.
-The [HTTP generator](../http-api/scripts/generate-openapi.ts) remains the owner of HTTP reference artifacts.
+The [documentation site](../../../../apps/docs/site.ts) renders this guide beside the other repository documents and links the generated reference.
+The [HTTP generator](../../../http-api/scripts/generate-openapi.ts) remains the owner of HTTP reference artifacts.
 
 ## Cleanup and evidence
 

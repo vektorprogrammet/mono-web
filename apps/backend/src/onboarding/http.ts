@@ -1,7 +1,7 @@
 import { Scope } from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/database";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
-import { canManagePlacements } from "@vektorprogrammet/placements/contracts";
+import { canManagePlacements } from "@vektorprogrammet/domain/placements";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import {

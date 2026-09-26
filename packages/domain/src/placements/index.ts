@@ -1,7 +1,8 @@
 /**
  * Portable schemas, decisions, failures, and the Placements service contract.
- * Import from `@vektorprogrammet/placements/contracts`. No database Layer lives here.
+ * Import from `@vektorprogrammet/domain/placements`. No database Layer lives here.
  * @packageDocumentation
+ * @module @vektorprogrammet/domain/placements
  */
 export * from "./schema.js";
 

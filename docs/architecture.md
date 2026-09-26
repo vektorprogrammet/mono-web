@@ -19,8 +19,8 @@ apps/backend --> domain services ----------+
                     |
                     +--> PostgreSQL adapters --> packages/database --> PostgreSQL
 
-Placements contracts and adapters share packages/placements, with separate exports.
-Other business contracts remain in packages/domain.
+Packages are layer-first. Each context has a folder in packages/domain for its
+business contracts and in packages/database for its PostgreSQL adapters.
 ```
 
 ### Legacy source
@@ -40,19 +40,18 @@ system retires.
 
 ## Ownership
 
-| Path                  | Owns                                                                                                            |
-| --------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `packages/domain`     | Business values, state transitions, failures, capability requirements, and service contracts                    |
-| `packages/database`   | Shared PostgreSQL schema and runtime; persistence adapters for domains outside the Placements locality trial    |
-| `packages/placements` | Portable Placements contracts and transitions; private PostgreSQL implementation behind a separate server entry |
-| `packages/http-api`   | Public and internal HTTP groups, middleware declarations, schemas, and generated OpenAPI                        |
-| `packages/sdk`        | Generated consumer operations and boundary decoding                                                             |
-| `apps/backend`        | Native process composition, HTTP serving, delivery workers, and runtime configuration                           |
-| `apps/homepage`       | Anonymous and public journeys                                                                                   |
-| `apps/dashboard`      | Authenticated applicant, volunteer, coordinator, leader, and administrator journeys                             |
-| `tools/verification`  | Cross-application PostgreSQL proofs, migration rehearsals, and their fixtures                                   |
-| `tools/e2e`           | Disposable local migration and journey drivers                                                                  |
-| `tools/source-safety` | Source-safety rules and the staged-tree scan that blocks credentials, personal data, and literal SQL data       |
+| Path                  | Owns                                                                                                      |
+| --------------------- | --------------------------------------------------------------------------------------------------------- |
+| `packages/domain`     | Business values, state transitions, failures, capability requirements, and service contracts              |
+| `packages/database`   | Shared PostgreSQL schema and runtime; persistence adapters and service Layers for each context            |
+| `packages/http-api`   | Public and internal HTTP groups, middleware declarations, schemas, and generated OpenAPI                  |
+| `packages/sdk`        | Generated consumer operations and boundary decoding                                                       |
+| `apps/backend`        | Native process composition, HTTP serving, delivery workers, and runtime configuration                     |
+| `apps/homepage`       | Anonymous and public journeys                                                                             |
+| `apps/dashboard`      | Authenticated applicant, volunteer, coordinator, leader, and administrator journeys                       |
+| `tools/verification`  | Cross-application PostgreSQL proofs, migration rehearsals, and their fixtures                             |
+| `tools/e2e`           | Disposable local migration and journey drivers                                                            |
+| `tools/source-safety` | Source-safety rules and the staged-tree scan that blocks credentials, personal data, and literal SQL data |
 
 A business fact has one owner. Other modules use its public contract. They do not
 write its tables or duplicate its rules.
@@ -64,9 +63,8 @@ Package manifests define that inventory.
 
 ```text
 frontends               -> packages/sdk, portable contracts
-packages/http-api       -> packages/domain, packages/placements/contracts
+packages/http-api       -> packages/domain
 apps/backend            -> service contracts and concrete runtime Layers
-packages/placements     -> packages/domain; server implementation -> packages/database
 packages/database       -> packages/domain
 packages/sdk            -> generated HTTP contract
 packages/domain         -> Effect and portable domain dependencies
@@ -85,12 +83,10 @@ Required rules:
   roots.
 - Do not add a microservice until an observed operational need requires an
   independent deployment boundary.
-  Placements is the bounded locality trial, not a repository-wide package rewrite.
-  Its `contracts` export is portable. Its `server` export owns PostgreSQL composition.
-  Sibling modules must not import its private source files.
-  Oxlint rejects the selected browser-to-database, product-to-proof, and private-module imports, including relative paths.
+- Oxlint rejects the selected browser-to-database, product-to-proof, and cross-package source imports, including relative paths.
 
-Placements and Recruitment expose complete business commands through Effect services.
+A context's service owns complete commands, locks included.
+Its database Layer takes the context lock and holds it across the fresh read, transport precondition, domain decision, and writes in the caller transaction.
 HTTP handlers resolve credentials, decode requests, enforce protocol preconditions, and store response receipts.
 They call the service within the command transaction instead of sequencing locks and mutations.
 Business facts, audit, history, outbox work, and response receipts commit together.
@@ -143,8 +139,8 @@ capability groups:
 
 A service contract uses domain commands, facts, failures, and observations. It does
 not expose database rows or transport objects.
-The [Placements service](../packages/placements/src/service.ts) owns complete commands
-and queries. Its server implementation holds the department lock across the
+The [Placements service](../packages/domain/src/placements/service.ts) owns complete commands
+and queries. Its [database Layer](../packages/database/src/placements/service.ts) holds the department lock across the
 precondition, transition, audit, history, and outbox writes in the caller transaction.
 The [Substitutes contract](../packages/domain/src/substitutes/service.ts) exposes complete pool queries and commands.
 Its [database Layer](../packages/database/src/substitutes/service.ts) holds the application lock across the fresh read, transport precondition, domain decision, and writes.

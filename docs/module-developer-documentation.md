@@ -1,6 +1,6 @@
 # Developer module documentation
 
-Status: implementation roadmap. The [Placements guide](../packages/placements/README.md) implements the first pilot.
+Status: implementation roadmap. The [Placements guide](../packages/domain/src/placements/README.md) implements the first pilot.
 [STATE.md](../STATE.md#evidence-boundary) records acceptance and remaining work.
 
 ## Goal
@@ -100,7 +100,7 @@ It publishes existing documents; it is not a module reference or example-validat
 The [HTTP generator](../packages/http-api/scripts/generate-openapi.ts) derives OpenAPI from the contract before each type check, so no committed copy can drift.
 
 The pilot evaluated [Effect docgen](https://github.com/Effect-TS/docgen) before selecting a maintained alternative.
-The [guide tool-choice record](../packages/placements/README.md#tool-choice) owns the qualification result and compatibility limits.
+The [guide tool-choice record](../packages/domain/src/placements/README.md#tool-choice) owns the qualification result and compatibility limits.
 Future modules reuse the accepted tooling unless a concrete requirement needs another bounded qualification.
 Tool availability alone does not establish compatibility with this repository.
 
@@ -113,8 +113,8 @@ Use that distinction to keep reader tasks clear, without requiring a separate do
 
 ## First pilot: Placements
 
-[Placements](../packages/placements/package.json) already separates portable `contracts` from the concrete `server` entry point.
-Its [service declaration](../packages/placements/src/service.ts) records transaction ownership and precondition callback limits.
+Placements separates its portable [domain entry point](../packages/domain/package.json) from its concrete [database entry point](../packages/database/package.json).
+Its [service declaration](../packages/domain/src/placements/service.ts) records transaction ownership and precondition callback limits.
 The [golden school-service gate](web-system-functional-testing.md#local-school-service-gate) provides real boundary evidence.
 
 The pilot connects these existing sources into one consumer and maintainer guide.
@@ -126,7 +126,7 @@ It does not duplicate the golden runner or introduce a second acceptance impleme
 
 ## Adopted extensions
 
-The [Placements CI gate](../packages/placements/README.md#ci-and-retained-artifacts) implements the required-check slice locally.
+The [Placements CI gate](../packages/domain/src/placements/README.md#ci-and-retained-artifacts) implements the required-check slice locally.
 It checks examples, generates one reference, and binds retained output to its clean source revision and file hashes.
 Hosted execution and repository protection remain separate acceptance gates.
 

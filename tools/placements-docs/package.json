@@ -3,10 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "docs:examples": "bun --no-env-file ../../packages/domain/examples/placements-affiliation.ts && bun --no-env-file ../../packages/database/examples/placements-read-scopes.ts",
+    "docs:generate": "bun --no-env-file placements.ts generate",
+    "docs:check": "bun --no-env-file placements.ts check",
+    "docs:ci": "bun --no-env-file placements.ts ci",
+    "docs:accept": "bun --no-env-file placements.ts accept"
+  },
   "dependencies": {
     "effect": "catalog:effect-v4"
   },
   "devDependencies": {
+    "@types/node": "^22",
     "typedoc": "0.28.20",
     "typescript": "6.0.3"
   }

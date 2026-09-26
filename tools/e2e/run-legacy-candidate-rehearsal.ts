@@ -22,7 +22,7 @@ import {
   receiptSourceRevision,
   receiptSourceRowDigest,
 } from "@vektorprogrammet/domain/receipt";
-import { CurrentAssignmentReview } from "@vektorprogrammet/placements/contracts";
+import { CurrentAssignmentReview } from "@vektorprogrammet/domain/placements";
 import { Schema } from "effect";
 import type { Pool } from "pg";
 import * as PaymentCustody from "@vektorprogrammet/backend/receipt/payment-account";

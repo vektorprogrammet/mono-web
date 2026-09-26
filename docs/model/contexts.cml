@@ -1336,7 +1336,7 @@ BoundedContext Placements implements SchoolService {
   type = FEATURE
   domainVisionStatement = "Assistant supply (affiliation), semester placements, school demand, reviewed proposals and confirmed rosters, dated school-service commitments, absence and substitute coverage, and immutable service outcomes and history."
   responsibilities = "Volunteer affiliation", "Placements", "Demand", "Proposals and rosters", "Commitments", "Absence and coverage", "Service history"
-  implementationTechnology = "packages/placements: portable contracts plus a private PostgreSQL server entry"
+  implementationTechnology = "packages/domain/src/placements: portable contracts; packages/database/src/placements: PostgreSQL service Layer and adapters"
 
   Aggregate VolunteerAffiliation {
     Entity VolunteerAffiliation {

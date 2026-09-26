@@ -28,10 +28,7 @@ const effectConfig = {
       strictness: "recommended",
     }),
     group({
-      files: [
-        "packages/database/src/**/!(*.test|*.spec|*-main|*-cli).ts",
-        "packages/placements/src/server/**/!(*.test|*.spec).ts",
-      ],
+      files: ["packages/database/src/**/!(*.test|*.spec|*-main|*-cli).ts"],
       role: "runtime-adapter",
       platform: "node",
       strictness: "recommended",
@@ -49,7 +46,7 @@ const effectConfig = {
       severityOverrides: { "no-ambient-authority": "error" },
     },
     group({
-      files: ["packages/placements/src/!(*.test|*.spec).ts"],
+      files: ["packages/domain/src/placements/!(*.test|*.spec).ts"],
       role: "effect-library",
       platform: "portable",
       strictness: "recommended",
@@ -124,7 +121,7 @@ const crossPackageSourceImportPatterns = [
 const crossPackageSourceImportPatternsExceptSdk = [
   {
     regex:
-      "^(\\./)?(\\.\\./)+(apps/[^/]+|tools/[^/]+|packages/(database|domain|http-api|placements)|[^./][^/]*)/src(/|$)",
+      "^(\\./)?(\\.\\./)+(apps/[^/]+|tools/[^/]+|packages/(database|domain|http-api)|[^./][^/]*)/src(/|$)",
     message: crossPackageSourceImportMessage,
   },
 ];
@@ -137,17 +134,9 @@ const productImportPatterns = [
   },
 ];
 
-const placementPublicImportPatterns = [
-  {
-    regex: "(^|/)placements/(src|domain|adapters)(/|$)",
-    message: "Use the Placements package export, not another module’s source path.",
-  },
-];
-
 const browserImportPatterns = [
   {
-    regex:
-      "(^|/)(database|pg|postgres)(/|$)|^@effect/sql-pg($|/)|^effect/unstable/sql($|/)|^@vektorprogrammet/placements/server($|/)|(^|/)placements/(src/)?server(/|$)",
+    regex: "(^|/)(database|pg|postgres)(/|$)|^@effect/sql-pg($|/)|^effect/unstable/sql($|/)",
     message: "Browser-safe modules must not import PostgreSQL adapters.",
   },
 ];
@@ -197,60 +186,15 @@ export default defineConfig({
     },
     {
       files: [
-        "apps/*/src/**",
-        "apps/dashboard/app/**",
-        "packages/{domain,database,http-api,sdk}/src/**",
-      ],
-      rules: {
-        "no-restricted-imports": [
-          "error",
-          { patterns: [...productImportPatterns, ...placementPublicImportPatterns] },
-        ],
-      },
-    },
-    {
-      files: ["tools/{verification,acceptance,e2e}/**"],
-      rules: {
-        "no-restricted-imports": [
-          "error",
-          { patterns: [...crossPackageSourceImportPatterns, ...placementPublicImportPatterns] },
-        ],
-      },
-    },
-    {
-      files: [
         "apps/homepage/src/**",
         "apps/dashboard/app/**",
         "packages/{domain,http-api,sdk}/src/**",
-        "packages/placements/src/*.ts",
       ],
       rules: {
         "no-restricted-imports": [
           "error",
           {
-            patterns: [
-              ...productImportPatterns,
-              ...placementPublicImportPatterns,
-              ...browserImportPatterns,
-            ],
-          },
-        ],
-      },
-    },
-    {
-      files: ["packages/placements/src/*.ts"],
-      rules: {
-        "no-restricted-imports": [
-          "error",
-          {
-            patterns: [
-              ...productImportPatterns,
-              ...browserImportPatterns,
-              {
-                regex: "^\\./server(/|\\.)",
-                message: "Portable Placements contracts must not import their server adapter.",
-              },
-            ],
+            patterns: [...productImportPatterns, ...browserImportPatterns],
           },
         ],
       },
@@ -294,7 +238,7 @@ export default defineConfig({
       // No package manifest: Bun's isolated linker gives these scripts no workspace dependencies.
       files: ["tools/acceptance/**"],
       rules: {
-        "no-restricted-imports": ["error", { patterns: placementPublicImportPatterns }],
+        "no-restricted-imports": "off",
       },
     },
     {
@@ -306,15 +250,7 @@ export default defineConfig({
         "tools/verification/receipt-reopen-observation.ts",
       ],
       rules: {
-        "no-restricted-imports": [
-          "error",
-          {
-            patterns: [
-              ...crossPackageSourceImportPatternsExceptSdk,
-              ...placementPublicImportPatterns,
-            ],
-          },
-        ],
+        "no-restricted-imports": ["error", { patterns: crossPackageSourceImportPatternsExceptSdk }],
       },
     },
     {
@@ -339,8 +275,8 @@ export default defineConfig({
         "packages/database/src/organization/reviewed-cohort.ts",
         "packages/database/src/password-recovery.ts",
         "packages/database/src/person-cohort.ts",
+        "packages/database/src/placements/current-assignment-cohort.ts",
         "packages/database/src/service-principal-grants-live.ts",
-        "packages/placements/src/server/current-assignment-cohort.ts",
       ],
       rules: { "anti-slop/no-raw-advisory-lock-sql": "off" },
     },

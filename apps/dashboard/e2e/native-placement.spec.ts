@@ -3,7 +3,7 @@ import type {
   CoverageCommand,
   OwnCoverageCommand,
   PlacementCommand,
-} from "@vektorprogrammet/placements/contracts";
+} from "@vektorprogrammet/domain/placements";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Page, type Locator } from "@playwright/test";

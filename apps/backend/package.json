@@ -30,7 +30,6 @@
     "@vektorprogrammet/database": "workspace:*",
     "@vektorprogrammet/domain": "workspace:*",
     "@vektorprogrammet/http-api": "workspace:*",
-    "@vektorprogrammet/placements": "workspace:*",
     "effect": "catalog:effect-v4"
   },
   "devDependencies": {

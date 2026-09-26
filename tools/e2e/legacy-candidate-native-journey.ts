@@ -20,7 +20,7 @@ import { SchoolsLive } from "@vektorprogrammet/database/schools";
 import { SocialEventsLive } from "@vektorprogrammet/database/social-events";
 import { SchoolSurveysLive } from "@vektorprogrammet/database/surveys";
 import { TeamApplicationsLive } from "@vektorprogrammet/database/team-application";
-import { PlacementsLive } from "@vektorprogrammet/placements/server";
+import { PlacementsLive } from "@vektorprogrammet/database/placements";
 import { SubstitutesLive } from "@vektorprogrammet/database/substitutes";
 import {
   OwnAffiliationResource,

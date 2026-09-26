@@ -8,7 +8,7 @@ import {
   CurrentAssignmentFailure,
   decodeCurrentAssignmentSnapshot,
   importCurrentAssignmentCohort,
-} from "@vektorprogrammet/placements/server";
+} from "@vektorprogrammet/database/placements";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { databaseHealth } from "@vektorprogrammet/database";
 

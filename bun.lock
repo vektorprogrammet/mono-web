@@ -28,7 +28,6 @@
         "@vektorprogrammet/database": "workspace:*",
         "@vektorprogrammet/domain": "workspace:*",
         "@vektorprogrammet/http-api": "workspace:*",
-        "@vektorprogrammet/placements": "workspace:*",
         "effect": "catalog:effect-v4",
       },
       "devDependencies": {
@@ -92,7 +91,7 @@
         "@types/react": "^19.2.10",
         "@types/react-dom": "^19.2.3",
         "@vektorprogrammet/backend": "workspace:*",
-        "@vektorprogrammet/placements": "workspace:*",
+        "@vektorprogrammet/domain": "workspace:*",
         "happy-dom": "^20.12.0",
         "pg": "8",
         "typescript": "7.0.2",
@@ -227,29 +226,10 @@
       "version": "0.2.0",
       "dependencies": {
         "@vektorprogrammet/domain": "workspace:*",
-        "@vektorprogrammet/placements": "workspace:*",
         "effect": "catalog:effect-v4",
       },
       "devDependencies": {
         "@types/node": "^22",
-        "typescript": "7.0.2",
-        "vitest": "catalog:effect-v4",
-      },
-    },
-    "packages/placements": {
-      "name": "@vektorprogrammet/placements",
-      "version": "0.1.0",
-      "dependencies": {
-        "@vektorprogrammet/database": "workspace:*",
-        "@vektorprogrammet/domain": "workspace:*",
-        "effect": "catalog:effect-v4",
-        "pg": "8",
-      },
-      "devDependencies": {
-        "@electric-sql/pglite": "^0.5.6",
-        "@types/node": "^22",
-        "@types/pg": "^8.23.1",
-        "oxlint": "^1.41.0",
         "typescript": "7.0.2",
         "vitest": "catalog:effect-v4",
       },
@@ -278,7 +258,6 @@
         "@vektorprogrammet/database": "workspace:*",
         "@vektorprogrammet/domain": "workspace:*",
         "@vektorprogrammet/http-api": "workspace:*",
-        "@vektorprogrammet/placements": "workspace:*",
         "effect": "catalog:effect-v4",
         "mysql2": "^3.15.3",
         "pg": "8",
@@ -296,6 +275,7 @@
         "effect": "catalog:effect-v4",
       },
       "devDependencies": {
+        "@types/node": "^22",
         "typedoc": "0.28.20",
         "typescript": "6.0.3",
       },
@@ -331,7 +311,6 @@
         "@vektorprogrammet/database": "workspace:*",
         "@vektorprogrammet/domain": "workspace:*",
         "@vektorprogrammet/http-api": "workspace:*",
-        "@vektorprogrammet/placements": "workspace:*",
         "@vektorprogrammet/sdk": "workspace:*",
         "better-auth": "1.7.1",
         "effect": "catalog:effect-v4",
@@ -1439,8 +1418,6 @@
     "@vektorprogrammet/domain": ["@vektorprogrammet/domain@workspace:packages/domain"],
 
     "@vektorprogrammet/http-api": ["@vektorprogrammet/http-api@workspace:packages/http-api"],
-
-    "@vektorprogrammet/placements": ["@vektorprogrammet/placements@workspace:packages/placements"],
 
     "@vektorprogrammet/sdk": ["@vektorprogrammet/sdk@workspace:packages/sdk"],
 

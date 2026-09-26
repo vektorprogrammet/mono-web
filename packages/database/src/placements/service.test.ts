@@ -1,10 +1,10 @@
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
-import { Database } from "@vektorprogrammet/database";
-import { DatabaseTest } from "@vektorprogrammet/database/live";
+import { Database } from "../service.js";
+import { DatabaseTest } from "../layers.js";
 import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
 import { SchoolId } from "@vektorprogrammet/domain/schools";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { Placements, type PlacementMutation } from "../contracts.js";
+import { Placements, type PlacementMutation } from "@vektorprogrammet/domain/placements";
 import { PlacementsLive } from "./service.js";
 
 const databaseLayer = DatabaseTest();

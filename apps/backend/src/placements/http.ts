@@ -17,7 +17,7 @@ import {
   type OwnCoverageCommand as OwnCoverageCommandType,
   type PlacementCommand as PlacementCommandType,
   type PlacementOperationFailure,
-} from "@vektorprogrammet/placements/contracts";
+} from "@vektorprogrammet/domain/placements";
 import {
   CommandCoverageBoardEndpoint,
   CommandOwnAffiliationEndpoint,
