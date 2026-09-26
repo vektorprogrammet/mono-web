@@ -81,9 +81,11 @@ source-safety:
 format *args="--write":
     bun x oxfmt "$@"
 
-# Lint with Oxlint.
+# Lint with Oxlint in type-aware mode after generating the React Router route types, a heavy job (AGENTS.md#verification-and-resources).
 [group('check')]
 lint *args=".":
+    bun run --cwd apps/dashboard typegen
+    bun run --cwd apps/homepage typegen
     bun x oxlint "$@"
 
 # Type check every package and assert the HTTP contract. Arguments go to Turbo.
@@ -211,7 +213,7 @@ migration name *args:
 check-staged *args:
     bun --no-env-file tools/scripts/check-staged.ts "$@"
 
-# Run a command in one of the machine-wide hook slots under the shared heavy lock (pre-push hooks).
+# Run a command in one of the machine-wide hook slots under the shared heavy lock (lint and pre-push hooks).
 [group('hooks')]
 hook-slot *args:
     bun --no-env-file tools/scripts/hook-slot.ts "$@"

@@ -195,9 +195,10 @@ in
       priority = 0;
       fail_fast = true;
     };
+    # Type-aware lint builds TypeScript programs, so it runs in a hook slot like the type checks.
     lint = {
       enable = true;
-      entry = "${hookEnv} just lint --no-error-on-unmatched-pattern";
+      entry = "${hookEnv} just hook-slot --class hook-pre-commit-lint -- just lint --no-error-on-unmatched-pattern";
       files = "\\.(js|jsx|mjs|cjs|ts|tsx|mts|cts)$";
       stages = [ "pre-commit" ];
       priority = 0;

@@ -1,5 +1,6 @@
 // Oxlint override globs do not support extglob, and an override that matches no file fails
 // silently: the Effect domain groups once used `!(…)` patterns and no core rule ever ran.
+import { correctness, effectNative, recommended } from "@effect/tsgo/oxlint-presets";
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import config from "../../../oxlint.config.ts";
@@ -106,6 +107,64 @@ describe("Effect domain groups", () => {
 
       return relaxes ? override.files : [];
     });
+
+    expect(relaxed).toEqual([]);
+  });
+});
+
+// `rules` sets a rule for every file, and each matching override replaces the setting in order.
+const settingsFor = (path: string) =>
+  new Map(
+    [
+      config.rules,
+      ...overrides
+        .filter((override) => override.files.some((pattern) => matches(pattern, path)))
+        .map((override) => override.rules),
+    ].flatMap((rules) => Object.entries(rules ?? {})),
+  );
+
+describe("Effect language-service rules", () => {
+  const presetRules = [
+    ...new Set([recommended, correctness].flatMap((preset) => Object.keys(preset.rules ?? {}))),
+  ];
+
+  const nativeRules = Object.keys(effectNative.rules ?? {}).sort();
+
+  const notErrorsAt = (path: string) => {
+    const settings = settingsFor(path);
+
+    return presetRules
+      .filter((rule) => {
+        const setting = settings.get(rule);
+
+        return (Array.isArray(setting) ? setting[0] : setting) !== "error";
+      })
+      .sort();
+  };
+
+  test("are errors in core Effect code, the effectNative rules included", () => {
+    expect(notErrorsAt("packages/domain/src/probe.ts")).toEqual([]);
+    expect(notErrorsAt("packages/database/src/probe.test.ts")).toEqual([]);
+    expect(notErrorsAt("packages/http-api/src/probe.ts")).toEqual([]);
+    expect(notErrorsAt("apps/backend/src/probe.ts")).toEqual([]);
+  });
+
+  test("are errors elsewhere, except the effectNative rules", () => {
+    expect(notErrorsAt("apps/dashboard/app/probe.tsx")).toEqual(nativeRules);
+    expect(notErrorsAt("packages/sdk/src/probe.ts")).toEqual(nativeRules);
+    expect(notErrorsAt("tools/e2e/probe.ts")).toEqual(nativeRules);
+  });
+
+  test("are relaxed by no override", () => {
+    const relaxed = overrides.flatMap((override) =>
+      Object.entries(override.rules ?? {}).some(
+        ([rule, setting]) =>
+          rule.startsWith("effecttsgo/") &&
+          (Array.isArray(setting) ? setting[0] : setting) !== "error",
+      )
+        ? override.files
+        : [],
+    );
 
     expect(relaxed).toEqual([]);
   });

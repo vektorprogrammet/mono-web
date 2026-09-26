@@ -1,4 +1,5 @@
-import { defineConfig } from "oxlint";
+import { correctness, effectNative, recommended } from "@effect/tsgo/oxlint-presets";
+import { defineConfig, type OxlintConfig } from "oxlint";
 import {
   DEFAULT_PLUGIN_NAME,
   expandDomains,
@@ -6,6 +7,23 @@ import {
   type ExpandInput,
   type OxlintConfigFragment,
 } from "@phibkro/oxlint-effect-plugin";
+
+// The Effect language-service rules of the `@effect/tsgo` presets need type information, and each
+// one is an error. The effectNative rules replace platform APIs with Effect services, so they run
+// only in the core Effect packages: the other apps, packages, and tools are not Effect programs.
+const effectTsgoPresets = [recommended, correctness];
+
+const coreEffectFiles = [
+  "apps/backend/**",
+  "packages/database/**",
+  "packages/domain/**",
+  "packages/http-api/**",
+];
+
+const presetRules = (presets: ReadonlyArray<OxlintConfig>, severity: "error" | "off") =>
+  Object.fromEntries(
+    presets.flatMap((preset) => Object.keys(preset.rules ?? {})).map((rule) => [rule, severity]),
+  );
 
 // Bun implements these Node modules, and the Bun groups import them beside Bun's own modules.
 // The rule admits extra modules but no globals, so these files import `process` and `Buffer` too.
@@ -221,12 +239,18 @@ const expandedEffectConfig = totalOverrides(expandDomains(effectConfig));
 
 export default defineConfig({
   ...expandedEffectConfig,
+  extends: effectTsgoPresets,
+  options: { typeAware: true },
+  // Oxlint's correctness rules, the type-aware ones included, are errors like every other rule.
+  categories: { correctness: "error" },
   jsPlugins: [
     ...expandedEffectConfig.jsPlugins,
     { name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" },
     { name: "anti-slop-effect", specifier: "./tools/oxlint/anti-slop/effect/index.ts" },
   ],
   rules: {
+    ...presetRules(effectTsgoPresets, "error"),
+    ...presetRules([effectNative], "off"),
     "no-restricted-imports": ["error", { patterns: crossPackageSourceImportPatterns }],
     "anti-slop-effect/no-manual-effect-error-tag": "error",
     "anti-slop-effect/no-manual-tag-comparison": "error",
@@ -257,6 +281,7 @@ export default defineConfig({
   },
   overrides: [
     ...expandedEffectConfig.overrides,
+    { files: coreEffectFiles, rules: presetRules([effectNative], "error") },
     {
       files: ["apps/*/src/**", "apps/dashboard/app/**", "packages/*/src/**"],
       rules: {

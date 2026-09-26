@@ -57,7 +57,7 @@ The links are relative to this file, so the file is a complete entry point also 
 - The `effect/*` rules of `@phibkro/oxlint-effect-plugin` apply by the role, platform, and boundary that each file group declares. Every group uses the `strict` strictness and reports each rule as an error; no override relaxes one.
 - The last group that matches a file decides every `effect/*` rule for it, so a test file does not inherit the rules of its source group. Groups use plain globs, because Oxlint has no extglob, and run from broad sources to narrow exceptions. [tools/conventions/tests/oxlint-groups.test.ts](../../../tools/conventions/tests/oxlint-groups.test.ts) guards that shape; keep it when you change a group.
 - A new composition root or adapter joins the group of its role and platform, such as the Bun composition-root group; it gets no suppression and no `off` override. The Bun groups admit the Node modules that Bun implements (`bunNodeModules`), and their files import `process` from `node:process` and `Buffer` from `node:buffer`, because the rule admits no Node globals on `bun`.
-- [docs/specs/effect-diagnostics.md](../../../docs/specs/effect-diagnostics.md) is the contract for the `effecttsgo/*` rules of the Effect language service: which rules run where, the state of each slice and of the wiring, and how to count sites (`bun x oxlint --type-aware` with the target configuration, never grep or `tsc`).
+- The `effecttsgo/*` rules of the Effect language service come from the `recommended` and `correctness` presets of `@effect/tsgo`, and they make `just lint` type-aware. Every rule is an error. The `effectNative` rules replace platform APIs with Effect services, so they run only in the core Effect packages that `coreEffectFiles` lists; the other apps, packages, and tools are not Effect programs. `oxlint-groups.test.ts` guards these severities and that scope too. The language-service plugin in `tsconfig.json` keeps refactors and quick info in the editor and emits no diagnostics, so `tsc` reports none. Count sites with `just lint`, never with grep or `tsc`.
 
 ## Project rules and checks
 
@@ -103,6 +103,6 @@ The portable skills leave these facts to the overlay:
 ## Done means
 
 - `just exceptions`, `just constructs`, `just guides`, and `just layout` pass. The pre-commit hook runs them on the staged tree.
-- `just lint` passes on the changed files with no new warning, and the package type check passes. `just check-types` and `just check` are heavy jobs: run them through `just measure`.
+- `just lint` reports no finding, and the package type check passes. `just lint`, `just check-types`, and `just check` are heavy jobs: run them through `just measure`.
 - The changed behaviour has a focused test (`bun run --cwd <package> vitest run <file>`) or a journey, run through `just measure` when it starts PostgreSQL or a browser.
 - The report names each exception added, changed, or retired, with its id.

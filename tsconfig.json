@@ -18,9 +18,12 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
+    // Type-aware Oxlint reports the Effect rules as errors (oxlint.config.ts); the plugin keeps
+    // refactors and quick info, and emits no diagnostics.
     "plugins": [
       {
-        "name": "@effect/language-service"
+        "name": "@effect/language-service",
+        "diagnostics": false
       }
     ]
   }
