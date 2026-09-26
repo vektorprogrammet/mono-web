@@ -1,5 +1,5 @@
 {
-  "description": "Registered exceptions to the Effect rules of mono-web. Each suppression of an Effect rule (effecttsgo/*, effect/*, anti-slop-effect/*, @effect-expect-leaking, @effect-leakable-service, @effect-diagnostics) and each non-native substitute names its entry id in a comment at the site. `just exceptions` checks every entry against its sites, its owner, and the versions that package.json pins. .agents/skills/effect-house/references/exceptions.md describes the fields and how an entry is added and retired.",
+  "description": "Registered exceptions to the Effect rules of mono-web. Each suppression of an Effect rule (a disable comment of effecttsgo/*, effect/*, or anti-slop-effect/*, an oxlint-effect-plugin allow directive, @effect-expect-leaking, @effect-leakable-service, @effect-diagnostics) and each non-native substitute names its entry id in a comment at the site. `just exceptions` checks every entry against its sites, its owner, and the versions that package.json pins. .agents/skills/effect-house/references/exceptions.md describes the fields and how an entry is added and retired.",
   "exceptions": [
     {
       "id": "EX-0001",
@@ -164,6 +164,36 @@
       "owner": "packages/database",
       "examinedWith": { "effect": "4.0.0-rc.116", "@effect/platform-bun": "4.0.0-rc.116" },
       "retirementTrigger": "Effect FileSystem.open can refuse a symbolic link, for example with a no-follow flag. Then open through FileSystem and remove the node:fs/promises import."
+    },
+    {
+      "id": "EX-0009",
+      "rules": ["FX011", "effect/no-ambient-console"],
+      "scope": {
+        "files": ["tools/acceptance/recommendation-check.ts"],
+        "symbols": [
+          "recordGate",
+          "stage",
+          "ReturningLoginProbeComplete",
+          "ReturningTargetedComplete",
+          "ApplicantProgressTargetedComplete",
+          "CoInterviewerTargetedComplete",
+          "CorrectionTargetedComplete",
+          "failureEvidence"
+        ]
+      },
+      "reason": "The recommendation probe reports its fixture check, its gate milestones, its returning stages, its result, and its failure evidence as lines on standard output and standard error, which the operator reads. Each line is bounded, and the failure evidence is redacted.",
+      "missingCapability": "None in Effect: Console of effect writes the same lines, but only inside an Effect program. The probe is a script of top-level Promise code with no Effect runtime at its entry point.",
+      "nativeAlternatives": [
+        "Console.log and Console.error of effect, each run with Effect.runSync at its site: that runs programs outside an owned entry point, which FX003 and effect/no-premature-execution reject.",
+        "One Effect program that the entry point of the probe runs: a rewrite of the whole probe, which is the retirement path."
+      ],
+      "verification": [
+        "The hosted journey matrix runs the probe as `just e2e recommendation-applicant-progress`, `recommendation-co-interviewer`, `recommendation-correction`, and `recommendation-returning`.",
+        "The plugin accepts a directive only when it names no-ambient-console alone with a nonempty `dev only:` reason, and it reports broad, unreasoned, and unused directives."
+      ],
+      "owner": "tools/acceptance",
+      "examinedWith": { "@phibkro/oxlint-effect-plugin": "0.1.0", "effect": "4.0.0-rc.116" },
+      "retirementTrigger": "The probe becomes an Effect program that its entry point runs, and it writes through Console of effect. Then remove the directives."
     }
   ]
 }

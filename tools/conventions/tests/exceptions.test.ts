@@ -155,6 +155,24 @@ describe("Effect exception registry", () => {
     ).toEqual([{ path: `${probe}:2`, message: expect.stringContaining("reads it as a service") }]);
   });
 
+  test("requires the exception id of an allow directive of the Oxlint Effect plugin", () => {
+    const entry: EffectException = { ...probeEntry, rules: ["FX011", "effect/no-ambient-console"] };
+
+    const directive = "// oxlint-effect-plugin allow(no-ambient-console): dev only:";
+    const report = 'export const probeUrl = console.info("the probe reports");\n';
+
+    expect(
+      probeFindings({
+        [registry]: withEntry(entry),
+        [probe]: `${directive} ${id}: the probe reports\n${report}`,
+      }),
+    ).toEqual([]);
+
+    expect(probeFindings({ [probe]: `${directive} the probe reports\n${report}` })).toEqual([
+      { path: `${probe}:1`, message: expect.stringContaining("effect/no-ambient-console") },
+    ]);
+  });
+
   test("reopens an entry when package.json pins another version than the one examined", () => {
     const files = { [registry]: withEntry(probeEntry), [probe]: registeredSuppression };
 

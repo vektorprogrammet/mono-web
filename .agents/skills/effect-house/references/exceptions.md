@@ -8,6 +8,7 @@ A site that cannot follow an Effect rule is an exception with a lifecycle (FX012
 ## What needs an entry
 
 - A disable comment, `oxlint-disable` or `eslint-disable` in any form, that names a rule of `effecttsgo`, `effect`, or `anti-slop-effect`. A disable comment that names no rule fails, because it suppresses every rule.
+- An allow directive of the Oxlint Effect plugin, `oxlint-effect-plugin allow(<rule>)`, which suppresses the `effect/<rule>` that it names. The plugin accepts only `no-ambient-console` with a `dev only:` reason.
 - A leaking-requirements expectation: `@effect-expect-leaking` or `@effect-leakable-service` in a JSDoc block.
 - An `@effect-diagnostics` or `@effect-diagnostics-next-line` directive that lowers a rule.
 - A non-native substitute without a suppression, such as a Promise bridge or another package where Effect has the construct. Name the id in a comment at the site.
@@ -37,6 +38,7 @@ Unfamiliarity is not a missing capability. A performance concern needs a measure
 ## At the site
 
 - Disable comment: `// oxlint-disable-next-line <rule> -- EX-NNNN: <reason>`.
+- Allow directive of the Oxlint Effect plugin: the id after `dev only:`, as in `// oxlint-effect-plugin allow(no-ambient-console): dev only: EX-NNNN: <reason>`.
 - JSDoc expectation: name the id in the same JSDoc block, before the tag. The tag reads the rest of its text as service names.
 - Diagnostics directive or substitute: name the id in the same comment.
 

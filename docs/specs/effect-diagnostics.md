@@ -49,7 +49,7 @@ Remove this specification when `just lint` enforces every Effect language-servic
 
 ## Exceptions
 
-[docs/effect-exceptions.json](../effect-exceptions.json) registers every exception: each disable comment of an Effect rule and each `@effect-expect-leaking` expectation, with its scope, missing capability, native alternatives examined, verification, owner, examined versions, and retirement trigger. Each site names its entry id; `just exceptions` checks both directions. A slice that adds or removes a suppression adds or retires its entry in the same commit.
+[docs/effect-exceptions.json](../effect-exceptions.json) registers every exception: each disable comment of an Effect rule, each allow directive of the Oxlint Effect plugin, and each `@effect-expect-leaking` expectation, with its scope, missing capability, native alternatives examined, verification, owner, examined versions, and retirement trigger. Each site names its entry id; `just exceptions` checks both directions. A slice that adds or removes a suppression adds or retires its entry in the same commit.
 
 ## Done when
 

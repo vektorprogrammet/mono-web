@@ -2,10 +2,11 @@
  * The Effect exception registry.
  *
  * `docs/effect-exceptions.json` registers every site that does not follow an Effect rule: a
- * disable comment of an Effect lint rule, a leaking-requirements expectation in a JSDoc block, an
- * Effect diagnostics directive, or a non-native substitute. Each entry records its scope, the
- * capability that the native form lacks, the native alternatives examined, the verification, the
- * module that owns the sites, the package versions it was examined against, and what retires it.
+ * disable comment of an Effect lint rule, an allow directive of the Oxlint Effect plugin, a
+ * leaking-requirements expectation in a JSDoc block, an Effect diagnostics directive, or a
+ * non-native substitute. Each entry records its scope, the capability that the native form lacks,
+ * the native alternatives examined, the verification, the module that owns the sites, the package
+ * versions it was examined against, and what retires it.
  * Each site names its entry id (EX- and four digits) in a comment. A JSDoc tag reads the rest of
  * its text as service names, so the id sits in the same JSDoc block before the tag.
  *
@@ -165,6 +166,28 @@ const disableSuppression = (comment: Comment, line: number): ReadonlyArray<Found
     : [{ line, form, rules, ids: idsIn(comment.value), misplaced: [] }];
 };
 
+// The Oxlint Effect plugin reads its own allow directive anywhere in a comment: its marker, the
+// plugin rules in parentheses without the `effect/` prefix, and a `dev only:` reason. A comment
+// that spells the directive out is a directive, so this one only describes it.
+const pluginAllowDirective = /oxlint-effect-plugin\s+allow\(([^)]*)\)/u;
+
+/** An allow directive of the Oxlint Effect plugin, which suppresses the plugin rules it names. */
+const pluginAllowSuppression = (comment: Comment, line: number): ReadonlyArray<Found> => {
+  const directive = pluginAllowDirective.exec(comment.value);
+
+  if (directive === null) return [];
+
+  const rules = (directive[1] ?? "")
+    .split(",")
+    .map((rule) => rule.trim())
+    .filter((rule) => rule !== "")
+    .map((rule) => (rule.includes("/") ? rule : `effect/${rule}`));
+
+  return [
+    { line, form: "oxlint-effect-plugin allow", rules, ids: idsIn(comment.value), misplaced: [] },
+  ];
+};
+
 // The tags with which @effect/tsgo accepts a leaked requirement.
 const expectationTags = ["@effect-expect-leaking", "@effect-leakable-service"] as const;
 
@@ -233,6 +256,7 @@ export const readSites = (path: string, text: string): Sites => {
 
     return [
       ...disableSuppression(comment, line),
+      ...pluginAllowSuppression(comment, line),
       ...expectationSuppressions(comment, line),
       ...diagnosticsSuppressions(comment, line),
     ].map((found) => ({ path, ...found }));
@@ -253,7 +277,7 @@ export const readSites = (path: string, text: string): Sites => {
 const sourceFile = /\.(?:[cm]?[jt]sx?)$/u;
 
 // A file without one of these holds no suppression and no reference, so it is not parsed.
-const candidate = /-disable|@effect-|EX-\d/u;
+const candidate = /-disable|oxlint-effect-plugin|@effect-|EX-\d/u;
 
 const at = (site: Site): string => `${site.path}:${site.line}`;
 

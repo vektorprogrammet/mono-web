@@ -127,7 +127,7 @@ const applicantProgressMode = process.argv.includes("--applicant-progress-mode")
 if (process.argv.includes("--report")) validateInterviewReportFixture();
 
 if (process.argv.includes("--validate-fixture")) {
-  // oxlint-effect-plugin allow(no-ambient-console): dev only: local fixture validation result.
+  // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: local fixture validation result.
   console.log("All recommendation fixture idempotency keys satisfy the canonical schema");
   process.exit(0);
 }
@@ -210,7 +210,7 @@ const gates: string[] = [];
 
 const recordGate = (...observations: string[]) => {
   gates.push(...observations);
-  // oxlint-effect-plugin allow(no-ambient-console): dev only: bounded synthetic rehearsal milestones.
+  // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: bounded synthetic rehearsal milestones.
   console.log(JSON.stringify({ observed: observations }));
 };
 
@@ -771,7 +771,7 @@ try {
     const stage = (name: string) => {
       currentStage = name;
       returningStages.push(name);
-      // oxlint-effect-plugin allow(no-ambient-console): dev only: emit bounded returning-stage evidence.
+      // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: emit bounded returning-stage evidence.
       console.log(JSON.stringify({ returningStage: name }));
     };
 
@@ -2737,11 +2737,11 @@ try {
     }
   }
 
-  // oxlint-effect-plugin allow(no-ambient-console): dev only: sanitized local acceptance artifact location.
+  // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: sanitized local acceptance artifact location.
   console.log(JSON.stringify({ result: "Passed", revision, artifacts, gates }));
 } catch (error) {
   if (error instanceof ReturningLoginProbeComplete) {
-    // oxlint-effect-plugin allow(no-ambient-console): dev only: emit the bounded local login-probe result.
+    // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: emit the bounded local login-probe result.
     console.log(
       JSON.stringify({
         result: "ReturningLoginProbe",
@@ -2752,7 +2752,7 @@ try {
       }),
     );
   } else if (error instanceof ReturningTargetedComplete) {
-    // oxlint-effect-plugin allow(no-ambient-console): dev only: emit the bounded returning journey result.
+    // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: emit the bounded returning journey result.
     console.log(
       JSON.stringify({
         result: "ReturningTargeted",
@@ -2763,7 +2763,7 @@ try {
       }),
     );
   } else if (error instanceof ApplicantProgressTargetedComplete) {
-    // oxlint-effect-plugin allow(no-ambient-console): dev only: emit the bounded applicant-progress result.
+    // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: emit the bounded applicant-progress result.
     console.log(
       JSON.stringify({
         result: "ApplicantProgressTargeted",
@@ -2774,7 +2774,7 @@ try {
       }),
     );
   } else if (error instanceof CoInterviewerTargetedComplete) {
-    // oxlint-effect-plugin allow(no-ambient-console): dev only: emit the bounded co-interviewer result.
+    // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: emit the bounded co-interviewer result.
     console.log(
       JSON.stringify({
         result: "CoInterviewerTargeted",
@@ -2785,7 +2785,7 @@ try {
       }),
     );
   } else if (error instanceof CorrectionTargetedComplete) {
-    // oxlint-effect-plugin allow(no-ambient-console): dev only: emit the bounded correction result.
+    // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: emit the bounded correction result.
     console.log(
       JSON.stringify({
         result: "CorrectionTargeted",
@@ -2852,7 +2852,7 @@ try {
 
     await writeFile(join(artifacts, "failure.json"), JSON.stringify(failureEvidence, null, 2));
     await writeFile(join(artifacts, "runtime.log"), `${logs.map(safe).join("")}${detail}\n`);
-    // oxlint-effect-plugin allow(no-ambient-console): dev only: redacted local rehearsal failure evidence.
+    // oxlint-effect-plugin allow(no-ambient-console): dev only: EX-0009: redacted local rehearsal failure evidence.
     console.error(JSON.stringify({ ...failureEvidence, artifacts }));
     process.exitCode = 1;
   }
