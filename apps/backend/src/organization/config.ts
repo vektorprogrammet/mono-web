@@ -20,7 +20,7 @@ const parseMaxBodyBytes = (raw: string | undefined): number => {
   const parsed = Number(value);
 
   try {
-    return Schema.decodeUnknownSync(BoundedBodyBytesSchema)(parsed);
+    return Schema.decodeSync(BoundedBodyBytesSchema)(parsed);
   } catch {
     throw new Error("ORGANIZATION_MAX_BODY_BYTES must be a positive safe integer");
   }

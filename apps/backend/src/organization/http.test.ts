@@ -41,7 +41,7 @@ const config = decodeOrganizationApiConfig({
   ORGANIZATION_MAX_BODY_BYTES: "1024",
 });
 
-const department = Schema.decodeUnknownSync(DepartmentJsonSchema)(
+const department = Schema.decodeSync(DepartmentJsonSchema)(
   {
     departmentId: "department-created",
     name: "Vektorprogrammet Trondheim",
@@ -59,7 +59,7 @@ const department = Schema.decodeUnknownSync(DepartmentJsonSchema)(
   { onExcessProperty: "error" },
 );
 
-const team = Schema.decodeUnknownSync(TeamJsonSchema)(
+const team = Schema.decodeSync(TeamJsonSchema)(
   {
     teamId: "team-created",
     departmentId: department.departmentId,
@@ -75,7 +75,7 @@ const team = Schema.decodeUnknownSync(TeamJsonSchema)(
   { onExcessProperty: "error" },
 );
 
-const fieldOfStudy = Schema.decodeUnknownSync(FieldOfStudyJsonSchema)(
+const fieldOfStudy = Schema.decodeSync(FieldOfStudyJsonSchema)(
   {
     fieldOfStudyId: "field-created",
     name: "Datateknologi",
@@ -120,7 +120,7 @@ const departmentResult = (commandId: OrganizationCommandId) => ({
   committed: true as const,
   observation: {
     ...DepartmentCreatedObservationSchema.make({ commandId, department }),
-    department: Schema.decodeUnknownSync(Department)(department),
+    department: Schema.decodeSync(Department)(department),
   },
 });
 
@@ -186,7 +186,7 @@ const organization = {
       committed: true as const,
       observation: {
         ...TeamCreatedObservationSchema.make({ commandId: command.commandId, team }),
-        team: Schema.decodeUnknownSync(Team)(team),
+        team: Schema.decodeSync(Team)(team),
       },
     });
   },
@@ -198,7 +198,7 @@ const organization = {
           commandId: command.commandId,
           fieldOfStudy,
         }),
-        fieldOfStudy: Schema.decodeUnknownSync(FieldOfStudy)(fieldOfStudy),
+        fieldOfStudy: Schema.decodeSync(FieldOfStudy)(fieldOfStudy),
       },
     }),
 } satisfies Partial<OrganizationOperations>;

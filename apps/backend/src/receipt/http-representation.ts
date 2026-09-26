@@ -82,7 +82,7 @@ export const receiptSettlementEvidenceResource = (
   }
 
   try {
-    return Schema.decodeUnknownSync(ReceiptSettlementEvidenceResource)({
+    return Schema.decodeSync(ReceiptSettlementEvidenceResource)({
       ...settlement,
       amountOre,
     });

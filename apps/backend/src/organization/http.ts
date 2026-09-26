@@ -665,7 +665,7 @@ const optionalQueryIdentity = <S extends Schema.ConstraintDecoder<unknown, never
 
   return value === null
     ? Effect.succeed(undefined)
-    : Schema.decodeUnknownEffect(schema)(value).pipe(
+    : Schema.decodeEffect(schema)(value).pipe(
         Effect.mapError(() => Problem.make("request.malformed")),
       );
 };

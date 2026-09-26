@@ -207,7 +207,7 @@ const listPeople = (request: Request, input: DirectoryApiHttpOptions) => {
         cursor = page.nextCursor;
       }
 
-      return yield* Schema.decodeUnknownEffect(DirectoryResponseSchema)(
+      return yield* Schema.decodeEffect(DirectoryResponseSchema)(
         { activePeople, inactivePeople, nextCursor: cursor ?? null },
         { onExcessProperty: "error" },
       );

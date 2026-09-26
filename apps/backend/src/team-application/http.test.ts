@@ -183,9 +183,9 @@ describe("team application submission over HTTP", () => {
     const first = await submit(request, "http-open", "submitA");
     const firstBody = await first.text();
 
-    const confirmation = Schema.decodeUnknownSync(
-      Schema.fromJsonString(TeamApplicationConfirmation),
-    )(firstBody);
+    const confirmation = Schema.decodeSync(Schema.fromJsonString(TeamApplicationConfirmation))(
+      firstBody,
+    );
 
     expect(first.status).toBe(201);
     expect(first.headers.get("location")).toBe(
@@ -369,9 +369,7 @@ describe("team application staff routes over HTTP", () => {
     const body = await revised.text();
 
     expect(revised.status).toBe(200);
-    expect(
-      Schema.decodeUnknownSync(Schema.fromJsonString(TeamApplicationIntakeResource))(body),
-    ).toEqual({
+    expect(Schema.decodeSync(Schema.fromJsonString(TeamApplicationIntakeResource))(body)).toEqual({
       acceptApplication: false,
       deadline: null,
       open: false,

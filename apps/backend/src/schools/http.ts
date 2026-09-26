@@ -105,7 +105,7 @@ const decodeQuery = (
 
   if (encoded === undefined) return Effect.fail(Problem.make("request.malformed"));
 
-  return Schema.decodeUnknownEffect(SchoolDirectoryQuerySchema)(encoded, {
+  return Schema.decodeEffect(SchoolDirectoryQuerySchema)(encoded, {
     onExcessProperty: "error",
   }).pipe(Effect.mapError(() => Problem.make("request.malformed")));
 };
@@ -145,7 +145,7 @@ export const listSchools = (request: Request, options: SchoolsApiHttpOptions) =>
       query,
     );
 
-    const response = yield* Schema.decodeUnknownEffect(SchoolDirectorySchema)(directory, {
+    const response = yield* Schema.decodeEffect(SchoolDirectorySchema)(directory, {
       onExcessProperty: "error",
     });
 

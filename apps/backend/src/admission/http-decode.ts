@@ -35,7 +35,7 @@ const decodeBody = <S extends Schema.ConstraintDecoder<unknown, never>>(
   schema: S,
   body: Schema.Json,
 ) =>
-  Schema.decodeUnknownEffect(schema)(body, { onExcessProperty: "error", errors: "all" }).pipe(
+  Schema.decodeEffect(schema)(body, { onExcessProperty: "error", errors: "all" }).pipe(
     Effect.mapError((error) => {
       const members = new Map(
         rejectedMembers(error.issue).map((member) => [`${member.code} ${member.pointer}`, member]),

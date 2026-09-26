@@ -19,7 +19,7 @@ const receiptId = process.argv[2];
 if (!receiptId || process.argv.length !== 3 || !process.env.BACKEND_PG_URL)
   throw new TypeError("Usage: BACKEND_PG_URL=... bun run src/receipt/drain-main.ts <receipt-id>");
 
-Schema.decodeUnknownSync(ReceiptId)(receiptId);
+Schema.decodeSync(ReceiptId)(receiptId);
 
 if (!process.env.RECEIPT_STAGING_ROOT || !process.env.RECEIPT_COMMITTED_ROOT)
   throw new TypeError("Explicit receipt staging and committed roots required");

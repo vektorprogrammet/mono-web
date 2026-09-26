@@ -103,7 +103,7 @@ const observation = {
   responseMessage: null,
 } as const;
 
-const snapshot = Schema.decodeUnknownSync(RecruitmentInvitationHttpSnapshotSchema)({
+const snapshot = Schema.decodeSync(RecruitmentInvitationHttpSnapshotSchema)({
   source: {
     capabilitySha256: "a".repeat(64),
     invitationId: "http-invitation",
@@ -449,7 +449,7 @@ describe("native recruitment HTTP boundary", () => {
   });
 
   it("exposes mutation-compatible strong ETags on scheduling items", () => {
-    const board = Schema.decodeUnknownSync(RecruitmentSchedulingBoardSchema)(
+    const board = Schema.decodeSync(RecruitmentSchedulingBoardSchema)(
       {
         departmentId: "department-1",
         interviews: [
@@ -497,7 +497,7 @@ describe("native recruitment HTTP boundary", () => {
 
     const tagged = schedulingBoardWithETags(board, authority);
 
-    const decoded = Schema.decodeUnknownSync(SchedulingBoard)(tagged, {
+    const decoded = Schema.decodeSync(SchedulingBoard)(tagged, {
       onExcessProperty: "error",
     });
 

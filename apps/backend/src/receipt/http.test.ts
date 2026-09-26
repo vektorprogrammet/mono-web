@@ -135,7 +135,7 @@ const pendingReceipt = (overrides: Partial<ProjectionRow> = {}): ProjectionRow =
 const settlementEvidence = (
   overrides: Partial<ReceiptSettlementEvidence> = {},
 ): ReceiptSettlementEvidence =>
-  Schema.decodeUnknownSync(ReceiptSettlementEvidenceSchema)({
+  Schema.decodeSync(ReceiptSettlementEvidenceSchema)({
     settlementId: "settlement-one",
     receiptId,
     amountOre: 1200,
@@ -303,7 +303,7 @@ const harness = (options: HarnessOptions = {}) => {
       Effect.gen(function* () {
         if (options.commandFailure !== undefined) return yield* options.commandFailure;
 
-        const command = yield* Schema.decodeUnknownEffect(ReceiptCommandRequestSchema)(input).pipe(
+        const command = yield* Schema.decodeEffect(ReceiptCommandRequestSchema)(input).pipe(
           Effect.mapError((cause) => new ReceiptDecodeError({ message: cause.message })),
         );
 
@@ -910,7 +910,7 @@ describe("receipt v0.2 HTTP contract", () => {
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(body).toEqual({
       items: [
-        Schema.decodeUnknownSync(ReceiptListItem)({
+        Schema.decodeSync(ReceiptListItem)({
           ...pendingReceipt(),
           amountOre: 1200,
           settlement: null,
@@ -1474,7 +1474,7 @@ describe("receipt v0.2 HTTP contract", () => {
               receipt: {
                 ...receipt,
                 receiptId: grant.receiptId,
-                visualId: Schema.decodeUnknownSync(ReceiptResource.fields.visualId)(visualId),
+                visualId: Schema.decodeSync(ReceiptResource.fields.visualId)(visualId),
                 ownerPersonId: personId,
               },
             },
@@ -1537,8 +1537,8 @@ describe("receipt v0.2 HTTP contract", () => {
       grant: currentGrant,
       receipt: {
         ...row,
-        receiptId: Schema.decodeUnknownSync(ReceiptResource.fields.receiptId)(row.receiptId),
-        visualId: Schema.decodeUnknownSync(ReceiptResource.fields.visualId)(row.visualId),
+        receiptId: Schema.decodeSync(ReceiptResource.fields.receiptId)(row.receiptId),
+        visualId: Schema.decodeSync(ReceiptResource.fields.visualId)(row.visualId),
         ownerPersonId: personId,
       },
     });

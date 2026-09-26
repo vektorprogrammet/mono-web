@@ -68,7 +68,7 @@ export const currentInstant = (now: (() => string) | undefined): Effect.Effect<s
   now === undefined ? Effect.map(DateTime.now, DateTime.formatIso) : Effect.sync(now);
 
 const decodeAuthorizationInstant = (value: string): OrganizationAuthorityInstant =>
-  Schema.decodeUnknownSync(OrganizationAuthorityInstantSchema)(value);
+  Schema.decodeSync(OrganizationAuthorityInstantSchema)(value);
 
 const sessionEffect = (
   cookieHeader: string | undefined,

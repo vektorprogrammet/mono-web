@@ -281,7 +281,7 @@ export const parseRequiredIfMatch = (values: ReadonlyArray<string>): StrongETag 
   }
 
   try {
-    return Schema.decodeUnknownSync(StrongETagSchema)(canonical);
+    return Schema.decodeSync(StrongETagSchema)(canonical);
   } catch {
     throw Problem.make("precondition.invalid");
   }
@@ -422,7 +422,7 @@ export const deriveHttpIdentity = (identity: NativeIdempotencyIdentity): Derived
   }
 
   try {
-    Schema.decodeUnknownSync(IdempotencyKeySchema)(identity.idempotencyKey);
+    Schema.decodeSync(IdempotencyKeySchema)(identity.idempotencyKey);
   } catch {
     throw Problem.make("idempotency-key.invalid");
   }

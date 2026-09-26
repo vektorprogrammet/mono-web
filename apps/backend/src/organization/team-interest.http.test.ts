@@ -28,7 +28,7 @@ import { PRIVATE_NO_STORE } from "../http-semantics.js";
  * authority flow: cookie -> resolveAuthority (one instant) -> leader scope.
  */
 
-const department = Schema.decodeUnknownSync(DepartmentJsonSchema)(
+const department = Schema.decodeSync(DepartmentJsonSchema)(
   {
     departmentId: DepartmentId.make("department-1"),
     name: "Department One",
@@ -46,7 +46,7 @@ const department = Schema.decodeUnknownSync(DepartmentJsonSchema)(
   { onExcessProperty: "error" },
 );
 
-const secondDepartment = Schema.decodeUnknownSync(DepartmentJsonSchema)(
+const secondDepartment = Schema.decodeSync(DepartmentJsonSchema)(
   {
     departmentId: DepartmentId.make("department-2"),
     name: "Department Two",

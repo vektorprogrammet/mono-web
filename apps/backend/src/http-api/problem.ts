@@ -333,7 +333,7 @@ export const requestInvalid = () =>
 export const decodeRequest =
   <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S) =>
   (value: Schema.Json) =>
-    Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+    Schema.decodeEffect(schema)(value, { onExcessProperty: "error" }).pipe(
       Effect.mapError(requestInvalid),
     );
 
