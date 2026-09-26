@@ -1,7 +1,13 @@
 import { createHash } from "node:crypto";
-import { Database, IdentitySnapshot } from "@vektorprogrammet/database";
+import { Database, IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { commandOnboarding } from "@vektorprogrammet/database/onboarding";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
+import {
+  CredentialEvidenceRef,
+  CredentialMechanismSchema,
+  CredentialOutcomeSchema,
+  PrincipalSchema,
+} from "@vektorprogrammet/domain/authz";
 import { IdentityActor, IdentitySessionNotFound } from "@vektorprogrammet/domain/identity";
 import { OnboardingClaim, OnboardingClaimResult } from "@vektorprogrammet/domain/onboarding";
 import { DepartmentId, Organization, PersonId } from "@vektorprogrammet/domain/organization";
@@ -26,6 +32,18 @@ const environment = {
 } as const;
 
 const session = "better-auth.session_token=member-1-session";
+
+// A delegated OAuth bearer of the same Person as the session.
+const bearer = "Bearer member-1-bearer";
+
+const bearerOutcome = (request: Request) =>
+  request.headers.get("authorization") === bearer
+    ? CredentialOutcomeSchema.cases.Accepted.make({
+        mechanism: CredentialMechanismSchema.cases.OAuthUserBearer.make({}),
+        principal: PrincipalSchema.cases.Person.make({ personId: PersonId.make("member-1") }),
+        evidenceRef: CredentialEvidenceRef.make("oauth:Person:member-1-bearer"),
+      })
+    : CredentialOutcomeSchema.cases.Rejected.make({ reason: "Invalid" });
 
 // Each invitation binds one applicant; the unknown token was never issued.
 const tokens = {
@@ -81,7 +99,7 @@ const http = makeBackendTestHttp(
   decodeBackendConfig(environment),
   Layer.mergeAll(
     database.layer,
-    // The session cookie names member-1; nothing else authenticates.
+    // The session cookie and the bearer both name member-1; nothing else authenticates.
     Layer.mock(IdentitySnapshot, {
       resolveSession: (cookieHeader) =>
         cookieHeader?.split(/;\s*/u).includes(session) === true
@@ -93,6 +111,10 @@ const http = makeBackendTestHttp(
               }),
             )
           : Effect.fail(new IdentitySessionNotFound()),
+    }),
+    Layer.mock(OAuthCredentialAuthority, {
+      resolve: async (request) => bearerOutcome(request),
+      resolveInTransaction: (request) => Effect.succeed(bearerOutcome(request)),
     }),
     Layer.mock(Organization, {
       resolvePersonAuthority: (personId, evaluatedAt) =>
@@ -123,9 +145,15 @@ const claim = async (
 
   const json: unknown = await response.json();
 
-  return response.ok
-    ? { status: response.status, ...Schema.decodeUnknownSync(OnboardingClaimResult)(json) }
-    : { status: response.status, code: Schema.decodeUnknownSync(NativeProblem)(json).code };
+  if (response.ok)
+    return { status: response.status, ...Schema.decodeUnknownSync(OnboardingClaimResult)(json) };
+
+  const code = Schema.decodeUnknownSync(NativeProblem)(json).code;
+
+  // A credential problem also names the credential the claim accepts.
+  return response.status === 401
+    ? { status: response.status, code, challenge: response.headers.get("www-authenticate") }
+    : { status: response.status, code };
 };
 
 // Links, invitation states, and Persons are the facts a claim may change.
@@ -194,10 +222,38 @@ describe("onboarding claim principal", () => {
   it("requires the session before it reads an existing-account token", async () => {
     // Without its one principal, the claim answers a valid and an unknown token alike.
     for (const token of [tokens.a, tokens.unknown]) {
-      expect((await claim({ mode: "ExistingAccount", token })).status).toBe(401);
+      expect(await claim({ mode: "ExistingAccount", token })).toEqual({
+        status: 401,
+        code: "credential.missing",
+        challenge: 'VektorSession realm="native-api"',
+      });
     }
 
     expect(await claimFacts()).toEqual(unclaimed);
+  });
+
+  it("lets only the browser session make an existing-account claim", async () => {
+    const existing = { mode: "ExistingAccount", token: tokens.a } as const;
+
+    // The bearer names the session's own Person, yet a delegated bearer cannot claim.
+    for (const token of [tokens.a, tokens.unknown]) {
+      expect(await claim({ mode: "ExistingAccount", token }, { authorization: bearer })).toEqual({
+        status: 401,
+        code: "credential.invalid",
+        challenge: 'VektorSession realm="native-api"',
+      });
+    }
+
+    expect(await claimFacts()).toEqual(unclaimed);
+    expect(await claim(existing, { cookie: session })).toEqual({
+      status: 200,
+      state: "Claimed",
+      departmentId: "claim-department",
+    });
+    expect(await claim(existing, { cookie: session })).toEqual({
+      status: 400,
+      code: "onboarding.claim-invalid",
+    });
   });
 
   it("rejects a new-account token presented beside a session or a bearer", async () => {
@@ -209,11 +265,12 @@ describe("onboarding claim principal", () => {
 
     for (const [header, credential] of [
       ["cookie", session],
-      ["authorization", "Bearer member-1-bearer"],
+      ["authorization", bearer],
     ] as const) {
       expect(await claim(created, { [header]: credential })).toEqual({
         status: 401,
         code: "credential.invalid",
+        challenge: 'VektorSession realm="native-api"',
       });
     }
 

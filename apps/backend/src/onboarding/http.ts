@@ -1,4 +1,4 @@
-import { Scope } from "@vektorprogrammet/domain/authz";
+import { credentialMatchesAccessSpec, Scope } from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/database";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import { canManagePlacements } from "@vektorprogrammet/domain/placements";
@@ -25,13 +25,18 @@ import {
   PersonId,
 } from "@vektorprogrammet/domain/organization";
 import {
+  ClaimOnboardingEndpoint,
   ExternalNativeApi,
   OnboardingResource,
   ReadOnboardingEndpoint,
   CommandOnboardingEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
-import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
+import {
+  type CredentialPresentation,
+  nativeCookieChallenge,
+  Problem,
+} from "@vektorprogrammet/http-api/http-semantics";
 import { flow, Predicate, Effect, Option, Schema } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
@@ -199,6 +204,26 @@ const authorize = (
     return auth;
   });
 
+/**
+ * The one principal of an existing-account claim: a Person credential that the claim's
+ * AccessSpec accepts. The AccessSpec accepts the browser session and no bearer. The token is
+ * checked and consumed afterwards, by claimOnboarding.
+ */
+const claimingPerson = (request: Request, now?: () => string) =>
+  Effect.gen(function* () {
+    const auth = yield* resolveRequestPersonAuthorityInTransaction(request, { now });
+
+    if (
+      !credentialMatchesAccessSpec(
+        Option.getOrThrow(reflectAccessSpec(ClaimOnboardingEndpoint)),
+        auth.credential,
+      )
+    )
+      return yield* new UnauthenticatedActor({ message: "authentication required" });
+
+    return auth.authority.personId;
+  });
+
 export const OnboardingApiHandlers = (input: {
   now?: () => string;
   delivery?: OnboardingDeliveryConfig;
@@ -300,6 +325,7 @@ export const OnboardingApiHandlers = (input: {
       return response;
     });
 
+  // The session is the claim's one Person credential, so a credential problem challenges for it.
   const claim = (request: Request) =>
     Effect.gen(function* () {
       yield* requireNoQuery(request);
@@ -311,8 +337,8 @@ export const OnboardingApiHandlers = (input: {
       const digest = yield* tokenDigest(body.token);
 
       // A new-account claim presents one credential: its token. An existing-account claim has one
-      // principal, the signed-in Person. Its token is then a single-use requirement bound to one
-      // invitation, which claimOnboarding checks and consumes after the Person is resolved.
+      // principal, the browser session's Person. Its token is then a single-use requirement bound to
+      // one invitation, which claimOnboarding checks and consumes after the Person is resolved.
       if (body.mode === "NewAccount") {
         if (
           headerCredentialCount(
@@ -339,9 +365,7 @@ export const OnboardingApiHandlers = (input: {
           Effect.gen(function* () {
             const identity = newAccount ?? {
               mode: "ExistingAccount" as const,
-              personId: (yield* resolveRequestPersonAuthorityInTransaction(request, {
-                now: input.now,
-              })).authority.personId,
+              personId: yield* claimingPerson(request, input.now),
             };
 
             return yield* claimOnboarding({
@@ -355,7 +379,7 @@ export const OnboardingApiHandlers = (input: {
       );
 
       return json(result);
-    }).pipe(onboardingProblems(personPresentation(request)));
+    }).pipe(onboardingProblems(personPresentation(request, nativeCookieChallenge)));
 
   return HttpApiBuilder.group(ExternalNativeApi, "onboarding", (handlers) =>
     Effect.succeed(
