@@ -15,9 +15,29 @@ export interface PollOptions<A> {
 }
 
 /**
- * Runs `tick` at once, then again after each success. The delay uses the Clock
- * service, so `TestClock` controls it. The first tick failure stops the loop with
- * that failure. Interruption stops the current tick or delay.
+ * Runs `tick` at once, then again after each success.
+ *
+ * @remarks
+ * The delay between the end of one tick and the start of the next is `options.interval`, on
+ * `Schedule.spaced`. When `options.skipDelay` answers true for the result of a tick, the next tick
+ * starts at once, so a worker that made progress drains its queue without waiting. The delay uses
+ * the Clock service, so `TestClock` controls it. The first tick failure stops the loop with that
+ * failure, and interruption stops the current tick or delay; the loop never succeeds.
+ *
+ * @sideEffects Waits on the Effect clock between ticks; every write is the tick's own.
+ *
+ * @example
+ * ```ts
+ * pollForever(tick, {
+ *   interval: Duration.millis(options.pollIntervalMilliseconds),
+ *   skipDelay: Predicate.isTagged("Delivered"),
+ * });
+ * ```
+ *
+ * @avoid A worker loop of `setTimeout` or `setInterval`, or a hand-written repeat of the tick and
+ * `Effect.sleep`: timers run on real time, which `TestClock` cannot drive, and a hand-written loop
+ * tends to swallow a failed tick. Pass the tick to `pollForever`, and let a failure that the tick
+ * does not handle end the worker.
  *
  * @construct worker
  */
