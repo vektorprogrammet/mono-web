@@ -406,6 +406,14 @@ export default defineConfig({
       files: ["apps/dashboard/app/foldkit/**"],
       rules: { "anti-slop/no-unkeyed-command-row": "error" },
     },
+    {
+      // No type checker reads plain JavaScript, so an unimported name in a .mjs file reaches CI only as a runtime
+      // ReferenceError (Order in the schools runner, hosted run 36260017312). Bun names its globals.
+      files: ["**/*.mjs"],
+      env: { node: true, browser: true, es2024: true },
+      globals: { Bun: "readonly", HTMLRewriter: "readonly" },
+      rules: { "no-undef": "error" },
+    },
   ],
   ignorePatterns: [
     "tools/oxlint/anti-slop/**",

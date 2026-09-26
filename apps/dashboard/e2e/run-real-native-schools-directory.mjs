@@ -1,4 +1,4 @@
-import { Predicate } from "effect";
+import { Order, Predicate } from "effect";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
