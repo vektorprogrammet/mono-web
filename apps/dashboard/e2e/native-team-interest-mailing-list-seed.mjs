@@ -148,6 +148,9 @@ async function main() {
 
   try {
     await client.query("BEGIN");
+    // IT-Team 0059 is Trondheim's board (Styret) of an independent department, so its leader
+    // reaches the whole department's registrations and recipients (O8-11). Bergen's SkoleTeam
+    // leader leads an ordinary team.
     await executeSeedRows(client, seedStatements, "seed_departments", [
       {
         department_id: departments.trondheim,
@@ -156,6 +159,7 @@ async function main() {
         email: fixtureEmail("trondheim.0059"),
         city: "Trondheim",
         active: true,
+        independent: true,
         revision: 0,
       },
       {
@@ -165,6 +169,7 @@ async function main() {
         email: fixtureEmail("bergen.0059"),
         city: "Bergen",
         active: true,
+        independent: false,
         revision: 0,
       },
     ]);
@@ -185,6 +190,7 @@ async function main() {
         team_id: teams.it,
         department_id: departments.trondheim,
         name: "IT-Team 0059",
+        kind: "DepartmentBoard",
         active: true,
         revision: 0,
       },
@@ -192,6 +198,7 @@ async function main() {
         team_id: teams.pr,
         department_id: departments.trondheim,
         name: "PR-Team 0059",
+        kind: "Team",
         active: true,
         revision: 0,
       },
@@ -199,6 +206,7 @@ async function main() {
         team_id: teams.skole,
         department_id: departments.bergen,
         name: "SkoleTeam 0059",
+        kind: "Team",
         active: true,
         revision: 0,
       },
@@ -421,7 +429,7 @@ async function main() {
           (SELECT count(*) FROM organization_team_interest_registrations) AS registrations_total,
           (SELECT count(*) FROM organization_team_interest_registrations WHERE department_id = $1) AS registrations_trondheim,
           (SELECT count(*) FROM organization_team_interest_registrations WHERE department_id = $2) AS registrations_bergen,
-          (SELECT count(*) FROM organization_memberships m WHERE m.person_id = $3 AND m.is_team_leader AND NOT m.is_suspended) AS leader_scoped_memberships,
+          (SELECT count(*) FROM organization_memberships m JOIN organization_teams t USING (team_id) JOIN organization_departments d USING (department_id) WHERE m.person_id = $3 AND m.is_team_leader AND NOT m.is_suspended AND t.kind = 'DepartmentBoard' AND d.independent) AS leader_scoped_memberships,
           (SELECT count(*) FROM organization_global_administrator_grants g WHERE g.person_id = $4 AND g.start_at <= now() AND (g.end_at IS NULL OR now() < g.end_at)) AS admin_grants,
           (SELECT count(*) FROM person_contact_profiles) AS contacts,
           (SELECT count(*) FROM auth."user" u WHERE u.id IN ($5, $6, $7)) AS auth_users
@@ -452,7 +460,7 @@ async function main() {
     );
     assert(
       Number(counts.leader_scoped_memberships) === 1,
-      "leader holds exactly one active team-leader membership",
+      "leader holds exactly one active board leadership of an independent department",
     );
     assert(Number(counts.admin_grants) === 1, "admin holds one active global-administrator grant");
     assert(Number(counts.contacts) === 6, "six contact profiles");

@@ -17,7 +17,7 @@ export async function loadDashboardShell(request: Request): Promise<DashboardShe
         name: `${profile.firstName} ${profile.lastName}`,
         email: profile.email,
       },
-      isAdmin: profile.role === "ROLE_ADMIN" || profile.role === "ROLE_TEAM_LEADER",
+      isAdmin: profile.role === "ROLE_ADMIN" || profile.role === "ROLE_DEPARTMENT_ADMINISTRATOR",
       hasOrganizationContext: true,
     };
   } catch (error) {

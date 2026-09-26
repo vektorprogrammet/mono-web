@@ -4,7 +4,13 @@ import {
   AdmissionPeriodActorSchema,
 } from "../admission-period/schema.js";
 import { allow, deny, type Decision } from "../authz/decision.js";
-import type { RecruitmentActor } from "../recruitment/schema.js";
+import {
+  Delegation,
+  type OrganizationCapability,
+  TeamScope,
+  UnitKind,
+} from "../authz/delegation.js";
+import { holdsDepartmentReach, leadsAnyTeam, reaches, ReachTarget } from "../authz/reach.js";
 import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
 import {
   OrganizationMemberSchema,
@@ -98,27 +104,58 @@ export const OrganizationGlobalAdministratorStatusSchema = Schema.Literals([
 export type OrganizationGlobalAdministratorStatus =
   typeof OrganizationGlobalAdministratorStatusSchema.Type;
 
+/**
+ * One appointment on a team or a department board, with the facts of its unit that reach depends
+ * on. `active` means started, not ended, not suspended, and an active unit and department.
+ * `unitLeader` is the unit's leadership: a team's leader, or a department board's leader.
+ */
 export const OrganizationAuthorityMembershipSchema = Schema.Struct({
   membershipId: MembershipId,
   teamId: TeamId,
   departmentId: DepartmentId,
   active: Schema.Boolean,
-  teamLeader: Schema.Boolean,
+  unitLeader: Schema.Boolean,
+  unitKind: UnitKind,
+  teamScope: TeamScope,
+  departmentIndependent: Schema.Boolean,
 });
 
 export type OrganizationAuthorityMembership = typeof OrganizationAuthorityMembershipSchema.Type;
 
+/** One seat on the national board (Hovedstyret). */
+export const OrganizationAuthorityBoardSeatSchema = Schema.Struct({
+  membershipId: MembershipId,
+  boardId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+  active: Schema.Boolean,
+  unitLeader: Schema.Boolean,
+});
+
+export type OrganizationAuthorityBoardSeat = typeof OrganizationAuthorityBoardSeatSchema.Type;
+
+/**
+ * Everything that decides a person's organisational authority at one instant: the
+ * global-administrator grant, team and board appointments, national board seats, and the
+ * delegations of the person's teams. `authz/reach.ts` interprets it.
+ */
 export const OrganizationPersonAuthoritySchema = Schema.Struct({
   personId: PersonId,
   evaluatedAt: OrganizationAuthorityInstantSchema,
   globalAdministrator: OrganizationGlobalAdministratorStatusSchema,
   memberships: Schema.Array(OrganizationAuthorityMembershipSchema),
+  nationalBoardSeats: Schema.Array(OrganizationAuthorityBoardSeatSchema),
+  delegations: Schema.Array(Delegation),
 });
 
 export type OrganizationPersonAuthority = typeof OrganizationPersonAuthoritySchema.Type;
 
+/**
+ * The coarse dashboard role, a projection for navigation only. A department administrator holds a
+ * capability beyond one team through a board leadership or a delegation; a team leader leads an
+ * ordinary team and acts within it.
+ */
 export const ProfileRoleSchema = Schema.Literals([
   "ROLE_ADMIN",
+  "ROLE_DEPARTMENT_ADMINISTRATOR",
   "ROLE_TEAM_LEADER",
   "ROLE_TEAM_MEMBER",
 ]);
@@ -126,12 +163,16 @@ export const ProfileRoleSchema = Schema.Literals([
 export type ProfileRole = typeof ProfileRoleSchema.Type;
 
 /**
- * Maps one explicit department scope without selecting a primary membership. Roles and
- * grants are independent: an ended global-administrator grant removes no role authority,
- * and only names the denial where no role reaches the department.
+ * Maps one explicit department scope and one capability without selecting a primary membership.
+ * An active global administrator acts as today (O8-13). Otherwise the capability's reach decides
+ * department administration: a board leadership or a delegation, never a team leadership. An
+ * active membership in the department without that reach is a member. Roles and grants are
+ * independent: an ended global-administrator grant removes no role authority, and only names the
+ * denial where nothing reaches the department.
  */
-export const mapOrganizationAuthorityToAdmissionPeriodActor = (
+export const mapOrganizationAuthorityToDepartmentActor = (
   authority: OrganizationPersonAuthority,
+  capability: OrganizationCapability,
   departmentId: DepartmentId,
 ): Decision<AdmissionPeriodActor> => {
   if (authority.globalAdministrator === "Active") {
@@ -143,27 +184,21 @@ export const mapOrganizationAuthorityToAdmissionPeriodActor = (
     );
   }
 
-  let hasMembership = false;
-  let hasActiveMembership = false;
-
-  for (const membership of authority.memberships) {
-    if (membership.departmentId !== departmentId) continue;
-    hasMembership = true;
-
-    if (membership.active && membership.teamLeader) {
-      return allow<AdmissionPeriodActor>(
-        AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
-          personId: authority.personId,
-          departmentId,
-          active: true,
-        }),
-      );
-    }
-
-    if (membership.active) hasActiveMembership = true;
+  if (reaches(authority, capability, ReachTarget.Department({ departmentId }))) {
+    return allow<AdmissionPeriodActor>(
+      AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
+        personId: authority.personId,
+        departmentId,
+        active: true,
+      }),
+    );
   }
 
-  if (hasActiveMembership) {
+  const memberships = authority.memberships.filter(
+    (membership) => membership.departmentId === departmentId,
+  );
+
+  if (memberships.some((membership) => membership.active)) {
     return allow<AdmissionPeriodActor>(
       AdmissionPeriodActorSchema.cases.Member.make({
         personId: authority.personId,
@@ -174,18 +209,11 @@ export const mapOrganizationAuthorityToAdmissionPeriodActor = (
   }
 
   return deny<AdmissionPeriodActor>(
-    hasMembership || authority.globalAdministrator === "Inactive"
+    memberships.length > 0 || authority.globalAdministrator === "Inactive"
       ? "AuthorityInactive"
       : "NotInScope",
   );
 };
-
-/** Recruitment shares Admission's department-scoped actor contract. */
-export const mapOrganizationAuthorityToRecruitmentActor = (
-  authority: OrganizationPersonAuthority,
-  departmentId: DepartmentId,
-): Decision<RecruitmentActor> =>
-  mapOrganizationAuthorityToAdmissionPeriodActor(authority, departmentId);
 
 export const mapOrganizationAuthorityToOrganizationActor = (
   authority: OrganizationPersonAuthority,
@@ -201,16 +229,25 @@ export const mapOrganizationAuthorityToProfileRole = (
     return allow<ProfileRole>("ROLE_ADMIN");
   }
 
-  if (authority.memberships.some((membership) => membership.active && membership.teamLeader)) {
+  if (holdsDepartmentReach(authority)) {
+    return allow<ProfileRole>("ROLE_DEPARTMENT_ADMINISTRATOR");
+  }
+
+  if (leadsAnyTeam(authority)) {
     return allow<ProfileRole>("ROLE_TEAM_LEADER");
   }
 
-  if (authority.memberships.some((membership) => membership.active)) {
+  if (
+    authority.memberships.some((membership) => membership.active) ||
+    authority.nationalBoardSeats.some((seat) => seat.active)
+  ) {
     return allow<ProfileRole>("ROLE_TEAM_MEMBER");
   }
 
   return deny<ProfileRole>(
-    authority.globalAdministrator === "Absent" && authority.memberships.length === 0
+    authority.globalAdministrator === "Absent" &&
+      authority.memberships.length === 0 &&
+      authority.nationalBoardSeats.length === 0
       ? "NotInScope"
       : "AuthorityInactive",
   );

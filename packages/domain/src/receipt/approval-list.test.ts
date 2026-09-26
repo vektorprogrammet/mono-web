@@ -52,8 +52,13 @@ const organization = (
     teamId: TeamId.make(`approval-list-team-${index}`),
     departmentId,
     active: true,
-    teamLeader: false,
+    unitLeader: false,
+    unitKind: "Team",
+    teamScope: "HomeDepartment",
+    departmentIndependent: false,
   })),
+  nationalBoardSeats: [],
+  delegations: [],
 });
 
 const directGrant = (

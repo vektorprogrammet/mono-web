@@ -1,5 +1,6 @@
 import { Data, DateTime, Predicate, Schema } from "effect";
 import { allow, deny, type Decision } from "../authz/decision.js";
+import { leadsUnit } from "../authz/reach.js";
 import { ContactEmail } from "../contact/schema.js";
 import type { OrganizationPersonAuthority } from "../organization/authority.js";
 import type { TeamId } from "../organization/schema.js";
@@ -41,35 +42,28 @@ export const isTeamApplicationIntakeOpen = (
 ): boolean => Predicate.isTagged(evaluateTeamApplicationIntake(facts, now), "Open");
 
 /**
- * Maps the Organization projection to one team's staff actor. An active membership
- * already excludes ended, suspended, and inactive-team or inactive-department
- * memberships. Global administration grants no implicit access.
+ * Maps the Organization projection to one team's staff actor. The unit's current leader
+ * changes intake and deletes applications; a current member reads them. An active membership
+ * already excludes ended, suspended, and inactive-team or inactive-department memberships.
+ * Global administration grants no implicit access.
  */
 export const mapOrganizationAuthorityToTeamApplicationActor = (
   authority: OrganizationPersonAuthority,
   teamId: TeamId,
 ): Decision<TeamApplicationActor> => {
-  let hasMembership = false;
-  let activeMember = false;
-
-  for (const membership of authority.memberships) {
-    if (membership.teamId !== teamId) continue;
-    hasMembership = true;
-
-    if (membership.active && membership.teamLeader) {
-      return allow<TeamApplicationActor>(
-        TeamApplicationActor.cases.TeamLeader.make({ personId: authority.personId, teamId }),
-      );
-    }
-
-    if (membership.active) activeMember = true;
+  if (leadsUnit(authority, teamId)) {
+    return allow<TeamApplicationActor>(
+      TeamApplicationActor.cases.TeamLeader.make({ personId: authority.personId, teamId }),
+    );
   }
 
-  if (activeMember) {
+  const memberships = authority.memberships.filter((membership) => membership.teamId === teamId);
+
+  if (memberships.some((membership) => membership.active)) {
     return allow<TeamApplicationActor>(
       TeamApplicationActor.cases.TeamMember.make({ personId: authority.personId, teamId }),
     );
   }
 
-  return deny<TeamApplicationActor>(hasMembership ? "AuthorityInactive" : "NotInScope");
+  return deny<TeamApplicationActor>(memberships.length > 0 ? "AuthorityInactive" : "NotInScope");
 };

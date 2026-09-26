@@ -11,8 +11,9 @@
  * - one ended-membership person whose end_at lies STRICTLY BEFORE now (must
  *   land under Inaktive Brukere);
  * - one plain member with an active non-leader membership (typed denial);
- * - one department leader with an ACTIVE leader membership in exactly ONE
- *   department that holds at least one OTHER member (scope intersection);
+ * - one department administrator: the leader of the department board
+ *   (Styret) of an independent department, in exactly ONE department that
+ *   holds at least one OTHER member (scope intersection);
  * - one further member confined to the leader's NON-member department so the
  *   leader's scoped view must EXCLUDE at least one cross-department row;
  * - person_contact_profiles rows for every seeded person.
@@ -138,6 +139,14 @@ VALUES
   ('${osloItTeamId}', '${osloDepartmentId}', 'IT Oslo', TRUE, 0)
 ON CONFLICT (team_id) DO NOTHING;
 
+-- 'Ledergruppe Trondheim' is the department's board (Styret) of an independent
+-- department, so its leader reaches the department (O8-11). An UPDATE, not an
+-- INSERT column, so re-running \`just seed\` also classifies an existing database.
+UPDATE organization_teams SET kind = 'DepartmentBoard'
+WHERE team_id = '${trondheimLeaderTeamId}';
+UPDATE organization_departments SET independent = TRUE
+WHERE department_id = '${trondheimDepartmentId}';
+
 INSERT INTO person_contact_profiles (person_id, email, phone, revision)
 VALUES
   ('${journeyPersons.admin.personId}',
@@ -184,7 +193,7 @@ VALUES
   ('membership-journey-0057-member',
    '${journeyPersons.plainMember.personId}', '${trondheimItTeamId}',
    NULL, '${activeStartAt}', NULL, 'member', FALSE, FALSE, 0),
-  -- Department leader: active leadership in exactly ONE department.
+  -- Department administrator: leads the board of exactly ONE department.
   ('membership-journey-0057-leader',
    '${journeyPersons.leader.personId}', '${trondheimLeaderTeamId}',
    NULL, '${activeStartAt}', NULL, 'leader', TRUE, FALSE, 0),
@@ -255,8 +264,12 @@ async function main() {
           AND m.start_at <= now() AND (m.end_at IS NULL OR now() < m.end_at)
           AND NOT m.is_suspended AND NOT m.is_team_leader) AS plain_member_memberships,
         (SELECT count(*) FROM organization_memberships m
+          JOIN organization_teams team ON team.team_id = m.team_id
+          JOIN organization_departments department
+            ON department.department_id = team.department_id
           WHERE m.person_id = '${journeyPersons.leader.personId}'
           AND m.is_team_leader AND NOT m.is_suspended
+          AND team.kind = 'DepartmentBoard' AND department.independent
           AND m.start_at <= now() AND (m.end_at IS NULL OR now() < m.end_at))
           AS leader_memberships,
         (SELECT count(*) FROM organization_memberships m
@@ -291,7 +304,10 @@ async function main() {
       Number(counts.plain_member_memberships) === 1,
       "one active non-leader membership for Pia",
     );
-    assert(Number(counts.leader_memberships) === 1, "exactly one active leader membership");
+    assert(
+      Number(counts.leader_memberships) === 1,
+      "exactly one active board leadership of an independent department",
+    );
     assert(Number(counts.other_trondheim_members) >= 1, "leader department holds another member");
     assert(Number(counts.oslo_active_members) >= 1, "an Oslo-only member exists to exclude");
     assert(Number(counts.users) === 6, "six login-capable auth users");

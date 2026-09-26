@@ -15,17 +15,21 @@ const authorizationInstant = OrganizationAuthorityInstantSchema.make("2032-01-01
 
 const personId = PersonId.make("schools-reader");
 
+/** A membership; `boardLeader` leads the board of an independent department. */
 const membership = (
   suffix: string,
   departmentId: string,
   active: boolean,
-  teamLeader = false,
+  boardLeader = false,
 ): OrganizationAuthorityMembership => ({
   membershipId: MembershipId.make(`membership-${suffix}`),
   teamId: TeamId.make(`team-${suffix}`),
   departmentId: DepartmentId.make(departmentId),
   active,
-  teamLeader,
+  unitLeader: boardLeader,
+  unitKind: boardLeader ? "DepartmentBoard" : "Team",
+  teamScope: "HomeDepartment",
+  departmentIndependent: true,
 });
 
 const authority = (
@@ -36,6 +40,8 @@ const authority = (
   evaluatedAt: authorizationInstant,
   globalAdministrator,
   memberships,
+  nationalBoardSeats: [],
+  delegations: [],
 });
 
 describe("Schools maintenance scope", () => {
@@ -44,7 +50,15 @@ describe("Schools maintenance scope", () => {
     expect(canManageSchoolDepartments(leader, [])).toBe(false);
     expect(canManageSchoolDepartments(authority("Active", []), [])).toBe(true);
   });
-  it("requires current leadership for every affected department", () => {
+  it("gives an ordinary team leader no school administration (O8-11)", () => {
+    const teamLeader = authority("Absent", [
+      { ...membership("a", "a", true, true), unitKind: "Team" },
+    ]);
+
+    expect(canManageSchoolDepartments(teamLeader, [DepartmentId.make("a")])).toBe(false);
+  });
+
+  it("requires current board leadership for every affected department", () => {
     const leader = authority("Inactive", [
       membership("a", "a", true, true),
       membership("b", "b", true),

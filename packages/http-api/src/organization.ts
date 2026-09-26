@@ -63,7 +63,7 @@ export {
 export type { DepartmentJson, FieldOfStudyJson, TeamJson };
 
 /**
- * Leader-scoped organization query. Repeated values remain representable because
+ * Reach-scoped organization query. Repeated values remain representable because
  * the current transport selects the first value.
  *
  * @since 0.1.0
@@ -270,7 +270,7 @@ export const ListTeamInterestEndpoint = HttpApiEndpoint.get(
   .annotateMerge(
     operationAnnotations(
       "List team interest",
-      "Returns registrations within the caller's leader scope.",
+      "Returns registrations within the caller's team-interest reach: the own team for its leader, whole departments for department reach.",
     ),
   );
 
@@ -298,7 +298,7 @@ export const ListMailingListsEndpoint = HttpApiEndpoint.get(
   .annotateMerge(
     operationAnnotations(
       "Project mailing lists",
-      "Projects addresses within the caller's leader scope.",
+      "Projects addresses within the departments where the caller reads people.",
     ),
   );
 

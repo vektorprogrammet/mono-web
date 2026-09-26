@@ -43,10 +43,11 @@ beforeAll(async () => {
   await runtime.runPromise(
     Database.use((sql) =>
       Effect.gen(function* () {
-        yield* sql`INSERT INTO organization_departments (department_id,name,short_name,email,city)
-      VALUES ('mail-department','Mail','MAIL','mail@example.invalid','Trondheim')`;
-        yield* sql`INSERT INTO organization_teams (team_id,department_id,name)
-      VALUES ('mail-team','mail-department','Mail team')`;
+        yield* sql`INSERT INTO organization_departments (department_id,name,short_name,email,city,independent)
+      VALUES ('mail-department','Mail','MAIL','mail@example.invalid','Trondheim',true)`;
+        // The department's board of an independent department: its leader reads recipients.
+        yield* sql`INSERT INTO organization_teams (team_id,department_id,name,kind)
+      VALUES ('mail-team','mail-department','Mail board','DepartmentBoard')`;
         yield* sql`INSERT INTO admission_period_semesters (semester_id,start_at,end_at) VALUES
       ('mail-current','2038-08-01','2039-01-01'), ('mail-previous','2038-01-01','2038-08-01')`;
         yield* sql`INSERT INTO person_profiles (person_id,first_name,last_name) VALUES

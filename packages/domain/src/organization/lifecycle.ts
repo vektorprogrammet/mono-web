@@ -1,7 +1,8 @@
 import { Match, Result, Schema } from "effect";
+import { TeamScope, UnitKind } from "../authz/delegation.js";
 import { AccountAccess } from "../identity/access.js";
 import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
-import { PersonId } from "./schema.js";
+import { DepartmentId, PersonId, TeamId } from "./schema.js";
 
 const Text = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1), Schema.isMaxLength(250), Schema.isPattern(/\S/)),
@@ -29,6 +30,35 @@ export const Appointment = Schema.Struct({
 
 export type Appointment = typeof Appointment.Type;
 
+/**
+ * Whether a team is an ordinary team or its department's board (Styret), and whether it works
+ * for its home department or for the whole organization. Reach reads these reviewed facts.
+ */
+export const TeamClassification = Schema.Struct({
+  teamId: TeamId,
+  unitKind: UnitKind,
+  teamScope: TeamScope,
+  revision: Revision,
+});
+
+export type TeamClassification = typeof TeamClassification.Type;
+
+/** Whether Hovedstyret recognises a department as independent, so that its board governs it. */
+export const DepartmentRecognition = Schema.Struct({
+  departmentId: DepartmentId,
+  independent: Schema.Boolean,
+  revision: Revision,
+});
+
+export type DepartmentRecognition = typeof DepartmentRecognition.Type;
+
+const HistoryFact = Schema.Union([
+  Appointment,
+  AccountAccess,
+  TeamClassification,
+  DepartmentRecognition,
+]);
+
 export const AppointmentHistory = Schema.Struct({
   commandId: Text,
   action: Text,
@@ -36,8 +66,16 @@ export const AppointmentHistory = Schema.Struct({
   actorPersonId: PersonId,
   occurredAt: Rfc3339InstantSchema,
   reason: Text,
-  before: Schema.NullOr(Schema.Union([Appointment, AccountAccess])),
-  after: Schema.NullOr(Schema.Union([Appointment, AccountAccess])),
+  before: Schema.NullOr(HistoryFact),
+  after: Schema.NullOr(HistoryFact),
+});
+
+/** The classification facts that only organization governance changes. */
+export const OrganizationGovernance = Schema.Struct({
+  teams: Schema.Array(
+    Schema.Struct({ ...TeamClassification.fields, name: Text, departmentId: DepartmentId }),
+  ),
+  departments: Schema.Array(Schema.Struct({ ...DepartmentRecognition.fields, name: Text })),
 });
 
 export const AppointmentManagement = Schema.Struct({
@@ -53,6 +91,7 @@ export const AppointmentManagement = Schema.Struct({
   appointments: Schema.Array(Appointment),
   accounts: Schema.Array(AccountAccess),
   history: Schema.Array(AppointmentHistory),
+  governance: Schema.NullOr(OrganizationGovernance),
 });
 
 export type AppointmentManagement = typeof AppointmentManagement.Type;
@@ -99,6 +138,19 @@ export const OrganizationLifecycleCommand = Schema.TaggedUnion({
     expectedRevision: Revision,
     disabled: Schema.Boolean,
   },
+  ClassifyTeam: {
+    ...command,
+    teamId: TeamId,
+    unitKind: UnitKind,
+    teamScope: TeamScope,
+    expectedRevision: Revision,
+  },
+  RecogniseDepartment: {
+    ...command,
+    departmentId: DepartmentId,
+    independent: Schema.Boolean,
+    expectedRevision: Revision,
+  },
 });
 
 export type OrganizationLifecycleCommand = typeof OrganizationLifecycleCommand.Type;
@@ -141,7 +193,13 @@ export const appointmentStateAt = (
 
 export type AppointmentCommand = Exclude<
   OrganizationLifecycleCommand,
-  { readonly _tag: "CreateNationalBoard" | "ChangeAccountAccess" }
+  {
+    readonly _tag:
+      | "CreateNationalBoard"
+      | "ChangeAccountAccess"
+      | "ClassifyTeam"
+      | "RecogniseDepartment";
+  }
 >;
 
 export class AppointmentTransitionFailure extends Schema.TaggedError<AppointmentTransitionFailure>()(
@@ -213,9 +271,60 @@ export const transitionAppointment = (
       );
     }),
     Result.flatMap((next) =>
-      (next.endAt !== null && compareRfc3339Instants(next.endAt, next.startAt) <= 0) ||
-      (next.target.kind === "NationalBoard" && next.leadership)
+      next.endAt !== null && compareRfc3339Instants(next.endAt, next.startAt) <= 0
         ? Result.fail(new AppointmentTransitionFailure({ code: "Invalid" }))
         : Result.succeed({ ...next, state: appointmentStateAt(next, now) }),
     ),
   );
+
+type ClassifyTeamCommand = Extract<OrganizationLifecycleCommand, { readonly _tag: "ClassifyTeam" }>;
+
+type RecogniseDepartmentCommand = Extract<
+  OrganizationLifecycleCommand,
+  { readonly _tag: "RecogniseDepartment" }
+>;
+
+/**
+ * A department has at most one board, a board works for its own department, and a repeated
+ * classification needs replay, not a new transition.
+ */
+export const transitionTeamClassification = (
+  current: TeamClassification,
+  command: ClassifyTeamCommand,
+  anotherBoardInDepartment: boolean,
+): Result.Result<TeamClassification, AppointmentTransitionFailure> => {
+  if (current.revision !== command.expectedRevision)
+    return Result.fail(new AppointmentTransitionFailure({ code: "Stale" }));
+
+  if (
+    (command.unitKind === "DepartmentBoard" &&
+      (command.teamScope === "National" || anotherBoardInDepartment)) ||
+    (command.unitKind === current.unitKind && command.teamScope === current.teamScope)
+  )
+    return Result.fail(new AppointmentTransitionFailure({ code: "Invalid" }));
+
+  return Result.succeed({
+    ...current,
+    unitKind: command.unitKind,
+    teamScope: command.teamScope,
+    revision: current.revision + 1,
+  });
+};
+
+/** Recognising or withdrawing independence; a repeated state needs replay. */
+export const transitionDepartmentRecognition = (
+  current: DepartmentRecognition,
+  command: RecogniseDepartmentCommand,
+): Result.Result<DepartmentRecognition, AppointmentTransitionFailure> => {
+  if (current.revision !== command.expectedRevision)
+    return Result.fail(new AppointmentTransitionFailure({ code: "Stale" }));
+
+  if (command.independent === current.independent)
+    return Result.fail(new AppointmentTransitionFailure({ code: "Invalid" }));
+
+  return Result.succeed({
+    ...current,
+    independent: command.independent,
+    revision: current.revision + 1,
+  });
+};

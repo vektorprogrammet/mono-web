@@ -2,7 +2,7 @@ import { Predicate, Effect, Schema } from "effect";
 import { Database } from "../service.js";
 import { listAdmissionPeriodsForManagement } from "../admission-period/postgres.js";
 import { Organization } from "@vektorprogrammet/domain/organization";
-import { mapOrganizationAuthorityToRecruitmentActor } from "@vektorprogrammet/domain/organization";
+import { mapOrganizationAuthorityToDepartmentActor } from "@vektorprogrammet/domain/organization";
 import type { PersonId } from "@vektorprogrammet/domain/organization";
 import { lockOnboardingApplicant } from "../onboarding/postgres.js";
 import { isKnownSelfInterview } from "@vektorprogrammet/domain/recruitment";
@@ -34,11 +34,16 @@ export const resolveInterviewReportLeader = (personId: PersonId, now: string) =>
     ];
 
     if (departments.length !== 1) return yield* new RecruitmentRoleDenied({ personId });
-    const decision = mapOrganizationAuthorityToRecruitmentActor(authority, departments[0]!);
+
+    const decision = mapOrganizationAuthorityToDepartmentActor(
+      authority,
+      "recruitment.interviews",
+      departments[0]!,
+    );
 
     if (
       Predicate.isTagged(decision, "Deny") ||
-      !Predicate.isTagged(decision.value, "DepartmentLeader") ||
+      !Predicate.isTagged(decision.value, "DepartmentAdministrator") ||
       !decision.value.active
     )
       return yield* new RecruitmentRoleDenied({ personId });

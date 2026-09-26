@@ -490,10 +490,12 @@ async function seedReferenceData(environment) {
         ('${fieldOfStudyId}', '${departmentId}', 'Matematikk', TRUE),
         ('${inactiveFieldOfStudyId}', '${departmentId}', 'Inaktiv linje', FALSE),
         ('${foreignFieldOfStudyId}', '${foreignDepartmentId}', 'Fysikk', TRUE);
-      INSERT INTO organization_departments (department_id, name, short_name, email, city)
-      VALUES ('${departmentId}', 'Trondheim', 'TRD', 'trondheim-0039@example.invalid', 'Trondheim');
-      INSERT INTO organization_teams (team_id, department_id, name)
-      VALUES ('team-trondheim-board-0039', '${departmentId}', 'Styret');
+      INSERT INTO organization_departments (department_id, name, short_name, email, city, independent)
+      VALUES ('${departmentId}', 'Trondheim', 'TRD', 'trondheim-0039@example.invalid', 'Trondheim', TRUE);
+      -- Styret is the department's board of an independent department, so its leader reaches
+      -- the department and creates its admission period (O8-11).
+      INSERT INTO organization_teams (team_id, department_id, name, kind)
+      VALUES ('team-trondheim-board-0039', '${departmentId}', 'Styret', 'DepartmentBoard');
       INSERT INTO organization_memberships (
         membership_id,
         person_id,

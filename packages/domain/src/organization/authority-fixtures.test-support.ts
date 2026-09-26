@@ -27,12 +27,21 @@ export interface Spec0055OrganizationAuthorityFixtures {
   readonly absent: OrganizationPersonAuthority;
 }
 
-/** Shared accepted/rejected fixtures from the frozen spec 0055 mapper truth table. */
+/**
+ * Shared accepted/rejected fixtures from the spec 0055 mapper truth table. The team is its
+ * independent department's board (Styret): only a board's leader reaches the department.
+ */
 export const spec0055OrganizationAuthorityFixtures = (
   ids: Spec0055OrganizationAuthorityFixtureIds,
 ): Spec0055OrganizationAuthorityFixtures => {
   const departmentId = DepartmentId.make(ids.departmentId);
   const teamId = TeamId.make(ids.teamId);
+
+  const board = {
+    unitKind: "DepartmentBoard",
+    teamScope: "HomeDepartment",
+    departmentIndependent: true,
+  } as const;
 
   return {
     administrator: {
@@ -40,6 +49,8 @@ export const spec0055OrganizationAuthorityFixtures = (
       evaluatedAt: ids.evaluatedAt,
       globalAdministrator: "Active",
       memberships: [],
+      nationalBoardSeats: [],
+      delegations: [],
     },
     leader: {
       personId: PersonId.make(ids.persons.leader),
@@ -51,9 +62,12 @@ export const spec0055OrganizationAuthorityFixtures = (
           teamId,
           departmentId,
           active: true,
-          teamLeader: true,
+          unitLeader: true,
+          ...board,
         },
       ],
+      nationalBoardSeats: [],
+      delegations: [],
     },
     inactiveLeader: {
       personId: PersonId.make(ids.persons.inactiveLeader),
@@ -65,9 +79,12 @@ export const spec0055OrganizationAuthorityFixtures = (
           teamId,
           departmentId,
           active: false,
-          teamLeader: true,
+          unitLeader: true,
+          ...board,
         },
       ],
+      nationalBoardSeats: [],
+      delegations: [],
     },
     member: {
       personId: PersonId.make(ids.persons.member),
@@ -79,15 +96,20 @@ export const spec0055OrganizationAuthorityFixtures = (
           teamId,
           departmentId,
           active: true,
-          teamLeader: false,
+          unitLeader: false,
+          ...board,
         },
       ],
+      nationalBoardSeats: [],
+      delegations: [],
     },
     absent: {
       personId: PersonId.make(ids.persons.absent),
       evaluatedAt: ids.evaluatedAt,
       globalAdministrator: "Absent",
       memberships: [],
+      nationalBoardSeats: [],
+      delegations: [],
     },
   };
 };

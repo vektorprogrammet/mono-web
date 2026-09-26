@@ -199,10 +199,10 @@ ${responseCases
   )
   .join(",\n")};
 INSERT INTO organization_departments (
-  department_id, name, short_name, email, city, active, revision
+  department_id, name, short_name, email, city, active, independent, revision
 ) VALUES (
   '${departmentId}', 'Vektorprogrammet Trondheim', 'Trondheim',
-  'trondheim@example.invalid', 'Trondheim', TRUE, 0
+  'trondheim@example.invalid', 'Trondheim', TRUE, TRUE, 0
 );
 INSERT INTO person_profiles (person_id, first_name, last_name, revision)
 VALUES
@@ -212,8 +212,10 @@ INSERT INTO person_contact_profiles (person_id, email, phone, revision)
 VALUES
   ('${leaderPersonId}', 'lina.lagleder@example.invalid', '+47 900 00 511', 0),
   ('${interviewerPersonId}', 'irene.intervjuer@example.invalid', '+47 900 00 512', 0);
-INSERT INTO organization_teams (team_id, department_id, name, active, revision)
-VALUES ('${recruitmentTeamId}', '${departmentId}', 'Rekruttering', TRUE, 0);
+-- The team is the department's board (Styret) of an independent department, so its leader
+-- reaches the department as DepartmentAdministrator (O8-11).
+INSERT INTO organization_teams (team_id, department_id, name, kind, active, revision)
+VALUES ('${recruitmentTeamId}', '${departmentId}', 'Rekruttering', 'DepartmentBoard', TRUE, 0);
 INSERT INTO organization_memberships (
   membership_id, person_id, team_id, deleted_team_name, start_at, end_at,
   position_id, is_team_leader, is_suspended, revision
@@ -1489,7 +1491,7 @@ function assertBrowserEvidence(browser) {
     { actor: "Applicant:requested-new-time", operation: "readInvitationResponse" },
     { actor: "Applicant:requested-new-time", operation: "requestNewInvitationTime" },
     { actor: "Applicant:requested-new-time", operation: "readInvitationResponse" },
-    { actor: "DepartmentLeader", operation: "readSchedulingBoard" },
+    { actor: "DepartmentAdministrator", operation: "readSchedulingBoard" },
     { actor: "Member", operation: "readSchedulingBoard" },
   ];
 
@@ -1568,17 +1570,17 @@ function assertBrowserEvidence(browser) {
     requested?.capabilityTokenMessage?.clientCommandBlocked !== true ||
     requested?.capabilityTokenMessage?.bridgeFetchAttempted !== false ||
     requested?.capabilityTokenMessage?.preservedState !== "Pending" ||
-    browser?.staffContexts?.observations?.DepartmentLeader?.freshReadStatus !== 200 ||
-    JSON.stringify(browser?.staffContexts?.observations?.DepartmentLeader?.sessionCookieNames) !==
+    browser?.staffContexts?.observations?.DepartmentAdministrator?.freshReadStatus !== 200 ||
+    JSON.stringify(browser?.staffContexts?.observations?.DepartmentAdministrator?.sessionCookieNames) !==
       JSON.stringify(["better-auth.session_token"]) ||
-    browser?.staffContexts?.observations?.DepartmentLeader?.nativeLogin !== true ||
+    browser?.staffContexts?.observations?.DepartmentAdministrator?.nativeLogin !== true ||
     JSON.stringify(browser?.staffContexts?.observations?.Member?.sessionCookieNames) !==
       JSON.stringify(["better-auth.session_token"]) ||
     browser?.staffContexts?.observations?.Member?.nativeLogin !== true ||
-    browser?.staffContexts?.observations?.DepartmentLeader?.acceptedVisible !== true ||
-    browser?.staffContexts?.observations?.DepartmentLeader?.requestedNewTimeVisible !== true ||
-    browser?.staffContexts?.observations?.DepartmentLeader?.responseMessagesProjected !== true ||
-    browser?.staffContexts?.observations?.DepartmentLeader?.rejectedVisible !== true ||
+    browser?.staffContexts?.observations?.DepartmentAdministrator?.acceptedVisible !== true ||
+    browser?.staffContexts?.observations?.DepartmentAdministrator?.requestedNewTimeVisible !== true ||
+    browser?.staffContexts?.observations?.DepartmentAdministrator?.responseMessagesProjected !== true ||
+    browser?.staffContexts?.observations?.DepartmentAdministrator?.rejectedVisible !== true ||
     browser?.staffContexts?.observations?.Member?.freshReadStatus !== 200 ||
     browser?.staffContexts?.observations?.Member?.acceptedVisible !== true ||
     browser?.staffContexts?.observations?.Member?.requestedNewTimeVisible !== true ||

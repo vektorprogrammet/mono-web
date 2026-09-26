@@ -80,13 +80,16 @@ const personId = PersonId.make("person");
 const membership = (
   team: string,
   active: boolean,
-  teamLeader: boolean,
+  unitLeader: boolean,
 ): OrganizationAuthorityMembership => ({
-  membershipId: MembershipId.make(`membership-${team}-${active}-${teamLeader}`),
+  membershipId: MembershipId.make(`membership-${team}-${active}-${unitLeader}`),
   teamId: TeamId.make(team),
   departmentId,
   active,
-  teamLeader,
+  unitLeader,
+  unitKind: "Team",
+  teamScope: "HomeDepartment",
+  departmentIndependent: false,
 });
 
 const actorFor = (
@@ -99,6 +102,8 @@ const actorFor = (
       evaluatedAt: "2031-09-15T12:00:00.000Z",
       globalAdministrator,
       memberships,
+      nationalBoardSeats: [],
+      delegations: [],
     },
     teamId,
   );

@@ -629,10 +629,10 @@ Transaction-scoped PostgreSQL advisory locks under registered keys.
   [packages/database/src/advisory-lock.ts:142](../packages/database/src/advisory-lock.ts#L142), 1 consumer:
   - [apps/backend/src/http-api/receipt-transaction.ts](../apps/backend/src/http-api/receipt-transaction.ts)
 - `lockOrganizationAdministratorSet`: Acquire before any person lock when changing the usable administrator set.
-  [packages/database/src/organization/authority-postgres.ts:90](../packages/database/src/organization/authority-postgres.ts#L90), 1 consumer:
+  [packages/database/src/organization/authority-postgres.ts:36](../packages/database/src/organization/authority-postgres.ts#L36), 1 consumer:
   - [packages/database/src/organization/lifecycle-postgres.ts](../packages/database/src/organization/lifecycle-postgres.ts)
 - `lockPersonAuthorization`: Serializes one person's protected command with person-keyed authority writers.
-  [packages/database/src/organization/authority-postgres.ts:98](../packages/database/src/organization/authority-postgres.ts#L98), 8 consumers:
+  [packages/database/src/organization/authority-postgres.ts:44](../packages/database/src/organization/authority-postgres.ts#L44), 8 consumers:
   - [packages/database/src/organization/lifecycle-postgres.ts](../packages/database/src/organization/lifecycle-postgres.ts)
   - [packages/database/src/organization/postgres.ts](../packages/database/src/organization/postgres.ts)
   - [packages/database/src/receipt/authority-postgres.ts](../packages/database/src/receipt/authority-postgres.ts)

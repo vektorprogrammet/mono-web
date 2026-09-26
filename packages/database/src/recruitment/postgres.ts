@@ -65,10 +65,13 @@ import {
 import { personProfileDisplayName } from "@vektorprogrammet/domain/profile";
 import type { RecruitmentFailure } from "@vektorprogrammet/domain/recruitment";
 
-type DepartmentLeaderActor = Extract<RecruitmentActor, { readonly _tag: "DepartmentLeader" }>;
+type DepartmentAdministratorActor = Extract<
+  RecruitmentActor,
+  { readonly _tag: "DepartmentAdministrator" }
+>;
 
 type AuthorizedRecruitmentAssignmentContext = Omit<RecruitmentAssignmentContext, "actor"> & {
-  readonly actor: DepartmentLeaderActor;
+  readonly actor: DepartmentAdministratorActor;
 };
 
 interface ApplicationBoardRow {
@@ -225,11 +228,11 @@ const checkContext = (
   actor: RecruitmentActor,
   now: string,
   interviewId?: RecruitmentInterviewId,
-): Effect.Effect<DepartmentLeaderActor, RecruitmentFailure> =>
+): Effect.Effect<DepartmentAdministratorActor, RecruitmentFailure> =>
   Effect.gen(function* () {
     if (!actor.active) return yield* new RecruitmentInactiveActor({ personId: actor.personId });
 
-    if (!Predicate.isTagged(actor, "DepartmentLeader")) {
+    if (!Predicate.isTagged(actor, "DepartmentAdministrator")) {
       return yield* new RecruitmentRoleDenied({ personId: actor.personId });
     }
 

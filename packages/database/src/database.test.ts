@@ -145,7 +145,7 @@ const seedSchedulingFixture = (fixtureId: string) =>
     const now = "2031-09-15T12:00:00.000Z";
 
     const actor = {
-      _tag: "DepartmentLeader" as const,
+      _tag: "DepartmentAdministrator" as const,
       personId: leaderPersonId,
       departmentId,
       active: true,
@@ -699,7 +699,7 @@ describe("DatabaseTest", () => {
         `;
 
         const actor = {
-          _tag: "DepartmentLeader" as const,
+          _tag: "DepartmentAdministrator" as const,
           personId: PersonId.make("recruitment-leader"),
           departmentId: DepartmentId.make("recruitment-department"),
           active: true,
@@ -4469,10 +4469,12 @@ describe("DatabaseTest", () => {
 
         const authorizedRows = yield* listOrganizationTeamInterestRegistrations({
           authorizedDepartmentIds: [departmentA, departmentB],
+          authorizedTeamIds: [],
         });
 
         const filteredRows = yield* listOrganizationTeamInterestRegistrations({
           authorizedDepartmentIds: [departmentA, departmentB],
+          authorizedTeamIds: [],
           departmentId: departmentB,
           semesterId: SemesterId.make("semester-scope"),
         });

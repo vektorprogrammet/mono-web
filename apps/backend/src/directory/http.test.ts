@@ -62,7 +62,8 @@ interface SeededMembership {
   readonly departmentId: DepartmentId;
   /** Membership interval covers the captured instant when true. */
   readonly active: boolean;
-  readonly teamLeader: boolean;
+  /** Leads the board of the (independent) department. */
+  readonly boardLeader: boolean;
 }
 
 interface SeededGrant {
@@ -223,12 +224,17 @@ const organization = {
       memberships: (membershipsByPerson.get("person-caller") ?? []).map((seed) => ({
         membershipId: MembershipId.make(`membership-${seed.departmentId}-${seed.personId}`),
         teamId: TeamId.make(
-          seed.teamLeader ? `team-leader-${seed.departmentId}` : `team-${seed.departmentId}`,
+          seed.boardLeader ? `styret-${seed.departmentId}` : `team-${seed.departmentId}`,
         ),
         departmentId: DepartmentId.make(seed.departmentId),
         active: seed.active,
-        teamLeader: seed.teamLeader,
+        unitLeader: seed.boardLeader,
+        unitKind: seed.boardLeader ? "DepartmentBoard" : "Team",
+        teamScope: "HomeDepartment",
+        departmentIndependent: true,
       })),
+      nationalBoardSeats: [],
+      delegations: [],
     });
   },
   deriveDirectoryFacts: (
@@ -291,7 +297,7 @@ const resetScenario = () => {
           personId: PersonId.make("person-leader-a"),
           departmentId: DepartmentId.make(departmentA),
           active: true,
-          teamLeader: true,
+          boardLeader: true,
         },
       ],
     ],
@@ -302,13 +308,13 @@ const resetScenario = () => {
           personId: PersonId.make("person-multi-department"),
           departmentId: DepartmentId.make(departmentA),
           active: true,
-          teamLeader: false,
+          boardLeader: false,
         },
         {
           personId: PersonId.make("person-multi-department"),
           departmentId: DepartmentId.make(departmentB),
           active: true,
-          teamLeader: false,
+          boardLeader: false,
         },
       ],
     ],
@@ -319,7 +325,7 @@ const resetScenario = () => {
           personId: PersonId.make("person-ended-membership"),
           departmentId: DepartmentId.make(departmentA),
           active: false,
-          teamLeader: false,
+          boardLeader: false,
         },
       ],
     ],
@@ -410,7 +416,7 @@ describe("GET /api/people (spec 0077.2)", () => {
         personId: PersonId.make("person-caller"),
         departmentId: DepartmentId.make(departmentA),
         active: true,
-        teamLeader: false,
+        boardLeader: false,
       },
     ]);
     const response = await request();
@@ -432,7 +438,7 @@ describe("GET /api/people (spec 0077.2)", () => {
         personId: PersonId.make("person-caller"),
         departmentId: DepartmentId.make(departmentA),
         active: false,
-        teamLeader: true,
+        boardLeader: true,
       },
     ]);
     const response = await request();
@@ -516,7 +522,7 @@ describe("GET /api/people (spec 0077.2)", () => {
         personId: PersonId.make("person-caller"),
         departmentId: DepartmentId.make(departmentB),
         active: true,
-        teamLeader: true,
+        boardLeader: true,
       },
     ]);
     const response = await request();
@@ -537,7 +543,7 @@ describe("GET /api/people (spec 0077.2)", () => {
         personId: PersonId.make("person-caller"),
         departmentId: DepartmentId.make("department-empty"),
         active: true,
-        teamLeader: true,
+        boardLeader: true,
       },
     ]);
     people = [];

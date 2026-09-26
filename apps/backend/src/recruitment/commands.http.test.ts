@@ -50,7 +50,7 @@ const finalizedInterview = Effect.gen(function* () {
   const sql = yield* Database;
   const recruitment = yield* Recruitment;
 
-  const leader = AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
+  const leader = AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
     personId: leaderPersonId,
     departmentId,
     active: true,

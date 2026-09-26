@@ -1,6 +1,7 @@
 import { DateTime, Effect, Predicate, Schema } from "effect";
 import { SqlSchema } from "effect/unstable/sql";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
+import { reachedDepartments, ReachedDepartments } from "@vektorprogrammet/domain/authz";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
   School,
@@ -13,7 +14,6 @@ import {
   SchoolAdministrationHistory,
   SchoolCommandFailure,
   SchoolsPersistenceError,
-  schoolManagementDepartments,
   canManageSchoolDepartments,
 } from "@vektorprogrammet/domain/schools";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
@@ -53,10 +53,9 @@ const authorityFor = Effect.fn("Schools.authority")(function* (
     lock ? "ForShare" : "None",
   );
 
-  if (
-    authority.globalAdministrator !== "Active" &&
-    schoolManagementDepartments(authority).length === 0
-  )
+  const reached = reachedDepartments(authority, "schools.administer");
+
+  if (ReachedDepartments.$is("Departments")(reached) && reached.departmentIds.length === 0)
     return yield* fail("Denied");
 
   return authority;
@@ -166,8 +165,9 @@ export const readSchoolManagement = (personId: PersonId) =>
       Effect.gen(function* () {
         yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`;
         const authority = yield* authorityFor(sql, personId, false);
-        const all = authority.globalAdministrator === "Active";
-        const scope = schoolManagementDepartments(authority);
+        const reached = reachedDepartments(authority, "schools.administer");
+        const all = ReachedDepartments.$is("All")(reached);
+        const scope = ReachedDepartments.$is("Departments")(reached) ? reached.departmentIds : [];
 
         const departments = yield* SqlSchema.findAll({
           Request: Schema.Void,

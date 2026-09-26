@@ -270,7 +270,7 @@ const seedCohort = (sql: DatabaseOperations) =>
   );
 
 const actor = {
-  _tag: "DepartmentLeader" as const,
+  _tag: "DepartmentAdministrator" as const,
   personId: PersonId.make(cohort.leaderPersonId),
   departmentId: DepartmentId.make(cohort.departmentId),
   active: true,

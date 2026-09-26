@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { reachedDepartments, ReachedDepartments } from "../authz/reach.js";
 import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
 import type { OrganizationPersonAuthority } from "../organization/authority.js";
 import { School, SchoolCapacityPlan, SchoolId, SchoolDirectoryDepartmentSchema } from "./schema.js";
@@ -123,25 +124,19 @@ export class SchoolCommandFailure extends Schema.TaggedError<SchoolCommandFailur
   },
 ) {}
 
-export const schoolManagementDepartments = (
-  authority: OrganizationPersonAuthority,
-): ReadonlyArray<DepartmentId> => [
-  ...new Set(
-    authority.memberships
-      .filter((membership) => membership.active && membership.teamLeader)
-      .map((membership) => membership.departmentId),
-  ),
-];
-
+/**
+ * An empty association set needs reach over the whole organization; otherwise every department
+ * of the set must be reached with `schools.administer`.
+ */
 export const canManageSchoolDepartments = (
   authority: OrganizationPersonAuthority,
   departments: ReadonlyArray<DepartmentId>,
-): boolean =>
-  authority.globalAdministrator === "Active" ||
-  (departments.length > 0 &&
-    departments.every((department) =>
-      authority.memberships.some(
-        (membership) =>
-          membership.active && membership.teamLeader && membership.departmentId === department,
-      ),
-    ));
+): boolean => {
+  const reached = reachedDepartments(authority, "schools.administer");
+
+  return (
+    ReachedDepartments.$is("All")(reached) ||
+    (departments.length > 0 &&
+      departments.every((department) => reached.departmentIds.includes(department)))
+  );
+};

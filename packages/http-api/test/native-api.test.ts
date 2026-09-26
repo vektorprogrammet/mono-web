@@ -507,7 +507,7 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     person(
       "reviewApplicants",
       "recruitment.application-assignments",
-      ["organization.single-department-leader"],
+      ["organization.single-department-administrator"],
       "SnapshotRead",
     ),
   ],
@@ -529,7 +529,7 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     person(
       "recruitment.read-interview-report",
       "recruitment.interview-report",
-      ["organization.single-department-leader"],
+      ["organization.single-department-administrator"],
       "SnapshotRead",
     ),
   ],
@@ -540,7 +540,7 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     person(
       "reviewApplicants",
       "recruitment.application-by-id",
-      ["organization.single-department-leader", "recruitment.interviewer-eligible"],
+      ["organization.single-department-administrator", "recruitment.interviewer-eligible"],
       "Transaction",
     ),
   ],
@@ -551,7 +551,7 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     person(
       "recruitment.schedule-interview",
       "recruitment.interview-by-id",
-      ["recruitment.assigned-interviewer-or-leader"],
+      ["recruitment.assigned-interviewer-or-administrator"],
       "Transaction",
     ),
   ],

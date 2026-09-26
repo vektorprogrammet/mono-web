@@ -277,7 +277,8 @@ export const InvitationResponseObservation =
 
 export const AssignmentBoard = RecruitmentAssignmentBoardSchema.annotate({
   identifier: "AssignmentBoard",
-  description: "Candidates and interviewers in the caller's leader scope.",
+  description:
+    "Candidates and interviewers in the departments where the caller manages interviews.",
   examples: [AssignmentBoardExample],
 });
 
@@ -399,7 +400,7 @@ export const ReadAssignmentBoardEndpoint = HttpApiEndpoint.get(
       personNativeAccess({
         capability: "reviewApplicants",
         canonicalScopeResolver: "recruitment.application-assignments",
-        requirements: ["organization.single-department-leader"],
+        requirements: ["organization.single-department-administrator"],
         decisionTime: "SnapshotRead",
       }),
     ),
@@ -407,7 +408,7 @@ export const ReadAssignmentBoardEndpoint = HttpApiEndpoint.get(
   .annotateMerge(
     operationAnnotations(
       "Read assignment board",
-      "Returns applicants and interviewers in leader scope.",
+      "Returns applicants and interviewers where the caller manages interviews.",
     ),
   );
 
@@ -428,7 +429,7 @@ export const ReadInterviewReportEndpoint = HttpApiEndpoint.get(
       personNativeAccess({
         capability: "recruitment.read-interview-report",
         canonicalScopeResolver: "recruitment.interview-report",
-        requirements: ["organization.single-department-leader"],
+        requirements: ["organization.single-department-administrator"],
         decisionTime: "SnapshotRead",
       }),
     ),
@@ -487,7 +488,10 @@ export const AssignApplicantEndpoint = HttpApiEndpoint.post(
       personNativeAccess({
         capability: "reviewApplicants",
         canonicalScopeResolver: "recruitment.application-by-id",
-        requirements: ["organization.single-department-leader", "recruitment.interviewer-eligible"],
+        requirements: [
+          "organization.single-department-administrator",
+          "recruitment.interviewer-eligible",
+        ],
         decisionTime: "Transaction",
       }),
     ),
@@ -515,7 +519,7 @@ export const ScheduleInterviewEndpoint = HttpApiEndpoint.post(
       personNativeAccess({
         capability: "recruitment.schedule-interview",
         canonicalScopeResolver: "recruitment.interview-by-id",
-        requirements: ["recruitment.assigned-interviewer-or-leader"],
+        requirements: ["recruitment.assigned-interviewer-or-administrator"],
         decisionTime: "Transaction",
       }),
     ),

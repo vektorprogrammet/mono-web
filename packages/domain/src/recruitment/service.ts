@@ -165,7 +165,7 @@ export interface RecruitmentOperations {
     personId: PersonId,
     now: string,
   ) => Effect.Effect<
-    Extract<RecruitmentActor, { readonly _tag: "DepartmentLeader" }>,
+    Extract<RecruitmentActor, { readonly _tag: "DepartmentAdministrator" }>,
     RecruitmentFailure
   >;
   readonly readCompletedInterviewReport: (

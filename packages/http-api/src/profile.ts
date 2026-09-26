@@ -3,7 +3,7 @@
  *
  * @since 0.1.0
  */
-import { PersonId } from "@vektorprogrammet/domain/organization";
+import { PersonId, ProfileRoleSchema } from "@vektorprogrammet/domain/organization";
 import { OwnProfile } from "@vektorprogrammet/domain/profile";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
@@ -23,16 +23,13 @@ import { operationAnnotations, PersonSecurity } from "./common.js";
 import { ProfileMergePatch } from "./v2-schemas.js";
 
 /**
- * Legacy-compatible dashboard role projection.
+ * Dashboard role projection for navigation. A department administrator holds a capability beyond
+ * one team through a board leadership or a delegation; a team leader acts within the team.
  *
  * @since 0.1.0
  * @category Schemas
  */
-export const UserRoleSchema = Schema.Literals([
-  "ROLE_ADMIN",
-  "ROLE_TEAM_LEADER",
-  "ROLE_TEAM_MEMBER",
-]);
+export const UserRoleSchema = ProfileRoleSchema;
 
 /**
  * Strict self-profile response exposed to the dashboard.

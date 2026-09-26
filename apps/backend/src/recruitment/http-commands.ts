@@ -325,8 +325,8 @@ export const createApplicationInterview = <R>(
                   applicationId,
                   departmentId: access.departmentId,
                   facts: {
-                    departmentLeaderPersonIds:
-                      Predicate.isTagged(actor, "DepartmentLeader") && actor.active
+                    departmentAdministratorPersonIds:
+                      Predicate.isTagged(actor, "DepartmentAdministrator") && actor.active
                         ? [actor.personId]
                         : [],
                     eligibleInterviewerPersonIds: access.interviewerEligible

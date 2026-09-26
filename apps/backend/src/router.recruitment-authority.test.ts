@@ -65,27 +65,28 @@ const database = backendDatabase();
 interface AuthorityMembershipRow {
   readonly departmentId: string;
   readonly active: boolean;
-  readonly teamLeader: boolean;
+  /** Leads the board of the (independent) department; an ordinary team leader has no reach. */
+  readonly boardLeader: boolean;
 }
 
 /** One authority projection per session token, selected by the cookie value. */
 const membershipsByToken = new Map<string, ReadonlyArray<AuthorityMembershipRow>>([
   [
     leaderToken,
-    [{ departmentId: DepartmentId.make("department-1"), active: true, teamLeader: true }],
+    [{ departmentId: DepartmentId.make("department-1"), active: true, boardLeader: true }],
   ],
   [
     memberToken,
-    [{ departmentId: DepartmentId.make("department-1"), active: true, teamLeader: false }],
+    [{ departmentId: DepartmentId.make("department-1"), active: true, boardLeader: false }],
   ],
   [
     inactiveToken,
-    [{ departmentId: DepartmentId.make("department-1"), active: false, teamLeader: false }],
+    [{ departmentId: DepartmentId.make("department-1"), active: false, boardLeader: false }],
   ],
   [unassignedToken, []],
   [
     formerAdministratorToken,
-    [{ departmentId: DepartmentId.make("department-1"), active: true, teamLeader: true }],
+    [{ departmentId: DepartmentId.make("department-1"), active: true, boardLeader: true }],
   ],
 ]);
 
@@ -119,8 +120,13 @@ const organization = {
         teamId: TeamId.make(`team-${index}`),
         departmentId: DepartmentId.make(membership.departmentId),
         active: membership.active,
-        teamLeader: membership.teamLeader,
+        unitLeader: membership.boardLeader,
+        unitKind: membership.boardLeader ? "DepartmentBoard" : "Team",
+        teamScope: "HomeDepartment",
+        departmentIndependent: true,
       })),
+      nationalBoardSeats: [],
+      delegations: [],
     });
   },
 } satisfies Partial<OrganizationOperations>;
@@ -152,7 +158,7 @@ const schedulingBoard = {
   interviews: [],
 };
 
-// Models the frozen domain laws: assignment reads require an active DepartmentLeader;
+// Models the frozen domain laws: assignment reads require an active DepartmentAdministrator;
 // scheduling reads require an active department member.
 const recruitment = {
   readPersonAuthoritySources: () => Effect.succeed([]),
@@ -160,7 +166,7 @@ const recruitment = {
     query: RecruitmentAssignmentBoardQuery,
     context: { readonly actor: RecruitmentActor },
   ) =>
-    context.actor.active && Predicate.isTagged(context.actor, "DepartmentLeader")
+    context.actor.active && Predicate.isTagged(context.actor, "DepartmentAdministrator")
       ? Effect.sync(() => {
           recruitmentCalls.push({ operation: "readAssignmentBoard", actor: context.actor });
           void query;
@@ -259,7 +265,7 @@ describe("recruitment actors from authorized departments (spec 0055)", () => {
     recruitmentCalls.length = 0;
   });
 
-  it("allows a DepartmentLeader to read the canonical assignment board once", async () => {
+  it("allows a DepartmentAdministrator to read the canonical assignment board once", async () => {
     const response = await request(
       "/api/recruitment/application-assignments?status=new",
       leaderToken,
@@ -271,7 +277,7 @@ describe("recruitment actors from authorized departments (spec 0055)", () => {
       {
         operation: "readAssignmentBoard",
         actor: expect.objectContaining(
-          AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
+          AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
             personId: PersonId.make("leader-1"),
             departmentId: DepartmentId.make("department-1"),
             active: true,
@@ -359,7 +365,7 @@ describe("recruitment actors from authorized departments (spec 0055)", () => {
       {
         operation: "listAdmissionPeriodsForManagement",
         actor: expect.objectContaining(
-          AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
+          AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
             personId: PersonId.make("leader-1"),
             departmentId: DepartmentId.make("department-1"),
             active: true,
@@ -379,7 +385,7 @@ describe("recruitment actors from authorized departments (spec 0055)", () => {
     ];
 
     const leader = expect.objectContaining(
-      AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
+      AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
         personId: PersonId.make("former-administrator-1"),
         departmentId: DepartmentId.make("department-1"),
         active: true,

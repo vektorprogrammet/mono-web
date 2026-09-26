@@ -31,7 +31,7 @@ const OrganizationToken = Schema.String.pipe(
 
 const AdmissionActorSchema = Schema.Union([
   Schema.Struct({
-    _tag: Schema.Literals(["DepartmentLeader"]),
+    _tag: Schema.Literals(["DepartmentAdministrator"]),
     personId: PersonId,
     departmentId: DepartmentId,
     active: Schema.Boolean,
@@ -149,7 +149,7 @@ type AdmissionActor = typeof AdmissionActorSchema.Type;
 interface AdmissionDepartmentFact {
   readonly personId: string;
   readonly departmentId: string;
-  readonly role: "DepartmentLeader" | "Member";
+  readonly role: "DepartmentAdministrator" | "Member";
   readonly active: boolean;
 }
 
@@ -224,7 +224,7 @@ interface MembershipEvidenceRow {
   readonly teamId: string;
   readonly departmentId: string;
   readonly active: boolean;
-  readonly teamLeader: boolean;
+  readonly boardLeader: boolean;
 }
 
 interface ExistsRow {
@@ -623,7 +623,11 @@ const readMembershipEvidence = (sql: DatabaseOperations, personId: string, evalu
         AND team.active
         AND department.active
       ) AS "active",
-      membership.is_team_leader AS "teamLeader"
+      (
+        membership.is_team_leader
+        AND team.kind = 'DepartmentBoard'
+        AND department.independent
+      ) AS "boardLeader"
     FROM organization_memberships AS membership
     INNER JOIN organization_teams AS team ON team.team_id = membership.team_id
     INNER JOIN organization_departments AS department
@@ -654,13 +658,14 @@ const readAdministratorStatus = (sql: DatabaseOperations, personId: string, eval
   );
 
 const expectedAdmissionDepartmentActor = (rows: ReadonlyArray<MembershipEvidenceRow>) => {
-  const activeLeader = rows.some((row) => row.active && row.teamLeader);
+  const activeLeader = rows.some((row) => row.active && row.boardLeader);
 
-  if (activeLeader) return { role: "DepartmentLeader", active: true };
+  if (activeLeader) return { role: "DepartmentAdministrator", active: true };
   const activeMembership = rows.some((row) => row.active);
-  const inactiveLeader = rows.some((row) => !row.active && row.teamLeader);
+  const inactiveLeader = rows.some((row) => !row.active && row.boardLeader);
 
-  if (!activeMembership && inactiveLeader) return { role: "DepartmentLeader", active: false };
+  if (!activeMembership && inactiveLeader)
+    return { role: "DepartmentAdministrator", active: false };
 
   return { role: "Member", active: activeMembership };
 };

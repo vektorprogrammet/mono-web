@@ -65,14 +65,15 @@ beforeAll(
         (${administratorId}, 'Ada', 'Administrator'), ('another-editor', 'Another', 'Editor')
     `;
         yield* sql`
-      INSERT INTO organization_departments (department_id, name, short_name, email, city)
-      VALUES (${ownDepartmentId}, 'Own Department', 'OWN', 'own@example.invalid', 'Oslo'),
-        (${outsideDepartmentId}, 'Outside Department', 'OUT', 'outside@example.invalid', 'Bergen')
+      INSERT INTO organization_departments (department_id, name, short_name, email, city, independent)
+      VALUES (${ownDepartmentId}, 'Own Department', 'OWN', 'own@example.invalid', 'Oslo', TRUE),
+        (${outsideDepartmentId}, 'Outside Department', 'OUT', 'outside@example.invalid', 'Bergen', TRUE)
     `;
+        // The own team is its department's board: its leader publishes in the department.
         yield* sql`
-      INSERT INTO organization_teams (team_id, department_id, name)
-      VALUES ('workspace-team', ${ownDepartmentId}, 'Own Team'),
-        ('outside-team', ${outsideDepartmentId}, 'Outside Team')
+      INSERT INTO organization_teams (team_id, department_id, name, kind)
+      VALUES ('workspace-team', ${ownDepartmentId}, 'Own Board', 'DepartmentBoard'),
+        ('outside-team', ${outsideDepartmentId}, 'Outside Team', 'Team')
     `;
         yield* sql`
       INSERT INTO organization_memberships (membership_id, person_id, team_id, start_at)

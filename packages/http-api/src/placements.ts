@@ -174,7 +174,7 @@ export const ReadPlacementBoardEndpoint = HttpApiEndpoint.get("readBoard", "/api
   .annotateMerge(
     operationAnnotations(
       "Read placement board",
-      "Only active department leaders or global administrators.",
+      "Only holders of placement coordination in the department (a board leadership or a delegation) or global administrators.",
     ),
   );
 

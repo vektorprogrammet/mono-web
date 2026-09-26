@@ -35,7 +35,11 @@ import {
   type DatabaseOperations,
   databaseHealth,
 } from "@vektorprogrammet/database";
-import { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
+import {
+  reachedDepartments,
+  ReachedDepartments,
+  ServicePrincipalGrantAuthority,
+} from "@vektorprogrammet/domain/authz";
 import {
   canonicalJson,
   canonicalJsonBytes,
@@ -2228,12 +2232,13 @@ const runRehearsal = async (
     assert.equal(memberAuthority.evaluatedAt, SPEC_0067.authorizationInstant);
     assert.deepEqual(
       memberAuthority.memberships.map(
-        ({ membershipId, teamId, departmentId, active, teamLeader }) => ({
+        ({ membershipId, teamId, departmentId, active, unitLeader, unitKind }) => ({
           membershipId,
           teamId,
           departmentId,
           active,
-          teamLeader,
+          unitLeader,
+          unitKind,
         }),
       ),
       [
@@ -2242,9 +2247,15 @@ const runRehearsal = async (
           teamId: "6711",
           departmentId: "6701",
           active: true,
-          teamLeader: true,
+          unitLeader: true,
+          unitKind: "Team",
         },
       ],
+    );
+    // Import classifies no team: an imported leader reaches no department until review (O8-11).
+    assert.deepEqual(
+      reachedDepartments(memberAuthority, "admissions.periods"),
+      ReachedDepartments.Departments({ departmentIds: [] }),
     );
     artifactCore.personAuthority = {
       status: "Observed",

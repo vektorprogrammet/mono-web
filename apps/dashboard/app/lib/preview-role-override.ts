@@ -1,5 +1,6 @@
 import { Schema as S } from "effect";
 import { Option } from "effect";
+import type { UserRoleSchema } from "@vektorprogrammet/http-api";
 
 /**
  * Client-side role override for preview/devtools ONLY.
@@ -13,7 +14,12 @@ import { Option } from "effect";
 
 export const PREVIEW_ROLE_STORAGE_KEY = "vektor-preview-role-override";
 
-export const PREVIEW_ROLES = ["ROLE_TEAM_MEMBER", "ROLE_TEAM_LEADER", "ROLE_ADMIN"] as const;
+export const PREVIEW_ROLES = [
+  "ROLE_TEAM_MEMBER",
+  "ROLE_TEAM_LEADER",
+  "ROLE_DEPARTMENT_ADMINISTRATOR",
+  "ROLE_ADMIN",
+] as const satisfies ReadonlyArray<typeof UserRoleSchema.Type>;
 
 const RoleOverrideSchema = S.NullOr(S.Literals(PREVIEW_ROLES));
 
@@ -69,5 +75,5 @@ export const applyRoleOverrideToInput = (
  * groups are DRAWN without touching any server-authorized value.
  */
 export const roleToRenderFlags = (role: PreviewRole | null) => ({
-  isAdmin: role === "ROLE_ADMIN" || role === "ROLE_TEAM_LEADER",
+  isAdmin: role === "ROLE_ADMIN" || role === "ROLE_DEPARTMENT_ADMINISTRATOR",
 });

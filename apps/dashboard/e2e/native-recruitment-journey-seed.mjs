@@ -1,15 +1,16 @@
 /**
  * Recruitment journey seed support (spec 0049 on the native Identity stack).
  *
- * Provisions the 0049 team-leader journey personas against a DISPOSABLE
- * loopback PostgreSQL cluster and asserts they satisfy the frozen spec:
+ * Provisions the 0049 department-administrator journey personas against a
+ * DISPOSABLE loopback PostgreSQL cluster and asserts they satisfy the frozen spec:
  *
- * - one team-leader person (identity:seed) with an ACTIVE Organization
- *   membership (is_team_leader, not suspended) in a department that owns an
- *   OPEN admission period with one unassigned applicant application;
+ * - one leader person (identity:seed) with an ACTIVE Organization membership
+ *   (is_team_leader, not suspended) on the board (Styret) of an independent
+ *   department that owns an OPEN admission period with one unassigned
+ *   applicant application;
  * - two interviewer persons (identity:seed) with active memberships in a
  *   live team of the same department;
- * - person_contact_profiles rows so ROLE_TEAM_LEADER /api/me resolves;
+ * - person_contact_profiles rows so ROLE_DEPARTMENT_ADMINISTRATOR /api/me resolves;
  * - one active interview schema owned by Recruitment.
  *
  * Login-capable persons are created through the existing identity:seed
@@ -168,19 +169,20 @@ VALUES (
 ON CONFLICT (application_id) DO NOTHING;
 
 -- Organization authority: department, live team, active memberships.
--- The leader membership carries is_team_leader and NOT suspended so the
--- frozen 0055 mapper yields DepartmentLeader for the department scope.
+-- The team is the department's board (Styret) of an independent department, so
+-- its leader reaches the department (O8-11) and the mapper yields
+-- DepartmentAdministrator for the department scope.
 INSERT INTO organization_departments (
-  department_id, name, short_name, email, city, active, revision
+  department_id, name, short_name, email, city, active, independent, revision
 )
 VALUES (
   '${departmentId}', 'Vektorprogrammet Trondheim', 'Trondheim',
-  'trondheim@example.invalid', 'Trondheim', TRUE, 0
+  'trondheim@example.invalid', 'Trondheim', TRUE, TRUE, 0
 )
 ON CONFLICT (department_id) DO NOTHING;
 
-INSERT INTO organization_teams (team_id, department_id, name, active, revision)
-VALUES ('${recruitmentTeamId}', '${departmentId}', 'Rekruttering', TRUE, 0)
+INSERT INTO organization_teams (team_id, department_id, name, kind, active, revision)
+VALUES ('${recruitmentTeamId}', '${departmentId}', 'Rekruttering', 'DepartmentBoard', TRUE, 0)
 ON CONFLICT (team_id) DO NOTHING;
 
 INSERT INTO person_profiles (person_id, first_name, last_name, revision)
@@ -272,7 +274,7 @@ async function main() {
       SELECT
         (SELECT count(*) FROM admission_applications WHERE application_id = '${applicationId}') AS applications,
         (SELECT count(*) FROM admission_periods p WHERE p.admission_period_id = '${admissionPeriodId}' AND p.start_at <= '${journeyInstant}'::timestamptz AND '${journeyInstant}'::timestamptz < p.end_at) AS open_periods,
-        (SELECT count(*) FROM organization_memberships m WHERE m.is_team_leader AND NOT m.is_suspended AND m.person_id = '${journeyPersons.leader.personId}') AS leader_memberships,
+        (SELECT count(*) FROM organization_memberships m JOIN organization_teams t USING (team_id) JOIN organization_departments d USING (department_id) WHERE m.is_team_leader AND NOT m.is_suspended AND t.kind = 'DepartmentBoard' AND d.independent AND m.person_id = '${journeyPersons.leader.personId}') AS leader_memberships,
         (SELECT count(*) FROM organization_memberships m WHERE m.team_id = '${recruitmentTeamId}' AND NOT m.is_suspended AND m.is_team_leader = FALSE) AS interviewer_memberships,
         (SELECT count(*) FROM recruitment_interview_schemas s WHERE s.interview_schema_id = '${interviewSchemaId}' AND s.active) AS schemas,
         (SELECT count(*) FROM person_contact_profiles c WHERE c.person_id IN ('${journeyPersons.leader.personId}', '${journeyPersons.interviewerA.personId}', '${journeyPersons.interviewerB.personId}')) AS contacts,
@@ -282,7 +284,10 @@ async function main() {
     const counts = checks.rows[0];
     assert(Number(counts.applications) === 1, "exactly one applicant application");
     assert(Number(counts.open_periods) === 1, `admission period open at ${journeyInstant}`);
-    assert(Number(counts.leader_memberships) >= 1, "active team-leader membership");
+    assert(
+      Number(counts.leader_memberships) >= 1,
+      "active board leadership of an independent department",
+    );
     assert(Number(counts.interviewer_memberships) === 2, "two active interviewer memberships");
     assert(Number(counts.schemas) === 1, "one active interview schema");
     assert(Number(counts.contacts) === 3, "three contact profiles");

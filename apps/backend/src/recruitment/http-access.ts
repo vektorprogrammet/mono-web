@@ -179,9 +179,9 @@ export const recruitmentInterviewAccessContext = (
         : [source.interviewerPersonId, source.coInterviewerPersonId]
       : [],
     linkedApplicantPersonId: source.linkedApplicantPersonId,
-    departmentLeaderPersonIds:
+    departmentAdministratorPersonIds:
       allowLeader &&
-      Predicate.isTagged(actor, "DepartmentLeader") &&
+      Predicate.isTagged(actor, "DepartmentAdministrator") &&
       actor.departmentId === source.departmentId
         ? [actor.personId]
         : [],

@@ -1,14 +1,27 @@
 import { flow, Predicate, DateTime, Effect, Schema } from "effect";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
+  reaches,
+  reachScopes,
+  ReachScope,
+  ReachTarget,
+  scopeCovers,
+} from "@vektorprogrammet/domain/authz";
+import {
   Appointment,
   AppointmentManagement,
+  DepartmentId,
+  DepartmentRecognition,
   OrganizationLifecycleCommand,
   OrganizationLifecycleFailure,
   transitionAppointment,
+  transitionDepartmentRecognition,
+  transitionTeamClassification,
   appointmentStateAt,
   OrganizationLifecycleResult,
   PersonId,
+  TeamClassification,
+  TeamId,
   type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
@@ -30,12 +43,6 @@ const decode = <S extends Schema.Top>(schema: S) =>
     Effect.mapError(() => fail("Invalid")),
   );
 
-const scopes = (authority: OrganizationPersonAuthority) => [
-  ...new Set(
-    authority.memberships.filter((m) => m.active && m.teamLeader).map((m) => m.departmentId),
-  ),
-];
-
 const authorityFor = Effect.fn("organization.lifecycleAuthority")(function* (
   sql: DatabaseOperations,
   personId: PersonId,
@@ -50,25 +57,37 @@ const authorityFor = Effect.fn("organization.lifecycleAuthority")(function* (
     "ForShare",
   );
 
-  if (authority.globalAdministrator !== "Active" && scopes(authority).length === 0)
-    return yield* fail("Denied");
+  if (reachScopes(authority, "appointments.manage").length === 0) return yield* fail("Denied");
 
   return authority;
 });
 
-const unitsFor = (sql: DatabaseOperations) => sql<{
-  kind: "Team" | "NationalBoard";
-  id: string;
-  name: string;
-  departmentId: string | null;
-}>`
+interface Unit {
+  readonly kind: "Team" | "NationalBoard";
+  readonly id: string;
+  readonly name: string;
+  readonly departmentId: string | null;
+}
+
+const unitsFor = (sql: DatabaseOperations) => sql<Unit>`
   SELECT 'Team'::text AS kind, t.team_id AS id, t.name, t.department_id AS "departmentId"
   FROM organization_teams t JOIN organization_departments d ON d.department_id=t.department_id WHERE t.active AND d.active
   UNION ALL SELECT 'NationalBoard', board_id, name, NULL FROM organization_national_boards ORDER BY name,id`;
 
-const allowedUnit = (authority: OrganizationPersonAuthority, departmentId: string | null) =>
-  authority.globalAdministrator === "Active" ||
-  (departmentId !== null && scopes(authority).some((id) => id === departmentId));
+/** A team or department board sits inside its home department; the national board nowhere. */
+const unitTarget = (unit: Pick<Unit, "kind" | "id" | "departmentId">): ReachTarget =>
+  unit.kind === "Team" && unit.departmentId !== null
+    ? ReachTarget.Team({
+        teamId: TeamId.make(unit.id),
+        departmentId: DepartmentId.make(unit.departmentId),
+      })
+    : ReachTarget.NationalBoard();
+
+const allowedUnit = (authority: OrganizationPersonAuthority, unit: Unit) =>
+  reaches(authority, "appointments.manage", unitTarget(unit));
+
+const governs = (authority: OrganizationPersonAuthority) =>
+  reaches(authority, "organization.govern", ReachTarget.Organization());
 
 const appointmentsFor = (sql: DatabaseOperations, now: string) =>
   sql<Omit<Appointment, "state">>`SELECT
@@ -82,18 +101,53 @@ const appointmentsFor = (sql: DatabaseOperations, now: string) =>
     Effect.map((rows) => rows.map((row) => ({ ...row, state: appointmentStateAt(row, now) }))),
   );
 
-const canonicalPeople = (sql: DatabaseOperations, authority: OrganizationPersonAuthority) => {
-  const scope = scopes(authority);
+/**
+ * The people a manager can appoint: everyone for a manager whose reach includes the whole
+ * organization; otherwise the people with a membership in a team of a department where the
+ * manager holds `appointments.manage`, including a team leader's home department.
+ */
+const canonicalPeople = (
+  sql: DatabaseOperations,
+  authority: OrganizationPersonAuthority,
+  units: ReadonlyArray<Unit>,
+) => {
+  const scopes = reachScopes(authority, "appointments.manage");
+  const everyone = scopes.some(ReachScope.$is("Organization"));
+
+  const departments = [
+    ...new Set(
+      units.flatMap((unit) =>
+        unit.departmentId !== null && scopes.some((scope) => scopeCovers(scope, unitTarget(unit)))
+          ? [unit.departmentId]
+          : [],
+      ),
+    ),
+  ];
 
   return sql<{
     personId: PersonId;
     name: string;
   }>`SELECT p.person_id AS "personId", p.first_name || ' ' || p.last_name AS name
-    FROM person_profiles p WHERE ${authority.globalAdministrator === "Active"} OR EXISTS(
+    FROM person_profiles p WHERE ${everyone} OR EXISTS(
       SELECT 1 FROM organization_memberships m JOIN organization_teams t ON t.team_id=m.team_id
-      WHERE m.person_id=p.person_id AND ${sql.in("t.department_id", scope)}
+      WHERE m.person_id=p.person_id AND ${sql.in("t.department_id", departments)}
     ) ORDER BY p.first_name,p.last_name,p.person_id`;
 };
+
+const governanceFor = (sql: DatabaseOperations) =>
+  Effect.gen(function* () {
+    const teams =
+      yield* sql`SELECT t.team_id AS "teamId", t.kind AS "unitKind", t.team_scope AS "teamScope",
+      t.revision, t.name, t.department_id AS "departmentId"
+      FROM organization_teams t JOIN organization_departments d ON d.department_id=t.department_id
+      WHERE t.active AND d.active ORDER BY t.department_id, t.name, t.team_id`;
+
+    const departments =
+      yield* sql`SELECT department_id AS "departmentId", independent, revision, name
+      FROM organization_departments WHERE active ORDER BY name, department_id`;
+
+    return { teams, departments };
+  });
 
 const failure = (cause: unknown) =>
   cause instanceof OrganizationLifecycleFailure
@@ -111,10 +165,8 @@ export const readAppointmentManagement = Effect.fn("readAppointmentManagement")(
         yield* lockPersonAuthorization(sql, actorPersonId);
         const now = DateTime.formatIso(yield* DateTime.now);
         const authority = yield* authorityFor(sql, actorPersonId, now);
-
-        const units = (yield* unitsFor(sql)).filter((unit) =>
-          allowedUnit(authority, unit.departmentId),
-        );
+        const allUnits = yield* unitsFor(sql);
+        const units = allUnits.filter((unit) => allowedUnit(authority, unit));
 
         const visible = (target: Appointment["target"]) =>
           units.some((unit) => unit.kind === target.kind && unit.id === target.id);
@@ -133,9 +185,11 @@ export const readAppointmentManagement = Effect.fn("readAppointmentManagement")(
             ? yield* sql`SELECT id AS "personId",access_disabled AS disabled,access_revision AS revision FROM auth."user" ORDER BY id`
             : [];
 
+        const governor = governs(authority);
+
         return yield* decode(AppointmentManagement)({
           globalAdministrator: authority.globalAdministrator === "Active",
-          people: yield* canonicalPeople(sql, authority),
+          people: yield* canonicalPeople(sql, authority, allUnits),
           units: units.map(({ kind, id, ...unit }) => ({ ...unit, target: { kind, id } })),
           appointments,
           accounts,
@@ -143,14 +197,90 @@ export const readAppointmentManagement = Effect.fn("readAppointmentManagement")(
             .filter(
               (row) =>
                 authority.globalAdministrator === "Active" ||
+                (governor && row.targetKind === "Department") ||
                 units.some((unit) => unit.kind === row.targetKind && unit.id === row.targetId),
             )
             .map(({ targetKind: _kind, targetId: _id, ...row }) => row),
+          governance: governor ? yield* governanceFor(sql) : null,
         });
       }),
     )
     .pipe(Effect.mapError(failure));
 });
+
+/** The facts that the lifecycle history records before and after a command. */
+type HistoryFact = Appointment | AccountAccess | TeamClassification | DepartmentRecognition;
+
+type GovernanceCommand = Extract<
+  OrganizationLifecycleCommand,
+  { readonly _tag: "ClassifyTeam" | "RecogniseDepartment" }
+>;
+
+/** Reclassifies a team or changes a department's independence under its row lock. */
+const executeGovernance = (sql: DatabaseOperations, command: GovernanceCommand) =>
+  Effect.gen(function* () {
+    if (Predicate.isTagged(command, "ClassifyTeam")) {
+      const current = (yield* sql<{
+        readonly teamId: string;
+        readonly unitKind: string;
+        readonly teamScope: string;
+        readonly revision: number;
+        readonly departmentId: string;
+      }>`SELECT team_id AS "teamId", kind AS "unitKind", team_scope AS "teamScope", revision,
+        department_id AS "departmentId"
+        FROM organization_teams WHERE team_id=${command.teamId} FOR UPDATE`)[0];
+
+      if (current === undefined) return yield* fail("NotFound");
+
+      const { departmentId, ...classification } = current;
+      const before = yield* decode(TeamClassification)(classification);
+
+      const otherBoards =
+        yield* sql`SELECT team_id FROM organization_teams WHERE department_id=${departmentId}
+          AND kind='DepartmentBoard' AND team_id<>${command.teamId} FOR SHARE`;
+
+      const after = yield* Effect.fromResult(
+        transitionTeamClassification(before, command, otherBoards.length > 0),
+      ).pipe(Effect.mapError((error) => fail(error.code)));
+
+      const changed =
+        yield* sql`UPDATE organization_teams SET kind=${after.unitKind}, team_scope=${after.teamScope},
+        revision=revision+1 WHERE team_id=${command.teamId} AND revision=${before.revision} RETURNING team_id`;
+
+      if (changed.length !== 1) return yield* fail("Stale");
+
+      return {
+        target: { kind: "Team", id: command.teamId },
+        subjectId: command.teamId,
+        before,
+        after,
+      };
+    }
+
+    const current = (yield* sql`SELECT department_id AS "departmentId", independent, revision
+      FROM organization_departments WHERE department_id=${command.departmentId} FOR UPDATE`)[0];
+
+    if (current === undefined) return yield* fail("NotFound");
+
+    const before = yield* decode(DepartmentRecognition)(current);
+
+    const after = yield* Effect.fromResult(transitionDepartmentRecognition(before, command)).pipe(
+      Effect.mapError((error) => fail(error.code)),
+    );
+
+    const changed = yield* sql`UPDATE organization_departments SET independent=${after.independent},
+      revision=revision+1 WHERE department_id=${command.departmentId} AND revision=${before.revision}
+      RETURNING department_id`;
+
+    if (changed.length !== 1) return yield* fail("Stale");
+
+    return {
+      target: { kind: "Department", id: command.departmentId },
+      subjectId: command.departmentId,
+      before,
+      after,
+    };
+  });
 
 /** Both direct service callers and HTTP replays pass through current authority first. */
 export const executeOrganizationLifecycle = Effect.fn("executeOrganizationLifecycle")(function* (
@@ -192,20 +322,24 @@ export const executeOrganizationLifecycle = Effect.fn("executeOrganizationLifecy
         if ("appointmentId" in command && (!current || current.personId !== observed?.personId))
           return yield* fail("NotFound");
         const target = Predicate.isTagged(command, "Appoint") ? command.target : current?.target;
+        const units = yield* unitsFor(sql);
 
         if (target) {
-          const unit = (yield* unitsFor(sql)).find(
-            (unit) => unit.kind === target.kind && unit.id === target.id,
-          );
+          const unit = units.find((unit) => unit.kind === target.kind && unit.id === target.id);
 
           if (!unit) return yield* fail("NotFound");
 
-          if (!allowedUnit(authority, unit.departmentId)) return yield* fail("Denied");
+          if (!allowedUnit(authority, unit)) return yield* fail("Denied");
+        } else if (
+          Predicate.isTagged(command, "ClassifyTeam") ||
+          Predicate.isTagged(command, "RecogniseDepartment")
+        ) {
+          if (!governs(authority)) return yield* fail("Denied");
         } else if (authority.globalAdministrator !== "Active") return yield* fail("Denied");
 
         if (
           Predicate.isTagged(command, "Appoint") &&
-          !(yield* canonicalPeople(sql, authority)).some(
+          !(yield* canonicalPeople(sql, authority, units)).some(
             (person) => person.personId === command.personId,
           )
         )
@@ -223,8 +357,9 @@ export const executeOrganizationLifecycle = Effect.fn("executeOrganizationLifecy
           return yield* decode(OrganizationLifecycleResult)(receipt.result);
         }
 
-        let before: Appointment | AccountAccess | null = current ?? null;
-        let after: Appointment | AccountAccess | null = null;
+        let before: HistoryFact | null = current ?? null;
+        let after: HistoryFact | null = null;
+        let historyTarget: { readonly kind: string; readonly id: string } | undefined = target;
         let subjectId: string;
         let revision = 0;
 
@@ -242,6 +377,17 @@ export const executeOrganizationLifecycle = Effect.fn("executeOrganizationLifecy
             "board-" +
             sha256Hex(canonicalJsonBytes({ actorPersonId, commandId: command.commandId }));
           yield* sql`INSERT INTO organization_national_boards(board_id,name) VALUES(${subjectId},${command.name})`;
+        } else if (
+          Predicate.isTagged(command, "ClassifyTeam") ||
+          Predicate.isTagged(command, "RecogniseDepartment")
+        ) {
+          const governed = yield* executeGovernance(sql, command);
+
+          before = governed.before;
+          after = governed.after;
+          historyTarget = governed.target;
+          subjectId = governed.subjectId;
+          revision = governed.after.revision;
         } else {
           subjectId = Predicate.isTagged(command, "Appoint")
             ? "appointment-" +
@@ -273,7 +419,7 @@ export const executeOrganizationLifecycle = Effect.fn("executeOrganizationLifecy
 
         const result = { commandId: command.commandId, subjectId, revision };
         yield* sql`INSERT INTO organization_lifecycle_history(command_id,command_digest,actor_person_id,subject_id,target_kind,target_id,action,reason,occurred_at,before_json,after_json,result_json)
-      VALUES(${command.commandId},${digest},${actorPersonId},${subjectId},${target?.kind ?? null},${target?.id ?? null},${command._tag},${command.reason},${now},${before === null ? null : sql.json(before)},${after === null ? null : sql.json(after)},${sql.json(result)})`;
+      VALUES(${command.commandId},${digest},${actorPersonId},${subjectId},${historyTarget?.kind ?? null},${historyTarget?.id ?? null},${command._tag},${command.reason},${now},${before === null ? null : sql.json(before)},${after === null ? null : sql.json(after)},${sql.json(result)})`;
 
         return result;
       }),

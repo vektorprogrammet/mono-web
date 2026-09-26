@@ -95,32 +95,49 @@ describe("content actor derivation", () => {
     evaluatedAt: "2030-01-01T00:00:00.000Z",
     globalAdministrator,
     memberships,
+    nationalBoardSeats: [],
+    delegations: [],
   });
 
-  it("scopes a publisher only to departments where the active membership is leadership", () => {
-    const decision = resolveContentActor(
-      authority("Absent", [
-        {
-          membershipId: MembershipId.make("leader-a"),
-          teamId: TeamId.make("team-a"),
-          departmentId: departmentA,
-          active: true,
-          teamLeader: true,
-        },
-        {
-          membershipId: MembershipId.make("member-b"),
-          teamId: TeamId.make("team-b"),
-          departmentId: departmentB,
-          active: true,
-          teamLeader: false,
-        },
-      ]),
-    );
+  it("scopes a publisher only to departments where a board leadership reaches", () => {
+    const boardLeaderA = {
+      membershipId: MembershipId.make("leader-a"),
+      teamId: TeamId.make("styret-a"),
+      departmentId: departmentA,
+      active: true,
+      unitLeader: true,
+      unitKind: "DepartmentBoard",
+      teamScope: "HomeDepartment",
+      departmentIndependent: true,
+    } as const;
 
-    expect(decision).toEqual(
+    const memberB = {
+      membershipId: MembershipId.make("member-b"),
+      teamId: TeamId.make("team-b"),
+      departmentId: departmentB,
+      active: true,
+      unitLeader: false,
+      unitKind: "Team",
+      teamScope: "HomeDepartment",
+      departmentIndependent: true,
+    } as const;
+
+    expect(resolveContentActor(authority("Absent", [boardLeaderA, memberB]))).toEqual(
       allow(ContentActor.ContentPublisher({ personId: editorId, departmentIds: [departmentA] })),
     );
+    // An ordinary team's leader edits own drafts like any member (O8-11).
+    expect(
+      resolveContentActor(authority("Absent", [{ ...boardLeaderA, unitKind: "Team" }, memberB])),
+    ).toEqual(
+      allow(
+        ContentActor.ContentEditor({
+          personId: editorId,
+          departmentIds: [departmentA, departmentB],
+        }),
+      ),
+    );
   });
+
   it("lets a scoped leader revise and publish only intersecting non-org-wide articles", () => {
     const publisher: ContentActor = ContentActor.ContentPublisher({
       personId: editorId,
@@ -168,7 +185,10 @@ describe("content actor derivation", () => {
           teamId: TeamId.make("team-a"),
           departmentId: departmentA,
           active: true,
-          teamLeader: false,
+          unitLeader: false,
+          unitKind: "Team",
+          teamScope: "HomeDepartment",
+          departmentIndependent: false,
         },
       ]),
     );
@@ -187,7 +207,10 @@ describe("content actor derivation", () => {
           teamId: TeamId.make("team-a"),
           departmentId: departmentA,
           active: false,
-          teamLeader: true,
+          unitLeader: true,
+          unitKind: "Team",
+          teamScope: "HomeDepartment",
+          departmentIndependent: false,
         },
       ]),
     );

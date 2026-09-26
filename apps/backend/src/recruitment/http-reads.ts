@@ -123,8 +123,8 @@ export const readAssignmentBoard = <R>(request: Request, input: RecruitmentApiHt
             boardContext(
               actor,
               {
-                departmentLeaderPersonIds:
-                  Predicate.isTagged(actor, "DepartmentLeader") && actor.active
+                departmentAdministratorPersonIds:
+                  Predicate.isTagged(actor, "DepartmentAdministrator") && actor.active
                     ? [actor.personId]
                     : [],
               },
@@ -183,7 +183,9 @@ export const readInterviewReport = <R>(request: Request, input: RecruitmentApiHt
         personId: actor.personId,
         resolution: {
           selection: "AllMatching",
-          contexts: [boardContext(actor, { departmentLeaderPersonIds: [actor.personId] }, now)],
+          contexts: [
+            boardContext(actor, { departmentAdministratorPersonIds: [actor.personId] }, now),
+          ],
         },
         grantScopes: [Scope.Department({ departmentId: actor.departmentId })],
         now,

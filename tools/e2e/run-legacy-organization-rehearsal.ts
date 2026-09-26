@@ -3,6 +3,7 @@ import { chmod, lstat, mkdir, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { reachedDepartments, ReachedDepartments } from "@vektorprogrammet/domain/authz";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
 import {
   decodePersonCohort,
@@ -196,11 +197,17 @@ const assertAuthority = async (target: RehearsalTarget, leaderActive = true): Pr
           `Person ${id} gained global authority`,
         );
         assert.deepEqual(
-          authority.memberships
-            .filter((membership) => membership.active && membership.teamLeader)
-            .map((membership) => membership.departmentId),
+          authority.memberships.flatMap((membership) =>
+            membership.active && membership.unitLeader ? [membership.departmentId] : [],
+          ),
           id === 1 && leaderActive ? ["legacy-department:1"] : [],
-          `Person ${id} gained incorrect leadership scope`,
+          `Person ${id} gained incorrect leadership`,
+        );
+        // Import classifies no team as a board: no imported person reaches a department (O8-11).
+        assert.deepEqual(
+          reachedDepartments(authority, "admissions.periods"),
+          ReachedDepartments.Departments({ departmentIds: [] }),
+          `Person ${id} gained department reach`,
         );
       }
     }).pipe(

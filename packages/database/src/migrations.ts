@@ -584,6 +584,11 @@ export const databaseMigrationDefinitions = [
       import.meta.url,
     ),
   },
+  {
+    id: "76_reach-and-delegation",
+    name: "reach-and-delegation",
+    url: new URL("../migrations/0076-reach-and-delegation.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

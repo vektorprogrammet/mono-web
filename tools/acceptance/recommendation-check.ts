@@ -560,6 +560,8 @@ try {
   }
 
   await seedReturningAssistant({ pool, run, env, root });
+  // Also classifies team-native-conduct-0063 as the board (Styret) of an independent department,
+  // so promoting the conduct leader to its leader below grants department reach (O8-11).
   await seedInterviewReportCoordinator({ pool, secrets });
 
   if (effectMode === "http") {
@@ -699,6 +701,7 @@ try {
   secrets.push(...cookies.map((c: any) => c.value));
 
   if (applicantProgressMode) {
+    // Leadership of the department's board (classified by seedInterviewReportCoordinator).
     await pool.query(
       `UPDATE public.organization_memberships
        SET is_team_leader=true, position_id='teamleader'
@@ -2567,6 +2570,7 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "historical-mobile.png") });
   await auditPage(page, "historical-mobile");
+  // Leadership of the department's board (classified by seedInterviewReportCoordinator).
   await pool.query(
     `UPDATE public.organization_memberships SET is_team_leader=true,position_id='teamleader' WHERE membership_id='membership-native-conduct-leader-0063'`,
   );

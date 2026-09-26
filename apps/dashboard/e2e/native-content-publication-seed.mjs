@@ -146,19 +146,21 @@ try {
     departmentIds,
   ]);
 
+  // Team Alfa is Avdeling Alfa's board (Styret) of an independent department, so its leader
+  // reaches the department and publishes there (O8-11). Team Beta is an ordinary team.
   await client.query(
     `INSERT INTO organization_departments (
-      department_id, name, short_name, email, city, active, revision
+      department_id, name, short_name, email, city, active, independent, revision
     ) VALUES
-      ($1, 'Avdeling Alfa', 'ALFA', 'alpha.content.0062@example.invalid', 'Oslo', TRUE, 0),
-      ($2, 'Avdeling Beta', 'BETA', 'beta.content.0062@example.invalid', 'Bergen', TRUE, 0)`,
+      ($1, 'Avdeling Alfa', 'ALFA', 'alpha.content.0062@example.invalid', 'Oslo', TRUE, TRUE, 0),
+      ($2, 'Avdeling Beta', 'BETA', 'beta.content.0062@example.invalid', 'Bergen', TRUE, FALSE, 0)`,
     departmentIds,
   );
   await client.query(
-    `INSERT INTO organization_teams (team_id, department_id, name, active, revision)
+    `INSERT INTO organization_teams (team_id, department_id, name, kind, active, revision)
      VALUES
-       ($1, $3, 'Team Alfa', TRUE, 0),
-       ($2, $4, 'Team Beta', TRUE, 0)`,
+       ($1, $3, 'Team Alfa', 'DepartmentBoard', TRUE, 0),
+       ($2, $4, 'Team Beta', 'Team', TRUE, 0)`,
     [teamIds[0], teamIds[1], departmentIds[0], departmentIds[1]],
   );
   await client.query(

@@ -99,12 +99,13 @@ describe("applyRoleOverrideToInput", () => {
 });
 
 describe("roleToRenderFlags", () => {
-  it("maps leader and admin to isAdmin=true (rendering only)", () => {
+  it("maps department reach and admin to isAdmin=true (rendering only)", () => {
     expect(roleToRenderFlags("ROLE_ADMIN").isAdmin).toBe(true);
-    expect(roleToRenderFlags("ROLE_TEAM_LEADER").isAdmin).toBe(true);
+    expect(roleToRenderFlags("ROLE_DEPARTMENT_ADMINISTRATOR").isAdmin).toBe(true);
   });
 
-  it("maps member and null to isAdmin=false", () => {
+  it("maps a team leader, a member and null to isAdmin=false", () => {
+    expect(roleToRenderFlags("ROLE_TEAM_LEADER").isAdmin).toBe(false);
     expect(roleToRenderFlags("ROLE_TEAM_MEMBER").isAdmin).toBe(false);
     expect(roleToRenderFlags(null).isAdmin).toBe(false);
   });

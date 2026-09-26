@@ -1,9 +1,11 @@
 import { Schema as S } from "effect";
+import { UserRoleSchema } from "@vektorprogrammet/http-api";
 import { RecruitmentInput } from "../recruitment/model";
 import { SchedulingInput } from "../scheduling/model";
 import { isAdmissionPath } from "./navigation";
 
-export const DashboardRole = S.Literals(["ROLE_TEAM_MEMBER", "ROLE_TEAM_LEADER", "ROLE_ADMIN"]);
+/** The profile's navigation role: a projection of authority, never authority itself. */
+export const DashboardRole = UserRoleSchema;
 
 export type DashboardRole = S.Schema.Type<typeof DashboardRole>;
 
@@ -63,5 +65,4 @@ export const init = (input: DashboardInitialInput): Model => (ReadyModel.make({
 
 export const invalidInputModel = (): Model => (InvalidInputModel.make({}));
 
-export const isDashboardRole = (role: string): role is DashboardRole =>
-  role === "ROLE_TEAM_MEMBER" || role === "ROLE_TEAM_LEADER" || role === "ROLE_ADMIN";
+export const isDashboardRole = S.is(DashboardRole);

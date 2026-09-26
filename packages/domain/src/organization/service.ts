@@ -51,9 +51,13 @@ import type { MailingList, MailingListType } from "./mailing-lists.js";
 import type { ProfileFailure } from "../profile/errors.js";
 import type { Profile } from "../profile/service.js";
 
-/** Spec 0059 read filter: the authorized scope is explicit input (0055). */
+/**
+ * Spec 0059 read filter: the authorized scope is explicit input (0055). A registration is in
+ * scope when its department or its team is authorized.
+ */
 export interface TeamInterestFilter {
   readonly authorizedDepartmentIds: ReadonlyArray<DepartmentId>;
+  readonly authorizedTeamIds: ReadonlyArray<TeamId>;
   readonly departmentId?: DepartmentId;
   readonly semesterId?: SemesterId;
 }

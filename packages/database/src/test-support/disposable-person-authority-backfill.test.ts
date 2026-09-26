@@ -77,22 +77,22 @@ const seedCanonicalOrganizationFixture = Effect.gen(function* () {
   `;
   yield* sql`
     INSERT INTO organization_departments (
-      department_id, name, short_name, email, city
+      department_id, name, short_name, email, city, independent
     ) VALUES
       (
         'authority-department-a', 'Authority Department A', 'ADA',
-        'authority-a@example.invalid', 'Bergen'
+        'authority-a@example.invalid', 'Bergen', TRUE
       ),
       (
         'authority-department-b', 'Authority Department B', 'ADB',
-        'authority-b@example.invalid', 'Trondheim'
+        'authority-b@example.invalid', 'Trondheim', FALSE
       )
   `;
   yield* sql`
-    INSERT INTO organization_teams (team_id, department_id, name)
+    INSERT INTO organization_teams (team_id, department_id, name, kind)
     VALUES
-      ('authority-team-a', 'authority-department-a', 'Authority Team A'),
-      ('authority-team-b', 'authority-department-b', 'Authority Team B')
+      ('authority-team-a', 'authority-department-a', 'Authority Board A', 'DepartmentBoard'),
+      ('authority-team-b', 'authority-department-b', 'Authority Team B', 'Team')
   `;
   yield* sql`
     INSERT INTO organization_memberships (
@@ -205,7 +205,7 @@ describe("disposable person-authority token evidence backfill", () => {
     const admissionEntries = [
       [
         "admission-token-leader-0055",
-        AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
+        AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
           personId: PersonId.make("authority-leader"),
           departmentId: DepartmentId.make("authority-department-a"),
           active: true,
@@ -317,7 +317,7 @@ describe("disposable person-authority token evidence backfill", () => {
             [
               [
                 "conflict-token-leader-0055",
-                AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
+                AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
                   personId: PersonId.make("authority-leader"),
                   departmentId: DepartmentId.make("authority-department-a"),
                   active: true,
@@ -356,7 +356,7 @@ describe("disposable person-authority token evidence backfill", () => {
           [
             [
               "member-proof-leader-token-0055",
-              AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
+              AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
                 personId: PersonId.make("authority-leader"),
                 departmentId: DepartmentId.make("authority-department-a"),
                 active: true,

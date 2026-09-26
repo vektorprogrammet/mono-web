@@ -102,6 +102,7 @@ const registrationRows = [
 
 let lastTeamInterestFilter: {
   authorizedDepartmentIds: ReadonlyArray<string>;
+  authorizedTeamIds: ReadonlyArray<string>;
   semesterId?: string;
 };
 
@@ -111,16 +112,17 @@ const organization = {
   listFieldOfStudies: Effect.succeed([]),
   listTeamInterestRegistrations: (filter: {
     authorizedDepartmentIds: ReadonlyArray<string>;
+    authorizedTeamIds: ReadonlyArray<string>;
     semesterId?: string;
   }) =>
     Effect.sync(() => {
       lastTeamInterestFilter = filter;
-      const authorized = filter.authorizedDepartmentIds;
 
       const rows = registrationRows
         .filter(
           (row) =>
-            authorized.includes(row.departmentId) &&
+            (filter.authorizedDepartmentIds.includes(row.departmentId) ||
+              filter.authorizedTeamIds.includes(row.teamId)) &&
             (filter.semesterId === undefined || row.semesterId === filter.semesterId),
         )
         .toSorted((left, right) => left.registrationId - right.registrationId);
@@ -129,21 +131,42 @@ const organization = {
     }),
 } satisfies Partial<OrganizationOperations>;
 
+type TokenMembership = {
+  teamId: TeamId;
+  departmentId: DepartmentId;
+  active: boolean;
+  /** Leads the unit; a board of an independent department reaches the department. */
+  leader: boolean;
+  unitKind: "Team" | "DepartmentBoard";
+};
+
 type AuthorityByToken = {
   globalAdministrator: "Active" | "Inactive" | "Absent";
-  memberships: ReadonlyArray<{
-    departmentId: DepartmentId;
-    active: boolean;
-    teamLeader: boolean;
-  }>;
+  memberships: ReadonlyArray<TokenMembership>;
 };
+
+const boardOne = TeamId.make("styret-1");
+
+const teamOne = TeamId.make("team-1");
+
+const teamTwo = TeamId.make("team-2");
+
+const departmentOne = DepartmentId.make("department-1");
+
+const departmentTwo = DepartmentId.make("department-2");
 
 const authorityForToken = (cookie: string | null): AuthorityByToken => {
   if (cookie?.includes("admin-session")) {
     return {
       globalAdministrator: "Active",
       memberships: [
-        { departmentId: DepartmentId.make("department-1"), active: true, teamLeader: false },
+        {
+          teamId: teamOne,
+          departmentId: departmentOne,
+          active: true,
+          leader: false,
+          unitKind: "Team",
+        },
       ],
     };
   }
@@ -152,8 +175,35 @@ const authorityForToken = (cookie: string | null): AuthorityByToken => {
     return {
       globalAdministrator: "Absent",
       memberships: [
-        { departmentId: DepartmentId.make("department-1"), active: true, teamLeader: true },
-        { departmentId: DepartmentId.make("department-2"), active: true, teamLeader: false },
+        {
+          teamId: boardOne,
+          departmentId: departmentOne,
+          active: true,
+          leader: true,
+          unitKind: "DepartmentBoard",
+        },
+        {
+          teamId: teamTwo,
+          departmentId: departmentTwo,
+          active: true,
+          leader: false,
+          unitKind: "Team",
+        },
+      ],
+    };
+  }
+
+  if (cookie?.includes("team-captain")) {
+    return {
+      globalAdministrator: "Absent",
+      memberships: [
+        {
+          teamId: teamTwo,
+          departmentId: departmentTwo,
+          active: true,
+          leader: true,
+          unitKind: "Team",
+        },
       ],
     };
   }
@@ -162,7 +212,13 @@ const authorityForToken = (cookie: string | null): AuthorityByToken => {
     return {
       globalAdministrator: "Absent",
       memberships: [
-        { departmentId: DepartmentId.make("department-1"), active: false, teamLeader: true },
+        {
+          teamId: boardOne,
+          departmentId: departmentOne,
+          active: false,
+          leader: true,
+          unitKind: "DepartmentBoard",
+        },
       ],
     };
   }
@@ -170,7 +226,13 @@ const authorityForToken = (cookie: string | null): AuthorityByToken => {
   return {
     globalAdministrator: "Absent",
     memberships: [
-      { departmentId: DepartmentId.make("department-1"), active: true, teamLeader: false },
+      {
+        teamId: teamOne,
+        departmentId: departmentOne,
+        active: true,
+        leader: false,
+        unitKind: "Team",
+      },
     ],
   };
 };
@@ -233,11 +295,20 @@ const http = makeOrganizationApiHttp(
         personId: PersonId.make("person-any"),
         evaluatedAt: "2031-09-15T12:00:00.000Z",
         ...authority,
-        memberships: authority.memberships.map((membership, index) => ({
-          membershipId: MembershipId.make(`membership-${index}`),
-          teamId: TeamId.make(`team-${index}`),
-          ...membership,
-        })),
+        memberships: authority.memberships.map(
+          ({ leader, teamId, departmentId, active, unitKind }, index) => ({
+            membershipId: MembershipId.make(`membership-${index}`),
+            teamId,
+            departmentId,
+            active,
+            unitLeader: leader,
+            unitKind,
+            teamScope: "HomeDepartment" as const,
+            departmentIndependent: true,
+          }),
+        ),
+        nationalBoardSeats: [],
+        delegations: [],
       });
     },
   },
@@ -287,6 +358,24 @@ describe("spec 0059 team-interest HTTP boundary", () => {
     });
     // Rows ordered registration_id ASC regardless of insert order.
     expect(lastTeamInterestFilter.authorizedDepartmentIds).toEqual(["department-1"]);
+  });
+
+  it("lets an ordinary team's leader read the own team's interest only (O8-11)", async () => {
+    const response = await get("/api/team-interest-registrations", "session=team-captain");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      "hydra:member": [{ id: 3, userName: "User C", teamName: "Team Two" }],
+      "hydra:totalItems": 1,
+    });
+    expect(lastTeamInterestFilter.authorizedDepartmentIds).toEqual([]);
+    expect(lastTeamInterestFilter.authorizedTeamIds).toEqual(["team-2"]);
+
+    const otherDepartment = await get(
+      "/api/team-interest-registrations?department=department-1",
+      "session=team-captain",
+    );
+
+    expect(otherDepartment.status).toBe(403);
   });
 
   it("gives a global administrator every department despite having one membership", async () => {

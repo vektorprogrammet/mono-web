@@ -21,7 +21,7 @@ import { makeProfileTestHttp as makeProfileApiHttp } from "../test/native-http.j
 const authority = (
   personId: string,
   globalAdministrator: "Active" | "Inactive" | "Absent",
-  memberships: ReadonlyArray<{ readonly active: boolean; readonly teamLeader: boolean }>,
+  memberships: ReadonlyArray<{ readonly active: boolean; readonly unitLeader: boolean }>,
 ) =>
   Schema.decodeUnknownSync(OrganizationPersonAuthoritySchema)({
     personId,
@@ -31,8 +31,13 @@ const authority = (
       membershipId: `membership-${index}`,
       teamId: "team-1",
       departmentId: "department-1",
+      unitKind: "Team",
+      teamScope: "HomeDepartment",
+      departmentIndependent: false,
       ...membership,
     })),
+    nationalBoardSeats: [],
+    delegations: [],
   });
 
 const authorityDeniedProblem = {
@@ -103,7 +108,7 @@ describe("Profile HTTP authority failures", () => {
   it.each([
     [
       "AuthorityInactive",
-      authority("profile-test-person", "Inactive", [{ active: false, teamLeader: false }]),
+      authority("profile-test-person", "Inactive", [{ active: false, unitLeader: false }]),
     ],
     ["NotInScope", authority("profile-test-person", "Absent", [])],
   ] as const)("preserves %s as a typed scope denial", async (_, resolved) => {
@@ -170,7 +175,7 @@ describe("Profile HTTP ETag", () => {
         resolveActor: () =>
           Effect.succeed(
             authority(profile.personId, "Absent", [
-              { active: true, teamLeader: role === "ROLE_TEAM_LEADER" },
+              { active: true, unitLeader: role === "ROLE_TEAM_LEADER" },
             ]),
           ),
       },

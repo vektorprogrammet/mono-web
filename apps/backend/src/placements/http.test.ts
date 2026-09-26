@@ -66,6 +66,8 @@ const seed = Database.use((sql) =>
     yield* sql`INSERT INTO admission_period_fields_of_study VALUES('draft-field',${departmentId},'Matematikk',true)`;
     yield* sql`INSERT INTO person_profiles(person_id,first_name,last_name) VALUES('coordinator','Kari','Koordinator'),('berit','Berit','Assistent'),('carl','Carl','Assistent'),('dina','Dina','Assistent'),('erik','Erik','Assistent'),('pia','Pia','Assistent'),('petter','Petter','Assistent'),('nora','Nora','Søker'),('olav','Olav','Søker')`;
     yield* sql`INSERT INTO organization_memberships(membership_id,person_id,team_id,start_at,position_id,is_team_leader) VALUES('draft-leader','coordinator','draft-team','2020-01-01T00:00:00Z','leader',true)`;
+    // Skolekoordinering coordinates placements in its department through a delegation (O8-12).
+    yield* sql`INSERT INTO organization_delegations(delegation_id,name,team_id,capability,area,area_department_id,holders,start_at) VALUES(${`delegation-${"d".repeat(64)}`},'Skolekoordinering fordeler assistenter','draft-team','placements.coordinate','Department',${departmentId},'AllMembers','2020-01-01T00:00:00Z')`;
     yield* sql`INSERT INTO organization_volunteer_affiliations(person_id,department_id,status,revision) VALUES('berit',${departmentId},'Active',1),('carl',${departmentId},'Active',1),('dina',${departmentId},'Active',1),('erik',${departmentId},'Active',1),('pia',${departmentId},'Active',1),('petter',${departmentId},'Pending',1),('nora',${departmentId},'Active',1),('olav',${departmentId},'Active',1)`;
 
     const schools = yield* sql<{
