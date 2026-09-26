@@ -14,11 +14,7 @@ import {
 import { TeachingBlock, TeachingDay } from "./schema.js";
 
 const seeded = (seed: number | string): Random.Random =>
-  Effect.runSync(
-    Effect.gen(function* () {
-      return yield* Random.Random;
-    }).pipe(Random.withSeed(seed)),
-  );
+  Effect.runSync(Random.Random.pipe(Random.withSeed(seed)));
 
 const bounded = (minimum: number, maximum: number) =>
   Arbitrary.schema(Schema.Int.pipe(Schema.check(Schema.isBetween({ minimum, maximum }))));

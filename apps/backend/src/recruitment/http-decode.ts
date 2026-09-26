@@ -10,13 +10,12 @@ import { decodeRequest, readJsonBody } from "../http-api/problem.js";
 
 /**
  * Every recruitment request body is one bounded `application/json` document.
+ * The body reader is acquired when the effect runs, not when it is built.
  *
  * @construct http-problem
  */
 export const readRecruitmentBody = (request: Request, maxBodyBytes: number) =>
-  Effect.gen(function* () {
-    return yield* readJsonBody(request, /^application\/json(?:\s*;|$)/iu, maxBodyBytes);
-  });
+  Effect.suspend(() => readJsonBody(request, /^application\/json(?:\s*;|$)/iu, maxBodyBytes));
 
 /** Decodes the single `status` assignment-board query parameter. */
 export const decodeBoardQuery = (request: Request) => {
