@@ -9,7 +9,7 @@ import {
 import { Database } from "@vektorprogrammet/database";
 import { DatabaseTestLive } from "@vektorprogrammet/database/test-support/platform";
 import { executePublicApplicationCommand } from "@vektorprogrammet/database/application";
-import { makeControlledTestRuntime } from "../../packages/database/test/runtime.js";
+import { makeControlledTestRuntime } from "./controlled-test-runtime.js";
 import { runPublicApplicationOutboxWorker } from "@vektorprogrammet/backend/application/worker";
 import { journeyClock } from "../e2e/journey-clock.js";
 

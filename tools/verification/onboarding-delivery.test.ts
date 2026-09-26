@@ -7,7 +7,7 @@ import { claimOnboarding, commandOnboarding } from "@vektorprogrammet/database/o
 import { Crypto, Effect, Predicate } from "effect";
 import { HttpClient, HttpClientResponse, type HttpClientRequest } from "effect/unstable/http";
 import { DatabaseTestLive } from "@vektorprogrammet/database/test-support/platform";
-import { makeControlledTestRuntime } from "../../packages/database/test/runtime.js";
+import { makeControlledTestRuntime } from "./controlled-test-runtime.js";
 import { provisionOnboardingAccount } from "@vektorprogrammet/database/onboarding-account";
 import {
   drainOnboardingDelivery,

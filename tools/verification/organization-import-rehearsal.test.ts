@@ -17,7 +17,7 @@ import {
   restoreGeneratedOutput,
   writeSanitizedOrganizationImportRehearsalArtifact,
 } from "./organization-import-rehearsal-main.js";
-import { makeControlledTestRuntime } from "../../packages/database/test/runtime.js";
+import { makeControlledTestRuntime } from "./controlled-test-runtime.js";
 import {
   NATIVE_BROWSER_JOURNEY_REQUIREMENTS,
   SPEC_0067,

@@ -1,9 +1,9 @@
 import { Context, Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
-import { makeControlledTestRuntime } from "./runtime.js";
+import { makeControlledTestRuntime } from "./controlled-test-runtime.js";
 
 class RuntimeProbe extends Context.Service<RuntimeProbe, { readonly value: string }>()(
-  "@vektorprogrammet/database/test/RuntimeProbe",
+  "@monoweb/verification/RuntimeProbe",
 ) {}
 
 describe("controlled test runtime lifecycle", () => {
