@@ -140,6 +140,7 @@ export const SubmitApplicationRequest = Schema.Struct({
   gender: applicationFields.gender,
   fieldOfStudyId: applicationFields.fieldOfStudyId,
   yearOfStudy: applicationFields.yearOfStudy,
+  availability: applicationFields.availability,
 }).annotate({ identifier: "SubmitApplicationRequest" });
 
 export type SubmitApplicationRequest = typeof SubmitApplicationRequest.Type;

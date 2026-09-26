@@ -2,8 +2,16 @@ import { HttpClientError } from "effect/unstable/http";
 import type { PublicApplicationCatalog } from "./api-types";
 import { isProblem, problemBody, validationProblemSchema, type ValidationProblem, IdempotencyKey, SubmitApplicationRequest } from "@vektorprogrammet/http-api";
 import { Data, Match, Option, Predicate, Schema } from "effect";
+import {
+  languageOptions,
+  positionOptions,
+  unavailableWeekdayValue,
+  weekdayOptions,
+  type UnavailableWeekday,
+} from "./public-application-choices";
 
-const applicantFieldNames = [
+/** Members that every submission of the form carries, so a missing one means an altered form. */
+const submittedFieldNames = [
   "commandId",
   "departmentId",
   "firstName",
@@ -15,10 +23,26 @@ const applicantFieldNames = [
   "yearOfStudy",
 ] as const;
 
-export type ApplicantFieldName = (typeof applicantFieldNames)[number];
+/** Names a control, or the group of controls that answers one availability question. */
+export type ApplicantFieldName =
+  | (typeof submittedFieldNames)[number]
+  | "weekdays"
+  | "position"
+  | "language";
 
 const boundedText = (maximumLength: number) =>
   Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(maximumLength)));
+
+/** A checked weekday box sends one value; an unchecked box sends no member. */
+const checkedWeekday = Schema.optionalKey(Schema.Literal(unavailableWeekdayValue));
+
+const weekdayMembers = {
+  mondayUnavailable: checkedWeekday,
+  tuesdayUnavailable: checkedWeekday,
+  wednesdayUnavailable: checkedWeekday,
+  thursdayUnavailable: checkedWeekday,
+  fridayUnavailable: checkedWeekday,
+} satisfies Record<UnavailableWeekday, typeof checkedWeekday>;
 
 const ApplicantFormRecord = Schema.Struct({
   commandId: boundedText(200),
@@ -30,6 +54,9 @@ const ApplicantFormRecord = Schema.Struct({
   gender: Schema.Literals(["0", "1"]),
   fieldOfStudyId: boundedText(200),
   yearOfStudy: Schema.Literals(["1", "2", "3", "4", "5"]),
+  ...weekdayMembers,
+  position: Schema.Literals(positionOptions.map((option) => option.value)),
+  language: Schema.Literals(languageOptions.map((option) => option.value)),
 });
 
 type ApplicantFormRecord = typeof ApplicantFormRecord.Type;
@@ -106,24 +133,16 @@ export type ParsedPublicApplicationForm =
       readonly error: PublicApplicationErrorView;
     };
 
-const expectedFieldNames: Readonly<Record<ApplicantFieldName, true>> = {
-  commandId: true,
-  departmentId: true,
-  firstName: true,
-  lastName: true,
-  phone: true,
-  email: true,
-  gender: true,
-  fieldOfStudyId: true,
-  yearOfStudy: true,
-};
-
+/**
+ * Reads the members that the form renders, each once and as text. A radio group or a checkbox
+ * sends no member until it is answered, so the schema decides which answers are required.
+ */
 function readStrictRecord(formData: FormData): Record<string, string> | undefined {
   const record: Record<string, string> = {};
 
   for (const [name, value] of formData.entries()) {
     if (
-      !Object.hasOwn(expectedFieldNames, name) ||
+      !Object.hasOwn(ApplicantFormRecord.fields, name) ||
       !Predicate.isString(value) ||
       Object.hasOwn(record, name)
     ) {
@@ -133,7 +152,7 @@ function readStrictRecord(formData: FormData): Record<string, string> | undefine
     record[name] = value.trim();
   }
 
-  return Object.keys(record).length === applicantFieldNames.length ? record : undefined;
+  return submittedFieldNames.every((name) => Object.hasOwn(record, name)) ? record : undefined;
 }
 
 function safeCommandId(formData: FormData): string {
@@ -165,6 +184,8 @@ function requiredFieldErrors(
     ["gender", "Velg kjønn."],
     ["fieldOfStudyId", "Velg studieretning."],
     ["yearOfStudy", "Velg studieår."],
+    ["position", "Velg hvor lenge og i hvilken bolk."],
+    ["language", "Velg skole."],
   ];
 
   for (const [name, message] of requiredLabels) {
@@ -186,6 +207,7 @@ export function parsePublicApplicationForm(formData: FormData): ParsedPublicAppl
 
     const commandId = Schema.decodeUnknownSync(IdempotencyKey)(decoded.commandId);
 
+    // The contract decodes the stated availability, so an answer that drifts from it fails here.
     const payload = Schema.decodeUnknownSync(SubmitApplicationRequest)(
       {
         departmentId: decoded.departmentId,
@@ -196,6 +218,13 @@ export function parsePublicApplicationForm(formData: FormData): ParsedPublicAppl
         gender: decoded.gender === "0" ? 0 : 1,
         fieldOfStudyId: decoded.fieldOfStudyId,
         yearOfStudy: Number(decoded.yearOfStudy),
+        availability: {
+          ...Object.fromEntries(
+            weekdayOptions.map(({ name }) => [name, Object.hasOwn(decoded, name)]),
+          ),
+          ...positionOptions.find((option) => option.value === decoded.position)?.availability,
+          ...languageOptions.find((option) => option.value === decoded.language)?.availability,
+        },
       },
       { onExcessProperty: "error" },
     );
@@ -247,7 +276,29 @@ const problemMessages: Readonly<
   "internal.error": "Søknadstjenesten er midlertidig utilgjengelig. Prøv igjen senere.",
 };
 
-const applicationFieldByPointer = new Map<string, ApplicantFieldName>([["/departmentId", "departmentId"], ["/firstName", "firstName"], ["/lastName", "lastName"], ["/phone", "phone"], ["/email", "email"], ["/gender", "gender"], ["/fieldOfStudyId", "fieldOfStudyId"], ["/yearOfStudy", "yearOfStudy"]]);
+/** The control that answers each availability member, so its nested pointer names the control. */
+const availabilityFieldByMember: Readonly<
+  Record<keyof SubmitApplicationRequest["availability"], ApplicantFieldName>
+> = {
+  mondayUnavailable: "weekdays",
+  tuesdayUnavailable: "weekdays",
+  wednesdayUnavailable: "weekdays",
+  thursdayUnavailable: "weekdays",
+  fridayUnavailable: "weekdays",
+  positionWeeks: "position",
+  preferredGroup: "position",
+  language: "language",
+};
+
+/** The pointer of each submitted member names its control; availability members sit below it. */
+const applicationFieldByPointer: Readonly<Partial<Record<string, ApplicantFieldName>>> =
+  Object.fromEntries([
+    ...submittedFieldNames.map((field) => [`/${field}`, field]),
+    ...Object.entries(availabilityFieldByMember).map(([member, field]) => [
+      `/availability/${member}`,
+      field,
+    ]),
+  ]);
 
 const decodeValidation = Schema.decodeUnknownOption(validationProblemSchema("validation.failed").fields.validation);
 
@@ -255,7 +306,7 @@ function validationFieldErrors(validation: ValidationProblem["validation"]): Par
   const fieldErrors: Partial<Record<ApplicantFieldName, string>> = {};
 
   for (const error of validation.errors) {
-    const field = applicationFieldByPointer.get(error.pointer);
+    const field = applicationFieldByPointer[error.pointer];
 
     if (field !== undefined) fieldErrors[field] = "Kontroller dette feltet.";
   }

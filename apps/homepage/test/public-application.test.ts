@@ -6,6 +6,7 @@ import {
   mapPublicApplicationError,
   parsePublicApplicationForm,
 } from "../src/lib/public-application";
+import { languageOptions, positionOptions } from "../src/lib/public-application-choices";
 import { Predicate } from "effect";
 
 
@@ -15,6 +16,18 @@ const privateCanaries = [
   "applicant-canary@example.invalid",
   "+47 900 00 039",
 ] as const;
+
+/** The value that the rendered form sends for the answer that an applicant reads. */
+function answer(
+  options: ReadonlyArray<{ readonly value: string; readonly label: string }>,
+  label: string,
+): string {
+  const option = options.find((candidate) => candidate.label === label);
+
+  if (option === undefined) throw new Error(`The form offers no answer ${label}`);
+
+  return option.value;
+}
 
 function completeForm(): FormData {
   const form = new FormData();
@@ -27,6 +40,9 @@ function completeForm(): FormData {
   form.set("gender", "0");
   form.set("fieldOfStudyId", "field-mathematics");
   form.set("yearOfStudy", "3");
+  form.set("tuesdayUnavailable", "true");
+  form.set("position", answer(positionOptions, "4 uker, bolk 1 eller bolk 2"));
+  form.set("language", answer(languageOptions, "Norsk skole"));
 
   return form;
 }
@@ -48,6 +64,16 @@ describe("public application form boundary", () => {
           gender: 0,
           fieldOfStudyId: "field-mathematics",
           yearOfStudy: 3,
+          availability: {
+            mondayUnavailable: false,
+            tuesdayUnavailable: true,
+            wednesdayUnavailable: false,
+            thursdayUnavailable: false,
+            fridayUnavailable: false,
+            positionWeeks: 4,
+            preferredGroup: "all",
+            language: "Norsk",
+          },
         },
       },
     });
@@ -63,6 +89,7 @@ describe("public application form boundary", () => {
           "gender",
           "fieldOfStudyId",
           "yearOfStudy",
+          "availability",
         ].sort(),
       );
       expect(parsed.value.payload).not.toHaveProperty("commandId");
@@ -74,6 +101,8 @@ describe("public application form boundary", () => {
     excess.set("applicantId", "browser-owned-identity");
     const duplicate = completeForm();
     duplicate.append("departmentId", "department-foreign");
+    const duplicateWeekday = completeForm();
+    duplicateWeekday.append("tuesdayUnavailable", "true");
 
     const rejectedForm1 = parsePublicApplicationForm(excess);
 expect(rejectedForm1.ok).toBe(false);
@@ -85,6 +114,49 @@ expect(rejectedForm2.ok).toBe(false);
 
 if (rejectedForm2.ok) throw new Error("Invalid form was accepted");
 expect(rejectedForm2.error._tag).toBe("ApplicationFormInvalid");
+    const rejectedWeekday = parsePublicApplicationForm(duplicateWeekday);
+
+    if (rejectedWeekday.ok) throw new Error("Invalid form was accepted");
+    expect(rejectedWeekday.error._tag).toBe("ApplicationFormInvalid");
+  });
+
+  it("states eight weeks as a position that serves both blocks", () => {
+    const form = completeForm();
+    form.set("position", answer(positionOptions, "8 uker, begge bolkene"));
+
+    const parsed = parsePublicApplicationForm(form);
+
+    if (!parsed.ok) throw new Error("Valid form was rejected");
+    expect(parsed.value.payload.availability).toMatchObject({
+      positionWeeks: 8,
+      preferredGroup: "all",
+    });
+  });
+
+  it("rejects availability answers that the form does not offer", () => {
+    const uncheckedValue = completeForm();
+    uncheckedValue.set("tuesdayUnavailable", "on");
+    // The contract allows eight weeks in one block, but the form cannot state it.
+    const oneBlockOfEightWeeks = completeForm();
+    oneBlockOfEightWeeks.set("position", "8-block-1");
+
+    for (const form of [uncheckedValue, oneBlockOfEightWeeks]) {
+      const rejected = parsePublicApplicationForm(form);
+
+      if (rejected.ok) throw new Error("Invalid form was accepted");
+      expect(rejected.error._tag).toBe("ApplicationFormInvalid");
+    }
+  });
+
+  it("names each unanswered availability question", () => {
+    const form = completeForm();
+    form.delete("position");
+    form.delete("language");
+
+    const rejected = parsePublicApplicationForm(form);
+
+    if (rejected.ok) throw new Error("Invalid form was accepted");
+    expect(Object.keys(rejected.error.fieldErrors ?? {}).sort()).toEqual(["language", "position"]);
   });
 
   it("retains the opaque browser command ID for a rejected draft", () => {
@@ -159,6 +231,17 @@ expect(observedFailure2._tag).toBe("application.duplicate");
               code: "missing",
               message: "A required value is missing.",
             },
+            {
+              pointer: "/availability/positionWeeks",
+              code: "invalid",
+              message: "The value is invalid.",
+            },
+            { pointer: "/availability/language", code: "invalid", message: "The value is invalid." },
+            {
+              pointer: "/availability/fridayUnavailable",
+              code: "missing",
+              message: "A required value is missing.",
+            },
           ],
           truncated: false,
         },
@@ -168,6 +251,9 @@ expect(observedFailure3._tag).toBe("validation.failed");
 expect(observedFailure3).toMatchObject({ fieldErrors: {
         firstName: "Kontroller dette feltet.",
         fieldOfStudyId: "Kontroller dette feltet.",
+        position: "Kontroller dette feltet.",
+        language: "Kontroller dette feltet.",
+        weekdays: "Kontroller dette feltet.",
       } });
   });
 

@@ -16,6 +16,7 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 
@@ -637,7 +638,17 @@ async function readPostgresEvidence(environment) {
             'departmentId', department_id,
             'fieldOfStudyId', field_of_study_id,
             'yearOfStudy', year_of_study,
-            'revision', revision
+            'revision', revision,
+            'availability', json_build_object(
+              'mondayUnavailable', monday_unavailable,
+              'tuesdayUnavailable', tuesday_unavailable,
+              'wednesdayUnavailable', wednesday_unavailable,
+              'thursdayUnavailable', thursday_unavailable,
+              'fridayUnavailable', friday_unavailable,
+              'positionWeeks', position_weeks,
+              'preferredGroup', preferred_group,
+              'language', language
+            )
           ) ORDER BY application_id)
           FROM admission_applications
         ), '[]'::json),
@@ -740,6 +751,14 @@ function assertDurableEvidence(postgres, lifecycle, delivery, persistenceFailure
     );
   }
 
+  const browserApplication = postgres.applications.find(
+    (application) => application.applicationId === lifecycle.browser.applicationId,
+  );
+
+  if (!isDeepStrictEqual(browserApplication?.availability, lifecycle.browser.availability)) {
+    throw new Error("The browser application did not store the availability that it stated");
+  }
+
   for (const applicationId of applicationIds) {
     const effects = outboxByApplication[applicationId] ?? [];
 
@@ -796,8 +815,11 @@ async function restartPostgres(dataRoot, environment) {
   }
 }
 
-/** Without PostgreSQL the command cannot open its receipt transaction. */
-async function exercisePostgresFailure(dataRoot, environment) {
+/**
+ * Without PostgreSQL the command cannot open its receipt transaction. The request states the
+ * browser application's availability, so only the outage can reject it.
+ */
+async function exercisePostgresFailure(dataRoot, environment, availability) {
   await stopPostgres(dataRoot, environment);
   let response;
 
@@ -814,6 +836,7 @@ async function exercisePostgresFailure(dataRoot, environment) {
         gender: 1,
         fieldOfStudyId,
         yearOfStudy: 4,
+        availability,
       }),
     });
   } finally {
@@ -1074,7 +1097,13 @@ async function main() {
     await stopProcess(apiProcess);
     apiProcess = startBackend(apiEnvironment);
     await waitForHttp(`${backendOrigin}/health`, apiProcess, "Restarted unified backend");
-    const persistenceFailure = await exercisePostgresFailure(postgresDataRoot, baseEnvironment);
+
+    const persistenceFailure = await exercisePostgresFailure(
+      postgresDataRoot,
+      baseEnvironment,
+      lifecycle.browser.availability,
+    );
+
     const postgresAfterFailure = await readPostgresEvidence(baseEnvironment);
 
     if (JSON.stringify(postgresBeforeFailure) !== JSON.stringify(postgresAfterFailure)) {

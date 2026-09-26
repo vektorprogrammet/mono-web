@@ -1269,7 +1269,7 @@ BoundedContext Admissions implements VolunteerRecruitment {
     }
   }
 
-  "invariant: one application per applicant and admission period. invariant: the field of study is active and belongs to the period's department. Admissions is the only writer of the year of study. invariant: the application states the applicant's weekday availability, bolk, and school wishes (level, school, language); the placement scheduling function reads them."
+  "invariant: one application per applicant and admission period. invariant: the field of study is active and belongs to the period's department. Admissions is the only writer of the year of study. invariant: the application states the applicant's unsuitable weekdays, a four- or eight-week position, the bolk of a four-week position, and the school wish of a teaching language; a returning registration can also name a school; the placement scheduling function reads them."
   Aggregate AdmissionApplication {
     Entity AdmissionApplication {
       aggregateRoot

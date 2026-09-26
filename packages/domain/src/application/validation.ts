@@ -50,6 +50,7 @@ const normalizeSubmitInput = (
     gender: input.gender,
     fieldOfStudyId,
     yearOfStudy: input.yearOfStudy,
+    availability: input.availability,
   });
 };
 

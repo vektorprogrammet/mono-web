@@ -122,6 +122,8 @@ test("continuous recruitment to first placement", async ({ browser }) => {
     await page.getByLabel("E-post").fill(person.email);
     await page.getByLabel("Telefonnummer").fill("90000925");
     await page.getByLabel("Kjønn").selectOption("0");
+    await page.getByRole("radio", { name: "4 uker, bolk 1 eller bolk 2", exact: true }).check();
+    await page.getByRole("radio", { name: "Norsk skole", exact: true }).check();
     await page.getByRole("button", { name: "Send søknad", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Søknaden er mottatt" })).toBeVisible();
   };

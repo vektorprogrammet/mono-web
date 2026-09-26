@@ -161,6 +161,24 @@ The caller transaction keeps business facts, audit/history, required notificatio
 The [service checks](../../../database/src/placements/service.test.ts) cover rejected preconditions and rollback when the caller cannot finish its receipt.
 The guide does not replace these behavioral checks with source-text assertions.
 
+### Placement drafts
+
+`readDraft` drafts one department and semester and writes nothing.
+The [draft read](../../../database/src/placements/draft.ts) collects the inputs; the pure [scheduler](scheduler.ts) drafts from them.
+
+- Open demand: the demand of each school, weekday, and block, capped by the school's capacity plan for that weekday, less the active placements there.
+  A school without a capacity plan for a weekday is bounded by its demand alone.
+- Supply: each active affiliation without an active placement in the semester.
+  `placementSupplyOf` turns the availability that Admissions records into weekdays and blocks; an eight-week position serves both blocks.
+  The latest returning registration counts first. Otherwise a new applicant's application counts once the interview is conducted.
+  A person with neither record is unplaced with the reason `NoAvailability`.
+- School wishes: the teaching language, and the preferred school of a returning registration, travel with each drafted and unplaced assistant.
+  The dashboard shows them to Skolekoordinering. The scheduler does not score them.
+
+`draftPlacements` is the legacy scheduler: a greedy first fit, improved by annealing and restarted from shuffled weekdays.
+The fixed `placementDraftSeed` makes the same inputs give the same draft.
+A coordinator applies the chosen rows as ordinary `Create` commands against the board ETag that the draft names.
+
 ### Retry and interruption
 
 The Placements service does not install a retry policy.

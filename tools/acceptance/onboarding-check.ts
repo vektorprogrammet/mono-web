@@ -321,6 +321,16 @@ try {
         gender: 0,
         fieldOfStudyId: "field-native-journey-0049",
         yearOfStudy: 2,
+        availability: {
+          mondayUnavailable: false,
+          tuesdayUnavailable: true,
+          wednesdayUnavailable: false,
+          thursdayUnavailable: false,
+          fridayUnavailable: false,
+          positionWeeks: 4,
+          preferredGroup: "all",
+          language: "Norsk",
+        },
       }),
       201,
     );

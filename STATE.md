@@ -109,6 +109,12 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
 - Hosted `Tests` run `36191536836` passed every job at `6c812703`, including the PostgreSQL 17 lane.
 - The golden CI gate once failed at `ae5928fe` after a dashboard GET returned HTTP 503; a later diagnostic run passed and the cause is unproven. Evidence: `/tmp/golden-ci-success-ae5928fe`.
 - `devenv shell` is the toolchain entry: Bun, Node, PostgreSQL, openssl, Chromium, and prek Git hooks; `--profile legacy-data` adds MariaDB and the PHP 8.4 CLI for the legacy data rehearsals. CI runs in the same shell; its hosted cost is unmeasured.
+- Placement drafts take a new applicant's application availability once the interview is conducted, as the legacy scheduler took every interviewed applicant (`packages/database/src/placements/draft.ts`).
+  Admission outcomes are not on `main` yet. When they land, decide whether supply follows the Admitted outcome; the system document announces outcomes after allocation.
+- Drafts show school wishes but do not use them to choose a school (follow-up: use wishes in scoring). Scoring needs one teaching-language registry first:
+  applications and returning registrations use `AssistantLanguageSchema` (`packages/domain/src/application/availability.ts`), substitute preferences their own set (`packages/domain/src/substitutes/schema.ts`), and schools `SchoolLanguageSchema` (`packages/domain/src/schools/schema.ts`).
+- The application asks for no school level, and a new applicant names no preferred school: the legacy application asked neither, and the school directory records no level.
+  A level wish needs a school level in Schools first; the operator decides whether to add one.
 
 ## Next
 

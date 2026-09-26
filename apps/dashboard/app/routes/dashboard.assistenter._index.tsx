@@ -680,6 +680,25 @@ const unplacedReasonLabel = {
   NoOpenPlace: "ingen ledig plass passer ukedagene og bolken",
 } as const;
 
+type DraftWishes = (typeof PlacementDraftResource.Type)["placements"][number]["wishes"];
+
+/** The school that each teaching-language wish names. */
+const schoolWishLabel = {
+  Norsk: "norsk skole",
+  Engelsk: "internasjonal skole",
+  "Norsk og engelsk": "norsk eller internasjonal skole",
+} as const satisfies { readonly [Language in DraftWishes["language"]]: string };
+
+function DraftSchoolWishes({ wishes }: { wishes: DraftWishes }) {
+  return (
+    <span className="text-muted-foreground">
+      {" "}
+      (ønsker {schoolWishLabel[wishes.language]}
+      {wishes.preferredSchool === null ? "" : `, helst ${wishes.preferredSchool}`})
+    </span>
+  );
+}
+
 /**
  * Generates a placement draft and applies the chosen placements through ordinary Create
  * commands. Unchecking a row leaves that placement for manual adjustment.
@@ -698,7 +717,8 @@ function PlacementDraftPanel({
       </h2>
       <p className="text-sm text-muted-foreground">
         Utkastet fordeler aktive frivillige uten plassering på åpne skolebehov etter ukedager og
-        bolk. Ingenting lagres før du oppretter plasseringene.
+        bolk. Skoleønskene står ved hver person; utkastet tar ikke hensyn til dem. Ingenting lagres
+        før du oppretter plasseringene.
       </p>
       <Form method="get">
         <input type="hidden" name="departmentId" value={scope.departmentId} />
@@ -742,6 +762,7 @@ function PlacementDraftPanel({
                         {placement.firstName} {placement.lastName}: {placement.schoolName},{" "}
                         {weekdayLabel[placement.day]}, {draftBlockLabel[placement.block]},{" "}
                         {placement.workdays} dager
+                        <DraftSchoolWishes wishes={placement.wishes} />
                       </span>
                     </label>
                   </li>
@@ -757,6 +778,7 @@ function PlacementDraftPanel({
                 {draft.unplaced.map((person) => (
                   <li key={person.personId}>
                     {person.firstName} {person.lastName}: {unplacedReasonLabel[person.reason]}
+                    {person.wishes !== null && <DraftSchoolWishes wishes={person.wishes} />}
                   </li>
                 ))}
               </ul>
