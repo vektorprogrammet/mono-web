@@ -13,6 +13,7 @@ import {
   type Route,
 } from "@playwright/test";
 import { readBrowserStorage, readDocumentCookie } from "../browser/interview-response-state.js";
+import { addressesAnyRoute, legacyRoutes } from "./request-routes.js";
 import { admissionJourneyClock } from "../../../tools/e2e/journey-clock.js";
 
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5185";
@@ -197,14 +198,7 @@ const observePage = (
       observation.providerRequests += 1;
     }
 
-    if (
-      pathname.startsWith("/api/interview-responses") ||
-      pathname === "/api/admin/interviews" ||
-      pathname.startsWith("/api/admin/interviews/") ||
-      pathname.includes("symfony")
-    ) {
-      observation.legacyRequests += 1;
-    }
+    if (addressesAnyRoute(pathname, legacyRoutes)) observation.legacyRequests += 1;
   });
   page.on("pageerror", (error) => {
     observation.pageErrors += 1;

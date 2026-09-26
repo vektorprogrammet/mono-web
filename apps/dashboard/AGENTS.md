@@ -28,6 +28,13 @@ Each folder of `app/foldkit` holds a bounded context of [docs/model/contexts.cml
 
 The package has no `exports`, so other packages do not import it.
 
+## Constructs
+
+The shared constructs defined here. [docs/constructs.md](../../docs/constructs.md) lists their consumers.
+
+- [`isNativeRequest`](e2e/native-operations.ts) (request-ledger): Whether a dashboard-to-backend request stays on the native surface: an operation of the native HTTP contract or an email-password route of the identity engine.
+- [`addressesAnyRoute`](e2e/request-routes.ts) (request-ledger): Whether a request path addresses any of the routes, each matched by whole path segments.
+
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 
 [//]: # "guide: end"

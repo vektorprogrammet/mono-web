@@ -27,6 +27,7 @@ import {
 } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
 import { z } from "zod";
+import { addressesAnyRoute, addressesRoute, legacyRoutes } from "./request-routes.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -1876,10 +1877,8 @@ test.describe("Native scoped Receipt approval journey", () => {
     const forbiddenBrowserRequests = browserNetworkRequests.filter(
       ({ method, origin, pathname }) =>
         !allowedBrowserOrigins.has(origin) ||
-        pathname === "/api/login" ||
-        pathname.startsWith("/api/fixtures") ||
-        /\/api\/admin\/receipts\/[^/]+\/status$/u.test(pathname) ||
-        (["PUT", "PATCH", "DELETE"].includes(method) && pathname.includes("/receipts")),
+        addressesAnyRoute(pathname, legacyRoutes) ||
+        (["PUT", "PATCH", "DELETE"].includes(method) && addressesRoute(pathname, "/api/receipts")),
     );
 
     expect(forbiddenBrowserRequests).toEqual([]);

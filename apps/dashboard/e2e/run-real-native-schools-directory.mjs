@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { selectedPostgresMajor, postgresProgram } from "@monoweb/postgres";
+import { addressesAnyRoute, legacyRoutes } from "./request-routes.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -618,13 +619,7 @@ try {
   }
 
   assert.deepEqual(
-    ledger.filter(
-      (entry) =>
-        entry.pathname === "/api/admin/schools" ||
-        entry.pathname.includes("/api/admin/scheduling/schools") ||
-        entry.pathname.includes("/kontrollpanel/skoler") ||
-        entry.pathname.includes("/mock/api"),
-    ),
+    ledger.filter((entry) => addressesAnyRoute(entry.pathname, legacyRoutes)),
     [],
   );
   assert.equal(process.env.VITE_API_MODE, undefined, "fixture mode must not be enabled");

@@ -20,6 +20,7 @@ import { createPromiseClient } from "@vektorprogrammet/sdk";
 
 import { dashboardMount } from "../dashboard-base.ts";
 import { journeyClock } from "../../../tools/e2e/journey-clock.ts";
+import { isNativeRequest } from "./native-operations.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -2051,8 +2052,8 @@ async function main() {
       browserOrigins: [...new Set(browserRequestOrigins)],
       proxyTargets: [...new Set(proxy.records.map(({ targetOrigin }) => targetOrigin))],
       deliveryTargets: deliverySink.deliveries.map(({ loopback }) => loopback),
-      providerCalls: proxy.records.filter(({ pathname }) =>
-        /(?:bank|payment|provider|stripe|vipps|nets)/iu.test(pathname),
+      providerCalls: proxy.records.filter(
+        ({ method, pathname }) => !isNativeRequest(method, pathname),
       ),
     };
 

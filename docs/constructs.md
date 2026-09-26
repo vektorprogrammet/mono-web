@@ -19,6 +19,7 @@ Consumers are the modules that import a construct, directly or through re-export
 | [pagination](#pagination)         | 4          | Keyset cursors and pages over ordered PostgreSQL reads.                                                                                     |
 | [digest](#digest)                 | 4          | Canonical JSON and SHA-256 digests that evidence and idempotency identities hash.                                                           |
 | [test-harness](#test-harness)     | 11         | Starts and drives disposable infrastructure for tests, proofs, and journeys: PostgreSQL clusters, loopback ports, and the local backend.    |
+| [request-ledger](#request-ledger) | 2          | Classifies the requests that journey recorders observe by whole path segments: native contract operations and legacy routes.                |
 
 ## http-transport
 
@@ -1092,3 +1093,27 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [apps/dashboard/e2e/run-real-receipt-approval.mjs](../apps/dashboard/e2e/run-real-receipt-approval.mjs)
   - [apps/dashboard/e2e/run-real-receipt-owner.mjs](../apps/dashboard/e2e/run-real-receipt-owner.mjs)
   - [apps/homepage/e2e/run-real-public-applicant-admission.mjs](../apps/homepage/e2e/run-real-public-applicant-admission.mjs)
+
+## request-ledger
+
+Classifies the requests that journey recorders observe by whole path segments: native contract operations and legacy routes.
+
+- `isNativeRequest`: Whether a dashboard-to-backend request stays on the native surface: an operation of the native HTTP contract or an email-password route of the identity engine.
+  [apps/dashboard/e2e/native-operations.ts:73](../apps/dashboard/e2e/native-operations.ts#L73), 3 consumers:
+  - [apps/dashboard/e2e/run-real-native-identity-browser.mjs](../apps/dashboard/e2e/run-real-native-identity-browser.mjs)
+  - [apps/dashboard/e2e/run-real-native-receipt-settlement.mjs](../apps/dashboard/e2e/run-real-native-receipt-settlement.mjs)
+  - [apps/dashboard/test/request-routes.test.ts](../apps/dashboard/test/request-routes.test.ts)
+- `addressesAnyRoute`: Whether a request path addresses any of the routes, each matched by whole path segments.
+  [apps/dashboard/e2e/request-routes.ts:36](../apps/dashboard/e2e/request-routes.ts#L36), 12 consumers:
+  - [apps/dashboard/e2e/native-content-publication.spec.ts](../apps/dashboard/e2e/native-content-publication.spec.ts)
+  - [apps/dashboard/e2e/native-identity-browser.spec.ts](../apps/dashboard/e2e/native-identity-browser.spec.ts)
+  - [apps/dashboard/e2e/native-profile-self-edit.spec.ts](../apps/dashboard/e2e/native-profile-self-edit.spec.ts)
+  - [apps/dashboard/e2e/native-schools-directory.spec.ts](../apps/dashboard/e2e/native-schools-directory.spec.ts)
+  - [apps/dashboard/e2e/organization-import-rehearsal.spec.ts](../apps/dashboard/e2e/organization-import-rehearsal.spec.ts)
+  - [apps/dashboard/e2e/real-interview-response.spec.ts](../apps/dashboard/e2e/real-interview-response.spec.ts)
+  - [apps/dashboard/e2e/receipt-approval.spec.ts](../apps/dashboard/e2e/receipt-approval.spec.ts)
+  - [apps/dashboard/e2e/run-real-native-content-publication.mjs](../apps/dashboard/e2e/run-real-native-content-publication.mjs)
+  - [apps/dashboard/e2e/run-real-native-profile-self-edit.mjs](../apps/dashboard/e2e/run-real-native-profile-self-edit.mjs)
+  - [apps/dashboard/e2e/run-real-native-schools-directory.mjs](../apps/dashboard/e2e/run-real-native-schools-directory.mjs)
+  - [apps/dashboard/e2e/run-real-receipt-approval.mjs](../apps/dashboard/e2e/run-real-receipt-approval.mjs)
+  - [tools/verification/organization-import-rehearsal-main.ts](../tools/verification/organization-import-rehearsal-main.ts)

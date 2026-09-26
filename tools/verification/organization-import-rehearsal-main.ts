@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import type * as GeneratedSdkModule from "../../packages/sdk/src/effect-client.js";
+import { addressesAnyRoute, legacyRoutes } from "../../apps/dashboard/e2e/request-routes.js";
 import { SessionResponse } from "@vektorprogrammet/http-api";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
@@ -2497,7 +2498,7 @@ const runRehearsal = async (
         guard.providerRequests + (browserEvidence?.rejectedDestinations.length ?? 0),
       legacyOrganizationRequests:
         (browserEvidence?.legacyOrganizationRequests ?? 0) +
-        proxy.records.filter(({ path }) => /legacy|php|graphql/iu.test(path)).length,
+        proxy.records.filter(({ path }) => addressesAnyRoute(path, legacyRoutes)).length,
       unexpectedApiRequestAttempts:
         unexpectedProxyRequests.length + (browserEvidence?.unexpectedApiRequests.length ?? 0),
       productionResourceAttempts:

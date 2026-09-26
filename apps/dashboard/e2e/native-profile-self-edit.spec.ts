@@ -2,6 +2,7 @@ import { Schema, Predicate } from "effect";
 import AxeBuilder from "@axe-core/playwright";
 import { writeFile } from "node:fs/promises";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { addressesAnyRoute, legacyRoutes } from "./request-routes.js";
 
 const realRun = process.env.REAL_NATIVE_PROFILE_E2E === "1";
 
@@ -411,7 +412,7 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
       expect(pageErrors).toEqual([]);
 
       const forbiddenPaths = requests.filter((entry) =>
-        /symfony|mock\/api|fixtures|\/api\/(?:admin|me)(?:\/|$)/u.test(entry.path),
+        addressesAnyRoute(entry.path, legacyRoutes),
       );
 
       expect(forbiddenPaths).toEqual([]);

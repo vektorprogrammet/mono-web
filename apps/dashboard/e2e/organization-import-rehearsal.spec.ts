@@ -2,6 +2,7 @@ import { Predicate } from "effect";
 import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { addressesAnyRoute, legacyRoutes } from "./request-routes.js";
 
 const required = (name: string): string => {
   const value = process.env[name];
@@ -382,7 +383,7 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
           await expect(administratorRow).toContainText(expectedAdminEmail);
 
           const legacyOrganizationRequests = requests.filter(({ path }) =>
-            /legacy|php|graphql/iu.test(path),
+            addressesAnyRoute(path, legacyRoutes),
           ).length;
 
           const viteDependencyRequests = diagnosticRequests.filter(
@@ -435,7 +436,7 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
       }
 
       const legacyOrganizationRequests = requests.filter(({ path }) =>
-        /legacy|php|graphql/iu.test(path),
+        addressesAnyRoute(path, legacyRoutes),
       ).length;
 
       const viteDependencyRequests = diagnosticRequests.filter(

@@ -6,6 +6,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { writeFile } from "node:fs/promises";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { readBrowserStorage } from "../browser/interview-response-state.js";
+import { addressesAnyRoute, legacyRoutes } from "./request-routes.js";
 
 const realRun = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
 
@@ -140,7 +141,7 @@ const attachBrowserLedger = (context: BrowserContext, ledger: LedgerEntry[]) => 
       method: request.method(),
       path: url.pathname,
       authorityDataMatches: findAuthorityData(`${url.pathname}${url.search}`),
-      legacyOrProvider: isLegacyOrProviderPath(url.pathname),
+      legacyOrProvider: addressesAnyRoute(url.pathname, legacyOrProviderRoutes),
       status: 0,
       durationMs: 0,
     });
@@ -180,12 +181,18 @@ const authorityDataPatterns = [
 const findAuthorityData = (value: string): ReadonlyArray<string> =>
   authorityDataPatterns.flatMap(({ pattern, label }) => pattern.test(value) ? [label] : []);
 
-const isLegacyOrProviderPath = (path: string): boolean =>
-  /symfony|mock\/api|fixtures|\/api\/login|login_check|sso\/login|glemt-passord|reset|verification|jwt|token/iu.test(
-    path,
-  ) ||
-  (path.startsWith("/api/auth/sign-in/") && path !== "/api/auth/sign-in/email") ||
-  /\/api\/auth\/(?:callback|oauth|sso|social|link-social|unlink-account)(?:\/|$)/iu.test(path);
+/**
+ * Routes that the browser must never address: every legacy route; the API surface, including
+ * the identity engine's provider, recovery, and token routes, which only the dashboard server
+ * calls; native password recovery; and provider consent.
+ */
+const legacyOrProviderRoutes = [
+  ...legacyRoutes,
+  "/api",
+  "/glemt-passord",
+  "/tilbakestill-passord",
+  "/oauth",
+];
 
 const observeBrowserAuthorityIsolation = async (
   context: BrowserContext,

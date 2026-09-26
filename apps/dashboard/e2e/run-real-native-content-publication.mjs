@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { selectedPostgresMajor, postgresProgram } from "@monoweb/postgres";
 import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
+import { addressesAnyRoute, legacyRoutes } from "./request-routes.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -556,15 +557,7 @@ try {
   }
 
   assert.deepEqual(
-    ledger.filter(
-      (entry) =>
-        entry.pathname.includes("/kontrollpanel") ||
-        entry.pathname.includes("/api/articles") ||
-        entry.pathname === "/api/admin/content" ||
-        /^\/api\/admin\/content\/(?:workspace|drafts|articles)(?:\/|$)/u.test(entry.pathname) ||
-        entry.pathname.includes("/mock/api") ||
-        entry.pathname.startsWith("/fixtures"),
-    ),
+    ledger.filter((entry) => addressesAnyRoute(entry.pathname, legacyRoutes)),
     [],
   );
   assert.equal(process.env.VITE_API_MODE, undefined, "fixture mode must not be enabled");

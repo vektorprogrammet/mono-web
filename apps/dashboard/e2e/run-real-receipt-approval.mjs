@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { startReceiptDeliverySink } from "../../../tools/e2e/receipt-delivery-sink.ts";
 import { sanitizePlaywrightArtifact } from "./runtime-evidence-receipt.mjs";
+import { addressesAnyRoute, addressesRoute, legacyRoutes } from "./request-routes.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -1443,10 +1444,8 @@ function assertRequestLedger(records, journeyEvidence) {
 
   const forbiddenRequests = records.filter(
     ({ method, pathname }) =>
-      pathname === "/api/login" ||
-      pathname.startsWith("/api/fixtures") ||
-      /\/api\/admin\/receipts\/[^/]+\/status$/u.test(pathname) ||
-      (["PUT", "PATCH", "DELETE"].includes(method) && pathname.includes("/receipts")),
+      addressesAnyRoute(pathname, legacyRoutes) ||
+      (["PUT", "PATCH", "DELETE"].includes(method) && addressesRoute(pathname, "/api/receipts")),
   );
 
   assertEqual(forbiddenRequests, [], "Forbidden native Receipt requests");

@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { postgresProgram } from "@monoweb/postgres";
 import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
+import { isNativeRequest } from "./native-operations.ts";
 
 /** The owner-only session metadata fields that the API contract defines. */
 const sessionFields = Object.keys(SessionResponse.fields).sort();
@@ -91,13 +92,6 @@ const authorityDataPatterns = [
 
 const findAuthorityData = (value) =>
   authorityDataPatterns.flatMap(({ pattern, label }) => (pattern.test(value) ? [label] : []));
-
-const isLegacyOrProviderPath = (path) =>
-  /symfony|mock\/api|fixtures|\/api\/login|login_check|sso\/login|glemt-passord|reset|verification|jwt|token/iu.test(
-    path,
-  ) ||
-  (path.startsWith("/api/auth/sign-in/") && path !== "/api/auth/sign-in/email") ||
-  /\/api\/auth\/(?:callback|oauth|sso|social|link-social|unlink-account)(?:\/|$)/iu.test(path);
 
 const rememberCookieValue = (values, value) => {
   if (value.length < 8) return;
@@ -307,7 +301,7 @@ const startRecordingBoundary = async (targetOrigin) => {
         request: findAuthorityData(requestBytes.toString("utf8")),
         response: [],
       },
-      legacyOrProvider: isLegacyOrProviderPath(target.pathname),
+      legacyOrProvider: !isNativeRequest(method, target.pathname),
       status: 0,
       durationMs: 0,
       responseByteLength: 0,

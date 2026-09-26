@@ -4,6 +4,7 @@ import { expect, test, type Browser, type BrowserContext, type Page } from "@pla
 import { Schema } from "effect";
 import { NativeProblem } from "@vektorprogrammet/http-api";
 import { ContentArticleObservationSchema } from "../app/foldkit/content/bridge";
+import { addressesAnyRoute, legacyRoutes } from "./request-routes.js";
 
 
 const realNativeIdentity = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
@@ -540,13 +541,7 @@ test.describe("Native Content publication (spec 0062)", () => {
         browserRequests.filter((request) => request.pathname === "/api/admin/schools"),
       ).toEqual([]);
       expect(
-        browserRequests.filter(
-          (request) =>
-            request.pathname.includes("/kontrollpanel") ||
-            request.pathname.includes("/api/articles") ||
-            request.pathname.includes("/mock/api") ||
-            request.pathname.startsWith("/fixtures"),
-        ),
+        browserRequests.filter((request) => addressesAnyRoute(request.pathname, legacyRoutes)),
       ).toEqual([]);
       expect(pageErrors).toEqual([]);
 

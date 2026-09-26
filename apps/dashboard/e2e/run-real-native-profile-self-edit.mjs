@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { postgresProgram } from "@monoweb/postgres";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
+import { addressesAnyRoute, legacyRoutes } from "./request-routes.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -467,9 +468,7 @@ const main = async () => {
       true,
     );
     assert.equal(
-      ledger.some((entry) =>
-        /symfony|mock\/api|fixtures|\/api\/(?:admin|me)(?:\/|$)/u.test(entry.path),
-      ),
+      ledger.some((entry) => addressesAnyRoute(entry.path, legacyRoutes)),
       false,
     );
 

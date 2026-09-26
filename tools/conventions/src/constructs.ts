@@ -31,6 +31,8 @@ export const constructCategories = {
   digest: "Canonical JSON and SHA-256 digests that evidence and idempotency identities hash.",
   "test-harness":
     "Starts and drives disposable infrastructure for tests, proofs, and journeys: PostgreSQL clusters, loopback ports, and the local backend.",
+  "request-ledger":
+    "Classifies the requests that journey recorders observe by whole path segments: native contract operations and legacy routes.",
 } satisfies Readonly<Record<string, string>>;
 
 export const catalogue = "docs/constructs.md";

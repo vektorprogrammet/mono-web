@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { Schema } from "effect";
 import { NativeProblem } from "@vektorprogrammet/http-api";
+import { addressesAnyRoute, legacyRoutes } from "./request-routes.js";
 
 const realNativeIdentity = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
 
@@ -290,12 +291,7 @@ test.describe("Native Schools directory (spec 0061)", () => {
         browserRequests.filter((request) => request.pathname === "/api/admin/schools"),
       ).toEqual([]);
       expect(
-        browserRequests.filter(
-          (request) =>
-            request.pathname.includes("/api/admin/scheduling/schools") ||
-            request.pathname.includes("/kontrollpanel/skoler") ||
-            request.pathname.includes("/mock/api"),
-        ),
+        browserRequests.filter((request) => addressesAnyRoute(request.pathname, legacyRoutes)),
       ).toEqual([]);
       expect(pageErrors).toEqual([]);
 
