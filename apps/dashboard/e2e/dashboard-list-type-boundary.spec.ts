@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { expect, test } from "@playwright/test";
 import { dashboardMount } from "../dashboard-base";
 import { Schema } from "effect";
+import { journeyClock } from "../../../tools/e2e/journey-clock.js";
 
 
 const FIXTURE_PORT = 8791;
@@ -11,6 +12,9 @@ const FIXTURE_URL = `http://127.0.0.1:${FIXTURE_PORT}`;
 const SESSION_TOKEN = "fixture-session-0025";
 
 const SESSION_COOKIE = `better-auth.session_token=${SESSION_TOKEN}`;
+
+// The fixture session's instants. No clock compares them, so they derive from one pinned instant.
+const sessionClock = journeyClock("2031-09-15T12:00:00.000Z");
 
 const PRIVATE_READ_HEADERS = {
   "Cache-Control": "private, no-store",
@@ -87,9 +91,9 @@ function handleFixtureRequest(request: IncomingMessage, response: ServerResponse
       {
         sessionId: "fixture-session-0025",
         personId: "2500",
-        createdAt: "2031-09-15T12:00:00.000Z",
-        updatedAt: "2031-09-15T12:00:00.000Z",
-        expiresAt: "2031-09-16T12:00:00.000Z",
+        createdAt: sessionClock.now,
+        updatedAt: sessionClock.now,
+        expiresAt: sessionClock.fromNow(1),
         ipAddress: null,
         userAgent: null,
         current: true,

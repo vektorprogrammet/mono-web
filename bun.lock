@@ -312,6 +312,10 @@
         "vitest": "catalog:effect-v4",
       },
     },
+    "tools/scripts": {
+      "name": "@monoweb/scripts",
+      "version": "0.1.0",
+    },
     "tools/source-safety": {
       "name": "@monoweb/source-safety",
       "version": "0.1.0",
@@ -762,6 +766,8 @@
     "@monoweb/placements-docs": ["@monoweb/placements-docs@workspace:tools/placements-docs"],
 
     "@monoweb/postgres": ["@monoweb/postgres@workspace:tools/postgres"],
+
+    "@monoweb/scripts": ["@monoweb/scripts@workspace:tools/scripts"],
 
     "@monoweb/source-safety": ["@monoweb/source-safety@workspace:tools/source-safety"],
 

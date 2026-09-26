@@ -36,8 +36,13 @@ import {
   createRecruitmentMailbox,
   createRecruitmentObserver,
 } from "./golden-recruitment.mjs";
+import { admissionJourneyClock } from "./journey-clock.ts";
 
 const root = new URL("../../", import.meta.url).pathname;
+
+// Claimed invitations expire after the run. Nothing reads the expiry of a claimed invitation,
+// but it must follow the issue instant.
+const claimExpiresAt = admissionJourneyClock().fromNow(120);
 
 const requireDatabase = createRequire(
   new URL("../../packages/database/package.json", import.meta.url),
@@ -639,8 +644,8 @@ try {
         ('golden-application','golden-applicant','golden-period','${departmentId}','golden-field',3,'2024-02-01'),
         ('golden-second-application','golden-second-applicant','golden-period','${departmentId}','golden-field',2,'2024-02-02');
       INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES
-        ('golden-invitation','golden-application','golden-applicant','${"c".repeat(64)}','2027-01-01','Claimed','${leaderId}','2024-02-01'),
-        ('golden-second-invitation','golden-second-application','golden-second-applicant','${"d".repeat(64)}','2027-01-01','Claimed','${leaderId}','2024-02-02');
+        ('golden-invitation','golden-application','golden-applicant','${"c".repeat(64)}','${claimExpiresAt}','Claimed','${leaderId}','2024-02-01'),
+        ('golden-second-invitation','golden-second-application','golden-second-applicant','${"d".repeat(64)}','${claimExpiresAt}','Claimed','${leaderId}','2024-02-02');
       INSERT INTO applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES
         ('golden-applicant','${substitute.personId}','2024-02-01','golden-invitation'),
         ('golden-second-applicant','${secondSubstitute.personId}','2024-02-02','golden-second-invitation');
@@ -664,7 +669,7 @@ try {
     INSERT INTO admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at,revision) VALUES
       ('application-coverage-0111','applicant-coverage-0111','admission-period-coverage-0111','${departmentId}','field-native-journey-0049',3,'2024-02-01T10:00:00.000Z',0);
     INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES
-      ('invitation-coverage-0111','application-coverage-0111','applicant-coverage-0111','${"c".repeat(64)}','2027-01-01T00:00:00.000Z','Claimed','${leaderId}','2024-02-01T10:00:00.000Z');
+      ('invitation-coverage-0111','application-coverage-0111','applicant-coverage-0111','${"c".repeat(64)}','${claimExpiresAt}','Claimed','${leaderId}','2024-02-01T10:00:00.000Z');
     INSERT INTO applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES
       ('applicant-coverage-0111','${substitute.personId}','2024-02-01T10:00:00.000Z','invitation-coverage-0111');
     INSERT INTO person_contact_profiles(person_id,email,phone,revision) VALUES

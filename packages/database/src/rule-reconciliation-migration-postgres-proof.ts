@@ -4,7 +4,7 @@ import { Database, type DatabaseOperations } from "./service.js";
 import { Schema, Predicate, Cause, Effect, Option, Redacted } from "effect";
 import { isSqlError } from "effect/unstable/sql/SqlError";
 import { DatabaseLive } from "./layers.js";
-import { databaseMigrationDefinitions } from "./migrations.js";
+import { type DatabaseMigrationDefinition, selectDatabaseMigration } from "./migrations.js";
 
 const expectedFailures = [
   { reasonCode: "INTERVAL_INVALID", ruleId: "migration-preflight-interval" },
@@ -25,17 +25,11 @@ const reset = (sql: DatabaseOperations) =>
     `)
     .pipe(Effect.asVoid, Effect.orDie);
 
-const executeMigration = (
-  sql: DatabaseOperations,
-  migration: (typeof databaseMigrationDefinitions)[number],
-) =>
+const executeMigration = (sql: DatabaseOperations, migration: DatabaseMigrationDefinition) =>
   Effect.tryPromise(() => readFile(migration.url, "utf8")).pipe(
     Effect.flatMap((source) => sql.unsafe(source)),
     Effect.asVoid,
   );
-
-/** The migration whose preflight this proof exercises, by id: positions shift as migrations land. */
-const migration26Id = "26_declarative-rule-reconciliation";
 
 const prepareMigration25State = (sql: DatabaseOperations) =>
   Effect.gen(function* () {
@@ -170,24 +164,20 @@ export const proveRuleReconciliationMigration = (databaseUrl: Redacted.Redacted<
   });
 
   return Effect.gen(function* () {
-    const index = databaseMigrationDefinitions.findIndex(({ id }) => id === migration26Id);
-
-    if (index === -1) {
-      return yield* Effect.die(
-        new Error(`databaseMigrationDefinitions has no migration ${migration26Id}`),
-      );
-    }
+    const { migration: migration26, preceding } = selectDatabaseMigration(
+      "26_declarative-rule-reconciliation",
+    );
 
     const sql = yield* Database;
 
     // Effects are descriptions: each `yield*` below runs the migrations again.
     const migrateThrough25 = Effect.forEach(
-      databaseMigrationDefinitions.slice(0, index),
+      preceding,
       (migration) => executeMigration(sql, migration),
       { discard: true },
     );
 
-    const migrate26 = executeMigration(sql, databaseMigrationDefinitions[index]!);
+    const migrate26 = executeMigration(sql, migration26);
     yield* reset(sql);
     yield* migrateThrough25;
     yield* prepareMigration25State(sql);

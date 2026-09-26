@@ -5,7 +5,7 @@ import { Predicate, Effect, ManagedRuntime, Redacted } from "effect";
 import * as PgClient from "@effect/sql-pg/PgClient";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
-  databaseMigrationDefinitions,
+  selectDatabaseMigration,
   type ExecuteMigration,
   runDatabaseMigrations,
 } from "../src/migrations.js";
@@ -48,11 +48,7 @@ const nativeFunctions = [
   "prevent_recruitment_interview_lifecycle_mutation",
 ] as const;
 
-const schemaBoundaryMigrationIndex = databaseMigrationDefinitions.findIndex(
-  ({ id }) => id === "22_native-domain-schema-boundary",
-);
-
-assert.notEqual(schemaBoundaryMigrationIndex, -1);
+const historicalMigrations = selectDatabaseMigration("22_native-domain-schema-boundary").preceding;
 
 const databaseUrl = (name: string): string => {
   const value = process.env[name];
@@ -96,7 +92,7 @@ const runRegisteredMigrations = async (url: string) => {
 };
 
 const runHistoricalSources = async (pool: Pool) => {
-  for (const { url } of databaseMigrationDefinitions.slice(0, schemaBoundaryMigrationIndex)) {
+  for (const { url } of historicalMigrations) {
     const source = await readFile(url, "utf8");
     const client = await pool.connect();
 
@@ -125,9 +121,7 @@ const runHistoricalSources = async (pool: Pool) => {
       )
     `);
 
-    for (const [index, { name }] of databaseMigrationDefinitions
-      .slice(0, schemaBoundaryMigrationIndex)
-      .entries()) {
+    for (const [index, { name }] of historicalMigrations.entries()) {
       await client.query(
         "INSERT INTO public.vektorprogrammet_schema_migrations (migration_id, name) VALUES ($1, $2)",
         [index + 1, name],

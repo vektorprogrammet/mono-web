@@ -224,6 +224,7 @@ export default defineConfig({
       files: [
         "tools/source-safety/tests/source-safety.test.ts",
         "tools/conventions/tests/*.test.ts",
+        "tools/scripts/tests/*.test.ts",
       ],
       rules: {
         // Bun runs these suites; they drive the Node-compatible Git and filesystem seams.
@@ -302,6 +303,11 @@ export default defineConfig({
         "packages/database/src/service-principal-grants-live.ts",
       ],
       rules: { "anti-slop/no-raw-advisory-lock-sql": "off" },
+    },
+    {
+      // Journey fixtures derive window bounds from tools/e2e/journey-clock.ts, so none expires.
+      files: ["apps/*/e2e/**", "tools/e2e/**", "tools/acceptance/**", "tools/verification/**"],
+      rules: { "anti-slop/no-literal-window-instant": "error" },
     },
   ],
   ignorePatterns: [

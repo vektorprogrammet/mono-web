@@ -1,3 +1,15 @@
+/**
+ * The ordered registry of PostgreSQL migrations and the Migrator that applies it.
+ *
+ * Use `runDatabaseMigrations` to bring a database to the head revision. Tests, proofs, and
+ * fixtures that replay part of the history select a migration with `selectDatabaseMigration`
+ * instead of an index into `databaseMigrationDefinitions`.
+ *
+ * A definition's id is `<position>_<name>`, and the Migrator records that number and name. An
+ * applied migration is immutable: a change is a new definition with a new file at the end.
+ * `src/migration-registry.ts` states the numbering and file rules, and `migrations/checksums.json`
+ * records the digest of every registered file; `just migration-hashes` checks both.
+ */
 import { readFile } from "node:fs/promises";
 import { Data, Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -599,6 +611,57 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
   );
 
 export const databaseSchemaRevision = databaseMigrationDefinitions.at(-1)!.id.replaceAll("-", "_");
+
+export type DatabaseMigrationDefinition = (typeof databaseMigrationDefinitions)[number];
+
+export type DatabaseMigrationId = DatabaseMigrationDefinition["id"];
+
+/** A registered migration and the migrations that run before it, in registry order. */
+export interface DatabaseMigrationSelection {
+  readonly migration: DatabaseMigrationDefinition;
+  readonly preceding: ReadonlyArray<DatabaseMigrationDefinition>;
+}
+
+/** The ids closest in number to an absent id, or the registry's bounds when it has no number. */
+const nearestMigrationIds = (id: string): ReadonlyArray<string> => {
+  const number = Number(/^(\d+)_/u.exec(id)?.[1] ?? Number.NaN);
+
+  if (Number.isNaN(number))
+    return [databaseMigrationDefinitions[0].id, databaseMigrationDefinitions.at(-1)!.id];
+
+  return databaseMigrationDefinitions
+    .map((definition, index) => ({
+      id: definition.id,
+      index,
+      distance: Math.abs(index + 1 - number),
+    }))
+    .toSorted((left, right) => left.distance - right.distance || left.index - right.index)
+    .slice(0, 3)
+    .toSorted((left, right) => left.index - right.index)
+    .map((nearest) => nearest.id);
+};
+
+/**
+ * Selects the registered migration `id` and the migrations that run before it; an absent id throws and names the nearest registered ids.
+ *
+ * `preceding` replays the history up to the migration, and `[...preceding, migration]` replays it
+ * through the migration, so no call site counts positions.
+ *
+ * @construct test-harness
+ */
+export const selectDatabaseMigration = (id: DatabaseMigrationId): DatabaseMigrationSelection => {
+  const index = databaseMigrationDefinitions.findIndex((definition) => definition.id === id);
+
+  if (index < 0)
+    throw new Error(
+      `The migration registry has no migration ${JSON.stringify(id)}. Nearest registered ids: ${nearestMigrationIds(id).join(", ")}.`,
+    );
+
+  return {
+    migration: databaseMigrationDefinitions[index]!,
+    preceding: databaseMigrationDefinitions.slice(0, index),
+  };
+};
 
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({

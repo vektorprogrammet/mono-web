@@ -36,6 +36,11 @@ build *args:
 changelog *args:
     bun tools/scripts/changelog.ts "$@"
 
+# Land a branch on main in the main checkout, then remove its worktree and delete it. It does not push.
+[group('develop')]
+land branch:
+    bun --no-env-file tools/scripts/land.ts "$1"
+
 # Check layout, constructs, guides, source safety, format, lint, types, and the HTTP contract. Arguments go to Turbo.
 [group('check')]
 check *args: layout constructs guides source-safety (format "--check") lint
@@ -55,6 +60,11 @@ constructs *args:
 [group('check')]
 guides *args:
     bun --no-env-file tools/conventions/src/cli.ts guides "$@"
+
+# Check the migration registry and the checksums of applied migrations; `just migration-hashes write` records new ones.
+[group('check')]
+migration-hashes *args:
+    bun --no-env-file packages/database/src/migration-manifest-cli.ts "$@"
 
 # Scan every file in the Git index for credentials, personal data, and SQL data.
 [group('check')]
@@ -81,10 +91,20 @@ check-types *args:
 test *args:
     bun x turbo test "$@"
 
-# Run a heavy job with resource measurement, or show the ledger with `just measure --report`.
+# Run a heavy job under the machine-wide heavy lock and measure it, or show the ledger with `just measure --report`.
 [group('check')]
 measure *args:
     bun --no-env-file tools/scripts/measure-job.ts "$@"
+
+# Run the Alloy commands of docs/model/authority.als (check) or validate docs/model/contexts.cml (validate), a heavy job.
+[group('check')]
+model action:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "$1" in
+      check | validate) exec just measure --class "model-$1" -- bun --no-env-file tools/scripts/model.ts "$1" ;;
+      *) echo "Unknown action '$1'. Use check or validate." >&2; exit 2 ;;
+    esac
 
 # Run a golden journey: school-service, recruitment, reimbursement, or team-application.
 [group('journeys')]
@@ -177,7 +197,7 @@ migration name *args:
 check-staged *args:
     bun --no-env-file tools/scripts/check-staged.ts "$@"
 
-# Run a command in one of the machine-wide hook slots (pre-push hooks).
+# Run a command in one of the machine-wide hook slots under the shared heavy lock (pre-push hooks).
 [group('hooks')]
 hook-slot *args:
     bun --no-env-file tools/scripts/hook-slot.ts "$@"

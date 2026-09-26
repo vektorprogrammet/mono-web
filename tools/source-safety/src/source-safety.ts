@@ -29,6 +29,8 @@ const REVIEWED_SOURCE_PATHS = {
     "Backend test Layer that provisions private disposable PostgreSQL databases; it holds no data.",
   "tools/verification/credential-race.ts":
     "Credential-race proof driver; callers supply synthetic credentials and it uses reserved example.invalid addresses.",
+  "packages/database/migrations/checksums.json":
+    "SHA-256 digests of the applied migration files, keyed by migration id; it holds no data.",
 } as const;
 
 const isReviewedSourcePath = (path: string): path is keyof typeof REVIEWED_SOURCE_PATHS =>

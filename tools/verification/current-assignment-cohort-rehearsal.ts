@@ -22,10 +22,14 @@ import {
   importCurrentAssignmentCohort,
 } from "@vektorprogrammet/database/placements";
 import { currentAssignmentForbiddenAmbientConfigurationKeys } from "./current-assignment-cohort-cli.js";
+import { journeyClock } from "../e2e/journey-clock.js";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { importPersonCohort } from "@vektorprogrammet/database/person-cohort";
 
 const root = resolve(import.meta.dirname, "../..");
+
+// The synthetic autumn 2026 semester, 1 August through 31 December, as offsets from its start.
+const autumnSemester = journeyClock("2026-08-01T00:00:00Z");
 
 const command = (name: string, args: ReadonlyArray<string>) =>
   execFileSync(name, args, {
@@ -154,7 +158,7 @@ try {
       ('department-a', 'Department A', 'A', 'a@example.invalid', 'Trondheim'),
       ('department-b', 'Department B', 'B', 'b@example.invalid', 'Trondheim');
     INSERT INTO public.admission_period_semesters (semester_id, start_at, end_at)
-    VALUES ('semester-2026-autumn', '2026-08-01T00:00:00Z', '2026-12-31T00:00:00Z');
+    VALUES ('semester-2026-autumn', '${autumnSemester.now}', '${autumnSemester.fromNow(152)}');
     INSERT INTO public.schools_directory_schools
       (name, contact_person, email, phone, language, active)
     VALUES
@@ -558,8 +562,8 @@ try {
   const colonCollisionSemester = `${schoolA}:${collisionSemester}`;
   await pool.query(
     `INSERT INTO public.admission_period_semesters (semester_id, start_at, end_at)
-     VALUES ($1, '2026-08-01T00:00:00Z', '2026-12-31T00:00:00Z'),
-            ($2, '2026-08-01T00:00:00Z', '2026-12-31T00:00:00Z')`,
+     VALUES ($1, '${autumnSemester.now}', '${autumnSemester.fromNow(152)}'),
+            ($2, '${autumnSemester.now}', '${autumnSemester.fromNow(152)}')`,
     [collisionSemester, colonCollisionSemester],
   );
   const collisionLeft = sourceRow("assignment-colon-left", "colon-left");

@@ -13,6 +13,10 @@ import {
 } from "@vektorprogrammet/domain/shared-kernel";
 import { flow, Predicate, Data, Effect, Schema } from "effect";
 import type { DatabaseOperations } from "@vektorprogrammet/database";
+import { journeyClock } from "../e2e/journey-clock.js";
+
+// The rehearsal's fixed authorization instant; the session outlives it by 16 and a half days.
+const authorizationClock = journeyClock("2037-01-15T12:00:00.000Z");
 
 export const SPEC_0067 = {
   contractRevision: "0067.0",
@@ -23,12 +27,12 @@ export const SPEC_0067 = {
   transformationRevision: "organization-import-0067-v1",
   snapshotHash: "1d79748e449c2e87f5e4a467a3442c2913d6403bac11252630cbf1e347d449a3",
   snapshotId: "sha256:1d79748e449c2e87f5e4a467a3442c2913d6403bac11252630cbf1e347d449a3",
-  authorizationInstant: "2037-01-15T12:00:00.000Z",
+  authorizationInstant: authorizationClock.now,
   administratorPersonId: "person-organization-import-admin-0067",
   importedMemberPersonId: "6731",
   administratorGrantId: "grant-organization-import-admin-0067",
   sessionCookieName: "better-auth.session_token",
-  sessionExpiresAt: "2037-02-01T00:00:00.000Z",
+  sessionExpiresAt: authorizationClock.fromNow(16, 720),
   failureTrigger: "spec_0067_fail_organization_ledger",
   failureFunction: "public.spec_0067_fail_organization_ledger()",
   failureSqlState: "P0001",

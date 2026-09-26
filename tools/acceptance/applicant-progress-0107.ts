@@ -17,6 +17,7 @@ import type { Page } from "playwright";
 import { join } from "node:path";
 import type { Pool, PoolClient } from "pg";
 import {Array as Arr,  Match, Predicate, Schema } from "effect";
+import { admissionJourneyClock } from "../e2e/journey-clock.ts";
 
 export const applicantProgressUnlinkedIdentity = {
   personId: "applicant-progress-unlinked-person",
@@ -45,14 +46,7 @@ const digest = (value: string) => createHash("sha256").update(value).digest("hex
 // The backend's admission clock: ADMISSION_FIXED_NOW when the runner pins one, otherwise the
 // current time. The fixtures live in the conduct seed's semester, which is derived from the same
 // instant, so the applicant-progress read always sees them as current.
-const journeyNow = Date.parse(process.env.ADMISSION_FIXED_NOW ?? new Date().toISOString());
-
-if (!Number.isFinite(journeyNow)) {
-  throw new Error("ADMISSION_FIXED_NOW must be an RFC 3339 instant");
-}
-
-const fromJourneyNow = (days: number, minutes = 0) =>
-  new Date(journeyNow + days * 86_400_000 + minutes * 60_000).toISOString();
+const { fromNow: fromJourneyNow } = admissionJourneyClock();
 
 // Applications are submitted at now − 20 days and their accounts are claimed at now − 14 days.
 // Invitations cloned from the base interview (assigned at now − 7 days) are answered at now − 6

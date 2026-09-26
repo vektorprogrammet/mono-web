@@ -64,16 +64,19 @@ Package manifests own the per-package scripts that recipes and Turbo run. Use `b
 | check     | `just guides [args...]`           | Check the AGENTS.md guide and CLAUDE.md link of every app, package, and context folder; `just guides write` renders them.                                                                                                                    |
 | check     | `just layout [args...]`           | Check the repository layout and its generated sections: the README and AGENTS.md tables and the hosted journey legs; `just layout write` renders them.                                                                                       |
 | check     | `just lint [args...]`             | Lint with Oxlint.                                                                                                                                                                                                                            |
-| check     | `just measure [args...]`          | Run a heavy job with resource measurement, or show the ledger with `just measure --report`.                                                                                                                                                  |
+| check     | `just measure [args...]`          | Run a heavy job under the machine-wide heavy lock and measure it, or show the ledger with `just measure --report`.                                                                                                                           |
+| check     | `just migration-hashes [args...]` | Check the migration registry and the checksums of applied migrations; `just migration-hashes write` records new ones.                                                                                                                        |
+| check     | `just model <action>`             | Run the Alloy commands of docs/model/authority.als (check) or validate docs/model/contexts.cml (validate), a heavy job.                                                                                                                      |
 | check     | `just source-safety`              | Scan every file in the Git index for credentials, personal data, and SQL data.                                                                                                                                                               |
 | check     | `just test [args...]`             | Test every package, a heavy job (AGENTS.md#verification-and-resources). Arguments go to Turbo.                                                                                                                                               |
 | develop   | `just build [args...]`            | Build every package through Turbo. Arguments go to Turbo.                                                                                                                                                                                    |
 | develop   | `just changelog [args...]`        | Regenerate CHANGELOG.md from conventional commits, or compare it with `--check`.                                                                                                                                                             |
 | develop   | `just dev [args...]`              | Start the homepage, dashboard, and backend against BACKEND_PG_URL. `devenv up` runs it.                                                                                                                                                      |
 | develop   | `just docs [script]`              | Serve the documentation site, or run another of its scripts, such as `just docs build`.                                                                                                                                                      |
+| develop   | `just land <branch>`              | Land a branch on main in the main checkout, then remove its worktree and delete it. It does not push.                                                                                                                                        |
 | develop   | `just seed`                       | Provision the native journey accounts in the `devenv up` database.                                                                                                                                                                           |
 | hooks     | `just check-staged [args...]`     | Type check and test the packages that the staged tree changes (pre-commit and merge hooks).                                                                                                                                                  |
-| hooks     | `just hook-slot [args...]`        | Run a command in one of the machine-wide hook slots (pre-push hooks).                                                                                                                                                                        |
+| hooks     | `just hook-slot [args...]`        | Run a command in one of the machine-wide hook slots under the shared heavy lock (pre-push hooks).                                                                                                                                            |
 | hooks     | `just hooks [args...]`            | Run the Git hooks by hand, for example `just hooks --hook-stage pre-push`.                                                                                                                                                                   |
 | journeys  | `just e2e <suite>`                | Run a browser suite: admission-periods, applicant, approval, conduct, contact, content-publication, identity, interview-response, organization, owner, profile, recruitment, scheduling, schools, settlement, social-events, or substitutes. |
 | journeys  | `just fixture <name> [args...]`   | Build a PostgreSQL fixture in JOURNEY_SEED_PG_URL: recommendation-preupgrade.                                                                                                                                                                |
@@ -167,6 +170,22 @@ For a permanent behavior change:
 Production data, credentials, providers, deployments, writer transfer, and
 legacy shutdown require explicit operator authority.
 
+## Delegation and landing
+
+- A writer works in its own worktree and branch, and never pushes.
+  The lead lands a branch with `just land <branch>` in the main checkout and pushes separately.
+- `just land` refuses a dirty main or worktree and a branch that contains another unlanded branch.
+  It fast-forwards main or records a merge commit whose hooks run. Then it removes the worktree and deletes the branch.
+- A subagent that may run out of budget commits its work in progress on its branch.
+  It writes the remaining steps into `docs/specs/<slice>.md`, never into files that only its session can read.
+- A large slice needs an approved design before code.
+- A regression fix goes from red to green: observe the failing run before the fix.
+  Then close the defect class with a rule or a type, as [Construction over trust](#construction-over-trust) describes.
+- A migration that rewrites existing rows needs an upgrade proof.
+  Seed data through the previous migration with the code of that time, apply the new migrations, and compare the exact rows, on PGlite and on each supported PostgreSQL major.
+- A new journey suite joins `just e2e` or `just golden`, and the hosted journey matrix.
+- Observe exit codes and evidence. Never infer them from a summary.
+
 ## Boundary practices
 
 - Expose complete business commands through the existing domain service. Avoid generic CRUD and additional repository layers.
@@ -192,15 +211,18 @@ A rule that only a reviewer, a comment, or a copied value enforces is not enforc
 When you touch code that trusts one of the patterns below, fix that instance in the same change.
 Record instances you cannot fix in `STATE.md` with their location. Remove the record when the instance is fixed.
 
-| Trusted by convention                                                   | Construction                                             | Precedent on `main`                                                                                                                                                                                                        |
-| ----------------------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A string names a closed set, and a second value repeats a fact about it | Derive the type and every related fact from one registry | `NativeProblemRegistry` in `packages/http-api/src/http-semantics.ts` owns code, status, and body; `Problem.make(code)` takes no status. Counter-example: `PlacementFailure` carries a `status` beside its registry `code`. |
-| A value is validated at the edge but travels as a plain string          | Decode once to the domain type at the boundary           | Instants belong in `DateTime.Utc`. Counter-example: `compareRfc3339Instants` parses both strings at each call.                                                                                                             |
-| A copy of a derived value is kept in sync by hand                       | Generate it, or check it against its source              | `devenv.nix` reads tool versions from `package.json` and `bun.lock`. It and `.oxfmtrc.json` hold the only hook and formatter definitions.                                                                                  |
-| A test pins the observed output                                         | Decode the response with the contract schema             | `apps/dashboard/e2e/receipt-approval.spec.ts` decodes with the exported receipt schemas. Counter-example: suites that re-pinned `credential.invalid` after 042e808d.                                                       |
-| An operation reports success when its precondition was lost             | Return a typed failure that the caller must handle       | `OutboxClaimLost` in `packages/database/src/outbox-lifecycle.ts`.                                                                                                                                                          |
-| A runtime flag grants test authority                                    | Let only the test composition construct it               | `decodeReceiptE2EComposition` rejects receipt E2E flags outside the `local` deployment.                                                                                                                                    |
-| A check exists but nothing runs it                                      | Run it from a hook or CI job                             | The `devenv.nix` Git hooks run format, lint, and the changed packages' type checks and tests on commit; `check-types` regenerates the HTTP contract and asserts it.                                                        |
+| Trusted by convention                                                   | Construction                                             | Precedent on `main`                                                                                                                                                                                                                                                                                                                                 |
+| ----------------------------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A string names a closed set, and a second value repeats a fact about it | Derive the type and every related fact from one registry | `NativeProblemRegistry` in `packages/http-api/src/http-semantics.ts` owns code, status, and body; `Problem.make(code)` takes no status. Counter-example: `PlacementFailure` carries a `status` beside its registry `code`.                                                                                                                          |
+| A value is validated at the edge but travels as a plain string          | Decode once to the domain type at the boundary           | Instants belong in `DateTime.Utc`. Counter-example: `compareRfc3339Instants` parses both strings at each call.                                                                                                                                                                                                                                      |
+| A copy of a derived value is kept in sync by hand                       | Generate it, or check it against its source              | `devenv.nix` reads tool versions from `package.json` and `bun.lock`. It and `.oxfmtrc.json` hold the only hook and formatter definitions.                                                                                                                                                                                                           |
+| A test pins the observed output                                         | Decode the response with the contract schema             | `apps/dashboard/e2e/receipt-approval.spec.ts` decodes with the exported receipt schemas. Counter-example: suites that re-pinned `credential.invalid` after 042e808d.                                                                                                                                                                                |
+| An operation reports success when its precondition was lost             | Return a typed failure that the caller must handle       | `OutboxClaimLost` in `packages/database/src/outbox-lifecycle.ts`.                                                                                                                                                                                                                                                                                   |
+| A runtime flag grants test authority                                    | Let only the test composition construct it               | `decodeReceiptE2EComposition` rejects receipt E2E flags outside the `local` deployment.                                                                                                                                                                                                                                                             |
+| A check exists but nothing runs it                                      | Run it from a hook or CI job                             | The `devenv.nix` Git hooks run format, lint, and the changed packages' type checks and tests on commit; `check-types` regenerates the HTTP contract and asserts it.                                                                                                                                                                                 |
+| Two branches take one migration number, or an applied migration changes | Check the registry and freeze applied migrations         | `packages/database/src/migration-registry.test.ts` checks ids, positions, and files against `migrations/checksums.json`; `just migration-hashes write` only appends. Select by id with `selectDatabaseMigration`.                                                                                                                                   |
+| A fixed defect class stays possible                                     | Add a lint rule or a type, with a negative control       | `anti-slop/no-json-text-parameter`, `anti-slop/no-raw-advisory-lock-sql`, and `anti-slop/no-literal-window-instant` in `tools/oxlint/anti-slop/rules`. Each test keeps valid negative controls beside the invalid cases.                                                                                                                            |
+| A hard-coded instant expires                                            | Derive it from the journey clock                         | `admissionJourneyClock` and `journeyClock` in `tools/e2e/journey-clock.ts` derive journey instants from `ADMISSION_FIXED_NOW`, the time of the run, or a runner's pin; `anti-slop/no-literal-window-instant` rejects literal window instants in journey code. Counter-example: seeds whose admission period ended on 2026-09-30, fixed in 501b1cbd. |
 
 ## Verification and resources
 
@@ -213,37 +235,34 @@ For property checks, generate reachable command sequences and assert business in
 Use the installed Arbitrary API with bounded runs, deterministic seeds, and typed options.
 Valid schema generation does not cover malformed wire input.
 
-Full end-to-end suites dominate machine load. Only the orchestrating lead starts them, one at a time.
+Full end-to-end suites dominate machine load. Only the orchestrating lead starts them.
 They are the golden journeys (`just golden <journey>`) and their CI wrappers, `just proof delivery-recovery`,
-and the browser evidence suites (`e2e:*:real`, `e2e:real-*`).
+and the browser suites (`just e2e <suite>`).
 A worker that needs one reports the exact command to the lead and does not start it.
 
-All other checks and tests can run at the same time under the admission rule below.
-Heavy jobs are real PostgreSQL tests, browsers and dev servers, `just check-types`, and `just test`.
-Each agent runs at most one heavy job at a time.
-Run a heavy job through `just measure --class <class> -- <command...>` to record its resource use.
-The ledger is `${XDG_STATE_HOME:-~/.local/state}/vektorprogrammet/job-ledger.jsonl`.
-It is machine runtime evidence. Do not commit it.
+Heavy jobs are real PostgreSQL tests, browser suites and the servers they start, JVM model checks, `just check`, `just check-types`, and `just test`.
+Run every heavy job through `just measure --class <class> -- <command...>`. `just model` does so itself.
+`just measure` holds the heavy lock while its command runs, an exclusive `flock` lock on `${XDG_RUNTIME_DIR:-/tmp}/vektorprogrammet/heavy.lock`.
+The lock is per machine and user: every worktree and every agent shares it, so one heavy job runs at a time.
+Hook jobs hold the same lock shared. A heavy job waits for the running hook jobs, and hook jobs that start later wait for the heavy job.
+A waiting job shows each holder: process id, class, start time, directory, and command.
+The lock belongs to the `just measure` process. It is released when that process exits, also on a signal or `kill -9`.
+The job's processes inherit `VEKTORPROGRAMMET_HEAVY_LOCK`, the process id of the holder.
+A `just measure` or hook job inside a job that holds the lock, such as the hooks of a commit, runs without taking it again.
+Setting that variable by hand bypasses the lock. Only the lead does that, to run a job beside the holder on purpose.
+A service that runs until it is stopped, such as `devenv up`, does not run through `just measure`, because it would hold the lock until it stops.
 
-Before a heavy job, run `just measure --report`. Read the max peak RSS and max mean cores of the class.
-If the class has no ledger row, measure it first while no other heavy job runs.
-Start the job only if both conditions are true:
+`just measure` records the resource use of each job in `${XDG_STATE_HOME:-~/.local/state}/vektorprogrammet/job-ledger.jsonl`.
+The ledger is machine runtime evidence. Do not commit it.
+`just measure --report` shows the peak RSS and cores of each class beside the free memory and load of the machine.
 
-- `MemAvailable - peak RSS >= 20% of MemTotal`
-- `1-minute load + mean cores <= 80% of logical CPUs`
-
-Memory is the hard limit, and CPU is the soft limit because oversubscription only slows jobs.
-
-If a condition is false, wait and check again.
-Load and `MemAvailable` lag a job that started in the last minute. Include its peak RSS and mean cores before you compare.
-
-Git hooks do not use the admission rule. Their type checks and tests run through `just hook-slot` (`tools/scripts/hook-slot.ts`).
-It holds one of N machine-wide slots, a `flock` lock on `${XDG_RUNTIME_DIR:-/tmp}/vektorprogrammet/hook-slot-<n>`.
-If all slots are busy, the hook shows the slot holders and waits.
-The lock is released when the hook process stops, also on a signal.
+Git hooks run their type checks and tests through `just hook-slot` (`tools/scripts/hook-slot.ts`).
+It holds the heavy lock shared, then one of N machine-wide slots, a `flock` lock on `${XDG_RUNTIME_DIR:-/tmp}/vektorprogrammet/hook-slot-<n>`.
+If a heavy job holds or waits for the heavy lock, or if all slots are busy, the hook shows the holders and waits.
+The locks are released when the hook process stops, also on a signal.
 Each slot pins its job to 1/N of the allowed CPUs. Vitest starts one worker less than that CPU count.
 Explicit settings, such as `--no-file-parallelism`, still apply. Hook Turbo runs use `--concurrency=1`.
-A staged change that selects no type check or test does not take a slot.
+A staged change that selects no type check or test takes neither the lock nor a slot.
 The ledger records hook jobs as `hook-*` classes.
 
 `VEKTORPROGRAMMET_HOOK_SLOTS` sets N. The default is 5.

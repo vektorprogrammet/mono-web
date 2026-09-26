@@ -13,6 +13,7 @@ import {
   type Route,
 } from "@playwright/test";
 import { readBrowserStorage, readDocumentCookie } from "../browser/interview-response-state.js";
+import { admissionJourneyClock } from "../../../tools/e2e/journey-clock.js";
 
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5185";
 
@@ -40,12 +41,15 @@ type ApplicantCase = {
   readonly responseMessage: string | null;
 };
 
+// The runner passes its fixed admission clock as ADMISSION_FIXED_NOW; the schedules derive from it.
+const clock = admissionJourneyClock();
+
 const APPLICANT_CASES: readonly ApplicantCase[] = [
   {
     key: "accepted",
     capabilityEnvironment: "INVITATION_RESPONSE_E2E_ACCEPTED_CAPABILITY",
     applicantName: "Ada Aksept",
-    scheduledAt: "2031-09-20T13:30:00.000Z",
+    scheduledAt: clock.fromNow(5, 90),
     room: "R-051A",
     campus: "Gløshaugen",
     operation: "confirmInvitation",
@@ -58,7 +62,7 @@ const APPLICANT_CASES: readonly ApplicantCase[] = [
     key: "rejected",
     capabilityEnvironment: "INVITATION_RESPONSE_E2E_REJECTED_CAPABILITY",
     applicantName: "Rita Avslag",
-    scheduledAt: "2031-09-20T14:30:00.000Z",
+    scheduledAt: clock.fromNow(5, 150),
     room: "R-051B",
     campus: "Gløshaugen",
     operation: "rejectInvitation",
@@ -71,7 +75,7 @@ const APPLICANT_CASES: readonly ApplicantCase[] = [
     key: "requested-new-time",
     capabilityEnvironment: "INVITATION_RESPONSE_E2E_REQUESTED_NEW_TIME_CAPABILITY",
     applicantName: "Nora Ny Tid",
-    scheduledAt: "2031-09-20T15:30:00.000Z",
+    scheduledAt: clock.fromNow(5, 210),
     room: "R-051C",
     campus: "Gløshaugen",
     operation: "requestNewInvitationTime",
