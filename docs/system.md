@@ -163,8 +163,10 @@ The source reader adds Organization tables only after explicit selection. Review
 
 Each department runs its own admission for each semester. A new applicant submits
 the assistant application on the public site. The application states the field of
-study, year of study, weekday availability, teaching blocks, and school wishes.
-School wishes name a school level, a preferred school, and a teaching language.
+study, the year of study, the weekdays that do not suit, a four- or eight-week
+position, and the teaching block of a four-week position. An eight-week position
+serves both blocks. The application also states one school wish: the teaching
+language, which names a Norwegian school, an international school, or either.
 
 ```text
 Applicant submits
@@ -190,7 +192,8 @@ interview recommendation decides admission. An interviewer from the recruitment
 team (Rekruttering) records it. No coordinator makes a separate admission decision.
 
 A returning assistant registers again for each new semester, without an interview.
-The registration states the same availability and school wishes as an application.
+The registration states the same availability and teaching language as an
+application, and it can name one school that the assistant wishes to return to.
 The assistant can use the existing account and history. The assistant still needs
 an explicit affiliation in the department and an explicit placement.
 
@@ -262,18 +265,23 @@ Scoped management reads conceal other departments, their capacity plans, and the
 ### School demand and placement
 
 Placement demand specifies the school, weekday, teaching block, semester, and
-required number of assistants. Assistant supply includes affiliation, eligibility,
-availability, and school wishes. The application or returning registration of each
-assistant supplies the availability and school wishes.
+required number of assistants. Assistant supply is each active affiliation without
+an active placement in the semester. The latest returning registration supplies its
+availability and school wishes. Otherwise a new applicant's application supplies
+them once the interview is conducted.
 
 The school contact tells the school coordination team (Skolekoordinering) what the
 school needs. The coordinator records that demand for an active school, weekday,
 and teaching block.
 
 The system first creates a placement draft automatically. The draft matches the
-weekday availability and teaching blocks of the assistants to the capacity plans of
-the schools. A coordinator then adjusts the draft manually. The draft creates no
-placement until a coordinator accepts it.
+weekday availability and teaching blocks of the assistants to the open demand. The
+open demand of a school, weekday, and block is the demand, capped by the school's
+capacity plan for that weekday, less the active placements there. A school without a
+capacity plan for a weekday is bounded by its demand alone. The draft shows the
+school wishes of each assistant, but it does not use them to choose a school. A
+coordinator then adjusts the draft manually. The draft creates no placement until a
+coordinator accepts it.
 
 A proposal snapshots the demand and the current active placements. Every mismatch
 is explicit, and confirmation requires an exact review of those exceptions.
