@@ -57,7 +57,7 @@ describe("returning-assistant registration on PostgreSQL", () => {
       // The teams are out of sorted order: the registration keeps the order the assistant chose.
       const teamIds = ["returning-team-b", "returning-team-a"];
 
-      const input = Schema.decodeSync(ReturningAssistantRegistrationInputSchema)({
+      const input = yield* Schema.decodeEffect(ReturningAssistantRegistrationInputSchema)({
         commandId: "returning-registration-command",
         admissionPeriodId: "returning-autumn-period",
         expectedRevision: 0,

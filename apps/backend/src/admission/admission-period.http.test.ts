@@ -21,6 +21,7 @@ import type { SqlError } from "effect/unstable/sql/SqlError";
 import { describe, expect, it } from "@effect/vitest";
 import { backendDatabase } from "../../test/database.js";
 import { decodeBackendConfig } from "../config.js";
+import { jsonText } from "../http-api/problem.js";
 import { makeBackendTestHttp } from "../test/native-http.js";
 
 const environment = {
@@ -362,7 +363,7 @@ describe("admission period management over HTTP and PostgreSQL", () => {
           "content-type": "application/json",
           "idempotency-key": "malformedCreate".padEnd(22, "0"),
         },
-        body: JSON.stringify({
+        body: yield* jsonText({
           semesterId: "semester-spring",
           startAt: "2032-01-10T08:00:00.000Z",
           endAt: "2032-02-01T20:00:00.000Z",
@@ -383,8 +384,8 @@ describe("admission period management over HTTP and PostgreSQL", () => {
         });
 
       const empty = yield* patch("emptyPatch", "{}");
-      const deleted = yield* patch("deletingPatch", JSON.stringify({ endAt: null }));
-      const invalid = yield* patch("invalidPatch", JSON.stringify({ endAt: "soon" }));
+      const deleted = yield* patch("deletingPatch", yield* jsonText({ endAt: null }));
+      const invalid = yield* patch("invalidPatch", yield* jsonText({ endAt: "soon" }));
 
       expect([created.status, empty.status, deleted.status, invalid.status]).toEqual([
         422, 422, 422, 422,

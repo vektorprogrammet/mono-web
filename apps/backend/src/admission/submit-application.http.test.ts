@@ -13,6 +13,7 @@ import { Deferred, Effect, Fiber, Layer, Schedule, Schema } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { backendDatabase } from "../../test/database.js";
 import { decodeBackendConfig } from "../config.js";
+import { jsonText } from "../http-api/problem.js";
 import { makeBackendTestHttp } from "../test/native-http.js";
 
 const environment = {
@@ -136,7 +137,7 @@ const problem = (response: Response) =>
   Effect.gen(function* () {
     expect(response.headers.get("content-type")).toBe("application/problem+json");
 
-    return Schema.decodeUnknownSync(AdmissionsSubmitApplicationProblem)(
+    return yield* Schema.decodeUnknownEffect(AdmissionsSubmitApplicationProblem)(
       yield* Effect.promise(() => response.json()),
       {
         onExcessProperty: "error",
@@ -150,7 +151,7 @@ describe("public application submission over HTTP", () => {
       const { submit, count } = fixture();
 
       const response = yield* submit("unknownDepartment", {
-        body: JSON.stringify({ ...application, departmentId: "department-unknown" }),
+        body: yield* jsonText({ ...application, departmentId: "department-unknown" }),
       });
 
       expect(response.status).toBe(422);
@@ -173,16 +174,15 @@ describe("public application submission over HTTP", () => {
 
       expect(submitted.status).toBe(201);
 
-      const { applicationId } = Schema.decodeUnknownSync(PublicApplicationConfirmationSchema)(
-        yield* Effect.promise(() => submitted.json()),
-        { onExcessProperty: "error" },
-      );
+      const { applicationId } = yield* Schema.decodeUnknownEffect(
+        PublicApplicationConfirmationSchema,
+      )(yield* Effect.promise(() => submitted.json()), { onExcessProperty: "error" });
 
       const confirmation = yield* read(applicationId);
 
       expect(confirmation.status).toBe(200);
       expect(
-        Schema.decodeUnknownSync(PublicApplicationConfirmationSchema)(
+        yield* Schema.decodeUnknownEffect(PublicApplicationConfirmationSchema)(
           yield* Effect.promise(() => confirmation.json()),
           {
             onExcessProperty: "error",
@@ -259,7 +259,7 @@ describe("public application submission over HTTP", () => {
       yield* Deferred.await(lockHeld);
 
       const loser = yield* submit("raceLoser", {
-        body: JSON.stringify({ ...application, email: "ADA@example.invalid" }),
+        body: yield* jsonText({ ...application, email: "ADA@example.invalid" }),
       });
 
       expect(yield* Fiber.join(winner)).toBe(1);
@@ -319,7 +319,7 @@ describe("public application submission over HTTP", () => {
       const { lastName: _omitted, ...withoutLastName } = application;
 
       const response = yield* submit("invalidMembers", {
-        body: JSON.stringify({
+        body: yield* jsonText({
           ...withoutLastName,
           firstName: "",
           email: "not-an-email",
