@@ -105,16 +105,12 @@ const validLegacyFile = (file: NonNullable<LegacyReceiptRow["file"]>): file is R
   file.byteLength > 0 &&
   /^[a-f0-9]{64}$/.test(file.sha256);
 
-export const importLegacyReceipt = (
+const importReceiptOccurrence = (
   row: LegacyReceiptRow,
   receiptId: string,
   provenance: ReceiptImportProvenance,
-  sourceOccurrence = 0,
+  sourceOccurrence: number,
 ): ReceiptImportResult => {
-  if (!Number.isSafeInteger(sourceOccurrence) || sourceOccurrence < 0) {
-    throw new Error("source occurrence must be a non-negative safe integer");
-  }
-
   const targetSemanticIdentity =
     row.visualId !== null && row.visualId.length > 0
       ? row.visualId
@@ -227,6 +223,13 @@ export const importLegacyReceipt = (
   });
 };
 
+/** Imports one legacy row as the first occurrence of its source identity. */
+export const importLegacyReceipt = (
+  row: LegacyReceiptRow,
+  receiptId: string,
+  provenance: ReceiptImportProvenance,
+): ReceiptImportResult => importReceiptOccurrence(row, receiptId, provenance, 0);
+
 export interface LegacyReceiptImportInput {
   readonly row: LegacyReceiptRow;
   readonly receiptId: string;
@@ -255,7 +258,7 @@ export const importLegacyReceipts = (
   return inputs.map(({ row, receiptId, provenance }) => {
     const sourceOccurrence = sourceKeyOccurrences.get(row.sourcePrimaryKey) ?? 0;
     sourceKeyOccurrences.set(row.sourcePrimaryKey, sourceOccurrence + 1);
-    const result = importLegacyReceipt(row, receiptId, provenance, sourceOccurrence);
+    const result = importReceiptOccurrence(row, receiptId, provenance, sourceOccurrence);
     const duplicateReasons: ReceiptQuarantineReason[] = [];
 
     if ((sourceKeyCounts.get(row.sourcePrimaryKey) ?? 0) > 1) {

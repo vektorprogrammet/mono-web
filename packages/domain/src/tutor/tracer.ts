@@ -1,4 +1,4 @@
-import { Schema, Data, Effect } from "effect";
+import { Array, Schema, Data, Effect } from "effect";
 import {
   type ConductInterviewV1,
   decodeConductInterviewV1,
@@ -85,7 +85,7 @@ export type TutorFailure =
 export interface FoldedState {
   readonly stream: StreamKey;
   readonly correlationId: string;
-  readonly events: ReadonlyArray<EventEnvelopeV1>;
+  readonly events: Array.NonEmptyReadonlyArray<EventEnvelopeV1>;
   readonly nextEventType: EventType | "Terminal";
 }
 
@@ -160,7 +160,7 @@ export const foldEvents = (
       return yield* new InvalidTransition({ reasonCode: "EMPTY_STREAM", lawRef: undefined });
     }
 
-    const events: Array<EventEnvelopeV1> = [];
+    const events: EventEnvelopeV1[] = [];
     const eventIds = new Set<string>();
     let stream: StreamKey | undefined;
     let correlationId: string | undefined;
@@ -205,9 +205,7 @@ export const foldEvents = (
       previousOccurredAt = event.occurredAt;
     }
 
-    const firstEvent = events[0];
-
-    if (firstEvent === undefined || stream === undefined || correlationId === undefined) {
+    if (!Array.isArrayNonEmpty(events) || stream === undefined || correlationId === undefined) {
       return yield* new InvalidTransition({ reasonCode: "EMPTY_STREAM", lawRef: undefined });
     }
 
@@ -242,11 +240,7 @@ const projectionStatus = (eventType: EventType): ProjectionStatus => {
 };
 
 export const projectFoldedState = (folded: FoldedState): Projection => {
-  const lastEvent = folded.events[folded.events.length - 1];
-
-  if (lastEvent === undefined) {
-    throw new Error("cannot project an empty folded state");
-  }
+  const lastEvent = Array.lastNonEmpty(folded.events);
 
   const base: Omit<Projection, "conductedAt"> = {
     projectionVersion: 1,

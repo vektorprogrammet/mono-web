@@ -42,25 +42,25 @@ Reads native HTTP requests and writes their representations: bounded JSON, preco
   - [apps/backend/src/http-api/read-json.ts](../apps/backend/src/http-api/read-json.ts)
   - [apps/backend/src/http-semantics.test.ts](../apps/backend/src/http-semantics.test.ts)
 - `interpretMergePatchSource`: Preserves absence, value, and explicit deletion before typed merge-patch decoding.
-  [apps/backend/src/http-semantics.ts:177](../apps/backend/src/http-semantics.ts#L177), no consumers.
+  [apps/backend/src/http-semantics.ts:180](../apps/backend/src/http-semantics.ts#L180), no consumers.
 - `parseIdempotencyKey`: Decodes one non-combinable Idempotency-Key field.
-  [apps/backend/src/http-semantics.ts:256](../apps/backend/src/http-semantics.ts#L256), 2 consumers:
+  [apps/backend/src/http-semantics.ts:259](../apps/backend/src/http-semantics.ts#L259), 2 consumers:
   - [apps/backend/src/http-api/problem.ts](../apps/backend/src/http-api/problem.ts)
   - [apps/backend/src/http-semantics.test.ts](../apps/backend/src/http-semantics.test.ts)
 - `parseRequiredIfMatch`: Decodes the required single strong If-Match value for an item mutation.
-  [apps/backend/src/http-semantics.ts:273](../apps/backend/src/http-semantics.ts#L273), 2 consumers:
+  [apps/backend/src/http-semantics.ts:276](../apps/backend/src/http-semantics.ts#L276), 2 consumers:
   - [apps/backend/src/http-api/problem.ts](../apps/backend/src/http-api/problem.ts)
   - [apps/backend/src/http-semantics.test.ts](../apps/backend/src/http-semantics.test.ts)
 - `parseReadIfMatch`: Canonicalizes an optional read If-Match wildcard or entity-tag list.
-  [apps/backend/src/http-semantics.ts:356](../apps/backend/src/http-semantics.ts#L356), 2 consumers:
+  [apps/backend/src/http-semantics.ts:359](../apps/backend/src/http-semantics.ts#L359), 2 consumers:
   - [apps/backend/src/http-api/problem.ts](../apps/backend/src/http-api/problem.ts)
   - [apps/backend/src/http-semantics.test.ts](../apps/backend/src/http-semantics.test.ts)
 - `parseIfNoneMatch`: Canonicalizes an optional If-None-Match wildcard or entity-tag list.
-  [apps/backend/src/http-semantics.ts:364](../apps/backend/src/http-semantics.ts#L364), 2 consumers:
+  [apps/backend/src/http-semantics.ts:367](../apps/backend/src/http-semantics.ts#L367), 2 consumers:
   - [apps/backend/src/http-api/problem.ts](../apps/backend/src/http-api/problem.ts)
   - [apps/backend/src/http-semantics.test.ts](../apps/backend/src/http-semantics.test.ts)
 - `encodePathIdentity`: Encodes one decoded identity as an uppercase RFC 3986 path segment.
-  [apps/backend/src/http-semantics.ts:372](../apps/backend/src/http-semantics.ts#L372), 7 consumers:
+  [apps/backend/src/http-semantics.ts:375](../apps/backend/src/http-semantics.ts#L375), 7 consumers:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
   - [apps/backend/src/http-api/system.ts](../apps/backend/src/http-api/system.ts)
   - [apps/backend/src/http-semantics.test.ts](../apps/backend/src/http-semantics.test.ts)
@@ -69,7 +69,7 @@ Reads native HTTP requests and writes their representations: bounded JSON, preco
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
   - [apps/dashboard/e2e/run-real-admission-period-management.mjs](../apps/dashboard/e2e/run-real-admission-period-management.mjs)
 - `normalizeTarget`: Fills a route template with its encoded identities; a missing identity is a malformed request.
-  [apps/backend/src/http-semantics.ts:386](../apps/backend/src/http-semantics.ts#L386), 8 consumers:
+  [apps/backend/src/http-semantics.ts:389](../apps/backend/src/http-semantics.ts#L389), 8 consumers:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
   - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
@@ -79,7 +79,7 @@ Reads native HTTP requests and writes their representations: bounded JSON, preco
   - [apps/backend/src/recruitment/http-commands.ts](../apps/backend/src/recruitment/http-commands.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `deriveHttpIdentity`: Derives the private storage digest and domain command ID from the identity tuple.
-  [apps/backend/src/http-semantics.ts:415](../apps/backend/src/http-semantics.ts#L415), 7 consumers:
+  [apps/backend/src/http-semantics.ts:418](../apps/backend/src/http-semantics.ts#L418), 7 consumers:
   - [apps/backend/src/http-api/problem.ts](../apps/backend/src/http-api/problem.ts)
   - [apps/backend/src/http-semantics.test.ts](../apps/backend/src/http-semantics.test.ts)
   - [apps/backend/src/receipt/http.test.ts](../apps/backend/src/receipt/http.test.ts)
@@ -803,7 +803,7 @@ Keyset cursors and pages over ordered PostgreSQL reads.
 Canonical JSON and SHA-256 digests that evidence and idempotency identities hash.
 
 - `canonicalJsonValue`: The plain JSON value of a datum, with sorted object keys and non-finite numbers as `null`.
-  [packages/domain/src/shared-kernel/canonical-json.ts:18](../packages/domain/src/shared-kernel/canonical-json.ts#L18), 13 consumers:
+  [packages/domain/src/shared-kernel/canonical-json.ts:72](../packages/domain/src/shared-kernel/canonical-json.ts#L72), 13 consumers:
   - [packages/database/runtime/historical-service-cohort-rehearsal.ts](../packages/database/runtime/historical-service-cohort-rehearsal.ts)
   - [packages/database/src/admission-period/postgres.ts](../packages/database/src/admission-period/postgres.ts)
   - [packages/database/src/application/returning-postgres.ts](../packages/database/src/application/returning-postgres.ts)
@@ -818,7 +818,7 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [tools/verification/organization-import-rehearsal-postgres.ts](../tools/verification/organization-import-rehearsal-postgres.ts)
   - [tools/verification/receipt-import-rehearsal.ts](../tools/verification/receipt-import-rehearsal.ts)
 - `canonicalJson`: The canonical JSON text of a datum, to hash or compare; a SQL `json` parameter takes `canonicalJsonValue` instead.
-  [packages/domain/src/shared-kernel/canonical-json.ts:62](../packages/domain/src/shared-kernel/canonical-json.ts#L62), 58 consumers:
+  [packages/domain/src/shared-kernel/canonical-json.ts:85](../packages/domain/src/shared-kernel/canonical-json.ts#L85), 58 consumers:
   - [apps/backend/src/http-semantics.ts](../apps/backend/src/http-semantics.ts)
   - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
   - [packages/database/runtime/identity-postgres-proof-main.ts](../packages/database/runtime/identity-postgres-proof-main.ts)
@@ -878,7 +878,7 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [tools/verification/organization-import-rehearsal-main.ts](../tools/verification/organization-import-rehearsal-main.ts)
   - [tools/verification/organization-import-rehearsal.ts](../tools/verification/organization-import-rehearsal.ts)
 - `canonicalJsonBytes`: The UTF-8 bytes of the canonical JSON text of a datum.
-  [packages/domain/src/shared-kernel/canonical-json.ts:69](../packages/domain/src/shared-kernel/canonical-json.ts#L69), 59 consumers:
+  [packages/domain/src/shared-kernel/canonical-json.ts:92](../packages/domain/src/shared-kernel/canonical-json.ts#L92), 59 consumers:
   - [apps/backend/src/http-semantics.ts](../apps/backend/src/http-semantics.ts)
   - [apps/backend/src/receipt/import-snapshot.ts](../apps/backend/src/receipt/import-snapshot.ts)
   - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
@@ -939,7 +939,7 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [tools/verification/organization-import-rehearsal.ts](../tools/verification/organization-import-rehearsal.ts)
   - [tools/verification/receipt-import-rehearsal.ts](../tools/verification/receipt-import-rehearsal.ts)
 - `sha256Hex`: The lowercase hexadecimal SHA-256 digest of bytes.
-  [packages/domain/src/shared-kernel/canonical-json.ts:76](../packages/domain/src/shared-kernel/canonical-json.ts#L76), 63 consumers:
+  [packages/domain/src/shared-kernel/canonical-json.ts:99](../packages/domain/src/shared-kernel/canonical-json.ts#L99), 63 consumers:
   - [apps/backend/src/receipt/import-snapshot.ts](../apps/backend/src/receipt/import-snapshot.ts)
   - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
   - [packages/database/runtime/identity-postgres-proof-main.ts](../packages/database/runtime/identity-postgres-proof-main.ts)

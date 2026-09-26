@@ -187,13 +187,7 @@ const resolvedEvidence = Effect.fnUntraced(function* (
 /** Joins caller-owned cutover transactions; otherwise owns the entire cohort transaction. */
 export const importReviewedOrganizationCohort = Effect.fn("importReviewedOrganizationCohort")(
   function* (pool: Pool, input: Schema.Json, client?: PoolClient) {
-    const snapshot = yield* Effect.try({
-      try: () => decodeReviewedOrganizationSnapshot(input),
-      catch: (cause) =>
-        cause instanceof OrganizationCohortFailure
-          ? cause
-          : new OrganizationCohortFailure({ code: "InvalidSnapshot" }),
-    });
+    const snapshot = yield* Effect.fromResult(decodeReviewedOrganizationSnapshot(input));
 
     const snapshotKey = organizationEvidenceDigest([
       snapshot.sourceRepository,

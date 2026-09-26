@@ -6,7 +6,6 @@ import {
   DatasetInputError,
   loadDataset,
   loadPersonAuthority,
-  type Dataset,
   type PersonAuthorityProjection,
   type RawDatasetInput,
 } from "./data.js";
@@ -481,26 +480,28 @@ export const runSyntheticFixtures: Effect.Effect<
       continue;
     }
 
-    const observation = Result.try({
-      try: () => {
-        const dataset: Dataset = buildDataset(input);
-
-        const result = runSDep2Team(dataset, {
-          snapshotId: fixture.id,
-          personAuthority: fixture.personAuthority,
-        });
-
-        return failedObservation(fixture, result, undefined);
-      },
-      catch: (error) =>
-        error instanceof DatasetInputError
-          ? error
-          : new DatasetInputError({
+    const observation = buildDataset(input).pipe(
+      Result.flatMap((dataset) =>
+        Result.try({
+          try: () =>
+            failedObservation(
+              fixture,
+              runSDep2Team(dataset, {
+                snapshotId: fixture.id,
+                personAuthority: fixture.personAuthority,
+              }),
+              undefined,
+            ),
+          catch: () =>
+            new DatasetInputError({
               code: "INVALID_ARGUMENT",
               file: "fixture",
               message: "INVALID_ARGUMENT:fixture",
             }),
-    }).pipe(Result.getOrElse((safeError) => failedObservation(fixture, undefined, safeError)));
+        }),
+      ),
+      Result.getOrElse((safeError) => failedObservation(fixture, undefined, safeError)),
+    );
 
     observations.push(observation);
   }

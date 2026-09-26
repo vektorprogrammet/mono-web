@@ -1,4 +1,4 @@
-import { Data, Option, Schema } from "effect";
+import { Data, Result, Schema } from "effect";
 import { canonicalJsonBytes, sha256Hex } from "../shared-kernel/index.js";
 import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
 import { appointmentStateAt } from "./lifecycle.js";
@@ -96,17 +96,11 @@ export class OrganizationCohortFailure extends Data.TaggedError("OrganizationCoh
 export const organizationEvidenceDigest = (value: Schema.Json): string =>
   sha256Hex(canonicalJsonBytes(value));
 
-export const organizationSnapshotDigest = (input: Schema.Json): string => {
-  const decoded = Schema.decodeUnknownOption(Schema.Record(Schema.String, Schema.Json))(input);
-
-  if (Option.isNone(decoded)) throw new OrganizationCohortFailure({ code: "InvalidSnapshot" });
-
-  const snapshot = Object.fromEntries(
-    Object.entries(decoded.value).filter(([key]) => key !== "snapshotDigest"),
+/** The evidence digest of a snapshot without its own digest field. */
+export const organizationSnapshotDigest = (snapshot: Schema.JsonObject): string =>
+  organizationEvidenceDigest(
+    Object.fromEntries(Object.entries(snapshot).filter(([key]) => key !== "snapshotDigest")),
   );
-
-  return organizationEvidenceDigest(snapshot);
-};
 
 export const reviewedOrganizationTargetId = (
   kind: "Team" | "Board" | "Position" | "TeamMembership" | "BoardMembership",
@@ -114,93 +108,92 @@ export const reviewedOrganizationTargetId = (
   sourceId: string,
 ): string => `org-${organizationEvidenceDigest([kind, sourceRepository, sourceId])}`;
 
+const invalidReview = () => new OrganizationCohortFailure({ code: "InvalidReview" });
+
+const invalidSnapshot = () => new OrganizationCohortFailure({ code: "InvalidSnapshot" });
+
 export const validateOrganizationReview = (
   input: Schema.Json,
   occurrences: ReadonlyArray<OrganizationSourceOccurrence>,
-): OrganizationReview => {
-  let review: OrganizationReview;
+): Result.Result<OrganizationReview, OrganizationCohortFailure> =>
+  Result.gen(function* () {
+    const review = yield* Schema.decodeUnknownResult(OrganizationReview)(input, {
+      onExcessProperty: "error",
+    }).pipe(Result.mapError(invalidReview));
 
-  try {
-    review = Schema.decodeUnknownSync(OrganizationReview)(input, { onExcessProperty: "error" });
-  } catch {
-    throw new OrganizationCohortFailure({ code: "InvalidReview" });
-  }
+    const keys = new Set<string>();
 
-  const keys = new Set<string>();
-
-  const entries = new Map(
-    review.memberships.map((entry) => [JSON.stringify([entry.sourceKind, entry.sourceId]), entry]),
-  );
-
-  if (entries.size !== review.memberships.length || entries.size !== occurrences.length)
-    throw new OrganizationCohortFailure({ code: "InvalidReview" });
-
-  for (const occurrence of occurrences) {
-    const key = JSON.stringify([occurrence.sourceKind, occurrence.sourceId]);
-    const entry = entries.get(key);
-
-    if (
-      keys.has(key) ||
-      !entry ||
-      entry.sourceRowDigest !== occurrence.sourceRowDigest ||
-      occurrence.sourceRowDigest !== organizationEvidenceDigest(occurrence.row)
-    )
-      throw new OrganizationCohortFailure({ code: "InvalidReview" });
-    keys.add(key);
-
-    if (entry.decision === "Excluded") {
-      continue;
-    }
-
-    if (
-      entry.startAt === undefined ||
-      entry.endAt === undefined ||
-      (entry.endAt !== null && compareRfc3339Instants(entry.endAt, entry.startAt) <= 0)
-    )
-      throw new OrganizationCohortFailure({ code: "InvalidReview" });
-
-    const state = appointmentStateAt(
-      { startAt: entry.startAt, endAt: entry.endAt, suspended: false },
-      review.asOf,
+    const entries = new Map(
+      review.memberships.map((entry) => [
+        JSON.stringify([entry.sourceKind, entry.sourceId]),
+        entry,
+      ]),
     );
 
-    if (state !== (entry.decision === "Historical" ? "Ended" : entry.decision))
-      throw new OrganizationCohortFailure({ code: "InvalidReview" });
-  }
+    if (entries.size !== review.memberships.length || entries.size !== occurrences.length)
+      return yield* Result.fail(invalidReview());
 
-  return review;
-};
+    for (const occurrence of occurrences) {
+      const key = JSON.stringify([occurrence.sourceKind, occurrence.sourceId]);
+      const entry = entries.get(key);
+
+      if (
+        keys.has(key) ||
+        !entry ||
+        entry.sourceRowDigest !== occurrence.sourceRowDigest ||
+        occurrence.sourceRowDigest !== organizationEvidenceDigest(occurrence.row)
+      )
+        return yield* Result.fail(invalidReview());
+      keys.add(key);
+
+      if (entry.decision === "Excluded") {
+        continue;
+      }
+
+      if (
+        entry.startAt === undefined ||
+        entry.endAt === undefined ||
+        (entry.endAt !== null && compareRfc3339Instants(entry.endAt, entry.startAt) <= 0)
+      )
+        return yield* Result.fail(invalidReview());
+
+      const state = appointmentStateAt(
+        { startAt: entry.startAt, endAt: entry.endAt, suspended: false },
+        review.asOf,
+      );
+
+      if (state !== (entry.decision === "Historical" ? "Ended" : entry.decision))
+        return yield* Result.fail(invalidReview());
+    }
+
+    return review;
+  });
 
 export const decodeReviewedOrganizationSnapshot = (
   input: Schema.Json,
-): ReviewedOrganizationSnapshot => {
-  let snapshot: ReviewedOrganizationSnapshot;
-
-  try {
-    snapshot = Schema.decodeUnknownSync(ReviewedOrganizationSnapshot)(input, {
+): Result.Result<ReviewedOrganizationSnapshot, OrganizationCohortFailure> =>
+  Result.gen(function* () {
+    const snapshot = yield* Schema.decodeUnknownResult(ReviewedOrganizationSnapshot)(input, {
       onExcessProperty: "error",
-    });
-  } catch {
-    throw new OrganizationCohortFailure({ code: "InvalidSnapshot" });
-  }
+    }).pipe(Result.mapError(invalidSnapshot));
 
-  if (
-    organizationSnapshotDigest(snapshot) !== snapshot.snapshotDigest ||
-    new Set(snapshot.occurrences.map((row) => row.occurrenceId)).size !==
-      snapshot.occurrences.length ||
-    new Set(snapshot.mappings.persons.map((row) => row.sourceUserId)).size !==
-      snapshot.mappings.persons.length ||
-    new Set(snapshot.mappings.departments.map((row) => row.sourceDepartmentId)).size !==
-      snapshot.mappings.departments.length
-  )
-    throw new OrganizationCohortFailure({ code: "InvalidSnapshot" });
+    if (
+      organizationSnapshotDigest(snapshot) !== snapshot.snapshotDigest ||
+      new Set(snapshot.occurrences.map((row) => row.occurrenceId)).size !==
+        snapshot.occurrences.length ||
+      new Set(snapshot.mappings.persons.map((row) => row.sourceUserId)).size !==
+        snapshot.mappings.persons.length ||
+      new Set(snapshot.mappings.departments.map((row) => row.sourceDepartmentId)).size !==
+        snapshot.mappings.departments.length
+    )
+      return yield* Result.fail(invalidSnapshot());
 
-  if (
-    snapshot.review.sourceRevision !== snapshot.sourceRevision ||
-    snapshot.review.sourceWatermark !== snapshot.sourceWatermark
-  )
-    throw new OrganizationCohortFailure({ code: "InvalidReview" });
-  validateOrganizationReview(snapshot.review, snapshot.occurrences);
+    if (
+      snapshot.review.sourceRevision !== snapshot.sourceRevision ||
+      snapshot.review.sourceWatermark !== snapshot.sourceWatermark
+    )
+      return yield* Result.fail(invalidReview());
+    yield* validateOrganizationReview(snapshot.review, snapshot.occurrences);
 
-  return snapshot;
-};
+    return snapshot;
+  });

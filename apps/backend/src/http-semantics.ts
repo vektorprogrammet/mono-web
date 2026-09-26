@@ -13,7 +13,7 @@ import {
   type ValidationProblemCode,
   StrongETag as StrongETagSchema,
 } from "@vektorprogrammet/http-api/http-semantics";
-import { Array as Arr, Data, Predicate, Schema } from "effect";
+import { Array as Arr, Data, Predicate, Result, Schema } from "effect";
 
 const encoder = new TextEncoder();
 
@@ -128,11 +128,14 @@ export const jcsBytes = (value: Schema.Json): Uint8Array => {
  * @construct http-transport
  */
 export const parseJsonWithoutDuplicateMembers = (bytes: Uint8Array): Schema.Json => {
-  try {
-    const decoded = parseJsonWithUniqueMembers(bytes);
-    validateJcsValue(decoded, new Set());
+  const decoded = parseJsonWithUniqueMembers(bytes);
 
-    return decoded;
+  if (Result.isFailure(decoded)) throw Problem.make("request.malformed");
+
+  try {
+    validateJcsValue(decoded.success, new Set());
+
+    return decoded.success;
   } catch (cause) {
     if (isProblem(cause)) throw cause;
     throw Problem.make("request.malformed");

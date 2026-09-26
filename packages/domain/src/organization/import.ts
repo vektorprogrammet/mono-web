@@ -259,10 +259,6 @@ const quarantine = (
   raw: Schema.Json,
   sourceOccurrence = 0,
 ): void => {
-  if (!Number.isSafeInteger(sourceOccurrence) || sourceOccurrence < 0) {
-    throw new Error("source occurrence must be a non-negative safe integer");
-  }
-
   output.quarantined.push({
     sourceKind,
     sourcePrimaryKey,
@@ -299,10 +295,6 @@ const accepted = (
   sourceMetadata: LegacyMembershipSourceMetadata | null = null,
   sourceOccurrence = 0,
 ): void => {
-  if (!Number.isSafeInteger(sourceOccurrence) || sourceOccurrence < 0) {
-    throw new Error("source occurrence must be a non-negative safe integer");
-  }
-
   output.ledger.push({
     sourceRepository: snapshot.sourceRepository,
     sourceRevision: snapshot.sourceRevision,

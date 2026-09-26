@@ -1,4 +1,4 @@
-import { Data, Predicate, Schema } from "effect";
+import { Data, Predicate, Result, Schema } from "effect";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { canonicalJsonBytes, sha256Hex } from "../shared-kernel/index.js";
 
@@ -114,44 +114,46 @@ export const receiptSourceRevision = (rows: readonly ReceiptSourceRow[]): string
     ),
   );
 
-export const decodeReviewedReceiptSnapshot = (input: Schema.Json): ReviewedReceiptSnapshot => {
-  let snapshot: ReviewedReceiptSnapshot;
+export const decodeReviewedReceiptSnapshot = (
+  input: Schema.Json,
+): Result.Result<ReviewedReceiptSnapshot, ReceiptCohortFailure> =>
+  Result.gen(function* () {
+    const invalidReview = () => new ReceiptCohortFailure({ code: "InvalidReview" });
 
-  try {
-    snapshot = Schema.decodeUnknownSync(ReviewedReceiptSnapshot)(input, {
+    const snapshot = yield* Schema.decodeUnknownResult(ReviewedReceiptSnapshot)(input, {
       onExcessProperty: "error",
-    });
-  } catch {
-    throw new ReceiptCohortFailure({ code: "InvalidSnapshot" });
-  }
+    }).pipe(Result.mapError(() => new ReceiptCohortFailure({ code: "InvalidSnapshot" })));
 
-  const entries = new Map(snapshot.review.entries.map((entry) => [entry.sourcePrimaryKey, entry]));
-  const sourceIds = new Set(snapshot.rows.map((row) => row.sourcePrimaryKey));
+    const entries = new Map(
+      snapshot.review.entries.map((entry) => [entry.sourcePrimaryKey, entry]),
+    );
 
-  if (
-    entries.size !== snapshot.review.entries.length ||
-    sourceIds.size !== snapshot.rows.length ||
-    entries.size !== sourceIds.size ||
-    receiptSourceRevision(snapshot.rows) !== snapshot.review.receiptSourceRevision
-  )
-    throw new ReceiptCohortFailure({ code: "InvalidReview" });
-
-  for (const row of snapshot.rows) {
-    const entry = entries.get(row.sourcePrimaryKey);
-
-    if (!entry || entry.sourceRowDigest !== receiptSourceRowDigest(row))
-      throw new ReceiptCohortFailure({ code: "InvalidReview" });
-
-    if (Predicate.isTagged(entry, "Excluded")) continue;
+    const sourceIds = new Set(snapshot.rows.map((row) => row.sourcePrimaryKey));
 
     if (
-      (entry.person !== null && entry.person.sourceUserId !== row.sourceUserId) ||
-      entry.payment.commitment !== row.accountCommitment ||
-      (row.status === "refunded" && entry.approvedAt === null) ||
-      ((row.status === "pending" || row.status === "rejected") && entry.approvedAt !== null)
+      entries.size !== snapshot.review.entries.length ||
+      sourceIds.size !== snapshot.rows.length ||
+      entries.size !== sourceIds.size ||
+      receiptSourceRevision(snapshot.rows) !== snapshot.review.receiptSourceRevision
     )
-      throw new ReceiptCohortFailure({ code: "InvalidReview" });
-  }
+      return yield* Result.fail(invalidReview());
 
-  return snapshot;
-};
+    for (const row of snapshot.rows) {
+      const entry = entries.get(row.sourcePrimaryKey);
+
+      if (!entry || entry.sourceRowDigest !== receiptSourceRowDigest(row))
+        return yield* Result.fail(invalidReview());
+
+      if (Predicate.isTagged(entry, "Excluded")) continue;
+
+      if (
+        (entry.person !== null && entry.person.sourceUserId !== row.sourceUserId) ||
+        entry.payment.commitment !== row.accountCommitment ||
+        (row.status === "refunded" && entry.approvedAt === null) ||
+        ((row.status === "pending" || row.status === "rejected") && entry.approvedAt !== null)
+      )
+        return yield* Result.fail(invalidReview());
+    }
+
+    return snapshot;
+  });

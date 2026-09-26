@@ -135,9 +135,9 @@ const expectFailure = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<E> =>
     }),
   );
 
-const assert = (condition: boolean, message: string): void => {
-  if (!condition) throw new Error(message);
-};
+/** A failed check of the fixture is a defect of the tracer, not a failure it declares. */
+const assert = (condition: boolean, message: string): Effect.Effect<void> =>
+  condition ? Effect.void : Effect.die(new Error(message));
 
 const descriptorCount = (state: TutorState): number => state.receipts.length;
 
@@ -163,18 +163,19 @@ const preservedCounterexample = (
   expectedReasonCode: ReasonCode,
   failure: TutorFailure,
   state: TutorState,
-): CounterexampleReceipt => {
-  assert(Predicate.isTagged(failure, expectedTag), `${caseId} tag mismatch`);
-  assert(failure.reasonCode === expectedReasonCode, `${caseId} reason mismatch`);
+): Effect.Effect<CounterexampleReceipt> =>
+  Effect.gen(function* () {
+    yield* assert(Predicate.isTagged(failure, expectedTag), `${caseId} tag mismatch`);
+    yield* assert(failure.reasonCode === expectedReasonCode, `${caseId} reason mismatch`);
 
-  return {
-    caseId,
-    expectedReasonCode,
-    observedReasonCode: failure.reasonCode,
-    preservedEventCount: state.events.length,
-    preservedDescriptorCount: descriptorCount(state),
-  };
-};
+    return {
+      caseId,
+      expectedReasonCode,
+      observedReasonCode: failure.reasonCode,
+      preservedEventCount: state.events.length,
+      preservedDescriptorCount: descriptorCount(state),
+    };
+  });
 
 const statusCounts = (cases: ReadonlyArray<EvidenceCase>) => {
   const counts: Record<string, number> = {};
@@ -214,27 +215,30 @@ export const runTutorFixture: Effect.Effect<TutorFixtureRun, TutorFailure> = Eff
     const seedState = yield* createTutorState(FIXTURE_SEED_EVENTS);
     const seedFolded = yield* foldEvents(seedState.events);
     const seedProjection = projectFoldedState(seedFolded);
-    assert(seedProjection.status === "accepted", "seed projection must be accepted");
-    assert(seedState.events.length === 3, "seed event count must be three");
-    assert(descriptorCount(seedState) === 0, "seed descriptor count must be zero");
+    yield* assert(seedProjection.status === "accepted", "seed projection must be accepted");
+    yield* assert(seedState.events.length === 3, "seed event count must be three");
+    yield* assert(descriptorCount(seedState) === 0, "seed descriptor count must be zero");
 
     const decodedCommand = yield* decodeConductInterviewV1(FIXTURE_COMMAND);
-    assert(decodedCommand.commandId === FIXTURE_COMMAND_ID, "fixture command decode failed");
+    yield* assert(decodedCommand.commandId === FIXTURE_COMMAND_ID, "fixture command decode failed");
 
     const accepted = yield* conductInterview(seedState, FIXTURE_COMMAND);
-    assert(Predicate.isTagged(accepted, "AcceptedResult"), "conduct command must be accepted");
+    yield* assert(
+      Predicate.isTagged(accepted, "AcceptedResult"),
+      "conduct command must be accepted",
+    );
     const acceptedState = accepted.state;
-    assert(acceptedState.events.length === 4, "accepted event count must be four");
-    assert(descriptorCount(acceptedState) === 1, "accepted descriptor count must be one");
-    assert(
+    yield* assert(acceptedState.events.length === 4, "accepted event count must be four");
+    yield* assert(descriptorCount(acceptedState) === 1, "accepted descriptor count must be one");
+    yield* assert(
       accepted.observation.projection.status === "completed",
       "accepted projection must be completed",
     );
-    assert(
+    yield* assert(
       accepted.observation.eventId === CONDUCTED_EVENT_ID,
       "conducted event identity must be fixed",
     );
-    assert(
+    yield* assert(
       accepted.observation.descriptor.idempotencyKey === "post-commit:evt-0014-004",
       "descriptor key mismatch",
     );
@@ -249,11 +253,11 @@ export const runTutorFixture: Effect.Effect<TutorFixtureRun, TutorFailure> = Eff
       conductInterview(acceptedState, malformedCommand),
     );
 
-    assert(
+    yield* assert(
       Predicate.isTagged(malformedFailure, "DecodeError"),
       "malformed command must be a decode error",
     );
-    assert(
+    yield* assert(
       acceptedState.events.length === 4 && descriptorCount(acceptedState) === 1,
       "malformed changed state",
     );
@@ -265,7 +269,7 @@ export const runTutorFixture: Effect.Effect<TutorFixtureRun, TutorFailure> = Eff
     };
 
     const staleFailure = yield* expectFailure(conductInterview(acceptedState, staleCommand));
-    assert(Predicate.isTagged(staleFailure, "StaleState"), "stale command must be stale");
+    yield* assert(Predicate.isTagged(staleFailure, "StaleState"), "stale command must be stale");
 
     const terminalCommand = {
       ...FIXTURE_COMMAND,
@@ -274,20 +278,26 @@ export const runTutorFixture: Effect.Effect<TutorFixtureRun, TutorFailure> = Eff
     };
 
     const terminalFailure = yield* expectFailure(conductInterview(acceptedState, terminalCommand));
-    assert(
+    yield* assert(
       Predicate.isTagged(terminalFailure, "InvalidTransition"),
       "terminal command must be an invalid transition",
     );
-    assert(terminalFailure.reasonCode === "TERMINAL_CONDUCTED", "terminal law reason mismatch");
+    yield* assert(
+      terminalFailure.reasonCode === "TERMINAL_CONDUCTED",
+      "terminal law reason mismatch",
+    );
 
     const duplicate = yield* conductInterview(acceptedState, FIXTURE_COMMAND);
-    assert(Predicate.isTagged(duplicate, "DuplicateResult"), "identical command must be duplicate");
-    assert(duplicate.state === acceptedState, "duplicate must preserve state identity");
-    assert(
+    yield* assert(
+      Predicate.isTagged(duplicate, "DuplicateResult"),
+      "identical command must be duplicate",
+    );
+    yield* assert(duplicate.state === acceptedState, "duplicate must preserve state identity");
+    yield* assert(
       duplicate.observationBytes === accepted.observationBytes,
       "duplicate observation bytes changed",
     );
-    assert(
+    yield* assert(
       acceptedState.events.length === 4 && descriptorCount(acceptedState) === 1,
       "duplicate appended state",
     );
@@ -301,11 +311,11 @@ export const runTutorFixture: Effect.Effect<TutorFixtureRun, TutorFailure> = Eff
       conductInterview(acceptedState, duplicateConflictCommand),
     );
 
-    assert(
+    yield* assert(
       Predicate.isTagged(duplicateConflictFailure, "DuplicateCommandConflict"),
       "changed duplicate command must conflict",
     );
-    assert(
+    yield* assert(
       acceptedState.events.length === 4 && descriptorCount(acceptedState) === 1,
       "duplicate conflict changed state",
     );
@@ -371,7 +381,7 @@ export const runTutorFixture: Effect.Effect<TutorFixtureRun, TutorFailure> = Eff
     ];
 
     const scenarioCount = cases.length;
-    assert(scenarioCount === 9, "fixture must contain exactly nine journey cases");
+    yield* assert(scenarioCount === 9, "fixture must contain exactly nine journey cases");
 
     const crossStreamCommand = {
       ...FIXTURE_COMMAND,
@@ -447,7 +457,7 @@ export const runTutorFixture: Effect.Effect<TutorFixtureRun, TutorFailure> = Eff
       }),
     );
 
-    const counterexampleReceipts: ReadonlyArray<CounterexampleReceipt> = [
+    const counterexampleReceipts: ReadonlyArray<CounterexampleReceipt> = yield* Effect.all([
       preservedCounterexample(
         "counterexample-cross-stream",
         "StreamMismatch",
@@ -532,7 +542,7 @@ export const runTutorFixture: Effect.Effect<TutorFixtureRun, TutorFailure> = Eff
         invalidScoreFailure,
         acceptedState,
       ),
-    ];
+    ]);
 
     const finalFolded = yield* foldEvents(acceptedState.events);
     const finalProjection = projectFoldedState(finalFolded);
@@ -578,32 +588,32 @@ export const runTutorFixture: Effect.Effect<TutorFixtureRun, TutorFailure> = Eff
     const secondArtifact = renderEvidence(evidenceDocument);
     const independentlyEncodedJson = canonicalEvidenceJson(evidenceDocument);
     const independentlyEncodedBytes = canonicalEvidenceBytes(evidenceDocument);
-    assert(
+    yield* assert(
       firstArtifact.canonicalJson === secondArtifact.canonicalJson,
       "evidence canonical JSON changed",
     );
-    assert(
+    yield* assert(
       firstArtifact.canonicalJson === independentlyEncodedJson,
       "evidence JSON renderer disagrees",
     );
-    assert(firstArtifact.digest === secondArtifact.digest, "evidence digest changed");
-    assert(
+    yield* assert(firstArtifact.digest === secondArtifact.digest, "evidence digest changed");
+    yield* assert(
       firstArtifact.bytes.length === secondArtifact.bytes.length,
       "evidence byte length changed",
     );
-    assert(
+    yield* assert(
       firstArtifact.bytes.every((byte, index) => byte === secondArtifact.bytes[index]),
       "evidence bytes changed",
     );
-    assert(
+    yield* assert(
       firstArtifact.bytes.length === independentlyEncodedBytes.length,
       "evidence bytes renderer disagrees",
     );
-    assert(
+    yield* assert(
       firstArtifact.bytes.every((byte, index) => byte === independentlyEncodedBytes[index]),
       "evidence bytes renderer disagrees",
     );
-    assert(
+    yield* assert(
       firstArtifact.canonicalJson.endsWith("}") && firstArtifact.bytes.at(-1) === 10,
       "evidence newline missing",
     );

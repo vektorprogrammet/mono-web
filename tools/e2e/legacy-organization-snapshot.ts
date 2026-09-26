@@ -10,7 +10,7 @@ import {
   type OrganizationReview,
   type ReviewedOrganizationSnapshot,
 } from "@vektorprogrammet/domain/organization";
-import { flow, Schema } from "effect";
+import { flow, Result, Schema } from "effect";
 import { buildLegacyReferences } from "./legacy-cutover-references";
 import type { LegacySourceSnapshot } from "./legacy-source-snapshot";
 
@@ -60,7 +60,7 @@ export const reviewLegacyOrganizationSource = (
     })),
   ];
 
-  const review = validateOrganizationReview(reviewInput, occurrences);
+  const review = Result.getOrThrow(validateOrganizationReview(reviewInput, occurrences));
 
   if (review.sourceRevision !== sourceRevision)
     throw new Error("Organization review does not match the source snapshot");
@@ -133,8 +133,10 @@ export const buildLegacyOrganizationSnapshot = (
     mappings: { persons, departments: references.mappings.departments },
   };
 
-  return decodeReviewedOrganizationSnapshot({
-    ...snapshot,
-    snapshotDigest: organizationSnapshotDigest(snapshot),
-  });
+  return Result.getOrThrow(
+    decodeReviewedOrganizationSnapshot({
+      ...snapshot,
+      snapshotDigest: organizationSnapshotDigest(snapshot),
+    }),
+  );
 };

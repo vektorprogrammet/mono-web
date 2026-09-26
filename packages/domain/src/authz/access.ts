@@ -910,26 +910,6 @@ export type RoleMacro = {
   readonly grants: ReadonlyArray<Grant>;
 };
 
-export const assertRequirementRegistration = (
-  resolverId: ScopeResolverId,
-  requirementId: RequirementId,
-): void => {
-  const resolver = SCOPE_RESOLVERS[scopeResolverRegistryKey(resolverId)];
-  const requirement = REQUIREMENT_TYPES[requirementRegistryKey(requirementId)];
-  const registeredResolverIds: ReadonlyArray<ScopeResolverId> = requirement.resolverIds;
-  const registeredRequirements: ReadonlyArray<string> = resolver.requirements;
-
-  if (
-    !registeredResolverIds.includes(resolverId) ||
-    !registeredRequirements.includes(requirementId) ||
-    resolver.contextSchema !== requirement.contextSchema
-  ) {
-    throw new TypeError(
-      `scope resolver ${resolverId} output schema does not match requirement ${requirementId} input schema`,
-    );
-  }
-};
-
 export const AuthorizationModeSchema = Schema.Literals(["SnapshotRead", "Transaction"]);
 
 export type AuthorizationMode = typeof AuthorizationModeSchema.Type;
@@ -1045,57 +1025,79 @@ export const scopeResolverDeclaration = (resolverId: ScopeResolverId): ScopeReso
 const stableRequirementKey = (requirement: TypedRequirement): string =>
   `${requirement.id}:${JSON.stringify(requirement.parameters)}`;
 
-export const makeAccessSpec = flow(
-  Schema.decodeUnknownSync(AccessSpecSchema, { onExcessProperty: "error" }),
-  (decoded): AccessSpec => {
-    const anonymousOnly =
-      decoded.principalKinds.length === 1 && decoded.principalKinds[0] === "Anonymous";
+/** A requirement is served only by a scope resolver whose output is the requirement's input. */
+const requirementRegistrationIssue = (
+  resolverId: ScopeResolverId,
+  requirementId: RequirementId,
+): string | undefined => {
+  const resolver = SCOPE_RESOLVERS[scopeResolverRegistryKey(resolverId)];
+  const requirement = REQUIREMENT_TYPES[requirementRegistryKey(requirementId)];
+  const registeredResolverIds: ReadonlyArray<ScopeResolverId> = requirement.resolverIds;
+  const registeredRequirements: ReadonlyArray<string> = resolver.requirements;
 
-    if (anonymousOnly) {
-      if (
-        decoded.acceptedCredentials.length !== 1 ||
-        decoded.acceptedCredentials[0]?._tag !== "None" ||
-        !Predicate.isTagged(decoded.capabilities, "None")
-      ) {
-        throw new TypeError("Anonymous access requires only None credentials and no capability");
-      }
-    } else if (
-      decoded.acceptedCredentials.some((mechanism) => Predicate.isTagged(mechanism, "None"))
+  return registeredResolverIds.includes(resolverId) &&
+    registeredRequirements.includes(requirementId) &&
+    resolver.contextSchema === requirement.contextSchema
+    ? undefined
+    : `scope resolver ${resolverId} output schema does not match requirement ${requirementId} input schema`;
+};
+
+/** The first declaration rule that an AccessSpec breaks, checked in a fixed order. */
+const accessSpecIssue = (spec: AccessSpec): string | undefined => {
+  const anonymousOnly = spec.principalKinds.length === 1 && spec.principalKinds[0] === "Anonymous";
+
+  if (anonymousOnly) {
+    if (
+      spec.acceptedCredentials.length !== 1 ||
+      spec.acceptedCredentials[0]?._tag !== "None" ||
+      !Predicate.isTagged(spec.capabilities, "None")
     ) {
-      throw new TypeError("None credentials are valid only for Anonymous access");
+      return "Anonymous access requires only None credentials and no capability";
     }
+  } else if (spec.acceptedCredentials.some((mechanism) => Predicate.isTagged(mechanism, "None"))) {
+    return "None credentials are valid only for Anonymous access";
+  }
 
-    const mechanismKinds = new Set(decoded.acceptedCredentials.map(mechanismPrincipalKind));
+  const mechanismKinds = new Set(spec.acceptedCredentials.map(mechanismPrincipalKind));
+  const unacceptedKind = spec.principalKinds.find((kind) => !mechanismKinds.has(kind));
 
-    for (const principalKind of decoded.principalKinds) {
-      if (!mechanismKinds.has(principalKind)) {
-        throw new TypeError(`principal kind ${principalKind} has no accepted credential mechanism`);
-      }
-    }
+  if (unacceptedKind !== undefined) {
+    return `principal kind ${unacceptedKind} has no accepted credential mechanism`;
+  }
 
-    for (const mechanismKind of mechanismKinds) {
-      if (!decoded.principalKinds.includes(mechanismKind)) {
-        throw new TypeError(
-          `credential mechanism resolves unlisted principal kind ${mechanismKind}`,
-        );
-      }
-    }
+  const unlistedKind = [...mechanismKinds].find((kind) => !spec.principalKinds.includes(kind));
 
-    const capabilityTypes = capabilityTypesIn(decoded.capabilities);
+  if (unlistedKind !== undefined) {
+    return `credential mechanism resolves unlisted principal kind ${unlistedKind}`;
+  }
 
-    for (const mechanism of decoded.acceptedCredentials) {
-      if (
+  const capabilityTypes = capabilityTypesIn(spec.capabilities);
+
+  if (
+    spec.acceptedCredentials.some(
+      (mechanism) =>
         Predicate.isTagged(mechanism, "ObjectCapability") &&
-        !capabilityTypes.includes(mechanism.capabilityType)
-      ) {
-        throw new TypeError("object capability credential must match an endpoint capability");
-      }
-    }
+        !capabilityTypes.includes(mechanism.capabilityType),
+    )
+  ) {
+    return "object capability credential must match an endpoint capability";
+  }
 
-    for (const requirement of decoded.requirements) {
-      assertRequirementRegistration(decoded.canonicalScopeResolver, requirement.id);
-    }
+  for (const requirement of spec.requirements) {
+    const issue = requirementRegistrationIssue(spec.canonicalScopeResolver, requirement.id);
 
+    if (issue !== undefined) return issue;
+  }
+
+  return undefined;
+};
+
+/** An AccessSpec declaration: the schema rejects one that breaks a declaration rule. */
+const DeclaredAccessSpec = AccessSpecSchema.pipe(Schema.check(Schema.makeFilter(accessSpecIssue)));
+
+export const makeAccessSpec = flow(
+  Schema.decodeUnknownSync(DeclaredAccessSpec, { onExcessProperty: "error" }),
+  (decoded): AccessSpec => {
     const requirementKeys = decoded.requirements.map(stableRequirementKey);
 
     const uniqueRequirements = decoded.requirements.filter(

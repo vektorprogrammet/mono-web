@@ -1,5 +1,5 @@
 import { expect, it } from "@effect/vitest";
-import { Schema } from "effect";
+import { Result, Schema } from "effect";
 import { classifyReviewedOrganization } from "./review-classification.js";
 import { DepartmentId, PersonId } from "./schema.js";
 import {
@@ -39,19 +39,26 @@ const review = {
   ],
 };
 
+const failureCode = <A>(result: Result.Result<A, { readonly code: string }>) =>
+  Result.isFailure(result) ? result.failure.code : undefined;
+
 it("binds every review to the complete raw row rather than two matching digest claims", () => {
-  expect(() =>
-    validateOrganizationReview(review, [{ ...occurrence, row: { ...row, isSuspended: true } }]),
-  ).toThrow("InvalidReview");
-  expect(() => validateOrganizationReview({ ...review, memberships: [] }, [occurrence])).toThrow(
-    "InvalidReview",
-  );
-  expect(() =>
-    validateOrganizationReview(
-      { ...review, memberships: [...review.memberships, ...review.memberships] },
-      [occurrence],
+  expect(
+    failureCode(
+      validateOrganizationReview(review, [{ ...occurrence, row: { ...row, isSuspended: true } }]),
     ),
-  ).toThrow("InvalidReview");
+  ).toBe("InvalidReview");
+  expect(
+    failureCode(validateOrganizationReview({ ...review, memberships: [] }, [occurrence])),
+  ).toBe("InvalidReview");
+  expect(
+    failureCode(
+      validateOrganizationReview(
+        { ...review, memberships: [...review.memberships, ...review.memberships] },
+        [occurrence],
+      ),
+    ),
+  ).toBe("InvalidReview");
 });
 
 it("enforces half-open reviewed intervals and explicit excluded variants", () => {
@@ -60,38 +67,45 @@ it("enforces half-open reviewed intervals and explicit excluded variants", () =>
     memberships: [{ ...review.memberships[0], decision: "Historical", endAt: review.asOf }],
   };
 
-  expect(validateOrganizationReview(historical, [occurrence]).memberships[0]?.decision).toBe(
-    "Historical",
-  );
-  expect(() =>
-    validateOrganizationReview(
-      { ...historical, memberships: [{ ...historical.memberships[0], decision: "Current" }] },
-      [occurrence],
+  expect(
+    Result.getOrThrow(validateOrganizationReview(historical, [occurrence])).memberships[0]
+      ?.decision,
+  ).toBe("Historical");
+  expect(
+    failureCode(
+      validateOrganizationReview(
+        { ...historical, memberships: [{ ...historical.memberships[0], decision: "Current" }] },
+        [occurrence],
+      ),
     ),
-  ).toThrow("InvalidReview");
-  expect(() =>
-    validateOrganizationReview(
-      { ...review, memberships: [{ ...review.memberships[0], decision: "Excluded" }] },
-      [occurrence],
+  ).toBe("InvalidReview");
+  expect(
+    failureCode(
+      validateOrganizationReview(
+        { ...review, memberships: [{ ...review.memberships[0], decision: "Excluded" }] },
+        [occurrence],
+      ),
     ),
-  ).toThrow("InvalidReview");
-  expect(() =>
-    validateOrganizationReview(
-      {
-        ...review,
-        memberships: [
-          {
-            sourceKind: "TeamMembership",
-            sourceId: "1",
-            sourceRowDigest: occurrence.sourceRowDigest,
-            decision: "Current",
-            evidenceRef: "interval",
-          },
-        ],
-      },
-      [occurrence],
+  ).toBe("InvalidReview");
+  expect(
+    failureCode(
+      validateOrganizationReview(
+        {
+          ...review,
+          memberships: [
+            {
+              sourceKind: "TeamMembership",
+              sourceId: "1",
+              sourceRowDigest: occurrence.sourceRowDigest,
+              decision: "Current",
+              evidenceRef: "interval",
+            },
+          ],
+        },
+        [occurrence],
+      ),
     ),
-  ).toThrow("InvalidReview");
+  ).toBe("InvalidReview");
 });
 
 it("preserves reviewed titles and suspension while boards cannot grant leadership", () => {

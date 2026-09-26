@@ -1,6 +1,6 @@
 import { DepartmentId } from "../organization/schema.js";
 import { describe, expect, it } from "vitest";
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import { canonicalContactIp, ContactMessage, ContactVisitorIp } from "./schema.js";
 
 const valid = {
@@ -28,8 +28,8 @@ describe("contact command boundary", () => {
   });
   it("one address has one identity including mapped IPv4 spellings", () => {
     for (const ip of ["127.0.0.1", "::ffff:127.0.0.1", "0:0:0:0:0:ffff:7f00:1"])
-      expect(canonicalContactIp(ip)).toBe("127.0.0.1");
-    expect(canonicalContactIp("2001:0DB8:0:0:0:0:0:1")).toBe("2001:db8::1");
+      expect(canonicalContactIp(ip)).toEqual(Option.some("127.0.0.1"));
+    expect(canonicalContactIp("2001:0DB8:0:0:0:0:0:1")).toEqual(Option.some("2001:db8::1"));
 
     for (const ip of [
       "127.0.0.1/32",
@@ -40,7 +40,7 @@ describe("contact command boundary", () => {
       "127.0.0.1:443",
       " 127.0.0.1",
     ])
-      expect(() => canonicalContactIp(ip)).toThrow();
+      expect(canonicalContactIp(ip)).toEqual(Option.none());
     expect(Schema.is(ContactVisitorIp)("::ffff:127.0.0.1")).toBe(false);
   });
 });

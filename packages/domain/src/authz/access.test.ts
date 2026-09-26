@@ -30,7 +30,6 @@ import {
   SYSTEM_DOMAIN_ID,
   SYSTEM_PUBLIC_SCOPE_RESOLVER,
   ScopeSchema,
-  assertRequirementRegistration,
   accessHttpStatus,
   PrincipalSchema,
   evaluateRequirement,
@@ -314,7 +313,10 @@ describe("principal, credential, and access algebra", () => {
 
   it("rejects resolver and requirement context-schema mismatches at registration", () => {
     expect(() =>
-      assertRequirementRegistration(SYSTEM_PUBLIC_SCOPE_RESOLVER, RECEIPT_OWNER_REQUIREMENT),
+      makeAccessSpec({
+        ...publicAccess,
+        requirements: [{ id: RECEIPT_OWNER_REQUIREMENT, parameters: {} }],
+      }),
     ).toThrow(/output schema does not match requirement/);
   });
 

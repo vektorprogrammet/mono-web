@@ -6,7 +6,7 @@ import {
   type ReceiptSourceRow,
   type ReviewedReceiptSnapshot,
 } from "@vektorprogrammet/domain/receipt";
-import { Effect, FileSystem, Path, Schema } from "effect";
+import { Effect, FileSystem, Path, Result, Schema } from "effect";
 import type { PaymentAccountCipher } from "@vektorprogrammet/backend/receipt/payment-account";
 import { reviewedReceiptTransformationRevision } from "@vektorprogrammet/backend/receipt/reviewed-import";
 import { buildLegacyReferences } from "./legacy-cutover-references";
@@ -88,7 +88,9 @@ export const buildLegacyReceiptSnapshot = (
     )
       throw new Error("InvalidSnapshot");
 
-    return decodeReviewedReceiptSnapshot({ review, rows: legacyReceiptRows(source, cipher) });
+    return Result.getOrThrow(
+      decodeReviewedReceiptSnapshot({ review, rows: legacyReceiptRows(source, cipher) }),
+    );
   } catch {
     throw new Error("Receipt review does not match the selected source");
   }

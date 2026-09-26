@@ -1,11 +1,12 @@
-import { Schema } from "effect";
+import { Data, Result, type Schema } from "effect";
 
 const strictJsonDecoder = new TextDecoder("utf-8", { fatal: true });
 
-/** Decodes UTF-8 JSON while rejecting duplicate object member names. */
-export const parseJsonWithUniqueMembers = (bytes: Uint8Array): Schema.Json => {
-  const text = strictJsonDecoder.decode(bytes);
+/** A request body that is not UTF-8 JSON, or whose object names one member twice. */
+export class MalformedJson extends Data.TaggedError("MalformedJson") {}
 
+/** Whether an object of a JSON text names one member twice; a malformed member name throws. */
+const repeatsMemberName = (text: string): boolean => {
   const stack: Array<{
     readonly kind: "array" | "object";
     readonly keys?: Set<string>;
@@ -84,7 +85,7 @@ export const parseJsonWithUniqueMembers = (bytes: Uint8Array): Schema.Json => {
         const key: string = JSON.parse(text.slice(start, index));
         const keys = stack.at(-1)?.keys;
 
-        if (keys?.has(key) === true) throw new SyntaxError("Duplicate JSON object member");
+        if (keys?.has(key) === true) return true;
         keys?.add(key);
       }
 
@@ -94,5 +95,24 @@ export const parseJsonWithUniqueMembers = (bytes: Uint8Array): Schema.Json => {
     index += 1;
   }
 
-  return JSON.parse(text);
+  return false;
 };
+
+/** Decodes UTF-8 JSON while rejecting duplicate object member names. */
+export const parseJsonWithUniqueMembers = (
+  bytes: Uint8Array,
+): Result.Result<Schema.Json, MalformedJson> =>
+  Result.gen(function* () {
+    const malformed = () => new MalformedJson();
+
+    const text = yield* Result.try({
+      try: () => strictJsonDecoder.decode(bytes),
+      catch: malformed,
+    });
+
+    const repeated = yield* Result.try({ try: () => repeatsMemberName(text), catch: malformed });
+
+    if (repeated) return yield* Result.fail(malformed());
+
+    return yield* Result.try({ try: (): Schema.Json => JSON.parse(text), catch: malformed });
+  });

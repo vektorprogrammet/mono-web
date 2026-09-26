@@ -75,10 +75,9 @@ export const runReviewedReceiptImport = (
   cipher: PaymentAccountCipher,
 ) =>
   Effect.gen(function* () {
-    const snapshot = yield* Effect.try({
-      try: () => decodeReviewedReceiptSnapshot(input),
-      catch: () => new ReceiptCohortFailure({ code: "InvalidReview" }),
-    });
+    const snapshot = yield* Effect.fromResult(decodeReviewedReceiptSnapshot(input)).pipe(
+      Effect.mapError(() => new ReceiptCohortFailure({ code: "InvalidReview" })),
+    );
 
     for (const row of snapshot.rows) {
       const account = row.sourceUserId === null ? null : (accounts.get(row.sourceUserId) ?? null);
