@@ -165,7 +165,9 @@ const validate = async () => {
       fail(`${url} has SHA-256 ${digest}, not the pinned ${contextMapperSha256}.`);
 
     // Extract beside the cache and move into place, so an interrupted run leaves no partial CLI.
-    const staging = mkdtempSync(join(tmpdir(), "vektorprogrammet-context-mapper-"));
+    // The staging directory shares the cache's file system: a rename cannot cross devices.
+    mkdirSync(cache, { recursive: true });
+    const staging = mkdtempSync(join(cache, ".context-mapper-staging-"));
     const zip = join(staging, "cli.zip");
 
     writeFileSync(zip, archive);
@@ -178,7 +180,6 @@ const validate = async () => {
 
     if (unzip.status !== 0) fail(`unzip exited with ${unzip.status ?? unzip.signal}.`);
 
-    mkdirSync(cache, { recursive: true });
     renameSync(join(staging, `context-mapper-cli-${version}`), cli);
     rmSync(staging, { recursive: true, force: true });
   }
