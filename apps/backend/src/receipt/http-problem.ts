@@ -54,8 +54,6 @@ export const receiptProblems = problemMapper<
 
 /**
  * A stored receipt value a read cannot decode is the receipt store failing, not the request.
- *
- * @construct http-problem
  */
 export const storedReceiptProblems = problemMapper<ReceiptDecodeError>()({
   ReceiptDecodeError: () => Problem.make("receipts.unavailable"),

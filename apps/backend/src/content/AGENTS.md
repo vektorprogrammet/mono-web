@@ -56,10 +56,6 @@ No `exports` entry of [apps/backend/package.json](../../package.json) points int
 The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../../../docs/constructs.md) indexes them all.
 
 - [`authorizeContentOperation`](../../../../docs/constructs/http-problem.md#authorizecontentoperation) (http-problem): Evaluates a content endpoint's AccessSpec for one person with the content grant scope.
-- [`authorizedActor`](../../../../docs/constructs/http-problem.md#authorizedactor) (http-problem): Resolves the staff person of a snapshot read and its content actor at the person's authorization instant.
-- [`authorizedActorInTransaction`](../../../../docs/constructs/http-problem.md#authorizedactorintransaction) (http-problem): Resolves the staff person of a command, its credential, and its content actor inside the command's transaction.
-- [`departmentQuery`](../../../../docs/constructs/http-problem.md#departmentquery) (http-problem): A workspace or news listing accepts at most one department filter and no other parameter.
-- [`versionFromQuery`](../../../../docs/constructs/http-problem.md#versionfromquery) (http-problem): A news article read accepts at most one positive published version and no other parameter.
 - [`contentProblems`](../../../../docs/constructs/http-problem.md#contentproblems) (http-problem): The one answer for every content domain failure.
 - [`contentActorProblems`](../../../../docs/constructs/http-problem.md#contentactorproblems) (http-problem): A staff person rejected after ingress is answered from the credential the request presented.
 

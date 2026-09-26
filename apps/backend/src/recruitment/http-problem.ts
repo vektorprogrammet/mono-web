@@ -113,8 +113,6 @@ export const raceProblems = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
 /**
  * The maintenance API answers its own failures, an unknown interview, and an
  * identity outage in its own vocabulary; everything else as recruitment does.
- *
- * @construct http-problem
  */
 export const maintenanceProblems = problemMapper<
   RecruitmentMaintenanceFailure | RecruitmentInterviewNotFound | IdentityEngineError

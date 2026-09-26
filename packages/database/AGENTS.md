@@ -73,7 +73,6 @@ The shared constructs defined here. Each name links to its contract; [docs/const
 
 - [`AdvisoryLockKey`](../../docs/constructs/sql-lock.md#advisorylockkey) (sql-lock): The registered advisory-lock keys, one constructor per namespace.
 - [`lockAdvisory`](../../docs/constructs/sql-lock.md#lockadvisory) (sql-lock): Waits for the advisory lock on `key` until the current transaction ends.
-- [`tryLockAdvisory`](../../docs/constructs/sql-lock.md#trylockadvisory) (sql-lock): Takes the exclusive advisory lock on `key` until the current transaction ends when no other transaction holds it.
 - [`accountAccessEnabled`](../../docs/constructs/sql-lifecycle.md#accountaccessenabled) (sql-lifecycle): Whether the native account of `personId` exists and is not disabled.
 - [`selectDatabaseMigration`](../../docs/constructs/test-harness.md#selectdatabasemigration) (test-harness): Selects the registered migration `id` and the migrations that run before it; an absent id throws and names the nearest registered ids.
 - [`outboxClaimAssignments`](../../docs/constructs/sql-lifecycle.md#outboxclaimassignments) (sql-lifecycle): SET list for the aggregate's claim UPDATE; `targetAlias` names the updated outbox row.
@@ -82,7 +81,6 @@ The shared constructs defined here. Each name links to its contract; [docs/const
 - [`quarantineOutboxClaim`](../../docs/constructs/sql-lifecycle.md#quarantineoutboxclaim) (sql-lifecycle): Settles the claimed row as Quarantined, a terminal status, with its failure tag.
 - [`releaseOutboxClaim`](../../docs/constructs/sql-lifecycle.md#releaseoutboxclaim) (sql-lifecycle): Returns an interrupted claim to Pending without a provider outcome; a lost claim needs none.
 - [`recoverStaleOutboxClaims`](../../docs/constructs/sql-lifecycle.md#recoverstaleoutboxclaims) (sql-lifecycle): Recovers every Processing row claimed before `claimedBefore`.
-- [`recoverStaleOutboxClaim`](../../docs/constructs/sql-lifecycle.md#recoverstaleoutboxclaim) (sql-lifecycle): Recovers the rows of one claim when that claim was taken before `claimedBefore`.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

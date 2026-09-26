@@ -1352,8 +1352,6 @@ export type ProblemHeaderValues = {
 
 /**
  * The response headers of one problem: `no-store`, its challenge, and its retry delay.
- *
- * @construct http-problem
  */
 export const problemHeaders = (problem: Problem): ProblemHeaderValues => {
   const headers: Types.Mutable<ProblemHeaderValues> = { "cache-control": "no-store" };

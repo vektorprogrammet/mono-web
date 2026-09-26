@@ -96,69 +96,6 @@ Missing: the JSDoc has no `@example` tag.
 
 Missing: the JSDoc has no `@avoid` tag.
 
-## `decodeJson`
-
-Reads and decodes one bounded JSON body.
-
-```ts
-decodeJson<S extends Schema.ConstraintDecoder<unknown, never>>(
-  request: Request,
-  schema: S,
-  maxBodyBytes: number
-)
-```
-
-- Inputs:
-  - `request: Request`
-  - `schema: S`
-  - `maxBodyBytes: number`
-- Output: not annotated
-- Errors: none
-- Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/admission/http-decode.ts:53](../../apps/backend/src/admission/http-decode.ts#L53)
-
-**How it works**
-
-Missing: the JSDoc has no `@remarks` tag.
-
-**Use**
-
-Missing: the JSDoc has no `@example` tag.
-
-**Avoid**
-
-Missing: the JSDoc has no `@avoid` tag.
-
-## `decodeAdmissionPeriodPatch`
-
-Reads and decodes one bounded admission period merge patch.
-
-```ts
-decodeAdmissionPeriodPatch(request: Request, maxBodyBytes: number)
-```
-
-- Inputs:
-  - `request: Request`
-  - `maxBodyBytes: number`
-- Output: not annotated
-- Errors: none
-- Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/admission/http-decode.ts:69](../../apps/backend/src/admission/http-decode.ts#L69)
-
-**How it works**
-
-Missing: the JSDoc has no `@remarks` tag.
-
-**Use**
-
-Missing: the JSDoc has no `@example` tag.
-
-**Avoid**
-
-Missing: the JSDoc has no `@avoid` tag.
-
 ## `admissionProblems`
 
 The one answer for every admission failure.
@@ -191,60 +128,6 @@ Missing: the JSDoc has no `@example` tag.
 
 Missing: the JSDoc has no `@avoid` tag.
 
-## `submissionProblems`
-
-Problems only a public application submission answers.
-
-```ts
-const submissionProblems
-```
-
-- Inputs: none
-- Output: not annotated
-- Errors: none
-- Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/admission/http-problem.ts:100](../../apps/backend/src/admission/http-problem.ts#L100)
-
-**How it works**
-
-Missing: the JSDoc has no `@remarks` tag.
-
-**Use**
-
-Missing: the JSDoc has no `@example` tag.
-
-**Avoid**
-
-Missing: the JSDoc has no `@avoid` tag.
-
-## `periodCommandProblems`
-
-Problems only an admission period command answers.
-
-```ts
-const periodCommandProblems
-```
-
-- Inputs: none
-- Output: not annotated
-- Errors: none
-- Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/admission/http-problem.ts:118](../../apps/backend/src/admission/http-problem.ts#L118)
-
-**How it works**
-
-Missing: the JSDoc has no `@remarks` tag.
-
-**Use**
-
-Missing: the JSDoc has no `@example` tag.
-
-**Avoid**
-
-Missing: the JSDoc has no `@avoid` tag.
-
 ## `authorizeContentOperation`
 
 Evaluates a content endpoint's AccessSpec for one person with the content grant scope.
@@ -261,126 +144,6 @@ authorizeContentOperation(
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
 - Source: [apps/backend/src/content/http-access.ts:28](../../apps/backend/src/content/http-access.ts#L28)
-
-**How it works**
-
-Missing: the JSDoc has no `@remarks` tag.
-
-**Use**
-
-Missing: the JSDoc has no `@example` tag.
-
-**Avoid**
-
-Missing: the JSDoc has no `@avoid` tag.
-
-## `authorizedActor`
-
-Resolves the staff person of a snapshot read and its content actor at the person's authorization instant.
-
-```ts
-authorizedActor<E, R>(
-  request: Request,
-  resolveActor: ContentRequestActorResolver<E, R>,
-  presentation: CredentialPresentation
-)
-```
-
-- Inputs:
-  - `request: Request`
-  - `resolveActor: ContentRequestActorResolver<E, R>`
-  - `presentation: CredentialPresentation`
-- Output: not annotated
-- Errors: none
-- Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/content/http-context.ts:52](../../apps/backend/src/content/http-context.ts#L52)
-
-**How it works**
-
-Missing: the JSDoc has no `@remarks` tag.
-
-**Use**
-
-Missing: the JSDoc has no `@example` tag.
-
-**Avoid**
-
-Missing: the JSDoc has no `@avoid` tag.
-
-## `authorizedActorInTransaction`
-
-Resolves the staff person of a command, its credential, and its content actor inside the command's transaction.
-
-```ts
-authorizedActorInTransaction(request: Request)
-```
-
-- Inputs: `request: Request`
-- Output: not annotated
-- Errors: none
-- Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/content/http-context.ts:89](../../apps/backend/src/content/http-context.ts#L89)
-
-**How it works**
-
-Missing: the JSDoc has no `@remarks` tag.
-
-**Use**
-
-Missing: the JSDoc has no `@example` tag.
-
-**Avoid**
-
-Missing: the JSDoc has no `@avoid` tag.
-
-## `departmentQuery`
-
-A workspace or news listing accepts at most one department filter and no other parameter.
-
-```ts
-departmentQuery(
-  request: Request,
-  department: DepartmentId | undefined
-): Effect.Effect<ContentWorkspaceQuery, Problem<"request.malformed">>
-```
-
-- Inputs:
-  - `request: Request`
-  - `department: DepartmentId | undefined`
-- Output: `Effect.Effect<ContentWorkspaceQuery, Problem<"request.malformed">>`
-- Errors: `Problem<"request.malformed">`
-- Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/content/http-decode.ts:13](../../apps/backend/src/content/http-decode.ts#L13)
-
-**How it works**
-
-Missing: the JSDoc has no `@remarks` tag.
-
-**Use**
-
-Missing: the JSDoc has no `@example` tag.
-
-**Avoid**
-
-Missing: the JSDoc has no `@avoid` tag.
-
-## `versionFromQuery`
-
-A news article read accepts at most one positive published version and no other parameter.
-
-```ts
-versionFromQuery(request: Request): Effect.Effect<number | undefined, Problem<"request.malformed">>
-```
-
-- Inputs: `request: Request`
-- Output: `Effect.Effect<number | undefined, Problem<"request.malformed">>`
-- Errors: `Problem<"request.malformed">`
-- Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/content/http-decode.ts:29](../../apps/backend/src/content/http-decode.ts#L29)
 
 **How it works**
 
@@ -502,40 +265,6 @@ Missing: the JSDoc has no `@example` tag.
 
 Missing: the JSDoc has no `@avoid` tag.
 
-## `classifyCredential`
-
-Records, from the raw request only, whether person credential material was presented.
-
-```ts
-classifyCredential(
-  authorization: string | null | undefined,
-  cookie: string | null | undefined,
-  challenge: string
-): CredentialPresentation
-```
-
-- Inputs:
-  - `authorization: string | null | undefined`
-  - `cookie: string | null | undefined`
-  - `challenge: string`
-- Output: `CredentialPresentation`
-- Errors: none
-- Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:80](../../apps/backend/src/http-api/problem.ts#L80)
-
-**How it works**
-
-Missing: the JSDoc has no `@remarks` tag.
-
-**Use**
-
-Missing: the JSDoc has no `@example` tag.
-
-**Avoid**
-
-Missing: the JSDoc has no `@avoid` tag.
-
 ## `webHandler`
 
 Runs one Effect-native Web transport operation.
@@ -554,7 +283,7 @@ webHandler<E, R>(
 - Errors: `E`
 - Requirements: `R`
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:98](../../apps/backend/src/http-api/problem.ts#L98)
+- Source: [apps/backend/src/http-api/problem.ts:96](../../apps/backend/src/http-api/problem.ts#L96)
 
 **How it works**
 
@@ -586,7 +315,7 @@ semanticProblem<A, const Code extends PlainProblemCode>(
 - Errors: `Problem<Code>`
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:114](../../apps/backend/src/http-api/problem.ts#L114)
+- Source: [apps/backend/src/http-api/problem.ts:112](../../apps/backend/src/http-api/problem.ts#L112)
 
 **How it works**
 
@@ -613,36 +342,7 @@ problemMapper<Failure extends TaggedFailure>()
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:148](../../apps/backend/src/http-api/problem.ts#L148)
-
-**How it works**
-
-Missing: the JSDoc has no `@remarks` tag.
-
-**Use**
-
-Missing: the JSDoc has no `@example` tag.
-
-**Avoid**
-
-Missing: the JSDoc has no `@avoid` tag.
-
-## `headerValues`
-
-The values of one request header; an absent header has none.
-
-```ts
-headerValues(request: Request, name: string): ReadonlyArray<string>
-```
-
-- Inputs:
-  - `request: Request`
-  - `name: string`
-- Output: `ReadonlyArray<string>`
-- Errors: none
-- Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:176](../../apps/backend/src/http-api/problem.ts#L176)
+- Source: [apps/backend/src/http-api/problem.ts:146](../../apps/backend/src/http-api/problem.ts#L146)
 
 **How it works**
 
@@ -669,7 +369,7 @@ requireNoQuery(request: Request): Effect.Effect<void, Problem<"request.malformed
 - Errors: `Problem<"request.malformed">`
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:187](../../apps/backend/src/http-api/problem.ts#L187)
+- Source: [apps/backend/src/http-api/problem.ts:183](../../apps/backend/src/http-api/problem.ts#L183)
 
 **How it works**
 
@@ -703,7 +403,7 @@ readJsonBody(
 - Errors: `| Problem<"media-type.unsupported"> | Problem<"request.malformed"> | Problem<"request.too-large"> | Problem<"internal.error">`
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:197](../../apps/backend/src/http-api/problem.ts#L197)
+- Source: [apps/backend/src/http-api/problem.ts:193](../../apps/backend/src/http-api/problem.ts#L193)
 
 **How it works**
 
@@ -730,7 +430,7 @@ idempotencyKeyOf(request: Request)
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:217](../../apps/backend/src/http-api/problem.ts#L217)
+- Source: [apps/backend/src/http-api/problem.ts:213](../../apps/backend/src/http-api/problem.ts#L213)
 
 **How it works**
 
@@ -757,7 +457,7 @@ requiredIfMatchOf(request: Request)
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:228](../../apps/backend/src/http-api/problem.ts#L228)
+- Source: [apps/backend/src/http-api/problem.ts:224](../../apps/backend/src/http-api/problem.ts#L224)
 
 **How it works**
 
@@ -784,7 +484,7 @@ httpIdentity(identity: NativeIdempotencyIdentity)
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:239](../../apps/backend/src/http-api/problem.ts#L239)
+- Source: [apps/backend/src/http-api/problem.ts:235](../../apps/backend/src/http-api/problem.ts#L235)
 
 **How it works**
 
@@ -816,7 +516,7 @@ requireCurrentETag(
 - Errors: `Problem<"precondition.failed">`
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:250](../../apps/backend/src/http-api/problem.ts#L250)
+- Source: [apps/backend/src/http-api/problem.ts:246](../../apps/backend/src/http-api/problem.ts#L246)
 
 **How it works**
 
@@ -845,7 +545,7 @@ conditionalJson(
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:264](../../apps/backend/src/http-api/problem.ts#L264)
+- Source: [apps/backend/src/http-api/problem.ts:260](../../apps/backend/src/http-api/problem.ts#L260)
 
 **How it works**
 
@@ -874,7 +574,7 @@ personPresentation(request: Request, challenge: string = nativeUserChallenges())
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:310](../../apps/backend/src/http-api/problem.ts#L310)
+- Source: [apps/backend/src/http-api/problem.ts:306](../../apps/backend/src/http-api/problem.ts#L306)
 
 **How it works**
 
@@ -903,7 +603,7 @@ isSerializationConflict(cause: unknown, depth = 0): boolean
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:323](../../apps/backend/src/http-api/problem.ts#L323)
+- Source: [apps/backend/src/http-api/problem.ts:319](../../apps/backend/src/http-api/problem.ts#L319)
 
 **How it works**
 
@@ -930,7 +630,7 @@ requestInvalid()
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:337](../../apps/backend/src/http-api/problem.ts#L337)
+- Source: [apps/backend/src/http-api/problem.ts:333](../../apps/backend/src/http-api/problem.ts#L333)
 
 **How it works**
 
@@ -957,7 +657,7 @@ decodeRequest<S extends Schema.ConstraintDecoder<unknown, never>>(schema: S)
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:345](../../apps/backend/src/http-api/problem.ts#L345)
+- Source: [apps/backend/src/http-api/problem.ts:341](../../apps/backend/src/http-api/problem.ts#L341)
 
 **How it works**
 
@@ -984,7 +684,7 @@ strictOutput<S extends Schema.ConstraintDecoder<unknown, never>>(schema: S)
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:358](../../apps/backend/src/http-api/problem.ts#L358)
+- Source: [apps/backend/src/http-api/problem.ts:354](../../apps/backend/src/http-api/problem.ts#L354)
 
 **How it works**
 
@@ -1011,7 +711,7 @@ const commandReceiptProblems
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:368](../../apps/backend/src/http-api/problem.ts#L368)
+- Source: [apps/backend/src/http-api/problem.ts:364](../../apps/backend/src/http-api/problem.ts#L364)
 
 **How it works**
 
@@ -1040,7 +740,7 @@ commandOutcomeResponse(
 - Errors: `| Problem<"idempotency.in-flight"> | Problem<"idempotency.digest-conflict"> | Problem<"idempotency.response-expired">`
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:383](../../apps/backend/src/http-api/problem.ts#L383)
+- Source: [apps/backend/src/http-api/problem.ts:379](../../apps/backend/src/http-api/problem.ts#L379)
 
 **How it works**
 
@@ -1074,7 +774,7 @@ authorizeAnonymous(
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:407](../../apps/backend/src/http-api/problem.ts#L407)
+- Source: [apps/backend/src/http-api/problem.ts:403](../../apps/backend/src/http-api/problem.ts#L403)
 
 **How it works**
 
@@ -1103,7 +803,7 @@ authorizePerson(input: NativePersonAuthorization, presentation: CredentialPresen
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:423](../../apps/backend/src/http-api/problem.ts#L423)
+- Source: [apps/backend/src/http-api/problem.ts:419](../../apps/backend/src/http-api/problem.ts#L419)
 
 **How it works**
 
@@ -1132,7 +832,7 @@ unreachable<const Code extends NativeProblemCode>(code: Code, ...codes: Readonly
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:445](../../apps/backend/src/http-api/problem.ts#L445)
+- Source: [apps/backend/src/http-api/problem.ts:441](../../apps/backend/src/http-api/problem.ts#L441)
 
 **How it works**
 
@@ -1159,34 +859,7 @@ const ProblemBoundaryLive
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/http-api/problem.ts:466](../../apps/backend/src/http-api/problem.ts#L466)
-
-**How it works**
-
-Missing: the JSDoc has no `@remarks` tag.
-
-**Use**
-
-Missing: the JSDoc has no `@example` tag.
-
-**Avoid**
-
-Missing: the JSDoc has no `@avoid` tag.
-
-## `NativeAccessRejected`
-
-An AccessSpec evaluation that did not grant the operation.
-
-```ts
-class NativeAccessRejected extends Data.TaggedError("NativeAccessRejected")<{ readonly status: 401 | 403 | 404 }>
-```
-
-- Inputs: none
-- Output: `NativeAccessRejected`
-- Errors: none
-- Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/native-operation.ts:45](../../apps/backend/src/native-operation.ts#L45)
+- Source: [apps/backend/src/http-api/problem.ts:462](../../apps/backend/src/http-api/problem.ts#L462)
 
 **How it works**
 
@@ -1227,33 +900,6 @@ Missing: the JSDoc has no `@example` tag.
 
 Missing: the JSDoc has no `@avoid` tag.
 
-## `storedReceiptProblems`
-
-A stored receipt value a read cannot decode is the receipt store failing, not the request.
-
-```ts
-const storedReceiptProblems
-```
-
-- Inputs: none
-- Output: not annotated
-- Errors: none
-- Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/receipt/http-problem.ts:60](../../apps/backend/src/receipt/http-problem.ts#L60)
-
-**How it works**
-
-Missing: the JSDoc has no `@remarks` tag.
-
-**Use**
-
-Missing: the JSDoc has no `@example` tag.
-
-**Avoid**
-
-Missing: the JSDoc has no `@avoid` tag.
-
 ## `receiptCredentialProblems`
 
 A credential rejected inside a receipt handler is answered from the request's own evidence.
@@ -1267,34 +913,7 @@ receiptCredentialProblems(presentation: CredentialPresentation)
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/receipt/http-problem.ts:69](../../apps/backend/src/receipt/http-problem.ts#L69)
-
-**How it works**
-
-Missing: the JSDoc has no `@remarks` tag.
-
-**Use**
-
-Missing: the JSDoc has no `@example` tag.
-
-**Avoid**
-
-Missing: the JSDoc has no `@avoid` tag.
-
-## `projected`
-
-Projects stored rows onto response items.
-
-```ts
-projected<A>(project: () => A): Effect.Effect<A, ReceiptPersistenceError>
-```
-
-- Inputs: `project: () => A`
-- Output: `Effect.Effect<A, ReceiptPersistenceError>`
-- Errors: `ReceiptPersistenceError`
-- Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/receipt/http-representation.ts:56](../../apps/backend/src/receipt/http-representation.ts#L56)
+- Source: [apps/backend/src/receipt/http-problem.ts:67](../../apps/backend/src/receipt/http-problem.ts#L67)
 
 **How it works**
 
@@ -1463,87 +1082,6 @@ Missing: the JSDoc has no `@example` tag.
 
 Missing: the JSDoc has no `@avoid` tag.
 
-## `maintenanceProblems`
-
-The maintenance API answers its own failures, an unknown interview, and an identity outage in its own vocabulary; everything else as recruitment does.
-
-```ts
-const maintenanceProblems
-```
-
-- Inputs: none
-- Output: not annotated
-- Errors: none
-- Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/recruitment/http-problem.ts:119](../../apps/backend/src/recruitment/http-problem.ts#L119)
-
-**How it works**
-
-Missing: the JSDoc has no `@remarks` tag.
-
-**Use**
-
-Missing: the JSDoc has no `@example` tag.
-
-**Avoid**
-
-Missing: the JSDoc has no `@avoid` tag.
-
-## `schoolsProblems`
-
-The one answer for every Schools failure.
-
-```ts
-const schoolsProblems
-```
-
-- Inputs: none
-- Output: not annotated
-- Errors: none
-- Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/schools/http.ts:57](../../apps/backend/src/schools/http.ts#L57)
-
-**How it works**
-
-Missing: the JSDoc has no `@remarks` tag.
-
-**Use**
-
-Missing: the JSDoc has no `@example` tag.
-
-**Avoid**
-
-Missing: the JSDoc has no `@avoid` tag.
-
-## `schoolsCredentialProblems`
-
-A person credential rejected after ingress is answered from the request's own evidence; an unavailable identity provider leaves Schools unavailable.
-
-```ts
-schoolsCredentialProblems(presentation: CredentialPresentation)
-```
-
-- Inputs: `presentation: CredentialPresentation`
-- Output: not annotated
-- Errors: none
-- Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/schools/http.ts:87](../../apps/backend/src/schools/http.ts#L87)
-
-**How it works**
-
-Missing: the JSDoc has no `@remarks` tag.
-
-**Use**
-
-Missing: the JSDoc has no `@example` tag.
-
-**Avoid**
-
-Missing: the JSDoc has no `@avoid` tag.
-
 ## `problemUnion`
 
 Creates a closed endpoint-specific Problem Details union.
@@ -1680,33 +1218,6 @@ Missing: the JSDoc has no `@example` tag.
 
 Missing: the JSDoc has no `@avoid` tag.
 
-## `problemHeaders`
-
-The response headers of one problem: `no-store`, its challenge, and its retry delay.
-
-```ts
-problemHeaders(problem: Problem): ProblemHeaderValues
-```
-
-- Inputs: `problem: Problem`
-- Output: `ProblemHeaderValues`
-- Errors: none
-- Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [packages/http-api/src/http-semantics.ts:1358](../../packages/http-api/src/http-semantics.ts#L1358)
-
-**How it works**
-
-Missing: the JSDoc has no `@remarks` tag.
-
-**Use**
-
-Missing: the JSDoc has no `@example` tag.
-
-**Avoid**
-
-Missing: the JSDoc has no `@avoid` tag.
-
 ## `makeNativeProblem`
 
 Builds one safe fixed public problem value.
@@ -1727,7 +1238,7 @@ makeNativeProblem<Code extends NativeProblemCode>(
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [packages/http-api/src/http-semantics.ts:1506](../../packages/http-api/src/http-semantics.ts#L1506)
+- Source: [packages/http-api/src/http-semantics.ts:1504](../../packages/http-api/src/http-semantics.ts#L1504)
 
 **How it works**
 

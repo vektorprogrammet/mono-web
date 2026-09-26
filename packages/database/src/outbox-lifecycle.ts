@@ -228,8 +228,6 @@ export const recoverStaleOutboxClaims = (
 
 /**
  * Recovers the rows of one claim when that claim was taken before `claimedBefore`.
- *
- * @construct sql-lifecycle
  */
 export const recoverStaleOutboxClaim = (
   sql: DatabaseOperations,

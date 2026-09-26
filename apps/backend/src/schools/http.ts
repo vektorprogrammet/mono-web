@@ -51,8 +51,6 @@ const privateJsonResponse = (body: Schema.Json): Response =>
 /**
  * The one answer for every Schools failure. A representation that does not
  * fit its schema leaves Schools unavailable, as a failed Schools read does.
- *
- * @construct http-problem
  */
 export const schoolsProblems = problemMapper<
   ReadSchoolsDirectoryFailure | SchoolCommandFailure | Schema.SchemaError
@@ -81,8 +79,6 @@ export const schoolsProblems = problemMapper<
 /**
  * A person credential rejected after ingress is answered from the request's
  * own evidence; an unavailable identity provider leaves Schools unavailable.
- *
- * @construct http-problem
  */
 export const schoolsCredentialProblems = (presentation: CredentialPresentation) =>
   problemMapper<UnauthenticatedActor | IdentityEngineError>()({

@@ -52,17 +52,9 @@ Each folder of `src` holds a bounded context of [docs/model/contexts.cml](../../
 
 The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../docs/constructs.md) indexes them all.
 
-- [`jcsBytes`](../../docs/constructs/http-transport.md#jcsbytes) (http-transport): Encodes one I-JSON value with the repository RFC 8785 encoder.
-- [`parseJsonWithoutDuplicateMembers`](../../docs/constructs/http-transport.md#parsejsonwithoutduplicatemembers) (http-transport): Decodes UTF-8 JSON while rejecting duplicate member names before schema decoding.
-- [`interpretMergePatchSource`](../../docs/constructs/http-transport.md#interpretmergepatchsource) (http-transport): Preserves absence, value, and explicit deletion before typed merge-patch decoding.
-- [`parseIdempotencyKey`](../../docs/constructs/http-transport.md#parseidempotencykey) (http-transport): Decodes one non-combinable Idempotency-Key field.
-- [`parseRequiredIfMatch`](../../docs/constructs/http-transport.md#parserequiredifmatch) (http-transport): Decodes the required single strong If-Match value for an item mutation.
-- [`parseReadIfMatch`](../../docs/constructs/http-transport.md#parsereadifmatch) (http-transport): Canonicalizes an optional read If-Match wildcard or entity-tag list.
-- [`parseIfNoneMatch`](../../docs/constructs/http-transport.md#parseifnonematch) (http-transport): Canonicalizes an optional If-None-Match wildcard or entity-tag list.
 - [`encodePathIdentity`](../../docs/constructs/http-transport.md#encodepathidentity) (http-transport): Encodes one decoded identity as an uppercase RFC 3986 path segment.
 - [`normalizeTarget`](../../docs/constructs/http-transport.md#normalizetarget) (http-transport): Fills a route template with its encoded identities; a missing identity is a malformed request.
 - [`deriveHttpIdentity`](../../docs/constructs/http-transport.md#derivehttpidentity) (http-transport): Derives the private storage digest and domain command ID from the identity tuple.
-- [`NativeAccessRejected`](../../docs/constructs/http-problem.md#nativeaccessrejected) (http-problem): An AccessSpec evaluation that did not grant the operation.
 - [`pollForever`](../../docs/constructs/worker.md#pollforever) (worker): Runs `tick` at once, then again after each success.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.

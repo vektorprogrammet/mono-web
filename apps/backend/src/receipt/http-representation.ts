@@ -19,8 +19,6 @@ import type { ReceiptFileStore } from "./filesystem.js";
 
 /**
  * A JSON body under the receipt cache policy the caller names.
- *
- * @construct http-transport
  */
 export const jsonResponse = (
   body: Schema.Json,
@@ -37,8 +35,6 @@ export const jsonResponse = (
 
 /**
  * A JSON body private to the caller, varying by Origin.
- *
- * @construct http-transport
  */
 export const privateJsonResponse = (body: Schema.Json, status = 200): Response => {
   const response = jsonResponse(body, status, "private, no-store");
@@ -50,8 +46,6 @@ export const privateJsonResponse = (body: Schema.Json, status = 200): Response =
 /**
  * Projects stored rows onto response items. A stored value outside the
  * response contract is the receipt store failing; any other throw is a defect.
- *
- * @construct http-problem
  */
 export const projected = <A>(project: () => A): Effect.Effect<A, ReceiptPersistenceError> =>
   Effect.suspend(() => {
@@ -158,8 +152,6 @@ export type ReceiptMutationStatus =
 
 /**
  * The replayable response of one receipt mutation.
- *
- * @construct http-transport
  */
 export const receiptMutationCapsule = (
   receipt: Receipt,
@@ -210,8 +202,6 @@ const receiptFileName = (contentType: ReceiptFile["contentType"]): string => {
 /**
  * Answers verified private bytes with their exact headers; unreadable bytes are the receipt
  * store failing.
- *
- * @construct http-transport
  */
 export const readPrivateReceiptFile = (
   file: ReceiptFile,

@@ -15,11 +15,9 @@ The shared constructs defined here. Each name links to its contract; [docs/const
 
 - [`problemWebResponse`](../../../../docs/constructs/http-problem.md#problemwebresponse) (http-problem): Renders one problem outside HttpApi encoding, with the encoder's body and headers.
 - [`jsonText`](../../../../docs/constructs/http-problem.md#jsontext) (http-problem): The JSON text of a representation, byte for byte what `JSON.stringify` writes.
-- [`classifyCredential`](../../../../docs/constructs/http-problem.md#classifycredential) (http-problem): Records, from the raw request only, whether person credential material was presented.
 - [`webHandler`](../../../../docs/constructs/http-problem.md#webhandler) (http-problem): Runs one Effect-native Web transport operation.
 - [`semanticProblem`](../../../../docs/constructs/http-problem.md#semanticproblem) (http-problem): Runs a throwing semantic parser.
 - [`problemMapper`](../../../../docs/constructs/http-problem.md#problemmapper) (http-problem): Builds the one failure-to-problem mapper of a domain.
-- [`headerValues`](../../../../docs/constructs/http-problem.md#headervalues) (http-problem): The values of one request header; an absent header has none.
 - [`requireNoQuery`](../../../../docs/constructs/http-problem.md#requirenoquery) (http-problem): An operation that accepts no query answers any query as malformed.
 - [`readJsonBody`](../../../../docs/constructs/http-problem.md#readjsonbody) (http-problem): Reads a bounded JSON body of the one media type `mediaType` accepts.
 - [`idempotencyKeyOf`](../../../../docs/constructs/http-problem.md#idempotencykeyof) (http-problem): Decodes the one Idempotency-Key a replayable mutation requires.
@@ -38,7 +36,6 @@ The shared constructs defined here. Each name links to its contract; [docs/const
 - [`authorizePerson`](../../../../docs/constructs/http-problem.md#authorizeperson) (http-problem): A rejected person credential is answered from the ingress evidence, never by string choice.
 - [`unreachable`](../../../../docs/constructs/http-problem.md#unreachable) (http-problem): Marks problems a shared mapper can produce but this operation cannot, such as a serialization conflict inside a read-only snapshot.
 - [`ProblemBoundaryLive`](../../../../docs/constructs/http-problem.md#problemboundarylive) (http-problem): The only Cause consumer.
-- [`readBoundedJson`](../../../../docs/constructs/http-transport.md#readboundedjson) (http-transport): Bound bytes while reading, including requests without Content-Length.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

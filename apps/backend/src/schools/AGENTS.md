@@ -52,13 +52,6 @@ Responsibilities:
 
 No `exports` entry of [apps/backend/package.json](../../package.json) points into this folder, so other packages do not import it.
 
-## Constructs
-
-The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../../../docs/constructs.md) indexes them all.
-
-- [`schoolsProblems`](../../../../docs/constructs/http-problem.md#schoolsproblems) (http-problem): The one answer for every Schools failure.
-- [`schoolsCredentialProblems`](../../../../docs/constructs/http-problem.md#schoolscredentialproblems) (http-problem): A person credential rejected after ingress is answered from the request's own evidence; an unavailable identity provider leaves Schools unavailable.
-
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 
 [//]: # "guide: end"

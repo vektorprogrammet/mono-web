@@ -5,8 +5,6 @@ import { deriveStrongETag, type ETagVersionSource } from "../http-semantics.js";
 
 /**
  * One JSON representation that no cache stores.
- *
- * @construct http-transport
  */
 export const jsonResponse = (body: Schema.Json): Response =>
   new Response(JSON.stringify(body), {
@@ -19,8 +17,6 @@ export const jsonResponse = (body: Schema.Json): Response =>
 /**
  * Answers a conditional read of one admission collection, tagged by the
  * versions of its items.
- *
- * @construct http-transport
  */
 export const conditionalCollection = (input: {
   readonly request: Request;

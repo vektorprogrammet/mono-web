@@ -15,14 +15,12 @@ Package `@monoweb/postgres`.
 
 The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../docs/constructs.md) indexes them all.
 
-- [`selectedPostgresMajor`](../../docs/constructs/test-harness.md#selectedpostgresmajor) (test-harness): The major that `VEKTOR_POSTGRES_MAJOR` selects, or the default.
 - [`postgresProgram`](../../docs/constructs/test-harness.md#postgresprogram) (test-harness): Absolute path of a client program of the selected PostgreSQL major.
 - [`postgresVersion`](../../docs/constructs/test-harness.md#postgresversion) (test-harness): The `postgres --version` line of the selected major, such as `postgres (PostgreSQL) 18.6`, for evidence that names the toolchain whether or not a cluster started.
 - [`loopbackPortFree`](../../docs/constructs/test-harness.md#loopbackportfree) (test-harness): Whether a listener can bind `port` on loopback now.
 - [`reserveLoopbackPorts`](../../docs/constructs/test-harness.md#reserveloopbackports) (test-harness): Reserves `count` distinct loopback ports for the servers that a journey starts: its backend, dashboard, receivers, and clusters.
 - [`startDisposablePostgres`](../../docs/constructs/test-harness.md#startdisposablepostgres) (test-harness): Starts a fresh cluster of the selected major on a private port and socket directory with trust authentication.
 - [`withDisposablePostgres`](../../docs/constructs/test-harness.md#withdisposablepostgres) (test-harness): Runs `use` against the database `database` of a fresh cluster, which `startDisposablePostgres` starts, and removes the cluster when `use` settles, also when it fails.
-- [`startDisposablePgBouncer`](../../docs/constructs/test-harness.md#startdisposablepgbouncer) (test-harness): Starts PgBouncer on a private loopback port in front of `upstream`, with trust authentication and every database of the cluster, in transaction pool mode unless `options` names another.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

@@ -46,8 +46,6 @@ export interface TransactionalAuthorizedContentActor extends AuthorizedContentAc
 /**
  * Resolves the staff person of a snapshot read and its content actor at the
  * person's authorization instant.
- *
- * @construct http-problem
  */
 export const authorizedActor = <E, R>(
   request: Request,
@@ -83,8 +81,6 @@ export const authorizedActor = <E, R>(
 /**
  * Resolves the staff person of a command, its credential, and its content
  * actor inside the command's transaction.
- *
- * @construct http-problem
  */
 export const authorizedActorInTransaction = (request: Request) =>
   Effect.gen(function* () {

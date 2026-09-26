@@ -74,8 +74,6 @@ export const jsonText = <A>(value: A): Effect.Effect<string> =>
 
 /**
  * Records, from the raw request only, whether person credential material was presented.
- *
- * @construct http-problem
  */
 export const classifyCredential = (
   authorization: string | null | undefined,
@@ -170,8 +168,6 @@ export const problemMapper =
 
 /**
  * The values of one request header; an absent header has none.
- *
- * @construct http-problem
  */
 export const headerValues = (request: Request, name: string): ReadonlyArray<string> => {
   const value = request.headers.get(name);

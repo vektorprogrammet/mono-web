@@ -88,8 +88,6 @@ export const defaultPostgresMajor = selectPostgresMajor(supportedPostgresMajors,
 
 /**
  * The major that `VEKTOR_POSTGRES_MAJOR` selects, or the default.
- *
- * @construct test-harness
  */
 export const selectedPostgresMajor = selectPostgresMajor(
   supportedPostgresMajors,
@@ -741,7 +739,6 @@ export interface DisposablePgBouncer {
  * const url = pooler.urlOf("pilot");
  * await pooler.stop();
  * @avoid Spawning `pgbouncer` elsewhere, and judging readiness by an open port.
- * @construct test-harness
  */
 export const startDisposablePgBouncer = async (
   upstream: DisposablePostgres,

@@ -7,8 +7,6 @@ import { Effect } from "effect";
 /**
  * A workspace or news listing accepts at most one department filter and no
  * other parameter. The endpoint's query schema has already decoded it.
- *
- * @construct http-problem
  */
 export const departmentQuery = (
   request: Request,
@@ -23,8 +21,6 @@ export const departmentQuery = (
 
 /**
  * A news article read accepts at most one positive published version and no other parameter.
- *
- * @construct http-problem
  */
 export const versionFromQuery = (
   request: Request,

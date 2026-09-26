@@ -75,7 +75,6 @@ The shared constructs defined here. Each name links to its contract; [docs/const
 - [`readRecruitmentBody`](../../../../docs/constructs/http-problem.md#readrecruitmentbody) (http-problem): Every recruitment request body is one bounded `application/json` document.
 - [`recruitmentProblems`](../../../../docs/constructs/http-problem.md#recruitmentproblems) (http-problem): The one answer for every recruitment failure.
 - [`raceProblems`](../../../../docs/constructs/http-problem.md#raceproblems) (http-problem): A failure that lost a serialization or deadlock race answers transaction.conflict, whatever failure carried it.
-- [`maintenanceProblems`](../../../../docs/constructs/http-problem.md#maintenanceproblems) (http-problem): The maintenance API answers its own failures, an unknown interview, and an identity outage in its own vocabulary; everything else as recruitment does.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 
