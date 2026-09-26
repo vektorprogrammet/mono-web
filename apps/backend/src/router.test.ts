@@ -271,8 +271,8 @@ const successfulIdentity = Identity.of({
 } satisfies IdentityOperations);
 
 const unavailableAuthHandler = {
-  handle: async () => new Response(null, { status: 404 }),
-  recordTrustedOriginRejection: async () => undefined,
+  handler: () => Effect.succeed(new Response(null, { status: 404 })),
+  recordTrustedOriginRejection: () => Effect.void,
 };
 
 const successfulServices = makeBackendServices(successfulIdentity);
@@ -865,14 +865,16 @@ describe("unified backend router", () => {
     const rejectedCorrelations: string[] = [];
 
     const originBackend = backendHttpHandler(config, successfulServices, {
-      handle: async (request) => {
-        handled.push(new URL(request.url).pathname);
+      handler: (request) =>
+        Effect.sync(() => {
+          handled.push(new URL(request.url).pathname);
 
-        return new Response(null, { status: 204 });
-      },
-      recordTrustedOriginRejection: async (context) => {
-        rejectedCorrelations.push(context.requestCorrelation);
-      },
+          return new Response(null, { status: 204 });
+        }),
+      recordTrustedOriginRejection: (context) =>
+        Effect.sync(() => {
+          rejectedCorrelations.push(context.requestCorrelation);
+        }),
     });
 
     const trustedOrigin = "http://127.0.0.1:5174";
@@ -943,21 +945,26 @@ describe("unified backend router", () => {
     const rejectedCorrelations: string[] = [];
 
     const oauthBackend = backendHttpHandler(config, successfulServices, {
-      handle: async () => new Response(null, { status: 404 }),
-      handleOAuth: async (request) => {
-        oauthCalls.push(`${request.method} ${new URL(request.url).pathname}`);
+      handler: () => Effect.succeed(new Response(null, { status: 404 })),
+      oauthHandler: (request) =>
+        Effect.sync(() => {
+          oauthCalls.push(`${request.method} ${new URL(request.url).pathname}`);
 
-        return new Response(JSON.stringify({ error: "invalid_request" }), {
-          status: 400,
-          headers: {
-            "cache-control": "no-store",
-            "content-type": "application/json",
-          },
-        });
-      },
-      recordTrustedOriginRejection: async (context) => {
-        rejectedCorrelations.push(context.requestCorrelation);
-      },
+          return Response.json(
+            { error: "invalid_request" },
+            {
+              status: 400,
+              headers: {
+                "cache-control": "no-store",
+                "content-type": "application/json",
+              },
+            },
+          );
+        }),
+      recordTrustedOriginRejection: (context) =>
+        Effect.sync(() => {
+          rejectedCorrelations.push(context.requestCorrelation);
+        }),
     });
 
     const response = await oauthBackend.fetch(
@@ -982,14 +989,16 @@ describe("unified backend router", () => {
     const origin = "http://127.0.0.1:5174";
 
     const backend = backendHttpHandler(config, successfulServices, {
-      handle: async (request) => {
-        dispatched.push(new URL(request.url).pathname);
+      handler: (request) =>
+        Effect.sync(() => {
+          dispatched.push(new URL(request.url).pathname);
 
-        return new Response(null, { status: 204 });
-      },
-      recordTrustedOriginRejection: async (context) => {
-        rejectedCorrelations.push(context.requestCorrelation);
-      },
+          return new Response(null, { status: 204 });
+        }),
+      recordTrustedOriginRejection: (context) =>
+        Effect.sync(() => {
+          rejectedCorrelations.push(context.requestCorrelation);
+        }),
     });
 
     const allowed = await backend.fetch(
@@ -1165,8 +1174,9 @@ describe("unified backend router", () => {
 
   it("mounts the auth engine handler over the /api/auth/* surface", async () => {
     const probingBackend = backendHttpHandler(config, successfulServices, {
-      handle: async (request) => new Response(`auth-saw:${new URL(request.url).pathname}`),
-      recordTrustedOriginRejection: async () => undefined,
+      handler: (request) =>
+        Effect.sync(() => new Response(`auth-saw:${new URL(request.url).pathname}`)),
+      recordTrustedOriginRejection: () => Effect.void,
     });
 
     for (const path of ["/api/auth/get-session", "/api/auth/sign-in/email", "/api/auth/"]) {
@@ -1220,12 +1230,11 @@ it("classifies only exact password recovery method/path origin rejections", asyn
   const observed: Array<string | undefined> = [];
 
   const backend = backendHttpHandler(config, successfulServices, {
-    handle: async () => {
-      throw new Error("Rejected origin must not reach engine");
-    },
-    recordTrustedOriginRejection: async (_context, flow) => {
-      observed.push(flow);
-    },
+    handler: () => Effect.die(new Error("Rejected origin must not reach engine")),
+    recordTrustedOriginRejection: (_context, flow) =>
+      Effect.sync(() => {
+        observed.push(flow);
+      }),
   });
 
   const cases = [

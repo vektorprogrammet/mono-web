@@ -113,8 +113,9 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
   - [apps/backend/src/admission/http-reads.ts](../apps/backend/src/admission/http-reads.ts)
 - `admissionActorForAuthority`: The admission actor of one department scope.
-  [apps/backend/src/admission/http-context.ts:61](../apps/backend/src/admission/http-context.ts#L61), 1 consumer:
+  [apps/backend/src/admission/http-context.ts:61](../apps/backend/src/admission/http-context.ts#L61), 2 consumers:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
+  - [apps/backend/src/router.ts](../apps/backend/src/router.ts)
 - `decodeJson`: Reads and decodes one bounded JSON body.
   [apps/backend/src/admission/http-decode.ts:53](../apps/backend/src/admission/http-decode.ts#L53), 1 consumer:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)

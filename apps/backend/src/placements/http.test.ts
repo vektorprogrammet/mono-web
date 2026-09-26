@@ -204,8 +204,8 @@ const fixture = () => {
       Layer.succeed(Identity, identity),
     ).pipe(Layer.provideMerge(database.layer)),
     {
-      handle: async () => new Response(null, { status: 404 }),
-      recordTrustedOriginRejection: async () => undefined,
+      handler: () => Effect.succeed(new Response(null, { status: 404 })),
+      recordTrustedOriginRejection: () => Effect.void,
     },
   );
 

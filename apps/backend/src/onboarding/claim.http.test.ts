@@ -129,8 +129,8 @@ const http = makeBackendTestHttp(
     }),
   ),
   {
-    handle: async () => new Response(null, { status: 404 }),
-    recordTrustedOriginRejection: async () => undefined,
+    handler: () => Effect.succeed(new Response(null, { status: 404 })),
+    recordTrustedOriginRejection: () => Effect.void,
   },
 );
 

@@ -63,6 +63,7 @@ import {
   InternalNativeApiRouterLive,
   nativeHttpRouterConfig,
   type BackendAuthHandler,
+  type BackendHttpHandler,
   type BackendHttpOptions,
 } from "../router.js";
 import { type SchoolsApiHttpOptions } from "../schools/http.js";
@@ -78,8 +79,8 @@ const testSessionBoundary = {
 } as const;
 
 const testAuthHandler: BackendAuthHandler = {
-  handle: () => Promise.resolve(new Response(null, { status: 404 })),
-  recordTrustedOriginRejection: () => Promise.resolve(),
+  handler: () => Effect.succeed(new Response(null, { status: 404 })),
+  recordTrustedOriginRejection: () => Effect.void,
 };
 
 const notFound = HttpRouter.use((router) =>
@@ -227,35 +228,49 @@ const provideTestServices = (
   services: TestServiceLayer,
 ) => layer.pipe(Layer.provideMerge(completeServices(services)));
 
+/** Serves each request on a fresh web handler, whose runtime is disposed after the response. */
+const serveEachRequest =
+  (
+    makeWebHandler: () => {
+      readonly handler: (request: Request) => Promise<Response>;
+      readonly dispose: () => Promise<void>;
+    },
+  ): BackendHttpHandler =>
+  (request) =>
+    Effect.acquireUseRelease(
+      Effect.sync(makeWebHandler),
+      ({ handler }) => Effect.promise(() => handler(request)),
+      ({ dispose }) => Effect.promise(() => dispose()),
+    );
+
 const testRouterFetch = (
   app: Layer.Layer<never, never, TestApplicationRequirement>,
   services: TestServiceLayer,
-): ((request: Request) => Promise<Response>) => {
-  const allServices = completeServices(services);
-
+) => {
   const routerLayer = Layer.mergeAll(app, notFound, ProblemBoundaryLive).pipe(
-    Layer.provideMerge(allServices),
+    Layer.provideMerge(completeServices(services)),
     Layer.provideMerge(platform),
   );
 
-  return async (request) => {
-    const webHandler = HttpRouter.toWebHandler(routerLayer, {
+  return serveEachRequest(() =>
+    HttpRouter.toWebHandler(routerLayer, {
       disableLogger: true,
       routerConfig: nativeHttpRouterConfig,
-    });
-
-    try {
-      return await webHandler.handler(request);
-    } finally {
-      await webHandler.dispose();
-    }
-  };
+    }),
+  );
 };
+
+// Until the tests run as Effects (effect-diagnostics step 5), they await each response.
+const promised = (handler: BackendHttpHandler) => (request: Request) =>
+  Effect.runPromise(handler(request));
 
 const testFetch = (
   app: Layer.Layer<never, never, TestApplicationRequirement>,
   services: TestServiceLayer,
-) => backendHttpHandler(testRouterFetch(app, services), testAuthHandler, testSessionBoundary).fetch;
+) =>
+  promised(
+    backendHttpHandler(testRouterFetch(app, services), testAuthHandler, testSessionBoundary),
+  );
 
 export const makeOrganizationTestHttp = <S extends TestServiceLayer>(
   options: OrganizationApiHttpOptions,
@@ -327,12 +342,14 @@ export const makeInternalReceiptTestHttp = <
   options: ReceiptApiHttpOptions<E, BackendTestServices>,
   services: S,
 ) => ({
-  fetch: testRouterFetch(
-    HttpApiBuilder.layer(internalReceiptContract).pipe(
-      Layer.provide(InternalReceiptApiHandlers(options)),
-      Layer.provide(NativeHttpApiMiddlewareLive),
+  fetch: promised(
+    testRouterFetch(
+      HttpApiBuilder.layer(internalReceiptContract).pipe(
+        Layer.provide(InternalReceiptApiHandlers(options)),
+        Layer.provide(NativeHttpApiMiddlewareLive),
+      ),
+      services,
     ),
-    services,
   ),
 });
 
@@ -430,19 +447,13 @@ export const makeBackendTestHttp = (
     services,
   ).pipe(Layer.provideMerge(platform));
 
-  const native = async (request: Request): Promise<Response> => {
-    const { dispose, handler } = HttpRouter.toWebHandler(routerLayer, {
+  const native = serveEachRequest(() =>
+    HttpRouter.toWebHandler(routerLayer, {
       disableLogger: true,
-    });
+    }),
+  );
 
-    try {
-      return await handler(request);
-    } finally {
-      await dispose();
-    }
-  };
-
-  return backendHttpHandler(native, authHandler, config.sessionBoundary);
+  return { fetch: promised(backendHttpHandler(native, authHandler, config.sessionBoundary)) };
 };
 
 export const makeBackendInternalTestHttp = (
@@ -456,16 +467,12 @@ export const makeBackendInternalTestHttp = (
   ).pipe(Layer.provideMerge(platform));
 
   return {
-    fetch: async (request: Request): Promise<Response> => {
-      const { dispose, handler } = HttpRouter.toWebHandler(routerLayer, {
-        disableLogger: true,
-      });
-
-      try {
-        return await handler(request);
-      } finally {
-        await dispose();
-      }
-    },
+    fetch: promised(
+      serveEachRequest(() =>
+        HttpRouter.toWebHandler(routerLayer, {
+          disableLogger: true,
+        }),
+      ),
+    ),
   };
 };

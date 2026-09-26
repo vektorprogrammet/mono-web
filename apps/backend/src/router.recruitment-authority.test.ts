@@ -243,8 +243,8 @@ const backendServices = Layer.mergeAll(
 );
 
 const backend = backendHttpHandler(config, backendServices, {
-  handle: async () => new Response(null, { status: 404 }),
-  recordTrustedOriginRejection: async () => undefined,
+  handler: () => Effect.succeed(new Response(null, { status: 404 })),
+  recordTrustedOriginRejection: () => Effect.void,
 });
 
 const request = (pathname: string, sessionValue: string): Promise<Response> =>

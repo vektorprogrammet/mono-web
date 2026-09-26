@@ -2,24 +2,13 @@ import { OnboardingApiHandlers } from "./onboarding/http.js";
 import { PlacementsApiHandlers } from "./placements/http.js";
 import { ContactApiHandlers } from "./contact/http.js";
 import { BlockList, isIP } from "node:net";
-import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
-import {
-  AdmissionRoleDenied,
-  AdmissionScopeDenied,
-  InactiveActor,
-  UnauthenticatedActor,
-  type AdmissionPeriodActor,
-} from "@vektorprogrammet/domain/admission-period";
+import type { AuthEngineService, OAuthCredentialAuthority } from "@vektorprogrammet/database";
+import { InactiveActor, UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
   RecruitmentInactiveActor,
   RecruitmentRoleDenied,
 } from "@vektorprogrammet/domain/recruitment";
-import {
-  type Identity,
-  type IdentityEngineError,
-  type IdentityRequestContext,
-} from "@vektorprogrammet/domain/identity";
-import { DepartmentId, type Organization } from "@vektorprogrammet/domain";
+import { type Identity, type IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import { ARTICLE_SLUG_MAX_LENGTH } from "@vektorprogrammet/domain/content";
 import { ExternalNativeApi, InternalNativeApi } from "@vektorprogrammet/http-api";
 import { Problem } from "@vektorprogrammet/http-api/http-semantics";
@@ -27,11 +16,10 @@ import { Schema, Cause, Predicate, Effect, Layer } from "effect";
 import { HttpEffect, HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { AdmissionsApiHandlers } from "./admission/http.js";
+import { admissionActorForAuthority } from "./admission/http-context.js";
 import { AdmissionOutcomesApiHandlers } from "./admission/outcome-http.js";
 import { DirectoryApiHandlers } from "./directory/http.js";
 import {
-  admissionActorForDepartment,
-  unscopedAdmissionActorFrom,
   organizationActorFrom,
   recruitmentBoardActorFrom,
   resolveAuthenticatedPerson,
@@ -40,7 +28,6 @@ import {
   resolveRequestPersonAtInstant,
   resolveRequestCredentialAtInstant,
   resolveRequestPersonAuthority,
-  type OrganizationResolutionError,
 } from "./authority.js";
 import type { BackendConfig } from "./config.js";
 import { ContentApiHandlers } from "./content/http.js";
@@ -94,9 +81,11 @@ export const nativeHttpRouterConfig = {
   maxParamLength: ARTICLE_SLUG_MAX_LENGTH,
 } as const;
 
-export interface BackendHttp {
-  readonly fetch: (request: Request) => Promise<Response>;
-}
+/**
+ * Answers one web request. A failure is either rendered as a response or dies, and the server
+ * answers a defect as it answers a rejected handler.
+ */
+export type BackendHttpHandler = (request: Request) => Effect.Effect<Response>;
 
 const jsonResponse = (body: Schema.Json, status = 200): Response =>
   new Response(JSON.stringify(body), {
@@ -108,22 +97,21 @@ const jsonResponse = (body: Schema.Json, status = 200): Response =>
   });
 
 /**
- * The Better Auth Request -> Response handler mounted only at `/api/auth/*`.
- * It shares the process-owned identity engine with the native API.
+ * The identity engine operations of the HTTP boundary: the Better Auth handler mounted only at
+ * `/api/auth/*`, the trusted-origin rejection audit, and the optional OAuth surfaces. They share
+ * the process-owned identity engine with the native API.
  */
-export interface BackendAuthHandler {
-  readonly handle: (request: Request, context: IdentityRequestContext) => Promise<Response>;
-  readonly handleOAuth?: (request: Request, context: IdentityRequestContext) => Promise<Response>;
-  readonly handleOAuthIntrospection?: (
-    request: Request,
-    context: IdentityRequestContext,
-  ) => Promise<Response>;
-  readonly exactRedirectAccepted?: (clientId: string, redirectUri: string) => Promise<boolean>;
-  readonly recordTrustedOriginRejection: (
-    context: IdentityRequestContext,
-    credentialFlow?: "PasswordRecovery",
-  ) => Promise<void>;
-}
+export type BackendAuthHandler = Pick<
+  AuthEngineService,
+  "handler" | "recordTrustedOriginRejection"
+> &
+  Partial<
+    Pick<AuthEngineService, "oauthHandler" | "oauthIntrospectionHandler" | "exactRedirectAccepted">
+  >;
+
+const isRecruitmentActorDenial = Schema.is(
+  Schema.Union([InactiveActor, RecruitmentInactiveActor, RecruitmentRoleDenied]),
+);
 
 export interface BackendHttpOptions {
   /** Evidence compositions can pin one authorization instant without patching the global clock. */
@@ -142,39 +130,6 @@ export const ExternalNativeApiRouterLive = (
   config: BackendConfig,
   options: BackendHttpOptions = {},
 ) => {
-  const resolveAdmissionActor = (
-    request: Request,
-    departmentScope?: string,
-  ): Effect.Effect<
-    AdmissionPeriodActor,
-    | IdentityEngineError
-    | UnauthenticatedActor
-    | InactiveActor
-    | AdmissionScopeDenied
-    | AdmissionRoleDenied
-    | OrganizationResolutionError,
-    Organization | Identity | OAuthCredentialAuthority
-  > =>
-    Effect.gen(function* () {
-      const authority = yield* resolveRequestPersonAuthority(request, { now: options.now });
-
-      return yield* Effect.try({
-        try: () =>
-          departmentScope === undefined
-            ? unscopedAdmissionActorFrom(authority)
-            : admissionActorForDepartment(authority, DepartmentId.make(departmentScope)),
-        catch: (cause) => {
-          if (
-            cause instanceof InactiveActor ||
-            cause instanceof AdmissionScopeDenied ||
-            cause instanceof AdmissionRoleDenied
-          )
-            return cause;
-          throw cause;
-        },
-      });
-    });
-
   const receiptIdentity: ReceiptIdentityResolvers<
     IdentityEngineError | UnauthenticatedActor,
     Identity | OAuthCredentialAuthority
@@ -202,7 +157,10 @@ export const ExternalNativeApiRouterLive = (
     SystemApiHandlers(options),
     AdmissionsApiHandlers({
       config: config.admission,
-      resolveActor: resolveAdmissionActor,
+      resolveActor: (request, departmentScope) =>
+        resolveRequestPersonAuthority(request, { now: options.now }).pipe(
+          Effect.flatMap((authority) => admissionActorForAuthority(authority, departmentScope)),
+        ),
     }),
     ReceiptApiHandlers(receiptOptions).pipe(
       Layer.provide(
@@ -223,11 +181,7 @@ export const ExternalNativeApiRouterLive = (
             Effect.try({
               try: () => recruitmentBoardActorFrom(authority),
               catch: (cause) =>
-                cause instanceof InactiveActor ||
-                cause instanceof RecruitmentInactiveActor ||
-                cause instanceof RecruitmentRoleDenied
-                  ? cause
-                  : new Cause.UnknownError(cause),
+                isRecruitmentActorDenial(cause) ? cause : new Cause.UnknownError(cause),
             }),
           ),
         ),
@@ -344,13 +298,13 @@ const isOAuthProviderNamespace = (pathname: string): boolean =>
 
 const invalidAuthorizationRequest = (): Response => jsonResponse({ error: "invalid_request" }, 400);
 
-const authorizationRequestAccepted = async (
+const authorizationRequestAccepted = (
   request: Request,
   authHandler: BackendAuthHandler,
-): Promise<boolean> => {
+): Effect.Effect<boolean, IdentityEngineError> => {
   const url = new URL(request.url);
 
-  if (url.search.length > 8 * 1024) return false;
+  if (url.search.length > 8 * 1024) return Effect.succeed(false);
 
   const required = [
     "client_id",
@@ -363,7 +317,10 @@ const authorizationRequestAccepted = async (
     "scope",
   ] as const;
 
-  if (required.some((name) => url.searchParams.getAll(name).length !== 1)) return false;
+  if (required.some((name) => url.searchParams.getAll(name).length !== 1)) {
+    return Effect.succeed(false);
+  }
+
   const clientId = url.searchParams.get("client_id")!;
   const redirectUri = url.searchParams.get("redirect_uri")!;
   const state = url.searchParams.get("state")!;
@@ -380,7 +337,7 @@ const authorizationRequestAccepted = async (
     url.searchParams.get("resource") !== "urn:vektorprogrammet:native-api" ||
     authHandler.exactRedirectAccepted === undefined
   ) {
-    return false;
+    return Effect.succeed(false);
   }
 
   return authHandler.exactRedirectAccepted(clientId, redirectUri);
@@ -413,147 +370,151 @@ const sourceNetworkList = (networks: ReadonlyArray<string>): BlockList => {
 
 /**
  * Web handler over the built native router. `HttpEffect.toWebHandler` renders
- * every failure cause as a response.
+ * every failure cause as a response, so its promise never rejects.
  */
-export const nativeRouterWebHandler = (
-  router: HttpRouter.HttpRouter,
-): ((request: Request) => Promise<Response>) =>
+export const nativeRouterWebHandler = (router: HttpRouter.HttpRouter): BackendHttpHandler => {
   // oxlint-disable-next-line effecttsgo/any-unknown-in-error-context -- effect types HttpRouter.asHttpEffect's failure as unknown; routes decide their own failures.
-  HttpEffect.toWebHandler(router.asHttpEffect());
+  const handler = HttpEffect.toWebHandler(router.asHttpEffect());
+
+  return (request) => Effect.promise(() => handler(request));
+};
 
 /**
  * Explicit external boundary around the native HttpApi handler.
  * Better Auth remains the only external path family outside `ExternalNativeApi`.
  */
-export const backendHttpHandler = (
-  nativeHandler: (request: Request) => Promise<Response>,
-  authHandler: BackendAuthHandler,
-  sessionBoundary: NativeSessionBoundaryPolicy,
-): BackendHttp => ({
-  fetch: async (request) => {
-    const prepared = prepareIdentityBoundaryRequest(request);
-    const pathname = new URL(prepared.request.url).pathname;
-    const oauthNamespace = isOAuthProviderNamespace(pathname);
+export const backendHttpHandler =
+  (
+    nativeHandler: BackendHttpHandler,
+    authHandler: BackendAuthHandler,
+    sessionBoundary: NativeSessionBoundaryPolicy,
+  ): BackendHttpHandler =>
+  (request) =>
+    Effect.gen(function* () {
+      const prepared = prepareIdentityBoundaryRequest(request);
+      const pathname = new URL(prepared.request.url).pathname;
+      const oauthNamespace = isOAuthProviderNamespace(pathname);
 
-    if (oauthNamespace && prepared.request.method === "OPTIONS") {
-      return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
-    }
-
-    const oauthRouteKey = `${prepared.request.method} ${pathname}`;
-
-    if (oauthNamespace && !externalOAuthRoutes.has(oauthRouteKey)) {
-      return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
-    }
-
-    if (oauthNamespace) {
-      if (
-        pathname === "/api/auth/oauth2/authorize" &&
-        !(await authorizationRequestAccepted(prepared.request, authHandler))
-      ) {
-        return invalidAuthorizationRequest();
+      if (oauthNamespace && prepared.request.method === "OPTIONS") {
+        return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
       }
 
-      return (
-        authHandler.handleOAuth?.(prepared.request, prepared.context) ??
-        jsonResponse({ error: { tag: "RouteNotFound" } }, 404)
-      );
-    }
+      const oauthRouteKey = `${prepared.request.method} ${pathname}`;
 
-    const credentialFlow =
-      (prepared.request.method === "POST" &&
-        (pathname === "/api/auth/request-password-reset" ||
-          pathname === "/api/auth/reset-password")) ||
-      (prepared.request.method === "GET" && /^\/api\/auth\/reset-password\/[^/]+$/.test(pathname))
-        ? ("PasswordRecovery" as const)
-        : undefined;
+      if (oauthNamespace && !externalOAuthRoutes.has(oauthRouteKey)) {
+        return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
+      }
 
-    const decision = decideTrustedOrigin(sessionBoundary, prepared.request);
-    const acceptedOrigin = Predicate.isTagged(decision, "Allowed") ? decision.origin : null;
+      if (oauthNamespace) {
+        if (
+          pathname === "/api/auth/oauth2/authorize" &&
+          !(yield* authorizationRequestAccepted(prepared.request, authHandler))
+        ) {
+          return invalidAuthorizationRequest();
+        }
 
-    if (Predicate.isTagged(decision, "Rejected")) {
-      await authHandler
-        .recordTrustedOriginRejection(prepared.context, credentialFlow)
-        .catch(() => undefined);
+        if (authHandler.oauthHandler === undefined) {
+          return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
+        }
 
-      return originRejected();
-    }
+        return yield* authHandler.oauthHandler(prepared.request, prepared.context);
+      }
 
-    if (prepared.request.method === "OPTIONS") {
-      if (acceptedOrigin === null) {
-        await authHandler
-          .recordTrustedOriginRejection(prepared.context, credentialFlow)
-          .catch(() => undefined);
+      const credentialFlow =
+        (prepared.request.method === "POST" &&
+          (pathname === "/api/auth/request-password-reset" ||
+            pathname === "/api/auth/reset-password")) ||
+        (prepared.request.method === "GET" && /^\/api\/auth\/reset-password\/[^/]+$/.test(pathname))
+          ? ("PasswordRecovery" as const)
+          : undefined;
+
+      const decision = decideTrustedOrigin(sessionBoundary, prepared.request);
+      const acceptedOrigin = Predicate.isTagged(decision, "Allowed") ? decision.origin : null;
+
+      if (Predicate.isTagged(decision, "Rejected")) {
+        // The audit is best effort: whatever its outcome, the origin is rejected.
+        yield* Effect.ignoreCause(
+          authHandler.recordTrustedOriginRejection(prepared.context, credentialFlow),
+        );
 
         return originRejected();
       }
 
-      const requestedMethod = prepared.request.headers.get("access-control-request-method");
+      if (prepared.request.method === "OPTIONS") {
+        if (acceptedOrigin === null) {
+          yield* Effect.ignoreCause(
+            authHandler.recordTrustedOriginRejection(prepared.context, credentialFlow),
+          );
 
-      const preflight = decideNativePreflight({
-        pathname,
-        requestedMethod,
-        headersAllowed: allowsNativePreflightHeaders(prepared.request),
-        methodsForPath: externalNativePreflightMethodsForPath,
-      });
+          return originRejected();
+        }
 
-      if (Predicate.isTagged(preflight, "HeaderMalformed")) {
-        return withTrustedOriginCors(
-          problemWebResponse(Problem.make("header.malformed")),
-          acceptedOrigin,
-        );
-      }
+        const requestedMethod = prepared.request.headers.get("access-control-request-method");
 
-      if (Predicate.isTagged(preflight, "MethodNotAllowed")) {
-        return withTrustedOriginCors(methodNotAllowed(preflight.methods), acceptedOrigin);
-      }
+        const preflight = decideNativePreflight({
+          pathname,
+          requestedMethod,
+          headersAllowed: allowsNativePreflightHeaders(prepared.request),
+          methodsForPath: externalNativePreflightMethodsForPath,
+        });
 
-      if (Predicate.isTagged(preflight, "Ready")) {
-        return trustedPreflightResponse(acceptedOrigin, preflight.methods);
-      }
-
-      if (
-        Predicate.isTagged(preflight, "RouteNotFound") &&
-        (pathname === "/api/auth/" || pathname.startsWith("/api/auth/"))
-      ) {
-        if (!allowsNativePreflightHeaders(prepared.request)) {
+        if (Predicate.isTagged(preflight, "HeaderMalformed")) {
           return withTrustedOriginCors(
             problemWebResponse(Problem.make("header.malformed")),
             acceptedOrigin,
           );
         }
 
-        const authResponse = await authHandler.handle(prepared.request, prepared.context);
+        if (Predicate.isTagged(preflight, "MethodNotAllowed")) {
+          return withTrustedOriginCors(methodNotAllowed(preflight.methods), acceptedOrigin);
+        }
 
-        return authResponse.status >= 200 && authResponse.status < 300
-          ? trustedPreflightResponse(acceptedOrigin, [preflight.requestedMethod])
-          : withTrustedOriginCors(authResponse, acceptedOrigin);
+        if (Predicate.isTagged(preflight, "Ready")) {
+          return trustedPreflightResponse(acceptedOrigin, preflight.methods);
+        }
+
+        if (
+          Predicate.isTagged(preflight, "RouteNotFound") &&
+          (pathname === "/api/auth/" || pathname.startsWith("/api/auth/"))
+        ) {
+          if (!allowsNativePreflightHeaders(prepared.request)) {
+            return withTrustedOriginCors(
+              problemWebResponse(Problem.make("header.malformed")),
+              acceptedOrigin,
+            );
+          }
+
+          const authResponse = yield* authHandler.handler(prepared.request, prepared.context);
+
+          return authResponse.status >= 200 && authResponse.status < 300
+            ? trustedPreflightResponse(acceptedOrigin, [preflight.requestedMethod])
+            : withTrustedOriginCors(authResponse, acceptedOrigin);
+        }
+
+        return withTrustedOriginCors(
+          problemWebResponse(Problem.make("resource.not-found")),
+          acceptedOrigin,
+        );
       }
 
-      return withTrustedOriginCors(
-        problemWebResponse(Problem.make("resource.not-found")),
-        acceptedOrigin,
-      );
-    }
+      const response =
+        pathname === "/api/auth/" || pathname.startsWith("/api/auth/")
+          ? yield* authHandler.handler(prepared.request, prepared.context)
+          : yield* nativeHandler(prepared.request);
 
-    const response =
-      pathname === "/api/auth/" || pathname.startsWith("/api/auth/")
-        ? await authHandler.handle(prepared.request, prepared.context)
-        : await nativeHandler(prepared.request);
-
-    return withTrustedOriginCors(response, acceptedOrigin);
-  },
-});
+      return withTrustedOriginCors(response, acceptedOrigin);
+    }).pipe(Effect.orDie);
 
 /** Independent internal ingress: native internal API plus one non-fallthrough OAuth route. */
 export const internalBackendHttpHandler = (
-  nativeHandler: (request: Request) => Promise<Response>,
+  nativeHandler: BackendHttpHandler,
   authHandler: BackendAuthHandler,
   allowedSourceNetworks: ReadonlyArray<string>,
-): BackendHttp => {
+): BackendHttpHandler => {
   const allowedSources = sourceNetworkList(allowedSourceNetworks);
 
-  return {
-    fetch: async (request) => {
+  return (request) =>
+    Effect.gen(function* () {
       const prepared = prepareIdentityBoundaryRequest(request);
       const pathname = new URL(prepared.request.url).pathname;
 
@@ -568,27 +529,18 @@ export const internalBackendHttpHandler = (
         if (
           sourceIp === null ||
           (family !== 4 && family !== 6) ||
-          !allowedSources.check(sourceIp, family === 4 ? "ipv4" : "ipv6")
+          !allowedSources.check(sourceIp, family === 4 ? "ipv4" : "ipv6") ||
+          authHandler.oauthIntrospectionHandler === undefined
         ) {
           return Response.json(
             { active: false },
-            {
-              status: 200,
-              headers: { "cache-control": "no-store", pragma: "no-cache" },
-            },
+            { status: 200, headers: { "cache-control": "no-store", pragma: "no-cache" } },
           );
         }
 
-        return (
-          authHandler.handleOAuthIntrospection?.(prepared.request, prepared.context) ??
-          Response.json(
-            { active: false },
-            { status: 200, headers: { "cache-control": "no-store", pragma: "no-cache" } },
-          )
-        );
+        return yield* authHandler.oauthIntrospectionHandler(prepared.request, prepared.context);
       }
 
-      return nativeHandler(prepared.request);
-    },
-  };
+      return yield* nativeHandler(prepared.request);
+    }).pipe(Effect.orDie);
 };
