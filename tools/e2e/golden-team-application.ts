@@ -143,6 +143,10 @@ const journey: GoldenJourney = {
         TEAM_APPLICATION_DELIVERY_MODE: "http",
         TEAM_APPLICATION_DELIVERY_POLL_MS: "250",
         TEAM_APPLICATION_DELIVERY_STALE_MS: "5000",
+        // Retries wait at most 2 s, so the restart and recovery waits see several attempts. The
+        // provider fails for minutes of the journey, so no notification may run out of attempts.
+        TEAM_APPLICATION_DELIVERY_RETRY_MAX_MS: "2000",
+        TEAM_APPLICATION_DELIVERY_MAX_ATTEMPTS: "100000",
         // The public submit limiter shares one bucket per process. The journey sends 17
         // submissions in about a minute; the admissions journey uses the same bound.
         TEAM_APPLICATION_RATE_LIMIT_MAX: "64",

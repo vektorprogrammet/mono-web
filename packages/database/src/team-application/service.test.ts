@@ -1,13 +1,10 @@
 import { describe, expect, layer } from "@effect/vitest";
-import { DateTime, Effect, Layer, Predicate } from "effect";
-import { Mail, MailDeliveryError, type MailDeliveryRequest } from "@vektorprogrammet/domain/mail";
+import { DateTime, Effect, Layer } from "effect";
 import { PersonId, TeamId } from "@vektorprogrammet/domain/organization";
 import {
   TeamApplicationAccessDenied,
   TeamApplicationCommandId,
-  TeamApplicationId,
   TeamApplicationInvalidCursor,
-  TeamApplicationOutboxDelivery,
   TeamApplications,
   type TeamApplicationInput,
   type TeamApplicationIntake,
@@ -75,7 +72,7 @@ const seedTeams = Layer.effectDiscard(
 
 // The seeded teams, people, and memberships are part of the suite database.
 const teamApplicationsLayer = seedTeams.pipe(
-  Layer.provideMerge(Layer.merge(database, TeamApplicationsLive.pipe(Layer.provide(database)))),
+  Layer.provideMerge(Layer.merge(database, TeamApplicationsLive().pipe(Layer.provide(database)))),
 );
 
 const input: TeamApplicationInput = {
@@ -116,41 +113,6 @@ const count = (query: string) =>
 const failureTag = <A, E extends { readonly _tag: string }>(
   effect: Effect.Effect<A, E, Database | TeamApplications>,
 ) => Effect.map(Effect.flip(effect), (error) => error._tag);
-
-const recordingMail = (deliveries: Array<MailDeliveryRequest>) =>
-  Layer.succeed(
-    Mail,
-    Mail.of({
-      deliver: (request) =>
-        Effect.sync(() => {
-          deliveries.push(request);
-
-          return { providerReference: `recorded:${request.deliveryId}` };
-        }),
-    }),
-  );
-
-const unavailableMail = Layer.succeed(
-  Mail,
-  Mail.of({
-    deliver: () => Effect.fail(new MailDeliveryError({ kind: "temporary-unavailability" })),
-  }),
-);
-
-// Each delivery attempt claims under its own claim id, as each worker tick does.
-let deliveryClaims = 0;
-
-const deliverNext = (mail: Layer.Layer<Mail>) =>
-  Effect.suspend(() => {
-    deliveryClaims += 1;
-
-    return TeamApplications.use((service) =>
-      service.deliverNextOutboxEffect(
-        `team-application-test-claim-${deliveryClaims}`,
-        "noreply@example.invalid",
-      ),
-    );
-  }).pipe(Effect.provide(mail));
 
 layer(teamApplicationsLayer, { excludeTestServices: true, timeout: "30 seconds" })(
   "team applications",
@@ -519,205 +481,6 @@ layer(teamApplicationsLayer, { excludeTestServices: true, timeout: "30 seconds" 
             for (const value of Object.values(input)) expect(row).not.toContain(value);
           }
         }),
-      );
-    });
-
-    describe("team application delivery", () => {
-      it.effect(
-        "keeps the application after a provider failure and delivers the retained envelopes",
-        () =>
-          Effect.gen(function* () {
-            const drained: Array<MailDeliveryRequest> = [];
-
-            for (let attempt = 0; attempt < 500; attempt += 1) {
-              if (Predicate.isTagged(yield* deliverNext(recordingMail(drained)), "Idle")) break;
-            }
-
-            const { confirmation } = yield* submit("ta-open", "submit-delivery");
-
-            expect(yield* deliverNext(unavailableMail)).toEqual(
-              TeamApplicationOutboxDelivery.Failed({
-                effectId: "submit-delivery:NotifyTeamOfApplication",
-                failureTag: "MailDeliveryError:temporary-unavailability",
-              }),
-            );
-            expect(
-              yield* count(
-                `FROM team_applications WHERE application_id = '${confirmation.applicationId}'`,
-              ),
-            ).toBe(1);
-            expect(
-              yield* count(
-                `FROM team_application_outbox WHERE application_id = '${confirmation.applicationId}'
-                  AND status = 'Failed' AND attempts = 1 AND payload_json <> '{}'::jsonb`,
-              ),
-            ).toBe(1);
-
-            const deliveries: Array<MailDeliveryRequest> = [];
-
-            expect(yield* deliverNext(recordingMail(deliveries))).toEqual(
-              TeamApplicationOutboxDelivery.Delivered({
-                effectId: "submit-delivery:SendTeamApplicationReceipt",
-              }),
-            );
-            expect(yield* deliverNext(recordingMail(deliveries))).toEqual(
-              TeamApplicationOutboxDelivery.Delivered({
-                effectId: "submit-delivery:NotifyTeamOfApplication",
-              }),
-            );
-            expect(yield* deliverNext(recordingMail(deliveries))).toEqual(
-              TeamApplicationOutboxDelivery.Idle(),
-            );
-
-            const byEnvelope = (
-              left: ReadonlyArray<string | undefined>,
-              right: ReadonlyArray<string | undefined>,
-            ) => left.join().localeCompare(right.join());
-
-            expect(
-              deliveries
-                .map(({ recipient, replyTo, sender }) => [recipient, replyTo, sender])
-                .toSorted(byEnvelope),
-            ).toEqual(
-              [
-                [input.email, "it@example.invalid", "noreply@example.invalid"],
-                ["it@example.invalid", input.email, "noreply@example.invalid"],
-              ].toSorted(byEnvelope),
-            );
-            expect(
-              yield* count(
-                `FROM team_application_outbox WHERE application_id = '${confirmation.applicationId}'
-                  AND status = 'Delivered' AND payload_json = '{}'::jsonb`,
-              ),
-            ).toBe(2);
-          }),
-      );
-
-      it.effect(
-        "loses an in-flight claim to deletion instead of failing, and recovers stale claims",
-        () =>
-          Effect.gen(function* () {
-            const { confirmation } = yield* submit("ta-open", "submit-in-flight");
-            const services = yield* Effect.context<Database | TeamApplications>();
-
-            const deletingMail = Layer.succeed(
-              Mail,
-              Mail.of({
-                deliver: (request) =>
-                  Effect.flatMap(principal("ta-leader"), (actor) =>
-                    inTransaction(
-                      TeamApplications.use((service) =>
-                        service.deleteApplication(
-                          {
-                            commandId: commandId("delete-in-flight"),
-                            applicationId: TeamApplicationId.make(confirmation.applicationId),
-                          },
-                          actor,
-                        ),
-                      ),
-                    ),
-                  ).pipe(
-                    Effect.provideContext(services),
-                    Effect.orDie,
-                    Effect.as({ providerReference: request.deliveryId }),
-                  ),
-              }),
-            );
-
-            expect(yield* deliverNext(deletingMail)).toEqual(
-              TeamApplicationOutboxDelivery.ClaimLost({
-                effectId: "submit-in-flight:NotifyTeamOfApplication",
-              }),
-            );
-            expect(
-              yield* count(
-                `FROM team_application_outbox WHERE application_id = '${confirmation.applicationId}'
-                  AND status = 'Cancelled' AND payload_json = '{}'::jsonb`,
-              ),
-            ).toBe(2);
-
-            const stale = yield* submit("ta-open", "submit-stale");
-
-            yield* Database.use(
-              (sql) => sql`
-                UPDATE team_application_outbox SET status = 'Processing', claim_id = 'abandoned',
-                  claimed_at = '2020-01-01T00:00:00Z', attempts = 1
-                WHERE application_id = ${stale.confirmation.applicationId} AND ordinal = 0
-              `,
-            );
-
-            const now = yield* DateTime.now;
-
-            expect(
-              yield* TeamApplications.use((service) =>
-                service.recoverStaleOutboxClaims(DateTime.formatIso(now)),
-              ),
-            ).toBe(1);
-            expect(
-              yield* count(
-                `FROM team_application_outbox WHERE application_id = '${stale.confirmation.applicationId}'
-                  AND ordinal = 0 AND status = 'Failed' AND last_failure_tag = 'StaleTeamApplicationOutboxClaim'`,
-              ),
-            ).toBe(1);
-          }),
-      );
-
-      it.effect(
-        "quarantines an undeliverable stored envelope and clears it without a provider call",
-        () =>
-          Effect.gen(function* () {
-            const poisoned = "poisoned:SendTeamApplicationReceipt";
-
-            yield* Database.use((sql) =>
-              sql.withTransaction(
-                Effect.gen(function* () {
-                  yield* sql`
-                    INSERT INTO team_application_command_receipts
-                      (command_id, command_sha256, operation, team_id, application_id, observation_json, committed_at)
-                    VALUES ('poisoned', ${"a".repeat(64)}, 'SubmitTeamApplication', 'ta-open',
-                      '00000000-0000-4000-8000-000000000000', '{}', date_trunc('milliseconds', now(), 'UTC'))
-                  `;
-                  yield* sql`
-                    INSERT INTO team_application_outbox
-                      (effect_id, effect_type, team_id, application_id, command_id, ordinal, payload_json, committed_at)
-                    VALUES (${poisoned}, 'SendTeamApplicationReceipt', 'ta-open',
-                      '00000000-0000-4000-8000-000000000000', 'poisoned', 0,
-                      ${sql.json({
-                        deliveryId: poisoned,
-                        recipient: "not a mailbox",
-                        replyTo: "it@example.invalid",
-                        subject: "Søknad til IT mottatt",
-                        text: "Vi har mottatt søknaden din.",
-                      })}, date_trunc('milliseconds', now(), 'UTC'))
-                  `;
-                }),
-              ),
-            );
-
-            const deliveries: Array<MailDeliveryRequest> = [];
-            const outcomes: Array<TeamApplicationOutboxDelivery> = [];
-
-            for (let attempt = 0; attempt < 50; attempt += 1) {
-              const outcome = yield* deliverNext(recordingMail(deliveries));
-
-              if (Predicate.isTagged(outcome, "Idle")) break;
-              outcomes.push(outcome);
-            }
-
-            expect(outcomes).toContainEqual(
-              TeamApplicationOutboxDelivery.Quarantined({
-                effectId: poisoned,
-                failureTag: "InvalidTeamApplicationEnvelope",
-              }),
-            );
-            expect(deliveries.map((delivery) => delivery.deliveryId)).not.toContain(poisoned);
-            expect(
-              yield* count(
-                `FROM team_application_outbox WHERE effect_id = '${poisoned}'
-                  AND status = 'Quarantined' AND payload_json = '{}'::jsonb`,
-              ),
-            ).toBe(1);
-          }),
       );
     });
   },

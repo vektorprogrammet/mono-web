@@ -678,7 +678,7 @@ Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account acc
   - [packages/database/src/recruitment/maintenance-postgres.ts](../packages/database/src/recruitment/maintenance-postgres.ts)
   - [packages/database/src/schools/administration.ts](../packages/database/src/schools/administration.ts)
 - `outboxClaimAssignments`: SET list for the aggregate's claim UPDATE; `targetAlias` names the updated outbox row.
-  [packages/database/src/outbox-lifecycle.ts:123](../packages/database/src/outbox-lifecycle.ts#L123), 8 consumers:
+  [packages/database/src/outbox-lifecycle.ts:123](../packages/database/src/outbox-lifecycle.ts#L123), 7 consumers:
   - [packages/database/src/application/outbox.ts](../packages/database/src/application/outbox.ts)
   - [packages/database/src/outbox-lifecycle.test.ts](../packages/database/src/outbox-lifecycle.test.ts)
   - [packages/database/src/placements/outbox.ts](../packages/database/src/placements/outbox.ts)
@@ -686,9 +686,8 @@ Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account acc
   - [packages/database/src/recruitment/completion-outbox.ts](../packages/database/src/recruitment/completion-outbox.ts)
   - [packages/database/src/recruitment/outbox.ts](../packages/database/src/recruitment/outbox.ts)
   - [packages/database/src/recruitment/response-outbox.ts](../packages/database/src/recruitment/response-outbox.ts)
-  - [packages/database/src/team-application/outbox.ts](../packages/database/src/team-application/outbox.ts)
 - `markOutboxDelivered`: Settles the claimed row as Delivered, with delivery evidence when the table records it.
-  [packages/database/src/outbox-lifecycle.ts:138](../packages/database/src/outbox-lifecycle.ts#L138), 8 consumers:
+  [packages/database/src/outbox-lifecycle.ts:138](../packages/database/src/outbox-lifecycle.ts#L138), 7 consumers:
   - [packages/database/src/application/outbox.ts](../packages/database/src/application/outbox.ts)
   - [packages/database/src/outbox-lifecycle.test.ts](../packages/database/src/outbox-lifecycle.test.ts)
   - [packages/database/src/placements/outbox.ts](../packages/database/src/placements/outbox.ts)
@@ -696,9 +695,8 @@ Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account acc
   - [packages/database/src/recruitment/completion-outbox.ts](../packages/database/src/recruitment/completion-outbox.ts)
   - [packages/database/src/recruitment/outbox.ts](../packages/database/src/recruitment/outbox.ts)
   - [packages/database/src/recruitment/response-outbox.ts](../packages/database/src/recruitment/response-outbox.ts)
-  - [packages/database/src/team-application/outbox.ts](../packages/database/src/team-application/outbox.ts)
 - `markOutboxFailed`: Settles the claimed row as Failed with its failure tag, so a later claim retries it.
-  [packages/database/src/outbox-lifecycle.ts:168](../packages/database/src/outbox-lifecycle.ts#L168), 8 consumers:
+  [packages/database/src/outbox-lifecycle.ts:168](../packages/database/src/outbox-lifecycle.ts#L168), 7 consumers:
   - [packages/database/src/application/outbox.ts](../packages/database/src/application/outbox.ts)
   - [packages/database/src/outbox-lifecycle.test.ts](../packages/database/src/outbox-lifecycle.test.ts)
   - [packages/database/src/placements/outbox.ts](../packages/database/src/placements/outbox.ts)
@@ -706,9 +704,8 @@ Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account acc
   - [packages/database/src/recruitment/completion-outbox.ts](../packages/database/src/recruitment/completion-outbox.ts)
   - [packages/database/src/recruitment/outbox.ts](../packages/database/src/recruitment/outbox.ts)
   - [packages/database/src/recruitment/response-outbox.ts](../packages/database/src/recruitment/response-outbox.ts)
-  - [packages/database/src/team-application/outbox.ts](../packages/database/src/team-application/outbox.ts)
 - `quarantineOutboxClaim`: Settles the claimed row as Quarantined, a terminal status, with its failure tag.
-  [packages/database/src/outbox-lifecycle.ts:182](../packages/database/src/outbox-lifecycle.ts#L182), 8 consumers:
+  [packages/database/src/outbox-lifecycle.ts:182](../packages/database/src/outbox-lifecycle.ts#L182), 7 consumers:
   - [packages/database/src/application/outbox.ts](../packages/database/src/application/outbox.ts)
   - [packages/database/src/outbox-lifecycle.test.ts](../packages/database/src/outbox-lifecycle.test.ts)
   - [packages/database/src/placements/outbox.ts](../packages/database/src/placements/outbox.ts)
@@ -716,24 +713,21 @@ Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account acc
   - [packages/database/src/recruitment/completion-outbox.ts](../packages/database/src/recruitment/completion-outbox.ts)
   - [packages/database/src/recruitment/outbox.ts](../packages/database/src/recruitment/outbox.ts)
   - [packages/database/src/recruitment/response-outbox.ts](../packages/database/src/recruitment/response-outbox.ts)
-  - [packages/database/src/team-application/outbox.ts](../packages/database/src/team-application/outbox.ts)
 - `releaseOutboxClaim`: Returns an interrupted claim to Pending without a provider outcome; a lost claim needs none.
-  [packages/database/src/outbox-lifecycle.ts:203](../packages/database/src/outbox-lifecycle.ts#L203), 6 consumers:
+  [packages/database/src/outbox-lifecycle.ts:203](../packages/database/src/outbox-lifecycle.ts#L203), 5 consumers:
   - [packages/database/src/application/outbox.ts](../packages/database/src/application/outbox.ts)
   - [packages/database/src/outbox-lifecycle.test.ts](../packages/database/src/outbox-lifecycle.test.ts)
   - [packages/database/src/recruitment/completion-outbox.ts](../packages/database/src/recruitment/completion-outbox.ts)
   - [packages/database/src/recruitment/outbox.ts](../packages/database/src/recruitment/outbox.ts)
   - [packages/database/src/recruitment/response-outbox.ts](../packages/database/src/recruitment/response-outbox.ts)
-  - [packages/database/src/team-application/outbox.ts](../packages/database/src/team-application/outbox.ts)
 - `recoverStaleOutboxClaims`: Recovers every Processing row claimed before `claimedBefore`.
-  [packages/database/src/outbox-lifecycle.ts:221](../packages/database/src/outbox-lifecycle.ts#L221), 7 consumers:
+  [packages/database/src/outbox-lifecycle.ts:221](../packages/database/src/outbox-lifecycle.ts#L221), 6 consumers:
   - [packages/database/src/application/outbox.ts](../packages/database/src/application/outbox.ts)
   - [packages/database/src/outbox-lifecycle.test.ts](../packages/database/src/outbox-lifecycle.test.ts)
   - [packages/database/src/placements/outbox.ts](../packages/database/src/placements/outbox.ts)
   - [packages/database/src/recruitment/completion-outbox.ts](../packages/database/src/recruitment/completion-outbox.ts)
   - [packages/database/src/recruitment/outbox.ts](../packages/database/src/recruitment/outbox.ts)
   - [packages/database/src/recruitment/response-outbox.ts](../packages/database/src/recruitment/response-outbox.ts)
-  - [packages/database/src/team-application/outbox.ts](../packages/database/src/team-application/outbox.ts)
 - `recoverStaleOutboxClaim`: Recovers the rows of one claim when that claim was taken before `claimedBefore`.
   [packages/database/src/outbox-lifecycle.ts:234](../packages/database/src/outbox-lifecycle.ts#L234), 1 consumer:
   - [packages/database/src/receipt/outbox.ts](../packages/database/src/receipt/outbox.ts)
@@ -760,14 +754,13 @@ Delivers committed effects to providers after the transaction.
 Runs background workers on the Effect clock.
 
 - `pollForever`: Runs `tick` at once, then again after each success.
-  [apps/backend/src/worker-support.ts:24](../apps/backend/src/worker-support.ts#L24), 8 consumers:
+  [apps/backend/src/worker-support.ts:24](../apps/backend/src/worker-support.ts#L24), 7 consumers:
   - [apps/backend/src/application/worker.ts](../apps/backend/src/application/worker.ts)
   - [apps/backend/src/onboarding/delivery.ts](../apps/backend/src/onboarding/delivery.ts)
   - [apps/backend/src/password-recovery/worker.ts](../apps/backend/src/password-recovery/worker.ts)
   - [apps/backend/src/placements/notification.ts](../apps/backend/src/placements/notification.ts)
   - [apps/backend/src/receipt/worker.ts](../apps/backend/src/receipt/worker.ts)
   - [apps/backend/src/recruitment/worker.ts](../apps/backend/src/recruitment/worker.ts)
-  - [apps/backend/src/team-application/worker.ts](../apps/backend/src/team-application/worker.ts)
   - [apps/backend/src/worker-support.test.ts](../apps/backend/src/worker-support.test.ts)
 
 ## runtime-bridge
@@ -1012,7 +1005,7 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
 - `ReceiptE2EBarrierArrival`: `false` for unprobed requests; `true` once all three lanes are synchronized.
   [apps/backend/src/receipt/e2e-support.ts:17](../apps/backend/src/receipt/e2e-support.ts#L17), no consumers.
 - `selectDatabaseMigration`: Selects the registered migration `id` and the migrations that run before it; an absent id throws and names the nearest registered ids.
-  [packages/database/src/migrations.ts:677](../packages/database/src/migrations.ts#L677), 8 consumers:
+  [packages/database/src/migrations.ts:687](../packages/database/src/migrations.ts#L687), 9 consumers:
   - [packages/database/runtime/schema-boundary-postgres-proof-main.ts](../packages/database/runtime/schema-boundary-postgres-proof-main.ts)
   - [packages/database/src/database.test.ts](../packages/database/src/database.test.ts)
   - [packages/database/src/migration-registry.test.ts](../packages/database/src/migration-registry.test.ts)
@@ -1021,6 +1014,7 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [packages/database/src/person-cohort-accepted-mappings.test.ts](../packages/database/src/person-cohort-accepted-mappings.test.ts)
   - [packages/database/src/rule-reconciliation-migration-postgres-proof.ts](../packages/database/src/rule-reconciliation-migration-postgres-proof.ts)
   - [packages/database/src/schema-calendar-arithmetic.test.ts](../packages/database/src/schema-calendar-arithmetic.test.ts)
+  - [packages/database/src/team-application/queue-migration.test.ts](../packages/database/src/team-application/queue-migration.test.ts)
 - `journeyClock`: A journey clock at a reference instant that the caller pins.
   [tools/e2e/journey-clock.ts:32](../tools/e2e/journey-clock.ts#L32), 7 consumers:
   - [apps/dashboard/e2e/dashboard-list-type-boundary.spec.ts](../apps/dashboard/e2e/dashboard-list-type-boundary.spec.ts)
@@ -1111,7 +1105,7 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [tools/verification/receipt-import-rehearsal.ts](../tools/verification/receipt-import-rehearsal.ts)
   - [tools/verification/unattended-delivery-recovery.ts](../tools/verification/unattended-delivery-recovery.ts)
 - `startDisposablePostgres`: Starts a fresh cluster of the selected major on a private port and socket directory with trust authentication.
-  [tools/postgres/index.ts:436](../tools/postgres/index.ts#L436), 34 consumers:
+  [tools/postgres/index.ts:436](../tools/postgres/index.ts#L436), 35 consumers:
   - [apps/backend/test/postgres.ts](../apps/backend/test/postgres.ts)
   - [apps/dashboard/e2e/run-real-admission-period-management.mjs](../apps/dashboard/e2e/run-real-admission-period-management.mjs)
   - [apps/dashboard/e2e/run-real-interview-response.mjs](../apps/dashboard/e2e/run-real-interview-response.mjs)
@@ -1131,6 +1125,7 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [packages/database/runtime/historical-service-cohort-rehearsal.ts](../packages/database/runtime/historical-service-cohort-rehearsal.ts)
   - [packages/database/runtime/person-cohort-rehearsal.ts](../packages/database/runtime/person-cohort-rehearsal.ts)
   - [packages/database/src/oauth-refresh-window.test.ts](../packages/database/src/oauth-refresh-window.test.ts)
+  - [packages/database/src/team-application/queue-migration.test.ts](../packages/database/src/team-application/queue-migration.test.ts)
   - [tools/acceptance/onboarding-check.ts](../tools/acceptance/onboarding-check.ts)
   - [tools/acceptance/password-recovery-check.ts](../tools/acceptance/password-recovery-check.ts)
   - [tools/acceptance/recommendation-check.ts](../tools/acceptance/recommendation-check.ts)

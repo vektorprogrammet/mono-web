@@ -50,7 +50,12 @@ export interface TeamApplicationDeliveryConfig {
   readonly sender: string;
   readonly transport: MailDeliveryConfig;
   readonly pollIntervalMilliseconds: number;
+  /** A queue lease that its worker stopped refreshing this long ago is taken again. */
   readonly staleClaimMilliseconds: number;
+  /** Upper bound of the doubling retry delay. */
+  readonly retryDelayMaxMilliseconds: number;
+  /** The last attempt; its temporary failure quarantines the notification. */
+  readonly maxAttempts: number;
 }
 
 /** Bounds the anonymous submission route; one process-wide public bucket. */
@@ -243,6 +248,13 @@ const teamApplicationDeliverySettings = Config.all({
   staleClaimMilliseconds: Config.schema(PositiveInteger, "TEAM_APPLICATION_DELIVERY_STALE_MS").pipe(
     Config.withDefault(60_000),
   ),
+  retryDelayMaxMilliseconds: Config.schema(
+    PositiveInteger,
+    "TEAM_APPLICATION_DELIVERY_RETRY_MAX_MS",
+  ).pipe(Config.withDefault(300_000)),
+  maxAttempts: Config.schema(PositiveInteger, "TEAM_APPLICATION_DELIVERY_MAX_ATTEMPTS").pipe(
+    Config.withDefault(48),
+  ),
 });
 
 /** The window stays within one hour so its retry-after fits the problem's 1..3600 seconds. */
@@ -286,16 +298,13 @@ const teamApplicationDeliveryConfig = (
 
     const settings = yield* teamApplicationDeliverySettings.parse(provider);
 
-    // A claim must outlive one bounded provider attempt before stale recovery may retry it.
-    if (settings.staleClaimMilliseconds <= transport.deliveryTimeoutMilliseconds) {
-      throw new Error("TEAM_APPLICATION_DELIVERY_STALE_MS must exceed MAIL_DELIVERY_TIMEOUT_MS");
-    }
-
     return {
       sender: Redacted.value(settings.sender),
       transport,
       pollIntervalMilliseconds: settings.pollIntervalMilliseconds,
       staleClaimMilliseconds: settings.staleClaimMilliseconds,
+      retryDelayMaxMilliseconds: settings.retryDelayMaxMilliseconds,
+      maxAttempts: settings.maxAttempts,
     };
   });
 

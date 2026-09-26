@@ -112,11 +112,6 @@ describe("backend configuration boundary", () => {
     });
     expect(() =>
       Effect.runSync(
-        decodeBackendConfig({ ...delivery, TEAM_APPLICATION_DELIVERY_STALE_MS: "1000" }),
-      ),
-    ).toThrow();
-    expect(() =>
-      Effect.runSync(
         decodeBackendConfig({ ...delivery, MAIL_DELIVERY_URL: "http://mail.example.invalid/mail" }),
       ),
     ).toThrow();

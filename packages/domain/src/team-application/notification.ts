@@ -112,13 +112,29 @@ export const teamApplicationNotifications = (
 };
 
 export type TeamApplicationOutboxDelivery = Data.TaggedEnum<{
+  /** No notification was taken within the wait. */
   readonly Idle: {};
   readonly Delivered: { readonly effectId: string };
+  /** A temporary provider failure; the queue retries the notification after its backoff. */
   readonly Failed: { readonly effectId: string; readonly failureTag: string };
-  /** The stored envelope could not be decoded; the effect stops and its payload is cleared. */
+  /**
+   * The effect stopped without delivery and its payload was cleared: the stored envelope
+   * could not be decoded, the provider rejected it or left the outcome ambiguous, or the
+   * last attempt failed.
+   */
   readonly Quarantined: { readonly effectId: string; readonly failureTag: string };
-  /** Deletion or stale recovery removed the claim before the attempt finished. */
-  readonly ClaimLost: { readonly effectId: string };
+  /**
+   * The taken effect already had an outcome, or no committed effect has its identity, so
+   * the attempt made no provider call.
+   */
+  readonly Skipped: {
+    readonly effectId: string;
+    readonly status: "Delivered" | "Quarantined" | "Cancelled" | "Missing";
+  };
+  /** Deletion cancelled the effect while this attempt was in flight. */
+  readonly Superseded: { readonly effectId: string };
+  /** A later attempt took over the expired lease of this attempt, which recorded nothing. */
+  readonly LeaseLost: { readonly effectId: string };
 }>;
 
 export const TeamApplicationOutboxDelivery = Data.taggedEnum<TeamApplicationOutboxDelivery>();

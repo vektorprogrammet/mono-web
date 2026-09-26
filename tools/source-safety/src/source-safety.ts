@@ -212,6 +212,13 @@ const approvedSqlSourceDigests = new Map<string, string>([
     "packages/database/migrations/0075-substitute-admission-outcome-coverage-records.sql",
     "sha256:2d0b969239fcd4a93f92cada0e458a95695a7a357f5cffb027662c8a2b98a173",
   ],
+  // Reviewed: the store bookkeeping rows name the two migrations of Effect's PersistedQueue SQL
+  // store, and the INSERT ... SELECT moves outbox rows onto queue items from existing rows. The
+  // only literals are the queue name, state names, and the nil worker id of a moved lease.
+  [
+    "packages/database/migrations/0078-team-application-persisted-queue.sql",
+    "sha256:74f7316d14a71b0c6169d0d151df905ba4838cdeec36053e8e7895795a079b65",
+  ],
 ]);
 
 const envSourcePathPattern = /(?:^|\/)\.env(?:$|[.-])/i;

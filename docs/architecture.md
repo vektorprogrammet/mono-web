@@ -292,6 +292,13 @@ Domain-specific recovery rules define retries and quarantine. A deadline does no
 A restart may resume pending work. Historical import must not send notifications.
 Provider-specific code belongs in a Layer and may not define business state.
 
+Team application notifications run on Effect's `PersistedQueue` SQL store as a pilot
+([infrastructure ports](specs/infrastructure-ports.md#team-application-delivery-pilot-operator-decision-2026-09-26)).
+The submit transaction writes the outbox row with its envelope and a queue item that names only the effect.
+The queue owns the lease, the attempt count, and the retry backoff. The outbox row owns the envelope, the policy, and the outcome,
+and an attempt writes its outcome only while it holds the lease. Migration 0078 owns the store schema, and
+`team_application_delivery_state` reads both rows. The other outboxes keep their claim columns.
+
 Private files require no-follow traversal, ownership checks, restricted permissions,
 and explicit lifecycle handling. A path string is not authority.
 

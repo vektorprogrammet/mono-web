@@ -119,7 +119,7 @@ export const observeLegacyCandidateNativeJourney = async (
       Layer.provide(Layer.mergeAll(database, admissions, organization, profile)),
     ),
     SocialEventsLive.pipe(Layer.provide(database)),
-    TeamApplicationsLive.pipe(Layer.provide(database)),
+    TeamApplicationsLive().pipe(Layer.provide(database)),
     ReceiptDeliveryLive(undefined).pipe(Layer.provide(Layer.merge(database, platform))),
     AuthLive(config.auth).pipe(Layer.provide(database)),
   );
