@@ -479,7 +479,7 @@ describe("GET /api/people (spec 0077.2)", () => {
       const response = yield* request();
       expect(response.status).toBe(200);
 
-      const body = Schema.decodeUnknownSync(PeopleDirectoryResponse)(
+      const body = yield* Schema.decodeUnknownEffect(PeopleDirectoryResponse)(
         yield* Effect.promise(() => response.json()),
       );
 
@@ -542,7 +542,7 @@ describe("GET /api/people (spec 0077.2)", () => {
       const response = yield* request();
       expect(response.status).toBe(200);
 
-      const body = Schema.decodeUnknownSync(PeopleDirectoryResponse)(
+      const body = yield* Schema.decodeUnknownEffect(PeopleDirectoryResponse)(
         yield* Effect.promise(() => response.json()),
       );
 
@@ -590,7 +590,7 @@ describe("GET /api/people (spec 0077.2)", () => {
       const response = yield* request();
       expect(response.status).toBe(200);
 
-      const body = Schema.decodeUnknownSync(PeopleDirectoryResponse)(
+      const body = yield* Schema.decodeUnknownEffect(PeopleDirectoryResponse)(
         yield* Effect.promise(() => response.json()),
       );
 
