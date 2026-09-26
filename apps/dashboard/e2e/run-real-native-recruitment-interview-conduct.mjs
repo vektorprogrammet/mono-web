@@ -6,7 +6,7 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { postgresProgram } from "@monoweb/postgres";
+import { postgresProgram, startDisposablePostgres } from "@monoweb/postgres";
 import {
   withProjectionFileLock,
   writeFilePathNoFollow,
@@ -327,7 +327,6 @@ const main = async () => {
     assertPortAvailable(dashboardPort),
   ]);
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-native-conduct-0063-"));
-  const postgresRoot = join(temporaryRoot, "postgres");
   const browserEvidencePath = join(temporaryRoot, "browser-evidence.json");
   const screenshotDirectory = join(temporaryRoot, "screenshots");
   const evidenceDirectory = join(repositoryRoot, "artifacts", "parity", "runtime", "0108");
@@ -343,46 +342,7 @@ const main = async () => {
   let runtimeEvidence;
 
   try {
-    await run(
-      postgresProgram("initdb"),
-      [
-        "-D",
-        postgresRoot,
-        "--username=postgres",
-        "--auth-local=trust",
-        "--auth-host=trust",
-        "--no-locale",
-        "--encoding=UTF8",
-      ],
-      { cwd: repositoryRoot, env: baseEnvironment, label: "conduct PostgreSQL initialization" },
-    );
-    postgres = start(
-      postgresProgram("pg_ctl"),
-      [
-        "-D",
-        postgresRoot,
-        "-o",
-        `-p ${postgresPort} -h 127.0.0.1 -k ${postgresRoot}`,
-        "-l",
-        join(postgresRoot, "postgres.log"),
-        "-w",
-        "start",
-      ],
-      baseEnvironment,
-      repositoryRoot,
-    );
-    const postgresDeadline = Date.now() + 30_000;
-
-    while (Date.now() < postgresDeadline) {
-      try {
-        await runPsql("SELECT 1", baseEnvironment, "conduct PostgreSQL readiness");
-        break;
-      } catch {
-        await sleep(250);
-      }
-    }
-
-    if (Date.now() >= postgresDeadline) throw new Error("conduct PostgreSQL did not become ready");
+    postgres = await startDisposablePostgres({ port: postgresPort, environment: baseEnvironment });
     await run("bun", ["apps/dashboard/e2e/native-conduct-journey-seed.mjs"], {
       cwd: repositoryRoot,
       env: {
@@ -602,12 +562,7 @@ const main = async () => {
   }
 
   try {
-    if (postgres !== undefined)
-      await run(postgresProgram("pg_ctl"), ["-D", postgresRoot, "-m", "fast", "-w", "stop"], {
-        cwd: repositoryRoot,
-        env: baseEnvironment,
-        label: "conduct PostgreSQL cleanup",
-      });
+    await postgres?.stop();
   } catch (error) {
     cleanupErrors.push(error);
   }

@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:http";
-import { createConnection, createServer as createNetServer } from "node:net";
+import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { selectedPostgresMajor, postgresProgram } from "@monoweb/postgres";
+import { startDisposablePostgres } from "@monoweb/postgres";
 import { addressesAnyRoute, legacyRoutes } from "./request-routes.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -54,27 +54,6 @@ const assertPortAvailable = (port) =>
     server.once("error", () => reject(new Error(`required port ${port} is already in use`)));
     server.listen(port, "127.0.0.1", () => server.close(resolve));
   });
-
-const waitForPort = (port, label) =>
-  withTimeout(
-    (async () => {
-      while (true) {
-        const ready = await new Promise((resolve) => {
-          const socket = createConnection({ host: "127.0.0.1", port });
-          socket.once("connect", () => {
-            socket.destroy();
-            resolve(true);
-          });
-          socket.once("error", () => resolve(false));
-        });
-
-        if (ready) return;
-        await delay(100);
-      }
-    })(),
-    30_000,
-    label,
-  );
 
 const waitForHttp = (url, label) =>
   withTimeout(
@@ -372,8 +351,6 @@ const closeServer = (server) =>
 
 const temporaryRoot = await mkdtemp(join(tmpdir(), "native-schools-directory-0061-"));
 
-const postgresData = join(temporaryRoot, "postgres");
-
 const browserEvidencePath = join(temporaryRoot, "browser-evidence.json");
 
 let postgres;
@@ -391,26 +368,9 @@ try {
     [postgresPort, dashboardPort, backendPort, upstreamPort].map(assertPortAvailable),
   );
 
-  const version = run(postgresProgram("postgres"), ["--version"], {
-    label: "PostgreSQL version",
-  }).stdout.trim();
+  postgres = await startDisposablePostgres({ port: postgresPort, database: "schools_e2e_0061" });
 
-  run(
-    postgresProgram("initdb"),
-    ["-D", postgresData, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"],
-    { label: "PostgreSQL initialization" },
-  );
-  postgres = start(
-    postgresProgram("postgres"),
-    ["-D", postgresData, "-p", String(postgresPort), "-h", "127.0.0.1", "-k", temporaryRoot],
-    { cwd: repositoryRoot, env: process.env, label: `PostgreSQL ${selectedPostgresMajor}` },
-  );
-  await waitForPort(postgresPort, `PostgreSQL ${selectedPostgresMajor} startup`);
-  run(
-    postgresProgram("createdb"),
-    ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "postgres", "schools_e2e_0061"],
-    { label: "Schools disposable database creation" },
-  );
+  const version = postgres.version;
 
   const proof = run("bun", ["run", "proof:schools-postgres"], {
     cwd: databaseRoot,
@@ -660,6 +620,6 @@ try {
   await stop(dashboard);
   await closeServer(recordingUpstream).catch(() => undefined);
   await stop(backend);
-  await stop(postgres);
+  await postgres?.stop();
   await rm(temporaryRoot, { recursive: true, force: true });
 }

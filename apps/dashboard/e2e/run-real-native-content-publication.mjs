@@ -3,11 +3,10 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
-import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { selectedPostgresMajor, postgresProgram } from "@monoweb/postgres";
+import { startDisposablePostgres } from "@monoweb/postgres";
 import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 import { addressesAnyRoute, legacyRoutes } from "./request-routes.ts";
@@ -48,27 +47,6 @@ const withTimeout = (promise, milliseconds, label) =>
       throw new Error(`${label} timed out after ${milliseconds}ms`);
     }),
   ]);
-
-const waitForPort = (port, label) =>
-  withTimeout(
-    (async () => {
-      while (true) {
-        const ready = await new Promise((resolve) => {
-          const socket = createConnection({ host: "127.0.0.1", port });
-          socket.once("connect", () => {
-            socket.destroy();
-            resolve(true);
-          });
-          socket.once("error", () => resolve(false));
-        });
-
-        if (ready) return;
-        await delay(100);
-      }
-    })(),
-    30_000,
-    label,
-  );
 
 const waitForHttp = (url, label, options) =>
   withTimeout(
@@ -314,8 +292,6 @@ const closeServer = (server) =>
 
 const temporaryRoot = await mkdtemp(join(tmpdir(), "native-content-publication-0062-"));
 
-const postgresData = join(temporaryRoot, "postgres");
-
 const browserEvidencePath = join(temporaryRoot, "browser-evidence.json");
 
 const homepageDevVarsPath = join(homepageRoot, ".dev.vars");
@@ -338,26 +314,9 @@ try {
   await writeFile(homepageDevVarsPath, `API_URL=${upstreamOrigin}\n`, { flag: "wx" });
   homepageDevVarsCreated = true;
 
-  const version = run(postgresProgram("postgres"), ["--version"], {
-    label: "PostgreSQL version",
-  }).stdout.trim();
+  postgres = await startDisposablePostgres({ port: postgresPort, database: "content_e2e_0062" });
 
-  run(
-    postgresProgram("initdb"),
-    ["-D", postgresData, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"],
-    { label: "PostgreSQL initialization" },
-  );
-  postgres = start(
-    postgresProgram("postgres"),
-    ["-D", postgresData, "-p", String(postgresPort), "-h", "127.0.0.1", "-k", temporaryRoot],
-    { cwd: repositoryRoot, env: process.env, label: `PostgreSQL ${selectedPostgresMajor}` },
-  );
-  await waitForPort(postgresPort, `PostgreSQL ${selectedPostgresMajor} startup`);
-  run(
-    postgresProgram("createdb"),
-    ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "postgres", "content_e2e_0062"],
-    { label: "Content disposable database creation" },
-  );
+  const version = postgres.version;
 
   // Migrations to revision 20_content-publication run inside the backend boot
   // and are additionally proven by the PGlite suite; the seed asserts the
@@ -604,7 +563,7 @@ try {
   await stop(dashboard);
   await closeServer(recordingUpstream).catch(() => undefined);
   await stop(backend);
-  await stop(postgres);
+  await postgres?.stop();
 
   if (homepageDevVarsCreated) await rm(homepageDevVarsPath, { force: true });
   await rm(temporaryRoot, { recursive: true, force: true });

@@ -18,7 +18,11 @@ import { mkdtemp, writeFile, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
-import { postgresProgram } from "@monoweb/postgres";
+import {
+  postgresVersion,
+  startDisposablePostgres,
+  type DisposablePostgres,
+} from "@monoweb/postgres";
 import { Predicate, Schema, Record as Rec } from "effect";
 import { createGoldenObserver, goldenFaults, goldenSteps } from "./golden-school-service.mjs";
 import {
@@ -132,7 +136,7 @@ const sanitize = (value: string) => redactDiagnostic(secrets, value);
 
 const children: ChildProcess[] = [];
 
-let postgresProcess: ChildProcess | undefined;
+let postgres: DisposablePostgres | undefined;
 
 const outputs: string[] = [];
 
@@ -197,8 +201,6 @@ const cleanup = () =>
     const errors: string[] = [];
 
     for (const child of [...children].reverse()) {
-      if (child === postgresProcess) continue;
-
       try {
         await stopChild(child);
       } catch (error) {
@@ -213,10 +215,7 @@ const cleanup = () =>
     }
 
     try {
-      if (postgresProcess) {
-        postgresProcess.kill("SIGINT");
-        await stopChild(postgresProcess);
-      }
+      await postgres?.stop();
     } catch (error) {
       errors.push(sanitize(String(error)));
     }
@@ -232,12 +231,7 @@ const cleanup = () =>
 
     const removed: string[] = [];
 
-    for (const name of [
-      "postgres",
-      "manifest.json",
-      ".s.PGSQL." + ownedPorts[0],
-      ".s.PGSQL." + ownedPorts[0] + ".lock",
-    ]) {
+    for (const name of ["postgres", "manifest.json"]) {
       try {
         await rm(join(artifacts, name), { recursive: true, force: true });
         removed.push(name);
@@ -359,7 +353,7 @@ const cleanup = () =>
       artifacts: retained,
       runtime: {
         bun: process.versions.bun,
-        postgres: run(postgresProgram("postgres"), ["--version"]).trim(),
+        postgres: postgresVersion(),
       },
     };
 
@@ -455,39 +449,12 @@ try {
       server.once("error", reject);
       server.listen(notificationPort, "127.0.0.1", resolve);
     });
-    const pgDir = join(artifacts, "postgres");
-    run(postgresProgram("initdb"), [
-      "-D",
-      pgDir,
-      "-A",
-      "trust",
-      "-U",
-      "postgres",
-      "--no-locale",
-      "--encoding=UTF8",
-    ]);
-    postgresProcess = start(postgresProgram("postgres"), [
-      "-D",
-      pgDir,
-      "-p",
-      String(pgPort),
-      "-h",
-      "127.0.0.1",
-      "-k",
-      artifacts,
-    ]);
+    postgres = await startDisposablePostgres({
+      port: pgPort,
+      directory: join(artifacts, "postgres"),
+    });
     const postgresUrl = `postgres://postgres@127.0.0.1:${pgPort}/postgres`;
     pool = new Pool({ connectionString: postgresUrl });
-
-    for (let n = 0; ; n++) {
-      try {
-        await pool.query("SELECT 1");
-        break;
-      } catch (e) {
-        if (n > 100) throw e;
-        await delay(100);
-      }
-    }
 
     const backendOrigin = `http://127.0.0.1:${backendPort}`;
     const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;

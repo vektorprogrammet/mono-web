@@ -1,15 +1,14 @@
 import { PersonId } from "@vektorprogrammet/domain/organization";
 /** 0106 owned synthetic PostgreSQL Person reconciliation journey. */
 import assert from "node:assert/strict";
-import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { Schema, flow, Predicate, Effect, Redacted } from "effect";
+import { Schema, flow, Effect, Redacted } from "effect";
 import { Pool } from "pg";
-import { postgresProgram } from "@monoweb/postgres";
+import { type DisposablePostgres, startDisposablePostgres } from "@monoweb/postgres";
 import { databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "../src/layers.js";
 import {
@@ -29,46 +28,6 @@ const command = (name: string, args: ReadonlyArray<string>) =>
     timeout: 60_000,
   });
 
-const pause = (milliseconds: number) =>
-  new Promise<void>((resolvePause) => setTimeout(resolvePause, milliseconds));
-
-const freePort = async (): Promise<number> => {
-  const server = createServer();
-  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
-  const address = server.address();
-  assert.ok(address && !Predicate.isString(address));
-  const port = address.port;
-  await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
-
-  return port;
-};
-
-const waitForPostgres = async (pool: Pool): Promise<void> => {
-  for (let attempt = 0; attempt < 100; attempt++) {
-    try {
-      await pool.query("SELECT 1");
-
-      return;
-    } catch {
-      await pause(100);
-    }
-  }
-
-  throw new Error("owned PostgreSQL readiness timeout");
-};
-
-const stop = async (child: ChildProcess): Promise<void> => {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  await new Promise<void>((resolveStop, reject) => {
-    const timer = setTimeout(() => reject(new Error("owned process cleanup timeout")), 15_000);
-    child.once("exit", () => {
-      clearTimeout(timer);
-      resolveStop();
-    });
-    child.kill("SIGTERM");
-  });
-};
-
 const digest = flow(Schema.decodeUnknownSync(Schema.Json), (value) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex"),
 );
@@ -78,42 +37,18 @@ for (const key of ["PERSON_COHORT_PG_URL", "PERSON_COHORT_INPUT", "DATABASE_URL"
 
 const artifacts = await mkdtemp(join(tmpdir(), "vektor-person-cohort-0106-"));
 
-const pgdata = join(artifacts, "postgres");
-
 const inputFile = join(artifacts, "person-cohort.json");
 
-const children: ChildProcess[] = [];
+let postgres: DisposablePostgres | undefined;
 
 let pool: Pool | undefined;
 
 let evidence: Record<string, Schema.Json> | undefined;
 
 try {
-  const port = await freePort();
-  command(postgresProgram("initdb"), [
-    "-D",
-    pgdata,
-    "-A",
-    "trust",
-    "-U",
-    "postgres",
-    "--no-locale",
-    "--encoding=UTF8",
-  ]);
+  postgres = await startDisposablePostgres({ database: "person_cohort_rehearsal" });
 
-  const postgres = spawn(
-    postgresProgram("postgres"),
-    ["-D", pgdata, "-p", String(port), "-h", "127.0.0.1", "-k", artifacts],
-    { stdio: "ignore" },
-  );
-
-  children.push(postgres);
-  pool = new Pool({ connectionString: `postgres://postgres@127.0.0.1:${port}/postgres` });
-  await waitForPostgres(pool);
-  await pool.query("CREATE DATABASE person_cohort_rehearsal");
-  await pool.end();
-
-  const databaseUrl = `postgres://postgres@127.0.0.1:${port}/person_cohort_rehearsal`;
+  const databaseUrl = postgres.url;
   pool = new Pool({ connectionString: databaseUrl, max: 4 });
   await Effect.runPromise(
     databaseHealth.pipe(
@@ -521,7 +456,7 @@ try {
 } finally {
   if (pool) await pool.end().catch(() => undefined);
 
-  for (const child of children.reverse()) await stop(child).catch(() => undefined);
+  await postgres?.stop().catch(() => undefined);
   await rm(artifacts, { recursive: true, force: true });
 }
 

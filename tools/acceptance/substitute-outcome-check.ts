@@ -24,7 +24,7 @@ import {
 import { createPromiseClient } from "../../packages/sdk/src/promise.js";
 import { reserveLoopbackPorts } from "../e2e/golden-harness.ts";
 import { localBackendEnvironment } from "../e2e/local-backend-environment.ts";
-import { postgresProgram } from "../postgres/index.ts";
+import { type DisposablePostgres, startDisposablePostgres } from "../postgres/index.ts";
 import { stopOwnedProcess } from "./owned-process.js";
 
 const root = new URL("../../", import.meta.url).pathname;
@@ -57,6 +57,8 @@ const start = (command: string, args: string[], env = process.env) => {
   return child;
 };
 
+let postgres: DisposablePostgres | undefined;
+
 let database: InstanceType<typeof Client> | undefined;
 
 let evidence: Schema.JsonObject | undefined;
@@ -65,22 +67,11 @@ let summary: { apiGates: number; browserGates: number; receiptCount: number } | 
 
 try {
   const [pgPort, backendPort, dashboardPort] = await reserveLoopbackPorts(3);
-  const pgDir = join(artifacts, "postgres");
-  run(postgresProgram("initdb"), ["-D", pgDir, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"]);
-  start(postgresProgram("postgres"), ["-D", pgDir, "-p", String(pgPort), "-h", "127.0.0.1", "-k", artifacts]);
-  const postgresUrl = `postgres://postgres@127.0.0.1:${pgPort}/postgres`;
-
-  for (let n = 0; database === undefined; n++) {
-    const client = new Client({ connectionString: postgresUrl });
-
-    try {
-      await client.connect();
-      database = client;
-    } catch (e) {
-      if (n > 100) throw e;
-      await sleep(100);
-    }
-  }
+  postgres = await startDisposablePostgres({ port: pgPort });
+  const postgresUrl = postgres.url;
+  const client = new Client({ connectionString: postgresUrl });
+  await client.connect();
+  database = client;
 
   const backendOrigin = `http://127.0.0.1:${backendPort}`;
   const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
@@ -692,7 +683,7 @@ try {
   if (database) await database.end();
 
   for (const child of children.reverse()) await stopOwnedProcess(child);
-  await rm(join(artifacts, "postgres"), { recursive: true, force: true });
+  await postgres?.stop();
   await rm(join(artifacts, "manifest.json"), { force: true });
 
   if (evidence && summary) {

@@ -4,12 +4,12 @@ import { createServer as createHttpServer } from "node:http";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Pool } from "pg";
-import { postgresProgram } from "@monoweb/postgres";
+import { type DisposablePostgres, startDisposablePostgres } from "@monoweb/postgres";
 
 const root = new URL("../../", import.meta.url).pathname;
 
@@ -231,9 +231,7 @@ const pool = new Pool({
 
 const checks: string[] = [];
 
-let postgresStarted = false;
-
-let postgresPid: number | undefined;
+let postgres: DisposablePostgres | undefined;
 
 let completed = false;
 
@@ -332,30 +330,12 @@ const business = async () =>
   ).rows[0];
 
 try {
-  run(postgresProgram("initdb"), [
-    "-D",
-    pgDirectory,
-    "-A",
-    "trust",
-    "-U",
-    "postgres",
-    "--no-locale",
-    "--encoding=UTF8",
-  ]);
-  run(postgresProgram("pg_ctl"), [
-    "-D",
-    pgDirectory,
-    "-l",
-    join(privateRoot, "postgres.log"),
-    "-o",
-    `-h 127.0.0.1 -p ${pgPort} -k ${privateRoot}`,
-    "-w",
-    "start",
-  ]);
-  postgresStarted = true;
-  postgresPid = Number(
-    (await readFile(join(pgDirectory, "postmaster.pid"), "utf8")).split("\n")[0],
-  );
+  postgres = await startDisposablePostgres({
+    port: pgPort,
+    directory: pgDirectory,
+    environment: safeEnvironment,
+  });
+  assert.equal(postgres.url, postgresUrl, "owned PostgreSQL serves the configured URL");
   run(process.execPath, ["--no-env-file", "packages/database/runtime/identity-seed-main.ts"], {
     ...env,
     IDENTITY_SEED_PG_URL: postgresUrl,
@@ -745,8 +725,7 @@ try {
   provider.close(() => providerClosed.resolve());
   await providerClosed.promise;
 
-  if (postgresStarted)
-    run(postgresProgram("pg_ctl"), ["-D", pgDirectory, "-m", "immediate", "-w", "stop"]);
+  await postgres?.stop();
   await rm(privateRoot, { recursive: true, force: true });
 
   for (const expected of ownedPorts)
@@ -767,7 +746,7 @@ try {
         postRunRevision,
         postRunTree,
         sourceUnchanged,
-        ownedPids: [...processes.map((owned) => owned.child.pid), postgresPid],
+        ownedPids: [...processes.map((owned) => owned.child.pid), postgres?.pid],
         ownedPorts,
         runtime: process.versions.bun,
         checks,

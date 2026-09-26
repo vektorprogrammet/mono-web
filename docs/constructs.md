@@ -981,10 +981,6 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
 
 - `ReceiptE2EBarrierArrival`: `false` for unprobed requests; `true` once all three lanes are synchronized.
   [apps/backend/src/receipt/e2e-support.ts:17](../apps/backend/src/receipt/e2e-support.ts#L17), no consumers.
-- `withDisposablePostgres`: Runs `use` against the one database `database` of a fresh cluster on a loopback port with trust authentication.
-  [packages/database/runtime/disposable-postgres.ts:46](../packages/database/runtime/disposable-postgres.ts#L46), 2 consumers:
-  - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
-  - [packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts](../packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts)
 - `selectDatabaseMigration`: Selects the registered migration `id` and the migrations that run before it; an absent id throws and names the nearest registered ids.
   [packages/database/src/migrations.ts:652](../packages/database/src/migrations.ts#L652), 6 consumers:
   - [packages/database/runtime/schema-boundary-postgres-proof-main.ts](../packages/database/runtime/schema-boundary-postgres-proof-main.ts)
@@ -994,7 +990,7 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [packages/database/src/person-cohort-accepted-mappings.test.ts](../packages/database/src/person-cohort-accepted-mappings.test.ts)
   - [packages/database/src/rule-reconciliation-migration-postgres-proof.ts](../packages/database/src/rule-reconciliation-migration-postgres-proof.ts)
 - `reserveLoopbackPorts`: The golden journeys' port reservation for runners that do not run inside the harness.
-  [tools/e2e/golden-harness.ts:472](../tools/e2e/golden-harness.ts#L472), 8 consumers:
+  [tools/e2e/golden-harness.ts:473](../tools/e2e/golden-harness.ts#L473), 8 consumers:
   - [apps/dashboard/e2e/run-real-admission-period-management.mjs](../apps/dashboard/e2e/run-real-admission-period-management.mjs)
   - [apps/dashboard/e2e/run-real-interview-response.mjs](../apps/dashboard/e2e/run-real-interview-response.mjs)
   - [apps/dashboard/e2e/run-real-native-content-publication.mjs](../apps/dashboard/e2e/run-real-native-content-publication.mjs)
@@ -1032,13 +1028,36 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [apps/homepage/e2e/run-real-public-applicant-admission.mjs](../apps/homepage/e2e/run-real-public-applicant-admission.mjs)
   - [tools/acceptance/substitute-outcome-check.ts](../tools/acceptance/substitute-outcome-check.ts)
 - `selectedPostgresMajor`: The major that `VEKTOR_POSTGRES_MAJOR` selects, or the default.
-  [tools/postgres/index.ts:77](../tools/postgres/index.ts#L77), 2 consumers:
-  - [apps/dashboard/e2e/run-real-native-content-publication.mjs](../apps/dashboard/e2e/run-real-native-content-publication.mjs)
-  - [apps/dashboard/e2e/run-real-native-schools-directory.mjs](../apps/dashboard/e2e/run-real-native-schools-directory.mjs)
-- `postgresProgram`: Absolute path of a program of the selected PostgreSQL major.
-  [tools/postgres/index.ts:134](../tools/postgres/index.ts#L134), 34 consumers:
-  - [apps/backend/test/postgres.ts](../apps/backend/test/postgres.ts)
+  [tools/postgres/index.ts:87](../tools/postgres/index.ts#L87), no consumers.
+- `postgresProgram`: Absolute path of a client program of the selected PostgreSQL major.
+  [tools/postgres/index.ts:153](../tools/postgres/index.ts#L153), 19 consumers:
   - [apps/dashboard/e2e/receipt-approval.spec.ts](../apps/dashboard/e2e/receipt-approval.spec.ts)
+  - [apps/dashboard/e2e/run-real-admission-period-management.mjs](../apps/dashboard/e2e/run-real-admission-period-management.mjs)
+  - [apps/dashboard/e2e/run-real-interview-response.mjs](../apps/dashboard/e2e/run-real-interview-response.mjs)
+  - [apps/dashboard/e2e/run-real-native-identity-browser.mjs](../apps/dashboard/e2e/run-real-native-identity-browser.mjs)
+  - [apps/dashboard/e2e/run-real-native-organization-administration.mjs](../apps/dashboard/e2e/run-real-native-organization-administration.mjs)
+  - [apps/dashboard/e2e/run-real-native-profile-self-edit.mjs](../apps/dashboard/e2e/run-real-native-profile-self-edit.mjs)
+  - [apps/dashboard/e2e/run-real-native-recruitment-interview-conduct.mjs](../apps/dashboard/e2e/run-real-native-recruitment-interview-conduct.mjs)
+  - [apps/dashboard/e2e/run-real-native-recruitment-interview-scheduling.mjs](../apps/dashboard/e2e/run-real-native-recruitment-interview-scheduling.mjs)
+  - [apps/dashboard/e2e/run-real-receipt-approval.mjs](../apps/dashboard/e2e/run-real-receipt-approval.mjs)
+  - [apps/dashboard/e2e/run-real-receipt-owner.mjs](../apps/dashboard/e2e/run-real-receipt-owner.mjs)
+  - [apps/homepage/e2e/run-real-public-applicant-admission.mjs](../apps/homepage/e2e/run-real-public-applicant-admission.mjs)
+  - [packages/database/runtime/historical-service-cohort-rehearsal.ts](../packages/database/runtime/historical-service-cohort-rehearsal.ts)
+  - [tools/e2e/run-legacy-backup-person-rehearsal.ts](../tools/e2e/run-legacy-backup-person-rehearsal.ts)
+  - [tools/e2e/run-legacy-candidate-rehearsal.ts](../tools/e2e/run-legacy-candidate-rehearsal.ts)
+  - [tools/e2e/run-legacy-receipt-rehearsal.ts](../tools/e2e/run-legacy-receipt-rehearsal.ts)
+  - [tools/e2e/run-real-native-recruitment-assignment.mjs](../tools/e2e/run-real-native-recruitment-assignment.mjs)
+  - [tools/verification/current-assignment-cohort-rehearsal.ts](../tools/verification/current-assignment-cohort-rehearsal.ts)
+  - [tools/verification/identity-cohort-rehearsal.ts](../tools/verification/identity-cohort-rehearsal.ts)
+  - [tools/verification/receipt-import-rehearsal.ts](../tools/verification/receipt-import-rehearsal.ts)
+- `postgresVersion`: The `postgres --version` line of the selected major, such as `postgres (PostgreSQL) 18.6`, for evidence that names the toolchain whether or not a cluster started.
+  [tools/postgres/index.ts:161](../tools/postgres/index.ts#L161), 3 consumers:
+  - [tools/e2e/golden-harness.ts](../tools/e2e/golden-harness.ts)
+  - [tools/e2e/golden-reimbursement.mjs](../tools/e2e/golden-reimbursement.mjs)
+  - [tools/e2e/placement-check.ts](../tools/e2e/placement-check.ts)
+- `startDisposablePostgres`: Starts a fresh cluster of the selected major on a private port and socket directory with trust authentication.
+  [tools/postgres/index.ts:388](../tools/postgres/index.ts#L388), 33 consumers:
+  - [apps/backend/test/postgres.ts](../apps/backend/test/postgres.ts)
   - [apps/dashboard/e2e/run-real-admission-period-management.mjs](../apps/dashboard/e2e/run-real-admission-period-management.mjs)
   - [apps/dashboard/e2e/run-real-interview-response.mjs](../apps/dashboard/e2e/run-real-interview-response.mjs)
   - [apps/dashboard/e2e/run-real-native-content-publication.mjs](../apps/dashboard/e2e/run-real-native-content-publication.mjs)
@@ -1054,45 +1073,27 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [apps/dashboard/e2e/run-real-receipt-owner.mjs](../apps/dashboard/e2e/run-real-receipt-owner.mjs)
   - [apps/homepage/e2e/run-native-contact.mjs](../apps/homepage/e2e/run-native-contact.mjs)
   - [apps/homepage/e2e/run-real-public-applicant-admission.mjs](../apps/homepage/e2e/run-real-public-applicant-admission.mjs)
-  - [packages/database/runtime/disposable-postgres.ts](../packages/database/runtime/disposable-postgres.ts)
   - [packages/database/runtime/historical-service-cohort-rehearsal.ts](../packages/database/runtime/historical-service-cohort-rehearsal.ts)
   - [packages/database/runtime/person-cohort-rehearsal.ts](../packages/database/runtime/person-cohort-rehearsal.ts)
+  - [tools/acceptance/onboarding-check.ts](../tools/acceptance/onboarding-check.ts)
+  - [tools/acceptance/password-recovery-check.ts](../tools/acceptance/password-recovery-check.ts)
+  - [tools/acceptance/recommendation-check.ts](../tools/acceptance/recommendation-check.ts)
   - [tools/acceptance/substitute-outcome-check.ts](../tools/acceptance/substitute-outcome-check.ts)
   - [tools/e2e/golden-harness.ts](../tools/e2e/golden-harness.ts)
   - [tools/e2e/golden-reimbursement.mjs](../tools/e2e/golden-reimbursement.mjs)
   - [tools/e2e/legacy-organization-rehearsal-runtime.ts](../tools/e2e/legacy-organization-rehearsal-runtime.ts)
   - [tools/e2e/placement-check.ts](../tools/e2e/placement-check.ts)
   - [tools/e2e/run-legacy-backup-person-rehearsal.ts](../tools/e2e/run-legacy-backup-person-rehearsal.ts)
-  - [tools/e2e/run-legacy-candidate-rehearsal.ts](../tools/e2e/run-legacy-candidate-rehearsal.ts)
   - [tools/e2e/run-legacy-current-assignment-rehearsal.ts](../tools/e2e/run-legacy-current-assignment-rehearsal.ts)
-  - [tools/e2e/run-legacy-receipt-rehearsal.ts](../tools/e2e/run-legacy-receipt-rehearsal.ts)
   - [tools/e2e/run-real-native-recruitment-assignment.mjs](../tools/e2e/run-real-native-recruitment-assignment.mjs)
   - [tools/verification/current-assignment-cohort-rehearsal.ts](../tools/verification/current-assignment-cohort-rehearsal.ts)
   - [tools/verification/identity-cohort-rehearsal.ts](../tools/verification/identity-cohort-rehearsal.ts)
   - [tools/verification/receipt-import-rehearsal.ts](../tools/verification/receipt-import-rehearsal.ts)
   - [tools/verification/unattended-delivery-recovery.ts](../tools/verification/unattended-delivery-recovery.ts)
-- `postgresComposeFile`: Compose file of the disposable `receipt-postgres` container.
-  [tools/postgres/index.ts:142](../tools/postgres/index.ts#L142), 9 consumers:
-  - [apps/dashboard/e2e/receipt-approval.spec.ts](../apps/dashboard/e2e/receipt-approval.spec.ts)
-  - [apps/dashboard/e2e/run-real-admission-period-management.mjs](../apps/dashboard/e2e/run-real-admission-period-management.mjs)
-  - [apps/dashboard/e2e/run-real-interview-response.mjs](../apps/dashboard/e2e/run-real-interview-response.mjs)
-  - [apps/dashboard/e2e/run-real-native-organization-administration.mjs](../apps/dashboard/e2e/run-real-native-organization-administration.mjs)
-  - [apps/dashboard/e2e/run-real-native-receipt-settlement.mjs](../apps/dashboard/e2e/run-real-native-receipt-settlement.mjs)
-  - [apps/dashboard/e2e/run-real-native-recruitment-interview-scheduling.mjs](../apps/dashboard/e2e/run-real-native-recruitment-interview-scheduling.mjs)
-  - [apps/dashboard/e2e/run-real-receipt-approval.mjs](../apps/dashboard/e2e/run-real-receipt-approval.mjs)
-  - [apps/dashboard/e2e/run-real-receipt-owner.mjs](../apps/dashboard/e2e/run-real-receipt-owner.mjs)
-  - [apps/homepage/e2e/run-real-public-applicant-admission.mjs](../apps/homepage/e2e/run-real-public-applicant-admission.mjs)
-- `postgresComposeEnvironment`: Adds the selected major to the environment of a Compose command.
-  [tools/postgres/index.ts:150](../tools/postgres/index.ts#L150), 9 consumers:
-  - [apps/dashboard/e2e/receipt-approval.spec.ts](../apps/dashboard/e2e/receipt-approval.spec.ts)
-  - [apps/dashboard/e2e/run-real-admission-period-management.mjs](../apps/dashboard/e2e/run-real-admission-period-management.mjs)
-  - [apps/dashboard/e2e/run-real-interview-response.mjs](../apps/dashboard/e2e/run-real-interview-response.mjs)
-  - [apps/dashboard/e2e/run-real-native-organization-administration.mjs](../apps/dashboard/e2e/run-real-native-organization-administration.mjs)
-  - [apps/dashboard/e2e/run-real-native-receipt-settlement.mjs](../apps/dashboard/e2e/run-real-native-receipt-settlement.mjs)
-  - [apps/dashboard/e2e/run-real-native-recruitment-interview-scheduling.mjs](../apps/dashboard/e2e/run-real-native-recruitment-interview-scheduling.mjs)
-  - [apps/dashboard/e2e/run-real-receipt-approval.mjs](../apps/dashboard/e2e/run-real-receipt-approval.mjs)
-  - [apps/dashboard/e2e/run-real-receipt-owner.mjs](../apps/dashboard/e2e/run-real-receipt-owner.mjs)
-  - [apps/homepage/e2e/run-real-public-applicant-admission.mjs](../apps/homepage/e2e/run-real-public-applicant-admission.mjs)
+- `withDisposablePostgres`: Runs `use` against the database `database` of a fresh cluster, which `startDisposablePostgres` starts, and removes the cluster when `use` settles, also when it fails.
+  [tools/postgres/index.ts:600](../tools/postgres/index.ts#L600), 2 consumers:
+  - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
+  - [packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts](../packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts)
 
 ## request-ledger
 

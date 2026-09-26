@@ -1,16 +1,12 @@
-import {
-  postgresComposeEnvironment,
-  postgresComposeFile,
-  postgresProgram,
-} from "@monoweb/postgres";
+import { postgresProgram, startDisposablePostgres } from "@monoweb/postgres";
 import {
   AdmissionPeriodManagementItem,
   AdmissionsSubmitApplicationProblem,
 } from "@vektorprogrammet/http-api";
 import { Predicate, Schema } from "effect";
 import { randomBytes, randomUUID } from "node:crypto";
-import { spawn, spawnSync } from "node:child_process";
-import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
@@ -42,8 +38,6 @@ const staffOrigin = `http://127.0.0.1:${staffPort}`;
 
 const postgresUrl = `postgres://receipt:receipt@127.0.0.1:${postgresPort}/receipt_proof?connect_timeout=1`;
 
-const composeProject = `mono-web-public-application-0039-${process.pid}`;
-
 const commandTimeoutMs = 300_000;
 
 const shutdownTimeoutMs = 5_000;
@@ -56,11 +50,6 @@ const remoteEvidenceAuthorized =
   process.env.CI === "true" &&
   process.env.GITHUB_ACTIONS === "true" &&
   process.env.PUBLIC_APPLICATION_REMOTE_EVIDENCE === "1";
-
-const dockerAvailable =
-  spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0;
-
-const postgresTopology = dockerAvailable ? "docker" : "local";
 
 /**
  * A session is valid only while it outlives the authorization instant, and new sessions
@@ -278,117 +267,6 @@ async function waitForHttp(url, child, label, headers = {}) {
   throw new Error(`${label} did not become ready`);
 }
 
-async function waitForPostgres(environment) {
-  const deadline = Date.now() + commandTimeoutMs;
-
-  while (Date.now() < deadline) {
-    try {
-      const args =
-        postgresTopology === "docker"
-          ? [
-              "compose",
-              "-f",
-              postgresComposeFile,
-              "-p",
-              composeProject,
-              "exec",
-              "-T",
-              "receipt-postgres",
-              "pg_isready",
-              "-U",
-              "receipt",
-              "-d",
-              "receipt_proof",
-            ]
-          : ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "-d", "receipt_proof"];
-
-      const options = {
-        cwd: repositoryRoot,
-        env: environment,
-        label: "Disposable public-application PostgreSQL readiness check",
-        captureOutput: true,
-      };
-
-      if (postgresTopology === "docker") {
-        await runCommand("docker", args, options);
-      } else {
-        await runCommand(postgresProgram("pg_isready"), args, options);
-      }
-
-      return;
-    } catch {
-      await sleep(250);
-    }
-  }
-
-  throw new Error("Disposable public-application PostgreSQL did not become ready");
-}
-
-async function initializeLocalPostgres(dataRoot, environment) {
-  await rm(dataRoot, { recursive: true, force: true });
-  await mkdir(dataRoot, { recursive: true });
-  await runCommand(
-    postgresProgram("initdb"),
-    [
-      "--pgdata",
-      dataRoot,
-      "--username=receipt",
-      "--auth-local=trust",
-      "--auth-host=trust",
-      "--no-locale",
-      "--encoding=UTF8",
-    ],
-    {
-      cwd: repositoryRoot,
-      env: environment,
-      label: "Local public-application PostgreSQL initialization",
-      captureOutput: true,
-    },
-  );
-  await startExistingLocalPostgres(dataRoot, environment);
-  await runCommand(
-    postgresProgram("createdb"),
-    ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "receipt_proof"],
-    {
-      cwd: repositoryRoot,
-      env: environment,
-      label: "Local public-application PostgreSQL database creation",
-    },
-  );
-}
-
-async function startExistingLocalPostgres(dataRoot, environment) {
-  await runCommand(
-    postgresProgram("pg_ctl"),
-    [
-      "-D",
-      dataRoot,
-      "-o",
-      `-p ${postgresPort} -h 127.0.0.1 -k ${dataRoot}`,
-      "-l",
-      join(dataRoot, "postgres.log"),
-      "-w",
-      "start",
-    ],
-    {
-      cwd: repositoryRoot,
-      env: environment,
-      label: "Local public-application PostgreSQL startup",
-      captureOutput: true,
-    },
-  );
-  await waitForPostgres(environment);
-}
-
-async function stopLocalPostgres(dataRoot, environment) {
-  await runCommand(postgresProgram("pg_ctl"), ["-D", dataRoot, "-m", "fast", "-w", "stop"], {
-    cwd: repositoryRoot,
-    env: environment,
-    label: "Local public-application PostgreSQL stop",
-    captureOutput: true,
-  });
-}
-
 async function pathExists(path) {
   try {
     await access(path);
@@ -404,54 +282,30 @@ async function pathExists(path) {
 }
 
 async function runPsql(sql, environment, label) {
-  const args =
-    postgresTopology === "docker"
-      ? [
-          "compose",
-          "-f",
-          postgresComposeFile,
-          "-p",
-          composeProject,
-          "exec",
-          "-T",
-          "receipt-postgres",
-          "psql",
-          "-U",
-          "receipt",
-          "-d",
-          "receipt_proof",
-          "-At",
-          "-v",
-          "ON_ERROR_STOP=1",
-          "-c",
-          sql,
-        ]
-      : [
-          "-h",
-          "127.0.0.1",
-          "-p",
-          String(postgresPort),
-          "-U",
-          "receipt",
-          "-d",
-          "receipt_proof",
-          "-At",
-          "-v",
-          "ON_ERROR_STOP=1",
-          "-c",
-          sql,
-        ];
-
-  const options = {
-    cwd: repositoryRoot,
-    env: environment,
-    label,
-    captureOutput: true,
-  };
-
-  return postgresTopology === "docker"
-    ? runCommand("docker", args, options)
-    : runCommand(postgresProgram("psql"), args, options);
+  return runCommand(
+    postgresProgram("psql"),
+    [
+      "-h",
+      "127.0.0.1",
+      "-p",
+      String(postgresPort),
+      "-U",
+      "receipt",
+      "-d",
+      "receipt_proof",
+      "-At",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-c",
+      sql,
+    ],
+    {
+      cwd: repositoryRoot,
+      env: environment,
+      label,
+      captureOutput: true,
+    },
+  );
 }
 
 /** Creates the login of the department leader; the seed applies every migration first. */
@@ -784,49 +638,13 @@ function assertDurableEvidence(postgres, lifecycle, delivery, persistenceFailure
   }
 }
 
-async function stopPostgres(dataRoot, environment) {
-  if (postgresTopology === "docker") {
-    await runCommand(
-      "docker",
-      ["compose", "-f", postgresComposeFile, "-p", composeProject, "stop", "receipt-postgres"],
-      {
-        cwd: repositoryRoot,
-        env: environment,
-        label: "Disposable PostgreSQL failure injection",
-      },
-    );
-  } else {
-    await stopLocalPostgres(dataRoot, environment);
-  }
-}
-
-async function restartPostgres(dataRoot, environment) {
-  if (postgresTopology === "docker") {
-    await runCommand(
-      "docker",
-      ["compose", "-f", postgresComposeFile, "-p", composeProject, "start", "receipt-postgres"],
-      {
-        cwd: repositoryRoot,
-        env: environment,
-        label: "Disposable PostgreSQL restart",
-      },
-    );
-    await waitForPostgres(environment);
-  } else {
-    await startExistingLocalPostgres(dataRoot, environment);
-  }
-}
-
 /**
  * Without PostgreSQL the command cannot open its receipt transaction. The request states the
  * browser application's availability, so only the outage can reject it.
  */
-async function exercisePostgresFailure(dataRoot, environment, availability) {
-  await stopPostgres(dataRoot, environment);
-  let response;
-
-  try {
-    response = await fetch(`${backendOrigin}/api/applications`, {
+async function exercisePostgresFailure(postgres, availability) {
+  const response = await postgres.outage(() =>
+    fetch(`${backendOrigin}/api/applications`, {
       method: "POST",
       headers: { "content-type": "application/json", "idempotency-key": randomUUID() },
       body: JSON.stringify({
@@ -840,10 +658,8 @@ async function exercisePostgresFailure(dataRoot, environment, availability) {
         yearOfStudy: 4,
         availability,
       }),
-    });
-  } finally {
-    await restartPostgres(dataRoot, environment);
-  }
+    }),
+  );
 
   if (
     response.status !== 503 ||
@@ -893,10 +709,7 @@ async function main() {
   const postgresDataRoot = join(temporaryRoot, "postgres");
   const lifecycleEvidencePath = join(temporaryRoot, "public-application-lifecycle.json");
 
-  const baseEnvironment = postgresComposeEnvironment({
-    ...process.env,
-    RECEIPT_APPROVAL_PG_PORT: String(postgresPort),
-  });
+  const baseEnvironment = { ...process.env };
 
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
@@ -922,7 +735,7 @@ async function main() {
     API_URL: backendOrigin,
   };
 
-  let postgresStarted = false;
+  let postgres;
   let devVarsCreated = false;
   let apiProcess;
   let homepageProcess;
@@ -951,33 +764,10 @@ async function main() {
       }
     }
 
-    if (postgresStarted) {
-      try {
-        if (postgresTopology === "docker") {
-          await runCommand(
-            "docker",
-            [
-              "compose",
-              "-f",
-              postgresComposeFile,
-              "-p",
-              composeProject,
-              "down",
-              "--volumes",
-              "--remove-orphans",
-            ],
-            {
-              cwd: repositoryRoot,
-              env: baseEnvironment,
-              label: "Disposable public-application PostgreSQL cleanup",
-            },
-          );
-        } else if (await pathExists(join(postgresDataRoot, "postmaster.pid"))) {
-          await stopLocalPostgres(postgresDataRoot, baseEnvironment);
-        }
-      } catch (error) {
-        cleanupErrors.push(error);
-      }
+    try {
+      await postgres?.stop();
+    } catch (error) {
+      cleanupErrors.push(error);
     }
 
     try {
@@ -1005,31 +795,12 @@ async function main() {
   let primaryError;
 
   try {
-    postgresStarted = true;
-
-    if (postgresTopology === "docker") {
-      await runCommand(
-        "docker",
-        [
-          "compose",
-          "-f",
-          postgresComposeFile,
-          "-p",
-          composeProject,
-          "up",
-          "-d",
-          "receipt-postgres",
-        ],
-        {
-          cwd: repositoryRoot,
-          env: baseEnvironment,
-          label: "Disposable public-application PostgreSQL startup",
-        },
-      );
-      await waitForPostgres(baseEnvironment);
-    } else {
-      await initializeLocalPostgres(postgresDataRoot, baseEnvironment);
-    }
+    postgres = await startDisposablePostgres({
+      user: "receipt",
+      database: "receipt_proof",
+      port: postgresPort,
+      directory: postgresDataRoot,
+    });
 
     await seedLeaderIdentity(apiEnvironment);
     await seedReferenceData(baseEnvironment);
@@ -1101,8 +872,7 @@ async function main() {
     await waitForHttp(`${backendOrigin}/health`, apiProcess, "Restarted unified backend");
 
     const persistenceFailure = await exercisePostgresFailure(
-      postgresDataRoot,
-      baseEnvironment,
+      postgres,
       lifecycle.browser.availability,
     );
 
@@ -1119,10 +889,7 @@ async function main() {
         mode: remoteEvidenceAuthorized ? "remote-ci" : "local",
         homepage: "loopback-built-cloudflare-worker-preview",
         api: "unified-native-effect-backend",
-        database:
-          postgresTopology === "docker"
-            ? "disposable-postgresql-docker"
-            : "disposable-postgresql-local",
+        database: "disposable-postgresql-local",
         browser: "real-chromium-single-worker",
         effects: "recording-only-bounded-outbox",
         fixedClock,

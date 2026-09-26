@@ -24,7 +24,11 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Pool } from "pg";
-import { postgresProgram } from "@monoweb/postgres";
+import {
+  type DisposablePostgres,
+  postgresProgram,
+  startDisposablePostgres,
+} from "@monoweb/postgres";
 import { Schema, Cause, Predicate, Effect, Redacted } from "effect";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { Database, databaseHealth } from "@vektorprogrammet/database";
@@ -82,8 +86,6 @@ for (const key of [
   assert.ok(!process.env[key], `unset provider configuration: ${key}`);
 
 const artifacts = await mkdtemp(join(tmpdir(), "vektor-receipt-0095-"));
-
-const pgdata = join(artifacts, "postgres");
 
 const storage = join(artifacts, "storage");
 
@@ -156,6 +158,8 @@ const wait = async <A>(check: () => Promise<A>) => {
   throw new Error("owned runtime startup timed out");
 };
 
+let postgres: DisposablePostgres | undefined;
+
 let pool: InstanceType<typeof Pool> | undefined;
 
 let backend: ChildProcess | undefined;
@@ -165,33 +169,13 @@ let evidence: Schema.Json | undefined;
 let cleanupOkay = false;
 
 try {
-  const pgPort = await freePort(),
-    backendPort = await freePort(),
+  const backendPort = await freePort(),
     dashboardPort = await freePort();
 
   const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 
-  command(postgresProgram("initdb"), [
-    "-D",
-    pgdata,
-    "-A",
-    "trust",
-    "-U",
-    "postgres",
-    "--no-locale",
-    "--encoding=UTF8",
-  ]);
-  start(
-    postgresProgram("postgres"),
-    ["-D", pgdata, "-p", String(pgPort), "-h", "127.0.0.1", "-k", artifacts],
-    process.env,
-  );
-  const baseUrl = `postgres://postgres@127.0.0.1:${pgPort}/postgres`;
-  pool = new Pool({ connectionString: baseUrl });
-  await wait(() => pool!.query("SELECT 1"));
-  await pool.query("CREATE DATABASE receipt_0095");
-  const pgUrl = `postgres://postgres@127.0.0.1:${pgPort}/receipt_0095`;
-  await pool.end();
+  postgres = await startDisposablePostgres({ database: "receipt_0095" });
+  const pgUrl = postgres.url;
   pool = new Pool({ connectionString: pgUrl });
   const databaseLayer = DatabaseLive({ url: Redacted.make(pgUrl), maxConnections: 2 });
 
@@ -770,8 +754,7 @@ try {
 
   await stop(backend);
   backend = undefined;
-  await pool.query("CREATE DATABASE receipt_0095_restored");
-  const restoredUrl = `postgres://postgres@127.0.0.1:${pgPort}/receipt_0095_restored`;
+  const restoredUrl = await postgres.createDatabase("receipt_0095_restored");
   command(postgresProgram("pg_restore"), [
     "--exit-on-error",
     "--dbname",
@@ -857,7 +840,7 @@ try {
   if (pool) await pool.end();
 
   for (const child of [...children].reverse()) await stop(child);
-  await rm(pgdata, { recursive: true, force: true });
+  await postgres?.stop();
   await rm(storage, { recursive: true, force: true });
 
   if (process.env.RECEIPT_REOPEN_REHEARSAL === "1") {

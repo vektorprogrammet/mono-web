@@ -1,29 +1,20 @@
-import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { promisify } from "node:util";
-import { postgresProgram } from "@monoweb/postgres";
+import { type DisposablePostgres, startDisposablePostgres } from "@monoweb/postgres";
 import { Database } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
-import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterAll, beforeAll } from "vitest";
-
-const exec = promisify(execFile);
-
-const isStopped = Schema.is(Schema.Struct({ code: Schema.Literal(3) }));
 
 /** Independent PostgreSQL sessions on a private Unix socket, with no TCP listener. */
 export const backendPostgres = () => {
-  let root: string | undefined;
-  let startupAttempted = false;
+  let cluster: DisposablePostgres | undefined;
   let databaseSequence = 0;
   let primary: ManagedRuntime.ManagedRuntime<Database, never> | undefined;
   let contender: ManagedRuntime.ManagedRuntime<Database, never> | undefined;
   let migratedTemplate: Promise<string> | undefined;
 
   const connection = (database: string) => ({
-    host: root,
+    host: cluster?.socketDirectory,
+    port: cluster?.port,
     database,
     username: "postgres",
     maxConnections: 1,
@@ -46,30 +37,10 @@ export const backendPostgres = () => {
     })());
 
   beforeAll(async () => {
-    root = await mkdtemp(join(tmpdir(), "vkr-http-pg-"));
-    await exec(
-      postgresProgram("initdb"),
-      [
-        "-D",
-        root,
-        "--username=postgres",
-        "--auth-local=trust",
-        "--auth-host=reject",
-        "--no-locale",
-        "--encoding=UTF8",
-      ],
-      { timeout: 15_000 },
-    );
-    startupAttempted = true;
-    await exec(
-      postgresProgram("pg_ctl"),
-      ["-D", root, "-o", `-h '' -k ${root} -F`, "-l", join(root, "postgres.log"), "-w", "start"],
-      { timeout: 15_000 },
-    );
-    const config = { host: root, database: "postgres", username: "postgres", maxConnections: 1 };
-    primary = ManagedRuntime.make(DatabaseLive(config).pipe(Layer.orDie));
+    cluster = await startDisposablePostgres({ listen: "socket" });
+    primary = ManagedRuntime.make(DatabaseLive(connection("postgres")).pipe(Layer.orDie));
     await primary.runPromise(Database.use((sql) => sql.health));
-    contender = ManagedRuntime.make(DatabaseLive(config).pipe(Layer.orDie));
+    contender = ManagedRuntime.make(DatabaseLive(connection("postgres")).pipe(Layer.orDie));
     await contender.runPromise(Database.use((sql) => sql.health));
   }, 30_000);
 
@@ -80,32 +51,14 @@ export const backendPostgres = () => {
       try {
         await primary?.dispose();
       } finally {
-        if (root !== undefined) {
-          if (startupAttempted) {
-            const running = await exec(postgresProgram("pg_ctl"), ["-D", root, "status"]).then(
-              () => true,
-              (cause) => {
-                if (isStopped(cause)) return false;
-                throw cause;
-              },
-            );
-
-            if (running) {
-              await exec(postgresProgram("pg_ctl"), ["-D", root, "-m", "immediate", "-w", "stop"], {
-                timeout: 15_000,
-              });
-            }
-          }
-
-          await rm(root, { recursive: true, force: true });
-        }
+        await cluster?.stop();
       }
     }
   }, 30_000);
 
   return {
     createDatabase: async () => {
-      if (primary === undefined || root === undefined)
+      if (primary === undefined || cluster === undefined)
         throw new Error("PostgreSQL fixture is not initialized");
 
       const admin = primary;

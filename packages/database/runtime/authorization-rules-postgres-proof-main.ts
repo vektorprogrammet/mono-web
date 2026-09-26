@@ -91,7 +91,7 @@ import {
   reversedDisposableAuthzBackfillInput,
   validDisposableAuthzBackfillInput,
 } from "../src/test-support/disposable-authz-backfill-fixtures.js";
-import { withDisposablePostgres } from "./disposable-postgres.js";
+import { withDisposablePostgres } from "@monoweb/postgres";
 
 const implementationBaseRevision = "f83d18ae408ad2c1e954d344620802a7ad1bda42";
 

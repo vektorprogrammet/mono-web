@@ -6,7 +6,7 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { postgresProgram } from "@monoweb/postgres";
+import { postgresProgram, startDisposablePostgres } from "@monoweb/postgres";
 import {
   databaseMigrationDefinitions,
   databaseSchemaRevision,
@@ -679,7 +679,7 @@ const main = async () => {
     RECEIPT_E2E_TEST_MODE: "1",
   };
 
-  let postgresStarted = false;
+  let postgres;
   let backend;
   let dashboard;
   let proxy;
@@ -709,18 +709,10 @@ const main = async () => {
       errors.push(error);
     }
 
-    if (postgresStarted) {
-      try {
-        if (await pathExists(join(postgresRoot, "postmaster.pid"))) {
-          await run(postgresProgram("pg_ctl"), ["-D", postgresRoot, "-m", "fast", "-w", "stop"], {
-            cwd: repositoryRoot,
-            env: baseEnvironment,
-            label: "native recruitment PostgreSQL cleanup",
-          });
-        }
-      } catch (error) {
-        errors.push(error);
-      }
+    try {
+      await postgres?.stop();
+    } catch (error) {
+      errors.push(error);
     }
 
     try {
@@ -744,39 +736,11 @@ const main = async () => {
   let primaryError;
 
   try {
-    await run(
-      postgresProgram("initdb"),
-      [
-        "-D",
-        postgresRoot,
-        "--username=postgres",
-        "--auth-local=trust",
-        "--auth-host=trust",
-        "--no-locale",
-        "--encoding=UTF8",
-      ],
-      {
-        cwd: repositoryRoot,
-        env: baseEnvironment,
-        label: "native recruitment PostgreSQL initialization",
-      },
-    );
-    postgresStarted = true;
-    await run(
-      postgresProgram("pg_ctl"),
-      [
-        "-D",
-        postgresRoot,
-        "-o",
-        `-p ${postgresPort} -h 127.0.0.1 -k ${postgresRoot}`,
-        "-l",
-        join(postgresRoot, "postgres.log"),
-        "-w",
-        "start",
-      ],
-      { cwd: repositoryRoot, env: baseEnvironment, label: "native recruitment PostgreSQL startup" },
-    );
-    await runPsql("SELECT 1", baseEnvironment, "native recruitment PostgreSQL readiness");
+    postgres = await startDisposablePostgres({
+      port: postgresPort,
+      directory: postgresRoot,
+      environment: baseEnvironment,
+    });
 
     await run("bun", [seedPath], {
       cwd: repositoryRoot,
@@ -1045,9 +1009,10 @@ const main = async () => {
       postgres: { migrations, persisted },
     };
   } catch (error) {
-    const postgresLog = await readFile(join(postgresRoot, "postgres.log"), "utf8").catch(
-      () => "<postgres log unavailable>",
-    );
+    const postgresLog =
+      postgres === undefined
+        ? "<postgres log unavailable>"
+        : await readFile(postgres.logFile, "utf8").catch(() => "<postgres log unavailable>");
 
     primaryError = new Error(
       `${errorDetail(error)}\nrecorded native transport: ${JSON.stringify(proxy?.records ?? [])}\nPostgreSQL log:\n${postgresLog}`,

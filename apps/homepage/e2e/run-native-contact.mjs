@@ -3,13 +3,13 @@
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtemp, readdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { postgresProgram } from "@monoweb/postgres";
+import { startDisposablePostgres } from "@monoweb/postgres";
 import { chromium, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
@@ -48,6 +48,8 @@ const servers = [];
 let mf;
 
 let pool;
+
+let postgres;
 
 let browser;
 
@@ -181,34 +183,9 @@ try {
   const ingressPort = await port();
   const browserOrigin = `http://p000.vektor.phibkro.org:${ingressPort}`;
   const backendOrigin = `http://127.0.0.1:${backendPort}`;
-  const pgDir = join(artifacts, "postgres");
-  run(postgresProgram("initdb"), [
-    "-D",
-    pgDir,
-    "-A",
-    "trust",
-    "-U",
-    "postgres",
-    "--no-locale",
-    "--encoding=UTF8",
-  ]);
-  start(
-    postgresProgram("postgres"),
-    ["-D", pgDir, "-p", String(pgPort), "-h", "127.0.0.1", "-k", artifacts],
-    process.env,
-  );
+  postgres = await startDisposablePostgres({ port: pgPort });
   const pgUrl = `postgres://postgres@127.0.0.1:${pgPort}/postgres`;
   pool = new Pool({ connectionString: pgUrl });
-
-  for (let n = 0; ; n++) {
-    try {
-      await pool.query("SELECT 1");
-      break;
-    } catch (e) {
-      if (n >= 100) throw e;
-      await delay(100);
-    }
-  }
 
   const sink = createServer(async (req, res) => {
     if (req.headers.authorization !== `Bearer ${tokens.delivery}`) {
@@ -779,7 +756,7 @@ const response = await mf.dispatchFetch(`http://p000.vektor.phibkro.org${req.url
     }
   }
 
-  await rm(join(artifacts, "postgres"), { recursive: true, force: true });
+  await postgres?.stop();
 }
 
 assert.ok(evidence, "success requires completed observations");

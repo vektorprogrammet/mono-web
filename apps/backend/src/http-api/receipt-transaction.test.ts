@@ -19,9 +19,10 @@ const runWithExternalSchema = <A, E>(effect: Effect.Effect<A, E, Database>) =>
       Effect.gen(function* () {
         const [config] = yield* sql<{
           host: string;
+          port: number;
           database: string;
           username: string;
-        }>`SELECT current_setting('unix_socket_directories') AS host, current_database() AS database, current_user AS username`;
+        }>`SELECT current_setting('unix_socket_directories') AS host, current_setting('port')::integer AS port, current_database() AS database, current_user AS username`;
 
         if (config === undefined)
           return yield* Effect.die("Missing PostgreSQL connection configuration");

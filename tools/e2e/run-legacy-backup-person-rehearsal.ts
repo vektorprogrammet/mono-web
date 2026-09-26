@@ -13,12 +13,15 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { postgresProgram } from "@monoweb/postgres";
+import {
+  type DisposablePostgres,
+  postgresProgram,
+  startDisposablePostgres,
+} from "@monoweb/postgres";
 import { databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
@@ -207,18 +210,6 @@ const stopProcess = async (child: ChildProcess): Promise<void> => {
   if (await waitForProcessExit(child, 5_000)) return;
   throw new Error("Disposable service did not terminate; details redacted");
 };
-
-const freePort = async (): Promise<number> =>
-  await new Promise((resolvePort, reject) => {
-    const server = createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      assert.ok(address !== null && !Predicate.isString(address));
-      const port = address.port;
-      server.close((error) => (error === undefined ? resolvePort(port) : reject(error)));
-    });
-  });
 
 const waitFor = async (probe: () => Promise<void>, label: string): Promise<void> => {
   const deadline = Date.now() + 30_000;
@@ -413,46 +404,6 @@ const legacyDeclaredMigrationIds: ReadonlyArray<string> = [
   "TeamInterest",
   "TimeTable",
 ];
-
-const startNativeDatabase = async (dataRoot: string, port: number): Promise<void> => {
-  await run([
-    postgresProgram("initdb"),
-    "-D",
-    dataRoot,
-    "-A",
-    "trust",
-    "-U",
-    "postgres",
-    "--no-locale",
-    "--encoding=UTF8",
-  ]);
-  const logPath = join(dataRoot, "postgres.log");
-
-  try {
-    await run([
-      postgresProgram("pg_ctl"),
-      "-D",
-      dataRoot,
-      "-l",
-      logPath,
-      "-o",
-      "-c listen_addresses= -k " + dataRoot + " -p " + String(port),
-      "-w",
-      "start",
-    ]);
-  } catch (error) {
-    const log = await readFile(logPath, "utf8").catch(() => "PostgreSQL log unavailable");
-    throw new Error(String(error) + "\n" + log.slice(-2_000));
-  }
-};
-
-const postgresUrl = (socketRoot: string, port: number, database: string): string => {
-  const url = new URL("postgresql://postgres@localhost/" + database);
-  url.searchParams.set("host", socketRoot);
-  url.searchParams.set("port", String(port));
-
-  return url.toString();
-};
 
 const migrateNativeDatabase = async (url: string): Promise<void> => {
   await Effect.runPromise(
@@ -728,7 +679,6 @@ const runRehearsal = async (temporaryRoot: string) => {
   await mkdir(privateRoot, { mode: 0o700 });
   await chmod(privateRoot, 0o700);
   await mkdir(mysqlRoot, { mode: 0o700 });
-  await mkdir(postgresRoot, { mode: 0o700 });
 
   const mysqlData = join(mysqlRoot, "data");
   const mysqlSocket = join(mysqlRoot, "mysql.sock");
@@ -757,7 +707,7 @@ const runRehearsal = async (temporaryRoot: string) => {
 
   mysqlProcess.once("error", () => undefined);
 
-  let postgresStarted = false;
+  let postgres: DisposablePostgres | undefined;
   let pool: Pool | undefined;
   let restoredPool: Pool | undefined;
   let cutoverPool: Pool | undefined;
@@ -955,9 +905,9 @@ const runRehearsal = async (temporaryRoot: string) => {
     const decodedSnapshot = await readPrivatePersonCohort(cohortPath);
     const cohortDigest = digest(decodedSnapshot);
 
-    const postgresPort = await freePort();
-    postgresStarted = true;
-    await startNativeDatabase(postgresRoot, postgresPort);
+    postgres = await startDisposablePostgres({ listen: "socket", directory: postgresRoot });
+    const postgresHost = postgres.host;
+    const postgresPort = postgres.port;
     await assert.rejects(
       run([
         postgresProgram("pg_isready"),
@@ -973,17 +923,7 @@ const runRehearsal = async (temporaryRoot: string) => {
     );
     const nativeDatabase = "person_cohort_rehearsal";
     const restoredDatabase = "person_cohort_restored";
-    await run([
-      postgresProgram("createdb"),
-      "-h",
-      postgresRoot,
-      "-p",
-      String(postgresPort),
-      "-U",
-      "postgres",
-      nativeDatabase,
-    ]);
-    const nativeUrl = postgresUrl(postgresRoot, postgresPort, nativeDatabase);
+    const nativeUrl = await postgres.createDatabase(nativeDatabase);
     await migrateNativeDatabase(nativeUrl);
     pool = new Pool({ connectionString: nativeUrl, max: 4 });
 
@@ -1079,7 +1019,7 @@ const runRehearsal = async (temporaryRoot: string) => {
         postgresProgram("pg_dump"),
         "-Fc",
         "-h",
-        postgresRoot,
+        postgresHost,
         "-p",
         String(postgresPort),
         "-U",
@@ -1093,22 +1033,13 @@ const runRehearsal = async (temporaryRoot: string) => {
     );
     await chmod(dumpPath, 0o600);
     await secureRegularFile(dumpPath, 0o600);
-    await run([
-      postgresProgram("createdb"),
-      "-h",
-      postgresRoot,
-      "-p",
-      String(postgresPort),
-      "-U",
-      "postgres",
-      restoredDatabase,
-    ]);
+    const restoredUrl = await postgres.createDatabase(restoredDatabase);
     await run(
       [
         postgresProgram("pg_restore"),
         "--exit-on-error",
         "-h",
-        postgresRoot,
+        postgresHost,
         "-p",
         String(postgresPort),
         "-U",
@@ -1119,7 +1050,6 @@ const runRehearsal = async (temporaryRoot: string) => {
       ],
       { redactStderr: true },
     );
-    const restoredUrl = postgresUrl(postgresRoot, postgresPort, restoredDatabase);
     restoredPool = new Pool({ connectionString: restoredUrl, max: 2 });
     const countsAfterRestore = await nativeCounts(restoredPool);
     assert.deepEqual(countsAfterRestore, countsBeforeBackup, "Restored Person counts differ");
@@ -1165,17 +1095,7 @@ const runRehearsal = async (temporaryRoot: string) => {
 
     const reasons = reasonCounts(committedReport);
     const cutoverDatabase = "legacy_service_cutover_rehearsal";
-    await run([
-      postgresProgram("createdb"),
-      "-h",
-      postgresRoot,
-      "-p",
-      String(postgresPort),
-      "-U",
-      "postgres",
-      cutoverDatabase,
-    ]);
-    const cutoverTargetUrl = postgresUrl(postgresRoot, postgresPort, cutoverDatabase);
+    const cutoverTargetUrl = await postgres.createDatabase(cutoverDatabase);
     await migrateNativeDatabase(cutoverTargetUrl);
     const cutoverSourceUrl = new URL("mysql://legacy_cutover_reader@localhost/vektor");
     cutoverSourceUrl.searchParams.set("socketPath", mysqlSocket);
@@ -1501,7 +1421,7 @@ const runRehearsal = async (temporaryRoot: string) => {
         postgresProgram("pg_dump"),
         "-Fc",
         "-h",
-        postgresRoot,
+        postgresHost,
         "-p",
         String(postgresPort),
         "-U",
@@ -1516,22 +1436,13 @@ const runRehearsal = async (temporaryRoot: string) => {
     await chmod(cutoverDumpPath, 0o600);
     await secureRegularFile(cutoverDumpPath, 0o600);
     const restoredCutoverDatabase = "legacy_service_cutover_restored";
-    await run([
-      postgresProgram("createdb"),
-      "-h",
-      postgresRoot,
-      "-p",
-      String(postgresPort),
-      "-U",
-      "postgres",
-      restoredCutoverDatabase,
-    ]);
+    const restoredCutoverUrl = await postgres.createDatabase(restoredCutoverDatabase);
     await run(
       [
         postgresProgram("pg_restore"),
         "--exit-on-error",
         "-h",
-        postgresRoot,
+        postgresHost,
         "-p",
         String(postgresPort),
         "-U",
@@ -1542,7 +1453,6 @@ const runRehearsal = async (temporaryRoot: string) => {
       ],
       { redactStderr: true },
     );
-    const restoredCutoverUrl = postgresUrl(postgresRoot, postgresPort, restoredCutoverDatabase);
     restoredCutoverPool = new Pool({ connectionString: restoredCutoverUrl, max: 2 });
     assert.deepEqual(
       await cutoverState(restoredCutoverPool),
@@ -1654,19 +1564,7 @@ const runRehearsal = async (temporaryRoot: string) => {
 
     if (pool !== undefined) await pool.end().catch(recordCleanupFailure);
 
-    if (postgresStarted) {
-      await run(
-        [postgresProgram("pg_ctl"), "-D", postgresRoot, "-m", "fast", "-t", "10", "-w", "stop"],
-        { redactStderr: true },
-      ).catch(recordCleanupFailure);
-
-      const pidFileRemains = await lstat(join(postgresRoot, "postmaster.pid")).then(
-        () => true,
-        () => false,
-      );
-
-      if (pidFileRemains) recordProcessCleanupFailure();
-    }
+    if (postgres !== undefined) await postgres.stop().catch(recordProcessCleanupFailure);
 
     await stopProcess(mysqlProcess).catch(recordProcessCleanupFailure);
     processCleanupComplete = !processCleanupFailed;

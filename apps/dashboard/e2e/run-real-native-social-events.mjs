@@ -3,11 +3,11 @@ import { createHash, randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { createConnection, createServer as createNetServer } from "node:net";
+import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { postgresProgram } from "@monoweb/postgres";
+import { startDisposablePostgres } from "@monoweb/postgres";
 import { chromium } from "@playwright/test";
 import pg from "pg";
 
@@ -186,27 +186,6 @@ const assertPortAvailable = (port) =>
     server.once("error", () => reject(new Error(`required loopback port ${port} is in use`)));
     server.listen(port, "127.0.0.1", () => server.close(resolve));
   });
-
-const waitForPort = (port, label) =>
-  withTimeout(
-    (async () => {
-      while (true) {
-        const ready = await new Promise((resolve) => {
-          const socket = createConnection({ host: "127.0.0.1", port });
-          socket.once("connect", () => {
-            socket.destroy();
-            resolve(true);
-          });
-          socket.once("error", () => resolve(false));
-        });
-
-        if (ready) return;
-        await delay(100);
-      }
-    })(),
-    60_000,
-    label,
-  );
 
 const waitForHttp = (url, label) =>
   withTimeout(
@@ -994,10 +973,6 @@ const exerciseJourney = async ({ browser, ledger }) => {
   };
 };
 
-const version = run(postgresProgram("postgres"), ["--version"], {
-  label: "PostgreSQL version",
-}).stdout.trim();
-
 const initialRevision = run("git", ["rev-parse", "HEAD"], {
   label: "runtime revision",
 }).stdout.trim();
@@ -1009,8 +984,6 @@ assert.equal(
 );
 
 const temporaryRoot = await mkdtemp(join(tmpdir(), "native-social-events-0110-"));
-
-const postgresData = join(temporaryRoot, "postgres");
 
 const ledger = [];
 
@@ -1032,26 +1005,10 @@ let cleanupError;
 
 try {
   await Promise.all([postgresPort, backendPort, proxyPort, dashboardPort].map(assertPortAvailable));
-  run(
-    postgresProgram("initdb"),
-    ["-D", postgresData, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"],
-    {
-      label: "0110 PostgreSQL initialization",
-    },
-  );
-  postgres = start(
-    postgresProgram("postgres"),
-    ["-D", postgresData, "-p", String(postgresPort), "-h", "127.0.0.1", "-k", temporaryRoot],
-    { cwd: repositoryRoot, env: process.env, label: "0110 PostgreSQL" },
-  );
-  await waitForPort(postgresPort, "0110 PostgreSQL startup");
-  run(
-    postgresProgram("createdb"),
-    ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "postgres", "social_events_e2e_0110"],
-    {
-      label: "0110 database creation",
-    },
-  );
+  postgres = await startDisposablePostgres({
+    port: postgresPort,
+    database: "social_events_e2e_0110",
+  });
 
   const backendEnvironment = {
     ...process.env,
@@ -1138,7 +1095,7 @@ try {
     await stop(dashboard);
     await closeServer(proxy);
     await stop(backend);
-    await stop(postgres);
+    await postgres?.stop();
     await rm(temporaryRoot, { recursive: true, force: true });
     await Promise.all(
       [postgresPort, backendPort, proxyPort, dashboardPort].map(assertPortAvailable),
@@ -1162,7 +1119,7 @@ const manifest = {
   runtimeRevision: initialRevision,
   command: "bun --cwd apps/dashboard e2e/run-real-native-social-events.mjs",
   topology: {
-    database: version,
+    database: postgres.version,
     backend: "native Effect HTTP API",
     sdk: "generated @vektorprogrammet/sdk",
     dashboard: "production React Router server",

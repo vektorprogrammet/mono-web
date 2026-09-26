@@ -437,7 +437,7 @@ const verifyProbe = (probe: ProbeCase) =>
 
     const labels = new Set(evidence.cleanup.processes.map(({ label }) => label));
 
-    for (const label of ["initdb", "postgres", "http-child", "ignores-sigterm", "with-grandchild"])
+    for (const label of ["postgres", "http-child", "ignores-sigterm", "with-grandchild"])
       assert.ok(labels.has(label), `${label} not recorded`);
 
     for (const { label, pid } of evidence.cleanup.processes)

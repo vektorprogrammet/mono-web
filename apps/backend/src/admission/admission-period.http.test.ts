@@ -144,9 +144,10 @@ const fixture = async () => {
       (sql) =>
         sql<{
           readonly host: string;
+          readonly port: number;
           readonly database: string;
           readonly username: string;
-        }>`SELECT current_setting('unix_socket_directories') AS host, current_database() AS database, current_user AS username`,
+        }>`SELECT current_setting('unix_socket_directories') AS host, current_setting('port')::integer AS port, current_database() AS database, current_user AS username`,
     ),
   );
 

@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createRequire } from "node:module";
 import { setTimeout as pause } from "node:timers/promises";
-import { postgresProgram } from "@monoweb/postgres";
+import { postgresVersion, startDisposablePostgres } from "@monoweb/postgres";
 import { dashboardBuildInventory, sha256 } from "./golden-school-service-evidence.mjs";
 import {
   people,
@@ -96,6 +96,8 @@ const resourceSnapshots = [];
 const providerAttempts = [];
 
 let provider;
+
+let postgres;
 
 let pool;
 
@@ -297,7 +299,7 @@ const onSignal = (signal) => {
   abort.abort(new Error(failure));
   void browser?.close().catch(() => {});
 
-  for (const owned of children) if (owned.label !== "postgres") signalGroup(owned, "SIGTERM");
+  for (const owned of children) signalGroup(owned, "SIGTERM");
 };
 
 process.on("SIGINT", () => onSignal("SIGINT"));
@@ -334,6 +336,12 @@ const cleanup = () =>
       } catch (error) {
         errors.push(sanitize(error));
       }
+    }
+
+    try {
+      await postgres?.stop();
+    } catch (error) {
+      errors.push(sanitize(error));
     }
 
     for (const port of ports) {
@@ -406,44 +414,17 @@ try {
   };
 
   const postgresUrl = `postgres://postgres@127.0.0.1:${pgPort}/postgres`;
-  const pgRoot = join(privateRoot, "postgres");
-  await run(postgresProgram("initdb"), [
-    "-D",
-    pgRoot,
-    "-A",
-    "trust",
-    "-U",
-    "postgres",
-    "--no-locale",
-    "--encoding=UTF8",
-  ]);
-  start(postgresProgram("postgres"), [
-    "-D",
-    pgRoot,
-    "-p",
-    String(pgPort),
-    "-h",
-    "127.0.0.1",
-    "-k",
-    privateRoot,
-    "-c",
-    "max_connections=16",
-  ]);
+  postgres = await startDisposablePostgres({
+    port: pgPort,
+    maxConnections: 16,
+    environment: safeEnvironment,
+  });
   pool = new Pool({
     connectionString: postgresUrl,
     max: 2,
     connectionTimeoutMillis: 1000,
     statement_timeout: 10_000,
     application_name: "reimbursement-independent-observer",
-  });
-  await eventually("PostgreSQL ready", async () => {
-    try {
-      await pool.query("SELECT 1");
-
-      return true;
-    } catch {
-      return false;
-    }
   });
   provider = Bun.serve({
     hostname: "127.0.0.1",
@@ -752,7 +733,7 @@ const receipt = {
   runtime: {
     bun: process.versions.bun,
     node: command("node", ["--version"]).trim(),
-    postgres: command(postgresProgram("postgres"), ["--version"]).trim(),
+    postgres: postgresVersion(),
   },
 };
 

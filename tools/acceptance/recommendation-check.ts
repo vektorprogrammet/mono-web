@@ -8,7 +8,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { createServer } from "node:net";
-import { mkdtemp, writeFile, rm, readdir, readFile } from "node:fs/promises";
+import { mkdtemp, writeFile, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
@@ -24,6 +24,7 @@ import {
   seedApplicantProgress0107,
 } from "./applicant-progress-0107.ts";
 import { stopOwnedProcess } from "./owned-process.js";
+import { type DisposablePostgres, startDisposablePostgres } from "../postgres/index.ts";
 import {
   returningAssistantFixture,
   runReturningAssistantBrowserJourney,
@@ -190,6 +191,8 @@ const ready = async (test: () => Promise<boolean>) => {
 
   throw new Error("Readiness failed");
 };
+
+let postgres: DisposablePostgres | undefined;
 
 let pool: any, browser: any, page: any, heldIdentityClient: any, backend: any;
 
@@ -461,27 +464,19 @@ const deliverRecruitmentInvitationOnce = async ({
 };
 
 try {
-  const pgPort = await port(),
-    apiPort = await port(),
+  const apiPort = await port(),
     effectPort = await port(),
     uiPort = await port(5174);
 
-  const pgDir = join(artifacts, "postgres");
-  run("initdb", ["-D", pgDir, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"]);
-  start("postgres", ["-D", pgDir, "-p", String(pgPort), "-h", "127.0.0.1", "-k", artifacts]);
+  postgres = await startDisposablePostgres();
 
-  const pg = `postgres://postgres@127.0.0.1:${pgPort}/postgres`,
+  const pg = postgres.url,
     api = `http://127.0.0.1:${apiPort}`,
     ui = `http://127.0.0.1:${uiPort}`;
 
   const effectMode = process.argv.includes("--returning-mode") ? "http" : "disabled";
   const effectToken = randomBytes(32).toString("hex");
   pool = new Pool({ connectionString: pg });
-  await ready(async () => {
-    await pool.query("SELECT 1");
-
-    return true;
-  });
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -2876,5 +2871,5 @@ try {
   await pool?.end();
 
   for (const child of children.reverse()) await stopOwnedProcess(child);
-  await rm(join(artifacts, "postgres"), { recursive: true, force: true });
+  await postgres?.stop();
 }

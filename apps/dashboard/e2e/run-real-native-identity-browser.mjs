@@ -8,7 +8,7 @@ import { createConnection } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
-import { postgresProgram } from "@monoweb/postgres";
+import { postgresProgram, startDisposablePostgres } from "@monoweb/postgres";
 import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 import { isNativeRequest } from "./native-operations.ts";
@@ -423,7 +423,6 @@ const main = async () => {
   const selectedPorts = [postgresPort, backendPort, dashboardPort];
   await Promise.all(selectedPorts.map(assertPortClosed));
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-native-identity-0065-"));
-  const postgresRoot = join(temporaryRoot, "postgres");
   const browserEvidencePath = join(temporaryRoot, "browser-evidence.json");
   const hardeningEvidencePath = join(temporaryRoot, "session-hardening-browser-evidence.json");
   let postgres;
@@ -434,80 +433,11 @@ const main = async () => {
   let failure;
 
   try {
-    await run(
-      postgresProgram("initdb"),
-      [
-        "-D",
-        postgresRoot,
-        "--username=postgres",
-        "--auth-local=trust",
-        "--auth-host=trust",
-        "--no-locale",
-        "--encoding=UTF8",
-      ],
-      {
-        cwd: repositoryRoot,
-        env: baseEnvironment,
-        label: "Identity PostgreSQL initialization",
-      },
-    );
-    postgres = start(
-      postgresProgram("pg_ctl"),
-      [
-        "-D",
-        postgresRoot,
-        "-o",
-        `-p ${postgresPort} -h 127.0.0.1 -k ${postgresRoot}`,
-        "-l",
-        join(postgresRoot, "postgres.log"),
-        "-w",
-        "start",
-      ],
-      baseEnvironment,
-      repositoryRoot,
-    );
-    await waitForHttp(`http://127.0.0.1:${postgresPort}`, postgres, "PostgreSQL").catch(
-      async () => {
-        const deadline = Date.now() + 30_000;
-
-        while (Date.now() < deadline) {
-          try {
-            await run(
-              postgresProgram("psql"),
-              [
-                "-h",
-                "127.0.0.1",
-                "-p",
-                String(postgresPort),
-                "-U",
-                "postgres",
-                "-d",
-                "postgres",
-                "-c",
-                "SELECT 1",
-              ],
-              {
-                cwd: repositoryRoot,
-                env: baseEnvironment,
-                capture: true,
-                label: "PostgreSQL readiness",
-              },
-            );
-
-            return;
-          } catch {
-            await sleep(250);
-          }
-        }
-
-        throw new Error("PostgreSQL did not become ready");
-      },
-    );
-    await run(
-      postgresProgram("createdb"),
-      ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "postgres", postgresDatabase],
-      { cwd: repositoryRoot, env: baseEnvironment, label: "Identity database creation" },
-    );
+    postgres = await startDisposablePostgres({
+      port: postgresPort,
+      database: postgresDatabase,
+      environment: baseEnvironment,
+    });
 
     const seed = await run("node", ["apps/dashboard/e2e/native-identity-browser-seed.mjs"], {
       cwd: repositoryRoot,
@@ -818,11 +748,7 @@ const main = async () => {
     // focused test uses its own secret, so it proves the adapter on a database of its own.
     const authLiveDatabase = "identity_auth_live_proof_0065";
 
-    await run(
-      postgresProgram("createdb"),
-      ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "postgres", authLiveDatabase],
-      { cwd: repositoryRoot, env: baseEnvironment, label: "Identity adapter proof database" },
-    );
+    await postgres.createDatabase(authLiveDatabase);
     await run("bunx", ["vitest", "run", "src/auth-live.test.ts"], {
       cwd: join(repositoryRoot, "packages/database"),
       env: {
@@ -1003,12 +929,7 @@ const main = async () => {
   }
 
   try {
-    if (postgres !== undefined)
-      await run(postgresProgram("pg_ctl"), ["-D", postgresRoot, "-m", "fast", "-w", "stop"], {
-        cwd: repositoryRoot,
-        env: baseEnvironment,
-        label: "PostgreSQL cleanup",
-      });
+    await postgres?.stop();
   } catch (error) {
     cleanupErrors.push(error);
   }

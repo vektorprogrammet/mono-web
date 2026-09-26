@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmod, lstat, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { postgresProgram } from "@monoweb/postgres";
+import { type DisposablePostgres, startDisposablePostgres } from "@monoweb/postgres";
 import { databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
@@ -142,7 +142,7 @@ export const withOrganizationDatabases = async <A>(
   const mysqlData = join(mysqlRoot, "data");
   const mysqlSocket = join(mysqlRoot, "mysql.sock");
   let mysqlProcess: ChildProcess | undefined;
-  let postgresStarted = false;
+  let postgres: DisposablePostgres | undefined;
   let stopped = true;
   const pools: Pool[] = [];
 
@@ -162,20 +162,8 @@ export const withOrganizationDatabases = async <A>(
     );
 
   const target = async (database: string): Promise<RehearsalTarget> => {
-    await runLocal([
-      postgresProgram("createdb"),
-      "-h",
-      postgresRoot,
-      "-p",
-      "5432",
-      "-U",
-      "postgres",
-      database,
-    ]);
-    const selection = new URL(`postgresql://postgres@localhost/${database}`);
-    selection.searchParams.set("host", postgresRoot);
-    selection.searchParams.set("port", "5432");
-    const url = selection.toString();
+    assert.ok(postgres, "Disposable PostgreSQL is not running");
+    const url = await postgres.createDatabase(database);
     await Effect.runPromise(
       databaseHealth.pipe(
         Effect.provide(
@@ -195,7 +183,6 @@ export const withOrganizationDatabases = async <A>(
 
   const outcome = await (async () => {
     await mkdir(mysqlRoot, { mode: 0o700 });
-    await mkdir(postgresRoot, { mode: 0o700 });
     await mkdir(mysqlData, { mode: 0o700 });
     await runLocal([
       "mariadb-install-db",
@@ -230,29 +217,11 @@ export const withOrganizationDatabases = async <A>(
     }
 
     await mysql(fixtureSql);
-    await runLocal([
-      postgresProgram("initdb"),
-      "-D",
-      postgresRoot,
-      "-A",
-      "trust",
-      "-U",
-      "postgres",
-      "--no-locale",
-      "--encoding=UTF8",
-    ]);
-    postgresStarted = true;
-    await runLocal([
-      postgresProgram("pg_ctl"),
-      "-D",
-      postgresRoot,
-      "-l",
-      join(postgresRoot, "postgres.log"),
-      "-o",
-      `-c listen_addresses= -k ${postgresRoot} -p 5432`,
-      "-w",
-      "start",
-    ]);
+    postgres = await startDisposablePostgres({
+      listen: "socket",
+      port: 5432,
+      directory: postgresRoot,
+    });
     const sourceUrl = new URL("mysql://legacy_organization_reader@localhost/vektor");
     sourceUrl.searchParams.set("socketPath", mysqlSocket);
 
@@ -269,29 +238,11 @@ export const withOrganizationDatabases = async <A>(
       cleanupErrors.push(new Error("Disposable pool cleanup failed", { cause }));
     });
 
-  if (postgresStarted) {
-    await runLocal([
-      postgresProgram("pg_ctl"),
-      "-D",
-      postgresRoot,
-      "-m",
-      "fast",
-      "-t",
-      "10",
-      "-w",
-      "stop",
-    ]).catch((cause) => cleanupErrors.push(new Error("PostgreSQL cleanup failed", { cause })));
-
-    if (
-      await lstat(join(postgresRoot, "postmaster.pid")).then(
-        () => true,
-        () => false,
-      )
-    ) {
+  if (postgres)
+    await postgres.stop().catch((cause) => {
       stopped = false;
-      cleanupErrors.push(new Error("Disposable PostgreSQL process remains"));
-    }
-  }
+      cleanupErrors.push(new Error("PostgreSQL cleanup failed", { cause }));
+    });
 
   if (mysqlProcess)
     await stop(mysqlProcess).catch((cause) => {

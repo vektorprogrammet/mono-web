@@ -1,11 +1,7 @@
-import {
-  postgresComposeEnvironment,
-  postgresComposeFile,
-  postgresProgram,
-} from "@monoweb/postgres";
+import { postgresProgram, startDisposablePostgres } from "@monoweb/postgres";
 import { Predicate, Match } from "effect";
 import { createHash, randomBytes } from "node:crypto";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { access, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createConnection, createServer as createNetServer } from "node:net";
@@ -82,8 +78,6 @@ const backendOrigin = `http://127.0.0.1:${backendPort}`;
 
 const postgresUrl = `postgres://receipt:receipt@127.0.0.1:${postgresPort}/receipt_proof?connect_timeout=1`;
 
-const composeProject = `mono-web-receipt-0037-${process.pid}`;
-
 const commandTimeoutMs = 300_000;
 
 const shutdownTimeoutMs = 5_000;
@@ -125,11 +119,6 @@ const authorityFixturesByPersonId = new Map([
   ["approver-inactive", "approver-inactive-ended-department-a-membership"],
   ["approver-none", "approver-none-active-without-receipt-grant"],
 ]);
-
-const dockerAvailable =
-  spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0;
-
-const postgresTopology = dockerAvailable ? "docker" : "local";
 
 const sleep = (milliseconds) =>
   new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
@@ -289,107 +278,6 @@ async function waitForHttp(url, child, label) {
   }
 
   throw new Error(`${label} did not become ready`);
-}
-
-async function waitForPostgres(environment) {
-  const deadline = Date.now() + commandTimeoutMs;
-
-  while (Date.now() < deadline) {
-    try {
-      const args =
-        postgresTopology === "docker"
-          ? [
-              "compose",
-              "-f",
-              postgresComposeFile,
-              "-p",
-              composeProject,
-              "exec",
-              "-T",
-              "receipt-postgres",
-              "pg_isready",
-              "-U",
-              "receipt",
-              "-d",
-              "receipt_proof",
-            ]
-          : ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "-d", "receipt_proof"];
-
-      const options = {
-        cwd: repositoryRoot,
-        env: environment,
-        label: "Disposable PostgreSQL readiness check",
-        captureOutput: true,
-      };
-
-      if (postgresTopology === "docker") await runCommand("docker", args, options);
-      else await runCommand(postgresProgram("pg_isready"), args, options);
-
-      return;
-    } catch {
-      await sleep(250);
-    }
-  }
-
-  throw new Error("Disposable PostgreSQL did not become ready");
-}
-
-async function startLocalPostgres(dataRoot, environment) {
-  await rm(dataRoot, { recursive: true, force: true });
-  await mkdir(dataRoot, { recursive: true });
-  await runCommand(
-    postgresProgram("initdb"),
-    [
-      "--pgdata",
-      dataRoot,
-      "--username=receipt",
-      "--auth-local=trust",
-      "--auth-host=trust",
-      "--no-locale",
-      "--encoding=UTF8",
-    ],
-    {
-      cwd: repositoryRoot,
-      env: environment,
-      label: "Local disposable PostgreSQL initialization",
-    },
-  );
-  await runCommand(
-    postgresProgram("pg_ctl"),
-    [
-      "-D",
-      dataRoot,
-      "-o",
-      `-p ${postgresPort} -h 127.0.0.1 -k ${dataRoot}`,
-      "-l",
-      join(dataRoot, "postgres.log"),
-      "-w",
-      "start",
-    ],
-    {
-      cwd: repositoryRoot,
-      env: environment,
-      label: "Local disposable PostgreSQL startup",
-    },
-  );
-  await waitForPostgres(environment);
-  await runCommand(
-    postgresProgram("createdb"),
-    ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "receipt_proof"],
-    {
-      cwd: repositoryRoot,
-      env: environment,
-      label: "Local disposable PostgreSQL database creation",
-    },
-  );
-}
-
-async function stopLocalPostgres(dataRoot, environment) {
-  await runCommand(postgresProgram("pg_ctl"), ["-D", dataRoot, "-m", "fast", "-w", "stop"], {
-    cwd: repositoryRoot,
-    env: environment,
-    label: "Local disposable PostgreSQL cleanup",
-  });
 }
 
 /**
@@ -808,55 +696,30 @@ async function readPostgresEvidence(environment) {
     )::text;
   `;
 
-  const args =
-    postgresTopology === "docker"
-      ? [
-          "compose",
-          "-f",
-          postgresComposeFile,
-          "-p",
-          composeProject,
-          "exec",
-          "-T",
-          "receipt-postgres",
-          "psql",
-          "-U",
-          "receipt",
-          "-d",
-          "receipt_proof",
-          "-At",
-          "-v",
-          "ON_ERROR_STOP=1",
-          "-c",
-          sql,
-        ]
-      : [
-          "-h",
-          "127.0.0.1",
-          "-p",
-          String(postgresPort),
-          "-U",
-          "receipt",
-          "-d",
-          "receipt_proof",
-          "-At",
-          "-v",
-          "ON_ERROR_STOP=1",
-          "-c",
-          sql,
-        ];
-
-  const options = {
-    cwd: repositoryRoot,
-    env: environment,
-    label: "Receipt persistence evidence query",
-    captureOutput: true,
-  };
-
-  const result =
-    postgresTopology === "docker"
-      ? await runCommand("docker", args, options)
-      : await runCommand(postgresProgram("psql"), args, options);
+  const result = await runCommand(
+    postgresProgram("psql"),
+    [
+      "-h",
+      "127.0.0.1",
+      "-p",
+      String(postgresPort),
+      "-U",
+      "receipt",
+      "-d",
+      "receipt_proof",
+      "-At",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-c",
+      sql,
+    ],
+    {
+      cwd: repositoryRoot,
+      env: environment,
+      label: "Receipt persistence evidence query",
+      captureOutput: true,
+    },
+  );
 
   return JSON.parse(result.stdout.trim());
 }
@@ -1674,10 +1537,7 @@ export default {
     "utf8",
   );
 
-  const baseEnvironment = postgresComposeEnvironment({
-    ...process.env,
-    RECEIPT_APPROVAL_PG_PORT: String(postgresPort),
-  });
+  const baseEnvironment = { ...process.env };
 
   for (const name of [
     "API_MODE",
@@ -1727,7 +1587,7 @@ export default {
     RECEIPT_E2E_TEST_MODE: "1",
   };
 
-  let postgresStarted = false;
+  let postgres;
   let apiProcess;
   let dashboardProcess;
   let proxy;
@@ -1768,33 +1628,10 @@ export default {
       }
     }
 
-    if (postgresStarted) {
-      try {
-        if (postgresTopology === "docker") {
-          await runCommand(
-            "docker",
-            [
-              "compose",
-              "-f",
-              postgresComposeFile,
-              "-p",
-              composeProject,
-              "down",
-              "--volumes",
-              "--remove-orphans",
-            ],
-            {
-              cwd: repositoryRoot,
-              env: baseEnvironment,
-              label: "Disposable PostgreSQL cleanup",
-            },
-          );
-        } else if (await pathExists(join(postgresDataRoot, "postmaster.pid"))) {
-          await stopLocalPostgres(postgresDataRoot, baseEnvironment);
-        }
-      } catch (error) {
-        cleanupErrors.push(error);
-      }
+    try {
+      await postgres?.stop();
+    } catch (error) {
+      cleanupErrors.push(error);
     }
 
     try {
@@ -1822,31 +1659,12 @@ export default {
   let primaryError;
 
   try {
-    postgresStarted = true;
-
-    if (postgresTopology === "docker") {
-      await runCommand(
-        "docker",
-        [
-          "compose",
-          "-f",
-          postgresComposeFile,
-          "-p",
-          composeProject,
-          "up",
-          "-d",
-          "receipt-postgres",
-        ],
-        {
-          cwd: repositoryRoot,
-          env: baseEnvironment,
-          label: "Disposable PostgreSQL startup",
-        },
-      );
-      await waitForPostgres(baseEnvironment);
-    } else {
-      await startLocalPostgres(postgresDataRoot, baseEnvironment);
-    }
+    postgres = await startDisposablePostgres({
+      user: "receipt",
+      database: "receipt_proof",
+      port: postgresPort,
+      directory: postgresDataRoot,
+    });
 
     const seed = await runCommand(process.execPath, [seedPath], {
       cwd: repositoryRoot,
@@ -1899,9 +1717,6 @@ export default {
       REAL_NATIVE_CONDUCT_E2E: "1",
       REAL_RECEIPT_OWNER_E2E: "1",
       REAL_RECEIPT_APPROVAL_E2E: "1",
-      RECEIPT_COMPOSE_PROJECT: composeProject,
-      RECEIPT_POSTGRES_TOPOLOGY: postgresTopology,
-      RECEIPT_PG_DATA_ROOT: postgresDataRoot,
       RECEIPT_PG_PORT: String(postgresPort),
       RECEIPT_APPROVAL_EVIDENCE_FILE: approvalEvidencePath,
       RECEIPT_COMMITTED_ROOT: committedRoot,
@@ -1977,37 +1792,34 @@ export default {
     }
 
     const receiptOperations = assertRequestLedger(proxy.records, journeyEvidence);
-    const postgres = await readPostgresEvidence(baseEnvironment);
+    const postgresEvidence = await readPostgresEvidence(baseEnvironment);
 
     const privateFile = {
       stagingFileCount: await countFiles(stagingRoot),
       committedFileCount: await countFiles(committedRoot),
     };
 
-    assertDurableEvidence(postgres, privateFile, journeyEvidence);
+    assertDurableEvidence(postgresEvidence, privateFile, journeyEvidence);
 
     if (deliverySink === undefined) {
       throw new Error("Receipt delivery sink was not started");
     }
 
     const receiptDeliveries = deliverySink.evidence();
-    assertReceiptDeliveryEvidence(postgres, receiptDeliveries, seedEvidence);
+    assertReceiptDeliveryEvidence(postgresEvidence, receiptDeliveries, seedEvidence);
     evidence = {
       topology: {
         dashboard: "loopback-react-router",
         api: "unified-native-effect-backend",
         proxy: "loopback-sanitized-recording-proxy",
-        database:
-          postgresTopology === "docker"
-            ? "disposable-postgresql-docker"
-            : "disposable-postgresql-local",
+        database: "disposable-postgresql-local",
         privateFile: "disposable-filesystem",
         delivery: "acknowledged-loopback-http-sink",
         symfonyProcessesStarted: 0,
         fixtureApiProcessesStarted: 0,
       },
       seed: seedEvidence,
-      postgres,
+      postgres: postgresEvidence,
       privateFile,
       receiptDeliveries,
       journey: journeyEvidence,

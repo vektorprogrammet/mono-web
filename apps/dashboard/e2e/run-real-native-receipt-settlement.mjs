@@ -1,7 +1,7 @@
 import { Predicate } from "effect";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { access, mkdtemp, mkdir, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createConnection } from "node:net";
@@ -10,11 +10,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import AxeBuilder from "@axe-core/playwright";
-import {
-  postgresComposeEnvironment,
-  postgresComposeFile,
-  postgresProgram,
-} from "@monoweb/postgres";
+import { startDisposablePostgres } from "@monoweb/postgres";
 import { chromium } from "@playwright/test";
 import { createPromiseClient } from "@vektorprogrammet/sdk";
 
@@ -63,16 +59,9 @@ const backendOrigin = `http://127.0.0.1:${backendPort}`;
 
 const postgresUrl = `postgres://receipt:receipt@127.0.0.1:${postgresPort}/receipt_proof?connect_timeout=1`;
 
-const composeProject = `mono-web-receipt-settlement-0114-${process.pid}`;
-
 const commandTimeoutMs = 300_000;
 
 const shutdownTimeoutMs = 5_000;
-
-const dockerAvailable =
-  spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0;
-
-const postgresTopology = dockerAvailable ? "docker" : "local";
 
 const settlementRoute = "/dashboard/utlegg/oppgjor";
 
@@ -258,107 +247,6 @@ async function waitForHttp(url, child, label) {
   }
 
   throw new Error(`${label} did not become ready`);
-}
-
-async function waitForPostgres(environment) {
-  const deadline = Date.now() + commandTimeoutMs;
-
-  while (Date.now() < deadline) {
-    try {
-      const args =
-        postgresTopology === "docker"
-          ? [
-              "compose",
-              "-f",
-              postgresComposeFile,
-              "-p",
-              composeProject,
-              "exec",
-              "-T",
-              "receipt-postgres",
-              "pg_isready",
-              "-U",
-              "receipt",
-              "-d",
-              "receipt_proof",
-            ]
-          : ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "-d", "receipt_proof"];
-
-      const options = {
-        cwd: repositoryRoot,
-        env: environment,
-        label: "Disposable receipt settlement PostgreSQL readiness",
-        captureOutput: true,
-      };
-
-      if (postgresTopology === "docker") await runCommand("docker", args, options);
-      else await runCommand(postgresProgram("pg_isready"), args, options);
-
-      return;
-    } catch {
-      await sleep(250);
-    }
-  }
-
-  throw new Error("Disposable receipt settlement PostgreSQL did not become ready");
-}
-
-async function startLocalPostgres(dataRoot, environment) {
-  await rm(dataRoot, { recursive: true, force: true });
-  await mkdir(dataRoot, { recursive: true });
-  await runCommand(
-    postgresProgram("initdb"),
-    [
-      "--pgdata",
-      dataRoot,
-      "--username=receipt",
-      "--auth-local=trust",
-      "--auth-host=trust",
-      "--no-locale",
-      "--encoding=UTF8",
-    ],
-    {
-      cwd: repositoryRoot,
-      env: environment,
-      label: "Local disposable receipt settlement PostgreSQL initialization",
-    },
-  );
-  await runCommand(
-    postgresProgram("pg_ctl"),
-    [
-      "-D",
-      dataRoot,
-      "-o",
-      `-p ${postgresPort} -h 127.0.0.1 -k ${dataRoot}`,
-      "-l",
-      join(dataRoot, "postgres.log"),
-      "-w",
-      "start",
-    ],
-    {
-      cwd: repositoryRoot,
-      env: environment,
-      label: "Local disposable receipt settlement PostgreSQL startup",
-    },
-  );
-  await waitForPostgres(environment);
-  await runCommand(
-    postgresProgram("createdb"),
-    ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "receipt_proof"],
-    {
-      cwd: repositoryRoot,
-      env: environment,
-      label: "Local disposable receipt settlement database creation",
-    },
-  );
-}
-
-async function stopLocalPostgres(dataRoot, environment) {
-  await runCommand(postgresProgram("pg_ctl"), ["-D", dataRoot, "-m", "fast", "-w", "stop"], {
-    cwd: repositoryRoot,
-    env: environment,
-    label: "Local disposable receipt settlement PostgreSQL cleanup",
-  });
 }
 
 async function pathExists(path) {
@@ -835,19 +723,14 @@ async function main() {
     "The disposable settlement runtime must not inherit a payment-provider configuration",
   );
 
-  const postgresEnvironment = postgresComposeEnvironment({
-    ...baseEnvironment,
-    RECEIPT_APPROVAL_PG_PORT: String(postgresPort),
-  });
-
   const sharedEnvironment = {
-    ...postgresEnvironment,
+    ...baseEnvironment,
     BETTER_AUTH_SECRET: randomBytes(32).toString("base64url"),
     NATIVE_IDENTITY_DEPLOYMENT: "local",
     NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
   };
 
-  let postgresStarted = false;
+  let postgres;
   let backendProcess;
   let dashboardProcess;
   let proxy;
@@ -906,33 +789,10 @@ async function main() {
       errors.push(error);
     }
 
-    if (postgresStarted) {
-      try {
-        if (postgresTopology === "docker") {
-          await runCommand(
-            "docker",
-            [
-              "compose",
-              "-f",
-              postgresComposeFile,
-              "-p",
-              composeProject,
-              "down",
-              "--volumes",
-              "--remove-orphans",
-            ],
-            {
-              cwd: repositoryRoot,
-              env: postgresEnvironment,
-              label: "Disposable receipt settlement PostgreSQL cleanup",
-            },
-          );
-        } else if (await pathExists(join(postgresDataRoot, "postmaster.pid"))) {
-          await stopLocalPostgres(postgresDataRoot, postgresEnvironment);
-        }
-      } catch (error) {
-        errors.push(error);
-      }
+    try {
+      await postgres?.stop();
+    } catch (error) {
+      errors.push(error);
     }
 
     try {
@@ -958,22 +818,12 @@ async function main() {
   let primaryError;
 
   try {
-    postgresStarted = true;
-
-    if (postgresTopology === "docker") {
-      await runCommand(
-        "docker",
-        ["compose", "-f", postgresComposeFile, "-p", composeProject, "up", "-d", "receipt-postgres"],
-        {
-          cwd: repositoryRoot,
-          env: postgresEnvironment,
-          label: "Disposable receipt settlement PostgreSQL startup",
-        },
-      );
-      await waitForPostgres(postgresEnvironment);
-    } else {
-      await startLocalPostgres(postgresDataRoot, postgresEnvironment);
-    }
+    postgres = await startDisposablePostgres({
+      user: "receipt",
+      database: "receipt_proof",
+      port: postgresPort,
+      directory: postgresDataRoot,
+    });
 
     const seedRun = await runCommand("bun", [seedPath], {
       cwd: repositoryRoot,
@@ -2104,10 +1954,7 @@ async function main() {
         backend: "native-effect-http-api",
         sdk: "generated-@vektorprogrammet/sdk",
         browser: "real-headless-chromium",
-        database:
-          postgresTopology === "docker"
-            ? "disposable-postgresql-docker"
-            : "disposable-postgresql-local",
+        database: "disposable-postgresql-local",
         delivery: "acknowledged-loopback-http",
       },
       seed: {

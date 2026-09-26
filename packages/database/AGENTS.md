@@ -70,7 +70,6 @@ Each folder of `src` holds a bounded context of [docs/model/contexts.cml](../../
 
 The shared constructs defined here. [docs/constructs.md](../../docs/constructs.md) lists their consumers.
 
-- [`withDisposablePostgres`](runtime/disposable-postgres.ts) (test-harness): Runs `use` against the one database `database` of a fresh cluster on a loopback port with trust authentication.
 - [`AdvisoryLockKey`](src/advisory-lock.ts) (sql-lock): The registered advisory-lock keys, one constructor per namespace.
 - [`lockAdvisory`](src/advisory-lock.ts) (sql-lock): Waits for the advisory lock on `key` until the current transaction ends.
 - [`tryLockAdvisory`](src/advisory-lock.ts) (sql-lock): Takes the exclusive advisory lock on `key` until the current transaction ends when no other transaction holds it.

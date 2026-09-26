@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { stopOwnedProcess } from "./owned-process.js";
+import { type DisposablePostgres, startDisposablePostgres } from "../postgres/index.ts";
 import { Predicate, Schema } from "effect";
 
 const root = new URL("../../", import.meta.url).pathname;
@@ -102,6 +103,8 @@ const port = async (requested = 0): Promise<number> => {
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+let postgres: DisposablePostgres | undefined;
+
 let pool: InstanceType<typeof Pool> | undefined;
 
 let evidence: Schema.JsonObject | undefined;
@@ -119,25 +122,12 @@ let attempts = 0;
 let rejectNext = false;
 
 try {
-  const pgPort = await port();
   const backendPort = await port();
   const dashboardPort = await port(5174);
-  const pgDir = join(artifacts, "postgres");
-  run("initdb", ["-D", pgDir, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"]);
-  start("postgres", ["-D", pgDir, "-p", String(pgPort), "-h", "127.0.0.1", "-k", artifacts]);
-  const postgresUrl = `postgres://postgres@127.0.0.1:${pgPort}/postgres`;
+  postgres = await startDisposablePostgres();
+  const postgresUrl = postgres.url;
   secrets.add(postgresUrl);
   pool = new Pool({ connectionString: postgresUrl });
-
-  for (let n = 0; ; n++) {
-    try {
-      await pool.query("SELECT 1");
-      break;
-    } catch (e) {
-      if (n > 100) throw e;
-      await delay(100);
-    }
-  }
 
   const backendOrigin = `http://127.0.0.1:${backendPort}`;
   const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
@@ -748,7 +738,7 @@ try {
   for (const child of children.reverse()) await stopOwnedProcess(child);
 
   if (mailbox) await new Promise<void>((resolve) => mailbox!.close(() => resolve()));
-  await rm(join(artifacts, "postgres"), { recursive: true, force: true });
+  await postgres?.stop();
   await rm(join(artifacts, "manifest.json"), { force: true });
 
   if (evidence) {

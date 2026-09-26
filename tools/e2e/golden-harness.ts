@@ -11,6 +11,7 @@
  * harness verifies that nothing it started survives.
  */
 import { randomBytes } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import {
   createServer as createHttpServer,
   request as httpRequest,
@@ -22,7 +23,7 @@ import { createServer as createTcpServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as BunServices from "@effect/platform-bun/BunServices";
-import { postgresProgram } from "@monoweb/postgres";
+import { postgresVersion, startDisposablePostgres } from "@monoweb/postgres";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
   Cause,
@@ -540,12 +541,11 @@ export const waitForHttp = (probe: HttpProbe) =>
     probe.deadline,
   );
 
-export interface DisposablePostgres {
+export interface JourneyPostgres {
   readonly url: string;
   readonly port: number;
   /** Independent observer pool: two connections, released before the server stops. */
   readonly pool: Pool;
-  readonly process: OwnedProcess;
 }
 
 type SqlValue = string | number | boolean | null;
@@ -706,63 +706,70 @@ const startProvider = (ledger: Ledger) => (spec: ProviderSpec) =>
     } satisfies LoopbackProvider;
   });
 
-/** Starts a private cluster with trust authentication on one loopback port. */
+/**
+ * Starts a private cluster with trust authentication on one loopback port. The construct owns
+ * readiness and teardown; the ledger records the server's process group, whose log it keeps, so
+ * cleanup verification proves the group gone. The observer pool closes before the cluster stops.
+ */
 const startPostgres =
-  (
-    ledger: Ledger,
-    root: string,
-    privateRoot: string,
-    environment: Readonly<Record<string, string>>,
-  ) =>
+  (ledger: Ledger, privateRoot: string, environment: Readonly<Record<string, string>>) =>
   (port: number, applicationName: string) =>
     Effect.gen(function* () {
-      const data = join(privateRoot, "postgres");
+      const { cluster, entry } = yield* Effect.acquireRelease(
+        Effect.tryPromise({
+          try: () =>
+            startDisposablePostgres({
+              port,
+              directory: join(privateRoot, "postgres"),
+              maxConnections: 40,
+              environment,
+            }),
+          catch: failure("postgres"),
+        }).pipe(
+          Effect.map((started) => {
+            const recorded: LedgerProcess = {
+              label: "postgres",
+              pid: started.pid,
+              log: new LogTail(),
+              exit: null,
+              stopping: false,
+            };
 
-      const programs = yield* Effect.try({
-        try: () => ({ initdb: postgresProgram("initdb"), postgres: postgresProgram("postgres") }),
-        catch: failure("postgres"),
-      });
+            ledger.processes.push(recorded);
 
-      yield* runToCompletion(ledger)(
-        {
-          label: "initdb",
-          command: programs.initdb,
-          args: ["-D", data, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"],
-          cwd: root,
-          env: environment,
-        },
-        "120 seconds",
+            return { cluster: started, entry: recorded };
+          }),
+        ),
+        (started) =>
+          Effect.promise(async () => {
+            started.entry.stopping = true;
+            started.entry.log.append(
+              await readFile(started.cluster.logFile, "utf8").catch(() => ""),
+            );
+            await started.cluster.stop();
+            started.entry.exit ??= "fast shutdown";
+          }),
       );
 
-      const server = yield* spawnOwned(ledger)({
-        label: "postgres",
-        command: programs.postgres,
-        args: [
-          "-D",
-          data,
-          "-p",
-          String(port),
-          "-h",
-          "127.0.0.1",
-          "-k",
-          privateRoot,
-          "-c",
-          "max_connections=40",
-        ],
-        cwd: root,
-        env: environment,
-        // Fast shutdown ends sessions; smart shutdown would wait for every client.
-        killSignal: "SIGINT",
-        forceKillAfter: "15 seconds",
-        supervised: true,
-      });
+      yield* Effect.promise(() => cluster.unexpectedExit).pipe(
+        Effect.flatMap((cause) => {
+          entry.exit = "exited unexpectedly";
 
-      const url = `postgres://postgres@127.0.0.1:${port}/postgres`;
+          return Deferred.succeed(
+            ledger.supervision,
+            new HarnessFailure({
+              stage: "postgres",
+              message: ledger.redactor.apply(tail(cause.message, failureLogCharacters)),
+            }),
+          );
+        }),
+        Effect.forkScoped,
+      );
 
       const pool = yield* Effect.acquireRelease(
         Effect.sync(() => {
           const created = new Pool({
-            connectionString: url,
+            connectionString: cluster.url,
             max: 2,
             connectionTimeoutMillis: 1_000,
             statement_timeout: 10_000,
@@ -778,16 +785,7 @@ const startPostgres =
           Effect.promise(() => created.end()).pipe(Effect.timeout("5 seconds"), Effect.ignore),
       );
 
-      yield* eventually(
-        "PostgreSQL ready",
-        Effect.tryPromise({ try: () => pool.query("SELECT 1"), catch: failure("postgres") }).pipe(
-          Effect.as(true),
-          Effect.orElseSucceed(() => false),
-        ),
-        "30 seconds",
-      );
-
-      return { url, port, pool, process: server } satisfies DisposablePostgres;
+      return { url: cluster.url, port, pool } satisfies JourneyPostgres;
     });
 
 type ProcessRow = {
@@ -992,7 +990,7 @@ export interface GoldenContext {
   readonly postgres: (
     port: number,
     applicationName: string,
-  ) => Effect.Effect<DisposablePostgres, HarnessFailure, Scope.Scope | BunServices.BunServices>;
+  ) => Effect.Effect<JourneyPostgres, HarnessFailure, Scope.Scope | BunServices.BunServices>;
   readonly provider: (
     spec: ProviderSpec,
   ) => Effect.Effect<LoopbackProvider, HarnessFailure, Scope.Scope>;
@@ -1137,7 +1135,7 @@ const main = (journey: GoldenJourney, root: string) =>
         ),
       spawn: spawnOwned(ledger),
       run,
-      postgres: startPostgres(ledger, root, privateRoot, environment),
+      postgres: startPostgres(ledger, privateRoot, environment),
       provider: startProvider(ledger),
       checkpoint: (step, observe) =>
         Effect.gen(function* () {
@@ -1328,26 +1326,18 @@ const main = (journey: GoldenJourney, root: string) =>
         const passed = primary === undefined && leaked.length === 0;
         const exitCode = exitCodeFor(reason, passed);
 
-        const [node, postgres] = yield* Effect.forEach(
-          [
-            ["node", Effect.succeed("node")],
-            [
-              "postgres",
-              Effect.try({ try: () => postgresProgram("postgres"), catch: failure("postgres") }),
-            ],
-          ] as const,
-          ([label, command]) =>
-            command.pipe(
-              Effect.flatMap((resolved) =>
-                run(
-                  { label, command: resolved, args: ["--version"], cwd: root, env: environment },
-                  "10 seconds",
-                ),
-              ),
-              Effect.map((output) => output.trim()),
-              Effect.orElseSucceed(() => "unavailable"),
-            ),
+        const node = yield* run(
+          { label: "node", command: "node", args: ["--version"], cwd: root, env: environment },
+          "10 seconds",
+        ).pipe(
+          Effect.map((output) => output.trim()),
+          Effect.orElseSucceed(() => "unavailable"),
         );
+
+        const postgres = yield* Effect.try({
+          try: () => postgresVersion(),
+          catch: failure("postgres"),
+        }).pipe(Effect.orElseSucceed(() => "unavailable"));
 
         const receipt = {
           schema_version: receiptSchemaVersion,

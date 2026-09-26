@@ -5,11 +5,7 @@ import { rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import {
-  postgresComposeEnvironment,
-  postgresComposeFile,
-  postgresProgram,
-} from "@monoweb/postgres";
+import { postgresProgram } from "@monoweb/postgres";
 import {
   expect,
   test,
@@ -32,12 +28,6 @@ import { addressesAnyRoute, addressesRoute, legacyRoutes } from "./request-route
 const execFileAsync = promisify(execFile);
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
-
-const RECEIPT_COMPOSE_PROJECT = process.env.RECEIPT_COMPOSE_PROJECT;
-
-const RECEIPT_POSTGRES_TOPOLOGY = process.env.RECEIPT_POSTGRES_TOPOLOGY ?? "docker";
-
-const RECEIPT_PG_DATA_ROOT = process.env.RECEIPT_PG_DATA_ROOT;
 
 const RECEIPT_PG_PORT = process.env.RECEIPT_PG_PORT ?? "55432";
 
@@ -371,16 +361,9 @@ const receiptMutationCountsSql = `
 `;
 
 async function readPostgresJson<T>(sql: string, schema: z.ZodType<T>): Promise<T> {
-  let command: string;
-  let commandArgs: Array<string>;
-
-  if (RECEIPT_POSTGRES_TOPOLOGY === "local") {
-    if (RECEIPT_PG_DATA_ROOT === undefined || RECEIPT_PG_DATA_ROOT.length === 0) {
-      throw new Error("RECEIPT_PG_DATA_ROOT is required for local PostgreSQL evidence");
-    }
-
-    command = postgresProgram("psql");
-    commandArgs = [
+  const result = await execFileAsync(
+    postgresProgram("psql"),
+    [
       "-h",
       "127.0.0.1",
       "-p",
@@ -394,40 +377,13 @@ async function readPostgresJson<T>(sql: string, schema: z.ZodType<T>): Promise<T
       "ON_ERROR_STOP=1",
       "-c",
       sql,
-    ];
-  } else {
-    if (RECEIPT_COMPOSE_PROJECT === undefined || RECEIPT_COMPOSE_PROJECT.length === 0) {
-      throw new Error("RECEIPT_COMPOSE_PROJECT is required for durable Receipt evidence");
-    }
-
-    command = "docker";
-    commandArgs = [
-      "compose",
-      "-f",
-      postgresComposeFile,
-      "-p",
-      RECEIPT_COMPOSE_PROJECT,
-      "exec",
-      "-T",
-      "receipt-postgres",
-      "psql",
-      "-U",
-      "receipt",
-      "-d",
-      "receipt_proof",
-      "-At",
-      "-v",
-      "ON_ERROR_STOP=1",
-      "-c",
-      sql,
-    ];
-  }
-
-  const result = await execFileAsync(command, commandArgs, {
-    cwd: REPOSITORY_ROOT,
-    env: postgresComposeEnvironment(process.env),
-    maxBuffer: 1_048_576,
-  });
+    ],
+    {
+      cwd: REPOSITORY_ROOT,
+      env: process.env,
+      maxBuffer: 1_048_576,
+    },
+  );
 
   const output = String(result.stdout).trim();
 

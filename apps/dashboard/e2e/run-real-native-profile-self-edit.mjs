@@ -7,7 +7,7 @@ import { createConnection } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
-import { postgresProgram } from "@monoweb/postgres";
+import { postgresProgram, startDisposablePostgres } from "@monoweb/postgres";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 import { addressesAnyRoute, legacyRoutes } from "./request-routes.ts";
 
@@ -233,7 +233,6 @@ const main = async () => {
     assertPortAvailable(dashboardPort),
   ]);
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-native-profile-0064-"));
-  const postgresRoot = join(temporaryRoot, "postgres");
   const browserEvidencePath = join(temporaryRoot, "browser-evidence.json");
   const baseEnvironment = { ...process.env };
   delete baseEnvironment.API_MODE;
@@ -246,71 +245,11 @@ const main = async () => {
   let failure;
 
   try {
-    await run(
-      postgresProgram("initdb"),
-      [
-        "-D",
-        postgresRoot,
-        "--username=postgres",
-        "--auth-local=trust",
-        "--auth-host=trust",
-        "--no-locale",
-        "--encoding=UTF8",
-      ],
-      { cwd: repositoryRoot, env: baseEnvironment, label: "Profile PostgreSQL initialization" },
-    );
-    postgres = start(
-      postgresProgram("pg_ctl"),
-      [
-        "-D",
-        postgresRoot,
-        "-o",
-        `-p ${postgresPort} -h 127.0.0.1 -k ${postgresRoot}`,
-        "-l",
-        join(postgresRoot, "postgres.log"),
-        "-w",
-        "start",
-      ],
-      baseEnvironment,
-      repositoryRoot,
-    );
-    const readyDeadline = Date.now() + 30_000;
-
-    while (Date.now() < readyDeadline) {
-      try {
-        await run(
-          postgresProgram("psql"),
-          [
-            "-h",
-            "127.0.0.1",
-            "-p",
-            String(postgresPort),
-            "-U",
-            "postgres",
-            "-d",
-            "postgres",
-            "-c",
-            "SELECT 1",
-          ],
-          {
-            cwd: repositoryRoot,
-            env: baseEnvironment,
-            capture: true,
-            label: "PostgreSQL readiness",
-          },
-        );
-        break;
-      } catch {
-        await sleep(250);
-      }
-    }
-
-    assert.ok(Date.now() < readyDeadline, "PostgreSQL did not become ready");
-    await run(
-      postgresProgram("createdb"),
-      ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "postgres", postgresDatabase],
-      { cwd: repositoryRoot, env: baseEnvironment, label: "Profile database creation" },
-    );
+    postgres = await startDisposablePostgres({
+      port: postgresPort,
+      database: postgresDatabase,
+      environment: baseEnvironment,
+    });
 
     const seedOutput = await run("node", ["apps/dashboard/e2e/native-profile-self-edit-seed.mjs"], {
       cwd: repositoryRoot,
@@ -545,22 +484,18 @@ const main = async () => {
 
   const cleanupErrors = [];
 
-  for (const [label, child] of [
-    ["dashboard", dashboard],
-    ["backend", backend],
-    ["postgres", postgres],
-  ]) {
+  for (const child of [dashboard, backend]) {
     try {
-      if (label === "postgres" && child !== undefined)
-        await run(postgresProgram("pg_ctl"), ["-D", postgresRoot, "-m", "fast", "-w", "stop"], {
-          cwd: repositoryRoot,
-          env: baseEnvironment,
-          label: "PostgreSQL cleanup",
-        });
-      else await stop(child);
+      await stop(child);
     } catch (error) {
       cleanupErrors.push(error);
     }
+  }
+
+  try {
+    await postgres?.stop();
+  } catch (error) {
+    cleanupErrors.push(error);
   }
 
   try {

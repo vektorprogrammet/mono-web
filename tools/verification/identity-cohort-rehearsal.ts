@@ -9,7 +9,11 @@ import { join, resolve } from "node:path";
 import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
 import { Pool } from "pg";
-import { postgresProgram } from "@monoweb/postgres";
+import {
+  type DisposablePostgres,
+  postgresProgram,
+  startDisposablePostgres,
+} from "@monoweb/postgres";
 import { Schema, flow, Predicate, Effect, Redacted } from "effect";
 import { databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
@@ -73,11 +77,12 @@ for (const key of [
 
 const artifacts = await mkdtemp(join(tmpdir(), "vektor-account-cohort-0107-"));
 
-const pgdata = join(artifacts, "postgres"),
-  backup = join(artifacts, "cohort.dump"),
+const backup = join(artifacts, "cohort.dump"),
   inputFile = join(artifacts, "source.json");
 
 const children: ChildProcess[] = [];
+
+let postgres: DisposablePostgres | undefined;
 
 let disposeAuth: (() => Promise<void>) | undefined;
 
@@ -104,20 +109,6 @@ const freePort = async () => {
   await new Promise<void>((r) => s.close(() => r()));
 
   return p;
-};
-
-const wait = async (check: () => Promise<void>) => {
-  for (let i = 0; i < 100; i++) {
-    try {
-      await check();
-
-      return;
-    } catch {
-      await pause(100);
-    }
-  }
-
-  throw new Error("owned service readiness timeout");
 };
 
 const stop = async (child: ChildProcess) => {
@@ -147,32 +138,8 @@ const readPassword = async (databasePool: Pool, personId: string) => {
 let evidence: Record<string, Schema.Json> | undefined;
 
 try {
-  const port = await freePort();
-  command(postgresProgram("initdb"), [
-    "-D",
-    pgdata,
-    "-A",
-    "trust",
-    "-U",
-    "postgres",
-    "--no-locale",
-    "--encoding=UTF8",
-  ]);
-
-  const postgres = spawn(
-    postgresProgram("postgres"),
-    ["-D", pgdata, "-p", String(port), "-h", "127.0.0.1", "-k", artifacts],
-    { stdio: "ignore" },
-  );
-
-  children.push(postgres);
-  pool = new Pool({ connectionString: `postgres://postgres@127.0.0.1:${port}/postgres` });
-  await wait(async () => {
-    await pool!.query("SELECT 1");
-  });
-  await pool.query("CREATE DATABASE identity_cohort_rehearsal");
-  await pool.end();
-  const databaseUrl = `postgres://postgres@127.0.0.1:${port}/identity_cohort_rehearsal`;
+  postgres = await startDisposablePostgres({ database: "identity_cohort_rehearsal" });
+  const databaseUrl = postgres.url;
   pool = new Pool({ connectionString: databaseUrl, max: 4 });
   await Effect.runPromise(
     databaseHealth.pipe(
@@ -1203,8 +1170,7 @@ try {
     .update(await readFile(backup))
     .digest("hex");
 
-  await pool.query("CREATE DATABASE identity_cohort_restored");
-  const restoredUrl = `postgres://postgres@127.0.0.1:${port}/identity_cohort_restored`;
+  const restoredUrl = await postgres.createDatabase("identity_cohort_restored");
   command(postgresProgram("pg_restore"), ["--exit-on-error", "--dbname", restoredUrl, backup]);
   await startEngine({ ...config, postgresUrl: restoredUrl });
   assert.equal(
@@ -1334,7 +1300,7 @@ try {
   await pool?.end();
 
   for (const child of children.toReversed()) await stop(child);
-  await rm(pgdata, { recursive: true, force: true });
+  await postgres?.stop();
   await rm(backup, { force: true });
   await rm(inputFile, { force: true });
 }
