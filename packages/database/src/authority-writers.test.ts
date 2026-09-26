@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
 import { Scope } from "@vektorprogrammet/domain/authz";
 import { Database } from "./service.js";
@@ -27,10 +27,9 @@ import {
   removeReceiptApprovalGrant,
   removeReceiptPaymentAuthority,
 } from "./receipt/authority-postgres.js";
-import { makeControlledTestRuntime } from "../test/runtime.js";
 import { DatabaseTestLive } from "./test-support/platform.js";
 
-const runtime = makeControlledTestRuntime(DatabaseTestLive());
+const suiteLayer = DatabaseTestLive();
 
 const personId = PersonId.make("authority-writer-person");
 
@@ -63,181 +62,193 @@ const seedReferences = Effect.gen(function* () {
   `;
 });
 
-afterAll(async () => {
-  await runtime.dispose();
-});
+layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
+  "person-keyed authority writers in PGlite",
+  (it) => {
+    it.effect(
+      "creates, optimistically ends, and removes the Organization global-admin grant",
+      () =>
+        Effect.gen(function* () {
+          const evidence = yield* Effect.gen(function* () {
+            yield* seedReferences;
 
-describe("person-keyed authority writers in PGlite", () => {
-  it("creates, optimistically ends, and removes the Organization global-admin grant", async () => {
-    const evidence = await runtime.runPromise(
-      Effect.gen(function* () {
-        yield* seedReferences;
+            const created = yield* createOrganizationGlobalAdministratorGrant({
+              grantId,
+              personId,
+              startAt,
+              endAt: null,
+            });
 
-        const created = yield* createOrganizationGlobalAdministratorGrant({
-          grantId,
-          personId,
-          startAt,
-          endAt: null,
-        });
+            const stale = yield* Effect.flip(
+              endOrganizationGlobalAdministratorGrant({
+                grantId,
+                endAt,
+                expectedRevision: 9,
+              }),
+            );
 
-        const stale = yield* Effect.flip(
-          endOrganizationGlobalAdministratorGrant({
-            grantId,
-            endAt,
-            expectedRevision: 9,
-          }),
-        );
+            const ended = yield* endOrganizationGlobalAdministratorGrant({
+              grantId,
+              endAt,
+              expectedRevision: 0,
+            });
 
-        const ended = yield* endOrganizationGlobalAdministratorGrant({
-          grantId,
-          endAt,
-          expectedRevision: 0,
-        });
+            const removed = yield* removeOrganizationGlobalAdministratorGrant({
+              grantId,
+              expectedRevision: 1,
+            });
 
-        const removed = yield* removeOrganizationGlobalAdministratorGrant({
-          grantId,
-          expectedRevision: 1,
-        });
+            const database = yield* Database;
 
-        const database = yield* Database;
+            const rows = yield* database<{ readonly count: string }>`
+      SELECT count(*)::text AS count
+      FROM public.organization_global_administrator_grants
+      WHERE grant_id = ${grantId}
+    `;
 
-        const rows = yield* database<{ readonly count: string }>`
-          SELECT count(*)::text AS count
-          FROM public.organization_global_administrator_grants
-          WHERE grant_id = ${grantId}
-        `;
+            return { created, stale, ended, removed, count: rows[0]?.count };
+          });
 
-        return { created, stale, ended, removed, count: rows[0]?.count };
-      }),
+          expect(evidence.created).toMatchObject({ grantId, personId, endAt: null, revision: 0 });
+          expect(evidence.stale).toBeInstanceOf(OrganizationAuthorityWriteConflict);
+          expect(evidence.ended).toMatchObject({ grantId, endAt, revision: 1 });
+          expect(evidence.removed).toMatchObject({ grantId, endAt, revision: 1 });
+          expect(evidence.count).toBe("0");
+        }),
+      15_000,
     );
 
-    expect(evidence.created).toMatchObject({ grantId, personId, endAt: null, revision: 0 });
-    expect(evidence.stale).toBeInstanceOf(OrganizationAuthorityWriteConflict);
-    expect(evidence.ended).toMatchObject({ grantId, endAt, revision: 1 });
-    expect(evidence.removed).toMatchObject({ grantId, endAt, revision: 1 });
-    expect(evidence.count).toBe("0");
-  }, 15_000);
+    it.effect(
+      "creates, optimistically ends, and removes Economy payment and approval authority",
+      () =>
+        Effect.gen(function* () {
+          const evidence = yield* Effect.gen(function* () {
+            yield* seedReferences;
 
-  it("creates, optimistically ends, and removes Economy payment and approval authority", async () => {
-    const evidence = await runtime.runPromise(
-      Effect.gen(function* () {
-        yield* seedReferences;
+            const payment = yield* createReceiptPaymentAuthority({
+              paymentAuthorityId,
+              personId,
+              departmentId,
+              paymentAccountCiphertext: "ciphertext:authority-writer",
+              startAt,
+              endAt: null,
+            });
 
-        const payment = yield* createReceiptPaymentAuthority({
-          paymentAuthorityId,
-          personId,
-          departmentId,
-          paymentAccountCiphertext: "ciphertext:authority-writer",
-          startAt,
-          endAt: null,
-        });
+            const approval = yield* createReceiptApprovalGrant({
+              approvalGrantId,
+              personId,
+              scope: Scope.Department({ departmentId }),
+              startAt,
+              endAt: null,
+            });
 
-        const approval = yield* createReceiptApprovalGrant({
-          approvalGrantId,
-          personId,
-          scope: Scope.Department({ departmentId }),
-          startAt,
-          endAt: null,
-        });
+            const endedPayment = yield* endReceiptPaymentAuthority({
+              paymentAuthorityId,
+              endAt,
+              expectedRevision: 0,
+            });
 
-        const endedPayment = yield* endReceiptPaymentAuthority({
-          paymentAuthorityId,
-          endAt,
-          expectedRevision: 0,
-        });
+            const endedApproval = yield* endReceiptApprovalGrant({
+              approvalGrantId,
+              endAt,
+              expectedRevision: 0,
+            });
 
-        const endedApproval = yield* endReceiptApprovalGrant({
-          approvalGrantId,
-          endAt,
-          expectedRevision: 0,
-        });
+            const staleRemoval = yield* Effect.flip(
+              removeReceiptPaymentAuthority({
+                paymentAuthorityId,
+                expectedRevision: 0,
+              }),
+            );
 
-        const staleRemoval = yield* Effect.flip(
-          removeReceiptPaymentAuthority({
-            paymentAuthorityId,
-            expectedRevision: 0,
-          }),
-        );
+            const removedPayment = yield* removeReceiptPaymentAuthority({
+              paymentAuthorityId,
+              expectedRevision: 1,
+            });
 
-        const removedPayment = yield* removeReceiptPaymentAuthority({
-          paymentAuthorityId,
-          expectedRevision: 1,
-        });
+            const removedApproval = yield* removeReceiptApprovalGrant({
+              approvalGrantId,
+              expectedRevision: 1,
+            });
 
-        const removedApproval = yield* removeReceiptApprovalGrant({
-          approvalGrantId,
-          expectedRevision: 1,
-        });
+            const database = yield* Database;
 
-        const database = yield* Database;
+            const rows = yield* database<{
+              readonly paymentCount: string;
+              readonly approvalCount: string;
+            }>`
+      SELECT
+        (SELECT count(*)::text FROM public.economy_payment_authorities
+          WHERE payment_authority_id = ${paymentAuthorityId}) AS "paymentCount",
+        (SELECT count(*)::text FROM public.economy_receipt_approval_grants
+          WHERE approval_grant_id = ${approvalGrantId}) AS "approvalCount"
+    `;
 
-        const rows = yield* database<{
-          readonly paymentCount: string;
-          readonly approvalCount: string;
-        }>`
-          SELECT
-            (SELECT count(*)::text FROM public.economy_payment_authorities
-              WHERE payment_authority_id = ${paymentAuthorityId}) AS "paymentCount",
-            (SELECT count(*)::text FROM public.economy_receipt_approval_grants
-              WHERE approval_grant_id = ${approvalGrantId}) AS "approvalCount"
-        `;
+            return {
+              payment,
+              approval,
+              endedPayment,
+              endedApproval,
+              staleRemoval,
+              removedPayment,
+              removedApproval,
+              counts: rows[0],
+            };
+          });
 
-        return {
-          payment,
-          approval,
-          endedPayment,
-          endedApproval,
-          staleRemoval,
-          removedPayment,
-          removedApproval,
-          counts: rows[0],
-        };
-      }),
+          expect(evidence.payment).toMatchObject({ paymentAuthorityId, personId, revision: 0 });
+          expect(evidence.approval).toMatchObject({ approvalGrantId, personId, revision: 0 });
+          expect(evidence.endedPayment).toMatchObject({ paymentAuthorityId, endAt, revision: 1 });
+          expect(evidence.endedApproval).toMatchObject({ approvalGrantId, endAt, revision: 1 });
+          expect(evidence.staleRemoval).toBeInstanceOf(ReceiptAuthorityWriteConflict);
+          expect(evidence.removedPayment.revision).toBe(1);
+          expect(evidence.removedApproval.revision).toBe(1);
+          expect(evidence.counts).toEqual({ paymentCount: "0", approvalCount: "0" });
+        }),
+      15_000,
     );
 
-    expect(evidence.payment).toMatchObject({ paymentAuthorityId, personId, revision: 0 });
-    expect(evidence.approval).toMatchObject({ approvalGrantId, personId, revision: 0 });
-    expect(evidence.endedPayment).toMatchObject({ paymentAuthorityId, endAt, revision: 1 });
-    expect(evidence.endedApproval).toMatchObject({ approvalGrantId, endAt, revision: 1 });
-    expect(evidence.staleRemoval).toBeInstanceOf(ReceiptAuthorityWriteConflict);
-    expect(evidence.removedPayment.revision).toBe(1);
-    expect(evidence.removedApproval.revision).toBe(1);
-    expect(evidence.counts).toEqual({ paymentCount: "0", approvalCount: "0" });
-  }, 15_000);
+    it.effect(
+      "strictly rejects decoder-invalid create inputs before persistence",
+      () =>
+        Effect.gen(function* () {
+          const evidence = yield* Effect.gen(function* () {
+            yield* seedReferences;
 
-  it("strictly rejects decoder-invalid create inputs before persistence", async () => {
-    const evidence = await runtime.runPromise(
-      Effect.gen(function* () {
-        yield* seedReferences;
+            const paddedCiphertext = yield* Effect.flip(
+              createReceiptPaymentAuthority({
+                paymentAuthorityId: ReceiptPaymentAuthorityId.make(
+                  "authority-writer-invalid-payment",
+                ),
+                personId,
+                departmentId,
+                paymentAccountCiphertext: "\tciphertext:invalid",
+                startAt,
+                endAt: null,
+              }),
+            );
 
-        const paddedCiphertext = yield* Effect.flip(
-          createReceiptPaymentAuthority({
-            paymentAuthorityId: ReceiptPaymentAuthorityId.make("authority-writer-invalid-payment"),
-            personId,
-            departmentId,
-            paymentAccountCiphertext: "\tciphertext:invalid",
-            startAt,
-            endAt: null,
-          }),
-        );
+            const excessInput = {
+              grantId: OrganizationGlobalAdministratorGrantId.make(
+                "authority-writer-invalid-admin",
+              ),
+              personId,
+              startAt,
+              endAt: null,
+              revision: 0,
+            };
 
-        const excessInput = {
-          grantId: OrganizationGlobalAdministratorGrantId.make("authority-writer-invalid-admin"),
-          personId,
-          startAt,
-          endAt: null,
-          revision: 0,
-        };
+            const excessProperty = yield* Effect.flip(
+              createOrganizationGlobalAdministratorGrant(excessInput),
+            );
 
-        const excessProperty = yield* Effect.flip(
-          createOrganizationGlobalAdministratorGrant(excessInput),
-        );
+            return { paddedCiphertext, excessProperty };
+          });
 
-        return { paddedCiphertext, excessProperty };
-      }),
+          expect(evidence.paddedCiphertext).toBeInstanceOf(ReceiptDecodeError);
+          expect(evidence.excessProperty).toBeInstanceOf(OrganizationDecodeError);
+        }),
+      15_000,
     );
-
-    expect(evidence.paddedCiphertext).toBeInstanceOf(ReceiptDecodeError);
-    expect(evidence.excessProperty).toBeInstanceOf(OrganizationDecodeError);
-  }, 15_000);
-});
+  },
+);
