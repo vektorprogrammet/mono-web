@@ -813,7 +813,7 @@ const writeReceipt = (
     ) VALUES (
       ${command.commandId},
       ${digest},
-      ${sql.json(canonicalJsonValue(JSON.parse(canonicalJson(command))))},
+      ${sql.json(canonicalJsonValue(command))},
       ${sql.json(canonicalJsonValue(encodeAssignmentObservation(observation)))},
       ${interview.applicationId},
       ${interview.interviewId},

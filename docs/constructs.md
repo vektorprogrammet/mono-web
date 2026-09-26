@@ -803,9 +803,10 @@ Keyset cursors and pages over ordered PostgreSQL reads.
 Canonical JSON and SHA-256 digests that evidence and idempotency identities hash.
 
 - `canonicalJsonValue`: The plain JSON value of a datum, with sorted object keys and non-finite numbers as `null`.
-  [packages/domain/src/shared-kernel/canonical-json.ts:72](../packages/domain/src/shared-kernel/canonical-json.ts#L72), 16 consumers:
+  [packages/domain/src/shared-kernel/canonical-json.ts:72](../packages/domain/src/shared-kernel/canonical-json.ts#L72), 17 consumers:
   - [packages/database/runtime/historical-service-cohort-rehearsal.ts](../packages/database/runtime/historical-service-cohort-rehearsal.ts)
   - [packages/database/src/admission-period/postgres.ts](../packages/database/src/admission-period/postgres.ts)
+  - [packages/database/src/application/postgres.ts](../packages/database/src/application/postgres.ts)
   - [packages/database/src/application/returning-postgres.ts](../packages/database/src/application/returning-postgres.ts)
   - [packages/database/src/auth-live.ts](../packages/database/src/auth-live.ts)
   - [packages/database/src/content/postgres.ts](../packages/database/src/content/postgres.ts)
@@ -821,7 +822,7 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [tools/verification/organization-import-rehearsal-postgres.ts](../tools/verification/organization-import-rehearsal-postgres.ts)
   - [tools/verification/receipt-import-rehearsal.ts](../tools/verification/receipt-import-rehearsal.ts)
 - `canonicalJson`: The canonical JSON text of a datum, to hash or compare; a SQL `json` parameter takes `canonicalJsonValue` instead.
-  [packages/domain/src/shared-kernel/canonical-json.ts:85](../packages/domain/src/shared-kernel/canonical-json.ts#L85), 56 consumers:
+  [packages/domain/src/shared-kernel/canonical-json.ts:85](../packages/domain/src/shared-kernel/canonical-json.ts#L85), 55 consumers:
   - [apps/backend/src/http-semantics.ts](../apps/backend/src/http-semantics.ts)
   - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
   - [packages/database/runtime/identity-postgres-proof-main.ts](../packages/database/runtime/identity-postgres-proof-main.ts)
@@ -831,7 +832,6 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [packages/database/runtime/receipt-postgres-proof-main.ts](../packages/database/runtime/receipt-postgres-proof-main.ts)
   - [packages/database/runtime/scheduling-postgres-proof-main.ts](../packages/database/runtime/scheduling-postgres-proof-main.ts)
   - [packages/database/runtime/schools-postgres-proof-main.ts](../packages/database/runtime/schools-postgres-proof-main.ts)
-  - [packages/database/src/admission-period/postgres.ts](../packages/database/src/admission-period/postgres.ts)
   - [packages/database/src/advisory-lock.ts](../packages/database/src/advisory-lock.ts)
   - [packages/database/src/application/postgres.ts](../packages/database/src/application/postgres.ts)
   - [packages/database/src/application/returning-postgres.ts](../packages/database/src/application/returning-postgres.ts)

@@ -5,28 +5,7 @@ import {
   RULE_NAMES,
   type ExpandInput,
   type OxlintConfigFragment,
-  type RuleName,
 } from "@phibkro/oxlint-effect-plugin";
-
-// Every group reports the plugin rules at their default severity, error, except the
-// packages/database groups: they keep them as warnings until slice E1 of
-// docs/specs/effect-diagnostics.md and the database sites of slice F are done.
-const advisorySeverity = {
-  "no-ambient-console": "warn",
-  "no-ambient-authority": "warn",
-  "no-cross-runtime": "warn",
-  "no-premature-execution": "warn",
-  "no-native-promise-control-flow": "warn",
-  "no-raw-json-parse": "warn",
-  "no-untyped-throw": "warn",
-} satisfies Partial<Record<RuleName, "warn">>;
-
-const advisory = <T extends Omit<ExpandInput["groups"][number], "severityOverrides">>(
-  input: T,
-): T & { readonly severityOverrides: typeof advisorySeverity } => ({
-  ...input,
-  severityOverrides: advisorySeverity,
-});
 
 // Bun implements these Node modules, and the Bun groups import them beside Bun's own modules.
 // The rule admits extra modules but no globals, so these files import `process` and `Buffer` too.
@@ -64,12 +43,14 @@ const effectConfig = {
       platform: "node",
       strictness: "strict",
     },
-    advisory({
+    {
+      // Rows, stored documents, and migration files reach the database adapters as external data.
       files: ["packages/database/src/**/*.ts"],
       role: "runtime-adapter",
       platform: "node",
-      strictness: "recommended",
-    }),
+      boundaries: ["external-data"],
+      strictness: "strict",
+    },
     {
       files: ["packages/sdk/src/**/*.ts"],
       role: "effect-library",
@@ -94,20 +75,12 @@ const effectConfig = {
       files: [
         "packages/domain/src/organization/lifecycle.ts",
         "packages/domain/src/identity/access.ts",
-      ],
-      role: "effect-library",
-      platform: "portable",
-      strictness: "strict",
-    },
-    {
-      files: [
         "packages/database/src/organization/lifecycle-postgres.ts",
         "packages/database/src/identity-access.ts",
       ],
       role: "effect-library",
       platform: "portable",
-      strictness: "recommended",
-      severityOverrides: { "no-ambient-authority": "error" },
+      strictness: "strict",
     },
     {
       // The SDK selects FetchHttpClient, closes the environment, and runs each operation for Promise callers.
@@ -117,21 +90,19 @@ const effectConfig = {
       strictness: "strict",
     },
     {
-      files: ["tools/acceptance/**/*.ts", "tools/verification/**/*.ts"],
-      role: "composition-root",
-      platform: "node",
-      strictness: "strict",
-    },
-    advisory({
       files: [
         "packages/database/runtime/**/*-main.ts",
         "packages/database/src/**/*-main.ts",
         "packages/database/src/**/*-cli.ts",
+        // The Better Auth CLI loads this configuration as its program.
+        "packages/database/src/auth-schema-generator.config.ts",
+        "tools/acceptance/**/*.ts",
+        "tools/verification/**/*.ts",
       ],
       role: "composition-root",
       platform: "node",
-      strictness: "recommended",
-    }),
+      strictness: "strict",
+    },
     {
       files: ["**/*.test.ts", "**/*.spec.ts", "**/e2e/**/*.ts"],
       role: "test",
@@ -149,18 +120,12 @@ const effectConfig = {
       strictness: "strict",
     },
     {
-      files: ["apps/backend/src/test/**/*.ts"],
+      files: ["apps/backend/src/test/**/*.ts", "packages/database/src/test-support/platform.ts"],
       role: "runtime-adapter",
       platform: "bun",
       boundaries: ["external-data"],
       strictness: "strict",
     },
-    advisory({
-      files: ["packages/database/src/test-support/platform.ts"],
-      role: "runtime-adapter",
-      platform: "bun",
-      strictness: "recommended",
-    }),
     {
       // Bun runs these composition roots and the journey runtimes that they share.
       files: [
@@ -311,13 +276,6 @@ export default defineConfig({
             patterns: [...productImportPatterns, ...browserImportPatterns],
           },
         ],
-      },
-    },
-    {
-      files: ["packages/database/src/oauth-live.ts", "packages/database/src/password-recovery.ts"],
-      rules: {
-        // These named adapters are the explicit Effect-to-Promise or synchronous interoperability seam.
-        "effect/no-premature-execution": "off",
       },
     },
     // Source-import exemptions. Each entry names why an export-map import is not yet possible.

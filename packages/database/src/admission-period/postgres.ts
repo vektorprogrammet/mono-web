@@ -18,10 +18,7 @@ import {
   StaleAdmissionPeriodRevision,
   type AdmissionPeriodFailure,
 } from "@vektorprogrammet/domain/admission-period";
-import {
-  admissionPeriodCommandDigest,
-  canonicalJson,
-} from "@vektorprogrammet/domain/admission-period";
+import { admissionPeriodCommandDigest } from "@vektorprogrammet/domain/admission-period";
 import {
   AdmissionPeriodOutboxRequestSchema,
   type AdmissionPeriodOutboxRequest,
@@ -284,7 +281,7 @@ const writePeriodCommandReceipt = (
     command_id, command_sha256, command_json, observation_json,
     admission_period_id, committed_at
   ) VALUES (
-    ${command.commandId}, ${commandDigest}, ${sql.json(canonicalJsonValue(JSON.parse(canonicalJson(command))))},
+    ${command.commandId}, ${commandDigest}, ${sql.json(canonicalJsonValue(command))},
     ${sql.json(canonicalJsonValue(encodeObservation(observation)))}, ${period.id}, ${now}
   )
 `.pipe(

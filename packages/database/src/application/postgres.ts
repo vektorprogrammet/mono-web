@@ -1,3 +1,4 @@
+import { canonicalJsonValue } from "@vektorprogrammet/domain/shared-kernel";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
@@ -421,7 +422,7 @@ const writeCommandReceipt = (
     command_id, command_sha256, command_json, observation_json,
     application_id, committed_at
   ) VALUES (
-    ${command.commandId}, ${commandDigest}, ${sql.json(JSON.parse(canonicalJson(command)))},
+    ${command.commandId}, ${commandDigest}, ${sql.json(canonicalJsonValue(command))},
     ${sql.json(observation)}, ${application.id}, ${now}
   )
 `.pipe(

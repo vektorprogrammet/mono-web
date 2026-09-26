@@ -54,7 +54,7 @@ The links are relative to this file, so the file is a complete entry point also 
 
 [oxlint.config.ts](../../../oxlint.config.ts) owns which Effect rules run on which files, and at what severity. Read it; do not copy its inventory.
 
-- The `effect/*` rules of `@phibkro/oxlint-effect-plugin` apply by the role, platform, and boundary that each file group declares. Every group outside `packages/database` uses the `strict` strictness and reports each rule as an error. The `packages/database` groups keep the `recommended` strictness, and `advisorySeverity` makes their findings warnings until slice E1 of the diagnostics specification is done; `just lint` reports such a warning without failing, so read its output for the database files that you touched.
+- The `effect/*` rules of `@phibkro/oxlint-effect-plugin` apply by the role, platform, and boundary that each file group declares. Every group uses the `strict` strictness and reports each rule as an error; no override relaxes one.
 - The last group that matches a file decides every `effect/*` rule for it, so a test file does not inherit the rules of its source group. Groups use plain globs, because Oxlint has no extglob, and run from broad sources to narrow exceptions. [tools/conventions/tests/oxlint-groups.test.ts](../../../tools/conventions/tests/oxlint-groups.test.ts) guards that shape; keep it when you change a group.
 - A new composition root or adapter joins the group of its role and platform, such as the Bun composition-root group; it gets no suppression and no `off` override. The Bun groups admit the Node modules that Bun implements (`bunNodeModules`), and their files import `process` from `node:process` and `Buffer` from `node:buffer`, because the rule admits no Node globals on `bun`.
 - [docs/specs/effect-diagnostics.md](../../../docs/specs/effect-diagnostics.md) is the contract for the `effecttsgo/*` rules of the Effect language service: which rules run where, the state of each slice and of the wiring, and how to count sites (`bun x oxlint --type-aware` with the target configuration, never grep or `tsc`).
@@ -83,7 +83,7 @@ The portable skills cite the `effecttsgo/*` rules. The rules and checks of this 
 | `just check-types`                                                                  | FX004 | A type error, and an HTTP contract that differs from the one that it regenerates                                                        |
 | `packages/database/src/migration-registry.test.ts`, `just migration-hashes`         | FX010 | An applied migration whose checksum changed, and a migration id, position, or file that the registry lacks                              |
 
-`effect/no-native-promise-control-flow` and `effect/no-untyped-throw` are strict rules, so they run in every group outside `packages/database`. `effect/no-raw-json-parse` runs where a group declares the `external-data` boundary: the `apps/backend` runtime adapters.
+`effect/no-native-promise-control-flow` and `effect/no-untyped-throw` are strict rules, so they run in every group whose role they cover. `effect/no-raw-json-parse` runs where a group declares the `external-data` boundary: the runtime adapters of `apps/backend` and `packages/database`.
 
 ## What the tier skills look up here
 
