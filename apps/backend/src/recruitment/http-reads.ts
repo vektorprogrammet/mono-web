@@ -54,7 +54,7 @@ import { interviewETag, invitationETag, schedulingBoardWithETags } from "./http-
 
 /** A credential-selected read that carries no validator. */
 const privateJson = (
-  body: typeof AssignmentBoard.Type | typeof InterviewReport.Type | typeof SchedulingBoard.Type,
+  body: typeof AssignmentBoard.Type | InterviewReport | typeof SchedulingBoard.Type,
 ) =>
   new Response(JSON.stringify(body), {
     status: 200,

@@ -631,7 +631,7 @@ export const approvalCommand = <R>(
 
 export const settleReceipt = <R>(
   request: Request,
-  receiptId: typeof ReceiptId.Type,
+  receiptId: ReceiptId,
   options: ReceiptApiHttpOptions<ReceiptIdentityFailure, R>,
   fileStore: ReceiptFileStore,
 ) =>

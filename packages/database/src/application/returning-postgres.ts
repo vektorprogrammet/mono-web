@@ -46,7 +46,7 @@ const nowFor = (context: RegistrationContext): string =>
   Predicate.isFunction(context.now) ? context.now() : context.now;
 
 type LinkedIdentity = {
-  readonly applicant: typeof ApplicantRecord.Type;
+  readonly applicant: ApplicantRecord;
   readonly departmentId: string;
   readonly fieldOfStudyId: string;
   readonly placementId: string;
@@ -159,7 +159,7 @@ const readPlacement = (sql: DatabaseOperations, personId: string) =>
     Effect.catchTag("SqlError", (cause) => Effect.fail(fail("read assistant placements", cause))),
   );
 
-const readStudy = (sql: DatabaseOperations, applicant: typeof ApplicantRecord.Type) =>
+const readStudy = (sql: DatabaseOperations, applicant: ApplicantRecord) =>
   Effect.gen(function* () {
     const rows = yield* sql<{ fieldOfStudyId: string; departmentId: string; active: boolean }>`
       SELECT f.field_of_study_id AS "fieldOfStudyId", f.department_id AS "departmentId", f.active
@@ -364,7 +364,7 @@ const writeReturningOutbox = (
   sql: DatabaseOperations,
   input: ReturningAssistantRegistrationInput,
   application: ApplicationRow,
-  applicant: typeof ApplicantRecord.Type,
+  applicant: ApplicantRecord,
   registrationId: string,
   personId: PersonId,
 ) => {
