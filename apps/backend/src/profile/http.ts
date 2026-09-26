@@ -29,7 +29,7 @@ import {
   makeNativeValidationError,
   Problem,
 } from "@vektorprogrammet/http-api/http-semantics";
-import { DateTime, Effect, Option, Predicate, type Schema } from "effect";
+import { DateTime, Effect, Option, Predicate, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
   profileRoleFrom,
@@ -42,7 +42,6 @@ import {
   commandOutcomeResponse,
   commandReceiptProblems,
   conditionalJson,
-  decodeRequest,
   httpIdentity,
   idempotencyKeyOf,
   personPresentation,
@@ -170,12 +169,19 @@ const readJsonPatch = (request: Request) =>
     }
 
     // The merge patch is read without a size bound or duplicate-member check, as before.
-    const body = yield* Effect.tryPromise({
-      try: async (): Promise<Schema.Json> => JSON.parse(await request.text()),
+    const text = yield* Effect.tryPromise({
+      try: () => request.text(),
       catch: () => Problem.make("request.malformed"),
     });
 
-    const patch = yield* decodeRequest(ProfileMergePatch)(body);
+    const body = yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(text).pipe(
+      Effect.mapError(() => Problem.make("request.malformed")),
+    );
+
+    const patch = yield* Schema.decodeUnknownEffect(ProfileMergePatch)(body, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError(requestInvalid));
+
     const fields = ["firstName", "lastName", "email", "phone"] as const;
 
     if (!fields.some((field) => Object.hasOwn(patch, field))) {

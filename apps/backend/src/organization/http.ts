@@ -174,41 +174,51 @@ const rejectQuery = (request: Request) =>
   requireNoQuery(request).pipe(Effect.mapError(requestInvalid));
 
 /** The UTF-8 text of a body of at most `maxBytes`, or undefined past that bound. */
-const readBoundedText = async (request: Request, maxBytes: number) => {
-  if (request.body === null) return "";
+const readBoundedText = (request: Request, maxBytes: number) => {
+  const stream = request.body;
 
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
+  if (stream === null) return Effect.succeed("");
 
-  try {
-    while (true) {
-      const next = await reader.read();
+  return Effect.acquireUseRelease(
+    Effect.try({ try: () => stream.getReader(), catch: requestInvalid }),
+    (reader) =>
+      Effect.gen(function* () {
+        const chunks: Uint8Array[] = [];
+        let totalBytes = 0;
 
-      if (next.done) break;
-      totalBytes += next.value.byteLength;
+        for (;;) {
+          const next = yield* Effect.tryPromise({
+            try: () => reader.read(),
+            catch: requestInvalid,
+          });
 
-      if (totalBytes > maxBytes) {
-        await reader.cancel();
+          if (next.done) break;
+          totalBytes += next.value.byteLength;
 
-        return undefined;
-      }
+          if (totalBytes > maxBytes) {
+            yield* Effect.tryPromise({ try: () => reader.cancel(), catch: requestInvalid });
 
-      chunks.push(next.value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
+            return undefined;
+          }
 
-  const body = new Uint8Array(totalBytes);
-  let offset = 0;
+          chunks.push(next.value);
+        }
 
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
+        const body = new Uint8Array(totalBytes);
+        let offset = 0;
 
-  return new TextDecoder("utf-8", { fatal: true }).decode(body);
+        for (const chunk of chunks) {
+          body.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+
+        return yield* Effect.try({
+          try: () => new TextDecoder("utf-8", { fatal: true }).decode(body),
+          catch: requestInvalid,
+        });
+      }),
+    (reader) => Effect.sync(() => reader.releaseLock()),
+  );
 };
 
 /**
@@ -232,10 +242,7 @@ const readCommandBody = (request: Request, maxBytes: number) =>
       if (Number(declared) > maxBytes) return yield* Problem.make("request.too-large");
     }
 
-    const text = yield* Effect.tryPromise({
-      try: () => readBoundedText(request, maxBytes),
-      catch: requestInvalid,
-    });
+    const text = yield* readBoundedText(request, maxBytes);
 
     if (text === undefined) return yield* Problem.make("request.too-large");
 

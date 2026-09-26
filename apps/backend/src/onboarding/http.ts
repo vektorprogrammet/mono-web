@@ -41,7 +41,7 @@ import {
   nativeCookieChallenge,
   Problem,
 } from "@vektorprogrammet/http-api/http-semantics";
-import { flow, Predicate, Effect, Option, Schema } from "effect";
+import { Crypto, flow, Predicate, Effect, Option, Schema } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
@@ -362,7 +362,9 @@ export const OnboardingApiHandlers = (input: {
         body.mode === "NewAccount"
           ? {
               mode: "NewAccount" as const,
-              personId: PersonId.make(crypto.randomUUID()),
+              personId: PersonId.make(
+                yield* Crypto.Crypto.use((crypto) => crypto.randomUUIDv4).pipe(Effect.orDie),
+              ),
               passwordHash: yield* hashOnboardingPassword(body.password).pipe(Effect.orDie),
             }
           : null;

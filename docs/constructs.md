@@ -346,14 +346,13 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/receipt/http-decode.ts](../apps/backend/src/receipt/http-decode.ts)
   - [apps/backend/src/receipt/http-problem.ts](../apps/backend/src/receipt/http-problem.ts)
 - `decodeRequest`: Decodes one JSON request value strictly; any mismatch fails the whole request's validation.
-  [apps/backend/src/http-api/problem.ts:345](../apps/backend/src/http-api/problem.ts#L345), 12 consumers:
+  [apps/backend/src/http-api/problem.ts:345](../apps/backend/src/http-api/problem.ts#L345), 11 consumers:
   - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/contact/http.ts](../apps/backend/src/contact/http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
   - [apps/backend/src/onboarding/http.ts](../apps/backend/src/onboarding/http.ts)
   - [apps/backend/src/organization/http.ts](../apps/backend/src/organization/http.ts)
   - [apps/backend/src/placements/http.ts](../apps/backend/src/placements/http.ts)
-  - [apps/backend/src/profile/http.ts](../apps/backend/src/profile/http.ts)
   - [apps/backend/src/receipt/http-commands.ts](../apps/backend/src/receipt/http-commands.ts)
   - [apps/backend/src/receipt/http-decode.ts](../apps/backend/src/receipt/http-decode.ts)
   - [apps/backend/src/recruitment/http-commands.ts](../apps/backend/src/recruitment/http-commands.ts)
