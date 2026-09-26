@@ -1,4 +1,5 @@
 import { inspect } from "node:util";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { decodeBackendConfig } from "./config.js";
 
@@ -27,8 +28,12 @@ afterEach(() => vi.unstubAllEnvs());
 describe("backend configuration boundary", () => {
   it("requires explicit recovery modes and complete enabled providers before startup", () => {
     for (const key of ["PASSWORD_RESET_DELIVERY_MODE", "RECEIPT_DELIVERY_MODE"]) {
-      expect(() => decodeBackendConfig({ ...environment, [key]: undefined })).toThrow();
-      expect(() => decodeBackendConfig({ ...environment, [key]: "http" })).toThrow();
+      expect(() =>
+        Effect.runSync(decodeBackendConfig({ ...environment, [key]: undefined })),
+      ).toThrow();
+      expect(() =>
+        Effect.runSync(decodeBackendConfig({ ...environment, [key]: "http" })),
+      ).toThrow();
     }
 
     const reset = {
@@ -46,10 +51,12 @@ describe("backend configuration boundary", () => {
       "MAIL_DELIVERY_TOKEN",
       "MAIL_DELIVERY_TIMEOUT_MS",
     ]) {
-      expect(() => decodeBackendConfig({ ...reset, [key]: "" })).toThrow();
+      expect(() => Effect.runSync(decodeBackendConfig({ ...reset, [key]: "" }))).toThrow();
     }
 
-    expect(() => decodeBackendConfig({ ...reset, PASSWORD_RESET_DELIVERY_POLL_MS: "0" })).toThrow();
+    expect(() =>
+      Effect.runSync(decodeBackendConfig({ ...reset, PASSWORD_RESET_DELIVERY_POLL_MS: "0" })),
+    ).toThrow();
 
     const receipt = {
       ...environment,
@@ -61,24 +68,32 @@ describe("backend configuration boundary", () => {
       RECEIPT_DELIVERY_ECONOMY_RECIPIENTS: '{"department":"economy@example.invalid"}',
     };
 
-    expect(() => decodeBackendConfig(receipt)).toThrow();
+    expect(() => Effect.runSync(decodeBackendConfig(receipt))).toThrow();
     expect(() =>
-      decodeBackendConfig({
-        ...receipt,
-        RECEIPT_STAGING_ROOT: "/tmp/proof-staging",
-        RECEIPT_COMMITTED_ROOT: "/tmp/proof-committed",
-        RECEIPT_DELIVERY_POLL_MS: "-1",
-      }),
+      Effect.runSync(
+        decodeBackendConfig({
+          ...receipt,
+          RECEIPT_STAGING_ROOT: "/tmp/proof-staging",
+          RECEIPT_COMMITTED_ROOT: "/tmp/proof-committed",
+          RECEIPT_DELIVERY_POLL_MS: "-1",
+        }),
+      ),
     ).toThrow();
   });
 
   it("enables team application delivery only with a complete, bounded mail transport", () => {
-    expect(decodeBackendConfig(environment).teamApplicationDelivery).toBeUndefined();
+    expect(
+      Effect.runSync(decodeBackendConfig(environment)).teamApplicationDelivery,
+    ).toBeUndefined();
     expect(() =>
-      decodeBackendConfig({ ...environment, TEAM_APPLICATION_DELIVERY_MODE: "http" }),
+      Effect.runSync(
+        decodeBackendConfig({ ...environment, TEAM_APPLICATION_DELIVERY_MODE: "http" }),
+      ),
     ).toThrow();
     expect(() =>
-      decodeBackendConfig({ ...environment, TEAM_APPLICATION_DELIVERY_MODE: "smtp" }),
+      Effect.runSync(
+        decodeBackendConfig({ ...environment, TEAM_APPLICATION_DELIVERY_MODE: "smtp" }),
+      ),
     ).toThrow();
 
     const delivery = {
@@ -90,31 +105,39 @@ describe("backend configuration boundary", () => {
       MAIL_DELIVERY_TIMEOUT_MS: "1000",
     };
 
-    expect(decodeBackendConfig(delivery).teamApplicationDelivery).toMatchObject({
+    expect(Effect.runSync(decodeBackendConfig(delivery)).teamApplicationDelivery).toMatchObject({
       sender: "sender@example.invalid",
       pollIntervalMilliseconds: 1000,
       staleClaimMilliseconds: 60_000,
     });
     expect(() =>
-      decodeBackendConfig({ ...delivery, TEAM_APPLICATION_DELIVERY_STALE_MS: "1000" }),
+      Effect.runSync(
+        decodeBackendConfig({ ...delivery, TEAM_APPLICATION_DELIVERY_STALE_MS: "1000" }),
+      ),
     ).toThrow();
     expect(() =>
-      decodeBackendConfig({ ...delivery, MAIL_DELIVERY_URL: "http://mail.example.invalid/mail" }),
+      Effect.runSync(
+        decodeBackendConfig({ ...delivery, MAIL_DELIVERY_URL: "http://mail.example.invalid/mail" }),
+      ),
     ).toThrow();
   });
 
   it("keeps the team application rate-limit window within the retry-after bound", () => {
     const retryAfterFor = (windowMilliseconds: string) =>
-      decodeBackendConfig({
-        ...environment,
-        TEAM_APPLICATION_RATE_LIMIT_WINDOW_MS: windowMilliseconds,
-      }).teamApplication.retryAfterSeconds;
+      Effect.runSync(
+        decodeBackendConfig({
+          ...environment,
+          TEAM_APPLICATION_RATE_LIMIT_WINDOW_MS: windowMilliseconds,
+        }),
+      ).teamApplication.retryAfterSeconds;
 
-    expect(decodeBackendConfig(environment).teamApplication.retryAfterSeconds).toBe(60);
+    expect(Effect.runSync(decodeBackendConfig(environment)).teamApplication.retryAfterSeconds).toBe(
+      60,
+    );
     expect(retryAfterFor("3600000")).toBe(3600);
     expect(() => retryAfterFor("3600001")).toThrow();
     expect(() =>
-      decodeBackendConfig({ ...environment, TEAM_APPLICATION_RATE_LIMIT_MAX: "0" }),
+      Effect.runSync(decodeBackendConfig({ ...environment, TEAM_APPLICATION_RATE_LIMIT_MAX: "0" })),
     ).toThrow();
   });
 
@@ -123,93 +146,132 @@ describe("backend configuration boundary", () => {
     vi.stubEnv("BACKEND_PORT", "9999");
     vi.stubEnv("OAUTH_CANONICAL_ORIGIN", environment.OAUTH_CANONICAL_ORIGIN);
 
-    expect(() => decodeBackendConfig({ ...environment, BACKEND_PG_URL: undefined })).toThrow();
     expect(() =>
-      decodeBackendConfig({ ...environment, OAUTH_CANONICAL_ORIGIN: undefined }),
+      Effect.runSync(decodeBackendConfig({ ...environment, BACKEND_PG_URL: undefined })),
     ).toThrow();
-    expect(decodeBackendConfig(environment).port).toBe(8790);
-    expect(decodeBackendConfig({ ...environment, BACKEND_PORT: "004321" }).port).toBe(4321);
+    expect(() =>
+      Effect.runSync(decodeBackendConfig({ ...environment, OAUTH_CANONICAL_ORIGIN: undefined })),
+    ).toThrow();
+    expect(Effect.runSync(decodeBackendConfig(environment)).port).toBe(8790);
+    expect(
+      Effect.runSync(decodeBackendConfig({ ...environment, BACKEND_PORT: "004321" })).port,
+    ).toBe(4321);
   });
 
   it("defaults absent numbers but rejects blank, non-decimal and unsafe supplied numbers", () => {
     expect(
-      decodeBackendConfig(httpEnvironment).publicApplicationEffects?.deliveryTimeoutMilliseconds,
+      Effect.runSync(decodeBackendConfig(httpEnvironment)).publicApplicationEffects
+        ?.deliveryTimeoutMilliseconds,
     ).toBe(10_000);
 
     for (const raw of ["", " 1 ", "+1", "-1", "1.0", "1e3", "0", "9007199254740992"]) {
-      expect(() => decodeBackendConfig({ ...environment, BACKEND_PORT: raw })).toThrow();
       expect(() =>
-        decodeBackendConfig({ ...httpEnvironment, PUBLIC_APPLICATION_EFFECT_TIMEOUT_MS: raw }),
+        Effect.runSync(decodeBackendConfig({ ...environment, BACKEND_PORT: raw })),
+      ).toThrow();
+      expect(() =>
+        Effect.runSync(
+          decodeBackendConfig({ ...httpEnvironment, PUBLIC_APPLICATION_EFFECT_TIMEOUT_MS: raw }),
+        ),
       ).toThrow();
     }
 
-    expect(() => decodeBackendConfig({ ...environment, BACKEND_PORT: "65536" })).toThrow();
-    expect(decodeBackendConfig({ ...environment, BACKEND_PORT: "65535" }).port).toBe(65535);
+    expect(() =>
+      Effect.runSync(decodeBackendConfig({ ...environment, BACKEND_PORT: "65536" })),
+    ).toThrow();
     expect(
-      decodeBackendConfig({ ...httpEnvironment, PUBLIC_APPLICATION_EFFECT_TIMEOUT_MS: "0001" })
-        .publicApplicationEffects?.deliveryTimeoutMilliseconds,
+      Effect.runSync(decodeBackendConfig({ ...environment, BACKEND_PORT: "65535" })).port,
+    ).toBe(65535);
+    expect(
+      Effect.runSync(
+        decodeBackendConfig({ ...httpEnvironment, PUBLIC_APPLICATION_EFFECT_TIMEOUT_MS: "0001" }),
+      ).publicApplicationEffects?.deliveryTimeoutMilliseconds,
     ).toBe(1);
   });
 
   it("requires explicit delivery mode and forbids even empty credentials when disabled", () => {
     expect(() =>
-      decodeBackendConfig({ ...environment, PUBLIC_APPLICATION_EFFECT_MODE: undefined }),
+      Effect.runSync(
+        decodeBackendConfig({ ...environment, PUBLIC_APPLICATION_EFFECT_MODE: undefined }),
+      ),
     ).toThrow();
     expect(() =>
-      decodeBackendConfig({ ...environment, PUBLIC_APPLICATION_EFFECT_ENDPOINT: "" }),
+      Effect.runSync(
+        decodeBackendConfig({ ...environment, PUBLIC_APPLICATION_EFFECT_ENDPOINT: "" }),
+      ),
     ).toThrow();
     expect(() =>
-      decodeBackendConfig({ ...environment, PUBLIC_APPLICATION_EFFECT_TOKEN: "" }),
+      Effect.runSync(decodeBackendConfig({ ...environment, PUBLIC_APPLICATION_EFFECT_TOKEN: "" })),
     ).toThrow();
     expect(() =>
-      decodeBackendConfig({ ...httpEnvironment, PUBLIC_APPLICATION_EFFECT_TOKEN: "" }),
+      Effect.runSync(
+        decodeBackendConfig({ ...httpEnvironment, PUBLIC_APPLICATION_EFFECT_TOKEN: "" }),
+      ),
     ).toThrow();
     expect(() =>
-      decodeBackendConfig({ ...httpEnvironment, PUBLIC_APPLICATION_EFFECT_ENDPOINT: undefined }),
+      Effect.runSync(
+        decodeBackendConfig({ ...httpEnvironment, PUBLIC_APPLICATION_EFFECT_ENDPOINT: undefined }),
+      ),
     ).toThrow();
     expect(
-      decodeBackendConfig({ ...environment, PUBLIC_APPLICATION_EFFECT_TIMEOUT_MS: "inactive" })
-        .publicApplicationEffects,
+      Effect.runSync(
+        decodeBackendConfig({ ...environment, PUBLIC_APPLICATION_EFFECT_TIMEOUT_MS: "inactive" }),
+      ).publicApplicationEffects,
     ).toBeUndefined();
   });
 
   it("keeps HTTP delivery on loopback and rejects endpoint credentials", () => {
     expect(() =>
-      decodeBackendConfig({
-        ...httpEnvironment,
-        PUBLIC_APPLICATION_EFFECT_ENDPOINT: "http://provider.example.invalid/effects",
-      }),
+      Effect.runSync(
+        decodeBackendConfig({
+          ...httpEnvironment,
+          PUBLIC_APPLICATION_EFFECT_ENDPOINT: "http://provider.example.invalid/effects",
+        }),
+      ),
     ).toThrow();
     expect(() =>
-      decodeBackendConfig({
-        ...httpEnvironment,
-        PUBLIC_APPLICATION_EFFECT_ENDPOINT:
-          "https://user:password@provider.example.invalid/effects",
-      }),
+      Effect.runSync(
+        decodeBackendConfig({
+          ...httpEnvironment,
+          PUBLIC_APPLICATION_EFFECT_ENDPOINT:
+            "https://user:password@provider.example.invalid/effects",
+        }),
+      ),
     ).toThrow();
     expect(
-      decodeBackendConfig({
-        ...httpEnvironment,
-        PUBLIC_APPLICATION_EFFECT_ENDPOINT: "http://127.0.0.1:8898/effects?version=1#fragment",
-      }).publicApplicationEffects?.endpoint.protocol,
+      Effect.runSync(
+        decodeBackendConfig({
+          ...httpEnvironment,
+          PUBLIC_APPLICATION_EFFECT_ENDPOINT: "http://127.0.0.1:8898/effects?version=1#fragment",
+        }),
+      ).publicApplicationEffects?.endpoint.protocol,
     ).toBe("http:");
   });
 
   it("does not weaken loopback binding, deployment authority or derived secure cookies", () => {
-    expect(() => decodeBackendConfig({ ...environment, BACKEND_HOST: "0.0.0.0" })).toThrow();
-    expect(() => decodeBackendConfig({ ...environment, BACKEND_HOST: "" })).toThrow();
     expect(() =>
-      decodeBackendConfig({ ...environment, NATIVE_IDENTITY_DEPLOYMENT: "production" }),
+      Effect.runSync(decodeBackendConfig({ ...environment, BACKEND_HOST: "0.0.0.0" })),
     ).toThrow();
-    expect(() => decodeBackendConfig({ ...environment, BETTER_AUTH_URL: "" })).toThrow();
-    expect(decodeBackendConfig(environment).auth.secureCookies).toBe(false);
+    expect(() =>
+      Effect.runSync(decodeBackendConfig({ ...environment, BACKEND_HOST: "" })),
+    ).toThrow();
+    expect(() =>
+      Effect.runSync(
+        decodeBackendConfig({ ...environment, NATIVE_IDENTITY_DEPLOYMENT: "production" }),
+      ),
+    ).toThrow();
+    expect(() =>
+      Effect.runSync(decodeBackendConfig({ ...environment, BETTER_AUTH_URL: "" })),
+    ).toThrow();
+    expect(Effect.runSync(decodeBackendConfig(environment)).auth.secureCookies).toBe(false);
     expect(
-      decodeBackendConfig({
-        ...environment,
-        NATIVE_IDENTITY_DEPLOYMENT: "production",
-        NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["https://dashboard.example.invalid"]),
-        OAUTH_DASHBOARD_ORIGIN: "https://dashboard.example.invalid",
-      }).auth.secureCookies,
+      Effect.runSync(
+        decodeBackendConfig({
+          ...environment,
+          NATIVE_IDENTITY_DEPLOYMENT: "production",
+          NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["https://dashboard.example.invalid"]),
+          OAUTH_DASHBOARD_ORIGIN: "https://dashboard.example.invalid",
+        }),
+      ).auth.secureCookies,
     ).toBe(true);
   });
 
@@ -223,15 +285,24 @@ describe("backend configuration boundary", () => {
 
     const failPromotion = { RECEIPT_E2E_FAIL_PROMOTION_EFFECT_ID: "receipt:PromoteReceiptFile" };
 
-    expect(decodeBackendConfig(environment).receipt.e2e).toBeUndefined();
-    expect(decodeBackendConfig(production).receipt.e2e).toBeUndefined();
-    expect(() => decodeBackendConfig({ ...production, RECEIPT_E2E_TEST_MODE: "1" })).toThrow();
-    expect(() => decodeBackendConfig({ ...production, ...failPromotion })).toThrow();
-    expect(() => decodeBackendConfig({ ...environment, ...failPromotion })).toThrow();
-    expect(() => decodeBackendConfig({ ...environment, RECEIPT_E2E_TEST_MODE: "0" })).toThrow();
+    expect(Effect.runSync(decodeBackendConfig(environment)).receipt.e2e).toBeUndefined();
+    expect(Effect.runSync(decodeBackendConfig(production)).receipt.e2e).toBeUndefined();
+    expect(() =>
+      Effect.runSync(decodeBackendConfig({ ...production, RECEIPT_E2E_TEST_MODE: "1" })),
+    ).toThrow();
+    expect(() =>
+      Effect.runSync(decodeBackendConfig({ ...production, ...failPromotion })),
+    ).toThrow();
+    expect(() =>
+      Effect.runSync(decodeBackendConfig({ ...environment, ...failPromotion })),
+    ).toThrow();
+    expect(() =>
+      Effect.runSync(decodeBackendConfig({ ...environment, RECEIPT_E2E_TEST_MODE: "0" })),
+    ).toThrow();
     expect(
-      decodeBackendConfig({ ...environment, RECEIPT_E2E_TEST_MODE: "1", ...failPromotion }).receipt
-        .e2e,
+      Effect.runSync(
+        decodeBackendConfig({ ...environment, RECEIPT_E2E_TEST_MODE: "1", ...failPromotion }),
+      ).receipt.e2e,
     ).toEqual({ failNextPromotionEffectId: "receipt:PromoteReceiptFile" });
   });
 
@@ -260,7 +331,7 @@ describe("backend configuration boundary", () => {
       let failure: unknown;
 
       try {
-        decodeBackendConfig(env);
+        Effect.runSync(decodeBackendConfig(env));
       } catch (error) {
         failure = error;
       }

@@ -67,7 +67,7 @@ const environment = {
   ADMISSION_FIXED_NOW: "2031-09-15T12:00:00.000Z",
 } as const;
 
-const config = decodeBackendConfig(environment);
+const config = Effect.runSync(decodeBackendConfig(environment));
 
 const database = backendDatabase(
   Database.use((sql) =>
@@ -1152,24 +1152,28 @@ describe("unified backend router", () => {
       secureCookies: false,
     });
     expect(
-      decodeBackendConfig({
-        ...environment,
-        NATIVE_IDENTITY_DEPLOYMENT: "production",
-        NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["https://dashboard.example.invalid"]),
-        OAUTH_CANONICAL_ORIGIN: "https://dashboard.example.invalid",
-        OAUTH_DASHBOARD_ORIGIN: "https://dashboard.example.invalid",
-      }).sessionBoundary,
+      Effect.runSync(
+        decodeBackendConfig({
+          ...environment,
+          NATIVE_IDENTITY_DEPLOYMENT: "production",
+          NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["https://dashboard.example.invalid"]),
+          OAUTH_CANONICAL_ORIGIN: "https://dashboard.example.invalid",
+          OAUTH_DASHBOARD_ORIGIN: "https://dashboard.example.invalid",
+        }),
+      ).sessionBoundary,
     ).toEqual({
       deployment: "production",
       trustedOrigins: ["https://dashboard.example.invalid"],
       secureCookies: true,
     });
     expect(() =>
-      decodeBackendConfig({
-        ...environment,
-        NATIVE_IDENTITY_DEPLOYMENT: "production",
-        NATIVE_IDENTITY_TRUSTED_ORIGINS: undefined,
-      }),
+      Effect.runSync(
+        decodeBackendConfig({
+          ...environment,
+          NATIVE_IDENTITY_DEPLOYMENT: "production",
+          NATIVE_IDENTITY_TRUSTED_ORIGINS: undefined,
+        }),
+      ),
     ).toThrow();
   });
 
@@ -1179,7 +1183,9 @@ describe("unified backend router", () => {
     ["BETTER_AUTH_TRUSTED_ORIGINS", "http://127.0.0.1:5174"],
     ["BETTER_AUTH_TRUSTED_ORIGINS", ""],
   ] as const)("rejects unsupported %s even when its value is %j", (name, value) => {
-    expect(() => decodeBackendConfig({ ...environment, [name]: value })).toThrow("unsupported");
+    expect(() => Effect.runSync(decodeBackendConfig({ ...environment, [name]: value }))).toThrow(
+      "unsupported",
+    );
   });
 
   it.live("forwards an evidence-only clock to protected authority resolution", () =>
@@ -1286,35 +1292,41 @@ describe("unified backend router", () => {
 
   it("requires TLS for non-loopback application effect providers", () => {
     expect(() =>
-      decodeBackendConfig({
-        ...environment,
-        PUBLIC_APPLICATION_EFFECT_MODE: "http",
-        PUBLIC_APPLICATION_EFFECT_ENDPOINT: "http://provider.example.invalid/effects",
-        PUBLIC_APPLICATION_EFFECT_TOKEN: "provider-token",
-      }),
+      Effect.runSync(
+        decodeBackendConfig({
+          ...environment,
+          PUBLIC_APPLICATION_EFFECT_MODE: "http",
+          PUBLIC_APPLICATION_EFFECT_ENDPOINT: "http://provider.example.invalid/effects",
+          PUBLIC_APPLICATION_EFFECT_TOKEN: "provider-token",
+        }),
+      ),
     ).toThrow("must use HTTPS unless it targets loopback");
 
     expect(
-      decodeBackendConfig({
-        ...environment,
-        PUBLIC_APPLICATION_EFFECT_MODE: "http",
-        PUBLIC_APPLICATION_EFFECT_ENDPOINT: "http://127.0.0.1:8898/effects",
-        PUBLIC_APPLICATION_EFFECT_TOKEN: "provider-token",
-      }).publicApplicationEffects?.endpoint.href,
+      Effect.runSync(
+        decodeBackendConfig({
+          ...environment,
+          PUBLIC_APPLICATION_EFFECT_MODE: "http",
+          PUBLIC_APPLICATION_EFFECT_ENDPOINT: "http://127.0.0.1:8898/effects",
+          PUBLIC_APPLICATION_EFFECT_TOKEN: "provider-token",
+        }),
+      ).publicApplicationEffects?.endpoint.href,
     ).toBe("http://127.0.0.1:8898/effects");
   });
 
   it("requires an explicit application effect mode", () => {
     const { PUBLIC_APPLICATION_EFFECT_MODE: _, ...implicitEnvironment } = environment;
-    expect(() => decodeBackendConfig(implicitEnvironment)).toThrow(
+    expect(() => Effect.runSync(decodeBackendConfig(implicitEnvironment))).toThrow(
       "PUBLIC_APPLICATION_EFFECT_MODE must be disabled or http",
     );
     expect(() =>
-      decodeBackendConfig({
-        ...environment,
-        PUBLIC_APPLICATION_EFFECT_ENDPOINT: "https://provider.example.invalid/effects",
-        PUBLIC_APPLICATION_EFFECT_TOKEN: "provider-token",
-      }),
+      Effect.runSync(
+        decodeBackendConfig({
+          ...environment,
+          PUBLIC_APPLICATION_EFFECT_ENDPOINT: "https://provider.example.invalid/effects",
+          PUBLIC_APPLICATION_EFFECT_TOKEN: "provider-token",
+        }),
+      ),
     ).toThrow("require PUBLIC_APPLICATION_EFFECT_MODE=http");
   });
 });

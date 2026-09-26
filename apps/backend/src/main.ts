@@ -72,7 +72,7 @@ if (ingress !== "external" && ingress !== "internal") {
   throw new TypeError("BACKEND_INGRESS must be external or internal");
 }
 
-const config = decodeBackendConfig(process.env);
+const config = Effect.runSync(decodeBackendConfig(process.env));
 
 // The migration reader reads the migration files through the Bun file system and path services.
 const databaseLayer = DatabaseLive({

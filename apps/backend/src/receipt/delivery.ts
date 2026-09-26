@@ -43,9 +43,9 @@ export const receiptDeliveryConfig = (
     const sender = Schema.decodeUnknownSync(ContactEmail)(env.RECEIPT_DELIVERY_SENDER);
     const timeout = Number(env.RECEIPT_DELIVERY_TIMEOUT_MS);
 
-    const recipients = Schema.decodeUnknownSync(Schema.Record(Schema.String, ContactEmail))(
-      JSON.parse(env.RECEIPT_DELIVERY_ECONOMY_RECIPIENTS!),
-    );
+    const recipients = Schema.decodeUnknownSync(
+      Schema.fromJsonString(Schema.Record(Schema.String, ContactEmail)),
+    )(env.RECEIPT_DELIVERY_ECONOMY_RECIPIENTS);
 
     // Cleartext delivery is confined to local rehearsals; credentials never follow redirects.
     if (

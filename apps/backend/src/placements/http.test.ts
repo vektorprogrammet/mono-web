@@ -197,7 +197,7 @@ const fixture = () => {
   const database = backendDatabase(seed);
 
   const http = makeBackendTestHttp(
-    decodeBackendConfig(environment),
+    Effect.runSync(decodeBackendConfig(environment)),
     Layer.mergeAll(
       PlacementsLive,
       OrganizationLive,

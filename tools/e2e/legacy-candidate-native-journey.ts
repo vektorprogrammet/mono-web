@@ -22,7 +22,7 @@ import {
   ReceiptListResponse,
   UserProfileResponse,
 } from "@vektorprogrammet/http-api";
-import { Layer, ManagedRuntime, Redacted, Schema } from "effect";
+import { Effect, Layer, ManagedRuntime, Redacted, Schema } from "effect";
 import { Etag, FetchHttpClient, HttpRouter } from "effect/unstable/http";
 import { ReceiptDeliveryLive } from "@vektorprogrammet/backend/receipt/delivery";
 import {
@@ -74,20 +74,22 @@ export const observeLegacyCandidateNativeJourney = async (
   const backendOrigin = "http://127.0.0.1:4790";
   const dashboardOrigin = "http://127.0.0.1:4791";
 
-  const config = decodeBackendConfig({
-    BACKEND_PG_URL: input.target.url,
-    BETTER_AUTH_SECRET: input.authSecret,
-    NATIVE_IDENTITY_DEPLOYMENT: "local",
-    NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
-    OAUTH_CANONICAL_ORIGIN: backendOrigin,
-    OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
-    OAUTH_NATIVE_API_RESOURCE,
-    PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-    PASSWORD_RESET_DELIVERY_MODE: "disabled",
-    RECEIPT_DELIVERY_MODE: "disabled",
-    RECEIPT_STAGING_ROOT: input.receiptStore.stagingRoot,
-    RECEIPT_COMMITTED_ROOT: input.receiptStore.committedRoot,
-  });
+  const config = Effect.runSync(
+    decodeBackendConfig({
+      BACKEND_PG_URL: input.target.url,
+      BETTER_AUTH_SECRET: input.authSecret,
+      NATIVE_IDENTITY_DEPLOYMENT: "local",
+      NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
+      OAUTH_CANONICAL_ORIGIN: backendOrigin,
+      OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
+      OAUTH_NATIVE_API_RESOURCE,
+      PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+      PASSWORD_RESET_DELIVERY_MODE: "disabled",
+      RECEIPT_DELIVERY_MODE: "disabled",
+      RECEIPT_STAGING_ROOT: input.receiptStore.stagingRoot,
+      RECEIPT_COMMITTED_ROOT: input.receiptStore.committedRoot,
+    }),
+  );
 
   // Same live service graph as apps/backend/src/main.ts, without delivery workers.
   const database = DatabaseLive({

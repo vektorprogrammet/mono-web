@@ -158,7 +158,7 @@ const fixture = () =>
       DatabaseRuntimeLive({ ...target, maxConnections: 1 }).pipe(Layer.orDie);
 
     const http = makeBackendTestHttp(
-      decodeBackendConfig(environment),
+      yield* decodeBackendConfig(environment),
       Layer.mergeAll(
         AdmissionsLive,
         OrganizationLive,

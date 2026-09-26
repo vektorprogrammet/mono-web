@@ -153,33 +153,35 @@ const oauthBackendConfig = (
   env: Readonly<Record<string, string | undefined>>,
   trustedOrigins: ReadonlyArray<string>,
   provider: ConfigProvider.ConfigProvider,
-): Pick<BackendAuthConfig, "oauth" | "internalSourceNetworks"> => {
-  const settings = Effect.runSync(oauthSettings.parse(provider));
-  const canonicalOrigin = exactOrigin(settings.canonicalOrigin, "OAUTH_CANONICAL_ORIGIN");
-  const dashboardOrigin = exactOrigin(settings.dashboardOrigin, "OAUTH_DASHBOARD_ORIGIN");
+): Effect.Effect<Pick<BackendAuthConfig, "oauth" | "internalSourceNetworks">, Config.ConfigError> =>
+  oauthSettings.parse(provider).pipe(
+    Effect.map((settings) => {
+      const canonicalOrigin = exactOrigin(settings.canonicalOrigin, "OAUTH_CANONICAL_ORIGIN");
+      const dashboardOrigin = exactOrigin(settings.dashboardOrigin, "OAUTH_DASHBOARD_ORIGIN");
 
-  if (!trustedOrigins.includes(dashboardOrigin)) {
-    throw new Error("OAUTH_DASHBOARD_ORIGIN must be a trusted first-party origin");
-  }
+      if (!trustedOrigins.includes(dashboardOrigin)) {
+        throw new Error("OAUTH_DASHBOARD_ORIGIN must be a trusted first-party origin");
+      }
 
-  if (env.OAUTH_NATIVE_API_RESOURCE !== OAUTH_NATIVE_API_RESOURCE) {
-    throw new Error(`OAUTH_NATIVE_API_RESOURCE must be ${OAUTH_NATIVE_API_RESOURCE}`);
-  }
+      if (env.OAUTH_NATIVE_API_RESOURCE !== OAUTH_NATIVE_API_RESOURCE) {
+        throw new Error(`OAUTH_NATIVE_API_RESOURCE must be ${OAUTH_NATIVE_API_RESOURCE}`);
+      }
 
-  return {
-    oauth: {
-      canonicalOrigin,
-      dashboardOrigin,
-      nativeApiResource: OAUTH_NATIVE_API_RESOURCE,
-    },
-    internalSourceNetworks: internalSourceNetworks(env),
-  };
-};
+      return {
+        oauth: {
+          canonicalOrigin,
+          dashboardOrigin,
+          nativeApiResource: OAUTH_NATIVE_API_RESOURCE,
+        },
+        internalSourceNetworks: internalSourceNetworks(env),
+      };
+    }),
+  );
 
 export const decodeOAuthBackendConfig = (
   env: Readonly<Record<string, string | undefined>>,
   trustedOrigins: ReadonlyArray<string>,
-): Pick<BackendAuthConfig, "oauth" | "internalSourceNetworks"> =>
+): Effect.Effect<Pick<BackendAuthConfig, "oauth" | "internalSourceNetworks">, Config.ConfigError> =>
   oauthBackendConfig(
     env,
     trustedOrigins,
@@ -256,46 +258,46 @@ const teamApplicationApiSettings = Config.all({
 
 const teamApplicationApiConfig = (
   provider: ConfigProvider.ConfigProvider,
-): TeamApplicationApiConfig => {
-  const settings = Effect.runSync(teamApplicationApiSettings.parse(provider));
-
-  return {
-    rateLimit: publicRateLimit(settings.maxRequests, settings.windowMilliseconds),
-    retryAfterSeconds: Math.ceil(settings.windowMilliseconds / 1000),
-  };
-};
+): Effect.Effect<TeamApplicationApiConfig, Config.ConfigError> =>
+  teamApplicationApiSettings.parse(provider).pipe(
+    Effect.map((settings) => ({
+      rateLimit: publicRateLimit(settings.maxRequests, settings.windowMilliseconds),
+      retryAfterSeconds: Math.ceil(settings.windowMilliseconds / 1000),
+    })),
+  );
 
 export const decodeTeamApplicationApiConfig = (
   env: Readonly<Record<string, string | undefined>>,
-): TeamApplicationApiConfig =>
+): Effect.Effect<TeamApplicationApiConfig, Config.ConfigError> =>
   teamApplicationApiConfig(ConfigProvider.fromEnvRecord(env, { preserveEmptyStrings: true }));
 
 const teamApplicationDeliveryConfig = (
   env: Readonly<Record<string, string | undefined>>,
   provider: ConfigProvider.ConfigProvider,
-): TeamApplicationDeliveryConfig | undefined => {
-  if (Effect.runSync(teamApplicationDeliveryMode.parse(provider)) === "disabled") return undefined;
+): Effect.Effect<TeamApplicationDeliveryConfig | undefined, Config.ConfigError> =>
+  Effect.gen(function* () {
+    if ((yield* teamApplicationDeliveryMode.parse(provider)) === "disabled") return undefined;
 
-  const transport = mailDeliveryConfig(env);
+    const transport = mailDeliveryConfig(env);
 
-  if (transport === undefined) {
-    throw new Error("Team application delivery requires mail configuration");
-  }
+    if (transport === undefined) {
+      throw new Error("Team application delivery requires mail configuration");
+    }
 
-  const settings = Effect.runSync(teamApplicationDeliverySettings.parse(provider));
+    const settings = yield* teamApplicationDeliverySettings.parse(provider);
 
-  // A claim must outlive one bounded provider attempt before stale recovery may retry it.
-  if (settings.staleClaimMilliseconds <= transport.deliveryTimeoutMilliseconds) {
-    throw new Error("TEAM_APPLICATION_DELIVERY_STALE_MS must exceed MAIL_DELIVERY_TIMEOUT_MS");
-  }
+    // A claim must outlive one bounded provider attempt before stale recovery may retry it.
+    if (settings.staleClaimMilliseconds <= transport.deliveryTimeoutMilliseconds) {
+      throw new Error("TEAM_APPLICATION_DELIVERY_STALE_MS must exceed MAIL_DELIVERY_TIMEOUT_MS");
+    }
 
-  return {
-    sender: Redacted.value(settings.sender),
-    transport,
-    pollIntervalMilliseconds: settings.pollIntervalMilliseconds,
-    staleClaimMilliseconds: settings.staleClaimMilliseconds,
-  };
-};
+    return {
+      sender: Redacted.value(settings.sender),
+      transport,
+      pollIntervalMilliseconds: settings.pollIntervalMilliseconds,
+      staleClaimMilliseconds: settings.staleClaimMilliseconds,
+    };
+  });
 
 const providerEndpoint = (endpoint: URL): URL => {
   const loopback =
@@ -317,119 +319,152 @@ const providerEndpoint = (endpoint: URL): URL => {
 const publicApplicationEffectConfig = (
   env: Readonly<Record<string, string | undefined>>,
   provider: ConfigProvider.ConfigProvider,
-): PublicApplicationEffectConfig | undefined => {
-  const mode = env.PUBLIC_APPLICATION_EFFECT_MODE;
-  const endpoint = env.PUBLIC_APPLICATION_EFFECT_ENDPOINT;
-  const token = env.PUBLIC_APPLICATION_EFFECT_TOKEN;
+): Effect.Effect<PublicApplicationEffectConfig | undefined, Config.ConfigError> =>
+  Effect.gen(function* () {
+    const mode = env.PUBLIC_APPLICATION_EFFECT_MODE;
+    const endpoint = env.PUBLIC_APPLICATION_EFFECT_ENDPOINT;
+    const token = env.PUBLIC_APPLICATION_EFFECT_TOKEN;
 
-  if (mode === "disabled") {
-    if (endpoint !== undefined || token !== undefined) {
-      throw new Error(
-        "PUBLIC_APPLICATION_EFFECT_ENDPOINT and PUBLIC_APPLICATION_EFFECT_TOKEN require PUBLIC_APPLICATION_EFFECT_MODE=http",
-      );
+    if (mode === "disabled") {
+      if (endpoint !== undefined || token !== undefined) {
+        throw new Error(
+          "PUBLIC_APPLICATION_EFFECT_ENDPOINT and PUBLIC_APPLICATION_EFFECT_TOKEN require PUBLIC_APPLICATION_EFFECT_MODE=http",
+        );
+      }
+
+      return undefined;
     }
 
-    return undefined;
-  }
+    if (mode !== "http") {
+      throw new Error("PUBLIC_APPLICATION_EFFECT_MODE must be disabled or http");
+    }
 
-  if (mode !== "http") {
-    throw new Error("PUBLIC_APPLICATION_EFFECT_MODE must be disabled or http");
-  }
+    const settings = yield* publicApplicationSettings.parse(provider);
 
-  const settings = Effect.runSync(publicApplicationSettings.parse(provider));
+    return {
+      ...settings,
+      endpoint: providerEndpoint(settings.endpoint),
+      token: Redacted.value(settings.token),
+    };
+  });
 
-  return {
-    ...settings,
-    endpoint: providerEndpoint(settings.endpoint),
-    token: Redacted.value(settings.token),
-  };
-};
-
-export const decodeBackendConfig = (
+const passwordResetDeliveryConfig = (
   env: Readonly<Record<string, string | undefined>>,
-): BackendConfig => {
-  const provider = ConfigProvider.fromEnvRecord(env, { preserveEmptyStrings: true });
-  const admission = decodeAdmissionApiConfig(env);
-  const sessionBoundary = decodeNativeSessionBoundaryPolicy(env);
-  const receiptE2E = decodeReceiptE2EComposition(env, sessionBoundary.deployment);
+  provider: ConfigProvider.ConfigProvider,
+): Effect.Effect<PasswordResetDeliveryConfig | undefined, Config.ConfigError> =>
+  Effect.gen(function* () {
+    if (env.PASSWORD_RESET_DELIVERY_MODE === "disabled") return undefined;
 
-  const receipt: ReceiptApiConfig =
-    receiptE2E === undefined
-      ? decodeReceiptApiConfig(env)
-      : { ...decodeReceiptApiConfig(env), e2e: receiptE2E };
+    if (env.PASSWORD_RESET_DELIVERY_MODE !== "http") {
+      throw new Error("PASSWORD_RESET_DELIVERY_MODE must be disabled or http");
+    }
 
-  const effects = publicApplicationEffectConfig(env, provider);
-  const schoolServiceNotifications = schoolServiceNotificationConfig(env);
-  const credentials = Effect.runSync(authSettings.parse(provider));
-  const postgresUrl = Redacted.value(credentials.postgresUrl);
-  const secret = Redacted.value(credentials.secret);
-  const oauth = oauthBackendConfig(env, sessionBoundary.trustedOrigins, provider);
-  const receiptDelivery = receiptDeliveryConfig(env);
-  const teamApplicationDelivery = teamApplicationDeliveryConfig(env, provider);
-  let passwordResetDelivery: PasswordResetDeliveryConfig | undefined;
-  let receiptDeliveryPollMilliseconds: number | undefined;
-
-  if (env.PASSWORD_RESET_DELIVERY_MODE === "http") {
     const transport = mailDeliveryConfig(env);
 
     if (!transport) throw new Error("Password reset delivery requires mail configuration");
-    passwordResetDelivery = {
-      transport,
-      sender: Redacted.value(
-        Effect.runSync(Config.schema(Schema.Redacted(ContactEmail), "MAIL_SENDER").parse(provider)),
-      ),
-      pollIntervalMilliseconds: Effect.runSync(
-        Config.schema(PositiveInteger, "PASSWORD_RESET_DELIVERY_POLL_MS")
-          .pipe(Config.withDefault(1000))
-          .parse(provider),
-      ),
-    };
-  } else if (env.PASSWORD_RESET_DELIVERY_MODE !== "disabled") {
-    throw new Error("PASSWORD_RESET_DELIVERY_MODE must be disabled or http");
-  }
 
-  if (env.RECEIPT_DELIVERY_MODE === "http") {
+    const sender = yield* Config.schema(Schema.Redacted(ContactEmail), "MAIL_SENDER").parse(
+      provider,
+    );
+
+    const pollIntervalMilliseconds = yield* Config.schema(
+      PositiveInteger,
+      "PASSWORD_RESET_DELIVERY_POLL_MS",
+    )
+      .pipe(Config.withDefault(1000))
+      .parse(provider);
+
+    return { transport, sender: Redacted.value(sender), pollIntervalMilliseconds };
+  });
+
+const receiptDeliveryPollConfig = (
+  env: Readonly<Record<string, string | undefined>>,
+  provider: ConfigProvider.ConfigProvider,
+  receiptDelivery: ReceiptDeliveryConfig | undefined,
+): Effect.Effect<number | undefined, Config.ConfigError> =>
+  Effect.gen(function* () {
+    if (env.RECEIPT_DELIVERY_MODE === "disabled") return undefined;
+
+    if (env.RECEIPT_DELIVERY_MODE !== "http") {
+      throw new Error("RECEIPT_DELIVERY_MODE must be disabled or http");
+    }
+
     if (!receiptDelivery || !env.RECEIPT_STAGING_ROOT || !env.RECEIPT_COMMITTED_ROOT)
       throw new Error("Receipt worker requires delivery configuration and explicit storage roots");
-    receiptDeliveryPollMilliseconds = Effect.runSync(
-      Config.schema(PositiveInteger, "RECEIPT_DELIVERY_POLL_MS")
-        .pipe(Config.withDefault(1000))
-        .parse(provider),
+
+    return yield* Config.schema(PositiveInteger, "RECEIPT_DELIVERY_POLL_MS")
+      .pipe(Config.withDefault(1000))
+      .parse(provider);
+  });
+
+export const decodeBackendConfig = (
+  env: Readonly<Record<string, string | undefined>>,
+): Effect.Effect<BackendConfig, Config.ConfigError> =>
+  Effect.gen(function* () {
+    const provider = ConfigProvider.fromEnvRecord(env, { preserveEmptyStrings: true });
+    const admission = decodeAdmissionApiConfig(env);
+    const sessionBoundary = decodeNativeSessionBoundaryPolicy(env);
+    const receiptE2E = decodeReceiptE2EComposition(env, sessionBoundary.deployment);
+
+    const receipt: ReceiptApiConfig =
+      receiptE2E === undefined
+        ? decodeReceiptApiConfig(env)
+        : { ...decodeReceiptApiConfig(env), e2e: receiptE2E };
+
+    const effects = yield* publicApplicationEffectConfig(env, provider);
+    const schoolServiceNotifications = schoolServiceNotificationConfig(env);
+    const credentials = yield* authSettings.parse(provider);
+    const postgresUrl = Redacted.value(credentials.postgresUrl);
+    const secret = Redacted.value(credentials.secret);
+    const oauth = yield* oauthBackendConfig(env, sessionBoundary.trustedOrigins, provider);
+    const receiptDelivery = receiptDeliveryConfig(env);
+    const teamApplicationDelivery = yield* teamApplicationDeliveryConfig(env, provider);
+    const passwordResetDelivery = yield* passwordResetDeliveryConfig(env, provider);
+
+    const receiptDeliveryPollMilliseconds = yield* receiptDeliveryPollConfig(
+      env,
+      provider,
+      receiptDelivery,
     );
-  } else if (env.RECEIPT_DELIVERY_MODE !== "disabled") {
-    throw new Error("RECEIPT_DELIVERY_MODE must be disabled or http");
-  }
 
-  const config: BackendConfig = {
-    contact: contactConfig(env),
-    passwordResetDelivery,
-    receiptDelivery,
-    receiptDeliveryPollMilliseconds,
-    onboarding: onboardingDeliveryConfig(env),
-    recruitmentNotifications: recruitmentNotificationConfig(env),
-    ...Effect.runSync(listenerSettings.parse(provider)),
-    postgresUrl,
-    sessionBoundary,
-    auth: {
+    const contact = contactConfig(env);
+    const onboarding = onboardingDeliveryConfig(env);
+    const recruitmentNotifications = recruitmentNotificationConfig(env);
+    const listener = yield* listenerSettings.parse(provider);
+    const recruitment = recruitmentApiConfig(admission);
+    const organization = decodeOrganizationApiConfig(env);
+    const teamApplication = yield* teamApplicationApiConfig(provider);
+
+    const config: BackendConfig = {
+      contact,
+      passwordResetDelivery,
+      receiptDelivery,
+      receiptDeliveryPollMilliseconds,
+      onboarding,
+      recruitmentNotifications,
+      ...listener,
       postgresUrl,
-      secret,
-      ...oauth,
-      trustedOrigins: sessionBoundary.trustedOrigins,
-      secureCookies: sessionBoundary.secureCookies,
-    },
-    admission,
-    receipt,
-    recruitment: recruitmentApiConfig(admission),
-    organization: decodeOrganizationApiConfig(env),
-    teamApplication: teamApplicationApiConfig(provider),
-  };
+      sessionBoundary,
+      auth: {
+        postgresUrl,
+        secret,
+        ...oauth,
+        trustedOrigins: sessionBoundary.trustedOrigins,
+        secureCookies: sessionBoundary.secureCookies,
+      },
+      admission,
+      receipt,
+      recruitment,
+      organization,
+      teamApplication,
+    };
 
-  if (effects !== undefined) Object.assign(config, { publicApplicationEffects: effects });
+    if (effects !== undefined) Object.assign(config, { publicApplicationEffects: effects });
 
-  if (schoolServiceNotifications !== undefined)
-    Object.assign(config, { schoolServiceNotifications });
+    if (schoolServiceNotifications !== undefined)
+      Object.assign(config, { schoolServiceNotifications });
 
-  if (teamApplicationDelivery !== undefined) Object.assign(config, { teamApplicationDelivery });
+    if (teamApplicationDelivery !== undefined) Object.assign(config, { teamApplicationDelivery });
 
-  return config;
-};
+    return config;
+  });
