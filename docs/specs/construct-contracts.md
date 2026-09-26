@@ -50,12 +50,11 @@ A tagged construct without each required tag is a finding, so the contract canno
 
 ## Progress
 
-Stopped at the run budget on 2026-09-26, branch `docs/construct-contracts-0926`. Every commit below passed the hooks; `just check` passed on fefacfde and 3e55af4c.
+Branch `docs/construct-contracts-0926`, rebased onto main 9cb12743 on 2026-09-27; the generated files were rendered again, not merged by hand.
 
-- Step 1, fefacfde: `contracts.ts` reads the JSDoc, the annotations, and the channel split of any top-level declaration; `constructs.ts` renders the index and one page per category (`constructPages` holds both paths), and `just constructs consumers [name]` prints importers (identical to the old page for `webHandler`, `lockAdvisory`, `sha256Hex`, and `startDisposablePostgres`). Contract gaps and consumer counts are warnings.
-- Step 2, done: delivery (3e55af4c), worker (47f4f31f), runtime-bridge (6b963fda: untagged, category removed, `boundaries.md` names the runner as the pattern and the second runner as the promotion trigger), request-ledger (4d909b58), digest (ce2bdc45).
+- Step 1 (7ed45406): `contracts.ts` reads the JSDoc, the annotations, and the channel split of any top-level declaration; `constructs.ts` renders the index and one page per category (`constructPages` holds both paths), and `just constructs consumers [name]` prints importers (identical to the old page for `webHandler`, `lockAdvisory`, `sha256Hex`, and `startDisposablePostgres`). Contract gaps and consumer counts are warnings.
+- Step 2, done: delivery (f7671da3), worker (184c6a1c), runtime-bridge (cd0c4257: untagged, category removed, `boundaries.md` names the runner as the pattern and the second runner as the promotion trigger), request-ledger (7489282b), digest (85690751).
 - Step 2, open: pagination, sql-lock, sql-lifecycle, test-harness, http-transport, http-problem. Then step 3 (make `report.gaps` and `consumerFindings` failing, with negative controls) and step 4 (overlay links to `docs/constructs/<category>.md`, the construct section of `AGENTS.md`, and the local part of `tools/conventions/AGENTS.md`).
-- Rebase first: main 27849add conflicts in `tools/conventions/src/{cli,sections}.ts` and `README.md`. Keep main's `@AGENTS.md` changes, then regenerate with `just constructs write`, `just guides write`, and `just layout write`.
 
 Decisions for the open steps:
 
