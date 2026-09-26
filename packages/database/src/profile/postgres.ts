@@ -82,9 +82,7 @@ const readProfile = (
     FROM person_profiles
     WHERE person_id = ${personId}
   `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : decodeProfile(rows[0]),
-    ),
+    Effect.flatMap((rows) => (rows[0] === undefined ? Effect.undefined : decodeProfile(rows[0]))),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read person profile", cause)),
     ),
@@ -103,9 +101,7 @@ const readContact = (
     FROM person_contact_profiles
     WHERE person_id = ${personId}
   `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : decodeContact(rows[0]),
-    ),
+    Effect.flatMap((rows) => (rows[0] === undefined ? Effect.undefined : decodeContact(rows[0]))),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read person contact", cause)),
     ),
@@ -369,9 +365,7 @@ const lockPersonProfile = (
     WHERE person_id = ${personId}
     FOR UPDATE
   `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : decodeProfile(rows[0]),
-    ),
+    Effect.flatMap((rows) => (rows[0] === undefined ? Effect.undefined : decodeProfile(rows[0]))),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("lock own Profile name row", cause)),
     ),
@@ -391,9 +385,7 @@ const lockPersonContact = (
     WHERE person_id = ${personId}
     FOR UPDATE
   `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : decodeContact(rows[0]),
-    ),
+    Effect.flatMap((rows) => (rows[0] === undefined ? Effect.undefined : decodeContact(rows[0]))),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("lock own Profile contact row", cause)),
     ),

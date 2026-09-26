@@ -89,7 +89,7 @@ const findDepartment = (
     WHERE department_id = ${departmentId}
   `.pipe(
     Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : decodeDepartment(rows[0]),
+      rows[0] === undefined ? Effect.undefined : decodeDepartment(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read organization department", cause)),
@@ -164,9 +164,7 @@ const findTeam = (
     FROM organization_teams
     WHERE team_id = ${teamId}
   `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : decodeTeam(rows[0]),
-    ),
+    Effect.flatMap((rows) => (rows[0] === undefined ? Effect.undefined : decodeTeam(rows[0]))),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read organization team", cause)),
     ),
@@ -292,7 +290,7 @@ const findMembership = (
 
   return query.pipe(
     Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : decodeMembership(rows[0]),
+      rows[0] === undefined ? Effect.undefined : decodeMembership(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read organization membership", cause)),

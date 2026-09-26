@@ -22,8 +22,7 @@ export const ContactQuotaLive = Layer.effect(
       WHERE contact_rate_windows.expires_at <= statement_timestamp() OR contact_rate_windows.attempts < 5
       RETURNING attempts`;
 
-          if (admitted.length === 0)
-            return yield* Effect.fail(new ContactFailure({ reason: "RateLimited" }));
+          if (admitted.length === 0) return yield* new ContactFailure({ reason: "RateLimited" });
         }).pipe(
           Effect.mapError((error) =>
             error instanceof ContactFailure ? error : new ContactFailure({ reason: "Unavailable" }),

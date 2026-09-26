@@ -208,7 +208,7 @@ type MutationSelection =
     }
   | {
       readonly mode: "board";
-      readonly scope: typeof PlacementScope.Type;
+      readonly scope: PlacementScope;
       readonly command: PlacementCommandType;
       readonly endpoint: typeof CommandPlacementBoardEndpoint;
       readonly operationId: "placements.commandBoard";
@@ -217,7 +217,7 @@ type MutationSelection =
     }
   | {
       readonly mode: "ownCoverage";
-      readonly scope: typeof PlacementScope.Type;
+      readonly scope: PlacementScope;
       readonly command: OwnCoverageCommandType;
       readonly endpoint: typeof CommandOwnCoverageEndpoint;
       readonly operationId: "placements.commandOwnCoverage";
@@ -226,7 +226,7 @@ type MutationSelection =
     }
   | {
       readonly mode: "coverage";
-      readonly scope: typeof PlacementScope.Type;
+      readonly scope: PlacementScope;
       readonly command: CoverageCommandType;
       readonly endpoint: typeof CommandCoverageBoardEndpoint;
       readonly operationId: "placements.commandCoverageBoard";

@@ -117,9 +117,7 @@ const findReceiptForSettlement = (
     WHERE receipt_id = ${receiptId}
     FOR UPDATE
   `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : receiptFromRow(rows[0]),
-    ),
+    Effect.flatMap((rows) => (rows[0] === undefined ? Effect.undefined : receiptFromRow(rows[0]))),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read Receipt for settlement", cause)),
     ),
@@ -153,7 +151,7 @@ const findSettlementByReceipt = (
     WHERE receipt_id = ${receiptId}
   `.pipe(
     Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : decodeSettlementEvidence(rows[0]),
+      rows[0] === undefined ? Effect.undefined : decodeSettlementEvidence(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read Receipt settlement", cause)),
@@ -181,7 +179,7 @@ const findSettlementById = (
     WHERE settlement_id = ${settlementId}
   `.pipe(
     Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : decodeSettlementEvidence(rows[0]),
+      rows[0] === undefined ? Effect.undefined : decodeSettlementEvidence(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read Receipt settlement replay", cause)),
@@ -223,7 +221,7 @@ const resolveSettlementAuthorizationWithSql = (
   Effect.gen(function* () {
     const current = yield* findReceiptForSettlement(sql, receiptId);
 
-    if (current === undefined) return yield* Effect.fail(new ReceiptNotFound({ receiptId }));
+    if (current === undefined) return yield* new ReceiptNotFound({ receiptId });
     yield* lockPersonAuthorization(sql, principal.personId).pipe(
       Effect.mapError((cause) => persistenceError(cause.operation, cause.message)),
     );
@@ -303,9 +301,7 @@ const executeAuthorizedReceiptSettlementWithSql = (
 
     if (stored !== undefined) {
       if (stored.command_sha256 !== commandDigest) {
-        return yield* Effect.fail(
-          new DuplicateReceiptCommandConflict({ commandId: command.commandId }),
-        );
+        return yield* new DuplicateReceiptCommandConflict({ commandId: command.commandId });
       }
 
       const observation = yield* Schema.decodeUnknownEffect(ReceiptSettlementObservationSchema)(
@@ -320,8 +316,9 @@ const executeAuthorizedReceiptSettlementWithSql = (
       const settlement = yield* findSettlementById(sql, observation.settlementId);
 
       if (settlement === undefined) {
-        return yield* Effect.fail(
-          persistenceError("read Receipt settlement replay", "recorded settlement was not found"),
+        return yield* persistenceError(
+          "read Receipt settlement replay",
+          "recorded settlement was not found",
         );
       }
 
@@ -338,35 +335,29 @@ const executeAuthorizedReceiptSettlementWithSql = (
     const existingSettlement = yield* findSettlementByReceipt(sql, current.receiptId);
 
     if (existingSettlement !== undefined) {
-      return yield* Effect.fail(new ReceiptAlreadySettled({ receiptId: current.receiptId }));
+      return yield* new ReceiptAlreadySettled({ receiptId: current.receiptId });
     }
 
     if (current.revision !== command.expectedRevision) {
-      return yield* Effect.fail(
-        new StaleReceiptRevision({
-          receiptId: current.receiptId,
-          expected: command.expectedRevision,
-          actual: current.revision,
-        }),
-      );
+      return yield* new StaleReceiptRevision({
+        receiptId: current.receiptId,
+        expected: command.expectedRevision,
+        actual: current.revision,
+      });
     }
 
     if (current.status !== "Approved") {
-      return yield* Effect.fail(
-        new InvalidReceiptTransition({
-          receiptId: current.receiptId,
-          status: current.status,
-          command: command._tag,
-        }),
-      );
+      return yield* new InvalidReceiptTransition({
+        receiptId: current.receiptId,
+        status: current.status,
+        command: command._tag,
+      });
     }
 
     const recordedAt = authorization.principal.authorizationInstant;
 
     if (compareRfc3339Instants(command.settledAt, recordedAt) > 0) {
-      return yield* Effect.fail(
-        new SettlementAfterRecordedAt({ settledAt: command.settledAt, recordedAt }),
-      );
+      return yield* new SettlementAfterRecordedAt({ settledAt: command.settledAt, recordedAt });
     }
 
     yield* lockAdvisory(
@@ -394,12 +385,10 @@ const executeAuthorizedReceiptSettlementWithSql = (
     );
 
     if (duplicateExternal[0] !== undefined) {
-      return yield* Effect.fail(
-        new DuplicateExternalSettlementReference({
-          externalAuthority: command.externalAuthority,
-          externalReference: command.externalReference,
-        }),
-      );
+      return yield* new DuplicateExternalSettlementReference({
+        externalAuthority: command.externalAuthority,
+        externalReference: command.externalReference,
+      });
     }
 
     const updated = yield* sql<{ readonly revision: number }>`
@@ -417,13 +406,11 @@ const executeAuthorizedReceiptSettlementWithSql = (
     const revision = updated[0]?.revision;
 
     if (revision === undefined) {
-      return yield* Effect.fail(
-        new StaleReceiptRevision({
-          receiptId: current.receiptId,
-          expected: current.revision,
-          actual: current.revision,
-        }),
-      );
+      return yield* new StaleReceiptRevision({
+        receiptId: current.receiptId,
+        expected: current.revision,
+        actual: current.revision,
+      });
     }
 
     const settlement: ReceiptSettlementEvidence = {
@@ -711,7 +698,7 @@ export const readReceiptSettlementForFinance = (
 
           const row = rows[0];
 
-          if (row === undefined) return yield* Effect.fail(new ReceiptNotFound({ receiptId }));
+          if (row === undefined) return yield* new ReceiptNotFound({ receiptId });
           const settlement = yield* decodeSettlementEvidence(row.settlement);
 
           const organization = yield* resolveOrganizationPersonAuthorityForRead(

@@ -340,7 +340,7 @@ export const resolveRequestPersonAuthorityInTransaction = (
     );
 
     if (!Predicate.isTagged(authenticated.credential.principal, "Person")) {
-      return yield* Effect.fail(new UnauthenticatedActor({ message: "authentication required" }));
+      return yield* new UnauthenticatedActor({ message: "authentication required" });
     }
 
     const personId = authenticated.credential.principal.personId;

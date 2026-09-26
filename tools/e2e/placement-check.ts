@@ -364,9 +364,7 @@ type NotificationCapture<Payload> = {
   readonly body: Payload;
 };
 
-const notificationRequests: Array<
-  NotificationCapture<typeof SchoolServiceNotificationRequest.Type>
-> = [];
+const notificationRequests: Array<NotificationCapture<SchoolServiceNotificationRequest>> = [];
 
 try {
   journey: {
@@ -407,7 +405,7 @@ try {
 
       const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
 
-      const observed: NotificationCapture<typeof SchoolServiceNotificationRequest.Type> = {
+      const observed: NotificationCapture<SchoolServiceNotificationRequest> = {
         body: Schema.decodeUnknownSync(SchoolServiceNotificationRequest)(payload),
       };
 

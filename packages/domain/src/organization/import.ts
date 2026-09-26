@@ -780,5 +780,4 @@ export const importLegacyOrganizationEffect = (
       }),
   });
 
-export const legacySemesterId = (value: number): typeof SemesterId.Type =>
-  SemesterId.make(sourceId(value));
+export const legacySemesterId = (value: number): SemesterId => SemesterId.make(sourceId(value));

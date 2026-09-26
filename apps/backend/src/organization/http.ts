@@ -664,7 +664,7 @@ const optionalQueryIdentity = <S extends Schema.ConstraintDecoder<unknown, never
   const value = new URL(request.url).searchParams.get(name);
 
   return value === null
-    ? Effect.succeed(undefined)
+    ? Effect.undefined
     : Schema.decodeEffect(schema)(value).pipe(
         Effect.mapError(() => Problem.make("request.malformed")),
       );

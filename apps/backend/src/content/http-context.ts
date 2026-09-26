@@ -72,11 +72,9 @@ export const authorizedActor = <E, R>(
     const decision = resolveContentActor(authority);
 
     if (Predicate.isTagged(decision, "Deny")) {
-      return yield* Effect.fail(
-        decision.reason === "AuthorityInactive"
-          ? new ContentAuthorityInactive({})
-          : new ContentNotInScope({}),
-      );
+      return yield* decision.reason === "AuthorityInactive"
+        ? new ContentAuthorityInactive({})
+        : new ContentNotInScope({});
     }
 
     return { ...actor, contentActor: decision.value };
@@ -99,11 +97,9 @@ export const authorizedActorInTransaction = (request: Request) =>
     const decision = resolveContentActor(authenticated.authority);
 
     if (Predicate.isTagged(decision, "Deny")) {
-      return yield* Effect.fail(
-        decision.reason === "AuthorityInactive"
-          ? new ContentAuthorityInactive({})
-          : new ContentNotInScope({}),
-      );
+      return yield* decision.reason === "AuthorityInactive"
+        ? new ContentAuthorityInactive({})
+        : new ContentNotInScope({});
     }
 
     return {

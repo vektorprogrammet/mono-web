@@ -195,9 +195,7 @@ const findReceipt = (
     WHERE receipt_id = ${receiptId}
     FOR UPDATE
   `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : receiptFromRow(rows[0]),
-    ),
+    Effect.flatMap((rows) => (rows[0] === undefined ? Effect.undefined : receiptFromRow(rows[0]))),
     Effect.catchTag("SqlError", (cause) => Effect.fail(persistenceError("read receipt", cause))),
   );
 
@@ -213,7 +211,7 @@ const findCommandReceipt = (
     Effect.flatMap((rows) => {
       const row = rows[0];
 
-      if (row === undefined) return Effect.succeed(undefined);
+      if (row === undefined) return Effect.undefined;
 
       return Schema.decodeUnknownEffect(StoredReceiptCommandEnvelopeSchema)(row.command_json, {
         onExcessProperty: "error",
@@ -379,11 +377,9 @@ export const storeReceiptImportResult = (
 
           if (prior?.result === "Accepted") {
             if (!isExactReplay(prior)) {
-              return yield* Effect.fail(
-                persistenceError(
-                  "conflicting receipt import replay",
-                  `${provenance.sourceRepository}:${result.sourcePrimaryKey}`,
-                ),
+              return yield* persistenceError(
+                "conflicting receipt import replay",
+                `${provenance.sourceRepository}:${result.sourcePrimaryKey}`,
               );
             }
 
@@ -478,11 +474,9 @@ export const storeReceiptImportResult = (
             const exactReplay = isExactReplay(existing);
 
             if (!exactReplay) {
-              return yield* Effect.fail(
-                persistenceError(
-                  "conflicting receipt import replay",
-                  `${provenance.sourceRepository}:${result.sourcePrimaryKey}`,
-                ),
+              return yield* persistenceError(
+                "conflicting receipt import replay",
+                `${provenance.sourceRepository}:${result.sourcePrimaryKey}`,
               );
             }
 
@@ -556,8 +550,9 @@ export const reconcileReceiptImport = (
             ledger[0]?.source_digest !== p.sourceDigest ||
             ledger[0]?.result !== "Accepted"
           ) {
-            return yield* Effect.fail(
-              persistenceError("reconcile receipt import", "exact accepted occurrence required"),
+            return yield* persistenceError(
+              "reconcile receipt import",
+              "exact accepted occurrence required",
             );
           }
 

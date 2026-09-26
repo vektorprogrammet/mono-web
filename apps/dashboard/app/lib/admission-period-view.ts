@@ -100,16 +100,16 @@ export type AdmissionPeriodView = {
 type ParsedCreateCommand = {
   readonly _tag: "CreateAdmissionPeriod";
   readonly commandId: IdempotencyKeyValue;
-  readonly payload: typeof CreateAdmissionPeriodRequest.Type;
+  readonly payload: CreateAdmissionPeriodRequest;
   readonly draft: AdmissionPeriodDraft;
 };
 
 type ParsedReviseCommand = {
   readonly _tag: "ReviseAdmissionPeriod";
   readonly commandId: IdempotencyKeyValue;
-  readonly admissionPeriodId: typeof AdmissionPeriodId.Type;
+  readonly admissionPeriodId: AdmissionPeriodId;
   readonly etag: StrongETagValue;
-  readonly payload: typeof AdmissionPeriodMergePatch.Type;
+  readonly payload: AdmissionPeriodMergePatch;
   readonly draft: AdmissionPeriodRevisionDraft;
 };
 
@@ -299,7 +299,7 @@ export function parseAdmissionPeriodForm(
       return failure(formError("endAt", errorMessages.InvalidAdmissionPeriodWindow));
     }
 
-    let payload: typeof AdmissionPeriodMergePatch.Type;
+    let payload: AdmissionPeriodMergePatch;
 
     try {
       payload = Schema.decodeSync(AdmissionPeriodMergePatch)(
@@ -360,7 +360,7 @@ export function parseAdmissionPeriodForm(
     return failure(formError("endAt", errorMessages.InvalidAdmissionPeriodWindow));
   }
 
-  let payload: typeof CreateAdmissionPeriodRequest.Type;
+  let payload: CreateAdmissionPeriodRequest;
 
   // An empty department is an absent key: the SDK encodes a present undefined as null,
   // which the contract rejects.

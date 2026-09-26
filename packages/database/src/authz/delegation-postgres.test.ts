@@ -99,7 +99,7 @@ let commandNumber = 0;
 const issue = (
   actor: PersonId,
   teamId: TeamId,
-  capability: typeof DelegableCapability.Type,
+  capability: DelegableCapability,
   area: DelegationArea,
   input: { readonly holders?: "AllMembers" | "LeadersOnly"; readonly startAt?: string } = {},
 ) =>

@@ -121,7 +121,7 @@ const claimInTransaction = (sql: DatabaseOperations, claimId: string, claimedAt:
 
     const decodedRow = yield* decode(ClaimedRow)(row).pipe(
       Effect.matchEffect({
-        onFailure: () => Effect.succeed(undefined),
+        onFailure: () => Effect.undefined,
         onSuccess: Effect.succeed,
       }),
     );
@@ -149,14 +149,14 @@ const claimInTransaction = (sql: DatabaseOperations, claimId: string, claimedAt:
         ? undefined
         : yield* decode(CanonicalRow)(canonicalRows[0]).pipe(
             Effect.matchEffect({
-              onFailure: () => Effect.succeed(undefined),
+              onFailure: () => Effect.undefined,
               onSuccess: Effect.succeed,
             }),
           );
 
     const request = yield* decode(SchoolServiceNotificationRequest)(decodedRow.payloadJson).pipe(
       Effect.matchEffect({
-        onFailure: () => Effect.succeed(undefined),
+        onFailure: () => Effect.undefined,
         onSuccess: Effect.succeed,
       }),
     );

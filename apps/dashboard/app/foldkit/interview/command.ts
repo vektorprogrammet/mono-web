@@ -22,16 +22,16 @@ export interface InterviewCommands {
   }) => Command.Command<Message>;
   readonly ConfirmInvitation: (args: {
     readonly requestId: number;
-    readonly etag: typeof StrongETag.Type;
+    readonly etag: StrongETag;
   }) => Command.Command<Message>;
   readonly RejectInvitation: (args: {
     readonly requestId: number;
-    readonly etag: typeof StrongETag.Type;
+    readonly etag: StrongETag;
     readonly message: string | null;
   }) => Command.Command<Message>;
   readonly RequestNewInvitationTime: (args: {
     readonly requestId: number;
-    readonly etag: typeof StrongETag.Type;
+    readonly etag: StrongETag;
     readonly message: string;
   }) => Command.Command<Message>;
 }

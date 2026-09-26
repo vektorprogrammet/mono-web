@@ -26,7 +26,7 @@ import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/dashboard.utlegg.oppgjor._index";
 
 type ParsedSettlementCommand = {
-  receiptId: typeof ReceiptId.Type;
+  receiptId: ReceiptId;
   etag: StrongETagValue;
   commandId: IdempotencyKeyValue;
   payload: typeof RecordReceiptSettlementRequest.Type;

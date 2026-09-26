@@ -22,7 +22,7 @@ export const AdmissionPeriodOutboxRequestSchema = Schema.TaggedUnion({
 export type AdmissionPeriodOutboxRequest = typeof AdmissionPeriodOutboxRequestSchema.Type;
 
 export const admissionPeriodOutboxRequest = (
-  commandId: typeof AdmissionPeriodCommandId.Type,
+  commandId: AdmissionPeriodCommandId,
   period: typeof AdmissionPeriodSchema.Type,
 ): AdmissionPeriodOutboxRequest =>
   AdmissionPeriodOutboxRequestSchema.cases.PublishAdmissionPeriodChanged.make({

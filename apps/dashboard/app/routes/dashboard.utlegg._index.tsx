@@ -26,7 +26,7 @@ import type { Route } from "./+types/dashboard.utlegg._index";
 
 type ParsedApprovalCommand = {
   intent: ReceiptApprovalIntent;
-  receiptId: typeof ReceiptId.Type;
+  receiptId: ReceiptId;
   etag: StrongETagValue;
   commandId: IdempotencyKeyValue;
 };

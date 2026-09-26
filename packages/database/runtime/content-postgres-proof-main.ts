@@ -215,18 +215,16 @@ const program = Effect.scoped(
     assert.equal(Number(replay.counts?.receipts), 1);
     assert.equal(Number(replay.counts?.audits), 1);
 
-    const kindReuse = yield* Effect.gen(function* () {
-      return yield* Effect.result(
-        publishPostgres({
-          command: PublishArticleInputSchema.make({
-            commandId: ContentCommandId.make(replayCommand.commandId),
-            articleId: replay.first.articleId,
-          }),
-          personId: PersonId.make(personId),
-          authorizationInstant,
+    const kindReuse = yield* Effect.result(
+      publishPostgres({
+        command: PublishArticleInputSchema.make({
+          commandId: ContentCommandId.make(replayCommand.commandId),
+          articleId: replay.first.articleId,
         }),
-      );
-    }).pipe(Effect.provide(makeProofLayer(databaseUrl, "content-postgres-proof-kind-reuse")));
+        personId: PersonId.make(personId),
+        authorizationInstant,
+      }),
+    ).pipe(Effect.provide(makeProofLayer(databaseUrl, "content-postgres-proof-kind-reuse")));
 
     assert.equal(kindReuse._tag, "Failure");
 

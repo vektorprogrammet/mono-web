@@ -180,7 +180,7 @@ const selectClass =
 
 type Entry = typeof AdmissionOutcomeResource.Type;
 
-type Outcome = (typeof AdmissionOutcomeCommand.Type)["outcome"];
+type Outcome = (AdmissionOutcomeCommand)["outcome"];
 
 const outcomeLabels: Readonly<Record<Outcome, string>> = {
   Admitted: "Tatt opp",

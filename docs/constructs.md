@@ -138,7 +138,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   [apps/backend/src/content/http-context.ts:52](../apps/backend/src/content/http-context.ts#L52), 1 consumer:
   - [apps/backend/src/content/http-reads.ts](../apps/backend/src/content/http-reads.ts)
 - `authorizedActorInTransaction`: Resolves the staff person of a command, its credential, and its content actor inside the command's transaction.
-  [apps/backend/src/content/http-context.ts:91](../apps/backend/src/content/http-context.ts#L91), 1 consumer:
+  [apps/backend/src/content/http-context.ts:89](../apps/backend/src/content/http-context.ts#L89), 1 consumer:
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
 - `departmentQuery`: A workspace or news listing accepts at most one department filter and no other parameter.
   [apps/backend/src/content/http-decode.ts:13](../apps/backend/src/content/http-decode.ts#L13), 1 consumer:
@@ -465,7 +465,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/recruitment/http-commands.ts](../apps/backend/src/recruitment/http-commands.ts)
   - [apps/backend/src/recruitment/http-reads.ts](../apps/backend/src/recruitment/http-reads.ts)
 - `readRecruitmentBody`: Every recruitment request body is one bounded `application/json` document.
-  [apps/backend/src/recruitment/http-decode.ts:16](../apps/backend/src/recruitment/http-decode.ts#L16), 2 consumers:
+  [apps/backend/src/recruitment/http-decode.ts:17](../apps/backend/src/recruitment/http-decode.ts#L17), 2 consumers:
   - [apps/backend/src/recruitment/http-commands.ts](../apps/backend/src/recruitment/http-commands.ts)
   - [apps/backend/src/recruitment/maintenance-http.ts](../apps/backend/src/recruitment/maintenance-http.ts)
 - `recruitmentProblems`: The one answer for every recruitment failure.

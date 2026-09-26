@@ -6,7 +6,7 @@ const SCHEDULING_ELEMENT = "vektor-recruitment-scheduling";
 
 const SCHEDULING_INPUT_ATTRIBUTE = "scheduling-input";
 
-const makeIdempotencyKeySeed = (): typeof IdempotencyKey.Type => {
+const makeIdempotencyKeySeed = (): IdempotencyKey => {
   const bytes = window.crypto.getRandomValues(new Uint8Array(32));
   let seed = "";
 

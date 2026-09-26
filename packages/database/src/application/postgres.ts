@@ -228,9 +228,7 @@ const findEligiblePeriod = (
           );
         }
 
-        return rows[0] === undefined
-          ? Effect.succeed(undefined)
-          : decodeAdmissionPeriodRow(rows[0]);
+        return rows[0] === undefined ? Effect.undefined : decodeAdmissionPeriodRow(rows[0]);
       },
     ),
     Effect.catchTag("SqlError", (cause) =>
@@ -250,7 +248,7 @@ const findFieldOfStudy = (
   `.pipe(
     Effect.flatMap((rows) =>
       rows[0] === undefined
-        ? Effect.succeed(undefined)
+        ? Effect.undefined
         : Schema.decodeEffect(AdmissionFieldOfStudy)(rows[0], {
             onExcessProperty: "error",
           }).pipe(Effect.mapError(() => persistenceError("decode field of study row"))),
@@ -280,7 +278,7 @@ const findApplicantForUpdate = (
     FOR UPDATE
   `.pipe(
     Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : decodeApplicantRow(rows[0]),
+      rows[0] === undefined ? Effect.undefined : decodeApplicantRow(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("lock applicant identity", cause)),
@@ -318,7 +316,7 @@ const findApplicationForUpdate = (
     FOR UPDATE
   `.pipe(
     Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : decodeApplicationRow(rows[0]),
+      rows[0] === undefined ? Effect.undefined : decodeApplicationRow(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) => Effect.fail(persistenceError(operation, cause))),
   );

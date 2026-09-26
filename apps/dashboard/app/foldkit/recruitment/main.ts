@@ -11,7 +11,7 @@ import { view } from "./view";
 export interface RecruitmentRuntimeInput {
   readonly client: RecruitmentClient;
   readonly serializedInput: string | null;
-  readonly idempotencyKeySeed: typeof IdempotencyKey.Type;
+  readonly idempotencyKeySeed: IdempotencyKey;
 }
 
 export const embedRecruitment = (
@@ -20,7 +20,7 @@ export const embedRecruitment = (
 ): (() => void) => {
   const commands = commandsFor(input.client);
   const update = updateFor(commands);
-  let initialModel: typeof Model.Type = invalidInputModel();
+  let initialModel: Model = invalidInputModel();
 
   if (input.serializedInput !== null) {
     try {

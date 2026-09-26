@@ -486,11 +486,7 @@ dsl("AuthLive (spec 0054)", () => {
     await seedCredentialIdentity();
     await seedCredentialIdentity(otherCohort);
 
-    const identity = await runtime.runPromise(
-      Effect.gen(function* () {
-        return yield* Identity;
-      }),
-    );
+    const identity = await runtime.runPromise(Identity);
 
     const signIn = async (
       person: Readonly<{ email: string; password: string }>,

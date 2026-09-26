@@ -470,7 +470,7 @@ const readSchedulingInterview = (
   `.pipe(
     Effect.flatMap((rows) =>
       rows[0] === undefined
-        ? Effect.succeed(undefined)
+        ? Effect.undefined
         : decode(SchedulingInterviewRowSchema, "scheduling interview row")(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>
@@ -493,7 +493,7 @@ const readStoredScheduleReceipt = (
   `.pipe(
     Effect.flatMap((rows) =>
       rows[0] === undefined
-        ? Effect.succeed(undefined)
+        ? Effect.undefined
         : decode(StoredScheduleReceiptRowSchema, "schedule command receipt")(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>

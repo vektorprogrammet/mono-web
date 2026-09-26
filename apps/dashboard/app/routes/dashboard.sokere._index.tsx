@@ -39,7 +39,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   const rawStatus = new URL(request.url).searchParams.get("status") ?? "all";
-  let status: typeof RecruitmentBoardStatus.Type;
+  let status: RecruitmentBoardStatus;
 
   try {
     status = S.decodeUnknownSync(RecruitmentBoardStatus)(rawStatus);

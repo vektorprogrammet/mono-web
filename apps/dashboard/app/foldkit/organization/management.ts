@@ -172,7 +172,7 @@ export const embedAppointmentManagement=(container:HTMLElement):(()=>void)=>{
 
   // The pinned HttpApi client distributes a union payload over whole requests.
   // Narrow only at this transport boundary; the domain owns all transitions.
-  const execute=Effect.fn("organization.executeLifecycle")(function* (command:typeof OrganizationLifecycleCommand.Type) {
+  const execute=Effect.fn("organization.executeLifecycle")(function* (command:OrganizationLifecycleCommand) {
     const headers={"idempotency-key":IdempotencyKey.make(command.commandId)};
 
     return yield* Match.value(command).pipe(

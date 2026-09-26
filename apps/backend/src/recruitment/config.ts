@@ -9,12 +9,12 @@ export interface RecruitmentApiConfig {
   readonly maxBodyBytes: number;
   /** Fixed instant from `ADMISSION_FIXED_NOW`; without it, handlers read the Clock service. */
   readonly now?: () => string;
-  readonly nextInterviewId: () => typeof RecruitmentInterviewId.Type;
-  readonly nextInvitationId: () => typeof RecruitmentInvitationId.Type;
+  readonly nextInterviewId: () => RecruitmentInterviewId;
+  readonly nextInvitationId: () => RecruitmentInvitationId;
   readonly nextResponseCapability: () => string;
 }
 
-export const makeRecruitmentInvitationId = (): typeof RecruitmentInvitationId.Type =>
+export const makeRecruitmentInvitationId = (): RecruitmentInvitationId =>
   RecruitmentInvitationId.make(`recruitment_invitation_${randomUUID()}`);
 
 export const makeRecruitmentResponseCapability = (): string =>

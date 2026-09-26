@@ -94,4 +94,4 @@ export const makeReceiptE2ETransactionBarrier: Effect.Effect<ReceiptE2ETransacti
 export const receiptE2ETransactionBarrierFor = (
   config: ReceiptApiConfig,
 ): Effect.Effect<ReceiptE2ETransactionBarrier | undefined> =>
-  config.e2e === undefined ? Effect.succeed(undefined) : makeReceiptE2ETransactionBarrier;
+  config.e2e === undefined ? Effect.undefined : makeReceiptE2ETransactionBarrier;

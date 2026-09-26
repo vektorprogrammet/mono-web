@@ -45,7 +45,7 @@ const directory: SchoolDirectory = {
   inactiveSchools: [],
 };
 
-const listInputs: Array<{ readonly department?: typeof DepartmentId.Type }> = [];
+const listInputs: Array<{ readonly department?: DepartmentId }> = [];
 
 const client: SchoolsDirectoryClient = {
   directory: {

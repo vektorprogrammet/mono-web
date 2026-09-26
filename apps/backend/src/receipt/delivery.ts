@@ -90,26 +90,20 @@ export const ReceiptDeliveryLive = (
         apply: (request, claimId) =>
           Effect.gen(function* () {
             if (!claimId)
-              return yield* Effect.fail(
-                new ReceiptDeliveryUnavailable({ effectId: request.effectId }),
-              );
+              return yield* new ReceiptDeliveryUnavailable({ effectId: request.effectId });
 
             if (Predicate.isTagged(request, "WriteReceiptAudit")) {
               const audit =
                 yield* sql`SELECT 1 FROM economy_receipt_audit WHERE command_id = ${request.commandId} AND receipt_id = ${request.receiptId}`;
 
               if (audit.length !== 1)
-                return yield* Effect.fail(
-                  new ReceiptDeliveryUnavailable({ effectId: request.effectId }),
-                );
+                return yield* new ReceiptDeliveryUnavailable({ effectId: request.effectId });
 
               return;
             }
 
             if (config === undefined)
-              return yield* Effect.fail(
-                new ReceiptDeliveryUnavailable({ effectId: request.effectId }),
-              );
+              return yield* new ReceiptDeliveryUnavailable({ effectId: request.effectId });
 
             const envelope = yield* sql.withTransaction(
               Effect.gen(function* () {
@@ -122,9 +116,7 @@ export const ReceiptDeliveryLive = (
                 const row = rows[0];
 
                 if (!row || row.effect_type !== request._tag)
-                  return yield* Effect.fail(
-                    new ReceiptDeliveryUnavailable({ effectId: request.effectId }),
-                  );
+                  return yield* new ReceiptDeliveryUnavailable({ effectId: request.effectId });
 
                 if (row.delivery_envelope !== null)
                   return yield* Schema.decodeUnknownEffect(ReceiptDeliveryEnvelope)(
@@ -182,9 +174,7 @@ export const ReceiptDeliveryLive = (
                       fact.external_reference === null ||
                       fact.settled_at === null))
                 ) {
-                  return yield* Effect.fail(
-                    new ReceiptDeliveryUnavailable({ effectId: request.effectId }),
-                  );
+                  return yield* new ReceiptDeliveryUnavailable({ effectId: request.effectId });
                 }
 
                 const subject = submitted

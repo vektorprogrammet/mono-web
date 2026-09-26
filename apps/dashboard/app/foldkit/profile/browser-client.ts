@@ -5,7 +5,7 @@ import { ProfileCommand, ProfileInput, type ProfileInput as ProfileInputValue } 
 export interface ProfileClient {
   readonly profile: {
     readonly updateOwnProfile: (
-      command: typeof ProfileCommand.Type,
+      command: ProfileCommand,
     ) => Effect.Effect<ProfileInputValue, ProfileBridgeFailure>;
   };
 }

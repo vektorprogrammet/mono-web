@@ -274,12 +274,10 @@ export const submitReceipt = <R>(
 
     if (Predicate.isTagged(outcome, "Committed")) {
       if (allocation === undefined) {
-        return yield* Effect.fail(
-          new ReceiptPersistenceError({
-            operation: "submit receipt allocation",
-            message: "transaction preparation produced no allocation",
-          }),
-        );
+        return yield* new ReceiptPersistenceError({
+          operation: "submit receipt allocation",
+          message: "transaction preparation produced no allocation",
+        });
       }
 
       committed = true;
@@ -339,7 +337,7 @@ export const reviseReceipt = <R>(
           const contentType = fields.contentType;
 
           if (contentType === undefined) {
-            return yield* Effect.fail(new ReceiptDecodeError({ message: "invalid receipt file" }));
+            return yield* new ReceiptDecodeError({ message: "invalid receipt file" });
           }
 
           const nextStaged = yield* stageReceiptFile(
@@ -357,12 +355,10 @@ export const reviseReceipt = <R>(
         const amountOre = fields.amountOre ?? Number(current.amountOre);
 
         if (!Number.isSafeInteger(amountOre) || amountOre <= 0) {
-          return yield* Effect.fail(
-            new ReceiptPersistenceError({
-              operation: "decode current receipt amount",
-              message: "invalid amount",
-            }),
-          );
+          return yield* new ReceiptPersistenceError({
+            operation: "decode current receipt amount",
+            message: "invalid amount",
+          });
         }
 
         const semanticBody: Schema.JsonObject = {};
@@ -635,7 +631,7 @@ export const approvalCommand = <R>(
 
 export const settleReceipt = <R>(
   request: Request,
-  receiptId: typeof ReceiptId.Type,
+  receiptId: ReceiptId,
   options: ReceiptApiHttpOptions<ReceiptIdentityFailure, R>,
   fileStore: ReceiptFileStore,
 ) =>
@@ -681,7 +677,7 @@ export const settleReceipt = <R>(
               yield* requireCurrentETag(receiptEtag(receiptId, revision), ifMatch);
 
               if (body.expectedRevision !== revision) {
-                return yield* Effect.fail(Problem.make("precondition.failed"));
+                return yield* Problem.make("precondition.failed");
               }
 
               const result = yield* recordReceiptSettlement(command, principal);

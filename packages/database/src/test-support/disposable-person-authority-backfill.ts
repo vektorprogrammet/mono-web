@@ -316,12 +316,10 @@ const consolidateFacts = <A>(
       const existing = byIdentity.get(identity);
 
       if (existing !== undefined && valueOf(existing) !== valueOf(fact)) {
-        return yield* Effect.fail(
-          new DisposableAuthorityEvidenceConflict({
-            factKey: identity,
-            message: "legacy token evidence contains conflicting authority facts",
-          }),
-        );
+        return yield* new DisposableAuthorityEvidenceConflict({
+          factKey: identity,
+          message: "legacy token evidence contains conflicting authority facts",
+        });
       }
 
       if (existing === undefined) byIdentity.set(identity, fact);
@@ -376,12 +374,10 @@ const decodeAndPlan = flow(
       const evaluatedMillis = instantMillis(evidence.evaluatedAt);
 
       if (startMillis > evaluatedMillis || (hasInactiveFact && startMillis === evaluatedMillis)) {
-        return yield* Effect.fail(
-          new DisposableAuthorityEvidenceDecodeError({
-            message:
-              "authorityStartAt must not follow evaluatedAt and must precede it for inactive evidence",
-          }),
-        );
+        return yield* new DisposableAuthorityEvidenceDecodeError({
+          message:
+            "authorityStartAt must not follow evaluatedAt and must precede it for inactive evidence",
+        });
       }
 
       const authorityStartAt = normalizedInstant(evidence.authorityStartAt);
@@ -785,9 +781,7 @@ export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = flow(
 
             for (const group of plan.groups) {
               if (!(yield* personExists(sql, group.personId))) {
-                return yield* Effect.fail(
-                  missingReference("Person", group.personId, group.personId),
-                );
+                return yield* missingReference("Person", group.personId, group.personId);
               }
 
               const memberships = yield* readMembershipEvidence(
@@ -810,9 +804,7 @@ export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = flow(
 
               for (const departmentId of [...referencedDepartments].sort(compareText)) {
                 if (!(yield* departmentExists(sql, departmentId))) {
-                  return yield* Effect.fail(
-                    missingReference("Department", group.personId, departmentId),
-                  );
+                  return yield* missingReference("Department", group.personId, departmentId);
                 }
               }
 
@@ -831,28 +823,22 @@ export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = flow(
                 group.organization?.role === "OrganizationAdministrator" &&
                 !administratorActive
               ) {
-                return yield* Effect.fail(
-                  evidenceConflict(
-                    canonicalJson({ kind: "OrganizationActor", personId: group.personId }),
-                    "Organization administrator evidence is not active at evaluatedAt",
-                  ),
+                return yield* evidenceConflict(
+                  canonicalJson({ kind: "OrganizationActor", personId: group.personId }),
+                  "Organization administrator evidence is not active at evaluatedAt",
                 );
               }
 
               if (group.organization?.role === "OrganizationMember") {
                 if (administratorActive) {
-                  return yield* Effect.fail(
-                    evidenceConflict(
-                      canonicalJson({ kind: "OrganizationActor", personId: group.personId }),
-                      "Organization member evidence conflicts with an active administrator grant",
-                    ),
+                  return yield* evidenceConflict(
+                    canonicalJson({ kind: "OrganizationActor", personId: group.personId }),
+                    "Organization member evidence conflicts with an active administrator grant",
                   );
                 }
 
                 if (memberships.length === 0) {
-                  return yield* Effect.fail(
-                    missingReference("Membership", group.personId, group.personId),
-                  );
+                  return yield* missingReference("Membership", group.personId, group.personId);
                 }
 
                 for (const membership of memberships) {
@@ -864,25 +850,21 @@ export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = flow(
                 group.admissionGlobal !== undefined &&
                 (!administratorKnown || administratorActive !== group.admissionGlobal.active)
               ) {
-                return yield* Effect.fail(
-                  evidenceConflict(
-                    canonicalJson({ kind: "GlobalAdministrator", personId: group.personId }),
-                    "Admission global-administrator evidence conflicts with canonical grant state",
-                  ),
+                return yield* evidenceConflict(
+                  canonicalJson({ kind: "GlobalAdministrator", personId: group.personId }),
+                  "Admission global-administrator evidence conflicts with canonical grant state",
                 );
               }
 
               for (const fact of group.admissionDepartments) {
                 if (administratorKnown) {
-                  return yield* Effect.fail(
-                    evidenceConflict(
-                      canonicalJson({
-                        kind: "AdmissionDepartmentAuthority",
-                        personId: fact.personId,
-                        departmentId: fact.departmentId,
-                      }),
-                      "department actor evidence conflicts with canonical administrator state",
-                    ),
+                  return yield* evidenceConflict(
+                    canonicalJson({
+                      kind: "AdmissionDepartmentAuthority",
+                      personId: fact.personId,
+                      departmentId: fact.departmentId,
+                    }),
+                    "department actor evidence conflicts with canonical administrator state",
                   );
                 }
 
@@ -891,23 +873,19 @@ export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = flow(
                 );
 
                 if (departmentMemberships.length === 0) {
-                  return yield* Effect.fail(
-                    missingReference("Membership", fact.personId, fact.departmentId),
-                  );
+                  return yield* missingReference("Membership", fact.personId, fact.departmentId);
                 }
 
                 const expected = expectedAdmissionDepartmentActor(departmentMemberships);
 
                 if (expected.role !== fact.role || expected.active !== fact.active) {
-                  return yield* Effect.fail(
-                    evidenceConflict(
-                      canonicalJson({
-                        kind: "AdmissionDepartmentAuthority",
-                        personId: fact.personId,
-                        departmentId: fact.departmentId,
-                      }),
-                      "Admission actor evidence conflicts with canonical membership facts",
-                    ),
+                  return yield* evidenceConflict(
+                    canonicalJson({
+                      kind: "AdmissionDepartmentAuthority",
+                      personId: fact.personId,
+                      departmentId: fact.departmentId,
+                    }),
+                    "Admission actor evidence conflicts with canonical membership facts",
                   );
                 }
 
@@ -922,8 +900,10 @@ export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = flow(
                 );
 
                 if (departmentMemberships.length === 0) {
-                  return yield* Effect.fail(
-                    missingReference("Membership", payment.personId, payment.departmentId),
+                  return yield* missingReference(
+                    "Membership",
+                    payment.personId,
+                    payment.departmentId,
                   );
                 }
 
@@ -931,15 +911,13 @@ export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = flow(
                   payment.active &&
                   !departmentMemberships.some((membership) => membership.active)
                 ) {
-                  return yield* Effect.fail(
-                    evidenceConflict(
-                      canonicalJson({
-                        kind: "ReceiptPaymentAuthority",
-                        personId: payment.personId,
-                        departmentId: payment.departmentId,
-                      }),
-                      "active payment evidence lacks active Organization authority",
-                    ),
+                  return yield* evidenceConflict(
+                    canonicalJson({
+                      kind: "ReceiptPaymentAuthority",
+                      personId: payment.personId,
+                      departmentId: payment.departmentId,
+                    }),
+                    "active payment evidence lacks active Organization authority",
                   );
                 }
 
@@ -950,8 +928,10 @@ export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = flow(
 
               for (const approval of group.approvals) {
                 if (group.payments.length === 0) {
-                  return yield* Effect.fail(
-                    missingReference("PaymentAuthority", approval.personId, approval.personId),
+                  return yield* missingReference(
+                    "PaymentAuthority",
+                    approval.personId,
+                    approval.personId,
                   );
                 }
 
@@ -961,8 +941,10 @@ export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = flow(
                   );
 
                   if (departmentMemberships.length === 0) {
-                    return yield* Effect.fail(
-                      missingReference("Membership", approval.personId, approval.departmentId),
+                    return yield* missingReference(
+                      "Membership",
+                      approval.personId,
+                      approval.departmentId,
                     );
                   }
 
@@ -970,16 +952,14 @@ export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = flow(
                     approval.active &&
                     !departmentMemberships.some((membership) => membership.active)
                   ) {
-                    return yield* Effect.fail(
-                      evidenceConflict(
-                        canonicalJson({
-                          kind: "ReceiptApprovalGrant",
-                          personId: approval.personId,
-                          scope: approval.scope,
-                          departmentId: approval.departmentId,
-                        }),
-                        "active department approval evidence lacks active Organization authority",
-                      ),
+                    return yield* evidenceConflict(
+                      canonicalJson({
+                        kind: "ReceiptApprovalGrant",
+                        personId: approval.personId,
+                        scope: approval.scope,
+                        departmentId: approval.departmentId,
+                      }),
+                      "active department approval evidence lacks active Organization authority",
                     );
                   }
 
@@ -991,15 +971,13 @@ export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = flow(
                   !administratorActive &&
                   !memberships.some((membership) => membership.active)
                 ) {
-                  return yield* Effect.fail(
-                    evidenceConflict(
-                      canonicalJson({
-                        kind: "ReceiptApprovalGrant",
-                        personId: approval.personId,
-                        scope: approval.scope,
-                      }),
-                      "active global approval evidence lacks active Organization authority",
-                    ),
+                  return yield* evidenceConflict(
+                    canonicalJson({
+                      kind: "ReceiptApprovalGrant",
+                      personId: approval.personId,
+                      scope: approval.scope,
+                    }),
+                    "active global approval evidence lacks active Organization authority",
                   );
                 }
               }

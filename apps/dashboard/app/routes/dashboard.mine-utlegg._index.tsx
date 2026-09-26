@@ -53,7 +53,7 @@ type ParsedReceiptFields = {
 };
 
 type ParsedReceiptIdentity = {
-  receiptId: typeof ReceiptId.Type;
+  receiptId: ReceiptId;
   etag: StrongETagValue;
 };
 

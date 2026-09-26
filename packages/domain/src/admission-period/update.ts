@@ -33,7 +33,7 @@ export interface AdmissionPeriodDecisionContext {
   readonly actor: AdmissionPeriodActor;
   readonly semester: AdmissionSemester;
   readonly now: string;
-  readonly admissionPeriodId?: typeof AdmissionPeriodId.Type;
+  readonly admissionPeriodId?: AdmissionPeriodId;
 }
 
 export interface AdmissionPeriodDecision {
@@ -122,18 +122,18 @@ const normalizedInstant = normalizeRfc3339Instant;
 const periodIdForCreate = (
   command: Extract<AdmissionPeriodCommand, { readonly _tag: "CreateAdmissionPeriod" }>,
   context: AdmissionPeriodDecisionContext,
-): typeof AdmissionPeriodId.Type =>
+): AdmissionPeriodId =>
   context.admissionPeriodId ??
   AdmissionPeriodId.make(`admission-period-${admissionPeriodCommandDigest(command).slice(0, 32)}`);
 
 const createdObservation = (
-  commandId: typeof AdmissionPeriodCommandId.Type,
+  commandId: AdmissionPeriodCommandId,
   period: AdmissionPeriod,
 ): AdmissionPeriodObservation =>
   AdmissionPeriodObservationSchema.cases.Created.make({ commandId, period });
 
 const revisedObservation = (
-  commandId: typeof AdmissionPeriodCommandId.Type,
+  commandId: AdmissionPeriodCommandId,
   period: AdmissionPeriod,
 ): AdmissionPeriodObservation =>
   AdmissionPeriodObservationSchema.cases.Revised.make({ commandId, period });
