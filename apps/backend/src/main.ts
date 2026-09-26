@@ -9,12 +9,7 @@ import { HttpMailLive } from "./mail/http.js";
 import { randomUUID } from "node:crypto";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
-import {
-  AuthEngine,
-  AuthLive,
-  databaseHealth,
-  type AuthEngineService,
-} from "@vektorprogrammet/database";
+import { AuthEngine, AuthLive, databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { ReturningAssistantsLive } from "@vektorprogrammet/database/application";
@@ -29,7 +24,17 @@ import { SocialEventsLive } from "@vektorprogrammet/database/social-events";
 import { TeamApplicationsLive } from "@vektorprogrammet/database/team-application";
 import { runTeamApplicationDeliveryWorker } from "./team-application/worker.js";
 import { runPublicApplicationOutboxWorker } from "./application/worker.js";
-import { Cause, Effect, Exit, Fiber, Layer, ManagedRuntime, Redacted } from "effect";
+import {
+  Cause,
+  Config,
+  ConfigProvider,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  ManagedRuntime,
+  Redacted,
+} from "effect";
 import { Etag, FetchHttpClient, HttpRouter } from "effect/unstable/http";
 import { publicApplicationHttpEffects } from "./application/effects.js";
 import { decodeBackendConfig } from "./config.js";
@@ -44,7 +49,6 @@ import {
   InternalNativeApiRouterLive,
   nativeHttpRouterConfig,
   nativeRouterWebHandler,
-  type BackendAuthHandler,
 } from "./router.js";
 
 declare const Bun: {
@@ -57,7 +61,12 @@ declare const Bun: {
   };
 };
 
-const ingress = process.env.BACKEND_INGRESS ?? "external";
+// An empty value is present, not absent, so it fails the check below as it always has.
+const ingress = Effect.runSync(
+  Config.String("BACKEND_INGRESS")
+    .pipe(Config.withDefault("external"))
+    .parse(ConfigProvider.fromEnv({ preserveEmptyStrings: true })),
+);
 
 if (ingress !== "external" && ingress !== "internal") {
   throw new TypeError("BACKEND_INGRESS must be external or internal");
@@ -154,25 +163,13 @@ const router = await runtime.runPromise(HttpRouter.HttpRouter);
 
 const nativeHandler = nativeRouterWebHandler(router);
 
-const runAuthEngine = <A, E>(operation: (engine: AuthEngineService) => Effect.Effect<A, E>) =>
-  runtime.runPromise(AuthEngine.use(operation));
-
-const authHandler: BackendAuthHandler = {
-  handle: (request, context) => runAuthEngine((engine) => engine.handler(request, context)),
-  handleOAuth: (request, context) =>
-    runAuthEngine((engine) => engine.oauthHandler(request, context)),
-  handleOAuthIntrospection: (request, context) =>
-    runAuthEngine((engine) => engine.oauthIntrospectionHandler(request, context)),
-  exactRedirectAccepted: (clientId, redirectUri) =>
-    runAuthEngine((engine) => engine.exactRedirectAccepted(clientId, redirectUri)),
-  recordTrustedOriginRejection: (context, credentialFlow) =>
-    runAuthEngine((engine) => engine.recordTrustedOriginRejection(context, credentialFlow)),
-};
+// The HTTP boundary delegates to the one identity engine of this process.
+const authEngine = await runtime.runPromise(AuthEngine);
 
 const api =
   ingress === "external"
-    ? backendHttpHandler(nativeHandler, authHandler, config.sessionBoundary)
-    : internalBackendHttpHandler(nativeHandler, authHandler, config.auth.internalSourceNetworks);
+    ? backendHttpHandler(nativeHandler, authEngine, config.sessionBoundary)
+    : internalBackendHttpHandler(nativeHandler, authEngine, config.auth.internalSourceNetworks);
 
 try {
   await runtime.runPromise(databaseHealth);
@@ -188,7 +185,11 @@ try {
 }
 
 if (process.exitCode !== 1) {
-  const server = Bun.serve({ hostname: config.host, port: config.port, fetch: api.fetch });
+  const server = Bun.serve({
+    hostname: config.host,
+    port: config.port,
+    fetch: (request) => runtime.runPromise(api(request)),
+  });
 
   const onboardingExpiryFiber =
     ingress === "external" ? runtime.runFork(runOnboardingExpirySweeper) : undefined;
@@ -280,97 +281,55 @@ if (process.exitCode !== 1) {
   }
 
   process.stdout.write(`${ingress} backend listening on ${config.host}:${config.port}\n`);
-  let shutdownPromise: Promise<void> | undefined;
+
+  const interruptWorker = <A, E>(fiber: Fiber.Fiber<A, E> | undefined) =>
+    fiber === undefined ? Effect.succeed(false) : Effect.as(Fiber.interrupt(fiber), false);
+
+  // After the interrupt, a delivery worker's own failure also fails the shutdown.
+  const interruptDeliveryWorker = <A, E>(fiber: Fiber.Fiber<A, E> | undefined) =>
+    fiber === undefined
+      ? Effect.succeed(false)
+      : Fiber.interrupt(fiber).pipe(
+          Effect.andThen(Fiber.await(fiber)),
+          Effect.map((exit) => Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)),
+        );
+
+  // Run in this order; each step reports whether it failed, and a failed step does not stop the next.
+  const shutdownSteps: ReadonlyArray<Effect.Effect<boolean, Cause.UnknownError>> = [
+    Effect.as(
+      Effect.tryPromise(() => Promise.resolve(server.stop(true))),
+      false,
+    ),
+    interruptWorker(onboardingExpiryFiber),
+    interruptWorker(workerFiber),
+    interruptWorker(schoolServiceWorkerFiber),
+    interruptWorker(recruitmentWorkerFiber),
+    interruptDeliveryWorker(passwordResetWorkerFiber),
+    interruptDeliveryWorker(receiptWorkerFiber),
+    interruptDeliveryWorker(teamApplicationWorkerFiber),
+    Effect.as(runtime.disposeEffect, false),
+  ];
+
+  let shuttingDown = false;
 
   const shutdown = (workerFailed = false) => {
-    shutdownPromise ??= (async () => {
-      let exitCode = workerFailed ? 1 : 0;
+    if (shuttingDown) return;
 
-      try {
-        await server.stop(true);
-      } catch {
-        exitCode = 1;
-      }
+    shuttingDown = true;
 
-      if (onboardingExpiryFiber !== undefined) {
-        try {
-          await runtime.runPromise(Fiber.interrupt(onboardingExpiryFiber));
-        } catch {
-          exitCode = 1;
-        }
-      }
-
-      if (workerFiber !== undefined) {
-        try {
-          await runtime.runPromise(Fiber.interrupt(workerFiber));
-        } catch {
-          exitCode = 1;
-        }
-      }
-
-      if (schoolServiceWorkerFiber !== undefined) {
-        try {
-          await runtime.runPromise(Fiber.interrupt(schoolServiceWorkerFiber));
-        } catch {
-          exitCode = 1;
-        }
-      }
-
-      if (recruitmentWorkerFiber !== undefined) {
-        try {
-          await runtime.runPromise(Fiber.interrupt(recruitmentWorkerFiber));
-        } catch {
-          exitCode = 1;
-        }
-      }
-
-      if (passwordResetWorkerFiber !== undefined) {
-        try {
-          await runtime.runPromise(Fiber.interrupt(passwordResetWorkerFiber));
-          const exit = await runtime.runPromise(Fiber.await(passwordResetWorkerFiber));
-
-          if (Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)) exitCode = 1;
-        } catch {
-          exitCode = 1;
-        }
-      }
-
-      if (receiptWorkerFiber !== undefined) {
-        try {
-          await runtime.runPromise(Fiber.interrupt(receiptWorkerFiber));
-          const exit = await runtime.runPromise(Fiber.await(receiptWorkerFiber));
-
-          if (Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)) exitCode = 1;
-        } catch {
-          exitCode = 1;
-        }
-      }
-
-      if (teamApplicationWorkerFiber !== undefined) {
-        try {
-          await runtime.runPromise(Fiber.interrupt(teamApplicationWorkerFiber));
-          const exit = await runtime.runPromise(Fiber.await(teamApplicationWorkerFiber));
-
-          if (Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)) exitCode = 1;
-        } catch {
-          exitCode = 1;
-        }
-      }
-
-      try {
-        await runtime.dispose();
-      } catch {
-        exitCode = 1;
-      }
+    void Effect.runPromise(
+      Effect.forEach(shutdownSteps, (step) => Effect.catchCause(step, () => Effect.succeed(true))),
+    ).then((stepFailures) => {
+      const exitCode = workerFailed || stepFailures.includes(true) ? 1 : 0;
 
       process.exitCode = exitCode;
       process.exit(exitCode);
-    })();
+    });
   };
 
   if (onboardingExpiryFiber !== undefined) {
     void runtime.runPromise(Fiber.await(onboardingExpiryFiber)).then((exit) => {
-      if (Exit.isFailure(exit) && shutdownPromise === undefined) {
+      if (Exit.isFailure(exit) && !shuttingDown) {
         process.stderr.write("onboarding expiry worker failed\n");
         shutdown(true);
       }
@@ -379,7 +338,7 @@ if (process.exitCode !== 1) {
 
   if (workerFiber !== undefined) {
     void runtime.runPromise(Fiber.await(workerFiber)).then((exit) => {
-      if (Exit.isFailure(exit) && shutdownPromise === undefined) {
+      if (Exit.isFailure(exit) && !shuttingDown) {
         process.stderr.write("public application effect worker failed\n");
         shutdown(true);
       }
@@ -388,7 +347,7 @@ if (process.exitCode !== 1) {
 
   if (schoolServiceWorkerFiber !== undefined) {
     void runtime.runPromise(Fiber.await(schoolServiceWorkerFiber)).then((exit) => {
-      if (Exit.isFailure(exit) && shutdownPromise === undefined) {
+      if (Exit.isFailure(exit) && !shuttingDown) {
         process.stderr.write("school service notification worker failed\n");
         shutdown(true);
       }
@@ -397,7 +356,7 @@ if (process.exitCode !== 1) {
 
   if (recruitmentWorkerFiber !== undefined) {
     void runtime.runPromise(Fiber.await(recruitmentWorkerFiber)).then((exit) => {
-      if (Exit.isFailure(exit) && shutdownPromise === undefined) {
+      if (Exit.isFailure(exit) && !shuttingDown) {
         process.stderr.write("recruitment notification worker failed\n");
         shutdown(true);
       }
@@ -406,7 +365,7 @@ if (process.exitCode !== 1) {
 
   if (passwordResetWorkerFiber !== undefined) {
     void runtime.runPromise(Fiber.await(passwordResetWorkerFiber)).then((exit) => {
-      if (Exit.isFailure(exit) && shutdownPromise === undefined) {
+      if (Exit.isFailure(exit) && !shuttingDown) {
         process.stderr.write("password reset delivery worker failed\n");
         shutdown(true);
       }
@@ -415,7 +374,7 @@ if (process.exitCode !== 1) {
 
   if (receiptWorkerFiber !== undefined) {
     void runtime.runPromise(Fiber.await(receiptWorkerFiber)).then((exit) => {
-      if (Exit.isFailure(exit) && shutdownPromise === undefined) {
+      if (Exit.isFailure(exit) && !shuttingDown) {
         process.stderr.write("receipt delivery worker failed\n");
         shutdown(true);
       }
@@ -424,7 +383,7 @@ if (process.exitCode !== 1) {
 
   if (teamApplicationWorkerFiber !== undefined) {
     void runtime.runPromise(Fiber.await(teamApplicationWorkerFiber)).then((exit) => {
-      if (Exit.isFailure(exit) && shutdownPromise === undefined) {
+      if (Exit.isFailure(exit) && !shuttingDown) {
         process.stderr.write("team application delivery worker failed\n");
         shutdown(true);
       }

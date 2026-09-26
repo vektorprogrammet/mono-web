@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "@effect/vitest";
+import { Effect } from "effect";
 import {
   backendHttpHandler,
   internalBackendHttpHandler,
@@ -13,14 +14,13 @@ const sessionBoundary: NativeSessionBoundaryPolicy = {
 };
 
 const makeAuth = (): BackendAuthHandler => ({
-  handle: vi.fn(async () => Response.json({ surface: "identity" })),
-  handleOAuth: vi.fn(async () => Response.json({ surface: "oauth" })),
-  handleOAuthIntrospection: vi.fn(async () => Response.json({ active: true })),
-  exactRedirectAccepted: vi.fn(
-    async (_clientId, redirectUri) =>
-      redirectUri === "http://127.0.0.1:4173/dashboard/oauth/callback",
+  handler: vi.fn(() => Effect.succeed(Response.json({ surface: "identity" }))),
+  oauthHandler: vi.fn(() => Effect.succeed(Response.json({ surface: "oauth" }))),
+  oauthIntrospectionHandler: vi.fn(() => Effect.succeed(Response.json({ active: true }))),
+  exactRedirectAccepted: vi.fn((_clientId, redirectUri) =>
+    Effect.succeed(redirectUri === "http://127.0.0.1:4173/dashboard/oauth/callback"),
   ),
-  recordTrustedOriginRejection: vi.fn(async () => undefined),
+  recordTrustedOriginRejection: vi.fn(() => Effect.void),
 });
 
 const authorizeUrl = new URL("http://127.0.0.1:4173/api/auth/oauth2/authorize");
@@ -54,100 +54,110 @@ const allowedRoutes = [
 ] as const;
 
 describe("frozen external OAuth ingress", () => {
-  it.each(allowedRoutes)("dispatches only %s %s to the OAuth graph", async (method, url) => {
-    const auth = makeAuth();
+  it.effect.each(allowedRoutes)("dispatches only %s %s to the OAuth graph", ([method, url]) =>
+    Effect.gen(function* () {
+      const auth = makeAuth();
 
-    const http = backendHttpHandler(
-      vi.fn(async () => new Response("native")),
-      auth,
-      sessionBoundary,
-    );
+      const http = backendHttpHandler(
+        vi.fn(() => Effect.succeed(new Response("native"))),
+        auth,
+        sessionBoundary,
+      );
 
-    const browserMutation = url.endsWith("/consent") || url.endsWith("/delete-consent");
+      const browserMutation = url.endsWith("/consent") || url.endsWith("/delete-consent");
 
-    const response = await http.fetch(
-      new Request(url, {
-        method,
-        headers: browserMutation ? { origin: "http://127.0.0.1:4173" } : undefined,
-      }),
-    );
+      const response = yield* http(
+        new Request(url, {
+          method,
+          headers: browserMutation ? { origin: "http://127.0.0.1:4173" } : undefined,
+        }),
+      );
 
-    expect(response.status).toBe(200);
-    expect(auth.handleOAuth).toHaveBeenCalledTimes(1);
-    expect(auth.handle).not.toHaveBeenCalled();
-  });
+      expect(response.status).toBe(200);
+      expect(auth.oauthHandler).toHaveBeenCalledTimes(1);
+      expect(auth.handler).not.toHaveBeenCalled();
+    }),
+  );
 
-  it.each([
+  it.effect.each([
     ["POST", "http://127.0.0.1:4173/api/auth/oauth2/authorize"],
     ["POST", "http://127.0.0.1:4173/api/auth/oauth2/introspect"],
     ["POST", "http://127.0.0.1:4173/api/auth/oauth2/register"],
     ["POST", "http://127.0.0.1:4173/api/auth/admin/oauth2/create-client"],
     ["GET", "http://127.0.0.1:4173/api/auth/userinfo"],
-  ])("returns route-not-found for %s %s", async (method, url) => {
-    const auth = makeAuth();
-    const http = backendHttpHandler(vi.fn(), auth, sessionBoundary);
+  ] as const)("returns route-not-found for %s %s", ([method, url]) =>
+    Effect.gen(function* () {
+      const auth = makeAuth();
+      const http = backendHttpHandler(vi.fn(), auth, sessionBoundary);
 
-    const response = await http.fetch(new Request(url, { method }));
+      const response = yield* http(new Request(url, { method }));
 
-    expect(response.status).toBe(404);
-    expect(auth.handleOAuth).not.toHaveBeenCalled();
-    expect(auth.handle).not.toHaveBeenCalled();
-  });
+      expect(response.status).toBe(404);
+      expect(auth.oauthHandler).not.toHaveBeenCalled();
+      expect(auth.handler).not.toHaveBeenCalled();
+    }),
+  );
 
-  it("does not dispatch an unregistered redirect and never reflects OAuth CORS", async () => {
-    const auth = makeAuth();
-    const http = backendHttpHandler(vi.fn(), auth, sessionBoundary);
-    const wrong = new URL(authorizeUrl);
-    wrong.searchParams.set("redirect_uri", "http://127.0.0.1:4173/other");
+  it.effect("does not dispatch an unregistered redirect and never reflects OAuth CORS", () =>
+    Effect.gen(function* () {
+      const auth = makeAuth();
+      const http = backendHttpHandler(vi.fn(), auth, sessionBoundary);
+      const wrong = new URL(authorizeUrl);
+      wrong.searchParams.set("redirect_uri", "http://127.0.0.1:4173/other");
 
-    const denied = await http.fetch(new Request(wrong));
+      const denied = yield* http(new Request(wrong));
 
-    const token = await http.fetch(
-      new Request("http://127.0.0.1:4173/api/auth/oauth2/token", {
-        method: "POST",
-        headers: { origin: "http://127.0.0.1:4173" },
-      }),
-    );
+      const token = yield* http(
+        new Request("http://127.0.0.1:4173/api/auth/oauth2/token", {
+          method: "POST",
+          headers: { origin: "http://127.0.0.1:4173" },
+        }),
+      );
 
-    expect(denied.status).toBe(400);
-    expect(denied.headers.get("location")).toBeNull();
-    expect(auth.handleOAuth).toHaveBeenCalledTimes(1);
-    expect(token.headers.get("access-control-allow-origin")).toBeNull();
-  });
+      expect(denied.status).toBe(400);
+      expect(denied.headers.get("location")).toBeNull();
+      expect(auth.oauthHandler).toHaveBeenCalledTimes(1);
+      expect(token.headers.get("access-control-allow-origin")).toBeNull();
+    }),
+  );
 });
 
 describe("independent internal OAuth ingress", () => {
-  it("reveals no token signal to a wrong network", async () => {
-    const auth = makeAuth();
-    const http = internalBackendHttpHandler(vi.fn(), auth, ["10.20.0.0/16"]);
+  it.effect("reveals no token signal to a wrong network", () =>
+    Effect.gen(function* () {
+      const auth = makeAuth();
+      const http = internalBackendHttpHandler(vi.fn(), auth, ["10.20.0.0/16"]);
 
-    const response = await http.fetch(
-      new Request("http://127.0.0.1:4173/api/auth/oauth2/introspect", {
-        method: "POST",
-        headers: { "x-real-ip": "10.21.0.1" },
-      }),
-    );
+      const response = yield* http(
+        new Request("http://127.0.0.1:4173/api/auth/oauth2/introspect", {
+          method: "POST",
+          headers: { "x-real-ip": "10.21.0.1" },
+        }),
+      );
 
-    await expect(response.json()).resolves.toEqual({ active: false });
-    expect(auth.handleOAuthIntrospection).not.toHaveBeenCalled();
-  });
+      expect(yield* Effect.promise(() => response.json())).toEqual({ active: false });
+      expect(auth.oauthIntrospectionHandler).not.toHaveBeenCalled();
+    }),
+  );
 
-  it("dispatches only POST introspection from an allowed source", async () => {
-    const auth = makeAuth();
-    const http = internalBackendHttpHandler(vi.fn(), auth, ["10.20.0.0/16"]);
-    const url = "http://127.0.0.1:4173/api/auth/oauth2/introspect";
+  it.effect("dispatches only POST introspection from an allowed source", () =>
+    Effect.gen(function* () {
+      const auth = makeAuth();
+      const http = internalBackendHttpHandler(vi.fn(), auth, ["10.20.0.0/16"]);
+      const url = "http://127.0.0.1:4173/api/auth/oauth2/introspect";
 
-    const accepted = await http.fetch(
-      new Request(url, { method: "POST", headers: { "x-real-ip": "10.20.4.5" } }),
-    );
+      const accepted = yield* http(
+        new Request(url, { method: "POST", headers: { "x-real-ip": "10.20.4.5" } }),
+      );
 
-    const rejectedMethod = await http.fetch(
-      new Request(url, { headers: { "x-real-ip": "10.20.4.5" } }),
-    );
+      const rejectedMethod = yield* http(
+        new Request(url, { headers: { "x-real-ip": "10.20.4.5" } }),
+      );
 
-    expect(accepted.status).toBe(200);
-    expect(rejectedMethod.status).toBe(404);
-    expect(auth.handleOAuthIntrospection).toHaveBeenCalledTimes(1);
-    expect(auth.handleOAuth).not.toHaveBeenCalled();
-  });
+      expect(accepted.status).toBe(200);
+      expect(rejectedMethod.status).toBe(404);
+      expect(auth.oauthIntrospectionHandler).toHaveBeenCalledTimes(1);
+      expect(auth.oauthHandler).not.toHaveBeenCalled();
+    }),
+  );
 });

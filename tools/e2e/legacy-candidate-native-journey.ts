@@ -2,12 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
-import {
-  AuthEngine,
-  AuthLive,
-  OAUTH_NATIVE_API_RESOURCE,
-  type AuthEngineService,
-} from "@vektorprogrammet/database";
+import { AuthEngine, AuthLive, OAUTH_NATIVE_API_RESOURCE } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { ReturningAssistantsLive } from "@vektorprogrammet/database/application";
@@ -27,7 +22,7 @@ import {
   ReceiptListResponse,
   UserProfileResponse,
 } from "@vektorprogrammet/http-api";
-import { type Effect, Layer, ManagedRuntime, Redacted, Schema } from "effect";
+import { Layer, ManagedRuntime, Redacted, Schema } from "effect";
 import { Etag, FetchHttpClient, HttpRouter } from "effect/unstable/http";
 import { ReceiptDeliveryLive } from "@vektorprogrammet/backend/receipt/delivery";
 import {
@@ -36,7 +31,6 @@ import {
   ExternalNativeApiRouterLive,
   nativeHttpRouterConfig,
   nativeRouterWebHandler,
-  type BackendAuthHandler,
 } from "@vektorprogrammet/backend";
 import type { RehearsalTarget } from "./legacy-organization-rehearsal-runtime.js";
 
@@ -149,16 +143,17 @@ export const observeLegacyCandidateNativeJourney = async (
   try {
     const router = await runtime.runPromise(HttpRouter.HttpRouter);
 
-    const authBoundary = <A, E>(operation: (engine: AuthEngineService) => Effect.Effect<A, E>) =>
-      runtime.runPromise(AuthEngine.use(operation));
+    const engine = await runtime.runPromise(AuthEngine);
 
-    const auth: BackendAuthHandler = {
-      handle: (request, context) => authBoundary((engine) => engine.handler(request, context)),
-      recordTrustedOriginRejection: (context, flow) =>
-        authBoundary((engine) => engine.recordTrustedOriginRejection(context, flow)),
-    };
-
-    const api = backendHttpHandler(nativeRouterWebHandler(router), auth, config.sessionBoundary);
+    // This journey signs in through the identity handler; it exercises no OAuth surface.
+    const api = backendHttpHandler(
+      nativeRouterWebHandler(router),
+      {
+        handler: engine.handler,
+        recordTrustedOriginRejection: engine.recordTrustedOriginRejection,
+      },
+      config.sessionBoundary,
+    );
 
     const request = (path: string, cookie?: string, body?: Schema.Json, authorization?: string) => {
       const headers = new Headers({ origin: dashboardOrigin });
@@ -173,7 +168,7 @@ export const observeLegacyCandidateNativeJourney = async (
 
       if (body !== undefined) init.body = JSON.stringify(body);
 
-      return api.fetch(new Request(backendOrigin + path, init));
+      return runtime.runPromise(api(new Request(backendOrigin + path, init)));
     };
 
     const status = async (name: string, path: string, expected: number, cookie?: string) => {

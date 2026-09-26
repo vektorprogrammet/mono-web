@@ -2032,17 +2032,22 @@ const runRehearsal = async (
     const api = backendHttpHandler(
       nativeRouterWebHandler(router),
       {
-        handle: () => {
-          identityCounters.authMutationAttempts += 1;
+        handler: () =>
+          Effect.sync(() => {
+            identityCounters.authMutationAttempts += 1;
 
-          return Promise.resolve(new Response(null, { status: 404 }));
-        },
-        recordTrustedOriginRejection: () => Promise.resolve(),
+            return new Response(null, { status: 404 });
+          }),
+        recordTrustedOriginRejection: () => Effect.void,
       },
       config.sessionBoundary,
     );
 
-    backendServer = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: api.fetch });
+    backendServer = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: (request) => Effect.runPromise(api(request)),
+    });
     backendPort = backendServer.port;
     const backendOrigin = `http://127.0.0.1:${backendPort}`;
     guard.addHttp(backendOrigin, "backend-loopback");

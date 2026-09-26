@@ -112,8 +112,8 @@ const identity = Identity.of({
 } satisfies IdentityOperations);
 
 const unavailableAuthHandler = {
-  handle: async () => new Response(null, { status: 404 }),
-  recordTrustedOriginRejection: async () => undefined,
+  handler: () => Effect.succeed(new Response(null, { status: 404 })),
+  recordTrustedOriginRejection: () => Effect.void,
 };
 
 /** Requests that queue behind a lock in the fixture database. */
