@@ -9,27 +9,36 @@ Transaction-scoped PostgreSQL advisory locks under registered keys. The [index](
 The registered advisory-lock keys, one constructor per namespace.
 
 ```ts
-const AdvisoryLockKey
+const AdvisoryLockKey: AdvisoryLockKeys
 ```
 
 - Inputs: none
-- Output: not annotated
+- Output: `AdvisoryLockKeys`
 - Errors: none
 - Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [packages/database/src/advisory-lock.ts:40](../../packages/database/src/advisory-lock.ts#L40)
+- Side effects: none: it builds key text, and `lockAdvisory` takes the lock.
+- Source: [packages/database/src/advisory-lock.ts:125](../../packages/database/src/advisory-lock.ts#L125)
 
 **How it works**
 
-Missing: the JSDoc has no `@remarks` tag.
+Each member builds the key text of one namespace, and `AdvisoryLockKeys` names the writers that
+share it. `lockAdvisory` hashes the text with `hashtextextended(key, 0)`, so two writers exclude
+each other exactly when they build the same bytes. A bare namespace hashes its identifier
+without a prefix, so the bare namespaces share one key space. The SQL writers that the module
+documentation lists hash the same text inside migrations.
 
 **Use**
 
-Missing: the JSDoc has no `@example` tag.
+```ts
+yield* lockAdvisory(sql, AdvisoryLockKey.receiptCommand(command.commandId));
+```
 
 **Avoid**
 
-Missing: the JSDoc has no `@avoid` tag.
+Writing key text by hand, in SQL or in TypeScript, or changing the bytes of a member:
+another spelling ends mutual exclusion with every writer of the old bytes, and
+`anti-slop/no-raw-advisory-lock-sql` rejects hand-written advisory-lock SQL. Add a member for a
+new namespace; a change to an existing one is a lock migration.
 
 ## `lockAdvisory`
 
@@ -50,20 +59,29 @@ lockAdvisory(
 - Output: `Effect.Effect<void, SqlError>`
 - Errors: `SqlError`
 - Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [packages/database/src/advisory-lock.ts:128](../../packages/database/src/advisory-lock.ts#L128)
+- Side effects: Holds a PostgreSQL advisory lock until the transaction ends, and waits while another transaction holds a conflicting one.
+- Source: [packages/database/src/advisory-lock.ts:203](../../packages/database/src/advisory-lock.ts#L203)
 
 **How it works**
 
-Missing: the JSDoc has no `@remarks` tag.
+It runs `pg_advisory_xact_lock(hashtextextended(key, 0))`, or `pg_advisory_xact_lock_shared`
+when `mode` is `shared`: shared holders exclude only exclusive holders, and an exclusive holder
+excludes both. PostgreSQL releases a transaction-level lock at commit or rollback, and outside a
+transaction after the statement, so the lock serializes only what runs inside the same
+`withTransaction`. Writers that take several locks take them in one order, such as the
+administrator set before any person lock, so that two of them cannot deadlock.
 
 **Use**
 
-Missing: the JSDoc has no `@example` tag.
+```ts
+yield* lockAdvisory(sql, AdvisoryLockKey.contentArticle(articleId));
+```
 
 **Avoid**
 
-Missing: the JSDoc has no `@avoid` tag.
+Calling it outside `withTransaction`, where the lock ends with its own statement and
+guards nothing, and hand-written `pg_advisory_xact_lock` SQL, which
+`anti-slop/no-raw-advisory-lock-sql` rejects. Lock first inside the transaction that writes.
 
 ## `lockPersonAuthorization`
 
@@ -82,17 +100,26 @@ lockPersonAuthorization(
 - Output: `Effect.Effect<void, OrganizationPersistenceError>`
 - Errors: `OrganizationPersistenceError`
 - Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [packages/database/src/organization/authority-postgres.ts:46](../../packages/database/src/organization/authority-postgres.ts#L46)
+- Side effects: Holds the person's advisory lock until the transaction ends, and waits while another transaction holds it.
+- Source: [packages/database/src/organization/authority-postgres.ts:66](../../packages/database/src/organization/authority-postgres.ts#L66)
 
 **How it works**
 
-Missing: the JSDoc has no `@remarks` tag.
+It takes the exclusive transaction lock on `AdvisoryLockKey.personAuthorization(personId)`,
+the key that the SQL guards of migrations 0037, 0038, and 0060 hash, and maps a SQL failure to
+`OrganizationPersistenceError`. A command takes it before it resolves the person's authority,
+so no grant, session, or credential change of that person commits between the authority read
+and the command's writes. A command that locks several people locks them in sorted order,
+after the administrator set when it changes that set.
 
 **Use**
 
-Missing: the JSDoc has no `@example` tag.
+```ts
+yield* lockPersonAuthorization(sql, actorPersonId);
+```
 
 **Avoid**
 
-Missing: the JSDoc has no `@avoid` tag.
+Resolving authority before the lock, or outside the committing transaction: a grant
+that ends between the read and the write then authorizes the command. Lock first, inside the
+transaction that writes.

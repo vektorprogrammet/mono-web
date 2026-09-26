@@ -153,6 +153,26 @@ const programPath = (program: PostgresProgram | ClusterProgram) =>
 /**
  * Absolute path of a client program of the selected PostgreSQL major.
  *
+ * @remarks
+ * The first `postgres` on `PATH` decides the installation, and it must be of the major that
+ * `VEKTOR_POSTGRES_MAJOR` selects from `engines.postgresql` in the root manifest. The
+ * installation is resolved once per process, and the path names `program` in its directory. The
+ * cluster programs are not in `PostgresProgram`, because only `startDisposablePostgres` runs them.
+ *
+ * @throws An `Error` that names the selected major and what `PATH` provides, when the first
+ * `postgres` on `PATH` is missing or of another major.
+ *
+ * @sideEffects Reads `PATH` and runs `postgres --version` at the first resolution of the process.
+ *
+ * @example
+ * ```ts
+ * await execFileAsync(postgresProgram("psql"), ["-h", "127.0.0.1", "-p", String(port), "-c", sql]);
+ * ```
+ *
+ * @avoid Running `psql`, `pg_dump`, or `pg_restore` by bare name: `PATH` can hold a client of
+ * another major than the cluster, whose dump or restore then fails or differs. Run the path that
+ * this returns.
+ *
  * @construct test-harness
  */
 export const postgresProgram = (program: PostgresProgram): string => programPath(program);
@@ -160,6 +180,23 @@ export const postgresProgram = (program: PostgresProgram): string => programPath
 /**
  * The `postgres --version` line of the selected major, such as `postgres (PostgreSQL) 18.6`, for
  * evidence that names the toolchain whether or not a cluster started.
+ *
+ * @remarks
+ * It resolves the installation as `postgresProgram` does, once per process, and answers the
+ * version line that the resolution read. It starts no server.
+ *
+ * @throws An `Error` when the first `postgres` on `PATH` is missing or of another major, as
+ * `postgresProgram` throws.
+ *
+ * @sideEffects Reads `PATH` and runs `postgres --version` at the first resolution of the process.
+ *
+ * @example
+ * ```ts
+ * const toolchain = { bun: process.versions.bun, postgres: postgresVersion() };
+ * ```
+ *
+ * @avoid Reading the version from a started cluster only: a run that fails before its cluster
+ * starts then names no toolchain in its evidence. Record `postgresVersion()` instead.
  *
  * @construct test-harness
  */
@@ -200,13 +237,27 @@ const reservableEnd = 32_768;
 const reservedPorts = new Set<number>();
 
 /**
- * Whether a listener can bind `port` on loopback now. A journey checks with it that a fixed port is
- * free before its server binds it, and that its reserved ports are free again after teardown. It
- * reserves nothing: it answers for a port that the caller names.
+ * Whether a listener can bind `port` on loopback now.
+ *
+ * @remarks
+ * It listens on `127.0.0.1:port` with an exclusive bind, closes again, and answers false when the
+ * bind fails. A journey checks with it that a fixed port is free before its server binds it, and
+ * that its reserved ports are free again after teardown. It reserves nothing: it answers for a
+ * port that the caller names, and another process can bind the port after it answers.
+ *
+ * @sideEffects Binds `port` on loopback for the moment of the probe.
+ *
+ * @example
+ * ```ts
+ * if (!(await loopbackPortFree(port))) throw new Error(`port ${port} is still bound`);
+ * ```
+ *
+ * @avoid Choosing the port of a server with it: another bind can take the port before the server
+ * binds it. Reserve the ports of a journey with `reserveLoopbackPorts`.
  *
  * @construct test-harness
  */
-export const loopbackPortFree = (port: number) =>
+export const loopbackPortFree = (port: number): Promise<boolean> =>
   new Promise<boolean>((resolve) => {
     const server = createServer();
     server.once("error", () => resolve(false));
@@ -231,10 +282,27 @@ const reserveLoopbackPort = async (): Promise<number> => {
 
 /**
  * Reserves `count` distinct loopback ports for the servers that a journey starts: its backend,
- * dashboard, receivers, and clusters. A probe that listens on port 0 and closes learns a port in
- * the ephemeral range, where the run's next probe, a child, or another process can take it before
- * its server binds it. A reserved port lies below that range, was free when it was reserved, and
- * no other reservation of this process returns it.
+ * dashboard, receivers, and clusters.
+ *
+ * @remarks
+ * It draws each port at random from 20000 to 32767, below the kernel's ephemeral range, where
+ * only a process that names a port binds it. A drawn port counts when `loopbackPortFree` answers
+ * true and no earlier reservation of this process returned it. A probe that listens on port 0
+ * learns a port in the ephemeral range instead, where the run's next probe, a child, or another
+ * process can take it before its server binds it.
+ *
+ * @throws Rejects with an `Error` when no port of the range is free.
+ *
+ * @sideEffects Binds each drawn port on loopback for the moment of its probe, and keeps the
+ * reserved ports in the process, so that no later reservation returns them.
+ *
+ * @example
+ * ```ts
+ * const [dashboardPort, backendPort, postgresPort] = await reserveLoopbackPorts(3);
+ * ```
+ *
+ * @avoid Listening on port 0 and closing to learn a free port: another bind can take it before
+ * the server does, and `anti-slop/no-port-probe` rejects such a probe in journey code.
  *
  * @construct test-harness
  */
@@ -426,8 +494,31 @@ interface Incarnation {
 
 /**
  * Starts a fresh cluster of the selected major on a private port and socket directory with trust
- * authentication. It resolves once the server accepts connections and `database` exists.
- * `stop` removes the cluster; a sentinel removes it when this process exits without `stop`.
+ * authentication.
+ *
+ * @remarks
+ * It runs `initdb` in a new directory and starts `postgres` on the port of `options.port`, or on
+ * one that it reserves as `reserveLoopbackPorts` does. It resolves once `pg_isready` reports that
+ * the server accepts connections, and `options.database` exists when it names one. The cluster
+ * carries its address and `url`, `createDatabase`, `outage`, which stops and restarts the server
+ * around a callback, and `unexpectedExit`. `stop` removes the cluster, and a sentinel in its own
+ * session removes it when this process exits without `stop`, also on a signal or SIGKILL.
+ *
+ * @throws Rejects with an `Error` that carries the server log, when `initdb`, the server, or
+ * `createdb` fails, or when the server accepts no connection within 60 seconds. It removes the
+ * cluster first.
+ *
+ * @sideEffects Creates the cluster directory, starts the server and its sentinel, and binds a
+ * loopback port and a Unix socket until `stop`.
+ *
+ * @example
+ * ```ts
+ * const postgres = await startDisposablePostgres({ port: postgresPort, database: "journey" });
+ * ```
+ *
+ * @avoid Running `initdb`, `pg_ctl`, `postgres`, or `createdb` yourself, or taking an open port
+ * for readiness: a server that starts up answers on its port and rejects every session.
+ * `anti-slop/no-hand-rolled-postgres` rejects the cluster programs outside this construct.
  *
  * @construct test-harness
  */
@@ -640,6 +731,24 @@ export const startDisposablePostgres = async (
 /**
  * Runs `use` against the database `database` of a fresh cluster, which `startDisposablePostgres`
  * starts, and removes the cluster when `use` settles, also when it fails.
+ *
+ * @remarks
+ * `use` receives the connection URL of `database` as a `Redacted` value, so a log of it shows no
+ * URL. The cluster stops in a `finally`, so the promise settles as `use` settled, after the
+ * cluster is gone.
+ *
+ * @throws Rejects when the cluster does not start, as `startDisposablePostgres` rejects, and
+ * with the failure of `use`.
+ *
+ * @sideEffects Starts and removes a disposable cluster, as `startDisposablePostgres` does.
+ *
+ * @example
+ * ```ts
+ * void withDisposablePostgres("rule_reconciliation_proof", (databaseUrl) => Effect.runPromise(program(databaseUrl)));
+ * ```
+ *
+ * @avoid Starting a cluster without a `finally` that stops it: a failed assertion leaves the
+ * cluster running until the process exits. Scope the cluster to `use`.
  *
  * @construct test-harness
  */

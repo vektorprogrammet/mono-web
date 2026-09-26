@@ -9,8 +9,25 @@ import {
 import type { DatabaseOperations } from "./service.js";
 
 /**
- * Whether the native account of `personId` exists and is not disabled. `ForShare` keeps the
- * access state until the transaction ends, so a disable waits for the authorization it gates.
+ * Whether the native account of `personId` exists and is not disabled.
+ *
+ * @remarks
+ * It reads `NOT access_disabled` from the `auth."user"` row of `personId`, and a missing row
+ * answers false. `ForShare` reads with a share row lock, so a disable, which
+ * `changeNativeAccountAccess` writes under `FOR UPDATE`, waits until the transaction that
+ * authorized with this answer ends. `None` reads without a lock, for a read that writes nothing.
+ *
+ * @sideEffects Reads `auth."user"`; with `ForShare` it holds a share lock on the row until the
+ * transaction ends.
+ *
+ * @example
+ * ```ts
+ * if (!(yield* accountAccessEnabled(sql, personId, "ForShare"))) return yield* fail("Denied");
+ * ```
+ *
+ * @avoid Checking a command's actor with `None`, or in another transaction than its writes: a
+ * disable can then commit between the check and the command. A command reads with `ForShare`
+ * inside the transaction that writes.
  *
  * @construct sql-lifecycle
  */

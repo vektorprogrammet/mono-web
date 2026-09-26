@@ -41,6 +41,26 @@ export const lockOrganizationAdministratorSet = (sql: DatabaseOperations) =>
 /**
  * Serializes one person's protected command with person-keyed authority writers.
  *
+ * @remarks
+ * It takes the exclusive transaction lock on `AdvisoryLockKey.personAuthorization(personId)`,
+ * the key that the SQL guards of migrations 0037, 0038, and 0060 hash, and maps a SQL failure to
+ * `OrganizationPersistenceError`. A command takes it before it resolves the person's authority,
+ * so no grant, session, or credential change of that person commits between the authority read
+ * and the command's writes. A command that locks several people locks them in sorted order,
+ * after the administrator set when it changes that set.
+ *
+ * @sideEffects Holds the person's advisory lock until the transaction ends, and waits while
+ * another transaction holds it.
+ *
+ * @example
+ * ```ts
+ * yield* lockPersonAuthorization(sql, actorPersonId);
+ * ```
+ *
+ * @avoid Resolving authority before the lock, or outside the committing transaction: a grant
+ * that ends between the read and the write then authorizes the command. Lock first, inside the
+ * transaction that writes.
+ *
  * @construct sql-lock
  */
 export const lockPersonAuthorization = (

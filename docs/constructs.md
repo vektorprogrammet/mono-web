@@ -86,7 +86,7 @@ Tag a construct only when at least 2 modules outside its own module and the test
   - [`canonicalJsonBytes`](constructs/digest.md#canonicaljsonbytes): The UTF-8 bytes of the canonical JSON text of a datum.
   - [`sha256Hex`](constructs/digest.md#sha256hex): The lowercase hexadecimal SHA-256 digest of bytes.
 - [test-harness](constructs/test-harness.md): Starts and drives disposable infrastructure for tests, proofs, and journeys: PostgreSQL clusters, loopback ports, and the local backend.
-  - [`selectDatabaseMigration`](constructs/test-harness.md#selectdatabasemigration): Selects the registered migration `id` and the migrations that run before it; an absent id throws and names the nearest registered ids.
+  - [`selectDatabaseMigration`](constructs/test-harness.md#selectdatabasemigration): Selects the registered migration `id` and the migrations that run before it.
   - [`journeyClock`](constructs/test-harness.md#journeyclock): A journey clock at a reference instant that the caller pins.
   - [`admissionJourneyClock`](constructs/test-harness.md#admissionjourneyclock): The backend's admission clock: ADMISSION_FIXED_NOW when the runner pins one, otherwise the current time.
   - [`localBackendEnvironment`](constructs/test-harness.md#localbackendenvironment): The environment of a disposable local native backend for one composition.

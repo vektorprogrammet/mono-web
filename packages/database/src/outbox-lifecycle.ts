@@ -118,6 +118,23 @@ const recoverStale = (
 /**
  * SET list for the aggregate's claim UPDATE; `targetAlias` names the updated outbox row.
  *
+ * @remarks
+ * The fragment sets `status = 'Processing'`, the claim's `claim_id` and `claimed_at`, increments
+ * `attempts` from the row that `targetAlias` names, and clears `last_failure_tag`. The aggregate
+ * keeps the rest of its claim UPDATE: candidate selection, predecessor ordering, row locks, and
+ * the RETURNING list. Attempts count claims; no other transition changes them.
+ *
+ * @sideEffects none: it builds a fragment, and the aggregate's UPDATE writes the row.
+ *
+ * @example
+ * ```ts
+ * sql`UPDATE economy_receipt_outbox AS claimed SET ${outboxClaimAssignments(sql, "claimed", claimId, claimedAt)} FROM candidate WHERE claimed.effect_id = candidate.effect_id`;
+ * ```
+ *
+ * @avoid Writing the claim columns by hand: a copy can miss the attempt count or keep the last
+ * failure tag, and it copies the column protocol that every outbox table shares. Put this SET
+ * list in every claim UPDATE.
+ *
  * @construct sql-lifecycle
  */
 export const outboxClaimAssignments = (
@@ -131,7 +148,24 @@ export const outboxClaimAssignments = (
 
 /**
  * Settles the claimed row as Delivered, with delivery evidence when the table records it.
- * Fails with `OutboxClaimLost` when the claim no longer owns the row.
+ *
+ * @remarks
+ * One UPDATE matches the row's `effect_id`, `status = 'Processing'`, and the claim's `claim_id`.
+ * It sets `Delivered`, clears the claim and `last_failure_tag`, writes `delivered_at` and
+ * `provider_reference` when `evidence` carries them, and replaces `payload_json` with `{}` when
+ * `table.terminalPayload` is `Scrub`. When no row matches, stale recovery or another claim owns
+ * the row, so it changes nothing and fails with `OutboxClaimLost`.
+ *
+ * @sideEffects Writes the outbox row that the claim still owns.
+ *
+ * @example
+ * ```ts
+ * Database.use((sql) => markOutboxDelivered(sql, receiptOutbox, claim));
+ * ```
+ *
+ * @avoid Updating the status by `effect_id` alone, or reporting a delivery after
+ * `OutboxClaimLost`: the row belongs to another claim, whose outcome would be overwritten. Handle
+ * `OutboxClaimLost` as a lost race, not as a success.
  *
  * @construct sql-lifecycle
  */
@@ -161,7 +195,21 @@ export const markOutboxDelivered = (
 
 /**
  * Settles the claimed row as Failed with its failure tag, so a later claim retries it.
- * Fails with `OutboxClaimLost` when the claim no longer owns the row.
+ *
+ * @remarks
+ * Under the same claim fence as `markOutboxDelivered`, it sets `Failed` and `last_failure_tag`,
+ * clears the claim, and keeps `payload_json`, because a later claim delivers the same envelope.
+ * When the claim no longer owns the row, it changes nothing and fails with `OutboxClaimLost`.
+ *
+ * @sideEffects Writes the outbox row that the claim still owns.
+ *
+ * @example
+ * ```ts
+ * Database.use((sql) => markOutboxFailed(sql, receiptOutbox, claim, failureTag));
+ * ```
+ *
+ * @avoid Failing a row that no retry can deliver, such as an envelope that does not decode: a
+ * later claim takes it again. Quarantine it with `quarantineOutboxClaim`.
  *
  * @construct sql-lifecycle
  */
@@ -175,7 +223,22 @@ export const markOutboxFailed = (
 
 /**
  * Settles the claimed row as Quarantined, a terminal status, with its failure tag.
- * Fails with `OutboxClaimLost` when the claim no longer owns the row.
+ *
+ * @remarks
+ * Under the same claim fence as `markOutboxDelivered`, it sets `Quarantined` and
+ * `last_failure_tag`, clears the claim, and replaces `payload_json` with `{}` when
+ * `table.terminalPayload` is `Scrub`. No claim selects a quarantined row again. When the claim no
+ * longer owns the row, it changes nothing and fails with `OutboxClaimLost`.
+ *
+ * @sideEffects Writes the outbox row that the claim still owns.
+ *
+ * @example
+ * ```ts
+ * quarantineOutboxClaim(sql, notificationOutbox, { effectId, claimId }, failureTag);
+ * ```
+ *
+ * @avoid Quarantining a failure that a retry can overcome, such as a provider outage: the effect
+ * is then never delivered. Mark it failed with `markOutboxFailed`.
  *
  * @construct sql-lifecycle
  */
@@ -198,6 +261,22 @@ export const quarantineOutboxClaim = (
 /**
  * Returns an interrupted claim to Pending without a provider outcome; a lost claim needs none.
  *
+ * @remarks
+ * A worker that is interrupted before the provider answers releases its claim. Under the same
+ * claim fence as `markOutboxDelivered`, it sets `Pending` with the failure tag and clears the
+ * claim, so the next claim delivers the row. When the claim no longer owns the row, it succeeds
+ * without a change, because stale recovery or another claim has already moved the row.
+ *
+ * @sideEffects Writes the outbox row when the claim still owns it.
+ *
+ * @example
+ * ```ts
+ * releaseOutboxClaim(sql, invitationOutbox, claim, "InterruptedRecruitmentInvitationClaim");
+ * ```
+ *
+ * @avoid Releasing a claim after the provider answered: the next claim sends the effect again.
+ * Settle an answered delivery with `markOutboxDelivered` or `markOutboxFailed`.
+ *
  * @construct sql-lifecycle
  */
 export const releaseOutboxClaim = (
@@ -215,6 +294,23 @@ export const releaseOutboxClaim = (
 
 /**
  * Recovers every Processing row claimed before `claimedBefore`.
+ *
+ * @remarks
+ * One UPDATE moves each `Processing` row whose `claimed_at` lies before `claimedBefore` to
+ * `recovery.status`, `Pending` or `Failed`, with `recovery.failureTag`, clears its claim, and
+ * answers the number of rows it recovered. The worker of such a claim counts as gone; if it still
+ * runs, its settlement fails with `OutboxClaimLost`.
+ *
+ * @sideEffects Writes every stale Processing row of the table.
+ *
+ * @example
+ * ```ts
+ * recoverStaleOutboxClaims(sql, invitationOutbox, claimedBefore, { status: "Failed", failureTag: "StaleClaimRecovered" });
+ * ```
+ *
+ * @avoid A cutoff that a live claim can still reach, such as one closer to now than the longest
+ * provider call: the row goes to a second claim, which delivers the effect again. Derive
+ * `claimedBefore` from the worker's stale-claim window, as now minus `staleClaimMilliseconds`.
  *
  * @construct sql-lifecycle
  */
