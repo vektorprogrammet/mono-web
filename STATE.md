@@ -129,6 +129,21 @@ Full migration needs implementation, operational decisions, current-data reconci
 The [testing roadmap](docs/web-system-functional-testing.md#development-sequence) owns journey sequencing: generated sequences and measured execution scaling come next.
 PGlite performance and full native composition are unmeasured.
 
+### Lead handoff
+
+Updated 2026-09-26. A new lead resumes from this list, the branches, and `docs/specs/`, not from chat or session files.
+Each branch lives in its own worktree next to this checkout. Writers commit there and never push; the lead lands each branch and pushes `main`.
+
+| Branch                                     | Scope                                                                                                                                                 | State                                                                   |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `feat/reach-delegation-0926`               | O8-11 to O8-17: board reach, delegations, Økonomi approval, migration 76. Contract: `docs/specs/reach-and-delegation.md`.                             | Design approved; implementation in progress.                            |
+| `fix/red-suites-0926`                      | Receipt upload bound (413), interview-response contract check, migration-26 proofs, hermetic contact suite, hosted CI coverage check.                 | In progress. These suites are red on `main` and not yet hosted.         |
+| `build/lead-constructs-0926`               | Machine-wide heavy-job lock in `just measure`; recipes for model checks and branch landing; seed-date rule; migration registry invariants; AGENTS.md. | In progress. Until it lands, heavy jobs are serialised by the lead.     |
+| homelab `feat/btrbk-root-offload-ironwolf` | Root snapshots 7d local; IronWolf keeps the latest first, 4w 6m from 2026-10-04; `@downloads` cap 2540G.                                              | Built, not deployed. Deploy only with the operator steps in its report. |
+
+Queued after these: certificates (needs delegations), formatter scope for the frontends, per-domain typed problems and instants,
+lint enforcement of shared constructs and migration of ad-hoc code onto them.
+
 ### Operator steps pending
 
 - Staging deploys run `docker compose down` without `--remove-orphans`. After the PostgreSQL 18 change reaches the `staging` branch,
