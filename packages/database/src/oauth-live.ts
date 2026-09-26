@@ -1,5 +1,5 @@
 import type { AuthEngine } from "./auth-engine.js";
-import { DatabasePgPool } from "./pg-pool.js";
+import { DatabasePgPool, pgQuery, pgTransaction, type PgQueryError } from "./pg-pool.js";
 import { NativeAuthEngine } from "./auth-engine.js";
 import {
   CredentialOutcomeSchema,
@@ -7,7 +7,19 @@ import {
   PrincipalSchema,
 } from "@vektorprogrammet/domain/authz";
 import { createHash, randomBytes, randomUUID, timingSafeEqual, webcrypto } from "node:crypto";
-import { Types, flow, Layer, Cause, Predicate, Context, Effect, Result, Schema } from "effect";
+import {
+  Types,
+  flow,
+  Layer,
+  Cause,
+  Predicate,
+  Context,
+  Data,
+  DateTime,
+  Effect,
+  Result,
+  Schema,
+} from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import {
@@ -60,8 +72,8 @@ export interface OAuthCredentialAuthorityService {
   readonly resolve: (
     request: Request,
     expected: OAuthExpectedMechanism,
-    now?: Date,
-  ) => Promise<CredentialOutcome>;
+    now?: DateTime.Utc,
+  ) => Effect.Effect<CredentialOutcome>;
   /**
    * Resolves current bearer state through the ambient Effect SQL transaction.
    * Native mutations use this path so token/client/session revocation and the
@@ -70,7 +82,7 @@ export interface OAuthCredentialAuthorityService {
   readonly resolveInTransaction: (
     request: Request,
     expected: OAuthExpectedMechanism,
-    now?: Date,
+    now?: DateTime.Utc,
   ) => Effect.Effect<CredentialOutcome, never, Database>;
 }
 
@@ -92,24 +104,40 @@ export interface OAuthProvisionResult {
   readonly clientSecret?: string;
 }
 
+/** An operator command that failed before or while it changed OAuth client state. */
+export class OAuthClientOperatorError extends Data.TaggedError("OAuthClientOperatorError")<{
+  readonly operation: keyof OAuthClientOperatorService;
+  readonly message: string;
+  readonly cause: unknown;
+}> {}
+
 export interface OAuthClientOperatorService {
   readonly provision: (
     manifest: OAuthClientManifest,
     execution: OAuthOperatorExecution,
-  ) => Promise<OAuthProvisionResult>;
+  ) => Effect.Effect<OAuthProvisionResult, OAuthClientOperatorError>;
   readonly rotateSecret: (
     clientId: string,
     execution: OAuthOperatorExecution,
-  ) => Promise<{ readonly clientId: string; readonly clientSecret?: string }>;
-  readonly disableClient: (clientId: string, execution: OAuthOperatorExecution) => Promise<void>;
+  ) => Effect.Effect<
+    { readonly clientId: string; readonly clientSecret?: string },
+    OAuthClientOperatorError
+  >;
+  readonly disableClient: (
+    clientId: string,
+    execution: OAuthOperatorExecution,
+  ) => Effect.Effect<void, OAuthClientOperatorError>;
   readonly disableServicePrincipal: (
     servicePrincipalId: string,
     execution: OAuthOperatorExecution,
-  ) => Promise<void>;
+  ) => Effect.Effect<void, OAuthClientOperatorError>;
   readonly bootstrapSigningKey: (
     execution: OAuthOperatorExecution,
-  ) => Promise<{ readonly keyId?: string }>;
-  readonly retireSigningKeys: (execution: OAuthOperatorExecution, now?: Date) => Promise<number>;
+  ) => Effect.Effect<{ readonly keyId?: string }, OAuthClientOperatorError>;
+  readonly retireSigningKeys: (
+    execution: OAuthOperatorExecution,
+    now?: DateTime.Utc,
+  ) => Effect.Effect<number, OAuthClientOperatorError>;
 }
 
 export class OAuthClientOperator extends Context.Service<
@@ -417,7 +445,7 @@ type TokenStateLookup<E, R> = (
 const resolveOAuthCredential = <E, R>(
   request: Request,
   expected: OAuthExpectedMechanism,
-  now: Date,
+  now: DateTime.Utc,
   lookup: TokenStateLookup<E, R>,
   config: OAuthProviderRuntimeConfig,
 ): Effect.Effect<CredentialOutcome, never, R> =>
@@ -450,7 +478,8 @@ const resolveOAuthCredential = <E, R>(
       return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Invalid" });
     }
 
-    const nowSeconds = Math.floor(now.getTime() / 1_000);
+    const nowMillis = DateTime.toEpochMillis(now);
+    const nowSeconds = Math.floor(nowMillis / 1_000);
 
     if (decoded.claims.iat > nowSeconds || decoded.claims.exp <= decoded.claims.iat) {
       return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Invalid" });
@@ -487,7 +516,7 @@ const resolveOAuthCredential = <E, R>(
       return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Invalid" });
     }
 
-    if (decoded.claims.exp <= nowSeconds || state.expires_at.getTime() <= now.getTime()) {
+    if (decoded.claims.exp <= nowSeconds || state.expires_at.getTime() <= nowMillis) {
       return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Expired" });
     }
 
@@ -495,11 +524,11 @@ const resolveOAuthCredential = <E, R>(
       state.revoked_at !== null ||
       state.family_revoked_at !== null ||
       state.client_disabled === true ||
-      (state.secret_expires_at !== null && state.secret_expires_at.getTime() <= now.getTime()) ||
+      (state.secret_expires_at !== null && state.secret_expires_at.getTime() <= nowMillis) ||
       (state.family_inactivity_expires_at !== null &&
-        state.family_inactivity_expires_at.getTime() <= now.getTime()) ||
+        state.family_inactivity_expires_at.getTime() <= nowMillis) ||
       (state.family_absolute_expires_at !== null &&
-        state.family_absolute_expires_at.getTime() <= now.getTime())
+        state.family_absolute_expires_at.getTime() <= nowMillis)
     ) {
       return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Revoked" });
     }
@@ -516,7 +545,7 @@ const resolveOAuthCredential = <E, R>(
         state.session_id === null ||
         decoded.claims.sid !== state.session_id ||
         state.session_expires_at === null ||
-        state.session_expires_at.getTime() <= now.getTime() ||
+        state.session_expires_at.getTime() <= nowMillis ||
         !state.consent_live ||
         (decoded.claims.scope !== "native-api" &&
           decoded.claims.scope !== "native-api offline_access")
@@ -561,12 +590,12 @@ export const makeOAuthCredentialAuthorityService = (
   pool: Pool,
   config: OAuthProviderRuntimeConfig,
 ): OAuthCredentialAuthorityService => ({
-  resolve: (request, expected, now = new Date()) =>
-    Effect.runPromise(
+  resolve: (request, expected, now) =>
+    Effect.flatMap(now === undefined ? DateTime.now : Effect.succeed(now), (instant) =>
       resolveOAuthCredential(
         request,
         expected,
-        now,
+        instant,
         (claims, kid) =>
           Effect.tryPromise({
             try: () => selectTokenState(pool, claims, kid),
@@ -575,8 +604,10 @@ export const makeOAuthCredentialAuthorityService = (
         config,
       ),
     ),
-  resolveInTransaction: (request, expected, now = new Date()) =>
-    resolveOAuthCredential(request, expected, now, selectTokenStateInTransaction, config),
+  resolveInTransaction: (request, expected, now) =>
+    Effect.flatMap(now === undefined ? DateTime.now : Effect.succeed(now), (instant) =>
+      resolveOAuthCredential(request, expected, instant, selectTokenStateInTransaction, config),
+    ),
 });
 
 const inTransaction = async <A>(
@@ -615,7 +646,7 @@ const sanitizedRequestContext = (context: IdentityRequestContext) => ({
       : null,
 });
 
-const appendAudit = async (
+const appendAuditAsync = async (
   client: PoolClient,
   input: {
     readonly eventKind: string;
@@ -653,6 +684,53 @@ const appendAudit = async (
     ],
   );
 };
+
+const encodeAuditDetails = Schema.encodeEffect(
+  Schema.fromJsonString(Schema.Record(Schema.String, Schema.Json)),
+);
+
+const appendAudit = (
+  client: PoolClient,
+  input: {
+    readonly eventKind: string;
+    readonly clientId?: string;
+    readonly familyId?: string;
+    readonly jti?: string;
+    readonly personId?: string;
+    readonly servicePrincipalId?: string;
+    readonly actorPrincipal: string;
+    readonly requestCorrelation: string;
+    readonly sourceIp?: string | null;
+    readonly userAgent?: string | null;
+    readonly details?: Readonly<Record<string, Schema.Json>>;
+  },
+) =>
+  Effect.gen(function* () {
+    const details = yield* encodeAuditDetails(input.details ?? {});
+
+    yield* pgQuery(
+      client,
+      `INSERT INTO auth.oauth_security_audit (
+       event_id, occurred_at, event_kind, client_id, family_id, jti,
+       subject_person_id, subject_service_principal_id, actor_principal,
+       request_correlation, source_ip, user_agent, details
+     ) VALUES ($1, date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)`,
+      [
+        randomUUID(),
+        input.eventKind,
+        input.clientId ?? null,
+        input.familyId ?? null,
+        input.jti ?? null,
+        input.personId ?? null,
+        input.servicePrincipalId ?? null,
+        input.actorPrincipal.slice(0, 160),
+        input.requestCorrelation.slice(0, 160),
+        input.sourceIp ?? null,
+        input.userAgent ?? null,
+        details,
+      ],
+    );
+  });
 
 const validateRedirect = (value: string): void => {
   let url: URL;
@@ -808,259 +886,388 @@ const clientProviderRecord = (
   };
 };
 
+const operatorFailure =
+  (operation: keyof OAuthClientOperatorService) =>
+  (cause: unknown): OAuthClientOperatorError =>
+    cause instanceof OAuthClientOperatorError
+      ? cause
+      : new OAuthClientOperatorError({
+          operation,
+          message: cause instanceof Error ? cause.message : "OAuth client operation failed",
+          cause,
+        });
+
+const selectActiveSigningKeys = (pool: Pool) =>
+  pgQuery<{ readonly id: string }>(
+    pool,
+    `SELECT id FROM auth.jwks
+        WHERE COALESCE(alg, '') = 'ES256'
+          AND ("expiresAt" IS NULL OR "expiresAt" > CURRENT_TIMESTAMP)
+        ORDER BY "createdAt" DESC`,
+  );
+
 export const makeOAuthClientOperatorService = (
   pool: Pool,
   engine: OAuthEngineBoundary,
 ): OAuthClientOperatorService => ({
-  provision: async (unsafeManifest, execution) => {
-    requireOperatorExecution(execution);
-    const manifest = validateManifest(unsafeManifest);
+  provision: (unsafeManifest, execution) =>
+    Effect.gen(function* () {
+      const manifest = yield* Effect.try({
+        try: () => {
+          requireOperatorExecution(execution);
 
-    if (execution.dryRun) {
-      const result: OAuthProvisionResult = { clientId: manifest.clientId };
+          return validateManifest(unsafeManifest);
+        },
+        catch: operatorFailure("provision"),
+      });
 
-      if (manifest.servicePrincipalId !== undefined)
-        return { ...result, servicePrincipalId: manifest.servicePrincipalId };
+      if (execution.dryRun) {
+        const result: OAuthProvisionResult = { clientId: manifest.clientId };
 
-      return result;
-    }
+        if (manifest.servicePrincipalId !== undefined)
+          return { ...result, servicePrincipalId: manifest.servicePrincipalId };
 
-    const confidential = manifest.clientKind !== "DelegatedPublic";
-    const rawSecret = confidential ? randomBytes(32).toString("base64url") : undefined;
-    const clientSecret = rawSecret === undefined ? undefined : `vkr_cs_${rawSecret}`;
-    const storedSecret = rawSecret === undefined ? null : await hashOAuthClientSecret(rawSecret);
-    const now = new Date();
-    const context = await engine.$context;
-    await context.adapter.create({
-      model: "oauthClient",
-      data: clientProviderRecord(manifest, storedSecret, now),
-    });
-    await context.adapter.create({
-      model: "oauthClientResource",
-      data: {
-        clientId: manifest.clientId,
-        resourceId: OAUTH_NATIVE_API_RESOURCE,
-        createdAt: now,
-      },
-    });
-    await inTransaction(pool, async (client) => {
-      if (manifest.clientKind === "Service") {
-        await client.query(
-          `INSERT INTO public.service_principals (
-             service_principal_id, name, state, revision, created_at, updated_at
-           ) VALUES ($1, $2, 'Active', 0, $3, $3)`,
-          [manifest.servicePrincipalId, manifest.servicePrincipalName, now],
-        );
+        return result;
       }
 
-      await client.query(
-        `INSERT INTO auth.oauth_client_bindings (
+      const confidential = manifest.clientKind !== "DelegatedPublic";
+      const rawSecret = confidential ? randomBytes(32).toString("base64url") : undefined;
+      const clientSecret = rawSecret === undefined ? undefined : `vkr_cs_${rawSecret}`;
+
+      const storedSecret =
+        rawSecret === undefined
+          ? null
+          : yield* Effect.tryPromise({
+              try: () => hashOAuthClientSecret(rawSecret),
+              catch: operatorFailure("provision"),
+            });
+
+      const instant = yield* DateTime.now;
+      const now = DateTime.toDateUtc(instant);
+
+      const context = yield* Effect.tryPromise({
+        try: () => engine.$context,
+        catch: operatorFailure("provision"),
+      });
+
+      yield* Effect.tryPromise({
+        try: () =>
+          context.adapter.create({
+            model: "oauthClient",
+            data: clientProviderRecord(manifest, storedSecret, now),
+          }),
+        catch: operatorFailure("provision"),
+      });
+      yield* Effect.tryPromise({
+        try: () =>
+          context.adapter.create({
+            model: "oauthClientResource",
+            data: {
+              clientId: manifest.clientId,
+              resourceId: OAUTH_NATIVE_API_RESOURCE,
+              createdAt: now,
+            },
+          }),
+        catch: operatorFailure("provision"),
+      });
+      yield* pgTransaction(pool, (client) =>
+        Effect.gen(function* () {
+          if (manifest.clientKind === "Service") {
+            yield* pgQuery(
+              client,
+              `INSERT INTO public.service_principals (
+             service_principal_id, name, state, revision, created_at, updated_at
+           ) VALUES ($1, $2, 'Active', 0, $3, $3)`,
+              [manifest.servicePrincipalId, manifest.servicePrincipalName, now],
+            );
+          }
+
+          yield* pgQuery(
+            client,
+            `INSERT INTO auth.oauth_client_bindings (
            client_id, client_kind, service_principal_id, secret_expires_at,
            revision, created_at, updated_at
          ) VALUES ($1, $2, $3, $4, 0, $5, $5)`,
-        [
-          manifest.clientId,
-          manifest.clientKind,
-          manifest.servicePrincipalId ?? null,
-          confidential ? new Date(now.getTime() + CLIENT_SECRET_LIFETIME_MS) : null,
-          now,
-        ],
+            [
+              manifest.clientId,
+              manifest.clientKind,
+              manifest.servicePrincipalId ?? null,
+              confidential
+                ? DateTime.toDateUtc(
+                    DateTime.add(instant, { milliseconds: CLIENT_SECRET_LIFETIME_MS }),
+                  )
+                : null,
+              now,
+            ],
+          );
+          yield* appendAudit(client, {
+            eventKind: "oauth-client-provisioned",
+            clientId: manifest.clientId,
+            servicePrincipalId: manifest.servicePrincipalId,
+            actorPrincipal: "operator",
+            requestCorrelation: execution.requestCorrelation,
+            details: { client_kind: manifest.clientKind, resource: OAUTH_NATIVE_API_RESOURCE },
+          });
+        }),
       );
-      await appendAudit(client, {
-        eventKind: "oauth-client-provisioned",
-        clientId: manifest.clientId,
-        servicePrincipalId: manifest.servicePrincipalId,
-        actorPrincipal: "operator",
-        requestCorrelation: execution.requestCorrelation,
-        details: { client_kind: manifest.clientKind, resource: OAUTH_NATIVE_API_RESOURCE },
+
+      const result: Types.Mutable<OAuthProvisionResult> = { clientId: manifest.clientId };
+
+      if (manifest.servicePrincipalId !== undefined)
+        result.servicePrincipalId = manifest.servicePrincipalId;
+
+      if (clientSecret !== undefined) result.clientSecret = clientSecret;
+
+      return result;
+    }).pipe(Effect.mapError(operatorFailure("provision"))),
+  rotateSecret: (clientId, execution) =>
+    Effect.gen(function* () {
+      yield* Effect.try({
+        try: () => requireOperatorExecution(execution),
+        catch: operatorFailure("rotateSecret"),
       });
-    });
 
-    const result: Types.Mutable<OAuthProvisionResult> = { clientId: manifest.clientId };
+      if (execution.dryRun) return { clientId };
+      const rawSecret = randomBytes(32).toString("base64url");
+      const secret = `vkr_cs_${rawSecret}`;
 
-    if (manifest.servicePrincipalId !== undefined)
-      result.servicePrincipalId = manifest.servicePrincipalId;
+      const digest = yield* Effect.tryPromise({
+        try: () => hashOAuthClientSecret(rawSecret),
+        catch: operatorFailure("rotateSecret"),
+      });
 
-    if (clientSecret !== undefined) result.clientSecret = clientSecret;
+      yield* pgTransaction(pool, (client) =>
+        Effect.gen(function* () {
+          yield* pgQuery(client, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+            clientId,
+          ]);
 
-    return result;
-  },
-  rotateSecret: async (clientId, execution) => {
-    requireOperatorExecution(execution);
-
-    if (execution.dryRun) return { clientId };
-    const rawSecret = randomBytes(32).toString("base64url");
-    const secret = `vkr_cs_${rawSecret}`;
-    const digest = await hashOAuthClientSecret(rawSecret);
-    await inTransaction(pool, async (client) => {
-      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [clientId]);
-
-      const updated = await client.query(
-        `UPDATE auth."oauthClient" provider
+          const updated = yield* pgQuery(
+            client,
+            `UPDATE auth."oauthClient" provider
             SET "clientSecret" = $2, "updatedAt" = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
            FROM auth.oauth_client_bindings binding
           WHERE provider."clientId" = $1
             AND binding.client_id = provider."clientId"
             AND binding.client_kind <> 'DelegatedPublic'
             AND COALESCE(provider.disabled, false) = false`,
-        [clientId, digest],
-      );
+            [clientId, digest],
+          );
 
-      if (updated.rowCount !== 1) throw new Error("live confidential client not found");
-      await client.query(
-        `UPDATE auth.oauth_client_bindings
+          if (updated.rowCount !== 1) {
+            return yield* new OAuthClientOperatorError({
+              operation: "rotateSecret",
+              message: "live confidential client not found",
+              cause: undefined,
+            });
+          }
+
+          yield* pgQuery(
+            client,
+            `UPDATE auth.oauth_client_bindings
             SET secret_expires_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC') + interval '90 days',
                 revision = revision + 1,
                 updated_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
           WHERE client_id = $1`,
-        [clientId],
+            [clientId],
+          );
+          yield* appendAudit(client, {
+            eventKind: "oauth-client-secret-rotated",
+            clientId,
+            actorPrincipal: "operator",
+            requestCorrelation: execution.requestCorrelation,
+          });
+        }),
       );
-      await appendAudit(client, {
-        eventKind: "oauth-client-secret-rotated",
-        clientId,
-        actorPrincipal: "operator",
-        requestCorrelation: execution.requestCorrelation,
+
+      return { clientId, clientSecret: secret };
+    }).pipe(Effect.mapError(operatorFailure("rotateSecret"))),
+  disableClient: (clientId, execution) =>
+    Effect.gen(function* () {
+      yield* Effect.try({
+        try: () => requireOperatorExecution(execution),
+        catch: operatorFailure("disableClient"),
       });
-    });
 
-    return { clientId, clientSecret: secret };
-  },
-  disableClient: async (clientId, execution) => {
-    requireOperatorExecution(execution);
+      if (execution.dryRun) return;
+      yield* pgTransaction(pool, (client) =>
+        Effect.gen(function* () {
+          yield* pgQuery(client, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+            clientId,
+          ]);
 
-    if (execution.dryRun) return;
-    await inTransaction(pool, async (client) => {
-      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [clientId]);
-
-      const updated = await client.query(
-        `UPDATE auth."oauthClient" SET disabled = true, "updatedAt" = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
+          const updated = yield* pgQuery(
+            client,
+            `UPDATE auth."oauthClient" SET disabled = true, "updatedAt" = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
           WHERE "clientId" = $1 AND COALESCE(disabled, false) = false`,
-        [clientId],
-      );
+            [clientId],
+          );
 
-      if (updated.rowCount !== 1) throw new Error("live OAuth client not found");
-      await client.query(
-        `UPDATE auth.oauth_access_token_state SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'),
+          if (updated.rowCount !== 1) {
+            return yield* new OAuthClientOperatorError({
+              operation: "disableClient",
+              message: "live OAuth client not found",
+              cause: undefined,
+            });
+          }
+
+          yield* pgQuery(
+            client,
+            `UPDATE auth.oauth_access_token_state SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'),
            revocation_reason = 'client-disabled'
          WHERE client_id = $1 AND revoked_at IS NULL`,
-        [clientId],
-      );
-      await client.query(
-        `UPDATE auth.oauth_refresh_families SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'),
+            [clientId],
+          );
+          yield* pgQuery(
+            client,
+            `UPDATE auth.oauth_refresh_families SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'),
            revocation_reason = 'client-disabled'
          WHERE client_id = $1 AND revoked_at IS NULL`,
-        [clientId],
+            [clientId],
+          );
+          yield* appendAudit(client, {
+            eventKind: "oauth-client-disabled",
+            clientId,
+            actorPrincipal: "operator",
+            requestCorrelation: execution.requestCorrelation,
+          });
+        }),
       );
-      await appendAudit(client, {
-        eventKind: "oauth-client-disabled",
-        clientId,
-        actorPrincipal: "operator",
-        requestCorrelation: execution.requestCorrelation,
+    }).pipe(Effect.mapError(operatorFailure("disableClient"))),
+  disableServicePrincipal: (servicePrincipalId, execution) =>
+    Effect.gen(function* () {
+      yield* Effect.try({
+        try: () => requireOperatorExecution(execution),
+        catch: operatorFailure("disableServicePrincipal"),
       });
-    });
-  },
-  disableServicePrincipal: async (servicePrincipalId, execution) => {
-    requireOperatorExecution(execution);
 
-    if (execution.dryRun) return;
-    await inTransaction(pool, async (client) => {
-      const selected = await client.query<{ readonly client_id: string }>(
-        `SELECT client_id FROM auth.oauth_client_bindings
+      if (execution.dryRun) return;
+      yield* pgTransaction(pool, (client) =>
+        Effect.gen(function* () {
+          const selected = yield* pgQuery<{ readonly client_id: string }>(
+            client,
+            `SELECT client_id FROM auth.oauth_client_bindings
           WHERE service_principal_id = $1 FOR UPDATE`,
-        [servicePrincipalId],
-      );
+            [servicePrincipalId],
+          );
 
-      const binding = selected.rows[0];
+          const binding = selected.rows[0];
 
-      if (binding === undefined) throw new Error("service-principal binding not found");
-      await client.query(
-        `UPDATE public.service_principals
+          if (binding === undefined) {
+            return yield* new OAuthClientOperatorError({
+              operation: "disableServicePrincipal",
+              message: "service-principal binding not found",
+              cause: undefined,
+            });
+          }
+
+          yield* pgQuery(
+            client,
+            `UPDATE public.service_principals
             SET state = 'Disabled', revision = revision + 1, updated_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
           WHERE service_principal_id = $1 AND state = 'Active'`,
-        [servicePrincipalId],
-      );
-      await client.query(
-        `UPDATE auth."oauthClient" SET disabled = true, "updatedAt" = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
+            [servicePrincipalId],
+          );
+          yield* pgQuery(
+            client,
+            `UPDATE auth."oauthClient" SET disabled = true, "updatedAt" = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
           WHERE "clientId" = $1`,
-        [binding.client_id],
-      );
-      await client.query(
-        `UPDATE auth.oauth_access_token_state
+            [binding.client_id],
+          );
+          yield* pgQuery(
+            client,
+            `UPDATE auth.oauth_access_token_state
             SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), revocation_reason = 'service-principal-disabled'
           WHERE service_principal_id = $1 AND revoked_at IS NULL`,
-        [servicePrincipalId],
+            [servicePrincipalId],
+          );
+          yield* appendAudit(client, {
+            eventKind: "oauth-service-principal-disabled",
+            clientId: binding.client_id,
+            servicePrincipalId,
+            actorPrincipal: "operator",
+            requestCorrelation: execution.requestCorrelation,
+          });
+        }),
       );
-      await appendAudit(client, {
-        eventKind: "oauth-service-principal-disabled",
-        clientId: binding.client_id,
-        servicePrincipalId,
-        actorPrincipal: "operator",
-        requestCorrelation: execution.requestCorrelation,
+    }).pipe(Effect.mapError(operatorFailure("disableServicePrincipal"))),
+  bootstrapSigningKey: (execution) =>
+    Effect.gen(function* () {
+      yield* Effect.try({
+        try: () => requireOperatorExecution(execution),
+        catch: operatorFailure("bootstrapSigningKey"),
       });
-    });
-  },
-  bootstrapSigningKey: async (execution) => {
-    requireOperatorExecution(execution);
 
-    const selected = await pool.query<{ readonly id: string }>(
-      `SELECT id FROM auth.jwks
-        WHERE COALESCE(alg, '') = 'ES256'
-          AND ("expiresAt" IS NULL OR "expiresAt" > CURRENT_TIMESTAMP)
-        ORDER BY "createdAt" DESC`,
-    );
+      const selected = yield* selectActiveSigningKeys(pool);
 
-    if (selected.rows.length > 1) throw new Error("multiple active ES256 signing keys");
+      if (selected.rows.length > 1) {
+        return yield* new OAuthClientOperatorError({
+          operation: "bootstrapSigningKey",
+          message: "multiple active ES256 signing keys",
+          cause: undefined,
+        });
+      }
 
-    if (selected.rows[0] !== undefined) return { keyId: selected.rows[0].id };
+      if (selected.rows[0] !== undefined) return { keyId: selected.rows[0].id };
 
-    if (execution.dryRun) return {};
-    await engine.api.signJWT({
-      body: { payload: { sub: "oauth-signing-key-bootstrap", aud: OAUTH_NATIVE_API_RESOURCE } },
-    });
+      if (execution.dryRun) return {};
+      yield* Effect.tryPromise({
+        try: () =>
+          engine.api.signJWT({
+            body: {
+              payload: { sub: "oauth-signing-key-bootstrap", aud: OAUTH_NATIVE_API_RESOURCE },
+            },
+          }),
+        catch: operatorFailure("bootstrapSigningKey"),
+      });
 
-    const created = await pool.query<{ readonly id: string }>(
-      `SELECT id FROM auth.jwks
-        WHERE COALESCE(alg, '') = 'ES256'
-          AND ("expiresAt" IS NULL OR "expiresAt" > CURRENT_TIMESTAMP)
-        ORDER BY "createdAt" DESC`,
-    );
+      const created = yield* selectActiveSigningKeys(pool);
 
-    if (created.rows.length !== 1)
-      throw new Error("signing key bootstrap did not create exactly one key");
-    const keyId = created.rows[0]!.id;
-    await inTransaction(pool, (client) =>
-      appendAudit(client, {
-        eventKind: "oauth-signing-key-rotated",
-        actorPrincipal: "operator",
-        requestCorrelation: execution.requestCorrelation,
-        details: { key_id: keyId },
-      }),
-    );
+      const [key] = created.rows;
 
-    return { keyId };
-  },
-  retireSigningKeys: async (execution, now = new Date()) => {
-    requireOperatorExecution(execution);
+      if (created.rows.length !== 1 || key === undefined) {
+        return yield* new OAuthClientOperatorError({
+          operation: "bootstrapSigningKey",
+          message: "signing key bootstrap did not create exactly one key",
+          cause: undefined,
+        });
+      }
 
-    if (execution.dryRun) return 0;
+      yield* pgTransaction(pool, (client) =>
+        appendAudit(client, {
+          eventKind: "oauth-signing-key-rotated",
+          actorPrincipal: "operator",
+          requestCorrelation: execution.requestCorrelation,
+          details: { key_id: key.id },
+        }),
+      );
 
-    const result = await pool.query(
-      `DELETE FROM auth.jwks
+      return { keyId: key.id };
+    }).pipe(Effect.mapError(operatorFailure("bootstrapSigningKey"))),
+  retireSigningKeys: (execution, now) =>
+    Effect.gen(function* () {
+      yield* Effect.try({
+        try: () => requireOperatorExecution(execution),
+        catch: operatorFailure("retireSigningKeys"),
+      });
+
+      if (execution.dryRun) return 0;
+
+      const cutoff = now ?? (yield* DateTime.now);
+
+      const result = yield* pgQuery(
+        pool,
+        `DELETE FROM auth.jwks
         WHERE "expiresAt" IS NOT NULL
           AND "expiresAt" + interval '15 minutes' <= $1`,
-      [now],
-    );
+        [DateTime.toDateUtc(cutoff)],
+      );
 
-    return result.rowCount ?? 0;
-  },
+      return result.rowCount ?? 0;
+    }).pipe(Effect.mapError(operatorFailure("retireSigningKeys"))),
 });
 
-const readClientAuthority = async (
-  pool: Pool,
-  clientId: string,
-): Promise<ClientAuthorityRow | undefined> => {
-  const result = await pool.query<ClientAuthorityRow>(
-    `SELECT binding.client_id, binding.client_kind, binding.service_principal_id,
+const clientAuthoritySql = `SELECT binding.client_id, binding.client_kind, binding.service_principal_id,
             binding.secret_expires_at, client.disabled, client."clientSecret" AS client_secret,
             client."redirectUris" AS redirect_uris, client.scopes,
             client."clientCredentialsScopes" AS client_credentials_scopes,
@@ -1068,9 +1275,13 @@ const readClientAuthority = async (
             client."grantTypes" AS grant_types, client."requirePKCE" AS require_pkce
        FROM auth.oauth_client_bindings binding
        JOIN auth."oauthClient" client ON client."clientId" = binding.client_id
-      WHERE binding.client_id = $1`,
-    [clientId],
-  );
+      WHERE binding.client_id = $1`;
+
+const readClientAuthority = async (
+  pool: Pool,
+  clientId: string,
+): Promise<ClientAuthorityRow | undefined> => {
+  const result = await pool.query<ClientAuthorityRow>(clientAuthoritySql, [clientId]);
 
   return result.rows[0];
 };
@@ -1197,7 +1408,7 @@ export const makeOAuthInternalIntrospectionHandler =
 
     const reject = async (reason: string): Promise<Response> => {
       await inTransaction(pool, (transaction) =>
-        appendAudit(transaction, {
+        appendAuditAsync(transaction, {
           eventKind: "oauth-introspection-rejected",
           actorPrincipal: "resource-server",
           requestCorrelation: context.requestCorrelation,
@@ -1400,7 +1611,7 @@ const insertIssuedToken = async (
       claims.exp,
     ],
   );
-  await appendAudit(transaction, {
+  await appendAuditAsync(transaction, {
     eventKind: "oauth-token-issued",
     clientId: claims.client_id,
     familyId: familyId ?? undefined,
@@ -1457,7 +1668,7 @@ const initialCodeExchange = async (
            WHERE family_id = $1 AND revoked_at IS NULL`,
           [replay.rows[0]!.family_id],
         );
-        await appendAudit(transaction, {
+        await appendAuditAsync(transaction, {
           eventKind: "oauth-authorization-code-replay",
           clientId: client.client_id,
           familyId: replay.rows[0]!.family_id,
@@ -1604,7 +1815,7 @@ const refreshExchange = async (
            WHERE family_id = $1 AND revoked_at IS NULL`,
           [lookup.family_id],
         );
-        await appendAudit(transaction, {
+        await appendAuditAsync(transaction, {
           eventKind: "oauth-refresh-replay",
           clientId: client.client_id,
           familyId: lookup.family_id!,
@@ -1819,7 +2030,7 @@ const handleRevocation = async (
       );
 
       if (updated.rows[0] !== undefined) {
-        await appendAudit(transaction, {
+        await appendAuditAsync(transaction, {
           eventKind: "oauth-access-token-revoked",
           clientId: client.client_id,
           familyId: updated.rows[0].family_id ?? undefined,
@@ -1872,7 +2083,7 @@ const handleRevocation = async (
         WHERE family_id = $1 AND revoked_at IS NULL`,
       [owned.family_id],
     );
-    await appendAudit(transaction, {
+    await appendAuditAsync(transaction, {
       eventKind: "oauth-refresh-family-revoked",
       clientId: client.client_id,
       familyId: owned.family_id,
@@ -1946,7 +2157,7 @@ const handleConsentWithdrawal = async (
         WHERE client_id = $1 AND person_id = $2 AND revoked_at IS NULL`,
       [owned.client_id, personId],
     );
-    await appendAudit(transaction, {
+    await appendAuditAsync(transaction, {
       eventKind: "oauth-consent-withdrawn",
       clientId: owned.client_id,
       personId,
@@ -2068,34 +2279,39 @@ export const makeOAuthReleaseBarrier =
     }
   };
 
-export const exactRedirectAccepted = async (
+export const exactRedirectAccepted = (
   pool: Pool,
   clientId: string,
   redirectUri: string,
-  now = new Date(),
-): Promise<boolean> => {
-  const client = await readClientAuthority(pool, clientId);
+): Effect.Effect<boolean, PgQueryError> =>
+  Effect.gen(function* () {
+    const now = DateTime.toEpochMillis(yield* DateTime.now);
 
-  if (
-    client === undefined ||
-    client.disabled === true ||
-    (client.client_kind !== "DelegatedPublic" && client.client_kind !== "DelegatedConfidential") ||
-    client.require_pkce !== true ||
-    client.grant_types?.join(" ") !== "authorization_code refresh_token" ||
-    (client.secret_expires_at !== null && client.secret_expires_at.getTime() <= now.getTime()) ||
-    !client.redirect_uris.some((registered) => registered === redirectUri)
-  ) {
-    return false;
-  }
+    const client = (yield* pgQuery<ClientAuthorityRow>(pool, clientAuthoritySql, [clientId]))
+      .rows[0];
 
-  const linked = await pool.query(
-    `SELECT 1 FROM auth."oauthClientResource"
+    if (
+      client === undefined ||
+      client.disabled === true ||
+      (client.client_kind !== "DelegatedPublic" &&
+        client.client_kind !== "DelegatedConfidential") ||
+      client.require_pkce !== true ||
+      client.grant_types?.join(" ") !== "authorization_code refresh_token" ||
+      (client.secret_expires_at !== null && client.secret_expires_at.getTime() <= now) ||
+      !client.redirect_uris.some((registered) => registered === redirectUri)
+    ) {
+      return false;
+    }
+
+    const linked = yield* pgQuery(
+      pool,
+      `SELECT 1 FROM auth."oauthClientResource"
       WHERE "clientId" = $1 AND "resourceId" = $2`,
-    [clientId, OAUTH_NATIVE_API_RESOURCE],
-  );
+      [clientId, OAUTH_NATIVE_API_RESOURCE],
+    );
 
-  return linked.rowCount === 1;
-};
+    return linked.rowCount === 1;
+  });
 
 export const verifyOAuthBootState = async (
   pool: Pool,

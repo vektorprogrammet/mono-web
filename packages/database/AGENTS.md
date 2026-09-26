@@ -73,6 +73,7 @@ The shared constructs defined here. [docs/constructs.md](../../docs/constructs.m
 - [`AdvisoryLockKey`](src/advisory-lock.ts) (sql-lock): The registered advisory-lock keys, one constructor per namespace.
 - [`lockAdvisory`](src/advisory-lock.ts) (sql-lock): Waits for the advisory lock on `key` until the current transaction ends.
 - [`tryLockAdvisory`](src/advisory-lock.ts) (sql-lock): Takes the exclusive advisory lock on `key` until the current transaction ends when no other transaction holds it.
+- [`makeBetterAuthCallbackRunner`](src/auth-engine.ts) (runtime-bridge): Creates the runner for Better Auth's Promise callbacks: it forks each program into a fiber set that the current scope owns, so closing the scope interrupts the callbacks still running.
 - [`accountAccessEnabled`](src/identity-access.ts) (sql-lifecycle): Whether the native account of `personId` exists and is not disabled.
 - [`selectDatabaseMigration`](src/migrations.ts) (test-harness): Selects the registered migration `id` and the migrations that run before it; an absent id throws and names the nearest registered ids.
 - [`outboxClaimAssignments`](src/outbox-lifecycle.ts) (sql-lifecycle): SET list for the aggregate's claim UPDATE; `targetAlias` names the updated outbox row.

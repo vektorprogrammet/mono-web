@@ -98,47 +98,53 @@ const execution = {
   requestCorrelation: "oauth-0082-postgres-proof",
 } as const;
 
-const key = await operator.bootstrapSigningKey(execution);
+const key = await authRuntime.runPromise(operator.bootstrapSigningKey(execution));
 
 assert.ok(Predicate.isString(key.keyId));
 
-const service = await operator.provision(
-  {
-    clientId: "oauth-proof-service",
-    name: "OAuth proof service",
-    clientKind: "Service",
-    redirectUris: [],
-    scopes: ["native-api"],
-    servicePrincipalId: "oauth-proof-principal",
-    servicePrincipalName: "OAuth proof principal",
-  },
-  execution,
+const service = await authRuntime.runPromise(
+  operator.provision(
+    {
+      clientId: "oauth-proof-service",
+      name: "OAuth proof service",
+      clientKind: "Service",
+      redirectUris: [],
+      scopes: ["native-api"],
+      servicePrincipalId: "oauth-proof-principal",
+      servicePrincipalName: "OAuth proof principal",
+    },
+    execution,
+  ),
 );
 
 assert.ok(Predicate.isString(service.clientSecret));
 
-const resourceServer = await operator.provision(
-  {
-    clientId: "oauth-proof-resource-server",
-    name: "OAuth proof resource server",
-    clientKind: "ResourceServer",
-    redirectUris: [],
-    scopes: [],
-  },
-  execution,
+const resourceServer = await authRuntime.runPromise(
+  operator.provision(
+    {
+      clientId: "oauth-proof-resource-server",
+      name: "OAuth proof resource server",
+      clientKind: "ResourceServer",
+      redirectUris: [],
+      scopes: [],
+    },
+    execution,
+  ),
 );
 
 assert.ok(Predicate.isString(resourceServer.clientSecret));
 
-const delegated = await operator.provision(
-  {
-    clientId: "oauth-proof-delegated",
-    name: "OAuth proof delegated client",
-    clientKind: "DelegatedPublic",
-    redirectUris: ["http://127.0.0.1:4173/dashboard/oauth/callback"],
-    scopes: ["native-api", "offline_access"],
-  },
-  execution,
+const delegated = await authRuntime.runPromise(
+  operator.provision(
+    {
+      clientId: "oauth-proof-delegated",
+      name: "OAuth proof delegated client",
+      clientKind: "DelegatedPublic",
+      redirectUris: ["http://127.0.0.1:4173/dashboard/oauth/callback"],
+      scopes: ["native-api", "offline_access"],
+    },
+    execution,
+  ),
 );
 
 assert.equal(delegated.clientSecret, undefined);
@@ -149,7 +155,10 @@ const requestContext = new IdentityRequestContext({
   userAgent: "oauth-0082-postgres-proof",
 });
 
-const release = (await authRuntime.runPromise(AuthEngine)).oauthHandler;
+const authEngine = await authRuntime.runPromise(AuthEngine);
+
+const release = (request: Request, context: IdentityRequestContext) =>
+  authRuntime.runPromise(authEngine.oauthHandler(request, context));
 
 const issueServiceToken = async (): Promise<string> => {
   const body = new URLSearchParams({
@@ -188,11 +197,13 @@ assert.notEqual(firstToken, secondToken);
 
 const authority = await authRuntime.runPromise(OAuthCredentialAuthority);
 
-const accepted = await authority.resolve(
-  new Request("http://127.0.0.1:4173/api/proof", {
-    headers: { authorization: `Bearer ${firstToken}` },
-  }),
-  "OAuthServiceBearer",
+const accepted = await authRuntime.runPromise(
+  authority.resolve(
+    new Request("http://127.0.0.1:4173/api/proof", {
+      headers: { authorization: `Bearer ${firstToken}` },
+    }),
+    "OAuthServiceBearer",
+  ),
 );
 
 assert.equal(accepted._tag, "Accepted");
@@ -221,7 +232,8 @@ const serviceRuleSubjectColumn = await pool.query(
 
 assert.equal(serviceRuleSubjectColumn.rowCount, 1);
 
-const introspection = (await authRuntime.runPromise(AuthEngine)).oauthIntrospectionHandler;
+const introspection = (request: Request, context: IdentityRequestContext) =>
+  authRuntime.runPromise(authEngine.oauthIntrospectionHandler(request, context));
 
 const introspectionRequest = (token: string): Request =>
   new Request("http://127.0.0.1:4173/api/auth/oauth2/introspect", {
@@ -256,11 +268,13 @@ const revoke = await release(
 
 assert.equal(revoke.status, 200);
 
-const revoked = await authority.resolve(
-  new Request("http://127.0.0.1:4173/api/proof", {
-    headers: { authorization: `Bearer ${firstToken}` },
-  }),
-  "OAuthServiceBearer",
+const revoked = await authRuntime.runPromise(
+  authority.resolve(
+    new Request("http://127.0.0.1:4173/api/proof", {
+      headers: { authorization: `Bearer ${firstToken}` },
+    }),
+    "OAuthServiceBearer",
+  ),
 );
 
 assert.deepEqual(revoked, CredentialOutcomeSchema.cases.Rejected.make({ reason: "Revoked" }));
@@ -269,13 +283,15 @@ const inactiveIntrospection = await introspection(introspectionRequest(firstToke
 
 assert.deepEqual(await inactiveIntrospection.json(), { active: false });
 
-await operator.disableServicePrincipal("oauth-proof-principal", execution);
+await authRuntime.runPromise(operator.disableServicePrincipal("oauth-proof-principal", execution));
 
-const disabled = await authority.resolve(
-  new Request("http://127.0.0.1:4173/api/proof", {
-    headers: { authorization: `Bearer ${secondToken}` },
-  }),
-  "OAuthServiceBearer",
+const disabled = await authRuntime.runPromise(
+  authority.resolve(
+    new Request("http://127.0.0.1:4173/api/proof", {
+      headers: { authorization: `Bearer ${secondToken}` },
+    }),
+    "OAuthServiceBearer",
+  ),
 );
 
 assert.deepEqual(disabled, CredentialOutcomeSchema.cases.Rejected.make({ reason: "Revoked" }));
@@ -418,11 +434,13 @@ assert.ok(Predicate.isString(delegatedTokens.access_token));
 
 assert.ok(Predicate.isString(delegatedTokens.refresh_token));
 
-const delegatedAccepted = await authority.resolve(
-  new Request("http://127.0.0.1:4173/api/proof", {
-    headers: { authorization: `Bearer ${delegatedTokens.access_token}` },
-  }),
-  "OAuthUserBearer",
+const delegatedAccepted = await authRuntime.runPromise(
+  authority.resolve(
+    new Request("http://127.0.0.1:4173/api/proof", {
+      headers: { authorization: `Bearer ${delegatedTokens.access_token}` },
+    }),
+    "OAuthUserBearer",
+  ),
 );
 
 assert.equal(delegatedAccepted._tag, "Accepted");
@@ -477,11 +495,13 @@ assert.ok(Predicate.isString(rotatedTokens.access_token));
 
 assert.ok(Predicate.isString(rotatedTokens.refresh_token));
 
-const replayRevoked = await authority.resolve(
-  new Request("http://127.0.0.1:4173/api/proof", {
-    headers: { authorization: `Bearer ${rotatedTokens.access_token}` },
-  }),
-  "OAuthUserBearer",
+const replayRevoked = await authRuntime.runPromise(
+  authority.resolve(
+    new Request("http://127.0.0.1:4173/api/proof", {
+      headers: { authorization: `Bearer ${rotatedTokens.access_token}` },
+    }),
+    "OAuthUserBearer",
+  ),
 );
 
 assert.deepEqual(replayRevoked, CredentialOutcomeSchema.cases.Rejected.make({ reason: "Revoked" }));

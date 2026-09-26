@@ -12,7 +12,33 @@ import { PasswordRecovery, PasswordRecoveryLive } from "./password-recovery.js";
 import type { GenericEndpointContext } from "better-auth";
 import { Pool } from "pg";
 import { oauthPlugins, type OAuthProviderRuntimeConfig } from "./oauth-config.js";
-import { flow, Context, Layer, Effect, Schema, Option, Predicate } from "effect";
+import {
+  flow,
+  Context,
+  FiberSet,
+  Layer,
+  Effect,
+  Schema,
+  Option,
+  Predicate,
+  type Scope,
+} from "effect";
+
+/** Runs the Effect program behind one Better Auth callback as the Promise Better Auth awaits. */
+export type BetterAuthCallbackRunner = <A, E>(program: Effect.Effect<A, E>) => Promise<A>;
+
+/**
+ * Creates the runner for Better Auth's Promise callbacks: it forks each program into a fiber set
+ * that the current scope owns, so closing the scope interrupts the callbacks still running. A
+ * failed program rejects with its typed failure, so an `APIError` failure reaches Better Auth.
+ *
+ * @construct runtime-bridge
+ */
+export const makeBetterAuthCallbackRunner: Effect.Effect<
+  BetterAuthCallbackRunner,
+  never,
+  Scope.Scope
+> = FiberSet.makeRuntimePromise();
 
 /** Better Auth owns sessions and credentials, never Person roles or authorization policy. */
 export interface AuthEngineConfig {
@@ -325,6 +351,7 @@ const makeAccessDatabaseHooks = (
 export const makeAuthEngineOptions = (
   config: AuthEngineConfig,
   database: Pool,
+  run: BetterAuthCallbackRunner,
   recovery?: PasswordRecovery["Service"],
 ) => {
   const emailAndPassword: NonNullable<BetterAuthOptions["emailAndPassword"]> = {
@@ -337,8 +364,8 @@ export const makeAuthEngineOptions = (
   };
 
   if (recovery !== undefined) {
-    emailAndPassword.sendResetPassword = recovery.sendResetPassword;
-    emailAndPassword.onPasswordReset = recovery.onPasswordReset;
+    emailAndPassword.sendResetPassword = (data) => run(recovery.sendResetPassword(data));
+    emailAndPassword.onPasswordReset = (data) => run(recovery.onPasswordReset(data));
   }
 
   return {
@@ -401,9 +428,10 @@ export const makeAuthEngineOptions = (
 
 export const makeAuthEngine = (
   config: AuthEngineConfig,
-  database: Pool = makeAuthPool(config),
+  database: Pool,
+  run: BetterAuthCallbackRunner,
   recovery?: PasswordRecovery["Service"],
-) => betterAuth(makeAuthEngineOptions(config, database, recovery));
+) => betterAuth(makeAuthEngineOptions(config, database, run, recovery));
 
 export type AuthEngine = ReturnType<typeof makeAuthEngine>;
 
@@ -417,8 +445,9 @@ export const NativeAuthEngineLive = (config: AuthEngineConfig) =>
     Effect.gen(function* () {
       const pool = yield* DatabasePgPool;
       const recovery = yield* PasswordRecovery;
+      const run = yield* makeBetterAuthCallbackRunner;
 
-      return makeAuthEngine(config, pool, recovery);
+      return makeAuthEngine(config, pool, run, recovery);
     }),
   ).pipe(Layer.provideMerge(PasswordRecoveryLive(config)));
 

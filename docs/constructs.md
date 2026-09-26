@@ -16,6 +16,7 @@ Consumers are the modules that import a construct, directly or through re-export
 | [sql-lifecycle](#sql-lifecycle)   | 8          | Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account access.                                                        |
 | [delivery](#delivery)             | 1          | Delivers committed effects to providers after the transaction.                                                                              |
 | [worker](#worker)                 | 1          | Runs background workers on the Effect clock.                                                                                                |
+| [runtime-bridge](#runtime-bridge) | 1          | Runs the Effect programs behind Promise callbacks that a third-party library calls, inside the scope of the layer that owns the library.    |
 | [pagination](#pagination)         | 4          | Keyset cursors and pages over ordered PostgreSQL reads.                                                                                     |
 | [digest](#digest)                 | 4          | Canonical JSON and SHA-256 digests that evidence and idempotency identities hash.                                                           |
 | [test-harness](#test-harness)     | 12         | Starts and drives disposable infrastructure for tests, proofs, and journeys: PostgreSQL clusters, loopback ports, and the local backend.    |
@@ -758,6 +759,13 @@ Runs background workers on the Effect clock.
   - [apps/backend/src/recruitment/worker.ts](../apps/backend/src/recruitment/worker.ts)
   - [apps/backend/src/team-application/worker.ts](../apps/backend/src/team-application/worker.ts)
   - [apps/backend/src/worker-support.test.ts](../apps/backend/src/worker-support.test.ts)
+
+## runtime-bridge
+
+Runs the Effect programs behind Promise callbacks that a third-party library calls, inside the scope of the layer that owns the library.
+
+- `makeBetterAuthCallbackRunner`: Creates the runner for Better Auth's Promise callbacks: it forks each program into a fiber set that the current scope owns, so closing the scope interrupts the callbacks still running.
+  [packages/database/src/auth-engine.ts:37](../packages/database/src/auth-engine.ts#L37), no consumers.
 
 ## pagination
 

@@ -111,17 +111,19 @@ const execution = {
   requestCorrelation: "oauth-dashboard-browser-fixture",
 } as const;
 
-await operator.bootstrapSigningKey(execution);
+await authRuntime.runPromise(operator.bootstrapSigningKey(execution));
 
-await operator.provision(
-  {
-    clientId: "oauth-dashboard-public",
-    name: "Dashboard OAuth proof",
-    clientKind: "DelegatedPublic",
-    redirectUris: [`${dashboardOrigin}/dashboard/oauth/callback`],
-    scopes: ["native-api", "offline_access"],
-  },
-  execution,
+await authRuntime.runPromise(
+  operator.provision(
+    {
+      clientId: "oauth-dashboard-public",
+      name: "Dashboard OAuth proof",
+      clientKind: "DelegatedPublic",
+      redirectUris: [`${dashboardOrigin}/dashboard/oauth/callback`],
+      scopes: ["native-api", "offline_access"],
+    },
+    execution,
+  ),
 );
 
 process.stdout.write(
