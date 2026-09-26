@@ -14,7 +14,7 @@ const etag = StrongETag.make('"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
 const articleId = ContentArticleDetailSchema.fields.articleId.make(7);
 
-const createPayload = Schema.decodeUnknownSync(CreateArticleRequest)({
+const createPayload = Schema.decodeSync(CreateArticleRequest)({
   title: "Tittel",
   bodyHtml: "<p>Brødtekst</p>",
   departmentIds: ["department-1"],
