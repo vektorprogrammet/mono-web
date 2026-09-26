@@ -170,6 +170,22 @@ For a permanent behavior change:
 Production data, credentials, providers, deployments, writer transfer, and
 legacy shutdown require explicit operator authority.
 
+## Delegation and landing
+
+- A writer works in its own worktree and branch, and never pushes.
+  The lead lands a branch with `just land <branch>` in the main checkout and pushes separately.
+- `just land` refuses a dirty main or worktree and a branch that contains another unlanded branch.
+  It fast-forwards main or records a merge commit whose hooks run. Then it removes the worktree and deletes the branch.
+- A subagent that may run out of budget commits its work in progress on its branch.
+  It writes the remaining steps into `docs/specs/<slice>.md`, never into files that only its session can read.
+- A large slice needs an approved design before code.
+- A regression fix goes from red to green: observe the failing run before the fix.
+  Then close the defect class with a rule or a type, as [Construction over trust](#construction-over-trust) describes.
+- A migration that rewrites existing rows needs an upgrade proof.
+  Seed data through the previous migration with the code of that time, apply the new migrations, and compare the exact rows, on PGlite and on each supported PostgreSQL major.
+- A new journey suite joins `just e2e` or `just golden`, and the hosted journey matrix.
+- Observe exit codes and evidence. Never infer them from a summary.
+
 ## Boundary practices
 
 - Expose complete business commands through the existing domain service. Avoid generic CRUD and additional repository layers.
