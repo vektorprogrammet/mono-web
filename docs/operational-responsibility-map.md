@@ -135,15 +135,14 @@ The old linear user-role hierarchy must not become the new domain model.
 ### Run a survey
 
 ```text
-authorized actor creates survey
-  -> participant submits once under audience policy
-  -> owner closes survey
-  -> results projection becomes available
-  -> authorized export may run
+Evaluering prepares the semester's forms in Google Forms
+  -> a placement coordinator reads the placement board of the department and semester
+  -> Evaluering sends the forms to the assistants of each teaching block and to the partner schools
+  -> Evaluering compiles the results outside the system
 ```
 
-The school-survey contract covers scoped creation, anonymous response, closure, results policy, counts, and CSV export.
-Generic survey parity is not a cutover gate unless an active service path requires it.
+The system owns no survey or survey response. The placement board supplies each placement's assistant,
+school, weekday, and teaching block, and the active partner schools of the department.
 
 ## Service ownership
 
@@ -157,7 +156,7 @@ Generic survey parity is not a cutover gate unless an active service path requir
 | Expenses                  | Claimant and approver               | Economy                      | Private storage, email, later payment integration |
 | Public content            | Content editor                      | Content                      | Public web runtime                                |
 | Events                    | Event organizer and participant     | Social events                | Notification delivery                             |
-| Surveys                   | Survey owner and participant        | Surveys                      | Export storage or delivery                        |
+| Surveys                   | Evaluering                          | Placements supplies the data | Google Forms                                      |
 | Audit and delivery        | System operator                     | Database and backend workers | PostgreSQL and providers                          |
 
 ## Replacement contract ledger
@@ -201,8 +200,7 @@ Do not silently classify an active obligation as a peripheral feature.
 Changelogs, historical articles, generic events and surveys, certificate
 requests, and nonessential statistics are not cutover gates by default.
 Retain their data in a protected, accessible archive when legal or operational
-retention requires it. School feedback used in active service follow-up is a
-separate contract from general survey parity.
+retention requires it. School feedback also runs in Google Forms.
 
 ## Migration accounting
 

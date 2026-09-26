@@ -27,7 +27,7 @@ import {
   type RecruitmentOperations,
 } from "@vektorprogrammet/domain/recruitment";
 import { SocialEvents } from "@vektorprogrammet/domain/social-events";
-import { Admissions, SchoolSurveys } from "@vektorprogrammet/domain";
+import { Admissions } from "@vektorprogrammet/domain";
 import { NativeProblem } from "@vektorprogrammet/http-api";
 import { Predicate, DateTime, Effect, Layer, Schema } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -192,18 +192,6 @@ const socialEvents = SocialEvents.of({
   create: () => Effect.die("unexpected social-event create"),
 });
 
-const schoolSurveys = SchoolSurveys.of({
-  readForm: () => Effect.die("unexpected school-survey read"),
-  prepareResponse: () => Effect.die("unexpected school-survey preparation"),
-  persistResponse: () => Effect.die("unexpected school-survey persistence"),
-  readAdminCatalog: () => Effect.die("unexpected school-survey administration catalog"),
-  readAdminSurvey: () => Effect.die("unexpected school-survey administration read"),
-  listAdminSurveys: () => Effect.die("unexpected school-survey administration list"),
-  createAdminSurvey: () => Effect.die("unexpected school-survey administration create"),
-  closeAdminSurvey: () => Effect.die("unexpected school-survey administration close"),
-  readAdminResults: () => Effect.die("unexpected school-survey administration results"),
-});
-
 const oauthCredentialAuthority = OAuthCredentialAuthority.of({
   resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
   resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
@@ -244,7 +232,6 @@ const backendServices = Layer.mergeAll(
   Layer.mock(RecruitmentService, recruitment),
   Layer.mock(Admissions, admissions),
   Layer.succeed(SocialEvents, socialEvents),
-  Layer.succeed(SchoolSurveys, schoolSurveys),
   Layer.succeed(Identity, identity),
   Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
 );

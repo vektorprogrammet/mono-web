@@ -27,7 +27,6 @@ import { EconomyLive } from "@vektorprogrammet/database/receipt/postgres";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { SchoolsLive } from "@vektorprogrammet/database/schools";
 import { SocialEventsLive } from "@vektorprogrammet/database/social-events";
-import { SchoolSurveysLive } from "@vektorprogrammet/database/surveys";
 import { TeamApplicationsLive } from "@vektorprogrammet/database/team-application";
 import { runTeamApplicationDeliveryWorker } from "./team-application/worker.js";
 import { runPublicApplicationOutboxWorker } from "./application/worker.js";
@@ -104,8 +103,6 @@ const recruitmentLayer = RecruitmentLive.pipe(
 
 const socialEventsLayer = SocialEventsLive.pipe(Layer.provide(databaseLayer));
 
-const schoolSurveysLayer = SchoolSurveysLive.pipe(Layer.provide(databaseLayer));
-
 const teamApplicationsLayer = TeamApplicationsLive.pipe(Layer.provide(databaseLayer));
 
 const capabilityLayers = Layer.mergeAll(
@@ -121,7 +118,6 @@ const capabilityLayers = Layer.mergeAll(
   contentManagementLayer,
   contentLayer,
   socialEventsLayer,
-  schoolSurveysLayer,
   teamApplicationsLayer,
 );
 

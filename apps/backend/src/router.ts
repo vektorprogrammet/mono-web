@@ -20,11 +20,8 @@ import {
   type IdentityEngineError,
   type IdentityRequestContext,
 } from "@vektorprogrammet/domain/identity";
-import {
-  DepartmentId,
-  SURVEY_IDENTIFIER_MAX_UTF8_BYTES,
-  type Organization,
-} from "@vektorprogrammet/domain";
+import { DepartmentId, type Organization } from "@vektorprogrammet/domain";
+import { ARTICLE_SLUG_MAX_LENGTH } from "@vektorprogrammet/domain/content";
 import { ExternalNativeApi, InternalNativeApi } from "@vektorprogrammet/http-api";
 import { Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Schema, Cause, Predicate, Effect, Layer } from "effect";
@@ -65,7 +62,6 @@ import {
 } from "./receipt/filesystem.js";
 import { RecruitmentApiHandlers } from "./recruitment/http.js";
 import { SocialEventsApiHandlers, type SocialEventTransactionHook } from "./social-events/http.js";
-import { SchoolSurveysApiHandlers } from "./surveys/http.js";
 import { TeamApplicationsApiHandlers } from "./team-application/http.js";
 import {
   allowsNativePreflightHeaders,
@@ -93,8 +89,9 @@ const methodNotAllowed = (methods: ReadonlyArray<string>): Response => {
 };
 
 export const nativeHttpRouterConfig = {
-  // FindMyWay matches the encoded path segment: every accepted UTF-8 byte can occupy "%HH".
-  maxParamLength: SURVEY_IDENTIFIER_MAX_UTF8_BYTES * 3,
+  // FindMyWay compares the encoded path segment. The longest routed identifier is an article
+  // slug; the other identifiers are shorter.
+  maxParamLength: ARTICLE_SLUG_MAX_LENGTH,
 } as const;
 
 export interface BackendHttp {
@@ -257,7 +254,6 @@ export const ExternalNativeApiRouterLive = (
       resolveActor: (request) => resolveRequestPersonAuthority(request, { now: options.now }),
     }),
     SocialEventsApiHandlers({ transactionHook: options.socialEventsTransactionHook }),
-    SchoolSurveysApiHandlers(),
     TeamApplicationsApiHandlers(config.teamApplication),
   ).pipe(Layer.provide(middlewareLayer));
 

@@ -21,8 +21,6 @@
     "test:e2e": "node ./node_modules/@playwright/test/cli.js test",
     "e2e:real-content-publication": "bun e2e/run-real-native-content-publication.mjs",
     "e2e:real-social-events": "bun e2e/run-real-native-social-events.mjs",
-    "e2e:real-school-survey": "bun e2e/run-real-native-school-survey.mjs",
-    "e2e:real-survey-operations": "bun e2e/run-real-native-survey-operations.mjs",
     "e2e:test": "node ./node_modules/@playwright/test/cli.js test",
     "e2e:test:ui": "node ./node_modules/@playwright/test/cli.js test --ui",
     "e2e:test:chrome": "node ./node_modules/@playwright/test/cli.js test --project=chromium",

@@ -18,7 +18,6 @@ import { EconomyLive } from "@vektorprogrammet/database/receipt/postgres";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { SchoolsLive } from "@vektorprogrammet/database/schools";
 import { SocialEventsLive } from "@vektorprogrammet/database/social-events";
-import { SchoolSurveysLive } from "@vektorprogrammet/database/surveys";
 import { TeamApplicationsLive } from "@vektorprogrammet/database/team-application";
 import { PlacementsLive } from "@vektorprogrammet/database/placements";
 import { SubstitutesLive } from "@vektorprogrammet/database/substitutes";
@@ -123,7 +122,6 @@ export const observeLegacyCandidateNativeJourney = async (
       Layer.provide(Layer.mergeAll(database, admissions, organization, profile)),
     ),
     SocialEventsLive.pipe(Layer.provide(database)),
-    SchoolSurveysLive.pipe(Layer.provide(database)),
     TeamApplicationsLive.pipe(Layer.provide(database)),
     ReceiptDeliveryLive(undefined).pipe(Layer.provide(database)),
     AuthLive(config.auth).pipe(Layer.provide(database)),

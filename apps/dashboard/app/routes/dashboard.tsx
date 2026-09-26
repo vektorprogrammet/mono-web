@@ -210,10 +210,6 @@ const mainLinks = [
         title: "Arrangementer",
         url: href("/arrangementer"),
       },
-      {
-        title: "Undersøkelser",
-        url: href("/undersokelser"),
-      },
     ],
   },
   {

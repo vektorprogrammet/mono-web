@@ -23,7 +23,6 @@
     "./organization": "./src/organization/index.ts",
     "./content": "./src/content/index.ts",
     "./social-events": "./src/social-events/index.ts",
-    "./surveys": "./src/surveys/index.ts",
     "./profile": "./src/profile/index.ts",
     "./schools": "./src/schools/index.ts",
     "./identity": "./src/identity/index.ts",

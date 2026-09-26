@@ -43,8 +43,6 @@ export * from "./placements.js";
 
 export * from "./social-events.js";
 
-export * from "./surveys.js";
-
 export * from "./onboarding.js";
 
 export * from "./team-application.js";

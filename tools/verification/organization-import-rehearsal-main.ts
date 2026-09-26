@@ -66,7 +66,6 @@ import { SubstitutesLive } from "@vektorprogrammet/database/substitutes";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { SocialEventsLive } from "@vektorprogrammet/database/social-events";
-import { SchoolSurveysLive } from "@vektorprogrammet/database/surveys";
 import { TeamApplicationsLive } from "@vektorprogrammet/database/team-application";
 import { SchoolsLive } from "@vektorprogrammet/database/schools";
 import {
@@ -1419,7 +1418,6 @@ const makeRehearsalRuntime = (
   );
 
   const socialEventsLayer = SocialEventsLive.pipe(Layer.provide(observedDatabaseLayer));
-  const schoolSurveysLayer = SchoolSurveysLive.pipe(Layer.provide(observedDatabaseLayer));
   const teamApplicationsLayer = TeamApplicationsLive.pipe(Layer.provide(observedDatabaseLayer));
   const receiptAuxiliaryLayer = makeReceiptAuxiliaryRecording().layer;
 
@@ -1458,7 +1456,6 @@ const makeRehearsalRuntime = (
     oauthCredentialLayer,
     returningAssistantsLayer,
     socialEventsLayer,
-    schoolSurveysLayer,
     teamApplicationsLayer,
     receiptAuxiliaryLayer,
     servicePrincipalGrantLayer,

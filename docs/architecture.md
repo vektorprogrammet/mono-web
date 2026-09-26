@@ -133,7 +133,6 @@ capability groups:
 - Content
 - Content management
 - Social events
-- Surveys
 - Private file storage
 - Notification delivery
 

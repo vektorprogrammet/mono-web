@@ -540,6 +540,11 @@ Forms, outside the system. The system does not own surveys or survey responses. 
 system supplies the data that the surveys need: the assistants in each teaching
 block and the partner schools.
 
+The placement board of a department and semester holds that data: each placement
+with its assistant, school, weekday, and teaching block, and the active partner
+schools of the department. The people who coordinate placements in the department
+can read the board.
+
 ### Supporting workflows
 
 Supporting contracts include:

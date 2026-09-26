@@ -28,7 +28,7 @@ implementation status.
 | `CAP-SUB` | Substitute coverage                         |
 | `CAP-ORG` | Organization administration                 |
 | `CAP-ECO` | Expense reimbursement                       |
-| `CAP-SUR` | Surveys and school feedback                 |
+| `CAP-SUR` | Surveys and school feedback (Google Forms)  |
 | `CAP-PUB` | Public content, contact, and events         |
 | `CAP-OPS` | Audit, delivery, migration, and recovery    |
 
@@ -255,7 +255,7 @@ flowchart TB
     RR03["AR-R03 School demand and roster"]
     RR04["AR-R04 Affiliation and placement history"]
     RR05["AR-R05 Claim and private receipt"]
-    RR06["AR-R06 Survey and feedback records"]
+    RR06["AR-R06 Survey records in Google Forms"]
     RR07["AR-R07 Audit, command receipt, and outbox"]
     RR08["AR-R08 Semester reference"]
   end
@@ -323,7 +323,7 @@ gates.
 | `BR-04`                   | governs                  | `BP-12` through `BP-14`                           |
 | Human roles               | perform within authority | Business processes                                |
 | Business processes        | create or use            | Concepts and resources                            |
-| `TR-C01` through `TR-C09` | support                  | `CAP-ID` through `CAP-OPS`                        |
+| `TR-C01` through `TR-C09` | support                  | `CAP-ID` through `CAP-OPS`, except `CAP-SUR`      |
 | `G-06`, `BR-12`, `TR-Q12` | constrain                | production migration                              |
 
 ## ArchiMate target model

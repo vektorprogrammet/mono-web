@@ -32,7 +32,6 @@ import {
 } from "@vektorprogrammet/domain/profile";
 import { Schools } from "@vektorprogrammet/domain/schools";
 import { SocialEvents } from "@vektorprogrammet/domain/social-events";
-import { SchoolSurveys } from "@vektorprogrammet/domain";
 import {
   CredentialEvidenceRef,
   CredentialMechanismSchema,
@@ -40,7 +39,7 @@ import {
   PrincipalSchema,
 } from "@vektorprogrammet/domain/authz";
 import { Economy } from "@vektorprogrammet/domain/receipt";
-import { NativeProblem, SchoolSurveyReadProblem } from "@vektorprogrammet/http-api";
+import { NativeProblem, SocialEventsReadScopeProblem } from "@vektorprogrammet/http-api";
 import { DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { decodeBackendConfig } from "./config.js";
@@ -178,18 +177,6 @@ const socialEvents = SocialEvents.of({
   create: () => Effect.die("unexpected social-event create"),
 });
 
-const schoolSurveys = SchoolSurveys.of({
-  readForm: () => Effect.die("unexpected school-survey read"),
-  prepareResponse: () => Effect.die("unexpected school-survey preparation"),
-  persistResponse: () => Effect.die("unexpected school-survey persistence"),
-  readAdminCatalog: () => Effect.die("unexpected school-survey administration catalog"),
-  readAdminSurvey: () => Effect.die("unexpected school-survey administration read"),
-  listAdminSurveys: () => Effect.die("unexpected school-survey administration list"),
-  createAdminSurvey: () => Effect.die("unexpected school-survey administration create"),
-  closeAdminSurvey: () => Effect.die("unexpected school-survey administration close"),
-  readAdminResults: () => Effect.die("unexpected school-survey administration results"),
-});
-
 const oauthCredentialAuthority = OAuthCredentialAuthority.of({
   resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
   resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
@@ -206,7 +193,6 @@ const makeBackendServices = (
     Layer.succeed(Schools, schools),
     Layer.succeed(Identity, identity),
     Layer.succeed(SocialEvents, socialEvents),
-    Layer.succeed(SchoolSurveys, schoolSurveys),
     Layer.succeed(
       IdentitySnapshot,
       IdentitySnapshot.of({
@@ -782,14 +768,16 @@ describe("unified backend router", () => {
   });
 
   it("answers a handler defect with the frozen internal.error problem", async () => {
-    // The router's SchoolSurveys service dies on every call.
-    const response = await request("/api/surveys/public/router-defect");
+    // The router's SocialEvents service dies on every call.
+    const response = await request("/api/social-events/scope", {
+      headers: { cookie: `${token}=value` },
+    });
 
     expect(response.status).toBe(500);
     expect(response.headers.get("content-type")).toBe("application/problem+json");
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(
-      Schema.decodeUnknownSync(SchoolSurveyReadProblem)(await response.json(), {
+      Schema.decodeUnknownSync(SocialEventsReadScopeProblem)(await response.json(), {
         onExcessProperty: "error",
       }).code,
     ).toBe("internal.error");

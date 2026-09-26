@@ -9,7 +9,6 @@ import { registerSchoolsDirectoryElement } from "./foldkit/schools/elements";
 import { registerRecruitmentMaintenanceElements } from "./foldkit/recruitment-maintenance/elements";
 import { registerContentWorkspaceElement } from "./foldkit/content/elements";
 import { registerSocialEventsElement } from "./foldkit/social-events/elements";
-import { registerSchoolSurveysElement } from "./foldkit/surveys/elements";
 import { registerTeamApplicationsElement } from "./foldkit/team-applications/elements";
 
 import { registerDatedServiceElement } from "./foldkit/dated-school-service/elements";
@@ -22,7 +21,6 @@ function HydrationSafeRouter() {
     registerRecruitmentMaintenanceElements();
     registerContentWorkspaceElement();
     registerSocialEventsElement();
-    registerSchoolSurveysElement();
     registerDatedServiceElement();
     registerProfileEditorElement();
     registerTeamApplicationsElement();

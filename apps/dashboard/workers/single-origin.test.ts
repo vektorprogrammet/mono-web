@@ -33,7 +33,6 @@ describe("singleOriginTarget", () => {
     "/dashboard/not-a-route",
     "/profile/rediger.data",
     "/interview-response/accept.data",
-    "/undersokelse/survey-0111.data",
   ])("routes dashboard path %s to the dashboard", (path) => {
     expect(singleOriginTarget(request(path))).toEqual({ kind: "dashboard" });
   });
@@ -55,7 +54,7 @@ describe("singleOriginTarget", () => {
     const families = await routeFamilies(new URL("../app/", import.meta.url));
 
     // `flatRoutes` finds no routes in a missing directory; a known family proves the scan worked.
-    expect(families).toContain("undersokelse");
+    expect(families).toContain("interview-response");
 
     for (const family of families) {
       expect(singleOriginTarget(request(`/${family}`)), family).toEqual({ kind: "dashboard" });
@@ -76,7 +75,9 @@ describe("singleOriginTarget", () => {
   it("routes a route manifest patch to the application that owns the requested paths", () => {
     expect(
       singleOriginTarget(
-        request("/__manifest?paths=%2Fundersokelse%2C%2Fundersokelse%2Fsurvey-0111&version=abc"),
+        request(
+          "/__manifest?paths=%2Finterview-response%2C%2Finterview-response%2Faccept&version=abc",
+        ),
       ),
     ).toEqual({ kind: "dashboard" });
     expect(

@@ -1,6 +1,8 @@
 import { IdentitySnapshot } from "@vektorprogrammet/database";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
+  ARTICLE_SLUG_MAX_LENGTH,
+  Content,
   ContentArticleNotFound,
   ContentDepartmentNotFound,
   ContentIntegrityError,
@@ -15,7 +17,7 @@ import { NativeProblem } from "@vektorprogrammet/http-api/http-semantics";
 import { DateTime, Effect, Layer, Schema } from "effect";
 import { OpenApi } from "effect/unstable/httpapi";
 import { describe, expect, it } from "vitest";
-import { makeContentManagementTestHttp } from "../test/native-http.js";
+import { makeContentManagementTestHttp, makePublicNewsTestHttp } from "../test/native-http.js";
 import { contentOperationId } from "./http-context.js";
 
 /** Checks a problem response and decodes its body with the contract's problem schema. */
@@ -164,6 +166,26 @@ describe("native content HTTP boundary", () => {
     );
 
     await expectProblem(response, 422, "content.slug-conflict");
+  });
+
+  it("routes an article slug of the maximum length to the news read", async () => {
+    const slug = "a".repeat(ARTICLE_SLUG_MAX_LENGTH);
+    const reads: Array<string> = [];
+
+    const content = Layer.mock(Content, {
+      readPublishedArticle: (requested) => {
+        reads.push(requested);
+
+        return Effect.fail(new ContentArticleNotFound({}));
+      },
+    });
+
+    const response = await makePublicNewsTestHttp(content).fetch(
+      new Request(`http://backend.test/api/news/${slug}`),
+    );
+
+    await expectProblem(response, 404, "content.article-not-found");
+    expect(reads).toEqual([slug]);
   });
 
   it("answers a person rejected after ingress from the credential the request presented", async () => {

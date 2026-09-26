@@ -566,6 +566,11 @@ export const databaseMigrationDefinitions = [
     name: "instant-millisecond-precision",
     url: new URL("../migrations/0072-instant-millisecond-precision.sql", import.meta.url),
   },
+  {
+    id: "73_retire-native-school-surveys",
+    name: "retire-native-school-surveys",
+    url: new URL("../migrations/0073-retire-native-school-surveys.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

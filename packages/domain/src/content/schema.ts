@@ -33,7 +33,10 @@ export const ArticleVersionNumber = positiveSafeInt("ArticleVersionNumber");
 
 export type ArticleVersionNumber = typeof ArticleVersionNumber.Type;
 
-export const ArticleSlug = text(255).pipe(
+/** The longest article slug. A slug is ASCII, so its percent-encoded path segment is no longer. */
+export const ARTICLE_SLUG_MAX_LENGTH = 255;
+
+export const ArticleSlug = text(ARTICLE_SLUG_MAX_LENGTH).pipe(
   Schema.check(
     Schema.makeFilter((value) => /^[a-z0-9-]+$/.test(value), {
       message: "a lowercase slug of letters, digits, and hyphens",

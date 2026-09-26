@@ -136,19 +136,6 @@ const receiptSettlement = (
     decisionTime,
   });
 
-const surveyAdmin = (
-  resolver: string,
-  decisionTime: "SnapshotRead" | "Transaction",
-  concealment?: ReadonlyArray<string>,
-) =>
-  expectedAccess({
-    credentials: ["BetterAuthCookie", "OAuthUserBearer"],
-    principals: ["Person"],
-    resolver,
-    concealment,
-    decisionTime,
-  });
-
 const invitation = (
   requirements: ReadonlyArray<typeof RequirementId.Encoded>,
   decisionTime: "SnapshotRead" | "Transaction",
@@ -818,49 +805,6 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     "social-events.create",
     person("social-events.create", "social-events.create", [], "Transaction"),
   ],
-  ["GET", "/api/surveys/public/:surveyId", "surveys.readSchoolSurvey", anonymous("surveys.form")],
-  [
-    "POST",
-    "/api/surveys/public/:surveyId/responses",
-    "surveys.submitSchoolSurveyResponse",
-    anonymous("surveys.response-create", "Transaction"),
-  ],
-  [
-    "GET",
-    "/api/surveys/admin/catalog",
-    "surveys.readAdminCatalog",
-    surveyAdmin("surveys.admin-catalog", "SnapshotRead"),
-  ],
-  [
-    "GET",
-    "/api/surveys/admin",
-    "surveys.listAdminSurveys",
-    surveyAdmin("surveys.admin-list", "SnapshotRead"),
-  ],
-  [
-    "POST",
-    "/api/surveys/admin",
-    "surveys.createAdminSurvey",
-    surveyAdmin("surveys.admin-create", "Transaction"),
-  ],
-  [
-    "POST",
-    "/api/surveys/admin/:surveyId/close",
-    "surveys.closeAdminSurvey",
-    surveyAdmin("surveys.admin-close", "Transaction", ["Scope"]),
-  ],
-  [
-    "GET",
-    "/api/surveys/admin/:surveyId/results",
-    "surveys.readAdminResults",
-    surveyAdmin("surveys.admin-results", "SnapshotRead", ["Scope"]),
-  ],
-  [
-    "GET",
-    "/api/surveys/admin/:surveyId/results.csv",
-    "surveys.exportAdminResults",
-    surveyAdmin("surveys.admin-results-export", "SnapshotRead", ["Scope"]),
-  ],
   [
     "GET",
     "/api/teams/:teamId/application-intake",
@@ -954,8 +898,6 @@ const createdMutationOperations = [
   "receipts.submitReceipt",
   "content.createArticle",
   "social-events.create",
-  "surveys.submitSchoolSurveyResponse",
-  "surveys.createAdminSurvey",
   "team-applications.submitTeamApplication",
 ];
 
@@ -988,7 +930,6 @@ const entityMutationOperations = [
 
 const bodyPreconditionMutationOperations = [
   "organization.executeLifecycle",
-  "surveys.closeAdminSurvey",
   "directory.executeSchoolCommand",
   "recruitment.maintainRecruitment",
 ] as const;
@@ -1011,8 +952,6 @@ const privateBinaryReadOperations = [
   "receipts.readReceiptFile",
   "receipts.readReceiptFileForApproval",
 ] as const;
-
-const privateTextReadOperations = ["surveys.exportAdminResults"] as const;
 
 const privateReadOperations = [
   "organization.readAppointmentManagement",
@@ -1046,9 +985,6 @@ const privateReadOperations = [
   "admissions.readApplicantProgress",
   "social-events.readScope",
   "social-events.list",
-  "surveys.readAdminCatalog",
-  "surveys.listAdminSurveys",
-  "surveys.readAdminResults",
   "team-applications.listTeamApplications",
   "team-applications.readTeamApplication",
 ] as const;
@@ -1059,7 +995,6 @@ const noStoreReadOperations = [
   "admissions.readReturningAssistantOptions",
   "team-applications.readTeamApplicationIntake",
   "team-applications.listTeamApplicationIntakes",
-  "surveys.readSchoolSurvey",
 ];
 
 const existingResourceMutationOperations = new Set<string>(entityMutationOperations);
@@ -1246,7 +1181,6 @@ describe("native API reflection", () => {
         "recruitment.readSchedulingBoard",
         "receipts.submitReceipt",
         "content.listNews",
-        "surveys.submitSchoolSurveyResponse",
       ]),
     );
     expect(internal).toEqual(["internal.readReceiptEvidence"]);
@@ -1293,7 +1227,6 @@ describe("native API reflection", () => {
     const categories = [
       "contact.submitContactMessage",
       ...privateBinaryReadOperations,
-      ...privateTextReadOperations,
 
       ...publicConditionalOperations,
       ...privateConditionalOperations,
@@ -1372,16 +1305,6 @@ describe("native API reflection", () => {
       ]);
     }
 
-    for (const operationId of privateTextReadOperations) {
-      const text = operation(operationId).responses["200"]!;
-      expect(Object.keys(text.content ?? {})).toEqual(["text/csv; charset=utf-8"]);
-      expect(Object.keys(text.headers ?? {}).sort()).toEqual([
-        "cache-control",
-        "content-disposition",
-        "vary",
-      ]);
-    }
-
     assertSuccess("contact.submitContactMessage", "201", ["cache-control", "vary"], false);
 
     const tags = new Map<string, string>([
@@ -1397,7 +1320,6 @@ describe("native API reflection", () => {
       ["receipts", "Receipts"],
       ["recruitment", "Recruitment"],
       ["social-events", "Social events"],
-      ["surveys", "School surveys"],
       ["system", "System"],
       ["team-applications", "Team applications"],
     ]);
