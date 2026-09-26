@@ -28,7 +28,12 @@ Vocs is removed.
   - `content/` holds only `.mdx`, `.md`, `meta.json`, and assets. The layout check declares `content/` for every workspace and enforces that.
   - The exception registry `docs/effect-exceptions.json` is a tool's input, not documentation, so it moves to `tools/conventions/effect-exceptions.json`.
   - Update the readers (`tools/scripts/model.ts`, `tools/conventions/src/{layout,exceptions}.ts`) in the same commit. A file that a generator writes may stay in `docs/`, whatever its type.
-- **Generated content from code.** Generators such as the construct catalogue, the module guides' hosted-journeys sections, and the effect-house references write MDX into `content/**`. The site renders it, and it reaches `docs/` through the same Markdown generation. Each generator declares its output path in one constant.
+- **Inputs and outputs** (operator decision, 2026-09-26). The documentation has two inputs and one producer:
+  - **Inputs:** `content/` folders (hand-written prose, at the root and in each workspace) and `src/` (code: JSDoc and construct contracts, types, the OpenAPI contract, package `exports`, the formal models).
+  - **Producer:** `apps/docs` is the only thing that turns inputs into documentation artifacts. It renders `content/` and calls the extractors that read `src/` (the construct and contract reader in `tools/conventions`, the OpenAPI output of `packages/http-api`, the TypeDoc reference). The extractors stay where they are and export their data; `apps/docs` owns the rendering.
+  - **Outputs:** the static site for people, and `docs/` for agents and GitHub readers: Markdown at stable paths plus `llms.txt` and `llms-full.txt`.
+  - `content/` holds hand-written pages only. No generator writes into `content/`, so a file there is always authored, and a file in `docs/` is always generated. Generated pages such as the construct catalogue and the API references are produced by `apps/docs` straight into the site and `docs/`.
+  - Harness instruction files are not documentation artifacts: the generated part of each `AGENTS.md` stays in place. `just guides write` writes it from the same extractor function that produces the workspace summary on the site, so the two cannot disagree.
 - **mdxcn.** The existing graph components in `apps/docs/components/mdxcn` (with `provenance.json`) move into the Fumadocs app's MDX component map, under their existing license and provenance. New mdxcn components are installed through its registry CLI, never copied by hand.
 - **HTTP API reference.** The Vocs site had an HTTP API page generated from the OpenAPI contract. Keep it: generate it with the Fumadocs OpenAPI integration from the `packages/http-api` OpenAPI output, so the page stays derived from the contract.
 - **Start section.** `README.md` and `STATE.md` stay in place. The Start section includes them as they are, and nothing is generated for them.
@@ -41,6 +46,7 @@ Vocs is removed.
 2. `just docs generate` writes `docs/**`: cross-cutting pages at their current paths, and each workspace under `docs/<apps|packages|tools>/<name>/`. `just docs check` fails on a drift and on a hand edit (negative controls for both), and runs in `just check`, the pre-commit hook, and hosted Checks.
 2a. Adding `content/intro.mdx` to a workspace that had none makes that page appear in the workspace's section and in `docs/`, with no configuration change (test). Every workspace appears in the navigation.
 3. Every file in `docs/` is the output of a registered generator, and a hand-authored file there fails the layout check (negative control). The generators are listed in one place, with the output path of each.
+3a. No file under any `content/` folder is written by a generator. A generator that writes there fails the layout check (negative control).
 4. `rg -l vocs` finds nothing outside git history and the changelog. `site.ts`, `sync-pages.ts`, and `vocs.config.ts` are gone.
 5. The mdxcn graph components render on the system walkthrough page.
 6. The docs workflow publishes the new build to Pages on `main`: the first run after landing succeeds, and the site answers.
