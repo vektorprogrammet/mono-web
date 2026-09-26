@@ -26,6 +26,9 @@ This slice replaces the legacy certificate pages (`CertificateController`, `Prof
 - Issue happens on demand. There is no request or approval workflow.
 - The board roster (Styret of an independent department, Hovedstyret) lists appointed and derived seats as of the request instant. Each derived seat shows its source leadership. The roster is visible to whoever can already read that board.
 - Legacy certificates and signature images are not migrated. Their archive disposition belongs to cutover.
+- Every name in the person record prints on a certificate. The PDF embeds a subsetted open-license font, such as Noto Sans under the OFL, with its provenance and license kept beside it. `certificate.unprintable` (422) is only for text that no embedded glyph covers, and a test covers it.
+- The certificate-scope read declares the capabilities it serves: confirming days served or issuing certificates. Either one grants the read.
+- The PDF response carries no file name, and the dashboard names the download.
 
 ## User journeys
 
