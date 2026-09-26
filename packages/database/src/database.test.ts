@@ -94,7 +94,11 @@ import {
 } from "./receipt/outbox.js";
 import { Match, Predicate, Effect, Layer } from "effect";
 import { DatabaseTest } from "./layers.js";
-import { databaseMigrationDefinitions, databaseSchemaRevision } from "./migrations.js";
+import {
+  databaseMigrationDefinitions,
+  databaseSchemaRevision,
+  selectDatabaseMigration,
+} from "./migrations.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 
 const databaseLayer = DatabaseTest();
@@ -2030,9 +2034,7 @@ describe("DatabaseTest", () => {
   });
 
   it("replays message confinement and rolls back every capability-shaped response surface", async () => {
-    const migration = databaseMigrationDefinitions.find(
-      ({ id }) => id === "15_native-identity-better-auth",
-    )!;
+    const migration = selectDatabaseMigration("15_native-identity-better-auth").migration;
 
     const migrationSource = await readFile(migration.url, "utf8");
 
@@ -3829,9 +3831,7 @@ describe("DatabaseTest", () => {
   });
 
   it("quarantines incompatible pre-0041 applicant effects during upgrade", async () => {
-    const migration = databaseMigrationDefinitions.find(
-      ({ id }) => id === "5_public-applicant-effect-lifecycle",
-    )!;
+    const migration = selectDatabaseMigration("5_public-applicant-effect-lifecycle").migration;
 
     const migrationSource = await readFile(migration.url, "utf8");
 
@@ -3914,9 +3914,9 @@ describe("DatabaseTest", () => {
   });
 
   it("clears delivered legacy payloads in a later immutable migration", async () => {
-    const migration = databaseMigrationDefinitions.find(
-      ({ id }) => id === "6_public-applicant-delivered-payload-cleanup",
-    )!;
+    const migration = selectDatabaseMigration(
+      "6_public-applicant-delivered-payload-cleanup",
+    ).migration;
 
     const migrationSource = await readFile(migration.url, "utf8");
 
@@ -5941,9 +5941,7 @@ describe("claim-fenced outbox delivery", () => {
 
 describe("upgrade convergence", () => {
   it("gives upgraded databases the fresh import-occurrence and receipt byte-length checks", async () => {
-    const migration = databaseMigrationDefinitions.find(
-      ({ id }) => id === "71_upgrade-constraint-convergence",
-    )!;
+    const migration = selectDatabaseMigration("71_upgrade-constraint-convergence").migration;
 
     const migrationSource = await readFile(migration.url, "utf8");
 

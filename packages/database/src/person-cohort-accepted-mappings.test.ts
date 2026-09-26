@@ -8,7 +8,7 @@ import { expect, it } from "vitest";
 import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { flow, Schema } from "effect";
-import { databaseMigrationDefinitions } from "./migrations.js";
+import { selectDatabaseMigration } from "./migrations.js";
 import { decodePersonCohort, importPersonCohort, PersonMapping } from "./person-cohort.js";
 
 const digest = flow(Schema.decodeUnknownSync(Schema.Json), (value) =>
@@ -28,8 +28,8 @@ it("backfills only original Person bindings and requires matching input to recov
   let pool: Pool | undefined;
 
   try {
-    for (const migration of databaseMigrationDefinitions) {
-      if (migration.id === "65_person-cohort-accepted-mappings") break;
+    for (const migration of selectDatabaseMigration("65_person-cohort-accepted-mappings")
+      .preceding) {
       await database.exec(await readFile(migration.url, "utf8"));
     }
 

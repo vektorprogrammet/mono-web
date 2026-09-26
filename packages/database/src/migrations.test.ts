@@ -6,7 +6,7 @@ import { Schema, Predicate, Effect } from "effect";
 import { Database } from "./service.js";
 import { DatabaseTest } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
-import { databaseMigrationDefinitions } from "./migrations.js";
+import { type DatabaseMigrationId, selectDatabaseMigration } from "./migrations.js";
 
 const inventory = [
   "organization_global_administrator_grants",
@@ -75,16 +75,10 @@ afterAll(async () => {
   await runtime.dispose();
 });
 
-const applyMigrationsThrough = async (database: PGlite, lastMigrationId: string) => {
-  const lastMigrationIndex = databaseMigrationDefinitions.findIndex(
-    ({ id }) => id === lastMigrationId,
-  );
+const applyMigrationsThrough = async (database: PGlite, lastMigrationId: DatabaseMigrationId) => {
+  const { migration: last, preceding } = selectDatabaseMigration(lastMigrationId);
 
-  if (lastMigrationIndex < 0) {
-    throw new Error(`unknown database migration: ${lastMigrationId}`);
-  }
-
-  for (const migration of databaseMigrationDefinitions.slice(0, lastMigrationIndex + 1)) {
+  for (const migration of [...preceding, last]) {
     await database.exec(await readFile(migration.url, "utf8"));
   }
 };
@@ -213,11 +207,7 @@ describe("native domain schema boundary", () => {
 });
 
 describe("native HTTP semantics schema boundary", () => {
-  const nativeHttpMigrationIndex = databaseMigrationDefinitions.findIndex(
-    ({ id }) => id === "29_native-http-semantics",
-  );
-
-  const nativeHttpMigration = databaseMigrationDefinitions[nativeHttpMigrationIndex]!;
+  const nativeHttpMigration = selectDatabaseMigration("29_native-http-semantics").migration;
 
   it("places HTTP authorities in public with an auth-first search path", async () => {
     const database = new PGlite({ extensions: { btree_gist } });
@@ -1115,11 +1105,9 @@ describe("declarative authorization rule migration in PGlite", () => {
 });
 
 describe("declarative rule reconciliation migration", () => {
-  const reconciliationMigrationIndex = databaseMigrationDefinitions.findIndex(
-    ({ id }) => id === "26_declarative-rule-reconciliation",
-  );
-
-  const reconciliationMigration = databaseMigrationDefinitions[reconciliationMigrationIndex]!;
+  const reconciliationMigration = selectDatabaseMigration(
+    "26_declarative-rule-reconciliation",
+  ).migration;
 
   const prepareMigration25State = async (database: PGlite) => {
     await applyMigrationsThrough(database, "25_principal-credential-access-algebra");
@@ -1183,16 +1171,6 @@ describe("declarative rule reconciliation migration", () => {
           '2030-01-01T00:00:00.000Z', NULL, 0
         );
     `);
-
-  it("orders immutable migrations 25 through the HTTP semantics migration 29", () => {
-    expect(databaseMigrationDefinitions.slice(24, 29).map(({ id }) => id)).toEqual([
-      "25_principal-credential-access-algebra",
-      "26_declarative-rule-reconciliation",
-      "27_native-oauth-provider",
-      "28_service-principal-grants",
-      "29_native-http-semantics",
-    ]);
-  });
 
   it("reports every unsupported row once and aborts before mutation", async () => {
     const database = new PGlite({ extensions: { btree_gist } });

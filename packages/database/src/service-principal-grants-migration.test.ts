@@ -3,7 +3,6 @@ import { Database } from "./service.js";
 import { Effect } from "effect";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 import { DatabaseTest } from "./layers.js";
-import { databaseMigrationDefinitions } from "./migrations.js";
 
 const runtime = makeControlledTestRuntime(DatabaseTest());
 
@@ -176,8 +175,6 @@ describe("service-principal grant migration", () => {
       }),
     );
 
-    expect(databaseMigrationDefinitions[27]?.id).toBe("28_service-principal-grants");
-    expect(databaseMigrationDefinitions[28]?.id).toBe("29_native-http-semantics");
     expect(evidence).toEqual({
       whitespaceEventId: "Failure",
       whitespaceActor: "Failure",

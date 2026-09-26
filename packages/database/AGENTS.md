@@ -75,6 +75,7 @@ The shared constructs defined here. [docs/constructs.md](../../docs/constructs.m
 - [`lockAdvisory`](src/advisory-lock.ts) (sql-lock): Waits for the advisory lock on `key` until the current transaction ends.
 - [`tryLockAdvisory`](src/advisory-lock.ts) (sql-lock): Takes the exclusive advisory lock on `key` until the current transaction ends when no other transaction holds it.
 - [`accountAccessEnabled`](src/identity-access.ts) (sql-lifecycle): Whether the native account of `personId` exists and is not disabled.
+- [`selectDatabaseMigration`](src/migrations.ts) (test-harness): Selects the registered migration `id` and the migrations that run before it; an absent id throws and names the nearest registered ids.
 - [`outboxClaimAssignments`](src/outbox-lifecycle.ts) (sql-lifecycle): SET list for the aggregate's claim UPDATE; `targetAlias` names the updated outbox row.
 - [`markOutboxDelivered`](src/outbox-lifecycle.ts) (sql-lifecycle): Settles the claimed row as Delivered, with delivery evidence when the table records it.
 - [`markOutboxFailed`](src/outbox-lifecycle.ts) (sql-lifecycle): Settles the claimed row as Failed with its failure tag, so a later claim retries it.

@@ -61,6 +61,11 @@ constructs *args:
 guides *args:
     bun --no-env-file tools/conventions/src/cli.ts guides "$@"
 
+# Check the migration registry and the checksums of applied migrations; `just migration-hashes write` records new ones.
+[group('check')]
+migration-hashes *args:
+    bun --no-env-file packages/database/src/migration-manifest-cli.ts "$@"
+
 # Scan every file in the Git index for credentials, personal data, and SQL data.
 [group('check')]
 source-safety:
