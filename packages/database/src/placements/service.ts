@@ -23,6 +23,7 @@ import {
 } from "./coverage.js";
 import { readPlacementDraft } from "./draft.js";
 import {
+  authorizeCertificateCommand,
   confirmDaysServed,
   issueCertificate,
   listCertificates,
@@ -157,6 +158,10 @@ export const PlacementsLive = Layer.effect(
         readCertificateScopes(principal).pipe(Effect.provideService(Database, database)),
       readDaysServed: (principal, scope, cursor) =>
         readDaysServed(principal, scope, cursor).pipe(Effect.provideService(Database, database)),
+      authorizeCertificateCommand: (principal, target) =>
+        authorizeCertificateCommand(principal, target).pipe(
+          Effect.provideService(Database, database),
+        ),
       confirmDaysServed: (principal, command, checkPrecondition) =>
         confirmDaysServed(principal, command, checkPrecondition).pipe(
           Effect.provideService(Database, database),

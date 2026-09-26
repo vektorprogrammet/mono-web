@@ -19,6 +19,7 @@ import {
 import { Schema } from "effect";
 import {
   AppointmentManagement,
+  BoardRosters,
   OrganizationLifecycleCommand,
   OrganizationLifecycleResult,
 } from "@vektorprogrammet/domain/organization";
@@ -440,6 +441,37 @@ export const ReadAppointmentManagementEndpoint = HttpApiEndpoint.get(
     ),
   );
 
+/**
+ * The rosters of Styret of an independent department and of Hovedstyret: the appointed seats and
+ * the seats that current team leadership derives, for the boards whose appointments the reader
+ * manages.
+ */
+export const ReadBoardRostersEndpoint = HttpApiEndpoint.get(
+  "readBoardRosters",
+  "/api/organization/board-rosters",
+  {
+    success: privateReadResponse(BoardRosters),
+    error: endpointProblemResponses(OrganizationLifecycleProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "organization.manage-appointments",
+        canonicalScopeResolver: "organization.appointment-management",
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
+  .annotateMerge(
+    operationAnnotations(
+      "Read board rosters",
+      "Returns the appointed and derived seats of the certificate-issuing boards whose appointments the reader manages, as of the request instant.",
+    ),
+  );
+
 export const ExecuteOrganizationLifecycleEndpoint = HttpApiEndpoint.post(
   "executeLifecycle",
   "/api/organization/appointments/commands",
@@ -528,6 +560,7 @@ export const ExecuteDelegationEndpoint = HttpApiEndpoint.post(
 
 export {
   AppointmentManagement,
+  BoardRosters,
   DelegableCapability,
   DelegationArea,
   DelegationCommand,
@@ -541,6 +574,7 @@ export {
 export class OrganizationApi extends HttpApiGroup.make("organization")
   .add(
     ReadAppointmentManagementEndpoint,
+    ReadBoardRostersEndpoint,
     ExecuteOrganizationLifecycleEndpoint,
     ReadDelegationManagementEndpoint,
     ExecuteDelegationEndpoint,

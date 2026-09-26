@@ -25,6 +25,7 @@ import { TestPlatform } from "./platform.js";
 
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
+  CertificatesApi,
   ContentApi,
   DirectoryApi,
   InternalReceiptsApi,
@@ -36,6 +37,7 @@ import {
   TeamApplicationsApi,
 } from "@vektorprogrammet/http-api";
 import { TeamApplicationsApiHandlers } from "../team-application/http.js";
+import { CertificatesApiHandlers } from "../placements/certificates-http.js";
 import { Context, Effect, Layer, Option, type Crypto, type FileSystem, type Path } from "effect";
 import {
   Etag,
@@ -128,6 +130,10 @@ const contentContract = HttpApi.make("external-native-api")
 
 const teamApplicationsContract = HttpApi.make("external-native-api")
   .add(TeamApplicationsApi)
+  .middleware(RequestSchemaErrorMiddleware);
+
+const certificatesContract = HttpApi.make("external-native-api")
+  .add(CertificatesApi)
   .middleware(RequestSchemaErrorMiddleware);
 
 type BackendTestServices =
@@ -421,6 +427,16 @@ export const makeTeamApplicationsTestHttp = <S extends TestServiceLayer>(
   fetch: testFetch(
     HttpApiBuilder.layer(teamApplicationsContract).pipe(
       Layer.provide(TeamApplicationsApiHandlers(config)),
+      Layer.provide(NativeHttpApiMiddlewareLive),
+    ),
+    services,
+  ),
+});
+
+export const makeCertificatesTestHttp = <S extends TestServiceLayer>(services: S) => ({
+  fetch: testFetch(
+    HttpApiBuilder.layer(certificatesContract).pipe(
+      Layer.provide(CertificatesApiHandlers),
       Layer.provide(NativeHttpApiMiddlewareLive),
     ),
     services,

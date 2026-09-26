@@ -66,6 +66,8 @@ export const CAPABILITY_TYPES = {
   "admissions.outcomes.decide": { ruleTarget: false, objectCapability: false },
   "placements.self": { ruleTarget: false, objectCapability: false },
   "placements.manage": { ruleTarget: false, objectCapability: false },
+  "placements.days-served": { ruleTarget: false, objectCapability: false },
+  "certificates.issue": { ruleTarget: false, objectCapability: false },
   "onboarding.manage": { ruleTarget: false, objectCapability: false },
   "onboarding.claim": { ruleTarget: false, objectCapability: true },
   "admissions.read-periods": { ruleTarget: false, objectCapability: false },

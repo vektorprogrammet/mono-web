@@ -158,6 +158,12 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     person("organization.manage-appointments", "organization.appointment-management", [], "SnapshotRead"),
   ],
   [
+    "GET",
+    "/api/organization/board-rosters",
+    "organization.readBoardRosters",
+    person("organization.manage-appointments", "organization.appointment-management", [], "SnapshotRead"),
+  ],
+  [
     "POST",
     "/api/organization/appointments/commands",
     "organization.executeLifecycle",
@@ -847,6 +853,42 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     "team-applications.reviseTeamApplicationIntake",
     person("team-applications.manage", "team-applications.intake-by-team", [], "Transaction"),
   ],
+  [
+    "GET",
+    "/api/certificate-scopes",
+    "certificates.readCertificateScopes",
+    person("certificates.issue", "placements.explicit-department", [], "SnapshotRead"),
+  ],
+  [
+    "GET",
+    "/api/departments/:departmentId/semesters/:semesterId/days-served",
+    "certificates.listDaysServed",
+    person("placements.days-served", "placements.explicit-department", [], "SnapshotRead"),
+  ],
+  [
+    "POST",
+    "/api/departments/:departmentId/semesters/:semesterId/days-served/:personId",
+    "certificates.confirmDaysServed",
+    person("placements.days-served", "placements.explicit-department", [], "Transaction"),
+  ],
+  [
+    "GET",
+    "/api/departments/:departmentId/certificates",
+    "certificates.listCertificates",
+    person("certificates.issue", "placements.explicit-department", [], "SnapshotRead"),
+  ],
+  [
+    "GET",
+    "/api/departments/:departmentId/certificates/:personId",
+    "certificates.readCertificate",
+    person("certificates.issue", "placements.explicit-department", [], "SnapshotRead"),
+  ],
+  [
+    "POST",
+    "/api/departments/:departmentId/certificates/:personId/issues",
+    "certificates.issueCertificate",
+    person("certificates.issue", "placements.explicit-department", [], "Transaction"),
+  ],
 
   [
     "GET",
@@ -924,7 +966,11 @@ const entityMutationOperations = [
   "content.publishArticle",
   "content.unpublishArticle",
   "team-applications.reviseTeamApplicationIntake",
+  "certificates.confirmDaysServed",
 ] as const;
+
+/** Mutations that answer the bytes of a generated document with the entity tag of its content. */
+const documentMutationOperations = ["certificates.issueCertificate"] as const;
 
 const bodyPreconditionMutationOperations = [
   "organization.executeLifecycle",
@@ -954,6 +1000,7 @@ const privateBinaryReadOperations = [
 
 const privateReadOperations = [
   "organization.readAppointmentManagement",
+  "organization.readBoardRosters",
   "organization.readDelegationManagement",
   "onboarding.readBoard",
   "onboarding.claim",
@@ -987,6 +1034,10 @@ const privateReadOperations = [
   "social-events.list",
   "team-applications.listTeamApplications",
   "team-applications.readTeamApplication",
+  "certificates.readCertificateScopes",
+  "certificates.listDaysServed",
+  "certificates.listCertificates",
+  "certificates.readCertificate",
 ] as const;
 
 const noStoreReadOperations = [
@@ -997,7 +1048,10 @@ const noStoreReadOperations = [
   "team-applications.listTeamApplicationIntakes",
 ];
 
-const existingResourceMutationOperations = new Set<string>(entityMutationOperations);
+const existingResourceMutationOperations = new Set<string>([
+  ...entityMutationOperations,
+  ...documentMutationOperations,
+]);
 
 const reflectedOperations = () => {
   const externalPaths = new Map(
@@ -1232,6 +1286,7 @@ describe("native API reflection", () => {
       ...privateConditionalOperations,
       ...createdMutationOperations,
       ...entityMutationOperations,
+      ...documentMutationOperations,
       ...bodyPreconditionMutationOperations,
       ...taggedNoContentMutationOperations,
       ...plainNoContentMutationOperations,
@@ -1305,6 +1360,12 @@ describe("native API reflection", () => {
       ]);
     }
 
+    for (const operationId of documentMutationOperations) {
+      const document = operation(operationId).responses["200"]!;
+      expect(Object.keys(document.content ?? {})).toEqual(["application/pdf"]);
+      expect(Object.keys(document.headers ?? {}).sort()).toEqual(["cache-control", "etag", "vary"]);
+    }
+
     assertSuccess("contact.submitContactMessage", "201", ["cache-control", "vary"], false);
 
     const tags = new Map<string, string>([
@@ -1322,6 +1383,7 @@ describe("native API reflection", () => {
       ["social-events", "Social events"],
       ["system", "System"],
       ["team-applications", "Team applications"],
+      ["certificates", "Certificates"],
     ]);
 
     for (const [operationId, documented] of byId) {
@@ -1359,6 +1421,7 @@ describe("native API reflection", () => {
     const mutations = new Set<string>([
       ...createdMutationOperations,
       ...entityMutationOperations,
+      ...documentMutationOperations,
       ...taggedNoContentMutationOperations,
       ...plainNoContentMutationOperations,
       ...bodyPreconditionMutationOperations,

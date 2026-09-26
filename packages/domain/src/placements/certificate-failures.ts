@@ -51,9 +51,14 @@ export type CertificateReadFailure =
   | CertificateInvalidCursor
   | CertificatePersistenceError;
 
-export type CertificateCommandFailure =
+/** The failures of resolving a command's authority before a stored response can replay. */
+export type CertificateAuthorizationFailure =
   | CertificateAccessDenied
   | CertificateScopeNotFound
-  | CertificateAssistantNotFound
-  | CertificateEmpty
   | CertificatePersistenceError;
+
+export type DaysServedCommandFailure =
+  | CertificateAuthorizationFailure
+  | CertificateAssistantNotFound;
+
+export type CertificateCommandFailure = DaysServedCommandFailure | CertificateEmpty;

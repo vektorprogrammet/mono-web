@@ -1,14 +1,21 @@
 import { Context, Data, type Effect } from "effect";
 import type { DepartmentId, OrganizationPersonAuthority, PersonId } from "../organization/index.js";
 import type {
+  CertificateCommandTarget,
   CertificateAssistant,
   CertificateIssue,
   CertificatePreview,
   CertificatePrincipal,
   CertificateScopes,
+  CertificateSemesterScope,
   IssueCertificateCommand,
 } from "./certificate.js";
-import type { CertificateCommandFailure, CertificateReadFailure } from "./certificate-failures.js";
+import type {
+  CertificateAuthorizationFailure,
+  CertificateCommandFailure,
+  CertificateReadFailure,
+  DaysServedCommandFailure,
+} from "./certificate-failures.js";
 import type { AssistantPage, ConfirmDaysServedCommand, DaysServedEntry } from "./days-served.js";
 import type { PlacementFailure } from "./policy.js";
 import type { PlacementDraft } from "./scheduler.js";
@@ -64,7 +71,7 @@ export interface PlacementExecution {
 /** One page of the assistants of a department and semester, with the scope's labels. */
 export interface DaysServedPage extends AssistantPage<DaysServedEntry> {
   readonly departmentName: string;
-  readonly semester: (typeof PlacementScopes.Type)["semesters"][number];
+  readonly semester: CertificateSemesterScope;
 }
 
 /** One page of the assistants with service facts in a department. */
@@ -143,6 +150,14 @@ export interface PlacementsOperations {
     cursor?: string,
   ) => Effect.Effect<DaysServedPage, CertificateReadFailure>;
   /**
+   * Resolves the principal's current authority for one days-served or certificate command on the
+   * caller's transaction, with the command's locks, before a stored response can replay.
+   */
+  readonly authorizeCertificateCommand: (
+    principal: CertificatePrincipal,
+    target: CertificateCommandTarget,
+  ) => Effect.Effect<void, CertificateAuthorizationFailure>;
+  /**
    * Appends the next confirmation of one assistant's total under the department lock, after the
    * transport precondition on the fresh entry. Never changes an earlier confirmation or a service
    * fact. The callback grants no authority and must not write business state.
@@ -151,7 +166,7 @@ export interface PlacementsOperations {
     principal: CertificatePrincipal,
     command: ConfirmDaysServedCommand,
     checkPrecondition: (current: DaysServedEntry) => Effect.Effect<void, E, R>,
-  ) => Effect.Effect<DaysServedEntry, CertificateCommandFailure | E, R>;
+  ) => Effect.Effect<DaysServedEntry, DaysServedCommandFailure | E, R>;
   /** One bounded page of the assistants with service facts in a department; issuers only. */
   readonly listCertificates: (
     principal: CertificatePrincipal,

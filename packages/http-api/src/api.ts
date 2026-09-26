@@ -17,6 +17,7 @@ import { InternalReceiptsApi, ReceiptsApi } from "./receipts.js";
 import { RecruitmentApi } from "./recruitment.js";
 import { SocialEventsApi } from "./social-events.js";
 import { TeamApplicationsApi } from "./team-application.js";
+import { CertificatesApi } from "./certificates.js";
 import { RequestSchemaErrorMiddleware } from "./common.js";
 import { NativeApiReleaseVersion } from "./release.js";
 import { SystemApi } from "./system.js";
@@ -45,6 +46,7 @@ export class ExternalNativeApi extends HttpApi.make("external-native-api")
   .add(ContentApi)
   .add(SocialEventsApi)
   .add(TeamApplicationsApi)
+  .add(CertificatesApi)
   .middleware(RequestSchemaErrorMiddleware)
   .annotateMerge(
     OpenApi.annotations({

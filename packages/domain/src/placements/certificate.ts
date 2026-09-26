@@ -3,7 +3,7 @@
  * of the department whose confirmed total is above zero, with the confirmed schools and days, and
  * it names the issuer and the seat that authorizes them (docs/system.md#certificates).
  */
-import { Option, Order, Schema } from "effect";
+import { Data, Option, Order, Schema } from "effect";
 import { CertificateIssuer } from "../organization/board-roster.js";
 import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
 import { canonicalJsonBytes, sha256Hex } from "../shared-kernel/canonical-json.js";
@@ -204,6 +204,23 @@ export const CertificateAssistant = Schema.Struct({
 
 export type CertificateAssistant = typeof CertificateAssistant.Type;
 
+/** The command whose authority a request resolves before a stored response can replay. */
+export type CertificateCommandTarget = Data.TaggedEnum<{
+  ConfirmDaysServed: { readonly departmentId: DepartmentId; readonly semesterId: SemesterId };
+  IssueCertificate: { readonly departmentId: DepartmentId; readonly personId: PersonId };
+}>;
+
+export const CertificateCommandTarget = Data.taggedEnum<CertificateCommandTarget>();
+
+/** A semester with its bounds, as the scope choice and the days-served list name it. */
+export const CertificateSemesterScope = Schema.Struct({
+  semesterId: SemesterId,
+  startAt: Rfc3339InstantSchema,
+  endAt: Rfc3339InstantSchema,
+});
+
+export type CertificateSemesterScope = typeof CertificateSemesterScope.Type;
+
 /** The departments where the reader confirms days served or issues certificates, and the semesters. */
 export const CertificateScopes = Schema.Struct({
   departments: Schema.Array(
@@ -214,13 +231,7 @@ export const CertificateScopes = Schema.Struct({
       issueCertificates: Schema.Boolean,
     }),
   ),
-  semesters: Schema.Array(
-    Schema.Struct({
-      semesterId: SemesterId,
-      startAt: Rfc3339InstantSchema,
-      endAt: Rfc3339InstantSchema,
-    }),
-  ),
+  semesters: Schema.Array(CertificateSemesterScope),
 });
 
 export type CertificateScopes = typeof CertificateScopes.Type;

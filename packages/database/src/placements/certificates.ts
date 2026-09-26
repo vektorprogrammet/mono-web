@@ -21,6 +21,7 @@ import {
   CertificateAccessDenied,
   CertificateAssistant,
   CertificateAssistantNotFound,
+  CertificateCommandTarget,
   certificateContent,
   CertificateContent,
   certificateContentSha256,
@@ -662,6 +663,57 @@ export const readDaysServed = (
     };
   });
 
+/** Current days-served authority in the department, under the department lock of every command. */
+const authorizeConfirmation = (
+  sql: DatabaseOperations,
+  principal: CertificatePrincipal,
+  scope: PlacementScope,
+) =>
+  Effect.gen(function* () {
+    yield* requireDepartment(scope.departmentId, true);
+    yield* requireSemester(scope.semesterId);
+    yield* requireDaysServedAuthority(
+      yield* resolveAuthority(sql, principal, true),
+      scope.departmentId,
+    );
+  });
+
+/** The current issuer of another person's certificate, under the department lock. */
+const authorizeIssue = (
+  sql: DatabaseOperations,
+  principal: CertificatePrincipal,
+  departmentId: DepartmentId,
+  personId: PersonId,
+) =>
+  Effect.gen(function* () {
+    const department = yield* requireDepartment(departmentId, true);
+    const authority = yield* resolveAuthority(sql, principal, true);
+    const issuer = yield* requireIssuer(sql, authority, departmentId, true);
+
+    if (personId === principal.personId)
+      return yield* new CertificateAccessDenied({ reason: "OwnCertificate" });
+
+    return { department, issuer };
+  });
+
+/**
+ * Resolves the principal's current authority for one command on the caller's transaction, with
+ * the locks that the command takes, so a stored response replays only to a current holder.
+ */
+export const authorizeCertificateCommand = (
+  principal: CertificatePrincipal,
+  target: CertificateCommandTarget,
+) =>
+  Effect.gen(function* () {
+    const sql = yield* Database;
+
+    yield* CertificateCommandTarget.$match(target, {
+      ConfirmDaysServed: (scope) => authorizeConfirmation(sql, principal, scope),
+      IssueCertificate: ({ departmentId, personId }) =>
+        Effect.asVoid(authorizeIssue(sql, principal, departmentId, personId)),
+    });
+  });
+
 /**
  * Appends the next confirmation of one assistant's total under the department lock. The
  * precondition sees the fresh entry; the earlier confirmations and the service facts stay.
@@ -675,12 +727,7 @@ export const confirmDaysServed = <E, R>(
     const sql = yield* Database;
     const scope = { departmentId: command.departmentId, semesterId: command.semesterId };
 
-    yield* requireDepartment(command.departmentId, true);
-    yield* requireSemester(command.semesterId);
-
-    const authority = yield* resolveAuthority(sql, principal, true);
-
-    yield* requireDaysServedAuthority(authority, command.departmentId);
+    yield* authorizeConfirmation(sql, principal, scope);
 
     const current = yield* readEntry(scope, command.personId);
 
@@ -797,12 +844,13 @@ export const issueCertificate = <E, R>(
 ) =>
   Effect.gen(function* () {
     const sql = yield* Database;
-    const department = yield* requireDepartment(command.departmentId, true);
-    const authority = yield* resolveAuthority(sql, principal, true);
-    const issuer = yield* requireIssuer(sql, authority, command.departmentId, true);
 
-    if (command.personId === principal.personId)
-      return yield* new CertificateAccessDenied({ reason: "OwnCertificate" });
+    const { department, issuer } = yield* authorizeIssue(
+      sql,
+      principal,
+      command.departmentId,
+      command.personId,
+    );
 
     const preview = yield* buildPreview(department, command.personId, issuer);
 

@@ -46,3 +46,5 @@ export * from "./social-events.js";
 export * from "./onboarding.js";
 
 export * from "./team-application.js";
+
+export * from "./certificates.js";
