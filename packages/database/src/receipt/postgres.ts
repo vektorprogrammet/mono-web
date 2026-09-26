@@ -563,7 +563,9 @@ export const reconcileReceiptImport = (
 
           const actual = yield* findReceipt(sql, expected.receipt.receiptId);
 
-          const matches = actual !== undefined && Equal.equals(actual, expected.receipt);
+          // The import result carries a plain receipt; Equal compares models only with models.
+          const matches =
+            actual !== undefined && Equal.equals(actual, new Receipt(expected.receipt));
 
           const observed =
             matches && actual !== undefined
