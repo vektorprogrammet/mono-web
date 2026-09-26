@@ -345,7 +345,7 @@ describe("placement drafts over HTTP and PostgreSQL", () => {
     });
 
     const unknown = await request(
-      `/api/placements/draft?${new URLSearchParams({ departmentId, semesterId: "draft-unknown" })}`,
+      `/api/placements/draft?${new URLSearchParams({ departmentId, semesterId: "draft-unknown" }).toString()}`,
     );
 
     expect(unknown.status).toBe(422);

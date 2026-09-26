@@ -180,7 +180,7 @@ const cleanupStagedFile = (fileStore: ReceiptFileStore, staged: StagedReceiptFil
   Effect.tryPromise({
     try: () => fileStore.cleanupStage(staged.file),
     catch: () => undefined,
-  }).pipe(Effect.catch(() => Effect.void));
+  }).pipe(Effect.ignore);
 
 export const submitReceipt = <R>(
   request: Request,

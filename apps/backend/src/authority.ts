@@ -308,7 +308,7 @@ export const resolveRequestCredentialInTransaction = (
   Database | IdentitySnapshot | OAuthCredentialAuthority
 > => {
   return Effect.flatMap(
-    Effect.map(currentInstant(options.now), AuthorizationInstant.make),
+    Effect.map(currentInstant(options.now), (instant) => AuthorizationInstant.make(instant)),
     (authorizationInstant) =>
       Effect.map(
         requestCredentialInTransactionEffect(request, expected, authorizationInstant),

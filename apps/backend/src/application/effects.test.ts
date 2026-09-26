@@ -33,7 +33,7 @@ describe("public application effect gateway", () => {
     const calls: Array<{ readonly input: string; readonly init?: RequestInit }> = [];
 
     const interpreter = publicApplicationHttpEffects(config, async (input, init) => {
-      calls.push({ input: String(input), init });
+      calls.push({ input: new Request(input).url, init });
 
       return new Response(null, { status: 204 });
     });
@@ -51,7 +51,7 @@ describe("public application effect gateway", () => {
     expect(calls[0]?.input).toBe(config.endpoint.href);
     expect(new Headers(calls[0]?.init?.headers).get("idempotency-key")).toBe(request.effectId);
     expect(calls[0]?.init?.redirect).toBe("error");
-    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual(request);
+    expect(await new Response(calls[0]?.init?.body).json()).toEqual(request);
   });
 
   it("maps provider rejection to the typed retry error", async () => {

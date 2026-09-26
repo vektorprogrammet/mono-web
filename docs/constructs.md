@@ -418,7 +418,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `unreachable`: Marks problems a shared mapper can produce but this operation cannot, such as a serialization conflict inside a read-only snapshot.
-  [apps/backend/src/http-api/problem.ts:435](../apps/backend/src/http-api/problem.ts#L435), 17 consumers:
+  [apps/backend/src/http-api/problem.ts:433](../apps/backend/src/http-api/problem.ts#L433), 17 consumers:
   - [apps/backend/src/admission/http-access.ts](../apps/backend/src/admission/http-access.ts)
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
   - [apps/backend/src/admission/http-reads.ts](../apps/backend/src/admission/http-reads.ts)
@@ -437,7 +437,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `ProblemBoundaryLive`: The only Cause consumer.
-  [apps/backend/src/http-api/problem.ts:456](../apps/backend/src/http-api/problem.ts#L456), 2 consumers:
+  [apps/backend/src/http-api/problem.ts:454](../apps/backend/src/http-api/problem.ts#L454), 2 consumers:
   - [apps/backend/src/router.ts](../apps/backend/src/router.ts)
   - [apps/backend/src/test/native-http.ts](../apps/backend/src/test/native-http.ts)
 - `NativeAccessRejected`: An AccessSpec evaluation that did not grant the operation.

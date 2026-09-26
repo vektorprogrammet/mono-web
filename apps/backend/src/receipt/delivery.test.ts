@@ -43,7 +43,7 @@ describe("receipt acknowledged transport boundary", () => {
         { deliveryId: "stable" },
         config.transport,
         async (url, init) => {
-          expect(String(url)).toBe(env.RECEIPT_DELIVERY_URL);
+          expect(new Request(url).url).toBe(env.RECEIPT_DELIVERY_URL);
           expect(init?.redirect).toBe("error");
           expect(init?.headers).toMatchObject({
             authorization: "Bearer synthetic-token",

@@ -413,13 +413,11 @@ export const authorizePerson = (
   presentation: CredentialPresentation,
 ) =>
   authorizePersonNativeOperation(input).pipe(
-    Effect.catch((failure) =>
-      Effect.fail(
-        Match.value(failure.status).pipe(
-          Match.when(401, () => Problem.unauthenticated(presentation)),
-          Match.when(404, () => Problem.make("resource.not-found")),
-          Match.orElse(() => Problem.make("authority.denied")),
-        ),
+    Effect.mapError((failure) =>
+      Match.value(failure.status).pipe(
+        Match.when(401, () => Problem.unauthenticated(presentation)),
+        Match.when(404, () => Problem.make("resource.not-found")),
+        Match.orElse(() => Problem.make("authority.denied")),
       ),
     ),
   );

@@ -30,7 +30,7 @@ import { TeamApplicationsLive } from "@vektorprogrammet/database/team-applicatio
 import { runTeamApplicationDeliveryWorker } from "./team-application/worker.js";
 import { runPublicApplicationOutboxWorker } from "./application/worker.js";
 import { Cause, Effect, Exit, Fiber, Layer, ManagedRuntime, Redacted } from "effect";
-import { Etag, HttpEffect, HttpRouter } from "effect/unstable/http";
+import { Etag, HttpRouter } from "effect/unstable/http";
 import { publicApplicationHttpEffects } from "./application/effects.js";
 import { decodeBackendConfig } from "./config.js";
 import {
@@ -43,6 +43,7 @@ import {
   internalBackendHttpHandler,
   InternalNativeApiRouterLive,
   nativeHttpRouterConfig,
+  nativeRouterWebHandler,
   type BackendAuthHandler,
 } from "./router.js";
 
@@ -148,7 +149,7 @@ const runtime = ManagedRuntime.make(backendLayer);
 
 const router = await runtime.runPromise(HttpRouter.HttpRouter);
 
-const nativeHandler = HttpEffect.toWebHandler(router.asHttpEffect());
+const nativeHandler = nativeRouterWebHandler(router);
 
 const authBoundary = <A>(operation: (engine: AuthEngineService) => Promise<A>) =>
   AuthEngine.use((engine) =>

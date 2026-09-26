@@ -17,6 +17,7 @@ import {
 } from "@vektorprogrammet/http-api";
 import { makeNativeValidationError } from "@vektorprogrammet/http-api/http-semantics";
 import { DateTime, Effect, Layer, ManagedRuntime, Schedule, Schema } from "effect";
+import type { SqlError } from "effect/unstable/sql/SqlError";
 import { describe, expect, it } from "vitest";
 import { backendDatabase } from "../../test/database.js";
 import { decodeBackendConfig } from "../config.js";
@@ -182,7 +183,7 @@ const fixture = async () => {
    * commits without writing, so the queued requests continue in arrival order.
    */
   const holdUntilQueued = async (
-    lock: (sql: DatabaseOperations) => Effect.Effect<unknown, unknown>,
+    lock: (sql: DatabaseOperations) => Effect.Effect<unknown, SqlError>,
     waiters: number,
   ) => {
     const runtime = ManagedRuntime.make(connection());

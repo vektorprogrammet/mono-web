@@ -24,7 +24,7 @@ import { ARTICLE_SLUG_MAX_LENGTH } from "@vektorprogrammet/domain/content";
 import { ExternalNativeApi, InternalNativeApi } from "@vektorprogrammet/http-api";
 import { Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Schema, Cause, Predicate, Effect, Layer } from "effect";
-import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
+import { HttpEffect, HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { AdmissionsApiHandlers } from "./admission/http.js";
 import { AdmissionOutcomesApiHandlers } from "./admission/outcome-http.js";
@@ -410,6 +410,16 @@ const sourceNetworkList = (networks: ReadonlyArray<string>): BlockList => {
 
   return list;
 };
+
+/**
+ * Web handler over the built native router. `HttpEffect.toWebHandler` renders
+ * every failure cause as a response.
+ */
+export const nativeRouterWebHandler = (
+  router: HttpRouter.HttpRouter,
+): ((request: Request) => Promise<Response>) =>
+  // oxlint-disable-next-line effecttsgo/any-unknown-in-error-context -- effect types HttpRouter.asHttpEffect's failure as unknown; routes decide their own failures.
+  HttpEffect.toWebHandler(router.asHttpEffect());
 
 /**
  * Explicit external boundary around the native HttpApi handler.

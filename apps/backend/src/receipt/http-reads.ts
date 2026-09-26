@@ -117,13 +117,12 @@ export const listReceiptsForApproval = <R>(
         ({ readReceiptApprovalCandidates }) =>
           readReceiptApprovalCandidates(credential, resolved.authorizationInstant, status, cursor),
       ).pipe(
-        Effect.catch(() =>
-          Effect.fail(
+        Effect.mapError(
+          () =>
             new ReceiptPersistenceError({
               operation: "read service receipt approval authority",
               message: "service receipt approval authority is unavailable",
             }),
-          ),
         ),
       );
 

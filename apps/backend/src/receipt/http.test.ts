@@ -69,7 +69,7 @@ import {
   type ReceiptStatus,
   type ReceiptSubmissionAllocation,
 } from "@vektorprogrammet/domain/receipt";
-import { Predicate, DateTime, Effect, Layer, Schema } from "effect";
+import { Predicate, DateTime, Effect, Layer, Schema, Struct } from "effect";
 import { describe, expect, it } from "vitest";
 import { deriveHttpIdentity, deriveStrongETag } from "../http-semantics.js";
 import {
@@ -456,10 +456,9 @@ const harness = (options: HarnessOptions = {}) => {
 
         settlementCommands.push(command);
 
-        const receipt = {
-          ...receiptFromProjection(source),
+        const receipt = Struct.assign(receiptFromProjection(source), {
           revision: source.revision + 1,
-        };
+        });
 
         const evidence = settlementEvidence({
           ...options.settlementEvidence,
