@@ -13,6 +13,7 @@
     "Added the repository-specific rule rules/no-raw-advisory-lock-sql.ts and its registration in index.ts; UPSTREAM.txt records it.",
     "Added the repository-specific rule rules/no-json-text-parameter.ts, its RuleTester test, its registration in index.ts, and a package.json whose test script runs the rule tests; UPSTREAM.txt records it.",
     "Added the repository-specific rule rules/no-leadership-reach.ts, its RuleTester test, and its registration in index.ts; UPSTREAM.txt records it.",
-    "Added the repository-specific rule rules/no-hand-rolled-postgres.ts, its RuleTester test, and its registration in index.ts; UPSTREAM.txt records it."
+    "Added the repository-specific rule rules/no-hand-rolled-postgres.ts, its RuleTester test, and its registration in index.ts; UPSTREAM.txt records it.",
+    "Added the repository-specific rule rules/no-git-history.ts, its RuleTester test, and its registration in index.ts; UPSTREAM.txt records it."
   ]
 }

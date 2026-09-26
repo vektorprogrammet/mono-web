@@ -449,12 +449,7 @@ describe("spec 0067 artifact boundary", () => {
   const artifactCore = {
     contract: {
       revision: "0067.0",
-      frozenCodeBaseHead: "f".repeat(40),
-      implementationBaseHead: "i".repeat(40),
       runtimeHead: "r".repeat(40),
-      frozenBaseMergeBase: "f".repeat(40),
-      implementationBaseMergeBase: "i".repeat(40),
-      actualBaseVerified: false,
     },
     source: {
       sourceRepository: "synthetic://source",

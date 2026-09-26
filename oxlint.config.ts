@@ -308,8 +308,12 @@ export default defineConfig({
     },
     {
       // Journey fixtures derive window bounds from tools/e2e/journey-clock.ts, so none expires.
+      // Hosted journeys run in a depth-1 checkout, so journey code reads no Git history.
       files: ["apps/*/e2e/**", "tools/e2e/**", "tools/acceptance/**", "tools/verification/**"],
-      rules: { "anti-slop/no-literal-window-instant": "error" },
+      rules: {
+        "anti-slop/no-literal-window-instant": "error",
+        "anti-slop/no-git-history": "error",
+      },
     },
   ],
   ignorePatterns: [

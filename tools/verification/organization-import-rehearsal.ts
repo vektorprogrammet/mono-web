@@ -20,8 +20,6 @@ const authorizationClock = journeyClock("2037-01-15T12:00:00.000Z");
 
 export const SPEC_0067 = {
   contractRevision: "0067.0",
-  frozenCodeBaseHead: "5f9f4c7a6a7c3cb54104d21756311d53d6cc1d48",
-  implementationBaseHead: "15062ae453b6b6c1470c960e914602179710ac07",
   sourceRepository: "synthetic://spec-0067/legacy-organization",
   sourceRevision: "organization-source-0067-v1",
   transformationRevision: "organization-import-0067-v1",
@@ -1030,12 +1028,7 @@ const PersonAuthorityProjectionSchema = OrganizationPersonAuthoritySchema;
 export const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
   contract: Schema.Struct({
     revision: Schema.String,
-    frozenCodeBaseHead: Schema.String,
-    implementationBaseHead: Schema.String,
     runtimeHead: Schema.String,
-    frozenBaseMergeBase: Schema.String,
-    implementationBaseMergeBase: Schema.String,
-    actualBaseVerified: Schema.Boolean,
   }),
   source: Schema.Struct({
     sourceRepository: Schema.String,

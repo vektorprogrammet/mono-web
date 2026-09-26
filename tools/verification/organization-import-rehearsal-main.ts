@@ -1608,12 +1608,7 @@ const runRehearsal = async (
   const artifactCore: Partial<RehearsalArtifactCore> = {
     contract: {
       revision: SPEC_0067.contractRevision,
-      frozenCodeBaseHead: SPEC_0067.frozenCodeBaseHead,
-      implementationBaseHead: SPEC_0067.implementationBaseHead,
       runtimeHead: "NotObservedDueToFailure",
-      frozenBaseMergeBase: "NotObservedDueToFailure",
-      implementationBaseMergeBase: "NotObservedDueToFailure",
-      actualBaseVerified: false,
     },
     source: {
       sourceRepository: SPEC_0067.sourceRepository,
@@ -1675,32 +1670,8 @@ const runRehearsal = async (
       processEffects,
     );
 
-    const frozenBaseMergeBase = await readGitValue(
-      ["merge-base", "HEAD", SPEC_0067.frozenCodeBaseHead],
-      childToolEnvironment,
-      processObservations,
-      processEffects,
-    );
-
-    const implementationBaseMergeBase = await readGitValue(
-      ["merge-base", "HEAD", SPEC_0067.implementationBaseHead],
-      childToolEnvironment,
-      processObservations,
-      processEffects,
-    );
-
     assert.match(runtimeHead, /^[a-f0-9]{40}$/u);
-    assert.equal(frozenBaseMergeBase, SPEC_0067.frozenCodeBaseHead);
-    assert.equal(implementationBaseMergeBase, SPEC_0067.implementationBaseHead);
-    artifactCore.contract = {
-      revision: SPEC_0067.contractRevision,
-      frozenCodeBaseHead: SPEC_0067.frozenCodeBaseHead,
-      implementationBaseHead: SPEC_0067.implementationBaseHead,
-      runtimeHead,
-      frozenBaseMergeBase,
-      implementationBaseMergeBase,
-      actualBaseVerified: true,
-    };
+    artifactCore.contract = { revision: SPEC_0067.contractRevision, runtimeHead };
     stage = "database creation";
     assert.equal(
       sha256Hex(canonicalJsonBytes(frozenOrganizationSnapshotCore)),
