@@ -1,15 +1,19 @@
 import { spawn, spawnSync } from "node:child_process";
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
-  readFileSync,
   readdirSync,
   readlinkSync,
+  renameSync,
   rmSync,
+  statSync,
   symlinkSync,
+  utimesSync,
+  writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { Schema } from "effect";
 
 const usage = `Usage:
@@ -19,11 +23,14 @@ Runs \`turbo run check-types test\` for the packages that the staged tree
 changes compared with HEAD. With --dependents, it also runs them for the
 packages that depend on those. For a merge, the staged tree is the merge
 result. The tree is checked out in a temporary Git worktree, so unstaged and
-untracked files do not change the result. The worktree uses the installed
-node_modules and the Turbo cache of this worktree. The tasks run through
-hook-slot with the job class. A change that selects no task does not wait for a
-hook slot. The pre-commit hook runs this command; the pre-merge-commit hook
-runs it with --dependents.
+untracked files do not change the result. Its node_modules link to a frozen
+install of the staged lockfile and manifests, which a later run with the same
+files reuses; what this worktree has installed does not matter. The Bun that
+runs this command installs and runs the tasks, and it must be the one that
+package.json pins: run it inside \`devenv shell\`. The tasks use the Turbo
+cache of this worktree and run through hook-slot with the job class. A change
+that selects no task does not wait for a hook slot. The pre-commit hook runs
+this command; the pre-merge-commit hook runs it with --dependents.
 `;
 
 // A function declaration lets calls narrow control flow as `never`.
@@ -61,10 +68,6 @@ const git = (gitArguments: Array<string>, env: NodeJS.ProcessEnv = process.env) 
 
 const root = git(["rev-parse", "--show-toplevel"]);
 
-const store = join(root, "node_modules", ".bun");
-
-if (!existsSync(store)) fail("Run bun install first.");
-
 const head = git(["rev-parse", "--verify", "HEAD^{commit}"]);
 
 // Git sets GIT_INDEX_FILE to the index that the commit records, also for
@@ -75,6 +78,19 @@ if (tree === git(["rev-parse", "HEAD^{tree}"])) {
   process.stderr.write("check-staged: the staged tree equals HEAD. Nothing to check.\n");
   process.exit(0);
 }
+
+const manifest = Schema.decodeSync(
+  Schema.fromJsonString(
+    Schema.Struct({ packageManager: Schema.String, workspaces: Schema.Array(Schema.String) }),
+  ),
+)(git(["cat-file", "blob", `${tree}:package.json`]));
+
+// The install and the tasks run with this Bun. Another Bun links a lockfile differently.
+if (manifest.packageManager !== `bun@${Bun.version}`)
+  fail(
+    `This is Bun ${Bun.version}, but the staged package.json pins ${manifest.packageManager}. ` +
+      "Run the Git hooks and just recipes inside `devenv shell`, which provides the pinned Bun.",
+  );
 
 const snapshot = git(["commit-tree", "--no-gpg-sign", "-p", head, "-m", "check-staged", tree]);
 
@@ -90,18 +106,25 @@ const snapshotParent = join(
 
 const directory = join(snapshotParent, `check-staged-${process.pid}`);
 
-mkdirSync(snapshotParent, { recursive: true });
+const installs = join(snapshotParent, "check-staged-installs");
 
-// A killed run leaves its worktree. Remove the worktrees of exited runs.
-for (const name of readdirSync(snapshotParent)) {
-  const pid = Number(/^check-staged-(\d+)$/.exec(name)?.[1]);
+mkdirSync(installs, { recursive: true });
 
-  if (!Number.isInteger(pid)) continue;
+// A killed run leaves its worktree or its unfinished install. Remove those of exited runs.
+for (const [parent, pattern] of [
+  [snapshotParent, /^check-staged-(\d+)$/],
+  [installs, /^[\da-f]+-(\d+)$/],
+] as const) {
+  for (const name of readdirSync(parent)) {
+    const pid = Number(pattern.exec(name)?.[1]);
 
-  try {
-    if (pid !== process.pid) process.kill(pid, 0);
-  } catch {
-    rmSync(join(snapshotParent, name), { recursive: true, force: true });
+    if (!Number.isInteger(pid)) continue;
+
+    try {
+      if (pid !== process.pid) process.kill(pid, 0);
+    } catch {
+      rmSync(join(parent, name), { recursive: true, force: true });
+    }
   }
 }
 
@@ -124,6 +147,81 @@ git(
   snapshotEnv,
 );
 
+// A failed removal leaves the worktree for the next run to remove.
+const removeSnapshot = () => {
+  spawnSync("git", ["-C", root, "worktree", "remove", "--force", directory], { env: snapshotEnv });
+  rmSync(directory, { recursive: true, force: true });
+};
+
+// Bun installs node_modules from these files of the staged tree alone. An install of the same
+// files is reused, whatever this worktree has installed.
+const workspaceManifests = manifest.workspaces.map((pattern) => new Bun.Glob(`${pattern}/package.json`));
+
+// `git ls-tree` prints `<mode> <type> <object>\t<path>`.
+const inputs = git(["ls-tree", "-r", "-z", tree])
+  .split("\0")
+  .map((entry) => ({ entry, path: entry.slice(entry.indexOf("\t") + 1) }))
+  .filter(
+    ({ path }) =>
+      ["package.json", "bun.lock", "bunfig.toml"].includes(path) ||
+      path.startsWith("patches/") ||
+      workspaceManifests.some((glob) => glob.match(path)),
+  );
+
+const install = join(
+  installs,
+  new Bun.CryptoHasher("sha256").update(inputs.map(({ entry }) => entry).join("\0")).digest("hex").slice(0, 32),
+);
+
+const installed = join(install, "installed");
+
+if (existsSync(installed)) {
+  const now = new Date();
+
+  utimesSync(installed, now, now);
+} else {
+  process.stderr.write("check-staged: installing the staged lockfile.\n");
+
+  const unfinished = `${install}-${process.pid}`;
+
+  for (const { path } of inputs) {
+    mkdirSync(dirname(join(unfinished, path)), { recursive: true });
+    copyFileSync(join(directory, path), join(unfinished, path));
+  }
+
+  const result = spawnSync(process.execPath, ["install", "--frozen-lockfile"], {
+    cwd: unfinished,
+    encoding: "utf8",
+    env: snapshotEnv,
+    maxBuffer: 2 ** 28,
+  });
+
+  if (result.status !== 0) {
+    rmSync(unfinished, { recursive: true, force: true });
+    removeSnapshot();
+    fail(`bun install --frozen-lockfile failed for the staged tree:\n${result.stderr}${result.stdout}`);
+  }
+
+  writeFileSync(join(unfinished, "installed"), "");
+
+  // A concurrent run may have finished the same install first.
+  try {
+    renameSync(unfinished, install);
+  } catch {
+    rmSync(unfinished, { recursive: true, force: true });
+  }
+
+  // Keep the installs that a run used in the last day, which covers every running check.
+  for (const name of readdirSync(installs)) {
+    const marker = join(installs, name, "installed");
+
+    if (existsSync(marker) && Date.now() - statSync(marker).mtimeMs > 24 * 60 * 60 * 1000)
+      rmSync(join(installs, name), { recursive: true, force: true });
+  }
+}
+
+const store = join(install, "node_modules", ".bun");
+
 // Workspace links in node_modules are relative. A copy of each link tree
 // resolves them to the snapshot packages. The package store is shared.
 const copyLinks = (source: string, target: string) => {
@@ -138,40 +236,24 @@ const copyLinks = (source: string, target: string) => {
   }
 };
 
-copyLinks(join(root, "node_modules"), join(directory, "node_modules"));
+for (const { path } of inputs) {
+  const modules = join(dirname(path), "node_modules");
+
+  if (basename(path) === "package.json" && existsSync(join(install, modules)))
+    copyLinks(join(install, modules), join(directory, modules));
+}
 
 symlinkSync(store, join(directory, "node_modules", ".bun"));
 
-const { workspaces } = Schema.decodeSync(
-  Schema.fromJsonString(Schema.Struct({ workspaces: Schema.Array(Schema.String) })),
-)(readFileSync(join(directory, "package.json"), "utf8"));
-
-for (const pattern of workspaces) {
-  const packages = pattern.endsWith("/*")
-    ? readdirSync(join(directory, pattern.slice(0, -2))).map((name) =>
-        join(pattern.slice(0, -2), name),
-      )
-    : [pattern];
-
-  for (const path of packages) {
-    if (existsSync(join(root, path, "node_modules")))
-      copyLinks(join(root, path, "node_modules"), join(directory, path, "node_modules"));
-  }
-}
-
-// A failed removal leaves the worktree for the next run to remove.
-const removeSnapshot = () => {
-  spawnSync("git", ["-C", root, "worktree", "remove", "--force", directory], { env: snapshotEnv });
-  rmSync(directory, { recursive: true, force: true });
-};
-
+// Turbo and the tasks resolve `bun` on PATH, so this Bun comes first.
 const turboEnv = {
   ...snapshotEnv,
+  PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}`,
   TURBO_CACHE_DIR: process.env.TURBO_CACHE_DIR || join(root, ".turbo", "cache"),
 };
 
-// `[A...B]` selects the packages that change between the commits; a leading
-// `...` adds their dependents.
+// `bun x` runs the Turbo of the snapshot's install. `[A...B]` selects the packages
+// that change between the commits; a leading `...` adds their dependents.
 const turboRun = [
   "x",
   "turbo",
@@ -180,11 +262,11 @@ const turboRun = [
   "test",
   `--filter=${dependents ? "..." : ""}[${head}...${snapshot}]`,
   "--concurrency=1",
-  `--cwd=${directory}`,
 ];
 
 // The dry run needs no hook slot, so a change that affects no task does not wait.
 const dryRun = spawnSync(process.execPath, [...turboRun, "--dry=json"], {
+  cwd: directory,
   encoding: "utf8",
   env: turboEnv,
   maxBuffer: 2 ** 28,
@@ -222,7 +304,7 @@ const job = spawn(
     "--ui=stream",
     "--output-logs=errors-only",
   ],
-  { stdio: "inherit", env: turboEnv },
+  { cwd: directory, stdio: "inherit", env: turboEnv },
 );
 
 const signalHandlers = (["SIGINT", "SIGTERM", "SIGHUP"] as const).map(
