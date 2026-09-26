@@ -61,6 +61,14 @@ describe("Effect domain groups", () => {
     expect(effectRulesFor("apps/backend/src/probe.ts")).toContain("effect/no-ambient-console");
   });
 
+  test("core sources run the strict rules, and the backend adapters decode external data", () => {
+    expect(effectRulesFor("packages/domain/src/probe.ts")).toContain("effect/no-untyped-throw");
+    expect(effectRulesFor("packages/sdk/src/probe.ts")).toContain(
+      "effect/no-native-promise-control-flow",
+    );
+    expect(effectRulesFor("apps/backend/src/probe.ts")).toContain("effect/no-raw-json-parse");
+  });
+
   test("tests do not inherit library rules from the broader source group", () => {
     expect(effectRulesFor("packages/domain/src/probe.test.ts")).not.toContain(
       "effect/no-ambient-authority",
@@ -68,5 +76,35 @@ describe("Effect domain groups", () => {
     expect(effectRulesFor("packages/domain/src/probe.test.ts")).toEqual(
       effectRulesFor("tools/verification/probe.test.ts"),
     );
+  });
+
+  // `totalOverrides` gives each group's override every plugin rule, where `off` marks a rule that
+  // does not apply to the group's role; any other override that sets a plugin rule `off` disables it.
+  test("relax no rule outside packages/database", () => {
+    const pluginRules = new Set(
+      overrides.flatMap((override) =>
+        Object.keys(override.rules ?? {}).filter((rule) => rule.startsWith("effect/")),
+      ),
+    );
+
+    const relaxed = overrides.flatMap((override) => {
+      const settings = Object.entries(override.rules ?? {}).filter(([rule]) =>
+        pluginRules.has(rule),
+      );
+
+      const group = settings.length === pluginRules.size;
+
+      const relaxes = settings.some(([, setting]) => {
+        const severity = Array.isArray(setting) ? setting[0] : setting;
+
+        return severity === "warn" || (!group && severity === "off");
+      });
+
+      return relaxes
+        ? override.files.filter((pattern) => !pattern.startsWith("packages/database/"))
+        : [];
+    });
+
+    expect(relaxed).toEqual([]);
   });
 });

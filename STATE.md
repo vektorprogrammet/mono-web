@@ -142,7 +142,7 @@ PGlite performance and full native composition are unmeasured.
 ### Lead handoff
 
 Updated 2026-09-26 at `d9f6afca`. A new lead resumes from this section, `AGENTS.md`, and `docs/specs/`, not from chat or session files.
-The Effect diagnostics contract ([spec](docs/specs/effect-diagnostics.md)) is in flight: slices E1 (`packages/database`) and F (plugin rules outside it) remain, then the wiring slice W makes every rule an error. Agents follow the `effect-house` overlay (`.agents/skills/effect-house/SKILL.md`); the homelab projects-tier extension injects it and the instruction chain on first touch.
+The Effect diagnostics contract ([spec](docs/specs/effect-diagnostics.md)) is in flight: slice E1 (`packages/database`) remains, with the six `packages/database` sites of slice F (plugin rules) after it, since F is done outside that package; then the wiring slice W makes every rule an error. Agents follow the `effect-house` overlay (`.agents/skills/effect-house/SKILL.md`); the homelab projects-tier extension injects it and the instruction chain on first touch.
 `spike/persisted-queue-outbox-0925` (worktree `mono-web-pq-spike-0925`) is the starting point of the team-application `PersistedQueue` pilot the operator chose on 2026-09-26; its landing conditions are in [infrastructure ports](docs/specs/infrastructure-ports.md#team-application-delivery-pilot-operator-decision-2026-09-26).
 
 How work runs: one writer per worktree and branch; heavy commands go through `just measure`, whose machine-wide lock serialises every agent;

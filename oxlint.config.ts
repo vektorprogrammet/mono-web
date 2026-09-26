@@ -8,6 +8,9 @@ import {
   type RuleName,
 } from "@phibkro/oxlint-effect-plugin";
 
+// Every group reports the plugin rules at their default severity, error, except the
+// packages/database groups: they keep them as warnings until slice E1 of
+// docs/specs/effect-diagnostics.md and the database sites of slice F are done.
 const advisorySeverity = {
   "no-ambient-console": "warn",
   "no-ambient-authority": "warn",
@@ -18,7 +21,7 @@ const advisorySeverity = {
   "no-untyped-throw": "warn",
 } satisfies Partial<Record<RuleName, "warn">>;
 
-const group = <T extends Omit<ExpandInput["groups"][number], "severityOverrides">>(
+const advisory = <T extends Omit<ExpandInput["groups"][number], "severityOverrides">>(
   input: T,
 ): T & { readonly severityOverrides: typeof advisorySeverity } => ({
   ...input,
@@ -55,40 +58,49 @@ const bunNodeModules = {
 const effectConfig = {
   technology: "effect-v4",
   groups: [
-    group({
+    {
       files: ["packages/domain/src/**/*.ts"],
       role: "effect-library",
       platform: "node",
-      strictness: "recommended",
-    }),
-    group({
+      strictness: "strict",
+    },
+    advisory({
       files: ["packages/database/src/**/*.ts"],
       role: "runtime-adapter",
       platform: "node",
       strictness: "recommended",
     }),
-    group({
+    {
       files: ["packages/sdk/src/**/*.ts"],
       role: "effect-library",
       platform: "portable",
-      strictness: "recommended",
-    }),
-    group({
+      strictness: "strict",
+    },
+    {
+      // HTTP requests, provider responses, and stored files reach the backend adapters as external data.
       files: ["apps/backend/src/**/*.ts"],
       role: "runtime-adapter",
       platform: "node",
-      strictness: "recommended",
-    }),
-    group({
+      boundaries: ["external-data"],
+      strictness: "strict",
+    },
+    {
       files: ["packages/domain/src/placements/*.ts"],
       role: "effect-library",
       platform: "portable",
-      strictness: "recommended",
-    }),
+      strictness: "strict",
+    },
     {
       files: [
         "packages/domain/src/organization/lifecycle.ts",
         "packages/domain/src/identity/access.ts",
+      ],
+      role: "effect-library",
+      platform: "portable",
+      strictness: "strict",
+    },
+    {
+      files: [
         "packages/database/src/organization/lifecycle-postgres.ts",
         "packages/database/src/identity-access.ts",
       ],
@@ -97,17 +109,21 @@ const effectConfig = {
       strictness: "recommended",
       severityOverrides: { "no-ambient-authority": "error" },
     },
-    group({
+    {
       // The SDK selects FetchHttpClient, closes the environment, and runs each operation for Promise callers.
       files: ["packages/sdk/src/effect-client.ts", "packages/sdk/src/promise.ts"],
       role: "composition-root",
       platform: "portable",
-      strictness: "recommended",
-    }),
-    group({
+      strictness: "strict",
+    },
+    {
+      files: ["tools/acceptance/**/*.ts", "tools/verification/**/*.ts"],
+      role: "composition-root",
+      platform: "node",
+      strictness: "strict",
+    },
+    advisory({
       files: [
-        "tools/acceptance/**/*.ts",
-        "tools/verification/**/*.ts",
         "packages/database/runtime/**/*-main.ts",
         "packages/database/src/**/*-main.ts",
         "packages/database/src/**/*-cli.ts",
@@ -116,13 +132,13 @@ const effectConfig = {
       platform: "node",
       strictness: "recommended",
     }),
-    group({
+    {
       files: ["**/*.test.ts", "**/*.spec.ts", "**/e2e/**/*.ts"],
       role: "test",
       platform: "node",
-      strictness: "recommended",
-    }),
-    group({
+      strictness: "strict",
+    },
+    {
       files: [
         "apps/dashboard/app/lib/preview-*.test.ts",
         "apps/dashboard/app/foldkit/content/view.test.ts",
@@ -130,21 +146,22 @@ const effectConfig = {
       ],
       role: "test",
       platform: "browser",
-      strictness: "recommended",
-    }),
-    group({
+      strictness: "strict",
+    },
+    {
       files: ["apps/backend/src/test/**/*.ts"],
       role: "runtime-adapter",
       platform: "bun",
-      strictness: "recommended",
-    }),
-    group({
+      boundaries: ["external-data"],
+      strictness: "strict",
+    },
+    advisory({
       files: ["packages/database/src/test-support/platform.ts"],
       role: "runtime-adapter",
       platform: "bun",
       strictness: "recommended",
     }),
-    group({
+    {
       // Bun runs these composition roots and the journey runtimes that they share.
       files: [
         "apps/backend/src/main.ts",
@@ -167,10 +184,10 @@ const effectConfig = {
       ],
       role: "composition-root",
       platform: "bun",
-      strictness: "recommended",
+      strictness: "strict",
       ruleOptions: bunNodeModules,
-    }),
-    group({
+    },
+    {
       // Bun runs these suites, and the journeys take their file locks through Bun's FFI.
       files: [
         "tools/conventions/tests/*.test.ts",
@@ -180,9 +197,9 @@ const effectConfig = {
       ],
       role: "test",
       platform: "bun",
-      strictness: "recommended",
+      strictness: "strict",
       ruleOptions: bunNodeModules,
-    }),
+    },
   ],
 } satisfies ExpandInput;
 
@@ -297,11 +314,7 @@ export default defineConfig({
       },
     },
     {
-      files: [
-        "apps/backend/src/native-operation.ts",
-        "packages/database/src/oauth-live.ts",
-        "packages/database/src/password-recovery.ts",
-      ],
+      files: ["packages/database/src/oauth-live.ts", "packages/database/src/password-recovery.ts"],
       rules: {
         // These named adapters are the explicit Effect-to-Promise or synchronous interoperability seam.
         "effect/no-premature-execution": "off",
