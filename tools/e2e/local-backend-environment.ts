@@ -17,6 +17,11 @@ export interface LocalBackendComposition {
   readonly betterAuthSecret: string;
 }
 
+/**
+ * The environment of a disposable local native backend for one composition.
+ *
+ * @construct test-harness
+ */
 export const localBackendEnvironment = (composition: LocalBackendComposition) => {
   const listener = new URL(composition.backendOrigin);
 

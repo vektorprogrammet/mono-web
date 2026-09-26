@@ -178,6 +178,27 @@ in
       priority = 0;
       fail_fast = true;
     };
+    # The whole staged tree's construct tags and imports against docs/constructs.md.
+    constructs = hook {
+      entry = "${hookEnv} just constructs --staged";
+      stages = [
+        "pre-commit"
+        "pre-merge-commit"
+      ];
+      priority = 0;
+      fail_fast = true;
+    };
+    # The module guides and their CLAUDE.md links against the context map, the construct tags,
+    # and the package exports of the staged tree.
+    guides = hook {
+      entry = "${hookEnv} just guides --staged";
+      stages = [
+        "pre-commit"
+        "pre-merge-commit"
+      ];
+      priority = 0;
+      fail_fast = true;
+    };
     # Type checks and tests of the packages that the staged tree changes.
     changed-packages = hook {
       entry = "${hookEnv} just check-staged --class hook-pre-commit";

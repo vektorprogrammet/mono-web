@@ -464,7 +464,11 @@ const distinctLoopbackPorts = (count: number, taken: ReadonlyArray<number>) =>
     return ports;
   });
 
-/** The golden journeys' port reservation for runners that do not run inside the harness. */
+/**
+ * The golden journeys' port reservation for runners that do not run inside the harness.
+ *
+ * @construct test-harness
+ */
 export const reserveLoopbackPorts = (count: number): Promise<ReadonlyArray<number>> =>
   Effect.runPromise(distinctLoopbackPorts(count, []));
 

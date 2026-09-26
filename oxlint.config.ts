@@ -222,7 +222,7 @@ export default defineConfig({
     {
       files: [
         "tools/source-safety/tests/source-safety.test.ts",
-        "tools/conventions/tests/layout.test.ts",
+        "tools/conventions/tests/*.test.ts",
       ],
       rules: {
         // Bun runs these suites; they drive the Node-compatible Git and filesystem seams.

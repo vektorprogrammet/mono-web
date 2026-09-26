@@ -253,6 +253,7 @@
       "version": "0.1.0",
       "dependencies": {
         "effect": "catalog:effect-v4",
+        "rolldown": "1.2.6",
       },
       "devDependencies": {
         "@types/node": "^22",

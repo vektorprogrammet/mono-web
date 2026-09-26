@@ -39,6 +39,11 @@ The guide links API reference material rather than copying declarations.
 It uses a small diagram where a dependency or execution path needs explanation.
 It does not narrate each function or list every private table as a public contract.
 
+Every app, package, and context folder also has a generated `AGENTS.md` guide.
+It states the folder's bounded context from the [context map](model/contexts.cml), its entry points, and the shared constructs that it defines.
+It links the folder's README, which stays the human guide.
+The [construct catalogue](constructs.md) lists every shared construct and the modules that import it.
+
 ## Effect contracts
 
 A type signature does not explain all usage requirements.

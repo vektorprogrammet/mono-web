@@ -1,3 +1,10 @@
+/**
+ * The polling loop of background workers.
+ *
+ * Use `pollForever` for a worker that drains a queue or an outbox: it runs one tick, waits for
+ * the interval, and runs the next. The wait uses the Clock service, so tests drive it with
+ * `TestClock` instead of real time.
+ */
 import { Duration, Effect, Schedule } from "effect";
 
 export interface PollOptions<A> {
@@ -11,6 +18,8 @@ export interface PollOptions<A> {
  * Runs `tick` at once, then again after each success. The delay uses the Clock
  * service, so `TestClock` controls it. The first tick failure stops the loop with
  * that failure. Interruption stops the current tick or delay.
+ *
+ * @construct worker
  */
 export const pollForever = <A, E, R>(
   tick: Effect.Effect<A, E, R>,

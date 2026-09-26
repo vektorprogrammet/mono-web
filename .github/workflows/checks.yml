@@ -33,11 +33,14 @@ jobs:
       - name: Install frozen dependencies
         timeout-minutes: 3
         run: bun install --frozen-lockfile
-      - name: Check the repository layout and generated sections
+      - name: Check the layout, the construct catalogue, and the module guides
         timeout-minutes: 1
-        run: just layout
+        run: |
+          just layout
+          just constructs
+          just guides
       # Type checks run the Turbo `generate` tasks, which derive and assert the HTTP contract
-      # artifacts. `just check` repeats the layout check, as the pre-push hook runs it.
-      - name: Check layout, source safety, format, lint, types, and HTTP contract
+      # artifacts. `just check` repeats the fast checks above, as the pre-push hook runs it.
+      - name: Check layout, constructs, guides, source safety, format, lint, types, and HTTP contract
         timeout-minutes: 12
         run: just check

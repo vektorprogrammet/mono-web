@@ -115,7 +115,11 @@ const recoverStale = (
     SELECT count(*)::text AS count FROM recovered
   `.pipe(Effect.map((rows) => Number(rows[0]?.count ?? "0")));
 
-/** SET list for the aggregate's claim UPDATE; `targetAlias` names the updated outbox row. */
+/**
+ * SET list for the aggregate's claim UPDATE; `targetAlias` names the updated outbox row.
+ *
+ * @construct sql-lifecycle
+ */
 export const outboxClaimAssignments = (
   sql: DatabaseOperations,
   targetAlias: string,
@@ -125,6 +129,12 @@ export const outboxClaimAssignments = (
   sql`status = 'Processing', claim_id = ${claimId}, claimed_at = ${claimedAt},
     attempts = ${sql(targetAlias)}.attempts + 1, last_failure_tag = NULL`;
 
+/**
+ * Settles the claimed row as Delivered, with delivery evidence when the table records it.
+ * Fails with `OutboxClaimLost` when the claim no longer owns the row.
+ *
+ * @construct sql-lifecycle
+ */
 export const markOutboxDelivered = (
   sql: DatabaseOperations,
   table: OutboxTable,
@@ -149,6 +159,12 @@ export const markOutboxDelivered = (
   );
 };
 
+/**
+ * Settles the claimed row as Failed with its failure tag, so a later claim retries it.
+ * Fails with `OutboxClaimLost` when the claim no longer owns the row.
+ *
+ * @construct sql-lifecycle
+ */
 export const markOutboxFailed = (
   sql: DatabaseOperations,
   table: OutboxTable,
@@ -157,6 +173,12 @@ export const markOutboxFailed = (
 ): Effect.Effect<void, OutboxClaimLost | SqlError> =>
   settleClaim(sql, table, claim, sql`status = 'Failed', last_failure_tag = ${failureTag}`);
 
+/**
+ * Settles the claimed row as Quarantined, a terminal status, with its failure tag.
+ * Fails with `OutboxClaimLost` when the claim no longer owns the row.
+ *
+ * @construct sql-lifecycle
+ */
 export const quarantineOutboxClaim = (
   sql: DatabaseOperations,
   table: OutboxTable,
@@ -173,7 +195,11 @@ export const quarantineOutboxClaim = (
   );
 };
 
-/** Returns an interrupted claim to Pending without a provider outcome; a lost claim needs none. */
+/**
+ * Returns an interrupted claim to Pending without a provider outcome; a lost claim needs none.
+ *
+ * @construct sql-lifecycle
+ */
 export const releaseOutboxClaim = (
   sql: DatabaseOperations,
   table: OutboxTable,
@@ -187,7 +213,11 @@ export const releaseOutboxClaim = (
     sql`status = 'Pending', last_failure_tag = ${failureTag}`,
   ).pipe(Effect.asVoid);
 
-/** Recovers every Processing row claimed before `claimedBefore`. */
+/**
+ * Recovers every Processing row claimed before `claimedBefore`.
+ *
+ * @construct sql-lifecycle
+ */
 export const recoverStaleOutboxClaims = (
   sql: DatabaseOperations,
   table: OutboxTable,
@@ -196,7 +226,11 @@ export const recoverStaleOutboxClaims = (
 ): Effect.Effect<number, SqlError> =>
   recoverStale(sql, table, recovery, sql`claimed_at < ${claimedBefore}`);
 
-/** Recovers the rows of one claim when that claim was taken before `claimedBefore`. */
+/**
+ * Recovers the rows of one claim when that claim was taken before `claimedBefore`.
+ *
+ * @construct sql-lifecycle
+ */
 export const recoverStaleOutboxClaim = (
   sql: DatabaseOperations,
   table: OutboxTable,

@@ -1,7 +1,8 @@
 /**
- * Generated sections of README.md and AGENTS.md. Each section sits between a begin and an end
- * marker comment and is rendered from its source: the layout declaration or the justfile.
- * The tables use the column alignment that Oxfmt writes, so formatting never changes them.
+ * Generated sections of Markdown files. Each section sits between a begin and an end marker
+ * comment and is rendered from its source: the layout declaration and the justfile render the
+ * sections of README.md and AGENTS.md, and `guides.ts` renders the module guides. The tables use
+ * the column alignment that Oxfmt writes, so formatting never changes them.
  */
 import type { Justfile } from "./justfile.js";
 import {
@@ -15,10 +16,15 @@ import {
 
 export type SectionId = "layout" | "commands";
 
-const sources: Readonly<Record<SectionId, string>> = {
-  layout: "tools/conventions/src/layout.ts",
-  commands: "the justfile",
-};
+/** A generated section: what renders it, from which source, and its body. */
+export interface Section {
+  readonly id: string;
+  readonly source: string;
+  readonly recipe: string;
+  readonly body: string;
+}
+
+const declaration = "tools/conventions/src/layout.ts";
 
 /** The files that carry generated sections, and which ones. */
 export const generatedFiles = {
@@ -26,7 +32,8 @@ export const generatedFiles = {
   "AGENTS.md": ["layout", "commands"],
 } satisfies Readonly<Record<string, ReadonlyArray<SectionId>>>;
 
-const table = (
+/** A Markdown table with the column alignment that Oxfmt writes. */
+export const table = (
   header: ReadonlyArray<string>,
   rows: ReadonlyArray<ReadonlyArray<string>>,
 ): string => {
@@ -63,7 +70,9 @@ const renderLayout = (): string => {
     `Apps and packages never import ${code("tools/")}.`,
     `Context folders in ${layers.slice(0, -1).join(", ")}, and ${layers.at(-1) ?? ""} carry the kebab-case name of a bounded context in [${contextMap}](${contextMap}).`,
     `Code that several contexts share lives in ${code(sharedKernel)}.`,
-    `${code("just layout")} checks the tree against [${sources.layout}](${sources.layout}), which lists the exceptions and their reasons.`,
+    `${code("just layout")} checks the tree against [${declaration}](${declaration}), which lists the exceptions and their reasons.`,
+    `Every app, package, and context folder has an ${code("AGENTS.md")} guide and a ${code("CLAUDE.md")} link to it; ${code("just guides write")} renders their generated part.`,
+    `[docs/constructs.md](docs/constructs.md) lists the shared constructs and their consumers; ${code("just constructs write")} renders it.`,
   ].join("\n");
 };
 
@@ -75,38 +84,39 @@ const renderCommands = (justfile: Justfile): string =>
 
 // Link reference definitions render as nothing on GitHub and, unlike HTML comments, are valid MDX
 // for the documentation site.
-const begin = (id: SectionId) =>
-  `[//]: # "${id}: generated from ${sources[id]} by just layout write; do not edit"`;
+const begin = (section: Section) =>
+  `[//]: # "${section.id}: generated from ${section.source} by ${section.recipe}; do not edit"`;
 
-const end = (id: SectionId) => `[//]: # "${id}: end"`;
+const end = (id: string) => `[//]: # "${id}: end"`;
 
-/** The rendered body of every section. */
-export const renderSections = (justfile: Justfile): Readonly<Record<SectionId, string>> => ({
-  layout: renderLayout(),
-  commands: renderCommands(justfile),
+/** The sections of README.md and AGENTS.md, rendered. */
+export const renderSections = (justfile: Justfile): Readonly<Record<SectionId, Section>> => ({
+  layout: { id: "layout", source: declaration, recipe: "just layout write", body: renderLayout() },
+  commands: {
+    id: "commands",
+    source: "the justfile",
+    recipe: "just layout write",
+    body: renderCommands(justfile),
+  },
 });
 
 export interface Spliced {
   readonly text: string;
   /** Sections whose markers are missing, out of order, or repeated; they stay as they are. */
-  readonly missing: ReadonlyArray<SectionId>;
+  readonly missing: ReadonlyArray<string>;
 }
 
 /** Replaces each section of `text` with its rendered body, between its begin and end markers. */
-export const spliceSections = (
-  text: string,
-  ids: ReadonlyArray<SectionId>,
-  bodies: Readonly<Record<SectionId, string>>,
-): Spliced => {
+export const spliceSections = (text: string, sections: ReadonlyArray<Section>): Spliced => {
   const lines = text.split("\n");
-  const missing: Array<SectionId> = [];
+  const missing: Array<string> = [];
 
-  for (const id of ids) {
+  for (const section of sections) {
     const starts = lines.flatMap((line, index) =>
-      line.startsWith(`[//]: # "${id}: generated `) ? [index] : [],
+      line.startsWith(`[//]: # "${section.id}: generated `) ? [index] : [],
     );
 
-    const ends = lines.flatMap((line, index) => (line === end(id) ? [index] : []));
+    const ends = lines.flatMap((line, index) => (line === end(section.id) ? [index] : []));
     const [start] = starts;
     const [stop] = ends;
 
@@ -117,13 +127,16 @@ export const spliceSections = (
       ends.length > 1 ||
       stop < start
     ) {
-      missing.push(id);
+      missing.push(section.id);
 
       continue;
     }
 
-    lines.splice(start, stop - start + 1, begin(id), "", bodies[id], "", end(id));
+    lines.splice(start, stop - start + 1, begin(section), "", section.body, "", end(section.id));
   }
 
   return { text: lines.join("\n"), missing };
 };
+
+/** The markers of `section` with nothing between them, for a file that has none yet. */
+export const emptySection = (section: Section): string => `${begin(section)}\n${end(section.id)}\n`;

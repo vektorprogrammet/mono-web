@@ -1139,6 +1139,8 @@ function problemVariant(code: NativeProblemCode) {
 /**
  * Creates a closed endpoint-specific Problem Details union. The registry owns
  * every status, and the union keeps each declared code as a literal.
+ *
+ * @construct http-problem
  */
 export const problemUnion = <
   const Codes extends readonly [NativeProblemCode, ...ReadonlyArray<NativeProblemCode>],
@@ -1239,6 +1241,8 @@ export interface WireProblemHeaders {
  * title, status, and detail; the static constructors require exactly the
  * members its code needs, so no call site passes a status or picks a
  * credential code by string.
+ *
+ * @construct http-problem
  */
 export class Problem<const Code extends NativeProblemCode = NativeProblemCode> extends Data.Error<
   ProblemMembers<Code>
@@ -1323,6 +1327,11 @@ export class Problem<const Code extends NativeProblemCode = NativeProblemCode> e
   }
 }
 
+/**
+ * Narrows a caught value to a `Problem`, also one that another copy of this module created.
+ *
+ * @construct http-problem
+ */
 export const isProblem = (u: unknown): u is Problem => Predicate.hasProperty(u, ProblemTypeId);
 
 /** The frozen RFC 9457 body of one problem. */
@@ -1332,7 +1341,11 @@ export interface ProblemWireRecord extends FrozenProblemDefinition {
   readonly validation?: NativeValidationDetails;
 }
 
-/** The frozen RFC 9457 body: the registry entry, then code, instance, and validation. */
+/**
+ * The frozen RFC 9457 body: the registry entry, then code, instance, and validation.
+ *
+ * @construct http-problem
+ */
 export const problemBody = (problem: Problem): ProblemWireRecord => {
   const body: Types.Mutable<ProblemWireRecord> = {
     ...NativeProblemRegistry[problem.code],
@@ -1353,6 +1366,11 @@ export type ProblemHeaderValues = {
   readonly "retry-after"?: string;
 };
 
+/**
+ * The response headers of one problem: `no-store`, its challenge, and its retry delay.
+ *
+ * @construct http-problem
+ */
 export const problemHeaders = (problem: Problem): ProblemHeaderValues => {
   const headers: Types.Mutable<ProblemHeaderValues> = { "cache-control": "no-store" };
 
@@ -1496,7 +1514,11 @@ export const problemStatusResponse = <const Union extends ProblemUnionSchema>(
   );
 };
 
-/** Builds one safe fixed public problem value. */
+/**
+ * Builds one safe fixed public problem value.
+ *
+ * @construct http-problem
+ */
 export const makeNativeProblem = <Code extends NativeProblemCode>(
   code: Code,
   expectedStatus?: number,

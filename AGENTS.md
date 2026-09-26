@@ -57,9 +57,11 @@ Package manifests own the per-package scripts that recipes and Turbo run. Use `b
 
 | Group     | Recipe                            | Does                                                                                                                                                                                                                  |
 | --------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| check     | `just check [args...]`            | Check layout, source safety, format, lint, types, and the HTTP contract. Arguments go to Turbo.                                                                                                                       |
+| check     | `just check [args...]`            | Check layout, constructs, guides, source safety, format, lint, types, and the HTTP contract. Arguments go to Turbo.                                                                                                   |
 | check     | `just check-types [args...]`      | Type check every package and assert the HTTP contract. Arguments go to Turbo.                                                                                                                                         |
+| check     | `just constructs [args...]`       | Check docs/constructs.md against the @construct tags and the imports; `just constructs write` renders it.                                                                                                             |
 | check     | `just format [args...]`           | Format with Oxfmt, or check the format with `just format --check`.                                                                                                                                                    |
+| check     | `just guides [args...]`           | Check the AGENTS.md guide and CLAUDE.md link of every app, package, and context folder; `just guides write` renders them.                                                                                             |
 | check     | `just layout [args...]`           | Check the repository layout and the generated README and AGENTS.md sections; `just layout write` renders them.                                                                                                        |
 | check     | `just lint [args...]`             | Lint with Oxlint.                                                                                                                                                                                                     |
 | check     | `just measure [args...]`          | Run a heavy job with resource measurement, or show the ledger with `just measure --report`.                                                                                                                           |
@@ -108,7 +110,7 @@ Focused Vitest does not prove those additional gates or the dashboard bundle gat
 | `packages/http-api`     | HTTP contracts, middleware declarations, and OpenAPI                            |
 | `packages/sdk`          | Generated native API client                                                     |
 | `tools/acceptance`      | Local API and browser acceptance probes of single journeys                      |
-| `tools/conventions`     | Layout declaration and check; generated README and AGENTS.md sections           |
+| `tools/conventions`     | Layout, module guide, and construct catalogue checks and their generated files  |
 | `tools/e2e`             | Golden journeys, local journey drivers, and legacy migration commands           |
 | `tools/oxlint`          | Project Oxlint rules                                                            |
 | `tools/placements-docs` | Placements API reference generation and checks                                  |
@@ -126,6 +128,8 @@ Apps and packages never import `tools/`.
 Context folders in `packages/domain/src`, `packages/database/src`, `apps/backend/src`, and `apps/dashboard/app/foldkit` carry the kebab-case name of a bounded context in [docs/model/contexts.cml](docs/model/contexts.cml).
 Code that several contexts share lives in `shared-kernel`.
 `just layout` checks the tree against [tools/conventions/src/layout.ts](tools/conventions/src/layout.ts), which lists the exceptions and their reasons.
+Every app, package, and context folder has an `AGENTS.md` guide and a `CLAUDE.md` link to it; `just guides write` renders their generated part.
+[docs/constructs.md](docs/constructs.md) lists the shared constructs and their consumers; `just constructs write` renders it.
 
 [//]: # "layout: end"
 

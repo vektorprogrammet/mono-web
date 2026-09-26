@@ -77,6 +77,18 @@ describe("paths", () => {
     }
   });
 
+  test("admits the database package's module guides, and no other file under their names", () => {
+    for (const [path, unsafe] of [
+      ["packages/database/AGENTS.md", false],
+      ["packages/database/src/placements/CLAUDE.md", false],
+      ["packages/database/src/placements/notes.md", true],
+      ["packages/database/src/placements/backups/AGENTS.md", true],
+      ["packages/database/dumps/AGENTS.md", true],
+    ] as const) {
+      expect(sourcePathSafetyReason(path) !== null).toBe(unsafe);
+    }
+  });
+
   test("blocks personal data and credentials embedded in a path", () => {
     expect(sourcePathSafetyReason("exports/alice@university.no.csv")).toBe("UNSAFE_SOURCE");
     expect(sourcePathSafetyReason("notes/+47 912 34 567.txt")).toBe("UNSAFE_SOURCE");

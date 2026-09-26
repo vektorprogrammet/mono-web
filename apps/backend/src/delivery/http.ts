@@ -1,3 +1,13 @@
+/**
+ * Acknowledged JSON delivery to a provider endpoint.
+ *
+ * Use `deliverJson` when a worker delivers a committed effect over HTTP. It sends one POST with
+ * the bearer token and the caller's headers, refuses redirects, and discards the response body.
+ *
+ * A status outside 2xx fails with `Rejected`, a transport failure with `Unavailable`, and the
+ * delivery timeout with a timeout failure. It never retries: the caller's outbox claim decides
+ * whether an ambiguous attempt runs again.
+ */
 import { Data, Schema, Duration, Effect } from "effect";
 
 export interface HttpDeliveryConfig {
@@ -17,7 +27,11 @@ export class HttpDeliveryFailure extends Data.TaggedError("HttpDeliveryFailure")
   readonly cause?: unknown;
 }> {}
 
-/** Shared acknowledged JSON transport; deliberately no retry on ambiguous acceptance. */
+/**
+ * Shared acknowledged JSON transport; deliberately no retry on ambiguous acceptance.
+ *
+ * @construct delivery
+ */
 export const deliverJson = (
   body: Schema.Json,
   config: HttpDeliveryConfig,
