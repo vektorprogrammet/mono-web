@@ -13,6 +13,7 @@ import {
 } from "@playwright/test";
 import {
   NativeProblem,
+  RECEIPT_FILE_MAX_BYTES,
   ReadReceiptEvidenceEndpoint,
   ReceiptLifecycleEvidenceResponse,
   ReceiptListResponse,
@@ -65,8 +66,6 @@ const CONCURRENT_DESCRIPTION = "Owner receipt concurrent revision";
 const REVISED_RECEIPT_DATE = "2026-08-20";
 
 const REVISED_AMOUNT_ORE = 21_075;
-
-const MAX_FILE_BYTES = 10_485_760;
 
 const RECEIPT_BYTES = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
@@ -463,7 +462,7 @@ test.describe("Native Receipt owner journey", () => {
     await submissionForm.getByLabel(/Kvitteringsfil/).setInputFiles({
       name: "oversized.png",
       mimeType: "image/png",
-      buffer: Buffer.alloc(MAX_FILE_BYTES + 1),
+      buffer: Buffer.alloc(RECEIPT_FILE_MAX_BYTES + 1),
     });
     await submissionForm.getByRole("button", { name: "Send inn utlegg", exact: true }).click();
     await expect(submissionError).toContainText(

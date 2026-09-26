@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { RECEIPT_FILE_MAX_BYTES } from "@vektorprogrammet/domain/receipt";
 import { Predicate } from "effect";
 import type { IdentityDeployment } from "../session-security.js";
 
@@ -29,8 +30,8 @@ const nonEmpty = (value: string | undefined, field: string): string => {
   return value;
 };
 
-const parseMaxFileBytes = (raw: string | undefined): number => {
-  const value = raw ?? "10485760";
+const parseMaxFileBytes = (value: string | undefined): number => {
+  if (value === undefined) return RECEIPT_FILE_MAX_BYTES;
 
   if (!/^\d+$/.test(value)) throw new Error("RECEIPT_MAX_FILE_BYTES must be an integer");
   const bytes = Number(value);

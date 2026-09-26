@@ -5,6 +5,7 @@ import { writeFile } from "node:fs/promises";
 import { chromium, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { Predicate } from "effect";
+import { RECEIPT_FILE_MAX_BYTES, receiptTransferMaxBytes } from "@vektorprogrammet/http-api";
 import { fixture, receiptBytes } from "../../../tools/e2e/golden-reimbursement-evidence.mjs";
 import { sha256 } from "../../../tools/e2e/golden-school-service-evidence.mjs";
 
@@ -353,6 +354,8 @@ export const runReimbursementBrowser = async ({
     await fresh.page.screenshot({ path: join(artifacts, "fresh-owner.png"), fullPage: true });
     await checkpoint("fresh-owner");
     const beforeBounds = await readFacts();
+    // One byte past the transfer bound of the declared receipt file limit.
+    const oversizedBytes = receiptTransferMaxBytes(RECEIPT_FILE_MAX_BYTES) + 1;
     const tooLarge = new FormData();
     tooLarge.set("_intent", "submit");
     tooLarge.set("commandId", randomUUID());
@@ -361,7 +364,7 @@ export const runReimbursementBrowser = async ({
     tooLarge.set("receiptDate", fixture.receiptDate);
     tooLarge.set(
       "file",
-      new File([new Uint8Array(10 * 1024 * 1024 + 131073)], "oversized.png", { type: "image/png" }),
+      new File([new Uint8Array(oversizedBytes)], "oversized.png", { type: "image/png" }),
     );
 
     const oversized = await fetch(origins.dashboard + "/dashboard/mine-utlegg", {
@@ -374,7 +377,7 @@ export const runReimbursementBrowser = async ({
     assert.equal(oversized.status, 413);
     await oversized.body?.cancel();
     assert.deepEqual(await readFacts(), beforeBounds, "oversized intake changed persisted state");
-    checks.push({ kind: "intake", bytes: 10 * 1024 * 1024 + 131073, status: 413, unchanged: true });
+    checks.push({ kind: "intake", bytes: oversizedBytes, status: 413, unchanged: true });
     await restart("disabled");
     const opaqueBytes = Buffer.from([0, 255, 17, 42]);
 

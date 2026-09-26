@@ -147,6 +147,9 @@ export const ReceiptFileSchema = Schema.Struct({
   byteLength: PositiveOre,
 }).pipe(Schema.check(distinctReceiptFileIdentity));
 
+/** The largest receipt file, in bytes, that intake accepts: 10 MiB. */
+export const RECEIPT_FILE_MAX_BYTES = 10 * 1024 * 1024;
+
 const ReceiptFileSelectSchema = Schema.Struct({
   ...ReceiptFileIdentityFields,
   byteLength: PositiveOreFromText,

@@ -15,7 +15,12 @@ import {
   ReceiptUiError,
   type ReceiptUiErrorField,
 } from "@/lib/receipt-view";
-import { ReceiptFileTooLarge, ReceiptId, readBoundedReceiptForm } from "@vektorprogrammet/http-api";
+import {
+  RECEIPT_FILE_MAX_BYTES,
+  ReceiptFileTooLarge,
+  ReceiptId,
+  readBoundedReceiptForm,
+} from "@vektorprogrammet/http-api";
 import {
   IdempotencyKey,
   StrongETag,
@@ -23,12 +28,10 @@ import {
   type StrongETag as StrongETagValue,
 } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
-import { useActionData, useLoaderData, useNavigation } from "react-router";
+import { data, useActionData, useLoaderData, useNavigation } from "react-router";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/dashboard.mine-utlegg._index";
-
-const MAX_FILE_BYTES = 10_485_760;
 
 const MAX_AMOUNT_ORE = 9_007_199_254_740_991n;
 
@@ -164,13 +167,13 @@ function parseReceiptIdentity(form: FormData): ParseResult<ParsedReceiptIdentity
 }
 
 /**
- * The submitted form as read within its byte bounds. An oversized file ends the read
- * early, so it is recorded here instead of being present in `form`.
+ * The submitted form as read within its byte bounds. A file over the limit ends the read
+ * early, so `form` then holds only the parts sent before that file.
  */
 type BoundedReceiptForm = { readonly form: FormData; readonly oversizedFile: boolean };
 
 const readReceiptForm = (request: Request): Promise<BoundedReceiptForm> =>
-  readBoundedReceiptForm(request, MAX_FILE_BYTES).then(
+  readBoundedReceiptForm(request, RECEIPT_FILE_MAX_BYTES).then(
     (form) => ({ form, oversizedFile: false }),
     (cause: unknown) => {
       // A too-large file is the owner's input error: answer it in the form that sent it.
@@ -180,22 +183,44 @@ const readReceiptForm = (request: Request): Promise<BoundedReceiptForm> =>
     },
   );
 
-function parseReceiptFile(read: BoundedReceiptForm, required: true): ParseResult<File>;
-function parseReceiptFile(
-  read: BoundedReceiptForm,
-  required: false,
-): ParseResult<File | undefined>;
-function parseReceiptFile(
-  read: BoundedReceiptForm,
-  required: boolean,
-): ParseResult<File | undefined> {
-  if (read.oversizedFile) {
-    return {
-      error: receiptDecodeError("Kvitteringsfilen kan ikke være større enn 10 MiB.", "file"),
-    };
+/**
+ * The answer to a form whose file exceeded the limit, in the part of the page that sent it.
+ * It keeps the draft and the command identity, so the owner can retry with a smaller file.
+ */
+function oversizedFileAnswer(
+  form: FormData,
+  intent: string | null,
+  commandId: string,
+  draft: ReceiptRevisionDraft,
+) {
+  const error = receiptDecodeError(
+    `Kvitteringsfilen kan ikke være større enn ${RECEIPT_FILE_MAX_BYTES / 1_048_576} MiB.`,
+    "file",
+  );
+
+  if (intent !== "revise" && intent !== "withdraw") {
+    return { success: false as const, intent: "submit" as const, commandId, error, draft };
   }
 
-  const fileValue = read.form.get("file");
+  const identity = parseReceiptIdentity(form);
+
+  const mutationFailure: ReceiptOwnerMutationFailure = {
+    intent,
+    ...("value" in identity
+      ? identity.value
+      : { receiptId: readFormText(form, "receiptId")?.trim() ?? "" }),
+    commandId,
+    error,
+    draft: intent === "revise" ? draft : undefined,
+  };
+
+  return { success: false as const, intent, mutationFailure };
+}
+
+function parseReceiptFile(form: FormData, required: true): ParseResult<File>;
+function parseReceiptFile(form: FormData, required: false): ParseResult<File | undefined>;
+function parseReceiptFile(form: FormData, required: boolean): ParseResult<File | undefined> {
+  const fileValue = form.get("file");
 
   if (!(fileValue instanceof File) || fileValue.size === 0) {
     return required
@@ -269,6 +294,12 @@ export async function action({ request }: Route.ActionArgs) {
     receiptDate: readFormText(form, "receiptDate") ?? "",
   };
 
+  // The read stopped at a file over the limit. Nothing commits: the request content was too
+  // large, and the form that sent it answers with its draft and command identity.
+  if (read.oversizedFile) {
+    return data(oversizedFileAnswer(form, intent, commandIdText, draft), { status: 413 });
+  }
+
   if (intent === "submit") {
     if (commandId === undefined) {
       return {
@@ -292,7 +323,7 @@ export async function action({ request }: Route.ActionArgs) {
       };
     }
 
-    const file = parseReceiptFile(read, true);
+    const file = parseReceiptFile(form, true);
 
     if ("error" in file) {
       return {
@@ -363,7 +394,7 @@ export async function action({ request }: Route.ActionArgs) {
       return { success: false as const, intent, mutationFailure };
     }
 
-    const replacementFile = parseReceiptFile(read, false);
+    const replacementFile = parseReceiptFile(form, false);
 
     if ("error" in replacementFile) {
       const mutationFailure: ReceiptOwnerMutationFailure = {

@@ -1,6 +1,8 @@
 import { Effect, Stream } from "effect";
 import * as Multipart from "effect/unstable/http/Multipart";
 
+export { RECEIPT_FILE_MAX_BYTES } from "@vektorprogrammet/domain/receipt";
+
 /**
  * A receipt file part exceeded its byte limit. This is an input error in a readable form:
  * `fields` holds the parts read before the file, so a form can answer in place with the
@@ -18,6 +20,10 @@ export class ReceiptFileTooLarge extends RangeError {
 
 /** Bytes beyond a file's limit that the transfer bound admits for the other form parts. */
 const transferMargin = 131_072;
+
+/** The most bytes that a receipt form with a file of at most `maxFileBytes` may transfer. */
+export const receiptTransferMaxBytes = (maxFileBytes: number): number =>
+  maxFileBytes + transferMargin;
 
 /**
  * Transport chunks are split to at most half the margin and parsed one per pull, so the
@@ -41,7 +47,7 @@ export const readBoundedReceiptForm = async (
   request: Request,
   maxFileBytes: number,
 ): Promise<FormData> => {
-  const maxBytes = maxFileBytes + transferMargin;
+  const maxBytes = receiptTransferMaxBytes(maxFileBytes);
   const length = request.headers.get("content-length");
 
   if (length !== null && (!/^\d+$/u.test(length) || !Number.isSafeInteger(Number(length)))) {

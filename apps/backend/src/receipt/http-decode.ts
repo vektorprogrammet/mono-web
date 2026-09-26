@@ -6,7 +6,11 @@ import {
   isIsoDate,
   type ReceiptStatus,
 } from "@vektorprogrammet/domain/receipt";
-import { RecordReceiptSettlementRequest, readBoundedReceiptForm } from "@vektorprogrammet/http-api";
+import {
+  RecordReceiptSettlementRequest,
+  readBoundedReceiptForm,
+  receiptTransferMaxBytes,
+} from "@vektorprogrammet/http-api";
 import { Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Predicate } from "effect";
 import { decodeRequest, readJsonBody, requestInvalid } from "../http-api/problem.js";
@@ -138,7 +142,7 @@ const decodeMultipartFields = (request: Request, maxFileBytes: number) =>
     if (
       !Number.isSafeInteger(bodyLength) ||
       bodyLength <= 0 ||
-      bodyLength > maxFileBytes + 131_072
+      bodyLength > receiptTransferMaxBytes(maxFileBytes)
     ) {
       return yield* Effect.fail(requestInvalid());
     }
