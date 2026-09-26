@@ -75,6 +75,7 @@ type Options = {
   secrets: string[];
   revision: string;
   correctionMode: boolean;
+  returningPopulated?: boolean;
   expectedHistoricalReportRecommendation?: "Ja" | "Kanskje" | "Nei";
   auditPage: (page: any, state: string) => Promise<void>;
   recordGate: (...observations: string[]) => void;
@@ -473,7 +474,7 @@ export async function observeInterviewReport(o: Options) {
       report.rows.filter((r) => r.participation === filter),
     );
 
-    if (o.correctionMode && filter === "Returning") {
+    if (o.returningPopulated !== true && filter === "Returning") {
       assert.equal(filtered.rows.length, 0);
     } else {
       assert.ok(filtered.rows.length > 0);

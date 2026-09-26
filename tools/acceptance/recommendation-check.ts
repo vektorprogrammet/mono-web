@@ -30,7 +30,6 @@ import {
   startDisposablePostgres,
 } from "../postgres/index.ts";
 import {
-  returningAssistantFixture,
   runReturningAssistantBrowserJourney,
   runReturningAssistantLoginProbe,
   seedReturningAssistant,
@@ -1097,6 +1096,7 @@ try {
         password,
         secrets,
         correctionMode: false,
+        returningPopulated: true,
         revision,
         auditPage,
         recordGate,
@@ -2588,24 +2588,6 @@ try {
   await pool.query(
     `UPDATE public.organization_memberships SET is_team_leader=false,position_id='member' WHERE membership_id='membership-native-conduct-leader-0063'`,
   );
-
-  if (!process.argv.includes("--correction-mode")) {
-    await runReturningAssistantBrowserJourney({
-      browser,
-      page,
-      pool,
-      api,
-      ui,
-      artifacts,
-      auditPage,
-      coordinatorEmail: "coordinator.report@example.invalid",
-      coordinatorPassword: password,
-      errors,
-    });
-    recordGate(
-      `returning registration route ${"/dashboard/tidligere-assistenter"} and report population ${returningAssistantFixture.admissionPeriodId}`,
-    );
-  }
 
   recordGate(
     "owned interview shell retains role-scoped onboarding and dashboard navigation without the global administrators' schema link",
