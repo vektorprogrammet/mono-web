@@ -82,7 +82,8 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: worker-preview-build-${{ github.event.pull_request.head.sha }}
-          path: .
+          # The upload stores both paths relative to their common ancestor, apps/.
+          path: apps
 
       # The Workers exist, so the token needs only Workers Editor on those two Workers.
       # secretspec gives this one step the Cloudflare secrets from Bitwarden Secrets Manager;
