@@ -682,10 +682,27 @@ const nearestMigrationIds = (id: string): ReadonlyArray<string> => {
 };
 
 /**
- * Selects the registered migration `id` and the migrations that run before it; an absent id throws and names the nearest registered ids.
+ * Selects the registered migration `id` and the migrations that run before it.
  *
- * `preceding` replays the history up to the migration, and `[...preceding, migration]` replays it
- * through the migration, so no call site counts positions.
+ * @remarks
+ * It finds `id` in the migration registry, whose order is the order in which the migrations
+ * apply. `preceding` replays the history up to the migration, and `[...preceding, migration]`
+ * replays it through the migration, so an upgrade proof seeds the previous schema without
+ * counting positions. The id type admits only registered ids, so a misspelt id fails the type
+ * check.
+ *
+ * @throws An `Error` that names the nearest registered ids, when `id` is not registered, which
+ * only a caller that bypasses the id type reaches.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * const { migration, preceding } = selectDatabaseMigration("26_declarative-rule-reconciliation");
+ * ```
+ *
+ * @avoid Selecting a migration by its position, such as `databaseMigrationDefinitions[25]`: a
+ * migration that another branch registers shifts the positions after it. Select it by id.
  *
  * @construct test-harness
  */

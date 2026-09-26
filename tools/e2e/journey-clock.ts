@@ -27,6 +27,24 @@ export interface JourneyClock {
 /**
  * A journey clock at a reference instant that the caller pins.
  *
+ * @remarks
+ * `now` is the reference in the form that `Date#toISOString` writes, and `fromNow(days, minutes)`
+ * adds whole days and minutes to it, or subtracts them for negative offsets. Seeds, drivers, and
+ * specs that take their instants from one clock agree with each other on any date.
+ *
+ * @throws An `Error` when `reference` is not an instant that `Date.parse` reads.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * const clock = journeyClock("2031-09-15T12:00:00.000Z");
+ * ```
+ *
+ * @avoid Writing a window bound, such as the end of an admission period, as a literal instant:
+ * the journey fails once the real clock passes it, and `anti-slop/no-literal-window-instant`
+ * rejects it. Derive the bound with `clock.fromNow(days)`.
+ *
  * @construct test-harness
  */
 export const journeyClock = (reference: string): JourneyClock => {
@@ -46,6 +64,25 @@ export const journeyClock = (reference: string): JourneyClock => {
 /**
  * The backend's admission clock: ADMISSION_FIXED_NOW when the runner pins one, otherwise the
  * current time.
+ *
+ * @remarks
+ * It reads `ADMISSION_FIXED_NOW` at each call, the variable that the backend's admission clock
+ * reads, and gives a `journeyClock` at that instant, or at the current time when it is unset. So
+ * the fixture instants of a journey lie where the backend it starts sees them.
+ *
+ * @throws An `Error` when `ADMISSION_FIXED_NOW` is set to text that `Date.parse` does not read.
+ *
+ * @sideEffects Reads `ADMISSION_FIXED_NOW` from the environment, and the current time when it is
+ * unset.
+ *
+ * @example
+ * ```ts
+ * const { fromNow: fromJourneyNow } = admissionJourneyClock();
+ * ```
+ *
+ * @avoid Taking fixture instants from `new Date()` while the backend runs with
+ * `ADMISSION_FIXED_NOW`: the seeded windows then lie outside the backend's time. Take them from
+ * this clock whenever the backend reads the admission clock.
  *
  * @construct test-harness
  */
