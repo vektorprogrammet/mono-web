@@ -985,12 +985,13 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
   - [packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts](../packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts)
 - `selectDatabaseMigration`: Selects the registered migration `id` and the migrations that run before it; an absent id throws and names the nearest registered ids.
-  [packages/database/src/migrations.ts:652](../packages/database/src/migrations.ts#L652), 5 consumers:
+  [packages/database/src/migrations.ts:652](../packages/database/src/migrations.ts#L652), 6 consumers:
   - [packages/database/runtime/schema-boundary-postgres-proof-main.ts](../packages/database/runtime/schema-boundary-postgres-proof-main.ts)
   - [packages/database/src/database.test.ts](../packages/database/src/database.test.ts)
   - [packages/database/src/migration-registry.test.ts](../packages/database/src/migration-registry.test.ts)
   - [packages/database/src/migrations.test.ts](../packages/database/src/migrations.test.ts)
   - [packages/database/src/person-cohort-accepted-mappings.test.ts](../packages/database/src/person-cohort-accepted-mappings.test.ts)
+  - [packages/database/src/rule-reconciliation-migration-postgres-proof.ts](../packages/database/src/rule-reconciliation-migration-postgres-proof.ts)
 - `reserveLoopbackPorts`: The golden journeys' port reservation for runners that do not run inside the harness.
   [tools/e2e/golden-harness.ts:472](../tools/e2e/golden-harness.ts#L472), 8 consumers:
   - [apps/dashboard/e2e/run-real-admission-period-management.mjs](../apps/dashboard/e2e/run-real-admission-period-management.mjs)
