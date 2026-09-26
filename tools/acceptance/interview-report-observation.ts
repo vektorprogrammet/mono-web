@@ -50,7 +50,7 @@ export function validateInterviewReportFixture() {
           });
 
   for (const f of fixtures)
-    Schema.decodeUnknownSync(InterviewReportRow)({
+    Schema.decodeSync(InterviewReportRow)({
       interviewId: `report-interview-${f.key}`,
       firstName: "Report",
       lastName: f.key,
@@ -376,7 +376,7 @@ export async function observeInterviewReport(o: Options) {
     cookie,
     origin: ui,
   }).recruitment.readInterviewReport({
-    query: Schema.decodeUnknownSync(InterviewReportQuery)({ admissionPeriodId: ids.period }),
+    query: Schema.decodeSync(InterviewReportQuery)({ admissionPeriodId: ids.period }),
   });
 
   const report: InterviewReport = Schema.decodeUnknownSync(InterviewReport)(sdkResult.body, {

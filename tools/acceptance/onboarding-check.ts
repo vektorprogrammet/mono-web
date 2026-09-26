@@ -666,7 +666,7 @@ try {
       ...environment,
       ONBOARDING_JOURNEY_MANIFEST: manifestPath,
     });
-    browserEvidence = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(
+    browserEvidence = Schema.decodeSync(Schema.fromJsonString(Schema.Json))(
       await readFile(join(artifacts, "browser-evidence.json"), "utf8"),
     );
 

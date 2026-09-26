@@ -291,7 +291,7 @@ try {
     [applicationId],
   );
 
-  const scopeQuery = Schema.decodeUnknownSync(AdmissionOutcomeScope)({
+  const scopeQuery = Schema.decodeSync(AdmissionOutcomeScope)({
     departmentId,
     semesterId: openSemesterId,
   });
@@ -413,7 +413,7 @@ try {
 
   const staleCommand = {
     params: { applicationId: PublicApplicationIdSchema.make(applicationId) },
-    headers: Schema.decodeUnknownSync(IdempotencyIfMatchHeaders)({
+    headers: Schema.decodeSync(IdempotencyIfMatchHeaders)({
       "if-match": item.etag,
       "idempotency-key": randomBytes(18).toString("base64url"),
     }),
@@ -629,7 +629,7 @@ try {
       },
       300_000,
     );
-    browserEvidence = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.JsonObject))(
+    browserEvidence = Schema.decodeSync(Schema.fromJsonString(Schema.JsonObject))(
       await readFile(join(artifacts, "browser-evidence.json"), "utf8"),
     );
     assert.equal(browserEvidence.passed, true);

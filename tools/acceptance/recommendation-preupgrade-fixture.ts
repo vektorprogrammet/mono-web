@@ -166,7 +166,7 @@ const clone = async (
 
 const lifecycleRows = (interviewId: string) => {
   if (interviewId === fixtureIds.cancelled) {
-    const command = Schema.decodeUnknownSync(CancelInterviewCommandSchema)({
+    const command = Schema.decodeSync(CancelInterviewCommandSchema)({
       commandId: fixtureCommands.cancelled,
       interviewId,
       expectedRevision: 1,
@@ -194,7 +194,7 @@ const lifecycleRows = (interviewId: string) => {
 
   assert.equal(interviewId, fixtureIds.explicit);
 
-  const command = Schema.decodeUnknownSync(FinalizeInterviewCommandSchema)({
+  const command = Schema.decodeSync(FinalizeInterviewCommandSchema)({
     commandId: fixtureCommands.explicit,
     interviewId,
     expectedRevision: 1,

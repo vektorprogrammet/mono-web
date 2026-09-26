@@ -129,7 +129,7 @@ const readCommandIds = async (pool: Pool, interviewId: string) => {
   assert.equal(rows.length, 1);
   assert.ok(Predicate.isString(rows[0]!.commandId));
 
-  return Schema.decodeUnknownSync(Schema.String)(rows[0]!.commandId);
+  return Schema.decodeSync(Schema.String)(rows[0]!.commandId);
 };
 
 const assertRejectedAndUnchanged = async <A>(
