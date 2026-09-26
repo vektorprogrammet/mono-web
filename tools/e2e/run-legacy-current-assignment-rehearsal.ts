@@ -9,7 +9,10 @@ import { type DisposablePostgres, startDisposablePostgres } from "@monoweb/postg
 import { databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
-import { decodePersonCohort, importPersonCohort } from "@vektorprogrammet/database/person-cohort";
+import {
+  decodePersonCohort,
+  importPersonCohort as importPersonCohortEffect,
+} from "@vektorprogrammet/database/person-cohort";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
   CurrentAssignmentReview,
@@ -17,7 +20,7 @@ import {
 } from "@vektorprogrammet/domain/placements";
 import {
   decodeReconciledCurrentAssignmentSnapshot,
-  importReconciledCurrentAssignmentCohort,
+  importReconciledCurrentAssignmentCohort as importReconciledCurrentAssignmentCohortEffect,
 } from "@vektorprogrammet/database/placements";
 import { Effect, flow, Predicate, Redacted, Schema } from "effect";
 import { Pool } from "pg";
@@ -26,6 +29,13 @@ import { buildLegacyCurrentAssignmentSnapshot } from "./legacy-current-assignmen
 import { buildLegacyPersonSnapshot } from "./legacy-person-snapshot";
 import { readLegacySourceSnapshot, type LegacySourceSnapshot } from "./legacy-source-snapshot";
 import { CutoverStageFailure, runLegacyServiceCutover } from "./run-legacy-service-cutover";
+
+const importPersonCohort = flow(importPersonCohortEffect, Effect.runPromise);
+
+const importReconciledCurrentAssignmentCohort = flow(
+  importReconciledCurrentAssignmentCohortEffect,
+  Effect.runPromise,
+);
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 

@@ -1,8 +1,9 @@
+import { Effect } from "effect";
 import { runIdentityCohortCli } from "../src/identity-cohort-cli.js";
 import { IdentityCohortFailure } from "../src/identity-cohort.js";
 
 try {
-  await runIdentityCohortCli();
+  await Effect.runPromise(runIdentityCohortCli);
 } catch (cause) {
   process.stderr.write(
     JSON.stringify({

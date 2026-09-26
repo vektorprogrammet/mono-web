@@ -1,6 +1,6 @@
-import { Schema } from "effect";
-import { constants } from "node:fs";
-import { open } from "node:fs/promises";
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- Effect FileSystem.open has no O_NOFOLLOW; the cohort reader refuses a symlink at open time
+import { constants, open } from "node:fs/promises";
+import { Effect, Schema } from "effect";
 
 export const parseDisposableCohortDatabaseUrl = (
   value: string | undefined,
@@ -26,29 +26,49 @@ export const parseDisposableCohortDatabaseUrl = (
   }
 };
 
-export const readPrivateCohortJson = async (
+const decodeCohortJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Json));
+
+/**
+ * Reads the JSON of a private cohort file: a regular file of the current user with no group or
+ * other permission and at most `maxBytes` long, opened without following a symlink. Every other
+ * file, and text that is not JSON, fails with `invalid()`.
+ */
+export const readPrivateCohortJson = <E>(
   path: string | undefined,
-  invalid: () => Error,
+  invalid: () => E,
   maxBytes = 1_048_576,
-): Promise<Schema.Json> => {
-  if (!path) throw invalid();
-  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+): Effect.Effect<Schema.Json, E> => {
+  const attempt = <A>(run: () => Promise<A>) => Effect.tryPromise({ try: run, catch: invalid });
 
-  try {
-    const stat = await file.stat();
+  if (!path) return Effect.fail(invalid());
 
-    if (
-      !stat.isFile() ||
-      stat.size > maxBytes ||
-      (stat.mode & 0o077) !== 0 ||
-      stat.uid !== process.getuid?.()
-    )
-      throw invalid();
+  return Effect.acquireUseRelease(
+    attempt(() => open(path, constants.O_RDONLY | constants.O_NOFOLLOW)),
+    (file) =>
+      Effect.gen(function* () {
+        const stat = yield* attempt(() => file.stat());
 
-    return Schema.decodeSync(Schema.fromJsonString(Schema.Json))(await file.readFile("utf8"));
-  } catch (cause) {
-    throw cause instanceof Error && cause.message === "InvalidSnapshot" ? cause : invalid();
-  } finally {
-    await file.close();
-  }
+        if (
+          !stat.isFile() ||
+          stat.size > maxBytes ||
+          (stat.mode & 0o077) !== 0 ||
+          stat.uid !== process.getuid?.()
+        )
+          return yield* Effect.fail(invalid());
+
+        const text = yield* attempt(() => file.readFile("utf8"));
+
+        return yield* decodeCohortJson(text).pipe(Effect.mapError(invalid));
+      }),
+    (file) => attempt(() => file.close()),
+  );
 };
+
+const CohortReportJson = Schema.fromJsonString(Schema.Unknown);
+
+/** Writes a cohort report to standard output as one line, byte for byte what `JSON.stringify` writes. */
+export const writeCohortReport = <A>(report: A) =>
+  Schema.encodeEffect(CohortReportJson)(report).pipe(
+    Effect.flatMap((text) => Effect.sync(() => process.stdout.write(`${text}\n`))),
+    Effect.asVoid,
+  );

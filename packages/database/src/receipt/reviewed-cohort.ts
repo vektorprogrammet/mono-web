@@ -1,5 +1,4 @@
-import { readFile } from "node:fs/promises";
-import { Effect, Predicate, Schema } from "effect";
+import { Effect, FileSystem, Path, Predicate, Schema } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
@@ -23,21 +22,30 @@ import { lockReceiptImportSource, storeReceiptImportResult } from "./postgres.js
 export { ReceiptCohortFailure } from "@vektorprogrammet/domain/receipt";
 
 /** The orchestration layer additionally binds its file and cryptographic implementation. */
-export const receiptImportSourceDigest = async (): Promise<string> =>
-  receiptEvidenceDigest(
-    await Promise.all(
-      [
-        "./reviewed-cohort.ts",
-        "./postgres.ts",
-        "../../../domain/src/receipt/review.ts",
-        "../../../domain/src/receipt/import.ts",
-        "../../../domain/src/receipt/schema.ts",
-        "../../../domain/src/time.ts",
-        "../../../domain/src/shared-kernel/canonical-json.ts",
-        "../../migrations/0067-reviewed-receipt-cohort.sql",
-      ].map((path) => readFile(new URL(path, import.meta.url), "utf8")),
-    ),
+export const receiptImportSourceDigest = Effect.fn("receiptImportSourceDigest")(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+
+  const sources = yield* Effect.forEach(
+    [
+      "./reviewed-cohort.ts",
+      "./postgres.ts",
+      "../../../domain/src/receipt/review.ts",
+      "../../../domain/src/receipt/import.ts",
+      "../../../domain/src/receipt/schema.ts",
+      "../../../domain/src/time.ts",
+      "../../../domain/src/shared-kernel/canonical-json.ts",
+      "../../migrations/0067-reviewed-receipt-cohort.sql",
+    ],
+    (source) =>
+      path
+        .fromFileUrl(new URL(source, import.meta.url))
+        .pipe(Effect.flatMap((file) => fs.readFileString(file))),
+    { concurrency: "unbounded" },
   );
+
+  return receiptEvidenceDigest(sources);
+});
 
 type AcceptedResult = Extract<ReceiptImportResult, { readonly _tag: "AcceptedReceiptImport" }>;
 

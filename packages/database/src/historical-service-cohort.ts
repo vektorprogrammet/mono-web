@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { flow, Option, Schema } from "effect";
+import { Data, Effect, flow, Option, Schema } from "effect";
 import type { Pool, PoolClient } from "pg";
 import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
 import { SchoolId } from "@vektorprogrammet/domain/schools";
+import { pgQuery, pgTransaction } from "./pg-pool.js";
 
 const Id = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9._:-]{1,128}$/)));
 
@@ -86,18 +87,17 @@ type NativeBlock = "1" | "2" | "Both";
 
 type NativeDay = "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday";
 
-export class HistoricalServiceFailure extends Error {
-  constructor(
-    readonly code:
-      | "InvalidSnapshot"
-      | "SnapshotConflict"
-      | "SourceIdentityConflict"
-      | "ReferenceProvenanceMissing"
-      | "ReferenceProvenanceConflict"
-      | "PersistenceFailure",
-  ) {
-    super(code);
-    this.name = "HistoricalServiceFailure";
+export class HistoricalServiceFailure extends Data.TaggedError("HistoricalServiceFailure")<{
+  readonly code:
+    | "InvalidSnapshot"
+    | "SnapshotConflict"
+    | "SourceIdentityConflict"
+    | "ReferenceProvenanceMissing"
+    | "ReferenceProvenanceConflict"
+    | "PersistenceFailure";
+}> {
+  override get message(): string {
+    return this.code;
   }
 }
 
@@ -181,7 +181,7 @@ const referencesMatch = (row: LegacyServiceRow, mapping: HistoricalServiceMappin
 
 export const decodeHistoricalServiceSnapshot = flow(
   Schema.decodeUnknownOption(HistoricalServiceSnapshot, { onExcessProperty: "error" }),
-  Option.getOrThrowWith(() => new HistoricalServiceFailure("InvalidSnapshot")),
+  Option.getOrThrowWith(() => new HistoricalServiceFailure({ code: "InvalidSnapshot" })),
   (snapshot) => {
     try {
       if (
@@ -192,43 +192,46 @@ export const decodeHistoricalServiceSnapshot = flow(
 
       return snapshot;
     } catch {
-      throw new HistoricalServiceFailure("InvalidSnapshot");
+      throw new HistoricalServiceFailure({ code: "InvalidSnapshot" });
     }
   },
 );
 
-const cohortReport = async (
-  tx: PoolClient,
-  snapshotKey: string,
-): Promise<HistoricalServiceReport> => {
-  const rows = await tx.query<HistoricalServiceOccurrence>(
+const cohortReport = (tx: PoolClient, snapshotKey: string) =>
+  pgQuery<HistoricalServiceOccurrence>(
+    tx,
     `SELECT occurrence_id AS "occurrenceId", disposition, reason
        FROM public.historical_service_occurrences
       WHERE snapshot_key = $1
       ORDER BY occurrence_id`,
     [snapshotKey],
+  ).pipe(
+    Effect.map((rows): HistoricalServiceReport => {
+      const accepted = rows.rows.filter(({ disposition }) => disposition === "Accepted").length;
+
+      return {
+        snapshotKey,
+        input: rows.rows.length,
+        accepted,
+        quarantined: rows.rows.length - accepted,
+        occurrences: rows.rows,
+        currentState: "Unchanged",
+        historicalAffiliation: "DerivedFromAcceptedService",
+      };
+    }),
   );
 
-  const accepted = rows.rows.filter(({ disposition }) => disposition === "Accepted").length;
-
-  return {
-    snapshotKey,
-    input: rows.rows.length,
-    accepted,
-    quarantined: rows.rows.length - accepted,
-    occurrences: rows.rows,
-    currentState: "Unchanged",
-    historicalAffiliation: "DerivedFromAcceptedService",
-  };
-};
-
 /** History and reconciliation evidence share the caller transaction when supplied. */
-export const importHistoricalServiceCohort = async (
+export const importHistoricalServiceCohort = Effect.fn("importHistoricalServiceCohort")(function* (
   pool: Pool,
   input: typeof HistoricalServiceSnapshot.Encoded,
   client?: PoolClient,
-): Promise<HistoricalServiceReport> => {
-  const snapshot = decodeHistoricalServiceSnapshot(input);
+) {
+  const snapshot = yield* Effect.try({
+    try: () => decodeHistoricalServiceSnapshot(input),
+    catch: () => new HistoricalServiceFailure({ code: "InvalidSnapshot" }),
+  });
+
   const snapshotKey = digest([snapshot.sourceRepository, snapshot.snapshotId]);
   const snapshotDigest = digest(snapshot);
 
@@ -280,16 +283,14 @@ export const importHistoricalServiceCohort = async (
       increment(targetCounts, slot);
   }
 
-  const tx = client ?? (await pool.connect());
-  const ownsTransaction = client === undefined;
-
-  try {
-    if (ownsTransaction) await tx.query("BEGIN");
-    await tx.query(
+  const importInTransaction = Effect.fnUntraced(function* (tx: PoolClient) {
+    yield* pgQuery(
+      tx,
       "SELECT pg_advisory_xact_lock(hashtextextended('native-historical-service-import', 0))",
     );
 
-    const prior = await tx.query<{ snapshot_digest: string }>(
+    const prior = yield* pgQuery<{ snapshot_digest: string }>(
+      tx,
       `SELECT snapshot_digest FROM public.historical_service_snapshots WHERE snapshot_key = $1`,
       [snapshotKey],
     );
@@ -298,43 +299,41 @@ export const importHistoricalServiceCohort = async (
       prior.rows[0]?.snapshot_digest !== undefined &&
       prior.rows[0].snapshot_digest !== snapshotDigest
     )
-      throw new HistoricalServiceFailure("SnapshotConflict");
+      return yield* new HistoricalServiceFailure({ code: "SnapshotConflict" });
 
     let sourceRelationships: ReadonlySet<string> | undefined;
 
     if (snapshot.sourceKind === "LegacyBackup") {
-      const evidence = (
-        await tx.query<{
-          source_revision: string;
-          reference_digest: string;
-          source_id_mappings: unknown;
-        }>(
-          `SELECT source_revision, reference_digest, source_id_mappings
+      const evidence = (yield* pgQuery<{
+        source_revision: string;
+        reference_digest: string;
+        source_id_mappings: unknown;
+      }>(
+        tx,
+        `SELECT source_revision, reference_digest, source_id_mappings
              FROM public.historical_service_reference_provenance
             WHERE source_repository = $1 AND snapshot_id = $2
             FOR SHARE`,
-          [snapshot.sourceRepository, snapshot.snapshotId],
-        )
-      ).rows[0];
+        [snapshot.sourceRepository, snapshot.snapshotId],
+      )).rows[0];
 
-      if (!evidence) throw new HistoricalServiceFailure("ReferenceProvenanceMissing");
+      if (!evidence)
+        return yield* new HistoricalServiceFailure({ code: "ReferenceProvenanceMissing" });
 
       if (
         evidence.source_revision !== snapshot.sourceRevision ||
         evidence.reference_digest !== snapshot.referenceDigest
       )
-        throw new HistoricalServiceFailure("ReferenceProvenanceConflict");
+        return yield* new HistoricalServiceFailure({ code: "ReferenceProvenanceConflict" });
 
-      let references: typeof HistoricalServiceReferenceMappings.Type;
-
-      try {
-        references = Schema.decodeUnknownSync(HistoricalServiceReferenceMappings)(
-          evidence.source_id_mappings,
-          { onExcessProperty: "error" },
-        );
-      } catch {
-        throw new HistoricalServiceFailure("ReferenceProvenanceConflict");
-      }
+      const references = yield* Schema.decodeUnknownEffect(HistoricalServiceReferenceMappings)(
+        evidence.source_id_mappings,
+        { onExcessProperty: "error" },
+      ).pipe(
+        Effect.mapError(
+          () => new HistoricalServiceFailure({ code: "ReferenceProvenanceConflict" }),
+        ),
+      );
 
       const departments = new Map(
         references.departments.map(
@@ -384,18 +383,12 @@ export const importHistoricalServiceCohort = async (
             schools.get(sourceSchoolId) !== schoolId,
         )
       )
-        throw new HistoricalServiceFailure("ReferenceProvenanceConflict");
+        return yield* new HistoricalServiceFailure({ code: "ReferenceProvenanceConflict" });
     }
 
-    if (prior.rows[0]) {
-      const result = await cohortReport(tx, snapshotKey);
+    if (prior.rows[0]) return yield* cohortReport(tx, snapshotKey);
 
-      if (ownsTransaction) await tx.query("COMMIT");
-
-      return result;
-    }
-
-    const acceptedImports = await tx.query<{
+    const acceptedImports = yield* pgQuery<{
       source_history_id: string;
       source_digest: string;
       raw_row_digest: string | null;
@@ -405,6 +398,7 @@ export const importHistoricalServiceCohort = async (
       semester_id: string;
       block: NativeBlock;
     }>(
+      tx,
       `SELECT history.source_history_id, history.source_digest, occurrence.raw_row_digest,
               snapshot.source_kind, history.person_id, history.school_id::text,
               history.semester_id, history.block
@@ -447,11 +441,12 @@ export const importHistoricalServiceCohort = async (
             previous.raw_row_digest !== occurrence.rawRowDigest) ||
           previous.source_digest !== digest({ row: occurrence.value, mapping })
         )
-          throw new HistoricalServiceFailure("SourceIdentityConflict");
+          return yield* new HistoricalServiceFailure({ code: "SourceIdentityConflict" });
       }
     }
 
-    await tx.query(
+    yield* pgQuery(
+      tx,
       `INSERT INTO public.historical_service_snapshots
          (snapshot_key, source_repository, snapshot_id, source_revision,
           transformation_revision, snapshot_digest, occurrence_count, source_kind)
@@ -486,7 +481,8 @@ export const importHistoricalServiceCohort = async (
 
         if (previous?.source_digest === sourceDigest) reason = "ExactReplay";
         else {
-          const personEvidence = await tx.query(
+          const personEvidence = yield* pgQuery(
+            tx,
             `SELECT 1 FROM public.person_cohort_imports
               WHERE source_repository = $1 AND source_user_id = $2 AND person_id = $3
               FOR SHARE`,
@@ -495,22 +491,21 @@ export const importHistoricalServiceCohort = async (
 
           if (!personEvidence.rowCount) reason = "PersonReconciliationMissing";
           else {
-            const references = (
-              await tx.query<{
-                department_exists: boolean;
-                semester_exists: boolean;
-                school_exists: boolean;
-                school_department_exists: boolean;
-              }>(
-                `SELECT
+            const references = (yield* pgQuery<{
+              department_exists: boolean;
+              semester_exists: boolean;
+              school_exists: boolean;
+              school_department_exists: boolean;
+            }>(
+              tx,
+              `SELECT
                    EXISTS(SELECT 1 FROM public.organization_departments WHERE department_id = $1) AS department_exists,
                    EXISTS(SELECT 1 FROM public.admission_period_semesters WHERE semester_id = $2) AS semester_exists,
                    EXISTS(SELECT 1 FROM public.schools_directory_schools WHERE school_id = $3) AS school_exists,
                    EXISTS(SELECT 1 FROM public.schools_directory_departments
                            WHERE school_id = $3 AND department_id = $1) AS school_department_exists`,
-                [mapping!.departmentId, mapping!.semesterId, mapping!.schoolId],
-              )
-            ).rows[0]!;
+              [mapping!.departmentId, mapping!.semesterId, mapping!.schoolId],
+            )).rows[0]!;
 
             if (
               !references.department_exists ||
@@ -539,7 +534,8 @@ export const importHistoricalServiceCohort = async (
       }
 
       const accepted = reason === "Imported" || reason === "ExactReplay";
-      await tx.query(
+      yield* pgQuery(
+        tx,
         `INSERT INTO public.historical_service_occurrences
            (snapshot_key, occurrence_id, disposition, reason, raw_row_digest, source_row_digest)
          VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -554,7 +550,8 @@ export const importHistoricalServiceCohort = async (
       );
 
       if (reason === "Imported" && row && mapping && sourceDigest) {
-        await tx.query(
+        yield* pgQuery(
+          tx,
           `INSERT INTO public.assistant_service_history
              (source_repository, source_history_id, source_user_id, person_id, department_id,
               semester_id, school_id, day, workdays, block, source_digest, evidence_ref,
@@ -582,20 +579,19 @@ export const importHistoricalServiceCohort = async (
       }
     }
 
-    const result = await cohortReport(tx, snapshotKey);
+    const result = yield* cohortReport(tx, snapshotKey);
 
     if (result.input !== snapshot.occurrences.length)
-      throw new HistoricalServiceFailure("PersistenceFailure");
-
-    if (ownsTransaction) await tx.query("COMMIT");
+      return yield* new HistoricalServiceFailure({ code: "PersistenceFailure" });
 
     return result;
-  } catch (cause) {
-    if (ownsTransaction) await tx.query("ROLLBACK");
-    throw cause instanceof HistoricalServiceFailure
-      ? cause
-      : new HistoricalServiceFailure("PersistenceFailure");
-  } finally {
-    if (ownsTransaction) tx.release();
-  }
-};
+  });
+
+  return yield* (
+    client === undefined ? pgTransaction(pool, importInTransaction) : importInTransaction(client)
+  ).pipe(
+    Effect.catchTag("PgQueryError", () =>
+      Effect.fail(new HistoricalServiceFailure({ code: "PersistenceFailure" })),
+    ),
+  );
+});

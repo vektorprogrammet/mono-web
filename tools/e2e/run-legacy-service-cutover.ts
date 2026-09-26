@@ -1,37 +1,42 @@
 import { selectLegacyTargetTransport } from "./legacy-database-transport";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import * as BunServices from "@effect/platform-bun/BunServices";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
-  importPersonCohort,
+  importPersonCohort as importPersonCohortEffect,
   type PersonCohortReport,
   type PersonCohortSnapshot,
 } from "@vektorprogrammet/database/person-cohort";
 import {
   decodeHistoricalServiceSnapshot,
   historicalServiceSourceRowDigest,
-  importHistoricalServiceCohort,
+  importHistoricalServiceCohort as importHistoricalServiceCohortEffect,
   type HistoricalServiceReport,
 } from "@vektorprogrammet/database/historical-service-cohort";
 import {
   decodeIdentityCohort,
-  importIdentityCohort,
+  importIdentityCohort as importIdentityCohortEffect,
   type CohortReport as IdentityCohortReport,
 } from "@vektorprogrammet/database/identity-cohort";
 import { readPrivateCohortJson } from "@vektorprogrammet/database/cohort-cli";
 import { CurrentAssignmentReview } from "@vektorprogrammet/domain/placements";
 import {
   currentAssignmentImportSourceDigest,
-  importReconciledCurrentAssignmentCohort,
+  CurrentAssignmentFailure,
+  importReconciledCurrentAssignmentCohort as importReconciledCurrentAssignmentCohortEffect,
   type CurrentAssignmentReport,
 } from "@vektorprogrammet/database/placements";
-import { OrganizationReview } from "@vektorprogrammet/domain/organization";
 import {
-  importReviewedOrganizationCohort,
+  OrganizationCohortFailure,
+  OrganizationReview,
+} from "@vektorprogrammet/domain/organization";
+import {
+  importReviewedOrganizationCohort as importReviewedOrganizationCohortEffect,
   organizationImportSourceDigest,
 } from "@vektorprogrammet/database/organization";
 import { Pool, type PoolClient } from "pg";
-import { flow, Predicate, Schema } from "effect";
+import { Effect, flow, Predicate, Schema } from "effect";
 import {
   buildLegacyReferences,
   departmentId,
@@ -46,6 +51,23 @@ import {
   reviewLegacyOrganizationSource,
 } from "./legacy-organization-snapshot";
 import { readLegacySourceSnapshot, type LegacySourceSnapshot } from "./legacy-source-snapshot";
+
+// The cohort imports are Effects; this driver runs each one as a Promise inside its stage.
+const importPersonCohort = flow(importPersonCohortEffect, Effect.runPromise);
+
+const importHistoricalServiceCohort = flow(importHistoricalServiceCohortEffect, Effect.runPromise);
+
+const importIdentityCohort = flow(importIdentityCohortEffect, Effect.runPromise);
+
+const importReconciledCurrentAssignmentCohort = flow(
+  importReconciledCurrentAssignmentCohortEffect,
+  Effect.runPromise,
+);
+
+const importReviewedOrganizationCohort = flow(
+  importReviewedOrganizationCohortEffect,
+  Effect.runPromise,
+);
 
 const repository = "vektorprogrammet/vektorprogrammet";
 
@@ -340,8 +362,16 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
 
   const transformationRevision = digest(
     await Promise.all([
-      currentAssignmentImportSourceDigest(),
-      ...(organizationReview === undefined ? [] : [organizationImportSourceDigest()]),
+      Effect.runPromise(
+        currentAssignmentImportSourceDigest().pipe(Effect.provide(BunServices.layer)),
+      ),
+      ...(organizationReview === undefined
+        ? []
+        : [
+            Effect.runPromise(
+              organizationImportSourceDigest().pipe(Effect.provide(BunServices.layer)),
+            ),
+          ]),
       ...[
         fileURLToPath(import.meta.url),
         fileURLToPath(new URL("./legacy-source-snapshot.ts", import.meta.url)),
@@ -654,9 +684,11 @@ if (import.meta.main) {
         argumentsByName["current-assignments"] === "none"
           ? ("NotRequested" as const)
           : Schema.decodeUnknownSync(CurrentAssignmentReview)(
-              await readPrivateCohortJson(
-                argumentsByName["current-assignments"],
-                () => new Error("InvalidSnapshot"),
+              await Effect.runPromise(
+                readPrivateCohortJson(
+                  argumentsByName["current-assignments"],
+                  () => new CurrentAssignmentFailure({ code: "InvalidSnapshot" }),
+                ),
               ),
               { onExcessProperty: "error" },
             );
@@ -665,10 +697,12 @@ if (import.meta.main) {
         argumentsByName["organization"] === "none"
           ? ("NotRequested" as const)
           : Schema.decodeUnknownSync(OrganizationReview)(
-              await readPrivateCohortJson(
-                argumentsByName["organization"],
-                () => new Error("InvalidSnapshot"),
-                16_777_216,
+              await Effect.runPromise(
+                readPrivateCohortJson(
+                  argumentsByName["organization"],
+                  () => new OrganizationCohortFailure({ code: "InvalidSnapshot" }),
+                  16_777_216,
+                ),
               ),
               { onExcessProperty: "error" },
             );

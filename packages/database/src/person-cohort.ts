@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { flow, Option, Predicate, Schema } from "effect";
+import { Data, Effect, flow, Option, Predicate, Schema } from "effect";
 import type { Pool, PoolClient } from "pg";
 import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { PersonId } from "@vektorprogrammet/domain/organization";
@@ -8,6 +8,7 @@ import {
   PersonContactPhone,
   PersonProfileName,
 } from "@vektorprogrammet/domain/profile";
+import { pgQuery, pgTransaction } from "./pg-pool.js";
 
 const Id = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9._:-]{1,128}$/)));
 
@@ -70,16 +71,15 @@ type LegacyPersonRow = typeof LegacyPersonRow.Type;
 
 export type PersonMapping = typeof PersonMapping.Type;
 
-export class PersonCohortFailure extends Error {
-  constructor(
-    readonly code:
-      | "InvalidSnapshot"
-      | "SnapshotConflict"
-      | "SourceIdentityConflict"
-      | "PersistenceFailure",
-  ) {
-    super(code);
-    this.name = "PersonCohortFailure";
+export class PersonCohortFailure extends Data.TaggedError("PersonCohortFailure")<{
+  readonly code:
+    | "InvalidSnapshot"
+    | "SnapshotConflict"
+    | "SourceIdentityConflict"
+    | "PersistenceFailure";
+}> {
+  override get message(): string {
+    return this.code;
   }
 }
 
@@ -146,7 +146,7 @@ const increment = (counts: Map<string, number>, key: string | undefined) => {
 
 export const decodePersonCohort = flow(
   Schema.decodeUnknownOption(PersonCohortSnapshot, { onExcessProperty: "error" }),
-  Option.getOrThrowWith(() => new PersonCohortFailure("InvalidSnapshot")),
+  Option.getOrThrowWith(() => new PersonCohortFailure({ code: "InvalidSnapshot" })),
   (snapshot) => {
     try {
       if (
@@ -166,37 +166,35 @@ export const decodePersonCohort = flow(
 
       return snapshot;
     } catch {
-      throw new PersonCohortFailure("InvalidSnapshot");
+      throw new PersonCohortFailure({ code: "InvalidSnapshot" });
     }
   },
 );
 
-const cohortReport = async (
-  tx: PoolClient,
-  snapshotKey: string,
-  replay: boolean,
-): Promise<PersonCohortReport> => {
-  const rows = await tx.query<PersonCohortOccurrence>(
+const cohortReport = (tx: PoolClient, snapshotKey: string, replay: boolean) =>
+  pgQuery<PersonCohortOccurrence>(
+    tx,
     `SELECT occurrence_id AS "occurrenceId", disposition, reason
        FROM public.person_cohort_occurrences
       WHERE snapshot_key = $1
       ORDER BY occurrence_id`,
     [snapshotKey],
+  ).pipe(
+    Effect.map((rows): PersonCohortReport => {
+      const accepted = rows.rows.filter(({ disposition }) => disposition === "Accepted").length;
+
+      return {
+        snapshotKey,
+        replay,
+        input: rows.rows.length,
+        accepted,
+        quarantined: rows.rows.length - accepted,
+        occurrences: rows.rows,
+        aliases: "LegacyUsernameAndCompanyEmailUnsupported",
+        credentials: "HandledByCredentialCohort",
+      };
+    }),
   );
-
-  const accepted = rows.rows.filter(({ disposition }) => disposition === "Accepted").length;
-
-  return {
-    snapshotKey,
-    replay,
-    input: rows.rows.length,
-    accepted,
-    quarantined: rows.rows.length - accepted,
-    occurrences: rows.rows,
-    aliases: "LegacyUsernameAndCompanyEmailUnsupported",
-    credentials: "HandledByCredentialCohort",
-  };
-};
 
 interface AcceptedPersonEvidence {
   readonly snapshotKey: string;
@@ -207,10 +205,10 @@ interface AcceptedPersonEvidence {
   readonly sourceDigest: string;
 }
 
-const appendAcceptedPersonMapping = async (
+const appendAcceptedPersonMapping = Effect.fnUntraced(function* (
   tx: PoolClient,
   evidence: AcceptedPersonEvidence,
-): Promise<void> => {
+) {
   const values = [
     evidence.snapshotKey,
     evidence.occurrenceId,
@@ -220,7 +218,8 @@ const appendAcceptedPersonMapping = async (
     evidence.sourceDigest,
   ];
 
-  const inserted = await tx.query(
+  const inserted = yield* pgQuery(
+    tx,
     `INSERT INTO public.person_cohort_accepted_mappings
        (snapshot_key, occurrence_id, source_repository, source_user_id)
      SELECT $1, $2, source_repository, source_user_id
@@ -232,7 +231,8 @@ const appendAcceptedPersonMapping = async (
 
   if (inserted.rowCount) return;
 
-  const existing = await tx.query(
+  const existing = yield* pgQuery(
+    tx,
     `SELECT 1 FROM public.person_cohort_accepted_mappings a
       JOIN public.person_cohort_imports i USING (source_repository, source_user_id)
       WHERE a.snapshot_key = $1 AND a.occurrence_id = $2
@@ -241,16 +241,20 @@ const appendAcceptedPersonMapping = async (
     values,
   );
 
-  if (!existing.rowCount) throw new PersonCohortFailure("SourceIdentityConflict");
-};
+  if (!existing.rowCount) return yield* new PersonCohortFailure({ code: "SourceIdentityConflict" });
+});
 
 /** Person/profile writes and source evidence share the caller transaction when supplied. */
-export const importPersonCohort = async (
+export const importPersonCohort = Effect.fn("importPersonCohort")(function* (
   pool: Pool,
   input: typeof PersonCohortSnapshot.Encoded,
   client?: PoolClient,
-): Promise<PersonCohortReport> => {
-  const snapshot = decodePersonCohort(input);
+) {
+  const snapshot = yield* Effect.try({
+    try: () => decodePersonCohort(input),
+    catch: () => new PersonCohortFailure({ code: "InvalidSnapshot" }),
+  });
+
   const snapshotKey = digest([snapshot.sourceRepository, snapshot.snapshotId]);
   const snapshotDigest = digest(snapshot);
 
@@ -286,24 +290,22 @@ export const importPersonCohort = async (
     increment(emailCounts, occurrence.value?.email.toLowerCase());
   }
 
-  const tx = client ?? (await pool.connect());
-  const ownsTransaction = client === undefined;
-
-  try {
-    if (ownsTransaction) await tx.query("BEGIN");
-    await tx.query(
+  const importInTransaction = Effect.fnUntraced(function* (tx: PoolClient) {
+    yield* pgQuery(
+      tx,
       "SELECT pg_advisory_xact_lock(hashtextextended('native-person-cohort-import', 0))",
     );
 
-    const prior = await tx.query<{ snapshot_digest: string }>(
+    const prior = yield* pgQuery<{ snapshot_digest: string }>(
+      tx,
       `SELECT snapshot_digest FROM public.person_cohort_snapshots WHERE snapshot_key = $1`,
       [snapshotKey],
     );
 
     if (prior.rows[0]) {
       if (prior.rows[0].snapshot_digest !== snapshotDigest)
-        throw new PersonCohortFailure("SnapshotConflict");
-      const result = await cohortReport(tx, snapshotKey, true);
+        return yield* new PersonCohortFailure({ code: "SnapshotConflict" });
+      const result = yield* cohortReport(tx, snapshotKey, true);
 
       const acceptedOccurrences = new Set(
         result.occurrences
@@ -317,9 +319,10 @@ export const importPersonCohort = async (
         const row = occurrence.value;
         const mappings = row ? mappingsBySource.get(row.sourceUserId) : undefined;
 
-        if (!row || mappings?.length !== 1) throw new PersonCohortFailure("SourceIdentityConflict");
+        if (!row || mappings?.length !== 1)
+          return yield* new PersonCohortFailure({ code: "SourceIdentityConflict" });
         const mapping = mappings[0]!;
-        await appendAcceptedPersonMapping(tx, {
+        yield* appendAcceptedPersonMapping(tx, {
           snapshotKey,
           occurrenceId: occurrence.occurrenceId,
           sourceRepository: snapshot.sourceRepository,
@@ -329,12 +332,11 @@ export const importPersonCohort = async (
         });
       }
 
-      if (ownsTransaction) await tx.query("COMMIT");
-
       return result;
     }
 
-    const acceptedImports = await tx.query<{ source_user_id: string; source_digest: string }>(
+    const acceptedImports = yield* pgQuery<{ source_user_id: string; source_digest: string }>(
+      tx,
       `SELECT source_user_id, source_digest
          FROM public.person_cohort_imports
         WHERE source_repository = $1`,
@@ -348,7 +350,8 @@ export const importPersonCohort = async (
       ]),
     );
 
-    const acceptedTargets = await tx.query<{ person_id: string }>(
+    const acceptedTargets = yield* pgQuery<{ person_id: string }>(
+      tx,
       `SELECT person_id
          FROM public.person_cohort_imports
         WHERE person_id = ANY($1::text[])`,
@@ -370,11 +373,12 @@ export const importPersonCohort = async (
           !mapping ||
           previousDigest !== digest({ row: occurrence.value, mapping })
         )
-          throw new PersonCohortFailure("SourceIdentityConflict");
+          return yield* new PersonCohortFailure({ code: "SourceIdentityConflict" });
       }
     }
 
-    await tx.query(
+    yield* pgQuery(
+      tx,
       `INSERT INTO public.person_cohort_snapshots
          (snapshot_key, source_repository, snapshot_id, source_revision,
           transformation_revision, snapshot_digest, occurrence_count)
@@ -412,14 +416,16 @@ export const importPersonCohort = async (
         if (importedDigests.get(row.sourceUserId) === sourceDigest) reason = "ExactReplay";
         else if (importedPersonIds.has(mapping!.personId)) reason = "TargetConflict";
         else if (Predicate.isTagged(mapping!, "CreatePerson")) {
-          const target = await tx.query(
+          const target = yield* pgQuery(
+            tx,
             `SELECT 1 FROM public.person_profiles WHERE person_id = $1 FOR SHARE`,
             [mapping!.personId],
           );
 
           if (target.rowCount) reason = "TargetConflict";
           else {
-            const emailOwner = await tx.query(
+            const emailOwner = yield* pgQuery(
+              tx,
               `SELECT 1 FROM public.person_contact_profiles WHERE lower(email) = $1 FOR SHARE`,
               [row.email.toLowerCase()],
             );
@@ -427,20 +433,19 @@ export const importPersonCohort = async (
             reason = emailOwner.rowCount ? "EmailConflict" : "CreatedPerson";
           }
         } else {
-          const existing = (
-            await tx.query<{
-              name_revision: number;
-              contact_revision: number;
-              email: string;
-            }>(
-              `SELECT p.revision AS name_revision, c.revision AS contact_revision, c.email
+          const existing = (yield* pgQuery<{
+            name_revision: number;
+            contact_revision: number;
+            email: string;
+          }>(
+            tx,
+            `SELECT p.revision AS name_revision, c.revision AS contact_revision, c.email
                  FROM public.person_profiles p
                  JOIN public.person_contact_profiles c USING (person_id)
                 WHERE p.person_id = $1
                 FOR SHARE OF p, c`,
-              [mapping!.personId],
-            )
-          ).rows[0];
+            [mapping!.personId],
+          )).rows[0];
 
           if (!existing) reason = "PersonMissing";
           else if (
@@ -455,7 +460,8 @@ export const importPersonCohort = async (
       }
 
       const accepted = ["CreatedPerson", "LinkedExistingPerson", "ExactReplay"].includes(reason);
-      await tx.query(
+      yield* pgQuery(
+        tx,
         `INSERT INTO public.person_cohort_occurrences
            (snapshot_key, occurrence_id, disposition, reason)
          VALUES ($1, $2, $3, $4)`,
@@ -469,19 +475,22 @@ export const importPersonCohort = async (
         sourceDigest
       ) {
         if (reason === "CreatedPerson") {
-          await tx.query(
+          yield* pgQuery(
+            tx,
             `INSERT INTO public.person_profiles (person_id, first_name, last_name)
              VALUES ($1, $2, $3)`,
             [mapping.personId, row.firstName, row.lastName],
           );
-          await tx.query(
+          yield* pgQuery(
+            tx,
             `INSERT INTO public.person_contact_profiles (person_id, email, phone)
              VALUES ($1, $2, $3)`,
             [mapping.personId, row.email.toLowerCase(), row.phone],
           );
         }
 
-        await tx.query(
+        yield* pgQuery(
+          tx,
           `INSERT INTO public.person_cohort_imports
              (source_repository, source_user_id, person_id, mapping_action, source_digest,
               evidence_ref, snapshot_key, occurrence_id)
@@ -500,7 +509,7 @@ export const importPersonCohort = async (
       }
 
       if (accepted && row && mapping && sourceDigest)
-        await appendAcceptedPersonMapping(tx, {
+        yield* appendAcceptedPersonMapping(tx, {
           snapshotKey,
           occurrenceId: occurrence.occurrenceId,
           sourceRepository: snapshot.sourceRepository,
@@ -510,20 +519,19 @@ export const importPersonCohort = async (
         });
     }
 
-    const result = await cohortReport(tx, snapshotKey, false);
+    const result = yield* cohortReport(tx, snapshotKey, false);
 
     if (result.input !== snapshot.occurrences.length)
-      throw new PersonCohortFailure("PersistenceFailure");
-
-    if (ownsTransaction) await tx.query("COMMIT");
+      return yield* new PersonCohortFailure({ code: "PersistenceFailure" });
 
     return result;
-  } catch (cause) {
-    if (ownsTransaction) await tx.query("ROLLBACK");
-    throw cause instanceof PersonCohortFailure
-      ? cause
-      : new PersonCohortFailure("PersistenceFailure");
-  } finally {
-    if (ownsTransaction) tx.release();
-  }
-};
+  });
+
+  return yield* (
+    client === undefined ? pgTransaction(pool, importInTransaction) : importInTransaction(client)
+  ).pipe(
+    Effect.catchTag("PgQueryError", () =>
+      Effect.fail(new PersonCohortFailure({ code: "PersistenceFailure" })),
+    ),
+  );
+});

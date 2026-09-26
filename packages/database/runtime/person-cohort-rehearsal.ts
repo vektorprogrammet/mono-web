@@ -1,11 +1,7 @@
 import { PersonId } from "@vektorprogrammet/domain/organization";
 /** 0106 owned synthetic PostgreSQL Person reconciliation journey. */
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
 import { Schema, flow, Effect, Redacted } from "effect";
 import { Pool } from "pg";
 import { type DisposablePostgres, startDisposablePostgres } from "@monoweb/postgres";
@@ -14,30 +10,28 @@ import { DatabaseLive } from "../src/layers.js";
 import {
   PersonMapping,
   PersonCohortFailure,
-  importPersonCohort,
+  importPersonCohort as importPersonCohortEffect,
   PersonCohortReport,
 } from "../src/person-cohort.js";
+import {
+  assertNoAmbientConfiguration,
+  commandOutput,
+  rehearsalWorkspace,
+  removeWorkspace,
+  writePrivateFile,
+} from "./rehearsal-platform.js";
 
-const root = resolve(import.meta.dirname, "../../..");
-
-const command = (name: string, args: ReadonlyArray<string>) =>
-  execFileSync(name, args, {
-    cwd: root,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: 60_000,
-  });
+const importPersonCohort = flow(importPersonCohortEffect, Effect.runPromise);
 
 const digest = flow(Schema.decodeUnknownSync(Schema.Json), (value) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex"),
 );
 
-for (const key of ["PERSON_COHORT_PG_URL", "PERSON_COHORT_INPUT", "DATABASE_URL"])
-  assert.equal(process.env[key], undefined, `${key} ambient configuration prohibited`);
+assertNoAmbientConfiguration(["PERSON_COHORT_PG_URL", "PERSON_COHORT_INPUT", "DATABASE_URL"]);
 
-const artifacts = await mkdtemp(join(tmpdir(), "vektor-person-cohort-0106-"));
+const workspace = await rehearsalWorkspace("vektor-person-cohort-0106-");
 
-const inputFile = join(artifacts, "person-cohort.json");
+const inputFile = workspace.file("person-cohort.json");
 
 let postgres: DisposablePostgres | undefined;
 
@@ -189,26 +183,22 @@ try {
     mappings,
   };
 
-  await writeFile(inputFile, JSON.stringify(snapshot), { mode: 0o600 });
-  await chmod(inputFile, 0o600);
+  await writePrivateFile(inputFile, JSON.stringify(snapshot));
 
   const runCli = () =>
-    Schema.decodeSync(Schema.fromJsonString(PersonCohortReport))(
-      execFileSync(process.execPath, ["run", "packages/database/runtime/person-cohort-main.ts"], {
-        cwd: root,
-        encoding: "utf8",
-        timeout: 60_000,
-        env: {
-          ...process.env,
-          PERSON_COHORT_MODE: "synthetic",
-          NATIVE_IDENTITY_DEPLOYMENT: "local",
-          PERSON_COHORT_PG_URL: databaseUrl,
-          PERSON_COHORT_INPUT: inputFile,
-        },
-      }),
-    );
+    commandOutput(
+      process.execPath,
+      ["run", "packages/database/runtime/person-cohort-main.ts"],
+      workspace.root,
+      {
+        PERSON_COHORT_MODE: "synthetic",
+        NATIVE_IDENTITY_DEPLOYMENT: "local",
+        PERSON_COHORT_PG_URL: databaseUrl,
+        PERSON_COHORT_INPUT: inputFile,
+      },
+    ).then(Schema.decodeSync(Schema.fromJsonString(PersonCohortReport)));
 
-  const cliReport = runCli();
+  const cliReport = await runCli();
   assert.equal(cliReport.replay, false);
   const report = await importPersonCohort(pool, snapshot);
   assert.equal(report.replay, true);
@@ -218,7 +208,7 @@ try {
   assert.equal(report.quarantined, occurrences.length - 2);
   assert.equal(report.aliases, "LegacyUsernameAndCompanyEmailUnsupported");
   assert.equal(report.credentials, "HandledByCredentialCohort");
-  assert.deepEqual(runCli(), report, "exact CLI replay is byte-equivalent");
+  assert.deepEqual(await runCli(), report, "exact CLI replay is byte-equivalent");
   const concurrentRow = row("concurrent-initial");
 
   const concurrentSnapshot = {
@@ -445,7 +435,7 @@ try {
 
   evidence = {
     contract: "0106",
-    sourceRevision: command("git", ["rev-parse", "HEAD"]).trim(),
+    sourceRevision: (await commandOutput("git", ["rev-parse", "HEAD"], workspace.root)).trim(),
     report,
     createdPerson: created,
     linkedPersonUnchanged: true,
@@ -460,7 +450,7 @@ try {
   if (pool) await pool.end().catch(() => undefined);
 
   await postgres?.stop().catch(() => undefined);
-  await rm(artifacts, { recursive: true, force: true });
+  await removeWorkspace(workspace.artifacts);
 }
 
 assert.ok(evidence, "rehearsal must complete before evidence is emitted");

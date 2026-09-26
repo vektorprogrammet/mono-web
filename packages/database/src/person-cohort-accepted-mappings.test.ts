@@ -7,9 +7,15 @@ import { Pool } from "pg";
 import { expect, it } from "vitest";
 import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { PersonId } from "@vektorprogrammet/domain/organization";
-import { flow, Schema } from "effect";
+import { Effect, flow, Schema } from "effect";
 import { selectDatabaseMigration } from "./migrations.js";
-import { decodePersonCohort, importPersonCohort, PersonMapping } from "./person-cohort.js";
+import {
+  decodePersonCohort,
+  importPersonCohort as importPersonCohortEffect,
+  PersonMapping,
+} from "./person-cohort.js";
+
+const importPersonCohort = flow(importPersonCohortEffect, Effect.runPromise);
 
 const digest = flow(Schema.decodeUnknownSync(Schema.Json), (value) =>
   createHash("sha256").update(canonicalJson(value)).digest("hex"),

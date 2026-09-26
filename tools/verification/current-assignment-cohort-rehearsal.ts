@@ -22,12 +22,16 @@ import {
 import {
   CurrentAssignmentFailure,
   currentAssignmentPlacementId,
-  importCurrentAssignmentCohort,
+  importCurrentAssignmentCohort as importCurrentAssignmentCohortEffect,
 } from "@vektorprogrammet/database/placements";
 import { currentAssignmentForbiddenAmbientConfigurationKeys } from "./current-assignment-cohort-cli.js";
 import { journeyClock } from "../e2e/journey-clock.js";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
-import { importPersonCohort } from "@vektorprogrammet/database/person-cohort";
+import { importPersonCohort as importPersonCohortEffect } from "@vektorprogrammet/database/person-cohort";
+
+const importPersonCohort = flow(importPersonCohortEffect, Effect.runPromise);
+
+const importCurrentAssignmentCohort = flow(importCurrentAssignmentCohortEffect, Effect.runPromise);
 
 const root = resolve(import.meta.dirname, "../..");
 

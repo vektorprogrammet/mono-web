@@ -1,8 +1,9 @@
+import { Effect } from "effect";
 import { runHistoricalServiceCohortCli } from "../src/historical-service-cohort-cli.js";
 import { HistoricalServiceFailure } from "../src/historical-service-cohort.js";
 
 try {
-  await runHistoricalServiceCohortCli();
+  await Effect.runPromise(runHistoricalServiceCohortCli);
 } catch (cause) {
   process.stderr.write(
     JSON.stringify({

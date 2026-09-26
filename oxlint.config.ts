@@ -211,6 +211,7 @@ export default defineConfig({
         "tools/e2e/run-legacy-candidate-rehearsal.ts",
         "tools/e2e/run-legacy-receipt-import.ts",
         "tools/e2e/run-legacy-receipt-rehearsal.ts",
+        "tools/e2e/run-legacy-service-cutover.ts",
       ],
       rules: {
         // These Bun composition roots combine platform-bun with Node-compatible process APIs.

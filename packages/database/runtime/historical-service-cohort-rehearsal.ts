@@ -1,12 +1,8 @@
 import { canonicalJsonValue } from "@vektorprogrammet/domain/shared-kernel";
 /** 0108 owned synthetic PostgreSQL historical assistant service journey. */
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { Schema, flow, Effect, Redacted } from "effect";
+import { Schema, flow, Effect, FileSystem, Redacted } from "effect";
 import { Pool } from "pg";
 import {
   type DisposablePostgres,
@@ -16,33 +12,39 @@ import {
 import { databaseHealth } from "@vektorprogrammet/database";
 import {
   HistoricalServiceFailure,
-  importHistoricalServiceCohort,
+  importHistoricalServiceCohort as importHistoricalServiceCohortEffect,
 } from "../src/historical-service-cohort.js";
 import { DatabaseLive } from "../src/layers.js";
-import { importPersonCohort } from "../src/person-cohort.js";
+import { importPersonCohort as importPersonCohortEffect } from "../src/person-cohort.js";
+import { pgQuery } from "../src/pg-pool.js";
+import {
+  assertNoAmbientConfiguration,
+  commandOutput,
+  rehearsalWorkspace,
+  removeWorkspace,
+  runOnBun,
+  writePrivateFile,
+} from "./rehearsal-platform.js";
 
-const root = resolve(import.meta.dirname, "../../..");
+const importPersonCohort = flow(importPersonCohortEffect, Effect.runPromise);
 
-const command = (name: string, args: ReadonlyArray<string>) =>
-  execFileSync(name, args, {
-    cwd: root,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: 60_000,
-  });
+const importHistoricalServiceCohort = flow(importHistoricalServiceCohortEffect, Effect.runPromise);
 
 const digest = flow(Schema.decodeUnknownSync(Schema.Json), (value) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex"),
 );
 
-for (const key of ["HISTORICAL_SERVICE_PG_URL", "HISTORICAL_SERVICE_INPUT", "DATABASE_URL"])
-  assert.equal(process.env[key], undefined, `${key} ambient configuration prohibited`);
+assertNoAmbientConfiguration([
+  "HISTORICAL_SERVICE_PG_URL",
+  "HISTORICAL_SERVICE_INPUT",
+  "DATABASE_URL",
+]);
 
-const artifacts = await mkdtemp(join(tmpdir(), "vektor-historical-service-0108-"));
+const workspace = await rehearsalWorkspace("vektor-historical-service-0108-");
 
-const inputFile = join(artifacts, "historical-service.json");
+const inputFile = workspace.file("historical-service.json");
 
-const backup = join(artifacts, "historical-service.dump");
+const backup = workspace.file("historical-service.dump");
 
 let postgres: DisposablePostgres | undefined;
 
@@ -285,12 +287,12 @@ try {
     mappings,
   };
 
-  await writeFile(inputFile, JSON.stringify(snapshot), { mode: 0o600 });
-  await chmod(inputFile, 0o600);
+  await writePrivateFile(inputFile, JSON.stringify(snapshot));
 
-  const currentState = async () =>
-    (
-      await pool!.query(
+  const currentState = () =>
+    Effect.runPromise(
+      pgQuery<{ facts: Schema.Json }>(
+        pool!,
         `SELECT jsonb_build_object(
           'affiliations', (SELECT jsonb_agg(a ORDER BY person_id, department_id) FROM public.organization_volunteer_affiliations a),
           'placements', (SELECT jsonb_agg(p ORDER BY placement_id) FROM public.assistant_placements p),
@@ -298,39 +300,32 @@ try {
           'absences', (SELECT jsonb_agg(a ORDER BY absence_id) FROM public.school_service_absences a),
           'occurrences', (SELECT jsonb_agg(o ORDER BY occurrence_id) FROM public.school_service_occurrences o)
         ) AS facts`,
-      )
-    ).rows[0].facts;
+      ).pipe(Effect.map(({ rows }) => rows[0]!.facts)),
+    );
 
   const currentBefore = digest(await currentState());
 
-  const runCli = (): Schema.Json =>
-    Schema.decodeSync(Schema.fromJsonString(Schema.Json))(
-      execFileSync(
-        process.execPath,
-        ["run", "packages/database/runtime/historical-service-cohort-main.ts"],
-        {
-          cwd: root,
-          encoding: "utf8",
-          timeout: 60_000,
-          env: {
-            ...process.env,
-            HISTORICAL_SERVICE_MODE: "synthetic",
-            NATIVE_IDENTITY_DEPLOYMENT: "local",
-            HISTORICAL_SERVICE_PG_URL: databaseUrl,
-            HISTORICAL_SERVICE_INPUT: inputFile,
-          },
-        },
-      ),
-    );
+  const runCli = () =>
+    commandOutput(
+      process.execPath,
+      ["run", "packages/database/runtime/historical-service-cohort-main.ts"],
+      workspace.root,
+      {
+        HISTORICAL_SERVICE_MODE: "synthetic",
+        NATIVE_IDENTITY_DEPLOYMENT: "local",
+        HISTORICAL_SERVICE_PG_URL: databaseUrl,
+        HISTORICAL_SERVICE_INPUT: inputFile,
+      },
+    ).then(Schema.decodeSync(Schema.fromJsonString(Schema.Json)));
 
-  const cliReport = runCli();
+  const cliReport = await runCli();
   const report = await importHistoricalServiceCohort(pool, snapshot);
   assert.deepEqual(cliReport, report);
   assert.equal(report.accepted, 2);
   assert.equal(report.quarantined, occurrences.length - 2);
   assert.equal(report.currentState, "Unchanged");
   assert.equal(report.historicalAffiliation, "DerivedFromAcceptedService");
-  assert.deepEqual(runCli(), report, "exact CLI replay is byte-equivalent");
+  assert.deepEqual(await runCli(), report, "exact CLI replay is byte-equivalent");
   assert.equal(
     digest(await currentState()),
     currentBefore,
@@ -415,17 +410,18 @@ try {
     1,
   );
 
-  const facts = async (databasePool: Pool) =>
-    (
-      await databasePool.query(
+  const facts = (databasePool: Pool) =>
+    Effect.runPromise(
+      pgQuery<{ facts: Schema.Json }>(
+        databasePool,
         `SELECT jsonb_build_object(
           'snapshots', (SELECT jsonb_agg(s ORDER BY snapshot_key) FROM public.historical_service_snapshots s),
           'occurrences', (SELECT jsonb_agg(o ORDER BY snapshot_key, occurrence_id) FROM public.historical_service_occurrences o),
           'history', (SELECT jsonb_agg(h ORDER BY source_repository, source_history_id) FROM public.assistant_service_history h),
           'affiliations', (SELECT jsonb_agg(a ORDER BY person_id, department_id, semester_id) FROM public.assistant_affiliation_history a)
         ) AS facts`,
-      )
-    ).rows[0].facts;
+      ).pipe(Effect.map(({ rows }) => rows[0]!.facts)),
+    );
 
   const factsBeforeConflict = digest(await facts(pool));
   await assert.rejects(
@@ -499,28 +495,32 @@ try {
   );
 
   const restoredFactsExpected = await facts(pool);
-  command(postgresProgram("pg_dump"), [
-    "--dbname",
-    databaseUrl,
-    "--format=custom",
-    "--file",
-    backup,
-  ]);
-  assert.ok((await stat(backup)).size > 0);
+  await commandOutput(
+    postgresProgram("pg_dump"),
+    ["--dbname", databaseUrl, "--format=custom", "--file", backup],
+    workspace.root,
+  );
 
-  const backupChecksum = createHash("sha256")
-    .update(await readFile(backup))
-    .digest("hex");
+  const [backupInfo, backupBytes] = await runOnBun(
+    FileSystem.FileSystem.use((fs) => Effect.all([fs.stat(backup), fs.readFile(backup)])),
+  );
+
+  assert.ok(backupInfo.size > 0);
+  const backupChecksum = createHash("sha256").update(backupBytes).digest("hex");
 
   const restoredUrl = await postgres.createDatabase("historical_service_restored");
-  command(postgresProgram("pg_restore"), ["--dbname", restoredUrl, backup]);
+  await commandOutput(
+    postgresProgram("pg_restore"),
+    ["--dbname", restoredUrl, backup],
+    workspace.root,
+  );
   const restored = new Pool({ connectionString: restoredUrl });
   assert.deepEqual(await facts(restored), restoredFactsExpected);
   await restored.end();
 
   evidence = {
     contract: "0108",
-    sourceRevision: command("git", ["rev-parse", "HEAD"]).trim(),
+    sourceRevision: (await commandOutput("git", ["rev-parse", "HEAD"], workspace.root)).trim(),
     report: canonicalJsonValue(report),
     concurrentFirstImport: true,
     currentStateUnchanged: true,
@@ -542,7 +542,7 @@ try {
   if (pool) await pool.end().catch(() => undefined);
 
   await postgres?.stop().catch(() => undefined);
-  await rm(artifacts, { recursive: true, force: true });
+  await removeWorkspace(workspace.artifacts);
 }
 
 assert.ok(evidence, "rehearsal must complete before evidence is emitted");

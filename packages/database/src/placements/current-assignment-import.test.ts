@@ -3,16 +3,25 @@ import { PGlite } from "@electric-sql/pglite";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { databaseHealth } from "../service.js";
 import { DatabaseTest } from "../layers.js";
-import { importPersonCohort, PersonMapping } from "../person-cohort.js";
+import { importPersonCohort as importPersonCohortEffect, PersonMapping } from "../person-cohort.js";
 import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { PersonId } from "@vektorprogrammet/domain/organization";
-import { flow, ManagedRuntime, Schema } from "effect";
+import { Effect, flow, ManagedRuntime, Schema } from "effect";
 import { Pool, type PoolClient } from "pg";
 import { expect, it, vi } from "vitest";
 import {
-  importCurrentAssignmentCohort,
-  importReconciledCurrentAssignmentCohort,
+  importCurrentAssignmentCohort as importCurrentAssignmentCohortEffect,
+  importReconciledCurrentAssignmentCohort as importReconciledCurrentAssignmentCohortEffect,
 } from "./current-assignment-cohort.js";
+
+const importPersonCohort = flow(importPersonCohortEffect, Effect.runPromise);
+
+const importCurrentAssignmentCohort = flow(importCurrentAssignmentCohortEffect, Effect.runPromise);
+
+const importReconciledCurrentAssignmentCohort = flow(
+  importReconciledCurrentAssignmentCohortEffect,
+  Effect.runPromise,
+);
 
 const digest = flow(Schema.decodeUnknownSync(Schema.Json), (value) =>
   createHash("sha256").update(canonicalJson(value)).digest("hex"),
