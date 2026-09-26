@@ -9,28 +9,62 @@
  * - Semesters are derived from the calendar; AcademicCalendar is upstream.
  * - TeamApplications owns team intake with its own revision.
  * - Recruitment owns the onboarding invitation; Identity owns the one-time account claim.
- * - Positions are managed reference data. Free-text titles are mapped once at import.
- * - Admissions owns the application's year of study; Substitutes reads it.
+ * - Positions are informal titles that each unit defines, kept as reference data. Each maps to exactly
+ *   one role type, and authority comes only from the closed set of role types. Free-text titles are
+ *   mapped once at import.
+ * - Admissions owns the application's year of study.
  * - Event payloads carry identifiers plus closed non-personal values; no names, contact details or free text.
  * - A request that presents more than one credential fails, whatever their kinds.
  * - The existing-account claim uses the session as its principal; the claim token is the named
- *   requirement onboarding.claim-token, single-use and bound to its claim target.
+ *   requirement onboarding.claim-token, single-use and bound to its claim target. A bearer cannot
+ *   make the existing-account claim.
  * - Principal-side grants and roles are independent; ending a grant removes no role authority.
  * - A department board (Styret) and the national board (Hovedstyret) are units like teams: scopes,
- *   never holders. A board position carries capabilities with its board's reach: Styret reaches its
- *   department, Hovedstyret every department. The global-administrator grant is a separate
- *   principal-side grant for system administration; a Hovedstyret seat does not imply it.
- * - Roster member, offer candidate and applicant are role types.
+ *   never holders. A board role reaches its board's scope: Styret its department, Hovedstyret every
+ *   department. The global-administrator grant is a separate principal-side grant for system
+ *   administration; a Hovedstyret seat does not imply it.
+ * - Styret holds its own positions plus one derived seat for every leader of a local team with its
+ *   home in the department. Hovedstyret holds its own positions plus one derived seat for every leader
+ *   of a national team. A derived seat starts and ends with the leadership and confers membership and
+ *   certificate issuance, not administration.
+ * - A department governs itself only while Hovedstyret recognises it as independent: at least three
+ *   elected board members, and the recruitment and school coordination teams. A department that is not
+ *   independent, and a team without a board, fall under Hovedstyret.
+ * - Hovedstyret serves a one-year term from 1 June; with fewer than five members it is not quorate.
+ * - A member is a student who holds an assistant, team or elected role; membership lapses after three
+ *   semesters without a role. An active member holds a role in the current semester. Hovedstyret can
+ *   grant membership for one calendar year.
+ * - Leave longer than two semesters ends a team role. A new team member signs the department's team
+ *   contract and a confidentiality declaration.
+ * - A team has a home department and a scope: its home, or national for a national team that a
+ *   department hosts.
+ * - Roster member and applicant are role types.
  * - An interviewer schedules under the named requirement recruitment.interviewer-appointment.
- * - The substitute pool is keyed by Person; until the Substitutes cutover re-keys it, the holder is
- *   derived through the applicant link.
  * - The payment destination is Economy-private data keyed by the payment-authority grant.
  * - Contact submission is anonymous and rate limited; the homepage deployment secret names no principal.
  * - School contacts are data, not principals or role holders.
- * - Only board positions reach a department; an ordinary team leader acts within the team.
- * - A delegation is explicit, named and time-bounded: team T holds capability C for department D.
- *   Global administrators manage delegations. There are no roles by team kind.
+ * - Only a board's leader reaches a department; an ordinary team leader acts within the team.
+ * - A delegation is explicit, named and time-bounded: team T holds capability C in area A, the team's
+ *   home department or, for a national team, a department or the organization. A Styret leader manages
+ *   the delegations of its department's teams; Hovedstyret or a global administrator manages those of
+ *   national teams. There are no roles by team kind.
+ * - Every member of the national economy team approves or rejects claims through a national
+ *   delegation; only its leader, the finance lead, pays out and records settlement.
  * - The global-administrator grant keeps its organisational actions for now.
+ * - An OAuth client acting for a person never exceeds the person's authority and is narrowed by its
+ *   token scope. A bot holds no standing capability and changes data only with the person's confirmation.
+ * - Substitute coverage records absences and who covered each lesson date; coordination stays in Slack.
+ * - A pure scheduling function drafts placements; Skolekoordinering adjusts the draft.
+ * - Certificates are in scope: school coordination adjusts each assistant's days served at semester
+ *   end, and the department's board issues the certificates; Hovedstyret's seats issue them for a
+ *   department that is not independent. Surveys stay in Google Forms.
+ * - A substitute is an admission outcome: an admitted applicant without a placement, on call.
+ * - A Kanskje recommendation implies no admission outcome; the recruitment team decides placed,
+ *   substitute or rejected.
+ * - General Assembly vote weights are a derived report: active members plus 100 per department, split
+ *   among its attending members, at most 25 per member.
+ * - The first Google Workspace scope keeps team group membership in sync with team membership;
+ *   accounts stay manual.
  *
  * Conventions used in this file:
  * - Identity value objects (XId) are declared once, in the owning context. Downstream contexts hold
@@ -40,13 +74,16 @@
  *   "capability: <id>; requirement: <relationship>; scope: <resolver>; decisionTime: Transaction".
  *   AccessControl owns the vocabulary; the aggregate treats the resolved actor as a guard input.
  *   Requirement words: "team.member" and "team.leader" are appointments on an ordinary team, with team
- *   reach. "board.seat covering X" is an effective seat on a board whose position carries the
- *   capability and whose reach covers X (a department board reaches its department, the national board
- *   every department). "coordinator(X)" is a board seat covering X whose position carries a placement
- *   or coverage capability. "global.administrator" is an active principal-side grant. A named
- *   requirement is written "requirement <id>"; it restricts a permit and never grants one. Where a
- *   requirement names "board.seat covering D" for a capability C, an active delegation of C for D to
- *   a team on which the person holds a current appointment also satisfies it.
+ *   reach. "board.leader covering X" is an effective board appointment whose position maps to the
+ *   board-leader role type and whose board's reach covers X (a department board reaches its department,
+ *   the national board every department). A department board covers its department only while the
+ *   department is independent; otherwise Hovedstyret covers it. "coordinator(X)" is a board leader
+ *   covering X. "department.board covering X" is any effective seat, derived seats included, on the
+ *   board of an independent department that covers X.
+ *   "global.administrator" is an active principal-side grant. A named requirement is written
+ *   "requirement <id>"; it restricts a permit and never grants one. Where a requirement names
+ *   "board.leader covering X" for a capability C, an active delegation of C whose area covers X, to a
+ *   team on which the person holds a current appointment, also satisfies it.
  * - Invariants are doc strings that start with "invariant:" on the aggregate.
  * - Lifecycle enums hold persisted states only. Time-derived states (Future/Current/Ended appointment,
  *   Open/Closed intake, Overdue commitment) are policies over state and an instant, not stored states.
@@ -56,11 +93,11 @@
  */
 
 Domain Vektorprogrammet {
-  domainVisionStatement = "Connect volunteer university students with partner schools that need mathematics tutoring, and run the organization that recruits, places, schedules and follows up those volunteers."
+  domainVisionStatement = "Send volunteer university students as assistants to help pupils in regular mathematics lessons at partner primary and lower secondary schools, and run the member organization that recruits, places, schedules and supports them."
 
   Subdomain SchoolService {
     type = CORE_DOMAIN
-    domainVisionStatement = "School demand plus eligible assistant supply becomes a reviewed proposal, a confirmed roster, dated school-service commitments, absence and substitute coverage, one terminal outcome per commitment, and immutable service history."
+    domainVisionStatement = "School demand plus eligible assistant supply becomes an automatic placement draft, coordinator-adjusted placements, a reviewed proposal, a confirmed roster, dated school-service commitments, recorded absences and coverage, one terminal outcome per commitment, immutable service history, and certificates from days served."
   }
   Subdomain VolunteerRecruitment {
     type = SUPPORTING_DOMAIN
@@ -84,7 +121,7 @@ Domain Vektorprogrammet {
   }
   Subdomain SchoolFeedback {
     type = SUPPORTING_DOMAIN
-    domainVisionStatement = "Anonymous school surveys with an explicit results policy."
+    domainVisionStatement = "Evaluering surveys teachers, pupils, assistants and parents every semester in Google Forms. The system does not own surveys."
   }
   Subdomain CommunityLife {
     type = SUPPORTING_DOMAIN
@@ -134,10 +171,10 @@ ContextMap VektorprogrammetToBe {
 
   contains AccessControl, Identity, People, AcademicCalendar
   contains Organization, Schools, Admissions, Recruitment
-  contains Placements, Substitutes, Economy, FileCustody
-  contains TeamApplications, Surveys, SocialEvents, Content, Contact
+  contains Placements, Economy, FileCustody
+  contains TeamApplications, SocialEvents, Content, Contact
   contains Mailing, Messaging, Delivery, Reporting
-  contains LegacySymfony, GoogleWorkspace, MailProvider, HkDirCatalogue
+  contains LegacySymfony, GoogleWorkspace, GoogleForms, Slack, MailProvider, HkDirCatalogue
 
   /* ---------------- Identity and access ---------------- */
 
@@ -146,7 +183,7 @@ ContextMap VektorprogrammetToBe {
   }
 
   AccessControl [U,OHS,PL] -> [D,CF] Organization {
-    implementationTechnology = "In-process interpreter; Organization implements the RelationshipFactPort inside the caller's transaction: a team appointment has team reach, a department-board seat reaches its department, a national-board seat reaches every department"
+    implementationTechnology = "In-process interpreter; Organization implements the RelationshipFactPort inside the caller's transaction: a team appointment has team reach; a board appointment reaches its board's scope with the capabilities of its position's role type; a derived Styret seat follows its team leadership"
     exposedAggregates = PrincipalAlgebra, CapabilityRegistry
   }
   AccessControl [U,OHS,PL] -> [D,CF] People {
@@ -164,23 +201,15 @@ ContextMap VektorprogrammetToBe {
     exposedAggregates = PrincipalAlgebra, CapabilityRegistry
   }
   AccessControl [U,OHS,PL] -> [D,CF] Placements {
-    implementationTechnology = "Placements implements the RelationshipFactPort for affiliation, placement, roster membership and substitute offers"
+    implementationTechnology = "Placements implements the RelationshipFactPort for affiliation, placement and roster membership"
     exposedAggregates = PrincipalAlgebra, CapabilityRegistry
   }
-  AccessControl [U,OHS,PL] -> [D,CF] Substitutes {
-    implementationTechnology = "Substitutes implements the RelationshipFactPort for pool membership; until its cutover it derives the holder through the applicant link"
-    exposedAggregates = PrincipalAlgebra
-  }
   AccessControl [U,OHS,PL] -> [D,CF] Economy {
-    implementationTechnology = "Payment authority, approval and settlement grants are AccessControl grants; Economy keeps the payment destination keyed by the payment-authority grant and implements the RelationshipFactPort for claim ownership"
-    exposedAggregates = PrincipalAlgebra, CapabilityRegistry, Grants
+    implementationTechnology = "Payment authority is an AccessControl grant; approval and settlement are national delegations to the economy team. Economy keeps the payment destination keyed by the payment-authority grant and implements the RelationshipFactPort for claim ownership"
+    exposedAggregates = PrincipalAlgebra, CapabilityRegistry, Grants, Delegations
   }
   AccessControl [U,OHS,PL] -> [D,CF] TeamApplications {
     implementationTechnology = "Requirement team.member (read) and team.leader (change); global administration and board seats grant no implicit access"
-    exposedAggregates = PrincipalAlgebra, CapabilityRegistry
-  }
-  AccessControl [U,OHS,PL] -> [D,CF] Surveys {
-    implementationTechnology = "The survey results policy selects a requirement; it is not a transport rule"
     exposedAggregates = PrincipalAlgebra, CapabilityRegistry
   }
   AccessControl [U,OHS,PL] -> [D,CF] SocialEvents {
@@ -234,9 +263,6 @@ ContextMap VektorprogrammetToBe {
   AcademicCalendar [U,OHS,PL] -> [D,CF] Placements {
     exposedAggregates = SemesterCatalogue
   }
-  AcademicCalendar [U,OHS,PL] -> [D,CF] Surveys {
-    exposedAggregates = SemesterCatalogue
-  }
   AcademicCalendar [U,OHS,PL] -> [D,CF] SocialEvents {
     exposedAggregates = SemesterCatalogue
   }
@@ -272,9 +298,6 @@ ContextMap VektorprogrammetToBe {
   Organization [U,OHS,PL] -> [D,CF] Economy {
     exposedAggregates = Department
   }
-  Organization [U,OHS,PL] -> [D,CF] Surveys {
-    exposedAggregates = Department
-  }
   Organization [U,OHS,PL] -> [D,CF] SocialEvents {
     exposedAggregates = Department
   }
@@ -290,7 +313,8 @@ ContextMap VektorprogrammetToBe {
     exposedAggregates = Appointment
   }
   Organization [U,OHS,PL] -> [D,CF] Reporting {
-    exposedAggregates = Department, Team
+    implementationTechnology = "Active members per department, from current appointments; the General Assembly vote-weight report reads them"
+    exposedAggregates = Department, Team, Appointment
   }
 
   /* ---------------- Recruitment chain ---------------- */
@@ -315,18 +339,11 @@ ContextMap VektorprogrammetToBe {
   /* ---------------- School service core ---------------- */
 
   Schools [U,S] -> [D,C] Placements {
-    implementationTechnology = "Active school, department association and capacity; Placements answers the dependent-records query Schools needs before an association is removed"
+    implementationTechnology = "Active school, department association and capacity, which bounds the scheduling function; Placements answers the dependent-records query Schools needs before an association is removed"
     exposedAggregates = School, CapacityPlan
   }
-  Schools [U,OHS,PL] -> [D,CF] Surveys {
-    implementationTechnology = "Eligible schools for a department and semester"
-    exposedAggregates = School
-  }
-  Placements [P]<->[P] Substitutes : SchoolServiceSupplyPartnership {
-    implementationTechnology = "Pool membership needs an active affiliation; dispatch eligibility needs pool membership, availability and no placement or coverage conflict"
-  }
-  Admissions [U,OHS,PL] -> [D,CF] Substitutes {
-    implementationTechnology = "A pool entry references an admission application; Substitutes reads the year of study from it and never writes it"
+  Admissions [U,OHS,PL] -> [D,CF] Placements {
+    implementationTechnology = "The scheduling function reads each accepted applicant's weekday availability, bolk and school wishes from the application; Placements never writes them"
     exposedAggregates = AdmissionApplication
   }
   Placements [U,OHS,PL] -> [D,CF] Mailing {
@@ -372,7 +389,7 @@ ContextMap VektorprogrammetToBe {
     implementationTechnology = "Provider Layer; a provider failure never rolls back a business fact"
   }
   Mailing [D,ACL] <- [U,OHS] GoogleWorkspace {
-    implementationTechnology = "Automated list synchronization"
+    implementationTechnology = "Automated synchronization; the first scope keeps team group membership, derived Styret seats included, in sync with team membership; accounts stay manual"
   }
 
   /* ---------------- Reporting ---------------- */
@@ -384,6 +401,7 @@ ContextMap VektorprogrammetToBe {
     exposedAggregates = Interview, OnboardingInvitation
   }
   Placements [U,OHS,PL] -> [D,CF] Reporting {
+    implementationTechnology = "Active assistants per department and semester count as active members"
     exposedAggregates = VolunteerAffiliation, Placement, SchoolServiceCommitment
   }
 
@@ -415,11 +433,11 @@ ContextMap VektorprogrammetToBe {
 
 BoundedContext AccessControl implements IdentityAndAccess {
   type = SYSTEM
-  domainVisionStatement = "Publishes the principal, scope, role, capability and decision language every context authorizes against. permit = exactly one usable principal AND (an effective role whose reach covers the resource, with its named requirements met, OR an active principal-side grant that covers it, OR an unconsumed bearer capability for exactly this resource). A unit sits at one scope: an ordinary team at itself, a department board at its department, the national board at national scope. Default deny; resolved inside the committing transaction; revocation applies on the next interaction."
+  domainVisionStatement = "Publishes the principal, scope, role, capability and decision language every context authorizes against. permit = exactly one usable principal AND (an effective role whose reach covers the resource, with its named requirements met, OR an active principal-side grant that covers it, OR an unconsumed bearer capability for exactly this resource). An OAuth client acting for a person never exceeds the person's authority and stays inside its token scope; a bot changes data only with the person's confirmation. A unit sits at one scope: an ordinary team at itself, a department board at its department, the national board at national scope. Default deny; resolved inside the committing transaction; revocation applies on the next interaction."
   responsibilities = "Principal algebra", "Role algebra", "Capability registry", "Grants", "Capability interpreter", "Relationship fact port"
   implementationTechnology = "Pure interpreter in the domain package; each fact-owning context implements the fact port in its adapter"
 
-  "invariant: a request that presents more than one credential is denied, whatever their kinds; a requirement token is not a credential. invariant: a service principal inherits no human role. invariant: roles and principal-side grants are independent: a seat confers no grant, and ending a grant removes no role authority. invariant: system administration is permitted only through an active global-administrator grant. invariant: a delegation never carries system administration. invariant: at least one usable global administrator exists after every committed command."
+  "invariant: a request that presents more than one credential is denied, whatever their kinds; a requirement token is not a credential. invariant: a service principal inherits no human role. invariant: roles and principal-side grants are independent: a seat confers no grant, and ending a grant removes no role authority. invariant: system administration is permitted only through an active global-administrator grant. invariant: a delegation never carries system administration. invariant: an on-behalf request is permitted only inside the person's authority and the client's token scope; a client holds no standing capability. invariant: at least one usable global administrator exists after every committed command."
   Aggregate PrincipalAlgebra {
     responsibilities = "Who acts, under which credential, over which scope, and with what outcome"
 
@@ -427,6 +445,14 @@ BoundedContext AccessControl implements IdentityAndAccess {
     ValueObject AnonymousPrincipal extends Principal
     ValueObject PersonPrincipal extends Principal {
       PersonId personId
+      - OnBehalfOf onBehalfOf
+    }
+    "An account bearer names an OAuth client that acts for the person. The token scope narrows the person's authority; an agent client (a bot) changes data only with the person's confirmation for that request."
+    ValueObject OnBehalfOf {
+      String oauthClientId
+      List<String> tokenScope
+      boolean agent
+      boolean changeConfirmed
     }
     ValueObject ServicePrincipal extends Principal {
       - ServicePrincipalId servicePrincipalId
@@ -473,7 +499,7 @@ BoundedContext AccessControl implements IdentityAndAccess {
       boolean suspended
     }
     enum RoleType {
-      TeamMemberRole, TeamLeaderRole, BoardSeatRole, AssistantRole, PlacedAssistantRole, PoolMemberRole, RosterMemberRole, OfferCandidateRole, InterviewerRole, CoInterviewerRole, ReceiptOwnerRole, ApplicantRole
+      TeamMemberRole, TeamLeaderRole, BoardLeaderRole, BoardMemberRole, AssistantRole, PlacedAssistantRole, RosterMemberRole, InterviewerRole, CoInterviewerRole, ReceiptOwnerRole, ApplicantRole
     }
 
     abstract ValueObject Decision
@@ -508,7 +534,7 @@ BoundedContext AccessControl implements IdentityAndAccess {
     ValueObject CapabilityTypeId {
       String value key
     }
-    "Named requirements restrict a permit and never grant one: onboarding.claim-token (a usable claim capability bound to the claim target), recruitment.interviewer-appointment (an effective appointment in the interview's department), recruitment.correction-window (the scoped correction capability is active)."
+    "Named requirements restrict a permit and never grant one: onboarding.claim-token (a usable claim capability bound to the claim target), recruitment.interviewer-appointment (an effective appointment in the interview's department), recruitment.correction-window (the scoped correction capability is active), onbehalf.change-confirmation (a bot's change carries the person's confirmation)."
     ValueObject Requirement {
       String requirementId
       String relationship
@@ -524,7 +550,7 @@ BoundedContext AccessControl implements IdentityAndAccess {
 
   "invariant: a grant interval is half-open and startAt < endAt when endAt is present. invariant: grants of one capability to one subject over one area do not overlap. invariant: ending and revoking have one meaning for every grant kind. invariant: a grant carries no private data."
   Aggregate Grants {
-    responsibilities = "Explicit, time-bound authority: global administration (system administration, with a one-time bootstrap grant at cutover), payment authority, receipt approval, receipt settlement, service-principal grants and delegated rules. No role implies a grant. The global-administrator grant keeps its organisational actions for now."
+    responsibilities = "Explicit, time-bound authority: global administration (system administration, with a one-time bootstrap grant at cutover), payment authority, service-principal grants and delegated rules. Receipt approval and settlement are delegations to the economy team, not grants. No role implies a grant. The global-administrator grant keeps its organisational actions for now."
 
     Entity Grant {
       aggregateRoot
@@ -551,7 +577,7 @@ BoundedContext AccessControl implements IdentityAndAccess {
     }
   }
 
-  "A delegation is explicit, named and time-bounded: team T holds capability C for department D. While it is active, it gives C in D to the current members of T. invariant: the interval is half-open. invariant: a delegation carries no system administration. invariant: ending a delegation removes only the authority that it gave. There are no roles by team kind."
+  "A delegation is explicit, named and time-bounded: team T holds capability C in area A. The area is the team's home department or, for a national team, a department or the whole organization. While it is active, it gives C in A to the current members of T. invariant: the interval is half-open. invariant: the area lies inside the team's scope. invariant: a delegation carries department administration, receipt approval or receipt settlement, never system administration or delegation management. invariant: ending a delegation removes only the authority that it gave. invariant: a delegation reaches every current member of the team, or only its current leaders; a settlement delegation reaches the leaders only. There are no roles by team kind."
   Aggregate Delegations {
     Entity Delegation {
       aggregateRoot
@@ -559,18 +585,22 @@ BoundedContext AccessControl implements IdentityAndAccess {
       String name
       TeamId delegatedTeam
       - CapabilityType capability
-      DepartmentId delegatedDepartment
+      - Scope area
+      - DelegationHolders holders
       Instant startAt
       Instant endAt
       int revision
       - DelegationLifecycle lifecycle
-      "capability: access.delegations.manage; requirement: global.administrator; scope: global; decisionTime: Transaction. Global administrators manage delegations."
-      def void issueDelegation(String name, TeamId delegatedTeam, @CapabilityType capability, DepartmentId delegatedDepartment, Instant startAt) : write [ -> ActiveDelegation ];
-      "capability: access.delegations.manage; requirement: global.administrator; scope: global; decisionTime: Transaction"
+      "capability: access.delegations.manage; requirement: board.leader covering the team's scope OR global.administrator; scope: delegated-team-scope; decisionTime: Transaction. A Styret leader manages the delegations of its department's teams. A national team's scope is national, so Hovedstyret or a global administrator manages its delegations."
+      def void issueDelegation(String name, TeamId delegatedTeam, @CapabilityType capability, @Scope area, @DelegationHolders holders, Instant startAt) : write [ -> ActiveDelegation ];
+      "capability: access.delegations.manage; requirement: board.leader covering the team's scope OR global.administrator; scope: delegated-team-scope; decisionTime: Transaction"
       def void endDelegation(Instant endAt, int expectedRevision) : write [ ActiveDelegation -> EndedDelegation* ];
     }
     ValueObject DelegationId {
       String value key
+    }
+    enum DelegationHolders {
+      AllMembers, LeadersOnly
     }
     enum DelegationLifecycle {
       aggregateLifecycle
@@ -579,7 +609,7 @@ BoundedContext AccessControl implements IdentityAndAccess {
   }
 
   Service RelationshipFactPort {
-    "Implemented by each fact-owning context inside the caller's transaction: Organization (team member, team leader, board seat with its position), Recruitment (interviewer, co-interviewer), Economy (receipt owner), Placements (affiliation, placement, roster member, offer candidate), Substitutes (pool member) and Admissions (applicant, through the applicant link). Delegations reach the current members of the named team through Organization's appointments. Each owner normalizes its status to an interval and a status. School contacts are data and hold no role."
+    "Implemented by each fact-owning context inside the caller's transaction: Organization (team member, team leader, board leader and board member by the position's role type, and derived board seats), Recruitment (interviewer, co-interviewer), Economy (receipt owner), Placements (affiliation, placement, roster member) and Admissions (applicant, through the applicant link). Delegations reach the current members of the named team through Organization's appointments. Each owner normalizes its status to an interval and a status. School contacts are data and hold no role."
     boolean relationshipIsActive(PersonId person, @ResourceScope resource, Instant instant) : read-only;
     boolean relationshipCovers(PersonId person, @Scope grantScope, Instant instant) : read-only;
   }
@@ -661,7 +691,7 @@ BoundedContext Identity implements IdentityAndAccess {
     }
   }
 
-  "Identity owns the one-time account claim; Recruitment owns the onboarding invitation that requests it. invariant: a consumed claim capability cannot be used again. invariant: claiming links an account without changing its email and grants neither affiliation nor placement. In new-account mode the token holder is the principal; in existing-account mode the session's account is the principal and the token is the named requirement onboarding.claim-token."
+  "Identity owns the one-time account claim; Recruitment owns the onboarding invitation that requests it. invariant: a consumed claim capability cannot be used again. invariant: claiming links an account without changing its email and grants neither affiliation nor placement. In new-account mode the token holder is the principal; in existing-account mode the session's account is the principal and the token is the named requirement onboarding.claim-token. A bearer cannot make the existing-account claim."
   Aggregate AccountClaim {
     Entity ClaimCapability {
       aggregateRoot
@@ -685,17 +715,22 @@ BoundedContext Identity implements IdentityAndAccess {
     }
   }
 
+  "invariant: a client holds no standing capability of its own. A delegated client and an agent client act only for the account's person, inside the token scope that the person approved; an agent client changes data only with the person's confirmation. A service client authenticates a service principal, which holds its own grants."
   Aggregate MachineCredential {
     Entity OAuthClient {
       aggregateRoot
       - OAuthClientId oauthClientId
+      - ClientKind kind
       String servicePrincipalId
       - MachineCredentialLifecycle lifecycle
-      def void registerClient(String servicePrincipalId) : write [ -> ClientActive ];
+      def void registerClient(@ClientKind kind, String servicePrincipalId) : write [ -> ClientActive ];
       def void revokeClient() : write [ ClientActive -> ClientRevoked* ];
     }
     ValueObject OAuthClientId {
       String value key
+    }
+    enum ClientKind {
+      DelegatedClient, AgentClient, ServiceClient
     }
     enum MachineCredentialLifecycle {
       aggregateLifecycle
@@ -830,17 +865,22 @@ BoundedContext AcademicCalendar implements AcademicCalendarDomain {
 
 BoundedContext Organization implements OrganizationStructure {
   type = FEATURE
-  domainVisionStatement = "Local departments, teams, department boards (Styret), the national board (Hovedstyret), positions and effective-dated appointments. Units are scopes, never holders: an ordinary team sits at its own scope, a department board at its department, the national board at national scope. Appointments are relationship facts that AccessControl reads. A board position carries capabilities with its board's reach; a label is never authority. A Hovedstyret seat does not make a person a global administrator. An ordinary team leader acts within the team. A functional team is an ordinary team; its department work comes only from delegations."
-  responsibilities = "Departments", "Teams", "Department boards", "National board", "Positions", "Appointments", "Fields of study", "Team interest"
+  domainVisionStatement = "Local departments, teams with a home department and a scope, department boards (Styret), the national board (Hovedstyret), positions and effective-dated appointments. Units are scopes, never holders: an ordinary team sits at its own scope, a department board at its department, the national board at national scope. Appointments are relationship facts that AccessControl reads. A position is an informal title that its unit defines; it maps to exactly one role type, and authority comes only from the role type, with the unit's reach. A title is never authority. Styret holds its own positions plus one derived seat for every leader of a local team with its home in the department; Hovedstyret holds its own positions plus one derived seat for every leader of a national team. A department governs itself only while Hovedstyret recognises it as independent; a department that is not independent, and a team without a board, fall under Hovedstyret. Members are students with a role; membership lapses after three semesters without one. A Hovedstyret seat does not make a person a global administrator. An ordinary team leader acts within the team. A functional team is an ordinary team; its department or national work comes only from delegations."
+  responsibilities = "Departments", "Department independence", "Teams", "Department boards", "National board", "Positions", "Appointments", "Joining agreements", "Membership", "Fields of study", "Team interest"
 
+  "invariant: a department is independent only while it has at least three elected board members and at least the recruitment (Rekruttering) and school coordination (Skolekoordinering) teams; Hovedstyret decides the status. A department that is not independent falls under Hovedstyret: its board, if any, governs nothing. Hovedstyret may appoint a local board when none is elected, and may dismiss one."
   Aggregate Department {
     Entity Department {
       aggregateRoot
       - DepartmentId departmentId
       String name
       ContactEmail mailbox
+      boolean independent
       int revision
       - DepartmentLifecycle lifecycle
+      "capability: organization.departments.recognise; requirement: board.leader covering every department (Hovedstyret) OR global.administrator; scope: department; decisionTime: Transaction"
+      def void recogniseIndependence(int expectedRevision) : write [ DepartmentActive -> DepartmentActive ];
+      def void withdrawIndependence(int expectedRevision) : write [ DepartmentActive -> DepartmentActive ];
       def void createDepartment(String name, ContactEmail mailbox) : write [ -> DepartmentActive ];
       def void reviseDepartment(String name, ContactEmail mailbox, int expectedRevision) : write [ DepartmentActive -> DepartmentActive ];
       def void deactivateDepartment(int expectedRevision) : write [ DepartmentActive -> DepartmentInactive ];
@@ -855,18 +895,20 @@ BoundedContext Organization implements OrganizationStructure {
     }
   }
 
-  "invariant: a department has at most one department board (Styret). A department board sits at its department's scope; an ordinary team sits at its own scope. The kind is not a role: there are no roles by team kind."
+  "invariant: a department has at most one department board (Styret). A department board sits at its department's scope; an ordinary team sits at its own scope. invariant: a team has a home department and a scope; the scope is the home, or national for a national team (economy, IT, expansion) that its home hosts. The scope bounds the team's delegations. A local team's leader sits on the home department's board; a national team sits under Hovedstyret, and its leader sits on Hovedstyret. The governing board creates, defines and dissolves a team: the board of an independent home department for a local team, Hovedstyret otherwise. The kind is not a role: there are no roles by team kind."
   Aggregate Team {
     Entity Team {
       aggregateRoot
       - TeamId teamId
-      DepartmentId departmentId
+      DepartmentId homeDepartment
       String name
       ContactEmail mailbox
       - TeamKind kind
+      - TeamScope teamScope
       int revision
       - TeamLifecycle lifecycle
-      def void createTeam(DepartmentId departmentId, String name) : write [ -> TeamActive ];
+      "capability: organization.teams.manage; requirement: board.leader covering the team's scope OR global.administrator; scope: team-scope; decisionTime: Transaction"
+      def void createTeam(DepartmentId homeDepartment, String name, @TeamScope teamScope) : write [ -> TeamActive ];
       def void reviseTeam(String name, ContactEmail mailbox, int expectedRevision) : write [ TeamActive -> TeamActive ];
       def void deactivateTeam(int expectedRevision) : write [ TeamActive -> TeamInactive ];
     }
@@ -880,9 +922,12 @@ BoundedContext Organization implements OrganizationStructure {
     enum TeamKind {
       OrdinaryTeam, DepartmentBoard
     }
+    enum TeamScope {
+      HomeDepartmentScope, NationalScope
+    }
   }
 
-  "invariant: exactly one national board exists, Hovedstyret, established once at cutover. It sits at national scope, which covers every department."
+  "invariant: exactly one national board exists, Hovedstyret, established once at cutover. It sits at national scope, which covers every department. invariant: its members are its own positions, such as the leader, the deputy and a mentor without a vote, plus one derived seat for every leader of a national team, such as Økonomi, Ekspansjon and IT. invariant: an elected term runs one year from 1 June. With fewer than five voting members the board is not quorate; in a tie the leader's vote counts double."
   Aggregate NationalBoard {
     Entity NationalBoard {
       aggregateRoot
@@ -896,24 +941,29 @@ BoundedContext Organization implements OrganizationStructure {
     }
   }
 
-  "Positions are managed reference data. An appointment references a PositionId; existing free-text titles are mapped once to positions at import. Positions can be revised and deactivated. A board position carries capabilities, and a seat reaches its board's scope. A position held on an ordinary team is a title and carries nothing. The capabilities a position carries are authority data."
+  "Positions are informal titles that each unit defines (leder, nestleder, sekretaer, ...), kept as reference data. Each position maps to exactly one role type: team member or team leader on a team, board leader or board member on a board. Authority comes only from the role type; a title is never authority. Existing free-text titles are mapped once to positions at import. Positions can be revised and deactivated."
   Aggregate Position {
     Entity Position {
       aggregateRoot
       - PositionId positionId
-      String name
-      List<String> carriedCapabilities
+      - AppointmentUnit unit
+      String title
+      - PositionRoleType roleType
       int revision
       - PositionLifecycle lifecycle
-      "capability: organization.reference-data.manage; requirement: board.seat covering every department (Hovedstyret) OR global.administrator; scope: global; decisionTime: Transaction"
-      def void definePosition(String name) : write [ -> PositionActive ];
-      def void revisePosition(String name, int expectedRevision) : write [ PositionActive -> PositionActive ];
+      "capability: organization.positions.manage; requirement: team.leader of the unit OR board.leader covering the unit OR global.administrator; scope: position-unit; decisionTime: Transaction. A team leader defines member and leader positions of the team only."
+      def void definePosition(@AppointmentUnit unit, String title, @PositionRoleType roleType) : write [ -> PositionActive ];
+      def void revisePosition(String title, int expectedRevision) : write [ PositionActive -> PositionActive ];
       def void deactivatePosition(int expectedRevision) : write [ PositionActive -> PositionInactive ];
-      "capability: access.position-capabilities.manage; requirement: global.administrator; scope: global; decisionTime: Transaction. Changing what a position carries is system administration."
-      def void setCarriedCapabilities(List<String> capabilityTypeIds, int expectedRevision) : write [ PositionActive -> PositionActive ];
+      "capability: access.position-role-types.manage; requirement: global.administrator; scope: global; decisionTime: Transaction. Mapping a board position to the board-leader role type, or changing the role type of any position in use, changes authority."
+      def void remapRoleType(@PositionRoleType roleType, int expectedRevision) : write [ PositionActive -> PositionActive ];
     }
     ValueObject PositionId {
       String value key
+    }
+    "The appointment role types of AccessControl's published language."
+    enum PositionRoleType {
+      TeamMemberType, TeamLeaderType, BoardLeaderType, BoardMemberType
     }
     enum PositionLifecycle {
       aggregateLifecycle
@@ -921,7 +971,7 @@ BoundedContext Organization implements OrganizationStructure {
     }
   }
 
-  "invariant: endAt is absent or startAt < endAt. invariant: an appointment on a board carries no leadership flag: board authority comes from the position, with the board's reach. invariant: ending or suspending one appointment changes no other appointment, affiliation or placement. Temporal state Future/Current/Ended is derived from the interval at the authorization instant."
+  "invariant: endAt is absent or startAt < endAt. invariant: an appointment carries no leadership flag: its authority is its position's role type, with its unit's reach. invariant: a derived board seat is not stored; it starts and ends with its team leadership and confers membership and certificate issuance, not administration. invariant: a team member with at least one semester of service may take leave; leave longer than two semesters ends the team role. invariant: ending or suspending one appointment changes no other appointment, affiliation or placement. Temporal state Future/Current/Ended is derived from the interval at the authorization instant."
   Aggregate Appointment {
     Entity Appointment {
       aggregateRoot
@@ -929,20 +979,22 @@ BoundedContext Organization implements OrganizationStructure {
       PersonId personId
       - AppointmentUnit unit
       PositionId position
-      boolean leadership
       Instant startAt
       Instant endAt
       int revision
       - AppointmentLifecycle lifecycle
 
-      "capability: organization.appointments.manage; requirement: board.seat covering the unit OR global.administrator; scope: appointment-unit; decisionTime: Transaction"
-      def void appoint(PersonId personId, @AppointmentUnit unit, boolean leadership, Instant startAt) : write [ -> AppointmentActive ];
-      "capability: organization.appointments.manage; requirement: board.seat covering the unit OR global.administrator; scope: appointment; decisionTime: Transaction"
-      def void reviseAppointment(boolean leadership, Instant startAt, Instant endAt, int expectedRevision) : write [ AppointmentActive -> AppointmentActive ];
+      "capability: organization.appointments.manage; requirement: team.leader of the unit OR board.leader covering the unit OR global.administrator; scope: appointment-unit; decisionTime: Transaction. A team decides its members collectively; the team leader authorizes the appointment. A new team member signs the department's team contract and the confidentiality declaration."
+      def void appoint(PersonId personId, @AppointmentUnit unit, PositionId position, Instant startAt) : write [ -> AppointmentActive ];
+      "capability: organization.appointments.manage; requirement: team.leader of the unit OR board.leader covering the unit OR global.administrator; scope: appointment; decisionTime: Transaction"
+      def void reviseAppointment(PositionId position, Instant startAt, Instant endAt, int expectedRevision) : write [ AppointmentActive -> AppointmentActive ];
       def void suspendAppointment(int expectedRevision) : write [ AppointmentActive -> AppointmentSuspended ];
       def void reinstateAppointment(int expectedRevision) : write [ AppointmentSuspended -> AppointmentActive ];
+      "capability: organization.appointments.leave; requirement: self (the member) OR team.leader of the unit; scope: appointment; decisionTime: Transaction. Leave that passes two semesters ends the appointment."
+      def void takeLeave(int expectedRevision) : write [ AppointmentActive -> AppointmentOnLeave ];
+      def void returnFromLeave(int expectedRevision) : write [ AppointmentOnLeave -> AppointmentActive ];
       "A leadership handover can appoint the successor before the predecessor leaves; the end of the last leadership appointment revokes only its scope."
-      def void endAppointment(Instant endAt, int expectedRevision) : write [ AppointmentActive, AppointmentSuspended -> AppointmentEnded* ];
+      def void endAppointment(Instant endAt, int expectedRevision) : write [ AppointmentActive, AppointmentSuspended, AppointmentOnLeave -> AppointmentEnded* ];
     }
     ValueObject AppointmentId {
       String value key
@@ -956,7 +1008,35 @@ BoundedContext Organization implements OrganizationStructure {
     }
     enum AppointmentLifecycle {
       aggregateLifecycle
-      AppointmentActive, AppointmentSuspended, AppointmentEnded
+      AppointmentActive, AppointmentSuspended, AppointmentOnLeave, AppointmentEnded
+    }
+  }
+
+  "invariant: a person joining a team signs the department's current team contract, which includes the attendance requirement, and the confidentiality declaration; each signature records the document version."
+  Aggregate JoiningAgreement {
+    Entity SignedAgreement {
+      aggregateRoot
+      PersonId personId
+      DepartmentId departmentId
+      - AgreementKind kind
+      String documentVersion
+      Instant signedAt
+      "capability: self; the signer is the joining member"
+      def void sign(DepartmentId departmentId, @AgreementKind kind, String documentVersion) : write;
+    }
+    enum AgreementKind {
+      TeamContract, ConfidentialityDeclaration
+    }
+  }
+
+  "invariant: Hovedstyret grants a membership for one calendar year; it gives no role and no authority."
+  Aggregate GrantedMembership {
+    Entity MembershipGrant {
+      aggregateRoot
+      PersonId personId
+      int calendarYear
+      "capability: organization.membership.grant; requirement: board.leader covering every department (Hovedstyret) OR global.administrator; scope: global; decisionTime: Transaction"
+      def void grantMembership(PersonId personId, int calendarYear) : write;
     }
   }
 
@@ -986,13 +1066,12 @@ BoundedContext Organization implements OrganizationStructure {
   }
 
   Application OrganizationApplication {
-    "capability: organization.appointments.manage; requirement: board.seat covering the unit OR global.administrator; scope: appointment-unit; decisionTime: Transaction"
+    "capability: organization.appointments.manage; requirement: team.leader of the unit OR board.leader covering the unit OR global.administrator; scope: appointment-unit; decisionTime: Transaction"
     Command Appoint {
       String commandId
       PersonId personId
       - AppointmentUnit unit
       PositionId position
-      boolean leadership
       Instant startAt
       Instant endAt
     }
@@ -1028,14 +1107,12 @@ BoundedContext Organization implements OrganizationStructure {
       PersonId personId
       - AppointmentUnit unit
       PositionId position
-      boolean leadership
       Instant startAt
       Instant endAt
     }
     DomainEvent AppointmentRevised {
       - AppointmentId appointmentId
       PositionId position
-      boolean leadership
       Instant startAt
       Instant endAt
     }
@@ -1054,7 +1131,7 @@ BoundedContext Organization implements OrganizationStructure {
     }
 
     Flow AppointmentFlow {
-      command Appoint [ initiated by "Board seat or global administrator" ] delegates to Appointment [ -> AppointmentActive ] emits event AppointmentMade
+      command Appoint [ initiated by "Team leader, board leader or global administrator" ] delegates to Appointment [ -> AppointmentActive ] emits event AppointmentMade
       command ReviseAppointment delegates to Appointment [ AppointmentActive -> AppointmentActive ] emits event AppointmentRevised
       command SuspendAppointment delegates to Appointment [ AppointmentActive -> AppointmentSuspended ] emits event AppointmentSuspended
       command ReinstateAppointment delegates to Appointment [ AppointmentSuspended -> AppointmentActive ] emits event AppointmentReinstated
@@ -1064,10 +1141,23 @@ BoundedContext Organization implements OrganizationStructure {
   }
 
   Service AppointmentFactSource {
-    "Organization's implementation of AccessControl's RelationshipFactPort: current, nonsuspended appointments of active units in active departments. An appointment on an ordinary team yields a team member or team leader role with team reach. An appointment on a board yields a board seat whose position carries capabilities, with the board's reach."
+    "Organization's implementation of AccessControl's RelationshipFactPort: current, nonsuspended appointments of active units in active departments. An appointment yields the role type that its position maps to: team member or team leader with team reach, board leader or board member with the board's reach. A current leadership of a local team also yields a derived board-member seat on its home department's board; a current leadership of a national team yields one on Hovedstyret. Both end with the leadership."
     boolean isTeamMember(PersonId person, TeamId team, Instant instant) : read-only;
     boolean isTeamLeader(PersonId person, TeamId team, Instant instant) : read-only;
-    boolean boardSeatCovers(PersonId person, String capabilityTypeId, DepartmentId department, Instant instant) : read-only;
+    boolean boardLeaderCovers(PersonId person, DepartmentId department, Instant instant) : read-only;
+    boolean isBoardMember(PersonId person, TeamId board, Instant instant) : read-only;
+  }
+
+  Service BoardMembership {
+    "Derived, never stored: a department board's members are its appointed seats plus one derived seat for every current leader of a local team with its home in the department. Hovedstyret's members are its appointed seats plus one derived seat for every current leader of a national team. Mailing, group synchronization and the quorum rule read it."
+    List<PersonId> boardMembers(TeamId board, Instant instant) : read-only;
+    boolean nationalBoardQuorate(Instant instant) : read-only;
+  }
+
+  Service MembershipRegister {
+    "Derived, never stored: a member is a student who holds an assistant, team or elected role, or who holds a granted membership for the calendar year. Membership lapses after three semesters without a role. An active member holds an assistant, team or board role in the current semester."
+    boolean isMember(PersonId person, SemesterId semester) : read-only;
+    boolean isActiveMember(PersonId person, SemesterId semester) : read-only;
   }
 }
 
@@ -1087,7 +1177,7 @@ BoundedContext Schools implements PartnerSchools {
       List<DepartmentId> associatedDepartments
       int revision
       - SchoolLifecycle lifecycle
-      "capability: schools.manage; requirement: global.administrator OR board.seat covering each requested department; scope: requested-departments; decisionTime: Transaction"
+      "capability: schools.manage; requirement: global.administrator OR board.leader covering each requested department; scope: requested-departments; decisionTime: Transaction"
       def void registerSchool(String name, List<DepartmentId> departments, String reason) : write [ -> SchoolActive ];
       "capability: schools.manage; requirement: covers every associated department; scope: school; decisionTime: Transaction"
       def void reviseSchoolDetails(String name, @SchoolContact contact, String reason, int expectedRevision) : write [ SchoolActive -> SchoolActive ];
@@ -1122,7 +1212,7 @@ BoundedContext Schools implements PartnerSchools {
       SemesterId semesterId
       - WeekdayCounts counts
       int revision
-      "capability: schools.capacity.manage; requirement: board.seat covering departmentId OR global.administrator; scope: department; decisionTime: Transaction"
+      "capability: schools.capacity.manage; requirement: board.leader covering departmentId OR global.administrator; scope: department; decisionTime: Transaction"
       def void setCapacity(@WeekdayCounts counts, String reason, int expectedRevision) : write;
     }
     ValueObject CapacityPlanId {
@@ -1157,7 +1247,7 @@ BoundedContext Admissions implements VolunteerRecruitment {
       Instant opensAt
       Instant closesAt
       int revision
-      "capability: admissions.periods.manage; requirement: board.seat covering departmentId OR global.administrator; scope: department; decisionTime: Transaction"
+      "capability: admissions.periods.manage; requirement: board.leader covering departmentId OR global.administrator; scope: department; decisionTime: Transaction"
       def void defineAdmissionPeriod(DepartmentId departmentId, SemesterId semesterId, Instant opensAt, Instant closesAt) : write;
       def void reviseAdmissionPeriod(Instant opensAt, Instant closesAt, int expectedRevision) : write;
     }
@@ -1179,7 +1269,7 @@ BoundedContext Admissions implements VolunteerRecruitment {
     }
   }
 
-  "invariant: one application per applicant and admission period. invariant: the field of study is active and belongs to the period's department. Admissions is the only writer of the year of study; Substitutes reads it."
+  "invariant: one application per applicant and admission period. invariant: the field of study is active and belongs to the period's department. Admissions is the only writer of the year of study. invariant: the application states the applicant's weekday availability, bolk, and school wishes (level, school, language); the placement scheduling function reads them."
   Aggregate AdmissionApplication {
     Entity AdmissionApplication {
       aggregateRoot
@@ -1188,6 +1278,9 @@ BoundedContext Admissions implements VolunteerRecruitment {
       AdmissionPeriodId admissionPeriodId
       FieldOfStudyId fieldOfStudyId
       int yearOfStudy
+      String weekdayAvailability
+      String bolkAvailability
+      String schoolWishes
       String answers
       Instant submittedAt
       int revision
@@ -1196,13 +1289,20 @@ BoundedContext Admissions implements VolunteerRecruitment {
       def void submitApplication(ApplicantId applicantId, AdmissionPeriodId admissionPeriodId, int yearOfStudy) : write [ -> ApplicationSubmitted ];
       "capability: admissions.applications.revise; requirement: the applicant's linked Person (returning registration); a correction path for department managers, if kept, has its own specification; scope: own application; decisionTime: Transaction"
       def void reviseYearOfStudy(int yearOfStudy, int expectedRevision) : write [ ApplicationSubmitted -> ApplicationSubmitted ];
+      "capability: admissions.outcomes.announce; requirement: coordinator(department); scope: application-department; decisionTime: Transaction. A Ja recommendation derives Admitted with a placement or Substitute without one, on call; a Nei recommendation derives Rejected. School coordination announces the outcome after allocation."
+      def void announceOutcome(@AdmissionOutcome outcome, int expectedRevision) : write [ ApplicationSubmitted -> OutcomeAnnounced ];
+      "capability: admissions.outcomes.decide; requirement: board.leader covering departmentId, delegated to the recruitment team; scope: application-department; decisionTime: Transaction. A Kanskje recommendation implies no outcome: the recruitment team decides placed, substitute or rejected."
+      def void decideOutcome(@AdmissionOutcome outcome, int expectedRevision) : write [ ApplicationSubmitted -> ApplicationSubmitted ];
     }
     ValueObject ApplicationId {
       String value key
     }
+    enum AdmissionOutcome {
+      Admitted, Substitute, Rejected
+    }
     enum ApplicationLifecycle {
       aggregateLifecycle
-      ApplicationSubmitted
+      ApplicationSubmitted, OutcomeAnnounced
     }
   }
 
@@ -1244,11 +1344,11 @@ BoundedContext Recruitment implements VolunteerRecruitment {
       int revision
       - InterviewLifecycle lifecycle
 
-      "capability: recruitment.interviews.assign; requirement: board.seat covering departmentId; scope: department; decisionTime: Transaction"
+      "capability: recruitment.interviews.assign; requirement: board.leader covering departmentId; scope: department; decisionTime: Transaction"
       def void assignApplicant(ApplicationId applicationId, PersonId interviewer) : write [ -> InterviewAssigned ];
-      "capability: recruitment.staffing.manage; requirement: board.seat covering departmentId OR global.administrator; scope: interview; decisionTime: Transaction. Sends no new invitation."
+      "capability: recruitment.staffing.manage; requirement: board.leader covering departmentId OR global.administrator; scope: interview; decisionTime: Transaction. Sends no new invitation."
       def void changeStaffing(PersonId interviewer, PersonId coInterviewer, String reason, int expectedRevision) : write;
-      "capability: recruitment.interviews.schedule; requirement: the interviewer with requirement recruitment.interviewer-appointment, OR board.seat covering departmentId; scope: interview; decisionTime: Transaction"
+      "capability: recruitment.interviews.schedule; requirement: the interviewer with requirement recruitment.interviewer-appointment, OR board.leader covering departmentId; scope: interview; decisionTime: Transaction"
       def void scheduleInterview(Instant startsAt, String location) : write [ InterviewAssigned -> InterviewScheduled ];
       "Only after the applicant requested a new time; a replacement creates a new schedule and invitation."
       def void replaceSchedule(Instant startsAt, String location, int expectedRevision) : write [ InterviewScheduled -> InterviewScheduled ];
@@ -1313,7 +1413,7 @@ BoundedContext Recruitment implements VolunteerRecruitment {
       DepartmentId departmentId
       String claimCapabilityId
       - OnboardingInvitationLifecycle lifecycle
-      "capability: recruitment.onboarding.invite; requirement: board.seat covering departmentId; scope: department; decisionTime: Transaction. Reissue revokes the open invitation."
+      "capability: recruitment.onboarding.invite; requirement: board.leader covering departmentId; scope: department; decisionTime: Transaction. Reissue revokes the open invitation."
       def void issueInvitation(ApplicantId applicantId) : write [ -> InvitationIssued ];
       def void revokeInvitation() : write [ InvitationIssued -> InvitationRevoked* ];
       def void markInvitationClaimed() : write [ InvitationIssued -> InvitationClaimed* ];
@@ -1334,8 +1434,8 @@ BoundedContext Recruitment implements VolunteerRecruitment {
 
 BoundedContext Placements implements SchoolService {
   type = FEATURE
-  domainVisionStatement = "Assistant supply (affiliation), semester placements, school demand, reviewed proposals and confirmed rosters, dated school-service commitments, absence and substitute coverage, and immutable service outcomes and history."
-  responsibilities = "Volunteer affiliation", "Placements", "Demand", "Proposals and rosters", "Commitments", "Absence and coverage", "Service history"
+  domainVisionStatement = "Assistant supply (affiliation), semester placements, school demand, automatically drafted and reviewed proposals, confirmed rosters, dated school-service commitments, absences with a record of who covered each lesson date, days served and certificates, and immutable service outcomes and history. Substitutes and assistants arrange cover in Slack; the system records the result."
+  responsibilities = "Volunteer affiliation", "Placements", "Demand", "Placement drafts, proposals and rosters", "Commitments", "Absence and coverage", "Days served and certificates", "Service history"
   implementationTechnology = "packages/domain/src/placements: portable contracts; packages/database/src/placements: PostgreSQL service Layer and adapters"
 
   Aggregate VolunteerAffiliation {
@@ -1348,7 +1448,7 @@ BoundedContext Placements implements SchoolService {
       - AffiliationLifecycle lifecycle
       "capability: self; requirement: linked Person identity"
       def void requestAffiliation(DepartmentId departmentId) : write [ -> AffiliationPending ];
-      "capability: placements.affiliations.establish; requirement: board.seat covering departmentId; scope: department; decisionTime: Transaction"
+      "capability: placements.affiliations.establish; requirement: board.leader covering departmentId; scope: department; decisionTime: Transaction"
       def void establishAffiliation(int expectedRevision) : write [ AffiliationPending -> AffiliationActive ];
       def void deactivateAffiliation(int expectedRevision) : write [ AffiliationActive -> AffiliationInactive ];
       def void reactivateAffiliation(int expectedRevision) : write [ AffiliationInactive -> AffiliationActive ];
@@ -1378,6 +1478,8 @@ BoundedContext Placements implements SchoolService {
       def void placeAssistant(AffiliationId affiliationId, SchoolId schoolId, SemesterId semesterId) : write [ -> Placed ];
       def void revisePlacement(int expectedRevision) : write [ Placed -> Placed ];
       def void removePlacement(int expectedRevision) : write [ Placed -> PlacementRemoved* ];
+      "capability: placements.own.read; requirement: placed assistant (self); scope: own placement; decisionTime: SnapshotRead. Assistants sign in to read their placement, receipts and profile."
+      def @Placement readOwnPlacement() : read-only;
     }
     ValueObject PlacementId {
       String value key
@@ -1409,7 +1511,7 @@ BoundedContext Placements implements SchoolService {
     }
   }
 
-  "invariant: a proposal snapshots demand and the current active placements; every mismatch is explicit; confirmation requires an exact review of those exceptions and freezes the roster."
+  "invariant: a proposal is an automated draft: a pure scheduling function assigns affiliated assistants to school demand from their weekday availability and bolk, within school capacity, and snapshots its inputs; every mismatch is explicit. Skolekoordinering adjusts the draft; confirmation requires an exact review of the remaining exceptions and freezes the roster."
   Aggregate PlacementProposal {
     Entity PlacementProposal {
       aggregateRoot
@@ -1418,7 +1520,10 @@ BoundedContext Placements implements SchoolService {
       String rosterSnapshot
       String exceptions
       - ProposalLifecycle lifecycle
+      "capability: placements.proposals.draft; requirement: coordinator(department); scope: department-semester; decisionTime: Transaction. Runs the scheduling function; it drafts and never confirms."
       def void generateProposal(DemandId demandId) : write [ -> ProposalDrafted ];
+      "capability: placements.proposals.draft; requirement: coordinator(department); scope: department-semester; decisionTime: Transaction"
+      def void adjustDraft(String assignments) : write [ ProposalDrafted -> ProposalDrafted ];
       "Queues one notification per assigned assistant; proves no dated service."
       def void confirmRoster(String reviewedExceptions) : write [ ProposalDrafted -> RosterConfirmed* ];
       def void discardProposal() : write [ ProposalDrafted -> ProposalDiscarded* ];
@@ -1426,13 +1531,17 @@ BoundedContext Placements implements SchoolService {
     ValueObject ProposalId {
       String value key
     }
+    Service PlacementScheduler {
+      "A pure domain function, ported from the legacy scheduler: a greedy assignment improved by simulated annealing over weekday availability, bolk and school capacity. Same inputs give the same draft."
+      String draftAssignments(String demand, String availability, String capacity) : read-only;
+    }
     enum ProposalLifecycle {
       aggregateLifecycle
       ProposalDrafted, RosterConfirmed, ProposalDiscarded
     }
   }
 
-  "invariant: the interval starts before it ends and required demand is positive. invariant: Completed needs an immutable occurrence whose attendance and acknowledged substitutes meet demand. invariant: a terminal decision is immutable and unique; concurrent or repeated commands cannot create a second one. invariant: outstanding offers resolve before a terminal decision. Overdue is derived from the end time and an instant; time alone proves nothing."
+  "invariant: the interval starts before it ends and required demand is positive. invariant: Completed needs an immutable occurrence whose attendance, including recorded covering assistants, meets demand. invariant: a terminal decision is immutable and unique; concurrent or repeated commands cannot create a second one. Overdue is derived from the end time and an instant; time alone proves nothing."
   Aggregate SchoolServiceCommitment {
     Entity SchoolServiceCommitment {
       aggregateRoot
@@ -1470,20 +1579,28 @@ BoundedContext Placements implements SchoolService {
     }
   }
 
-  "invariant: an absence affects one scheduled assignment and stores no medical reason or free text; it does not erase the placement or the school's need."
+  "invariant: an absence affects one scheduled assignment and stores no medical reason or free text; it does not erase the placement or the school's need. invariant: a coverage record names who covered one lesson date of the absence: a substitute on call (an admitted applicant without a placement) or another assistant. It is a recorded fact, not an offer."
   Aggregate Absence {
     Entity Absence {
       aggregateRoot
       - AbsenceId absenceId
       CommitmentId commitmentId
       PersonId absentAssistant
+      - List<CoverageRecord> coverage
       - AbsenceLifecycle lifecycle
       "capability: placements.absence.report; requirement: roster member (self) OR coordinator(school, semester); scope: commitment; decisionTime: Transaction"
       def void reportAbsence(CommitmentId commitmentId, PersonId absentAssistant) : write [ -> AbsenceReported ];
+      "capability: placements.coverage.record; requirement: roster member (self, for their own absence) OR coordinator(school, semester); scope: commitment; decisionTime: Transaction"
+      def void recordCoverage(String lessonDate, PersonId coveringAssistant) : write [ AbsenceReported -> AbsenceReported ];
       def void closeAbsence(CommitmentId occurrenceCommitment) : write [ AbsenceReported -> AbsenceCovered* X AbsenceUncovered* ];
     }
     ValueObject AbsenceId {
       String value key
+    }
+    ValueObject CoverageRecord {
+      String lessonDate
+      PersonId coveringAssistant
+      Instant recordedAt
     }
     enum AbsenceLifecycle {
       aggregateLifecycle
@@ -1491,30 +1608,35 @@ BoundedContext Placements implements SchoolService {
     }
   }
 
-  "invariant: one eligible substitute at a time; eligibility and school-name snapshots are kept; provider failure does not roll back the offer."
-  Aggregate SubstituteOffer {
-    Entity SubstituteOffer {
+  "invariant: days served are kept per assistant, department and semester; school coordination adjusts them at semester end, and each adjustment is attributable."
+  Aggregate DaysServed {
+    Entity SemesterService {
       aggregateRoot
-      - OfferId offerId
-      AbsenceId absenceId
-      PersonId substitute
-      String eligibilitySnapshot
-      String schoolNameSnapshot
-      - OfferLifecycle lifecycle
-      "capability: placements.coverage.dispatch; requirement: coordinator(school, semester); scope: absence; decisionTime: Transaction"
-      def void dispatchOffer(AbsenceId absenceId, PersonId substitute) : write [ -> OfferPending ];
-      "capability: placements.coverage.respond; requirement: offer candidate (self); only the addressed substitute"
-      def void acceptOffer() : write [ OfferPending -> OfferAccepted ];
-      def void declineOffer() : write [ OfferPending -> OfferDeclined* ];
-      def void withdrawOffer() : write [ OfferPending -> OfferWithdrawn* ];
-      def void acknowledgeCoverage() : write [ OfferAccepted -> CoverageAcknowledged* ];
+      PersonId assistant
+      DepartmentId departmentId
+      SemesterId semesterId
+      int daysServed
+      int revision
+      "capability: placements.days-served.adjust; requirement: coordinator(department); scope: department; decisionTime: Transaction"
+      def void adjustDaysServed(int daysServed, int expectedRevision) : write;
     }
-    ValueObject OfferId {
+  }
+
+  "invariant: a certificate states the assistant, the department, the semesters and the days served from the recorded service; issuing a certificate never changes that record."
+  Aggregate Certificate {
+    Entity Certificate {
+      aggregateRoot
+      - CertificateId certificateId
+      PersonId assistant
+      DepartmentId departmentId
+      SemesterId semesterId
+      int daysServed
+      Instant issuedAt
+      "capability: certificates.issue; requirement: department.board covering departmentId OR a Hovedstyret seat when the department is not independent OR global.administrator; scope: department; decisionTime: Transaction"
+      def void issueCertificate(PersonId assistant, SemesterId semesterId) : write;
+    }
+    ValueObject CertificateId {
       String value key
-    }
-    enum OfferLifecycle {
-      aggregateLifecycle
-      OfferPending, OfferAccepted, OfferDeclined, OfferWithdrawn, CoverageAcknowledged
     }
   }
 
@@ -1536,40 +1658,13 @@ BoundedContext Placements implements SchoolService {
   }
 }
 
-BoundedContext Substitutes implements SchoolService {
-  type = FEATURE
-  domainVisionStatement = "The substitute pool: opt-in membership of affiliated volunteers, weekday availability and language preference. The year of study is Admissions' fact: the pool reads it and never writes it."
-  responsibilities = "Substitute pool"
-
-  "The pool is keyed by Person. Until the Substitutes cutover re-keys it, the fact port derives the holder through the applicant link."
-  Aggregate SubstitutePool {
-    Entity PoolMembership {
-      aggregateRoot
-      PersonId personId
-      DepartmentId departmentId
-      String weekdayAvailability
-      int revision
-      - PoolLifecycle lifecycle
-      "capability: self; requirement: active affiliation"
-      def void optIn(String weekdayAvailability) : write [ -> InPool ];
-      def void revisePreferences(String weekdayAvailability, int expectedRevision) : write [ InPool -> InPool ];
-      def void optOut(int expectedRevision) : write [ InPool -> OutOfPool ];
-      def void rejoin(int expectedRevision) : write [ OutOfPool -> InPool ];
-    }
-    enum PoolLifecycle {
-      aggregateLifecycle
-      InPool, OutOfPool
-    }
-  }
-}
-
 /* ======================================================================================
  * Economy and file custody
  * ====================================================================================== */
 
 BoundedContext Economy implements ExpenseReimbursement {
   type = FEATURE
-  domainVisionStatement = "Expense claims with private receipt files, approval, rejection and reopening. A different, explicit settlement grant records immutable evidence after an external settlement. Claim state, file custody, payment destinations, approval authority, settlement authority, delivery attempts and settlement history are separate facts."
+  domainVisionStatement = "Expense claims with private receipt files, approval, rejection and reopening, from assistants (travel to school) and team members (social events). Every member of the national economy team approves or rejects claims through a national delegation. Only its leader, the finance lead, pays out and records immutable settlement evidence, through a leaders-only delegation. Claim state, file custody, payment destinations, approval authority, settlement authority, delivery attempts and settlement history are separate facts."
   responsibilities = "Expense claims", "Payment destinations", "Settlement evidence"
 
   "invariant: approval does not prove payment and leaves the claim Approved. invariant: only pending claims can be revised, withdrawn, approved or rejected."
@@ -1588,7 +1683,7 @@ BoundedContext Economy implements ExpenseReimbursement {
       def void submitClaim(@Money amount, String receiptFileRef) : write [ -> ClaimPending ];
       def void revisePendingClaim(@Money amount, int expectedRevision) : write [ ClaimPending -> ClaimPending ];
       def void withdrawPendingClaim(int expectedRevision) : write [ ClaimPending -> ClaimWithdrawn* ];
-      "capability: economy.claims.approve; requirement: approval grant covering departmentId; scope: claim-department; decisionTime: Transaction"
+      "capability: economy.claims.approve; requirement: an active delegation of economy.claims.approve whose area covers departmentId, to a team on which the person holds a current appointment (the national delegation to every member of the economy team); scope: claim-department; decisionTime: Transaction"
       def void approveClaim(int expectedRevision) : write [ ClaimPending -> ClaimApproved ];
       def void rejectClaim(String reason, int expectedRevision) : write [ ClaimPending -> ClaimRejected ];
       def void reopenRejectedClaim(int expectedRevision) : write [ ClaimRejected -> ClaimPending ];
@@ -1630,7 +1725,7 @@ BoundedContext Economy implements ExpenseReimbursement {
       Instant settledAt
       Instant recordedAt
       PersonId recordedBy
-      "capability: economy.claims.settle; requirement: settlement grant covering the claim department; scope: claim-department; decisionTime: Transaction"
+      "capability: economy.claims.settle; requirement: an active leaders-only delegation of economy.claims.settle whose area covers the claim department, to a team that the person currently leads (the finance lead of the economy team); scope: claim-department; decisionTime: Transaction"
       def void recordSettlement(ClaimId claimId, int claimRevision, String externalReference, Instant settledAt) : write;
     }
     ValueObject SettlementId {
@@ -1779,54 +1874,6 @@ BoundedContext TeamApplications implements TeamRecruitment {
   }
 }
 
-BoundedContext Surveys implements SchoolFeedback {
-  type = FEATURE
-  domainVisionStatement = "Department-scoped school surveys with text, list, radio and checkbox questions, a completion message and an explicit results policy. Anonymous responses name the school, never the respondent."
-  responsibilities = "School surveys", "Survey responses", "Results policy"
-
-  "invariant: a survey closes once and never reopens; a closed survey conceals its public form and rejects responses. invariant: the results policy controls counts, rows and exports alike, and unauthorized readers cannot learn whether confidential results exist."
-  Aggregate SchoolSurvey {
-    Entity SchoolSurvey {
-      aggregateRoot
-      - SurveyId surveyId
-      DepartmentId departmentId
-      SemesterId semesterId
-      String questions
-      String completionMessage
-      - ResultsPolicy resultsPolicy
-      - SurveyLifecycle lifecycle
-      "capability: surveys.manage; requirement: board.seat covering departmentId OR global.administrator; scope: department; decisionTime: Transaction"
-      def void createSurvey(DepartmentId departmentId, SemesterId semesterId, @ResultsPolicy resultsPolicy) : write [ -> SurveyOpen ];
-      def void closeSurvey() : write [ SurveyOpen -> SurveyClosed* ];
-    }
-    ValueObject SurveyId {
-      String value key
-    }
-    enum ResultsPolicy {
-      DepartmentManagers, GlobalAdministratorsOnly
-    }
-    enum SurveyLifecycle {
-      aggregateLifecycle
-      SurveyOpen, SurveyClosed
-    }
-  }
-
-  Aggregate SurveyResponse {
-    Entity SurveyResponse {
-      aggregateRoot
-      - SurveyResponseId surveyResponseId
-      SurveyId surveyId
-      SchoolId schoolId
-      String answers
-      "capability: public; the school is eligible for the survey's department and semester"
-      def void respond(SurveyId surveyId, SchoolId schoolId, String answers) : write;
-    }
-    ValueObject SurveyResponseId {
-      String value key
-    }
-  }
-}
-
 BoundedContext SocialEvents implements CommunityLife {
   type = FEATURE
   domainVisionStatement = "Social events for student members of a department in a semester."
@@ -1922,7 +1969,7 @@ BoundedContext Contact implements PublicPresence {
 
 BoundedContext Mailing implements Outreach {
   type = FEATURE
-  domainVisionStatement = "Mailing recipients for a department, semester and cohort (assistants, team members, union), native list administration and automated Google Workspace synchronization. Reads do not administer subscriptions or send mail."
+  domainVisionStatement = "Mailing recipients for a department, semester and cohort (assistants, team members, union), native list administration and automated Google Workspace synchronization. The first synchronization scope keeps team group membership, derived Styret seats included, in sync with team membership; accounts stay manual. Reads do not administer subscriptions or send mail."
   responsibilities = "Recipient projection", "Mailing lists", "Workspace synchronization"
 
   Aggregate MailingList {
@@ -1947,7 +1994,7 @@ BoundedContext Mailing implements Outreach {
   }
 
   Service RecipientProjection {
-    "Current authority and recipient facts share one read snapshot. An explicit semester must exist; an omitted semester resolves to the unique current one. capability: mailing.recipients.read; requirement: board.seat covering departmentId OR global.administrator (every department); decisionTime: SnapshotRead"
+    "Current authority and recipient facts share one read snapshot. An explicit semester must exist; an omitted semester resolves to the unique current one. capability: mailing.recipients.read; requirement: board.leader covering departmentId OR global.administrator (every department); decisionTime: SnapshotRead"
     String recipients(DepartmentId departmentId, SemesterId semesterId, String cohort) : read-only;
   }
 }
@@ -2012,8 +2059,8 @@ BoundedContext Delivery implements DurableDelivery {
 
 BoundedContext Reporting implements OperationalReporting {
   type = FEATURE
-  domainVisionStatement = "Read models over owned facts: applicant progress and coordinator reports (an archive export at cutover; each report is built for a named consumer). Reports accept no commands."
-  responsibilities = "Applicant progress", "Coordinator reports"
+  domainVisionStatement = "Read models over owned facts: applicant progress, coordinator reports (an archive export at cutover; each report is built for a named consumer), and General Assembly vote weights. Reports accept no commands."
+  responsibilities = "Applicant progress", "Coordinator reports", "General Assembly vote weights"
 
   Aggregate ApplicantProgressView {
     "Shows recorded facts in sequence (interview, invitation, claim, affiliation, placement); it never invents an admission answer."
@@ -2023,6 +2070,19 @@ BoundedContext Reporting implements OperationalReporting {
     }
     Service ApplicantProgressProjection {
       @ApplicantProgress progressOf(ApplicantId applicantId) : read-only;
+    }
+  }
+
+  "Each department gets its active members plus 100 votes, split equally among its attending members, at most 25 votes per member. The quorum needs one representative from each independent department. The report derives the weights; the vote happens at the meeting."
+  Aggregate GeneralAssemblyVoteWeights {
+    ValueObject DepartmentVoteWeight {
+      DepartmentId departmentId
+      int activeMembers
+      int attendingMembers
+      int votesPerAttendingMember
+    }
+    Service VoteWeightProjection {
+      @DepartmentVoteWeight weightFor(DepartmentId departmentId, SemesterId semesterId, int attendingMembers) : read-only;
     }
   }
 }
@@ -2039,6 +2099,16 @@ BoundedContext LegacySymfony implements LegacyMigration {
 BoundedContext GoogleWorkspace {
   type = SYSTEM
   domainVisionStatement = "External directory and group mail provider for list synchronization."
+}
+
+BoundedContext GoogleForms implements SchoolFeedback {
+  type = SYSTEM
+  domainVisionStatement = "External survey tool. Evaluering runs teacher, pupil, assistant and parent surveys there every semester and compiles the statistics by hand."
+}
+
+BoundedContext Slack {
+  type = SYSTEM
+  domainVisionStatement = "External chat workspace. Volunteers arrange substitute cover there; the system records only absences and coverage. The integration scope is not decided."
 }
 
 BoundedContext MailProvider {

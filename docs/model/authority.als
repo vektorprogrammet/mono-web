@@ -4,34 +4,53 @@ module authority
  * Vektorprogrammet authority as two algebras: roles and principals.
  *
  * This model states intended behaviour. docs/system.md is the product authority, in its sections
- * "Authority model", "Organization administration", "Recruitment and affiliation", "Substitute
- * coverage", "Team applications" and "Expense reimbursement". docs/model/contexts.cml places the
- * same concepts in their bounded contexts.
+ * "Authority model", "Organization administration", "Recruitment and affiliation", "Team
+ * applications" and "Expense reimbursement". docs/model/contexts.cml places the same concepts in
+ * their bounded contexts.
  *
  * ROLE ALGEBRA. A role instance is (holder, role type, scope, interval, status). The holder is a
  * Person. Teams, boards, departments and single resources are scopes, never holders. Each unit
  * sits at one scope: a team at itself, a department's board (Styret) at its department, and the
- * national board (Hovedstyret) at national scope, which covers every department. A team role
- * gets its capabilities from its role type. A board seat gets them from its position, which is
- * managed reference data. Every capability reaches the scope where the role's unit sits, so an
- * ordinary team leader acts within the team; only board positions reach a department.
+ * national board (Hovedstyret) at national scope, which covers every department. A department's
+ * board governs the department only while Hovedstyret recognises the department as independent; a
+ * non-independent department and a team without a board fall under Hovedstyret. Authority comes
+ * from a closed set of role types. A position is an informal title that one unit defines, and it
+ * maps to exactly one role type. Every capability reaches the scope where the role's unit sits,
+ * so an ordinary team leader acts within the team; only a board's leader reaches the board's area.
  *
- * DELEGATIONS. A delegation is explicit, named and time-bounded: team T holds capability C for
- * department D. While it is active, it gives C in D to the current members of T. It never carries
- * system administration. There are no roles by team kind.
+ * BOARDS. A department's Styret holds its own positions, plus one derived seat for every leader
+ * of a local team with its home in the department. Hovedstyret holds its own positions, plus one
+ * derived seat for every leader of a national team. A derived seat follows its leadership: it
+ * starts and ends with it, and it confers membership and certificate issuance, not
+ * administration. Certificates come from the board of an independent department, from a
+ * Hovedstyret seat for a department that is not independent, or from a global administrator.
+ *
+ * TEAMS. A team has a home department and a scope. The scope is the home, or national for a
+ * national team that a department hosts.
+ *
+ * DELEGATIONS. A delegation is explicit, named and time-bounded: team T holds capability C in
+ * area A. The area is the team's home, or, for a national team, a department or the whole
+ * organization. While it is active, it gives C in A to the current members of T, or to its
+ * current leaders only. Settlement reaches the leaders only: every member of the economy team
+ * approves, and its leader, the finance lead, pays out. A delegation never carries system
+ * administration. The leader of the governing board manages a team's delegations:
+ * the Styret of an independent home department for a local team, Hovedstyret for every other
+ * team; a global administrator can too. There are no roles by team kind.
  *
  * PRINCIPAL ALGEBRA. A request presents credentials. Exactly one usable principal binds one
  * subject: an account (session cookie or account bearer), or a service principal, or a bearer
- * capability. The existing-account claim uses the session as its principal. Its token is a
- * named requirement: single-use and bound to one claim target. Global administration, payment
- * authority, receipt approval, settlement and machine grants are principal-side grants. A role
- * never implies one.
+ * capability. An account bearer is an OAuth client acting for the account's person. It never
+ * exceeds the person's authority, its token scope narrows it, and a bot changes data only with
+ * the person's confirmation. A client holds no standing capability. The existing-account claim
+ * uses the session as its principal, and a bearer cannot make it. Its token is a named requirement: single-use and bound to
+ * one claim target. Global administration, payment authority and machine grants are
+ * principal-side grants. A role never implies one.
  *
- *   permit(q) = the one principal p of q is usable, and
- *     ( some role of p's Person, effective now, whose reach for the action covers the target,
- *       with the named requirements of that role and action met
- *     or some role of p's Person on a team that an active delegation of the action names, where
- *       the delegation's department covers the target
+ *   permit(q) = the one principal p of q is usable, an on-behalf request keeps to its token scope
+ *     and to the confirmation rule, and
+ *     ( some role of p's Person, effective now, whose reach for the action, or an active
+ *       delegation of the action to the role's team, covers the target, with the named
+ *       requirements of that role and action met
  *     or some grant of p's subject, active now, for the action, whose area covers the target
  *     or p is an unconsumed bearer capability for exactly this target and action
  *     or the action is the existing-account claim, p is an account, and its token is valid )
@@ -56,13 +75,17 @@ sig Instant {}
 -- containment is a forest under the organization
 abstract sig Scope { within: lone Scope }
 one sig Organization extends Scope {}
-sig Department, Team extends Scope {}
+sig Department extends Scope {}
+-- the departments that Hovedstyret recognises as independent (selvstendig)
+sig Independent in Department {}
+-- a team has a home department (within) and a scope: its home, or national
+sig Team extends Scope { teamScope: one Scope }
 sig Styret extends Scope {}            -- the board of one department
 one sig Hovedstyret extends Scope {}   -- the national board
 sig Semester {}
 sig SchoolSemester extends Scope { semester: one Semester }   -- one school in one semester, in one department
 abstract sig Resource extends Scope {}
-sig Interview, Receipt, Application, TeamApplication, ServiceCommitment, SubstituteOffer,
+sig Interview, Receipt, Application, TeamApplication, ServiceCommitment,
     ClaimTarget, InvitationTarget extends Resource {}
 
 fact containment {
@@ -72,9 +95,12 @@ fact containment {
     one s.within and s.within in Department
   all s: TeamApplication | one s.within and s.within in Team
   all s: ServiceCommitment | one s.within and s.within in SchoolSemester
-  all s: SubstituteOffer | one s.within and s.within in ServiceCommitment
   all s: InvitationTarget | one s.within and s.within in Interview
   all d: Department | lone (Styret & within.d)
+  all t: Team | t.teamScope in t.within + Organization
+  -- an independent department has a board; the statutes also require three elected board members
+  -- and the recruitment and school coordination teams
+  all d: Independent | some Styret & within.d
 }
 
 -- a department and everything inside it
@@ -83,11 +109,13 @@ fun departmentOf[s: Scope]: set Scope { s.*within & Department }
 -- t covers s when some scope in t is s or contains s
 pred covers[t: set Scope, s: Scope] { some (s.*within & t) }
 
--- the scope at which each unit sits (constrained by the policy)
-one sig Seat { at: Scope -> one Scope }
+-- the scopes at which each unit sits (constrained by the policy); the board of a department that
+-- is not independent sits nowhere, so Hovedstyret governs that department
+one sig Seat { at: Scope -> set Scope }
 
 pred boardsSitWhereTheyServe {
-  all s: Scope | Seat.at[s] = ((s in Styret) => s.within else ((s in Hovedstyret) => Organization else s))
+  all s: Scope | Seat.at[s] =
+    ((s in Styret) => (s.within & Independent) else ((s in Hovedstyret) => Organization else s))
 }
 -- MUTANT (K1): every board sits at national scope, as if a board were national wherever it serves
 pred everyBoardSitsNationally {
@@ -95,7 +123,41 @@ pred everyBoardSitsNationally {
 }
 -- MUTANT (K2): the national board sits at its own node, like any other unit
 pred hovedstyretSitsAtItsOwnNode {
-  all s: Scope | Seat.at[s] = ((s in Styret) => s.within else s)
+  all s: Scope | Seat.at[s] = ((s in Styret) => (s.within & Independent) else s)
+}
+-- MUTANT (X1): a department's board governs the department whether or not it is independent
+pred styretGovernsWithoutIndependence {
+  all s: Scope | Seat.at[s] = ((s in Styret) => s.within else ((s in Hovedstyret) => Organization else s))
+}
+-- MUTANT (X2): Hovedstyret governs only the national teams, so a department without an
+-- independent board is governed by nobody
+pred hovedstyretGovernsOnlyNationalTeams {
+  all s: Scope | Seat.at[s] = ((s in Styret) => (s.within & Independent)
+    else ((s in Hovedstyret) => { t: Team | t.teamScope = Organization } else s))
+}
+
+-- the board on which the leader of each team holds a derived seat (constrained by the policy)
+one sig DerivedBoards { of: Team -> lone Scope }
+
+pred leadersSitOnTheGoverningBoard {
+  DerivedBoards.of = { t: Team, b: Scope |
+    (t.teamScope = Organization) => b = Hovedstyret else b in Styret & within.(t.within) }
+}
+-- MUTANT (Q3): a national team's leader sits on the Styret of the team's home department, like
+-- the leader of a local team
+pred nationalLeadersSitAtHome {
+  DerivedBoards.of = { t: Team, b: Scope | b in Styret & within.(t.within) }
+}
+
+-- the area in which each team may act through delegations (constrained by the policy)
+one sig TeamAreas { of: Team -> one Scope }
+
+pred teamAreaIsItsScope { TeamAreas.of = teamScope }
+-- MUTANT (T): a team counts as national when a national team shares its home department, as if
+-- the scope were inferred from the home instead of stored per team
+pred nationalByHome {
+  TeamAreas.of = { t: Team, s: Scope |
+    s = ((some u: Team | u.within = t.within and u.teamScope = Organization) => Organization else t.teamScope) }
 }
 
 --------------------------------------------------------------------------------------------
@@ -105,14 +167,17 @@ pred hovedstyretSitsAtItsOwnNode {
 sig Person {}
 
 abstract sig RoleType {}
-one sig Member, Leader, BoardSeat, Assistant, PlacedAssistant, SubstitutePool, RosterMember,
-        OfferCandidate, Interviewer, CoInterviewer, ReceiptOwner, Applicant extends RoleType {}
+one sig Member, Leader, BoardLeader, BoardMember, Assistant, PlacedAssistant, RosterMember,
+        Interviewer, CoInterviewer, ReceiptOwner, Applicant extends RoleType {}
 
 -- appointments are the role types that Organization owns
-fun Appointments: set RoleType { Member + Leader + BoardSeat }
+fun Appointments: set RoleType { Member + Leader + BoardLeader + BoardMember }
+fun BoardTypes: set RoleType { BoardLeader + BoardMember }
 
--- a board position is managed reference data; it carries the capabilities of its seat
-sig Position { carries: set Action }
+-- a position is an informal title that one unit defines (leder, nestleder, sekretaer, ...); it
+-- maps to exactly one role type, and authority comes only from the role type
+sig Title {}
+sig Position { title: one Title, unit: one Scope, roleType: one RoleType }
 
 sig Role {
   holder: one Person,
@@ -121,41 +186,48 @@ sig Role {
   position: lone Position,
   start: one Instant,
   var finish: lone Instant,
-  gate: lone Role            -- a declared refinement whose parent must be effective (pool -> affiliation)
+  gate: lone Role            -- a derived Styret seat: the team leadership that it follows
 }
 var sig Suspended in Role {}
+
+fact positionShapes {
+  all p: Position | p.unit in Team + Styret + Hovedstyret
+  all p: Position | p.unit in Team implies p.roleType in Member + Leader
+  all p: Position | p.unit in Styret + Hovedstyret implies p.roleType in BoardTypes
+}
 
 fact roleShapes {
   all r: Role {
     r.type in Member + Leader implies r.scope in Team
-    r.type = BoardSeat        implies r.scope in Styret + Hovedstyret
+    r.type in BoardTypes      implies r.scope in Styret + Hovedstyret
     r.type = Assistant        implies r.scope in Department
     r.type = PlacedAssistant  implies r.scope in SchoolSemester
-    r.type = SubstitutePool   implies r.scope in Department
     r.type = RosterMember     implies r.scope in ServiceCommitment
-    r.type = OfferCandidate   implies r.scope in SubstituteOffer
     r.type in Interviewer + CoInterviewer implies r.scope in Interview
     r.type = ReceiptOwner     implies r.scope in Receipt
     r.type = Applicant        implies r.scope in Application
   }
-  -- only board seats hold a position that carries capabilities
-  all r: Role | some r.position iff r.type = BoardSeat
-  -- the pool is gated by the affiliation in the same department
-  all r: Role | some r.gate iff r.type = SubstitutePool
-  all r: Role | some r.gate implies
-    (r.gate.type = Assistant and r.gate.holder = r.holder and r.gate.scope = r.scope)
+  -- a stored appointment holds one position of its unit; a derived seat holds none
+  all r: Role | some r.position iff (r.type in Appointments and no r.gate)
+  all r: Role | some r.position implies r.scope = r.position.unit
+  -- a derived seat: every leader of a team with a governing board holds one derived seat on it,
+  -- which starts with the leadership, has no end of its own, and is never suspended by itself
+  all r: Role | (r.type = Leader and some DerivedBoards.of[r.scope]) implies one gate.r
+  all x: Role | some x.gate implies {
+    x.gate.type = Leader and no x.gate.gate
+    x.type = BoardMember and x.holder = x.gate.holder and x.start = x.gate.start
+    x.scope = DerivedBoards.of[x.gate.scope]
+    always (no x.finish and x not in Suspended)
+  }
   -- creation preconditions: checked when the fact is created, not afterwards
   all r: Role | r.type = PlacedAssistant implies
     some a: Role | a.type = Assistant and a.holder = r.holder and a.scope = departmentOf[r.scope]
-  all r: Role | r.type = OfferCandidate implies
-    some x: Role | x.type = SubstitutePool and x.holder = r.holder and x.scope = departmentOf[r.scope]
   -- one interviewer and one distinct co-interviewer per interview
   all i: Interview | lone (type.Interviewer & scope.i) and lone (type.CoInterviewer & scope.i)
   all a, b: Role | (a.type = Interviewer and b.type = CoInterviewer and a.scope = b.scope)
     implies a.holder != b.holder
-  -- one owner per receipt, one addressed substitute per offer
+  -- one owner per receipt
   all x: Receipt | lone (type.ReceiptOwner & scope.x)
-  all x: SubstituteOffer | lone (type.OfferCandidate & scope.x)
 }
 
 -- a derived cohort, not a scope: the placed assistants of a department in a semester
@@ -181,6 +253,11 @@ pred effectiveStaleLeadership {
   always Effective = { r: Role |
     (r.type = Leader implies started[r] else ownActive[r]) and (no r.gate or ownActive[r.gate]) }
 }
+-- MUTANT (Q1): a derived Styret seat is stored as a copy with its own state, so it outlives the
+-- team leadership that it came from
+pred effectiveDerivedSeatAsCopy {
+  always Effective = { r: Role | ownActive[r] }
+}
 
 --------------------------------------------------------------------------------------------
 -- Actions and capabilities
@@ -193,27 +270,38 @@ abstract sig Action { accepts: set Kind }
 one sig ReadTeamApplications, ManageTeamApplications,
         ManageAppointments, MaintainInterviewStaffing, ScheduleInterview, CoordinatePlacements,
         ReportAbsence, ChangeAccountAccess, AdministerGrants, MaintainQuestionnaires,
-        AssessInterview, CorrectAssessment, JoinPool, RespondToOffer, ReadOwnReceipt,
-        ReadOwnProgress, SubmitReceipt, ApproveReceipt, SettleReceipt,
+        AssessInterview, CorrectAssessment, ReadOwnReceipt, ReadOwnProgress, ReadOwnPlacement,
+        SubmitReceipt, ApproveReceipt, SettleReceipt, ManageDelegations, RecordDaysServed, IssueCertificates,
         ClaimNewAccount, ClaimExistingAccount, RespondToInvitation extends Action {}
 
--- organisational administration that a board position may carry
+-- organisational administration of a department (from Hovedstyret: of every department)
 fun DepartmentAdministration: set Action {
   ManageAppointments + MaintainInterviewStaffing + ScheduleInterview + CoordinatePlacements + ReportAbsence
+  + RecordDaysServed
 }
+-- what a delegation may give a team: department administration, and receipt approval and
+-- settlement (the national delegation to the economy team)
+fun Delegable: set Action { DepartmentAdministration + ApproveReceipt + SettleReceipt }
 -- system administration: only the principal-side global-administrator grant confers it
 fun SystemAdministration: set Action { ChangeAccountAccess + AdministerGrants + MaintainQuestionnaires }
+-- the actions that change nothing
+fun ReadActions: set Action { ReadTeamApplications + ReadOwnReceipt + ReadOwnProgress + ReadOwnPlacement }
 
 -- the credential kinds that each endpoint accepts
 fact endpointMechanisms {
   ClaimNewAccount.accepts = CapabilityKind
   RespondToInvitation.accepts = CapabilityKind
   ApproveReceipt.accepts = CookieKind + UserBearerKind + MachineKind
-  all a: Action - (ClaimNewAccount + RespondToInvitation + ApproveReceipt) |
+  all a: Action - (ClaimNewAccount + RespondToInvitation + ClaimExistingAccount + ApproveReceipt) |
     a.accepts = CookieKind + UserBearerKind
 }
 
-one sig Capabilities { table: RoleType -> Action }
+-- the session is the principal of the existing-account claim
+pred claimBySessionOnly { ClaimExistingAccount.accepts = CookieKind }
+-- MUTANT (F4): the existing-account claim also accepts a delegated bearer
+pred claimByAnyAccountCredential { ClaimExistingAccount.accepts = CookieKind + UserBearerKind }
+
+one sig Capabilities { table: RoleType -> Action, extra: Role -> Action }
 
 -- representative capabilities of role types (docs/system.md, "Authority model" and the workflows)
 pred capabilityTable { Capabilities.table = intendedCapabilities }
@@ -222,14 +310,20 @@ fun intendedCapabilities: RoleType -> Action {
       Member -> ReadTeamApplications        -- a current member of the team reads its applications
     + Leader -> ReadTeamApplications
     + Leader -> ManageTeamApplications      -- the current leader changes intake and deletes applications
-    + Assistant -> JoinPool                 -- an affiliated volunteer can opt into the substitute pool
+    + Leader -> ManageAppointments          -- the leader authorises the team's appointments
+    + BoardLeader -> DepartmentAdministration   -- a board's leader administers where the board sits
+    + BoardLeader -> ManageDelegations          -- and manages the delegations of teams in that area
+    + BoardLeader -> IssueCertificates          -- a department board issues its assistants' certificates
+    + BoardMember -> IssueCertificates          -- (requirement DepartmentBoardCertificates)
+    + PlacedAssistant -> ReadOwnPlacement   -- an assistant reads their own placement
     + RosterMember -> ReportAbsence         -- a scheduled volunteer reports their own absence
-    + OfferCandidate -> RespondToOffer      -- only the addressed substitute accepts or declines
     + Interviewer -> ScheduleInterview      -- with the named requirement InterviewerAppointment
     + Interviewer -> AssessInterview        -- an interviewer assesses only an assigned interview
     + CoInterviewer -> CorrectAssessment    -- while the scoped correction capability is active
     + ReceiptOwner -> ReadOwnReceipt        -- a receipt owner reads their own file
     + Applicant -> ReadOwnProgress          -- an applicant reads their own application progress
+    -- BoardMember carries only certificate issuance: a board seat without leadership, derived or
+    -- appointed, confers no administration
 }
 
 -- MUTANT (L): every team leader also administers its whole department ("department leader")
@@ -237,26 +331,38 @@ pred leadersAdministerTheirDepartment {
   Capabilities.table = intendedCapabilities + Leader -> DepartmentAdministration
   ReachBasis.via = (Role <: scope) + { r: Role, d: Department | r.type = Leader and d = departmentOf[r.scope] }
 }
-
-pred positionsCarryDepartmentAdministration { all p: Position | p.carries in DepartmentAdministration }
--- MUTANT (K3): a position held on the national board may carry system administration, as if a
--- Hovedstyret seat implied the global-administrator grant
-pred hovedstyretPositionsMayCarrySystemAdministration {
-  all p: Position | p.carries in DepartmentAdministration + SystemAdministration
-  all r: Role | some r.position implies
-    r.position.carries in DepartmentAdministration + ((r.scope = Hovedstyret) => SystemAdministration else none)
+-- MUTANT (Q2): every Styret member, derived seats included, administers the department, as the
+-- legacy "department leader" did
+pred styretMembersAdministerTheDepartment {
+  Capabilities.table = intendedCapabilities + BoardMember -> DepartmentAdministration
+  reachFollowsTheUnit
 }
 
-fun caps[r: Role]: set Action { r.type.(Capabilities.table) + r.position.carries }
+pred noExtraCapabilities { no Capabilities.extra }
+-- MUTANT (K3): a role on the national board carries system administration, as if a Hovedstyret
+-- seat implied the global-administrator grant
+pred hovedstyretSeatsCarrySystemAdministration {
+  Capabilities.extra = { r: Role, a: SystemAdministration | r.scope = Hovedstyret }
+}
+
+fun caps[r: Role]: set Action { r.type.(Capabilities.table) + r.(Capabilities.extra) }
+
+pred typeFollowsPosition { all r: Role | some r.position implies r.type = r.position.roleType }
+-- MUTANT (P): a separate leadership flag sits beside a free-text title, as in today's code, so a
+-- team role can be a leader whatever its position maps to
+pred leadershipFlagBesidePosition {
+  all r: Role | some r.position implies
+    (r.type = r.position.roleType or (r.scope in Team and r.type in Member + Leader))
+}
 
 -- the units whose seats decide the reach of each role (constrained by the policy)
 one sig ReachBasis { via: Role -> Scope }
 
 pred reachFollowsTheUnit { ReachBasis.via = Role <: scope }
--- MUTANT (A): a board seat also reaches wherever a seat with the same position title sits
+-- MUTANT (A): a seat also reaches wherever a seat with the same position title sits
 pred reachFollowsThePositionLabel {
   ReachBasis.via = (Role <: scope) + { r: Role, u: Scope |
-    some r.position and some x: Role | x.position = r.position and u = x.scope }
+    some r.position and some x: Role | some x.position and x.position.title = r.position.title and u = x.scope }
 }
 
 fun reach[r: Role, a: Action]: set Scope {
@@ -271,6 +377,9 @@ abstract sig Principal {}
 sig Account extends Principal { person: one Person }
 sig ServicePrincipal extends Principal { operator: lone Person }   -- operator: only mutant B uses it
 abstract sig BearerCapability extends Principal { binds: set Resource, allows: one Action }
+-- an OAuth client; registeredAs: only mutant N1 uses it
+sig Client { registeredAs: lone ServicePrincipal }
+sig Bot in Client {}                               -- a natural-language agent
 sig ClaimCapability, InvitationCapability extends BearerCapability {}
 
 sig Disabled in Account + ServicePrincipal {}   -- disabled account access, or a disabled service principal
@@ -288,7 +397,9 @@ pred capabilityBindsOne { all c: BearerCapability | one c.binds }
 pred capabilityBindsSome { all c: BearerCapability | some c.binds }
 
 abstract sig Credential { principal: one Principal }
-sig CookieCredential, UserBearerCredential, MachineCredential, CapabilityCredential extends Credential {}
+sig CookieCredential, MachineCredential, CapabilityCredential extends Credential {}
+-- an account bearer: an OAuth client acting for the account's person, narrowed by its token scope
+sig UserBearerCredential extends Credential { client: one Client, tokenScope: set Action }
 
 fact credentialShapes {
   CookieCredential.principal in Account
@@ -312,6 +423,9 @@ fact requestShapes {
     and lone (q.presents & CapabilityCredential)
   all q: Request | some q.evidence implies q.action = ClaimExistingAccount
 }
+
+-- the requests whose change the person confirmed
+sig Confirmed in Request {}
 
 one sig Resolution { chosen: Request -> lone Principal }
 
@@ -359,7 +473,7 @@ pred usable[p: Principal] { p not in Disabled + Revoked + Consumed }
 --------------------------------------------------------------------------------------------
 
 abstract sig Requirement {}
-one sig ClaimToken, InterviewerAppointment extends Requirement {}
+one sig ClaimToken, InterviewerAppointment, ChangeConfirmation, DepartmentBoardCertificates extends Requirement {}
 
 -- the named requirements in force (constrained by the policy)
 one sig InForce { rules: set Requirement }
@@ -369,6 +483,10 @@ pred everyRequirementInForce { InForce.rules = Requirement }
 pred claimTokenNotRequired { InForce.rules = Requirement - ClaimToken }
 -- MUTANT (I): an interviewer schedules without an appointment in the interview's department
 pred interviewerAppointmentNotRequired { InForce.rules = Requirement - InterviewerAppointment }
+-- MUTANT (N3): a bot changes data without the person's confirmation
+pred changeConfirmationNotRequired { InForce.rules = Requirement - ChangeConfirmation }
+-- MUTANT (W): any board seat issues certificates, a Hovedstyret seat included
+pred certificatesFromAnyBoard { InForce.rules = Requirement - DepartmentBoardCertificates }
 
 -- the departments in which an appointment's unit serves
 fun unitDepartments[r: Role]: set Scope { (r.scope.*within + Seat.at[r.scope].*~within) & Department }
@@ -379,13 +497,29 @@ pred appointedIn[p: set Person, d: set Scope, roles: set Role] {
 
 -- InterviewerAppointment: an interviewer schedules only while holding an appointment in the
 -- interview's department
+-- DepartmentBoardCertificates: a board seat issues certificates only on the board of the target's
+-- department, or on Hovedstyret for a department that is not independent
 pred requirementsHoldAmong[r: Role, a: Action, s: Scope, roles: set Role] {
   (InterviewerAppointment in InForce.rules and r.type = Interviewer and a = ScheduleInterview)
     implies appointedIn[r.holder, departmentOf[s], roles]
+  (DepartmentBoardCertificates in InForce.rules and r.type in BoardTypes and a = IssueCertificates)
+    implies (r.scope in Styret
+             or (HovedstyretIssuesNoCertificates not in Broken.rule                   -- MUTANT (W2)
+                 and r.scope = Hovedstyret and some departmentOf[s] and departmentOf[s] not in Independent))
 }
 
 -- ClaimToken: a usable claim capability, presented as evidence, binds the claim target
 pred tokenValid[q: Request] { some c: q.evidence & ClaimCapability | usable[c] and q.target in c.binds }
+
+-- ChangeConfirmation, and the token scope: an on-behalf request stays inside its token scope, and
+-- a bot changes nothing without the person's confirmation
+pred onBehalfNarrowed[q: Request] {
+  all c: q.presents & UserBearerCredential {
+    TokenScopeIgnored not in Broken.rule implies q.action in c.tokenScope     -- MUTANT (N2)
+    (ChangeConfirmation in InForce.rules and c.client in Bot and q.action not in ReadActions)
+      implies q in Confirmed
+  }
+}
 
 --------------------------------------------------------------------------------------------
 -- Principal-side grants
@@ -398,22 +532,19 @@ abstract sig Grant {
   gstart: one Instant,
   var gfinish: lone Instant
 }
-sig GlobalAdministration, PaymentAuthority, ApprovalGrant, SettlementGrant, MachineGrant extends Grant {}
+sig GlobalAdministration, PaymentAuthority, MachineGrant extends Grant {}
 
 pred grantCapabilitiesExplicit {
   all g: GlobalAdministration | g.subject in Person and g.area = Organization
-    and g.actions in SystemAdministration + ManageAppointments + MaintainInterviewStaffing + CoordinatePlacements
+    and g.actions in SystemAdministration + ManageAppointments + MaintainInterviewStaffing
+                     + CoordinatePlacements + ManageDelegations + IssueCertificates
   all g: PaymentAuthority | g.subject in Person and g.actions = SubmitReceipt and g.area in Department
-  all g: ApprovalGrant | g.subject in Person and g.actions = ApproveReceipt and g.area in Organization + Department
-  all g: SettlementGrant | g.subject in Person and g.actions = SettleReceipt and g.area in Organization + Department
   all g: MachineGrant | g.subject in ServicePrincipal and g.actions = ApproveReceipt and g.area in Receipt
 }
 -- MUTANT (H): global administration as an implicit superuser
 pred administrationGrantsEverything {
   all g: GlobalAdministration | g.subject in Person and g.area = Organization and g.actions = Action
   all g: PaymentAuthority | g.subject in Person and g.actions = SubmitReceipt and g.area in Department
-  all g: ApprovalGrant | g.subject in Person and g.actions = ApproveReceipt and g.area in Organization + Department
-  all g: SettlementGrant | g.subject in Person and g.actions = SettleReceipt and g.area in Organization + Department
   all g: MachineGrant | g.subject in ServicePrincipal and g.actions = ApproveReceipt and g.area in Receipt
 }
 
@@ -433,23 +564,55 @@ pred vetoByEndedAdministration {
 -- Delegations
 --------------------------------------------------------------------------------------------
 
--- team T holds capability C for department D, from dstart until dfinish; the atom is the name
+-- team T holds capability C in area A, from dstart until dfinish; the atom is the name. The area
+-- is the team's home, or, for a national team, a department or the whole organization.
 sig Delegation {
   team: one Team,
   capability: one Action,
-  department: one Department,
+  area: one Scope,
+  issuer: one Request,       -- the request that created it; permitted when the delegation starts
   dstart: one Instant,
   var dfinish: lone Instant
 }
+-- the delegations that reach only the current leaders of their team
+sig LeaderDelegation in Delegation {}
 
--- the rule that the policy breaks, if any; only the delegation rules read it
+-- the rule that the policy breaks, if any; the delegation and on-behalf rules read it
 one sig Broken { rule: lone Mutant }
 
-pred delegationsCarryDepartmentAdministration { all g: Delegation | g.capability in DepartmentAdministration }
+pred delegationsCarryDelegableActions { all g: Delegation | g.capability in Delegable }
+
+-- settlement reaches only the leaders of the team that it names: the finance lead pays out
+pred settlementReachesLeaders { all g: Delegation | g.capability = SettleReceipt implies g in LeaderDelegation }
+-- MUTANT (R): a settlement delegation may reach every member of the team
+pred settlementMayReachMembers {}
 -- MUTANT (K3): a delegation may carry system administration
 pred delegationsMayCarrySystemAdministration {
-  all g: Delegation | g.capability in DepartmentAdministration + SystemAdministration
+  all g: Delegation | g.capability in Delegable + SystemAdministration
 }
+
+-- a delegation stays inside its team's area
+pred delegationsStayInTheirTeamArea {
+  all g: Delegation | g.area in Department + Organization and covers[TeamAreas.of[g.team], g.area]
+}
+-- MUTANT (O1): the area of a delegation is not checked against its team's area
+pred delegationAreaUnbounded { all g: Delegation | g.area in Department + Organization }
+
+-- the manager of a delegation needs ManageDelegations over the team's area: a Styret leader for
+-- a team of its department; Hovedstyret or a global administrator for a national team
+pred delegationsIssuedOverTheTeamArea {
+  all g: Delegation | g.issuer.action = ManageDelegations and g.issuer.target = TeamAreas.of[g.team]
+}
+-- MUTANT (O2): the manager is checked against the team's home department, not its area
+pred delegationsIssuedAtTheHome {
+  all g: Delegation | g.issuer.action = ManageDelegations and g.issuer.target = g.team.within
+}
+
+-- the state in which a delegation is created: the first state at its start instant
+pred issuance[g: Delegation] { Clock.now = g.dstart and not before Clock.now = g.dstart }
+fun issuerPerson[g: Delegation]: set Person { Binding.boundPerson[Resolution.chosen[g.issuer]] }
+
+pred delegationsPermittedWhenIssued { always all g: Delegation | issuance[g] implies permitted[g.issuer] }
 
 pred delegationActive[g: Delegation] {
   lte[g.dstart, Clock.now]
@@ -460,8 +623,9 @@ pred delegationActive[g: Delegation] {
 fun delegatedReach[r: Role, a: Action]: set Scope {
   { s: Scope | r.type in Member + Leader and some g: Delegation |
       delegationActive[g] and g.capability = a
+      and (g in LeaderDelegation implies r.type = Leader)
       and (g.team = r.scope or (DelegationToDepartmentTeams in Broken.rule and g.team.within = r.scope.within))   -- MUTANT (M1)
-      and s = ((DelegationReachesEveryDepartment in Broken.rule) => Organization else g.department) }         -- MUTANT (M2)
+      and s = ((DelegationReachesEveryDepartment in Broken.rule) => Organization else g.area) }               -- MUTANT (M2)
 }
 
 --------------------------------------------------------------------------------------------
@@ -487,13 +651,15 @@ pred existingAccountClaim[p: Principal, q: Request] {
 }
 
 pred permitted[q: Request] {
-  some p: Resolution.chosen[q] | usable[p] and (
+  some p: Resolution.chosen[q] | usable[p] and onBehalfNarrowed[q] and (
        (some Binding.boundPerson[p] and
           (rolePermit[Binding.boundPerson[p], q.action, q.target]
            or grantCovers[Binding.boundPerson[p], q.action, q.target]))
     or (p in ServicePrincipal and grantCovers[p, q.action, q.target])
     or (p in BearerCapability and capabilityCovers[p, q.action, q.target])
-    or existingAccountClaim[p, q])
+    or existingAccountClaim[p, q]
+    or (ClientGrantLeaks in Broken.rule and                                            -- MUTANT (N1)
+          some c: q.presents & UserBearerCredential | grantCovers[c.client.registeredAs, q.action, q.target]))
 }
 
 -- permitted through a principal-side grant
@@ -532,18 +698,18 @@ pred skip {
 }
 
 pred endRole[r: Role] {
-  lt[r.start, Clock.now] and unfinished[r]
+  no r.gate and lt[r.start, Clock.now] and unfinished[r]
   r.finish' = Clock.now and (r in Suspended' iff r in Suspended)
   Clock.now' = Clock.now and unchangedExcept[r, none] and Consumed' = Consumed and no UsedNow
 }
 
 pred suspendRole[r: Role] {
-  r not in Suspended and Suspended' = Suspended + r and r.finish' = r.finish
+  no r.gate and r not in Suspended and Suspended' = Suspended + r and r.finish' = r.finish
   Clock.now' = Clock.now and unchangedExcept[r, none] and Consumed' = Consumed and no UsedNow
 }
 
 pred reinstateRole[r: Role] {
-  r in Suspended and Suspended' = Suspended - r and r.finish' = r.finish
+  no r.gate and r in Suspended and Suspended' = Suspended - r and r.finish' = r.finish
   Clock.now' = Clock.now and unchangedExcept[r, none] and Consumed' = Consumed and no UsedNow
 }
 
@@ -588,8 +754,8 @@ pred claimExistingAccountForgets[q: Request] {
 
 -- MUTANT (C): ending a leadership also ends the holder's other roles in that department
 pred endRoleCascading[r: Role] {
-  lt[r.start, Clock.now] and unfinished[r]
-  let doomed = r + { x: Role - r | r.type = Leader and x.holder = r.holder
+  no r.gate and lt[r.start, Clock.now] and unfinished[r]
+  let doomed = r + { x: Role - r | no x.gate and r.type = Leader and x.holder = r.holder
                        and some (departmentOf[x.scope] & departmentOf[r.scope])
                        and lt[x.start, Clock.now] and unfinished[x] } | {
     all x: doomed | x.finish' = Clock.now and (x in Suspended' iff x in Suspended)
@@ -600,7 +766,7 @@ pred endRoleCascading[r: Role] {
 
 -- MUTANT (D): suspending an affiliation also suspends the holder's placements in that department
 pred suspendRoleCascading[r: Role] {
-  r not in Suspended
+  no r.gate and r not in Suspended
   let hit = r + { x: Role | r.type = Assistant and x.type = PlacedAssistant and x.holder = r.holder
                     and departmentOf[x.scope] = r.scope } | {
     Suspended' = Suspended + hit
@@ -621,7 +787,12 @@ one sig ReachByPositionLabel, MachinesRunAsOperator, StaleLeadership, CascadingE
         AdministrationGrantsEverything, InterviewerWithoutAppointment, EveryBoardSitsNationally,
         HovedstyretSitsAtItsOwnNode, HovedstyretSeatCarriesSystemAdministration, InvitationTokenOnly,
         LeadersReachTheirDepartment, DelegationToDepartmentTeams, DelegationReachesEveryDepartment,
-        DelegationOutlivesItsEnd, DelegationCarriesSystemAdministration extends Mutant {}
+        DelegationOutlivesItsEnd, DelegationCarriesSystemAdministration, StyretMembersAdministerTheDepartment,
+        LeadershipFlagBesidePosition, DelegationAreaUnbounded, DelegationCheckedAtHome, NationalByHome,
+        DerivedSeatOutlivesLeadership, ClientGrantLeaks, TokenScopeIgnored,
+        BotChangeWithoutConfirmation, NationalLeaderSeatAtHome, StyretGovernsWithoutIndependence,
+        HovedstyretGovernsOnlyNationalTeams, CertificatesFromAnyBoard, SettlementReachesMembers,
+        HovedstyretIssuesNoCertificates, ClaimByBearer extends Mutant {}
 
 pred anyEventWith[m: lone Mutant] {
   tick or skip or (some g: Grant | endGrant[g]) or (some g: Delegation | endDelegation[g])
@@ -638,17 +809,32 @@ pred anyEventWith[m: lone Mutant] {
 pred policyWith[m: lone Mutant] {
   Broken.rule = m
   (m = LeadersReachTheirDepartment) => leadersAdministerTheirDepartment
-    else (capabilityTable and ((m = ReachByPositionLabel) => reachFollowsThePositionLabel else reachFollowsTheUnit))
+    else ((m = StyretMembersAdministerTheDepartment) => styretMembersAdministerTheDepartment
+    else (capabilityTable and ((m = ReachByPositionLabel) => reachFollowsThePositionLabel else reachFollowsTheUnit)))
+  (m = LeadershipFlagBesidePosition) => leadershipFlagBesidePosition else typeFollowsPosition
+  (m = HovedstyretSeatCarriesSystemAdministration) => hovedstyretSeatsCarrySystemAdministration
+    else noExtraCapabilities
   (m = DelegationCarriesSystemAdministration) => delegationsMayCarrySystemAdministration
-    else delegationsCarryDepartmentAdministration
-  (m = HovedstyretSeatCarriesSystemAdministration) => hovedstyretPositionsMayCarrySystemAdministration
-    else positionsCarryDepartmentAdministration
+    else delegationsCarryDelegableActions
+  (m = DelegationAreaUnbounded) => delegationAreaUnbounded else delegationsStayInTheirTeamArea
+  (m = DelegationCheckedAtHome) => delegationsIssuedAtTheHome else delegationsIssuedOverTheTeamArea
+  (m = NationalByHome) => nationalByHome else teamAreaIsItsScope
+  (m = SettlementReachesMembers) => settlementMayReachMembers else settlementReachesLeaders
+  (m = ClaimByBearer) => claimByAnyAccountCredential else claimBySessionOnly
+  delegationsPermittedWhenIssued
   (m = AdministrationGrantsEverything) => administrationGrantsEverything else grantCapabilitiesExplicit
   (m = EveryBoardSitsNationally) => everyBoardSitsNationally
-    else ((m = HovedstyretSitsAtItsOwnNode) => hovedstyretSitsAtItsOwnNode else boardsSitWhereTheyServe)
+    else ((m = HovedstyretSitsAtItsOwnNode) => hovedstyretSitsAtItsOwnNode
+    else ((m = StyretGovernsWithoutIndependence) => styretGovernsWithoutIndependence
+    else ((m = HovedstyretGovernsOnlyNationalTeams) => hovedstyretGovernsOnlyNationalTeams
+    else boardsSitWhereTheyServe)))
+  (m = NationalLeaderSeatAtHome) => nationalLeadersSitAtHome else leadersSitOnTheGoverningBoard
   (m = ClaimWithoutToken) => claimTokenNotRequired
-    else ((m = InterviewerWithoutAppointment) => interviewerAppointmentNotRequired else everyRequirementInForce)
-  (m = StaleLeadership) => effectiveStaleLeadership else effectiveByOwnState
+    else ((m = InterviewerWithoutAppointment) => interviewerAppointmentNotRequired
+    else ((m = BotChangeWithoutConfirmation) => changeConfirmationNotRequired
+    else ((m = CertificatesFromAnyBoard) => certificatesFromAnyBoard else everyRequirementInForce)))
+  (m = StaleLeadership) => effectiveStaleLeadership
+    else ((m = DerivedSeatOutlivesLeadership) => effectiveDerivedSeatAsCopy else effectiveByOwnState)
   (m = PreferSession) => resolvePreferSession
     else ((m = PreferBearer) => resolvePreferBearer
     else ((m = InvitationTokenOnly) => resolveInvitationTokenOnly else resolveExactlyOne))
@@ -691,7 +877,7 @@ pred endingARoleRevokesOnlyItsScope {
 }
 
 -- (D) suspending, reinstating or ending one role changes no other role; only declared
---     refinements (the pool under its affiliation) may lose effect
+--     refinements (a derived Styret seat under its team leadership) may lose effect
 pred roleEventTouchesOnlyThatRole {
   always all r: Role | (ends[r] or suspends[r] or reinstates[r]) implies {
     all x: Role - r | x.finish' = x.finish and (x in Suspended' iff x in Suspended)
@@ -760,10 +946,10 @@ pred delegationServesOnlyItsTeam {
     some g: Delegation | g.team = r.scope and g.capability = a
 }
 
--- (M2) a delegation reaches only the department that it names
-pred delegationReachesOnlyItsDepartment {
+-- (M2) a delegation reaches only the area that it names
+pred delegationReachesOnlyItsArea {
   always all r: Effective, a: Action, s: Scope | covers[delegatedReach[r, a], s] implies
-    some g: Delegation | g.capability = a and covers[g.department, s]
+    some g: Delegation | g.capability = a and covers[g.area, s]
 }
 
 -- (M3) a delegation confers nothing outside its interval
@@ -788,6 +974,115 @@ pred hovedstyretReachesEveryDepartment {
 --      only through an active grant, whatever seats the person holds
 pred hovedstyretConfersNoPrincipalSideGrant {
   always all q: Request | (permitted[q] and q.action in SystemAdministration) implies grantPermit[q]
+}
+
+-- (P) authority follows the position's one role type: every stored appointment has the type that
+--     its position maps to, so the holders of one position hold the same authority
+pred authorityFollowsThePositionsRoleType {
+  all r: Role | some r.position implies r.type = r.position.roleType
+  all r1, r2: Role | (some r1.position and r1.position = r2.position) implies caps[r1] = caps[r2]
+}
+
+-- (Q1) a derived Styret seat ends when the team leadership that it follows ends
+pred derivedSeatEndsWithTheLeadership {
+  always all x: Role | some x.gate implies (x in Effective implies x.gate in Effective)
+}
+
+-- (Q2) a derived Styret seat confers no department administration: an ordinary team leader acts
+--      within the team, also through the seat
+pred derivedSeatConfersNoAdministration {
+  all x: Role | some x.gate implies no caps[x] & (DepartmentAdministration + ManageDelegations)
+}
+
+-- (T) a team's home and its scope are separate: only a national team acts beyond its home
+--     department through a delegation
+pred onlyNationalTeamsReachBeyondTheirHome {
+  always all r: Effective, a: Action, s: Scope |
+    (r.scope in Team and r.scope.teamScope != Organization and covers[delegatedReach[r, a], s])
+      implies covers[r.scope.within, s]
+}
+
+-- (O1) a Styret leader never delegates outside its department
+pred styretLeaderDelegatesOnlyInItsDepartment {
+  always all g: Delegation | issuance[g] implies
+    (all r: witnesses[issuerPerson[g], ManageDelegations, g.issuer.target] | r.scope in Styret implies
+       (g.team.teamScope = departmentOf[r.scope] and g.area = departmentOf[r.scope]))
+}
+
+-- (O2) a delegation to a national team needs national authority: a Hovedstyret role or a
+--      global-administrator grant
+pred nationalTeamDelegationNeedsNationalAuthority {
+  always all g: Delegation | (issuance[g] and g.team.teamScope = Organization) implies
+    ((some r: witnesses[issuerPerson[g], ManageDelegations, Organization] | r.scope = Hovedstyret)
+     or grantCovers[issuerPerson[g], ManageDelegations, Organization])
+}
+
+-- (N1) an OAuth client acting for a person never exceeds the person's authority
+pred onBehalfNeverExceedsThePerson {
+  always all q: Request, c: q.presents & UserBearerCredential | permitted[q] implies
+    (rolePermit[c.principal.person, q.action, q.target] or grantCovers[c.principal.person, q.action, q.target])
+}
+
+-- (N2) its token scope narrows it: a permitted on-behalf request stays inside the token scope
+pred onBehalfStaysInTheTokenScope {
+  always all q: Request, c: q.presents & UserBearerCredential | permitted[q] implies q.action in c.tokenScope
+}
+
+-- (N3) a bot changes nothing without the person's confirmation; it reads without one
+pred botChangesOnlyWithConfirmation {
+  always all q: Request, c: q.presents & UserBearerCredential |
+    (permitted[q] and c.client in Bot and q.action not in ReadActions) implies q in Confirmed
+}
+
+-- (Q3) a national team's leader sits on Hovedstyret through a derived seat, not on the Styret of
+--      the team's home department
+pred nationalLeaderSitsOnHovedstyret {
+  all r: Role | (r.type = Leader and r.scope in Team and r.scope.teamScope = Organization) implies
+    ((some x: gate.r | x.scope = Hovedstyret) and (no x: gate.r | x.scope in Styret))
+}
+
+-- (X1) a department's board governs only an independent department: its roles reach nothing
+--      while the department is not independent, and never another department
+pred styretGovernsOnlyAnIndependentDepartment {
+  all r: Role, a: Action | (r.scope in Styret and some reach[r, a]) implies
+    (departmentOf[r.scope] in Independent and reach[r, a] = departmentOf[r.scope])
+}
+
+-- (X2) the teams of a department that is not independent, or that has no board, fall under
+--      Hovedstyret: a Hovedstyret role that manages delegations reaches them
+pred hovedstyretReachesTheTeamsOfDependentDepartments {
+  all r: Role, t: Team |
+    (r.scope = Hovedstyret and ManageDelegations in caps[r]
+      and (t.within not in Independent or no (Styret & within.(t.within))))
+    implies covers[reach[r, ManageDelegations], t]
+}
+
+-- (W) certificates come from the board of an independent department, from a Hovedstyret seat for a
+--     department that is not independent, or from a global-administrator grant
+pred certificatesComeFromTheDepartmentBoard {
+  always all q: Request | (permitted[q] and q.action = IssueCertificates) implies
+    (grantPermit[q]
+     or some r: witnesses[Binding.boundPerson[Resolution.chosen[q]], IssueCertificates, q.target] |
+          r.scope in Styret or (r.scope = Hovedstyret and departmentOf[q.target] not in Independent))
+}
+
+-- (W2) a Hovedstyret seat issues certificates for a department that is not independent
+pred hovedstyretIssuesCertificatesForDependentDepartments {
+  always all r: Effective, d: Department | (r.scope = Hovedstyret and r.type in BoardTypes and d not in Independent)
+    implies rolePermit[r.holder, IssueCertificates, d]
+}
+
+-- (R) only a leader of the delegated team records settlement: every member of the economy team
+--     approves, and its leader, the finance lead, pays out
+pred settlementNeedsTheTeamLeader {
+  always all q: Request | (permitted[q] and q.action = SettleReceipt) implies
+    (grantPermit[q]
+     or some r: witnesses[Binding.boundPerson[Resolution.chosen[q]], SettleReceipt, q.target] | r.type = Leader)
+}
+
+-- (F4) only a session cookie makes the existing-account claim; a bearer cannot
+pred existingAccountClaimBySessionOnly {
+  always all q: Request | (permitted[q] and q.action = ClaimExistingAccount) implies q.presents in CookieCredential
 }
 
 -- sanity: the events keep every role interval ordered
@@ -894,14 +1189,96 @@ assert M1_DelegationServesOnlyItsTeam_mutantDepartmentTeams {
   policyWith[DelegationToDepartmentTeams] implies delegationServesOnlyItsTeam
 }
 
-assert M2_DelegationReachesOnlyItsDepartment { policy implies delegationReachesOnlyItsDepartment }
-assert M2_DelegationReachesOnlyItsDepartment_mutantEveryDepartment {
-  policyWith[DelegationReachesEveryDepartment] implies delegationReachesOnlyItsDepartment
+assert M2_DelegationReachesOnlyItsArea { policy implies delegationReachesOnlyItsArea }
+assert M2_DelegationReachesOnlyItsArea_mutantEveryDepartment {
+  policyWith[DelegationReachesEveryDepartment] implies delegationReachesOnlyItsArea
 }
 
 assert M3_DelegationConfersNothingOutsideItsInterval { policy implies delegationConfersNothingOutsideItsInterval }
 assert M3_DelegationConfersNothingOutsideItsInterval_mutantOutlivesItsEnd {
   policyWith[DelegationOutlivesItsEnd] implies delegationConfersNothingOutsideItsInterval
+}
+
+assert O1_StyretLeaderDelegatesOnlyInItsDepartment { policy implies styretLeaderDelegatesOnlyInItsDepartment }
+assert O1_StyretLeaderDelegatesOnlyInItsDepartment_mutantAreaUnbounded {
+  policyWith[DelegationAreaUnbounded] implies styretLeaderDelegatesOnlyInItsDepartment
+}
+
+assert O2_NationalTeamDelegationNeedsNationalAuthority { policy implies nationalTeamDelegationNeedsNationalAuthority }
+assert O2_NationalTeamDelegationNeedsNationalAuthority_mutantCheckedAtHome {
+  policyWith[DelegationCheckedAtHome] implies nationalTeamDelegationNeedsNationalAuthority
+}
+
+assert P_AuthorityFollowsThePositionsRoleType { policy implies authorityFollowsThePositionsRoleType }
+assert P_AuthorityFollowsThePositionsRoleType_mutantLeadershipFlag {
+  policyWith[LeadershipFlagBesidePosition] implies authorityFollowsThePositionsRoleType
+}
+
+assert Q1_DerivedSeatEndsWithTheLeadership { policy implies derivedSeatEndsWithTheLeadership }
+assert Q1_DerivedSeatEndsWithTheLeadership_mutantStoredCopy {
+  policyWith[DerivedSeatOutlivesLeadership] implies derivedSeatEndsWithTheLeadership
+}
+
+assert Q2_DerivedSeatConfersNoAdministration { policy implies derivedSeatConfersNoAdministration }
+assert Q2_DerivedSeatConfersNoAdministration_mutantStyretAdministers {
+  policyWith[StyretMembersAdministerTheDepartment] implies derivedSeatConfersNoAdministration
+}
+
+assert T_OnlyNationalTeamsReachBeyondTheirHome { policy implies onlyNationalTeamsReachBeyondTheirHome }
+assert T_OnlyNationalTeamsReachBeyondTheirHome_mutantNationalByHome {
+  policyWith[NationalByHome] implies onlyNationalTeamsReachBeyondTheirHome
+}
+
+assert N1_OnBehalfNeverExceedsThePerson { policy implies onBehalfNeverExceedsThePerson }
+assert N1_OnBehalfNeverExceedsThePerson_mutantClientGrantLeaks {
+  policyWith[ClientGrantLeaks] implies onBehalfNeverExceedsThePerson
+}
+
+assert N2_OnBehalfStaysInTheTokenScope { policy implies onBehalfStaysInTheTokenScope }
+assert N2_OnBehalfStaysInTheTokenScope_mutantScopeIgnored {
+  policyWith[TokenScopeIgnored] implies onBehalfStaysInTheTokenScope
+}
+
+assert N3_BotChangesOnlyWithConfirmation { policy implies botChangesOnlyWithConfirmation }
+assert N3_BotChangesOnlyWithConfirmation_mutantNoConfirmation {
+  policyWith[BotChangeWithoutConfirmation] implies botChangesOnlyWithConfirmation
+}
+
+assert Q3_NationalLeaderSitsOnHovedstyret { policy implies nationalLeaderSitsOnHovedstyret }
+assert Q3_NationalLeaderSitsOnHovedstyret_mutantSeatAtHome {
+  policyWith[NationalLeaderSeatAtHome] implies nationalLeaderSitsOnHovedstyret
+}
+
+assert X1_StyretGovernsOnlyAnIndependentDepartment { policy implies styretGovernsOnlyAnIndependentDepartment }
+assert X1_StyretGovernsOnlyAnIndependentDepartment_mutantWithoutIndependence {
+  policyWith[StyretGovernsWithoutIndependence] implies styretGovernsOnlyAnIndependentDepartment
+}
+
+assert X2_HovedstyretReachesTheTeamsOfDependentDepartments { policy implies hovedstyretReachesTheTeamsOfDependentDepartments }
+assert X2_HovedstyretReachesTheTeamsOfDependentDepartments_mutantOnlyNationalTeams {
+  policyWith[HovedstyretGovernsOnlyNationalTeams] implies hovedstyretReachesTheTeamsOfDependentDepartments
+}
+
+assert W_CertificatesComeFromTheDepartmentBoard { policy implies certificatesComeFromTheDepartmentBoard }
+assert W_CertificatesComeFromTheDepartmentBoard_mutantAnyBoard {
+  policyWith[CertificatesFromAnyBoard] implies certificatesComeFromTheDepartmentBoard
+}
+
+assert W2_HovedstyretIssuesCertificatesForDependentDepartments {
+  policy implies hovedstyretIssuesCertificatesForDependentDepartments
+}
+assert W2_HovedstyretIssuesCertificatesForDependentDepartments_mutantStyretOnly {
+  policyWith[HovedstyretIssuesNoCertificates] implies hovedstyretIssuesCertificatesForDependentDepartments
+}
+
+assert R_SettlementNeedsTheTeamLeader { policy implies settlementNeedsTheTeamLeader }
+assert R_SettlementNeedsTheTeamLeader_mutantMembersSettle {
+  policyWith[SettlementReachesMembers] implies settlementNeedsTheTeamLeader
+}
+
+assert F4_ExistingAccountClaimBySessionOnly { policy implies existingAccountClaimBySessionOnly }
+assert F4_ExistingAccountClaimBySessionOnly_mutantBearer {
+  policyWith[ClaimByBearer] implies existingAccountClaimBySessionOnly
 }
 
 assert S_IntervalsStayOrdered { policy implies intervalsStayOrdered }
@@ -953,11 +1330,10 @@ pred scenarioExistingAccountClaimOnce {
   some q: Request | q.action = ClaimExistingAccount and Resolution.chosen[q] in Account and some q.evidence
     and eventually (q.evidence in UsedNow and after always not permitted[q])
 }
--- a pool entry loses effect with its affiliation while the placement stays
-pred scenarioPoolGatedPlacementIndependent {
+-- a team leader's derived Styret seat follows the leadership and ends with it
+pred scenarioDerivedSeatEndsWithTheLeadership {
   policy
-  some a, x, pl: Role | a.type = Assistant and x.gate = a and pl.type = PlacedAssistant and pl.holder = a.holder
-    and a not in Effective and ownActive[x] and x not in Effective and pl in Effective
+  some x: Effective | some x.gate and eventually (x.gate not in Effective and x not in Effective)
 }
 -- the assistants of a department in a semester are a derived cohort
 pred scenarioDerivedCohort {
@@ -975,14 +1351,81 @@ pred scenarioInterviewerSchedulesWhileAppointed {
 pred scenarioDelegatedMemberActsInNamedDepartment {
   policy
   some r: Effective, g: Delegation, d: Department | r.type = Member and r.scope = g.team and delegationActive[g]
-    and r in witnesses[r.holder, g.capability, g.department]
-    and d != g.department and not rolePermit[r.holder, g.capability, d]
+    and r in witnesses[r.holder, g.capability, g.area]
+    and d != g.area and not rolePermit[r.holder, g.capability, d]
 }
 -- a delegation ends, and the authority that it conferred ends with it
 pred scenarioDelegationEndsWithItsAuthority {
   policy
-  some r: Effective, g: Delegation | r.scope = g.team and r in witnesses[r.holder, g.capability, g.department]
-    and eventually (not delegationActive[g] and not rolePermit[r.holder, g.capability, g.department])
+  some r: Effective, g: Delegation | r.scope = g.team and r in witnesses[r.holder, g.capability, g.area]
+    and eventually (not delegationActive[g] and not rolePermit[r.holder, g.capability, g.area])
+}
+-- a national team with its home in one department acts in another through a national delegation
+pred scenarioNationalTeamHostedInADepartment {
+  policy
+  some r: Effective, g: Delegation, d: Department |
+    r.scope = g.team and g.team.teamScope = Organization and d != g.team.within
+    and delegationActive[g] and r in witnesses[r.holder, g.capability, d]
+}
+-- a Styret leader creates a delegation for a team of its department
+pred scenarioStyretLeaderDelegatesInItsDepartment {
+  policy
+  some g: Delegation | eventually (issuance[g] and
+    some r: witnesses[issuerPerson[g], ManageDelegations, g.issuer.target] | r.scope in Styret)
+}
+-- Hovedstyret creates a delegation for a national team
+pred scenarioHovedstyretDelegatesToANationalTeam {
+  policy
+  some g: Delegation | g.team.teamScope = Organization and eventually (issuance[g] and
+    some r: witnesses[issuerPerson[g], ManageDelegations, Organization] | r.scope = Hovedstyret)
+}
+-- one title means different role types in different units, and each holder gets its unit's type
+pred scenarioTitlesAreDefinedPerUnit {
+  policy
+  some disj p1, p2: Position | p1.title = p2.title and p1.roleType != p2.roleType
+    and some r1, r2: Role | r1.position = p1 and r2.position = p2
+}
+-- the leader of a national team sits on Hovedstyret through a derived seat
+pred scenarioNationalLeaderSitsOnHovedstyret {
+  policy
+  some r, x: Effective | r.type = Leader and r.scope.teamScope = Organization and x.gate = r
+    and x.scope = Hovedstyret
+}
+-- Hovedstyret creates a delegation for a team of a department that is not independent
+pred scenarioHovedstyretDelegatesInADependentDepartment {
+  policy
+  some g: Delegation | g.team.teamScope != Organization and g.team.within not in Independent
+    and eventually (issuance[g] and
+      some r: witnesses[issuerPerson[g], ManageDelegations, g.issuer.target] | r.scope = Hovedstyret)
+}
+-- a team leader's derived Styret seat issues certificates in the department and not in another
+pred scenarioDerivedSeatIssuesCertificates {
+  policy
+  some x: Effective, d: Department | some x.gate and x.scope in Styret
+    and rolePermit[x.holder, IssueCertificates, departmentOf[x.scope]]
+    and d not in departmentOf[x.scope] and not rolePermit[x.holder, IssueCertificates, d]
+}
+-- a bot reads for a person without confirmation, and changes data only with it
+pred scenarioBotReadsAndChangesWithConfirmation {
+  policy
+  some disj q1, q2: Request | some c1: q1.presents & UserBearerCredential, c2: q2.presents & UserBearerCredential |
+    c1.client in Bot and c2.client in Bot and permitted[q1] and permitted[q2]
+    and q1.action in ReadActions and q1 not in Confirmed and q2.action not in ReadActions and q2 in Confirmed
+}
+
+-- a member of the economy team approves a claim but cannot record its settlement
+pred scenarioEconomyMemberApprovesButDoesNotSettle {
+  policy
+  some r: Effective, disj ga, gs: Delegation | r.type = Member and r.scope = ga.team and ga.team = gs.team
+    and ga.capability = ApproveReceipt and gs.capability = SettleReceipt
+    and delegationActive[ga] and delegationActive[gs]
+    and rolePermit[r.holder, ApproveReceipt, ga.area] and not rolePermit[r.holder, SettleReceipt, gs.area]
+}
+-- a Hovedstyret seat issues certificates for a department that is not independent
+pred scenarioHovedstyretIssuesCertificatesForADependentDepartment {
+  policy
+  some r: Effective, d: Department | r.scope = Hovedstyret and d not in Independent
+    and rolePermit[r.holder, IssueCertificates, d]
 }
 
 --------------------------------------------------------------------------------------------
@@ -1042,11 +1485,59 @@ check L_TeamRolesStayInTheirTeam_mutantLeadersReachTheirDepartment for 3 but 8 S
 check M1_DelegationServesOnlyItsTeam for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 0
 check M1_DelegationServesOnlyItsTeam_mutantDepartmentTeams for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
 
-check M2_DelegationReachesOnlyItsDepartment for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 0
-check M2_DelegationReachesOnlyItsDepartment_mutantEveryDepartment for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+check M2_DelegationReachesOnlyItsArea for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 0
+check M2_DelegationReachesOnlyItsArea_mutantEveryDepartment for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
 
 check M3_DelegationConfersNothingOutsideItsInterval for 3 but 8 Scope, 6 Role, 3 Instant, 5 steps expect 0
 check M3_DelegationConfersNothingOutsideItsInterval_mutantOutlivesItsEnd for 3 but 8 Scope, 6 Role, 3 Instant, 5 steps expect 1
+
+check O1_StyretLeaderDelegatesOnlyInItsDepartment for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 0
+check O1_StyretLeaderDelegatesOnlyInItsDepartment_mutantAreaUnbounded for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+
+check O2_NationalTeamDelegationNeedsNationalAuthority for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 0
+check O2_NationalTeamDelegationNeedsNationalAuthority_mutantCheckedAtHome for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+
+check P_AuthorityFollowsThePositionsRoleType for 3 but 8 Scope, 6 Role, 3 Instant, 1 steps expect 0
+check P_AuthorityFollowsThePositionsRoleType_mutantLeadershipFlag for 3 but 8 Scope, 6 Role, 3 Instant, 1 steps expect 1
+
+check Q1_DerivedSeatEndsWithTheLeadership for 3 but 8 Scope, 6 Role, 3 Instant, 5 steps expect 0
+check Q1_DerivedSeatEndsWithTheLeadership_mutantStoredCopy for 3 but 8 Scope, 6 Role, 3 Instant, 5 steps expect 1
+
+check Q2_DerivedSeatConfersNoAdministration for 3 but 8 Scope, 6 Role, 3 Instant, 1 steps expect 0
+check Q2_DerivedSeatConfersNoAdministration_mutantStyretAdministers for 3 but 8 Scope, 6 Role, 3 Instant, 1 steps expect 1
+
+check T_OnlyNationalTeamsReachBeyondTheirHome for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 0
+check T_OnlyNationalTeamsReachBeyondTheirHome_mutantNationalByHome for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+
+check N1_OnBehalfNeverExceedsThePerson for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 0
+check N1_OnBehalfNeverExceedsThePerson_mutantClientGrantLeaks for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+
+check N2_OnBehalfStaysInTheTokenScope for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 0
+check N2_OnBehalfStaysInTheTokenScope_mutantScopeIgnored for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+
+check N3_BotChangesOnlyWithConfirmation for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 0
+check N3_BotChangesOnlyWithConfirmation_mutantNoConfirmation for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+
+check Q3_NationalLeaderSitsOnHovedstyret for 3 but 8 Scope, 6 Role, 3 Instant, 1 steps expect 0
+check Q3_NationalLeaderSitsOnHovedstyret_mutantSeatAtHome for 3 but 8 Scope, 6 Role, 3 Instant, 1 steps expect 1
+
+check X1_StyretGovernsOnlyAnIndependentDepartment for 3 but 8 Scope, 6 Role, 3 Instant, 1 steps expect 0
+check X1_StyretGovernsOnlyAnIndependentDepartment_mutantWithoutIndependence for 3 but 8 Scope, 6 Role, 3 Instant, 1 steps expect 1
+
+check X2_HovedstyretReachesTheTeamsOfDependentDepartments for 3 but 8 Scope, 6 Role, 3 Instant, 1 steps expect 0
+check X2_HovedstyretReachesTheTeamsOfDependentDepartments_mutantOnlyNationalTeams for 3 but 8 Scope, 6 Role, 3 Instant, 1 steps expect 1
+
+check W_CertificatesComeFromTheDepartmentBoard for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 0
+check W_CertificatesComeFromTheDepartmentBoard_mutantAnyBoard for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+
+check W2_HovedstyretIssuesCertificatesForDependentDepartments for 3 but 8 Scope, 6 Role, 3 Instant, 1 steps expect 0
+check W2_HovedstyretIssuesCertificatesForDependentDepartments_mutantStyretOnly for 3 but 8 Scope, 6 Role, 3 Instant, 1 steps expect 1
+
+check R_SettlementNeedsTheTeamLeader for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 0
+check R_SettlementNeedsTheTeamLeader_mutantMembersSettle for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+
+check F4_ExistingAccountClaimBySessionOnly for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 0
+check F4_ExistingAccountClaimBySessionOnly_mutantBearer for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
 
 check S_IntervalsStayOrdered for 3 but 8 Scope, 6 Role, 3 Instant, 5 steps expect 0
 
@@ -1057,8 +1548,18 @@ run scenarioHovedstyretSeatReachesATeam for 3 but 8 Scope, 6 Role, 3 Instant, 3 
 run scenarioEndingOneBoardSeatKeepsTheOther for 3 but 8 Scope, 6 Role, 3 Instant, 5 steps expect 1
 run scenarioNewAccountClaimOnce for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
 run scenarioExistingAccountClaimOnce for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
-run scenarioPoolGatedPlacementIndependent for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
+run scenarioDerivedSeatEndsWithTheLeadership for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
 run scenarioDerivedCohort for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
 run scenarioInterviewerSchedulesWhileAppointed for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
 run scenarioDelegatedMemberActsInNamedDepartment for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
 run scenarioDelegationEndsWithItsAuthority for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+run scenarioNationalTeamHostedInADepartment for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
+run scenarioStyretLeaderDelegatesInItsDepartment for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
+run scenarioHovedstyretDelegatesToANationalTeam for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
+run scenarioTitlesAreDefinedPerUnit for 3 but 8 Scope, 6 Role, 3 Instant, 1 steps expect 1
+run scenarioBotReadsAndChangesWithConfirmation for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
+run scenarioNationalLeaderSitsOnHovedstyret for 3 but 8 Scope, 6 Role, 3 Instant, 1 steps expect 1
+run scenarioHovedstyretDelegatesInADependentDepartment for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
+run scenarioDerivedSeatIssuesCertificates for 3 but 8 Scope, 6 Role, 3 Instant, 1 steps expect 1
+run scenarioEconomyMemberApprovesButDoesNotSettle for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
+run scenarioHovedstyretIssuesCertificatesForADependentDepartment for 3 but 8 Scope, 6 Role, 3 Instant, 1 steps expect 1

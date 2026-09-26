@@ -1,30 +1,34 @@
 # Intended system
 
-**Status:** Target business model and product behavior. Revised 2026-09-24.
+**Status:** Target business model and product behavior. Revised 2026-09-26.
 
 This document explains the replacement system. It describes intent, not production
 state. [STATE.md](../STATE.md) records what is implemented and accepted.
 
 ## Purpose
 
-Vektorprogrammet connects volunteer university students with partner schools that
-need mathematics tutoring. The system also supports the organization that recruits,
-places, schedules, and follows up those volunteers.
+Vektorprogrammet sends volunteer university students to partner schools as
+assistants. An assistant helps pupils during regular mathematics lessons, in the
+classroom. The partner schools are primary and lower secondary schools (barneskole
+and ungdomsskole). The system also supports the organization that recruits, places,
+schedules, and monitors these assistants.
 
 The operational core is a school-service commitment:
 
 ```text
 school demand + eligible assistant supply
+  -> automatic placement draft
+  -> coordinator-adjusted placements
   -> reviewed proposal
   -> coordinator-confirmed roster
   -> dated school-service commitment
-  -> absence and reassignment when needed
+  -> recorded absences and coverage
   -> Completed | Cancelled | Unfulfilled
   -> immutable evidence and service history
 ```
 
 Recruitment, onboarding, organization administration, expense reimbursement,
-events, surveys, content, and communication support this core. They are
+events, certificates, content, and communication support this core. They are
 separate workflows, not one aggregate.
 
 Sponsor teams seek support from businesses and organizations. Their funding
@@ -41,16 +45,30 @@ human team activity or assume that sponsor presentation is an income ledger.
 - An **Account** authenticates a Person. Credentials and sessions belong to the
   account lifecycle.
 - A **Profile** stores the person's contact data.
+- A **Department** is the local chapter of Vektorprogrammet in one university city.
+  Each department recruits, places, and schedules its own assistants.
 - A **VolunteerAffiliation** records that a person can serve as an assistant in one
-  local chapter. It has an independent lifecycle.
-- An **Appointment** records a position in an organizational unit for a time range.
-- A **Placement** assigns an assistant to recurring school service in a semester.
+  department. It has an independent lifecycle.
+- An **Appointment** records a position in a unit for a time range. A unit is a
+  team or a board. The position maps to one role type, and the role type gives
+  the authority.
+- A **Delegation** gives the current members of one team one capability in one
+  area for a time range.
+- A **Grant** gives one Person or one service principal named authority for a time
+  range. Global administration is a grant.
+- A **Placement** assigns an assistant to recurring school service on one weekday,
+  in one or both teaching blocks of a semester.
 - A **SchoolServiceCommitment** binds a school, dated service interval, demand,
   and the assistants scheduled to meet it. It does not replace a Placement.
 - An **Absence** records that one scheduled assistant cannot serve on that dated
-  commitment. It does not erase the placement or the school's need.
+  commitment. It does not erase the placement or the school's need. A coverage
+  record can name the person who covers the absence: a substitute or another
+  assistant.
 - A **SemesterRef** identifies an external semester. Vektorprogrammet uses semesters
-  but does not own their lifecycle.
+  but does not own their lifecycle. Each semester has its own admission, placement,
+  and school service.
+- A **teaching block** (bolk) is one half of a semester. An assistant serves in
+  block 1, block 2, or both blocks.
 - Roles shown in a menu are projections. They are not the authority model.
 
 These facts may overlap. One person can be a volunteer, team member, team leader,
@@ -129,8 +147,12 @@ Reviewed Organization reconciliation uses the [public Organization boundary](../
 It requires accepted Person evidence for the exact source snapshot and accepted department mappings. Numeric legacy user IDs never become Person IDs implicitly.
 
 Each team or board membership needs one review entry that binds its raw digest and supplies an interval or explicit exclusion.
-The review defines the authorization instant. Historical appointments, future appointments, suspended members, inactive units, and board membership cannot confer current department leadership.
-An eligible current team leader receives only the native department scope. Import never creates global grants, human lifecycle events, or notification work.
+The review defines the authorization instant. Historical appointments, future appointments, suspended members, and inactive units confer no current authority.
+A current membership of a legacy Styret team becomes a seat on the board of its department. A current Hovedstyret membership becomes a seat on the national board.
+Each imported title becomes a position of its unit, and each position maps to one role type.
+A legacy team that works for the whole organization, such as Økonomi, becomes a national team. Its home stays in its department.
+A current team leader receives the scope of the team only. The leader also holds a derived seat on the governing board of the team.
+Import never creates grants, delegations, human lifecycle events, or notification work. Board leaders and global administrators create delegations explicitly.
 
 Malformed or unresolved rows receive individual quarantine dispositions. Exact replay preserves later native changes. A requested cohort needs at least one accepted appointment.
 The source reader adds Organization tables only after explicit selection. Review evidence alone does not establish current production facts or authorize cutover.
@@ -138,6 +160,11 @@ The source reader adds Organization tables only after explicit selection. Review
 ## Core lifecycles
 
 ### Recruitment and affiliation
+
+Each department runs its own admission for each semester. A new applicant submits
+the assistant application on the public site. The application states the field of
+study, year of study, weekday availability, teaching blocks, and school wishes.
+School wishes name a school level, a preferred school, and a teaching language.
 
 ```text
 Applicant submits
@@ -158,12 +185,23 @@ The system must keep these decisions separate:
 4. Volunteer affiliation.
 5. School placement.
 
-There is no inferred generic “accepted applicant” fact. A coordinator admission
-decision is not part of the current native model unless the organization defines it
-as a separate command and authority.
+There is no inferred generic “accepted applicant” fact. For a new applicant, the
+interview recommendation decides admission. An interviewer from the recruitment
+team (Rekruttering) records it. No coordinator makes a separate admission decision.
 
-A returning volunteer may use an existing account and history. They still need an
-explicit affiliation for the relevant chapter and an explicit placement.
+A returning assistant registers again for each new semester, without an interview.
+The registration states the same availability and school wishes as an application.
+The assistant can use the existing account and history. The assistant still needs
+an explicit affiliation in the department and an explicit placement.
+
+When the placements for the semester are complete, each new applicant and each
+returning assistant has one admission outcome: admitted, substitute, or rejected.
+A Kanskje (maybe) recommendation implies no outcome. The recruitment team
+(Rekruttering) then decides whether the person is placed, a substitute, or rejected.
+An admitted person has a placement. A substitute is also admitted but has no
+placement. A substitute is on call during the semester and can cover an absence.
+The school coordination team (Skolekoordinering) sends the outcome message to each
+person.
 
 The onboarding claim link is a bearer capability for one invitation. A consumed claim capability cannot be used again.
 A holder without an account presents only the link and creates an account; a request that also carries a session or bearer fails.
@@ -181,7 +219,7 @@ The question types are free text, dropdown, single choice, and multiple choice.
 Each assigned interview retains its saved questions and answers. Later questionnaire changes affect future assignments only.
 Unavailable historical questions remain unavailable; the system does not replace them with the current definition.
 
-Current department leaders maintain primary and optional co-interviewers within their department. Global administrators can maintain staffing across departments.
+Board leaders maintain primary and optional co-interviewers in the departments that they cover. Global administrators can maintain staffing across departments.
 Both interviewers must be eligible, distinct people. Neither can be the linked applicant.
 Staffing changes preserve schedules, invitation capabilities, responses, assessments, and onboarding facts. They send no new invitation.
 Completed or cancelled interviews reject staffing changes. Removed interviewers lose assignment-based access on the next authorized interaction.
@@ -204,7 +242,8 @@ Superseded notification work cannot start another provider attempt. An existing 
 ### School administration
 
 Schools owns partner-school identities, contacts, language, active status, and department associations.
-A current global administrator can maintain every school. Department leaders can maintain schools within their current scope.
+A school contact is data. It is not a principal and it holds no role.
+A current global administrator can maintain every school. Board leaders can maintain schools in the departments that they cover.
 Directory membership alone grants no maintenance authority.
 
 Shared details require authority over every associated department. Association changes require authority over both the current and requested departments.
@@ -222,11 +261,21 @@ Scoped management reads conceal other departments, their capacity plans, and the
 
 ### School demand and placement
 
-Placement demand specifies required volunteers, school, weekday, teaching block, and semester.
-Volunteer supply includes affiliation, eligibility, availability, and preferences.
+Placement demand specifies the school, weekday, teaching block, semester, and
+required number of assistants. Assistant supply includes affiliation, eligibility,
+availability, and school wishes. The application or returning registration of each
+assistant supplies the availability and school wishes.
 
-The coordinator records demand for an active school, weekday, and teaching block.
-A proposal snapshots that demand and the current active placements. Every mismatch
+The school contact tells the school coordination team (Skolekoordinering) what the
+school needs. The coordinator records that demand for an active school, weekday,
+and teaching block.
+
+The system first creates a placement draft automatically. The draft matches the
+weekday availability and teaching blocks of the assistants to the capacity plans of
+the schools. A coordinator then adjusts the draft manually. The draft creates no
+placement until a coordinator accepts it.
+
+A proposal snapshots the demand and the current active placements. Every mismatch
 is explicit, and confirmation requires an exact review of those exceptions.
 
 Confirmation freezes the roster snapshot and queues one notification per assigned
@@ -242,22 +291,22 @@ A placement is separate from a confirmed roster and a dated commitment.
 An authorized coordinator establishes a commitment for one school, date, and
 bounded service interval from a confirmed roster. It records the required number
 of assistants and their scheduled assignments. An absence affects one assignment.
-A substitute can cover that assignment without changing the confirmed roster or
-the assistant's semester placement.
+A substitute or another assistant can cover that assignment. Coverage does not
+change the confirmed roster or the semester placement of the absent assistant.
 
 The interval starts before it ends, and required demand is positive. A reviewed
 proposal can still have no assigned assistant; this leaves visible unmet demand.
 It cannot become Completed without evidence that actual attendance met demand.
 
 The coordinator acts within the school and semester scope. The coordinator can
-record evidence received from a school contact and retain its source. If the
-contact acts in the application, IAM grants only the required school scope.
+record evidence received from a school contact and retain its source. The school
+contact does not act in the application.
 
 The commitment stays open until an authorized actor records one terminal outcome:
 
 | Outcome     | Required evidence                                                                                                                                                    |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Completed   | An immutable occurrence records actual attendance for the same interval. Attendance and acknowledged substitutes meet the recorded demand.                           |
+| Completed   | An immutable occurrence records actual attendance for the same interval. Attendance meets the recorded demand. It can include the people in coverage records.        |
 | Cancelled   | The decision records the actor, time, reason, and source of the cancellation. It records no invented attendance.                                                     |
 | Unfulfilled | The decision records unmet demand, any actual attendance, the actor, time, and supporting evidence. An uncovered absence alone does not decide the whole commitment. |
 
@@ -270,50 +319,53 @@ reversal contract; it cannot silently rewrite the original evidence.
 Coordinator cards identify the absent person and the actor who recorded each terminal decision.
 Attendance lists contain only the people recorded as present, not everyone assigned to the service. Empty attendance is explicit.
 
-Names come from the matching assignment or acknowledged substitute offer. Missing names use stable person identifiers; the deciding actor uses its recorded identifier.
+Names come from the matching assignment or the coverage record. Missing names use
+stable person identifiers. The deciding actor uses its recorded identifier.
 The cards use existing authorized responses. They perform no separate identity lookup.
 
 ### Substitute coverage
 
-An affiliated volunteer can opt into the substitute pool. A scheduled volunteer or
-scoped coordinator can report an absence for a confirmed slot and service date.
-The report stores no medical reason or free text.
+The system records absences and coverage only. Assistants and substitutes agree in
+Slack, outside the system, on who covers an absence.
 
-A scoped coordinator dispatches one eligible substitute at a time. Eligibility
-requires linked Person identity, active affiliation, active pool membership,
-weekday availability, and no placement or acknowledged-coverage conflict. The
-dispatch keeps the eligibility and school-name snapshots.
-
-Only the addressed substitute can accept or decline. A coordinator can withdraw an
-unacknowledged offer or acknowledge one accepted offer. Provider failure does not
-roll back the offer. Retry uses the same immutable envelope and effect identity.
+A scheduled assistant or a scoped coordinator can report an absence for a confirmed
+slot and service date. The report stores no medical reason or free text. A coverage
+record names the person who covered the absence on that date: a substitute or
+another assistant. Neither record changes the confirmed roster or a placement.
 
 When service occurs, its attendance records the confirmed roster minus absent
-assistants plus acknowledged substitutes. An absence closes as Covered or
-Uncovered against that occurrence. These outcomes describe one assignment,
-not the whole school commitment. Cancellation or unfulfilled service with no
-attendance records no invented occurrence. Resolve outstanding offers before a
-terminal decision. Pending notifications remain recoverable after the decision;
-provider failure does not prevent closure. Absence, offer, response,
-acknowledgement, occurrence, and session outcome remain separate durable facts.
-Pool membership implies none of them.
+assistants plus the people in coverage records. An absence closes as Covered or
+Uncovered against that occurrence. These outcomes describe one assignment, not the
+whole school commitment. Cancellation or unfulfilled service with no attendance
+records no invented occurrence. Absence, coverage, occurrence, and commitment
+outcome remain separate durable facts.
 
 ### Expense reimbursement
 
-A volunteer submits a claim and private receipt file. Authorized approvers can read
-the file, approve or reject the claim, and reopen a rejected claim when policy
-allows. Approval does not prove payment and leaves the claim `Approved`.
+Expense claims are the only money flow in the system. A volunteer submits a claim
+and a private receipt file. Assistants claim travel to school, and team members
+claim the costs of social events.
 
-A different, explicit settlement grant can record immutable evidence after an
-external settlement. The evidence preserves the amount, destination fingerprint,
+A volunteer submits a claim under a payment-authority grant for a department. The
+payment destination is private Economy data that belongs to that grant. The grant
+itself holds no account data. A claim keeps the encrypted destination that it was
+submitted against.
+
+The economy team holds two national delegations. The first lets every current member
+of the team read the file, approve or reject the claim, and reopen a rejected claim
+when policy allows. Approval does not prove payment and leaves the claim `Approved`.
+
+The second delegation reaches only the leader of the economy team, the finance lead.
+After approval, the finance lead pays the claim outside the system. The finance lead
+then records immutable evidence of that external settlement. The evidence preserves the amount, destination fingerprint,
 external authority and reference, settlement time, recording actor, and receipt
-revision. Owners can read their evidence; finance readers see only evidence within
+revision. Owners can read their evidence. Finance readers see only evidence within
 their active scope. Notification failure does not roll back the evidence, and retry
 keeps the original effect identity.
 
 Claim state, file custody, approval authority, settlement authority, delivery
-attempts, and settlement history are separate facts. A file path, approval grant,
-or team label does not grant settlement access.
+attempts, and settlement history are separate facts. A file path, an approval
+capability, or a team name does not give settlement access.
 
 Reviewed receipt migration runs after accepted Person and reference reconciliation.
 The [review contract](../packages/domain/src/receipt/review.ts) binds each source receipt to ownership, department, date, account, and private-file evidence.
@@ -332,12 +384,35 @@ Synthetic acceptance remains separate from historical-data accounting and produc
 
 ### Organization administration
 
-Authorized people manage local departments, national units, teams, boards,
-positions, memberships, and team interest. Memberships are effective-dated. A
-person may hold more than one position or membership.
+Authorized people manage local departments, teams, boards, positions, team and board memberships, and team interest.
+Each department has one board (Styret). The national board (Hovedstyret) serves every department.
+Team and board memberships are effective-dated. A person can hold more than one position and more than one team or board membership.
 
-A local chapter and a national unit use the same appointment mechanism but have
-different scopes. A chair is not automatically a global administrator.
+Teams and boards are units. A unit is a scope, and it never holds authority itself.
+A team has a home department and a scope. The scope is the home department, or the whole organization for a national team.
+A national team, such as Økonomi, has its home in one department but works for the whole organization.
+
+A department governs itself only while Hovedstyret recognizes it as independent.
+The board of an independent department is the governing board of the department and its local teams.
+Hovedstyret is the governing board of the national teams, of every department that is not independent, and of every team without a board.
+The governing board creates, defines, and dissolves a team.
+
+A position is a title that its unit defines, such as leder, nestleder, or sekretær.
+Each position maps to exactly one role type: team member, team leader, board leader, or board member.
+Authority comes from the role type. A title alone gives no authority.
+
+An appointment on a team gives authority within that team only.
+The team leader authorizes each appointment to the team. A team leader acts within the team.
+A board leader acts in the area of the board: its department for the board of an independent department, and every department for Hovedstyret.
+A board member holds a seat but no administration.
+
+Every current leader of a local team also sits on the board of the team's home department.
+Every current leader of a national team also sits on Hovedstyret.
+Such a derived seat starts and ends with the team leadership. It gives membership, not administration.
+The members of the board of an independent department, derived seats included, issue certificates for that department.
+For a department that is not independent, the seats on Hovedstyret issue its certificates.
+A global administrator can issue certificates in every department.
+A seat on the national board does not make a person a global administrator.
 
 Authorized appointment actions create, revise, end, suspend, or reinstate a responsibility.
 Every action checks current scope and preserves attributable history.
@@ -346,6 +421,13 @@ Current authority applies to each protected request, including requests from exi
 A leadership handover can appoint the successor before the predecessor leaves.
 The end of the last leadership appointment revokes only its scope.
 
+A team membership is open-ended. It stays current until an authorized person ends
+it. Team membership changes usually happen at a semester boundary. A team leader is
+elected for one year or for one semester.
+
+A team member with at least one semester in the team can take leave from the team.
+Leave that lasts longer than two semesters ends the team membership.
+
 A global administrator can disable or re-enable native human account access through a separate command.
 Disabled access blocks native sessions, human OAuth access, and recovery.
 Re-enable requires fresh authentication and does not revive old sessions, recovery tokens, or human OAuth credentials.
@@ -353,6 +435,44 @@ Self-offboarding and removal of the last usable global administrator fail withou
 State, revisions, command receipts, and attributable history commit together.
 An exact replay cannot duplicate history. A changed command identity payload or stale revision cannot leave a partial change.
 These commands do not administer external mail, Google Workspace, or service principals.
+
+### Membership and governance
+
+An **organization member** is a student at a Norwegian university or college. An
+organization member serves as an assistant, is a team member, or holds an elected
+position. An organization member can do more than one of these at a time. All of
+this work is unpaid. Organization membership lapses after three semesters without
+any of these. The national board (Hovedstyret) can give organization membership to
+another person for one calendar year.
+
+An **active member** is an organization member who, in the current semester, serves
+as an assistant, is a team member, or holds a board seat.
+
+The national board is responsible for the operation of the whole organization. Its
+positions are leader, deputy leader, finance lead, expansion lead, sponsor lead,
+IT lead, and mentor. The leaders of the national teams hold their seats on the
+national board through their team leadership
+([Organization administration](#organization-administration)). The mentor has no vote. The term of the board is one year and
+starts on 1 June. With fewer than five members, the board has no quorum. In a tie,
+the vote of the leader counts double.
+
+The organization members of a department elect its board (Styret). An independent
+department has a board with at least three elected members. It also has at least a
+recruitment team (Rekruttering) and a school coordination team (Skolekoordinering).
+The national board decides whether a department is independent. If the organization
+members of a department elect no board, the national board can appoint one. The
+national board can also dismiss a department board.
+
+The General Assembly (Generalforsamling) elects the national board. The national
+board calls the General Assembly at least once a year, in spring. The General
+Assembly has a quorum when each independent department has at least one attending
+member.
+
+A report derives the vote weights for the General Assembly. Each department receives
+one vote for each of its active members, plus 100 votes. The report divides the
+votes of a department equally among its attending members. No attending member
+receives more than 25 votes. For a given list of attending members, the report shows
+the votes of each member and whether the General Assembly has a quorum.
 
 ### Team applications
 
@@ -369,9 +489,15 @@ A current, nonsuspended member of the team reads its applications. The current l
 Global administration grants no implicit access. Deletion removes the application and its private fields from every stored notification.
 Deletion and intake changes record attributable history without applicant contact details or free text. Applications are not purged automatically, and this slice records no review outcome, hiring state, or appointment.
 
+The members of a team decide together which applicants join the team. The team
+leader then authorizes the appointment of each new member.
+
+Each new team member signs the team contract of the department and a confidentiality
+declaration. The team contract sets a minimum attendance of 70 percent.
+
 ### Mailing recipients
 
-A current department leader reads recipients within that department. A current global administrator reads recipients across departments.
+Board leaders read recipients in the departments that they cover. A current global administrator reads recipients across departments.
 The dashboard selects a department, semester, and cohort, then shows copyable current contact addresses.
 The three cohorts are assistants, team members, and their union.
 
@@ -384,23 +510,35 @@ Missing or ambiguous references fail without changes. A missing contact can be a
 Current authority and recipient facts share one read snapshot. Revoked leadership does not retain access through an existing session.
 These reads do not administer subscriptions, send mail, or synchronize an external provider.
 
-### School surveys
+### Communication tools
 
-A current department leader manages school surveys for that department. A global
-administrator can manage surveys for all departments. Each survey belongs to one
-department and one semester.
+The organization uses Slack for chat and Google Workspace for email. The system
+integrates with both providers through explicit services.
 
-A manager creates a survey with text, list, radio, or checkbox questions. The
-definition includes a completion message and an explicit results policy. A manager
-can close an open survey once but cannot reopen it.
+The first Google Workspace integration synchronizes team groups with team
+membership. If a team has a Google group, the group contains the current,
+nonsuspended members of that team. The system changes a group only after the team
+membership change commits. A provider failure does not roll back the team
+membership change.
 
-An anonymous respondent selects an eligible school and sends one response while
-the survey is open. The system stores the school but does not store a respondent
-identity. A closed survey conceals its public form and rejects new responses.
+The organization creates and deletes Google Workspace accounts manually. The system
+does not create, suspend, or delete provider accounts.
 
-The results policy grants access to department managers or only to global
-administrators. The same policy controls response counts, result rows, and CSV
-exports. Unauthorized readers cannot learn whether confidential results exist.
+### Certificates
+
+A certificate confirms that a person served as an assistant. It lists each semester
+of service with the school and the number of days served. At the end of each
+semester, the school coordination team (Skolekoordinering) adjusts the number of
+days that each assistant served. The certificate uses the adjusted number.
+[Organization administration](#organization-administration) names who can issue
+certificates.
+
+### Surveys
+
+The evaluation team (Evaluering) runs the surveys of the organization in Google
+Forms, outside the system. The system does not own surveys or survey responses. The
+system supplies the data that the surveys need: the assistants in each teaching
+block and the partner schools.
 
 ### Supporting workflows
 
@@ -415,7 +553,11 @@ Supporting contracts include:
 
 This list defines scope, not implementation status. [STATE.md](../STATE.md#next) records incomplete maintenance and acceptance.
 School-directory reads do not grant school, contact, association, or capacity mutation authority.
-Certificates require a separate operational need and are not a default replacement gate.
+
+The public site contains the assistant application, team pages with team
+applications, and the contact form. It also shows sponsors and news. Assistants sign
+in to the dashboard to read their placement, submit and read their expense claims,
+and maintain their profile.
 
 Each workflow owns its commands and facts. Shared infrastructure may carry an event
 or deliver a message, but it does not own the business decision.
@@ -425,41 +567,73 @@ or deliver a message, but it does not own the business decision.
 Authority follows relationships, scope, resource ownership, and time:
 
 ```text
-permit(person, action, resource, instant)
-  = accountIsUsable(person, instant)
-  AND relationshipIsActive(person, resource, instant)
-  AND relationshipCovers(resource.scope)
-  AND capabilityAllows(action)
+permit(principal, action, resource, instant)
+  = principalIsUsable(principal, instant)
+  AND onBehalfAllows(principal, action)
+  AND ( roleCovers(principal, action, resource, instant)
+        OR delegationCovers(principal, action, resource, instant)
+        OR grantCovers(principal, action, resource, instant)
+        OR capabilityCovers(principal, action, resource) )
+  AND requirementsHold(action, resource, instant)
 ```
+
+A role relates a Person to a scope for a time range. Team memberships, board seats, affiliations, placements, interview assignments, receipt ownership, and applications are roles.
+Each role has one role type from a closed set. For an appointment, the position decides the role type.
+The role types are team member, team leader, board leader, board member, assistant, placed assistant, roster member, interviewer, co-interviewer, receipt owner, and applicant.
+A role covers the scope where its unit sits. A team role covers its team. A seat on the national board covers every department.
+A seat on the board of a department covers that department while the department is independent. Otherwise it covers nothing, and Hovedstyret covers the department.
+A role gives only the capabilities of its role type.
 
 Examples:
 
-- An applicant may read their own application progress.
-- An interviewer may assess only an assigned interview.
-- A co-interviewer may correct a completed assessment only when the scoped
+- An applicant can read their own application progress.
+- An assistant can read their own placement.
+- An interviewer can assess only an assigned interview.
+- A co-interviewer can correct a completed assessment only when the scoped
   correction capability is active.
-- A receipt owner may read their own file.
-- An approver may read files and decide claims only in the granted scope.
-- A local team leader cannot exercise national authority by label alone.
+- A receipt owner can read their own file.
+- A board member can issue certificates for the department of the board, and a seat on Hovedstyret for a department that is not independent.
+- A team leader acts within the team. A title alone gives no authority.
+
+A delegation lets one team act in one area. It has a name, and it names the team, one capability, the area, and a time range.
+The area is the home department of the team. For a national team, the area can be another department or the whole organization.
+While the delegation is current, the current members of the team hold that capability in that area.
+A delegation can instead reach only the current leaders of the team.
+Where this document names board leaders for a capability, a current delegation of that capability also qualifies.
+A delegation can give department administration, receipt approval, or receipt settlement. It never gives system administration or the management of delegations.
+The board leader of the governing board of a team creates and ends the delegations of that team. A global administrator can also create and end them.
+The kind of a team gives no authority.
+
+A named requirement restricts a permit. It never gives authority.
+For example, an interviewer can schedule an interview only while the interviewer holds an appointment in the department of the interview.
 
 Default deny. The backend checks authority at the command and query boundary. The
-frontend may hide unavailable actions, but hiding is not enforcement.
+frontend can hide unavailable actions, but hiding is not enforcement.
 
-Relationships and grants are independent. A grant, such as global administration,
-adds the authority it names while it is current. Its end removes only that authority:
-a current appointment keeps its scope, and ending an appointment changes no grant.
+Relationships, delegations, and grants are independent. A grant, such as global administration,
+adds the authority that it names while it is current. Its end removes only that authority.
+A current appointment keeps its scope, and ending an appointment changes no grant.
+Global administration is a grant for system administration. It also covers the cross-department work that this document names for global administrators.
+No seat and no appointment implies it.
 
 A request presents one credential. A request that carries both a session cookie and
-a bearer token fails, whether they name one Person, two Persons, or a Person and a
-service. An interview invitation response that carries a session cookie or bearer
-beside its capability also fails. The backend never chooses between them. In the
-existing-account onboarding claim, the signed-in Person is the one principal, and
-the claim link is a single-use requirement bound to its invitation, not a second
-credential.
+a bearer token fails. It fails whether they name one Person, two Persons, or a Person
+and a service. An interview invitation response that carries a session cookie or bearer
+beside its capability also fails. The backend never chooses between them. In the existing-account
+onboarding claim, the session of the signed-in Person is the one principal, and a bearer
+token cannot make the claim. The claim link is then a single-use requirement bound to its
+invitation, not a second credential.
+
+An OAuth client can act for a Person with an account bearer token. It never exceeds the Person's authority.
+The token scope narrows that authority further. A client holds no authority of its own.
+An agent, such as a chat bot, reads for the Person without a confirmation. It changes data only when the Person confirms that change.
 
 A service caller is a separate principal, not a synthetic Person. A valid machine
 credential proves its identity, but a current grant must also cover the operation,
 resource scope, and time. It inherits no human appointment.
+
+A contact message is anonymous. A quota for each visitor address limits the messages.
+The homepage server authenticates to the backend with a deployment secret. This secret names no principal.
 
 ## Durable effects
 
@@ -494,7 +668,8 @@ The system does not own:
 - provider account lifecycles;
 - production deployment authority;
 - an automatic admission-decision aggregate;
-- automatic school matching or dispatch;
+- the choice of who covers an absence;
+- surveys and their responses;
 - payroll, ledger, procurement, or bank settlement.
 
 Those boundaries may be integrated through explicit services. They must not be
