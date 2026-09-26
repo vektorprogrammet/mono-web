@@ -362,6 +362,8 @@ submitted against.
 The economy team holds two national delegations. The first lets every current member
 of the team read the file, approve or reject the claim, and reopen a rejected claim
 when policy allows. Approval does not prove payment and leaves the claim `Approved`.
+The economy team is the national team that holds these delegations; its name decides nothing.
+Hovedstyret's leader or a global administrator issues them.
 
 The second delegation reaches only the leader of the economy team, the finance lead.
 After approval, the finance lead pays the claim outside the system. The finance lead
@@ -405,6 +407,12 @@ The board of an independent department is the governing board of the department 
 Hovedstyret is the governing board of the national teams, of every department that is not independent, and of every team without a board.
 The governing board creates, defines, and dissolves a team.
 
+Which team is a department's board, which teams are national, and which departments are independent are explicit, reviewed facts.
+Hovedstyret's leader or a global administrator records them with the team-classification and department-recognition commands, with the same history as appointments.
+An unclassified team is an ordinary local team, and a department is not independent until it is recognized.
+No name identifies a board or a national team, and import classifies nothing: an imported leader reaches no department until the facts are recorded.
+A department has at most one board, and a board works for its own department only.
+
 A position is a title that its unit defines, such as leder, nestleder, or sekretær.
 Each position maps to exactly one role type: team member, team leader, board leader, or board member.
 Authority comes from the role type. A title alone gives no authority.
@@ -412,7 +420,10 @@ Authority comes from the role type. A title alone gives no authority.
 An appointment on a team gives authority within that team only.
 The team leader authorizes each appointment to the team. A team leader acts within the team.
 A board leader acts in the area of the board: its department for the board of an independent department, and every department for Hovedstyret.
+A global administrator appoints the first leader of Hovedstyret.
 A board member holds a seat but no administration.
+
+A team's current leader reads the team's interest registrations. Department reach reads those of the whole department.
 
 Every current leader of a local team also sits on the board of the team's home department.
 Every current leader of a national team also sits on Hovedstyret.
@@ -615,6 +626,9 @@ A delegation can instead reach only the current leaders of the team.
 Where this document names board leaders for a capability, a current delegation of that capability also qualifies.
 A delegation can give department administration, receipt approval, or receipt settlement. It never gives system administration or the management of delegations.
 The board leader of the governing board of a team creates and ends the delegations of that team. A global administrator can also create and end them.
+A delegation is current from its start until its end; the end instant is excluded. Ending a delegation never extends it and never ends it before now.
+A delegation stays in force only while its team's area still covers its area: a team that becomes a board, or a national team that becomes local, holds nothing through its earlier delegations.
+Creating and ending a delegation commit its state, revision, command receipt, and attributable history together. The dashboard page Delegeringer lists the delegations that a person manages.
 The kind of a team gives no authority.
 
 A named requirement restricts a permit. It never gives authority.
