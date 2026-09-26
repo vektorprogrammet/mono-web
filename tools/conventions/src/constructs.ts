@@ -41,8 +41,6 @@ export const constructCategories = {
     "Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account access.",
   delivery: "Delivers committed effects to providers after the transaction.",
   worker: "Runs background workers on the Effect clock.",
-  "runtime-bridge":
-    "Runs the Effect programs behind Promise callbacks that a third-party library calls, inside the scope of the layer that owns the library.",
   pagination: "Keyset cursors and pages over ordered PostgreSQL reads.",
   digest: "Canonical JSON and SHA-256 digests that evidence and idempotency identities hash.",
   "test-harness":

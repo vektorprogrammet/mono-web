@@ -110,8 +110,6 @@ Tag a construct only when at least 2 modules outside its own module and the test
   - [`deliverJson`](constructs/delivery.md#deliverjson): Shared acknowledged JSON transport; deliberately no retry on ambiguous acceptance.
 - [worker](constructs/worker.md): Runs background workers on the Effect clock.
   - [`pollForever`](constructs/worker.md#pollforever): Runs `tick` at once, then again after each success.
-- [runtime-bridge](constructs/runtime-bridge.md): Runs the Effect programs behind Promise callbacks that a third-party library calls, inside the scope of the layer that owns the library.
-  - [`makeBetterAuthCallbackRunner`](constructs/runtime-bridge.md#makebetterauthcallbackrunner): Creates the runner for Better Auth's Promise callbacks: it forks each program into a fiber set that the current scope owns, so closing the scope interrupts the callbacks still running.
 - [pagination](constructs/pagination.md): Keyset cursors and pages over ordered PostgreSQL reads.
   - [`CursorPositioned`](constructs/pagination.md#cursorpositioned): A row with the ordering text that `receiptCursorTimestamp` selects.
   - [`receiptCursorTimestamp`](constructs/pagination.md#receiptcursortimestamp): Selects the ordering column as microsecond UTC text so cursor positions compare exactly.

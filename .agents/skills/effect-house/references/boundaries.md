@@ -18,8 +18,9 @@ The raw node-postgres modules run their queries through `pgQuery`, `pgWithClient
 ## Runtime bridges (FX003, FX006)
 
 A library that calls Promise callbacks, such as Better Auth, gets a runner in the scope of the layer that owns the library.
-`makeBetterAuthCallbackRunner` ([docs/constructs.md#runtime-bridge](../../../../docs/constructs.md#runtime-bridge)) forks each callback program into a fiber set of that scope. Closing the scope interrupts the callbacks that still run, and a typed failure, such as an `APIError`, rejects the promise that the library awaits.
-A new library of this kind gets its own runner, tagged `@construct runtime-bridge`. Do not run a program with `Effect.runPromise` inside a callback.
+The pattern to copy is `makeBetterAuthCallbackRunner` in [packages/database/src/auth-engine.ts](../../../../packages/database/src/auth-engine.ts): it forks each callback program into a fiber set of that scope. Closing the scope interrupts the callbacks that still run, and a typed failure, such as an `APIError`, rejects the promise that the library awaits.
+A new library of this kind gets its own runner, built the same way in the layer that owns the library. Do not run a program with `Effect.runPromise` inside a callback.
+The runner is no tagged construct while it is the only one, because a construct needs two consumers outside its own module. The second runner makes it one: move the logic that both share into one runner, tag it `@construct runtime-bridge`, and declare that category again in [tools/conventions/src/constructs.ts](../../../../tools/conventions/src/constructs.ts).
 
 ## HTTP boundaries (FX004, FX005)
 

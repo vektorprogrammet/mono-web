@@ -33,8 +33,6 @@ export type BetterAuthCallbackRunner = <A, E>(program: Effect.Effect<A, E>) => P
  * Creates the runner for Better Auth's Promise callbacks: it forks each program into a fiber set
  * that the current scope owns, so closing the scope interrupts the callbacks still running. A
  * failed program rejects with its typed failure, so an `APIError` failure reaches Better Auth.
- *
- * @construct runtime-bridge
  */
 export const makeBetterAuthCallbackRunner: Effect.Effect<
   BetterAuthCallbackRunner,

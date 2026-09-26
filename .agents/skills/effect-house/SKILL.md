@@ -24,22 +24,22 @@ The links are relative to this file, so the file is a complete entry point also 
 
 `just constructs` fails when [docs/constructs.md](../../../docs/constructs.md) differs from the `@construct` tags and the imports. Use a listed construct; do not write its logic again. Tag a new one `@construct <category>` when two call sites share its logic, then run `just constructs write`.
 
-| Need                                       | Construct                                                                           | Enforcement                           |
-| ------------------------------------------ | ----------------------------------------------------------------------------------- | ------------------------------------- |
-| A PostgreSQL cluster for a test or journey | `startDisposablePostgres`, `withDisposablePostgres` ([test-harness][test-harness])  | `anti-slop/no-hand-rolled-postgres`   |
-| Ports for the servers of a journey         | `reserveLoopbackPorts`, `loopbackPortFree` ([test-harness][test-harness])           | `anti-slop/no-port-probe`             |
-| Instants in journey fixtures               | `journeyClock`, `admissionJourneyClock` ([test-harness][test-harness])              | `anti-slop/no-literal-window-instant` |
-| Canonical JSON, digests, SQL JSON values   | `canonicalJson`, `canonicalJsonBytes`, `sha256Hex`, `canonicalJsonValue` ([digest]) | `anti-slop/no-json-text-parameter`    |
-| The JSON text of an HTTP representation    | `jsonText` ([http-problem])                                                         | `effecttsgo/prefer-schema-over-json`  |
-| An advisory lock                           | `lockAdvisory` with a registered `AdvisoryLockKey` ([sql-lock])                     | `anti-slop/no-raw-advisory-lock-sql`  |
-| The Promise callbacks of a library         | `makeBetterAuthCallbackRunner` ([runtime-bridge])                                   | review-only                           |
-| The class of a request that a journey saw  | `isNativeRequest`, `addressesAnyRoute` ([request-ledger])                           | review-only                           |
+| Need                                       | Construct                                                                                                                      | Enforcement                           |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------- |
+| A PostgreSQL cluster for a test or journey | `startDisposablePostgres`, `withDisposablePostgres` ([test-harness][test-harness])                                             | `anti-slop/no-hand-rolled-postgres`   |
+| Ports for the servers of a journey         | `reserveLoopbackPorts`, `loopbackPortFree` ([test-harness][test-harness])                                                      | `anti-slop/no-port-probe`             |
+| Instants in journey fixtures               | `journeyClock`, `admissionJourneyClock` ([test-harness][test-harness])                                                         | `anti-slop/no-literal-window-instant` |
+| Canonical JSON, digests, SQL JSON values   | `canonicalJson`, `canonicalJsonBytes`, `sha256Hex`, `canonicalJsonValue` ([digest])                                            | `anti-slop/no-json-text-parameter`    |
+| The JSON text of an HTTP representation    | `jsonText` ([http-problem])                                                                                                    | `effecttsgo/prefer-schema-over-json`  |
+| An advisory lock                           | `lockAdvisory` with a registered `AdvisoryLockKey` ([sql-lock])                                                                | `anti-slop/no-raw-advisory-lock-sql`  |
+| The Promise callbacks of a library         | The pattern of `makeBetterAuthCallbackRunner`, until a second runner makes it a construct ([runtime bridges][runtime-bridges]) | review-only                           |
+| The class of a request that a journey saw  | `isNativeRequest`, `addressesAnyRoute` ([request-ledger])                                                                      | review-only                           |
 
 [test-harness]: ../../../docs/constructs.md#test-harness
 [digest]: ../../../docs/constructs.md#digest
 [http-problem]: ../../../docs/constructs.md#http-problem
 [sql-lock]: ../../../docs/constructs.md#sql-lock
-[runtime-bridge]: ../../../docs/constructs.md#runtime-bridge
+[runtime-bridges]: references/boundaries.md#runtime-bridges-fx003-fx006
 [request-ledger]: ../../../docs/constructs.md#request-ledger
 
 ## House rules
