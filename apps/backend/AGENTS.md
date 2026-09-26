@@ -28,7 +28,6 @@ Each folder of `src` holds a bounded context of [docs/model/contexts.cml](../../
 | `recruitment`       | Recruitment      | [AGENTS.md](src/recruitment/AGENTS.md)       |
 | `schools`           | Schools          | [AGENTS.md](src/schools/AGENTS.md)           |
 | `social-events`     | SocialEvents     | [AGENTS.md](src/social-events/AGENTS.md)     |
-| `substitutes`       | Placements       | [AGENTS.md](src/substitutes/AGENTS.md)       |
 | `team-application`  | TeamApplications | [AGENTS.md](src/team-application/AGENTS.md)  |
 | `test`              | none             | [AGENTS.md](src/test/AGENTS.md)              |
 

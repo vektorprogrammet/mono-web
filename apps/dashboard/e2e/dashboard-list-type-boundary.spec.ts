@@ -116,11 +116,6 @@ const unavailablePages = [
     body: "Den native tjenesten tilbyr ikke assistentdata ennå.",
   },
   {
-    route: "/dashboard/vikarer",
-    heading: "Vikaroversikten er ikke tilgjengelig",
-    body: "Den native tjenesten tilbyr ikke vikardata ennå.",
-  },
-  {
     route: "/dashboard/sponsorer",
     heading: "Sponsoroversikten er ikke tilgjengelig",
     body: "Den native tjenesten tilbyr ikke sponsordata ennå.",
@@ -134,7 +129,6 @@ const unavailablePages = [
 
 const unsupportedDataPaths = [
   "/api/admin/scheduling/assistants",
-  "/api/admin/substitutes",
   "/api/admin/sponsors",
   "/api/admin/admission-stats",
 ] as const;

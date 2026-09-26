@@ -203,6 +203,13 @@ const approvedSqlSourceDigests = new Map<string, string>([
     "packages/database/migrations/0072-instant-millisecond-precision.sql",
     "sha256:a852bc336490c1d51df9931b3c7886acf80b521bf21b527410669b9d2d56cd67",
   ],
+  // Reviewed: each INSERT ... SELECT backfills coverage records or reservations from existing
+  // rows, the UPDATE rewrites a stored identifier prefix, and the trigger inserts NEW's values.
+  // The only literals are identifier prefixes, kinds, outcomes, and audit action names.
+  [
+    "packages/database/migrations/0075-substitute-admission-outcome-coverage-records.sql",
+    "sha256:2d0b969239fcd4a93f92cada0e458a95695a7a357f5cffb027662c8a2b98a173",
+  ],
 ]);
 
 const envSourcePathPattern = /(?:^|\/)\.env(?:$|[.-])/i;

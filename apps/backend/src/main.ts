@@ -22,7 +22,6 @@ import { ContentLive, ContentManagementLive } from "@vektorprogrammet/database/c
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { PlacementsLive } from "@vektorprogrammet/database/placements";
-import { SubstitutesLive } from "@vektorprogrammet/database/substitutes";
 import { EconomyLive } from "@vektorprogrammet/database/receipt/postgres";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { SchoolsLive } from "@vektorprogrammet/database/schools";
@@ -38,10 +37,6 @@ import {
   schoolServiceNotificationDelivery,
   runSchoolServiceNotificationWorker,
 } from "./placements/notification.js";
-import {
-  schoolServiceDispatchDelivery,
-  runSchoolServiceDispatchNotificationWorker,
-} from "./placements/dispatch-notification.js";
 import {
   backendHttpHandler,
   ExternalNativeApiRouterLive,
@@ -81,8 +76,6 @@ const economyLayer = EconomyLive.pipe(Layer.provide(databaseLayer));
 
 const placementsLayer = PlacementsLive.pipe(Layer.provide(databaseLayer));
 
-const substitutesLayer = SubstitutesLive.pipe(Layer.provide(databaseLayer));
-
 const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
 
 const returningAssistantsLayer = ReturningAssistantsLive.pipe(Layer.provide(databaseLayer));
@@ -110,7 +103,6 @@ const capabilityLayers = Layer.mergeAll(
   admissionsLayer,
   economyLayer,
   placementsLayer,
-  substitutesLayer,
   organizationLayer,
   profileLayer,
   schoolsLayer,
@@ -237,22 +229,6 @@ if (process.exitCode !== 1) {
           ),
         );
 
-  const schoolServiceDispatchWorkerFiber =
-    ingress === "internal" || config.schoolServiceDispatchNotifications === undefined
-      ? undefined
-      : runtime.runFork(
-          runSchoolServiceDispatchNotificationWorker(
-            schoolServiceDispatchDelivery(config.schoolServiceDispatchNotifications),
-            {
-              workerId: `school-service-dispatch-${randomUUID()}`,
-              pollIntervalMilliseconds:
-                config.schoolServiceDispatchNotifications.pollIntervalMilliseconds,
-              staleClaimMilliseconds:
-                config.schoolServiceDispatchNotifications.staleClaimMilliseconds,
-            },
-          ),
-        );
-
   const recruitmentWorkerFiber =
     ingress === "internal" || config.recruitmentNotifications === undefined
       ? undefined
@@ -309,10 +285,6 @@ if (process.exitCode !== 1) {
     process.stderr.write("school service notification worker is not configured\n");
   }
 
-  if (ingress === "external" && schoolServiceDispatchWorkerFiber === undefined) {
-    process.stderr.write("school service dispatch notification worker is not configured\n");
-  }
-
   process.stdout.write(`${ingress} backend listening on ${config.host}:${config.port}\n`);
   let shutdownPromise: Promise<void> | undefined;
 
@@ -345,14 +317,6 @@ if (process.exitCode !== 1) {
       if (schoolServiceWorkerFiber !== undefined) {
         try {
           await runtime.runPromise(Fiber.interrupt(schoolServiceWorkerFiber));
-        } catch {
-          exitCode = 1;
-        }
-      }
-
-      if (schoolServiceDispatchWorkerFiber !== undefined) {
-        try {
-          await runtime.runPromise(Fiber.interrupt(schoolServiceDispatchWorkerFiber));
         } catch {
           exitCode = 1;
         }
@@ -432,15 +396,6 @@ if (process.exitCode !== 1) {
     void runtime.runPromise(Fiber.await(schoolServiceWorkerFiber)).then((exit) => {
       if (Exit.isFailure(exit) && shutdownPromise === undefined) {
         process.stderr.write("school service notification worker failed\n");
-        shutdown(true);
-      }
-    });
-  }
-
-  if (schoolServiceDispatchWorkerFiber !== undefined) {
-    void runtime.runPromise(Fiber.await(schoolServiceDispatchWorkerFiber)).then((exit) => {
-      if (Exit.isFailure(exit) && shutdownPromise === undefined) {
-        process.stderr.write("school service dispatch notification worker failed\n");
         shutdown(true);
       }
     });

@@ -1,5 +1,5 @@
 /**
- * Database-backed Placements, notification delivery, and reviewed cohort import.
+ * Database-backed Placements, roster notification delivery, and reviewed cohort import.
  * Import from `@vektorprogrammet/database/placements` in a trusted server runtime.
  * Private adapter modules are not supported import paths.
  * @packageDocumentation
@@ -15,15 +15,6 @@ export {
   type ClaimedSchoolServiceNotification,
   type SchoolServiceNotificationInterpreter,
 } from "./outbox.js";
-
-export {
-  claimNextSchoolServiceDispatchNotification,
-  recoverStaleSchoolServiceDispatchNotifications,
-  deliverNextSchoolServiceDispatchNotification,
-  SchoolServiceDispatchNotificationDeliveryResult,
-  type ClaimedSchoolServiceDispatchNotification,
-  type SchoolServiceDispatchNotificationInterpreter,
-} from "./dispatch-outbox.js";
 
 export {
   CurrentAssignmentFailure,

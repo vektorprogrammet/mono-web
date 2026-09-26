@@ -20,7 +20,7 @@ import { Input } from "../components/ui/input";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import { nativeProblemFrom } from "../lib/native-problem";
-import { substituteSemesterLabel } from "../lib/substitute-form";
+import { semesterLabel } from "../lib/semester-label";
 import { DATED_SERVICE_ELEMENT } from "../foldkit/dated-school-service/elements";
 import type { Route } from "./+types/dashboard.assistenter._index";
 
@@ -112,6 +112,8 @@ export async function action({ request }: Route.ActionArgs) {
 
     const departmentId = form.get("departmentId");
     const action = form.get("action");
+    // RecordCoverage and WithdrawCoverage exist for both the owner and the coordinator.
+    const mode = form.get("mode");
 
     if (action === "Request" || action === "Withdraw") {
       await client.placements.commandOwnAffiliation({
@@ -122,43 +124,30 @@ export async function action({ request }: Route.ActionArgs) {
           { onExcessProperty: "error" },
         ),
       });
-    } else if (action === "ReportAbsence" || action === "RespondToOffer") {
+    } else if (mode === "ownCoverage") {
       const query = Schema.decodeUnknownSync(PlacementScope)({
         departmentId,
         semesterId: form.get("semesterId"),
       });
 
       const payload = Schema.decodeUnknownSync(OwnCoverageCommand)(
-        action === "ReportAbsence"
-          ? {
-              action,
-              commitmentId: form.get("commitmentId"),
-            }
-          : {
-              action,
-              offerId: form.get("offerId"),
-              response: form.get("response"),
-            },
+        Match.value(action).pipe(
+          Match.when("ReportAbsence", (action) => ({
+            action,
+            commitmentId: form.get("commitmentId"),
+          })),
+          Match.when("RecordCoverage", (action) => ({
+            action,
+            absenceId: form.get("absenceId"),
+            coveringPersonId: form.get("coveringPersonId"),
+          })),
+          Match.orElse((action) => ({ action, absenceId: form.get("absenceId") })),
+        ),
         { onExcessProperty: "error" },
       );
 
-      switch (payload.action) {
-        case "ReportAbsence":
-          await client.placements.commandOwnCoverage({ query, headers, payload });
-          break;
-        case "RespondToOffer":
-          await client.placements.commandOwnCoverage({ query, headers, payload });
-          break;
-      }
-    } else if (
-      action === "ReportAbsenceForVolunteer" ||
-      action === "DispatchSubstituteOffer" ||
-      action === "WithdrawSubstituteOffer" ||
-      action === "AcknowledgeCoverage" ||
-      action === "CompleteService" ||
-      action === "CancelService" ||
-      action === "MarkUnfulfilledService"
-    ) {
+      await client.placements.commandOwnCoverage({ query, headers, payload });
+    } else if (mode === "coverage") {
       const query = Schema.decodeUnknownSync(PlacementScope)({
         departmentId,
         semesterId: form.get("semesterId"),
@@ -171,66 +160,31 @@ export async function action({ request }: Route.ActionArgs) {
             commitmentId: form.get("commitmentId"),
             personId: form.get("personId"),
           })),
-          Match.when("DispatchSubstituteOffer", (action) => ({
+          Match.when("RecordCoverage", (action) => ({
             action,
             absenceId: form.get("absenceId"),
-            candidatePersonId: form.get("candidatePersonId"),
+            coveringPersonId: form.get("coveringPersonId"),
           })),
-          Match.orElse((action) =>
-            action === "WithdrawSubstituteOffer" || action === "AcknowledgeCoverage"
-              ? {
-                  action,
-                  offerId: form.get("offerId"),
-                }
-              : action === "CancelService"
-                ? {
-                    action,
-                    commitmentId: form.get("commitmentId"),
-                    reason: form.get("reason"),
-                    evidenceSource: form.get("evidenceSource"),
-                  }
-                : action === "MarkUnfulfilledService"
-                  ? {
-                      action,
-                      commitmentId: form.get("commitmentId"),
-                      attendedPersonIds: form.getAll("attendedPersonId"),
-                      evidenceSource: form.get("evidenceSource"),
-                      reason: form.get("reason"),
-                    }
-                  : {
-                      action,
-                      commitmentId: form.get("commitmentId"),
-                      attendedPersonIds: form.getAll("attendedPersonId"),
-                      evidenceSource: form.get("evidenceSource"),
-                    },
-          ),
+          Match.when("WithdrawCoverage", (action) => ({
+            action,
+            absenceId: form.get("absenceId"),
+          })),
+          Match.when("CompleteService", (action) => ({
+            action,
+            commitmentId: form.get("commitmentId"),
+            evidenceSource: form.get("evidenceSource"),
+          })),
+          Match.orElse((action) => ({
+            action,
+            commitmentId: form.get("commitmentId"),
+            reason: form.get("reason"),
+            evidenceSource: form.get("evidenceSource"),
+          })),
         ),
         { onExcessProperty: "error" },
       );
 
-      switch (payload.action) {
-        case "ReportAbsenceForVolunteer":
-          await client.placements.commandCoverageBoard({ query, headers, payload });
-          break;
-        case "DispatchSubstituteOffer":
-          await client.placements.commandCoverageBoard({ query, headers, payload });
-          break;
-        case "WithdrawSubstituteOffer":
-          await client.placements.commandCoverageBoard({ query, headers, payload });
-          break;
-        case "AcknowledgeCoverage":
-          await client.placements.commandCoverageBoard({ query, headers, payload });
-          break;
-        case "CompleteService":
-          await client.placements.commandCoverageBoard({ query, headers, payload });
-          break;
-        case "CancelService":
-          await client.placements.commandCoverageBoard({ query, headers, payload });
-          break;
-        case "MarkUnfulfilledService":
-          await client.placements.commandCoverageBoard({ query, headers, payload });
-          break;
-      }
+      await client.placements.commandCoverageBoard({ query, headers, payload });
     } else {
       const query = Schema.decodeUnknownSync(PlacementScope)({
         departmentId,
@@ -359,7 +313,7 @@ export async function action({ request }: Route.ActionArgs) {
     const messages = {
       "authority.denied": "Du har ikke lenger tilgang til denne avdelingen.",
       "resource.not-found":
-        "Den valgte fraværssaken eller det valgte vikartilbudet finnes ikke lenger. Hent oppdatert oversikt.",
+        "Den valgte tjenesten eller fraværssaken finnes ikke lenger. Hent oppdatert oversikt.",
       "placement.overlap":
         "Denne personen har allerede en plassering ved skolen i samme semester og bolk.",
       "affiliation.inactive": "Personen har ikke aktiv frivilligtilknytning. Utkastet er beholdt.",
@@ -380,26 +334,20 @@ export async function action({ request }: Route.ActionArgs) {
       "commitment.duplicate":
         "Det finnes allerede en datert tjeneste for denne skolen, datoen og bolken.",
       "commitment.closed": "Tjenesten har allerede en endelig beslutning og kan ikke endres.",
-      "commitment.attendance-invalid":
-        "Registrer bare faktisk møtte planlagte frivillige eller bekreftede vikarer. Oppmøtet må samsvare med behovet og valgt utfall.",
       "commitment.outcome-invalid":
-        "Dette utfallet kan ikke dokumenteres før tidsrommet er over, eller bevisene er ikke tilstrekkelige.",
-      "commitment.pending-offer": "Avklar alle åpne vikartilbud før tjenesten får endelig utfall.",
+        "Utfallet passer ikke. Gjennomført krever at oppmøtet dekker behovet, og Ikke oppfylt krever at det er under behovet. Begge kan først registreres når tidsrommet er over.",
       "absence.target-invalid":
         "Fravær kan bare meldes for en åpen, datert tjeneste der personen er planlagt.",
       "absence.duplicate": "Fravær er allerede meldt for dette oppmøtet. Hent oppdatert oversikt.",
       "absence.closed": "Denne fraværssaken er allerede avsluttet og kan ikke endres.",
-      "offer.candidate-ineligible":
-        "Vikaren er ikke lenger kvalifisert for dette oppmøtet. Hent oppdatert oversikt.",
-      "offer.unresolved":
-        "Det finnes allerede et uavklart eller bekreftet vikartilbud for dette fraværet.",
-      "offer.owner-invalid": "Dette vikartilbudet er adressert til en annen person.",
-      "offer.response-invalid":
-        "Tilbudet kan ikke besvares fordi det allerede er avsluttet eller trukket tilbake.",
-      "offer.withdraw-invalid":
-        "Bare et sendt eller akseptert tilbud kan trekkes tilbake før dekningen er bekreftet.",
-      "coverage.acknowledgement-invalid":
-        "Bare det gjeldende aksepterte tilbudet kan bekreftes som dekning.",
+      "coverage.owner-invalid":
+        "Du kan bare registrere eller trekke tilbake dekning for ditt eget fravær.",
+      "coverage.coverer-ineligible":
+        "Personen kan ikke dekke dette fraværet. Velg en assistent eller vikar i avdelingen og semesteret, ikke den som er borte.",
+      "coverage.coverer-unavailable":
+        "Personen er allerede opptatt i samme tidsrom. Velg en annen person.",
+      "coverage.not-recorded":
+        "Det er ingen registrert dekning å trekke tilbake. Hent oppdatert oversikt.",
     };
 
     const conflict = problem?.status === 412 || problem?.code === "transaction.conflict";
@@ -481,9 +429,9 @@ function CommandForm({
             )
             .join("; ")}`
         : "rosterSlots" in refreshed
-          ? `Oppdatert egen dekning: ${refreshed.rosterSlots.length} planlagte oppmøter, ${refreshed.absences.length} registrerte fravær og ${refreshed.offers.length} vikartilbud.`
-          : "candidates" in refreshed
-            ? `Oppdatert dekningsoversikt: ${refreshed.absences.length} fravær, ${refreshed.offers.length} tilbud og ${refreshed.closures.length} avsluttede dekninger.`
+          ? `Oppdatert egen dekning: ${refreshed.rosterSlots.length} planlagte oppmøter, ${refreshed.absences.length} registrerte fravær og ${refreshed.coverage.length} registrerte dekninger.`
+          : "rosterAssignments" in refreshed
+            ? `Oppdatert dekningsoversikt: ${refreshed.absences.length} fravær, ${refreshed.coverage.length} registrerte dekninger og ${refreshed.closures.length} avsluttede fraværssaker.`
             : `Oppdatert status: ${statusLabel[refreshed.status]}`;
 
   return (
@@ -979,82 +927,84 @@ function SchoolServicePanel({
   );
 }
 
-const deliveryStatusLabel = {
-  Pending: "Venter på levering",
-  Processing: "Leveres",
-  Delivered: "Levert",
-  Failed: "Levering feilet",
-  Quarantined: "Levering stoppet",
-} as const;
-
-const offerStatusLabel = {
-  Offered: "Sendt og venter på svar",
-  Accepted: "Akseptert",
-  Declined: "Avslått",
-  Withdrawn: "Trukket tilbake",
-  Acknowledged: "Bekreftet som dekning",
-} as const;
-
-const responseStatusLabel = {
-  Accept: "Akseptert",
-  Decline: "Avslått",
-} as const;
-
 const closureOutcomeLabel = { Covered: "Dekket", Uncovered: "Ikke dekket" } as const;
 
-type CoverageOffer = (typeof CoverageBoardResource.Type)["offers"][number];
+const covererKindLabel = { Assistant: "assistent", Substitute: "vikar" } as const;
 
-const offerServiceTitle = (offer: CoverageOffer): string => {
-  const interval =
-    offer.startTime === null || offer.endTime === null
-      ? "tidspunkt ikke registrert for historisk tilbud"
-      : `kl. ${offer.startTime}–${offer.endTime}`;
+type CoverageCoverer = (typeof CoverageBoardResource.Type)["coverers"][number];
 
-  return `${offer.schoolName}, ${offer.serviceDate} ${interval} — ${offer.day}, bolk ${offer.block}`;
-};
+type CoverageRecord = (typeof CoverageBoardResource.Type)["coverage"][number];
 
-type CoverageResponse = (typeof CoverageBoardResource.Type)["responses"][number];
-
-type CoverageAcknowledgement = (typeof CoverageBoardResource.Type)["acknowledgements"][number];
-
-type CoverageCandidate = (typeof CoverageBoardResource.Type)["candidates"][number];
-
-type CoverageNotification = (typeof CoverageBoardResource.Type)["dispatchNotifications"][number];
-
-function deliverySummary(notification: CoverageNotification | undefined): string {
-  if (notification === undefined) return "Venter på leveringsstatus";
-  const attempts = notification.attempts === 1 ? "1 forsøk" : `${notification.attempts} forsøk`;
-
-  const failure =
-    notification.lastFailureTag === null ? "" : `, siste feil: ${notification.lastFailureTag}`;
-
-  return `${deliveryStatusLabel[notification.status]} (${attempts}${failure})`;
-}
-
-function OfferLifecycle({
-  offer,
-  response,
-  notification,
-  acknowledgement,
-  showCandidate = false,
+/**
+ * Records who covered one absence and withdraws the current record. The people involved agree
+ * on cover outside the system; the server checks eligibility and double booking on save.
+ */
+function CoverageForms({
+  absenceId,
+  current,
+  coverers,
+  etag,
+  mode,
+  scope,
+  recordLabel,
+  withdrawLabel,
 }: {
-  offer: CoverageOffer;
-  response: CoverageResponse | undefined;
-  notification: CoverageNotification | undefined;
-  acknowledgement: CoverageAcknowledgement | undefined;
-  showCandidate?: boolean;
+  absenceId: string;
+  current: CoverageRecord | undefined;
+  coverers: ReadonlyArray<CoverageCoverer>;
+  etag: string;
+  mode: "ownCoverage" | "coverage";
+  scope: { readonly departmentId: string; readonly semesterId: string };
+  recordLabel: string;
+  withdrawLabel: string;
 }) {
+  const selectId = `${mode}-coverer-${absenceId}`;
+
   return (
-    <div className="min-w-0 space-y-1 break-words text-sm">
-      {showCandidate && (
-        <p>
-          Vikar: {offer.candidateFirstName} {offer.candidateLastName}
-        </p>
+    <div className="space-y-3">
+      {coverers.length === 0 ? (
+        <p>Ingen assistenter eller vikarer kan registreres som dekning i valgt semester.</p>
+      ) : (
+        <CommandForm
+          etag={etag}
+          refreshResource={mode}
+          hidden={{ ...scope, mode, action: "RecordCoverage", absenceId }}
+          label={recordLabel}
+        >
+          <label htmlFor={selectId} className="min-w-0">
+            Dekkes av
+            <select
+              id={selectId}
+              name="coveringPersonId"
+              required
+              defaultValue=""
+              className={selectClass}
+            >
+              <option value="" disabled>
+                Velg person
+              </option>
+              {coverers.map((coverer) => (
+                <option key={coverer.personId} value={coverer.personId}>
+                  {`${coverer.firstName} ${coverer.lastName} (${covererKindLabel[coverer.kind]})`}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button type="submit">Registrer dekning</Button>
+        </CommandForm>
       )}
-      <p>Tilbudstatus: {offerStatusLabel[offer.status]}</p>
-      <p>Levering: {deliverySummary(notification)}</p>
-      {response && <p>Endelig svar: {responseStatusLabel[response.response]}</p>}
-      {acknowledgement && <p>Dekningen er bekreftet av koordinator.</p>}
+      {current && (
+        <CommandForm
+          etag={etag}
+          refreshResource={mode}
+          hidden={{ ...scope, mode, action: "WithdrawCoverage", absenceId }}
+          label={withdrawLabel}
+        >
+          <Button type="submit" variant="outline">
+            Trekk tilbake dekning
+          </Button>
+        </CommandForm>
+      )}
     </div>
   );
 }
@@ -1066,13 +1016,14 @@ function OwnCoveragePanel({
   coverage: typeof OwnCoverageResource.Type;
   scope: { readonly departmentId: string; readonly semesterId: string };
 }) {
-  const responsesByOfferId = new Map<string, CoverageResponse>();
+  const recordsByAbsenceId = new Map(coverage.coverage.map((record) => [record.absenceId, record]));
 
-  for (const response of coverage.responses) responsesByOfferId.set(response.offerId, response);
-  const notificationsByOfferId = new Map<string, CoverageNotification>();
-
-  for (const notification of coverage.dispatchNotifications)
-    notificationsByOfferId.set(notification.offerId, notification);
+  // The own view lists scheduled and covering commitments, and nobody covers a service they are
+  // scheduled for, so each commitment without the person on its roster is one they cover.
+  const covering = coverage.commitments.filter(
+    (commitment) =>
+      !commitment.assignments.some((assignment) => assignment.personId === coverage.personId),
+  );
 
   return (
     <section
@@ -1081,10 +1032,11 @@ function OwnCoveragePanel({
     >
       <header>
         <h2 id="own-coverage-title" className="text-xl font-semibold">
-          Mine skoleplasseringer og vikardekning
+          Mine skoleplasseringer og dekning
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Her vises bare dine skoleplasseringer, bekreftede oppmøter, fravær og vikartilbud.
+          Her vises bare dine skoleplasseringer, fraværet ditt og fravær du dekker. Avtal dekning
+          direkte med en assistent eller vikar, for eksempel i Slack, og registrer hvem som dekket.
         </p>
       </header>
       <section className="space-y-3" aria-labelledby="own-placements-title">
@@ -1115,53 +1067,56 @@ function OwnCoveragePanel({
           Registrerte fravær
         </h3>
         {coverage.absences.length === 0 && <p>Du har ikke registrert fravær i valgt semester.</p>}
-        {coverage.absences.map((absence) => (
-          <article key={absence.absenceId} className="min-w-0 rounded-md border p-4">
-            <p className="break-words">
-              {absence.schoolName}, {absence.serviceDate} — {absence.day}, bolk {absence.block}
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">Fraværet er registrert.</p>
-          </article>
-        ))}
-      </section>
-      <section className="space-y-3" aria-labelledby="own-offers-title">
-        <h3 id="own-offers-title" className="font-semibold">
-          Mine vikartilbud
-        </h3>
-        {coverage.offers.length === 0 && <p>Du har ingen vikartilbud i valgt semester.</p>}
-        {coverage.offers.map((offer) => {
-          const response = responsesByOfferId.get(offer.offerId);
-          const notification = notificationsByOfferId.get(offer.offerId);
+        {coverage.absences.map((absence) => {
+          const record = recordsByAbsenceId.get(absence.absenceId);
+
+          const commitment = coverage.commitments.find(
+            (row) => row.commitmentId === absence.commitmentId,
+          );
+
+          const slot = `${absence.schoolName}, ${absence.serviceDate}, bolk ${absence.block}`;
 
           return (
-            <article key={offer.offerId} className="min-w-0 space-y-3 rounded-md border p-4">
-              <h4 className="break-words font-medium">{offerServiceTitle(offer)}</h4>
-              <OfferLifecycle
-                offer={offer}
-                response={response}
-                notification={notification}
-                acknowledgement={undefined}
-              />
-              {offer.status === "Offered" && (
-                <CommandForm
+            <article key={absence.absenceId} className="min-w-0 space-y-3 rounded-md border p-4">
+              <p className="break-words">
+                {absence.schoolName}, {absence.serviceDate} — {absence.day}, bolk {absence.block}
+              </p>
+              <p className="[overflow-wrap:anywhere]">
+                {record
+                  ? `Dekket av: ${record.coveringFirstName} ${record.coveringLastName}`
+                  : "Ingen dekning er registrert."}
+              </p>
+              {commitment?.decision === null && (
+                <CoverageForms
+                  absenceId={absence.absenceId}
+                  current={record}
+                  coverers={coverage.coverers}
                   etag={coverage.etag}
-                  refreshResource="ownCoverage"
-                  hidden={{ ...scope, action: "RespondToOffer", offerId: offer.offerId }}
-                  label={`Vikartilbud: ${offerServiceTitle(offer)}`}
-                >
-                  <div className="flex flex-wrap gap-3">
-                    <Button type="submit" name="response" value="Accept">
-                      Aksepter tilbud
-                    </Button>
-                    <Button type="submit" name="response" value="Decline" variant="outline">
-                      Avslå tilbud
-                    </Button>
-                  </div>
-                </CommandForm>
+                  mode="ownCoverage"
+                  scope={scope}
+                  recordLabel={`Dekning for mitt fravær: ${slot}`}
+                  withdrawLabel={`Trekk tilbake dekning: ${slot}`}
+                />
               )}
             </article>
           );
         })}
+      </section>
+      <section className="space-y-3" aria-labelledby="own-covering-title">
+        <h3 id="own-covering-title" className="font-semibold">
+          Fravær jeg dekker
+        </h3>
+        {covering.length === 0 ? (
+          <p>Du dekker ikke fravær i valgt semester.</p>
+        ) : (
+          <ul className="list-disc space-y-1 pl-5">
+            {covering.map((commitment) => (
+              <li key={commitment.commitmentId}>
+                {`${commitment.schoolName}, ${commitment.serviceDate}, bolk ${commitment.block}`}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </section>
   );
@@ -1174,39 +1129,11 @@ function CoordinatorCoveragePanel({
   coverage: typeof CoverageBoardResource.Type;
   scope: { readonly departmentId: string; readonly semesterId: string };
 }) {
-  const offersByAbsenceId = new Map<string, Array<CoverageOffer>>();
-
-  for (const offer of coverage.offers) {
-    const offers = offersByAbsenceId.get(offer.absenceId);
-
-    if (offers === undefined) offersByAbsenceId.set(offer.absenceId, [offer]);
-    else offers.push(offer);
-  }
-
-  const responsesByOfferId = new Map<string, CoverageResponse>();
-
-  for (const response of coverage.responses) responsesByOfferId.set(response.offerId, response);
-  const notificationsByOfferId = new Map<string, CoverageNotification>();
-
-  for (const notification of coverage.dispatchNotifications)
-    notificationsByOfferId.set(notification.offerId, notification);
-  const acknowledgementsByOfferId = new Map<string, CoverageAcknowledgement>();
-
-  for (const acknowledgement of coverage.acknowledgements)
-    acknowledgementsByOfferId.set(acknowledgement.offerId, acknowledgement);
+  const recordsByAbsenceId = new Map(coverage.coverage.map((record) => [record.absenceId, record]));
 
   const closuresByAbsenceId = new Map(
     coverage.closures.map((closure) => [closure.absenceId, closure]),
   );
-
-  const candidatesByAbsenceId = new Map<string, Array<CoverageCandidate>>();
-
-  for (const candidate of coverage.candidates) {
-    const candidates = candidatesByAbsenceId.get(candidate.absenceId);
-
-    if (candidates === undefined) candidatesByAbsenceId.set(candidate.absenceId, [candidate]);
-    else candidates.push(candidate);
-  }
 
   const openCommitments = coverage.commitments.filter(
     (commitment) =>
@@ -1228,11 +1155,11 @@ function CoordinatorCoveragePanel({
     >
       <header>
         <h2 id="coverage-board-title" className="text-xl font-semibold">
-          Fravær og vikardekning
+          Fravær og dekning
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Koordinatorer kan velge kvalifiserte vikarer og følge leveringen. Tjenesteutfallet
-          registreres separat nedenfor.
+          Registrer fravær og hvem som dekket timen. Dekning avtales direkte med personen, for
+          eksempel i Slack. Tjenesteutfallet registreres separat nedenfor.
         </p>
       </header>
       <section className="space-y-3" aria-labelledby="coordinator-absence-title">
@@ -1249,6 +1176,7 @@ function CoordinatorCoveragePanel({
               refreshResource="coverage"
               hidden={{
                 ...scope,
+                mode: "coverage",
                 action: "ReportAbsenceForVolunteer",
                 commitmentId: commitment.commitmentId,
               }}
@@ -1293,22 +1221,16 @@ function CoordinatorCoveragePanel({
       </section>
       <section className="space-y-3" aria-labelledby="coverage-absences-title">
         <h3 id="coverage-absences-title" className="font-semibold">
-          Registrert fravær og kvalifiserte vikarer
+          Registrert fravær og dekning
         </h3>
         {coverage.absences.length === 0 && <p>Det er ikke registrert fravær i valgt semester.</p>}
         {coverage.absences.map((absence) => {
-          const candidates = candidatesByAbsenceId.get(absence.absenceId) ?? [];
-          const offers = offersByAbsenceId.get(absence.absenceId) ?? [];
-
-          const activeOffer = offers.find(
-            (offer) =>
-              offer.status === "Offered" ||
-              offer.status === "Accepted" ||
-              offer.status === "Acknowledged",
-          );
-
+          const record = recordsByAbsenceId.get(absence.absenceId);
           const closure = closuresByAbsenceId.get(absence.absenceId);
-          const absenceId = absence.absenceId;
+
+          const commitment = coverage.commitments.find(
+            (row) => row.commitmentId === absence.commitmentId,
+          );
 
           const assignment =
             absence.commitmentId === null
@@ -1320,111 +1242,44 @@ function CoordinatorCoveragePanel({
                     row.day === absence.day &&
                     row.block === absence.block,
                 )
-              : coverage.commitments
-                  .find((commitment) => commitment.commitmentId === absence.commitmentId)
-                  ?.assignments.find((row) => row.personId === absence.personId);
+              : commitment?.assignments.find((row) => row.personId === absence.personId);
 
-          const absentName = assignment
-            ? `${assignment.firstName} ${assignment.lastName}`.trim()
-            : "";
+          const absentName =
+            (assignment ? `${assignment.firstName} ${assignment.lastName}`.trim() : "") ||
+            absence.personId;
+
+          const slot = `${absentName}, ${absence.schoolName}, ${absence.serviceDate}, bolk ${absence.block}`;
 
           return (
-            <article key={absenceId} className="min-w-0 space-y-3 rounded-md border p-4">
+            <article key={absence.absenceId} className="min-w-0 space-y-3 rounded-md border p-4">
               <h4 className="break-words font-medium">
                 {absence.schoolName}, {absence.serviceDate} — {absence.day}, bolk {absence.block}
               </h4>
+              <p className="[overflow-wrap:anywhere]">Fraværende: {absentName}</p>
               <p className="[overflow-wrap:anywhere]">
-                Fraværende: {absentName || absence.personId}
+                {record
+                  ? `Dekket av: ${record.coveringFirstName} ${record.coveringLastName} (${covererKindLabel[record.covererKind]})`
+                  : "Ingen dekning er registrert."}
               </p>
-              {closure ? (
+              {closure && (
                 <p>
                   Fraværsutfall: {closureOutcomeLabel[closure.outcome]} (gjelder denne plassen, ikke
                   hele tjenesten).
                 </p>
-              ) : activeOffer ? (
-                <p>
-                  {activeOffer.status === "Acknowledged"
-                    ? "Vikardekningen er bekreftet."
-                    : "Det finnes allerede et aktivt vikartilbud for dette fraværet."}
-                </p>
-              ) : candidates.length === 0 ? (
-                <p>Ingen kvalifiserte vikarer er tilgjengelige for dette fraværet.</p>
-              ) : (
-                <CommandForm
-                  etag={coverage.etag}
-                  refreshResource="coverage"
-                  hidden={{ ...scope, action: "DispatchSubstituteOffer", absenceId }}
-                  label={`Vikardispatch: ${absenceId}`}
-                >
-                  <label htmlFor={`coverage-candidate-${absenceId}`} className="min-w-0">
-                    Kvalifisert vikar
-                    <select
-                      id={`coverage-candidate-${absenceId}`}
-                      name="candidatePersonId"
-                      required
-                      defaultValue=""
-                      className={selectClass}
-                    >
-                      <option value="" disabled>
-                        Velg kvalifisert vikar
-                      </option>
-                      {candidates.map((candidate) => (
-                        <option key={candidate.personId} value={candidate.personId}>
-                          {candidate.firstName} {candidate.lastName}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <Button type="submit">Send vikartilbud</Button>
-                </CommandForm>
               )}
-            </article>
-          );
-        })}
-      </section>
-      <section className="space-y-3" aria-labelledby="coverage-offers-title">
-        <h3 id="coverage-offers-title" className="font-semibold">
-          Vikartilbud og dekning
-        </h3>
-        {coverage.offers.length === 0 && <p>Det er ikke sendt vikartilbud i valgt semester.</p>}
-        {coverage.offers.map((offer) => {
-          const response = responsesByOfferId.get(offer.offerId);
-          const notification = notificationsByOfferId.get(offer.offerId);
-          const acknowledgement = acknowledgementsByOfferId.get(offer.offerId);
-
-          return (
-            <article key={offer.offerId} className="min-w-0 space-y-3 rounded-md border p-4">
-              <h4 className="break-words font-medium">{offerServiceTitle(offer)}</h4>
-              <OfferLifecycle
-                offer={offer}
-                response={response}
-                notification={notification}
-                acknowledgement={acknowledgement}
-                showCandidate
-              />
-              {(offer.status === "Offered" || offer.status === "Accepted") && (
-                <CommandForm
+              {closure === undefined && commitment?.decision === null && (
+                <CoverageForms
+                  absenceId={absence.absenceId}
+                  current={record}
+                  coverers={coverage.coverers.filter(
+                    (coverer) => coverer.personId !== absence.personId,
+                  )}
                   etag={coverage.etag}
-                  refreshResource="coverage"
-                  hidden={{ ...scope, offerId: offer.offerId }}
-                  label={`Dekningstilbud: ${offer.candidateFirstName} ${offer.candidateLastName}, ${offerServiceTitle(offer)}`}
-                >
-                  <div className="flex flex-wrap gap-3">
-                    {offer.status === "Accepted" && (
-                      <Button type="submit" name="action" value="AcknowledgeCoverage">
-                        Bekreft dekning
-                      </Button>
-                    )}
-                    <Button
-                      type="submit"
-                      name="action"
-                      value="WithdrawSubstituteOffer"
-                      variant="outline"
-                    >
-                      Trekk tilbake tilbud
-                    </Button>
-                  </div>
-                </CommandForm>
+                  mode="coverage"
+                  scope={scope}
+                  recordLabel={`Dekning: ${slot}`}
+                  withdrawLabel={`Trekk tilbake dekning: ${slot}`}
+                />
               )}
             </article>
           );
@@ -1489,7 +1344,7 @@ export default function Assistenter() {
               <option value="">Velg semester for plassering</option>
               {scopes.semesters.map((s) => (
                 <option key={s.semesterId} value={s.semesterId}>
-                  {substituteSemesterLabel(s)}
+                  {semesterLabel(s)}
                 </option>
               ))}
             </select>

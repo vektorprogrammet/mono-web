@@ -5,7 +5,7 @@ import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
-// The parent substitute lifecycle driver owns PostgreSQL, seed, backend and credentials.
+// The parent substitutes driver owns PostgreSQL, seed, backend and credentials.
 // This child owns only its production dashboard process and Playwright process.
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -166,7 +166,7 @@ try {
     [
       "node_modules/@playwright/test/cli.js",
       "test",
-      "e2e/native-substitute-pool.spec.ts",
+      "e2e/native-substitutes.spec.ts",
       "--project=chromium",
       "--workers=1",
       "--retries=0",

@@ -6,9 +6,9 @@ import { PlacementsApi } from "./placements.js";
  * @since 0.1.0
  */
 import { HttpApi, OpenApi } from "effect/unstable/httpapi";
-import { SubstitutesApi } from "./substitutes.js";
 import { ContactApi } from "./contact.js";
 import { AdmissionsApi } from "./admissions.js";
+import { AdmissionOutcomesApi } from "./admission-outcomes.js";
 import { ContentApi } from "./content.js";
 import { DirectoryApi } from "./directory.js";
 import { OrganizationApi } from "./organization.js";
@@ -31,7 +31,6 @@ import { SystemApi } from "./system.js";
  * @category APIs
  */
 export class ExternalNativeApi extends HttpApi.make("external-native-api")
-  .add(SubstitutesApi)
   .add(PlacementsApi)
   .add(OnboardingApi)
   .add(ContactApi)
@@ -40,6 +39,7 @@ export class ExternalNativeApi extends HttpApi.make("external-native-api")
   .add(OrganizationApi)
   .add(DirectoryApi)
   .add(AdmissionsApi)
+  .add(AdmissionOutcomesApi)
   .add(RecruitmentApi)
   .add(ReceiptsApi)
   .add(ContentApi)
@@ -64,7 +64,7 @@ export class ExternalNativeApi extends HttpApi.make("external-native-api")
         "x-tagGroups": [
           { name: "Platform", tags: ["System", "Profile"] },
           { name: "Directories", tags: ["Organization", "Directories"] },
-          { name: "Admissions", tags: ["Admissions", "Substitute pool"] },
+          { name: "Admissions", tags: ["Admissions", "Admission outcomes"] },
           { name: "Recruitment", tags: ["Recruitment", "Team applications"] },
           { name: "Economy", tags: ["Receipts"] },
           { name: "Content", tags: ["Content and news"] },

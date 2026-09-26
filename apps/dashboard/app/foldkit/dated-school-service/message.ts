@@ -15,8 +15,6 @@ export const ChangedEvidenceSource = taggedStruct("ChangedEvidenceSource", { val
 
 export const ChangedReason = taggedStruct("ChangedReason", { value: S.String });
 
-export const ToggledAttendee = taggedStruct("ToggledAttendee", { personId: S.String });
-
 export const SelectedCommitment = taggedStruct("SelectedCommitment", { commitmentId: S.String });
 
 export const Message = S.Union([
@@ -26,7 +24,6 @@ export const Message = S.Union([
   SelectedDecision,
   ChangedEvidenceSource,
   ChangedReason,
-  ToggledAttendee,
   SelectedCommitment,
 ]);
 

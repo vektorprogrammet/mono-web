@@ -7,12 +7,9 @@ The backend layer holds HTTP handlers, delivery workers, and provider adapters t
 
 The Placements context in other folders:
 
-- [apps/backend/src/substitutes](../substitutes/AGENTS.md)
 - [apps/dashboard/app/foldkit/dated-school-service](../../../dashboard/app/foldkit/dated-school-service/AGENTS.md)
 - [packages/database/src/placements](../../../../packages/database/src/placements/AGENTS.md)
-- [packages/database/src/substitutes](../../../../packages/database/src/substitutes/AGENTS.md)
 - [packages/domain/src/placements](../../../../packages/domain/src/placements/AGENTS.md)
-- [packages/domain/src/substitutes](../../../../packages/domain/src/substitutes/AGENTS.md)
 
 ## Bounded context: Placements
 

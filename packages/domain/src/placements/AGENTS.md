@@ -9,11 +9,8 @@ The human guide is [README.md](README.md).
 The Placements context in other folders:
 
 - [apps/backend/src/placements](../../../../apps/backend/src/placements/AGENTS.md)
-- [apps/backend/src/substitutes](../../../../apps/backend/src/substitutes/AGENTS.md)
 - [apps/dashboard/app/foldkit/dated-school-service](../../../../apps/dashboard/app/foldkit/dated-school-service/AGENTS.md)
 - [packages/database/src/placements](../../../database/src/placements/AGENTS.md)
-- [packages/database/src/substitutes](../../../database/src/substitutes/AGENTS.md)
-- [packages/domain/src/substitutes](../substitutes/AGENTS.md)
 
 ## Bounded context: Placements
 

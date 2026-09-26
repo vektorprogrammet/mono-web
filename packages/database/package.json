@@ -30,7 +30,6 @@
     "./recruitment": "./src/recruitment/index.ts",
     "./schools": "./src/schools/index.ts",
     "./social-events": "./src/social-events/index.ts",
-    "./substitutes": "./src/substitutes/index.ts",
     "./team-application": "./src/team-application/index.ts",
     "./auth-engine": "./src/auth-engine.ts",
     "./identity-cohort-cli": "./src/identity-cohort-cli.ts",

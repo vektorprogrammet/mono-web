@@ -1,10 +1,10 @@
 import { createPromiseClient } from "../../packages/sdk/src/promise.js";
+import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import {
   CoverageCommand,
   OwnCoverageCommand,
   PlacementCommand,
   PlacementScope,
-  SchoolServiceDispatchNotificationRequest,
   SchoolServiceNotificationRequest,
 } from "@vektorprogrammet/domain/placements";
 import { IdempotencyIfMatchHeaders } from "@vektorprogrammet/http-api/http-semantics";
@@ -20,8 +20,13 @@ import { join } from "node:path";
 import { createRequire } from "node:module";
 import { postgresProgram } from "@monoweb/postgres";
 import { Predicate, Schema, Record as Rec } from "effect";
-import { createGoldenObserver, goldenSteps } from "./golden-school-service.mjs";
-import { goldenArtifactName, goldenRunnerPaths } from "./golden-school-service-evidence.mjs";
+import { createGoldenObserver, goldenFaults, goldenSteps } from "./golden-school-service.mjs";
+import {
+  goldenArtifactName,
+  goldenRunnerPaths,
+  redactDiagnostic,
+  redactedEvidenceJson,
+} from "./golden-school-service-evidence.mjs";
 import {
   recruitmentSteps,
   recruitmentRunnerPaths,
@@ -110,22 +115,15 @@ const safeEnvironment: NodeJS.ProcessEnv = Object.fromEntries(
 
 const fault = process.env.GOLDEN_SCHOOL_SERVICE_FAULT;
 
-assert.ok(
-  fault === undefined || ["omit-attendance", "absent-browser-evidence"].includes(fault),
-  "unknown test-driver fault",
-);
+assert.ok(fault === undefined || goldenFaults.includes(fault), "unknown test-driver fault");
 
 const secrets = [
   "synthetic-recruitment-provider",
   "journey-secret-0123456789abcdef",
   "synthetic-school-service-token",
-  "synthetic-school-service-dispatch-token",
 ];
 
-const sanitize = (value: string) =>
-  secrets
-    .reduce((text, secret) => text.replaceAll(secret, "[REDACTED]"), value)
-    .replace(/(authorization|cookie|set-cookie)([\s"':=]+)[^\r\n,}]+/gi, "$1$2[REDACTED]");
+const sanitize = (value: string) => redactDiagnostic(secrets, value);
 
 const children: ChildProcess[] = [];
 
@@ -169,23 +167,6 @@ const port = async (requested = 0): Promise<number> => {
   return value;
 };
 
-const eventually = async <T>(
-  description: string,
-  inspect: () => Promise<T | undefined>,
-  timeout = 20_000,
-): Promise<T> => {
-  const deadline = Date.now() + timeout;
-
-  for (;;) {
-    const value = await inspect();
-
-    if (value !== undefined) return value;
-
-    if (Date.now() >= deadline) throw Error(`Timed out waiting for ${description}`);
-    await delay(50);
-  }
-};
-
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 let pool: InstanceType<typeof Pool> | undefined;
@@ -193,8 +174,6 @@ let pool: InstanceType<typeof Pool> | undefined;
 let evidence: Schema.JsonObject | undefined;
 
 let notificationServer: HttpServer | undefined;
-
-let dispatchProviderFails = true;
 
 let checkpoint: ((step: string) => Promise<object>) | undefined;
 
@@ -315,7 +294,7 @@ const cleanup = () =>
       },
     };
 
-    await writeFile(join(artifacts, "evidence.json"), sanitize(JSON.stringify(result, null, 2)), {
+    await writeFile(join(artifacts, "evidence.json"), redactedEvidenceJson(secrets, result), {
       mode: 0o600,
     });
 
@@ -408,10 +387,6 @@ const notificationRequests: Array<
   NotificationCapture<typeof SchoolServiceNotificationRequest.Type>
 > = [];
 
-const dispatchNotificationRequests: Array<
-  NotificationCapture<typeof SchoolServiceDispatchNotificationRequest.Type>
-> = [];
-
 try {
   journey: {
     const pgPort = await port();
@@ -430,7 +405,6 @@ try {
           const step = request.url.slice("/observe/".length);
           const result = await checkpoint(step);
 
-          if (step === "offer-failed") dispatchProviderFails = false;
           response.setHeader("content-type", "application/json");
           response.end(JSON.stringify(result));
         } catch (error) {
@@ -457,23 +431,6 @@ try {
         : idempotencyKeyHeader;
 
       const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-
-      if (Predicate.isTagged(payload, "NotifySchoolServiceSubstituteOffer")) {
-        const observed: NotificationCapture<typeof SchoolServiceDispatchNotificationRequest.Type> =
-          {
-            body: Schema.decodeUnknownSync(SchoolServiceDispatchNotificationRequest)(payload),
-          };
-
-        if (request.headers.authorization !== undefined)
-          observed.authorization = request.headers.authorization;
-
-        if (idempotencyKey !== undefined) observed.idempotencyKey = idempotencyKey;
-        dispatchNotificationRequests.push(observed);
-        response.statusCode = dispatchProviderFails ? 503 : 204;
-        response.end();
-
-        return;
-      }
 
       const observed: NotificationCapture<typeof SchoolServiceNotificationRequest.Type> = {
         body: Schema.decodeUnknownSync(SchoolServiceNotificationRequest)(payload),
@@ -551,12 +508,6 @@ try {
       SCHOOL_SERVICE_NOTIFICATION_POLL_MS: "25",
       SCHOOL_SERVICE_NOTIFICATION_STALE_MS: "1000",
       SCHOOL_SERVICE_NOTIFICATION_TIMEOUT_MS: "2000",
-      SCHOOL_SERVICE_DISPATCH_NOTIFICATION_MODE: "http",
-      SCHOOL_SERVICE_DISPATCH_NOTIFICATION_URL: `http://127.0.0.1:${notificationPort}/school-service`,
-      SCHOOL_SERVICE_DISPATCH_NOTIFICATION_TOKEN: "synthetic-school-service-dispatch-token",
-      SCHOOL_SERVICE_DISPATCH_NOTIFICATION_POLL_MS: "25",
-      SCHOOL_SERVICE_DISPATCH_NOTIFICATION_STALE_MS: "1000",
-      SCHOOL_SERVICE_DISPATCH_NOTIFICATION_TIMEOUT_MS: "2000",
     };
 
     if (recruitment)
@@ -590,6 +541,24 @@ try {
       password: "journey-secret-0123456789abcdef",
     };
 
+    // Golden prerequisites only: a second applicant to name as cover, and a department member
+    // who reads the on-call list. Neither has an admission outcome before the journey records one.
+    const secondSubstitute = {
+      personId: "journey-coverage-second-substitute-0111",
+      firstName: "Vera",
+      lastName: "Vikar",
+      email: "vera.vikar@example.invalid",
+      password: "journey-secret-0123456789abcdef",
+    };
+
+    const member = {
+      personId: "journey-coverage-member-0111",
+      firstName: "Mona",
+      lastName: "Medlem",
+      email: "mona.medlem@example.invalid",
+      password: "journey-secret-0123456789abcdef",
+    };
+
     const departmentId = "department-native-journey-0049";
     const semesterId = "semester-historical-0096";
     const secondSemesterId = "semester-native-journey-0049";
@@ -614,6 +583,8 @@ try {
         IDENTITY_SEED_PG_URL: postgresUrl,
         IDENTITY_SEED_PERSONS: JSON.stringify([
           substitute,
+          secondSubstitute,
+          member,
           {
             personId: leaderId,
             firstName: "Lina",
@@ -647,21 +618,33 @@ try {
         ('golden-team','${departmentId}','Koordinator',true,0),('golden-wrong-team','${wrongDepartmentId}','Annet team',true,0);
       INSERT INTO organization_memberships(membership_id,person_id,team_id,deleted_team_name,start_at,end_at,position_id,is_team_leader,is_suspended,revision) VALUES
         ('golden-leader','${leaderId}','golden-team',NULL,date_trunc('milliseconds',now(),'UTC')-interval '1 day',NULL,'teamleader',true,false,0),
+        ('golden-member','${member.personId}','golden-team',NULL,date_trunc('milliseconds',now(),'UTC')-interval '1 day',NULL,'member',false,false,0),
         ('golden-wrong','${wrongId}','golden-wrong-team',NULL,date_trunc('milliseconds',now(),'UTC')-interval '1 day',NULL,'teamleader',true,false,0);
       INSERT INTO person_contact_profiles(person_id,email,phone,revision) VALUES
         ('${leaderId}','lina.leader@example.invalid','+47 900 00 049',0),
         ('${volunteerId}','irene.intervjuer@example.invalid','+47 900 00 052',0),
-        ('${wrongId}','ida.intervjuer@example.invalid','+47 900 00 053',0);
+        ('${wrongId}','ida.intervjuer@example.invalid','+47 900 00 053',0),
+        ('${member.personId}','${member.email}','+47 900 00 054',0);
       INSERT INTO schools_directory_schools(school_id,name,contact_person,email,phone,language,active,revision) OVERRIDING SYSTEM VALUE VALUES
         (962,'Skole Beta','Kontakt','beta@example.invalid','synthetic','Norwegian',true,0);
       INSERT INTO schools_directory_departments(school_id,department_id,revision) VALUES (962,'${departmentId}',0);
       INSERT INTO admission_period_fields_of_study(field_of_study_id,department_id,name) VALUES('golden-field','${departmentId}','Matematikk');
       INSERT INTO admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,last_command_id) VALUES('golden-period','${departmentId}','${semesterId}','2024-01-01','2024-07-01','seed');
-      INSERT INTO admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study) VALUES('golden-applicant','${substitute.email}','${substitute.email}','Kari','Kandidat','90000111',0,'golden-field',3);
-      INSERT INTO admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at) VALUES('golden-application','golden-applicant','golden-period','${departmentId}','golden-field',3,'2024-02-01');
-      INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES('golden-invitation','golden-application','golden-applicant','${"c".repeat(64)}','2027-01-01','Claimed','${leaderId}','2024-02-01');
-      INSERT INTO applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES('golden-applicant','${substitute.personId}','2024-02-01','golden-invitation');
-      INSERT INTO person_contact_profiles(person_id,email,phone) VALUES('${substitute.personId}','${substitute.email}','90000111');
+      INSERT INTO admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study) VALUES
+        ('golden-applicant','${substitute.email}','${substitute.email}','Kari','Kandidat','90000111',0,'golden-field',3),
+        ('golden-second-applicant','${secondSubstitute.email}','${secondSubstitute.email}','Vera','Vikar','90000222',0,'golden-field',2);
+      INSERT INTO admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at) VALUES
+        ('golden-application','golden-applicant','golden-period','${departmentId}','golden-field',3,'2024-02-01'),
+        ('golden-second-application','golden-second-applicant','golden-period','${departmentId}','golden-field',2,'2024-02-02');
+      INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES
+        ('golden-invitation','golden-application','golden-applicant','${"c".repeat(64)}','2027-01-01','Claimed','${leaderId}','2024-02-01'),
+        ('golden-second-invitation','golden-second-application','golden-second-applicant','${"d".repeat(64)}','2027-01-01','Claimed','${leaderId}','2024-02-02');
+      INSERT INTO applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES
+        ('golden-applicant','${substitute.personId}','2024-02-01','golden-invitation'),
+        ('golden-second-applicant','${secondSubstitute.personId}','2024-02-02','golden-second-invitation');
+      INSERT INTO person_contact_profiles(person_id,email,phone) VALUES
+        ('${substitute.personId}','${substitute.email}','90000111'),
+        ('${secondSubstitute.personId}','${secondSubstitute.email}','90000222');
     `);
     } else {
       run("bun", ["apps/dashboard/e2e/native-recruitment-journey-seed.mjs"], environment);
@@ -682,8 +665,6 @@ try {
       ('invitation-coverage-0111','application-coverage-0111','applicant-coverage-0111','${"c".repeat(64)}','2027-01-01T00:00:00.000Z','Claimed','${leaderId}','2024-02-01T10:00:00.000Z');
     INSERT INTO applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES
       ('applicant-coverage-0111','${substitute.personId}','2024-02-01T10:00:00.000Z','invitation-coverage-0111');
-    INSERT INTO admission_substitute_preferences(application_id,active,monday,tuesday,wednesday,thursday,friday,language,revision) VALUES
-      ('application-coverage-0111',true,true,true,false,false,false,'Norwegian',1);
     INSERT INTO person_contact_profiles(person_id,email,phone,revision) VALUES
       ('${substitute.personId}','${substitute.email}','+47 900 00 111',0);
     INSERT INTO organization_departments(department_id,name,short_name,email,city,active,revision) VALUES ('${wrongDepartmentId}','Annen avdeling','Annen','wrong@example.invalid','Annen',true,0);
@@ -805,22 +786,20 @@ try {
         volunteerId,
         leaderId,
         schoolId: 962,
-        persons,
+        persons: { ...persons, member: { email: member.email, password: member.password } },
         serviceDate: "2024-03-11",
         golden: true,
         candidateId: substitute.personId,
         applicationId: "golden-application",
+        secondSubstituteId: secondSubstitute.personId,
+        secondApplicationId: "golden-second-application",
+        memberId: member.personId,
         substituteServiceDate: "2024-03-18",
         fault,
         observerOrigin: "http://127.0.0.1:" + notificationPort,
       };
 
-      const observer = createGoldenObserver(
-        pool,
-        manifest,
-        notificationRequests,
-        dispatchNotificationRequests,
-      );
+      const observer = createGoldenObserver(pool, manifest, notificationRequests);
 
       observations = observer.observations;
       checkpoint = observer.observe;
@@ -1239,17 +1218,7 @@ try {
     assert.equal((await expectStatus(await request(otherPath, leader), 200)).placements.length, 0);
     // The API cohort begins from a confirmed roster; the browser independently
     // confirms a two-person roster through the placement/service journey.
-    const candidateAffiliation = await expectStatus(await request(ownPath, candidate), 200);
-    assert.equal(candidateAffiliation.status, "Absent");
-    assert.equal(
-      (
-        await expectStatus(
-          await request(ownPath, candidate, { action: "Request" }, candidateAffiliation.etag),
-          200,
-        )
-      ).status,
-      "Pending",
-    );
+    // The substitute requests no affiliation: her admission outcome alone puts her on call.
     const wrongAffiliation = await expectStatus(await request(ownPath, wrong), 200);
     assert.equal(wrongAffiliation.status, "Absent");
     assert.equal(
@@ -1272,11 +1241,6 @@ try {
       ).status,
       "Pending",
     );
-    await command({
-      action: "Affiliation",
-      personId: substitute.personId,
-      transition: "Establish",
-    });
     await command({ action: "Affiliation", personId: wrongId, transition: "Establish" });
     await command({ action: "Affiliation", personId: leaderId, transition: "Establish" });
     const apiCoverageProposalId = `school-service-proposal-${"a".repeat(64)}`;
@@ -1622,321 +1586,328 @@ try {
       "idempotency.digest-conflict",
     );
 
-    const overlapBoard = await command({
-      action: "Create",
-      personId: substitute.personId,
-      schoolId: 961,
-      day: "Monday",
-      workdays: 4,
-      block: "1",
+    // A rejected coverage command keeps the board version and every coverage fact.
+    const coverageFacts = async () =>
+      (
+        await pool.query(
+          `SELECT
+           (SELECT count(*)::integer FROM school_service_absences) AS absences,
+           (SELECT count(*)::integer FROM school_service_coverage_records) AS records,
+           (SELECT count(*)::integer FROM school_service_coverage_records
+            WHERE withdrawn_at IS NOT NULL) AS withdrawn,
+           (SELECT count(*)::integer FROM school_service_person_reservations) AS reservations,
+           (SELECT count(*)::integer FROM school_service_decisions) AS decisions,
+           (SELECT count(*)::integer FROM school_service_closures) AS closures,
+           (SELECT count(*)::integer FROM school_service_coverage_audit) AS audit`,
+        )
+      ).rows[0];
+
+    const rejectedCoverage = async (
+      path: string,
+      cookie: string,
+      payload: Schema.Json,
+      etag: string,
+      status: number,
+      code: string,
+    ) => {
+      const before = { board: (await readCoverageBoard()).etag, facts: await coverageFacts() };
+      await expectStatus(await request(path, cookie, payload, etag), status, code);
+      assert.deepEqual(
+        { board: (await readCoverageBoard()).etag, facts: await coverageFacts() },
+        before,
+        `${code} must leave coverage unchanged`,
+      );
+    };
+
+    const recordCoverage = (absenceId: string, coveringPersonId: string) => ({
+      action: "RecordCoverage",
+      absenceId,
+      coveringPersonId,
     });
 
-    const overlapPlacement = overlapBoard.placements.find(
-      (placement) =>
-        placement.personId === substitute.personId &&
-        placement.day === "Monday" &&
-        placement.block === "1" &&
-        placement.active,
-    );
+    const withdrawCoverage = (absenceId: string) => ({ action: "WithdrawCoverage", absenceId });
 
-    assert.ok(overlapPlacement);
+    const reservationsOf = async (commitmentId: string) =>
+      (
+        await pool.query(
+          `SELECT source_kind AS "sourceKind",person_id AS "personId",coverage_id AS "coverageId"
+         FROM school_service_person_reservations WHERE commitment_id=$1 ORDER BY source_kind,person_id`,
+          [commitmentId],
+        )
+      ).rows;
+
+    const audit = (action: string, actorPersonId: string) => ({ action, actorPersonId });
+
+    // Before an admission outcome nobody can cover: not the applicant, not the absent volunteer,
+    // and not a person with an active affiliation but no placement.
     let coverageBoard = await readCoverageBoard();
+    assert.deepEqual(coverageBoard.coverers, []);
+    assert.deepEqual((await readOwnCoverage(volunteerSdk)).coverers, []);
 
-    const dispatch = (candidatePersonId: string) => ({
-      action: "DispatchSubstituteOffer",
-      absenceId: coveredAbsence.absenceId,
-      candidatePersonId,
-    });
+    for (const personId of [substitute.personId, volunteerId, wrongId])
+      await rejectedCoverage(
+        coverageBoardPath,
+        leader,
+        recordCoverage(coveredAbsence.absenceId, personId),
+        coverageBoard.etag,
+        422,
+        "coverage.coverer-ineligible",
+      );
 
-    await expectStatus(
-      await request(coverageBoardPath, leader, dispatch(volunteerId), coverageBoard.etag),
-      422,
-      "offer.candidate-ineligible",
+    // Admission management records the Substitute outcome; the applicant is then on call.
+    const coverageApplicationId = "application-coverage-0111";
+
+    const outcomeEntry = Schema.decodeUnknownSync(
+      Schema.Struct({
+        outcome: Schema.NullOr(Schema.String),
+        revision: Schema.Int,
+        etag: Schema.String,
+      }),
+    )(
+      await expectStatus(
+        await request(`/api/admission-outcomes/${coverageApplicationId}`, leader),
+        200,
+      ),
     );
-    await expectStatus(
-      await request(coverageBoardPath, leader, dispatch(wrongId), coverageBoard.etag),
-      422,
-      "offer.candidate-ineligible",
-    );
-    await expectStatus(
-      await request(coverageBoardPath, leader, dispatch(substitute.personId), coverageBoard.etag),
-      422,
-      "offer.candidate-ineligible",
-    );
-    await command({ action: "Remove", placementId: overlapPlacement.placementId });
+
+    assert.deepEqual([outcomeEntry.outcome, outcomeEntry.revision], [null, 0]);
+
+    const onCall = (
+      await sdk.admissionOutcomes.recordOutcome({
+        params: { applicationId: PublicApplicationIdSchema.make(coverageApplicationId) },
+        headers: idempotencyHeaders(outcomeEntry.etag),
+        payload: { outcome: "Substitute" },
+      })
+    ).body;
+
+    assert.deepEqual([onCall.outcome, onCall.revision], ["Substitute", 1]);
+
+    const onCallCoverer = {
+      personId: substitute.personId,
+      firstName: substitute.firstName,
+      lastName: substitute.lastName,
+      kind: "Substitute",
+    };
+
     coverageBoard = await readCoverageBoard();
+    assert.deepEqual(coverageBoard.coverers, [onCallCoverer]);
+    assert.deepEqual((await readOwnCoverage(volunteerSdk)).coverers, [onCallCoverer]);
     assert.deepEqual(
-      coverageBoard.candidates.filter(
-        (candidate) => candidate.absenceId === coveredAbsence.absenceId,
-      ),
+      (await readOwnCoverage(candidateSdk)).coverers,
+      [],
+      "only a person with an open absence sees the names of possible coverers",
+    );
+
+    // The own endpoint serves only the absent volunteer.
+    for (const [client, cookie] of [
+      [candidateSdk, candidate],
+      [wrongSdk, wrong],
+    ] as const)
+      for (const payload of [
+        recordCoverage(coveredAbsence.absenceId, substitute.personId),
+        withdrawCoverage(coveredAbsence.absenceId),
+      ])
+        await rejectedCoverage(
+          ownCoveragePath,
+          cookie,
+          payload,
+          (await readOwnCoverage(client)).etag,
+          403,
+          "coverage.owner-invalid",
+        );
+
+    // The absent volunteer records who agreed to cover; the record reserves that person.
+    const ownBeforeRecord = await readOwnCoverage(volunteerSdk);
+    const recordKey = randomBytes(18).toString("base64url");
+
+    const recordedOwn = await commandOwnCoverage(
+      volunteerSdk,
+      recordCoverage(coveredAbsence.absenceId, substitute.personId),
+      ownBeforeRecord.etag,
+      recordKey,
+    );
+
+    const firstRecord = recordedOwn.coverage.find(
+      (item) => item.absenceId === coveredAbsence.absenceId,
+    );
+
+    assert.ok(firstRecord);
+    assert.deepEqual(
       [
-        {
-          absenceId: coveredAbsence.absenceId,
-          applicationId: "application-coverage-0111",
-          personId: substitute.personId,
-          firstName: substitute.firstName,
-          lastName: substitute.lastName,
-        },
+        firstRecord.coveringPersonId,
+        firstRecord.coveringFirstName,
+        firstRecord.covererKind,
+        firstRecord.recordedByPersonId,
       ],
+      [substitute.personId, substitute.firstName, "Substitute", volunteerId],
     );
-
-    const dispatchedCoverage = await commandCoverage(
-      dispatch(substitute.personId),
-      coverageBoard.etag,
-    );
-
-    const coveredOffer = dispatchedCoverage.offers.find(
-      (offer) => offer.absenceId === coveredAbsence.absenceId,
-    );
-
-    assert.ok(coveredOffer);
-    assert.equal(coveredOffer.status, "Offered");
-
-    const failedDelivery = await eventually("failed substitute-offer delivery", async () => {
-      const row = (
-        await pool.query(
-          `SELECT effect_id AS "effectId",status,attempts,last_failure_tag AS "lastFailureTag",
-           payload_json AS payload
-         FROM school_service_dispatch_notification_outbox WHERE offer_id=$1`,
-          [coveredOffer.offerId],
-        )
-      ).rows[0];
-
-      return row?.status === "Failed" && row.attempts >= 1 ? row : undefined;
-    });
-
-    assert.ok(failedDelivery.lastFailureTag);
-    dispatchProviderFails = false;
-
-    const deliveredDispatch = await eventually("retried substitute-offer delivery", async () => {
-      const row = (
-        await pool.query(
-          `SELECT effect_id AS "effectId",status,attempts,last_failure_tag AS "lastFailureTag",
-           payload_json AS payload
-         FROM school_service_dispatch_notification_outbox WHERE offer_id=$1`,
-          [coveredOffer.offerId],
-        )
-      ).rows[0];
-
-      return row?.status === "Delivered" && row.attempts >= 2 ? row : undefined;
-    });
-
-    const deliveredDispatchRequests = dispatchNotificationRequests.filter(
-      (request) => request.body.offerId === coveredOffer.offerId,
-    );
-
-    assert.ok(deliveredDispatchRequests.length >= 2);
-    assert.equal(
-      new Set(deliveredDispatchRequests.map((request) => request.body.effectId)).size,
-      1,
-    );
-    assert.equal(
-      new Set(deliveredDispatchRequests.map((request) => request.idempotencyKey)).size,
-      1,
-    );
-
-    for (const request of deliveredDispatchRequests) {
-      assert.equal(request.authorization, "Bearer synthetic-school-service-dispatch-token");
-      assert.deepEqual(request.body, deliveredDispatchRequests[0]?.body);
-    }
-
-    assert.deepEqual(deliveredDispatch.payload, deliveredDispatchRequests[0]?.body);
-    const deliveredCoverage = await readCoverageBoard();
-    await expectStatus(
-      await request(
-        coverageBoardPath,
-        leader,
-        {
-          action: "CancelService",
-          commitmentId: commitments.Monday,
-          reason: "Skolen avlyste tjenesten",
-          evidenceSource: "Skole Alfa kontakt, telefon",
-        },
-        deliveredCoverage.etag,
+    assert.deepEqual(
+      await expectStatus(
+        await request(
+          ownCoveragePath,
+          volunteer,
+          recordCoverage(coveredAbsence.absenceId, substitute.personId),
+          ownBeforeRecord.etag,
+          recordKey,
+        ),
+        200,
       ),
-      409,
-      "commitment.pending-offer",
+      recordedOwn,
     );
-    assert.equal(
-      (await readCoverageBoard()).commitments.find(
-        (item) => item.commitmentId === commitments.Monday,
-      )?.decision,
-      null,
-    );
-    assert.equal(
-      deliveredCoverage.offers.find((offer) => offer.offerId === coveredOffer.offerId)?.status,
-      "Offered",
-      "delivery is not an acceptance",
-    );
-    assert.equal(
-      deliveredCoverage.responses.filter((response) => response.offerId === coveredOffer.offerId)
-        .length,
-      0,
-    );
-    assert.equal(
-      deliveredCoverage.acknowledgements.filter(
-        (acknowledgement) => acknowledgement.offerId === coveredOffer.offerId,
-      ).length,
-      0,
-    );
-    await expectStatus(
-      await request(
-        coverageBoardPath,
-        leader,
-        dispatch(substitute.personId),
-        deliveredCoverage.etag,
-      ),
-      409,
-      "offer.unresolved",
-    );
-    const wrongCoverage = await readOwnCoverage(wrongSdk);
-
-    const wrongResponseFactsBefore = (
-      await pool.query(
-        `SELECT
-         (SELECT count(*)::integer FROM school_service_substitute_offer_responses WHERE offer_id=$1) AS responses,
-         (SELECT count(*)::integer FROM school_service_coverage_audit WHERE snapshot->>'offerId'=$1) AS audit`,
-        [coveredOffer.offerId],
-      )
-    ).rows;
-
     await expectStatus(
       await request(
         ownCoveragePath,
-        wrong,
-        { action: "RespondToOffer", offerId: coveredOffer.offerId, response: "Accept" },
-        wrongCoverage.etag,
+        volunteer,
+        withdrawCoverage(coveredAbsence.absenceId),
+        ownBeforeRecord.etag,
+        recordKey,
       ),
-      403,
-      "offer.owner-invalid",
+      409,
+      "idempotency.digest-conflict",
+    );
+    await expectStatus(
+      await request(
+        ownCoveragePath,
+        volunteer,
+        withdrawCoverage(coveredAbsence.absenceId),
+        ownBeforeRecord.etag,
+      ),
+      412,
+      "precondition.failed",
+    );
+    assert.deepEqual(await reservationsOf(commitments.Monday), [
+      { sourceKind: "Coverage", personId: substitute.personId, coverageId: firstRecord.coverageId },
+      { sourceKind: "Scheduled", personId: volunteerId, coverageId: null },
+    ]);
+
+    // An active placement makes the coordinator an assistant who can cover. Recording her
+    // replaces the current record: withdrawal and new record share one transaction.
+    const assistantBoard = await command({
+      action: "Create",
+      personId: leaderId,
+      schoolId: 961,
+      day: "Friday",
+      workdays: 4,
+      block: "2",
+    });
+
+    const assistantPlacement = assistantBoard.placements.find(
+      (placement) =>
+        placement.personId === leaderId &&
+        placement.day === "Friday" &&
+        placement.block === "2" &&
+        placement.active,
+    );
+
+    assert.ok(assistantPlacement);
+    assert.deepEqual(
+      (await readCoverageBoard()).coverers.map((coverer) => [coverer.personId, coverer.kind]),
+      [
+        [substitute.personId, "Substitute"],
+        [leaderId, "Assistant"],
+      ],
+    );
+
+    const replacedBoard = await commandCoverage(recordCoverage(coveredAbsence.absenceId, leaderId));
+
+    const replacingRecord = replacedBoard.coverage.find(
+      (item) => item.absenceId === coveredAbsence.absenceId,
+    );
+
+    assert.ok(replacingRecord);
+    assert.deepEqual(
+      [
+        replacingRecord.coveringPersonId,
+        replacingRecord.covererKind,
+        replacingRecord.recordedByPersonId,
+      ],
+      [leaderId, "Assistant", leaderId],
     );
     assert.deepEqual(
       (
         await pool.query(
-          `SELECT
-           (SELECT count(*)::integer FROM school_service_substitute_offer_responses WHERE offer_id=$1) AS responses,
-           (SELECT count(*)::integer FROM school_service_coverage_audit WHERE snapshot->>'offerId'=$1) AS audit`,
-          [coveredOffer.offerId],
+          `SELECT withdrawn_by_person_id AS "withdrawnBy",
+           withdrawn_at=(SELECT recorded_at FROM school_service_coverage_records
+             WHERE coverage_id=$2) AS "sameTransaction"
+         FROM school_service_coverage_records WHERE coverage_id=$1`,
+          [firstRecord.coverageId, replacingRecord.coverageId],
         )
       ).rows,
-      wrongResponseFactsBefore,
-      "a wrong Person cannot produce an offer response or audit fact",
+      [{ withdrawnBy: leaderId, sameTransaction: true }],
     );
-    const candidateCoverage = await readOwnCoverage(candidateSdk);
+    assert.deepEqual(await reservationsOf(commitments.Monday), [
+      { sourceKind: "Coverage", personId: leaderId, coverageId: replacingRecord.coverageId },
+      { sourceKind: "Scheduled", personId: volunteerId, coverageId: null },
+    ]);
 
-    const acceptOffer = {
-      action: "RespondToOffer",
-      offerId: coveredOffer.offerId,
-      response: "Accept",
+    // Withdrawal leaves the absence uncovered and releases the covering person.
+    const withdrawnBoard = await commandCoverage(withdrawCoverage(coveredAbsence.absenceId));
+    assert.deepEqual(
+      withdrawnBoard.coverage.filter((item) => item.absenceId === coveredAbsence.absenceId),
+      [],
+    );
+    assert.deepEqual(await reservationsOf(commitments.Monday), [
+      { sourceKind: "Scheduled", personId: volunteerId, coverageId: null },
+    ]);
+    await rejectedCoverage(
+      coverageBoardPath,
+      leader,
+      withdrawCoverage(coveredAbsence.absenceId),
+      withdrawnBoard.etag,
+      409,
+      "coverage.not-recorded",
+    );
+
+    // Attendance is derived: roster minus absences plus current coverage. Without coverage the
+    // Monday service cannot be Completed; with it, it cannot be Unfulfilled.
+    const completeCovered = {
+      action: "CompleteService",
+      commitmentId: commitments.Monday,
+      evidenceSource: "Skole Alfa kontakt, telefon 2024-03-04",
     };
 
-    const acceptanceRace = await Promise.all(
-      [0, 1].map(() =>
-        request(
-          ownCoveragePath,
-          candidate,
-          acceptOffer,
-          candidateCoverage.etag,
-          randomBytes(18).toString("base64url"),
-        ),
-      ),
+    await rejectedCoverage(
+      coverageBoardPath,
+      leader,
+      completeCovered,
+      withdrawnBoard.etag,
+      422,
+      "commitment.outcome-invalid",
     );
 
-    const acceptanceResults = await Promise.all(
-      acceptanceRace.map(async (response) => ({
-        status: response.status,
-        body: await response.json(),
-      })),
+    let closeCoverageBoard = await commandCoverage(
+      recordCoverage(coveredAbsence.absenceId, substitute.personId),
+      withdrawnBoard.etag,
     );
 
-    assert.equal(acceptanceResults.filter((result) => result.status === 200).length, 1);
-    const losingAcceptance = acceptanceResults.find((result) => result.status !== 200);
-    assert.ok(losingAcceptance);
-    assert.ok([409, 412].includes(losingAcceptance.status));
-    assert.ok(
-      ["offer.response-invalid", "precondition.failed", "transaction.conflict"].includes(
-        losingAcceptance.body.code,
-      ),
-    );
-    const acceptedCoverage = await readCoverageBoard();
-    assert.equal(
-      acceptedCoverage.responses.filter(
-        (response) => response.offerId === coveredOffer.offerId && response.response === "Accept",
-      ).length,
-      1,
-    );
-    assert.equal(
-      acceptedCoverage.offers.find((offer) => offer.offerId === coveredOffer.offerId)?.status,
-      "Accepted",
-    );
-    const acknowledgementSnapshot = await readCoverageBoard();
-    const staleAcknowledgementSnapshot = await readCoverageBoard();
-    assert.equal(acknowledgementSnapshot.etag, staleAcknowledgementSnapshot.etag);
-    const acknowledgeOffer = { action: "AcknowledgeCoverage", offerId: coveredOffer.offerId };
-
-    const acknowledgedCoverage = await commandCoverage(
-      acknowledgeOffer,
-      acknowledgementSnapshot.etag,
+    const coveringRecord = closeCoverageBoard.coverage.find(
+      (item) => item.absenceId === coveredAbsence.absenceId,
     );
 
-    const acknowledgement = acknowledgedCoverage.acknowledgements.find(
-      (item) => item.offerId === coveredOffer.offerId,
+    assert.ok(coveringRecord);
+    assert.deepEqual(
+      [coveringRecord.coveringPersonId, coveringRecord.recordedByPersonId],
+      [substitute.personId, leaderId],
     );
-
-    assert.ok(acknowledgement);
     assert.deepEqual(
       (await readOwnCoverage(candidateSdk)).commitments
         .filter((item) => item.proposalId === apiCoverageProposalId)
         .map((item) => item.commitmentId),
       [commitments.Monday],
+      "the covering person reads the service she covers",
     );
-
-    const acknowledgementFacts = (
-      await pool.query(
-        `SELECT count(*)::integer AS acknowledgements,
-         (SELECT count(*)::integer FROM school_service_coverage_audit
-          WHERE action='AcknowledgeCoverage' AND snapshot->>'offerId'=$1) AS audit
-       FROM school_service_coverage_acknowledgements WHERE offer_id=$1`,
-        [coveredOffer.offerId],
-      )
-    ).rows;
-
-    await expectStatus(
-      await request(coverageBoardPath, leader, acknowledgeOffer, staleAcknowledgementSnapshot.etag),
-      412,
-      "precondition.failed",
-    );
-    assert.deepEqual(
-      (
-        await pool.query(
-          `SELECT count(*)::integer AS acknowledgements,
-           (SELECT count(*)::integer FROM school_service_coverage_audit
-            WHERE action='AcknowledgeCoverage' AND snapshot->>'offerId'=$1) AS audit
-         FROM school_service_coverage_acknowledgements WHERE offer_id=$1`,
-          [coveredOffer.offerId],
-        )
-      ).rows,
-      acknowledgementFacts,
-      "a stale acknowledgement does not write another acknowledgement or audit fact",
-    );
-
-    const completeCovered = {
-      action: "CompleteService",
-      commitmentId: commitments.Monday,
-      attendedPersonIds: [substitute.personId],
-      evidenceSource: "Skole Alfa kontakt, telefon 2024-03-04",
-    };
-
-    let closeCoverageBoard = await readCoverageBoard();
-    await expectStatus(
-      await request(
-        coverageBoardPath,
-        leader,
-        { ...completeCovered, attendedPersonIds: [volunteerId] },
-        closeCoverageBoard.etag,
-      ),
+    await rejectedCoverage(
+      coverageBoardPath,
+      leader,
+      {
+        action: "MarkUnfulfilledService",
+        commitmentId: commitments.Monday,
+        reason: "Ingen møtte",
+        evidenceSource: completeCovered.evidenceSource,
+      },
+      closeCoverageBoard.etag,
       422,
-      "commitment.attendance-invalid",
+      "commitment.outcome-invalid",
     );
     const completeKey = randomBytes(18).toString("base64url");
 
@@ -1946,24 +1917,29 @@ try {
       completeKey,
     );
 
-    assert.equal(
-      coveredClosure.commitments.find((item) => item.commitmentId === commitments.Monday)?.decision
-        ?.outcome,
-      "Completed",
+    const mondayDecision = coveredClosure.commitments.find(
+      (item) => item.commitmentId === commitments.Monday,
+    )?.decision;
+
+    assert.deepEqual(
+      [mondayDecision?.outcome, mondayDecision?.attendedPersonIds],
+      ["Completed", [substitute.personId]],
     );
     assert.deepEqual(
       coveredClosure.closures
         .filter((closure) => closure.absenceId === coveredAbsence.absenceId)
         .map((closure) => ({
           outcome: closure.outcome,
-          substitutePersonId: closure.substitutePersonId,
-          acknowledgementId: closure.acknowledgementId,
+          coverageId: closure.coverageId,
+          coveringPersonId: closure.coveringPersonId,
+          occurrenceId: closure.occurrenceId,
         })),
       [
         {
           outcome: "Covered",
-          substitutePersonId: substitute.personId,
-          acknowledgementId: acknowledgement.acknowledgementId,
+          coverageId: coveringRecord.coverageId,
+          coveringPersonId: substitute.personId,
+          occurrenceId: mondayDecision?.occurrenceId,
         },
       ],
     );
@@ -1981,12 +1957,11 @@ try {
       coveredClosure,
     );
     closeCoverageBoard = await readCoverageBoard();
-    await expectStatus(
-      await request(coverageBoardPath, leader, completeCovered, closeCoverageBoard.etag),
-      409,
-    );
-    await expectStatus(
-      await request(
+
+    // A decided service accepts no second decision, absence or coverage change.
+    for (const [path, cookie, payload, etag] of [
+      [coverageBoardPath, leader, completeCovered, closeCoverageBoard.etag],
+      [
         coverageBoardPath,
         leader,
         {
@@ -1996,55 +1971,40 @@ try {
           evidenceSource: "Skole Alfa kontakt, telefon",
         },
         closeCoverageBoard.etag,
-      ),
-      409,
-    );
-    await expectStatus(
-      await request(
+      ],
+      [
+        coverageBoardPath,
+        leader,
+        withdrawCoverage(coveredAbsence.absenceId),
+        closeCoverageBoard.etag,
+      ],
+      [
+        coverageBoardPath,
+        leader,
+        recordCoverage(coveredAbsence.absenceId, leaderId),
+        closeCoverageBoard.etag,
+      ],
+      [
         ownCoveragePath,
         volunteer,
         coveredAbsenceCommand,
         (await readOwnCoverage(volunteerSdk)).etag,
-      ),
-      409,
-    );
-    await expectStatus(
-      await request(
-        coverageBoardPath,
-        leader,
-        dispatch(substitute.personId),
-        closeCoverageBoard.etag,
-      ),
-      409,
-      "commitment.closed",
-    );
-    await expectStatus(
-      await request(coverageBoardPath, leader, acknowledgeOffer, closeCoverageBoard.etag),
-      409,
-    );
-    await expectStatus(
-      await request(
-        ownCoveragePath,
-        candidate,
-        acceptOffer,
-        (await readOwnCoverage(candidateSdk)).etag,
-      ),
-      409,
-    );
+      ],
+    ] as const)
+      await expectStatus(await request(path, cookie, payload, etag), 409, "commitment.closed");
     assert.equal(
       (await readCoverageBoard()).etag,
       closeCoverageBoard.etag,
       "post-terminal commands write no second fact",
     );
 
-    const coordinatorAbsence = {
-      action: "ReportAbsenceForVolunteer",
-      personId: leaderId,
-      commitmentId: commitments.Tuesday,
-    };
-
+    // Tuesday: the coordinator reports an absence nobody covers; zero attendance is Unfulfilled.
     const coordinatorAbsenceBoard = await commandCoverage(
-      coordinatorAbsence,
+      {
+        action: "ReportAbsenceForVolunteer",
+        personId: leaderId,
+        commitmentId: commitments.Tuesday,
+      },
       closeCoverageBoard.etag,
     );
 
@@ -2057,156 +2017,128 @@ try {
 
     assert.ok(uncoveredAbsence);
 
-    const declinedDispatchBoard = await commandCoverage(
-      {
-        action: "DispatchSubstituteOffer",
-        absenceId: uncoveredAbsence.absenceId,
-        candidatePersonId: substitute.personId,
-      },
-      coordinatorAbsenceBoard.etag,
-    );
-
-    const declinedOffer = declinedDispatchBoard.offers.find(
-      (offer) => offer.absenceId === uncoveredAbsence.absenceId,
-    );
-
-    assert.ok(declinedOffer);
-    await eventually("sequential declined-offer delivery", async () => {
-      const row = (
-        await pool.query(
-          `SELECT status FROM school_service_dispatch_notification_outbox WHERE offer_id=$1`,
-          [declinedOffer.offerId],
-        )
-      ).rows[0];
-
-      return row?.status === "Delivered" ? row : undefined;
-    });
-    const candidateDeclineCoverage = await readOwnCoverage(candidateSdk);
-
-    const declinedCoverage = await commandOwnCoverage(
-      candidateSdk,
-      { action: "RespondToOffer", offerId: declinedOffer.offerId, response: "Decline" },
-      candidateDeclineCoverage.etag,
-    );
-
-    assert.equal(
-      declinedCoverage.responses.find((response) => response.offerId === declinedOffer.offerId)
-        ?.response,
-      "Decline",
-    );
-
-    const redispatchBoard = await commandCoverage(
-      {
-        action: "DispatchSubstituteOffer",
-        absenceId: uncoveredAbsence.absenceId,
-        candidatePersonId: substitute.personId,
-      },
-      (await readCoverageBoard()).etag,
-    );
-
-    const withdrawnOffer = redispatchBoard.offers.find(
-      (offer) =>
-        offer.absenceId === uncoveredAbsence.absenceId && offer.offerId !== declinedOffer.offerId,
-    );
-
-    assert.ok(withdrawnOffer);
-    await eventually("sequential withdrawn-offer delivery", async () => {
-      const row = (
-        await pool.query(
-          `SELECT status FROM school_service_dispatch_notification_outbox WHERE offer_id=$1`,
-          [withdrawnOffer.offerId],
-        )
-      ).rows[0];
-
-      return row?.status === "Delivered" ? row : undefined;
-    });
-
-    const withdrawnBoard = await commandCoverage(
-      { action: "WithdrawSubstituteOffer", offerId: withdrawnOffer.offerId },
-      (await readCoverageBoard()).etag,
-    );
-
-    assert.equal(
-      withdrawnBoard.offers.find((offer) => offer.offerId === withdrawnOffer.offerId)?.status,
-      "Withdrawn",
-    );
-
     const zeroUnfulfilled = {
       action: "MarkUnfulfilledService",
       commitmentId: commitments.Tuesday,
-      attendedPersonIds: [],
       reason: "Ingen frivillige møtte",
       evidenceSource: "Skole Alfa kontakt, telefon 2024-03-05",
     };
 
-    closeCoverageBoard = await readCoverageBoard();
-    await expectStatus(
-      await request(
-        coverageBoardPath,
-        leader,
-        { ...zeroUnfulfilled, attendedPersonIds: [substitute.personId] },
-        closeCoverageBoard.etag,
-      ),
+    await rejectedCoverage(
+      coverageBoardPath,
+      leader,
+      {
+        action: "CompleteService",
+        commitmentId: commitments.Tuesday,
+        evidenceSource: zeroUnfulfilled.evidenceSource,
+      },
+      coordinatorAbsenceBoard.etag,
       422,
-      "commitment.attendance-invalid",
+      "commitment.outcome-invalid",
     );
-    assert.equal(
-      (await readCoverageBoard()).etag,
-      closeCoverageBoard.etag,
-      "invalid attendance leaves the board unchanged",
-    );
-    const uncoveredClosure = await commandCoverage(zeroUnfulfilled, closeCoverageBoard.etag);
-    assert.equal(
-      uncoveredClosure.commitments.find((item) => item.commitmentId === commitments.Tuesday)
-        ?.decision?.outcome,
-      "Unfulfilled",
-    );
-    assert.equal(
-      uncoveredClosure.commitments.find((item) => item.commitmentId === commitments.Tuesday)
-        ?.decision?.occurrenceId,
-      null,
+    const uncoveredClosure = await commandCoverage(zeroUnfulfilled, coordinatorAbsenceBoard.etag);
+
+    const tuesdayDecision = uncoveredClosure.commitments.find(
+      (item) => item.commitmentId === commitments.Tuesday,
+    )?.decision;
+
+    assert.deepEqual(
+      [tuesdayDecision?.outcome, tuesdayDecision?.attendedPersonIds, tuesdayDecision?.occurrenceId],
+      ["Unfulfilled", [], null],
     );
     assert.deepEqual(
       uncoveredClosure.closures
         .filter((closure) => closure.absenceId === uncoveredAbsence.absenceId)
-        .map((closure) => [closure.outcome, closure.occurrenceId]),
-      [["Uncovered", null]],
+        .map((closure) => [closure.outcome, closure.occurrenceId, closure.coverageId]),
+      [["Uncovered", null, null]],
     );
     await expectStatus(
       await request(
         coverageBoardPath,
         leader,
-        {
-          action: "DispatchSubstituteOffer",
-          absenceId: uncoveredAbsence.absenceId,
-          candidatePersonId: substitute.personId,
-        },
+        recordCoverage(uncoveredAbsence.absenceId, substitute.personId),
         uncoveredClosure.etag,
       ),
       409,
+      "commitment.closed",
+    );
+
+    // Wednesday needs two. A person scheduled on the service, or already covering another absence
+    // in the same interval, is unavailable.
+    const wednesdayOwn = await commandOwnCoverage(volunteerSdk, {
+      action: "ReportAbsence",
+      commitmentId: commitments.Wednesday,
+    });
+
+    const volunteerWednesday = wednesdayOwn.absences.find(
+      (absence) => absence.commitmentId === commitments.Wednesday,
+    );
+
+    assert.ok(volunteerWednesday);
+    await rejectedCoverage(
+      coverageBoardPath,
+      leader,
+      recordCoverage(volunteerWednesday.absenceId, leaderId),
+      (await readCoverageBoard()).etag,
+      409,
+      "coverage.coverer-unavailable",
+    );
+
+    const wednesdayCovered = await commandCoverage(
+      recordCoverage(volunteerWednesday.absenceId, substitute.personId),
+    );
+
+    const wednesdayRecord = wednesdayCovered.coverage.find(
+      (item) => item.absenceId === volunteerWednesday.absenceId,
+    );
+
+    assert.ok(wednesdayRecord);
+
+    const bothAbsent = await commandCoverage(
+      {
+        action: "ReportAbsenceForVolunteer",
+        personId: leaderId,
+        commitmentId: commitments.Wednesday,
+      },
+      wednesdayCovered.etag,
+    );
+
+    const leaderWednesday = bothAbsent.absences.find(
+      (absence) => absence.commitmentId === commitments.Wednesday && absence.personId === leaderId,
+    );
+
+    assert.ok(leaderWednesday);
+    await rejectedCoverage(
+      coverageBoardPath,
+      leader,
+      recordCoverage(leaderWednesday.absenceId, substitute.personId),
+      bothAbsent.etag,
+      409,
+      "coverage.coverer-unavailable",
     );
 
     const partialUnfulfilled = {
       action: "MarkUnfulfilledService",
       commitmentId: commitments.Wednesday,
-      attendedPersonIds: [leaderId],
       reason: "Én av to frivillige møtte",
       evidenceSource: "Skole Alfa kontakt, telefon 2024-03-06",
     };
 
-    const partialBoard = await readCoverageBoard();
-    await expectStatus(
-      await request(
-        coverageBoardPath,
-        leader,
-        { ...partialUnfulfilled, attendedPersonIds: [leaderId, volunteerId] },
-        partialBoard.etag,
-      ),
+    await rejectedCoverage(
+      coverageBoardPath,
+      leader,
+      {
+        action: "CompleteService",
+        commitmentId: commitments.Wednesday,
+        evidenceSource: partialUnfulfilled.evidenceSource,
+      },
+      bothAbsent.etag,
       422,
+      "commitment.outcome-invalid",
     );
 
     const competingPartial = await Promise.all(
-      [0, 1].map(() => request(coverageBoardPath, leader, partialUnfulfilled, partialBoard.etag)),
+      [0, 1].map(() => request(coverageBoardPath, leader, partialUnfulfilled, bothAbsent.etag)),
     );
 
     assert.equal(competingPartial.filter((response) => response.status === 200).length, 1);
@@ -2221,20 +2153,40 @@ try {
     )?.decision;
 
     assert.equal(partialDecision?.outcome, "Unfulfilled");
-    assert.deepEqual(partialDecision?.attendedPersonIds, [leaderId]);
+    assert.deepEqual(partialDecision?.attendedPersonIds, [substitute.personId]);
     assert.ok(partialDecision?.occurrenceId);
 
-    const cancelAbsence = await commandCoverage({
+    // Thursday: cancellation records no attendance or closure and releases every reservation.
+    const thursdayAbsenceBoard = await commandCoverage({
       action: "ReportAbsenceForVolunteer",
       personId: leaderId,
       commitmentId: commitments.Thursday,
     });
 
-    const cancelledAbsenceId = cancelAbsence.absences.find(
+    const cancelledAbsenceId = thursdayAbsenceBoard.absences.find(
       (item) => item.commitmentId === commitments.Thursday,
     )?.absenceId;
 
     assert.ok(cancelledAbsenceId);
+
+    const thursdayCovered = await commandCoverage(
+      recordCoverage(cancelledAbsenceId, substitute.personId),
+      thursdayAbsenceBoard.etag,
+    );
+
+    const thursdayRecord = thursdayCovered.coverage.find(
+      (item) => item.absenceId === cancelledAbsenceId,
+    );
+
+    assert.ok(thursdayRecord);
+    assert.deepEqual(await reservationsOf(commitments.Thursday), [
+      {
+        sourceKind: "Coverage",
+        personId: substitute.personId,
+        coverageId: thursdayRecord.coverageId,
+      },
+      { sourceKind: "Scheduled", personId: leaderId, coverageId: null },
+    ]);
 
     const cancel = {
       action: "CancelService",
@@ -2243,8 +2195,7 @@ try {
       evidenceSource: "Skole Alfa kontakt, telefon 2024-03-07",
     };
 
-    const beforeCancel = await readCoverageBoard();
-    const cancelled = await commandCoverage(cancel, beforeCancel.etag);
+    const cancelled = await commandCoverage(cancel, thursdayCovered.etag);
     assert.equal(
       cancelled.commitments.find((item) => item.commitmentId === commitments.Thursday)?.decision
         ?.outcome,
@@ -2263,15 +2214,19 @@ try {
       cancelled.closures.filter((item) => item.absenceId === cancelledAbsenceId).length,
       0,
     );
-    await expectStatus(
-      await request(
-        coverageBoardPath,
-        leader,
-        { ...partialUnfulfilled, commitmentId: commitments.Thursday },
-        cancelled.etag,
-      ),
-      409,
-    );
+    assert.deepEqual(await reservationsOf(commitments.Thursday), []);
+
+    for (const payload of [
+      { ...partialUnfulfilled, commitmentId: commitments.Thursday },
+      withdrawCoverage(cancelledAbsenceId),
+    ])
+      await expectStatus(
+        await request(coverageBoardPath, leader, payload, cancelled.etag),
+        409,
+        "commitment.closed",
+      );
+    // The assistant placement served only as a coverer; the browser roster must not include it.
+    await command({ action: "Remove", placementId: assistantPlacement.placementId });
     const finalApiCoverage = await readCoverageBoard();
     assert.deepEqual(
       finalApiCoverage.commitments
@@ -2347,7 +2302,7 @@ try {
           serviceDates.Wednesday,
           2,
           "Unfulfilled",
-          [leaderId],
+          [substitute.personId],
           partialUnfulfilled.reason,
           leaderId,
         ],
@@ -2381,18 +2336,114 @@ try {
       ).rows,
       [
         { commitmentId: commitments.Monday, attendedPersonIds: [substitute.personId] },
-        { commitmentId: commitments.Wednesday, attendedPersonIds: [leaderId] },
+        { commitmentId: commitments.Wednesday, attendedPersonIds: [substitute.personId] },
       ],
     );
-    assert.equal(
+
+    // Each absence of a decided, noncancelled service closes Covered by its current record or
+    // Uncovered; the cancelled service closes none.
+    assert.deepEqual(
       (
         await pool.query(
-          "SELECT count(*)::integer AS count FROM school_service_closures WHERE absence_id=$1",
-          [cancelledAbsenceId],
+          `SELECT closure.absence_id AS "absenceId",closure.outcome,closure.coverage_id AS "coverageId",
+           closure.covering_person_id AS "coveringPersonId",
+           closure.scheduled_person_id AS "scheduledPersonId",closure.occurrence_id AS "occurrenceId"
+         FROM school_service_closures AS closure
+         JOIN school_service_absences AS absence USING(absence_id)
+         WHERE absence.proposal_id=$1 ORDER BY absence.service_date,absence.person_id`,
+          [apiCoverageProposalId],
         )
-      ).rows[0].count,
-      0,
+      ).rows,
+      [
+        {
+          absenceId: coveredAbsence.absenceId,
+          outcome: "Covered",
+          coverageId: coveringRecord.coverageId,
+          coveringPersonId: substitute.personId,
+          scheduledPersonId: volunteerId,
+          occurrenceId: durableDecisions[0]?.occurrenceId,
+        },
+        {
+          absenceId: uncoveredAbsence.absenceId,
+          outcome: "Uncovered",
+          coverageId: null,
+          coveringPersonId: null,
+          scheduledPersonId: leaderId,
+          occurrenceId: null,
+        },
+        {
+          absenceId: volunteerWednesday.absenceId,
+          outcome: "Covered",
+          coverageId: wednesdayRecord.coverageId,
+          coveringPersonId: substitute.personId,
+          scheduledPersonId: volunteerId,
+          occurrenceId: durableDecisions[2]?.occurrenceId,
+        },
+        {
+          absenceId: leaderWednesday.absenceId,
+          outcome: "Uncovered",
+          coverageId: null,
+          coveringPersonId: null,
+          scheduledPersonId: leaderId,
+          occurrenceId: durableDecisions[2]?.occurrenceId,
+        },
+      ],
     );
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT coverage.absence_id AS "absenceId",coverage.covering_person_id AS "coveringPersonId",
+           coverage.coverer_kind AS "covererKind",coverage.recorded_by_person_id AS "recordedBy",
+           coverage.withdrawn_by_person_id AS "withdrawnBy"
+         FROM school_service_coverage_records AS coverage
+         JOIN school_service_absences AS absence USING(absence_id)
+         WHERE absence.proposal_id=$1 ORDER BY coverage.recorded_at,coverage.coverage_id`,
+          [apiCoverageProposalId],
+        )
+      ).rows,
+      [
+        [coveredAbsence.absenceId, substitute.personId, "Substitute", volunteerId, leaderId],
+        [coveredAbsence.absenceId, leaderId, "Assistant", leaderId, leaderId],
+        [coveredAbsence.absenceId, substitute.personId, "Substitute", leaderId, null],
+        [volunteerWednesday.absenceId, substitute.personId, "Substitute", leaderId, null],
+        [cancelledAbsenceId, substitute.personId, "Substitute", leaderId, null],
+      ].map(([absenceId, coveringPersonId, covererKind, recordedBy, withdrawnBy]) => ({
+        absenceId,
+        coveringPersonId,
+        covererKind,
+        recordedBy,
+        withdrawnBy,
+      })),
+    );
+
+    for (const [day, expected] of [
+      [
+        "Monday",
+        [
+          {
+            sourceKind: "Coverage",
+            personId: substitute.personId,
+            coverageId: coveringRecord.coverageId,
+          },
+          { sourceKind: "Scheduled", personId: volunteerId, coverageId: null },
+        ],
+      ],
+      ["Tuesday", [{ sourceKind: "Scheduled", personId: leaderId, coverageId: null }]],
+      [
+        "Wednesday",
+        [
+          {
+            sourceKind: "Coverage",
+            personId: substitute.personId,
+            coverageId: wednesdayRecord.coverageId,
+          },
+          { sourceKind: "Scheduled", personId: volunteerId, coverageId: null },
+          { sourceKind: "Scheduled", personId: leaderId, coverageId: null },
+        ],
+      ],
+      ["Thursday", []],
+    ] as const)
+      assert.deepEqual(await reservationsOf(commitments[day]), expected, `${day} reservations`);
 
     const apiCoverageAudit = (
       await pool.query(
@@ -2402,44 +2453,32 @@ try {
     ).rows;
 
     assert.deepEqual(apiCoverageAudit, [
-      { action: "ReportAbsence", actorPersonId: volunteerId },
-      { action: "DispatchSubstituteOffer", actorPersonId: leaderId },
-      { action: "RespondToOffer", actorPersonId: substitute.personId },
-      { action: "AcknowledgeCoverage", actorPersonId: leaderId },
-      { action: "CompleteService", actorPersonId: leaderId },
-      { action: "ReportAbsence", actorPersonId: leaderId },
-      { action: "DispatchSubstituteOffer", actorPersonId: leaderId },
-      { action: "RespondToOffer", actorPersonId: substitute.personId },
-      { action: "DispatchSubstituteOffer", actorPersonId: leaderId },
-      { action: "WithdrawSubstituteOffer", actorPersonId: leaderId },
-      { action: "MarkUnfulfilledService", actorPersonId: leaderId },
-      { action: "MarkUnfulfilledService", actorPersonId: leaderId },
-      { action: "ReportAbsence", actorPersonId: leaderId },
-      { action: "CancelService", actorPersonId: leaderId },
+      audit("ReportAbsence", volunteerId),
+      audit("RecordCoverage", volunteerId),
+      audit("RecordCoverage", leaderId),
+      audit("WithdrawCoverage", leaderId),
+      audit("RecordCoverage", leaderId),
+      audit("CompleteService", leaderId),
+      audit("ReportAbsence", leaderId),
+      audit("MarkUnfulfilledService", leaderId),
+      audit("ReportAbsence", volunteerId),
+      audit("RecordCoverage", leaderId),
+      audit("ReportAbsence", leaderId),
+      audit("MarkUnfulfilledService", leaderId),
+      audit("ReportAbsence", leaderId),
+      audit("RecordCoverage", leaderId),
+      audit("CancelService", leaderId),
     ]);
     const apiCoverageAuditCount = apiCoverageAudit.length;
-    assert.deepEqual(
-      (
-        await pool.query(
-          `SELECT response,responder_person_id AS "responderPersonId"
-         FROM school_service_substitute_offer_responses ORDER BY responded_at,offer_id`,
-        )
-      ).rows,
-      [
-        { response: "Accept", responderPersonId: substitute.personId },
-        { response: "Decline", responderPersonId: substitute.personId },
-      ],
-    );
 
     const apiCoverageEvidence = {
       proposalId: apiCoverageProposalId,
+      admissionOutcome: { applicationId: coverageApplicationId, revision: onCall.revision },
       coveredAbsenceId: coveredAbsence.absenceId,
       uncoveredAbsenceId: uncoveredAbsence.absenceId,
-      coveredOfferId: coveredOffer.offerId,
-      acknowledgementId: acknowledgement.acknowledgementId,
-      deliveredEffectId: deliveredDispatch.effectId,
-      deliveredAttempts: deliveredDispatch.attempts,
-      auditActions: apiCoverageAudit.map((entry: { action: string }) => entry.action),
+      coverageId: coveringRecord.coverageId,
+      replacedCoverageIds: [firstRecord.coverageId, replacingRecord.coverageId],
+      auditActions: apiCoverageAudit.map((entry) => entry.action),
     };
 
     const browserLeaderBoard = await command({
@@ -2519,10 +2558,8 @@ try {
           cancelledCommitmentId: Schema.String,
           coveredAbsenceId: Schema.String,
           uncoveredAbsenceId: Schema.String,
-          coveredOfferId: Schema.String,
-          declinedOfferId: Schema.String,
-          withdrawnOfferId: Schema.String,
-          coveredAcknowledgementId: Schema.String,
+          coverageId: Schema.String,
+          withdrawnCoverageId: Schema.String,
           occurrenceId: Schema.String,
           uncoveredOccurrenceId: Schema.String,
         }),
@@ -2530,27 +2567,6 @@ try {
 
       assert.ok(browserCoverageExpected);
       assert.equal(browserCoverageExpected.absencePosts, 1);
-
-      const browserDispatches = await eventually("browser substitute-offer delivery", async () => {
-        const rows = (
-          await pool.query(
-            `SELECT notification.effect_id AS "effectId",notification.offer_id AS "offerId",
-             notification.person_id AS "personId",notification.status,notification.attempts
-           FROM school_service_dispatch_notification_outbox AS notification
-           JOIN school_service_substitute_offers AS offer
-             ON offer.offer_id=notification.offer_id
-             AND offer.absence_id=notification.absence_id
-           JOIN school_service_absences AS absence ON absence.absence_id=offer.absence_id
-           WHERE absence.proposal_id=$1 ORDER BY absence.service_date,notification.effect_id`,
-            [browserCoverageExpected.proposalId],
-          )
-        ).rows;
-
-        return rows.length === 3 &&
-          rows.every((row: { status: string }) => row.status === "Delivered")
-          ? rows
-          : undefined;
-      });
 
       const actual = (
         await pool.query(
@@ -2669,7 +2685,7 @@ try {
             2,
             manifest.coverage.serviceDate,
             "Completed",
-            [leaderId, substitute.personId],
+            [leaderId, substitute.personId].sort(),
           ],
           [
             browserCoverageExpected.unfulfilledCommitmentId,
@@ -2728,102 +2744,64 @@ try {
         },
       ]);
 
-      const browserOffers = (
-        await pool.query(
-          `SELECT offer.offer_id AS "offerId",offer.absence_id AS "absenceId",
-           offer.candidate_person_id AS "candidatePersonId",offer.status
-         FROM school_service_substitute_offers AS offer
-         JOIN school_service_absences AS absence USING(absence_id)
-         WHERE absence.proposal_id=$1
-         ORDER BY absence.service_date,offer.dispatched_at,offer.offer_id`,
-          [browserCoverageExpected.proposalId],
-        )
-      ).rows;
-
-      assert.equal(browserOffers.length, 3);
-      assert.deepEqual(
-        browserOffers.map(
-          (offer: {
-            readonly offerId: string;
-            readonly absenceId: string;
-            readonly candidatePersonId: string;
-            readonly status: string;
-          }) => ({
-            offerId: offer.offerId,
-            absenceId: offer.absenceId,
-            candidatePersonId: offer.candidatePersonId,
-            status: offer.status,
-          }),
-        ),
-        [
-          {
-            offerId: browserCoverageExpected.coveredOfferId,
-            absenceId: browserCoverageExpected.coveredAbsenceId,
-            candidatePersonId: substitute.personId,
-            status: "Acknowledged",
-          },
-          {
-            offerId: browserCoverageExpected.declinedOfferId,
-            absenceId: browserCoverageExpected.uncoveredAbsenceId,
-            candidatePersonId: substitute.personId,
-            status: "Declined",
-          },
-          {
-            offerId: browserCoverageExpected.withdrawnOfferId,
-            absenceId: browserCoverageExpected.uncoveredAbsenceId,
-            candidatePersonId: substitute.personId,
-            status: "Withdrawn",
-          },
-        ],
-      );
+      // The volunteer's record covers the first service; the coordinator's record on the second
+      // absence was withdrawn before the decision.
       assert.deepEqual(
         (
           await pool.query(
-            `SELECT response.offer_id AS "offerId",response.response,
-             response.responder_person_id AS "responderPersonId"
-           FROM school_service_substitute_offer_responses AS response
-           JOIN school_service_substitute_offers AS offer
-             ON offer.offer_id=response.offer_id
-           JOIN school_service_absences AS absence ON absence.absence_id=offer.absence_id
-           WHERE absence.proposal_id=$1
-           ORDER BY absence.service_date,response.responded_at,response.offer_id`,
+            `SELECT coverage.coverage_id AS "coverageId",coverage.absence_id AS "absenceId",
+             coverage.covering_person_id AS "coveringPersonId",coverage.coverer_kind AS "covererKind",
+             coverage.recorded_by_person_id AS "recordedBy",
+             coverage.withdrawn_by_person_id AS "withdrawnBy"
+           FROM school_service_coverage_records AS coverage
+           JOIN school_service_absences AS absence USING(absence_id)
+           WHERE absence.proposal_id=$1 ORDER BY coverage.recorded_at,coverage.coverage_id`,
             [browserCoverageExpected.proposalId],
           )
         ).rows,
         [
           {
-            offerId: browserCoverageExpected.coveredOfferId,
-            response: "Accept",
-            responderPersonId: substitute.personId,
-          },
-          {
-            offerId: browserCoverageExpected.declinedOfferId,
-            response: "Decline",
-            responderPersonId: substitute.personId,
-          },
-        ],
-      );
-      assert.deepEqual(
-        (
-          await pool.query(
-            `SELECT acknowledgement_id AS "acknowledgementId",offer_id AS "offerId",
-             absence_id AS "absenceId",candidate_person_id AS "candidatePersonId",
-             acknowledged_by_person_id AS "acknowledgedByPersonId"
-           FROM school_service_coverage_acknowledgements
-           WHERE absence_id=$1`,
-            [browserCoverageExpected.coveredAbsenceId],
-          )
-        ).rows,
-        [
-          {
-            acknowledgementId: browserCoverageExpected.coveredAcknowledgementId,
-            offerId: browserCoverageExpected.coveredOfferId,
+            coverageId: browserCoverageExpected.coverageId,
             absenceId: browserCoverageExpected.coveredAbsenceId,
-            candidatePersonId: substitute.personId,
-            acknowledgedByPersonId: leaderId,
+            coveringPersonId: substitute.personId,
+            covererKind: "Substitute",
+            recordedBy: volunteerId,
+            withdrawnBy: null,
+          },
+          {
+            coverageId: browserCoverageExpected.withdrawnCoverageId,
+            absenceId: browserCoverageExpected.uncoveredAbsenceId,
+            coveringPersonId: substitute.personId,
+            covererKind: "Substitute",
+            recordedBy: leaderId,
+            withdrawnBy: leaderId,
           },
         ],
       );
+
+      for (const [commitmentId, expected] of [
+        [
+          browserCoverageExpected.completedCommitmentId,
+          [
+            {
+              sourceKind: "Coverage",
+              personId: substitute.personId,
+              coverageId: browserCoverageExpected.coverageId,
+            },
+            { sourceKind: "Scheduled", personId: volunteerId, coverageId: null },
+            { sourceKind: "Scheduled", personId: leaderId, coverageId: null },
+          ],
+        ],
+        [
+          browserCoverageExpected.unfulfilledCommitmentId,
+          [
+            { sourceKind: "Scheduled", personId: volunteerId, coverageId: null },
+            { sourceKind: "Scheduled", personId: leaderId, coverageId: null },
+          ],
+        ],
+        [browserCoverageExpected.cancelledCommitmentId, []],
+      ] as const)
+        assert.deepEqual(await reservationsOf(commitmentId), expected);
 
       const browserOccurrences = (
         await pool.query(
@@ -2866,8 +2844,8 @@ try {
         (
           await pool.query(
             `SELECT closure.absence_id AS "absenceId",closure.outcome,
-             closure.acknowledgement_id AS "acknowledgementId",
-             closure.substitute_person_id AS "substitutePersonId",
+             closure.coverage_id AS "coverageId",
+             closure.covering_person_id AS "coveringPersonId",
              closure.scheduled_person_id AS "scheduledPersonId",
              closure.closed_by_person_id AS "closedByPersonId"
            FROM school_service_closures AS closure
@@ -2880,26 +2858,20 @@ try {
           {
             absenceId: browserCoverageExpected.coveredAbsenceId,
             outcome: "Covered",
-            acknowledgementId: browserCoverageExpected.coveredAcknowledgementId,
-            substitutePersonId: substitute.personId,
+            coverageId: browserCoverageExpected.coverageId,
+            coveringPersonId: substitute.personId,
             scheduledPersonId: volunteerId,
             closedByPersonId: leaderId,
           },
           {
             absenceId: browserCoverageExpected.uncoveredAbsenceId,
             outcome: "Uncovered",
-            acknowledgementId: null,
-            substitutePersonId: null,
+            coverageId: null,
+            coveringPersonId: null,
             scheduledPersonId: leaderId,
             closedByPersonId: leaderId,
           },
         ],
-      );
-      assert.ok(
-        browserDispatches.every(
-          (dispatch: { readonly personId: string; readonly attempts: number }) =>
-            dispatch.personId === substitute.personId && dispatch.attempts === 1,
-        ),
       );
       assert.deepEqual(
         (
@@ -2911,18 +2883,14 @@ try {
           )
         ).rows,
         [
-          { action: "ReportAbsence", actorPersonId: volunteerId },
-          { action: "DispatchSubstituteOffer", actorPersonId: leaderId },
-          { action: "RespondToOffer", actorPersonId: substitute.personId },
-          { action: "AcknowledgeCoverage", actorPersonId: leaderId },
-          { action: "CompleteService", actorPersonId: leaderId },
-          { action: "ReportAbsence", actorPersonId: leaderId },
-          { action: "DispatchSubstituteOffer", actorPersonId: leaderId },
-          { action: "RespondToOffer", actorPersonId: substitute.personId },
-          { action: "DispatchSubstituteOffer", actorPersonId: leaderId },
-          { action: "WithdrawSubstituteOffer", actorPersonId: leaderId },
-          { action: "MarkUnfulfilledService", actorPersonId: leaderId },
-          { action: "CancelService", actorPersonId: leaderId },
+          audit("ReportAbsence", volunteerId),
+          audit("RecordCoverage", volunteerId),
+          audit("CompleteService", leaderId),
+          audit("ReportAbsence", leaderId),
+          audit("RecordCoverage", leaderId),
+          audit("WithdrawCoverage", leaderId),
+          audit("MarkUnfulfilledService", leaderId),
+          audit("CancelService", leaderId),
         ],
       );
       assert.equal(notificationRequests.length, 2);
@@ -2960,7 +2928,6 @@ try {
       browserEvidence,
       apiCoverage: apiCoverageEvidence,
       notificationRequests,
-      dispatchNotificationRequests,
       runtime,
       implementation: {
         generatedCoverageOperations: [
@@ -2968,11 +2935,12 @@ try {
           "placements.commandOwnCoverage",
           "placements.readCoverageBoard",
           "placements.commandCoverageBoard",
+          "admissionOutcomes.recordOutcome",
         ],
         coverageGates: [
-          "anonymous, wrong-scope, owner, roster/date, candidate, ETag, and idempotency boundaries",
-          "sequential offers, wrong-person response, acceptance race, stale acknowledgement, exact decision replay and competing decision denial",
-          "immutable commitments, attendance evidence, zero and partial unmet demand, cancellation without occurrence, old occurrence, closure and audit history",
+          "anonymous, wrong-scope, owner, roster/date, coverer, ETag, and idempotency boundaries",
+          "coverage record, atomic replacement, withdrawal, ineligible and unavailable coverers, exact decision replay and competing decision denial",
+          "derived attendance, zero and partial unmet demand, cancellation without occurrence releasing reservations, old occurrence, closure and audit history",
         ],
       },
       localRuntime: {
@@ -2980,7 +2948,7 @@ try {
         postgres: "disposable loopback PostgreSQL",
         backend: backendOrigin,
         dashboard: mode === "--browser" ? dashboardOrigin : null,
-        notificationProvider: "owned loopback HTTP provider with forced failure then recovery",
+        notificationProvider: "owned loopback HTTP provider for roster notifications",
       },
       productionBoundary:
         "No production data, provider, credentials, deployment, or cutover is contacted or changed.",
@@ -2997,8 +2965,7 @@ try {
         "Create/Edit/Remove same row and audit retained",
         "inactive affiliation preserves history and rejects new placement",
         "fresh authority before exact replay",
-        "dated commitment scope, old/duplicate occurrence, candidate eligibility, offer, response, acknowledgement, terminal evidence and closure gates",
-        "retry keeps one substitute dispatch effect identity and payload while delivery stays distinct from acceptance",
+        "dated commitment scope, old/duplicate occurrence, admission outcome, coverer eligibility and availability, coverage record, terminal evidence and closure gates",
         "canonical Person and account credentials unchanged",
       ],
     };

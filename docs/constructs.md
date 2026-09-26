@@ -69,12 +69,12 @@ Reads native HTTP requests and writes their representations: bounded JSON, preco
 - `normalizeTarget`: Fills a route template with its encoded identities; a missing identity is a malformed request.
   [apps/backend/src/http-semantics.ts:386](../apps/backend/src/http-semantics.ts#L386), 8 consumers:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
+  - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
   - [apps/backend/src/http-semantics.test.ts](../apps/backend/src/http-semantics.test.ts)
   - [apps/backend/src/onboarding/http.ts](../apps/backend/src/onboarding/http.ts)
   - [apps/backend/src/placements/http.ts](../apps/backend/src/placements/http.ts)
   - [apps/backend/src/recruitment/http-commands.ts](../apps/backend/src/recruitment/http-commands.ts)
-  - [apps/backend/src/substitutes/http.ts](../apps/backend/src/substitutes/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `deriveHttpIdentity`: Derives the private storage digest and domain command ID from the identity tuple.
   [apps/backend/src/http-semantics.ts:415](../apps/backend/src/http-semantics.ts#L415), 7 consumers:
@@ -164,6 +164,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
 - `webHandler`: Runs one Effect-native Web transport operation.
   [apps/backend/src/http-api/problem.ts:87](../apps/backend/src/http-api/problem.ts#L87), 14 consumers:
   - [apps/backend/src/admission/http.ts](../apps/backend/src/admission/http.ts)
+  - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/contact/http.ts](../apps/backend/src/contact/http.ts)
   - [apps/backend/src/content/http.ts](../apps/backend/src/content/http.ts)
   - [apps/backend/src/directory/http.ts](../apps/backend/src/directory/http.ts)
@@ -175,7 +176,6 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/receipt/http.ts](../apps/backend/src/receipt/http.ts)
   - [apps/backend/src/recruitment/http.ts](../apps/backend/src/recruitment/http.ts)
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
-  - [apps/backend/src/substitutes/http.ts](../apps/backend/src/substitutes/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `semanticProblem`: Runs a throwing semantic parser.
   [apps/backend/src/http-api/problem.ts:103](../apps/backend/src/http-api/problem.ts#L103), 4 consumers:
@@ -186,6 +186,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
 - `problemMapper`: Builds the one failure-to-problem mapper of a domain.
   [apps/backend/src/http-api/problem.ts:137](../apps/backend/src/http-api/problem.ts#L137), 15 consumers:
   - [apps/backend/src/admission/http-problem.ts](../apps/backend/src/admission/http-problem.ts)
+  - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/contact/http.ts](../apps/backend/src/contact/http.ts)
   - [apps/backend/src/content/http-problem.ts](../apps/backend/src/content/http-problem.ts)
   - [apps/backend/src/directory/http.ts](../apps/backend/src/directory/http.ts)
@@ -198,7 +199,6 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/recruitment/http-problem.ts](../apps/backend/src/recruitment/http-problem.ts)
   - [apps/backend/src/schools/http.ts](../apps/backend/src/schools/http.ts)
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
-  - [apps/backend/src/substitutes/http.ts](../apps/backend/src/substitutes/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `headerValues`: The values of one request header; an absent header has none.
   [apps/backend/src/http-api/problem.ts:164](../apps/backend/src/http-api/problem.ts#L164), no consumers.
@@ -206,6 +206,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   [apps/backend/src/http-api/problem.ts:175](../apps/backend/src/http-api/problem.ts#L175), 17 consumers:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
   - [apps/backend/src/admission/http-reads.ts](../apps/backend/src/admission/http-reads.ts)
+  - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
   - [apps/backend/src/content/http-reads.ts](../apps/backend/src/content/http-reads.ts)
   - [apps/backend/src/http-api/system.ts](../apps/backend/src/http-api/system.ts)
@@ -219,11 +220,11 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/recruitment/maintenance-http.ts](../apps/backend/src/recruitment/maintenance-http.ts)
   - [apps/backend/src/schools/administration-http.ts](../apps/backend/src/schools/administration-http.ts)
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
-  - [apps/backend/src/substitutes/http.ts](../apps/backend/src/substitutes/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `readJsonBody`: Reads a bounded JSON body of the one media type `mediaType` accepts.
   [apps/backend/src/http-api/problem.ts:185](../apps/backend/src/http-api/problem.ts#L185), 11 consumers:
   - [apps/backend/src/admission/http-decode.ts](../apps/backend/src/admission/http-decode.ts)
+  - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/contact/http.ts](../apps/backend/src/contact/http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
   - [apps/backend/src/onboarding/http.ts](../apps/backend/src/onboarding/http.ts)
@@ -232,11 +233,11 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/recruitment/http-decode.ts](../apps/backend/src/recruitment/http-decode.ts)
   - [apps/backend/src/schools/administration-http.ts](../apps/backend/src/schools/administration-http.ts)
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
-  - [apps/backend/src/substitutes/http.ts](../apps/backend/src/substitutes/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `idempotencyKeyOf`: Decodes the one Idempotency-Key a replayable mutation requires.
   [apps/backend/src/http-api/problem.ts:205](../apps/backend/src/http-api/problem.ts#L205), 14 consumers:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
+  - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
   - [apps/backend/src/http-api/system.ts](../apps/backend/src/http-api/system.ts)
   - [apps/backend/src/onboarding/http.ts](../apps/backend/src/onboarding/http.ts)
@@ -248,22 +249,22 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/recruitment/maintenance-http.ts](../apps/backend/src/recruitment/maintenance-http.ts)
   - [apps/backend/src/schools/administration-http.ts](../apps/backend/src/schools/administration-http.ts)
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
-  - [apps/backend/src/substitutes/http.ts](../apps/backend/src/substitutes/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `requiredIfMatchOf`: Decodes the one strong If-Match an item mutation requires.
   [apps/backend/src/http-api/problem.ts:216](../apps/backend/src/http-api/problem.ts#L216), 9 consumers:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
+  - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
   - [apps/backend/src/onboarding/http.ts](../apps/backend/src/onboarding/http.ts)
   - [apps/backend/src/placements/http.ts](../apps/backend/src/placements/http.ts)
   - [apps/backend/src/profile/http.ts](../apps/backend/src/profile/http.ts)
   - [apps/backend/src/receipt/http-commands.ts](../apps/backend/src/receipt/http-commands.ts)
   - [apps/backend/src/recruitment/http-commands.ts](../apps/backend/src/recruitment/http-commands.ts)
-  - [apps/backend/src/substitutes/http.ts](../apps/backend/src/substitutes/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `httpIdentity`: Derives a command's idempotency identity; a tuple outside the frozen grammar is a request problem.
   [apps/backend/src/http-api/problem.ts:227](../apps/backend/src/http-api/problem.ts#L227), 13 consumers:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
+  - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
   - [apps/backend/src/http-api/system.ts](../apps/backend/src/http-api/system.ts)
   - [apps/backend/src/onboarding/http.ts](../apps/backend/src/onboarding/http.ts)
@@ -274,31 +275,31 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/recruitment/http-commands.ts](../apps/backend/src/recruitment/http-commands.ts)
   - [apps/backend/src/schools/administration-http.ts](../apps/backend/src/schools/administration-http.ts)
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
-  - [apps/backend/src/substitutes/http.ts](../apps/backend/src/substitutes/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `requireCurrentETag`: Fails a mutation whose If-Match no longer names the current representation.
   [apps/backend/src/http-api/problem.ts:238](../apps/backend/src/http-api/problem.ts#L238), 9 consumers:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
+  - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
   - [apps/backend/src/onboarding/http.ts](../apps/backend/src/onboarding/http.ts)
   - [apps/backend/src/placements/http.ts](../apps/backend/src/placements/http.ts)
   - [apps/backend/src/profile/http.ts](../apps/backend/src/profile/http.ts)
   - [apps/backend/src/receipt/http-commands.ts](../apps/backend/src/receipt/http-commands.ts)
   - [apps/backend/src/recruitment/http-commands.ts](../apps/backend/src/recruitment/http-commands.ts)
-  - [apps/backend/src/substitutes/http.ts](../apps/backend/src/substitutes/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `conditionalJson`: Answers a conditional JSON read after authority and concealment: the representation, a bodyless 304, or precondition.failed.
   [apps/backend/src/http-api/problem.ts:252](../apps/backend/src/http-api/problem.ts#L252), 6 consumers:
   - [apps/backend/src/admission/http-representation.ts](../apps/backend/src/admission/http-representation.ts)
+  - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-reads.ts](../apps/backend/src/content/http-reads.ts)
   - [apps/backend/src/organization/http.ts](../apps/backend/src/organization/http.ts)
   - [apps/backend/src/profile/http.ts](../apps/backend/src/profile/http.ts)
   - [apps/backend/src/recruitment/http-reads.ts](../apps/backend/src/recruitment/http-reads.ts)
-  - [apps/backend/src/substitutes/http.ts](../apps/backend/src/substitutes/http.ts)
 - `personPresentation`: The person credential a request presented, for a rejection answered after ingress.
   [apps/backend/src/http-api/problem.ts:298](../apps/backend/src/http-api/problem.ts#L298), 21 consumers:
   - [apps/backend/src/admission/http-access.ts](../apps/backend/src/admission/http-access.ts)
   - [apps/backend/src/admission/http-problem.ts](../apps/backend/src/admission/http-problem.ts)
+  - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
   - [apps/backend/src/content/http-reads.ts](../apps/backend/src/content/http-reads.ts)
   - [apps/backend/src/directory/http.ts](../apps/backend/src/directory/http.ts)
@@ -316,14 +317,13 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/schools/administration-http.ts](../apps/backend/src/schools/administration-http.ts)
   - [apps/backend/src/schools/http.ts](../apps/backend/src/schools/http.ts)
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
-  - [apps/backend/src/substitutes/http.ts](../apps/backend/src/substitutes/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `isSerializationConflict`: Whether a failure, or one of its causes, is a lost serialization or deadlock race: a transaction.conflict the client may retry.
   [apps/backend/src/http-api/problem.ts:311](../apps/backend/src/http-api/problem.ts#L311), 4 consumers:
+  - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/onboarding/http.ts](../apps/backend/src/onboarding/http.ts)
   - [apps/backend/src/placements/http.ts](../apps/backend/src/placements/http.ts)
   - [apps/backend/src/recruitment/http-problem.ts](../apps/backend/src/recruitment/http-problem.ts)
-  - [apps/backend/src/substitutes/http.ts](../apps/backend/src/substitutes/http.ts)
 - `requestInvalid`: The request as a whole fails validation; no single member is singled out.
   [apps/backend/src/http-api/problem.ts:325](../apps/backend/src/http-api/problem.ts#L325), 6 consumers:
   - [apps/backend/src/admission/http-problem.ts](../apps/backend/src/admission/http-problem.ts)
@@ -334,6 +334,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/receipt/http-problem.ts](../apps/backend/src/receipt/http-problem.ts)
 - `decodeRequest`: Decodes one JSON request value strictly; any mismatch fails the whole request's validation.
   [apps/backend/src/http-api/problem.ts:333](../apps/backend/src/http-api/problem.ts#L333), 12 consumers:
+  - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/contact/http.ts](../apps/backend/src/contact/http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
   - [apps/backend/src/onboarding/http.ts](../apps/backend/src/onboarding/http.ts)
@@ -345,10 +346,10 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/recruitment/http-commands.ts](../apps/backend/src/recruitment/http-commands.ts)
   - [apps/backend/src/recruitment/http-decode.ts](../apps/backend/src/recruitment/http-decode.ts)
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
-  - [apps/backend/src/substitutes/http.ts](../apps/backend/src/substitutes/http.ts)
 - `strictOutput`: Decodes one response value strictly.
   [apps/backend/src/http-api/problem.ts:346](../apps/backend/src/http-api/problem.ts#L346), 9 consumers:
   - [apps/backend/src/admission/http-reads.ts](../apps/backend/src/admission/http-reads.ts)
+  - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
   - [apps/backend/src/content/http-reads.ts](../apps/backend/src/content/http-reads.ts)
   - [apps/backend/src/placements/http.ts](../apps/backend/src/placements/http.ts)
@@ -356,10 +357,10 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/recruitment/http-commands.ts](../apps/backend/src/recruitment/http-commands.ts)
   - [apps/backend/src/recruitment/http-reads.ts](../apps/backend/src/recruitment/http-reads.ts)
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
-  - [apps/backend/src/substitutes/http.ts](../apps/backend/src/substitutes/http.ts)
 - `commandReceiptProblems`: HTTP command receipts: the transport's own persistence failures.
   [apps/backend/src/http-api/problem.ts:356](../apps/backend/src/http-api/problem.ts#L356), 14 consumers:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
+  - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
   - [apps/backend/src/http-api/system.ts](../apps/backend/src/http-api/system.ts)
   - [apps/backend/src/onboarding/http.ts](../apps/backend/src/onboarding/http.ts)
@@ -371,11 +372,11 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/recruitment/maintenance-http.ts](../apps/backend/src/recruitment/maintenance-http.ts)
   - [apps/backend/src/schools/administration-http.ts](../apps/backend/src/schools/administration-http.ts)
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
-  - [apps/backend/src/substitutes/http.ts](../apps/backend/src/substitutes/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `commandOutcomeResponse`: Answers a command receipt outcome: committed and replayed results, or an idempotency problem.
   [apps/backend/src/http-api/problem.ts:371](../apps/backend/src/http-api/problem.ts#L371), 14 consumers:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
+  - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
   - [apps/backend/src/http-api/system.ts](../apps/backend/src/http-api/system.ts)
   - [apps/backend/src/onboarding/http.ts](../apps/backend/src/onboarding/http.ts)
@@ -387,7 +388,6 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/recruitment/maintenance-http.ts](../apps/backend/src/recruitment/maintenance-http.ts)
   - [apps/backend/src/schools/administration-http.ts](../apps/backend/src/schools/administration-http.ts)
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
-  - [apps/backend/src/substitutes/http.ts](../apps/backend/src/substitutes/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `authorizeAnonymous`: An anonymous AccessSpec grants every caller and conceals nothing, so a denial means the spec and its scope resolution disagree: a defect.
   [apps/backend/src/http-api/problem.ts:395](../apps/backend/src/http-api/problem.ts#L395), 6 consumers:
@@ -400,6 +400,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
 - `authorizePerson`: A rejected person credential is answered from the ingress evidence, never by string choice.
   [apps/backend/src/http-api/problem.ts:411](../apps/backend/src/http-api/problem.ts#L411), 17 consumers:
   - [apps/backend/src/admission/http-access.ts](../apps/backend/src/admission/http-access.ts)
+  - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-access.ts](../apps/backend/src/content/http-access.ts)
   - [apps/backend/src/directory/http.ts](../apps/backend/src/directory/http.ts)
   - [apps/backend/src/http-api/system.ts](../apps/backend/src/http-api/system.ts)
@@ -414,7 +415,6 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/schools/administration-http.ts](../apps/backend/src/schools/administration-http.ts)
   - [apps/backend/src/schools/http.ts](../apps/backend/src/schools/http.ts)
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
-  - [apps/backend/src/substitutes/http.ts](../apps/backend/src/substitutes/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `unreachable`: Marks problems a shared mapper can produce but this operation cannot, such as a serialization conflict inside a read-only snapshot.
   [apps/backend/src/http-api/problem.ts:435](../apps/backend/src/http-api/problem.ts#L435), 17 consumers:
@@ -486,7 +486,8 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   [apps/backend/src/schools/http.ts:87](../apps/backend/src/schools/http.ts#L87), 1 consumer:
   - [apps/backend/src/schools/administration-http.ts](../apps/backend/src/schools/administration-http.ts)
 - `problemUnion`: Creates a closed endpoint-specific Problem Details union.
-  [packages/http-api/src/http-semantics.ts:1145](../packages/http-api/src/http-semantics.ts#L1145), 11 consumers:
+  [packages/http-api/src/http-semantics.ts:1110](../packages/http-api/src/http-semantics.ts#L1110), 11 consumers:
+  - [packages/http-api/src/admission-outcomes.ts](../packages/http-api/src/admission-outcomes.ts)
   - [packages/http-api/src/common.ts](../packages/http-api/src/common.ts)
   - [packages/http-api/src/contact.ts](../packages/http-api/src/contact.ts)
   - [packages/http-api/src/directory.ts](../packages/http-api/src/directory.ts)
@@ -496,13 +497,13 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [packages/http-api/src/placements.ts](../packages/http-api/src/placements.ts)
   - [packages/http-api/src/recruitment.ts](../packages/http-api/src/recruitment.ts)
   - [packages/http-api/src/social-events.ts](../packages/http-api/src/social-events.ts)
-  - [packages/http-api/src/substitutes.ts](../packages/http-api/src/substitutes.ts)
   - [packages/http-api/src/team-application.ts](../packages/http-api/src/team-application.ts)
 - `Problem`: One RFC 9457 failure in an Effect error channel.
-  [packages/http-api/src/http-semantics.ts:1247](../packages/http-api/src/http-semantics.ts#L1247), 40 consumers:
+  [packages/http-api/src/http-semantics.ts:1212](../packages/http-api/src/http-semantics.ts#L1212), 39 consumers:
   - [apps/backend/src/admission/http-decode.ts](../apps/backend/src/admission/http-decode.ts)
   - [apps/backend/src/admission/http-problem.ts](../apps/backend/src/admission/http-problem.ts)
   - [apps/backend/src/admission/http-reads.ts](../apps/backend/src/admission/http-reads.ts)
+  - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/contact/http.ts](../apps/backend/src/contact/http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
   - [apps/backend/src/content/http-context.ts](../apps/backend/src/content/http-context.ts)
@@ -535,13 +536,11 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/router.ts](../apps/backend/src/router.ts)
   - [apps/backend/src/schools/http.ts](../apps/backend/src/schools/http.ts)
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
-  - [apps/backend/src/substitutes/http.ts](../apps/backend/src/substitutes/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
   - [apps/dashboard/app/lib/admission-period-view.test.ts](../apps/dashboard/app/lib/admission-period-view.test.ts)
   - [apps/dashboard/app/lib/native-problem.test.ts](../apps/dashboard/app/lib/native-problem.test.ts)
-  - [apps/dashboard/app/lib/substitute-form.test.ts](../apps/dashboard/app/lib/substitute-form.test.ts)
 - `isProblem`: Narrows a caught value to a `Problem`, also one that another copy of this module created.
-  [packages/http-api/src/http-semantics.ts:1335](../packages/http-api/src/http-semantics.ts#L1335), 10 consumers:
+  [packages/http-api/src/http-semantics.ts:1300](../packages/http-api/src/http-semantics.ts#L1300), 10 consumers:
   - [apps/backend/src/http-api/problem.ts](../apps/backend/src/http-api/problem.ts)
   - [apps/backend/src/http-semantics.ts](../apps/backend/src/http-semantics.ts)
   - [apps/backend/src/receipt/e2e-support.test.ts](../apps/backend/src/receipt/e2e-support.test.ts)
@@ -551,23 +550,22 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/homepage/src/lib/news.server.ts](../apps/homepage/src/lib/news.server.ts)
   - [apps/homepage/src/lib/public-application.ts](../apps/homepage/src/lib/public-application.ts)
   - [apps/homepage/src/lib/public-team-application.ts](../apps/homepage/src/lib/public-team-application.ts)
-  - [tools/acceptance/substitute-pool-check.ts](../tools/acceptance/substitute-pool-check.ts)
+  - [tools/acceptance/substitute-outcome-check.ts](../tools/acceptance/substitute-outcome-check.ts)
 - `problemBody`: The frozen RFC 9457 body: the registry entry, then code, instance, and validation.
-  [packages/http-api/src/http-semantics.ts:1349](../packages/http-api/src/http-semantics.ts#L1349), 5 consumers:
+  [packages/http-api/src/http-semantics.ts:1314](../packages/http-api/src/http-semantics.ts#L1314), 5 consumers:
   - [apps/backend/src/http-api/problem.ts](../apps/backend/src/http-api/problem.ts)
   - [apps/dashboard/app/lib/native-problem.ts](../apps/dashboard/app/lib/native-problem.ts)
   - [apps/homepage/src/lib/public-application.ts](../apps/homepage/src/lib/public-application.ts)
   - [apps/homepage/src/lib/public-team-application.ts](../apps/homepage/src/lib/public-team-application.ts)
-  - [tools/acceptance/substitute-pool-check.ts](../tools/acceptance/substitute-pool-check.ts)
+  - [tools/acceptance/substitute-outcome-check.ts](../tools/acceptance/substitute-outcome-check.ts)
 - `problemHeaders`: The response headers of one problem: `no-store`, its challenge, and its retry delay.
-  [packages/http-api/src/http-semantics.ts:1374](../packages/http-api/src/http-semantics.ts#L1374), 1 consumer:
+  [packages/http-api/src/http-semantics.ts:1339](../packages/http-api/src/http-semantics.ts#L1339), 1 consumer:
   - [apps/backend/src/http-api/problem.ts](../apps/backend/src/http-api/problem.ts)
 - `makeNativeProblem`: Builds one safe fixed public problem value.
-  [packages/http-api/src/http-semantics.ts:1522](../packages/http-api/src/http-semantics.ts#L1522), 9 consumers:
+  [packages/http-api/src/http-semantics.ts:1487](../packages/http-api/src/http-semantics.ts#L1487), 8 consumers:
   - [apps/dashboard/app/foldkit/team-applications/update.test.ts](../apps/dashboard/app/foldkit/team-applications/update.test.ts)
   - [apps/dashboard/app/lib/auth.server.test.ts](../apps/dashboard/app/lib/auth.server.test.ts)
   - [apps/dashboard/app/lib/native-problem.test.ts](../apps/dashboard/app/lib/native-problem.test.ts)
-  - [apps/dashboard/app/lib/substitute-form.test.ts](../apps/dashboard/app/lib/substitute-form.test.ts)
   - [apps/dashboard/test/native-http.ts](../apps/dashboard/test/native-http.ts)
   - [apps/homepage/test/contact-message.test.ts](../apps/homepage/test/contact-message.test.ts)
   - [apps/homepage/test/news.test.ts](../apps/homepage/test/news.test.ts)
@@ -654,10 +652,9 @@ Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account acc
   - [packages/database/src/recruitment/maintenance-postgres.ts](../packages/database/src/recruitment/maintenance-postgres.ts)
   - [packages/database/src/schools/administration.ts](../packages/database/src/schools/administration.ts)
 - `outboxClaimAssignments`: SET list for the aggregate's claim UPDATE; `targetAlias` names the updated outbox row.
-  [packages/database/src/outbox-lifecycle.ts:123](../packages/database/src/outbox-lifecycle.ts#L123), 9 consumers:
+  [packages/database/src/outbox-lifecycle.ts:123](../packages/database/src/outbox-lifecycle.ts#L123), 8 consumers:
   - [packages/database/src/application/outbox.ts](../packages/database/src/application/outbox.ts)
   - [packages/database/src/outbox-lifecycle.test.ts](../packages/database/src/outbox-lifecycle.test.ts)
-  - [packages/database/src/placements/dispatch-outbox.ts](../packages/database/src/placements/dispatch-outbox.ts)
   - [packages/database/src/placements/outbox.ts](../packages/database/src/placements/outbox.ts)
   - [packages/database/src/receipt/outbox.ts](../packages/database/src/receipt/outbox.ts)
   - [packages/database/src/recruitment/completion-outbox.ts](../packages/database/src/recruitment/completion-outbox.ts)
@@ -665,10 +662,9 @@ Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account acc
   - [packages/database/src/recruitment/response-outbox.ts](../packages/database/src/recruitment/response-outbox.ts)
   - [packages/database/src/team-application/outbox.ts](../packages/database/src/team-application/outbox.ts)
 - `markOutboxDelivered`: Settles the claimed row as Delivered, with delivery evidence when the table records it.
-  [packages/database/src/outbox-lifecycle.ts:138](../packages/database/src/outbox-lifecycle.ts#L138), 9 consumers:
+  [packages/database/src/outbox-lifecycle.ts:138](../packages/database/src/outbox-lifecycle.ts#L138), 8 consumers:
   - [packages/database/src/application/outbox.ts](../packages/database/src/application/outbox.ts)
   - [packages/database/src/outbox-lifecycle.test.ts](../packages/database/src/outbox-lifecycle.test.ts)
-  - [packages/database/src/placements/dispatch-outbox.ts](../packages/database/src/placements/dispatch-outbox.ts)
   - [packages/database/src/placements/outbox.ts](../packages/database/src/placements/outbox.ts)
   - [packages/database/src/receipt/outbox.ts](../packages/database/src/receipt/outbox.ts)
   - [packages/database/src/recruitment/completion-outbox.ts](../packages/database/src/recruitment/completion-outbox.ts)
@@ -676,10 +672,9 @@ Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account acc
   - [packages/database/src/recruitment/response-outbox.ts](../packages/database/src/recruitment/response-outbox.ts)
   - [packages/database/src/team-application/outbox.ts](../packages/database/src/team-application/outbox.ts)
 - `markOutboxFailed`: Settles the claimed row as Failed with its failure tag, so a later claim retries it.
-  [packages/database/src/outbox-lifecycle.ts:168](../packages/database/src/outbox-lifecycle.ts#L168), 9 consumers:
+  [packages/database/src/outbox-lifecycle.ts:168](../packages/database/src/outbox-lifecycle.ts#L168), 8 consumers:
   - [packages/database/src/application/outbox.ts](../packages/database/src/application/outbox.ts)
   - [packages/database/src/outbox-lifecycle.test.ts](../packages/database/src/outbox-lifecycle.test.ts)
-  - [packages/database/src/placements/dispatch-outbox.ts](../packages/database/src/placements/dispatch-outbox.ts)
   - [packages/database/src/placements/outbox.ts](../packages/database/src/placements/outbox.ts)
   - [packages/database/src/receipt/outbox.ts](../packages/database/src/receipt/outbox.ts)
   - [packages/database/src/recruitment/completion-outbox.ts](../packages/database/src/recruitment/completion-outbox.ts)
@@ -687,10 +682,9 @@ Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account acc
   - [packages/database/src/recruitment/response-outbox.ts](../packages/database/src/recruitment/response-outbox.ts)
   - [packages/database/src/team-application/outbox.ts](../packages/database/src/team-application/outbox.ts)
 - `quarantineOutboxClaim`: Settles the claimed row as Quarantined, a terminal status, with its failure tag.
-  [packages/database/src/outbox-lifecycle.ts:182](../packages/database/src/outbox-lifecycle.ts#L182), 9 consumers:
+  [packages/database/src/outbox-lifecycle.ts:182](../packages/database/src/outbox-lifecycle.ts#L182), 8 consumers:
   - [packages/database/src/application/outbox.ts](../packages/database/src/application/outbox.ts)
   - [packages/database/src/outbox-lifecycle.test.ts](../packages/database/src/outbox-lifecycle.test.ts)
-  - [packages/database/src/placements/dispatch-outbox.ts](../packages/database/src/placements/dispatch-outbox.ts)
   - [packages/database/src/placements/outbox.ts](../packages/database/src/placements/outbox.ts)
   - [packages/database/src/receipt/outbox.ts](../packages/database/src/receipt/outbox.ts)
   - [packages/database/src/recruitment/completion-outbox.ts](../packages/database/src/recruitment/completion-outbox.ts)
@@ -706,10 +700,9 @@ Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account acc
   - [packages/database/src/recruitment/response-outbox.ts](../packages/database/src/recruitment/response-outbox.ts)
   - [packages/database/src/team-application/outbox.ts](../packages/database/src/team-application/outbox.ts)
 - `recoverStaleOutboxClaims`: Recovers every Processing row claimed before `claimedBefore`.
-  [packages/database/src/outbox-lifecycle.ts:221](../packages/database/src/outbox-lifecycle.ts#L221), 8 consumers:
+  [packages/database/src/outbox-lifecycle.ts:221](../packages/database/src/outbox-lifecycle.ts#L221), 7 consumers:
   - [packages/database/src/application/outbox.ts](../packages/database/src/application/outbox.ts)
   - [packages/database/src/outbox-lifecycle.test.ts](../packages/database/src/outbox-lifecycle.test.ts)
-  - [packages/database/src/placements/dispatch-outbox.ts](../packages/database/src/placements/dispatch-outbox.ts)
   - [packages/database/src/placements/outbox.ts](../packages/database/src/placements/outbox.ts)
   - [packages/database/src/recruitment/completion-outbox.ts](../packages/database/src/recruitment/completion-outbox.ts)
   - [packages/database/src/recruitment/outbox.ts](../packages/database/src/recruitment/outbox.ts)
@@ -724,12 +717,11 @@ Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account acc
 Delivers committed effects to providers after the transaction.
 
 - `deliverJson`: Shared acknowledged JSON transport; deliberately no retry on ambiguous acceptance.
-  [apps/backend/src/delivery/http.ts:35](../apps/backend/src/delivery/http.ts#L35), 11 consumers:
+  [apps/backend/src/delivery/http.ts:35](../apps/backend/src/delivery/http.ts#L35), 10 consumers:
   - [apps/backend/src/application/effects.ts](../apps/backend/src/application/effects.ts)
   - [apps/backend/src/contact/http.ts](../apps/backend/src/contact/http.ts)
   - [apps/backend/src/mail/http.ts](../apps/backend/src/mail/http.ts)
   - [apps/backend/src/onboarding/delivery.ts](../apps/backend/src/onboarding/delivery.ts)
-  - [apps/backend/src/placements/dispatch-notification.ts](../apps/backend/src/placements/dispatch-notification.ts)
   - [apps/backend/src/placements/notification.ts](../apps/backend/src/placements/notification.ts)
   - [apps/backend/src/receipt/delivery.test.ts](../apps/backend/src/receipt/delivery.test.ts)
   - [apps/backend/src/receipt/delivery.ts](../apps/backend/src/receipt/delivery.ts)
@@ -742,11 +734,10 @@ Delivers committed effects to providers after the transaction.
 Runs background workers on the Effect clock.
 
 - `pollForever`: Runs `tick` at once, then again after each success.
-  [apps/backend/src/worker-support.ts:24](../apps/backend/src/worker-support.ts#L24), 9 consumers:
+  [apps/backend/src/worker-support.ts:24](../apps/backend/src/worker-support.ts#L24), 8 consumers:
   - [apps/backend/src/application/worker.ts](../apps/backend/src/application/worker.ts)
   - [apps/backend/src/onboarding/delivery.ts](../apps/backend/src/onboarding/delivery.ts)
   - [apps/backend/src/password-recovery/worker.ts](../apps/backend/src/password-recovery/worker.ts)
-  - [apps/backend/src/placements/dispatch-notification.ts](../apps/backend/src/placements/dispatch-notification.ts)
   - [apps/backend/src/placements/notification.ts](../apps/backend/src/placements/notification.ts)
   - [apps/backend/src/receipt/worker.ts](../apps/backend/src/receipt/worker.ts)
   - [apps/backend/src/recruitment/worker.ts](../apps/backend/src/recruitment/worker.ts)
@@ -793,7 +784,7 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [tools/verification/organization-import-rehearsal-postgres.ts](../tools/verification/organization-import-rehearsal-postgres.ts)
   - [tools/verification/receipt-import-rehearsal.ts](../tools/verification/receipt-import-rehearsal.ts)
 - `canonicalJson`: The canonical JSON text of a datum.
-  [packages/domain/src/shared-kernel/canonical-json.ts:58](../packages/domain/src/shared-kernel/canonical-json.ts#L58), 58 consumers:
+  [packages/domain/src/shared-kernel/canonical-json.ts:58](../packages/domain/src/shared-kernel/canonical-json.ts#L58), 57 consumers:
   - [apps/backend/src/http-semantics.ts](../apps/backend/src/http-semantics.ts)
   - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
   - [packages/database/runtime/identity-postgres-proof-main.ts](../packages/database/runtime/identity-postgres-proof-main.ts)
@@ -817,7 +808,6 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [packages/database/src/placements/current-assignment-cohort.test.ts](../packages/database/src/placements/current-assignment-cohort.test.ts)
   - [packages/database/src/placements/current-assignment-cohort.ts](../packages/database/src/placements/current-assignment-cohort.ts)
   - [packages/database/src/placements/current-assignment-import.test.ts](../packages/database/src/placements/current-assignment-import.test.ts)
-  - [packages/database/src/placements/dispatch-outbox.ts](../packages/database/src/placements/dispatch-outbox.ts)
   - [packages/database/src/placements/outbox.ts](../packages/database/src/placements/outbox.ts)
   - [packages/database/src/profile/postgres.ts](../packages/database/src/profile/postgres.ts)
   - [packages/database/src/receipt/file-proof.ts](../packages/database/src/receipt/file-proof.ts)
@@ -992,7 +982,7 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [apps/dashboard/e2e/run-real-native-organization-administration.mjs](../apps/dashboard/e2e/run-real-native-organization-administration.mjs)
   - [apps/dashboard/e2e/run-real-receipt-owner.mjs](../apps/dashboard/e2e/run-real-receipt-owner.mjs)
   - [apps/homepage/e2e/run-real-public-applicant-admission.mjs](../apps/homepage/e2e/run-real-public-applicant-admission.mjs)
-  - [tools/acceptance/substitute-pool-check.ts](../tools/acceptance/substitute-pool-check.ts)
+  - [tools/acceptance/substitute-outcome-check.ts](../tools/acceptance/substitute-outcome-check.ts)
 - `localBackendEnvironment`: The environment of a disposable local native backend for one composition.
   [tools/e2e/local-backend-environment.ts:25](../tools/e2e/local-backend-environment.ts#L25), 8 consumers:
   - [apps/dashboard/e2e/run-real-admission-period-management.mjs](../apps/dashboard/e2e/run-real-admission-period-management.mjs)
@@ -1002,7 +992,7 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [apps/dashboard/e2e/run-real-native-profile-self-edit.mjs](../apps/dashboard/e2e/run-real-native-profile-self-edit.mjs)
   - [apps/dashboard/e2e/run-real-receipt-owner.mjs](../apps/dashboard/e2e/run-real-receipt-owner.mjs)
   - [apps/homepage/e2e/run-real-public-applicant-admission.mjs](../apps/homepage/e2e/run-real-public-applicant-admission.mjs)
-  - [tools/acceptance/substitute-pool-check.ts](../tools/acceptance/substitute-pool-check.ts)
+  - [tools/acceptance/substitute-outcome-check.ts](../tools/acceptance/substitute-outcome-check.ts)
 - `selectedPostgresMajor`: The major that `VEKTOR_POSTGRES_MAJOR` selects, or the default.
   [tools/postgres/index.ts:77](../tools/postgres/index.ts#L77), 2 consumers:
   - [apps/dashboard/e2e/run-real-native-content-publication.mjs](../apps/dashboard/e2e/run-real-native-content-publication.mjs)
@@ -1029,7 +1019,7 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [packages/database/runtime/historical-service-cohort-rehearsal.ts](../packages/database/runtime/historical-service-cohort-rehearsal.ts)
   - [packages/database/runtime/person-cohort-rehearsal.ts](../packages/database/runtime/person-cohort-rehearsal.ts)
   - [packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts](../packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts)
-  - [tools/acceptance/substitute-pool-check.ts](../tools/acceptance/substitute-pool-check.ts)
+  - [tools/acceptance/substitute-outcome-check.ts](../tools/acceptance/substitute-outcome-check.ts)
   - [tools/e2e/golden-harness.ts](../tools/e2e/golden-harness.ts)
   - [tools/e2e/golden-reimbursement.mjs](../tools/e2e/golden-reimbursement.mjs)
   - [tools/e2e/legacy-organization-rehearsal-runtime.ts](../tools/e2e/legacy-organization-rehearsal-runtime.ts)

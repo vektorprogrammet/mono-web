@@ -32,7 +32,6 @@
     "./shared-kernel": "./src/shared-kernel/index.ts",
     "./time": "./src/time.ts",
     "./contact": "./src/contact/index.ts",
-    "./substitutes": "./src/substitutes/index.ts",
     "./team-application": "./src/team-application/index.ts",
     "./onboarding": "./src/onboarding/index.ts",
     "./placements": "./src/placements/index.ts",

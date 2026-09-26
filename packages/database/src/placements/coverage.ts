@@ -3,23 +3,19 @@ import type * as Statement from "effect/unstable/sql/Statement";
 import { Database, type DatabaseOperations } from "../service.js";
 import {
   CoverageBoard,
+  CoverageCoverer,
   CoverageRosterAssignment,
   OwnCoverageView,
   PlacementFailure,
   SchoolServiceAbsence,
   SchoolServiceClosure,
   SchoolServiceCommitment,
-  isEligibleSchoolServiceAttendance,
-  SchoolServiceCoverageAcknowledgement,
-  SchoolServiceDispatchNotification,
-  SchoolServiceDispatchNotificationRequest,
-  SchoolServiceOfferResponse,
+  SchoolServiceCoverage,
   SchoolServiceOccurrence,
-  SchoolServiceSubstituteOffer,
+  schoolServiceAttendance,
   type CoverageCommand,
   type OwnCoverageCommand,
   type PlacementScope,
-  type SchoolServiceAbsence as SchoolServiceAbsenceType,
 } from "@vektorprogrammet/domain/placements";
 import type { PersonId } from "@vektorprogrammet/domain/organization";
 
@@ -64,9 +60,11 @@ export const readSchoolServiceCommitments = (
           : sql`AND (
         EXISTS (SELECT 1 FROM jsonb_array_elements(commitment.assignment_snapshot) AS assignment
           WHERE assignment->>'personId'=${personId})
-        OR EXISTS (SELECT 1 FROM public.school_service_absences AS absence
-          JOIN public.school_service_coverage_acknowledgements AS acknowledgement USING(absence_id)
-          WHERE absence.commitment_id=commitment.commitment_id AND acknowledgement.candidate_person_id=${personId})
+        OR (decision.outcome IS DISTINCT FROM 'Cancelled' AND EXISTS (
+          SELECT 1 FROM public.school_service_absences AS absence
+          JOIN public.school_service_coverage_records AS coverage USING(absence_id)
+          WHERE absence.commitment_id=commitment.commitment_id
+            AND coverage.covering_person_id=${personId} AND coverage.withdrawn_at IS NULL))
       )`
       }
     ORDER BY commitment.service_date,commitment.start_time,commitment.commitment_id
@@ -111,66 +109,19 @@ const absenceRows = (sql: DatabaseOperations, where: Statement.Fragment) =>
     ORDER BY absence.absence_id
   `;
 
-const offerRows = (sql: DatabaseOperations, where: Statement.Fragment) =>
+/** Current coverage only: a withdrawn record is history in the coverage audit, not a fact of the absence. */
+const coverageRows = (sql: DatabaseOperations, where: Statement.Fragment) =>
   sql`
-    SELECT offer.offer_id AS "offerId",offer.absence_id AS "absenceId",
-      absence.proposal_id AS "proposalId",absence.department_id AS "departmentId",
-      absence.semester_id AS "semesterId",offer.candidate_person_id AS "candidatePersonId",
-      candidate.first_name AS "candidateFirstName",candidate.last_name AS "candidateLastName",
-      absence.school_id::double precision AS "schoolId",offer.school_name_snapshot AS "schoolName",
-      absence.day,absence.block,to_char(absence.service_date,'YYYY-MM-DD') AS "serviceDate",
-      to_char(commitment.start_time,'HH24:MI') AS "startTime",to_char(commitment.end_time,'HH24:MI') AS "endTime",
-      offer.dispatcher_person_id AS "dispatcherPersonId",
-      to_char(offer.dispatched_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "dispatchedAt",
-      offer.status,offer.revision,offer.eligibility_snapshot AS "eligibilitySnapshot"
-    FROM public.school_service_substitute_offers AS offer
+    SELECT coverage.coverage_id AS "coverageId",coverage.absence_id AS "absenceId",
+      coverage.covering_person_id AS "coveringPersonId",
+      profile.first_name AS "coveringFirstName",profile.last_name AS "coveringLastName",
+      coverage.coverer_kind AS "covererKind",coverage.recorded_by_person_id AS "recordedByPersonId",
+      to_char(coverage.recorded_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "recordedAt"
+    FROM public.school_service_coverage_records AS coverage
     JOIN public.school_service_absences AS absence USING(absence_id)
-    JOIN public.person_profiles AS candidate ON candidate.person_id=offer.candidate_person_id
-    LEFT JOIN public.school_service_commitments AS commitment ON commitment.commitment_id=absence.commitment_id
-    WHERE ${where}
-    ORDER BY offer.offer_id
-  `;
-
-const responseRows = (sql: DatabaseOperations, where: Statement.Fragment) =>
-  sql`
-    SELECT response.offer_id AS "offerId",response.absence_id AS "absenceId",response.response,
-      response.responder_person_id AS "responderPersonId",
-      to_char(response.responded_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "respondedAt"
-    FROM public.school_service_substitute_offer_responses AS response
-    JOIN public.school_service_substitute_offers AS offer
-      ON offer.offer_id=response.offer_id AND offer.absence_id=response.absence_id
-    JOIN public.school_service_absences AS absence ON absence.absence_id=offer.absence_id
-    WHERE ${where}
-    ORDER BY response.offer_id
-  `;
-
-const notificationRows = (sql: DatabaseOperations, where: Statement.Fragment) =>
-  sql`
-    SELECT notification.effect_id AS "effectId",notification.offer_id AS "offerId",
-      notification.absence_id AS "absenceId",notification.person_id AS "personId",notification.status,
-      notification.attempts,
-      CASE WHEN notification.delivered_at IS NULL THEN NULL
-        ELSE to_char(notification.delivered_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
-      END AS "deliveredAt",notification.last_failure_tag AS "lastFailureTag"
-    FROM public.school_service_dispatch_notification_outbox AS notification
-    JOIN public.school_service_substitute_offers AS offer
-      ON offer.offer_id=notification.offer_id AND offer.absence_id=notification.absence_id
-    JOIN public.school_service_absences AS absence ON absence.absence_id=offer.absence_id
-    WHERE ${where}
-    ORDER BY notification.effect_id
-  `;
-
-const acknowledgementRows = (sql: DatabaseOperations, where: Statement.Fragment) =>
-  sql`
-    SELECT acknowledgement.acknowledgement_id AS "acknowledgementId",
-      acknowledgement.offer_id AS "offerId",acknowledgement.absence_id AS "absenceId",
-      acknowledgement.candidate_person_id AS "candidatePersonId",
-      acknowledgement.acknowledged_by_person_id AS "acknowledgedByPersonId",
-      to_char(acknowledgement.acknowledged_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "acknowledgedAt"
-    FROM public.school_service_coverage_acknowledgements AS acknowledgement
-    JOIN public.school_service_absences AS absence USING(absence_id)
-    WHERE ${where}
-    ORDER BY acknowledgement.acknowledgement_id
+    JOIN public.person_profiles AS profile ON profile.person_id=coverage.covering_person_id
+    WHERE coverage.withdrawn_at IS NULL AND ${where}
+    ORDER BY coverage.absence_id
   `;
 
 const closureRows = (sql: DatabaseOperations, where: Statement.Fragment) =>
@@ -178,8 +129,8 @@ const closureRows = (sql: DatabaseOperations, where: Statement.Fragment) =>
     SELECT closure.closure_id AS "closureId",closure.absence_id AS "absenceId",
       closure.occurrence_id AS "occurrenceId",
       closure.scheduled_person_id AS "scheduledPersonId",closure.outcome,
-      closure.acknowledgement_id AS "acknowledgementId",
-      closure.substitute_person_id AS "substitutePersonId",
+      closure.coverage_id AS "coverageId",
+      closure.covering_person_id AS "coveringPersonId",
       closure.closed_by_person_id AS "closedByPersonId",
       to_char(closure.closed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "closedAt"
     FROM public.school_service_closures AS closure
@@ -223,6 +174,44 @@ const coverageRosterRows = (sql: DatabaseOperations, scope: PlacementScope) =>
       assignment->>'day',assignment->>'block',assignment->>'personId'
   `;
 
+/**
+ * People who can cover in the scope: an active placement makes an assistant; otherwise a Person
+ * linked to an application of the scope whose current admission outcome is Substitute.
+ */
+const covererRows = (sql: DatabaseOperations, scope: PlacementScope, personId?: PersonId) =>
+  sql`
+    SELECT coverer.person_id AS "personId",profile.first_name AS "firstName",
+      profile.last_name AS "lastName",coverer.kind
+    FROM (
+      SELECT DISTINCT ON (candidate.person_id) candidate.person_id,candidate.kind
+      FROM (
+        SELECT placement.person_id,'Assistant' AS kind,0 AS rank
+        FROM public.assistant_placements AS placement
+        WHERE placement.active
+          AND placement.department_id=${scope.departmentId}
+          AND placement.semester_id=${scope.semesterId}
+        UNION ALL
+        SELECT link.person_id,'Substitute' AS kind,1 AS rank
+        FROM public.admission_applications AS application
+        JOIN public.admission_periods AS period
+          ON period.admission_period_id=application.admission_period_id
+          AND period.department_id=application.department_id
+        JOIN public.applicant_account_links AS link ON link.applicant_id=application.applicant_id
+        JOIN LATERAL (
+          SELECT outcome.outcome FROM public.admission_application_outcomes AS outcome
+          WHERE outcome.application_id=application.application_id
+          ORDER BY outcome.revision DESC LIMIT 1
+        ) AS current ON current.outcome='Substitute'
+        WHERE period.department_id=${scope.departmentId}
+          AND period.semester_id=${scope.semesterId}
+      ) AS candidate
+      ${personId === undefined ? sql`` : sql`WHERE candidate.person_id=${personId}`}
+      ORDER BY candidate.person_id,candidate.rank
+    ) AS coverer
+    JOIN public.person_profiles AS profile ON profile.person_id=coverer.person_id
+    ORDER BY profile.last_name,profile.first_name,coverer.person_id
+  `;
+
 const readAbsenceForUpdate = (sql: DatabaseOperations, scope: PlacementScope, absenceId: string) =>
   Effect.gen(function* () {
     const rows = yield* sql`
@@ -248,118 +237,16 @@ const readAbsenceForUpdate = (sql: DatabaseOperations, scope: PlacementScope, ab
     return yield* decode(SchoolServiceAbsence)(row);
   });
 
-const readOfferForUpdate = (sql: DatabaseOperations, scope: PlacementScope, offerId: string) =>
-  Effect.gen(function* () {
-    const rows = yield* sql`
-      SELECT offer.offer_id AS "offerId",offer.absence_id AS "absenceId",
-        absence.proposal_id AS "proposalId",absence.department_id AS "departmentId",
-        absence.semester_id AS "semesterId",offer.candidate_person_id AS "candidatePersonId",
-        candidate.first_name AS "candidateFirstName",candidate.last_name AS "candidateLastName",
-        absence.school_id::double precision AS "schoolId",offer.school_name_snapshot AS "schoolName",
-        absence.day,absence.block,to_char(absence.service_date,'YYYY-MM-DD') AS "serviceDate",
-        to_char(commitment.start_time,'HH24:MI') AS "startTime",to_char(commitment.end_time,'HH24:MI') AS "endTime",
-        offer.dispatcher_person_id AS "dispatcherPersonId",
-        to_char(offer.dispatched_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "dispatchedAt",
-        offer.status,offer.revision,offer.eligibility_snapshot AS "eligibilitySnapshot"
-      FROM public.school_service_substitute_offers AS offer
-      JOIN public.school_service_absences AS absence USING(absence_id)
-      JOIN public.person_profiles AS candidate ON candidate.person_id=offer.candidate_person_id
-      LEFT JOIN public.school_service_commitments AS commitment ON commitment.commitment_id=absence.commitment_id
-      WHERE offer.offer_id=${offerId}
-        AND absence.department_id=${scope.departmentId}
-        AND absence.semester_id=${scope.semesterId}
-      FOR UPDATE OF offer
-    `;
-
-    const row = rows[0];
-
-    if (row === undefined) return yield* fail("resource.not-found", 404);
-
-    return yield* decode(SchoolServiceSubstituteOffer)(row);
-  });
-
-/** Candidate identity is only canonical through applicant_account_links. */
-const eligibilitySnapshot = (
-  sql: DatabaseOperations,
-  scope: PlacementScope,
-  absence: SchoolServiceAbsenceType,
-  candidatePersonId: PersonId,
-  checkedAt: string,
-) =>
-  Effect.gen(function* () {
-    const rows = yield* sql<{
-      readonly applicationId: string;
-    }>`
-      SELECT application.application_id AS "applicationId"
-      FROM public.admission_substitute_preferences AS preferences
-      JOIN public.admission_applications AS application
-        ON application.application_id=preferences.application_id
-      JOIN public.admission_periods AS period
-        ON period.admission_period_id=application.admission_period_id
-        AND period.department_id=application.department_id
-      JOIN public.applicant_account_links AS link
-        ON link.applicant_id=application.applicant_id
-      JOIN public.organization_volunteer_affiliations AS affiliation
-        ON affiliation.person_id=link.person_id
-        AND affiliation.department_id=${scope.departmentId}
-      WHERE preferences.active
-        AND affiliation.status='Active'
-        AND link.person_id=${candidatePersonId}
-        AND period.department_id=${scope.departmentId}
-        AND period.semester_id=${scope.semesterId}
-        AND CASE ${absence.day}
-          WHEN 'Monday' THEN preferences.monday
-          WHEN 'Tuesday' THEN preferences.tuesday
-          WHEN 'Wednesday' THEN preferences.wednesday
-          WHEN 'Thursday' THEN preferences.thursday
-          WHEN 'Friday' THEN preferences.friday
-          ELSE false
-        END
-        AND link.person_id<>${absence.personId}
-        AND NOT EXISTS (
-          SELECT 1
-          FROM public.school_service_proposals AS proposal
-          CROSS JOIN LATERAL jsonb_array_elements(proposal.assignment_snapshot) AS assignment
-          WHERE proposal.proposal_id=${absence.proposalId}
-            AND assignment->>'personId'=link.person_id
-            AND (assignment->>'schoolId')::bigint=${absence.schoolId}
-            AND assignment->>'day'=${absence.day}
-            AND assignment->>'block'=${absence.block}
-        )
-        AND NOT EXISTS (
-          SELECT 1
-          FROM public.assistant_placements AS placement
-          WHERE placement.active
-            AND placement.person_id=link.person_id
-            AND placement.semester_id=${scope.semesterId}
-            AND placement.day=${absence.day}
-            AND placement.block IN (${absence.block},'Both')
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM public.school_service_person_reservations AS reservation
-          JOIN public.school_service_commitments AS target ON target.commitment_id=${absence.commitmentId}
-          WHERE reservation.person_id=link.person_id
-            AND reservation.service_interval && tsrange(target.service_date+target.start_time,target.service_date+target.end_time,'[)')
-        )
-      ORDER BY application.application_id
-      LIMIT 1
-    `;
-
-    const row = rows[0];
-
-    if (row === undefined) return yield* fail("offer.candidate-ineligible");
-
-    return {
-      applicationId: row.applicationId,
-      candidatePersonId,
-      activeAffiliation: true as const,
-      activePool: true as const,
-      weekdayAvailable: true as const,
-      placementConflict: false as const,
-      acknowledgedCoverageConflict: false as const,
-      checkedAt,
-    };
-  });
+const currentCoverageForUpdate = (sql: DatabaseOperations, absenceId: string) =>
+  Effect.map(
+    sql<{ readonly coverageId: string; readonly coveringPersonId: string }>`
+      SELECT coverage_id AS "coverageId",covering_person_id AS "coveringPersonId"
+      FROM public.school_service_coverage_records
+      WHERE absence_id=${absenceId} AND withdrawn_at IS NULL
+      FOR UPDATE
+    `,
+    (rows) => rows[0],
+  );
 
 const writeAudit = (
   sql: DatabaseOperations,
@@ -367,10 +254,8 @@ const writeAudit = (
   actor: PersonId,
   action:
     | "ReportAbsence"
-    | "DispatchSubstituteOffer"
-    | "RespondToOffer"
-    | "WithdrawSubstituteOffer"
-    | "AcknowledgeCoverage"
+    | "RecordCoverage"
+    | "WithdrawCoverage"
     | "CompleteService"
     | "CancelService"
     | "MarkUnfulfilledService",
@@ -417,37 +302,43 @@ export const readOwnCoverage = (scope: PlacementScope, personId: PersonId) =>
         ),
       );
 
-      const offers = yield* decode(Schema.Array(SchoolServiceSubstituteOffer))(
-        yield* offerRows(
+      // A cancelled service ends the duty of whoever covers it (its reservation is released), so
+      // the coverer no longer reads it; the absent person keeps the record with the absence.
+      const coverage = yield* decode(Schema.Array(SchoolServiceCoverage))(
+        yield* coverageRows(
           sql,
-          sql`absence.department_id=${scope.departmentId} AND absence.semester_id=${scope.semesterId} AND offer.candidate_person_id=${personId}`,
+          sql`absence.department_id=${scope.departmentId} AND absence.semester_id=${scope.semesterId}
+            AND (absence.person_id=${personId} OR (coverage.covering_person_id=${personId}
+              AND NOT EXISTS (SELECT 1 FROM public.school_service_decisions AS decision
+                WHERE decision.commitment_id=absence.commitment_id AND decision.outcome='Cancelled')))`,
         ),
       );
 
-      const responses = yield* decode(Schema.Array(SchoolServiceOfferResponse))(
-        yield* responseRows(
-          sql,
-          sql`absence.department_id=${scope.departmentId} AND absence.semester_id=${scope.semesterId} AND offer.candidate_person_id=${personId}`,
+      const commitments = yield* readSchoolServiceCommitments(sql, scope, personId);
+
+      // Names of possible coverers are shown only to a person who has an absence to cover.
+      const hasOpenAbsence = absences.some((absence) =>
+        commitments.some(
+          (commitment) =>
+            commitment.commitmentId === absence.commitmentId && commitment.decision === null,
         ),
       );
 
-      const dispatchNotifications = yield* decode(Schema.Array(SchoolServiceDispatchNotification))(
-        yield* notificationRows(
-          sql,
-          sql`absence.department_id=${scope.departmentId} AND absence.semester_id=${scope.semesterId} AND notification.person_id=${personId}`,
-        ),
-      );
+      const coverers = hasOpenAbsence
+        ? (yield* decode(Schema.Array(CoverageCoverer))(yield* covererRows(sql, scope))).filter(
+            (coverer) => coverer.personId !== personId,
+          )
+        : [];
 
       return yield* decode(OwnCoverageView)({
         ...scope,
         personId,
         placements,
         rosterSlots: rosterRows,
-        commitments: yield* readSchoolServiceCommitments(sql, scope, personId),
+        commitments,
         absences,
-        offers,
-        responses,
-        dispatchNotifications,
+        coverage,
+        coverers,
       });
     }),
   );
@@ -457,129 +348,27 @@ export const readCoverageBoard = (scope: PlacementScope) =>
     Effect.gen(function* () {
       yield* ensureCoverageScope(sql, scope);
 
-      const absences = yield* decode(Schema.Array(SchoolServiceAbsence))(
-        yield* absenceRows(
-          sql,
-          sql`absence.department_id=${scope.departmentId} AND absence.semester_id=${scope.semesterId}`,
-        ),
-      );
-
-      const offers = yield* decode(Schema.Array(SchoolServiceSubstituteOffer))(
-        yield* offerRows(
-          sql,
-          sql`absence.department_id=${scope.departmentId} AND absence.semester_id=${scope.semesterId}`,
-        ),
-      );
-
-      const responses = yield* decode(Schema.Array(SchoolServiceOfferResponse))(
-        yield* responseRows(
-          sql,
-          sql`absence.department_id=${scope.departmentId} AND absence.semester_id=${scope.semesterId}`,
-        ),
-      );
-
-      const acknowledgements = yield* decode(Schema.Array(SchoolServiceCoverageAcknowledgement))(
-        yield* acknowledgementRows(
-          sql,
-          sql`absence.department_id=${scope.departmentId} AND absence.semester_id=${scope.semesterId}`,
-        ),
-      );
-
-      const rosterAssignments = yield* decode(Schema.Array(CoverageRosterAssignment))(
-        yield* coverageRosterRows(sql, scope),
-      );
-
-      const closures = yield* decode(Schema.Array(SchoolServiceClosure))(
-        yield* closureRows(
-          sql,
-          sql`absence.department_id=${scope.departmentId} AND absence.semester_id=${scope.semesterId}`,
-        ),
-      );
-
-      const dispatchNotifications = yield* decode(Schema.Array(SchoolServiceDispatchNotification))(
-        yield* notificationRows(
-          sql,
-          sql`absence.department_id=${scope.departmentId} AND absence.semester_id=${scope.semesterId}`,
-        ),
-      );
-
-      const occurrences = yield* decode(Schema.Array(SchoolServiceOccurrence))(
-        yield* occurrenceRows(sql, scope),
-      );
-
-      const candidates = yield* sql`
-        SELECT DISTINCT ON (absence.absence_id,link.person_id)
-          absence.absence_id AS "absenceId",application.application_id AS "applicationId",
-          link.person_id AS "personId",profile.first_name AS "firstName",profile.last_name AS "lastName"
-        FROM public.school_service_absences AS absence
-        JOIN public.admission_substitute_preferences AS preferences ON preferences.active
-        JOIN public.admission_applications AS application
-          ON application.application_id=preferences.application_id
-        JOIN public.admission_periods AS period
-          ON period.admission_period_id=application.admission_period_id
-          AND period.department_id=application.department_id
-        JOIN public.admission_applicants AS applicant ON applicant.applicant_id=application.applicant_id
-        JOIN public.applicant_account_links AS link ON link.applicant_id=application.applicant_id
-        JOIN public.person_profiles AS profile ON profile.person_id=link.person_id
-        JOIN public.organization_volunteer_affiliations AS affiliation
-          ON affiliation.person_id=link.person_id
-          AND affiliation.department_id=${scope.departmentId}
-          AND affiliation.status='Active'
-        WHERE absence.department_id=${scope.departmentId}
-          AND absence.semester_id=${scope.semesterId}
-          AND absence.commitment_id IS NOT NULL
-          AND NOT EXISTS (SELECT 1 FROM public.school_service_decisions AS decision WHERE decision.commitment_id=absence.commitment_id)
-          AND NOT EXISTS (SELECT 1 FROM public.school_service_closures AS closure WHERE closure.absence_id=absence.absence_id)
-          AND period.department_id=${scope.departmentId}
-          AND period.semester_id=${scope.semesterId}
-          AND link.person_id<>absence.person_id
-          AND CASE absence.day
-            WHEN 'Monday' THEN preferences.monday
-            WHEN 'Tuesday' THEN preferences.tuesday
-            WHEN 'Wednesday' THEN preferences.wednesday
-            WHEN 'Thursday' THEN preferences.thursday
-            WHEN 'Friday' THEN preferences.friday
-            ELSE false
-          END
-          AND NOT EXISTS (
-            SELECT 1
-            FROM public.school_service_proposals AS proposal
-            CROSS JOIN LATERAL jsonb_array_elements(proposal.assignment_snapshot) AS assignment
-            WHERE proposal.proposal_id=absence.proposal_id
-              AND assignment->>'personId'=link.person_id
-              AND (assignment->>'schoolId')::bigint=absence.school_id
-              AND assignment->>'day'=absence.day
-              AND assignment->>'block'=absence.block
-          )
-          AND NOT EXISTS (
-            SELECT 1 FROM public.assistant_placements AS placement
-            WHERE placement.active
-              AND placement.person_id=link.person_id
-              AND placement.semester_id=${scope.semesterId}
-              AND placement.day=absence.day
-              AND placement.block IN (absence.block,'Both')
-          )
-          AND NOT EXISTS (
-            SELECT 1 FROM public.school_service_person_reservations AS reservation
-            JOIN public.school_service_commitments AS target ON target.commitment_id=absence.commitment_id
-            WHERE reservation.person_id=link.person_id
-              AND reservation.service_interval && tsrange(target.service_date+target.start_time,target.service_date+target.end_time,'[)')
-          )
-        ORDER BY absence.absence_id,link.person_id,application.application_id
-      `;
+      const inScope = sql`absence.department_id=${scope.departmentId} AND absence.semester_id=${scope.semesterId}`;
 
       return yield* decode(CoverageBoard)({
         ...scope,
-        absences,
-        rosterAssignments,
+        rosterAssignments: yield* decode(Schema.Array(CoverageRosterAssignment))(
+          yield* coverageRosterRows(sql, scope),
+        ),
         commitments: yield* readSchoolServiceCommitments(sql, scope),
-        candidates,
-        offers,
-        responses,
-        acknowledgements,
-        closures,
-        dispatchNotifications,
-        occurrences,
+        absences: yield* decode(Schema.Array(SchoolServiceAbsence))(
+          yield* absenceRows(sql, inScope),
+        ),
+        coverage: yield* decode(Schema.Array(SchoolServiceCoverage))(
+          yield* coverageRows(sql, inScope),
+        ),
+        coverers: yield* decode(Schema.Array(CoverageCoverer))(yield* covererRows(sql, scope)),
+        closures: yield* decode(Schema.Array(SchoolServiceClosure))(
+          yield* closureRows(sql, inScope),
+        ),
+        occurrences: yield* decode(Schema.Array(SchoolServiceOccurrence))(
+          yield* occurrenceRows(sql, scope),
+        ),
       });
     }),
   );
@@ -612,31 +401,96 @@ const reportAbsence = (
     yield* writeAudit(sql, scope, reporter, "ReportAbsence", now, { absenceId, ...input });
   });
 
-const respondToOffer = (
+/** Locks a live absence of an open commitment; an own command must name the actor's absence. */
+const openAbsence = (
   sql: DatabaseOperations,
   scope: PlacementScope,
-  command: Extract<OwnCoverageCommand, { readonly action: "RespondToOffer" }>,
+  absenceId: string,
+  owner: PersonId | null,
+) =>
+  Effect.gen(function* () {
+    const absence = yield* readAbsenceForUpdate(sql, scope, absenceId);
+
+    if (owner !== null && absence.personId !== owner) {
+      return yield* fail("coverage.owner-invalid", 403);
+    }
+
+    const commitment = yield* openCommitment(sql, scope, absence.commitmentId ?? "");
+
+    return { absence, commitment };
+  });
+
+const recordCoverage = (
+  sql: DatabaseOperations,
+  scope: PlacementScope,
+  input: { readonly absenceId: string; readonly coveringPersonId: PersonId },
+  owner: PersonId | null,
+  actor: PersonId,
+  now: string,
+  coverageId: string,
+) =>
+  Effect.gen(function* () {
+    const { absence, commitment } = yield* openAbsence(sql, scope, input.absenceId, owner);
+    const current = yield* currentCoverageForUpdate(sql, absence.absenceId);
+
+    if (current?.coveringPersonId === input.coveringPersonId) return;
+
+    const coverer =
+      input.coveringPersonId === absence.personId
+        ? undefined
+        : (yield* decode(Schema.Array(CoverageCoverer))(
+            yield* covererRows(sql, scope, input.coveringPersonId),
+          ))[0];
+
+    if (coverer === undefined) return yield* fail("coverage.coverer-ineligible");
+
+    // Scheduled on this or an overlapping service, or covering another absence at the same time.
+    const busy = yield* sql`SELECT 1 FROM public.school_service_person_reservations
+      WHERE person_id=${input.coveringPersonId}
+        AND service_interval && tsrange(
+          CAST(${commitment.serviceDate} AS date)+CAST(${commitment.startTime} AS time),
+          CAST(${commitment.serviceDate} AS date)+CAST(${commitment.endTime} AS time),'[)')
+      LIMIT 1`;
+
+    if (busy.length > 0) return yield* fail("coverage.coverer-unavailable", 409);
+
+    if (current !== undefined) {
+      yield* sql`UPDATE public.school_service_coverage_records
+        SET withdrawn_by_person_id=${actor},withdrawn_at=${now}
+        WHERE coverage_id=${current.coverageId} AND withdrawn_at IS NULL`;
+    }
+
+    yield* sql`INSERT INTO public.school_service_coverage_records(
+      coverage_id,absence_id,covering_person_id,coverer_kind,recorded_by_person_id,recorded_at
+    ) VALUES(${coverageId},${absence.absenceId},${input.coveringPersonId},${coverer.kind},${actor},${now})`;
+    yield* writeAudit(sql, scope, actor, "RecordCoverage", now, {
+      coverageId,
+      absenceId: absence.absenceId,
+      coveringPersonId: input.coveringPersonId,
+      covererKind: coverer.kind,
+      replacedCoverageId: current?.coverageId ?? null,
+    });
+  });
+
+const withdrawCoverage = (
+  sql: DatabaseOperations,
+  scope: PlacementScope,
+  absenceId: string,
+  owner: PersonId | null,
   actor: PersonId,
   now: string,
 ) =>
   Effect.gen(function* () {
-    const offer = yield* readOfferForUpdate(sql, scope, command.offerId);
+    const { absence } = yield* openAbsence(sql, scope, absenceId, owner);
+    const current = yield* currentCoverageForUpdate(sql, absence.absenceId);
 
-    if (offer.candidatePersonId !== actor) return yield* fail("offer.owner-invalid", 403);
-
-    if (offer.status !== "Offered") return yield* fail("offer.response-invalid", 409);
-    const absence = yield* readAbsenceForUpdate(sql, scope, offer.absenceId);
-    yield* openCommitment(sql, scope, absence.commitmentId ?? "");
-    const status = command.response === "Accept" ? "Accepted" : "Declined";
-    yield* sql`UPDATE public.school_service_substitute_offers SET status=${status},revision=revision+1 WHERE offer_id=${offer.offerId} AND status='Offered'`;
-    yield* sql`
-      INSERT INTO public.school_service_substitute_offer_responses(
-        offer_id,absence_id,response,responder_person_id,responded_at
-      ) VALUES(${offer.offerId},${offer.absenceId},${command.response},${actor},${now})
-    `;
-    yield* writeAudit(sql, scope, actor, "RespondToOffer", now, {
-      offerId: offer.offerId,
-      response: command.response,
+    if (current === undefined) return yield* fail("coverage.not-recorded", 409);
+    yield* sql`UPDATE public.school_service_coverage_records
+      SET withdrawn_by_person_id=${actor},withdrawn_at=${now}
+      WHERE coverage_id=${current.coverageId} AND withdrawn_at IS NULL`;
+    yield* writeAudit(sql, scope, actor, "WithdrawCoverage", now, {
+      coverageId: current.coverageId,
+      absenceId: absence.absenceId,
     });
   });
 
@@ -645,160 +499,32 @@ export const mutateOwnCoverage = (
   command: OwnCoverageCommand,
   actor: PersonId,
   now: string,
-  absenceId: string,
+  ids: { readonly absenceId: string; readonly coverageId: string },
 ) =>
   Database.use((sql) =>
     Effect.gen(function* () {
-      if (command.action === "ReportAbsence") {
-        yield* reportAbsence(sql, scope, { ...command, personId: actor }, actor, now, absenceId);
-      } else {
-        yield* respondToOffer(sql, scope, command, actor, now);
+      switch (command.action) {
+        case "ReportAbsence":
+          yield* reportAbsence(
+            sql,
+            scope,
+            { ...command, personId: actor },
+            actor,
+            now,
+            ids.absenceId,
+          );
+          break;
+        case "RecordCoverage":
+          yield* recordCoverage(sql, scope, command, actor, actor, now, ids.coverageId);
+          break;
+        case "WithdrawCoverage":
+          yield* withdrawCoverage(sql, scope, command.absenceId, actor, actor, now);
+          break;
       }
 
       return yield* readOwnCoverage(scope, actor);
     }),
   );
-
-const dispatchOffer = (
-  sql: DatabaseOperations,
-  scope: PlacementScope,
-  command: Extract<CoverageCommand, { readonly action: "DispatchSubstituteOffer" }>,
-  actor: PersonId,
-  now: string,
-  offerId: string,
-) =>
-  Effect.gen(function* () {
-    const absence = yield* readAbsenceForUpdate(sql, scope, command.absenceId);
-    const commitment = yield* openCommitment(sql, scope, absence.commitmentId ?? "");
-
-    const active = yield* sql`
-      SELECT offer_id FROM public.school_service_substitute_offers
-      WHERE absence_id=${absence.absenceId}
-        AND status IN ('Offered','Accepted','Acknowledged')
-      FOR UPDATE
-    `;
-
-    if (active.length > 0) return yield* fail("offer.unresolved", 409);
-
-    const snapshot = yield* eligibilitySnapshot(
-      sql,
-      scope,
-      absence,
-      command.candidatePersonId,
-      now,
-    );
-
-    yield* sql`
-      INSERT INTO public.school_service_substitute_offers(
-        offer_id,absence_id,candidate_person_id,dispatcher_person_id,dispatched_at,status,revision,
-        school_name_snapshot,eligibility_snapshot
-      ) VALUES(${offerId},${absence.absenceId},${command.candidatePersonId},${actor},${now},'Offered',1,${commitment.schoolName},${sql.json(snapshot)})
-    `;
-    const effectId = `school-service-substitute-dispatch:${offerId}`;
-
-    const payload = {
-      _tag: "NotifySchoolServiceSubstituteOffer" as const,
-      effectId,
-      offerId,
-      absenceId: absence.absenceId,
-      personId: command.candidatePersonId,
-      proposalId: absence.proposalId,
-      departmentId: scope.departmentId,
-      semesterId: scope.semesterId,
-      schoolId: absence.schoolId,
-      schoolName: commitment.schoolName,
-      day: absence.day,
-      block: absence.block,
-      serviceDate: absence.serviceDate,
-      startTime: commitment.startTime,
-      endTime: commitment.endTime,
-      dispatchedAt: now,
-    };
-
-    yield* decode(SchoolServiceDispatchNotificationRequest)(payload);
-    yield* sql`
-      INSERT INTO public.school_service_dispatch_notification_outbox(
-        effect_id,offer_id,absence_id,person_id,payload_json
-      ) VALUES(${effectId},${offerId},${absence.absenceId},${command.candidatePersonId},${sql.json(payload)})
-    `;
-    yield* writeAudit(sql, scope, actor, "DispatchSubstituteOffer", now, {
-      offerId,
-      absenceId: absence.absenceId,
-      candidatePersonId: command.candidatePersonId,
-      eligibilitySnapshot: snapshot,
-      effectId,
-    });
-  });
-
-const withdrawOffer = (
-  sql: DatabaseOperations,
-  scope: PlacementScope,
-  offerId: string,
-  actor: PersonId,
-  now: string,
-) =>
-  Effect.gen(function* () {
-    const offer = yield* readOfferForUpdate(sql, scope, offerId);
-
-    if (offer.status !== "Offered" && offer.status !== "Accepted") {
-      return yield* fail("offer.withdraw-invalid", 409);
-    }
-
-    const absence = yield* readAbsenceForUpdate(sql, scope, offer.absenceId);
-    yield* openCommitment(sql, scope, absence.commitmentId ?? "");
-    yield* sql`UPDATE public.school_service_substitute_offers SET status='Withdrawn',revision=revision+1 WHERE offer_id=${offer.offerId} AND status IN ('Offered','Accepted')`;
-    yield* sql`
-      INSERT INTO public.school_service_substitute_offer_withdrawals(
-        offer_id,absence_id,withdrawn_by_person_id,withdrawn_at
-      ) VALUES(${offer.offerId},${offer.absenceId},${actor},${now})
-    `;
-    yield* writeAudit(sql, scope, actor, "WithdrawSubstituteOffer", now, {
-      offerId: offer.offerId,
-    });
-  });
-
-const acknowledgeCoverage = (
-  sql: DatabaseOperations,
-  scope: PlacementScope,
-  offerId: string,
-  actor: PersonId,
-  now: string,
-  acknowledgementId: string,
-) =>
-  Effect.gen(function* () {
-    const offer = yield* readOfferForUpdate(sql, scope, offerId);
-
-    if (offer.status !== "Accepted") return yield* fail("coverage.acknowledgement-invalid", 409);
-    const absence = yield* readAbsenceForUpdate(sql, scope, offer.absenceId);
-    const commitment = yield* openCommitment(sql, scope, absence.commitmentId ?? "");
-
-    const competing = yield* sql`SELECT 1 FROM public.school_service_person_reservations
-      WHERE person_id=${offer.candidatePersonId} AND source_id<>${offer.offerId}
-        AND service_interval && tsrange(
-          CAST(${commitment.serviceDate} AS date)+CAST(${commitment.startTime} AS time),
-          CAST(${commitment.serviceDate} AS date)+CAST(${commitment.endTime} AS time),'[)')
-      LIMIT 1`;
-
-    if (competing.length > 0) return yield* fail("coverage.acknowledgement-invalid", 409);
-
-    const accepted = yield* sql`
-      SELECT 1 FROM public.school_service_substitute_offer_responses
-      WHERE offer_id=${offer.offerId} AND absence_id=${absence.absenceId} AND response='Accept'
-    `;
-
-    if (accepted.length === 0) return yield* fail("coverage.acknowledgement-invalid", 409);
-    yield* sql`UPDATE public.school_service_substitute_offers SET status='Acknowledged',revision=revision+1 WHERE offer_id=${offer.offerId} AND status='Accepted'`;
-    yield* sql`
-      INSERT INTO public.school_service_coverage_acknowledgements(
-        acknowledgement_id,offer_id,absence_id,candidate_person_id,acknowledged_by_person_id,acknowledged_at
-      ) VALUES(${acknowledgementId},${offer.offerId},${absence.absenceId},${offer.candidatePersonId},${actor},${now})
-    `;
-    yield* writeAudit(sql, scope, actor, "AcknowledgeCoverage", now, {
-      acknowledgementId,
-      offerId: offer.offerId,
-      absenceId: absence.absenceId,
-    });
-  });
 
 const decideService = (
   sql: DatabaseOperations,
@@ -821,27 +547,20 @@ const decideService = (
       if (ended.length === 0) return yield* fail("commitment.outcome-invalid");
     }
 
+    const onCommitment = sql`absence.commitment_id=${commitment.commitmentId}`;
+
     const absences = yield* decode(Schema.Array(SchoolServiceAbsence))(
-      yield* absenceRows(sql, sql`absence.commitment_id=${commitment.commitmentId}`),
+      yield* absenceRows(sql, onCommitment),
     );
 
-    const unresolved =
-      yield* sql`SELECT offer.offer_id FROM public.school_service_substitute_offers AS offer
-    JOIN public.school_service_absences AS absence USING(absence_id)
-    WHERE absence.commitment_id=${commitment.commitmentId} AND offer.status IN ('Offered','Accepted')
-    FOR UPDATE OF offer`;
-
-    if (unresolved.length > 0) return yield* fail("commitment.pending-offer", 409);
-
-    const acknowledgements = yield* decode(Schema.Array(SchoolServiceCoverageAcknowledgement))(
-      yield* acknowledgementRows(sql, sql`absence.commitment_id=${commitment.commitmentId}`),
+    const coverage = yield* decode(Schema.Array(SchoolServiceCoverage))(
+      yield* coverageRows(sql, onCommitment),
     );
 
-    const attendees = command.action === "CancelService" ? [] : command.attendedPersonIds;
-
-    if (!isEligibleSchoolServiceAttendance(commitment, absences, acknowledgements, attendees)) {
-      return yield* fail("commitment.attendance-invalid");
-    }
+    const attendees =
+      command.action === "CancelService"
+        ? []
+        : schoolServiceAttendance(commitment, absences, coverage);
 
     if (
       (command.action === "CompleteService" && attendees.length < commitment.requiredVolunteers) ||
@@ -874,21 +593,12 @@ const decideService = (
     }
 
     if (outcome !== "Cancelled") {
-      const attendeeSet = new Set(attendees);
-
-      const acknowledgedByAbsence = new Map(
-        acknowledgements.map((acknowledgement) => [acknowledgement.absenceId, acknowledgement]),
-      );
+      const coverageByAbsence = new Map(coverage.map((record) => [record.absenceId, record]));
 
       yield* Effect.forEach(
         absences,
         (absence) => {
-          const acknowledged = acknowledgedByAbsence.get(absence.absenceId);
-
-          const attendingSubstitute =
-            acknowledged !== undefined && attendeeSet.has(acknowledged.candidatePersonId)
-              ? acknowledged
-              : undefined;
+          const covered = coverageByAbsence.get(absence.absenceId);
 
           const closureId = absence.absenceId.replace(
             "school-service-absence-",
@@ -896,11 +606,11 @@ const decideService = (
           );
 
           return sql`INSERT INTO public.school_service_closures(
-        closure_id,absence_id,occurrence_id,scheduled_person_id,outcome,acknowledgement_id,
-        substitute_person_id,closed_by_person_id,closed_at
+        closure_id,absence_id,occurrence_id,scheduled_person_id,outcome,coverage_id,
+        covering_person_id,closed_by_person_id,closed_at
       ) VALUES(${closureId},${absence.absenceId},${linkedOccurrenceId},${absence.personId},
-        ${attendingSubstitute === undefined ? "Uncovered" : "Covered"},
-        ${attendingSubstitute?.acknowledgementId ?? null},${attendingSubstitute?.candidatePersonId ?? null},
+        ${covered === undefined ? "Uncovered" : "Covered"},
+        ${covered?.coverageId ?? null},${covered?.coveringPersonId ?? null},
         ${actor},${now})`;
         },
         { discard: true },
@@ -909,6 +619,7 @@ const decideService = (
 
     yield* writeAudit(sql, scope, actor, command.action, now, {
       ...command,
+      attendedPersonIds: [...attendees],
       occurrenceId: linkedOccurrenceId,
       outcome,
     });
@@ -921,8 +632,7 @@ export const mutateCoverageBoard = (
   now: string,
   ids: {
     readonly absenceId: string;
-    readonly offerId: string;
-    readonly acknowledgementId: string;
+    readonly coverageId: string;
     readonly occurrenceId: string;
   },
 ) =>
@@ -932,21 +642,11 @@ export const mutateCoverageBoard = (
         case "ReportAbsenceForVolunteer":
           yield* reportAbsence(sql, scope, command, actor, now, ids.absenceId);
           break;
-        case "DispatchSubstituteOffer":
-          yield* dispatchOffer(sql, scope, command, actor, now, ids.offerId);
+        case "RecordCoverage":
+          yield* recordCoverage(sql, scope, command, null, actor, now, ids.coverageId);
           break;
-        case "WithdrawSubstituteOffer":
-          yield* withdrawOffer(sql, scope, command.offerId, actor, now);
-          break;
-        case "AcknowledgeCoverage":
-          yield* acknowledgeCoverage(
-            sql,
-            scope,
-            command.offerId,
-            actor,
-            now,
-            ids.acknowledgementId,
-          );
+        case "WithdrawCoverage":
+          yield* withdrawCoverage(sql, scope, command.absenceId, null, actor, now);
           break;
         case "CompleteService":
         case "CancelService":

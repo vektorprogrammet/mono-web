@@ -28,7 +28,6 @@ Each folder of `src` holds a bounded context of [docs/model/contexts.cml](../../
 | `schools`          | Schools          | [AGENTS.md](src/schools/AGENTS.md)          |
 | `shared-kernel`    | shared kernel    | [AGENTS.md](src/shared-kernel/AGENTS.md)    |
 | `social-events`    | SocialEvents     | [AGENTS.md](src/social-events/AGENTS.md)    |
-| `substitutes`      | Placements       | [AGENTS.md](src/substitutes/AGENTS.md)      |
 | `team-application` | TeamApplications | [AGENTS.md](src/team-application/AGENTS.md) |
 | `tutor`            | none             | [AGENTS.md](src/tutor/AGENTS.md)            |
 
@@ -63,7 +62,6 @@ Each folder of `src` holds a bounded context of [docs/model/contexts.cml](../../
 | `@vektorprogrammet/domain/shared-kernel`                   | [src/shared-kernel/index.ts](src/shared-kernel/index.ts)                                                   |
 | `@vektorprogrammet/domain/time`                            | [src/time.ts](src/time.ts)                                                                                 |
 | `@vektorprogrammet/domain/contact`                         | [src/contact/index.ts](src/contact/index.ts)                                                               |
-| `@vektorprogrammet/domain/substitutes`                     | [src/substitutes/index.ts](src/substitutes/index.ts)                                                       |
 | `@vektorprogrammet/domain/team-application`                | [src/team-application/index.ts](src/team-application/index.ts)                                             |
 | `@vektorprogrammet/domain/onboarding`                      | [src/onboarding/index.ts](src/onboarding/index.ts)                                                         |
 | `@vektorprogrammet/domain/placements`                      | [src/placements/index.ts](src/placements/index.ts)                                                         |

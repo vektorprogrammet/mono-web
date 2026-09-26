@@ -5,7 +5,7 @@ import { Button } from "../components/ui/button";
 import { requireAuth } from "../lib/auth.server";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { nativeProblemFrom } from "../lib/native-problem";
-import { substituteSemesterLabel } from "../lib/substitute-form";
+import { semesterLabel } from "../lib/semester-label";
 import type { Route } from "./+types/dashboard.epostliste._index";
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -118,7 +118,7 @@ export default function Epostliste() {
             )}
             {scopes?.semesters.map((entry) => (
               <option key={entry.semesterId} value={entry.semesterId}>
-                {substituteSemesterLabel(entry)}
+                {semesterLabel(entry)}
               </option>
             ))}
           </select>

@@ -1,31 +1,30 @@
 import { Database } from "@vektorprogrammet/database";
 import type { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
+import {
+  AdmissionOutcomeCommand,
+  AdmissionOutcomeScope,
+  AdmissionOutcomeScopes,
+  Admissions,
+  admissionOutcomePermission,
+  onCallSubstitutes,
+  type AdmissionOutcomeEntry,
+  type AdmissionOutcomeOperationFailure,
+} from "@vektorprogrammet/domain/admissions";
 import { Scope } from "@vektorprogrammet/domain/authz";
 import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import type { OrganizationPersistenceError } from "@vektorprogrammet/domain/organization";
 import {
-  SubstituteMutation,
-  SubstituteScope,
-  SubstituteScopes,
-  substitutePermission,
-  Substitutes,
-  type SubstituteEntry,
-  type SubstituteOperationFailure,
-} from "@vektorprogrammet/domain/substitutes";
-import {
+  AdmissionOutcomeBoardResource,
+  AdmissionOutcomeResource,
   ExternalNativeApi,
-  SubstituteBoard,
-  SubstituteResource,
-  ActivateSubstituteEndpoint,
-  EditSubstituteEndpoint,
-  DeactivateSubstituteEndpoint,
-  ReadSubstituteEndpoint,
-  ReadSubstitutePoolEndpoint,
-  ListSubstituteScopesEndpoint,
+  ListAdmissionOutcomeScopesEndpoint,
+  ReadAdmissionOutcomeEndpoint,
+  ReadAdmissionOutcomesEndpoint,
+  RecordAdmissionOutcomeEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
-import { Match, Effect, Option, Schema } from "effect";
+import { Effect, Option, type Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { isSqlError, type SqlError } from "effect/unstable/sql/SqlError";
 import {
@@ -63,12 +62,10 @@ import { genericContext } from "../native-operation.js";
 
 const MAX_MUTATION_BYTES = 8192;
 
-export const substituteResource = <A extends SubstituteEntry>(
-  entry: A,
-): A & { readonly etag: (typeof SubstituteResource.Type)["etag"] } => ({
+const outcomeResource = (entry: AdmissionOutcomeEntry) => ({
   ...entry,
   etag: deriveStrongETag({
-    representationKind: "SubstituteResource",
+    representationKind: "AdmissionOutcomeResource",
     resourceIdentity: entry.applicationId,
     version: JSON.stringify(entry),
   }),
@@ -90,18 +87,18 @@ const persistenceProblem = (failure: OrganizationPersistenceError | SqlError) =>
     : Problem.make("internal.error");
 
 /**
- * The one answer for every substitute and person-authority failure. A person
+ * The one answer for every admission outcome and person-authority failure. A person
  * credential rejected inside the transaction is answered from the request's evidence.
  */
-const substituteProblems = (presentation: CredentialPresentation) =>
+const outcomeProblems = (presentation: CredentialPresentation) =>
   problemMapper<
-    | SubstituteOperationFailure
+    | AdmissionOutcomeOperationFailure
     | UnauthenticatedActor
     | IdentityEngineError
     | OrganizationResolutionError
   >()({
-    SubstituteFailure: (failure) => Problem.make(failure.code),
-    SubstitutePersistenceError: (failure) => Problem.make(failure.code),
+    AdmissionOutcomeFailure: (failure) => Problem.make(failure.code),
+    AdmissionOutcomePersistenceError: (failure) => Problem.make(failure.code),
     UnauthenticatedActor: () => Problem.unauthenticated(presentation),
     IdentityEngineError: () => Problem.make("internal.error"),
     OrganizationDecodeError: () => Problem.make("internal.error"),
@@ -109,27 +106,25 @@ const substituteProblems = (presentation: CredentialPresentation) =>
   });
 
 type Endpoint =
-  | typeof ActivateSubstituteEndpoint
-  | typeof EditSubstituteEndpoint
-  | typeof DeactivateSubstituteEndpoint
-  | typeof ReadSubstituteEndpoint
-  | typeof ReadSubstitutePoolEndpoint
-  | typeof ListSubstituteScopesEndpoint;
+  | typeof ListAdmissionOutcomeScopesEndpoint
+  | typeof ReadAdmissionOutcomesEndpoint
+  | typeof ReadAdmissionOutcomeEndpoint
+  | typeof RecordAdmissionOutcomeEndpoint;
 
 /**
- * Grants the department's substitute permission, then evaluates the declared AccessSpec.
+ * Grants the department's admission outcome permission, then evaluates the declared AccessSpec.
  */
 const authorize = (
   request: Request,
   endpoint: Endpoint,
-  departmentId: SubstituteEntry["departmentId"],
-  manage: boolean,
+  departmentId: AdmissionOutcomeEntry["departmentId"],
+  decide: boolean,
   auth: TransactionPersonAuthority,
 ) =>
   Effect.gen(function* () {
-    const permission = substitutePermission(auth.authority, departmentId);
+    const permission = admissionOutcomePermission(auth.authority, departmentId);
 
-    if (permission === "Denied" || (manage && permission !== "Manage"))
+    if (permission === "Denied" || (decide && permission !== "Decide"))
       return yield* Problem.make("authority.denied");
 
     yield* authorizePerson(
@@ -156,7 +151,7 @@ const authorize = (
     return permission;
   });
 
-export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
+export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
   const personAuthority = (request: Request) =>
     resolveRequestPersonAuthorityInTransaction(request, { now: input.now });
 
@@ -175,7 +170,7 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
       ),
     ).pipe(
       Effect.catchIf(isSqlError, (failure) => Effect.fail(persistenceProblem(failure))),
-      substituteProblems(personPresentation(request)),
+      outcomeProblems(personPresentation(request)),
     );
 
   const listScopes = (request: Request) =>
@@ -186,24 +181,24 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
 
         const auth = yield* personAuthority(request);
 
-        const scopes = yield* Substitutes.use((substitutes) =>
-          substitutes.listScopes(auth.authority),
+        const scopes = yield* Admissions.use((admissions) =>
+          admissions.listAdmissionOutcomeScopes(auth.authority),
         );
 
         for (const department of scopes.departments)
           yield* authorize(
             request,
-            ListSubstituteScopesEndpoint,
+            ListAdmissionOutcomeScopesEndpoint,
             department.departmentId,
             false,
             auth,
           );
 
-        return json(yield* strictOutput(SubstituteScopes)(scopes));
+        return json(yield* strictOutput(AdmissionOutcomeScopes)(scopes));
       }),
     );
 
-  const readPool = (request: Request) =>
+  const readOutcomes = (request: Request) =>
     snapshotRead(
       request,
       Effect.gen(function* () {
@@ -216,60 +211,52 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
         )
           return yield* Problem.make("request.malformed");
 
-        const scope = yield* decodeRequest(SubstituteScope)(Object.fromEntries(parameters));
+        const scope = yield* decodeRequest(AdmissionOutcomeScope)(Object.fromEntries(parameters));
         const auth = yield* personAuthority(request);
 
         const permission = yield* authorize(
           request,
-          ReadSubstitutePoolEndpoint,
+          ReadAdmissionOutcomesEndpoint,
           scope.departmentId,
           false,
           auth,
         );
 
-        const { admissionPeriodId, entries: rows } = yield* Substitutes.use((substitutes) =>
-          substitutes.readPool(scope),
+        const { admissionPeriodId, entries } = yield* Admissions.use((admissions) =>
+          admissions.readAdmissionOutcomes(scope),
         );
 
-        const entries = rows.flatMap((row) => (row.active ? [substituteResource(row)] : []));
-
         return json(
-          yield* strictOutput(SubstituteBoard)(
-            permission === "Manage"
-              ? SubstituteBoard.cases.Manage.make({
+          yield* strictOutput(AdmissionOutcomeBoardResource)(
+            permission === "Decide"
+              ? AdmissionOutcomeBoardResource.cases.Decide.make({
                   ...scope,
                   admissionPeriodId,
-                  entries,
-                  candidates: rows.flatMap((row) => (!row.active ? [substituteResource(row)] : [])),
+                  entries: entries.map(outcomeResource),
                 })
-              : SubstituteBoard.cases.ReadOnly.make({ ...scope, admissionPeriodId, entries }),
+              : AdmissionOutcomeBoardResource.cases.ReadOnly.make({
+                  ...scope,
+                  admissionPeriodId,
+                  substitutes: onCallSubstitutes(entries),
+                }),
           ),
         );
       }),
     );
 
-  const readEntry = (request: Request, applicationId: SubstituteEntry["applicationId"]) =>
+  const readOutcome = (request: Request, applicationId: AdmissionOutcomeEntry["applicationId"]) =>
     snapshotRead(
       request,
       Effect.gen(function* () {
         yield* requireNoQuery(request);
 
-        const entry = yield* Substitutes.use((substitutes) => substitutes.readEntry(applicationId));
-        const auth = yield* personAuthority(request);
-
-        const permission = yield* authorize(
-          request,
-          ReadSubstituteEndpoint,
-          entry.departmentId,
-          false,
-          auth,
+        const entry = yield* Admissions.use((admissions) =>
+          admissions.readAdmissionOutcome(applicationId),
         );
 
-        // Inactive candidates are concealed from read-only members.
-        if (!entry.active && permission !== "Manage")
-          return yield* Problem.make("authority.denied");
-
-        const resource = yield* strictOutput(SubstituteResource)(substituteResource(entry));
+        const auth = yield* personAuthority(request);
+        yield* authorize(request, ReadAdmissionOutcomeEndpoint, entry.departmentId, true, auth);
+        const resource = yield* strictOutput(AdmissionOutcomeResource)(outcomeResource(entry));
 
         return yield* conditionalJson({
           request,
@@ -281,11 +268,7 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
       }),
     );
 
-  const mutation = (
-    request: Request,
-    applicationId: SubstituteEntry["applicationId"],
-    action: "activate" | "edit" | "deactivate",
-  ) =>
+  const recordOutcome = (request: Request, applicationId: AdmissionOutcomeEntry["applicationId"]) =>
     Effect.gen(function* () {
       yield* requireNoQuery(request);
 
@@ -295,39 +278,32 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
         MAX_MUTATION_BYTES,
       );
 
-      if (action === "deactivate") yield* decodeRequest(Schema.Struct({}))(body);
-
-      const command =
-        action === "deactivate"
-          ? ({ action } as const)
-          : { action, input: yield* decodeRequest(SubstituteMutation)(body) };
-
+      const command = yield* decodeRequest(AdmissionOutcomeCommand)(body);
       const ifMatch = yield* requiredIfMatchOf(request);
       const idempotencyKey = yield* idempotencyKeyOf(request);
-
-      const endpoint = Match.value(action).pipe(
-        Match.when("activate", () => ActivateSubstituteEndpoint),
-        Match.when("edit", () => EditSubstituteEndpoint),
-        Match.orElse(() => DeactivateSubstituteEndpoint),
-      );
-
-      const operationId = `substitutes.${action}`;
+      const operationId = "admissionOutcomes.recordOutcome";
 
       // Failures are answered after the executor, which rolls the whole command back on any of them.
       const outcome = yield* executeNativeHttpCommandPostgres(
         Effect.gen(function* () {
-          const selected = yield* Substitutes.use((substitutes) =>
-            substitutes.readEntry(applicationId),
+          const selected = yield* Admissions.use((admissions) =>
+            admissions.readAdmissionOutcome(applicationId),
           );
 
           const auth = yield* personAuthority(request);
 
-          yield* authorize(request, endpoint, selected.departmentId, true, auth);
+          yield* authorize(
+            request,
+            RecordAdmissionOutcomeEndpoint,
+            selected.departmentId,
+            true,
+            auth,
+          );
 
           const identity = yield* httpIdentity({
             credentialSubject: `Person:${auth.authority.personId}`,
             qualifiedOperationId: operationId,
-            normalizedTarget: normalizeTarget(`/api/substitutes/{applicationId}:${action}`, {
+            normalizedTarget: normalizeTarget("/api/admission-outcomes/{applicationId}:record", {
               applicationId,
             }),
             idempotencyKey,
@@ -340,13 +316,21 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
               operationId,
             },
             execute: Effect.gen(function* () {
-              const changed = yield* Substitutes.use((substitutes) =>
-                substitutes.execute(applicationId, command, (current) =>
-                  requireCurrentETag(substituteResource(current).etag, ifMatch),
+              const changed = yield* Admissions.use((admissions) =>
+                admissions.recordAdmissionOutcome(
+                  {
+                    applicationId,
+                    command,
+                    actor: auth.authority.personId,
+                    now: auth.authorizationInstant,
+                  },
+                  (current) => requireCurrentETag(outcomeResource(current).etag, ifMatch),
                 ),
               );
 
-              const resource = yield* strictOutput(SubstituteResource)(substituteResource(changed));
+              const resource = yield* strictOutput(AdmissionOutcomeResource)(
+                outcomeResource(changed),
+              );
 
               return {
                 status: 200,
@@ -357,31 +341,21 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
             }),
           };
         }),
-      ).pipe(substituteProblems(personPresentation(request)), commandReceiptProblems);
+      ).pipe(outcomeProblems(personPresentation(request)), commandReceiptProblems);
 
       return yield* commandOutcomeResponse(outcome);
     });
 
-  return HttpApiBuilder.group(ExternalNativeApi, "substitutes", (handlers) =>
+  return HttpApiBuilder.group(ExternalNativeApi, "admissionOutcomes", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("listScopes", ({ request }) => webHandler(request, listScopes))
-        .handleRaw("readPool", ({ request }) => webHandler(request, readPool))
-        .handleRaw("readEntry", ({ request, params }) =>
-          webHandler(request, (webRequest) => readEntry(webRequest, params.applicationId)),
+        .handleRaw("readOutcomes", ({ request }) => webHandler(request, readOutcomes))
+        .handleRaw("readOutcome", ({ request, params }) =>
+          webHandler(request, (webRequest) => readOutcome(webRequest, params.applicationId)),
         )
-        .handleRaw("activate", ({ request, params }) =>
-          webHandler(request, (webRequest) =>
-            mutation(webRequest, params.applicationId, "activate"),
-          ),
-        )
-        .handleRaw("edit", ({ request, params }) =>
-          webHandler(request, (webRequest) => mutation(webRequest, params.applicationId, "edit")),
-        )
-        .handleRaw("deactivate", ({ request, params }) =>
-          webHandler(request, (webRequest) =>
-            mutation(webRequest, params.applicationId, "deactivate"),
-          ),
+        .handleRaw("recordOutcome", ({ request, params }) =>
+          webHandler(request, (webRequest) => recordOutcome(webRequest, params.applicationId)),
         ),
     ),
   );

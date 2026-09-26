@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import {
   goldenRunnerPaths,
   inspectGoldenEvidence,
+  redactedEvidenceJson,
   sha256,
   stageGoldenEvidence,
 } from "./golden-school-service-evidence.mjs";
@@ -123,4 +124,20 @@ test("a setup failure publishes only its failed summary for upload", async () =>
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
+});
+
+test("evidence redaction keeps credential fields and diagnostic text valid JSON", () => {
+  const evidence = {
+    deliveries: [{ authorization: "Bearer private-value", idempotencyKey: "effect:a,b" }],
+    failure: "request failed: cookie=private-value, retrying",
+    note: "sent journey-secret-0123456789abcdef",
+    absent: { cookie: null },
+  };
+
+  expect(JSON.parse(redactedEvidenceJson(["journey-secret-0123456789abcdef"], evidence))).toEqual({
+    deliveries: [{ authorization: "[REDACTED]", idempotencyKey: "effect:a,b" }],
+    failure: "request failed: cookie=[REDACTED], retrying",
+    note: "sent [REDACTED]",
+    absent: { cookie: null },
+  });
 });

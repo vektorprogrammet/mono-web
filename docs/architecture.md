@@ -128,7 +128,6 @@ capability groups:
 - Organization
 - Schools
 - Placements
-- Substitutes
 - Economy
 - Content
 - Content management
@@ -141,10 +140,13 @@ not expose database rows or transport objects.
 The [Placements service](../packages/domain/src/placements/service.ts) owns complete commands
 and queries. Its [database Layer](../packages/database/src/placements/service.ts) holds the department lock across the
 precondition, transition, audit, history, and outbox writes in the caller transaction.
-The [Substitutes contract](../packages/domain/src/substitutes/service.ts) exposes complete pool queries and commands.
-Its [database Layer](../packages/database/src/substitutes/service.ts) holds the application lock across the fresh read, transport precondition, domain decision, and writes.
+The [admission outcome contract](../packages/domain/src/admissions/outcome.ts) records whether an
+application is admitted, a substitute on call, or rejected. Its
+[database Layer](../packages/database/src/admissions/outcome.ts) locks the application across the fresh read,
+transport precondition, and append-only revision write.
 The caller owns current authorization, the transaction, and response receipts.
-The [Substitutes guide](../packages/domain/src/substitutes/README.md) records composition and failure guarantees. Placements retains the separate coverage lifecycle.
+Placements records absences and who covered each lesson date. It derives actual attendance from the
+confirmed roster, the absences, and the current coverage records.
 
 Economy uses its [service contract](../packages/domain/src/receipt/service.ts) for
 receipt queries and settlement commands. The [owner query](../packages/database/src/receipt/projections.ts)

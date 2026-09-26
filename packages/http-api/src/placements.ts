@@ -84,19 +84,15 @@ export const PlacementProblem = problemUnion("PlacementProblem", [
   "commitment.target-invalid",
   "commitment.duplicate",
   "commitment.closed",
-  "commitment.attendance-invalid",
   "commitment.outcome-invalid",
-  "commitment.pending-offer",
   "commitment.interval-invalid",
   "absence.target-invalid",
   "absence.duplicate",
   "absence.closed",
-  "offer.candidate-ineligible",
-  "offer.unresolved",
-  "offer.owner-invalid",
-  "offer.response-invalid",
-  "offer.withdraw-invalid",
-  "coverage.acknowledgement-invalid",
+  "coverage.owner-invalid",
+  "coverage.coverer-ineligible",
+  "coverage.coverer-unavailable",
+  "coverage.not-recorded",
 
   "precondition.required",
   "precondition.failed",
@@ -234,7 +230,7 @@ export const ReadOwnCoverageEndpoint = HttpApiEndpoint.get(
   .annotateMerge(
     operationAnnotations(
       "Read own coverage and scheduled service",
-      "A person sees only commitments where they are scheduled or have acknowledged substitute coverage.",
+      "A person sees only commitments where they are scheduled or cover a recorded absence, and names of possible coverers only while they have an open absence.",
     ),
   );
 
@@ -253,8 +249,8 @@ export const CommandOwnCoverageEndpoint = HttpApiEndpoint.post(
   .pipe((e) => annotateAccessSpec(e, access("placements.self", true)))
   .annotateMerge(
     operationAnnotations(
-      "Report own absence or answer addressed offer",
-      "The current person must own a scheduled assignment in an open commitment or be the addressed substitute.",
+      "Report own absence or record who covers it",
+      "The current person must own a scheduled assignment in an open commitment; coverage commands name only that person's own absence.",
     ),
   );
 
@@ -272,7 +268,7 @@ export const ReadCoverageBoardEndpoint = HttpApiEndpoint.get(
   .annotateMerge(
     operationAnnotations(
       "Read coordinator coverage board",
-      "Only a scoped coordinator can read candidates, offers, actual attendance, per-absence closures, and commitment outcomes.",
+      "Only a scoped coordinator can read absences, coverage records, possible coverers, per-absence closures, and commitment outcomes.",
     ),
   );
 
@@ -291,8 +287,8 @@ export const CommandCoverageBoardEndpoint = HttpApiEndpoint.post(
   .pipe((e) => annotateAccessSpec(e, access("placements.manage", true)))
   .annotateMerge(
     operationAnnotations(
-      "Coordinate coverage and decide dated service",
-      "Commands check coordinator scope, actual attendance, and immutable outcome evidence inside one transaction.",
+      "Record coverage and decide dated service",
+      "Commands check coordinator scope, record absences and coverage, and derive actual attendance for immutable outcome evidence inside one transaction.",
     ),
   );
 
@@ -311,6 +307,6 @@ export class PlacementsApi extends HttpApiGroup.make("placements")
     OpenApi.annotations({
       title: "Volunteer placement",
       description:
-        "Explicit affiliation, placement, confirmed roster, dated school commitment, absence, substitute coverage, and immutable outcomes.",
+        "Explicit affiliation, placement, confirmed roster, dated school commitment, absence, coverage records, and immutable outcomes.",
     }),
   ) {}

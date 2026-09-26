@@ -19,6 +19,29 @@ export const goldenRunnerPaths = [
 
 export const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
+const credentialField = /^(?:authorization|cookie|set-cookie)$/i;
+
+/** Redacts the known secrets and every credential header value in one diagnostic text. */
+export const redactDiagnostic = (secrets, text) =>
+  secrets
+    .reduce((redacted, secret) => redacted.replaceAll(secret, "[REDACTED]"), text)
+    .replace(/(authorization|cookie|set-cookie)([\s"':=]+)[^\r\n,}]+/gi, "$1$2[REDACTED]");
+
+/**
+ * Serializes evidence with every string redacted and every credential field's value replaced.
+ * Redacting the values, not the serialized text, keeps the file valid JSON.
+ */
+export const redactedEvidenceJson = (secrets, evidence) =>
+  JSON.stringify(
+    evidence,
+    (key, value) => {
+      if (credentialField.test(key) && value !== null) return "[REDACTED]";
+
+      return Predicate.isString(value) ? redactDiagnostic(secrets, value) : value;
+    },
+    2,
+  );
+
 export const dashboardBuildInventory = async (root) => {
   const files = [];
 
@@ -53,7 +76,7 @@ const safeBytes = (bytes) => {
   const text = bytes.toString("utf8");
   assert.ok(!text.includes("\u0000"), "binary diagnostic rejected");
   assert.ok(
-    !/journey-secret-0123456789abcdef|synthetic-school-service-(?:dispatch-)?token/.test(text),
+    !/journey-secret-0123456789abcdef|synthetic-school-service-token/.test(text),
     "synthetic secret rejected",
   );
   assert.ok(

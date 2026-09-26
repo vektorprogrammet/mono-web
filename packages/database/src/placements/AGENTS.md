@@ -8,11 +8,8 @@ The persistence layer holds PostgreSQL adapters and service Layers. They keep st
 The Placements context in other folders:
 
 - [apps/backend/src/placements](../../../../apps/backend/src/placements/AGENTS.md)
-- [apps/backend/src/substitutes](../../../../apps/backend/src/substitutes/AGENTS.md)
 - [apps/dashboard/app/foldkit/dated-school-service](../../../../apps/dashboard/app/foldkit/dated-school-service/AGENTS.md)
-- [packages/database/src/substitutes](../substitutes/AGENTS.md)
 - [packages/domain/src/placements](../../../domain/src/placements/AGENTS.md)
-- [packages/domain/src/substitutes](../../../domain/src/substitutes/AGENTS.md)
 
 ## Bounded context: Placements
 

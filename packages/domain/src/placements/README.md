@@ -135,7 +135,6 @@ Production composition differs from this fixture:
 - [Backend composition](../../../../apps/backend/src/main.ts) shares the database Layer and supervises workers.
 - [HTTP command transactions](../../../../apps/backend/src/http-api/receipt-transaction.ts) own authority preparation, receipt lookup, replay, and transaction completion.
 - [Notification worker](../../../../apps/backend/src/placements/notification.ts) supplies the roster interpreter and recovery schedule.
-- [Dispatch worker](../../../../apps/backend/src/placements/dispatch-notification.ts) supplies the dispatch interpreter and recovery schedule.
 
 A new server caller must preserve those responsibilities rather than call `execute` without an authorized transaction.
 The read example deliberately performs no mutation and requires no synthetic command receipt.
@@ -193,8 +192,8 @@ A caller must not invent a new command identity merely because the first respons
 
 ### Outbox and delivery
 
-[Roster delivery](../../../database/src/placements/outbox.ts) and [dispatch delivery](../../../database/src/placements/dispatch-outbox.ts) claim durable work before invoking an interpreter.
-They fence acknowledgement updates with the claim identity.
+[Roster delivery](../../../database/src/placements/outbox.ts) claims durable work before invoking an interpreter.
+It fences acknowledgement updates with the claim identity.
 The worker can recover stale claims after interruption or process loss.
 An interpreter can succeed before acknowledgement persists, so a later delivery attempt can repeat the external effect.
 The provider boundary must handle the stable logical effect identity. These functions do not promise exactly-once external delivery.

@@ -352,23 +352,11 @@ export const NativeProblemRegistry = {
     status: 409,
     detail: "This commitment has an immutable outcome.",
   },
-  "commitment.attendance-invalid": {
-    type: "urn:vektorprogrammet:problem:v0.2:commitment.attendance-invalid",
-    title: "Invalid service attendance",
-    status: 422,
-    detail: "Record actual attendance only for scheduled assistants and acknowledged substitutes.",
-  },
   "commitment.outcome-invalid": {
     type: "urn:vektorprogrammet:problem:v0.2:commitment.outcome-invalid",
     title: "Service outcome does not match demand",
     status: 422,
     detail: "Completed service must meet demand. Unfulfilled service must record unmet demand.",
-  },
-  "commitment.pending-offer": {
-    type: "urn:vektorprogrammet:problem:v0.2:commitment.pending-offer",
-    title: "Service has a pending offer",
-    status: 409,
-    detail: "Resolve each offered or accepted substitute offer before recording a service outcome.",
   },
   "commitment.interval-invalid": {
     type: "urn:vektorprogrammet:problem:v0.2:commitment.interval-invalid",
@@ -394,41 +382,30 @@ export const NativeProblemRegistry = {
     status: 409,
     detail: "This absence already has an immutable service closure.",
   },
-  "offer.candidate-ineligible": {
-    type: "urn:vektorprogrammet:problem:v0.2:offer.candidate-ineligible",
-    title: "Ineligible substitute candidate",
-    status: 422,
-    detail: "The candidate no longer has active linked pool eligibility for this service slot.",
-  },
-  "offer.unresolved": {
-    type: "urn:vektorprogrammet:problem:v0.2:offer.unresolved",
-    title: "Unresolved substitute offer",
-    status: 409,
-    detail: "An offered, accepted or acknowledged substitute offer already selects this absence.",
-  },
-  "offer.owner-invalid": {
-    type: "urn:vektorprogrammet:problem:v0.2:offer.owner-invalid",
-    title: "Offer is addressed to another person",
+  "coverage.owner-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:coverage.owner-invalid",
+    title: "Absence belongs to another person",
     status: 403,
-    detail: "Only the current addressed substitute can answer this offer.",
+    detail: "A volunteer records or withdraws coverage only for their own absence.",
   },
-  "offer.response-invalid": {
-    type: "urn:vektorprogrammet:problem:v0.2:offer.response-invalid",
-    title: "Invalid offer response",
-    status: 409,
-    detail: "This substitute offer is no longer offered for a final response.",
+  "coverage.coverer-ineligible": {
+    type: "urn:vektorprogrammet:problem:v0.2:coverage.coverer-ineligible",
+    title: "Ineligible covering person",
+    status: 422,
+    detail:
+      "The covering person must be a placed assistant or a substitute on call in this department and semester, and not the absent person.",
   },
-  "offer.withdraw-invalid": {
-    type: "urn:vektorprogrammet:problem:v0.2:offer.withdraw-invalid",
-    title: "Invalid offer withdrawal",
+  "coverage.coverer-unavailable": {
+    type: "urn:vektorprogrammet:problem:v0.2:coverage.coverer-unavailable",
+    title: "Covering person is already booked",
     status: 409,
-    detail: "Only an offered or accepted substitute offer can be withdrawn before acknowledgement.",
+    detail: "The covering person is scheduled or already covering during this service interval.",
   },
-  "coverage.acknowledgement-invalid": {
-    type: "urn:vektorprogrammet:problem:v0.2:coverage.acknowledgement-invalid",
-    title: "Invalid coverage acknowledgement",
+  "coverage.not-recorded": {
+    type: "urn:vektorprogrammet:problem:v0.2:coverage.not-recorded",
+    title: "No coverage recorded",
     status: 409,
-    detail: "Only the current accepted, eligible substitute offer can be acknowledged.",
+    detail: "This absence has no current coverage record to withdraw.",
   },
 
   "scope.invalid": {
@@ -436,18 +413,6 @@ export const NativeProblemRegistry = {
     title: "Invalid scope",
     status: 422,
     detail: "The selected department, semester or school is not available in this scope.",
-  },
-  "substitute.already-active": {
-    type: "urn:vektorprogrammet:problem:v0.2:substitute.already-active",
-    title: "Substitute already active",
-    status: 400,
-    detail: "The application is already in the substitute pool.",
-  },
-  "substitute.inactive": {
-    type: "urn:vektorprogrammet:problem:v0.2:substitute.inactive",
-    title: "Substitute inactive",
-    status: 400,
-    detail: "The application is not in the substitute pool.",
   },
   "team-application.intake-closed": {
     type: "urn:vektorprogrammet:problem:v0.2:team-application.intake-closed",

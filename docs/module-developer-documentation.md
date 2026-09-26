@@ -135,8 +135,6 @@ The [Placements CI gate](../packages/domain/src/placements/README.md#ci-and-reta
 It checks examples, generates one reference, and binds retained output to its clean source revision and file hashes.
 Hosted execution and repository protection remain separate acceptance gates.
 
-The [Substitutes guide](../packages/domain/src/substitutes/README.md) applies the same consumer and maintainer structure to the next operational boundary.
-It links to an executable public-import example and the continuous coverage journey.
 The generated API reference remains scoped to Placements. No second generator or documentation website is introduced.
 
 The [Receipt guide](../packages/domain/src/receipt/README.md) extends the same pattern to claims, approval, settlement evidence, private files, and recovery.

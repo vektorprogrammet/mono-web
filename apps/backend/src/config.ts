@@ -10,10 +10,6 @@ import {
   schoolServiceNotificationConfig,
   type SchoolServiceNotificationConfig,
 } from "./placements/notification.js";
-import {
-  schoolServiceDispatchNotificationConfig,
-  type SchoolServiceDispatchNotificationConfig,
-} from "./placements/dispatch-notification.js";
 import { onboardingDeliveryConfig, type OnboardingDeliveryConfig } from "./onboarding/delivery.js";
 import {
   OAUTH_NATIVE_API_RESOURCE,
@@ -93,7 +89,6 @@ export interface BackendConfig {
   readonly recruitmentNotifications?: RecruitmentNotificationConfig;
   readonly publicApplicationEffects?: PublicApplicationEffectConfig;
   readonly schoolServiceNotifications?: SchoolServiceNotificationConfig;
-  readonly schoolServiceDispatchNotifications?: SchoolServiceDispatchNotificationConfig;
   readonly teamApplicationDelivery?: TeamApplicationDeliveryConfig;
 }
 
@@ -365,7 +360,6 @@ export const decodeBackendConfig = (
 
   const effects = publicApplicationEffectConfig(env, provider);
   const schoolServiceNotifications = schoolServiceNotificationConfig(env);
-  const schoolServiceDispatchNotifications = schoolServiceDispatchNotificationConfig(env);
   const credentials = Effect.runSync(authSettings.parse(provider));
   const postgresUrl = Redacted.value(credentials.postgresUrl);
   const secret = Redacted.value(credentials.secret);
@@ -434,9 +428,6 @@ export const decodeBackendConfig = (
 
   if (schoolServiceNotifications !== undefined)
     Object.assign(config, { schoolServiceNotifications });
-
-  if (schoolServiceDispatchNotifications !== undefined)
-    Object.assign(config, { schoolServiceDispatchNotifications });
 
   if (teamApplicationDelivery !== undefined) Object.assign(config, { teamApplicationDelivery });
 

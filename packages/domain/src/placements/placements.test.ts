@@ -4,7 +4,7 @@ import {
   buildSchoolServiceProposal,
   canManagePlacements,
   hasExactSchoolServiceExceptionReview,
-  isEligibleSchoolServiceAttendance,
+  schoolServiceAttendance,
   nextAffiliationStatus,
 } from "./policy.js";
 import {
@@ -13,9 +13,7 @@ import {
   PlacementValues,
   SchoolServiceAbsenceId,
   SchoolServiceCommitmentId,
-  SchoolServiceCoverageAcknowledgementId,
   SchoolServiceProposalId,
-  SchoolServiceSubstituteOfferId,
 } from "./schema.js";
 import { OrganizationPersonAuthoritySchema } from "../organization/index.js";
 import { DepartmentId, PersonId, SemesterId } from "../organization/index.js";
@@ -241,7 +239,7 @@ describe("school service proposal boundaries", () => {
     ).toBe(false);
   });
 
-  it("limits actual attendance to nonabsent scheduled or acknowledged people", () => {
+  it("derives attendance from the roster minus absent assistants plus their coverage", () => {
     const confirmed = { ...proposal, status: "Confirmed" as const };
 
     const absence = {
@@ -260,17 +258,13 @@ describe("school service proposal boundaries", () => {
       reportedAt: "2026-09-20T10:00:00.000Z",
     };
 
-    const acknowledgement = {
-      acknowledgementId: SchoolServiceCoverageAcknowledgementId.make(
-        `school-service-coverage-acknowledgement-${"c".repeat(64)}`,
-      ),
-      offerId: SchoolServiceSubstituteOfferId.make(
-        `school-service-substitute-offer-${"d".repeat(64)}`,
-      ),
-      absenceId: absence.absenceId,
-      candidatePersonId: PersonId.make("person-2"),
-      acknowledgedByPersonId: PersonId.make("coordinator"),
-      acknowledgedAt: "2026-09-20T11:00:00.000Z",
+    const coverage = { absenceId: absence.absenceId, coveringPersonId: PersonId.make("person-2") };
+
+    const otherAbsence = {
+      ...absence,
+      absenceId: SchoolServiceAbsenceId.make(`school-service-absence-${"c".repeat(64)}`),
+      commitmentId: SchoolServiceCommitmentId.make(`school-service-commitment-${"f".repeat(64)}`),
+      personId: PersonId.make("person-3"),
     };
 
     const commitment = {
@@ -298,32 +292,18 @@ describe("school service proposal boundaries", () => {
       overdue: true,
     } as const;
 
+    expect(schoolServiceAttendance(commitment, [], [])).toEqual([PersonId.make("person-1")]);
+    expect(schoolServiceAttendance(commitment, [absence], [])).toEqual([]);
+    expect(schoolServiceAttendance(commitment, [absence], [coverage])).toEqual([
+      PersonId.make("person-2"),
+    ]);
+    // Absences and coverage of another commitment do not change this one.
     expect(
-      isEligibleSchoolServiceAttendance(
+      schoolServiceAttendance(
         commitment,
-        [absence],
-        [acknowledgement],
-        [PersonId.make("person-2")],
+        [otherAbsence],
+        [{ absenceId: otherAbsence.absenceId, coveringPersonId: PersonId.make("person-4") }],
       ),
-    ).toBe(true);
-    expect(isEligibleSchoolServiceAttendance(commitment, [absence], [acknowledgement], [])).toBe(
-      true,
-    );
-    expect(
-      isEligibleSchoolServiceAttendance(
-        commitment,
-        [absence],
-        [acknowledgement],
-        [PersonId.make("person-1")],
-      ),
-    ).toBe(false);
-    expect(
-      isEligibleSchoolServiceAttendance(
-        commitment,
-        [absence],
-        [acknowledgement],
-        [PersonId.make("person-2"), PersonId.make("person-2")],
-      ),
-    ).toBe(false);
+    ).toEqual([PersonId.make("person-1")]);
   });
 });

@@ -9,6 +9,16 @@ import {
   type AdmissionPeriodProjection,
   type AdmissionPeriodCommand,
 } from "../admission-period/schema.js";
+import type { OrganizationPersonAuthority } from "../organization/authority.js";
+import type { PersonId } from "../organization/schema.js";
+import type {
+  AdmissionOutcomeBoard,
+  AdmissionOutcomeCommand,
+  AdmissionOutcomeEntry,
+  AdmissionOutcomeOperationFailure,
+  AdmissionOutcomeScope,
+  AdmissionOutcomeScopes,
+} from "./outcome.js";
 import type {
   ApplicantContactProjectionFailure,
   PublicApplicationError,
@@ -53,6 +63,34 @@ export interface AdmissionsOperations {
     personId: string,
     now: string,
   ) => Effect.Effect<ApplicantProgressResponse, PublicApplicationError>;
+  /** Projects visible outcome scopes from supplied current authority; does not authenticate it. */
+  readonly listAdmissionOutcomeScopes: (
+    authority: OrganizationPersonAuthority,
+  ) => Effect.Effect<AdmissionOutcomeScopes, AdmissionOutcomeOperationFailure>;
+  /** Includes every application of the period. The caller conceals non-substitutes from members. */
+  readonly readAdmissionOutcomes: (
+    scope: AdmissionOutcomeScope,
+  ) => Effect.Effect<AdmissionOutcomeBoard, AdmissionOutcomeOperationFailure>;
+  /** Selects one application's entry. The caller checks scope and member visibility. */
+  readonly readAdmissionOutcome: (
+    applicationId: AdmissionOutcomeEntry["applicationId"],
+  ) => Effect.Effect<AdmissionOutcomeEntry, AdmissionOutcomeOperationFailure>;
+  /**
+   * Runs inside the caller's transaction after current authority and receipt lookup.
+   * Locks the application, reads the current entry, checks the transport precondition, and
+   * appends the next outcome revision. Recording the current outcome again changes nothing.
+   * The callback grants no authority and must not perform business writes.
+   * Its failures and requirements propagate unchanged. Success precedes caller commit.
+   */
+  readonly recordAdmissionOutcome: <E, R>(
+    input: {
+      readonly applicationId: AdmissionOutcomeEntry["applicationId"];
+      readonly command: AdmissionOutcomeCommand;
+      readonly actor: PersonId;
+      readonly now: string;
+    },
+    checkPrecondition: (current: AdmissionOutcomeEntry) => Effect.Effect<void, E, R>,
+  ) => Effect.Effect<AdmissionOutcomeEntry, AdmissionOutcomeOperationFailure | E, R>;
 }
 
 export class Admissions extends Context.Service<Admissions, AdmissionsOperations>()(

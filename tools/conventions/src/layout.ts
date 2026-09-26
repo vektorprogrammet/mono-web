@@ -83,11 +83,6 @@ export interface FolderException {
   readonly reason: string;
 }
 
-const substitutes = {
-  context: "Placements",
-  reason: "Absence and coverage records, which the CML keeps in Placements.",
-} satisfies FolderException;
-
 const teamApplication = {
   context: "TeamApplications",
   reason: "Team applications under the singular folder name.",
@@ -119,7 +114,6 @@ export const contextLayers = {
     onboarding,
     profile: { context: "People", reason: "Person profiles under their older name." },
     receipt: { context: "Economy", reason: "Expense claims under their older name." },
-    substitutes,
     "team-application": teamApplication,
     tutor: {
       reason:
@@ -136,7 +130,6 @@ export const contextLayers = {
     onboarding,
     profile: { context: "People", reason: "Profile persistence under its older name." },
     receipt: { context: "Economy", reason: "Expense claim persistence under its older name." },
-    substitutes,
     "team-application": teamApplication,
     "test-support": {
       reason: "Disposable PostgreSQL fixtures and statement observers for tests and proofs.",
@@ -158,7 +151,6 @@ export const contextLayers = {
     "password-recovery": { context: "Identity", reason: "The password recovery worker." },
     profile: { context: "People", reason: "Profile HTTP handlers under their older name." },
     receipt: { context: "Economy", reason: "Expense claim HTTP handlers and private files." },
-    substitutes,
     "team-application": teamApplication,
     test: { reason: "Native HTTP composition for backend tests." },
   },

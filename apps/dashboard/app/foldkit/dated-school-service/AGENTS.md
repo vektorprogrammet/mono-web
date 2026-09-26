@@ -8,11 +8,8 @@ The dashboard layer holds authenticated journeys: one Foldkit Model per workflow
 The Placements context in other folders:
 
 - [apps/backend/src/placements](../../../../backend/src/placements/AGENTS.md)
-- [apps/backend/src/substitutes](../../../../backend/src/substitutes/AGENTS.md)
 - [packages/database/src/placements](../../../../../packages/database/src/placements/AGENTS.md)
-- [packages/database/src/substitutes](../../../../../packages/database/src/substitutes/AGENTS.md)
 - [packages/domain/src/placements](../../../../../packages/domain/src/placements/AGENTS.md)
-- [packages/domain/src/substitutes](../../../../../packages/domain/src/substitutes/AGENTS.md)
 
 ## Bounded context: Placements
 

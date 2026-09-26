@@ -82,12 +82,14 @@ export interface PlacementsOperations {
    * Reads one person's coverage after caller authorization.
    * Current placements include only active rows for that person, department, and semester.
    * Placements, confirmed roster slots, and dated commitments remain separate facts.
+   * Commitments are those where the person is scheduled or covers a recorded absence.
+   * Coverers are listed only while the person has an absence in an open commitment.
    */
   readonly readOwnCoverage: (
     scope: PlacementScope,
     personId: PersonId,
   ) => Effect.Effect<OwnCoverageView, PlacementOperationFailure>;
-  /** Reads coordinator coverage after caller authorization. */
+  /** Reads coordinator coverage after caller authorization. Coverage lists current records only. */
   readonly readCoverageBoard: (
     scope: PlacementScope,
   ) => Effect.Effect<CoverageBoard, PlacementOperationFailure>;

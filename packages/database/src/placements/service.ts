@@ -40,9 +40,6 @@ const persistenceFailure = (cause: unknown) => {
     switch (constraint) {
       case "school_service_absence_target_unique":
         return new PlacementFailure({ code: "absence.duplicate", status: 409 });
-      case "school_service_substitute_offer_active_partial_unique":
-      case "school_service_substitute_offer_accepted_partial_unique":
-        return new PlacementFailure({ code: "offer.unresolved", status: 409 });
       case "school_service_commitment_slot_unique":
         return new PlacementFailure({ code: "commitment.duplicate", status: 409 });
     }
@@ -115,13 +112,10 @@ export const PlacementsLive = Layer.effect(
               yield* checkPrecondition(current);
 
               return yield* run(
-                mutateOwnCoverage(
-                  scope,
-                  command,
-                  actor,
-                  now,
-                  `school-service-absence-${commandId}`,
-                ),
+                mutateOwnCoverage(scope, command, actor, now, {
+                  absenceId: `school-service-absence-${commandId}`,
+                  coverageId: `school-service-coverage-${commandId}`,
+                }),
               );
             }),
           ),
@@ -133,8 +127,7 @@ export const PlacementsLive = Layer.effect(
               return yield* run(
                 mutateCoverageBoard(scope, command, actor, now, {
                   absenceId: `school-service-absence-${commandId}`,
-                  offerId: `school-service-substitute-offer-${commandId}`,
-                  acknowledgementId: `school-service-coverage-acknowledgement-${commandId}`,
+                  coverageId: `school-service-coverage-${commandId}`,
                   occurrenceId: `school-service-occurrence-${commandId}`,
                 }),
               );

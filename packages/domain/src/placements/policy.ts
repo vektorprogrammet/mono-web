@@ -1,4 +1,4 @@
-import { Result, Array, Predicate, Data } from "effect";
+import { Predicate, Data } from "effect";
 import {
   mapOrganizationAuthorityToAdmissionPeriodActor,
   type OrganizationPersonAuthority,
@@ -11,7 +11,7 @@ import type {
   PlacementBoard,
   SchoolServiceAbsence,
   SchoolServiceCommitment,
-  SchoolServiceCoverageAcknowledgement,
+  SchoolServiceCoverage,
   SchoolServiceProposal,
   SchoolServiceProposalAssignment,
   SchoolServiceProposalException,
@@ -32,18 +32,14 @@ export class PlacementFailure extends Data.TaggedError("PlacementFailure")<{
     | "commitment.target-invalid"
     | "commitment.duplicate"
     | "commitment.closed"
-    | "commitment.attendance-invalid"
     | "commitment.outcome-invalid"
-    | "commitment.pending-offer"
     | "commitment.interval-invalid"
     | "absence.target-invalid"
     | "absence.duplicate"
-    | "offer.candidate-ineligible"
-    | "offer.unresolved"
-    | "offer.owner-invalid"
-    | "offer.response-invalid"
-    | "offer.withdraw-invalid"
-    | "coverage.acknowledgement-invalid";
+    | "coverage.owner-invalid"
+    | "coverage.coverer-ineligible"
+    | "coverage.coverer-unavailable"
+    | "coverage.not-recorded";
   readonly status: 403 | 404 | 409 | 422;
 }> {}
 
@@ -56,19 +52,6 @@ export class SchoolServiceNotificationOutboxError extends Data.TaggedError(
 
 export class SchoolServiceNotificationDeliveryError extends Data.TaggedError(
   "SchoolServiceNotificationDeliveryError",
-)<{
-  readonly effectId: string;
-}> {}
-
-export class SchoolServiceDispatchNotificationOutboxError extends Data.TaggedError(
-  "SchoolServiceDispatchNotificationOutboxError",
-)<{
-  readonly operation: string;
-  readonly message: string;
-}> {}
-
-export class SchoolServiceDispatchNotificationDeliveryError extends Data.TaggedError(
-  "SchoolServiceDispatchNotificationDeliveryError",
 )<{
   readonly effectId: string;
 }> {}
@@ -232,22 +215,27 @@ export const hasExactSchoolServiceExceptionReview = (
     reviewedExceptionIds,
   );
 
-/** Actual attendees may be fewer than eligible people, but never include an absent scheduled person or an unacknowledged substitute. */
-export const isEligibleSchoolServiceAttendance = (
-  commitment: SchoolServiceCommitment,
-  absences: ReadonlyArray<SchoolServiceAbsence>,
-  acknowledgements: ReadonlyArray<SchoolServiceCoverageAcknowledgement>,
-  attendees: ReadonlyArray<PersonId>,
-): boolean => {
-  if (new Set(attendees).size !== attendees.length) return false;
-  const absentIds = new Set(absences.map((absence) => absence.personId));
+/**
+ * Derives the actual attendance of one dated commitment: its confirmed roster minus absent
+ * assistants plus the covering person of each current coverage record. Sorted and unique.
+ */
+export const schoolServiceAttendance = (
+  commitment: Pick<SchoolServiceCommitment, "commitmentId" | "assignments">,
+  absences: ReadonlyArray<Pick<SchoolServiceAbsence, "absenceId" | "commitmentId" | "personId">>,
+  coverage: ReadonlyArray<Pick<SchoolServiceCoverage, "absenceId" | "coveringPersonId">>,
+): ReadonlyArray<PersonId> => {
+  const own = absences.filter((absence) => absence.commitmentId === commitment.commitmentId);
+  const absent = new Set(own.map((absence) => absence.personId));
+  const absenceIds = new Set(own.map((absence) => absence.absenceId));
 
-  const eligible = new Set([
-    ...Array.filterMap(commitment.assignments, (assignment) =>
-      !absentIds.has(assignment.personId) ? Result.succeed(assignment.personId) : Result.failVoid,
-    ),
-    ...acknowledgements.map((acknowledgement) => acknowledgement.candidatePersonId),
-  ]);
-
-  return attendees.every((personId) => eligible.has(personId));
+  return [
+    ...new Set([
+      ...commitment.assignments
+        .map((assignment) => assignment.personId)
+        .filter((personId) => !absent.has(personId)),
+      ...coverage.flatMap((record) =>
+        absenceIds.has(record.absenceId) ? [record.coveringPersonId] : [],
+      ),
+    ]),
+  ].sort(compareText);
 };

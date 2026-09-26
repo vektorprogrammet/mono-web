@@ -5,6 +5,8 @@
  */
 export * from "./admissions.js";
 
+export * from "./admission-outcomes.js";
+
 export * from "./api.js";
 
 export * from "./access.js";
@@ -36,8 +38,6 @@ export * from "./system.js";
 export * from "./v2-schemas.js";
 
 export * from "./contact.js";
-
-export * from "./substitutes.js";
 
 export * from "./placements.js";
 

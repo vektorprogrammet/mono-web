@@ -576,6 +576,14 @@ export const databaseMigrationDefinitions = [
     name: "application-availability",
     url: new URL("../migrations/0074-application-availability.sql", import.meta.url),
   },
+  {
+    id: "75_substitute-admission-outcome-coverage-records",
+    name: "substitute-admission-outcome-coverage-records",
+    url: new URL(
+      "../migrations/0075-substitute-admission-outcome-coverage-records.sql",
+      import.meta.url,
+    ),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

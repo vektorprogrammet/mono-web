@@ -12,6 +12,7 @@ import {
   readApplicantContacts,
   readApplicantProgress,
 } from "../application/postgres.js";
+import { admissionOutcomeOperations } from "./outcome.js";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
 
 export const AdmissionsLive = Layer.effect(
@@ -42,6 +43,7 @@ export const AdmissionsLive = Layer.effect(
         readApplicantContacts(applicationIds).pipe(Effect.provideService(Database, database)),
       readApplicantProgress: (personId, now) =>
         readApplicantProgress(personId, now).pipe(Effect.provideService(Database, database)),
+      ...admissionOutcomeOperations(database),
     });
   }),
 );

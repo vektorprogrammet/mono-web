@@ -25,7 +25,6 @@ Each folder of `src` holds a bounded context of [docs/model/contexts.cml](../../
 | `recruitment`      | Recruitment      | [AGENTS.md](src/recruitment/AGENTS.md)      |
 | `schools`          | Schools          | [AGENTS.md](src/schools/AGENTS.md)          |
 | `social-events`    | SocialEvents     | [AGENTS.md](src/social-events/AGENTS.md)    |
-| `substitutes`      | Placements       | [AGENTS.md](src/substitutes/AGENTS.md)      |
 | `team-application` | TeamApplications | [AGENTS.md](src/team-application/AGENTS.md) |
 | `test-support`     | none             | [AGENTS.md](src/test-support/AGENTS.md)     |
 
@@ -59,7 +58,6 @@ Each folder of `src` holds a bounded context of [docs/model/contexts.cml](../../
 | `@vektorprogrammet/database/recruitment`                   | [src/recruitment/index.ts](src/recruitment/index.ts)                         |
 | `@vektorprogrammet/database/schools`                       | [src/schools/index.ts](src/schools/index.ts)                                 |
 | `@vektorprogrammet/database/social-events`                 | [src/social-events/index.ts](src/social-events/index.ts)                     |
-| `@vektorprogrammet/database/substitutes`                   | [src/substitutes/index.ts](src/substitutes/index.ts)                         |
 | `@vektorprogrammet/database/team-application`              | [src/team-application/index.ts](src/team-application/index.ts)               |
 | `@vektorprogrammet/database/auth-engine`                   | [src/auth-engine.ts](src/auth-engine.ts)                                     |
 | `@vektorprogrammet/database/identity-cohort-cli`           | [src/identity-cohort-cli.ts](src/identity-cohort-cli.ts)                     |

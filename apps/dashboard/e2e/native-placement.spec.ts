@@ -1,4 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
+import type { AdmissionOutcomeCommand } from "@vektorprogrammet/domain/admissions";
 import type {
   CoverageCommand,
   OwnCoverageCommand,
@@ -6,7 +7,7 @@ import type {
 } from "@vektorprogrammet/domain/placements";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, test, type Page, type Locator } from "@playwright/test";
+import { expect, test, type BrowserContext, type Page, type Locator } from "@playwright/test";
 
 const manifestPath = process.env.PLACEMENT_JOURNEY_MANIFEST;
 
@@ -93,6 +94,32 @@ const readCoverageBoard = async (page: Page) => {
       departmentId: manifest.departmentId,
       semesterId: manifest.semesterId,
     })}`,
+    { headers: { origin: manifest.dashboardOrigin } },
+  );
+
+  expect(response.status()).toBe(200);
+
+  return response.json();
+};
+
+const readOwnCoverage = async (page: Page) => {
+  const response = await page.request.get(
+    `${manifest.backendOrigin}/api/placements/coverage/own?${new URLSearchParams({
+      departmentId: manifest.departmentId,
+      semesterId: manifest.semesterId,
+    })}`,
+    { headers: { origin: manifest.dashboardOrigin } },
+  );
+
+  expect(response.status()).toBe(200);
+
+  return response.json();
+};
+
+/** Admission management reads one application's outcome entry with its version. */
+const readOutcome = async (page: Page, applicationId: string) => {
+  const response = await page.request.get(
+    `${manifest.backendOrigin}/api/admission-outcomes/${applicationId}`,
     { headers: { origin: manifest.dashboardOrigin } },
   );
 
@@ -517,117 +544,52 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     );
 
     expect(coveredAbsence).toBeDefined();
-    await page.reload();
+    const candidateName = `${manifest.coverage.candidateFirstName} ${manifest.coverage.candidateLastName}`;
+    const slot = (serviceDate: string) => `Skole Beta, ${serviceDate}, bolk 2`;
 
-    const dispatchCovered = page.getByRole("form", {
-      name: `Vikardispatch: ${coveredAbsence.absenceId}`,
+    // The absent volunteer names the substitute who agreed to cover; people agree outside the system.
+    const ownCoverage = self.getByRole("form", {
+      name: `Dekning for mitt fravær: ${slot(manifest.coverage.serviceDate)}`,
       exact: true,
     });
 
-    await dispatchCovered
-      .getByRole("combobox", { name: "Kvalifisert vikar", exact: true })
-      .selectOption(manifest.coverage.candidateId);
-    await dispatchCovered.getByRole("button", { name: "Send vikartilbud", exact: true }).click();
-    await submittedAndRemoved(dispatchCovered);
+    const ownAbsenceArticle = self.getByRole("article").filter({ has: ownCoverage });
+    await expect(ownAbsenceArticle).toContainText("Ingen dekning er registrert.");
+    await ownCoverage
+      .getByRole("combobox", { name: "Dekkes av", exact: true })
+      .selectOption({ label: `${candidateName} (vikar)` });
+    await ownCoverage.getByRole("button", { name: "Registrer dekning", exact: true }).click();
+    await saved(ownCoverage);
+    await self.reload();
+    await expect(ownAbsenceArticle).toContainText(`Dekket av: ${candidateName}`);
+    await axe(self, "own coverage record on mobile");
 
-    const offerTitle = (serviceDate: string) =>
-      `Skole Beta, ${serviceDate} kl. 09:00–11:00 — Monday, bolk 2`;
+    const recordedCoverage = (await readCoverageBoard(page)).coverage.find(
+      (item: { absenceId: string }) => item.absenceId === coveredAbsence.absenceId,
+    );
 
+    expect(recordedCoverage).toMatchObject({
+      coveringPersonId: manifest.coverage.candidateId,
+      covererKind: "Substitute",
+      recordedByPersonId: manifest.volunteerId,
+    });
     await wrongPage.reload();
     await expect(
       wrongPage.getByRole("form", {
-        name: `Vikartilbud: ${offerTitle(manifest.coverage.serviceDate)}`,
+        name: `Dekning: Irene Intervjuer, ${slot(manifest.coverage.serviceDate)}`,
         exact: true,
       }),
     ).toHaveCount(0);
-    const candidatePage = await substitute.newPage();
-    monitor(candidatePage);
-    await signIn(candidatePage, manifest.persons.candidate);
-    await selectScope(candidatePage);
-    await candidatePage.setViewportSize({ width: 390, height: 844 });
+    await page.reload();
 
-    const candidateOffer = candidatePage.getByRole("form", {
-      name: `Vikartilbud: ${offerTitle(manifest.coverage.serviceDate)}`,
+    const coordinatorFirst = page.getByRole("form", {
+      name: `Dekning: Irene Intervjuer, ${slot(manifest.coverage.serviceDate)}`,
       exact: true,
     });
 
-    await expect
-      .poll(
-        async () => {
-          const coverage = await readCoverageBoard(page);
-
-          const offer = coverage.offers.find(
-            (item: { absenceId: string }) => item.absenceId === coveredAbsence.absenceId,
-          );
-
-          return coverage.dispatchNotifications.find(
-            (notification: { offerId: string }) => notification.offerId === offer?.offerId,
-          )?.status;
-        },
-        { timeout: 15_000 },
-      )
-      .toBe("Delivered");
-    await candidatePage.reload();
-    await expect(candidateOffer.locator("xpath=..")).toContainText("Levering: Levert");
-    await candidateOffer.getByRole("button", { name: "Aksepter tilbud", exact: true }).click();
-    await submittedAndRemoved(candidateOffer);
-    await candidatePage.reload();
-
-    const acceptedOfferArticle = candidatePage
-      .getByRole("heading", {
-        name: offerTitle(manifest.coverage.serviceDate),
-        exact: true,
-      })
-      .locator("xpath=..");
-
-    await expect(
-      acceptedOfferArticle.getByText("Endelig svar: Akseptert", { exact: true }),
-    ).toBeVisible();
-    await axe(candidatePage, "addressed substitute offer on mobile");
-    expect(
-      await candidatePage.evaluate("document.documentElement.scrollWidth <= window.innerWidth"),
-    ).toBe(true);
-    await candidatePage.screenshot({
-      path: join(manifest.artifacts, "coverage-substitute-mobile.png"),
-      fullPage: true,
-    });
-    await page.reload();
-    await other.reload();
-    const acknowledgementName = `Dekningstilbud: ${manifest.coverage.candidateFirstName} ${manifest.coverage.candidateLastName}, ${offerTitle(manifest.coverage.serviceDate)}`;
-    const acknowledgeCoverage = page.getByRole("form", { name: acknowledgementName, exact: true });
-
-    const staleAcknowledgement = other.getByRole("form", {
-      name: acknowledgementName,
-      exact: true,
-    });
-
-    await expect(acknowledgeCoverage.locator("xpath=..")).toContainText("Tilbudstatus: Akseptert");
-    await acknowledgeCoverage.getByRole("button", { name: "Bekreft dekning", exact: true }).click();
-    await submittedAndRemoved(acknowledgeCoverage);
-    await staleAcknowledgement
-      .getByRole("button", { name: "Bekreft dekning", exact: true })
-      .click();
-    await expect(staleAcknowledgement.getByRole("alert")).toContainText("Oversikten er endret");
-    await staleAcknowledgement
-      .getByRole("button", { name: "Hent oppdatert oversikt", exact: true })
-      .click();
-    await staleAcknowledgement
-      .getByRole("button", { name: "Godta oppdatert versjon", exact: true })
-      .click();
-    await page.reload();
-
-    const acknowledgedOfferArticle = page
-      .getByRole("heading", {
-        name: offerTitle(manifest.coverage.serviceDate),
-        exact: true,
-      })
-      .locator("xpath=..");
-
-    await expect(
-      acknowledgedOfferArticle.getByText("Dekningen er bekreftet av koordinator.", {
-        exact: true,
-      }),
-    ).toBeVisible();
+    await expect(page.getByRole("article").filter({ has: coordinatorFirst })).toContainText(
+      `Dekket av: ${candidateName} (vikar)`,
+    );
     await page
       .locator(`article[data-commitment-id="${firstCommitment.commitmentId}"]`)
       .getByRole("button", { name: "Registrer beslutning for denne datoen" })
@@ -638,16 +600,21 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       exact: true,
     });
 
-    await completedForm.locator("select").selectOption("CompleteService");
+    await completedForm.getByLabel("Tjenesteutfall").selectOption("CompleteService");
     await completedForm
-      .locator(`input[name="attendedPersonId"][value="${manifest.leaderId}"]`)
-      .check();
-    await completedForm
-      .locator(`input[name="attendedPersonId"][value="${manifest.coverage.candidateId}"]`)
-      .check();
-    await completedForm
-      .locator('input[name="evidenceSource"]')
+      .getByLabel("Kilde for dokumentasjonen", { exact: true })
       .fill(`Skole Beta kontakt, telefon ${manifest.coverage.serviceDate}`);
+
+    // Attendance is derived: the scheduled coordinator plus the substitute covering the absence.
+    const completedAttendance = completedForm.getByRole("list", {
+      name: "Beregnet oppmøte",
+      exact: true,
+    });
+
+    await expect(completedAttendance.getByRole("listitem")).toHaveCount(2);
+    await expect(completedAttendance).toContainText("Lina Lagleder (planlagt frivillig)");
+    await expect(completedAttendance).toContainText(`${candidateName} (dekker fravær)`);
+    await expect(completedForm).toContainText("2 møter av 2 som trengs.");
     await completedForm.getByRole("button", { name: "Lagre uforanderlig beslutning" }).click();
     await submittedAndRemoved(completedForm);
     await page.reload();
@@ -660,6 +627,9 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       outcome: "Completed",
       evidenceSource: `Skole Beta kontakt, telefon ${manifest.coverage.serviceDate}`,
     });
+    expect([...completed.decision.attendedPersonIds].sort()).toEqual(
+      [manifest.leaderId, manifest.coverage.candidateId].sort(),
+    );
 
     const leaderAbsence = page.locator(
       `form:has(input[name="action"][value="ReportAbsenceForVolunteer"]):has(input[name="commitmentId"][value="${secondCommitment.commitmentId}"])`,
@@ -688,83 +658,57 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
 
     expect(uncoveredAbsence).toBeDefined();
 
-    const dispatchUncovered = page.getByRole("form", {
-      name: `Vikardispatch: ${uncoveredAbsence.absenceId}`,
+    const secondCoverage = page.getByRole("form", {
+      name: `Dekning: Lina Lagleder, ${slot(manifest.coverage.secondServiceDate)}`,
       exact: true,
     });
 
-    await dispatchUncovered
-      .getByRole("combobox", { name: "Kvalifisert vikar", exact: true })
-      .selectOption(manifest.coverage.candidateId);
-    await dispatchUncovered.getByRole("button", { name: "Send vikartilbud", exact: true }).click();
-    await submittedAndRemoved(dispatchUncovered);
-    await expect
-      .poll(
-        async () => {
-          const coverage = await readCoverageBoard(page);
+    const secondAbsenceArticle = page.getByRole("article").filter({ has: secondCoverage });
 
-          const offer = coverage.offers.find(
-            (item: { absenceId: string; status: string }) =>
-              item.absenceId === uncoveredAbsence.absenceId && item.status === "Offered",
-          );
+    // The other scheduled volunteer is already booked in the same interval.
+    await secondCoverage
+      .getByRole("combobox", { name: "Dekkes av", exact: true })
+      .selectOption({ label: "Irene Intervjuer (assistent)" });
 
-          return coverage.dispatchNotifications.find(
-            (notification: { offerId: string }) => notification.offerId === offer?.offerId,
-          )?.status;
-        },
-        { timeout: 15_000 },
-      )
-      .toBe("Delivered");
-    await candidatePage.reload();
+    const unavailable = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        /\/assistenter(?:\.data)?$/.test(new URL(response.url()).pathname),
+    );
 
-    const declinedOffer = candidatePage.getByRole("form", {
-      name: `Vikartilbud: ${offerTitle(manifest.coverage.secondServiceDate)}`,
+    await secondCoverage.getByRole("button", { name: "Registrer dekning", exact: true }).click();
+    expect((await unavailable).status()).toBe(409);
+    await expect(secondCoverage.getByRole("alert")).toContainText(
+      "Personen er allerede opptatt i samme tidsrom.",
+    );
+    expect(
+      (await readCoverageBoard(page)).coverage.filter(
+        (item: { absenceId: string }) => item.absenceId === uncoveredAbsence.absenceId,
+      ),
+    ).toEqual([]);
+    await secondCoverage
+      .getByRole("combobox", { name: "Dekkes av", exact: true })
+      .selectOption({ label: `${candidateName} (vikar)` });
+    await secondCoverage.getByRole("button", { name: "Registrer dekning", exact: true }).click();
+    await saved(secondCoverage);
+    await page.reload();
+    await expect(secondAbsenceArticle).toContainText(`Dekket av: ${candidateName} (vikar)`);
+
+    const withdrawnCoverageId = (await readCoverageBoard(page)).coverage.find(
+      (item: { absenceId: string }) => item.absenceId === uncoveredAbsence.absenceId,
+    )?.coverageId;
+
+    expect(withdrawnCoverageId).toMatch(/^school-service-coverage-[a-f0-9]{64}$/);
+
+    const withdrawSecond = page.getByRole("form", {
+      name: `Trekk tilbake dekning: Lina Lagleder, ${slot(manifest.coverage.secondServiceDate)}`,
       exact: true,
     });
 
-    await declinedOffer.getByRole("button", { name: "Avslå tilbud", exact: true }).click();
-    await submittedAndRemoved(declinedOffer);
+    await withdrawSecond.getByRole("button", { name: "Trekk tilbake dekning", exact: true }).click();
+    await submittedAndRemoved(withdrawSecond);
     await page.reload();
-
-    const redispatch = page.getByRole("form", {
-      name: `Vikardispatch: ${uncoveredAbsence.absenceId}`,
-      exact: true,
-    });
-
-    await redispatch
-      .getByRole("combobox", { name: "Kvalifisert vikar", exact: true })
-      .selectOption(manifest.coverage.candidateId);
-    await redispatch.getByRole("button", { name: "Send vikartilbud", exact: true }).click();
-    await submittedAndRemoved(redispatch);
-    await expect
-      .poll(
-        async () => {
-          const coverage = await readCoverageBoard(page);
-
-          const offer = coverage.offers.find(
-            (item: { absenceId: string; status: string }) =>
-              item.absenceId === uncoveredAbsence.absenceId && item.status === "Offered",
-          );
-
-          return coverage.dispatchNotifications.find(
-            (notification: { offerId: string }) => notification.offerId === offer?.offerId,
-          )?.status;
-        },
-        { timeout: 15_000 },
-      )
-      .toBe("Delivered");
-    await page.reload();
-
-    const withdrawOffer = page
-      .getByRole("form", {
-        name: `Dekningstilbud: ${manifest.coverage.candidateFirstName} ${manifest.coverage.candidateLastName}, ${offerTitle(manifest.coverage.secondServiceDate)}`,
-        exact: true,
-      })
-      .filter({ has: page.getByRole("button", { name: "Trekk tilbake tilbud", exact: true }) });
-
-    await withdrawOffer.getByRole("button", { name: "Trekk tilbake tilbud", exact: true }).click();
-    await submittedAndRemoved(withdrawOffer);
-    await page.reload();
+    await expect(secondAbsenceArticle).toContainText("Ingen dekning er registrert.");
     await page
       .locator(`article[data-commitment-id="${secondCommitment.commitmentId}"]`)
       .getByRole("button", { name: "Registrer beslutning for denne datoen" })
@@ -775,14 +719,19 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       exact: true,
     });
 
-    await unfulfilledForm.locator("select").selectOption("MarkUnfulfilledService");
+    await unfulfilledForm.getByLabel("Tjenesteutfall").selectOption("MarkUnfulfilledService");
     await unfulfilledForm
-      .locator(`input[name="attendedPersonId"][value="${manifest.volunteerId}"]`)
-      .check();
-    await unfulfilledForm
-      .locator('input[name="evidenceSource"]')
+      .getByLabel("Kilde for dokumentasjonen", { exact: true })
       .fill(`Skole Beta kontakt, telefon ${manifest.coverage.secondServiceDate}`);
-    await unfulfilledForm.locator('textarea[name="reason"]').fill("Bare én av to frivillige møtte");
+    await unfulfilledForm
+      .getByLabel("Begrunnelse", { exact: true })
+      .fill("Bare én av to frivillige møtte");
+    await expect(
+      unfulfilledForm
+        .getByRole("list", { name: "Beregnet oppmøte", exact: true })
+        .getByRole("listitem"),
+    ).toHaveText(["Irene Intervjuer (planlagt frivillig)"]);
+    await expect(unfulfilledForm).toContainText("1 møter av 2 som trengs.");
     await unfulfilledForm.getByRole("button", { name: "Lagre uforanderlig beslutning" }).click();
     await submittedAndRemoved(unfulfilledForm);
     await page.reload();
@@ -796,11 +745,11 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       exact: true,
     });
 
-    await cancelledForm.locator("select").selectOption("CancelService");
+    await cancelledForm.getByLabel("Tjenesteutfall").selectOption("CancelService");
     await cancelledForm
-      .locator('input[name="evidenceSource"]')
+      .getByLabel("Kilde for dokumentasjonen", { exact: true })
       .fill(`Skole Beta kontakt, telefon ${manifest.coverage.cancelledServiceDate}`);
-    await cancelledForm.locator('textarea[name="reason"]').fill("Skolen avlyste tjenesten");
+    await cancelledForm.getByLabel("Begrunnelse", { exact: true }).fill("Skolen avlyste tjenesten");
     await cancelledForm.getByRole("button", { name: "Lagre uforanderlig beslutning" }).click();
     await submittedAndRemoved(cancelledForm);
     await page.reload();
@@ -833,45 +782,61 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       (item: { commitmentId: string }) => item.commitmentId === secondCommitment.commitmentId,
     );
 
-    const coveredOfferFact = finalCoverage.offers.find(
-      (offer: { absenceId: string }) => offer.absenceId === coveredAbsence.absenceId,
-    );
-
-    const declinedOfferFact = finalCoverage.offers.find(
-      (offer: { absenceId: string; status: string }) =>
-        offer.absenceId === uncoveredAbsence.absenceId && offer.status === "Declined",
-    );
-
-    const withdrawnOfferFact = finalCoverage.offers.find(
-      (offer: { absenceId: string; status: string }) =>
-        offer.absenceId === uncoveredAbsence.absenceId && offer.status === "Withdrawn",
-    );
-
-    const coveredAcknowledgement = finalCoverage.acknowledgements.find(
-      (acknowledgement: { absenceId: string }) =>
-        acknowledgement.absenceId === coveredAbsence.absenceId,
-    );
-
     expect(coveredOccurrence).toBeDefined();
     expect(uncoveredOccurrence).toBeDefined();
-    expect(coveredOfferFact).toBeDefined();
-    expect(declinedOfferFact).toBeDefined();
-    expect(withdrawnOfferFact).toBeDefined();
-    expect(coveredAcknowledgement).toBeDefined();
     expect([...coveredOccurrence.attendedPersonIds].sort()).toEqual(
       [manifest.leaderId, manifest.coverage.candidateId].sort(),
     );
-    expect([...uncoveredOccurrence.attendedPersonIds].sort()).toEqual([manifest.volunteerId]);
+    expect(uncoveredOccurrence.attendedPersonIds).toEqual([manifest.volunteerId]);
     expect(
       finalCoverage.closures.find(
         (item: { absenceId: string }) => item.absenceId === coveredAbsence.absenceId,
-      )?.outcome,
-    ).toBe("Covered");
+      ),
+    ).toMatchObject({
+      outcome: "Covered",
+      coverageId: recordedCoverage.coverageId,
+      coveringPersonId: manifest.coverage.candidateId,
+    });
     expect(
       finalCoverage.closures.find(
         (item: { absenceId: string }) => item.absenceId === uncoveredAbsence.absenceId,
-      )?.outcome,
-    ).toBe("Uncovered");
+      ),
+    ).toMatchObject({ outcome: "Uncovered", coverageId: null, coveringPersonId: null });
+
+    // The substitute reads the service she covered, with no coordinator control.
+    const candidatePage = await substitute.newPage();
+    monitor(candidatePage);
+    await signIn(candidatePage, manifest.persons.candidate);
+    await selectScope(candidatePage);
+    await candidatePage.setViewportSize({ width: 390, height: 844 });
+
+    const coveredService = candidatePage
+      .getByRole("heading", {
+        name: `Skole Beta, ${manifest.coverage.serviceDate} kl. 09:00–11:00, bolk 2`,
+        exact: true,
+      })
+      .locator("..");
+
+    await expect(coveredService).toContainText("Gjennomført");
+    await expect(coveredService).toContainText("Din rolle: dekker fravær.");
+    // The API cohort left other covered dates in the same scope; this date is listed once.
+    await expect(
+      candidatePage
+        .getByRole("region", { name: "Fravær jeg dekker", exact: true })
+        .getByRole("listitem")
+        .filter({ hasText: slot(manifest.coverage.serviceDate) }),
+    ).toHaveCount(1);
+    await expect(
+      candidatePage.getByRole("button", { name: "Registrer beslutning for denne datoen" }),
+    ).toHaveCount(0);
+    await axe(candidatePage, "covering substitute on mobile");
+    expect(
+      await candidatePage.evaluate("document.documentElement.scrollWidth <= window.innerWidth"),
+    ).toBe(true);
+    await candidatePage.screenshot({
+      path: join(manifest.artifacts, "coverage-substitute-mobile.png"),
+      fullPage: true,
+    });
 
     const browserCoverageExpected = {
       absencePosts,
@@ -881,10 +846,8 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       cancelledCommitmentId: cancelledCommitment.commitmentId,
       coveredAbsenceId: coveredAbsence.absenceId,
       uncoveredAbsenceId: uncoveredAbsence.absenceId,
-      coveredOfferId: coveredOfferFact.offerId,
-      declinedOfferId: declinedOfferFact.offerId,
-      withdrawnOfferId: withdrawnOfferFact.offerId,
-      coveredAcknowledgementId: coveredAcknowledgement.acknowledgementId,
+      coverageId: recordedCoverage.coverageId,
+      withdrawnCoverageId,
       occurrenceId: coveredOccurrence.occurrenceId,
       uncoveredOccurrenceId: uncoveredOccurrence.occurrenceId,
     };
@@ -905,10 +868,10 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       fullPage: true,
     });
     gates.push(
-      "confirmed two-person demand; scheduled dates; own absence and scoped dispatch; acknowledged actual attendance and Completed evidence",
+      "confirmed two-person demand; scheduled dates; own absence and own coverage record; derived attendance and Completed evidence",
     );
     gates.push(
-      "decline, redispatch, withdrawal, partial Unfulfilled and cancellation without occurrence",
+      "coordinator absence report, unavailable scheduled coverer, coverage record and withdrawal, partial Unfulfilled and cancellation without occurrence",
     );
     expect(errors).toEqual([]);
     gates.push(
@@ -950,23 +913,16 @@ test("golden school-service continuous functional journey", async ({ browser }) 
   expect(manifest?.golden).toBe(true);
   test.setTimeout(240_000);
 
-  const contexts = await Promise.all([
-    browser.newContext(),
-    browser.newContext(),
-    browser.newContext(),
-    browser.newContext(),
-    browser.newContext(),
-  ]);
-
-  const [coordinator, volunteer, wrong, freshVolunteer, staleCoordinator] = contexts;
-  const page = await coordinator.newPage();
-  const self = await volunteer.newPage();
-  const outsider = await wrong.newPage();
   const steps: string[] = [];
   const http: { check: string; status: number; boundary: string }[] = [];
   const network: { method: string; path: string; status: number }[] = [];
+  const contexts: BrowserContext[] = [];
 
-  for (const context of contexts) {
+  // Each native session is its own context. It records dashboard and backend responses and keeps
+  // a private trace that only a failed run retains.
+  const session = async (viewport?: { width: number; height: number }) => {
+    const context = await browser.newContext(viewport === undefined ? {} : { viewport });
+    contexts.push(context);
     context.setDefaultTimeout(10_000);
     context.on("response", (response) => {
       const url = new URL(response.url());
@@ -982,7 +938,13 @@ test("golden school-service continuous functional journey", async ({ browser }) 
         });
     });
     await context.tracing.start({ screenshots: false, snapshots: false, sources: false });
-  }
+
+    return context.newPage();
+  };
+
+  const page = await session();
+  const self = await session();
+  const outsider = await session();
 
   const checkpoint = async (step: string) => {
     const response = await fetch(`${manifest.observerOrigin}/observe/${step}`, { method: "POST" });
@@ -990,42 +952,50 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     steps.push(step);
   };
 
-  const submit = async (form: Locator, name: string) => {
-    const response = page.waitForResponse(
+  // Submits one form through its dashboard route action and checks the answered status.
+  const submitOn = async (
+    actor: Page,
+    form: Locator,
+    name: string,
+    route = "assistenter",
+    status = 200,
+  ) => {
+    const response = actor.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
-        /\/assistenter(?:\.data)?$/.test(new URL(response.url()).pathname),
+        new RegExp(`/${route}(?:\\.data)?$`).test(new URL(response.url()).pathname),
     );
 
     await form.getByRole("button", { name, exact: true }).click();
-    expect((await response).status()).toBe(200);
+    expect((await response).status()).toBe(status);
   };
+
+  const submit = (form: Locator, name: string) => submitOn(page, form, name);
 
   const scope = new URLSearchParams({
     departmentId: manifest.departmentId,
     semesterId: manifest.semesterId,
   });
 
-  const forbiddenMutation = async (
+  // Sends one command outside the controls and records the refusal; the observer then proves that
+  // it changed no persisted fact.
+  const rejected = async (
     actor: Page,
-    endpoint: string,
+    path: string,
     etag: string,
-    payload: CoverageCommand | OwnCoverageCommand | PlacementCommand,
+    payload: CoverageCommand | OwnCoverageCommand | PlacementCommand | AdmissionOutcomeCommand,
     check: string,
     expected: number,
     expectedCode?: string,
   ) => {
-    const response = await actor.request.post(
-      `${manifest.backendOrigin}/api/placements${endpoint}?${scope}`,
-      {
-        headers: {
-          origin: manifest.dashboardOrigin,
-          "if-match": etag,
-          "idempotency-key": crypto.randomUUID(),
-        },
-        data: payload,
+    const response = await actor.request.post(`${manifest.backendOrigin}${path}`, {
+      headers: {
+        origin: manifest.dashboardOrigin,
+        "if-match": etag,
+        "idempotency-key": crypto.randomUUID(),
       },
-    );
+      data: payload,
+    });
 
     const problem = await response.json();
     expect(response.status(), JSON.stringify(problem)).toBe(expected);
@@ -1077,9 +1047,9 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     await expect(
       outsider.getByRole("form", { name: "Ny skoleplassering", exact: true }),
     ).toHaveCount(0);
-    await forbiddenMutation(
+    await rejected(
       outsider,
-      "",
+      `/api/placements?${scope}`,
       (await readBoard(page)).etag,
       {
         action: "Create",
@@ -1165,7 +1135,7 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     ).toBeVisible();
     await checkpoint("commitment");
 
-    const stalePage = await staleCoordinator.newPage();
+    const stalePage = await session();
     await signIn(stalePage, manifest.persons.leader);
     await selectScope(stalePage);
     await stalePage
@@ -1191,37 +1161,39 @@ test("golden school-service continuous functional journey", async ({ browser }) 
       exact: true,
     });
 
-    await decision.getByLabel("Tjenesteutfall").selectOption("CompleteService");
-    await decision
-      .getByLabel("Kilde for dokumentasjonen", { exact: true })
-      .fill(`Skole Beta kontakt, telefon ${manifest.serviceDate}`);
+    const evidenceSource = `Skole Beta kontakt, telefon ${manifest.serviceDate}`;
+    const saveDecision = decision.getByRole("button", { name: "Lagre uforanderlig beslutning" });
+    await decision.getByLabel("Tjenesteutfall").selectOption("MarkUnfulfilledService");
+    await decision.getByLabel("Kilde for dokumentasjonen", { exact: true }).fill(evidenceSource);
+    await decision.getByLabel("Begrunnelse", { exact: true }).fill("Ingen møtte");
+    // Attendance is derived from the roster: the one scheduled volunteer meets the demand of one,
+    // so the service cannot be marked unfulfilled.
     await expect(
-      decision.getByRole("button", { name: "Lagre uforanderlig beslutning" }),
-    ).toBeDisabled();
+      decision.getByRole("list", { name: "Beregnet oppmøte", exact: true }).getByRole("listitem"),
+    ).toHaveText(["Irene Intervjuer (planlagt frivillig)"]);
+    await expect(decision).toContainText("1 møter av 1 som trengs.");
+    await expect(saveDecision).toBeDisabled();
     const staleEtag = (await readCoverageBoard(page)).etag;
-
-    const terminalCommand: CoverageCommand = {
-      action: "CompleteService",
-      commitmentId: commitment.commitmentId,
-      attendedPersonIds: [manifest.volunteerId],
-      evidenceSource: `Skole Beta kontakt, telefon ${manifest.serviceDate}`,
-    };
-
-    await forbiddenMutation(
+    await rejected(
       page,
-      "/coverage",
+      `/api/placements/coverage?${scope}`,
       staleEtag,
-      { ...terminalCommand, attendedPersonIds: [] },
-      "insufficient attendance cannot complete",
+      {
+        action: "MarkUnfulfilledService",
+        commitmentId: commitment.commitmentId,
+        reason: "Ingen møtte",
+        evidenceSource,
+      },
+      "derived attendance meets demand, so the service is not unfulfilled",
       422,
+      "commitment.outcome-invalid",
     );
     await checkpoint("insufficient");
 
-    if (manifest.fault !== "omit-attendance")
-      await decision.getByRole("checkbox", { name: "Irene Intervjuer", exact: true }).check();
-    await expect(
-      decision.getByRole("button", { name: "Lagre uforanderlig beslutning" }),
-    ).toBeEnabled();
+    // A new outcome clears the source and reason fields, so the coordinator enters the source again.
+    await decision.getByLabel("Tjenesteutfall").selectOption("CompleteService");
+    await decision.getByLabel("Kilde for dokumentasjonen", { exact: true }).fill(evidenceSource);
+    await expect(saveDecision).toBeEnabled();
     await submit(decision, "Lagre uforanderlig beslutning");
     await page.reload();
     const completed = page.locator(`article[data-commitment-id="${commitment.commitmentId}"]`);
@@ -1231,32 +1203,24 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     );
     await checkpoint("completed");
 
-    await forbiddenMutation(
+    await rejected(
       page,
-      "/coverage",
+      `/api/placements/coverage?${scope}`,
       staleEtag,
       {
         action: "CancelService",
         commitmentId: commitment.commitmentId,
-        evidenceSource: terminalCommand.evidenceSource,
+        evidenceSource,
         reason: "must not overwrite accepted outcome",
       },
       "stale terminal decision cannot overwrite",
       412,
     );
-
-    const rejected = stalePage.waitForResponse(
-      (response) =>
-        response.request().method() === "POST" &&
-        /\/assistenter(?:\.data)?$/.test(new URL(response.url()).pathname),
-    );
-
-    await staleDecision.getByRole("button", { name: "Lagre uforanderlig beslutning" }).click();
-    expect((await rejected).status()).toBe(412);
+    await submitOn(stalePage, staleDecision, "Lagre uforanderlig beslutning", "assistenter", 412);
     await expect(stalePage.getByRole("alert")).toContainText("Oversikten er endret");
     await checkpoint("stale");
 
-    const fresh = await freshVolunteer.newPage();
+    const fresh = await session();
     await signIn(fresh, manifest.persons.volunteer);
     await selectScope(fresh);
     await fresh.reload();
@@ -1277,29 +1241,8 @@ test("golden school-service continuous functional journey", async ({ browser }) 
       fresh.getByRole("button", { name: "Registrer beslutning for denne datoen" }),
     ).toHaveCount(0);
     await checkpoint("independent-read");
-    // Continue the same real journey with a second date, covered by a linked substitute.
-    const candidateContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
-    contexts.push(candidateContext);
-    candidateContext.setDefaultTimeout(10_000);
-    await candidateContext.tracing.start({ screenshots: false, snapshots: false, sources: false });
-    const candidatePage = await candidateContext.newPage();
-    await signIn(candidatePage, manifest.persons.candidate);
-    await selectScope(candidatePage);
-
-    const candidateAffiliation = candidatePage.getByRole("form", {
-      name: "Min tilknytning",
-      exact: true,
-    });
-
-    await candidateAffiliation.getByRole("button", { name: "Be om tilknytning" }).click();
-    await saved(candidateAffiliation);
-    await checkpoint("candidate-affiliation");
-    await page.reload();
-    await submit(
-      page.getByRole("form", { name: /^Tilknytning \d+: Kari Kandidat$/ }),
-      "Godkjenn tilknytning",
-    );
-    await checkpoint("candidate-approval");
+    // A second date: the volunteer is absent and names who covers. People agree on cover outside
+    // the system; the system records the absence, the admission outcome and who covered.
     await page.reload();
     await schedule.getByLabel("Dato", { exact: true }).fill(manifest.substituteServiceDate);
     await schedule.getByLabel("Fra (lokal skoletid)", { exact: true }).fill("09:00");
@@ -1316,197 +1259,228 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     await self.reload();
 
     const absenceForm = self.locator(
-      'form:has(input[name="action"][value="ReportAbsence"]):has(input[name="commitmentId"][value="' +
-        substituteCommitment.commitmentId +
-        '"])',
+      `form:has(input[name="action"][value="ReportAbsence"]):has(input[name="commitmentId"][value="${substituteCommitment.commitmentId}"])`,
     );
 
     await absenceForm.getByRole("button", { name: "Rapporter fravær for denne tjenesten" }).click();
     await expect.poll(async () => (await readCoverageBoard(page)).absences.length).toBe(1);
-    const absence = (await readCoverageBoard(page)).absences[0];
-    expect((await readCoverageBoard(page)).candidates).toEqual([]);
+    const [absence] = (await readCoverageBoard(page)).absences;
     await checkpoint("substitute-absence");
 
-    await page.goto(manifest.dashboardOrigin + "/dashboard/vikarer?" + scope);
-    await page
-      .getByRole("combobox", { name: "Søker", exact: true })
-      .selectOption(manifest.applicationId);
-    const poolCard = page.getByRole("article", { name: "Kari Kandidat", exact: true });
+    // Before any admission outcome nobody is on call, so the volunteer cannot name the applicant.
+    const slot = `Skole Beta, ${manifest.substituteServiceDate}, bolk 2`;
+    await self.reload();
 
-    for (const label of ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag"])
-      await poolCard
-        .getByRole("combobox", { name: label, exact: true })
-        .selectOption(label === "Mandag" ? "true" : "false");
-    await poolCard
-      .getByRole("combobox", { name: "Undervisningsspråk", exact: true })
-      .selectOption("Norwegian");
-    await poolCard.getByLabel("Studieår").fill("3");
-    await poolCard.getByRole("button", { name: "Legg til som vikar" }).click();
-    await expect(
-      page.getByRole("status").filter({ hasText: "Vikaren er lagt til." }),
-    ).toBeVisible();
+    const ownAbsence = self
+      .getByRole("region", { name: "Registrerte fravær", exact: true })
+      .getByRole("article")
+      .filter({ hasText: `Skole Beta, ${manifest.substituteServiceDate} —` });
 
-    const expectedCandidate = {
-      absenceId: absence.absenceId,
-      applicationId: manifest.applicationId,
-      personId: manifest.candidateId,
-      firstName: "Kari",
-      lastName: "Kandidat",
+    await expect(ownAbsence).toContainText("Ingen dekning er registrert.");
+    await expect(ownAbsence).toContainText(
+      "Ingen assistenter eller vikarer kan registreres som dekning i valgt semester.",
+    );
+    const unrecordedView = await readOwnCoverage(self);
+    expect(unrecordedView.coverers).toEqual([]);
+    await rejected(
+      self,
+      `/api/placements/coverage/own?${scope}`,
+      unrecordedView.etag,
+      {
+        action: "RecordCoverage",
+        absenceId: absence.absenceId,
+        coveringPersonId: manifest.candidateId,
+      },
+      "an applicant without the Substitute outcome cannot cover",
+      422,
+      "coverage.coverer-ineligible",
+    );
+    await checkpoint("coverer-ineligible");
+
+    const openOutcomes = async (actor: Page) => {
+      await actor.goto(`${manifest.dashboardOrigin}/dashboard/vikarer`);
+      await actor
+        .getByRole("combobox", { name: "Avdeling", exact: true })
+        .selectOption(manifest.departmentId);
+      await actor
+        .getByRole("combobox", { name: "Semester", exact: true })
+        .selectOption(manifest.semesterId);
+      await actor.getByRole("button", { name: "Vis vikarer", exact: true }).click();
+      await expect(actor).toHaveURL(/\/dashboard\/vikarer\?(?=.*departmentId=)(?=.*semesterId=)/);
+      await expect(
+        actor.getByRole("heading", { name: "Vikarer på vakt", exact: true }),
+      ).toBeVisible();
     };
 
-    expect((await readCoverageBoard(page)).candidates).toEqual([expectedCandidate]);
-    await checkpoint("pool-activated");
+    const onCall = [
+      "Kari Kandidat, kari.kandidat@example.invalid, 90000111",
+      "Vera Vikar, vera.vikar@example.invalid, 90000222",
+    ];
 
-    const poolResponse = await page.request.get(
-      manifest.backendOrigin + "/api/substitutes/" + manifest.applicationId,
-      { headers: { origin: manifest.dashboardOrigin } },
-    );
+    // A second leader session opens the outcomes before they change; its later save must be refused.
+    await openOutcomes(stalePage);
 
-    expect(poolResponse.status()).toBe(200);
-    const activePool = await poolResponse.json();
-    await poolCard.getByRole("combobox", { name: "Mandag", exact: true }).selectOption("false");
-    await poolCard.getByLabel("Studieår").fill("4");
-    await poolCard.getByRole("button", { name: "Lagre endringer" }).click();
-    await expect(
-      page.getByRole("status").filter({ hasText: "Opplysningene er lagret." }),
-    ).toBeVisible();
-    expect((await readCoverageBoard(page)).candidates).toEqual([]);
-    await checkpoint("pool-edited");
-
-    const stalePool = await page.request.post(
-      manifest.backendOrigin + "/api/substitutes/" + manifest.applicationId + ":edit",
-      {
-        headers: {
-          origin: manifest.dashboardOrigin,
-          "if-match": activePool.etag,
-          "idempotency-key": crypto.randomUUID(),
-        },
-        data: { ...activePool.preferences, yearOfStudy: 5 },
-      },
-    );
-
-    expect(stalePool.status()).toBe(412);
-    expect((await stalePool.json()).code).toBe("precondition.failed");
-    http.push({
-      check: "stale pool command rejected",
-      status: 412,
-      boundary: "authenticated-http",
+    const staleOutcome = stalePage.getByRole("form", {
+      name: "Opptaksutfall: Kari Kandidat",
+      exact: true,
     });
-    await checkpoint("pool-stale");
-    await poolCard.getByRole("button", { name: "Fjern fra vikaroversikten" }).click();
-    await expect(
-      page.getByRole("status").filter({ hasText: "Søknaden og opplysningene er bevart." }),
-    ).toBeVisible();
-    expect((await readCoverageBoard(page)).candidates).toEqual([]);
-    await checkpoint("pool-deactivated");
-    await page.reload();
-    await page
-      .getByRole("combobox", { name: "Søker", exact: true })
-      .selectOption(manifest.applicationId);
-    await poolCard.getByRole("combobox", { name: "Mandag", exact: true }).selectOption("true");
-    await poolCard.getByRole("button", { name: "Legg til som vikar" }).click();
-    await expect(
-      page.getByRole("status").filter({ hasText: "Vikaren er lagt til." }),
-    ).toBeVisible();
-    expect((await readCoverageBoard(page)).candidates).toEqual([expectedCandidate]);
-    await checkpoint("pool-reactivated");
 
-    await page.goto(manifest.dashboardOrigin + scopePath());
-    await create
-      .getByRole("combobox", { name: "Frivillig", exact: true })
-      .selectOption(manifest.candidateId);
-    await fillPlacement(create, "2");
-    await submit(create, "Opprett plassering");
+    await expect(staleOutcome.getByRole("combobox", { name: "Utfall", exact: true })).toHaveValue(
+      "",
+    );
+    const unrecordedOutcome = await readOutcome(page, manifest.applicationId);
+    await openOutcomes(page);
+    await expect(
+      page.getByText("Ingen vikarer på vakt i valgt semester.", { exact: true }),
+    ).toBeVisible();
+
+    for (const name of ["Kari Kandidat", "Vera Vikar"]) {
+      const outcome = page.getByRole("form", { name: `Opptaksutfall: ${name}`, exact: true });
+      await outcome.getByRole("combobox", { name: "Utfall", exact: true }).selectOption("Substitute");
+      await submitOn(page, outcome, "Lagre utfall", "vikarer");
+      await expect(outcome.getByRole("status")).toHaveText("Utfallet er lagret.");
+    }
+
     await page.reload();
-    expect((await readCoverageBoard(page)).candidates).toEqual([]);
-    await forbiddenMutation(
+    await expect(
+      page.getByRole("list", { name: "Vikarer på vakt", exact: true }).getByRole("listitem"),
+    ).toHaveText(onCall);
+    await checkpoint("outcome-recorded");
+
+    await rejected(
       page,
-      "/coverage",
-      (await readCoverageBoard(page)).etag,
-      {
-        action: "DispatchSubstituteOffer",
-        absenceId: absence.absenceId,
-        candidatePersonId: manifest.candidateId,
-      },
-      "conflicting assignment rejects substitute offer",
-      422,
-      "offer.candidate-ineligible",
+      `/api/admission-outcomes/${manifest.applicationId}:record`,
+      unrecordedOutcome.etag,
+      { outcome: "Rejected" },
+      "a stale admission outcome version cannot overwrite",
+      412,
+      "precondition.failed",
     );
-    await checkpoint("assignment-conflict");
-    const candidatePlacement = page.getByRole("form", { name: /^Plassering \d+: Kari Kandidat,/ });
-    await submit(candidatePlacement, "Fjern plassering");
-    await page.reload();
-    expect((await readCoverageBoard(page)).candidates).toEqual([expectedCandidate]);
-    await checkpoint("assignment-released");
+    await staleOutcome
+      .getByRole("combobox", { name: "Utfall", exact: true })
+      .selectOption("Rejected");
+    await submitOn(stalePage, staleOutcome, "Lagre utfall", "vikarer", 412);
+    await expect(staleOutcome.getByRole("alert")).toContainText("Oversikten er endret");
+    await checkpoint("outcome-stale");
 
-    const dispatch = page.getByRole("form", {
-      name: "Vikardispatch: " + absence.absenceId,
-      exact: true,
-    });
-
-    await dispatch
-      .getByRole("combobox", { name: "Kvalifisert vikar", exact: true })
-      .selectOption(manifest.candidateId);
-    await submit(dispatch, "Send vikartilbud");
-    await expect
-      .poll(async () => (await readCoverageBoard(page)).dispatchNotifications[0]?.status)
-      .toBe("Failed");
-    await checkpoint("offer-failed");
-    await expect
-      .poll(async () => (await readCoverageBoard(page)).dispatchNotifications[0]?.status, {
-        timeout: 20000,
-      })
-      .toBe("Delivered");
-    await checkpoint("offer-delivered");
-    const offer = (await readCoverageBoard(page)).offers[0];
-
-    const wrongCoverageResponse = await outsider.request.get(
-      manifest.backendOrigin + "/api/placements/coverage/own?" + scope,
-      { headers: { origin: manifest.dashboardOrigin } },
-    );
-
-    expect(wrongCoverageResponse.status()).toBe(200);
-    const wrongCoverage = await wrongCoverageResponse.json();
-    expect(wrongCoverage.offers).toEqual([]);
-    await forbiddenMutation(
-      outsider,
-      "/coverage/own",
-      wrongCoverage.etag,
-      { action: "RespondToOffer", offerId: offer.offerId, response: "Accept" },
-      "only addressed substitute can accept",
-      403,
-      "offer.owner-invalid",
-    );
-    await checkpoint("wrong-recipient");
-    await candidatePage.reload();
-
-    const offerTitle =
-      "Skole Beta, " + manifest.substituteServiceDate + " kl. 09:00–11:00 — Monday, bolk 2";
-
-    const candidateOffer = candidatePage.getByRole("form", {
-      name: "Vikartilbud: " + offerTitle,
-      exact: true,
-    });
-
-    await candidateOffer.getByRole("button", { name: "Aksepter tilbud", exact: true }).click();
-    await submittedAndRemoved(candidateOffer);
-    await candidatePage.reload();
-    await expect(candidatePage.getByText("Endelig svar: Akseptert", { exact: true })).toBeVisible();
-    await checkpoint("offer-accepted");
-
-    await page.reload();
-    await submit(
-      page.getByRole("form", { name: "Dekningstilbud: Kari Kandidat, " + offerTitle, exact: true }),
-      "Bekreft dekning",
-    );
-    await page.reload();
+    // A department member reads who is on call and how to reach them, and decides nothing.
+    const member = await session();
+    await signIn(member, manifest.persons.member);
+    await openOutcomes(member);
     await expect(
-      page.getByText("Dekningen er bekreftet av koordinator.", { exact: true }),
+      member.getByRole("list", { name: "Vikarer på vakt", exact: true }).getByRole("listitem"),
+    ).toHaveText(onCall);
+    await expect(
+      member.getByText("Avtal dekning direkte med vikaren, for eksempel i Slack."),
     ).toBeVisible();
-    await checkpoint("coverage-acknowledged");
+    await expect(member.getByRole("heading", { name: "Opptaksutfall", exact: true })).toHaveCount(
+      0,
+    );
+    await expect(member.getByRole("form", { name: /^Opptaksutfall:/ })).toHaveCount(0);
+    await rejected(
+      member,
+      `/api/admission-outcomes/${manifest.applicationId}:record`,
+      (await readOutcome(page, manifest.applicationId)).etag,
+      { outcome: "Rejected" },
+      "a department member records no admission outcome",
+      403,
+      "authority.denied",
+    );
+    await checkpoint("on-call-read");
+
+    const candidate = await session();
+    await signIn(candidate, manifest.persons.candidate);
+    const candidateView = await readOwnCoverage(candidate);
+    expect(candidateView.coverers).toEqual([]);
+    await rejected(
+      candidate,
+      `/api/placements/coverage/own?${scope}`,
+      candidateView.etag,
+      {
+        action: "RecordCoverage",
+        absenceId: absence.absenceId,
+        coveringPersonId: manifest.candidateId,
+      },
+      "a substitute cannot record cover on another person's absence",
+      403,
+      "coverage.owner-invalid",
+    );
+    await checkpoint("wrong-owner");
+
+    // The absent volunteer names the substitute who agreed to cover.
+    const ownCoverage = self.getByRole("form", {
+      name: `Dekning for mitt fravær: ${slot}`,
+      exact: true,
+    });
+
+    await self.reload();
+    await ownCoverage
+      .getByRole("combobox", { name: "Dekkes av", exact: true })
+      .selectOption({ label: "Kari Kandidat (vikar)" });
+    await submitOn(self, ownCoverage, "Registrer dekning");
+    await self.reload();
+    await expect(ownAbsence).toContainText("Dekket av: Kari Kandidat");
+    await checkpoint("coverage-recorded");
+
+    // The coordinator replaces the record when another substitute takes the lesson.
+    await page.goto(`${manifest.dashboardOrigin}${scopePath()}`);
+
+    const coordinatorAbsence = page
+      .getByRole("region", { name: "Registrert fravær og dekning", exact: true })
+      .getByRole("article")
+      .filter({ hasText: "Fraværende: Irene Intervjuer" });
+
+    const coordinatorCoverage = page.getByRole("form", {
+      name: `Dekning: Irene Intervjuer, ${slot}`,
+      exact: true,
+    });
+
+    await expect(coordinatorAbsence).toContainText("Dekket av: Kari Kandidat (vikar)");
+    await coordinatorCoverage
+      .getByRole("combobox", { name: "Dekkes av", exact: true })
+      .selectOption({ label: "Vera Vikar (vikar)" });
+    await submit(coordinatorCoverage, "Registrer dekning");
+    await page.reload();
+    await expect(coordinatorAbsence).toContainText("Dekket av: Vera Vikar (vikar)");
+    await checkpoint("coverage-replaced");
+
+    const withdrawCoverage = page.getByRole("form", {
+      name: `Trekk tilbake dekning: Irene Intervjuer, ${slot}`,
+      exact: true,
+    });
+
+    await submit(withdrawCoverage, "Trekk tilbake dekning");
+    await page.reload();
+    await expect(coordinatorAbsence).toContainText("Ingen dekning er registrert.");
+    await expect(withdrawCoverage).toHaveCount(0);
+    await rejected(
+      page,
+      `/api/placements/coverage?${scope}`,
+      (await readCoverageBoard(page)).etag,
+      { action: "WithdrawCoverage", absenceId: absence.absenceId },
+      "no current coverage record to withdraw",
+      409,
+      "coverage.not-recorded",
+    );
+    await checkpoint("coverage-withdrawn");
+
+    // The omit-coverage fault skips this record. Attendance then misses the demand, so the
+    // completion below must fail.
+    if (manifest.fault !== "omit-coverage") {
+      await self.reload();
+      await ownCoverage
+        .getByRole("combobox", { name: "Dekkes av", exact: true })
+        .selectOption({ label: "Kari Kandidat (vikar)" });
+      await submitOn(self, ownCoverage, "Registrer dekning");
+      await self.reload();
+      await expect(ownAbsence).toContainText("Dekket av: Kari Kandidat");
+      await checkpoint("coverage-rerecorded");
+    }
+
+    await page.reload();
 
     const substituted = page.locator(
-      'article[data-commitment-id="' + substituteCommitment.commitmentId + '"]',
+      `article[data-commitment-id="${substituteCommitment.commitmentId}"]`,
     );
 
     await substituted
@@ -1514,41 +1488,52 @@ test("golden school-service continuous functional journey", async ({ browser }) 
       .click();
 
     const substituteDecision = page.getByRole("form", {
-      name:
-        "Beslutning for Skole Beta, " + manifest.substituteServiceDate + " kl. 09:00–11:00, bolk 2",
+      name: `Beslutning for Skole Beta, ${manifest.substituteServiceDate} kl. 09:00–11:00, bolk 2`,
       exact: true,
     });
 
     await substituteDecision.getByLabel("Tjenesteutfall").selectOption("CompleteService");
     await substituteDecision
       .getByLabel("Kilde for dokumentasjonen", { exact: true })
-      .fill("Skole Beta bekrefter Kari Kandidat møtte " + manifest.substituteServiceDate);
+      .fill(`Skole Beta bekrefter Kari Kandidat møtte ${manifest.substituteServiceDate}`);
     await expect(
       substituteDecision.getByRole("button", { name: "Lagre uforanderlig beslutning" }),
-    ).toBeDisabled();
-    await substituteDecision
-      .locator('input[name="attendedPersonId"][value="' + manifest.candidateId + '"]')
-      .check();
+    ).toBeEnabled();
+    await expect(
+      substituteDecision
+        .getByRole("list", { name: "Beregnet oppmøte", exact: true })
+        .getByRole("listitem"),
+    ).toHaveText(["Kari Kandidat (dekker fravær)"]);
+    await expect(substituteDecision).toContainText("1 møter av 1 som trengs.");
     await submit(substituteDecision, "Lagre uforanderlig beslutning");
     await page.reload();
+    await expect(substituted).toContainText("Gjennomført");
     await expect(substituted.getByRole("list", { name: "Faktisk møtte" })).toHaveText(
       "Kari Kandidat",
     );
+    await expect(coordinatorAbsence).toContainText("Dekket av: Kari Kandidat (vikar)");
     await checkpoint("substitute-completed");
 
-    await candidatePage.reload();
+    const freshCandidate = await session({ width: 390, height: 844 });
+    await signIn(freshCandidate, manifest.persons.candidate);
+    await selectScope(freshCandidate);
 
-    const candidateService = candidatePage
+    const candidateService = freshCandidate
       .getByRole("heading", {
-        name: "Skole Beta, " + manifest.substituteServiceDate + " kl. 09:00–11:00, bolk 2",
+        name: `Skole Beta, ${manifest.substituteServiceDate} kl. 09:00–11:00, bolk 2`,
         exact: true,
       })
       .locator("..");
 
     await expect(candidateService).toContainText("Gjennomført");
-    await expect(candidateService).toContainText("Din rolle: bekreftet vikar.");
+    await expect(candidateService).toContainText("Din rolle: dekker fravær.");
     await expect(
-      candidatePage.getByRole("button", { name: "Registrer beslutning for denne datoen" }),
+      freshCandidate
+        .getByRole("region", { name: "Fravær jeg dekker", exact: true })
+        .getByRole("listitem"),
+    ).toHaveText([slot]);
+    await expect(
+      freshCandidate.getByRole("button", { name: "Registrer beslutning for denne datoen" }),
     ).toHaveCount(0);
     await checkpoint("substitute-independent-read");
 
@@ -1568,9 +1553,11 @@ test("golden school-service continuous functional journey", async ({ browser }) 
               "coordinator",
               "volunteer",
               "out-of-scope",
-              "fresh-volunteer",
               "stale-coordinator",
-              "addressed-substitute",
+              "fresh-volunteer",
+              "department-member",
+              "substitute",
+              "fresh-substitute",
             ],
             visualAcceptance: false,
           },

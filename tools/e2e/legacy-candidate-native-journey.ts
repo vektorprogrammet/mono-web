@@ -20,7 +20,6 @@ import { SchoolsLive } from "@vektorprogrammet/database/schools";
 import { SocialEventsLive } from "@vektorprogrammet/database/social-events";
 import { TeamApplicationsLive } from "@vektorprogrammet/database/team-application";
 import { PlacementsLive } from "@vektorprogrammet/database/placements";
-import { SubstitutesLive } from "@vektorprogrammet/database/substitutes";
 import {
   OwnAffiliationResource,
   PlacementBoardResource,
@@ -113,7 +112,6 @@ export const observeLegacyCandidateNativeJourney = async (
     profile,
     EconomyLive.pipe(Layer.provide(database)),
     PlacementsLive.pipe(Layer.provide(database)),
-    SubstitutesLive.pipe(Layer.provide(database)),
     ReturningAssistantsLive.pipe(Layer.provide(database)),
     SchoolsLive.pipe(Layer.provide(database)),
     ContentManagementLive.pipe(Layer.provide(database)),

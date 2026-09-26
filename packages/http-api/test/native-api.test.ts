@@ -165,39 +165,27 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
   ],
   [
     "GET",
-    "/api/substitutes/scopes",
-    "substitutes.listScopes",
-    person("substitutes.read", "substitutes.application-scope", [], "SnapshotRead"),
+    "/api/admission-outcomes/scopes",
+    "admissionOutcomes.listScopes",
+    person("admissions.outcomes.read", "admissions.application-outcomes", [], "SnapshotRead"),
   ],
   [
     "GET",
-    "/api/substitutes",
-    "substitutes.readPool",
-    person("substitutes.read", "substitutes.application-scope", [], "SnapshotRead"),
+    "/api/admission-outcomes",
+    "admissionOutcomes.readOutcomes",
+    person("admissions.outcomes.read", "admissions.application-outcomes", [], "SnapshotRead"),
   ],
   [
     "GET",
-    "/api/substitutes/:applicationId",
-    "substitutes.readEntry",
-    person("substitutes.read", "substitutes.application-scope", [], "SnapshotRead"),
+    "/api/admission-outcomes/:applicationId",
+    "admissionOutcomes.readOutcome",
+    person("admissions.outcomes.read", "admissions.application-outcomes", [], "SnapshotRead"),
   ],
   [
     "POST",
-    "/api/substitutes/:applicationId:activate",
-    "substitutes.activate",
-    person("substitutes.manage", "substitutes.application-scope", [], "Transaction"),
-  ],
-  [
-    "POST",
-    "/api/substitutes/:applicationId:edit",
-    "substitutes.edit",
-    person("substitutes.manage", "substitutes.application-scope", [], "Transaction"),
-  ],
-  [
-    "POST",
-    "/api/substitutes/:applicationId:deactivate",
-    "substitutes.deactivate",
-    person("substitutes.manage", "substitutes.application-scope", [], "Transaction"),
+    "/api/admission-outcomes/:applicationId:record",
+    "admissionOutcomes.recordOutcome",
+    person("admissions.outcomes.decide", "admissions.application-outcomes", [], "Transaction"),
   ],
 
   [
@@ -879,7 +867,7 @@ const publicConditionalOperations = [
 ] as const;
 
 const privateConditionalOperations = [
-  "substitutes.readEntry",
+  "admissionOutcomes.readOutcome",
   "profile.readOwnProfile",
   "admissions.listAdmissionPeriods",
   "recruitment.readInvitationResponse",
@@ -907,9 +895,7 @@ const entityMutationOperations = [
   "placements.commandBoard",
   "placements.commandOwnCoverage",
   "placements.commandCoverageBoard",
-  "substitutes.activate",
-  "substitutes.edit",
-  "substitutes.deactivate",
+  "admissionOutcomes.recordOutcome",
   "profile.updateOwnProfile",
   "admissions.reviseAdmissionPeriod",
   "recruitment.scheduleInterview",
@@ -963,8 +949,8 @@ const privateReadOperations = [
   "placements.readDraft",
   "placements.readOwnCoverage",
   "placements.readCoverageBoard",
-  "substitutes.listScopes",
-  "substitutes.readPool",
+  "admissionOutcomes.listScopes",
+  "admissionOutcomes.readOutcomes",
   "system.readSession",
   "system.listSessions",
   "organization.listTeamInterest",
@@ -1309,7 +1295,7 @@ describe("native API reflection", () => {
 
     const tags = new Map<string, string>([
       ["contact", "Public contact"],
-      ["substitutes", "Substitute pool"],
+      ["admissionOutcomes", "Admission outcomes"],
       ["placements", "Volunteer placement"],
       ["onboarding", "Applicant account onboarding"],
       ["admissions", "Admissions"],

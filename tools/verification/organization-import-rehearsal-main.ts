@@ -62,7 +62,6 @@ import { makeReceiptAuxiliaryRecording } from "@vektorprogrammet/domain/receipt"
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { EconomyLive } from "@vektorprogrammet/database/receipt/postgres";
 import { PlacementsLive } from "@vektorprogrammet/database/placements";
-import { SubstitutesLive } from "@vektorprogrammet/database/substitutes";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { SocialEventsLive } from "@vektorprogrammet/database/social-events";
@@ -1393,7 +1392,6 @@ const makeRehearsalRuntime = (
   const admissionsLayer = AdmissionsLive.pipe(Layer.provide(observedDatabaseLayer));
   const economyLayer = EconomyLive.pipe(Layer.provide(observedDatabaseLayer));
   const placementsLayer = PlacementsLive.pipe(Layer.provide(observedDatabaseLayer));
-  const substitutesLayer = SubstitutesLive.pipe(Layer.provide(observedDatabaseLayer));
   const organizationLayer = OrganizationLive.pipe(Layer.provide(observedDatabaseLayer));
 
   const returningAssistantsLayer = ReturningAssistantsLive.pipe(
@@ -1445,7 +1443,6 @@ const makeRehearsalRuntime = (
     admissionsLayer,
     economyLayer,
     placementsLayer,
-    substitutesLayer,
     organizationLayer,
     profileLayer,
     schoolsLayer,

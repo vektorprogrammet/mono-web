@@ -42,7 +42,6 @@ export const sections = [
       "docs/module-developer-documentation.md",
       "docs/constructs.md",
       "packages/domain/src/placements/README.md",
-      "packages/domain/src/substitutes/README.md",
       "packages/domain/src/receipt/README.md",
     ],
     // The Pages workflow publishes the Placements TypeDoc output at this path.

@@ -1,13 +1,16 @@
+import { schoolServiceAttendance } from "@vektorprogrammet/domain/placements";
 import { Match, Schema } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import {
   ChangedEndTime, ChangedEvidenceSource, ChangedReason, ChangedScheduleDate,
-  ChangedStartTime, SelectedCommitment, SelectedDecision, ToggledAttendee,
+  ChangedStartTime, SelectedCommitment, SelectedDecision,
   type Message,
 } from "./message";
 import { Model } from "./model";
 
-type Commitment = NonNullable<Model["input"]["coverage"]>["commitments"][number];
+type Coverage = NonNullable<Model["input"]["coverage"]>;
+
+type Commitment = Coverage["commitments"][number];
 
 const hidden = (h: HtmlBuilder<Message>, name: string, value: string): Html =>
   h.input([h.Type("hidden"), h.Name(name), h.Value(value)]);
@@ -79,11 +82,12 @@ const own = (model: Model, h: HtmlBuilder<Message>): Html => {
 
       return h.article([h.Class("dated-service__card")], [
         h.h4([], [serviceTitle(commitment)]),
-        h.p([], [scheduled ? "Din rolle: planlagt frivillig." : "Din rolle: bekreftet vikar."]),
+        h.p([], [scheduled ? "Din rolle: planlagt frivillig." : "Din rolle: dekker fravær."]),
         h.p([], [`Behov: ${commitment.requiredVolunteers} frivillige. ${commitment.decision === null ? commitment.overdue ? "Forfalt – venter på beslutning." : "Åpen." : outcomeLabel(commitment.decision.outcome)}`]),
         absence ? h.p([], ["Du har meldt fravær for denne datoen."]) : commitment.decision === null && scheduled
           ? h.form([h.Method("post")], [
               ...formFields(model, h, ownCoverage.etag, "ReportAbsence", `absence-${commitment.commitmentId.slice(-32)}`),
+              hidden(h, "mode", "ownCoverage"),
               hidden(h, "commitmentId", commitment.commitmentId),
               h.button([h.Type("submit")], ["Rapporter fravær for denne tjenesten"]),
             ]) : h.empty,
@@ -112,77 +116,64 @@ const coordinator = (model: Model, h: HtmlBuilder<Message>): Html => {
             h.p([], [`Kilde: ${c.decision.evidenceSource}. Faktisk møtte: ${c.decision.attendedPersonIds.length}.`]),
             c.decision.attendedPersonIds.length === 0
               ? h.p([], ["Ingen personer er registrert møtt."])
-              : h.ul([h.Class("dated-service__attendees"), h.AriaLabel("Faktisk møtte")], c.decision.attendedPersonIds.map((personId) => {
-                  const assignment = c.assignments.find((row) => row.personId === personId);
-
-                  const acknowledgement = assignment ? undefined : coverage.acknowledgements.find((row) =>
-                    row.candidatePersonId === personId && coverage.absences.some((absence) =>
-                      absence.absenceId === row.absenceId && absence.commitmentId === c.commitmentId,
-                    ),
-                  );
-
-                  const offer = acknowledgement && coverage.offers.find((row) =>
-                    row.offerId === acknowledgement.offerId && row.absenceId === acknowledgement.absenceId &&
-                    row.candidatePersonId === personId,
-                  );
-
-                  const name = assignment
-                    ? `${assignment.firstName} ${assignment.lastName}`.trim()
-                    : offer ? `${offer.candidateFirstName} ${offer.candidateLastName}`.trim() : "";
-
-                  return h.li([], [name || personId]);
-                })),
+              : h.ul([h.Class("dated-service__attendees"), h.AriaLabel("Faktisk møtte")], c.decision.attendedPersonIds.map((personId) => h.li([], [attendeeName(coverage, c, personId)]))),
             c.decision.reason ? h.p([], [`Begrunnelse: ${c.decision.reason}`]) : h.empty,
           ]),
       c.decision === null ? h.button([h.Type("button"), h.OnClick(SelectedCommitment({ commitmentId: c.commitmentId }))], ["Registrer beslutning for denne datoen"]) : h.empty,
     ])),
-    selected && selected.decision === null ? decisionForm(model, h, selected) : h.empty,
+    selected && selected.decision === null ? decisionForm(model, h, coverage, selected) : h.empty,
   ]);
 };
 
-const decisionForm = (model: Model, h: HtmlBuilder<Message>, commitment: Commitment): Html => {
-  const coverage = model.input.coverage!;
-  const absenceIds = new Set(coverage.absences.filter((a) => a.commitmentId === commitment.commitmentId).map((a) => a.absenceId));
-  const absent = new Set(coverage.absences.filter((a) => a.commitmentId === commitment.commitmentId).map((a) => a.personId));
-  const eligible = new Map<string, string>();
+/** Names an attendee from the commitment's roster, or from the coverage record that made them attend. */
+const attendeeName = (coverage: Coverage, commitment: Commitment, personId: string): string => {
+  const assignment = commitment.assignments.find((row) => row.personId === personId);
 
-  for (const assignment of commitment.assignments) if (!absent.has(assignment.personId)) eligible.set(assignment.personId, `${assignment.firstName} ${assignment.lastName}`);
+  if (assignment !== undefined) return `${assignment.firstName} ${assignment.lastName}`.trim() || personId;
 
-  for (const acknowledgement of coverage.acknowledgements) {
-    if (!absenceIds.has(acknowledgement.absenceId)) continue;
-    const offer = coverage.offers.find((o) => o.offerId === acknowledgement.offerId);
+  const record = coverage.coverage.find((row) => row.coveringPersonId === personId && coverage.absences.some((absence) =>
+    absence.absenceId === row.absenceId && absence.commitmentId === commitment.commitmentId,
+  ));
 
-    if (offer) eligible.set(acknowledgement.candidatePersonId, `${offer.candidateFirstName} ${offer.candidateLastName} (bekreftet vikar)`);
-  }
+  return record === undefined ? personId : `${record.coveringFirstName} ${record.coveringLastName}`.trim() || personId;
+};
 
-  const pending = coverage.offers.some((o) => absenceIds.has(o.absenceId) && (o.status === "Offered" || o.status === "Accepted"));
+const decisionForm = (model: Model, h: HtmlBuilder<Message>, coverage: Coverage, commitment: Commitment): Html => {
+  // The backend derives the recorded attendance with the same rule; the form only shows it.
+  const attendance = schoolServiceAttendance(commitment, coverage.absences, coverage.coverage);
   const cancellation = model.decision === "CancelService";
   const completed = model.decision === "CompleteService";
-  const validAttendance = cancellation || (completed ? model.attendedPersonIds.length >= commitment.requiredVolunteers : model.attendedPersonIds.length < commitment.requiredVolunteers);
-  const valid = !pending && (cancellation || commitment.overdue) && validAttendance && model.evidenceSource.trim().length > 0 && (completed || model.reason.trim().length > 0);
+
+  const attendanceFits = Match.value(model.decision).pipe(
+    Match.when("CompleteService", () => attendance.length >= commitment.requiredVolunteers),
+    Match.when("MarkUnfulfilledService", () => attendance.length < commitment.requiredVolunteers),
+    Match.orElse(() => true),
+  );
+
+  const valid = (cancellation || commitment.overdue) && attendanceFits && model.evidenceSource.trim().length > 0 && (completed || model.reason.trim().length > 0);
+  const attendanceLabelId = `dated-service-attendance-${commitment.commitmentId.slice(-32)}`;
 
   return h.form([h.Method("post"), h.Class("dated-service__card"), h.AriaLabel("Beslutning for " + serviceTitle(commitment))], [
     h.h4([], ["Dokumenter faktisk tjeneste: " + serviceTitle(commitment)]),
-    h.p([], ["Fraværssakens Dekket/Ikke dekket beskriver bare én plass. Tjenesten får separat utfall basert på faktisk oppmøte."]),
+    h.p([], ["Oppmøtet beregnes fra planlagte frivillige, meldt fravær og registrert dekning. Hvert fravær får i tillegg eget utfall: Dekket eller Ikke dekket."]),
     h.p([h.Role("status"), h.Hidden(cancellation || commitment.overdue)], ["Gjennomført og Ikke oppfylt kan først dokumenteres etter at tjenesteintervallet er slutt i norsk skoletid. Avlyst kan registreres nå. Last siden på nytt når intervallet er slutt."]),
     ...formFields(model, h, coverage.etag, model.decision, `decision-${commitment.commitmentId.slice(-32)}-${model.decision}`),
+    hidden(h, "mode", "coverage"),
     hidden(h, "commitmentId", commitment.commitmentId),
     h.label([], ["Tjenesteutfall", h.select([h.Value(model.decision), h.OnChange((value) => SelectedDecision({ value: Schema.decodeUnknownSync(Model.fields.decision)(value) }))], [
       h.option([h.Value("CompleteService")], ["Gjennomført – behovet er dekket"]),
       h.option([h.Value("CancelService")], ["Avlyst – ingen undervisning eller oppmøte"]),
       h.option([h.Value("MarkUnfulfilledService")], ["Ikke oppfylt – faktisk oppmøte er under behovet"]),
     ])]),
-    h.fieldset([h.Hidden(cancellation), h.Disabled(cancellation)], [
-      h.legend([], ["Faktisk møtte (velg bare personer du har fått bekreftet)"]),
-      ...[...eligible].map(([personId, label]) => h.label([], [
-        h.input([h.Type("checkbox"), h.Name("attendedPersonId"), h.Value(personId), h.Checked(model.attendedPersonIds.includes(personId)), h.OnChange(() => ToggledAttendee({ personId }))]),
-        label,
-      ])),
-      h.p([], [`${model.attendedPersonIds.length} registrert møtt av ${commitment.requiredVolunteers} som trengs.`]),
+    h.div([h.Hidden(cancellation)], [
+      h.p([h.Id(attendanceLabelId)], ["Beregnet oppmøte"]),
+      h.ul([h.Class("dated-service__attendees"), h.AriaLabelledBy(attendanceLabelId)], attendance.map((personId) => h.li([], [
+        `${attendeeName(coverage, commitment, personId)} (${commitment.assignments.some((row) => row.personId === personId) ? "planlagt frivillig" : "dekker fravær"})`,
+      ]))),
+      h.p([], [`${attendance.length} møter av ${commitment.requiredVolunteers} som trengs.`]),
     ]),
     h.label([], ["Kilde for dokumentasjonen", h.input([h.Type("text"), h.Name("evidenceSource"), h.Value(model.evidenceSource), h.Attribute("maxlength", "500"), h.OnInput((value) => ChangedEvidenceSource({ value }))])]),
     h.label([h.Hidden(completed)], ["Begrunnelse", h.textarea([h.Name("reason"), h.Value(model.reason), h.Disabled(completed), h.Attribute("maxlength", "500"), h.OnInput((value) => ChangedReason({ value }))])]),
-    pending ? h.p([h.Role("alert")], ["Et sendt eller akseptert vikartilbud må avklares før beslutningen kan registreres."]) : h.empty,
     h.button([h.Type("submit"), h.Disabled(!valid)], ["Lagre uforanderlig beslutning"]),
   ]);
 };

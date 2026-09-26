@@ -1,6 +1,5 @@
 import { OnboardingApiHandlers } from "./onboarding/http.js";
 import { PlacementsApiHandlers } from "./placements/http.js";
-import { SubstitutesApiHandlers } from "./substitutes/http.js";
 import { ContactApiHandlers } from "./contact/http.js";
 import { BlockList, isIP } from "node:net";
 import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
@@ -28,6 +27,7 @@ import { Schema, Cause, Predicate, Effect, Layer } from "effect";
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { AdmissionsApiHandlers } from "./admission/http.js";
+import { AdmissionOutcomesApiHandlers } from "./admission/outcome-http.js";
 import { DirectoryApiHandlers } from "./directory/http.js";
 import {
   admissionActorForDepartment,
@@ -195,7 +195,7 @@ export const ExternalNativeApiRouterLive = (
   const middlewareLayer = nativeHttpApiMiddlewareLayer(config.contact);
 
   const handlers = Layer.mergeAll(
-    SubstitutesApiHandlers({ now: options.now }),
+    AdmissionOutcomesApiHandlers({ now: options.now }),
     PlacementsApiHandlers({ now: options.now }),
     OnboardingApiHandlers({ now: options.now, delivery: config.onboarding }),
     ContactApiHandlers(config.contact),

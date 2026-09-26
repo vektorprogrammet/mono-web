@@ -90,9 +90,11 @@ The existing [browser child](../apps/dashboard/e2e/run-real-native-placement.mjs
 The golden scenario in [native-placement.spec.ts](../apps/dashboard/e2e/native-placement.spec.ts) uses separate native sign-in sessions.
 It creates no business outcome through fixtures or direct success commands.
 
-The controls establish affiliation, approval, placement, demand, proposal, confirmation, a dated commitment, and actual attendance with Completed.
+The controls establish affiliation, approval, placement, demand, proposal, confirmation, a dated commitment, and a Completed decision.
+The decision uses the attendance that the service derives from the roster, the absences, and the coverage records.
 A fresh volunteer session reads the resulting service without coordinator controls.
-The test also checks an out-of-scope HTTP denial, insufficient-attendance prevention and HTTP denial, and a stale terminal denial through controls and HTTP.
+The test also checks an out-of-scope HTTP denial and a stale terminal denial through controls and HTTP.
+The derived attendance meets the demand, so the controls and HTTP refuse an Unfulfilled decision.
 A read-only PostgreSQL observer checks each transition and rejection through an independent connection.
 It binds history, successful command receipts, roster snapshots, and notification work to those decisions.
 The receiver checks the committed logical effect. It does not establish real-provider acceptance.
@@ -105,16 +107,18 @@ Raw traces, browser result directories, credential manifests, PostgreSQL files, 
 The receipt fails when browser evidence is absent, a required step fails, or cleanup fails.
 Screenshots, accessibility audits, and visual preferences do not determine this gate.
 The parent's separate `--browser` and `--api-only` modes retain the existing broader placement coverage.
+These modes also refuse a coverer who is booked in the same interval. That check needs a second scheduled person.
 Neither mode substitutes for the required golden browser command.
 
 These test-driver faults establish that missing work cannot pass:
 
 ```bash
-GOLDEN_SCHOOL_SERVICE_FAULT=omit-attendance just golden school-service
+GOLDEN_SCHOOL_SERVICE_FAULT=omit-coverage just golden school-service
 GOLDEN_SCHOOL_SERVICE_FAULT=absent-browser-evidence just golden school-service
 ```
 
 Both commands must exit unsuccessfully. They change only the test driver, not production behavior.
+With `omit-coverage`, the driver does not record the final coverage. The derived attendance then misses the demand, and `substitute-completed` fails.
 For an interruption check, wait for `browser-active.json` in the printed directory, then send SIGINT to the printed parent PID.
 The failed receipt and cleanup observations must show that all owned resources stopped.
 Do not use the operator's demonstration ports or database for this command.
@@ -137,7 +141,7 @@ The following families define the initial scope, not a claim of complete coverag
 | Schools                  | School details, department associations, and capacity maintenance                                |
 | Placement                | Affiliation request, approval, placement, demand review, and roster confirmation                 |
 | Dated service            | Date and interval scheduling, actual attendance, and supported terminal decisions                |
-| Absence and substitution | Absence, eligible offer, response, acknowledgement, and actual coverage or unmet need            |
+| Absence and substitution | Absence, admission outcome, coverage record, and actual coverage or unmet need                   |
 | Reimbursement            | Private evidence, scoped review, and separate settlement evidence                                |
 | Operational reads        | Directory, mailing recipients, and defined reports without cross-scope disclosure                |
 
@@ -282,15 +286,20 @@ Screenshots do not create pixel-baseline obligations for the golden suite.
 
 ### Continuous substitute coverage
 
-The existing golden command continues through the [Substitutes boundary](../packages/domain/src/substitutes/README.md).
-The [source-owned checkpoints](../tools/e2e/golden-school-service.mjs) preserve the original journey and add the pool-to-attendance sequence.
-The browser changes pool availability through supported controls. Independent PostgreSQL reads identify eligible application and Person pairs.
-Weekday edits, deactivation, and conflicting assignments remove eligibility. Reactivation and assignment release restore it.
-Dispatch reserves the dated interval before acceptance. Notification failure and loopback recovery do not repeat the business decision.
+The existing golden command continues through [substitute coverage](system.md#substitute-coverage).
+The [source-owned checkpoints](../tools/e2e/golden-school-service.mjs) keep the original journey and add the absence-to-coverage sequence.
+A substitute is an admission outcome. People agree on cover outside the system. The system records the absence and the person who covered it.
+The fixture adds two applicants without an outcome and one department member. It creates no outcome, absence, or coverage record.
 
-The same journey checks the addressed response, coordinator acknowledgement, actual substitute attendance, and occurrence-linked absence closure.
-Wrong-recipient and stale commands remain rejected. The observer waits for asynchronous delivery state through bounded read-only snapshots.
-It does not retry commands or ignore failed invariants. Golden output remains within the existing sanitized artifact contract.
+Before the Substitute outcome, the absent volunteer cannot name the applicant.
+The manager records the outcome of both applicants in the browser. The server refuses a stale outcome version.
+A department member reads the on-call contacts and records no outcome. A substitute cannot record cover for the absence of another person.
+The volunteer records the coverage in the browser. The coordinator replaces the record and then withdraws it in the browser.
+The volunteer records the coverage again. The completion derives attendance from that record, and the absence closes Covered with it.
+
+Independent PostgreSQL reads check outcome revisions, coverage records, reservations, and audit actions at each checkpoint.
+Each executed write adds one successful receipt. Refused commands and reads change no fact.
+The observer does not retry commands or ignore failed invariants. Golden output remains within the existing sanitized artifact contract.
 These synthetic local observations do not establish real-provider delivery or current production-data parity.
 
 ### Recruitment to first placement
