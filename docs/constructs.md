@@ -770,9 +770,10 @@ Keyset cursors and pages over ordered PostgreSQL reads.
 Canonical JSON and SHA-256 digests that evidence and idempotency identities hash.
 
 - `canonicalJsonValue`: The plain JSON value of a datum, with sorted object keys and non-finite numbers as `null`.
-  [packages/domain/src/shared-kernel/canonical-json.ts:18](../packages/domain/src/shared-kernel/canonical-json.ts#L18), 12 consumers:
+  [packages/domain/src/shared-kernel/canonical-json.ts:18](../packages/domain/src/shared-kernel/canonical-json.ts#L18), 13 consumers:
   - [packages/database/runtime/historical-service-cohort-rehearsal.ts](../packages/database/runtime/historical-service-cohort-rehearsal.ts)
   - [packages/database/src/admission-period/postgres.ts](../packages/database/src/admission-period/postgres.ts)
+  - [packages/database/src/application/returning-postgres.ts](../packages/database/src/application/returning-postgres.ts)
   - [packages/database/src/auth-live.ts](../packages/database/src/auth-live.ts)
   - [packages/database/src/organization/postgres.ts](../packages/database/src/organization/postgres.ts)
   - [packages/database/src/profile/postgres.ts](../packages/database/src/profile/postgres.ts)

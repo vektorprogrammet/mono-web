@@ -36,6 +36,10 @@ export interface DatabaseOperations extends Omit<SqlClient.SqlClient, never> {
     ...args: ReadonlyArray<SqlParameter | Statement.Fragment | Statement.Helper>
   ): Statement.Statement<A>;
   (value: string): Statement.Identifier;
+  /**
+   * Binds a JSON value as one parameter and encodes it here. Pass the value, such as
+   * `canonicalJsonValue(x)`, never JSON text: text is stored as a JSON string.
+   */
   readonly json: (_: Schema.Json) => Statement.Fragment;
   readonly migrate: Effect.Effect<void, unknown>;
   readonly schemaRevision: string;

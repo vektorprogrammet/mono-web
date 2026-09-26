@@ -1,7 +1,7 @@
 import { flow, Predicate, Effect, Schema } from "effect";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
-import { sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
+import { canonicalJsonValue, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
   ReturningAssistantObservationSchema,
   canonicalJson,
@@ -494,7 +494,7 @@ const registerInTransaction = (
       registration_id,application_id,applicant_id,person_id,placement_id,department_id,semester_id,admission_period_id,revision,command_id,
       year_of_study,monday_unavailable,tuesday_unavailable,wednesday_unavailable,thursday_unavailable,friday_unavailable,position_weeks,preferred_group,language,preferred_school,team_interest,team_ids,registered_at)
       VALUES(${rid},${application.id},${identity.applicant.id},${context.personId},${identity.placementId},${identity.departmentId},${period.semesterId},${period.id},${nextRevision},${input.commandId},
-      ${input.yearOfStudy},${input.mondayUnavailable},${input.tuesdayUnavailable},${input.wednesdayUnavailable},${input.thursdayUnavailable},${input.fridayUnavailable},${input.positionWeeks},${input.preferredGroup},${input.language},${input.preferredSchool},${input.teamInterest},${sql.json(canonicalJson(input.teamIds))},${now})`;
+      ${input.yearOfStudy},${input.mondayUnavailable},${input.tuesdayUnavailable},${input.wednesdayUnavailable},${input.thursdayUnavailable},${input.fridayUnavailable},${input.positionWeeks},${input.preferredGroup},${input.language},${input.preferredSchool},${input.teamInterest},${sql.json(canonicalJsonValue(input.teamIds))},${now})`;
 
     const observation: ReturningAssistantObservation = ReturningAssistantObservationSchema.make({
       commandId: input.commandId,
