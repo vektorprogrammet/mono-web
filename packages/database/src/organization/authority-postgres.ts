@@ -86,9 +86,10 @@ export const lockOrganizationGlobalAdministratorGrantForWrite = (
       WHERE grant_id = ${grantId}
     `;
 
-    const observed = yield* Schema.decodeUnknownEffect(
-      Schema.Array(OrganizationAuthorityPersonRowSchema),
-    )(observedRows, { onExcessProperty: "error" }).pipe(
+    const observed = yield* Schema.decodeEffect(Schema.Array(OrganizationAuthorityPersonRowSchema))(
+      observedRows,
+      { onExcessProperty: "error" },
+    ).pipe(
       Effect.mapError((cause) =>
         decodeError("decode Organization global-administrator grant person", cause),
       ),
@@ -117,7 +118,7 @@ export const lockOrganizationGlobalAdministratorGrantForWrite = (
       FOR UPDATE
     `;
 
-    const locked = yield* Schema.decodeUnknownEffect(
+    const locked = yield* Schema.decodeEffect(
       Schema.Array(OrganizationGlobalAdministratorGrantSchema),
     )(lockedRows, { onExcessProperty: "error" }).pipe(
       Effect.mapError((cause) =>
@@ -155,9 +156,10 @@ export const createOrganizationGlobalAdministratorGrant = (
   Database
 > =>
   Effect.gen(function* () {
-    const grant = yield* Schema.decodeUnknownEffect(
-      CreateOrganizationGlobalAdministratorGrantInputSchema,
-    )(input, { onExcessProperty: "error" }).pipe(
+    const grant = yield* Schema.decodeEffect(CreateOrganizationGlobalAdministratorGrantInputSchema)(
+      input,
+      { onExcessProperty: "error" },
+    ).pipe(
       Effect.mapError((cause) =>
         decodeError("decode Organization global-administrator grant creation", cause),
       ),
@@ -186,7 +188,7 @@ export const createOrganizationGlobalAdministratorGrant = (
             )
           `;
 
-          return yield* Schema.decodeUnknownEffect(OrganizationGlobalAdministratorGrantSchema)(
+          return yield* Schema.decodeEffect(OrganizationGlobalAdministratorGrantSchema)(
             { ...grant, revision: 0 },
             { onExcessProperty: "error" },
           ).pipe(
@@ -216,9 +218,10 @@ export const endOrganizationGlobalAdministratorGrant = (
   Database
 > =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(
-      EndOrganizationGlobalAdministratorGrantInputSchema,
-    )(input, { onExcessProperty: "error" }).pipe(
+    const command = yield* Schema.decodeEffect(EndOrganizationGlobalAdministratorGrantInputSchema)(
+      input,
+      { onExcessProperty: "error" },
+    ).pipe(
       Effect.mapError((cause) =>
         decodeError("decode Organization global-administrator grant ending", cause),
       ),
@@ -235,9 +238,7 @@ export const endOrganizationGlobalAdministratorGrant = (
             command.expectedRevision,
           );
 
-          const ended = yield* Schema.decodeUnknownEffect(
-            OrganizationGlobalAdministratorGrantSchema,
-          )(
+          const ended = yield* Schema.decodeEffect(OrganizationGlobalAdministratorGrantSchema)(
             {
               ...current,
               endAt: command.endAt,
@@ -288,7 +289,7 @@ export const removeOrganizationGlobalAdministratorGrant = (
   Database
 > =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(
+    const command = yield* Schema.decodeEffect(
       RemoveOrganizationGlobalAdministratorGrantInputSchema,
     )(input, { onExcessProperty: "error" }).pipe(
       Effect.mapError((cause) =>
@@ -363,7 +364,7 @@ export const resolveOrganizationPersonAuthorityWithSql = (
   OrganizationDecodeError | OrganizationPersistenceError
 > =>
   Effect.gen(function* () {
-    const evaluatedAt = yield* Schema.decodeUnknownEffect(OrganizationAuthorityInstantSchema)(
+    const evaluatedAt = yield* Schema.decodeEffect(OrganizationAuthorityInstantSchema)(
       authorizationInstant,
     ).pipe(Effect.mapError((cause) => decodeError("decode Organization authority instant", cause)));
 

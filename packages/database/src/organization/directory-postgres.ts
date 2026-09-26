@@ -53,7 +53,7 @@ export const deriveOrganizationDirectoryFacts = (
   Effect.gen(function* () {
     if (personIds.length === 0) return new Map();
 
-    const evaluatedAt = yield* Schema.decodeUnknownEffect(OrganizationAuthorityInstantSchema)(
+    const evaluatedAt = yield* Schema.decodeEffect(OrganizationAuthorityInstantSchema)(
       authorizationInstant,
     ).pipe(Effect.mapError((cause) => decodeError("decode Organization directory instant", cause)));
 
@@ -91,7 +91,7 @@ export const deriveOrganizationDirectoryFacts = (
       ),
     );
 
-    const decodedMemberships = yield* Schema.decodeUnknownEffect(
+    const decodedMemberships = yield* Schema.decodeEffect(
       Schema.Array(DirectoryMembershipRowSchema),
     )(membershipRows, { onExcessProperty: "error" }).pipe(
       Effect.mapError((cause) => decodeError("decode Organization directory memberships", cause)),
@@ -125,7 +125,7 @@ export const deriveOrganizationDirectoryFacts = (
       ),
     );
 
-    const decodedGrants = yield* Schema.decodeUnknownEffect(Schema.Array(DirectoryGrantRowSchema))(
+    const decodedGrants = yield* Schema.decodeEffect(Schema.Array(DirectoryGrantRowSchema))(
       grantRows,
       { onExcessProperty: "error" },
     ).pipe(Effect.mapError((cause) => decodeError("decode Organization directory grants", cause)));

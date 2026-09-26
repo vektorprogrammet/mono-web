@@ -143,21 +143,21 @@ const persistenceError = (
 const decodeApplicantRow = (
   row: typeof ApplicantRecord.Encoded,
 ): Effect.Effect<ApplicantRecord, PublicApplicationPersistenceError> =>
-  Schema.decodeUnknownEffect(ApplicantRecord)(row, {
+  Schema.decodeEffect(ApplicantRecord)(row, {
     onExcessProperty: "error",
   }).pipe(Effect.mapError(() => persistenceError("decode applicant row")));
 
 const decodeApplicationRow = (
   row: typeof PublicApplication.Encoded,
 ): Effect.Effect<PublicApplication, PublicApplicationPersistenceError> =>
-  Schema.decodeUnknownEffect(PublicApplication)(row, {
+  Schema.decodeEffect(PublicApplication)(row, {
     onExcessProperty: "error",
   }).pipe(Effect.mapError(() => persistenceError("decode application row")));
 
 const decodeAdmissionPeriodRow = (
   row: typeof AdmissionPeriod.Encoded,
 ): Effect.Effect<AdmissionPeriod, PublicApplicationPersistenceError> =>
-  Schema.decodeUnknownEffect(AdmissionPeriod)(row, {
+  Schema.decodeEffect(AdmissionPeriod)(row, {
     onExcessProperty: "error",
   }).pipe(Effect.mapError(() => persistenceError("decode admission period row")));
 
@@ -251,7 +251,7 @@ const findFieldOfStudy = (
     Effect.flatMap((rows) =>
       rows[0] === undefined
         ? Effect.succeed(undefined)
-        : Schema.decodeUnknownEffect(AdmissionFieldOfStudy)(rows[0], {
+        : Schema.decodeEffect(AdmissionFieldOfStudy)(rows[0], {
             onExcessProperty: "error",
           }).pipe(Effect.mapError(() => persistenceError("decode field of study row"))),
     ),
@@ -546,7 +546,7 @@ const executeCommandInTransaction = (
       existingApplicant === undefined || existingApplicant.activationDigest !== null;
 
     const activationToken = requiresActivation
-      ? yield* Schema.decodeUnknownEffect(PublicApplicationActivationTokenSchema)(
+      ? yield* Schema.decodeEffect(PublicApplicationActivationTokenSchema)(
           context.activationToken,
         ).pipe(
           Effect.mapError(
@@ -792,7 +792,7 @@ export const findPublicApplicationConfirmation = (
   applicationId: string,
 ): Effect.Effect<PublicApplicationConfirmation, PublicApplicationError, Database> =>
   Effect.gen(function* () {
-    const normalizedId = yield* Schema.decodeUnknownEffect(PublicApplicationIdSchema)(
+    const normalizedId = yield* Schema.decodeEffect(PublicApplicationIdSchema)(
       applicationId.trim(),
     ).pipe(
       Effect.mapError(
@@ -838,7 +838,7 @@ export const readApplicantContacts = (
       });
     }
 
-    const decodedIds = yield* Schema.decodeUnknownEffect(Schema.Array(PublicApplicationIdSchema))(
+    const decodedIds = yield* Schema.decodeEffect(Schema.Array(PublicApplicationIdSchema))(
       applicationIds,
       { onExcessProperty: "error" },
     ).pipe(
@@ -880,7 +880,7 @@ export const readApplicantContacts = (
     const byApplicationId = new Map<string, ApplicantContactProjection>();
 
     for (const row of rows) {
-      const contact = yield* Schema.decodeUnknownEffect(ApplicantContactProjectionSchema)(row, {
+      const contact = yield* Schema.decodeEffect(ApplicantContactProjectionSchema)(row, {
         onExcessProperty: "error",
       }).pipe(
         Effect.mapError(
@@ -1064,7 +1064,7 @@ export const readApplicantProgress = (
       });
     }
 
-    return yield* Schema.decodeUnknownEffect(ApplicantProgressResponseSchema)(
+    return yield* Schema.decodeEffect(ApplicantProgressResponseSchema)(
       { personId, observedAt: now, applications },
       { onExcessProperty: "error" },
     ).pipe(Effect.mapError(() => persistenceError("decode applicant progress projection")));

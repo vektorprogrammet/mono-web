@@ -35,7 +35,7 @@ const result = await Effect.runPromise(
 
     const command = Schema.decodeUnknownSync(FinalizeInterviewCommandSchema)(rows[0]!.command);
 
-    const actor = Schema.decodeUnknownSync(RecruitmentActorSchema)(
+    const actor = Schema.decodeSync(RecruitmentActorSchema)(
       RecruitmentActorSchema.cases.Member.make({
         personId: PersonId.make("journey-conduct-leader-0063"),
         departmentId: DepartmentId.make("department-native-conduct-0063"),

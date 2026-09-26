@@ -141,7 +141,7 @@ export const readQuestionnaires = (personId: PersonId) =>
       to_char(recorded_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "recordedAt",before_json AS before,after_json AS after FROM public.recruitment_questionnaire_history ORDER BY recorded_at DESC,interview_schema_id,revision DESC`,
         })(undefined);
 
-        return yield* Schema.decodeUnknownEffect(QuestionnaireManagement)({
+        return yield* Schema.decodeEffect(QuestionnaireManagement)({
           questionnaires,
           history,
         });
@@ -184,7 +184,7 @@ export const readInterviewStaffing = (personId: PersonId) =>
       FROM public.recruitment_staffing_history WHERE ${scope === null ? sql`TRUE` : sql.in("department_id", scope)} ORDER BY recorded_at DESC,interview_id,revision DESC`,
         })(undefined);
 
-        return yield* Schema.decodeUnknownEffect(InterviewStaffingManagement)({
+        return yield* Schema.decodeEffect(InterviewStaffingManagement)({
           interviews,
           candidates,
           history,

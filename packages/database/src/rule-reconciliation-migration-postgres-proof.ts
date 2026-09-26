@@ -151,7 +151,7 @@ const parseReport = (failure: string) => {
   const start = failure.indexOf(prefix);
   assert.notEqual(start, -1);
 
-  return Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Array(Schema.Json)))(
+  return Schema.decodeSync(Schema.fromJsonString(Schema.Array(Schema.Json)))(
     failure.slice(start + prefix.length),
   );
 };

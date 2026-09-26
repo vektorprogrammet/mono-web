@@ -237,9 +237,7 @@ export const mutatePlacementBoard = (
         }
 
         const proposal = buildSchoolServiceProposal({
-          proposalId: yield* Schema.decodeUnknownEffect(SchoolServiceProposal.fields.proposalId)(
-            newId,
-          ),
+          proposalId: yield* Schema.decodeEffect(SchoolServiceProposal.fields.proposalId)(newId),
           board,
           actor,
           now,

@@ -153,7 +153,7 @@ const persistenceError = (operation: string, cause: unknown) =>
 const receiptFromRow = (
   row: typeof Receipt.Encoded,
 ): Effect.Effect<Receipt, ReceiptPersistenceError> =>
-  Schema.decodeUnknownEffect(Receipt)(row, {
+  Schema.decodeEffect(Receipt)(row, {
     onExcessProperty: "error",
   }).pipe(Effect.mapError((cause) => persistenceError("decode receipt row", cause)));
 
@@ -789,7 +789,7 @@ export const readReceiptFileForApproval = (
 
     if (selected === undefined) return yield* new ReceiptNotFound({ receiptId });
 
-    const row = yield* Schema.decodeUnknownEffect(ReceiptApprovalFileReadRowSchema)(selected, {
+    const row = yield* Schema.decodeEffect(ReceiptApprovalFileReadRowSchema)(selected, {
       onExcessProperty: "error",
     }).pipe(
       Effect.mapError((cause) => persistenceError("decode Receipt approval file metadata", cause)),
@@ -1166,10 +1166,9 @@ export const authorizeReceiptMutation = (
   Effect.gen(function* () {
     const sql = yield* Database;
 
-    const principal = yield* Schema.decodeUnknownEffect(ReceiptCommandPrincipalSchema)(
-      principalInput,
-      { onExcessProperty: "error" },
-    ).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
+    const principal = yield* Schema.decodeEffect(ReceiptCommandPrincipalSchema)(principalInput, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
 
     return yield* authorizeReceiptMutationWithSql(sql, target, principal);
   });
@@ -1182,7 +1181,7 @@ const decodeReceiptCommand = flow(
 );
 
 const decodeReceiptPrincipal = (input: typeof ReceiptCommandPrincipalSchema.Encoded) =>
-  Schema.decodeUnknownEffect(ReceiptCommandPrincipalSchema)(input, {
+  Schema.decodeEffect(ReceiptCommandPrincipalSchema)(input, {
     onExcessProperty: "error",
   }).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
 

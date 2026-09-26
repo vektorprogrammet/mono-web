@@ -49,7 +49,7 @@ it(
   `);
       const service = makeServicePrincipalGrantAuthorityService(pool);
 
-      const grant = Schema.decodeUnknownSync(ServicePrincipalReceiptGrantSchema)({
+      const grant = Schema.decodeSync(ServicePrincipalReceiptGrantSchema)({
         grantId: "grant-1",
         servicePrincipalId: "service-receipt-approval",
         clientId: "service-client",

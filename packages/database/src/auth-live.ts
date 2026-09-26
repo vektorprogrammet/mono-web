@@ -194,7 +194,7 @@ const appendAudit = async (
   database: Queryable,
   unsafeEvent: IdentitySecurityEvent,
 ): Promise<void> => {
-  const event = Schema.decodeUnknownSync(IdentitySecurityEvent)(unsafeEvent, {
+  const event = Schema.decodeSync(IdentitySecurityEvent)(unsafeEvent, {
     onExcessProperty: "error",
   });
 

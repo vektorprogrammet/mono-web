@@ -72,7 +72,7 @@ export const changeNativeAccountAccess = Effect.fn("changeNativeAccountAccess")(
   yield* sql`DELETE FROM auth.verification WHERE value=${input.personId} AND identifier LIKE 'reset-password:%'`;
 
   return {
-    before: yield* Schema.decodeUnknownEffect(AccountAccess)(current),
+    before: yield* Schema.decodeEffect(AccountAccess)(current),
     after: yield* Schema.decodeUnknownEffect(AccountAccess)(updated[0]),
   };
 });

@@ -45,9 +45,7 @@ export const readPrivateCohortJson = async (
     )
       throw invalid();
 
-    return Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(
-      await file.readFile("utf8"),
-    );
+    return Schema.decodeSync(Schema.fromJsonString(Schema.Json))(await file.readFile("utf8"));
   } catch (cause) {
     throw cause instanceof Error && cause.message === "InvalidSnapshot" ? cause : invalid();
   } finally {

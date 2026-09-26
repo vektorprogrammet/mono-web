@@ -304,7 +304,7 @@ try {
   const currentBefore = digest(await currentState());
 
   const runCli = (): Schema.Json =>
-    Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(
+    Schema.decodeSync(Schema.fromJsonString(Schema.Json))(
       execFileSync(
         process.execPath,
         ["run", "packages/database/runtime/historical-service-cohort-main.ts"],

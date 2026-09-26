@@ -58,7 +58,7 @@ const assertLoopbackDatabaseUrl = (postgresUrl: string): void => {
 const parsePersons = (raw: string | undefined): ReadonlyArray<SeedPerson> => {
   assert.ok(raw !== undefined && raw.length > 0, "IDENTITY_SEED_PERSONS is required");
 
-  return Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Array(SeedPerson)))(raw);
+  return Schema.decodeSync(Schema.fromJsonString(Schema.Array(SeedPerson)))(raw);
 };
 
 const applyMigrations = (postgresUrl: string) =>

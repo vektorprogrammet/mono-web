@@ -37,7 +37,7 @@ export const readSchoolsDirectory = (
   query: SchoolDirectoryQuery,
 ): Effect.Effect<SchoolDirectory, ReadSchoolsDirectoryFailure, Database | Organization | Schools> =>
   Effect.gen(function* () {
-    const decodedQuery = yield* Schema.decodeUnknownEffect(SchoolDirectoryQuerySchema)(query, {
+    const decodedQuery = yield* Schema.decodeEffect(SchoolDirectoryQuerySchema)(query, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => decodeError("decode Schools directory query", cause)));
 

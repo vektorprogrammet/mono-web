@@ -44,7 +44,7 @@ const decodeRows = flow(
       const entries: Array<SchoolDirectoryEntry> = [];
 
       for (const row of rows) {
-        const schoolId = yield* Schema.decodeUnknownEffect(SchoolId)(Number(row.schoolId)).pipe(
+        const schoolId = yield* Schema.decodeEffect(SchoolId)(Number(row.schoolId)).pipe(
           Effect.mapError((cause) => decodeError("decode Schools directory schoolId", cause)),
         );
 
@@ -74,7 +74,7 @@ export const listSchoolDirectoryPostgres = (
   input: SchoolDirectoryListInput,
 ): Effect.Effect<SchoolDirectory, SchoolsFailure, Database> =>
   Effect.gen(function* () {
-    const decoded = yield* Schema.decodeUnknownEffect(SchoolDirectoryListInputSchema)(input, {
+    const decoded = yield* Schema.decodeEffect(SchoolDirectoryListInputSchema)(input, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => decodeError("decode Schools directory input", cause)));
 
@@ -162,7 +162,7 @@ export const listSchoolDirectoryPostgres = (
       inactiveSchools: entries.filter((school) => !school.isActive),
     };
 
-    return yield* Schema.decodeUnknownEffect(SchoolDirectorySchema)(directory, {
+    return yield* Schema.decodeEffect(SchoolDirectorySchema)(directory, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => decodeError("decode Schools directory", cause)));
   });

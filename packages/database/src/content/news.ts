@@ -181,7 +181,7 @@ export const readNewsListingPostgres = (
             hasImage: false,
           }));
 
-          const listing = yield* Schema.decodeUnknownEffect(PublishedNewsListingSchema)(
+          const listing = yield* Schema.decodeEffect(PublishedNewsListingSchema)(
             { articles },
             { onExcessProperty: "error" },
           ).pipe(Effect.mapError((cause) => integrityError("decode news listing", cause)));
@@ -296,7 +296,7 @@ export const readPublishedArticlePostgres = (
               urlPath: `/nyhet/${slug}?versjon=${row.versionNumber}`,
             }));
 
-          return yield* Schema.decodeUnknownEffect(PublishedNewsArticleSchema)(
+          return yield* Schema.decodeEffect(PublishedNewsArticleSchema)(
             {
               slug: selected.slug,
               title: selected.title,

@@ -249,7 +249,7 @@ const program = Effect.scoped(
         committedContactRevision: receipt.committedContactRevision,
         commandFields: Object.keys(payload).sort(),
         resultFields: Object.keys(
-          yield* Schema.decodeUnknownEffect(OwnProfile)(receipt.resultJson),
+          yield* Schema.decodeEffect(OwnProfile)(receipt.resultJson),
         ).sort(),
       },
       replay: {

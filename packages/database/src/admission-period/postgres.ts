@@ -69,14 +69,14 @@ const periodPersistenceError = (operation: string, cause: unknown) => {
 const decodePeriodRow = (
   row: typeof AdmissionPeriod.Encoded,
 ): Effect.Effect<AdmissionPeriod, AdmissionPeriodPersistenceError> =>
-  Schema.decodeUnknownEffect(AdmissionPeriod)(row, {
+  Schema.decodeEffect(AdmissionPeriod)(row, {
     onExcessProperty: "error",
   }).pipe(Effect.mapError((cause) => periodPersistenceError("decode admission period row", cause)));
 
 const decodeSemesterRow = (
   row: typeof AdmissionSemester.Encoded,
 ): Effect.Effect<AdmissionSemester, AdmissionPeriodPersistenceError> =>
-  Schema.decodeUnknownEffect(AdmissionSemester)(row, {
+  Schema.decodeEffect(AdmissionSemester)(row, {
     onExcessProperty: "error",
   }).pipe(
     Effect.mapError((cause) => periodPersistenceError("decode admission semester row", cause)),
@@ -85,7 +85,7 @@ const decodeSemesterRow = (
 const decodeProjectionRow = (
   row: typeof AdmissionPeriodProjectionSchema.Encoded,
 ): Effect.Effect<AdmissionPeriodProjection, AdmissionPeriodPersistenceError> =>
-  Schema.decodeUnknownEffect(AdmissionPeriodProjectionSchema)(row, {
+  Schema.decodeEffect(AdmissionPeriodProjectionSchema)(row, {
     onExcessProperty: "error",
   }).pipe(
     Effect.mapError((cause) => periodPersistenceError("decode admission period projection", cause)),

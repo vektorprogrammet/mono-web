@@ -48,7 +48,7 @@ const persistenceError = (operation: string, cause?: unknown): ProfilePersistenc
 const decodeProfile = (
   row: PersonProfileSelect,
 ): Effect.Effect<PersonProfile, ProfileDecodeError> =>
-  Schema.decodeUnknownEffect(PersonProfile)(row, { onExcessProperty: "error" }).pipe(
+  Schema.decodeEffect(PersonProfile)(row, { onExcessProperty: "error" }).pipe(
     Effect.mapError(
       (cause) =>
         new ProfileDecodeError({
@@ -60,7 +60,7 @@ const decodeProfile = (
 const decodeContact = (
   row: PersonContactProfileSelect,
 ): Effect.Effect<PersonContactProfile, ProfileDecodeError> =>
-  Schema.decodeUnknownEffect(PersonContactProfile)(row, { onExcessProperty: "error" }).pipe(
+  Schema.decodeEffect(PersonContactProfile)(row, { onExcessProperty: "error" }).pipe(
     Effect.mapError(
       (cause) =>
         new ProfileDecodeError({

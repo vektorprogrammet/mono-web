@@ -424,7 +424,7 @@ const readInCurrentSnapshot = async (
 
     const base = {
       servicePrincipalId: credential.principal.servicePrincipalId,
-      clientId: Schema.decodeUnknownSync(OAuthClientId)(clientId, { onExcessProperty: "error" }),
+      clientId: Schema.decodeSync(OAuthClientId)(clientId, { onExcessProperty: "error" }),
       protectedResource: NATIVE_API_PROTECTED_RESOURCE,
     };
 
@@ -774,7 +774,7 @@ export const makeServicePrincipalGrantAuthorityService = (
   pool: Pool,
 ): ServicePrincipalGrantAuthorityOperations => ({
   readReceiptApprovalCandidates: (credential, authorizationInstant, status, after) =>
-    Schema.decodeUnknownEffect(AuthorizationInstant)(authorizationInstant, {
+    Schema.decodeEffect(AuthorizationInstant)(authorizationInstant, {
       onExcessProperty: "error",
     }).pipe(
       Effect.mapError(
@@ -815,7 +815,7 @@ export const makeServicePrincipalGrantAuthorityService = (
   createGrant: (input) =>
     Effect.try({
       try: () =>
-        Schema.decodeUnknownSync(CreateServicePrincipalGrantInputSchema)(input, {
+        Schema.decodeSync(CreateServicePrincipalGrantInputSchema)(input, {
           onExcessProperty: "error",
         }),
       catch: mutationRejected,
@@ -836,7 +836,7 @@ export const makeServicePrincipalGrantAuthorityService = (
   endGrant: (input) =>
     Effect.try({
       try: () =>
-        Schema.decodeUnknownSync(EndServicePrincipalGrantInputSchema)(input, {
+        Schema.decodeSync(EndServicePrincipalGrantInputSchema)(input, {
           onExcessProperty: "error",
         }),
       catch: mutationRejected,
@@ -857,7 +857,7 @@ export const makeServicePrincipalGrantAuthorityService = (
   revokeGrant: (input) =>
     Effect.try({
       try: () =>
-        Schema.decodeUnknownSync(RevokeServicePrincipalGrantInputSchema)(input, {
+        Schema.decodeSync(RevokeServicePrincipalGrantInputSchema)(input, {
           onExcessProperty: "error",
         }),
       catch: mutationRejected,

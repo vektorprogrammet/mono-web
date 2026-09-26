@@ -249,7 +249,7 @@ const validateRegistrationEligibility = (
   );
 
 const projection = (row: ReturningPeriodRow) =>
-  Schema.decodeUnknownEffect(AdmissionPeriodProjectionSchema)(
+  Schema.decodeEffect(AdmissionPeriodProjectionSchema)(
     {
       id: AdmissionPeriodId.make(row.id),
       departmentId: DepartmentId.make(row.departmentId),

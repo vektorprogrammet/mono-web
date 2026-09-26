@@ -138,10 +138,9 @@ export const readWorkspacePostgres = (input: {
   readonly query: ContentWorkspaceQuery;
 }): Effect.Effect<ContentWorkspace, ContentManagementFailure, Database | Organization | Profile> =>
   Effect.gen(function* () {
-    const decodedQuery = yield* Schema.decodeUnknownEffect(ContentWorkspaceQuerySchema)(
-      input.query,
-      { onExcessProperty: "error" },
-    ).pipe(Effect.mapError((cause) => decodeError("decode content workspace query", cause)));
+    const decodedQuery = yield* Schema.decodeEffect(ContentWorkspaceQuerySchema)(input.query, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError((cause) => decodeError("decode content workspace query", cause)));
 
     const database = yield* Database;
     const organization = yield* Organization;
@@ -300,7 +299,7 @@ export const readWorkspacePostgres = (input: {
 
           const workspace = { entries };
 
-          return yield* Schema.decodeUnknownEffect(ContentWorkspaceSchema)(workspace, {
+          return yield* Schema.decodeEffect(ContentWorkspaceSchema)(workspace, {
             onExcessProperty: "error",
           }).pipe(Effect.mapError((cause) => decodeError("decode content workspace", cause)));
         }),
@@ -327,7 +326,7 @@ export const readArticleDetailInTransactionPostgres = (input: {
   Database | Organization | Profile
 > =>
   Effect.gen(function* () {
-    const articleId = yield* Schema.decodeUnknownEffect(ArticleId)(input.articleId, {
+    const articleId = yield* Schema.decodeEffect(ArticleId)(input.articleId, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => decodeError("decode content article id", cause)));
 
@@ -419,7 +418,7 @@ export const readArticleDetailInTransactionPostgres = (input: {
       });
     }
 
-    return yield* Schema.decodeUnknownEffect(ContentArticleDetailSchema)(
+    return yield* Schema.decodeEffect(ContentArticleDetailSchema)(
       {
         articleId: draft.articleId,
         title: draft.title,
@@ -704,10 +703,9 @@ export const createDraftPostgres = (input: {
   readonly authorizationInstant: OrganizationAuthorityInstant;
 }): Effect.Effect<ArticleDraftJson, ContentManagementFailure, Database | Organization> =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(CreateArticleDraftInputSchema)(
-      input.command,
-      { onExcessProperty: "error" },
-    ).pipe(Effect.mapError((cause) => decodeError("decode create-draft command", cause)));
+    const command = yield* Schema.decodeEffect(CreateArticleDraftInputSchema)(input.command, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError((cause) => decodeError("decode create-draft command", cause)));
 
     const payloadDigest = sha256Hex(canonicalJsonBytes(command));
     const database = yield* Database;
@@ -869,7 +867,7 @@ export const publishPostgres = (input: {
   readonly authorizationInstant: OrganizationAuthorityInstant;
 }): Effect.Effect<PublishObservation, ContentManagementFailure, Database | Organization> =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(PublishArticleInputSchema)(input.command, {
+    const command = yield* Schema.decodeEffect(PublishArticleInputSchema)(input.command, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => decodeError("decode publish command", cause)));
 
@@ -1003,7 +1001,7 @@ export const unpublishPostgres = (input: {
   readonly authorizationInstant: OrganizationAuthorityInstant;
 }): Effect.Effect<UnpublishObservation, ContentManagementFailure, Database | Organization> =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(UnpublishArticleInputSchema)(input.command, {
+    const command = yield* Schema.decodeEffect(UnpublishArticleInputSchema)(input.command, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => decodeError("decode unpublish command", cause)));
 
@@ -1095,10 +1093,9 @@ export const reviseDraftPostgres = (input: {
   readonly authorizationInstant: OrganizationAuthorityInstant;
 }): Effect.Effect<ArticleDraftJson, ContentManagementFailure, Database | Organization> =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(ReviseArticleDraftInputSchema)(
-      input.command,
-      { onExcessProperty: "error" },
-    ).pipe(Effect.mapError((cause) => decodeError("decode revise command", cause)));
+    const command = yield* Schema.decodeEffect(ReviseArticleDraftInputSchema)(input.command, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError((cause) => decodeError("decode revise command", cause)));
 
     const payloadDigest = sha256Hex(canonicalJsonBytes(command));
     const database = yield* Database;

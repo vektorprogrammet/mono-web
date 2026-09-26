@@ -189,20 +189,20 @@ const AccessTokenResponseSchema = Schema.Struct({
 });
 
 const decodeHeaderJson = (text: string) =>
-  Schema.decodeUnknownSync(Schema.fromJsonString(NativeAccessTokenHeaderSchema))(text, {
+  Schema.decodeSync(Schema.fromJsonString(NativeAccessTokenHeaderSchema))(text, {
     onExcessProperty: "error",
   });
 
 const decodeClaimsJson = (text: string) =>
-  Schema.decodeUnknownSync(Schema.fromJsonString(NativeAccessTokenClaimsSchema))(text, {
+  Schema.decodeSync(Schema.fromJsonString(NativeAccessTokenClaimsSchema))(text, {
     onExcessProperty: "error",
   });
 
 const decodeUnknownRecordJson = (text: string) =>
-  Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Json)))(text);
+  Schema.decodeSync(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Json)))(text);
 
 const decodeTokenResponseJson = (text: string) =>
-  Schema.decodeUnknownSync(Schema.fromJsonString(AccessTokenResponseSchema))(text, {
+  Schema.decodeSync(Schema.fromJsonString(AccessTokenResponseSchema))(text, {
     onExcessProperty: "error",
   });
 

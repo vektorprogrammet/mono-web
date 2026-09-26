@@ -252,10 +252,9 @@ const selectAuthzRule = (
       ),
     );
 
-    const rows = yield* Schema.decodeUnknownEffect(Schema.Array(AuthzRuleDatabaseRowSchema))(
-      selected,
-      { onExcessProperty: "error" },
-    ).pipe(Effect.mapError((cause) => validationError("AuthzRule", cause)));
+    const rows = yield* Schema.decodeEffect(Schema.Array(AuthzRuleDatabaseRowSchema))(selected, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError((cause) => validationError("AuthzRule", cause)));
 
     const row = rows[0];
 
@@ -279,7 +278,7 @@ const selectAuthzTag = (
       ),
     );
 
-    const rows = yield* Schema.decodeUnknownEffect(Schema.Array(AuthzTagSchema))(selected, {
+    const rows = yield* Schema.decodeEffect(Schema.Array(AuthzTagSchema))(selected, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => validationError("AuthzTag", cause)));
 
@@ -323,10 +322,9 @@ const selectAuthzTagAssignment = (
       ),
     );
 
-    const rows = yield* Schema.decodeUnknownEffect(Schema.Array(AuthzTagAssignmentSchema))(
-      selected,
-      { onExcessProperty: "error" },
-    ).pipe(Effect.mapError((cause) => validationError("AuthzTagAssignment", cause)));
+    const rows = yield* Schema.decodeEffect(Schema.Array(AuthzTagAssignmentSchema))(selected, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError((cause) => validationError("AuthzTagAssignment", cause)));
 
     const row = rows[0];
 
@@ -357,7 +355,7 @@ export const readApplicableAuthorizationRules = (
   lockModeInput: AuthzLockMode,
 ): Effect.Effect<ApplicableAuthorizationRules, AuthzValidationError | AuthzPersistenceError> =>
   Effect.gen(function* () {
-    const principal = yield* Schema.decodeUnknownEffect(PrincipalSchema)(principalInput, {
+    const principal = yield* Schema.decodeEffect(PrincipalSchema)(principalInput, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => validationError("Principal", cause)));
 
@@ -367,17 +365,16 @@ export const readApplicableAuthorizationRules = (
       ? principal.servicePrincipalId
       : null;
 
-    const capabilityId = yield* Schema.decodeUnknownEffect(AuthzCapabilityIdSchema)(
-      capabilityIdInput,
-      { onExcessProperty: "error" },
-    ).pipe(Effect.mapError((cause) => validationError("AuthzCapabilityId", cause)));
+    const capabilityId = yield* Schema.decodeEffect(AuthzCapabilityIdSchema)(capabilityIdInput, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError((cause) => validationError("AuthzCapabilityId", cause)));
 
-    const authorizationInstant = yield* Schema.decodeUnknownEffect(Rfc3339InstantSchema)(
+    const authorizationInstant = yield* Schema.decodeEffect(Rfc3339InstantSchema)(
       authorizationInstantInput,
       { onExcessProperty: "error" },
     ).pipe(Effect.mapError((cause) => validationError("AuthorizationInstant", cause)));
 
-    const lockMode = yield* Schema.decodeUnknownEffect(AuthzLockModeSchema)(lockModeInput, {
+    const lockMode = yield* Schema.decodeEffect(AuthzLockModeSchema)(lockModeInput, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => validationError("AuthzLockMode", cause)));
 
@@ -414,11 +411,10 @@ export const readApplicableAuthorizationRules = (
       ),
     );
 
-    const tagAssignments = yield* Schema.decodeUnknownEffect(
-      Schema.Array(AuthzTagAssignmentSchema),
-    )(selectedAssignments, { onExcessProperty: "error" }).pipe(
-      Effect.mapError((cause) => validationError("AuthzTagAssignment", cause)),
-    );
+    const tagAssignments = yield* Schema.decodeEffect(Schema.Array(AuthzTagAssignmentSchema))(
+      selectedAssignments,
+      { onExcessProperty: "error" },
+    ).pipe(Effect.mapError((cause) => validationError("AuthzTagAssignment", cause)));
 
     const ruleLock = lockMode === "ForShare" ? sql`FOR SHARE OF rule` : sql``;
     const requestedDepartmentId = context.departmentId;
@@ -499,7 +495,7 @@ export const readApplicableAuthorizationRules = (
       ),
     );
 
-    const ruleRows = yield* Schema.decodeUnknownEffect(Schema.Array(AuthzRuleDatabaseRowSchema))(
+    const ruleRows = yield* Schema.decodeEffect(Schema.Array(AuthzRuleDatabaseRowSchema))(
       selectedRules,
       { onExcessProperty: "error" },
     ).pipe(Effect.mapError((cause) => validationError("AuthzRule", cause)));
@@ -650,7 +646,7 @@ export const readAuthzRule = (
   Database
 > =>
   Effect.gen(function* () {
-    const ruleId = yield* Schema.decodeUnknownEffect(AuthzRuleId)(ruleIdInput, {
+    const ruleId = yield* Schema.decodeEffect(AuthzRuleId)(ruleIdInput, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => validationError("AuthzRuleId", cause)));
 
@@ -663,7 +659,7 @@ export const endAuthzRule = (
   input: EndAuthzRuleInput,
 ): Effect.Effect<AuthzRule, AuthzPersistenceFailure, Database> =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(EndAuthzRuleInputSchema)(input, {
+    const command = yield* Schema.decodeEffect(EndAuthzRuleInputSchema)(input, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => validationError("EndAuthzRuleInput", cause)));
 
@@ -706,7 +702,7 @@ export const removeAuthzRule = (
   input: RemoveAuthzRuleInput,
 ): Effect.Effect<void, AuthzPersistenceFailure, Database> =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(RemoveAuthzRuleInputSchema)(input, {
+    const command = yield* Schema.decodeEffect(RemoveAuthzRuleInputSchema)(input, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => validationError("RemoveAuthzRuleInput", cause)));
 
@@ -774,7 +770,7 @@ export const readAuthzTag = (
   Database
 > =>
   Effect.gen(function* () {
-    const tagId = yield* Schema.decodeUnknownEffect(AuthzTagId)(tagIdInput, {
+    const tagId = yield* Schema.decodeEffect(AuthzTagId)(tagIdInput, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => validationError("AuthzTagId", cause)));
 
@@ -787,7 +783,7 @@ export const removeAuthzTag = (
   input: RemoveAuthzTagInput,
 ): Effect.Effect<void, AuthzPersistenceFailure, Database> =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(RemoveAuthzTagInputSchema)(input, {
+    const command = yield* Schema.decodeEffect(RemoveAuthzTagInputSchema)(input, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => validationError("RemoveAuthzTagInput", cause)));
 
@@ -868,10 +864,9 @@ export const readAuthzTagAssignment = (
   Database
 > =>
   Effect.gen(function* () {
-    const assignmentId = yield* Schema.decodeUnknownEffect(AuthzTagAssignmentId)(
-      assignmentIdInput,
-      { onExcessProperty: "error" },
-    ).pipe(Effect.mapError((cause) => validationError("AuthzTagAssignmentId", cause)));
+    const assignmentId = yield* Schema.decodeEffect(AuthzTagAssignmentId)(assignmentIdInput, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError((cause) => validationError("AuthzTagAssignmentId", cause)));
 
     const sql = yield* Database;
 
@@ -882,7 +877,7 @@ export const endAuthzTagAssignment = (
   input: EndAuthzTagAssignmentInput,
 ): Effect.Effect<AuthzTagAssignment, AuthzPersistenceFailure, Database> =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(EndAuthzTagAssignmentInputSchema)(input, {
+    const command = yield* Schema.decodeEffect(EndAuthzTagAssignmentInputSchema)(input, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => validationError("EndAuthzTagAssignmentInput", cause)));
 
@@ -927,7 +922,7 @@ export const removeAuthzTagAssignment = (
   input: RemoveAuthzTagAssignmentInput,
 ): Effect.Effect<void, AuthzPersistenceFailure, Database> =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(RemoveAuthzTagAssignmentInputSchema)(input, {
+    const command = yield* Schema.decodeEffect(RemoveAuthzTagAssignmentInputSchema)(input, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => validationError("RemoveAuthzTagAssignmentInput", cause)));
 

@@ -227,7 +227,7 @@ describe("Better Auth session hardening configuration", () => {
 
     expect(cookie).toBeDefined();
 
-    const [session] = Schema.decodeUnknownSync(
+    const [session] = Schema.decodeSync(
       Schema.Array(
         Schema.Struct({ id: Schema.String, token: Schema.String, expiresAt: Schema.Date }),
       ),

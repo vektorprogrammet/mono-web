@@ -193,7 +193,7 @@ try {
   await chmod(inputFile, 0o600);
 
   const runCli = () =>
-    Schema.decodeUnknownSync(Schema.fromJsonString(PersonCohortReport))(
+    Schema.decodeSync(Schema.fromJsonString(PersonCohortReport))(
       execFileSync(process.execPath, ["run", "packages/database/runtime/person-cohort-main.ts"], {
         cwd: root,
         encoding: "utf8",

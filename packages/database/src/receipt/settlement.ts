@@ -81,7 +81,7 @@ const persistenceError = (operation: string, cause: unknown) =>
 const receiptFromRow = (
   row: typeof Receipt.Encoded,
 ): Effect.Effect<Receipt, ReceiptPersistenceError> =>
-  Schema.decodeUnknownEffect(Receipt)(row, { onExcessProperty: "error" }).pipe(
+  Schema.decodeEffect(Receipt)(row, { onExcessProperty: "error" }).pipe(
     Effect.mapError((cause) => persistenceError("decode Receipt settlement receipt", cause)),
   );
 
@@ -204,7 +204,7 @@ const findCommandReceipt = (
   );
 
 const decodePrincipal = (input: ReceiptCommandPrincipal) =>
-  Schema.decodeUnknownEffect(ReceiptCommandPrincipalSchema)(input, {
+  Schema.decodeEffect(ReceiptCommandPrincipalSchema)(input, {
     onExcessProperty: "error",
   }).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
 

@@ -67,7 +67,7 @@ export const readRecruitmentInvitationHttpSnapshotPostgres = (
 > =>
   Database.use((database) =>
     Effect.gen(function* () {
-      const capability = yield* Schema.decodeUnknownEffect(RecruitmentInvitationCapabilitySchema)(
+      const capability = yield* Schema.decodeEffect(RecruitmentInvitationCapabilitySchema)(
         capabilityInput,
         { onExcessProperty: "error" },
       ).pipe(Effect.mapError(() => new RecruitmentInvitationNotFound({})));

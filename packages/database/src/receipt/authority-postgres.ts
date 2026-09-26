@@ -245,9 +245,10 @@ export const lockReceiptPaymentAuthorityForWrite = (
       WHERE payment_authority_id = ${paymentAuthorityId}
     `;
 
-    const observed = yield* Schema.decodeUnknownEffect(
-      Schema.Array(ReceiptAuthorityPersonRowSchema),
-    )(observedRows, { onExcessProperty: "error" }).pipe(
+    const observed = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityPersonRowSchema))(
+      observedRows,
+      { onExcessProperty: "error" },
+    ).pipe(
       Effect.mapError((cause) => decodeError("decode Receipt payment authority person", cause)),
     );
 
@@ -282,9 +283,10 @@ export const lockReceiptPaymentAuthorityForWrite = (
       FOR UPDATE
     `;
 
-    const locked = yield* Schema.decodeUnknownEffect(
-      Schema.Array(ReceiptAuthorityDatabaseRowSchema),
-    )(lockedRows, { onExcessProperty: "error" }).pipe(
+    const locked = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityDatabaseRowSchema))(
+      lockedRows,
+      { onExcessProperty: "error" },
+    ).pipe(
       Effect.mapError((cause) => decodeError("decode locked Receipt payment authority", cause)),
     );
 
@@ -317,11 +319,10 @@ export const lockReceiptApprovalGrantForWrite = (
       WHERE approval_grant_id = ${approvalGrantId}
     `;
 
-    const observed = yield* Schema.decodeUnknownEffect(
-      Schema.Array(ReceiptAuthorityPersonRowSchema),
-    )(observedRows, { onExcessProperty: "error" }).pipe(
-      Effect.mapError((cause) => decodeError("decode Receipt approval grant person", cause)),
-    );
+    const observed = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityPersonRowSchema))(
+      observedRows,
+      { onExcessProperty: "error" },
+    ).pipe(Effect.mapError((cause) => decodeError("decode Receipt approval grant person", cause)));
 
     const observedPerson = observed[0]?.personId;
 
@@ -354,11 +355,10 @@ export const lockReceiptApprovalGrantForWrite = (
       FOR UPDATE
     `;
 
-    const locked = yield* Schema.decodeUnknownEffect(
-      Schema.Array(ReceiptAuthorityDatabaseRowSchema),
-    )(lockedRows, { onExcessProperty: "error" }).pipe(
-      Effect.mapError((cause) => decodeError("decode locked Receipt approval grant", cause)),
-    );
+    const locked = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityDatabaseRowSchema))(
+      lockedRows,
+      { onExcessProperty: "error" },
+    ).pipe(Effect.mapError((cause) => decodeError("decode locked Receipt approval grant", cause)));
 
     const row = locked[0];
 
@@ -389,9 +389,10 @@ export const lockReceiptSettlementGrantForWrite = (
       WHERE settlement_grant_id = ${settlementGrantId}
     `;
 
-    const observed = yield* Schema.decodeUnknownEffect(
-      Schema.Array(ReceiptAuthorityPersonRowSchema),
-    )(observedRows, { onExcessProperty: "error" }).pipe(
+    const observed = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityPersonRowSchema))(
+      observedRows,
+      { onExcessProperty: "error" },
+    ).pipe(
       Effect.mapError((cause) => decodeError("decode Receipt settlement grant person", cause)),
     );
 
@@ -426,9 +427,10 @@ export const lockReceiptSettlementGrantForWrite = (
       FOR UPDATE
     `;
 
-    const locked = yield* Schema.decodeUnknownEffect(
-      Schema.Array(ReceiptAuthorityDatabaseRowSchema),
-    )(lockedRows, { onExcessProperty: "error" }).pipe(
+    const locked = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityDatabaseRowSchema))(
+      lockedRows,
+      { onExcessProperty: "error" },
+    ).pipe(
       Effect.mapError((cause) => decodeError("decode locked Receipt settlement grant", cause)),
     );
 
@@ -453,14 +455,13 @@ export const createReceiptPaymentAuthority = (
   input: typeof CreateReceiptPaymentAuthorityInputSchema.Encoded,
 ): Effect.Effect<ReceiptPaymentAuthority, ReceiptDecodeError | ReceiptPersistenceError, Database> =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(CreateReceiptPaymentAuthorityInputSchema)(
-      input,
-      { onExcessProperty: "error" },
-    ).pipe(
+    const command = yield* Schema.decodeEffect(CreateReceiptPaymentAuthorityInputSchema)(input, {
+      onExcessProperty: "error",
+    }).pipe(
       Effect.mapError((cause) => decodeError("decode Receipt payment authority creation", cause)),
     );
 
-    const created = yield* Schema.decodeUnknownEffect(ReceiptPaymentAuthoritySchema)(
+    const created = yield* Schema.decodeEffect(ReceiptPaymentAuthoritySchema)(
       { ...command, revision: 0 },
       { onExcessProperty: "error" },
     ).pipe(
@@ -507,10 +508,9 @@ export const endReceiptPaymentAuthority = (
   input: typeof EndReceiptPaymentAuthorityInputSchema.Encoded,
 ): Effect.Effect<ReceiptPaymentAuthority, ReceiptAuthorityWriteFailure, Database> =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(EndReceiptPaymentAuthorityInputSchema)(
-      input,
-      { onExcessProperty: "error" },
-    ).pipe(
+    const command = yield* Schema.decodeEffect(EndReceiptPaymentAuthorityInputSchema)(input, {
+      onExcessProperty: "error",
+    }).pipe(
       Effect.mapError((cause) => decodeError("decode Receipt payment authority ending", cause)),
     );
 
@@ -525,7 +525,7 @@ export const endReceiptPaymentAuthority = (
             command.expectedRevision,
           );
 
-          const ended = yield* Schema.decodeUnknownEffect(ReceiptPaymentAuthoritySchema)(
+          const ended = yield* Schema.decodeEffect(ReceiptPaymentAuthoritySchema)(
             {
               ...current,
               endAt: command.endAt,
@@ -568,10 +568,9 @@ export const removeReceiptPaymentAuthority = (
   input: typeof RemoveReceiptPaymentAuthorityInputSchema.Encoded,
 ): Effect.Effect<ReceiptPaymentAuthority, ReceiptAuthorityWriteFailure, Database> =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(RemoveReceiptPaymentAuthorityInputSchema)(
-      input,
-      { onExcessProperty: "error" },
-    ).pipe(
+    const command = yield* Schema.decodeEffect(RemoveReceiptPaymentAuthorityInputSchema)(input, {
+      onExcessProperty: "error",
+    }).pipe(
       Effect.mapError((cause) => decodeError("decode Receipt payment authority removal", cause)),
     );
 
@@ -615,14 +614,13 @@ export const createReceiptApprovalGrant = (
   input: typeof CreateReceiptApprovalGrantInputSchema.Encoded,
 ): Effect.Effect<ReceiptApprovalGrant, ReceiptDecodeError | ReceiptPersistenceError, Database> =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(CreateReceiptApprovalGrantInputSchema)(
-      input,
-      { onExcessProperty: "error" },
-    ).pipe(
+    const command = yield* Schema.decodeEffect(CreateReceiptApprovalGrantInputSchema)(input, {
+      onExcessProperty: "error",
+    }).pipe(
       Effect.mapError((cause) => decodeError("decode Receipt approval grant creation", cause)),
     );
 
-    const created = yield* Schema.decodeUnknownEffect(ReceiptApprovalGrantSchema)(
+    const created = yield* Schema.decodeEffect(ReceiptApprovalGrantSchema)(
       { ...command, revision: 0 },
       { onExcessProperty: "error" },
     ).pipe(Effect.mapError((cause) => decodeError("decode created Receipt approval grant", cause)));
@@ -672,7 +670,7 @@ export const endReceiptApprovalGrant = (
   input: typeof EndReceiptApprovalGrantInputSchema.Encoded,
 ): Effect.Effect<ReceiptApprovalGrant, ReceiptAuthorityWriteFailure, Database> =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(EndReceiptApprovalGrantInputSchema)(input, {
+    const command = yield* Schema.decodeEffect(EndReceiptApprovalGrantInputSchema)(input, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => decodeError("decode Receipt approval grant ending", cause)));
 
@@ -687,7 +685,7 @@ export const endReceiptApprovalGrant = (
             command.expectedRevision,
           );
 
-          const ended = yield* Schema.decodeUnknownEffect(ReceiptApprovalGrantSchema)(
+          const ended = yield* Schema.decodeEffect(ReceiptApprovalGrantSchema)(
             {
               ...current,
               endAt: command.endAt,
@@ -728,10 +726,11 @@ export const removeReceiptApprovalGrant = (
   input: typeof RemoveReceiptApprovalGrantInputSchema.Encoded,
 ): Effect.Effect<ReceiptApprovalGrant, ReceiptAuthorityWriteFailure, Database> =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(RemoveReceiptApprovalGrantInputSchema)(
-      input,
-      { onExcessProperty: "error" },
-    ).pipe(Effect.mapError((cause) => decodeError("decode Receipt approval grant removal", cause)));
+    const command = yield* Schema.decodeEffect(RemoveReceiptApprovalGrantInputSchema)(input, {
+      onExcessProperty: "error",
+    }).pipe(
+      Effect.mapError((cause) => decodeError("decode Receipt approval grant removal", cause)),
+    );
 
     const sql = yield* Database;
 
@@ -773,14 +772,13 @@ export const createReceiptSettlementGrant = (
   input: typeof CreateReceiptSettlementGrantInputSchema.Encoded,
 ): Effect.Effect<ReceiptSettlementGrant, ReceiptDecodeError | ReceiptPersistenceError, Database> =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(CreateReceiptSettlementGrantInputSchema)(
-      input,
-      { onExcessProperty: "error" },
-    ).pipe(
+    const command = yield* Schema.decodeEffect(CreateReceiptSettlementGrantInputSchema)(input, {
+      onExcessProperty: "error",
+    }).pipe(
       Effect.mapError((cause) => decodeError("decode Receipt settlement grant creation", cause)),
     );
 
-    const created = yield* Schema.decodeUnknownEffect(ReceiptSettlementGrantSchema)(
+    const created = yield* Schema.decodeEffect(ReceiptSettlementGrantSchema)(
       { ...command, revision: 0 },
       { onExcessProperty: "error" },
     ).pipe(
@@ -832,7 +830,7 @@ export const endReceiptSettlementGrant = (
   input: typeof EndReceiptSettlementGrantInputSchema.Encoded,
 ): Effect.Effect<ReceiptSettlementGrant, ReceiptAuthorityWriteFailure, Database> =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(EndReceiptSettlementGrantInputSchema)(input, {
+    const command = yield* Schema.decodeEffect(EndReceiptSettlementGrantInputSchema)(input, {
       onExcessProperty: "error",
     }).pipe(
       Effect.mapError((cause) => decodeError("decode Receipt settlement grant ending", cause)),
@@ -849,7 +847,7 @@ export const endReceiptSettlementGrant = (
             command.expectedRevision,
           );
 
-          const ended = yield* Schema.decodeUnknownEffect(ReceiptSettlementGrantSchema)(
+          const ended = yield* Schema.decodeEffect(ReceiptSettlementGrantSchema)(
             {
               ...current,
               endAt: command.endAt,
@@ -890,10 +888,9 @@ export const removeReceiptSettlementGrant = (
   input: typeof RemoveReceiptSettlementGrantInputSchema.Encoded,
 ): Effect.Effect<ReceiptSettlementGrant, ReceiptAuthorityWriteFailure, Database> =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(RemoveReceiptSettlementGrantInputSchema)(
-      input,
-      { onExcessProperty: "error" },
-    ).pipe(
+    const command = yield* Schema.decodeEffect(RemoveReceiptSettlementGrantInputSchema)(input, {
+      onExcessProperty: "error",
+    }).pipe(
       Effect.mapError((cause) => decodeError("decode Receipt settlement grant removal", cause)),
     );
 
@@ -948,7 +945,7 @@ export const resolveReceiptAuthorityWithSql = (
   lockMode: ReceiptAuthorityRowLockMode,
 ): Effect.Effect<ReceiptAuthority, ReceiptAuthorityResolutionError> =>
   Effect.gen(function* () {
-    const evaluatedAt = yield* Schema.decodeUnknownEffect(ReceiptAuthorityInstantSchema)(
+    const evaluatedAt = yield* Schema.decodeEffect(ReceiptAuthorityInstantSchema)(
       authorizationInstant,
     ).pipe(Effect.mapError((cause) => decodeError("decode Receipt authority instant", cause)));
 
@@ -1083,7 +1080,7 @@ export const resolveReceiptAuthorityWithSql = (
       ),
     );
 
-    const rows = yield* Schema.decodeUnknownEffect(Schema.Array(ReceiptAuthorityDatabaseRowSchema))(
+    const rows = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityDatabaseRowSchema))(
       selected,
       { onExcessProperty: "error" },
     ).pipe(Effect.mapError((cause) => decodeError("decode Receipt authority rows", cause)));

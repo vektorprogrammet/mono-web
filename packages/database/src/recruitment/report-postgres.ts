@@ -58,7 +58,7 @@ export const readCompletedInterviewReport = (
   input: InterviewReportQuery,
 ) =>
   Effect.gen(function* () {
-    const query = yield* Schema.decodeUnknownEffect(InterviewReportQuery)(input, {
+    const query = yield* Schema.decodeEffect(InterviewReportQuery)(input, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError(() => new RecruitmentDecodeError({ message: "invalid report query" })));
 
