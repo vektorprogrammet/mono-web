@@ -60,35 +60,6 @@ Missing: the JSDoc has no `@example` tag.
 
 Missing: the JSDoc has no `@avoid` tag.
 
-## `withoutCursorTimestamp`
-
-Drops the ordering text from a row before the row leaves the adapter.
-
-```ts
-withoutCursorTimestamp<A extends { readonly cursorTimestamp: string }>(
-  { cursorTimestamp: _cursorTimestamp, ...row }: A
-): Omit<A, "cursorTimestamp">
-```
-
-- Inputs: `{ cursorTimestamp: _cursorTimestamp, ...row }: A`
-- Output: `Omit<A, "cursorTimestamp">`
-- Errors: none
-- Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [packages/database/src/receipt/cursor.ts:40](../../packages/database/src/receipt/cursor.ts#L40)
-
-**How it works**
-
-Missing: the JSDoc has no `@remarks` tag.
-
-**Use**
-
-Missing: the JSDoc has no `@example` tag.
-
-**Avoid**
-
-Missing: the JSDoc has no `@avoid` tag.
-
 ## `receiptCursorPage`
 
 Keeps one page of the rows, encodes the next cursor when a further row was read, and drops the ordering text.
@@ -104,7 +75,7 @@ receiptCursorPage<A extends { readonly cursorTimestamp: string; readonly receipt
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [packages/database/src/receipt/cursor.ts:51](../../packages/database/src/receipt/cursor.ts#L51)
+- Source: [packages/database/src/receipt/cursor.ts:49](../../packages/database/src/receipt/cursor.ts#L49)
 
 **How it works**
 

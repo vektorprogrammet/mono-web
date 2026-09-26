@@ -11,8 +11,6 @@ export type ReceiptE2EConcurrencyLane = "file-read" | "approve" | "reject";
 /**
  * `false` for unprobed requests; `true` once all three lanes are synchronized. A probe that
  * names another lane or receipt, or repeats before synchronization, is a malformed request.
- *
- * @construct test-harness
  */
 export type ReceiptE2EBarrierArrival = Effect.Effect<
   boolean,

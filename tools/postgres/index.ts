@@ -88,8 +88,6 @@ export const defaultPostgresMajor = selectPostgresMajor(supportedPostgresMajors,
 
 /**
  * The major that `VEKTOR_POSTGRES_MAJOR` selects, or the default.
- *
- * @construct test-harness
  */
 export const selectedPostgresMajor = selectPostgresMajor(
   supportedPostgresMajors,

@@ -11,8 +11,6 @@ type ReadJsonProblem =
  * Bound bytes while reading, including requests without Content-Length. A
  * body that cannot be read at all is an internal error; everything else the
  * client sent wrong is request.malformed or request.too-large.
- *
- * @construct http-transport
  */
 export const readBoundedJson = (
   request: Request,

@@ -15,7 +15,6 @@ Package `@monoweb/postgres`.
 
 The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../docs/constructs.md) indexes them all.
 
-- [`selectedPostgresMajor`](../../docs/constructs/test-harness.md#selectedpostgresmajor) (test-harness): The major that `VEKTOR_POSTGRES_MAJOR` selects, or the default.
 - [`postgresProgram`](../../docs/constructs/test-harness.md#postgresprogram) (test-harness): Absolute path of a client program of the selected PostgreSQL major.
 - [`postgresVersion`](../../docs/constructs/test-harness.md#postgresversion) (test-harness): The `postgres --version` line of the selected major, such as `postgres (PostgreSQL) 18.6`, for evidence that names the toolchain whether or not a cluster started.
 - [`loopbackPortFree`](../../docs/constructs/test-harness.md#loopbackportfree) (test-harness): Whether a listener can bind `port` on loopback now.

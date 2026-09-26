@@ -4,33 +4,6 @@
 
 Starts and drives disposable infrastructure for tests, proofs, and journeys: PostgreSQL clusters, loopback ports, and the local backend. The [index](../constructs.md) lists every category.
 
-## `ReceiptE2EBarrierArrival`
-
-`false` for unprobed requests; `true` once all three lanes are synchronized.
-
-```ts
-type ReceiptE2EBarrierArrival = Effect.Effect<boolean, Problem<"request.malformed"> | Cause.TimeoutError>
-```
-
-- Inputs: none
-- Output: `Effect.Effect<boolean, Problem<"request.malformed"> | Cause.TimeoutError>`
-- Errors: none
-- Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [apps/backend/src/receipt/e2e-support.ts:17](../../apps/backend/src/receipt/e2e-support.ts#L17)
-
-**How it works**
-
-Missing: the JSDoc has no `@remarks` tag.
-
-**Use**
-
-Missing: the JSDoc has no `@example` tag.
-
-**Avoid**
-
-Missing: the JSDoc has no `@avoid` tag.
-
 ## `selectDatabaseMigration`
 
 Selects the registered migration `id` and the migrations that run before it; an absent id throws and names the nearest registered ids.
@@ -139,33 +112,6 @@ Missing: the JSDoc has no `@example` tag.
 
 Missing: the JSDoc has no `@avoid` tag.
 
-## `selectedPostgresMajor`
-
-The major that `VEKTOR_POSTGRES_MAJOR` selects, or the default.
-
-```ts
-const selectedPostgresMajor
-```
-
-- Inputs: none
-- Output: not annotated
-- Errors: none
-- Requirements: none
-- Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [tools/postgres/index.ts:94](../../tools/postgres/index.ts#L94)
-
-**How it works**
-
-Missing: the JSDoc has no `@remarks` tag.
-
-**Use**
-
-Missing: the JSDoc has no `@example` tag.
-
-**Avoid**
-
-Missing: the JSDoc has no `@avoid` tag.
-
 ## `postgresProgram`
 
 Absolute path of a client program of the selected PostgreSQL major.
@@ -179,7 +125,7 @@ postgresProgram(program: PostgresProgram): string
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [tools/postgres/index.ts:160](../../tools/postgres/index.ts#L160)
+- Source: [tools/postgres/index.ts:158](../../tools/postgres/index.ts#L158)
 
 **How it works**
 
@@ -206,7 +152,7 @@ postgresVersion(): string
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [tools/postgres/index.ts:168](../../tools/postgres/index.ts#L168)
+- Source: [tools/postgres/index.ts:166](../../tools/postgres/index.ts#L166)
 
 **How it works**
 
@@ -233,7 +179,7 @@ loopbackPortFree(port: number)
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [tools/postgres/index.ts:211](../../tools/postgres/index.ts#L211)
+- Source: [tools/postgres/index.ts:209](../../tools/postgres/index.ts#L209)
 
 **How it works**
 
@@ -260,7 +206,7 @@ reserveLoopbackPorts(count: number): Promise<ReadonlyArray<number>>
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [tools/postgres/index.ts:243](../../tools/postgres/index.ts#L243)
+- Source: [tools/postgres/index.ts:241](../../tools/postgres/index.ts#L241)
 
 **How it works**
 
@@ -287,7 +233,7 @@ startDisposablePostgres(options: DisposablePostgresOptions = {}): Promise<Dispos
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [tools/postgres/index.ts:436](../../tools/postgres/index.ts#L436)
+- Source: [tools/postgres/index.ts:434](../../tools/postgres/index.ts#L434)
 
 **How it works**
 
@@ -319,7 +265,7 @@ withDisposablePostgres<A>(
 - Errors: none
 - Requirements: none
 - Side effects: Missing: the JSDoc has no `@sideEffects` tag.
-- Source: [tools/postgres/index.ts:648](../../tools/postgres/index.ts#L648)
+- Source: [tools/postgres/index.ts:646](../../tools/postgres/index.ts#L646)
 
 **How it works**
 

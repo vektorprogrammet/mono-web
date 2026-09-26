@@ -34,8 +34,6 @@ export type OrganizationAuthorityRowLockMode = "None" | "ForShare";
 
 /**
  * Acquire before any person lock when changing the usable administrator set.
- *
- * @construct sql-lock
  */
 export const lockOrganizationAdministratorSet = (sql: DatabaseOperations) =>
   lockAdvisory(sql, AdvisoryLockKey.administratorSet);

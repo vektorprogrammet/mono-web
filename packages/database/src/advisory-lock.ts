@@ -138,8 +138,6 @@ export const lockAdvisory = (
 /**
  * Takes the exclusive advisory lock on `key` until the current transaction ends when no other
  * transaction holds it. Answers false instead of waiting.
- *
- * @construct sql-lock
  */
 export const tryLockAdvisory = (
   sql: DatabaseOperations,

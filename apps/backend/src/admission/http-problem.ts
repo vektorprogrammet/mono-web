@@ -94,8 +94,6 @@ export const admissionProblems = <
 /**
  * Problems only a public application submission answers. The catalog, a
  * confirmation, and applicant progress read rows at the clock's own instant.
- *
- * @construct http-problem
  */
 export const submissionProblems = [
   "validation.failed",
@@ -112,8 +110,6 @@ export const submissionProblems = [
  * Problems only an admission period command answers. A listing reads
  * projections at the clock's own instant; it names no department, semester,
  * window, or command.
- *
- * @construct http-problem
  */
 export const periodCommandProblems = [
   "validation.failed",

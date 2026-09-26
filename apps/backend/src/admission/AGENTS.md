@@ -71,13 +71,7 @@ The shared constructs defined here. Each name links to its contract; [docs/const
 - [`authorizeAdmissionPerson`](../../../../docs/constructs/http-problem.md#authorizeadmissionperson) (http-problem): Evaluates one admission person AccessSpec.
 - [`returningAuthorization`](../../../../docs/constructs/http-problem.md#returningauthorization) (http-problem): Resolves the current person and authorizes one returning-assistant operation on that person's own profile.
 - [`admissionActorForAuthority`](../../../../docs/constructs/http-problem.md#admissionactorforauthority) (http-problem): The admission actor of one department scope.
-- [`decodeJson`](../../../../docs/constructs/http-problem.md#decodejson) (http-problem): Reads and decodes one bounded JSON body.
-- [`decodeAdmissionPeriodPatch`](../../../../docs/constructs/http-problem.md#decodeadmissionperiodpatch) (http-problem): Reads and decodes one bounded admission period merge patch.
 - [`admissionProblems`](../../../../docs/constructs/http-problem.md#admissionproblems) (http-problem): The one answer for every admission failure.
-- [`submissionProblems`](../../../../docs/constructs/http-problem.md#submissionproblems) (http-problem): Problems only a public application submission answers.
-- [`periodCommandProblems`](../../../../docs/constructs/http-problem.md#periodcommandproblems) (http-problem): Problems only an admission period command answers.
-- [`jsonResponse`](../../../../docs/constructs/http-transport.md#jsonresponse) (http-transport): One JSON representation that no cache stores.
-- [`conditionalCollection`](../../../../docs/constructs/http-transport.md#conditionalcollection) (http-transport): Answers a conditional read of one admission collection, tagged by the versions of its items.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

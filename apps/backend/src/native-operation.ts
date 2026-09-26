@@ -39,8 +39,6 @@ const capabilities = (spec: AccessSpec) => {
  * An AccessSpec evaluation that did not grant the operation. The status is
  * the concealment-aware answer: an unaccepted credential, a denial, or a
  * concealed resource.
- *
- * @construct http-problem
  */
 export class NativeAccessRejected extends Data.TaggedError("NativeAccessRejected")<{
   readonly status: 401 | 403 | 404;

@@ -113,8 +113,6 @@ const validateJcsValue = (value: Schema.Json, seen: Set<object>): void => {
 
 /**
  * Encodes one I-JSON value with the repository RFC 8785 encoder.
- *
- * @construct http-transport
  */
 export const jcsBytes = (value: Schema.Json): Uint8Array => {
   validateJcsValue(value, new Set());
@@ -124,8 +122,6 @@ export const jcsBytes = (value: Schema.Json): Uint8Array => {
 
 /**
  * Decodes UTF-8 JSON while rejecting duplicate member names before schema decoding.
- *
- * @construct http-transport
  */
 export const parseJsonWithoutDuplicateMembers = (bytes: Uint8Array): Schema.Json => {
   const decoded = parseJsonWithUniqueMembers(bytes);
@@ -174,8 +170,6 @@ const jsonPointerProperty = (property: string): string =>
 
 /**
  * Preserves absence, value, and explicit deletion before typed merge-patch decoding.
- *
- * @construct http-transport
  */
 export const interpretMergePatchSource = <const Fields extends ReadonlyArray<string>>(
   source: Schema.Json,
@@ -253,8 +247,6 @@ export const interpretArticleMergePatchSource = (source: Schema.Json) =>
 
 /**
  * Decodes one non-combinable Idempotency-Key field.
- *
- * @construct http-transport
  */
 export const parseIdempotencyKey = (values: ReadonlyArray<string>): IdempotencyKey => {
   if (values.length !== 1 || values[0]?.includes(",") === true) {
@@ -270,8 +262,6 @@ export const parseIdempotencyKey = (values: ReadonlyArray<string>): IdempotencyK
 
 /**
  * Decodes the required single strong If-Match value for an item mutation.
- *
- * @construct http-transport
  */
 export const parseRequiredIfMatch = (values: ReadonlyArray<string>): StrongETag => {
   if (values.length === 0) throw Problem.make("precondition.required");
@@ -353,16 +343,12 @@ const parseOptionalEntityTagCondition = (
 
 /**
  * Canonicalizes an optional read If-Match wildcard or entity-tag list.
- *
- * @construct http-transport
  */
 export const parseReadIfMatch = (values: ReadonlyArray<string>): CanonicalIfMatch | null =>
   parseOptionalEntityTagCondition(values);
 
 /**
  * Canonicalizes an optional If-None-Match wildcard or entity-tag list.
- *
- * @construct http-transport
  */
 export const parseIfNoneMatch = (values: ReadonlyArray<string>): CanonicalIfNoneMatch | null =>
   parseOptionalEntityTagCondition(values);

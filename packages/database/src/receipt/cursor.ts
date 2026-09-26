@@ -34,8 +34,6 @@ export const receiptCursorTimestamp = (
 
 /**
  * Drops the ordering text from a row before the row leaves the adapter.
- *
- * @construct pagination
  */
 export const withoutCursorTimestamp = <A extends { readonly cursorTimestamp: string }>({
   cursorTimestamp: _cursorTimestamp,

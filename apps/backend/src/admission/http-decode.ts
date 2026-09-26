@@ -47,8 +47,6 @@ const decodeBody = <S extends Schema.ConstraintDecoder<unknown, never>>(
 
 /**
  * Reads and decodes one bounded JSON body.
- *
- * @construct http-problem
  */
 export const decodeJson = <S extends Schema.ConstraintDecoder<unknown, never>>(
   request: Request,
@@ -63,8 +61,6 @@ export const decodeJson = <S extends Schema.ConstraintDecoder<unknown, never>>(
 
 /**
  * Reads and decodes one bounded admission period merge patch.
- *
- * @construct http-problem
  */
 export const decodeAdmissionPeriodPatch = (request: Request, maxBodyBytes: number) =>
   Effect.gen(function* () {
