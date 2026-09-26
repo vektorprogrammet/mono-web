@@ -18,7 +18,7 @@ const authTables = [
 
 const authzTables = ["authz_rules", "authz_tag_assignments", "authz_tags"] as const;
 
-const orthogonalPersonId = "identity-0056-orthogonal-person";
+const orthogonalPersonId = "journey-0056-orthogonal-person";
 
 const activeRuleId = "identity-0056-active-other-person-rule";
 

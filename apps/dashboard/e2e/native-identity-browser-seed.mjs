@@ -50,10 +50,17 @@ const grantId = "grant-journey-0065-admin";
 
 const phone = "+47 900 00 065";
 
+/**
+ * The subject of the orthogonal authorization rows. The people directory lists it, so its id stays
+ * outside the seeded-authorization-row pattern that the recorder scans responses for, and it has
+ * the contact row that every directory person needs.
+ */
 const orthogonalPerson = {
-  personId: "identity-0056-orthogonal-person",
+  personId: "journey-0056-orthogonal-person",
   firstName: "Other",
   lastName: "Capability",
+  email: "other.capability-0056@example.invalid",
+  phone: "+47 900 00 056",
 };
 
 const authzFixture = {
@@ -249,6 +256,12 @@ try {
      VALUES ($1, $2, $3)
      ON CONFLICT (person_id) DO NOTHING`,
     [orthogonalPerson.personId, orthogonalPerson.firstName, orthogonalPerson.lastName],
+  );
+  await observer.query(
+    `INSERT INTO public.person_contact_profiles (person_id, email, phone, revision)
+     VALUES ($1, $2, $3, 0)
+     ON CONFLICT (person_id) DO NOTHING`,
+    [orthogonalPerson.personId, orthogonalPerson.email, orthogonalPerson.phone],
   );
   await observer.query(
     `INSERT INTO public.authz_tags (tag_id, name, revision)
