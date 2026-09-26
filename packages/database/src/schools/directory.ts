@@ -56,12 +56,12 @@ export const readSchoolsDirectory = (
           const authority = yield* organization
             .resolvePersonAuthorityForRead(personId, authorizationInstant)
             .pipe(
-              Effect.catchTag("OrganizationDecodeError", (cause) =>
-                Effect.fail(decodeError("resolve Schools directory authority", cause)),
-              ),
-              Effect.catchTag("OrganizationPersistenceError", (cause) =>
-                Effect.fail(persistenceError("resolve Schools directory authority", cause)),
-              ),
+              Effect.catchTags({
+                OrganizationDecodeError: (cause) =>
+                  Effect.fail(decodeError("resolve Schools directory authority", cause)),
+                OrganizationPersistenceError: (cause) =>
+                  Effect.fail(persistenceError("resolve Schools directory authority", cause)),
+              }),
             );
 
           if (authority.evaluatedAt !== authorizationInstant) {

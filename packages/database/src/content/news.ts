@@ -61,8 +61,10 @@ const readDepartments = (
             ),
           ),
         ),
-        Effect.catchTag("SchemaError", (cause) => integrityError("decode news departments", cause)),
-        Effect.catchTag("SqlError", (cause) => integrityError("read news departments", cause)),
+        Effect.catchTags({
+          SchemaError: (cause) => integrityError("decode news departments", cause),
+          SqlError: (cause) => integrityError("read news departments", cause),
+        }),
         Effect.map((rows) => {
           const map = new Map<number, Array<DepartmentId>>();
 
@@ -130,10 +132,10 @@ export const readNewsListingPostgres = (
             ORDER BY version.sticky DESC, version.published_at DESC, version.article_id DESC
           `.pipe(
             Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(CurrentVersionRowSchema))),
-            Effect.catchTag("SchemaError", (cause) =>
-              integrityError("decode published article rows", cause),
-            ),
-            Effect.catchTag("SqlError", (cause) => integrityError("read news listing", cause)),
+            Effect.catchTags({
+              SchemaError: (cause) => integrityError("decode published article rows", cause),
+              SqlError: (cause) => integrityError("read news listing", cause),
+            }),
           );
 
           if (rows.length === 0) {
@@ -238,12 +240,10 @@ export const readPublishedArticlePostgres = (
             ORDER BY version.version_number DESC
           `.pipe(
             Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(PublishedVersionRowSchema))),
-            Effect.catchTag("SchemaError", (cause) =>
-              integrityError("decode published article rows", cause),
-            ),
-            Effect.catchTag("SqlError", (cause) =>
-              integrityError("read published article versions", cause),
-            ),
+            Effect.catchTags({
+              SchemaError: (cause) => integrityError("decode published article rows", cause),
+              SqlError: (cause) => integrityError("read published article versions", cause),
+            }),
           );
 
           const current = versions[0];
