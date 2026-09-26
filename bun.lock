@@ -280,6 +280,14 @@
         "typescript": "7.0.2",
       },
     },
+    "tools/oxlint": {
+      "name": "@monoweb/oxlint",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@oxlint/plugins": "1.77.0",
+        "oxlint": "1.77.0",
+      },
+    },
     "tools/placements-docs": {
       "name": "@monoweb/placements-docs",
       "version": "0.1.0",
@@ -748,6 +756,8 @@
     "@monoweb/e2e": ["@monoweb/e2e@workspace:tools/e2e"],
 
     "@monoweb/homepage": ["@monoweb/homepage@workspace:apps/homepage"],
+
+    "@monoweb/oxlint": ["@monoweb/oxlint@workspace:tools/oxlint"],
 
     "@monoweb/placements-docs": ["@monoweb/placements-docs@workspace:tools/placements-docs"],
 

@@ -3,6 +3,7 @@
 # tools/oxlint
 
 Project Oxlint rules.
+Package `@monoweb/oxlint`.
 
 ## Entry points
 

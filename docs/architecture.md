@@ -236,6 +236,10 @@ Instants are `timestamptz` values at millisecond precision, the precision of the
 defaults and clock writes use `date_trunc('milliseconds', ..., 'UTC')`. Bind an instant as its
 encoded RFC 3339 text; the `Database` template rejects a `DateTime` argument at compile time.
 
+Bind a JSON parameter as its value, `sql.json(canonicalJsonValue(value))`: the `Database` service
+encodes the argument, so JSON text such as `canonicalJson(value)` would be stored as a JSON
+string. `anti-slop/no-json-text-parameter` rejects JSON text there.
+
 Migration files are append-only after acceptance. A forward migration corrects an
 accepted schema. Runtime code does not guess around missing columns.
 

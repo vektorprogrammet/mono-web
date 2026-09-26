@@ -1,0 +1,13 @@
+{
+  "name": "@monoweb/oxlint",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test 'anti-slop/**/*.test.ts'"
+  },
+  "devDependencies": {
+    "@oxlint/plugins": "1.77.0",
+    "oxlint": "1.77.0"
+  }
+}

@@ -51,7 +51,11 @@ const encodeJsonValue = (value: Schema.Json): string => {
 };
 
 /**
- * The canonical JSON text of a datum.
+ * The canonical JSON text of a datum, to hash or compare; a SQL `json` parameter takes
+ * `canonicalJsonValue` instead.
+ *
+ * `sql.json` encodes its argument, so this text would be stored as a JSON string, and
+ * `anti-slop/no-json-text-parameter` rejects it there.
  *
  * @construct digest
  */

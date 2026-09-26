@@ -784,8 +784,8 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [tools/verification/organization-import-rehearsal-main.ts](../tools/verification/organization-import-rehearsal-main.ts)
   - [tools/verification/organization-import-rehearsal-postgres.ts](../tools/verification/organization-import-rehearsal-postgres.ts)
   - [tools/verification/receipt-import-rehearsal.ts](../tools/verification/receipt-import-rehearsal.ts)
-- `canonicalJson`: The canonical JSON text of a datum.
-  [packages/domain/src/shared-kernel/canonical-json.ts:58](../packages/domain/src/shared-kernel/canonical-json.ts#L58), 57 consumers:
+- `canonicalJson`: The canonical JSON text of a datum, to hash or compare; a SQL `json` parameter takes `canonicalJsonValue` instead.
+  [packages/domain/src/shared-kernel/canonical-json.ts:62](../packages/domain/src/shared-kernel/canonical-json.ts#L62), 57 consumers:
   - [apps/backend/src/http-semantics.ts](../apps/backend/src/http-semantics.ts)
   - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
   - [packages/database/runtime/identity-postgres-proof-main.ts](../packages/database/runtime/identity-postgres-proof-main.ts)
@@ -844,7 +844,7 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [tools/verification/organization-import-rehearsal-main.ts](../tools/verification/organization-import-rehearsal-main.ts)
   - [tools/verification/organization-import-rehearsal.ts](../tools/verification/organization-import-rehearsal.ts)
 - `canonicalJsonBytes`: The UTF-8 bytes of the canonical JSON text of a datum.
-  [packages/domain/src/shared-kernel/canonical-json.ts:65](../packages/domain/src/shared-kernel/canonical-json.ts#L65), 58 consumers:
+  [packages/domain/src/shared-kernel/canonical-json.ts:69](../packages/domain/src/shared-kernel/canonical-json.ts#L69), 58 consumers:
   - [apps/backend/src/http-semantics.ts](../apps/backend/src/http-semantics.ts)
   - [apps/backend/src/receipt/import-snapshot.ts](../apps/backend/src/receipt/import-snapshot.ts)
   - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
@@ -904,7 +904,7 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [tools/verification/organization-import-rehearsal.ts](../tools/verification/organization-import-rehearsal.ts)
   - [tools/verification/receipt-import-rehearsal.ts](../tools/verification/receipt-import-rehearsal.ts)
 - `sha256Hex`: The lowercase hexadecimal SHA-256 digest of bytes.
-  [packages/domain/src/shared-kernel/canonical-json.ts:72](../packages/domain/src/shared-kernel/canonical-json.ts#L72), 62 consumers:
+  [packages/domain/src/shared-kernel/canonical-json.ts:76](../packages/domain/src/shared-kernel/canonical-json.ts#L76), 62 consumers:
   - [apps/backend/src/receipt/import-snapshot.ts](../apps/backend/src/receipt/import-snapshot.ts)
   - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
   - [packages/database/runtime/identity-postgres-proof-main.ts](../packages/database/runtime/identity-postgres-proof-main.ts)
