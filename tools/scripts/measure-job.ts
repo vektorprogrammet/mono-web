@@ -277,8 +277,7 @@ const printReport = () => {
   process.stdout.write(
     `Ledger: ${ledgerPath}\n` +
       `Now: MemAvailable ${gib(memory.available)} of ${gib(memory.total)}, swap used ${gib(memory.swapUsed)}, ` +
-      `load1 ${load1.toFixed(2)}, logical CPUs ${logicalCpus}\n` +
-      `Admit if: MemAvailable - peak RSS >= ${gib(memory.total * 0.2)} and load1 + mean cores <= ${(logicalCpus * 0.8).toFixed(1)}\n\n`,
+      `load1 ${load1.toFixed(2)}, logical CPUs ${logicalCpus}\n\n`,
   );
   const classes = new Map<string, Array<LedgerRow>>();
 
