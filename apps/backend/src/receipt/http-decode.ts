@@ -46,13 +46,13 @@ export const decodeReceiptListQuery = (request: Request, allowStatus = true) =>
       search.getAll("status").length > 1 ||
       search.getAll("cursor").length > 1
     ) {
-      return yield* Effect.fail(Problem.make("request.malformed"));
+      return yield* Problem.make("request.malformed");
     }
 
     const status = search.get("status") ?? undefined;
 
     if (status !== undefined && !isReceiptStatus(status)) {
-      return yield* Effect.fail(Problem.make("request.malformed"));
+      return yield* Problem.make("request.malformed");
     }
 
     const cursor = search.get("cursor") ?? undefined;
@@ -75,14 +75,14 @@ export const decodeSubmitQuery = (request: Request) =>
       entries.some(([name]) => name !== "departmentId") ||
       entries.filter(([name]) => name === "departmentId").length > 1
     ) {
-      return yield* Effect.fail(Problem.make("request.malformed"));
+      return yield* Problem.make("request.malformed");
     }
 
     const value = entries[0]?.[1];
 
     if (value === undefined) return undefined;
 
-    if (value.trim().length === 0) return yield* Effect.fail(requestInvalid());
+    if (value.trim().length === 0) return yield* requestInvalid();
 
     return DepartmentId.make(value);
   });
@@ -128,13 +128,13 @@ const decodeMultipartFields = (request: Request, maxFileBytes: number) =>
     const contentType = request.headers.get("content-type") ?? "";
 
     if (contentType.split(";", 1)[0]?.trim().toLowerCase() !== "multipart/form-data") {
-      return yield* Effect.fail(requestInvalid());
+      return yield* requestInvalid();
     }
 
     const contentLength = request.headers.get("content-length");
 
     if (contentLength === null || !/^\d+$/.test(contentLength)) {
-      return yield* Effect.fail(requestInvalid());
+      return yield* requestInvalid();
     }
 
     const bodyLength = Number(contentLength);
@@ -144,7 +144,7 @@ const decodeMultipartFields = (request: Request, maxFileBytes: number) =>
       bodyLength <= 0 ||
       bodyLength > receiptTransferMaxBytes(maxFileBytes)
     ) {
-      return yield* Effect.fail(requestInvalid());
+      return yield* requestInvalid();
     }
 
     const form = yield* Effect.tryPromise({
@@ -328,7 +328,7 @@ const decodeJsonObject = (request: Request) =>
     const body = yield* readJsonBody(request, /^\s*application\/json\s*(?:;|$)/iu, 65_536);
 
     if (body === null || !Predicate.isObjectOrArray(body) || Array.isArray(body)) {
-      return yield* Effect.fail(requestInvalid());
+      return yield* requestInvalid();
     }
 
     return body;

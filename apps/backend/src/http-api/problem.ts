@@ -268,7 +268,7 @@ export const conditionalJson = (input: {
     const decision = evaluateReadPreconditions({ currentETag: input.etag, ...conditions });
 
     if (Predicate.isTagged(decision, "Failed")) {
-      return yield* Effect.fail(Problem.make("precondition.failed"));
+      return yield* Problem.make("precondition.failed");
     }
 
     if (Predicate.isTagged(decision, "NotModified")) {

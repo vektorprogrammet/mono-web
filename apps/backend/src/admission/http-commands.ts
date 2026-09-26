@@ -302,7 +302,7 @@ export const reviseAdmissionPeriod = (
         const current = periods.find((period) => period.id === admissionPeriodId);
 
         if (current === undefined) {
-          return yield* Effect.fail(new AdmissionPeriodNotFound({ admissionPeriodId }));
+          return yield* new AdmissionPeriodNotFound({ admissionPeriodId });
         }
 
         yield* authorizeAdmissionPerson(request, {
@@ -407,7 +407,7 @@ export const submitApplication = (request: Request, input: AdmissionApiHttpOptio
     const now = yield* currentInstant(input.config.now);
 
     if (!input.config.rateLimit.consume(publicRateLimitKey(request), now)) {
-      return yield* Effect.fail(new PublicApplicationRateLimitExceeded({}));
+      return yield* new PublicApplicationRateLimitExceeded({});
     }
 
     const payload = yield* decodeJson(request, SubmitApplicationRequest, input.config.maxBodyBytes);

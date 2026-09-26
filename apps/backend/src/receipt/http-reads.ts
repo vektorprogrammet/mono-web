@@ -134,7 +134,7 @@ export const listReceiptsForApproval = <R>(
       );
 
       if (!Predicate.isTagged(evaluation, "Allow")) {
-        return yield* Effect.fail(Problem.make("authority.denied"));
+        return yield* Problem.make("authority.denied");
       }
 
       const items = yield* projected(() => {
@@ -330,13 +330,13 @@ export const readOwnerReceiptFile = <R>(
         const principal = authenticated.credential.principal;
 
         if (!Predicate.isTagged(principal, "Person")) {
-          return yield* Effect.fail(Problem.unauthenticated(presentation));
+          return yield* Problem.unauthenticated(presentation);
         }
 
         const owned = yield* readOwnedReceiptFile(receiptId, principal.personId);
 
         if (owned === undefined) {
-          return yield* Effect.fail(Problem.make("resource.not-found"));
+          return yield* Problem.make("resource.not-found");
         }
 
         const resource = {
@@ -382,7 +382,7 @@ export const readOwnerReceiptFile = <R>(
         });
 
         if (!Predicate.isTagged(evaluation, "Allow")) {
-          return yield* Effect.fail(Problem.make("authority.denied"));
+          return yield* Problem.make("authority.denied");
         }
 
         return owned.file;
@@ -423,7 +423,7 @@ export const readApprovalReceiptFile = <R>(
         const principal = authenticated.credential.principal;
 
         if (!Predicate.isTagged(principal, "Person")) {
-          return yield* Effect.fail(Problem.unauthenticated(presentation));
+          return yield* Problem.unauthenticated(presentation);
         }
 
         if (barrier !== undefined) {
@@ -543,7 +543,7 @@ export const readReceiptLifecycleEvidence = <R>(
 
         // The evidence spec reveals every denial of its accepted credential.
         if (!Predicate.isTagged(evaluation, "Allow")) {
-          return yield* Effect.fail(Problem.make("authority.denied"));
+          return yield* Problem.make("authority.denied");
         }
 
         const evidence = yield* Economy.use(({ readReceiptLifecycleEvidence }) =>
