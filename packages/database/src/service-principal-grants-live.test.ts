@@ -10,8 +10,10 @@ import {
   evaluateServicePrincipalReceiptApprovalAccess,
 } from "@vektorprogrammet/domain/authz";
 import { Effect, Schema } from "effect";
-import { expect, it } from "vitest";
+import { expect, layer } from "@effect/vitest";
+import { pgQuery } from "./pg-pool.js";
 import { makeServicePrincipalGrantAuthorityService } from "./service-principal-grants-live.js";
+import { TestPlatform } from "./test-support/platform.js";
 import { withPostgresTestDatabase } from "./test-support/postgres.js";
 
 const authorizationInstant = AuthorizationInstant.make("2032-06-01T12:00:00.000Z");
@@ -28,11 +30,15 @@ const credential = AcceptedOAuthServiceCredential.make({
   ),
 });
 
-it(
-  "commits grants with their audit, reads exact candidates, and fails closed for invalid persisted rules",
-  () =>
-    withPostgresTestDatabase(async (pool) => {
-      await pool.query(`
+layer(TestPlatform, { excludeTestServices: true })((it) => {
+  it.effect(
+    "commits grants with their audit, reads exact candidates, and fails closed for invalid persisted rules",
+    () =>
+      withPostgresTestDatabase((pool) =>
+        Effect.gen(function* () {
+          yield* pgQuery(
+            pool,
+            `
     INSERT INTO public.person_profiles (person_id, first_name, last_name) VALUES ('receipt-owner', 'Receipt', 'Owner');
     INSERT INTO public.organization_departments (department_id, name, short_name, email, city) VALUES ('receipt-department', 'Receipt', 'R', 'receipt@example.invalid', 'Oslo');
     INSERT INTO public.service_principals (service_principal_id, name, state) VALUES ('service-receipt-approval', 'Approval service', 'Active');
@@ -46,85 +52,96 @@ it(
       submitted_at, status, payment_account_ciphertext, file_ref, file_object_key, file_content_type, file_byte_length, file_sha256, revision
     ) VALUES ('receipt-1', 'SERVICE-1', 'receipt-owner', 'receipt-department', 1250, 'NOK', 'Service candidate', '2032-06-01',
       '2032-06-01', 'Pending', 'ciphertext:service', 'service-file', 'service-object', 'application/pdf', 100, repeat('a', 64), 0);
-  `);
-      const service = makeServicePrincipalGrantAuthorityService(pool);
+  `,
+          );
+          const service = makeServicePrincipalGrantAuthorityService(pool);
 
-      const grant = Schema.decodeSync(ServicePrincipalReceiptGrantSchema)({
-        grantId: "grant-1",
-        servicePrincipalId: "service-receipt-approval",
-        clientId: "service-client",
-        protectedResource: "urn:vektorprogrammet:native-api",
-        operationId: "receipts.listReceiptsForApproval",
-        capabilityId: "approveReceipt",
-        resourceKind: "receipt",
-        receiptId: "receipt-1",
-        startAt,
-        endAt: null,
-        revokedAt: null,
-        revision: 0,
-      });
+          const grant = yield* Schema.decodeEffect(ServicePrincipalReceiptGrantSchema)({
+            grantId: "grant-1",
+            servicePrincipalId: "service-receipt-approval",
+            clientId: "service-client",
+            protectedResource: "urn:vektorprogrammet:native-api",
+            operationId: "receipts.listReceiptsForApproval",
+            capabilityId: "approveReceipt",
+            resourceKind: "receipt",
+            receiptId: "receipt-1",
+            startAt,
+            endAt: null,
+            revokedAt: null,
+            revision: 0,
+          });
 
-      const input = {
-        grant,
-        audit: {
-          eventId: "created-1",
-          occurredAt: authorizationInstant,
-          operatorActor: "operator",
-          requestCorrelation: "grant-create",
-        },
-      };
+          const input = {
+            grant,
+            audit: {
+              eventId: "created-1",
+              occurredAt: authorizationInstant,
+              operatorActor: "operator",
+              requestCorrelation: "grant-create",
+            },
+          };
 
-      await pool.query(`CREATE FUNCTION public.reject_grant_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END $$;
-    CREATE TRIGGER reject_grant_audit BEFORE INSERT ON public.service_principal_grant_audit FOR EACH ROW EXECUTE FUNCTION public.reject_grant_audit()`);
-      await expect(Effect.runPromise(service.createGrant(input))).rejects.toMatchObject({
-        reason: "PersistenceFailure",
-      });
-      expect(
-        (await pool.query(`SELECT grant_id FROM public.service_principal_grants`)).rows,
-      ).toEqual([]);
-      await pool.query(
-        `DROP TRIGGER reject_grant_audit ON public.service_principal_grant_audit; DROP FUNCTION public.reject_grant_audit()`,
-      );
-      expect(await Effect.runPromise(service.createGrant(input))).toEqual(grant);
-      expect(
-        (
-          await pool.query(
-            `SELECT event_kind, grant_id, request_correlation FROM public.service_principal_grant_audit`,
-          )
-        ).rows,
-      ).toEqual([
-        {
-          event_kind: "service-principal-grant-created",
-          grant_id: "grant-1",
-          request_correlation: "grant-create",
-        },
-      ]);
-      await pool.query(`INSERT INTO public.authz_rules (rule_id, capability_id, effect_kind, subject_kind, subject_service_principal_id, scope, resource_kind, resource_id, params, start_at, revision)
-    VALUES ('pending-rule', 'approveReceipt', 'requirement', 'ServicePrincipal', 'service-receipt-approval', 'Resource', 'receipt', 'receipt-1', '{"requirementId":"receipts.pending","parameters":{}}', '2032-06-01T11:00:00Z', 0)`);
+          yield* pgQuery(
+            pool,
+            `CREATE FUNCTION public.reject_grant_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END $$;
+    CREATE TRIGGER reject_grant_audit BEFORE INSERT ON public.service_principal_grant_audit FOR EACH ROW EXECUTE FUNCTION public.reject_grant_audit()`,
+          );
+          expect(yield* Effect.flip(service.createGrant(input))).toMatchObject({
+            reason: "PersistenceFailure",
+          });
+          expect(
+            (yield* pgQuery(pool, `SELECT grant_id FROM public.service_principal_grants`)).rows,
+          ).toEqual([]);
+          yield* pgQuery(
+            pool,
+            `DROP TRIGGER reject_grant_audit ON public.service_principal_grant_audit; DROP FUNCTION public.reject_grant_audit()`,
+          );
+          expect(yield* service.createGrant(input)).toEqual(grant);
+          expect(
+            (yield* pgQuery(
+              pool,
+              `SELECT event_kind, grant_id, request_correlation FROM public.service_principal_grant_audit`,
+            )).rows,
+          ).toEqual([
+            {
+              event_kind: "service-principal-grant-created",
+              grant_id: "grant-1",
+              request_correlation: "grant-create",
+            },
+          ]);
+          yield* pgQuery(
+            pool,
+            `INSERT INTO public.authz_rules (rule_id, capability_id, effect_kind, subject_kind, subject_service_principal_id, scope, resource_kind, resource_id, params, start_at, revision)
+    VALUES ('pending-rule', 'approveReceipt', 'requirement', 'ServicePrincipal', 'service-receipt-approval', 'Resource', 'receipt', 'receipt-1', '{"requirementId":"receipts.pending","parameters":{}}', '2032-06-01T11:00:00Z', 0)`,
+          );
 
-      const authority = await Effect.runPromise(
-        service.readReceiptApprovalCandidates(credential, authorizationInstant),
-      );
+          const authority = yield* service.readReceiptApprovalCandidates(
+            credential,
+            authorizationInstant,
+          );
 
-      expect(
-        authority.candidates.map(({ grant: candidateGrant, receipt }) => [
-          candidateGrant.grantId,
-          receipt.receiptId,
-          receipt.amountOre,
-        ]),
-      ).toEqual([["grant-1", "receipt-1", "1250"]]);
-      expect(authority.rules.map(({ ruleId }) => ruleId)).toEqual(["pending-rule"]);
-      await pool.query(
-        `UPDATE public.authz_rules SET start_at = '-infinity' WHERE rule_id = 'pending-rule'`,
-      );
+          expect(
+            authority.candidates.map(({ grant: candidateGrant, receipt }) => [
+              candidateGrant.grantId,
+              receipt.receiptId,
+              receipt.amountOre,
+            ]),
+          ).toEqual([["grant-1", "receipt-1", "1250"]]);
+          expect(authority.rules.map(({ ruleId }) => ruleId)).toEqual(["pending-rule"]);
+          yield* pgQuery(
+            pool,
+            `UPDATE public.authz_rules SET start_at = '-infinity' WHERE rule_id = 'pending-rule'`,
+          );
 
-      const invalidRule = await Effect.runPromise(
-        Effect.flip(service.readReceiptApprovalCandidates(credential, authorizationInstant)),
-      );
+          const invalidRule = yield* Effect.flip(
+            service.readReceiptApprovalCandidates(credential, authorizationInstant),
+          );
 
-      expect(invalidRule).toBeInstanceOf(ServicePrincipalGrantAuthorityError);
-      expect(invalidRule.reason).toBe("PersistenceFailure");
-      await pool.query(`UPDATE public.authz_rules SET start_at = '2032-06-01T11:00:00Z' WHERE rule_id = 'pending-rule';
+          expect(invalidRule).toBeInstanceOf(ServicePrincipalGrantAuthorityError);
+          expect(invalidRule.reason).toBe("PersistenceFailure");
+          yield* pgQuery(
+            pool,
+            `UPDATE public.authz_rules SET start_at = '2032-06-01T11:00:00Z' WHERE rule_id = 'pending-rule';
         INSERT INTO public.economy_receipts (
           receipt_id, visual_id, owner_person_id, department_id, amount_ore, currency, description,
           receipt_date, submitted_at, status, approved_at, payment_account_ciphertext,
@@ -154,62 +171,69 @@ it(
           resource_kind, resource_id, params, start_at, revision
         ) SELECT 'pending-' || receipt_id, 'approveReceipt', 'requirement', 'ServicePrincipal', 'service-receipt-approval',
           'Resource', 'receipt', receipt_id, '{"requirementId":"receipts.pending","parameters":{}}', '2032-06-01T11:00:00Z', 0
-        FROM public.economy_receipts WHERE receipt_id LIKE 'service-page-%';`);
+        FROM public.economy_receipts WHERE receipt_id LIKE 'service-page-%';`,
+          );
 
-      const firstPage = await Effect.runPromise(
-        service.readReceiptApprovalCandidates(credential, authorizationInstant),
-      );
+          const firstPage = yield* service.readReceiptApprovalCandidates(
+            credential,
+            authorizationInstant,
+          );
 
-      expect([...new Set(firstPage.candidates.map(({ receipt }) => receipt.receiptId))]).toEqual(
-        Array.from(
-          { length: 50 },
-          (_, index) => `service-page-a-${String(index).padStart(3, "0")}`,
-        ),
-      );
-      expect(
-        firstPage.candidates
-          .filter(({ receipt }) => receipt.receiptId === "service-page-a-049")
-          .map(({ grant }) => grant.grantId)
-          .sort(),
-      ).toEqual(["grant-page-duplicate", "grant-service-page-a-049"]);
+          expect([
+            ...new Set(firstPage.candidates.map(({ receipt }) => receipt.receiptId)),
+          ]).toEqual(
+            Array.from(
+              { length: 50 },
+              (_, index) => `service-page-a-${String(index).padStart(3, "0")}`,
+            ),
+          );
+          expect(
+            firstPage.candidates
+              .filter(({ receipt }) => receipt.receiptId === "service-page-a-049")
+              .map(({ grant }) => grant.grantId)
+              .sort(),
+          ).toEqual(["grant-page-duplicate", "grant-service-page-a-049"]);
 
-      if (firstPage.nextCursor === undefined) throw new Error("Service page lost continuation");
-      await pool.query(
-        `UPDATE public.economy_receipts SET status = 'Approved', approved_at = '2032-06-01T11:00:00Z' WHERE receipt_id = 'service-page-a-000'`,
-      );
+          if (firstPage.nextCursor === undefined) throw new Error("Service page lost continuation");
+          yield* pgQuery(
+            pool,
+            `UPDATE public.economy_receipts SET status = 'Approved', approved_at = '2032-06-01T11:00:00Z' WHERE receipt_id = 'service-page-a-000'`,
+          );
 
-      const nextPage = await Effect.runPromise(
-        service.readReceiptApprovalCandidates(
-          credential,
-          authorizationInstant,
-          undefined,
-          firstPage.nextCursor,
-        ),
-      );
+          const nextPage = yield* service.readReceiptApprovalCandidates(
+            credential,
+            authorizationInstant,
+            undefined,
+            firstPage.nextCursor,
+          );
 
-      expect(nextPage.candidates.map(({ receipt }) => receipt.receiptId)).toEqual([
-        ...Array.from(
-          { length: 10 },
-          (_, index) => `service-page-a-${String(index + 50).padStart(3, "0")}`,
-        ),
-        "receipt-1",
-      ]);
-      expect(nextPage.nextCursor).toBeUndefined();
+          expect(nextPage.candidates.map(({ receipt }) => receipt.receiptId)).toEqual([
+            ...Array.from(
+              { length: 10 },
+              (_, index) => `service-page-a-${String(index + 50).padStart(3, "0")}`,
+            ),
+            "receipt-1",
+          ]);
+          expect(nextPage.nextCursor).toBeUndefined();
 
-      const noMatchingStatus = await Effect.runPromise(
-        service.readReceiptApprovalCandidates(credential, authorizationInstant, "Rejected"),
-      );
+          const noMatchingStatus = yield* service.readReceiptApprovalCandidates(
+            credential,
+            authorizationInstant,
+            "Rejected",
+          );
 
-      expect(
-        evaluateServicePrincipalReceiptApprovalAccess(
-          credential,
-          noMatchingStatus,
-          authorizationInstant,
-        )._tag,
-      ).toBe("Allow");
-      expect(
-        noMatchingStatus.candidates.every(({ receipt }) => receipt.status !== "Rejected"),
-      ).toBe(true);
-    }),
-  20_000,
-);
+          expect(
+            evaluateServicePrincipalReceiptApprovalAccess(
+              credential,
+              noMatchingStatus,
+              authorizationInstant,
+            )._tag,
+          ).toBe("Allow");
+          expect(
+            noMatchingStatus.candidates.every(({ receipt }) => receipt.status !== "Rejected"),
+          ).toBe(true);
+        }),
+      ),
+    20_000,
+  );
+});

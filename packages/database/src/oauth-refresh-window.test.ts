@@ -1,7 +1,6 @@
-import { readFile } from "node:fs/promises";
 import { expect, layer } from "@effect/vitest";
 import { type DisposablePostgres, startDisposablePostgres } from "@monoweb/postgres";
-import { Context, DateTime, Effect, Layer } from "effect";
+import { Context, DateTime, Effect, FileSystem, Layer, Path } from "effect";
 import { Pool } from "pg";
 import {
   type DatabaseMigrationDefinition,
@@ -10,6 +9,7 @@ import {
 } from "./migrations.js";
 import { openRefreshFamily, recordRefreshFamilyUse } from "./oauth-live.js";
 import { DatabasePgPool, pgQuery, pgTransaction } from "./pg-pool.js";
+import { TestPlatform } from "./test-support/platform.js";
 import { withPostgresTestDatabase } from "./test-support/postgres.js";
 
 const hour = 60 * 60 * 1_000;
@@ -30,7 +30,12 @@ const osloCluster = Layer.effect(
 );
 
 const readSql = (migration: DatabaseMigrationDefinition) =>
-  Effect.promise(() => readFile(migration.url, "utf8"));
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+
+    return yield* fs.readFileString(yield* path.fromFileUrl(migration.url));
+  });
 
 /**
  * A new database of the cluster, migrated through `migrations`, whose sessions run in
@@ -175,9 +180,9 @@ const upgradeFromBefore0077 = (pool: Pool) =>
         [
           familyId,
           `code-${familyId}`,
-          new Date(created),
-          new Date(Date.parse(created) + 168 * hour),
-          new Date(Date.parse(created) + 720 * hour),
+          created,
+          DateTime.formatIso(DateTime.add(DateTime.makeUnsafe(created), { hours: 168 })),
+          DateTime.formatIso(DateTime.add(DateTime.makeUnsafe(created), { hours: 720 })),
         ],
       );
 
@@ -228,7 +233,7 @@ const earlierFamilies = [
 
 const upgradeEvidence = { before: earlierFamilies, after: earlierFamilies };
 
-layer(osloCluster, { excludeTestServices: true, timeout: "60 seconds" })(
+layer(Layer.merge(osloCluster, TestPlatform), { excludeTestServices: true, timeout: "60 seconds" })(
   "OAuth refresh windows in a PostgreSQL session with daylight saving time",
   (it) => {
     it.layer(osloApplicationDatabase)("through the application's statements", (it) => {
@@ -293,12 +298,9 @@ layer(osloCluster, { excludeTestServices: true, timeout: "60 seconds" })(
     );
 
     it.effect("upgrades families that the earlier statements wrote, on PGlite", () =>
-      Effect.promise(() =>
-        withPostgresTestDatabase(
-          (pool) => Effect.runPromise(upgradeFromBefore0077(pool)),
-          windows.preceding,
-        ),
-      ).pipe(Effect.map((evidence) => expect(evidence).toEqual(upgradeEvidence))),
+      withPostgresTestDatabase(upgradeFromBefore0077, windows.preceding).pipe(
+        Effect.map((evidence) => expect(evidence).toEqual(upgradeEvidence)),
+      ),
     );
   },
 );

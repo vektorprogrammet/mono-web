@@ -1,7 +1,8 @@
-import { describe, expect, it } from "@effect/vitest";
+import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
 import type { Pool } from "pg";
 import { selectDatabaseMigration } from "./migrations.js";
+import { TestPlatform } from "./test-support/platform.js";
 import { withPostgresTestDatabase } from "./test-support/postgres.js";
 
 /**
@@ -88,33 +89,31 @@ const readDefinitions = (pool: Pool) =>
     ),
   );
 
-describe("calendar arithmetic in the migrated schema", () => {
-  it.effect("finds the refresh-window checks of migration 0027 before migration 0077", () =>
-    Effect.promise(() =>
+layer(TestPlatform, { excludeTestServices: true })(
+  "calendar arithmetic in the migrated schema",
+  (it) => {
+    it.effect("finds the refresh-window checks of migration 0027 before migration 0077", () =>
       withPostgresTestDatabase(
-        (pool) => Effect.runPromise(readDefinitions(pool)),
+        readDefinitions,
         selectDatabaseMigration("77_oauth-refresh-elapsed-windows").preceding,
+      ).pipe(
+        Effect.map((findings) =>
+          expect(findings).toEqual([
+            "check auth.oauth_refresh_families oauth_refresh_families_check1: '30 days'::interval",
+            "check auth.oauth_refresh_families oauth_refresh_families_check2: '7 days'::interval",
+          ]),
+        ),
       ),
-    ).pipe(
-      Effect.map((findings) =>
-        expect(findings).toEqual([
-          "check auth.oauth_refresh_families oauth_refresh_families_check1: '30 days'::interval",
-          "check auth.oauth_refresh_families oauth_refresh_families_check2: '7 days'::interval",
-        ]),
-      ),
-    ),
-  );
+    );
 
-  it.effect("shifts no instant by a calendar amount in the session TimeZone", () =>
-    Effect.promise(() =>
+    it.effect("shifts no instant by a calendar amount in the session TimeZone", () =>
       withPostgresTestDatabase((pool) =>
-        Effect.runPromise(
-          Effect.gen(function* () {
-            const migrated = yield* readDefinitions(pool);
+        Effect.gen(function* () {
+          const migrated = yield* readDefinitions(pool);
 
-            // Each calendar shift is a finding; hours and a named zone are the negative controls.
-            yield* Effect.promise(() =>
-              pool.query(`
+          // Each calendar shift is a finding; hours and a named zone are the negative controls.
+          yield* Effect.promise(() =>
+            pool.query(`
                 CREATE SCHEMA calendar_control;
                 CREATE TABLE calendar_control.windows (
                   opened_at timestamptz NOT NULL,
@@ -135,26 +134,25 @@ describe("calendar arithmetic in the migrated schema", () => {
                 CREATE FUNCTION calendar_control.extend_zoned(instant timestamptz) RETURNS timestamptz
                   LANGUAGE sql RETURN date_subtract(instant, interval '3 days', 'Europe/Oslo');
               `),
-            );
+          );
 
-            return { migrated, controls: yield* readDefinitions(pool) };
+          return { migrated, controls: yield* readDefinitions(pool) };
+        }),
+      ).pipe(
+        Effect.map((findings) =>
+          expect(findings).toEqual({
+            migrated: [],
+            controls: [
+              "check calendar_control.windows calendar: '30 days'::interval",
+              "check calendar_control.windows iso: '1 mon'::interval",
+              "default calendar_control.windows closes_at: '1 day'::interval",
+              "function calendar_control.extend(timestamp with time zone): interval '2 weeks'",
+              "function calendar_control.extend_days(timestamp with time zone): make_interval(days => 2)",
+              "view calendar_control.earlier: '1 year'::interval",
+            ],
           }),
         ),
       ),
-    ).pipe(
-      Effect.map((findings) =>
-        expect(findings).toEqual({
-          migrated: [],
-          controls: [
-            "check calendar_control.windows calendar: '30 days'::interval",
-            "check calendar_control.windows iso: '1 mon'::interval",
-            "default calendar_control.windows closes_at: '1 day'::interval",
-            "function calendar_control.extend(timestamp with time zone): interval '2 weeks'",
-            "function calendar_control.extend_days(timestamp with time zone): make_interval(days => 2)",
-            "view calendar_control.earlier: '1 year'::interval",
-          ],
-        }),
-      ),
-    ),
-  );
-});
+    );
+  },
+);
