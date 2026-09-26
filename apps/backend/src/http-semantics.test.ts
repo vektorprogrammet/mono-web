@@ -1,6 +1,7 @@
 import { StrongETag } from "@vektorprogrammet/http-api";
 import { Problem } from "@vektorprogrammet/http-api/http-semantics";
-import { describe, expect, it } from "vitest";
+import { Effect } from "effect";
+import { describe, expect, it } from "@effect/vitest";
 import {
   MergePatchInterpretation,
   MergePatchFieldState,
@@ -288,26 +289,28 @@ describe("native HTTP semantics", () => {
     expect(admissionCacheControl(1_000, [])).toContain("max-age=30");
   });
 
-  it("replays exact stored response bytes", async () => {
-    const first = new Response('{"receiptId":"receipt-1"}', {
-      status: 201,
-      headers: {
-        "content-type": "application/json",
-        etag: tagA,
-        location: "/api/receipts/receipt-1",
-        "x-private": "must-not-persist",
-      },
-    });
+  it.effect("replays exact stored response bytes", () =>
+    Effect.gen(function* () {
+      const first = new Response('{"receiptId":"receipt-1"}', {
+        status: 201,
+        headers: {
+          "content-type": "application/json",
+          etag: tagA,
+          location: "/api/receipts/receipt-1",
+          "x-private": "must-not-persist",
+        },
+      });
 
-    const capsule = await responseCapsule(first);
-    expect(capsule.headers).not.toHaveProperty("cache-control");
-    const replay = responseFromCapsule(capsule);
-    expect(replay.status).toBe(201);
-    expect(await replay.text()).toBe('{"receiptId":"receipt-1"}');
-    expect(replay.headers.get("location")).toBe("/api/receipts/receipt-1");
-    expect(replay.headers.get("cache-control")).toBe("no-store");
-    expect(replay.headers.has("x-private")).toBe(false);
-  });
+      const capsule = yield* Effect.promise(() => responseCapsule(first));
+      expect(capsule.headers).not.toHaveProperty("cache-control");
+      const replay = responseFromCapsule(capsule);
+      expect(replay.status).toBe(201);
+      expect(yield* Effect.promise(() => replay.text())).toBe('{"receiptId":"receipt-1"}');
+      expect(replay.headers.get("location")).toBe("/api/receipts/receipt-1");
+      expect(replay.headers.get("cache-control")).toBe("no-store");
+      expect(replay.headers.has("x-private")).toBe(false);
+    }),
+  );
   it("derives parameterized preflight methods only from supplied route metadata", () => {
     const resolve = nativePreflightMethodResolver([
       { method: "GET", path: "/fixture/items/:itemId" },

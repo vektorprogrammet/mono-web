@@ -256,7 +256,7 @@ const request = (pathname: string, sessionValue: string): Effect.Effect<Response
 
 const problem = (response: Response) =>
   Effect.gen(function* () {
-    const decoded = Schema.decodeUnknownSync(NativeProblem)(
+    const decoded = yield* Schema.decodeUnknownEffect(NativeProblem)(
       yield* Effect.promise(() => response.json()),
     );
 

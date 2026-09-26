@@ -48,6 +48,7 @@ import {
   externalNativePreflightAttachmentGaps,
   externalNativePreflightMethodsForPath,
 } from "./native-api-preflight.js";
+import { jsonText } from "./http-api/problem.js";
 import { makeBackendTestHttp as backendHttpHandler } from "./test/native-http.js";
 
 const token = "better-auth.session_token";
@@ -670,7 +671,7 @@ describe("unified backend router", () => {
                 "x-vektor-contact-ip": "127.0.0.1",
                 ...headers,
               },
-              body: JSON.stringify({
+              body: yield* jsonText({
                 departmentId: "one",
                 name: "Ola",
                 email: "ola@example.org",
@@ -680,11 +681,13 @@ describe("unified backend router", () => {
             }),
           );
 
+          const { code: problemCode } = yield* Schema.decodeUnknownEffect(NativeProblem)(
+            yield* Effect.promise(() => response.json()),
+          );
+
           expect({
             status: response.status,
-            code: Schema.decodeUnknownSync(NativeProblem)(
-              yield* Effect.promise(() => response.json()),
-            ).code,
+            code: problemCode,
             challenge: response.headers.get("www-authenticate"),
           }).toEqual({ status: 401, code, challenge: 'ContactSSR realm="native-contact"' });
         }
@@ -768,15 +771,17 @@ describe("unified backend router", () => {
           new Request(`http://backend.test${path}`, { headers }),
         );
 
+        const body = yield* Schema.decodeUnknownEffect(
+          Schema.Struct({
+            code: Schema.optional(Schema.String),
+            personId: Schema.optional(Schema.String),
+          }),
+        )(yield* Effect.promise(() => response.json()));
+
         return {
           status: response.status,
           challenge: response.headers.get("www-authenticate"),
-          ...Schema.decodeUnknownSync(
-            Schema.Struct({
-              code: Schema.optional(Schema.String),
-              personId: Schema.optional(Schema.String),
-            }),
-          )(yield* Effect.promise(() => response.json())),
+          ...body,
         };
       });
 
@@ -842,14 +847,13 @@ describe("unified backend router", () => {
       expect(response.status).toBe(500);
       expect(response.headers.get("content-type")).toBe("application/problem+json");
       expect(response.headers.get("cache-control")).toBe("no-store");
-      expect(
-        Schema.decodeUnknownSync(SocialEventsReadScopeProblem)(
-          yield* Effect.promise(() => response.json()),
-          {
-            onExcessProperty: "error",
-          },
-        ).code,
-      ).toBe("internal.error");
+
+      const problem = yield* Schema.decodeUnknownEffect(SocialEventsReadScopeProblem)(
+        yield* Effect.promise(() => response.json()),
+        { onExcessProperty: "error" },
+      );
+
+      expect(problem.code).toBe("internal.error");
     }),
   );
 

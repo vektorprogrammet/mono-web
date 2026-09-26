@@ -162,7 +162,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/receipt/http-commands.ts](../apps/backend/src/receipt/http-commands.ts)
   - [apps/backend/src/router.ts](../apps/backend/src/router.ts)
 - `jsonText`: The JSON text of a representation, byte for byte what `JSON.stringify` writes.
-  [apps/backend/src/http-api/problem.ts:72](../apps/backend/src/http-api/problem.ts#L72), 17 consumers:
+  [apps/backend/src/http-api/problem.ts:72](../apps/backend/src/http-api/problem.ts#L72), 18 consumers:
   - [apps/backend/src/admission/admission-period.http.test.ts](../apps/backend/src/admission/admission-period.http.test.ts)
   - [apps/backend/src/admission/http-reads.ts](../apps/backend/src/admission/http-reads.ts)
   - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
@@ -178,6 +178,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/recruitment/http-commands.ts](../apps/backend/src/recruitment/http-commands.ts)
   - [apps/backend/src/recruitment/http.test.ts](../apps/backend/src/recruitment/http.test.ts)
   - [apps/backend/src/recruitment/maintenance-http.ts](../apps/backend/src/recruitment/maintenance-http.ts)
+  - [apps/backend/src/router.test.ts](../apps/backend/src/router.test.ts)
   - [apps/backend/src/schools/administration-http.ts](../apps/backend/src/schools/administration-http.ts)
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
 - `classifyCredential`: Records, from the raw request only, whether person credential material was presented.
