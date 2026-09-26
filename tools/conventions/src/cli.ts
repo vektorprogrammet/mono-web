@@ -3,13 +3,23 @@
  * run `check`: each reports its findings and exits 1 if there is one. `write` renders the
  * generated files of the topic, then checks; `exceptions` has none. The pre-commit hook passes
  * `--staged`, which lists the files of the Git index instead of the working tree, so untracked
- * files do not count.
+ * files do not count. `just constructs consumers [name]` prints the modules that import a
+ * construct, which no generated page lists.
  */
-import { lstatSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { checkLayout, type Finding } from "./check.js";
 import { readContextModel } from "./cml.js";
-import { catalogue, checkConstructs, readConstructs, renderCatalogue } from "./constructs.js";
+import {
+  checkPages,
+  consumerFindings,
+  constructPages,
+  parseFindings,
+  readCandidates,
+  readConstructs,
+  readConsumers,
+  renderPages,
+} from "./constructs.js";
 import { checkExceptions } from "./exceptions.js";
 import { checkGuides, guideFile, guideText, linkFile, linkText, renderGuides } from "./guides.js";
 import { readWorkflow, testsWorkflow } from "./journeys.js";
@@ -20,14 +30,16 @@ import { type Repository, readRepository, repositoryRoot } from "./repository.js
 import { spliceFiles } from "./sections.js";
 
 const usage = `Usage: bun tools/conventions/src/cli.ts <layout | constructs | guides | exceptions> [check | write] [--staged]
+       bun tools/conventions/src/cli.ts constructs consumers [name]
 
 layout      the layout declaration against the tree, the generated README.md and AGENTS.md sections, and the hosted journeys
-constructs  the construct catalogue docs/constructs.md against the @construct tags and the imports
+constructs  the construct index docs/constructs.md and the contract pages docs/constructs/ against the @construct tags and their JSDoc, and each construct's consumers
 guides      the AGENTS.md guide, and the CLAUDE.md that imports it, of every app, package, and context folder
 exceptions  every suppression of an Effect rule against the registry docs/effect-exceptions.json
 
 check       report findings and exit 1 if there is one (the default)
 write       render the generated files of the topic, then check; exceptions has none
+consumers   print the modules that import each construct called name, or every construct with its consumer count
 --staged    check the files of the Git index, as the pre-commit hook does
 `;
 
@@ -58,6 +70,7 @@ const rewrite = (path: string, text: string) => {
 
   if (current === text) return;
 
+  mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, text);
   process.stdout.write(`${topic}: rewrote ${path}\n`);
 };
@@ -83,31 +96,74 @@ const layout = (): Outcome => {
 
 const constructs = (): Outcome => {
   if (command === "write") {
-    const repository = readRepository(root, false);
+    const tree = readRepository(root, false);
+    const pages = renderPages(readConstructs(tree).constructs);
 
-    rewrite(
-      catalogue,
-      renderCatalogue(readConstructs(repository, readModuleGraph(repository)).constructs),
-    );
+    for (const [path, text] of pages) rewrite(path, text);
+
+    for (const path of tree.paths)
+      if (path.startsWith(`${constructPages.contracts}/`) && !pages.has(path)) {
+        rmSync(join(root, path));
+        process.stdout.write(`${topic}: removed ${path}\n`);
+      }
   }
 
   const repository = readRepository(root, staged);
+  const report = readConstructs(repository);
   const graph = readModuleGraph(repository);
-  const report = readConstructs(repository, graph);
+  const consumers = readConsumers(report.constructs, graph);
+  const candidates = readCandidates(repository, graph, report.constructs);
 
   return {
-    findings: checkConstructs(repository, report),
-    warnings: report.candidates.map(
-      (candidate) =>
-        `${candidate.path}:${candidate.line}: ${candidate.name} has no @construct tag, and ${candidate.importers.length} modules outside ${packageOf(candidate.path) ?? "its package"} import it, in ${[...new Set(candidate.importers.map((importer) => packageOf(importer) ?? importer))].join(", ")}`,
-    ),
-    summary: `${graph.modules.size} modules, ${report.constructs.length} constructs, ${report.constructs.reduce((sum, construct) => sum + construct.consumers.length, 0)} consumers, ${report.candidates.length} untagged candidates`,
+    findings: [
+      ...parseFindings(graph),
+      ...report.findings,
+      ...checkPages(repository, report.constructs),
+    ],
+    // Reported, not yet failing, until every construct carries its contract.
+    warnings: [
+      ...[...report.gaps, ...consumerFindings(consumers)].map(
+        (finding) => `${finding.path}: ${finding.message}`,
+      ),
+      ...candidates.map(
+        (candidate) =>
+          `${candidate.path}:${candidate.line}: ${candidate.name} has no @construct tag, and ${candidate.importers.length} modules outside ${packageOf(candidate.path) ?? "its package"} import it, in ${[...new Set(candidate.importers.map((importer) => packageOf(importer) ?? importer))].join(", ")}`,
+      ),
+    ],
+    summary: `${graph.modules.size} modules, ${report.constructs.length} constructs, ${consumers.reduce((sum, { importers }) => sum + importers.length, 0)} consumers, ${candidates.length} untagged candidates`,
   };
+};
+
+/** Prints the consumers of each construct called `name`, or the count of every construct. */
+const printConsumers = (name: string | undefined): number => {
+  const repository = readRepository(root, false);
+  const all = readConstructs(repository).constructs;
+  const selected = name === undefined ? all : all.filter((construct) => construct.name === name);
+
+  if (selected.length === 0) {
+    process.stderr.write(`constructs: no construct is called ${name ?? ""}\n`);
+
+    return 1;
+  }
+
+  for (const { construct, importers, counted } of readConsumers(
+    selected,
+    readModuleGraph(repository),
+  )) {
+    process.stdout.write(
+      `${construct.path}:${construct.line} ${construct.name}: ${importers.length} ${importers.length === 1 ? "consumer" : "consumers"}, ${counted.length} outside the tests of ${packageOf(construct.path) ?? "its app or package"}\n`,
+    );
+
+    if (name !== undefined)
+      for (const importer of importers) process.stdout.write(`  ${importer}\n`);
+  }
+
+  return 0;
 };
 
 const guideSet = (repository: Repository) => {
   const model = readContextModel(repository.read(contextMap));
-  const { constructs } = readConstructs(repository, readModuleGraph(repository));
+  const { constructs } = readConstructs(repository);
 
   return { model, set: renderGuides(repository, model, constructs) };
 };
@@ -176,16 +232,21 @@ const run = Object.entries({ layout, constructs, guides, exceptions }).find(
   ([name]) => name === topic,
 )?.[1];
 
+const consumersOf =
+  topic === "constructs" && command === "consumers" && !staged && rest.length <= 1;
+
 if (
   run === undefined ||
-  !(command === "check" || command === "write") ||
-  rest.length > 0 ||
+  !(command === "check" || command === "write" || consumersOf) ||
+  (rest.length > 0 && !consumersOf) ||
   (staged && command === "write") ||
   (topic === "exceptions" && command === "write")
 ) {
   process.stderr.write(usage);
   process.exit(2);
 }
+
+if (consumersOf) process.exit(printConsumers(rest[0]));
 
 const outcome = run();
 

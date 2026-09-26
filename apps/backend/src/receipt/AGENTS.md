@@ -63,17 +63,17 @@ No downstream context.
 
 ## Constructs
 
-The shared constructs defined here. [docs/constructs.md](../../../../docs/constructs.md) lists their consumers.
+The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../../../docs/constructs.md) indexes them all.
 
-- [`ReceiptE2EBarrierArrival`](e2e-support.ts) (test-harness): `false` for unprobed requests; `true` once all three lanes are synchronized.
-- [`receiptProblems`](http-problem.ts) (http-problem): The one answer for every receipt failure other than a rejected credential, including an unavailable store, Identity, or E2E barrier.
-- [`storedReceiptProblems`](http-problem.ts) (http-problem): A stored receipt value a read cannot decode is the receipt store failing, not the request.
-- [`receiptCredentialProblems`](http-problem.ts) (http-problem): A credential rejected inside a receipt handler is answered from the request's own evidence.
-- [`jsonResponse`](http-representation.ts) (http-transport): A JSON body under the receipt cache policy the caller names.
-- [`privateJsonResponse`](http-representation.ts) (http-transport): A JSON body private to the caller, varying by Origin.
-- [`projected`](http-representation.ts) (http-problem): Projects stored rows onto response items.
-- [`receiptMutationCapsule`](http-representation.ts) (http-transport): The replayable response of one receipt mutation.
-- [`readPrivateReceiptFile`](http-representation.ts) (http-transport): Answers verified private bytes with their exact headers; unreadable bytes are the receipt store failing.
+- [`ReceiptE2EBarrierArrival`](../../../../docs/constructs/test-harness.md#receipte2ebarrierarrival) (test-harness): `false` for unprobed requests; `true` once all three lanes are synchronized.
+- [`receiptProblems`](../../../../docs/constructs/http-problem.md#receiptproblems) (http-problem): The one answer for every receipt failure other than a rejected credential, including an unavailable store, Identity, or E2E barrier.
+- [`storedReceiptProblems`](../../../../docs/constructs/http-problem.md#storedreceiptproblems) (http-problem): A stored receipt value a read cannot decode is the receipt store failing, not the request.
+- [`receiptCredentialProblems`](../../../../docs/constructs/http-problem.md#receiptcredentialproblems) (http-problem): A credential rejected inside a receipt handler is answered from the request's own evidence.
+- [`jsonResponse`](../../../../docs/constructs/http-transport.md#jsonresponse-1) (http-transport): A JSON body under the receipt cache policy the caller names.
+- [`privateJsonResponse`](../../../../docs/constructs/http-transport.md#privatejsonresponse) (http-transport): A JSON body private to the caller, varying by Origin.
+- [`projected`](../../../../docs/constructs/http-problem.md#projected) (http-problem): Projects stored rows onto response items.
+- [`receiptMutationCapsule`](../../../../docs/constructs/http-transport.md#receiptmutationcapsule) (http-transport): The replayable response of one receipt mutation.
+- [`readPrivateReceiptFile`](../../../../docs/constructs/http-transport.md#readprivatereceiptfile) (http-transport): Answers verified private bytes with their exact headers; unreadable bytes are the receipt store failing.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

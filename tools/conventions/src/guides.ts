@@ -19,7 +19,7 @@ import {
   type ContextModel,
   type Relationship,
 } from "./cml.js";
-import { catalogue, type Construct } from "./constructs.js";
+import { constructPages, contractLinks, type Construct } from "./constructs.js";
 import {
   contextLayerRoles,
   contextLayers,
@@ -145,6 +145,8 @@ interface Rendering {
   readonly guides: ReadonlyArray<Guide>;
   readonly model: ContextModel;
   readonly constructs: ReadonlyArray<Construct>;
+  /** The contract page and anchor of each construct. */
+  readonly contracts: ReadonlyMap<Construct, string>;
   readonly repository: Repository;
 }
 
@@ -322,11 +324,11 @@ const constructSection = (rendering: Rendering): ReadonlyArray<string> => {
   return [
     "## Constructs",
     "",
-    `The shared constructs defined here. [${catalogue}](${posix.relative(directory, catalogue)}) lists their consumers.`,
+    `The shared constructs defined here. Each name links to its contract; [${constructPages.index}](${posix.relative(directory, constructPages.index)}) indexes them all.`,
     "",
     ...owned.map(
       (construct) =>
-        `- [${code(construct.name)}](${posix.relative(directory, construct.path)}) (${construct.category}): ${construct.summary}`,
+        `- [${code(construct.name)}](${posix.relative(directory, rendering.contracts.get(construct) ?? constructPages.index)}) (${construct.category}): ${construct.summary}`,
     ),
     "",
   ];
@@ -467,13 +469,14 @@ export const renderGuides = (
   constructs: ReadonlyArray<Construct>,
 ): GuideSet => {
   const guides = readGuides(repository, model);
+  const contracts = contractLinks(constructs);
 
   return {
     guides,
     sections: new Map(
       guides.map((guide) => [
         guide.directory,
-        renderGuide({ guide, guides, model, constructs, repository }),
+        renderGuide({ guide, guides, model, constructs, contracts, repository }),
       ]),
     ),
   };

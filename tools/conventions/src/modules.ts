@@ -49,7 +49,8 @@ export interface ModuleGraph {
   readonly importers: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
-const moduleFile = /\.(?:[cm]?[jt]sx?)$/u;
+/** A TypeScript or JavaScript module, by its extension. */
+export const moduleFile = /\.(?:[cm]?[jt]sx?)$/u;
 
 export const bindingKey = (binding: Binding): string => `${binding.path}#${binding.name}`;
 
@@ -60,7 +61,8 @@ export const packageOf = (path: string): string | undefined => {
   return Object.hasOwn(packageDirectories, directory) ? directory : undefined;
 };
 
-const parseModule = (path: string, text: string): Module => {
+/** The imports, exports, and re-exports of one module. */
+export const parseModule = (path: string, text: string): Module => {
   const parsed = parseSync(path, text);
   const imports: Array<Import> = [];
   const namespaces = new Map<string, string>();

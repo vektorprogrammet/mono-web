@@ -5,6 +5,7 @@
  * hosted journeys of the Tests workflow and of its document, and `guides.ts` renders the module
  * guides. The tables use the column alignment that Oxfmt writes, so formatting never changes them.
  */
+import { constructPages } from "./constructs.js";
 import {
   exclusionOf,
   exclusions,
@@ -88,7 +89,7 @@ const renderLayout = (): string => {
     `Code that several contexts share lives in ${code(sharedKernel)}.`,
     `${code("just layout")} checks the tree against [${declaration}](${declaration}), which lists the exceptions and their reasons.`,
     `Every app, package, and context folder has an ${code("AGENTS.md")} guide and a ${code("CLAUDE.md")} that imports it; ${code("just guides write")} renders their generated part.`,
-    `[docs/constructs.md](docs/constructs.md) lists the shared constructs and their consumers; ${code("just constructs write")} renders it.`,
+    `[${constructPages.index}](${constructPages.index}) indexes the shared constructs, and a page per category in [${constructPages.contracts}](${constructPages.contracts}) holds their contracts; ${code("just constructs write")} renders them, and ${code("just constructs consumers <name>")} prints the modules that import one.`,
     `[docs/effect-exceptions.json](docs/effect-exceptions.json) registers each suppression of an Effect rule; ${code("just exceptions")} checks it against the sites.`,
   ].join("\n");
 };

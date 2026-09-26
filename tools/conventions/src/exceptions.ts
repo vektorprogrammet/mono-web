@@ -17,7 +17,7 @@
 import { Result, Schema } from "effect";
 import { parseSync } from "rolldown/utils";
 import type { Finding } from "./check.js";
-import { type Comment, docLines } from "./constructs.js";
+import { type Comment, docLines } from "./contracts.js";
 import type { Repository } from "./repository.js";
 
 export const registry = "docs/effect-exceptions.json";

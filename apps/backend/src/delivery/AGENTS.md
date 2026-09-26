@@ -58,9 +58,9 @@ No aggregate of another context.
 
 ## Constructs
 
-The shared constructs defined here. [docs/constructs.md](../../../../docs/constructs.md) lists their consumers.
+The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../../../docs/constructs.md) indexes them all.
 
-- [`deliverJson`](http.ts) (delivery): Shared acknowledged JSON transport; deliberately no retry on ambiguous acceptance.
+- [`deliverJson`](../../../../docs/constructs/delivery.md#deliverjson) (delivery): Shared acknowledged JSON transport; deliberately no retry on ambiguous acceptance.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

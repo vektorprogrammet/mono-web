@@ -81,10 +81,10 @@ Responsibilities:
 
 ## Constructs
 
-The shared constructs defined here. [docs/constructs.md](../../../../docs/constructs.md) lists their consumers.
+The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../../../docs/constructs.md) indexes them all.
 
-- [`lockOrganizationAdministratorSet`](authority-postgres.ts) (sql-lock): Acquire before any person lock when changing the usable administrator set.
-- [`lockPersonAuthorization`](authority-postgres.ts) (sql-lock): Serializes one person's protected command with person-keyed authority writers.
+- [`lockOrganizationAdministratorSet`](../../../../docs/constructs/sql-lock.md#lockorganizationadministratorset) (sql-lock): Acquire before any person lock when changing the usable administrator set.
+- [`lockPersonAuthorization`](../../../../docs/constructs/sql-lock.md#lockpersonauthorization) (sql-lock): Serializes one person's protected command with person-keyed authority writers.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

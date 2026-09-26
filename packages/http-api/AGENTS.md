@@ -14,14 +14,14 @@ Package `@vektorprogrammet/http-api`.
 
 ## Constructs
 
-The shared constructs defined here. [docs/constructs.md](../../docs/constructs.md) lists their consumers.
+The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../docs/constructs.md) indexes them all.
 
-- [`problemUnion`](src/http-semantics.ts) (http-problem): Creates a closed endpoint-specific Problem Details union.
-- [`Problem`](src/http-semantics.ts) (http-problem): One RFC 9457 failure in an Effect error channel.
-- [`isProblem`](src/http-semantics.ts) (http-problem): Narrows a caught value to a `Problem`, also one that another copy of this module created.
-- [`problemBody`](src/http-semantics.ts) (http-problem): The frozen RFC 9457 body: the registry entry, then code, instance, and validation.
-- [`problemHeaders`](src/http-semantics.ts) (http-problem): The response headers of one problem: `no-store`, its challenge, and its retry delay.
-- [`makeNativeProblem`](src/http-semantics.ts) (http-problem): Builds one safe fixed public problem value.
+- [`problemUnion`](../../docs/constructs/http-problem.md#problemunion) (http-problem): Creates a closed endpoint-specific Problem Details union.
+- [`Problem`](../../docs/constructs/http-problem.md#problem) (http-problem): One RFC 9457 failure in an Effect error channel.
+- [`isProblem`](../../docs/constructs/http-problem.md#isproblem) (http-problem): Narrows a caught value to a `Problem`, also one that another copy of this module created.
+- [`problemBody`](../../docs/constructs/http-problem.md#problembody) (http-problem): The frozen RFC 9457 body: the registry entry, then code, instance, and validation.
+- [`problemHeaders`](../../docs/constructs/http-problem.md#problemheaders) (http-problem): The response headers of one problem: `no-store`, its challenge, and its retry delay.
+- [`makeNativeProblem`](../../docs/constructs/http-problem.md#makenativeproblem) (http-problem): Builds one safe fixed public problem value.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

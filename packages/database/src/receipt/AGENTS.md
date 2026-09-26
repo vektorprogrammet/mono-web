@@ -59,12 +59,12 @@ No downstream context.
 
 ## Constructs
 
-The shared constructs defined here. [docs/constructs.md](../../../../docs/constructs.md) lists their consumers.
+The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../../../docs/constructs.md) indexes them all.
 
-- [`CursorPositioned`](cursor.ts) (pagination): A row with the ordering text that `receiptCursorTimestamp` selects.
-- [`receiptCursorTimestamp`](cursor.ts) (pagination): Selects the ordering column as microsecond UTC text so cursor positions compare exactly.
-- [`withoutCursorTimestamp`](cursor.ts) (pagination): Drops the ordering text from a row before the row leaves the adapter.
-- [`receiptCursorPage`](cursor.ts) (pagination): Keeps one page of the rows, encodes the next cursor when a further row was read, and drops the ordering text.
+- [`CursorPositioned`](../../../../docs/constructs/pagination.md#cursorpositioned) (pagination): A row with the ordering text that `receiptCursorTimestamp` selects.
+- [`receiptCursorTimestamp`](../../../../docs/constructs/pagination.md#receiptcursortimestamp) (pagination): Selects the ordering column as microsecond UTC text so cursor positions compare exactly.
+- [`withoutCursorTimestamp`](../../../../docs/constructs/pagination.md#withoutcursortimestamp) (pagination): Drops the ordering text from a row before the row leaves the adapter.
+- [`receiptCursorPage`](../../../../docs/constructs/pagination.md#receiptcursorpage) (pagination): Keeps one page of the rows, encodes the next cursor when a further row was read, and drops the ordering text.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

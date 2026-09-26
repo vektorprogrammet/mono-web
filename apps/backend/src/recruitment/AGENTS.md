@@ -68,14 +68,14 @@ No `exports` entry of [apps/backend/package.json](../../package.json) points int
 
 ## Constructs
 
-The shared constructs defined here. [docs/constructs.md](../../../../docs/constructs.md) lists their consumers.
+The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../../../docs/constructs.md) indexes them all.
 
-- [`authorizeInvitationOperation`](http-access.ts) (http-problem): Authorizes the holder of an invitation's response capability.
-- [`interviewAuthorizationInTransaction`](http-access.ts) (http-problem): Resolves the current person and authorizes one interview inside the caller's transaction; a rejected credential is answered from the request's evidence.
-- [`readRecruitmentBody`](http-decode.ts) (http-problem): Every recruitment request body is one bounded `application/json` document.
-- [`recruitmentProblems`](http-problem.ts) (http-problem): The one answer for every recruitment failure.
-- [`raceProblems`](http-problem.ts) (http-problem): A failure that lost a serialization or deadlock race answers transaction.conflict, whatever failure carried it.
-- [`maintenanceProblems`](http-problem.ts) (http-problem): The maintenance API answers its own failures, an unknown interview, and an identity outage in its own vocabulary; everything else as recruitment does.
+- [`authorizeInvitationOperation`](../../../../docs/constructs/http-problem.md#authorizeinvitationoperation) (http-problem): Authorizes the holder of an invitation's response capability.
+- [`interviewAuthorizationInTransaction`](../../../../docs/constructs/http-problem.md#interviewauthorizationintransaction) (http-problem): Resolves the current person and authorizes one interview inside the caller's transaction; a rejected credential is answered from the request's evidence.
+- [`readRecruitmentBody`](../../../../docs/constructs/http-problem.md#readrecruitmentbody) (http-problem): Every recruitment request body is one bounded `application/json` document.
+- [`recruitmentProblems`](../../../../docs/constructs/http-problem.md#recruitmentproblems) (http-problem): The one answer for every recruitment failure.
+- [`raceProblems`](../../../../docs/constructs/http-problem.md#raceproblems) (http-problem): A failure that lost a serialization or deadlock race answers transaction.conflict, whatever failure carried it.
+- [`maintenanceProblems`](../../../../docs/constructs/http-problem.md#maintenanceproblems) (http-problem): The maintenance API answers its own failures, an unknown interview, and an identity outage in its own vocabulary; everything else as recruitment does.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

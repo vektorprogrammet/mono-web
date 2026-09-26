@@ -69,21 +69,21 @@ Each folder of `src` holds a bounded context of [docs/model/contexts.cml](../../
 
 ## Constructs
 
-The shared constructs defined here. [docs/constructs.md](../../docs/constructs.md) lists their consumers.
+The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../docs/constructs.md) indexes them all.
 
-- [`AdvisoryLockKey`](src/advisory-lock.ts) (sql-lock): The registered advisory-lock keys, one constructor per namespace.
-- [`lockAdvisory`](src/advisory-lock.ts) (sql-lock): Waits for the advisory lock on `key` until the current transaction ends.
-- [`tryLockAdvisory`](src/advisory-lock.ts) (sql-lock): Takes the exclusive advisory lock on `key` until the current transaction ends when no other transaction holds it.
-- [`makeBetterAuthCallbackRunner`](src/auth-engine.ts) (runtime-bridge): Creates the runner for Better Auth's Promise callbacks: it forks each program into a fiber set that the current scope owns, so closing the scope interrupts the callbacks still running.
-- [`accountAccessEnabled`](src/identity-access.ts) (sql-lifecycle): Whether the native account of `personId` exists and is not disabled.
-- [`selectDatabaseMigration`](src/migrations.ts) (test-harness): Selects the registered migration `id` and the migrations that run before it; an absent id throws and names the nearest registered ids.
-- [`outboxClaimAssignments`](src/outbox-lifecycle.ts) (sql-lifecycle): SET list for the aggregate's claim UPDATE; `targetAlias` names the updated outbox row.
-- [`markOutboxDelivered`](src/outbox-lifecycle.ts) (sql-lifecycle): Settles the claimed row as Delivered, with delivery evidence when the table records it.
-- [`markOutboxFailed`](src/outbox-lifecycle.ts) (sql-lifecycle): Settles the claimed row as Failed with its failure tag, so a later claim retries it.
-- [`quarantineOutboxClaim`](src/outbox-lifecycle.ts) (sql-lifecycle): Settles the claimed row as Quarantined, a terminal status, with its failure tag.
-- [`releaseOutboxClaim`](src/outbox-lifecycle.ts) (sql-lifecycle): Returns an interrupted claim to Pending without a provider outcome; a lost claim needs none.
-- [`recoverStaleOutboxClaims`](src/outbox-lifecycle.ts) (sql-lifecycle): Recovers every Processing row claimed before `claimedBefore`.
-- [`recoverStaleOutboxClaim`](src/outbox-lifecycle.ts) (sql-lifecycle): Recovers the rows of one claim when that claim was taken before `claimedBefore`.
+- [`AdvisoryLockKey`](../../docs/constructs/sql-lock.md#advisorylockkey) (sql-lock): The registered advisory-lock keys, one constructor per namespace.
+- [`lockAdvisory`](../../docs/constructs/sql-lock.md#lockadvisory) (sql-lock): Waits for the advisory lock on `key` until the current transaction ends.
+- [`tryLockAdvisory`](../../docs/constructs/sql-lock.md#trylockadvisory) (sql-lock): Takes the exclusive advisory lock on `key` until the current transaction ends when no other transaction holds it.
+- [`makeBetterAuthCallbackRunner`](../../docs/constructs/runtime-bridge.md#makebetterauthcallbackrunner) (runtime-bridge): Creates the runner for Better Auth's Promise callbacks: it forks each program into a fiber set that the current scope owns, so closing the scope interrupts the callbacks still running.
+- [`accountAccessEnabled`](../../docs/constructs/sql-lifecycle.md#accountaccessenabled) (sql-lifecycle): Whether the native account of `personId` exists and is not disabled.
+- [`selectDatabaseMigration`](../../docs/constructs/test-harness.md#selectdatabasemigration) (test-harness): Selects the registered migration `id` and the migrations that run before it; an absent id throws and names the nearest registered ids.
+- [`outboxClaimAssignments`](../../docs/constructs/sql-lifecycle.md#outboxclaimassignments) (sql-lifecycle): SET list for the aggregate's claim UPDATE; `targetAlias` names the updated outbox row.
+- [`markOutboxDelivered`](../../docs/constructs/sql-lifecycle.md#markoutboxdelivered) (sql-lifecycle): Settles the claimed row as Delivered, with delivery evidence when the table records it.
+- [`markOutboxFailed`](../../docs/constructs/sql-lifecycle.md#markoutboxfailed) (sql-lifecycle): Settles the claimed row as Failed with its failure tag, so a later claim retries it.
+- [`quarantineOutboxClaim`](../../docs/constructs/sql-lifecycle.md#quarantineoutboxclaim) (sql-lifecycle): Settles the claimed row as Quarantined, a terminal status, with its failure tag.
+- [`releaseOutboxClaim`](../../docs/constructs/sql-lifecycle.md#releaseoutboxclaim) (sql-lifecycle): Returns an interrupted claim to Pending without a provider outcome; a lost claim needs none.
+- [`recoverStaleOutboxClaims`](../../docs/constructs/sql-lifecycle.md#recoverstaleoutboxclaims) (sql-lifecycle): Recovers every Processing row claimed before `claimedBefore`.
+- [`recoverStaleOutboxClaim`](../../docs/constructs/sql-lifecycle.md#recoverstaleoutboxclaim) (sql-lifecycle): Recovers the rows of one claim when that claim was taken before `claimedBefore`.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

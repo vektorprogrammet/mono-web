@@ -30,10 +30,10 @@ The package has no `exports`, so other packages do not import it.
 
 ## Constructs
 
-The shared constructs defined here. [docs/constructs.md](../../docs/constructs.md) lists their consumers.
+The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../docs/constructs.md) indexes them all.
 
-- [`isNativeRequest`](e2e/native-operations.ts) (request-ledger): Whether a dashboard-to-backend request stays on the native surface: an operation of the native HTTP contract or an email-password route of the identity engine.
-- [`addressesAnyRoute`](e2e/request-routes.ts) (request-ledger): Whether a request path addresses any of the routes, each matched by whole path segments.
+- [`isNativeRequest`](../../docs/constructs/request-ledger.md#isnativerequest) (request-ledger): Whether a dashboard-to-backend request stays on the native surface: an operation of the native HTTP contract or an email-password route of the identity engine.
+- [`addressesAnyRoute`](../../docs/constructs/request-ledger.md#addressesanyroute) (request-ledger): Whether a request path addresses any of the routes, each matched by whole path segments.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 
