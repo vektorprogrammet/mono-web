@@ -6,21 +6,18 @@ import {
   OrganizationMemberSchema,
 } from "@vektorprogrammet/domain/organization";
 import { ApprovalScopeSchema } from "@vektorprogrammet/domain/receipt";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { expect, layer } from "@effect/vitest";
 import { Database } from "../service.js";
-import { Predicate, Effect } from "effect";
+import { Predicate, Effect, Schema } from "effect";
 import { DatabaseTestLive } from "./platform.js";
 import {
   backfillDisposablePersonAuthoritiesFromPreConfigEvidence,
   type DisposablePersonAuthorityBackfillResult,
 } from "./disposable-person-authority-backfill.js";
-import { makeControlledTestRuntime } from "../../test/runtime.js";
 
 const EVALUATED_AT = "2031-09-15T12:00:00.000Z";
 
 const AUTHORITY_START_AT = "2030-01-01T00:00:00.000Z";
-
-const runtime = makeControlledTestRuntime(DatabaseTestLive());
 
 interface AuthoritySnapshotRow {
   readonly id: string;
@@ -191,171 +188,25 @@ const countInsertedAuthorities = Effect.gen(function* () {
   };
 });
 
-beforeEach(async () => {
-  await runtime.runPromise(resetDisposableFixture);
-  await runtime.runPromise(seedCanonicalOrganizationFixture);
-});
+const resetToCanonicalFixture = Effect.andThen(
+  resetDisposableFixture,
+  seedCanonicalOrganizationFixture,
+);
 
-afterAll(async () => {
-  await runtime.dispose();
-});
+const encodeJson = Schema.encodeUnknownEffect(Schema.fromJsonString(Schema.Json));
 
-describe("disposable person-authority token evidence backfill", () => {
-  it("writes stable administrator and Economy authority rows without retaining token keys", async () => {
-    const admissionEntries = [
-      [
-        "admission-token-leader-0055",
-        AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
-          personId: PersonId.make("authority-leader"),
-          departmentId: DepartmentId.make("authority-department-a"),
-          active: true,
-        }),
-      ],
-      [
-        "admission-token-global-approver-0055",
-        {
-          actor: AdmissionPeriodActorSchema.cases.Member.make({
-            personId: PersonId.make("authority-global-approver"),
-            departmentId: DepartmentId.make("authority-department-b"),
-            active: true,
-          }),
-        },
-      ],
-    ] as const;
+layer(DatabaseTestLive(), { excludeTestServices: true })(
+  "disposable person-authority token evidence backfill",
+  (it) => {
+    it.effect(
+      "writes stable administrator and Economy authority rows without retaining token keys",
+      () =>
+        Effect.gen(function* () {
+          yield* resetToCanonicalFixture;
 
-    const organizationEntries = [
-      [
-        "organization-token-admin-0055",
-        OrganizationAdministratorSchema.make({ personId: PersonId.make("authority-admin") }),
-      ],
-      [
-        "organization-token-leader-0055",
-        OrganizationMemberSchema.make({ personId: PersonId.make("authority-leader") }),
-      ],
-      [
-        "organization-token-global-approver-0055",
-        OrganizationMemberSchema.make({ personId: PersonId.make("authority-global-approver") }),
-      ],
-    ] as const;
-
-    const receiptEntries = [
-      [
-        "receipt-token-leader-0055",
-        {
-          personId: "authority-leader",
-          departmentId: "authority-department-a",
-          active: true,
-          approvalScope: ApprovalScopeSchema.cases.Department.make({
-            departmentId: DepartmentId.make("authority-department-a"),
-          }),
-          paymentAccountCiphertext: "ciphertext-authority-leader",
-        },
-      ],
-      [
-        "receipt-token-global-approver-0055",
-        {
-          personId: "authority-global-approver",
-          departmentId: "authority-department-b",
-          active: true,
-          approvalScope: ApprovalScopeSchema.cases.Global.make({}),
-          paymentAccountCiphertext: "ciphertext-authority-global-approver",
-        },
-      ],
-    ] as const;
-
-    const first = await runtime.runPromise(
-      backfillDisposablePersonAuthoritiesFromPreConfigEvidence(
-        preConfigEvidence(admissionEntries, organizationEntries, receiptEntries),
-      ),
-    );
-
-    const firstSnapshot = await runtime.runPromise(readAuthoritySnapshot);
-
-    expect(first.globalAdministratorGrantIds).toHaveLength(1);
-    expect(first.receiptPaymentAuthorityIds).toHaveLength(2);
-    expect(first.receiptApprovalGrantIds).toHaveLength(2);
-    expect(firstSnapshot.administrators).toHaveLength(1);
-    expect(firstSnapshot.payments).toHaveLength(2);
-    expect(firstSnapshot.approvals).toHaveLength(2);
-    const storedAuthorityJson = JSON.stringify(firstSnapshot);
-
-    for (const [token] of [...admissionEntries, ...organizationEntries, ...receiptEntries]) {
-      expect(storedAuthorityJson).not.toContain(token);
-      expect(JSON.stringify(first)).not.toContain(token);
-    }
-
-    await runtime.runPromise(
-      Effect.gen(function* () {
-        const sql = yield* Database;
-        yield* sql`DELETE FROM public.economy_receipt_approval_grants`;
-        yield* sql`DELETE FROM public.economy_payment_authorities`;
-        yield* sql`DELETE FROM public.organization_global_administrator_grants`;
-      }),
-    );
-
-    const second = await runtime.runPromise(
-      backfillDisposablePersonAuthoritiesFromPreConfigEvidence(
-        preConfigEvidence(
-          [...admissionEntries].reverse(),
-          [...organizationEntries].reverse(),
-          [...receiptEntries].reverse(),
-        ),
-      ),
-    );
-
-    const secondSnapshot = await runtime.runPromise(readAuthoritySnapshot);
-
-    expect(second).toEqual(first);
-    expect(secondSnapshot).toEqual(firstSnapshot);
-  });
-
-  it("rejects conflicting facts for one person and department before writing", async () => {
-    const failure = await runtime.runPromise(
-      Effect.flip(
-        backfillDisposablePersonAuthoritiesFromPreConfigEvidence(
-          preConfigEvidence(
+          const admissionEntries = [
             [
-              [
-                "conflict-token-leader-0055",
-                AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
-                  personId: PersonId.make("authority-leader"),
-                  departmentId: DepartmentId.make("authority-department-a"),
-                  active: true,
-                }),
-              ],
-              [
-                "conflict-token-member-0055",
-                AdmissionPeriodActorSchema.cases.Member.make({
-                  personId: PersonId.make("authority-leader"),
-                  departmentId: DepartmentId.make("authority-department-a"),
-                  active: true,
-                }),
-              ],
-            ],
-            [],
-            [],
-          ),
-        ),
-      ),
-    );
-
-    expect(failure._tag).toBe("DisposableAuthorityEvidenceConflict");
-    expect(await runtime.runPromise(countInsertedAuthorities)).toEqual({
-      administrators: 0,
-      payments: 0,
-      approvals: 0,
-    });
-  });
-
-  it("verifies member and leader evidence without copying Organization role rows", async () => {
-    const before = await runtime.runPromise(readMembershipSnapshot);
-
-    const result = await runtime.runPromise(
-      backfillDisposablePersonAuthoritiesFromPreConfigEvidence(
-        preConfigEvidence(
-          [
-            [
-              "member-proof-leader-token-0055",
+              "admission-token-leader-0055",
               AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
                 personId: PersonId.make("authority-leader"),
                 departmentId: DepartmentId.make("authority-department-a"),
@@ -363,88 +214,244 @@ describe("disposable person-authority token evidence backfill", () => {
               }),
             ],
             [
-              "member-proof-member-token-0055",
-              AdmissionPeriodActorSchema.cases.Member.make({
-                personId: PersonId.make("authority-member"),
-                departmentId: DepartmentId.make("authority-department-a"),
-                active: true,
-              }),
+              "admission-token-global-approver-0055",
+              {
+                actor: AdmissionPeriodActorSchema.cases.Member.make({
+                  personId: PersonId.make("authority-global-approver"),
+                  departmentId: DepartmentId.make("authority-department-b"),
+                  active: true,
+                }),
+              },
             ],
-          ],
-          [
+          ] as const;
+
+          const organizationEntries = [
             [
-              "member-proof-organization-leader-token-0055",
+              "organization-token-admin-0055",
+              OrganizationAdministratorSchema.make({ personId: PersonId.make("authority-admin") }),
+            ],
+            [
+              "organization-token-leader-0055",
               OrganizationMemberSchema.make({ personId: PersonId.make("authority-leader") }),
             ],
             [
-              "member-proof-organization-member-token-0055",
-              OrganizationMemberSchema.make({ personId: PersonId.make("authority-member") }),
+              "organization-token-global-approver-0055",
+              OrganizationMemberSchema.make({
+                personId: PersonId.make("authority-global-approver"),
+              }),
             ],
-          ],
-          [],
-        ),
-      ),
+          ] as const;
+
+          const receiptEntries = [
+            [
+              "receipt-token-leader-0055",
+              {
+                personId: "authority-leader",
+                departmentId: "authority-department-a",
+                active: true,
+                approvalScope: ApprovalScopeSchema.cases.Department.make({
+                  departmentId: DepartmentId.make("authority-department-a"),
+                }),
+                paymentAccountCiphertext: "ciphertext-authority-leader",
+              },
+            ],
+            [
+              "receipt-token-global-approver-0055",
+              {
+                personId: "authority-global-approver",
+                departmentId: "authority-department-b",
+                active: true,
+                approvalScope: ApprovalScopeSchema.cases.Global.make({}),
+                paymentAccountCiphertext: "ciphertext-authority-global-approver",
+              },
+            ],
+          ] as const;
+
+          const first = yield* backfillDisposablePersonAuthoritiesFromPreConfigEvidence(
+            preConfigEvidence(admissionEntries, organizationEntries, receiptEntries),
+          );
+
+          const firstSnapshot = yield* readAuthoritySnapshot;
+
+          expect(first.globalAdministratorGrantIds).toHaveLength(1);
+          expect(first.receiptPaymentAuthorityIds).toHaveLength(2);
+          expect(first.receiptApprovalGrantIds).toHaveLength(2);
+          expect(firstSnapshot.administrators).toHaveLength(1);
+          expect(firstSnapshot.payments).toHaveLength(2);
+          expect(firstSnapshot.approvals).toHaveLength(2);
+          const storedAuthorityJson = yield* encodeJson(firstSnapshot);
+
+          for (const [token] of [...admissionEntries, ...organizationEntries, ...receiptEntries]) {
+            expect(storedAuthorityJson).not.toContain(token);
+            expect(yield* encodeJson(first)).not.toContain(token);
+          }
+
+          yield* Effect.gen(function* () {
+            const sql = yield* Database;
+            yield* sql`DELETE FROM public.economy_receipt_approval_grants`;
+            yield* sql`DELETE FROM public.economy_payment_authorities`;
+            yield* sql`DELETE FROM public.organization_global_administrator_grants`;
+          });
+
+          const second = yield* backfillDisposablePersonAuthoritiesFromPreConfigEvidence(
+            preConfigEvidence(
+              [...admissionEntries].reverse(),
+              [...organizationEntries].reverse(),
+              [...receiptEntries].reverse(),
+            ),
+          );
+
+          const secondSnapshot = yield* readAuthoritySnapshot;
+
+          expect(second).toEqual(first);
+          expect(secondSnapshot).toEqual(firstSnapshot);
+        }),
     );
 
-    const after = await runtime.runPromise(readMembershipSnapshot);
+    it.effect("rejects conflicting facts for one person and department before writing", () =>
+      Effect.gen(function* () {
+        yield* resetToCanonicalFixture;
 
-    const expectedResult = {
-      personIds: ["authority-leader", "authority-member"],
-      verifiedMembershipIds: ["authority-membership-leader", "authority-membership-member"],
-      globalAdministratorGrantIds: [],
-      receiptPaymentAuthorityIds: [],
-      receiptApprovalGrantIds: [],
-    } satisfies DisposablePersonAuthorityBackfillResult;
+        const failure = yield* Effect.flip(
+          backfillDisposablePersonAuthoritiesFromPreConfigEvidence(
+            preConfigEvidence(
+              [
+                [
+                  "conflict-token-leader-0055",
+                  AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
+                    personId: PersonId.make("authority-leader"),
+                    departmentId: DepartmentId.make("authority-department-a"),
+                    active: true,
+                  }),
+                ],
+                [
+                  "conflict-token-member-0055",
+                  AdmissionPeriodActorSchema.cases.Member.make({
+                    personId: PersonId.make("authority-leader"),
+                    departmentId: DepartmentId.make("authority-department-a"),
+                    active: true,
+                  }),
+                ],
+              ],
+              [],
+              [],
+            ),
+          ),
+        );
 
-    expect(result).toEqual(expectedResult);
-    expect(after).toEqual(before);
-    expect(await runtime.runPromise(countInsertedAuthorities)).toEqual({
-      administrators: 0,
-      payments: 0,
-      approvals: 0,
-    });
-  });
+        expect(failure._tag).toBe("DisposableAuthorityEvidenceConflict");
+        expect(yield* countInsertedAuthorities).toEqual({
+          administrators: 0,
+          payments: 0,
+          approvals: 0,
+        });
+      }),
+    );
 
-  it("rejects a member fact whose canonical membership reference is absent", async () => {
-    const failure = await runtime.runPromise(
-      Effect.flip(
-        backfillDisposablePersonAuthoritiesFromPreConfigEvidence(
+    it.effect("verifies member and leader evidence without copying Organization role rows", () =>
+      Effect.gen(function* () {
+        yield* resetToCanonicalFixture;
+
+        const before = yield* readMembershipSnapshot;
+
+        const result = yield* backfillDisposablePersonAuthoritiesFromPreConfigEvidence(
           preConfigEvidence(
             [
               [
-                "missing-membership-token-0055",
+                "member-proof-leader-token-0055",
+                AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
+                  personId: PersonId.make("authority-leader"),
+                  departmentId: DepartmentId.make("authority-department-a"),
+                  active: true,
+                }),
+              ],
+              [
+                "member-proof-member-token-0055",
                 AdmissionPeriodActorSchema.cases.Member.make({
-                  personId: PersonId.make("authority-missing-membership"),
+                  personId: PersonId.make("authority-member"),
                   departmentId: DepartmentId.make("authority-department-a"),
                   active: true,
                 }),
               ],
             ],
-            [],
+            [
+              [
+                "member-proof-organization-leader-token-0055",
+                OrganizationMemberSchema.make({ personId: PersonId.make("authority-leader") }),
+              ],
+              [
+                "member-proof-organization-member-token-0055",
+                OrganizationMemberSchema.make({ personId: PersonId.make("authority-member") }),
+              ],
+            ],
             [],
           ),
-        ),
-      ),
+        );
+
+        const after = yield* readMembershipSnapshot;
+
+        const expectedResult = {
+          personIds: ["authority-leader", "authority-member"],
+          verifiedMembershipIds: ["authority-membership-leader", "authority-membership-member"],
+          globalAdministratorGrantIds: [],
+          receiptPaymentAuthorityIds: [],
+          receiptApprovalGrantIds: [],
+        } satisfies DisposablePersonAuthorityBackfillResult;
+
+        expect(result).toEqual(expectedResult);
+        expect(after).toEqual(before);
+        expect(yield* countInsertedAuthorities).toEqual({
+          administrators: 0,
+          payments: 0,
+          approvals: 0,
+        });
+      }),
     );
 
-    expect(failure._tag).toBe("DisposableAuthorityEvidenceMissingReference");
+    it.effect("rejects a member fact whose canonical membership reference is absent", () =>
+      Effect.gen(function* () {
+        yield* resetToCanonicalFixture;
 
-    if (Predicate.isTagged(failure, "DisposableAuthorityEvidenceMissingReference")) {
-      expect(failure.referenceKind).toBe("Membership");
-      expect(failure.referenceId).toBe("authority-department-a");
-    }
+        const failure = yield* Effect.flip(
+          backfillDisposablePersonAuthoritiesFromPreConfigEvidence(
+            preConfigEvidence(
+              [
+                [
+                  "missing-membership-token-0055",
+                  AdmissionPeriodActorSchema.cases.Member.make({
+                    personId: PersonId.make("authority-missing-membership"),
+                    departmentId: DepartmentId.make("authority-department-a"),
+                    active: true,
+                  }),
+                ],
+              ],
+              [],
+              [],
+            ),
+          ),
+        );
 
-    expect(await runtime.runPromise(countInsertedAuthorities)).toEqual({
-      administrators: 0,
-      payments: 0,
-      approvals: 0,
-    });
-  });
+        expect(failure._tag).toBe("DisposableAuthorityEvidenceMissingReference");
 
-  it("rejects an equivalent preexisting grant with a non-stable duplicate identity", async () => {
-    await runtime.runPromise(
-      Database.use(
-        (sql) => sql`
+        if (Predicate.isTagged(failure, "DisposableAuthorityEvidenceMissingReference")) {
+          expect(failure.referenceKind).toBe("Membership");
+          expect(failure.referenceId).toBe("authority-department-a");
+        }
+
+        expect(yield* countInsertedAuthorities).toEqual({
+          administrators: 0,
+          payments: 0,
+          approvals: 0,
+        });
+      }),
+    );
+
+    it.effect("rejects an equivalent preexisting grant with a non-stable duplicate identity", () =>
+      Effect.gen(function* () {
+        yield* resetToCanonicalFixture;
+
+        yield* Database.use(
+          (sql) => sql`
         INSERT INTO public.organization_global_administrator_grants (
           grant_id, person_id, start_at, end_at, revision
         ) VALUES (
@@ -452,97 +459,100 @@ describe("disposable person-authority token evidence backfill", () => {
           ${AUTHORITY_START_AT}::timestamptz, NULL, 0
         )
       `,
-      ),
-    );
+        );
 
-    const failure = await runtime.runPromise(
-      Effect.flip(
-        backfillDisposablePersonAuthoritiesFromPreConfigEvidence(
-          preConfigEvidence(
-            [],
-            [
+        const failure = yield* Effect.flip(
+          backfillDisposablePersonAuthoritiesFromPreConfigEvidence(
+            preConfigEvidence(
+              [],
               [
-                "ambiguous-admin-token-0055",
-                OrganizationAdministratorSchema.make({
-                  personId: PersonId.make("authority-admin"),
-                }),
-              ],
-            ],
-            [],
-          ),
-        ),
-      ),
-    );
-
-    expect(failure._tag).toBe("DisposableAuthorityEvidenceAmbiguousDuplicate");
-    expect(await runtime.runPromise(countInsertedAuthorities)).toEqual({
-      administrators: 1,
-      payments: 0,
-      approvals: 0,
-    });
-  });
-
-  it("strictly rejects excess fields and non-JSON map inputs", async () => {
-    const excessFailure = await runtime.runPromise(
-      Effect.flip(
-        backfillDisposablePersonAuthoritiesFromPreConfigEvidence(
-          preConfigEvidence(
-            [
-              [
-                "excess-field-token-0055",
-                {
-                  ...AdmissionPeriodActorSchema.cases.Member.make({
-                    personId: PersonId.make("authority-member"),
-                    departmentId: DepartmentId.make("authority-department-a"),
-                    active: true,
+                [
+                  "ambiguous-admin-token-0055",
+                  OrganizationAdministratorSchema.make({
+                    personId: PersonId.make("authority-admin"),
                   }),
-                  bearerTokenCopy: "must-not-be-accepted",
-                },
+                ],
               ],
-            ],
-            [],
-            [],
+              [],
+            ),
           ),
-        ),
-      ),
+        );
+
+        expect(failure._tag).toBe("DisposableAuthorityEvidenceAmbiguousDuplicate");
+        expect(yield* countInsertedAuthorities).toEqual({
+          administrators: 1,
+          payments: 0,
+          approvals: 0,
+        });
+      }),
     );
 
-    expect(excessFailure._tag).toBe("DisposableAuthorityEvidenceDecodeError");
+    it.effect("strictly rejects excess fields and non-JSON map inputs", () =>
+      Effect.gen(function* () {
+        yield* resetToCanonicalFixture;
 
-    const nondeterministicFailure = await runtime.runPromise(
-      Effect.flip(
-        backfillDisposablePersonAuthoritiesFromPreConfigEvidence({
-          evaluatedAt: EVALUATED_AT,
-          authorityStartAt: AUTHORITY_START_AT,
-          admission: new Map(),
-          organization: {},
-          receipt: {},
-        }),
-      ),
+        const excessFailure = yield* Effect.flip(
+          backfillDisposablePersonAuthoritiesFromPreConfigEvidence(
+            preConfigEvidence(
+              [
+                [
+                  "excess-field-token-0055",
+                  {
+                    ...AdmissionPeriodActorSchema.cases.Member.make({
+                      personId: PersonId.make("authority-member"),
+                      departmentId: DepartmentId.make("authority-department-a"),
+                      active: true,
+                    }),
+                    bearerTokenCopy: "must-not-be-accepted",
+                  },
+                ],
+              ],
+              [],
+              [],
+            ),
+          ),
+        );
+
+        expect(excessFailure._tag).toBe("DisposableAuthorityEvidenceDecodeError");
+
+        const nondeterministicFailure = yield* Effect.flip(
+          backfillDisposablePersonAuthoritiesFromPreConfigEvidence({
+            evaluatedAt: EVALUATED_AT,
+            authorityStartAt: AUTHORITY_START_AT,
+            admission: new Map(),
+            organization: {},
+            receipt: {},
+          }),
+        );
+
+        expect(nondeterministicFailure._tag).toBe(
+          "DisposableAuthorityEvidenceNondeterministicInput",
+        );
+      }),
     );
 
-    expect(nondeterministicFailure._tag).toBe("DisposableAuthorityEvidenceNondeterministicInput");
-  });
+    it.effect("rejects a zero-width interval when inactive evidence must be ended", () =>
+      Effect.gen(function* () {
+        yield* resetToCanonicalFixture;
 
-  it("rejects a zero-width interval when inactive evidence must be ended", async () => {
-    const failure = await runtime.runPromise(
-      Effect.flip(
-        backfillDisposablePersonAuthoritiesFromPreConfigEvidence({
-          evaluatedAt: EVALUATED_AT,
-          authorityStartAt: EVALUATED_AT,
-          admission: {
-            "inactive-interval-token-0055": AdmissionPeriodActorSchema.cases.Member.make({
-              personId: PersonId.make("authority-member"),
-              departmentId: DepartmentId.make("authority-department-a"),
-              active: false,
-            }),
-          },
-          organization: {},
-          receipt: {},
-        }),
-      ),
+        const failure = yield* Effect.flip(
+          backfillDisposablePersonAuthoritiesFromPreConfigEvidence({
+            evaluatedAt: EVALUATED_AT,
+            authorityStartAt: EVALUATED_AT,
+            admission: {
+              "inactive-interval-token-0055": AdmissionPeriodActorSchema.cases.Member.make({
+                personId: PersonId.make("authority-member"),
+                departmentId: DepartmentId.make("authority-department-a"),
+                active: false,
+              }),
+            },
+            organization: {},
+            receipt: {},
+          }),
+        );
+
+        expect(failure._tag).toBe("DisposableAuthorityEvidenceDecodeError");
+      }),
     );
-
-    expect(failure._tag).toBe("DisposableAuthorityEvidenceDecodeError");
-  });
-});
+  },
+);

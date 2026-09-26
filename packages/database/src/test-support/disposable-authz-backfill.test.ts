@@ -8,16 +8,13 @@ import {
 import { Database } from "../service.js";
 import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { Effect } from "effect";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { makeControlledTestRuntime } from "../../test/runtime.js";
+import { expect, layer } from "@effect/vitest";
 import { DatabaseTestLive } from "./platform.js";
 import {
   disposableAuthzBackfillStartAt as startAt,
   reversedDisposableAuthzBackfillInput as reversedInput,
   validDisposableAuthzBackfillInput as validInput,
 } from "./disposable-authz-backfill-fixtures.js";
-
-const runtime = makeControlledTestRuntime(DatabaseTestLive());
 
 interface CountRow {
   readonly count: string;
@@ -110,219 +107,230 @@ const authzSnapshot = Effect.gen(function* () {
   return { tags, assignments, rules };
 });
 
-beforeEach(async () => {
-  await runtime.runPromise(resetFixture);
-});
+layer(DatabaseTestLive(), { excludeTestServices: true })(
+  "disposable authorization backfill in PGlite",
+  (it) => {
+    it.effect(
+      "persists reverse-order permutations identically and replays without duplicate rows",
+      () =>
+        Effect.gen(function* () {
+          yield* resetFixture;
 
-afterAll(async () => {
-  await runtime.dispose();
-});
+          const forwardPlan = yield* persistDisposableAuthzBackfill(validInput());
+          const forwardSnapshot = yield* authzSnapshot;
 
-describe("disposable authorization backfill in PGlite", () => {
-  it("persists reverse-order permutations identically and replays without duplicate rows", async () => {
-    const forwardPlan = await runtime.runPromise(persistDisposableAuthzBackfill(validInput()));
-    const forwardSnapshot = await runtime.runPromise(authzSnapshot);
+          yield* clearAuthzRows;
+          const reversePlan = yield* persistDisposableAuthzBackfill(reversedInput());
+          const reverseSnapshot = yield* authzSnapshot;
+          const replayPlan = yield* persistDisposableAuthzBackfill(validInput());
 
-    await runtime.runPromise(clearAuthzRows);
-    const reversePlan = await runtime.runPromise(persistDisposableAuthzBackfill(reversedInput()));
-    const reverseSnapshot = await runtime.runPromise(authzSnapshot);
-    const replayPlan = await runtime.runPromise(persistDisposableAuthzBackfill(validInput()));
-
-    expect(canonicalJson(reversePlan)).toBe(canonicalJson(forwardPlan));
-    expect(canonicalJson(replayPlan)).toBe(canonicalJson(forwardPlan));
-    expect(canonicalJson(reverseSnapshot)).toBe(canonicalJson(forwardSnapshot));
-    expect(await runtime.runPromise(authzCounts)).toEqual({ tags: 2, assignments: 2, rules: 3 });
-  });
-
-  it("rejects an absent person before writing tags, assignments, or rules", async () => {
-    const failure = await runtime.runPromise(
-      Effect.flip(
-        persistDisposableAuthzBackfill({
-          disposable: true,
-          tags: [{ name: "Missing person tag" }],
-          assignments: [],
-          rulesBySubject: [
-            {
-              subject: DisposableAuthzRuleSubjectAuthoringSchema.cases.Person.make({
-                personId: PersonId.make("authz-backfill-absent-person"),
-              }),
-              rules: [
-                {
-                  capabilityId: "approveReceipt",
-                  effectKind: "delegate",
-                  scope: AuthzRuleScopeSchema.cases.Domain.make({ domainId: RECEIPT_DOMAIN_ID }),
-                  params: { slot: "EconomyGlobalReceiptApprovalGrant" },
-                  startAt,
-                  endAt: null,
-                },
-              ],
-            },
-          ],
+          expect(canonicalJson(reversePlan)).toBe(canonicalJson(forwardPlan));
+          expect(canonicalJson(replayPlan)).toBe(canonicalJson(forwardPlan));
+          expect(canonicalJson(reverseSnapshot)).toBe(canonicalJson(forwardSnapshot));
+          expect(yield* authzCounts).toEqual({ tags: 2, assignments: 2, rules: 3 });
         }),
-      ),
     );
 
-    expect(failure).toHaveProperty("_tag", "DisposableAuthzBackfillMissingReference");
-    expect(failure).toMatchObject({
-      referenceKind: "Person",
-      referenceId: "authz-backfill-absent-person",
-    });
-    expect(await runtime.runPromise(authzCounts)).toEqual({ tags: 0, assignments: 0, rules: 0 });
-  });
+    it.effect("rejects an absent person before writing tags, assignments, or rules", () =>
+      Effect.gen(function* () {
+        yield* resetFixture;
 
-  it("rejects an absent tag before opening a persistence path", async () => {
-    const failure = await runtime.runPromise(
-      Effect.flip(
-        persistDisposableAuthzBackfill({
-          disposable: true,
-          tags: [],
-          assignments: [],
-          rulesBySubject: [
-            {
-              subject: DisposableAuthzRuleSubjectAuthoringSchema.cases.Tag.make({
-                tagName: "Absent disposable tag",
-              }),
-              rules: [
-                {
-                  capabilityId: "approveReceipt",
-                  effectKind: "delegate",
-                  scope: AuthzRuleScopeSchema.cases.Domain.make({ domainId: RECEIPT_DOMAIN_ID }),
-                  params: { slot: "EconomyGlobalReceiptApprovalGrant" },
-                  startAt,
-                  endAt: null,
-                },
-              ],
-            },
-          ],
-        }),
-      ),
-    );
-
-    expect(failure).toHaveProperty("_tag", "DisposableAuthzBackfillMissingReference");
-    expect(failure).toMatchObject({
-      referenceKind: "Tag",
-      referenceId: "Absent disposable tag",
-    });
-    expect(await runtime.runPromise(authzCounts)).toEqual({ tags: 0, assignments: 0, rules: 0 });
-  });
-
-  it("rejects an absent department before any otherwise-valid row is persisted", async () => {
-    const failure = await runtime.runPromise(
-      Effect.flip(
-        persistDisposableAuthzBackfill({
-          disposable: true,
-          tags: [{ name: "Department reference tag" }],
-          assignments: [
-            {
-              tagName: "Department reference tag",
-              personId: "authz-backfill-person-a",
-              startAt,
-              endAt: null,
-            },
-          ],
-          rulesBySubject: [
-            {
-              subject: DisposableAuthzRuleSubjectAuthoringSchema.cases.Person.make({
-                personId: PersonId.make("authz-backfill-person-a"),
-              }),
-              rules: [
-                {
-                  capabilityId: "approveReceipt",
-                  effectKind: "delegate",
-                  scope: AuthzRuleScopeSchema.cases.Department.make({
-                    departmentId: DepartmentId.make("authz-backfill-absent-department"),
-                  }),
-                  params: { slot: "EconomyDepartmentApprovalGrant" },
-                  startAt,
-                  endAt: null,
-                },
-              ],
-            },
-          ],
-        }),
-      ),
-    );
-
-    expect(failure).toHaveProperty("_tag", "DisposableAuthzBackfillMissingReference");
-    expect(failure).toMatchObject({
-      referenceKind: "Department",
-      referenceId: "authz-backfill-absent-department",
-    });
-    expect(await runtime.runPromise(authzCounts)).toEqual({ tags: 0, assignments: 0, rules: 0 });
-  });
-
-  it("rejects invalid capability and params before writing", async () => {
-    const base = validInput();
-    const personGroup = base.rulesBySubject[1];
-
-    if (personGroup === undefined) throw new Error("missing fixture person group");
-    const rule = personGroup.rules[0];
-
-    if (rule === undefined) throw new Error("missing fixture rule");
-
-    const invalidInputs: ReadonlyArray<unknown> = [
-      {
-        ...base,
-        rulesBySubject: [
-          { ...personGroup, rules: [{ ...rule, capabilityId: "unknownCapability" }] },
-        ],
-      },
-      {
-        ...base,
-        rulesBySubject: [
-          {
-            ...personGroup,
-            rules: [
+        const failure = yield* Effect.flip(
+          persistDisposableAuthzBackfill({
+            disposable: true,
+            tags: [{ name: "Missing person tag" }],
+            assignments: [],
+            rulesBySubject: [
               {
-                ...rule,
-                capabilityId: "submitReceipt",
-                params: { slot: "EconomyPaymentAuthority", ignored: true },
+                subject: DisposableAuthzRuleSubjectAuthoringSchema.cases.Person.make({
+                  personId: PersonId.make("authz-backfill-absent-person"),
+                }),
+                rules: [
+                  {
+                    capabilityId: "approveReceipt",
+                    effectKind: "delegate",
+                    scope: AuthzRuleScopeSchema.cases.Domain.make({ domainId: RECEIPT_DOMAIN_ID }),
+                    params: { slot: "EconomyGlobalReceiptApprovalGrant" },
+                    startAt,
+                    endAt: null,
+                  },
+                ],
+              },
+            ],
+          }),
+        );
+
+        expect(failure).toHaveProperty("_tag", "DisposableAuthzBackfillMissingReference");
+        expect(failure).toMatchObject({
+          referenceKind: "Person",
+          referenceId: "authz-backfill-absent-person",
+        });
+        expect(yield* authzCounts).toEqual({ tags: 0, assignments: 0, rules: 0 });
+      }),
+    );
+
+    it.effect("rejects an absent tag before opening a persistence path", () =>
+      Effect.gen(function* () {
+        yield* resetFixture;
+
+        const failure = yield* Effect.flip(
+          persistDisposableAuthzBackfill({
+            disposable: true,
+            tags: [],
+            assignments: [],
+            rulesBySubject: [
+              {
+                subject: DisposableAuthzRuleSubjectAuthoringSchema.cases.Tag.make({
+                  tagName: "Absent disposable tag",
+                }),
+                rules: [
+                  {
+                    capabilityId: "approveReceipt",
+                    effectKind: "delegate",
+                    scope: AuthzRuleScopeSchema.cases.Domain.make({ domainId: RECEIPT_DOMAIN_ID }),
+                    params: { slot: "EconomyGlobalReceiptApprovalGrant" },
+                    startAt,
+                    endAt: null,
+                  },
+                ],
+              },
+            ],
+          }),
+        );
+
+        expect(failure).toHaveProperty("_tag", "DisposableAuthzBackfillMissingReference");
+        expect(failure).toMatchObject({
+          referenceKind: "Tag",
+          referenceId: "Absent disposable tag",
+        });
+        expect(yield* authzCounts).toEqual({ tags: 0, assignments: 0, rules: 0 });
+      }),
+    );
+
+    it.effect("rejects an absent department before any otherwise-valid row is persisted", () =>
+      Effect.gen(function* () {
+        yield* resetFixture;
+
+        const failure = yield* Effect.flip(
+          persistDisposableAuthzBackfill({
+            disposable: true,
+            tags: [{ name: "Department reference tag" }],
+            assignments: [
+              {
+                tagName: "Department reference tag",
+                personId: "authz-backfill-person-a",
+                startAt,
+                endAt: null,
+              },
+            ],
+            rulesBySubject: [
+              {
+                subject: DisposableAuthzRuleSubjectAuthoringSchema.cases.Person.make({
+                  personId: PersonId.make("authz-backfill-person-a"),
+                }),
+                rules: [
+                  {
+                    capabilityId: "approveReceipt",
+                    effectKind: "delegate",
+                    scope: AuthzRuleScopeSchema.cases.Department.make({
+                      departmentId: DepartmentId.make("authz-backfill-absent-department"),
+                    }),
+                    params: { slot: "EconomyDepartmentApprovalGrant" },
+                    startAt,
+                    endAt: null,
+                  },
+                ],
+              },
+            ],
+          }),
+        );
+
+        expect(failure).toHaveProperty("_tag", "DisposableAuthzBackfillMissingReference");
+        expect(failure).toMatchObject({
+          referenceKind: "Department",
+          referenceId: "authz-backfill-absent-department",
+        });
+        expect(yield* authzCounts).toEqual({ tags: 0, assignments: 0, rules: 0 });
+      }),
+    );
+
+    it.effect("rejects invalid capability and params before writing", () =>
+      Effect.gen(function* () {
+        yield* resetFixture;
+
+        const base = validInput();
+        const personGroup = base.rulesBySubject[1];
+
+        if (personGroup === undefined) throw new Error("missing fixture person group");
+        const rule = personGroup.rules[0];
+
+        if (rule === undefined) throw new Error("missing fixture rule");
+
+        const invalidInputs: ReadonlyArray<unknown> = [
+          {
+            ...base,
+            rulesBySubject: [
+              { ...personGroup, rules: [{ ...rule, capabilityId: "unknownCapability" }] },
+            ],
+          },
+          {
+            ...base,
+            rulesBySubject: [
+              {
+                ...personGroup,
+                rules: [
+                  {
+                    ...rule,
+                    capabilityId: "submitReceipt",
+                    params: { slot: "EconomyPaymentAuthority", ignored: true },
+                  },
+                ],
               },
             ],
           },
-        ],
-      },
-    ];
+        ];
 
-    for (const invalidInput of invalidInputs) {
-      const failure = await runtime.runPromise(
-        Effect.flip(persistDisposableAuthzBackfill(invalidInput)),
-      );
+        for (const invalidInput of invalidInputs) {
+          const failure = yield* Effect.flip(persistDisposableAuthzBackfill(invalidInput));
 
-      expect(failure._tag).toBe("DisposableAuthzBackfillDecodeError");
-    }
+          expect(failure._tag).toBe("DisposableAuthzBackfillDecodeError");
+        }
 
-    expect(await runtime.runPromise(authzCounts)).toEqual({ tags: 0, assignments: 0, rules: 0 });
-  });
+        expect(yield* authzCounts).toEqual({ tags: 0, assignments: 0, rules: 0 });
+      }),
+    );
 
-  it("rolls back earlier create commands when a later database write fails", async () => {
-    const input = {
-      disposable: true,
-      tags: [{ name: "Atomic tag A" }, { name: "Atomic tag B" }],
-      assignments: [],
-      rulesBySubject: [],
-    };
+    it.effect("rolls back earlier create commands when a later database write fails", () =>
+      Effect.gen(function* () {
+        yield* resetFixture;
 
-    const plan = await runtime.runPromise(authorDisposableAuthzBackfill(input));
-    const conflictingTag = plan.tags[1];
+        const input = {
+          disposable: true,
+          tags: [{ name: "Atomic tag A" }, { name: "Atomic tag B" }],
+          assignments: [],
+          rulesBySubject: [],
+        };
 
-    if (conflictingTag === undefined) throw new Error("missing second atomicity tag");
-    await runtime.runPromise(
-      Database.use(
-        (sql) => sql`
+        const plan = yield* authorDisposableAuthzBackfill(input);
+        const conflictingTag = plan.tags[1];
+
+        if (conflictingTag === undefined) throw new Error("missing second atomicity tag");
+        yield* Database.use(
+          (sql) => sql`
           INSERT INTO public.authz_tags (tag_id, name, revision)
           VALUES ('preexisting-conflicting-tag', ${conflictingTag.name}, 0)
         `,
-      ),
-    );
+        );
 
-    const failure = await runtime.runPromise(Effect.flip(persistDisposableAuthzBackfill(input)));
-    expect(failure._tag).toBe("AuthzPersistenceError");
-    const snapshot = await runtime.runPromise(authzSnapshot);
-    expect(snapshot.tags).toEqual([
-      { tagId: "preexisting-conflicting-tag", name: conflictingTag.name, revision: 0 },
-    ]);
-    expect(snapshot.assignments).toEqual([]);
-    expect(snapshot.rules).toEqual([]);
-  });
-});
+        const failure = yield* Effect.flip(persistDisposableAuthzBackfill(input));
+        expect(failure._tag).toBe("AuthzPersistenceError");
+        const snapshot = yield* authzSnapshot;
+        expect(snapshot.tags).toEqual([
+          { tagId: "preexisting-conflicting-tag", name: conflictingTag.name, revision: 0 },
+        ]);
+        expect(snapshot.assignments).toEqual([]);
+        expect(snapshot.rules).toEqual([]);
+      }),
+    );
+  },
+);
