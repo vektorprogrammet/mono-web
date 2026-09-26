@@ -198,20 +198,23 @@ The code is stricter than the model in two places: receipt delegations act only 
 
 ## 10. Tests (red on `main`, green on the branch)
 
-- `packages/domain/src/authz/reach.test.ts`: a team leader reaches only its team; a Styret leader reaches D only while D is independent;
-  Hovedstyret's leader reaches every department; a delegation gives exactly C in A during [start, end), nothing at the end, nothing for
-  another capability or area, nothing to a suspended or ended member, only leaders for `LeadersOnly`, nothing after its team is reclassified;
+- `packages/domain/src/organization/authority.test.ts`: an ordinary team leader gets no department administration; a department board
+  governs only while the department is independent; Hovedstyret's leader administers every department without a grant.
+- `packages/domain/src/authz/reach.test.ts`: a delegation gives exactly C in A during [start, end), nothing at the end, nothing for another
+  capability or area, nothing to a suspended or ended member, only leaders for `LeadersOnly`, nothing after its team is reclassified;
   settlement only through leaders-only national delegations; transitions reject an area outside the team's area, a board, settlement to all
   members, and an extending end.
 - `packages/database/src/organization/leader-reach.test.ts`: a team leader appoints within the own team and nowhere else in D, and gets no
-  department mailing recipients.
+  department mailing recipients. On `main` both checks fail: the appointment in the other team succeeds and the recipients are returned.
 - `packages/database/src/authz/delegation-postgres.test.ts`: a Styret leader manages delegations only for the teams of its department;
   Hovedstyret's leader and a global administrator manage national teams; replay and conflict; a delegation gives exactly C in D during I and
   nothing after its end; a suspended member gets nothing; an Økonomi member approves but cannot settle, the finance lead settles, and an
-  ordinary team's member gets no approval.
-- `apps/backend/src/organization/team-interest.http.test.ts`: a team leader reads only the own team's registrations.
+  ordinary team's member gets no approval. Without the receipt change the member's approval is denied (`ReceiptScopeDenied`).
+- `apps/backend/src/organization/team-interest.http.test.ts`: a team leader reads only the own team's registrations; a global administrator
+  gets an empty success while no department exists (a regression that the identity browser suite found).
 - `apps/backend/src/placements/http.test.ts`: the placement coordinator acts through a `placements.coordinate` delegation.
 - Existing tests that tested department work now use a Styret leader of an independent department; tests that pinned the old leader rule changed.
+- The delegation API does not exist on `main`, so its tests fail there by absence.
 
 ## 11. Answers (Main, 2026-09-26)
 
@@ -241,3 +244,13 @@ The code is stricter than the model in two places: receipt delegations act only 
 4. `feat(receipts)`: the Økonomi delegations approve and settle (O8-15).
 5. `build(lint)`: leadership facts stay in the reach interpreter.
 6. `docs`: `docs/system.md` and `STATE.md`.
+7. `fix(organization)`: an organization-wide reach authorizes the team-interest and mailing-list reads while no department exists.
+
+## 14. Landing
+
+- If `build/lead-constructs-0926` lands first, rebase and run `just migration-manifest write` so the checksum manifest records migration 76.
+  Its lint rule shares `tools/oxlint/anti-slop/index.ts`, `UPSTREAM.txt`, `provenance.json`, and `oxlint.config.ts` with the rule here; the hunks sit apart.
+- Operator steps after landing, per environment: classify each department board and national team and recognise the independent departments;
+  issue the Økonomi delegations (`receipts.approve` to all members, `receipts.settle` to the leaders) and any Rekruttering `admissions.outcomes` delegation.
+- Not run: `just proof authorization-rules` needs a disposable PostgreSQL at `DATABASE_URL` and is red on `main` in the shared migration proof.
+  `just golden reimbursement` and `just e2e interview-response` fail at their known `main` assertions only.
