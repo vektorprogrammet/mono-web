@@ -145,9 +145,9 @@ const makeServices = (
 };
 
 const responseBody = (response: Response) =>
-  Effect.gen(function* () {
-    return Schema.decodeUnknownSync(Schema.Json)(yield* Effect.promise(() => response.json()));
-  });
+  Effect.promise(() => response.json()).pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(Schema.Json)),
+  );
 
 const expectedProblem = (code: string, title: string, status: number, detail: string) => ({
   type: `urn:vektorprogrammet:problem:v0.2:${code}`,
