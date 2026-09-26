@@ -1262,57 +1262,58 @@ const makeIdentityTestLayer = (
     expiresAt: DateTime.makeUnsafe(new Date(SPEC_0067.sessionExpiresAt)),
   });
 
+  const resolveActor = (cookieHeader: string | undefined) =>
+    (cookieHeader ?? "")
+      .split(";")
+      .some((pair) => pair.trim() === `${SPEC_0067.sessionCookieName}=${sessionCookie}`)
+      ? Effect.succeed(actor)
+      : Effect.fail(new IdentitySessionNotFound());
+
   const identity: IdentityOperations = {
     signIn: () => {
       counters.credentialAttempts += 1;
 
-      return Promise.reject(
+      return Effect.fail(
         new IdentityEngineError({
           operation: "signIn",
           message: "credentials are outside the spec 0067 rehearsal",
         }),
       );
     },
-    resolveSession: (cookieHeader) => {
-      const accepted = (cookieHeader ?? "")
-        .split(";")
-        .some((pair) => pair.trim() === `${SPEC_0067.sessionCookieName}=${sessionCookie}`);
+    resolveSession: resolveActor,
+    readCurrentSession: (cookieHeader) =>
+      Effect.map(resolveActor(cookieHeader), (currentActor) => {
+        const authorizationInstant = DateTime.makeUnsafe(new Date(SPEC_0067.authorizationInstant));
 
-      return accepted ? Promise.resolve(actor) : Promise.reject(new IdentitySessionNotFound());
-    },
-    readCurrentSession: async (cookieHeader) => {
-      const currentActor = await identity.resolveSession(cookieHeader);
-      const authorizationInstant = DateTime.makeUnsafe(new Date(SPEC_0067.authorizationInstant));
-
-      return new IdentitySession({
-        sessionId: currentActor.sessionId,
-        createdAt: authorizationInstant,
-        updatedAt: authorizationInstant,
-        expiresAt: currentActor.expiresAt,
-        ipAddress: null,
-        userAgent: null,
-        current: true,
-      });
-    },
-    listSessions: () => Promise.reject(new Error("unexpected session list")),
+        return new IdentitySession({
+          sessionId: currentActor.sessionId,
+          createdAt: authorizationInstant,
+          updatedAt: authorizationInstant,
+          expiresAt: currentActor.expiresAt,
+          ipAddress: null,
+          userAgent: null,
+          current: true,
+        });
+      }),
+    listSessions: () => Effect.die("unexpected session list"),
     revokeCurrentSession: () => {
       counters.authMutationAttempts += 1;
 
-      return Promise.reject(
+      return Effect.fail(
         new IdentityEngineError({
           operation: "revokeCurrentSession",
           message: "auth mutation is outside the spec 0067 rehearsal",
         }),
       );
     },
-    revokeSession: () => Promise.reject(new Error("unexpected session mutation")),
-    revokeOtherSessions: () => Promise.reject(new Error("unexpected session mutation")),
-    revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
-    recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
+    revokeSession: () => Effect.die("unexpected session mutation"),
+    revokeOtherSessions: () => Effect.die("unexpected session mutation"),
+    revokeAllSessions: () => Effect.die("unexpected session mutation"),
+    recordSecurityEvent: () => Effect.die("unexpected identity audit"),
     signOut: () => {
       counters.authMutationAttempts += 1;
 
-      return Promise.reject(
+      return Effect.fail(
         new IdentityEngineError({
           operation: "signOut",
           message: "auth mutation is outside the spec 0067 rehearsal",
@@ -1322,17 +1323,7 @@ const makeIdentityTestLayer = (
   };
 
   const snapshot = IdentitySnapshot.of({
-    resolveSession: (cookieHeader) =>
-      Effect.tryPromise({
-        try: () => identity.resolveSession(cookieHeader),
-        catch: (cause) =>
-          cause instanceof IdentitySessionNotFound || cause instanceof IdentityEngineError
-            ? cause
-            : new IdentityEngineError({
-                operation: "resolveSnapshotSession",
-                message: "rehearsal identity failure",
-              }),
-      }),
+    resolveSession: resolveActor,
     revokeCurrentSession: () => {
       counters.authMutationAttempts += 1;
 
@@ -1439,7 +1430,7 @@ const makeRehearsalRuntime = (
   const oauthCredentialLayer = Layer.succeed(
     OAuthCredentialAuthority,
     OAuthCredentialAuthority.of({
-      resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
+      resolve: () => Effect.die("unexpected OAuth credential resolution"),
       resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
     }),
   );

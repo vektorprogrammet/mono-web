@@ -663,43 +663,46 @@ const harness = (options: HarnessOptions = {}) => {
   });
 
   const identity = Identity.of({
-    signIn: () => Promise.reject(new Error("unexpected sign-in")),
-    resolveSession: async () =>
-      new IdentityActor({
-        personId,
-        sessionId: "receipt-http-session",
-        expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
-      }),
-    readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
-    listSessions: () => Promise.reject(new Error("unexpected session list")),
-    revokeCurrentSession: () => Promise.reject(new Error("unexpected session mutation")),
-    revokeSession: () => Promise.reject(new Error("unexpected session mutation")),
-    revokeOtherSessions: () => Promise.reject(new Error("unexpected session mutation")),
-    revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
-    recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
-    signOut: async () => ({ setCookies: [] }),
+    signIn: () => Effect.die("unexpected sign-in"),
+    resolveSession: () =>
+      Effect.succeed(
+        new IdentityActor({
+          personId,
+          sessionId: "receipt-http-session",
+          expiresAt: DateTime.makeUnsafe("2031-09-16T12:00:00.000Z"),
+        }),
+      ),
+    readCurrentSession: () => Effect.die("unexpected session read"),
+    listSessions: () => Effect.die("unexpected session list"),
+    revokeCurrentSession: () => Effect.die("unexpected session mutation"),
+    revokeSession: () => Effect.die("unexpected session mutation"),
+    revokeOtherSessions: () => Effect.die("unexpected session mutation"),
+    revokeAllSessions: () => Effect.die("unexpected session mutation"),
+    recordSecurityEvent: () => Effect.die("unexpected identity audit"),
+    signOut: () => Effect.succeed({ setCookies: [] }),
   } satisfies IdentityOperations);
 
   const oauthCredentialAuthority = OAuthCredentialAuthority.of({
-    resolve: async (request, expected) => {
-      if (
-        request.headers.get("authorization") === `Bearer ${personBearer}` &&
-        expected !== "OAuthServiceBearer"
-      ) {
-        return CredentialOutcomeSchema.cases.Accepted.make({
-          mechanism: CredentialMechanismSchema.cases.OAuthUserBearer.make({}),
-          principal: PrincipalSchema.cases.Person.make({ personId }),
-          evidenceRef: CredentialEvidenceRef.make("oauth:Person:receipt-user:client:1970000000"),
-        });
-      }
+    resolve: (request, expected) =>
+      Effect.sync(() => {
+        if (
+          request.headers.get("authorization") === `Bearer ${personBearer}` &&
+          expected !== "OAuthServiceBearer"
+        ) {
+          return CredentialOutcomeSchema.cases.Accepted.make({
+            mechanism: CredentialMechanismSchema.cases.OAuthUserBearer.make({}),
+            principal: PrincipalSchema.cases.Person.make({ personId }),
+            evidenceRef: CredentialEvidenceRef.make("oauth:Person:receipt-user:client:1970000000"),
+          });
+        }
 
-      return options.serviceApproval !== undefined &&
-        request.headers.get("authorization") === `Bearer ${serviceBearer}` &&
-        expected === "Either" &&
-        !revokedServiceBearer
-        ? serviceCredential!
-        : CredentialOutcomeSchema.cases.Rejected.make({ reason: "Revoked" as const });
-    },
+        return options.serviceApproval !== undefined &&
+          request.headers.get("authorization") === `Bearer ${serviceBearer}` &&
+          expected === "Either" &&
+          !revokedServiceBearer
+          ? serviceCredential!
+          : CredentialOutcomeSchema.cases.Rejected.make({ reason: "Revoked" as const });
+      }),
     resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
   });
 

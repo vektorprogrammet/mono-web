@@ -72,31 +72,30 @@ const projection = (
 const database = backendDatabase();
 
 const oauthCredentialAuthority = OAuthCredentialAuthority.of({
-  resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
+  resolve: () => Effect.die("unexpected OAuth credential resolution"),
   resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
 });
 
 const identity = Identity.of({
-  signIn: () => Promise.reject(new Error("unexpected sign-in")),
-  resolveSession: async (cookieHeader: string | undefined) => {
-    if (cookieHeader?.includes("schools-test-session")) {
-      return new IdentityActor({
-        personId,
-        sessionId: "schools-test-session",
-        expiresAt: DateTime.makeUnsafe(new Date("2032-04-02T12:00:00.000Z")),
-      });
-    }
-
-    throw new IdentitySessionNotFound();
-  },
-  readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
-  listSessions: () => Promise.reject(new Error("unexpected session list")),
-  revokeCurrentSession: () => Promise.reject(new Error("unexpected session mutation")),
-  revokeSession: () => Promise.reject(new Error("unexpected session mutation")),
-  revokeOtherSessions: () => Promise.reject(new Error("unexpected session mutation")),
-  revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
-  recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
-  signOut: async () => ({ setCookies: [] }),
+  signIn: () => Effect.die("unexpected sign-in"),
+  resolveSession: (cookieHeader: string | undefined) =>
+    cookieHeader?.includes("schools-test-session")
+      ? Effect.succeed(
+          new IdentityActor({
+            personId,
+            sessionId: "schools-test-session",
+            expiresAt: DateTime.makeUnsafe("2032-04-02T12:00:00.000Z"),
+          }),
+        )
+      : Effect.fail(new IdentitySessionNotFound()),
+  readCurrentSession: () => Effect.die("unexpected session read"),
+  listSessions: () => Effect.die("unexpected session list"),
+  revokeCurrentSession: () => Effect.die("unexpected session mutation"),
+  revokeSession: () => Effect.die("unexpected session mutation"),
+  revokeOtherSessions: () => Effect.die("unexpected session mutation"),
+  revokeAllSessions: () => Effect.die("unexpected session mutation"),
+  recordSecurityEvent: () => Effect.die("unexpected identity audit"),
+  signOut: () => Effect.succeed({ setCookies: [] }),
 } satisfies IdentityOperations);
 
 const makeServices = (

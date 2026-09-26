@@ -6,6 +6,7 @@ import {
   IdentitySessionExpired,
   IdentitySessionNotFound,
   type IdentityOperations,
+  type IdentitySessionFailure,
 } from "@vektorprogrammet/domain/identity";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { DateTime, Effect } from "effect";
@@ -14,19 +15,19 @@ import { resolveAuthenticatedPerson, resolveAuthenticatedPersonAtInstant } from 
 import { runTestPromise } from "../test/runtime.js";
 
 const unreachableSessionManagement = {
-  readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
-  listSessions: () => Promise.reject(new Error("unexpected session list")),
-  revokeCurrentSession: () => Promise.reject(new Error("unexpected session mutation")),
-  revokeSession: () => Promise.reject(new Error("unexpected session mutation")),
-  revokeOtherSessions: () => Promise.reject(new Error("unexpected session mutation")),
-  revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
-  recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
-  signOut: async () => ({ setCookies: [] }),
+  readCurrentSession: () => Effect.die("unexpected session read"),
+  listSessions: () => Effect.die("unexpected session list"),
+  revokeCurrentSession: () => Effect.die("unexpected session mutation"),
+  revokeSession: () => Effect.die("unexpected session mutation"),
+  revokeOtherSessions: () => Effect.die("unexpected session mutation"),
+  revokeAllSessions: () => Effect.die("unexpected session mutation"),
+  recordSecurityEvent: () => Effect.die("unexpected identity audit"),
+  signOut: () => Effect.succeed({ setCookies: [] }),
 } as const;
 
-const rejectingIdentity = (cause: unknown): IdentityOperations => ({
-  signIn: () => Promise.reject(new Error("unexpected sign-in")),
-  resolveSession: () => Promise.reject(cause),
+const failingIdentity = (failure: IdentitySessionFailure): IdentityOperations => ({
+  signIn: () => Effect.die("unexpected sign-in"),
+  resolveSession: () => Effect.fail(failure),
   ...unreachableSessionManagement,
 });
 
@@ -34,16 +35,17 @@ it("captures the Schools authorization instant exactly once after session decodi
   const events: Array<string> = [];
 
   const identity = Identity.of({
-    signIn: () => Promise.reject(new Error("unexpected sign-in")),
-    resolveSession: async () => {
-      events.push("session");
+    signIn: () => Effect.die("unexpected sign-in"),
+    resolveSession: () =>
+      Effect.sync(() => {
+        events.push("session");
 
-      return new IdentityActor({
-        personId: PersonId.make("schools-authority-person"),
-        sessionId: "schools-session",
-        expiresAt: DateTime.makeUnsafe(new Date("2032-05-02T00:00:00.000Z")),
-      });
-    },
+        return new IdentityActor({
+          personId: PersonId.make("schools-authority-person"),
+          sessionId: "schools-session",
+          expiresAt: DateTime.makeUnsafe("2032-05-02T00:00:00.000Z"),
+        });
+      }),
     ...unreachableSessionManagement,
   } satisfies IdentityOperations);
 
@@ -75,7 +77,7 @@ it.each([
   await expect(
     runTestPromise(
       resolveAuthenticatedPerson("better-auth.session_token=invalid").pipe(
-        Effect.provideService(Identity, rejectingIdentity(failure)),
+        Effect.provideService(Identity, failingIdentity(failure)),
       ),
     ),
   ).rejects.toBeInstanceOf(UnauthenticatedActor);
@@ -90,20 +92,8 @@ it("preserves a typed authentication engine failure", async () => {
   await expect(
     runTestPromise(
       resolveAuthenticatedPerson("better-auth.session_token=provider-failure").pipe(
-        Effect.provideService(Identity, rejectingIdentity(failure)),
+        Effect.provideService(Identity, failingIdentity(failure)),
       ),
     ),
   ).rejects.toBe(failure);
-});
-
-it("maps an unknown session provider rejection to typed infrastructure", async () => {
-  await expect(
-    runTestPromise(
-      resolveAuthenticatedPerson("better-auth.session_token=provider-failure").pipe(
-        Effect.provideService(Identity, rejectingIdentity(new Error("connection refused"))),
-      ),
-    ),
-  ).rejects.toMatchObject(
-    new IdentityEngineError({ operation: "resolveSession", message: "connection refused" }),
-  );
 });

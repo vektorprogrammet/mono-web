@@ -1,6 +1,6 @@
 import { backendTestConfig } from "../../test/config.js";
 import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
-import { Identity } from "@vektorprogrammet/domain/identity";
+import { Identity, IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import {
   ExternalNativeApi,
   InternalNativeApi,
@@ -39,38 +39,25 @@ const unreachable = vi.fn(() => Effect.die("request schema failure reached endpo
 
 const securityServices = Layer.mergeAll(
   Layer.mock(Identity, {
-    signIn: async () => {
-      throw new Error("Unexpected sign-in");
-    },
-    readCurrentSession: async () => {
-      throw new Error("Unexpected session read");
-    },
-    listSessions: async () => {
-      throw new Error("Unexpected session list");
-    },
-    revokeCurrentSession: async () => {
-      throw new Error("Unexpected session mutation");
-    },
-    revokeSession: async () => {
-      throw new Error("Unexpected session mutation");
-    },
-    revokeOtherSessions: async () => {
-      throw new Error("Unexpected session mutation");
-    },
-    revokeAllSessions: async () => {
-      throw new Error("Unexpected session mutation");
-    },
-    recordSecurityEvent: async () => {
-      throw new Error("Unexpected identity audit");
-    },
-    signOut: async () => {
-      throw new Error("Unexpected sign-out");
-    },
+    signIn: () => Effect.die("Unexpected sign-in"),
+    readCurrentSession: () => Effect.die("Unexpected session read"),
+    listSessions: () => Effect.die("Unexpected session list"),
+    revokeCurrentSession: () => Effect.die("Unexpected session mutation"),
+    revokeSession: () => Effect.die("Unexpected session mutation"),
+    revokeOtherSessions: () => Effect.die("Unexpected session mutation"),
+    revokeAllSessions: () => Effect.die("Unexpected session mutation"),
+    recordSecurityEvent: () => Effect.die("Unexpected identity audit"),
+    signOut: () => Effect.die("Unexpected sign-out"),
     resolveSession: () =>
-      Promise.reject(new Error("request schema failure reached authentication")),
+      Effect.fail(
+        new IdentityEngineError({
+          operation: "resolveSession",
+          message: "request schema failure reached authentication",
+        }),
+      ),
   }),
   Layer.mock(OAuthCredentialAuthority, {
-    resolve: () => Promise.reject(new Error("request schema failure reached authentication")),
+    resolve: () => Effect.die("request schema failure reached authentication"),
   }),
 );
 

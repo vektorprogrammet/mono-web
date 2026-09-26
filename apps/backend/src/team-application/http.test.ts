@@ -38,22 +38,22 @@ const actorFor = (personId: string) =>
   });
 
 const identity = Identity.of({
-  signIn: () => Promise.reject(new Error("unexpected sign-in")),
-  resolveSession: async (cookie) => {
+  signIn: () => Effect.die("unexpected sign-in"),
+  resolveSession: (cookie) => {
     const person = sessionPerson(cookie);
 
-    if (person === undefined) throw new IdentitySessionNotFound();
-
-    return actorFor(person);
+    return person === undefined
+      ? Effect.fail(new IdentitySessionNotFound())
+      : Effect.succeed(actorFor(person));
   },
-  readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
-  listSessions: () => Promise.reject(new Error("unexpected session list")),
-  revokeCurrentSession: () => Promise.reject(new Error("unexpected session mutation")),
-  revokeSession: () => Promise.reject(new Error("unexpected session mutation")),
-  revokeOtherSessions: () => Promise.reject(new Error("unexpected session mutation")),
-  revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
-  recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
-  signOut: async () => ({ setCookies: [] }),
+  readCurrentSession: () => Effect.die("unexpected session read"),
+  listSessions: () => Effect.die("unexpected session list"),
+  revokeCurrentSession: () => Effect.die("unexpected session mutation"),
+  revokeSession: () => Effect.die("unexpected session mutation"),
+  revokeOtherSessions: () => Effect.die("unexpected session mutation"),
+  revokeAllSessions: () => Effect.die("unexpected session mutation"),
+  recordSecurityEvent: () => Effect.die("unexpected identity audit"),
+  signOut: () => Effect.succeed({ setCookies: [] }),
 } satisfies IdentityOperations);
 
 const identitySnapshot = IdentitySnapshot.of({
@@ -71,7 +71,7 @@ const identitySnapshot = IdentitySnapshot.of({
 });
 
 const oauth = OAuthCredentialAuthority.of({
-  resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
+  resolve: () => Effect.die("unexpected OAuth credential resolution"),
   resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
 });
 

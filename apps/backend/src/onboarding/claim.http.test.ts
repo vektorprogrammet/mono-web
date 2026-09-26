@@ -113,7 +113,7 @@ const http = makeBackendTestHttp(
           : Effect.fail(new IdentitySessionNotFound()),
     }),
     Layer.mock(OAuthCredentialAuthority, {
-      resolve: async (request) => bearerOutcome(request),
+      resolve: (request) => Effect.succeed(bearerOutcome(request)),
       resolveInTransaction: (request) => Effect.succeed(bearerOutcome(request)),
     }),
     Layer.mock(Organization, {
