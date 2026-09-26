@@ -29,3 +29,8 @@ Local invariants, pitfalls, and recipes go below this generated part; `just guid
 
 - `check` runs Alloy 6 from nixpkgs with the command of the model header and compares each result with the command's `expect`. A name that contains `mutant` marks a mutant check.
 - `validate` runs Context Mapper CLI 6.12.0 on OpenJDK 17 from nixpkgs. The CLI archive must match the SHA-256 that Maven Central publishes. The CLI exits with 0 also when it reports errors, so the script reads its output.
+
+## Landing
+
+`land.ts` refuses instead of forcing. It never removes a worktree with changes or untracked files, and it aborts a merge that stops.
+`tests/land.test.ts` runs Git without the variables of a hook and without the user's configuration.

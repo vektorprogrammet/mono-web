@@ -36,6 +36,11 @@ build *args:
 changelog *args:
     bun tools/scripts/changelog.ts "$@"
 
+# Land a branch on main in the main checkout, then remove its worktree and delete it. It does not push.
+[group('develop')]
+land branch:
+    bun --no-env-file tools/scripts/land.ts "$1"
+
 # Check layout, constructs, guides, source safety, format, lint, types, and the HTTP contract. Arguments go to Turbo.
 [group('check')]
 check *args: layout constructs guides source-safety (format "--check") lint
