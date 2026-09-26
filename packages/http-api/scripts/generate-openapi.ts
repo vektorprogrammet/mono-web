@@ -1,8 +1,9 @@
-import { writeFile } from "node:fs/promises";
+import * as BunFileSystem from "@effect/platform-bun/BunFileSystem";
+import * as BunPath from "@effect/platform-bun/BunPath";
 import { ExternalNativeApi, InternalNativeApi } from "../src/api.js";
 import { NativeApiReleaseVersion } from "../src/release.js";
 import { OpenApi } from "effect/unstable/httpapi";
-import { Array as Arr, Predicate, Schema } from "effect";
+import { Array as Arr, Effect, FileSystem, Layer, Path, Predicate, Schema } from "effect";
 import assert from "node:assert/strict";
 
 // Writes the ignored OpenAPI projection of ExternalNativeApi and checks its release invariants.
@@ -80,10 +81,16 @@ assert(
   `expected 1 internal operation, received ${internalOperationIds.length}`,
 );
 
-await writeFile(
-  new URL("../openapi.json", import.meta.url),
-  encode(Schema.decodeUnknownSync(Schema.Json)(document)),
-  "utf8",
+await Effect.runPromise(
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const target = yield* path.fromFileUrl(new URL("../openapi.json", import.meta.url));
+
+    const json = yield* Schema.decodeUnknownEffect(Schema.Json)(document);
+
+    yield* fileSystem.writeFileString(target, encode(json));
+  }).pipe(Effect.provide(Layer.merge(BunFileSystem.layer, BunPath.layer))),
 );
 
 process.stdout.write(

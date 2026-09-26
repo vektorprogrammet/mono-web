@@ -1,4 +1,4 @@
-import { Effect, Stream } from "effect";
+import { Data, Effect, Stream } from "effect";
 import * as Multipart from "effect/unstable/http/Multipart";
 
 export { RECEIPT_FILE_MAX_BYTES } from "@vektorprogrammet/domain/receipt";
@@ -17,6 +17,12 @@ export class ReceiptFileTooLarge extends RangeError {
     this.fields = fields;
   }
 }
+
+/** The request body cannot be read as a receipt form. */
+class ReceiptBodyInvalid extends Data.TaggedError("ReceiptBodyInvalid")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 /** Bytes beyond a file's limit that the transfer bound admits for the other form parts. */
 const transferMargin = 131_072;
@@ -37,33 +43,24 @@ const slices = function* (chunk: Uint8Array) {
   }
 };
 
-/**
- * Bound transfer bytes while parsing and cancel the source with its request.
- *
- * The byte counters, not the declared length, enforce the bounds: a body whose file is
- * too large stops after that file's limit, so the fields before it stay readable.
- */
-export const readBoundedReceiptForm = async (
-  request: Request,
-  maxFileBytes: number,
-): Promise<FormData> => {
+const boundedReceiptForm = Effect.fnUntraced(function* (request: Request, maxFileBytes: number) {
   const maxBytes = receiptTransferMaxBytes(maxFileBytes);
   const length = request.headers.get("content-length");
 
   if (length !== null && (!/^\d+$/u.test(length) || !Number.isSafeInteger(Number(length)))) {
-    throw new TypeError("Invalid receipt body length");
+    return yield* new ReceiptBodyInvalid({ message: "Invalid receipt body length" });
   }
 
   const body = request.body;
 
-  if (!body) throw new TypeError("Receipt body is required");
+  if (!body) return yield* new ReceiptBodyInvalid({ message: "Receipt body is required" });
   const contentType = request.headers.get("content-type") ?? "";
   const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase();
   let size = 0;
 
   const source = Stream.fromReadableStream({
     evaluate: () => body,
-    onError: (cause) => new TypeError("Receipt transfer failed", { cause }),
+    onError: (cause) => new ReceiptBodyInvalid({ message: "Receipt transfer failed", cause }),
   }).pipe(
     Stream.map(slices),
     Stream.flattenIterable,
@@ -80,54 +77,60 @@ export const readBoundedReceiptForm = async (
   const form = new FormData();
 
   if (mediaType === "application/x-www-form-urlencoded") {
-    const encoded = await Effect.runPromise(source.pipe(Stream.decodeText(), Stream.mkString), {
-      signal: request.signal,
-    });
+    const encoded = yield* source.pipe(Stream.decodeText(), Stream.mkString);
 
     for (const [key, value] of new URLSearchParams(encoded)) form.append(key, value);
 
     return form;
   }
 
-  if (mediaType !== "multipart/form-data") throw new TypeError("Unsupported receipt content type");
+  if (mediaType !== "multipart/form-data") {
+    return yield* new ReceiptBodyInvalid({ message: "Unsupported receipt content type" });
+  }
 
-  await Effect.runPromise(
-    source.pipe(
-      Stream.pipeThroughChannel(Multipart.makeChannel({ "content-type": contentType })),
-      Stream.runForEach(
-        Effect.fnUntraced(function* (part) {
-          if (Multipart.isField(part)) {
-            form.append(part.key, part.value);
-          } else {
-            const chunks: Array<Uint8Array<ArrayBuffer>> = [];
-            let fileBytes = 0;
-            yield* Stream.runForEach(part.content, (chunk) =>
-              Effect.sync(() => {
-                fileBytes += chunk.byteLength;
+  yield* source.pipe(
+    Stream.pipeThroughChannel(Multipart.makeChannel({ "content-type": contentType })),
+    Stream.runForEach(
+      Effect.fnUntraced(function* (part) {
+        if (Multipart.isField(part)) {
+          form.append(part.key, part.value);
+        } else {
+          const chunks: Array<Uint8Array<ArrayBuffer>> = [];
+          let fileBytes = 0;
+          yield* Stream.runForEach(part.content, (chunk) =>
+            Effect.sync(() => {
+              fileBytes += chunk.byteLength;
 
-                if (fileBytes > maxFileBytes) throw new ReceiptFileTooLarge(form);
+              if (fileBytes > maxFileBytes) throw new ReceiptFileTooLarge(form);
 
-                if (!(chunk.buffer instanceof ArrayBuffer))
-                  throw new TypeError("Invalid receipt byte buffer");
-                chunks.push(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
-              }),
-            );
-            form.append(part.key, new File(chunks, part.name, { type: part.contentType }));
-          }
-        }),
-      ),
-      Effect.provideContext(
-        Multipart.limitsServices({
-          maxParts: 8,
-          maxFieldSize: 65_536,
-          maxFileSize: maxBytes,
-          maxTotalSize: maxBytes,
-          fieldMimeTypes: [],
-        }),
-      ),
+              if (!(chunk.buffer instanceof ArrayBuffer))
+                throw new TypeError("Invalid receipt byte buffer");
+              chunks.push(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+            }),
+          );
+          form.append(part.key, new File(chunks, part.name, { type: part.contentType }));
+        }
+      }),
     ),
-    { signal: request.signal },
+    Effect.provideContext(
+      Multipart.limitsServices({
+        maxParts: 8,
+        maxFieldSize: 65_536,
+        maxFileSize: maxBytes,
+        maxTotalSize: maxBytes,
+        fieldMimeTypes: [],
+      }),
+    ),
   );
 
   return form;
-};
+});
+
+/**
+ * Bound transfer bytes while parsing and cancel the source with its request.
+ *
+ * The byte counters, not the declared length, enforce the bounds: a body whose file is
+ * too large stops after that file's limit, so the fields before it stay readable.
+ */
+export const readBoundedReceiptForm = (request: Request, maxFileBytes: number): Promise<FormData> =>
+  Effect.runPromise(boundedReceiptForm(request, maxFileBytes), { signal: request.signal });

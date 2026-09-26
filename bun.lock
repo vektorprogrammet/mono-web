@@ -230,6 +230,8 @@
         "effect": "catalog:effect-v4",
       },
       "devDependencies": {
+        "@effect/platform-bun": "catalog:effect-v4",
+        "@effect/vitest": "catalog:effect-v4",
         "@types/node": "^22",
         "typescript": "7.0.2",
         "vitest": "catalog:effect-v4",
