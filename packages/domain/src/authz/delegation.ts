@@ -68,6 +68,16 @@ export const ORGANIZATION_CAPABILITIES = {
     globalAdministrator: true,
     delegation: "TeamArea",
   },
+  /**
+   * Confirm or adjust each assistant's days served in a department and semester. The department
+   * grants it to its school-coordination team by an explicit delegation; no team name implies it.
+   */
+  "placements.days-served": {
+    teamLeader: false,
+    boardLeader: true,
+    globalAdministrator: true,
+    delegation: "TeamArea",
+  },
   /** Maintain schools, their department associations and capacity. */
   "schools.administer": {
     teamLeader: false,

@@ -872,7 +872,7 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [tools/verification/organization-import-rehearsal-main.ts](../tools/verification/organization-import-rehearsal-main.ts)
   - [tools/verification/organization-import-rehearsal.ts](../tools/verification/organization-import-rehearsal.ts)
 - `canonicalJsonBytes`: The UTF-8 bytes of the canonical JSON text of a datum.
-  [packages/domain/src/shared-kernel/canonical-json.ts:92](../packages/domain/src/shared-kernel/canonical-json.ts#L92), 59 consumers:
+  [packages/domain/src/shared-kernel/canonical-json.ts:92](../packages/domain/src/shared-kernel/canonical-json.ts#L92), 61 consumers:
   - [apps/backend/src/http-semantics.ts](../apps/backend/src/http-semantics.ts)
   - [apps/backend/src/receipt/import-snapshot.ts](../apps/backend/src/receipt/import-snapshot.ts)
   - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
@@ -910,6 +910,8 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [packages/domain/src/application/digest.ts](../packages/domain/src/application/digest.ts)
   - [packages/domain/src/organization/administration.ts](../packages/domain/src/organization/administration.ts)
   - [packages/domain/src/organization/review.ts](../packages/domain/src/organization/review.ts)
+  - [packages/domain/src/placements/certificate.ts](../packages/domain/src/placements/certificate.ts)
+  - [packages/domain/src/placements/days-served.ts](../packages/domain/src/placements/days-served.ts)
   - [packages/domain/src/receipt/auxiliary-service.ts](../packages/domain/src/receipt/auxiliary-service.ts)
   - [packages/domain/src/receipt/file-service.ts](../packages/domain/src/receipt/file-service.ts)
   - [packages/domain/src/receipt/review.ts](../packages/domain/src/receipt/review.ts)
@@ -933,7 +935,7 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [tools/verification/organization-import-rehearsal.ts](../tools/verification/organization-import-rehearsal.ts)
   - [tools/verification/receipt-import-rehearsal.ts](../tools/verification/receipt-import-rehearsal.ts)
 - `sha256Hex`: The lowercase hexadecimal SHA-256 digest of bytes.
-  [packages/domain/src/shared-kernel/canonical-json.ts:99](../packages/domain/src/shared-kernel/canonical-json.ts#L99), 63 consumers:
+  [packages/domain/src/shared-kernel/canonical-json.ts:99](../packages/domain/src/shared-kernel/canonical-json.ts#L99), 65 consumers:
   - [apps/backend/src/receipt/import-snapshot.ts](../apps/backend/src/receipt/import-snapshot.ts)
   - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
   - [packages/database/runtime/identity-postgres-proof-main.ts](../packages/database/runtime/identity-postgres-proof-main.ts)
@@ -974,6 +976,8 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [packages/domain/src/organization/administration.ts](../packages/domain/src/organization/administration.ts)
   - [packages/domain/src/organization/import.ts](../packages/domain/src/organization/import.ts)
   - [packages/domain/src/organization/review.ts](../packages/domain/src/organization/review.ts)
+  - [packages/domain/src/placements/certificate.ts](../packages/domain/src/placements/certificate.ts)
+  - [packages/domain/src/placements/days-served.ts](../packages/domain/src/placements/days-served.ts)
   - [packages/domain/src/receipt/auxiliary-service.ts](../packages/domain/src/receipt/auxiliary-service.ts)
   - [packages/domain/src/receipt/file-service.ts](../packages/domain/src/receipt/file-service.ts)
   - [packages/domain/src/receipt/review.ts](../packages/domain/src/receipt/review.ts)

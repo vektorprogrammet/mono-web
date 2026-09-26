@@ -3,9 +3,9 @@
  * `delegatedReach`). Every decision that depends on team or board leadership, or on a delegation,
  * asks this module; no other product code reads a leadership flag.
  */
-import { Data, Match } from "effect";
+import { Data, Match, Option, Order } from "effect";
 import type { OrganizationPersonAuthority } from "../organization/authority.js";
-import type { DepartmentId, TeamId } from "../organization/schema.js";
+import type { DepartmentId, MembershipId, PersonId, TeamId } from "../organization/schema.js";
 import {
   delegationActiveAt,
   delegationConforms,
@@ -14,6 +14,8 @@ import {
   ORGANIZATION_CAPABILITY_IDS,
   type Delegation,
   type OrganizationCapability,
+  type TeamScope,
+  type UnitKind,
 } from "./delegation.js";
 
 /** A scope where a person holds a capability. */
@@ -205,3 +207,128 @@ export const leadsAnyTeam = (authority: OrganizationPersonAuthority): boolean =>
   authority.memberships.some(
     (membership) => membership.active && membership.unitLeader && membership.unitKind === "Team",
   );
+
+/** The board that a seat sits on: a department's board (Styret), or the national board. */
+export type SeatBoard = Data.TaggedEnum<{
+  DepartmentBoard: { readonly departmentId: DepartmentId };
+  NationalBoard: {};
+}>;
+
+export const SeatBoard = Data.taggedEnum<SeatBoard>();
+
+/** One appointment with the facts of its unit, as a derived seat reads it. */
+export interface UnitAppointment {
+  readonly membershipId: MembershipId;
+  readonly personId: PersonId;
+  readonly teamId: TeamId;
+  readonly departmentId: DepartmentId;
+  readonly unitKind: UnitKind;
+  readonly teamScope: TeamScope;
+  readonly active: boolean;
+  readonly unitLeader: boolean;
+}
+
+/** A board seat that a current team leadership gives. It is computed, never stored. */
+export interface DerivedBoardSeat {
+  readonly board: SeatBoard;
+  readonly personId: PersonId;
+  readonly sourceMembershipId: MembershipId;
+  readonly sourceTeamId: TeamId;
+}
+
+const byMembership = Order.mapInput(
+  Order.String,
+  (appointment: { readonly membershipId: MembershipId }) => appointment.membershipId,
+);
+
+/**
+ * The derived seats at the facts' instant: every current leader of a local team sits on the
+ * board of the team's home department, and every current leader of a national team sits on
+ * Hovedstyret. A derived seat starts and ends with the leadership. It gives membership and
+ * certificate issuance only: no reach above reads it, so it gives no administration.
+ */
+export const derivedBoardSeats = (
+  appointments: ReadonlyArray<UnitAppointment>,
+): ReadonlyArray<DerivedBoardSeat> =>
+  appointments
+    .filter(
+      (appointment) =>
+        appointment.active && appointment.unitLeader && appointment.unitKind === "Team",
+    )
+    .toSorted(byMembership)
+    .map((appointment) => ({
+      board:
+        appointment.teamScope === "National"
+          ? SeatBoard.NationalBoard()
+          : SeatBoard.DepartmentBoard({ departmentId: appointment.departmentId }),
+      personId: appointment.personId,
+      sourceMembershipId: appointment.membershipId,
+      sourceTeamId: appointment.teamId,
+    }));
+
+/** The seat, or the grant, that lets a person issue the certificates of a department. */
+export type IssuerBasis = Data.TaggedEnum<{
+  /** An appointed seat on the board that governs the department. */
+  BoardSeat: { readonly membershipId: MembershipId };
+  /** A seat on that board derived from the current leadership of a team. */
+  DerivedSeat: { readonly membershipId: MembershipId; readonly teamId: TeamId };
+  GlobalAdministrator: {};
+}>;
+
+export const IssuerBasis = Data.taggedEnum<IssuerBasis>();
+
+/** The facts of a department that decide which board governs it. */
+export interface GovernedDepartment {
+  readonly departmentId: DepartmentId;
+  readonly independent: boolean;
+}
+
+/**
+ * Who issues the certificates of a department (O8-16). The seats on the board of an independent
+ * department issue for that department only, and the seats on Hovedstyret for a department that
+ * is not independent; derived seats count as seats. A global administrator issues everywhere.
+ * An appointed seat comes before a derived seat, and a seat before the grant, so the certificate
+ * names the seat. Anyone else, a team leader without such a seat included, has no basis.
+ */
+export const certificateIssuerBasis = (
+  authority: OrganizationPersonAuthority,
+  department: GovernedDepartment,
+): Option.Option<IssuerBasis> => {
+  const appointed = department.independent
+    ? authority.memberships
+        .filter(
+          (membership) =>
+            membership.active &&
+            membership.unitKind === "DepartmentBoard" &&
+            membership.departmentId === department.departmentId,
+        )
+        .toSorted(byMembership)
+    : authority.nationalBoardSeats.filter((seat) => seat.active).toSorted(byMembership);
+
+  const seat = appointed[0];
+
+  if (seat !== undefined)
+    return Option.some(IssuerBasis.BoardSeat({ membershipId: seat.membershipId }));
+
+  const derived = derivedBoardSeats(
+    authority.memberships.map((membership) => ({ ...membership, personId: authority.personId })),
+  ).find((candidate) =>
+    SeatBoard.$match(candidate.board, {
+      DepartmentBoard: ({ departmentId }) =>
+        department.independent && departmentId === department.departmentId,
+      NationalBoard: () => !department.independent,
+    }),
+  );
+
+  if (derived !== undefined)
+    return Option.some(
+      IssuerBasis.DerivedSeat({
+        membershipId: derived.sourceMembershipId,
+        teamId: derived.sourceTeamId,
+      }),
+    );
+
+  return authority.globalAdministrator === "Active"
+    ? Option.some(IssuerBasis.GlobalAdministrator())
+    : Option.none();
+};
