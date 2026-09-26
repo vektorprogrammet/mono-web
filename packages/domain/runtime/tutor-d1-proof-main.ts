@@ -441,11 +441,15 @@ const migrationCase = async (sql: string): Promise<CaseRecord> =>
     );
 
     const tableNames = Array.filterMap(schemaRows, (row) =>
-      row.type === "table" ? Result.succeed(String(row.name)) : Result.failVoid,
+      row.type === "table" && Predicate.isString(row.name)
+        ? Result.succeed(row.name)
+        : Result.failVoid,
     );
 
     const triggerNames = Array.filterMap(schemaRows, (row) =>
-      row.type === "trigger" ? Result.succeed(String(row.name)) : Result.failVoid,
+      row.type === "trigger" && Predicate.isString(row.name)
+        ? Result.succeed(row.name)
+        : Result.failVoid,
     );
 
     const requiredTables = ["command_receipts", "stream_heads", "tutor_events"];

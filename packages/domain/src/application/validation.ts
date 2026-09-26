@@ -66,7 +66,9 @@ export const decodeSubmitPublicApplicationInput = decodePublicApplicationSubmitI
 
 export const decodeSubmitPublicApplicationCommand = flow(
   decodePublicApplicationSubmitInput,
-  Effect.map(SubmitPublicApplicationCommandSchema.cases.SubmitPublicApplication.make),
+  Effect.map((input) =>
+    SubmitPublicApplicationCommandSchema.cases.SubmitPublicApplication.make(input),
+  ),
 );
 
 export const decodePublicApplicationNow = flow(

@@ -1,4 +1,4 @@
-import { Schema, Result, Array, Effect } from "effect";
+import { Schema, Result, Array, Cause, Effect } from "effect";
 import { DomainFileSystem, joinPath, removeTree, writeTextFile } from "./runtime-services.js";
 import {
   authorityFromEntries,
@@ -63,7 +63,11 @@ interface FixtureDefinition {
   readonly expectedStatus: FixtureStatus;
   readonly expectedReasonCodes: ReadonlyArray<ReasonCode>;
   readonly predicate?: (result: SDep2TeamResult) => boolean;
-  readonly runError?: () => Effect.Effect<DatasetInputError | undefined, unknown, DomainFileSystem>;
+  readonly runError?: () => Effect.Effect<
+    DatasetInputError | undefined,
+    Cause.UnknownError,
+    DomainFileSystem
+  >;
 }
 
 const input = (
@@ -323,8 +327,7 @@ const fixtureDefinitions: ReadonlyArray<FixtureDefinition> = [
             }
 
             return yield* loadDataset(directory).pipe(
-              Effect.map((): undefined => undefined),
-              Effect.catch((error) => Effect.succeed(error)),
+              Effect.match({ onFailure: (error) => error, onSuccess: (): undefined => undefined }),
             );
           }),
         (directory) => removeTree(directory),
@@ -388,7 +391,7 @@ const failedObservation = (
   };
 };
 
-const assertBoundaryFixtures = (): Effect.Effect<void, unknown, DomainFileSystem> =>
+const assertBoundaryFixtures = (): Effect.Effect<void, Cause.UnknownError, DomainFileSystem> =>
   Effect.gen(function* () {
     const unexpectedField = decodeDepartment({ id: 1, email: "not persisted" });
 
@@ -415,7 +418,7 @@ const assertBoundaryFixtures = (): Effect.Effect<void, unknown, DomainFileSystem
           const expectAuthorityFailure = (
             contents: string,
             expectedCode: string,
-          ): Effect.Effect<void, unknown, DomainFileSystem> =>
+          ): Effect.Effect<void, never, DomainFileSystem> =>
             writeTextFile(authorityPath, contents).pipe(
               Effect.flatMap(() => loadPersonAuthority(authorityPath)),
               Effect.matchEffect({
@@ -439,52 +442,55 @@ const assertBoundaryFixtures = (): Effect.Effect<void, unknown, DomainFileSystem
 
 export const runSyntheticFixtures: Effect.Effect<
   ReadonlyArray<FixtureObservation>,
-  unknown,
+  Cause.UnknownError,
   DomainFileSystem
 > = Effect.gen(function* () {
   yield* assertBoundaryFixtures();
   const observations: FixtureObservation[] = [];
 
   for (const fixture of fixtureDefinitions) {
-    try {
-      const runError = fixture.runError;
+    const runError = fixture.runError;
 
-      if (runError !== undefined) {
-        const error: DatasetInputError | undefined = yield* runError().pipe(
-          Effect.catch((cause) =>
-            Effect.succeed(
-              cause instanceof DatasetInputError
-                ? cause
-                : new DatasetInputError("INVALID_ARGUMENT", "fixture"),
-            ),
+    if (runError !== undefined) {
+      const error: DatasetInputError | undefined = yield* runError().pipe(
+        Effect.catch((cause) =>
+          Effect.succeed(
+            cause instanceof DatasetInputError
+              ? cause
+              : new DatasetInputError("INVALID_ARGUMENT", "fixture"),
           ),
-        );
+        ),
+      );
 
-        observations.push(failedObservation(fixture, undefined, error));
-        continue;
-      }
+      observations.push(failedObservation(fixture, undefined, error));
+      continue;
+    }
 
-      if (fixture.input === undefined) {
-        observations.push(failedObservation(fixture, undefined, undefined));
-        continue;
-      }
+    const input = fixture.input;
 
-      const dataset: Dataset = buildDataset(fixture.input);
+    if (input === undefined) {
+      observations.push(failedObservation(fixture, undefined, undefined));
+      continue;
+    }
 
-      const result = runSDep2Team(dataset, {
-        snapshotId: fixture.id,
-        personAuthority: fixture.personAuthority,
-      });
+    const observation = Result.try({
+      try: () => {
+        const dataset: Dataset = buildDataset(input);
 
-      observations.push(failedObservation(fixture, result, undefined));
-    } catch (error: unknown) {
-      const safeError =
+        const result = runSDep2Team(dataset, {
+          snapshotId: fixture.id,
+          personAuthority: fixture.personAuthority,
+        });
+
+        return failedObservation(fixture, result, undefined);
+      },
+      catch: (error) =>
         error instanceof DatasetInputError
           ? error
-          : new DatasetInputError("INVALID_ARGUMENT", "fixture");
+          : new DatasetInputError("INVALID_ARGUMENT", "fixture"),
+    }).pipe(Result.getOrElse((safeError) => failedObservation(fixture, undefined, safeError)));
 
-      observations.push(failedObservation(fixture, undefined, safeError));
-    }
+    observations.push(observation);
   }
 
   return observations;

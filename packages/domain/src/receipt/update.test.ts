@@ -1,7 +1,7 @@
 import { ReceiptOutboxRequestSchema } from "./effects.js";
 import { Scope } from "../authz/access.js";
 import { expect, it } from "@effect/vitest";
-import { Predicate, Effect } from "effect";
+import { Predicate, Effect, Struct } from "effect";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import {
   importLegacyReceipt,
@@ -395,7 +395,9 @@ it.effect(
       });
 
       const reopened = yield* decideReceipt(rejected.receipt, reopen, context);
-      expect(reopened.receipt).toEqual({ ...rejected.receipt, status: "Pending", revision: 2 });
+      expect(reopened.receipt).toEqual(
+        Struct.assign(rejected.receipt, { status: "Pending", revision: 2 }),
+      );
       expect(reopened.outbox).toEqual([]);
       expect(reopened.auditAction).toBe("RejectedReceiptReopened");
 
@@ -416,7 +418,7 @@ it.effect(
 
       for (const status of ["Pending", "Approved", "Withdrawn"] as const) {
         const denied = yield* Effect.flip(
-          decideReceipt({ ...rejected.receipt, status }, reopen, context),
+          decideReceipt(Struct.assign(rejected.receipt, { status }), reopen, context),
         );
 
         expect(denied._tag).toBe("InvalidReceiptTransition");

@@ -256,7 +256,7 @@ const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean =>
 /** Strict adapter boundary. Bun Buffer coercion is deliberately not used here. */
 const BlobRepresentationSchema = Schema.Union([
   Schema.instanceOf(ArrayBuffer),
-  Schema.declare(ArrayBuffer.isView),
+  Schema.declare((value): value is ArrayBufferView => ArrayBuffer.isView(value)),
   Schema.Array(Schema.Int.pipe(Schema.check(Schema.isBetween({ minimum: 0, maximum: 255 })))),
 ]);
 

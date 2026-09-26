@@ -57,6 +57,12 @@ export interface ContentManagementOperations {
   ) => Effect.Effect<UnpublishObservation, ContentCommandFailure, Organization>;
 }
 
+/**
+ * The capability topology gives ContentManagement no layer dependency, so the composition root
+ * supplies Organization to every operation.
+ *
+ * @effect-expect-leaking Organization
+ */
 export class ContentManagement extends Context.Service<
   ContentManagement,
   ContentManagementOperations

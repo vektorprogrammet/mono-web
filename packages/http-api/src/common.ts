@@ -91,6 +91,7 @@ export class SessionSecurity extends HttpApiMiddleware.Service<SessionSecurity>(
  *
  * @since 0.1.0
  * @category Security
+ * @effect-expect-leaking HttpServerRequest ParsedSearchParams RouteContext
  */
 export class PersonSecurity extends HttpApiMiddleware.Service<PersonSecurity>()(
   "@vektorprogrammet/http-api/PersonSecurity",
@@ -106,6 +107,8 @@ export class PersonSecurity extends HttpApiMiddleware.Service<PersonSecurity>()(
 /**
  * Contract marker for the one native operation that accepts either a person
  * credential or a service-principal bearer.
+ *
+ * @effect-expect-leaking HttpServerRequest ParsedSearchParams RouteContext
  */
 export class PersonOrServiceSecurity extends HttpApiMiddleware.Service<PersonOrServiceSecurity>()(
   "@vektorprogrammet/http-api/PersonOrServiceSecurity",

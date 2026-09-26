@@ -28,7 +28,7 @@ const text = (max: number, multiline: boolean) =>
       Schema.makeFilter(
         (value) =>
           value.trim() === value &&
-          ![...value].some((character) => {
+          !value.split("").some((character) => {
             const code = character.charCodeAt(0);
 
             return code === 127 || (code < 32 && (!multiline || ![9, 10, 13].includes(code)));

@@ -43,6 +43,18 @@ const integer = (value: Schema.Json): Schema.Json =>
 const flag = (value: Schema.Json): Schema.Json =>
   value === "0" || value === 0 ? false : value === "1" || value === 1 ? true : value;
 
+/**
+ * A legacy id as comparable text, so numeric and text ids compare alike. `String` prints every
+ * composite JSON value as `[object Object]`, so a composite value keeps its canonical JSON.
+ */
+const idText = (value: Schema.Json | undefined): string =>
+  Predicate.isString(value) ||
+  Predicate.isNumber(value) ||
+  Predicate.isBoolean(value) ||
+  Predicate.isNullish(value)
+    ? String(value)
+    : canonicalJson(value);
+
 const normalizeRow = (input: Schema.Json): Record<string, Schema.Json> =>
   Object.fromEntries(
     Object.entries(rawObject(input)).map(([key, value]) => [
@@ -107,25 +119,25 @@ export const organizationOccurrenceSourceDigest = (
   const unit =
     (occurrence.sourceKind === "TeamMembership" ? snapshot.teams : snapshot.boards).find(
       (raw) =>
-        String(rawObject(raw).id) ===
-        String(occurrence.sourceKind === "TeamMembership" ? row.teamId : row.boardId),
+        idText(rawObject(raw).id) ===
+        idText(occurrence.sourceKind === "TeamMembership" ? row.teamId : row.boardId),
     ) ?? null;
 
   const position =
     occurrence.sourceKind === "TeamMembership" && row.positionId != null
-      ? (snapshot.positions.find((raw) => String(rawObject(raw).id) === String(row.positionId)) ??
+      ? (snapshot.positions.find((raw) => idText(rawObject(raw).id) === idText(row.positionId)) ??
         null)
       : null;
 
   const personMapping =
     snapshot.mappings.persons.find(
-      (mapping) => mapping.sourceUserId === `legacy-user:${String(row.userId)}`,
+      (mapping) => mapping.sourceUserId === `legacy-user:${idText(row.userId)}`,
     ) ?? null;
 
   const departmentMapping =
     snapshot.mappings.departments.find(
       (mapping) =>
-        mapping.sourceDepartmentId === `legacy-department:${String(rawObject(unit).departmentId)}`,
+        mapping.sourceDepartmentId === `legacy-department:${idText(rawObject(unit).departmentId)}`,
     ) ?? null;
 
   return organizationEvidenceDigest({
@@ -167,8 +179,8 @@ export const classifyReviewedOrganization = (
     ),
     teams: Object.fromEntries(
       snapshot.teams.map((raw) => [
-        String(rawObject(raw).id),
-        reviewedOrganizationTargetId("Team", repo, String(rawObject(raw).id)),
+        idText(rawObject(raw).id),
+        reviewedOrganizationTargetId("Team", repo, idText(rawObject(raw).id)),
       ]),
     ),
     memberships: Object.fromEntries(
@@ -214,7 +226,7 @@ export const classifyReviewedOrganization = (
     (item) =>
       item.occurrence.sourceKind === "TeamMembership" &&
       item.review.decision !== "Excluded" &&
-      String(item.row.id) === item.occurrence.sourceId &&
+      idText(item.row.id) === item.occurrence.sourceId &&
       (item.review.decision === "Historical" ||
         (Predicate.isBoolean(item.row.isTeamLeader) && Predicate.isBoolean(item.row.isSuspended))),
   );
@@ -261,7 +273,7 @@ export const classifyReviewedOrganization = (
     }
 
     if (
-      String(row.id) !== occurrence.sourceId ||
+      idText(row.id) !== occurrence.sourceId ||
       !Predicate.isNumber(row.id) ||
       !Number.isSafeInteger(row.id) ||
       row.id <= 0 ||

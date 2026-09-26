@@ -1,4 +1,4 @@
-import { Predicate, Effect } from "effect";
+import { Predicate, Effect, Struct } from "effect";
 import type { DepartmentId } from "../organization/schema.js";
 import { compareRfc3339Instants, normalizeRfc3339Instant } from "../time.js";
 import {
@@ -211,13 +211,12 @@ export const decideAdmissionPeriod = (
 
     yield* checkWindow(command.startAt, command.endAt, context.semester);
 
-    const period: AdmissionPeriod = {
-      ...current,
+    const period: AdmissionPeriod = Struct.assign(current, {
       startAt: normalizedInstant(command.startAt),
       endAt: normalizedInstant(command.endAt),
       revision: current.revision + 1,
       lastCommandId: command.commandId,
-    };
+    });
 
     return {
       period,

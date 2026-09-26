@@ -20,7 +20,7 @@ const bounded = (minimum: number, maximum: number) =>
   Arbitrary.schema(Schema.Int.pipe(Schema.check(Schema.isBetween({ minimum, maximum }))));
 
 const slot = Arbitrary.all({
-  schoolId: Arbitrary.map(bounded(1, 3), SchoolId.make),
+  schoolId: Arbitrary.map(bounded(1, 3), (id) => SchoolId.make(id)),
   day: Arbitrary.schema(TeachingDay),
   block: Arbitrary.schema(TeachingBlock),
   places: bounded(0, 3),

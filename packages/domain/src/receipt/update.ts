@@ -1,4 +1,4 @@
-import { Data, Match, flow, Predicate, Effect, Schema } from "effect";
+import { Data, Match, flow, Predicate, Effect, Schema, Struct } from "effect";
 import { DepartmentId } from "../organization/schema.js";
 import {
   InactiveActor,
@@ -245,14 +245,13 @@ const decideCommand = (
           yield* pending(current, input._tag);
           const nextFile = isKeepCurrentFile(input.file) ? current.file : input.file;
 
-          const receipt: Receipt = {
-            ...current,
+          const receipt: Receipt = Struct.assign(current, {
             amountOre: input.amountOre,
             description: input.description,
             receiptDate: input.receiptDate,
             file: nextFile,
             revision: current.revision + 1,
-          };
+          });
 
           const outbox: ReceiptOutboxRequest[] = [
             effect(input.commandId, receipt.receiptId, "WriteReceiptAudit"),
@@ -280,11 +279,10 @@ const decideCommand = (
           yield* currentRevision(current, input.expectedRevision);
           yield* pending(current, input._tag);
 
-          const receipt: Receipt = {
-            ...current,
-            status: "Withdrawn",
+          const receipt: Receipt = Struct.assign(current, {
+            status: "Withdrawn" as const,
             revision: current.revision + 1,
-          };
+          });
 
           return {
             receipt,
@@ -302,12 +300,11 @@ const decideCommand = (
           yield* currentRevision(current, input.expectedRevision);
           yield* pending(current, input._tag);
 
-          const receipt: Receipt = {
-            ...current,
-            status: "Approved",
+          const receipt: Receipt = Struct.assign(current, {
+            status: "Approved" as const,
             approvedAt: context.now,
             revision: current.revision + 1,
-          };
+          });
 
           return {
             receipt,
@@ -332,11 +329,10 @@ const decideCommand = (
             });
           }
 
-          const receipt: Receipt = {
-            ...current,
-            status: "Pending",
+          const receipt: Receipt = Struct.assign(current, {
+            status: "Pending" as const,
             revision: current.revision + 1,
-          };
+          });
 
           return {
             receipt,
@@ -351,12 +347,11 @@ const decideCommand = (
           yield* currentRevision(current, input.expectedRevision);
           yield* pending(current, input._tag);
 
-          const receipt: Receipt = {
-            ...current,
-            status: "Rejected",
+          const receipt: Receipt = Struct.assign(current, {
+            status: "Rejected" as const,
             approvedAt: null,
             revision: current.revision + 1,
-          };
+          });
 
           return {
             receipt,

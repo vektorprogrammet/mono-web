@@ -103,7 +103,7 @@ const collectIssueNodes = (
   issue: SchemaIssue.Issue,
   path: ReadonlyArray<PropertyKey> = [],
   nodes: IssueNode[] = [],
-  astContext: SchemaAST.AST | undefined = undefined,
+  astContext?: SchemaAST.AST,
 ): ReadonlyArray<IssueNode> => {
   const ast = astForIssue(issue, astContext);
   nodes.push({ tag: issue._tag, path, ast });
