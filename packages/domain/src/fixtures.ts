@@ -437,59 +437,58 @@ const assertBoundaryFixtures = (): Effect.Effect<void, unknown, DomainFileSystem
     );
   });
 
-export const runSyntheticFixtures = (): Effect.Effect<
+export const runSyntheticFixtures: Effect.Effect<
   ReadonlyArray<FixtureObservation>,
   unknown,
   DomainFileSystem
-> =>
-  Effect.gen(function* () {
-    yield* assertBoundaryFixtures();
-    const observations: FixtureObservation[] = [];
+> = Effect.gen(function* () {
+  yield* assertBoundaryFixtures();
+  const observations: FixtureObservation[] = [];
 
-    for (const fixture of fixtureDefinitions) {
-      try {
-        const runError = fixture.runError;
+  for (const fixture of fixtureDefinitions) {
+    try {
+      const runError = fixture.runError;
 
-        if (runError !== undefined) {
-          const error: DatasetInputError | undefined = yield* runError().pipe(
-            Effect.catch((cause) =>
-              Effect.succeed(
-                cause instanceof DatasetInputError
-                  ? cause
-                  : new DatasetInputError("INVALID_ARGUMENT", "fixture"),
-              ),
+      if (runError !== undefined) {
+        const error: DatasetInputError | undefined = yield* runError().pipe(
+          Effect.catch((cause) =>
+            Effect.succeed(
+              cause instanceof DatasetInputError
+                ? cause
+                : new DatasetInputError("INVALID_ARGUMENT", "fixture"),
             ),
-          );
+          ),
+        );
 
-          observations.push(failedObservation(fixture, undefined, error));
-          continue;
-        }
-
-        if (fixture.input === undefined) {
-          observations.push(failedObservation(fixture, undefined, undefined));
-          continue;
-        }
-
-        const dataset: Dataset = buildDataset(fixture.input);
-
-        const result = runSDep2Team(dataset, {
-          snapshotId: fixture.id,
-          personAuthority: fixture.personAuthority,
-        });
-
-        observations.push(failedObservation(fixture, result, undefined));
-      } catch (error: unknown) {
-        const safeError =
-          error instanceof DatasetInputError
-            ? error
-            : new DatasetInputError("INVALID_ARGUMENT", "fixture");
-
-        observations.push(failedObservation(fixture, undefined, safeError));
+        observations.push(failedObservation(fixture, undefined, error));
+        continue;
       }
-    }
 
-    return observations;
-  });
+      if (fixture.input === undefined) {
+        observations.push(failedObservation(fixture, undefined, undefined));
+        continue;
+      }
+
+      const dataset: Dataset = buildDataset(fixture.input);
+
+      const result = runSDep2Team(dataset, {
+        snapshotId: fixture.id,
+        personAuthority: fixture.personAuthority,
+      });
+
+      observations.push(failedObservation(fixture, result, undefined));
+    } catch (error: unknown) {
+      const safeError =
+        error instanceof DatasetInputError
+          ? error
+          : new DatasetInputError("INVALID_ARGUMENT", "fixture");
+
+      observations.push(failedObservation(fixture, undefined, safeError));
+    }
+  }
+
+  return observations;
+});
 
 export const allFixturesPass = (observations: ReadonlyArray<FixtureObservation>): boolean =>
   observations.length === FIXTURE_IDS.length &&

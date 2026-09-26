@@ -45,14 +45,12 @@ export const OrganizationLive = Layer.effect(
         executeDelegation(command, personId).pipe(Effect.provideService(Database, database)),
       readDepartment: (departmentId) =>
         readOrganizationDepartment(departmentId).pipe(Effect.provideService(Database, database)),
-      listDepartments: listOrganizationDepartments().pipe(
-        Effect.provideService(Database, database),
-      ),
+      listDepartments: listOrganizationDepartments.pipe(Effect.provideService(Database, database)),
       readTeam: (teamId) =>
         readOrganizationTeam(teamId).pipe(Effect.provideService(Database, database)),
       listTeams: (departmentId) =>
         listOrganizationTeams(departmentId).pipe(Effect.provideService(Database, database)),
-      listFieldOfStudies: listOrganizationFieldOfStudies().pipe(
+      listFieldOfStudies: listOrganizationFieldOfStudies.pipe(
         Effect.provideService(Database, database),
       ),
       createDepartment: (command, actor) =>
@@ -69,7 +67,7 @@ export const OrganizationLive = Layer.effect(
         readOrganizationMembership(membershipId).pipe(Effect.provideService(Database, database)),
       listMembershipsForTeam: (teamId) =>
         listOrganizationMembershipsForTeam(teamId).pipe(Effect.provideService(Database, database)),
-      listHistoricalMemberships: listOrganizationHistoricalMemberships().pipe(
+      listHistoricalMemberships: listOrganizationHistoricalMemberships.pipe(
         Effect.provideService(Database, database),
       ),
       listTeamInterestRegistrations: (filter) =>

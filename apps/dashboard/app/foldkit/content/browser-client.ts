@@ -3,10 +3,7 @@ import { Effect, Schema as S } from "effect";
 import { ContentArticleObservationSchema, ContentBridgeFailureSchema, ContentCreateCommandSchema, ContentReviseCommandSchema, ContentTransitionCommandSchema, ContentWorkspaceBootstrapSchema, contentBridgeFailure, type ContentArticleObservation, type ContentBridgeFailure, type ContentCreateCommand, type ContentReviseCommand, type ContentTransitionCommand, type ContentWorkspaceBootstrap, ContentBridgeAction } from "./bridge";
 
 export interface ContentWorkspaceOperations {
-  readonly readContentWorkspace: () => Effect.Effect<
-    ContentWorkspaceBootstrap,
-    ContentBridgeFailure
-  >;
+  readonly readContentWorkspace: Effect.Effect<ContentWorkspaceBootstrap, ContentBridgeFailure>;
   readonly readArticle: (input: {
     readonly articleId: ArticleId;
   }) => Effect.Effect<ContentArticleObservation, ContentBridgeFailure>;
@@ -76,7 +73,7 @@ const transition = (
 
 export const createBrowserContentWorkspaceClient = (bridgeUrl: string): ContentWorkspaceClient => ({
   content: {
-    readContentWorkspace: () => request(ContentWorkspaceBootstrapSchema, bridgeUrl, "GET"),
+    readContentWorkspace: request(ContentWorkspaceBootstrapSchema, bridgeUrl, "GET"),
     readArticle: ({ articleId }) =>
       request(ContentArticleObservationSchema, bridgeUrl, "POST", {
         operation: "readArticle",

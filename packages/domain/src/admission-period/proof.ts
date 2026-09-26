@@ -152,5 +152,3 @@ export const admissionPeriodProof = Effect.gen(function* () {
     },
   } satisfies AdmissionPeriodProofEvidence;
 });
-
-export const runAdmissionPeriodProof = () => admissionPeriodProof;

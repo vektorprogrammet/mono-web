@@ -107,39 +107,38 @@ const decodeCreateCommand = flow(
 
 /**
  * Reads the instant at which PostgreSQL establishes this transaction's first
- * snapshot. Call this before any other snapshot-dependent query and reuse its
+ * snapshot. Run this before any other snapshot-dependent query and reuse its
  * result for authority and the returned `observedAt` value.
  */
-export const readSocialEventSnapshotInstantPostgres = (): Effect.Effect<
+export const readSocialEventSnapshotInstantPostgres: Effect.Effect<
   SocialEventObservedAtValue,
   SocialEventDecodeError | SocialEventPersistenceError,
   Database
-> =>
-  Database.use((sql) =>
-    Effect.gen(function* () {
-      const rows = yield* sql<SnapshotRow>`
+> = Database.use((sql) =>
+  Effect.gen(function* () {
+    const rows = yield* sql<SnapshotRow>`
         SELECT to_char(
           statement_timestamp() AT TIME ZONE 'UTC',
           'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
         ) AS "observedAt"
       `;
 
-      const row = rows[0];
+    const row = rows[0];
 
-      if (row === undefined) {
-        return yield* persistenceError("read social-event snapshot instant", "no row returned");
-      }
+    if (row === undefined) {
+      return yield* persistenceError("read social-event snapshot instant", "no row returned");
+    }
 
-      return yield* decodeSnapshotInstant("decode social-event snapshot instant")(row.observedAt);
-    }).pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("read social-event snapshot instant", cause)),
-      ),
+    return yield* decodeSnapshotInstant("decode social-event snapshot instant")(row.observedAt);
+  }).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("read social-event snapshot instant", cause)),
     ),
-  );
+  ),
+);
 
 const observedAtForRead = (provided: SocialEventObservedAtValue | undefined) =>
-  provided === undefined ? readSocialEventSnapshotInstantPostgres() : Effect.succeed(provided);
+  provided === undefined ? readSocialEventSnapshotInstantPostgres : Effect.succeed(provided);
 
 /**
  * Reads canonical semesters and exactly the departments visible through the

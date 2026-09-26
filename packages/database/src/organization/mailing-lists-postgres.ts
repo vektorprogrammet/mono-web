@@ -56,7 +56,7 @@ export const readOrganizationMailingLists = Effect.fn("readOrganizationMailingLi
           });
         }
 
-        const departments = yield* listOrganizationDepartments();
+        const departments = yield* listOrganizationDepartments;
 
         if (
           input.departmentId !== undefined &&

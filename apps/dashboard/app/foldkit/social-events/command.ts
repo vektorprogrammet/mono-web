@@ -85,7 +85,7 @@ export const commandsFor = (
   LoadScope: ({ requestId }) => ({
     name: "LoadSocialEventsScope",
     args: { requestId },
-    effect: client.socialEvents.readScope().pipe(
+    effect: client.socialEvents.readScope.pipe(
       Effect.map((scope) => LoadedScope({ requestId, scope })),
       Effect.catch((error) =>
         Effect.succeed(FailedScope({ requestId, failure: failureFrom(error) })),

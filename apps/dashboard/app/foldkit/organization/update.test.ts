@@ -55,9 +55,9 @@ const fieldOfStudy = S.decodeSync(FieldOfStudyJsonSchema)({
 
 const client: OrganizationCatalogClient = {
   organization: {
-    listDepartments: () => Effect.die("not executed by transition tests"),
-    listTeams: () => Effect.die("not executed by transition tests"),
-    listFieldOfStudies: () => Effect.die("not executed by transition tests"),
+    listDepartments: Effect.die("not executed by transition tests"),
+    listTeams: Effect.die("not executed by transition tests"),
+    listFieldOfStudies: Effect.die("not executed by transition tests"),
   },
 };
 

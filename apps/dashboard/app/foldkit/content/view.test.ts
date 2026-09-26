@@ -137,13 +137,13 @@ it("keeps a row's publish command on its article when the reload after a save re
 
   const client: ContentWorkspaceClient = {
     content: {
-      readContentWorkspace: () => {
+      readContentWorkspace: Effect.suspend(() => {
         loads += 1;
 
         return loads === 1
           ? Effect.succeed(listings.before)
           : Effect.as(Effect.promise(() => reloadReleased), listings.after);
-      },
+      }),
       readArticle: () => Effect.succeed(observations.detail),
       reviseArticle: () => Effect.succeed(observations.saved),
       publishArticle: ({ articleId }) =>

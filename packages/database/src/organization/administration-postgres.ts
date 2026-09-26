@@ -207,15 +207,14 @@ const readFieldOfStudy = (
     ),
   );
 
-export const listOrganizationFieldOfStudies = (): Effect.Effect<
+export const listOrganizationFieldOfStudies: Effect.Effect<
   ReadonlyArray<FieldOfStudy>,
   OrganizationDecodeError | OrganizationPersistenceError,
   Database
-> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
+> = Effect.gen(function* () {
+  const sql = yield* Database;
 
-    const rows = yield* sql<FieldOfStudySelect>`
+  const rows = yield* sql<FieldOfStudySelect>`
       SELECT
         field_of_study_id AS "fieldOfStudyId",
         name,
@@ -226,13 +225,13 @@ export const listOrganizationFieldOfStudies = (): Effect.Effect<
       FROM organization_field_of_studies
       ORDER BY field_of_study_id ASC
     `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("list organization fields of study", cause)),
-      ),
-    );
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("list organization fields of study", cause)),
+    ),
+  );
 
-    return yield* Effect.forEach(rows, (row) => decodeFieldOfStudy(row));
-  });
+  return yield* Effect.forEach(rows, (row) => decodeFieldOfStudy(row));
+});
 
 const storeReceiptAndAudit = (
   sql: DatabaseOperations,

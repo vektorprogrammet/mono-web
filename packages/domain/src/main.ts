@@ -136,7 +136,7 @@ export const main = (args: ReadonlyArray<string>) =>
     }
 
     if (options.fixtures) {
-      const fixtures = yield* runSyntheticFixtures();
+      const fixtures = yield* runSyntheticFixtures;
       const all = allFixturesPass(fixtures);
       yield* emit(JSON.stringify({ fixtures, all, pii: "none" }, null, 2), options.output);
 

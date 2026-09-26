@@ -19,7 +19,7 @@ type SocialEventList = S.Schema.Type<typeof SocialEventListResource>;
 type SocialEvent = S.Schema.Type<typeof SocialEventResource>;
 
 export interface SocialEventsOperations {
-  readonly readScope: () => Effect.Effect<SocialEventScope, SocialEventsBridgeFailureType>;
+  readonly readScope: Effect.Effect<SocialEventScope, SocialEventsBridgeFailureType>;
   readonly list: (
     input: SocialEventsListInputType,
   ) => Effect.Effect<SocialEventList, SocialEventsBridgeFailureType>;
@@ -83,7 +83,7 @@ const bridgeRequest = <A>(
 
 export const createBrowserSocialEventsClient = (): SocialEventsClient => ({
   socialEvents: {
-    readScope: () => bridgeRequest(SocialEventScopeResource),
+    readScope: bridgeRequest(SocialEventScopeResource),
     list: (query) =>
       bridgeRequest(SocialEventListResource, {
         operation: "list",

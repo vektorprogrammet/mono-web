@@ -99,7 +99,7 @@ export const commandsFor = (
   LoadWorkspace: ({ requestId }) => ({
     name: "LoadContentWorkspace",
     args: { requestId },
-    effect: client.content.readContentWorkspace().pipe(
+    effect: client.content.readContentWorkspace.pipe(
       Effect.map(({ workspace, knownDepartments }) =>
         LoadedWorkspace({ requestId, workspace, knownDepartments }),
       ),

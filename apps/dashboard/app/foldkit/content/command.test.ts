@@ -34,11 +34,11 @@ describe("Content workspace failure classification", () => {
 
     const client: ContentWorkspaceClient = {
       content: {
-        readContentWorkspace: () => {
+        readContentWorkspace: Effect.suspend(() => {
           workspaceLoads += 1;
 
           return Effect.succeed({ workspace: { entries: [] }, knownDepartments: [] });
-        },
+        }),
         readArticle: () => Effect.die("unexpected detail"),
         createArticle: () => Effect.fail(contentBridgeFailure("NotInScope")),
         reviseArticle: () => Effect.die("unexpected revise"),
@@ -161,7 +161,7 @@ describe("Content workspace failure classification", () => {
 
     const failure = await Effect.runPromise(
       createBrowserContentWorkspaceClient("/content")
-        .content.readContentWorkspace()
+        .content.readContentWorkspace
         .pipe(
           Effect.map(() => undefined),
           Effect.catch((error) => Effect.succeed(failureFrom(error))),

@@ -191,7 +191,7 @@ const recruitment = {
 } satisfies Partial<RecruitmentOperations>;
 
 const socialEvents = SocialEvents.of({
-  readSnapshotInstant: () => Effect.die("unexpected social-event read"),
+  readSnapshotInstant: Effect.die("unexpected social-event read"),
   readScope: () => Effect.die("unexpected social-event read"),
   readList: () => Effect.die("unexpected social-event read"),
   validateScope: () => Effect.die("unexpected social-event validation"),

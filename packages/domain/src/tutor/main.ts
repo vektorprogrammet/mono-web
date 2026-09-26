@@ -7,7 +7,7 @@ export const main = (args: ReadonlyArray<string>) =>
   args.length !== 1 || args[0] !== "--fixtures"
     ? writeStandardError("usage: bun run runtime/tutor-main.ts --fixtures\n").pipe(Effect.as(1))
     : Effect.gen(function* () {
-        const run = yield* runTutorFixture();
+        const run = yield* runTutorFixture;
 
         const summary = {
           fixtureId: FIXTURE_ID,

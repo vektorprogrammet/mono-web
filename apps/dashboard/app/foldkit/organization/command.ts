@@ -40,7 +40,7 @@ export const commandsFor = (
 
       return catalogKind === "Team"
         ? Effect.all(
-            [client.organization.listDepartments(), client.organization.listTeams()] as const,
+            [client.organization.listDepartments, client.organization.listTeams] as const,
             { concurrency: 2 },
           ).pipe(
             Effect.map(([freshDepartments, freshTeams]) =>
@@ -56,10 +56,7 @@ export const commandsFor = (
             Effect.catch(failure),
           )
         : Effect.all(
-            [
-              client.organization.listDepartments(),
-              client.organization.listFieldOfStudies(),
-            ] as const,
+            [client.organization.listDepartments, client.organization.listFieldOfStudies] as const,
             { concurrency: 2 },
           ).pipe(
             Effect.map(([freshDepartments, freshFields]) =>

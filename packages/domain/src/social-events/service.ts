@@ -26,7 +26,7 @@ export interface ReadSocialEventListInput {
 
 /** Portable social-event capability; callers retain transaction ownership. */
 export interface SocialEventsOperations {
-  readonly readSnapshotInstant: () => Effect.Effect<SocialEventObservedAt, SocialEventFailure>;
+  readonly readSnapshotInstant: Effect.Effect<SocialEventObservedAt, SocialEventFailure>;
   readonly readScope: (
     input: ReadSocialEventScopeInput,
   ) => Effect.Effect<SocialEventScopeResource, SocialEventFailure>;

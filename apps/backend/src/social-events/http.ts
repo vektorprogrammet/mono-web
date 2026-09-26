@@ -220,8 +220,8 @@ const snapshotRead = (
         yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`;
         yield* runTransactionHook(options, request, operation, "before-authority-snapshot");
 
-        const observedAt = yield* SocialEvents.use(({ readSnapshotInstant }) =>
-          readSnapshotInstant(),
+        const observedAt = yield* SocialEvents.use(
+          ({ readSnapshotInstant }) => readSnapshotInstant,
         );
 
         const authorization = yield* resolveSocialEventAuthority(request, observedAt, "None");
@@ -312,8 +312,8 @@ const create = (request: Request, options: SocialEventsApiHttpOptions) =>
       Effect.gen(function* () {
         yield* runTransactionHook(options, request, "create", "before-authority-snapshot");
 
-        const observedAt = yield* SocialEvents.use(({ readSnapshotInstant }) =>
-          readSnapshotInstant(),
+        const observedAt = yield* SocialEvents.use(
+          ({ readSnapshotInstant }) => readSnapshotInstant,
         );
 
         const authorization = yield* resolveSocialEventAuthority(request, observedAt, "ForShare");

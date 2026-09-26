@@ -110,15 +110,14 @@ export const readOrganizationDepartment = (
     return department === undefined ? yield* new DepartmentNotFound({ departmentId }) : department;
   });
 
-export const listOrganizationDepartments = (): Effect.Effect<
+export const listOrganizationDepartments: Effect.Effect<
   ReadonlyArray<Department>,
   OrganizationDecodeError | OrganizationPersistenceError,
   Database
-> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
+> = Effect.gen(function* () {
+  const sql = yield* Database;
 
-    const rows = yield* sql<DepartmentSelect>`
+  const rows = yield* sql<DepartmentSelect>`
       SELECT
         department_id AS "departmentId",
         name,
@@ -135,13 +134,13 @@ export const listOrganizationDepartments = (): Effect.Effect<
       FROM organization_departments
       ORDER BY department_id ASC
     `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("list organization departments", cause)),
-      ),
-    );
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("list organization departments", cause)),
+    ),
+  );
 
-    return yield* Effect.forEach(rows, (row) => decodeDepartment(row));
-  });
+  return yield* Effect.forEach(rows, (row) => decodeDepartment(row));
+});
 
 const findTeam = (
   sql: DatabaseOperations,
@@ -348,15 +347,14 @@ export const listOrganizationMembershipsForTeam = (
     return yield* Effect.forEach(rows, (row) => decodeMembership(row));
   });
 
-export const listOrganizationHistoricalMemberships = (): Effect.Effect<
+export const listOrganizationHistoricalMemberships: Effect.Effect<
   ReadonlyArray<Membership>,
   OrganizationDecodeError | OrganizationPersistenceError,
   Database
-> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
+> = Effect.gen(function* () {
+  const sql = yield* Database;
 
-    const rows = yield* sql<MembershipSelect>`
+  const rows = yield* sql<MembershipSelect>`
       SELECT
         membership_id AS "membershipId",
         person_id AS "personId",
@@ -374,13 +372,13 @@ export const listOrganizationHistoricalMemberships = (): Effect.Effect<
       WHERE team_id IS NULL AND board_id IS NULL
       ORDER BY start_at ASC, membership_id ASC
     `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("list organization historical memberships", cause)),
-      ),
-    );
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("list organization historical memberships", cause)),
+    ),
+  );
 
-    return yield* Effect.forEach(rows, (row) => decodeMembership(row));
-  });
+  return yield* Effect.forEach(rows, (row) => decodeMembership(row));
+});
 
 const insertImportedOrganization = (
   sql: DatabaseOperations,
