@@ -98,6 +98,19 @@ golden journey:
       *) echo "Unknown journey '$1'. Use school-service, recruitment, reimbursement, or team-application." >&2; exit 2 ;;
     esac
 
+# Run a browser suite: admission-periods, applicant, approval, conduct, contact, content-publication, identity, interview-response, organization, owner, profile, recruitment, scheduling, schools, settlement, social-events, or substitutes.
+[group('journeys')]
+e2e suite:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "$1" in
+      applicant) exec bun run --cwd apps/homepage e2e:applicant:real ;;
+      contact) exec bun run --cwd apps/homepage e2e:contact:native ;;
+      admission-periods | approval | conduct | content-publication | identity | interview-response | organization | owner | profile | recruitment | scheduling | schools | settlement | social-events | substitutes)
+        exec bun run --cwd apps/dashboard "e2e:real-$1" ;;
+      *) echo "Unknown suite '$1'. Use admission-periods, applicant, approval, conduct, contact, content-publication, identity, interview-response, organization, owner, profile, recruitment, scheduling, schools, settlement, social-events, or substitutes." >&2; exit 2 ;;
+    esac
+
 # Run a PostgreSQL proof: authorization-rules, completion-receipt, delivery-recovery, or rule-reconciliation.
 [group('journeys')]
 proof name *args:
