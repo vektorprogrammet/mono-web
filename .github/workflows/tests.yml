@@ -130,8 +130,8 @@ jobs:
 
   # One journey per leg, so each leg owns its runner, disposable PostgreSQL, loopback ports,
   # and Chromium. Several runners bind fixed loopback ports (5174, 55446, 45160-45163), so
-  # never run two journeys on one runner. The timeout is three times the longest local run
-  # (91 s, proof delivery-recovery), rounded up to 5 minutes; every journey took 9-91 s.
+  # never run two journeys on one runner. The timeout is three times the longest measured local
+  # run (91 s, proof delivery-recovery), rounded up to 5 minutes.
   browser-journeys:
     name: Browser journeys (${{ matrix.recipe }} ${{ matrix.suite }})
     runs-on: ubuntu-24.04
@@ -141,14 +141,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # browser-journeys: generated from the justfile and tools/conventions/src/journeys.ts by just layout write; do not edit
         include:
           - { recipe: golden, suite: recruitment }
+          - { recipe: golden, suite: reimbursement }
           - { recipe: golden, suite: team-application }
+          - { recipe: e2e, suite: contact }
           - { recipe: e2e, suite: admission-periods }
           - { recipe: e2e, suite: approval }
           - { recipe: e2e, suite: conduct }
-          - { recipe: e2e, suite: contact }
           - { recipe: e2e, suite: content-publication }
+          - { recipe: e2e, suite: interview-response }
           - { recipe: e2e, suite: organization }
           - { recipe: e2e, suite: owner }
           - { recipe: e2e, suite: profile }
@@ -158,7 +161,10 @@ jobs:
           - { recipe: e2e, suite: settlement }
           - { recipe: e2e, suite: social-events }
           - { recipe: e2e, suite: substitutes }
+          - { recipe: proof, suite: authorization-rules }
           - { recipe: proof, suite: delivery-recovery }
+          - { recipe: proof, suite: rule-reconciliation }
+        # browser-journeys: end
     defaults:
       run:
         shell: devenv shell bash -- -e {0}

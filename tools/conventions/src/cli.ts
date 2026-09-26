@@ -10,15 +10,16 @@ import { checkLayout, type Finding } from "./check.js";
 import { readContextModel } from "./cml.js";
 import { catalogue, checkConstructs, readConstructs, renderCatalogue } from "./constructs.js";
 import { checkGuides, guideFile, guideText, linkFile, renderGuides } from "./guides.js";
+import { readWorkflow, testsWorkflow } from "./journeys.js";
 import { readJustfile } from "./justfile.js";
 import { contextMap } from "./layout.js";
 import { packageOf, readModuleGraph } from "./modules.js";
 import { type Repository, readRepository, repositoryRoot } from "./repository.js";
-import { generatedFiles, renderSections, spliceSections } from "./sections.js";
+import { spliceFiles } from "./sections.js";
 
 const usage = `Usage: bun tools/conventions/src/cli.ts <layout | constructs | guides> [check | write] [--staged]
 
-layout      the layout declaration against the tree, and the generated README.md and AGENTS.md sections
+layout      the layout declaration against the tree, the generated README.md and AGENTS.md sections, and the hosted journeys
 constructs  the construct catalogue docs/constructs.md against the @construct tags and the imports
 guides      the AGENTS.md guide and CLAUDE.md link of every app, package, and context folder
 
@@ -62,16 +63,10 @@ const layout = (): Outcome => {
   const justfile = readJustfile(join(root, "justfile"));
 
   if (command === "write") {
-    const sections = renderSections(justfile);
+    const read = (path: string) => readFileSync(join(root, path), "utf8");
 
-    for (const [path, ids] of Object.entries(generatedFiles))
-      rewrite(
-        path,
-        spliceSections(
-          readFileSync(join(root, path), "utf8"),
-          ids.map((id) => sections[id]),
-        ).text,
-      );
+    for (const { path, text } of spliceFiles(read, justfile, readWorkflow(read(testsWorkflow))))
+      rewrite(path, text);
   }
 
   const repository = readRepository(root, staged);

@@ -382,32 +382,52 @@ The wrapper `tools/e2e/golden-school-service-ci.mjs` and its evidence checks own
 The hosted `Tests` workflow runs these journeys on each push to `main` and each pull request.
 Run the same journey locally with the listed command.
 
-| Command                        | Hosted job                                                        |
-| ------------------------------ | ----------------------------------------------------------------- |
-| `just golden school-service`   | `Golden school-service`, through the CI wrapper above             |
-| `just e2e identity`            | `Native identity browser evidence`                                |
-| `just e2e applicant`           | `Public applicant`                                                |
-| `just golden recruitment`      | `Browser journeys`                                                |
-| `just golden team-application` | `Browser journeys`                                                |
-| `just e2e <suite>`             | `Browser journeys`, for every other suite that `just e2e` accepts |
-| `just proof delivery-recovery` | `Browser journeys`                                                |
+[//]: # "hosted-journeys: generated from the justfile, tools/conventions/src/journeys.ts, and .github/workflows/tests.yml by just layout write; do not edit"
+
+`just layout write` generates this section and the matrix legs in `.github/workflows/tests.yml` from the names that `just golden`, `just e2e`, and `just proof` accept.
+Each name is one leg, unless `tools/conventions/src/journeys.ts` gives it a job of its own or excludes it with its reason.
+
+| Command                          | Hosted job                                                       |
+| -------------------------------- | ---------------------------------------------------------------- |
+| `just golden school-service`     | Golden school-service (required functional gate)                 |
+| `just golden recruitment`        | Browser journeys (golden recruitment)                            |
+| `just golden reimbursement`      | Browser journeys (golden reimbursement)                          |
+| `just golden team-application`   | Browser journeys (golden team-application)                       |
+| `just e2e applicant`             | Public applicant (PostgreSQL and Chromium)                       |
+| `just e2e contact`               | Browser journeys (e2e contact)                                   |
+| `just e2e admission-periods`     | Browser journeys (e2e admission-periods)                         |
+| `just e2e approval`              | Browser journeys (e2e approval)                                  |
+| `just e2e conduct`               | Browser journeys (e2e conduct)                                   |
+| `just e2e content-publication`   | Browser journeys (e2e content-publication)                       |
+| `just e2e identity`              | Native identity browser evidence (fresh PostgreSQL and Chromium) |
+| `just e2e interview-response`    | Browser journeys (e2e interview-response)                        |
+| `just e2e organization`          | Browser journeys (e2e organization)                              |
+| `just e2e owner`                 | Browser journeys (e2e owner)                                     |
+| `just e2e profile`               | Browser journeys (e2e profile)                                   |
+| `just e2e recruitment`           | Browser journeys (e2e recruitment)                               |
+| `just e2e scheduling`            | Browser journeys (e2e scheduling)                                |
+| `just e2e schools`               | Browser journeys (e2e schools)                                   |
+| `just e2e settlement`            | Browser journeys (e2e settlement)                                |
+| `just e2e social-events`         | Browser journeys (e2e social-events)                             |
+| `just e2e substitutes`           | Browser journeys (e2e substitutes)                               |
+| `just proof authorization-rules` | Browser journeys (proof authorization-rules)                     |
+| `just proof delivery-recovery`   | Browser journeys (proof delivery-recovery)                       |
+| `just proof rule-reconciliation` | Browser journeys (proof rule-reconciliation)                     |
+
+These commands are not hosted:
+
+| Command                                       | Reason                                                               |
+| --------------------------------------------- | -------------------------------------------------------------------- |
+| `bun run --cwd apps/dashboard e2e:real-oauth` | Needs an external topology; without one, Playwright skips every test |
+
+[//]: # "hosted-journeys: end"
 
 `Browser journeys` runs one journey on each runner, with `fail-fast` off.
 Each journey starts its own PostgreSQL, ports, and Chromium; some runners use fixed ports, so two journeys must not share a runner.
 The job uploads only the `/usr/bin/time` resource summary. Journey evidence stays in the job log.
 
-These commands are not hosted:
-
-| Command                                       | Reason                                                                                                                    |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `just golden reimbursement`                   | Fails on `main`: an oversized receipt upload returns 200, not 413 (`apps/dashboard/e2e/golden-reimbursement-browser.mjs`) |
-| `just e2e interview-response`                 | Fails on `main`: the `validation.failed` Problem Details has a `validation` member that the runner does not accept        |
-| `just proof authorization-rules`              | Fails on `main` in the shared rule-reconciliation migration proof                                                         |
-| `just proof rule-reconciliation`              | Fails on `main` in the shared rule-reconciliation migration proof                                                         |
-| `just proof completion-receipt`               | Needs a conducted interview in its database; `just e2e conduct` runs it                                                   |
-| `bun run --cwd apps/dashboard e2e:real-oauth` | Needs an external topology; without one, Playwright skips every test                                                      |
-
-Add a journey to the matrix only after it passes locally on `main`.
+`just layout` fails when the legs, this section, or the browser evidence scripts of the apps disagree with the accepted names and `tools/conventions/src/journeys.ts`.
+A new name becomes a leg, so add it to a recipe only after its journey passes locally.
 
 ## Development sequence
 

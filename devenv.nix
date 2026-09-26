@@ -168,7 +168,7 @@ in
       fail_fast = true;
     };
     # The whole staged tree against the layout declaration, the context map, and the generated
-    # README and AGENTS.md sections.
+    # README and AGENTS.md sections and hosted journey legs.
     layout = hook {
       entry = "${hookEnv} just layout --staged";
       stages = [

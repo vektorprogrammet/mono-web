@@ -156,6 +156,7 @@ const Manifest = Schema.fromJsonString(
   Schema.Struct({
     name: Schema.optional(Schema.String),
     exports: Schema.optional(Schema.Json),
+    scripts: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   }),
 );
 

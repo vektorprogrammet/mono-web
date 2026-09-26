@@ -1,10 +1,11 @@
 /**
- * The layout rules. Each finding names a path and what to change; the declaration in
- * `layout.ts` is the only place to allow an exception.
+ * The layout rules. Each finding names a path and what to change; the declarations in `layout.ts`
+ * and `journeys.ts` are the only places to allow an exception.
  */
 import { posix } from "node:path";
 import { Schema } from "effect";
 import { boundedContextNames, contextFolderName } from "./cml.js";
+import { checkJourneys, readWorkflow, testsWorkflow, type Workflow } from "./journeys.js";
 import type { Justfile } from "./justfile.js";
 import {
   contextLayers,
@@ -18,7 +19,7 @@ import {
   topLevelDirectories,
 } from "./layout.js";
 import type { Repository } from "./repository.js";
-import { generatedFiles, renderSections, spliceSections } from "./sections.js";
+import { spliceFiles } from "./sections.js";
 
 export interface Finding {
   readonly path: string;
@@ -333,43 +334,38 @@ const commandMentionFindings = (
     );
   });
 
-const sectionFindings = (repository: Repository, justfile: Justfile): ReadonlyArray<Finding> => {
-  const sections = renderSections(justfile);
-
-  return Object.entries(generatedFiles).flatMap(([path, ids]) => {
-    const text = repository.read(path);
-
-    const spliced = spliceSections(
-      text,
-      ids.map((id) => sections[id]),
-    );
-
-    return [
-      ...spliced.missing.map((id) => ({
-        path,
-        message: `lacks one begin and one end marker of the generated ${id} section`,
-      })),
-      ...(spliced.text === text
-        ? []
-        : [
-            {
-              path,
-              message:
-                "has generated sections that differ from their sources; run just layout write",
-            },
-          ]),
-    ];
-  });
-};
+const sectionFindings = (
+  repository: Repository,
+  justfile: Justfile,
+  workflow: Workflow,
+): ReadonlyArray<Finding> =>
+  spliceFiles(repository.read, justfile, workflow).flatMap(({ path, current, text, missing }) => [
+    ...missing.map((id) => ({
+      path,
+      message: `lacks one begin and one end marker of the generated ${id} section`,
+    })),
+    ...(text === current
+      ? []
+      : [
+          {
+            path,
+            message: "has generated sections that differ from their sources; run just layout write",
+          },
+        ]),
+  ]);
 
 /** Every layout finding of the repository, sorted by path. */
-export const checkLayout = (repository: Repository, justfile: Justfile): ReadonlyArray<Finding> =>
-  [
+export const checkLayout = (repository: Repository, justfile: Justfile): ReadonlyArray<Finding> => {
+  const workflow = readWorkflow(repository.read(testsWorkflow));
+
+  return [
     ...topLevelFindings(repository),
     ...packageFindings(repository),
     ...contextFindings(repository),
     ...toolImportFindings(repository),
     ...rootScriptFindings(repository),
     ...commandMentionFindings(repository, justfile),
-    ...sectionFindings(repository, justfile),
+    ...checkJourneys(repository, justfile, workflow),
+    ...sectionFindings(repository, justfile, workflow),
   ].sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+};

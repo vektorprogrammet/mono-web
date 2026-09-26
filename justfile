@@ -41,7 +41,7 @@ changelog *args:
 check *args: layout constructs guides source-safety (format "--check") lint
     bun x turbo check-types "$@"
 
-# Check the repository layout and the generated README and AGENTS.md sections; `just layout write` renders them.
+# Check the repository layout and its generated sections: the README and AGENTS.md tables and the hosted journey legs; `just layout write` renders them.
 [group('check')]
 layout *args:
     bun --no-env-file tools/conventions/src/cli.ts layout "$@"
