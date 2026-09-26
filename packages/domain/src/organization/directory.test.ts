@@ -222,8 +222,8 @@ describe("directory cursors", () => {
       const malformed = [
         "not-base64-json!!",
         Buffer.from("[1,2]", "utf8").toString("base64"),
-        Buffer.from(JSON.stringify(["v9", "a", "b", "c"]), "utf8").toString("base64"),
-        Buffer.from(JSON.stringify("v1"), "utf8").toString("base64"),
+        Buffer.from('["v9","a","b","c"]', "utf8").toString("base64"),
+        Buffer.from('"v1"', "utf8").toString("base64"),
       ];
 
       for (const cursor of malformed) {

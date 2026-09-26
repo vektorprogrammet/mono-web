@@ -1,4 +1,4 @@
-import { Schema, Result, Array, Cause, Effect } from "effect";
+import { Schema, Result, Array, Effect, type PlatformError } from "effect";
 import { DomainFileSystem, joinPath, removeTree, writeTextFile } from "./runtime-services.js";
 import {
   authorityFromEntries,
@@ -65,7 +65,7 @@ interface FixtureDefinition {
   readonly predicate?: (result: SDep2TeamResult) => boolean;
   readonly runError?: () => Effect.Effect<
     DatasetInputError | undefined,
-    Cause.UnknownError,
+    PlatformError.PlatformError,
     DomainFileSystem
   >;
 }
@@ -391,7 +391,11 @@ const failedObservation = (
   };
 };
 
-const assertBoundaryFixtures = (): Effect.Effect<void, Cause.UnknownError, DomainFileSystem> =>
+const assertBoundaryFixtures = (): Effect.Effect<
+  void,
+  PlatformError.PlatformError,
+  DomainFileSystem
+> =>
   Effect.gen(function* () {
     const unexpectedField = decodeDepartment({ id: 1, email: "not persisted" });
 
@@ -442,7 +446,7 @@ const assertBoundaryFixtures = (): Effect.Effect<void, Cause.UnknownError, Domai
 
 export const runSyntheticFixtures: Effect.Effect<
   ReadonlyArray<FixtureObservation>,
-  Cause.UnknownError,
+  PlatformError.PlatformError,
   DomainFileSystem
 > = Effect.gen(function* () {
   yield* assertBoundaryFixtures();
@@ -457,7 +461,11 @@ export const runSyntheticFixtures: Effect.Effect<
           Effect.succeed(
             cause instanceof DatasetInputError
               ? cause
-              : new DatasetInputError("INVALID_ARGUMENT", "fixture"),
+              : new DatasetInputError({
+                  code: "INVALID_ARGUMENT",
+                  file: "fixture",
+                  message: "INVALID_ARGUMENT:fixture",
+                }),
           ),
         ),
       );
@@ -487,7 +495,11 @@ export const runSyntheticFixtures: Effect.Effect<
       catch: (error) =>
         error instanceof DatasetInputError
           ? error
-          : new DatasetInputError("INVALID_ARGUMENT", "fixture"),
+          : new DatasetInputError({
+              code: "INVALID_ARGUMENT",
+              file: "fixture",
+              message: "INVALID_ARGUMENT:fixture",
+            }),
     }).pipe(Result.getOrElse((safeError) => failedObservation(fixture, undefined, safeError)));
 
     observations.push(observation);

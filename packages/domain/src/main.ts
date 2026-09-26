@@ -1,4 +1,4 @@
-import { Cause, Effect, Result } from "effect";
+import { Cause, Data, Effect, Result, Schema } from "effect";
 import { createMachineReport, renderMarkdown } from "./report.js";
 import { DatasetInputError, loadDataset, loadPersonAuthority } from "./data.js";
 import { allFixturesPass, runSyntheticFixtures } from "./fixtures.js";
@@ -28,16 +28,14 @@ type CliErrorCode =
   | "UNKNOWN_OPTION"
   | "MISSING_DATA_DIR";
 
-class CliError extends Error {
+class CliError extends Data.TaggedError("CliError")<{
   readonly code: CliErrorCode;
+  readonly message: string;
+}> {
   readonly file = "cli";
-
-  constructor(code: CliErrorCode, message: string) {
-    super(message);
-    this.name = "CliError";
-    this.code = code;
-  }
 }
+
+const ReportJson = Schema.fromJsonString(Schema.Unknown, { space: 2 });
 
 const USAGE = [
   "Usage: bun run runtime/main.ts --data-dir DATA_DIR [options]",
@@ -57,7 +55,10 @@ const valueAfter = (args: ReadonlyArray<string>, index: number, option: string):
   const value = args[index + 1];
 
   if (value === undefined || value.startsWith("--")) {
-    throw new CliError("MISSING_OPTION_VALUE", `missing option value for ${option}`);
+    throw new CliError({
+      code: "MISSING_OPTION_VALUE",
+      message: `missing option value for ${option}`,
+    });
   }
 
   return value;
@@ -96,7 +97,7 @@ const parseArgs = (args: ReadonlyArray<string>): CliOptions => {
       const selected = valueAfter(args, index, arg);
 
       if (selected !== "json" && selected !== "markdown") {
-        throw new CliError("INVALID_FORMAT", "format must be json or markdown");
+        throw new CliError({ code: "INVALID_FORMAT", message: "format must be json or markdown" });
       }
 
       format = selected;
@@ -105,12 +106,15 @@ const parseArgs = (args: ReadonlyArray<string>): CliOptions => {
       output = valueAfter(args, index, arg);
       index += 1;
     } else {
-      throw new CliError("UNKNOWN_OPTION", `unknown option ${arg}`);
+      throw new CliError({ code: "UNKNOWN_OPTION", message: `unknown option ${arg}` });
     }
   }
 
   if (!help && !fixtures && dataDir === undefined) {
-    throw new CliError("MISSING_DATA_DIR", "--data-dir is required unless --fixtures is used");
+    throw new CliError({
+      code: "MISSING_DATA_DIR",
+      message: "--data-dir is required unless --fixtures is used",
+    });
   }
 
   return { dataDir, personAuthorityFile, snapshotId, snapshotHash, format, output, fixtures, help };
@@ -138,7 +142,10 @@ export const main = (args: ReadonlyArray<string>) =>
     if (options.fixtures) {
       const fixtures = yield* runSyntheticFixtures;
       const all = allFixturesPass(fixtures);
-      yield* emit(JSON.stringify({ fixtures, all, pii: "none" }, null, 2), options.output);
+      yield* emit(
+        yield* Schema.encodeEffect(ReportJson)({ fixtures, all, pii: "none" }),
+        options.output,
+      );
 
       return all ? 0 : 1;
     }
@@ -159,7 +166,9 @@ export const main = (args: ReadonlyArray<string>) =>
     const report = createMachineReport(result);
 
     const rendered =
-      options.format === "markdown" ? renderMarkdown(report) : JSON.stringify(report, null, 2);
+      options.format === "markdown"
+        ? renderMarkdown(report)
+        : yield* Schema.encodeEffect(ReportJson)(report);
 
     yield* emit(rendered, options.output);
 

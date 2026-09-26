@@ -6,7 +6,7 @@
  * names, emails, descriptions, and person payloads never enter the core.
  */
 
-import { flow, Match, Predicate, Result, Schema, SchemaAST, SchemaIssue } from "effect";
+import { Data, flow, Match, Predicate, Result, Schema, SchemaAST, SchemaIssue } from "effect";
 
 export type SchemaFailureCode =
   | "ROW_NOT_OBJECT"
@@ -17,15 +17,11 @@ export type SchemaFailureCode =
   | "INVALID_BOOLEAN"
   | "INVALID_STRING";
 
-export class SchemaInputError extends Error {
-  readonly code = "INVALID_ARRAY" as const;
+export class SchemaInputError extends Data.TaggedError("SchemaInputError")<{
   readonly file: string;
-
-  constructor(file: string) {
-    super("input file must contain a JSON array");
-    this.name = "SchemaInputError";
-    this.file = file;
-  }
+}> {
+  readonly code = "INVALID_ARRAY";
+  override readonly message = "input file must contain a JSON array";
 }
 
 export interface DecodeFailure {
@@ -362,7 +358,7 @@ export const decodeRows = <A>(
   file: string,
   decoder: (value: Schema.Json) => DecodeResult<A>,
 ) => {
-  if (!Array.isArray(value)) throw new SchemaInputError(file);
+  if (!Array.isArray(value)) throw new SchemaInputError({ file });
   const rowsInput = value;
 
   const rows: A[] = [];

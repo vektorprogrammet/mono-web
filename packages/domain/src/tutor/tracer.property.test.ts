@@ -56,7 +56,7 @@ it.effect.prop(
       const initial = yield* createTutorState(FIXTURE_SEED_EVENTS);
       const command = acceptedCommand(generated);
       const accepted = yield* conductInterview(initial, command);
-      const stateBefore = JSON.stringify(accepted.state);
+      const stateBefore = structuredClone(accepted.state);
 
       const changed = {
         ...command,
@@ -68,7 +68,7 @@ it.effect.prop(
 
       const failure = yield* Effect.flip(conductInterview(accepted.state, changed));
       expect(failure.reasonCode).toBe("DUPLICATE_COMMAND_CONFLICT");
-      expect(JSON.stringify(accepted.state)).toBe(stateBefore);
+      expect(accepted.state).toStrictEqual(stateBefore);
     }),
   propertyOptions,
 );
@@ -79,7 +79,7 @@ it.effect.prop(
   ({ generated }) =>
     Effect.gen(function* () {
       const initial = yield* createTutorState(FIXTURE_SEED_EVENTS);
-      const stateBefore = JSON.stringify(initial);
+      const stateBefore = structuredClone(initial);
 
       const command = {
         ...acceptedCommand(generated),
@@ -88,7 +88,7 @@ it.effect.prop(
 
       const failure = yield* Effect.flip(conductInterview(initial, command));
       expect(failure.reasonCode).toBe("STALE_VERSION");
-      expect(JSON.stringify(initial)).toBe(stateBefore);
+      expect(initial).toStrictEqual(stateBefore);
     }),
   propertyOptions,
 );

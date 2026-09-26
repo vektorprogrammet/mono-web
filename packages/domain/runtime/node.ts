@@ -1,17 +1,23 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { Effect, Layer } from "effect";
+import * as BunFileSystem from "@effect/platform-bun/BunFileSystem";
+import * as BunPath from "@effect/platform-bun/BunPath";
+import { Effect, FileSystem, Layer, Path } from "effect";
 import { DomainFileSystem, DomainProcess } from "../src/runtime-services.js";
 
-export const DomainFileSystemLive = Layer.succeed(DomainFileSystem, {
-  readTextFile: (path) => Effect.tryPromise(() => readFile(path, "utf8")),
-  joinPath: (directory, file) => join(directory, file),
-  writeTextFile: (path, contents) =>
-    Effect.tryPromise(() => writeFile(path, contents)).pipe(Effect.asVoid),
-  makeTempDirectory: (prefix) => Effect.tryPromise(() => mkdtemp(join(tmpdir(), prefix))),
-  removeTree: (path) => Effect.tryPromise(() => rm(path, { recursive: true, force: true })),
-});
+export const DomainFileSystemLive = Layer.effect(
+  DomainFileSystem,
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+
+    return {
+      readTextFile: (file) => fileSystem.readFileString(file),
+      joinPath: (directory, file) => path.join(directory, file),
+      writeTextFile: (file, contents) => fileSystem.writeFileString(file, contents),
+      makeTempDirectory: (prefix) => fileSystem.makeTempDirectory({ prefix }),
+      removeTree: (directory) => fileSystem.remove(directory, { recursive: true, force: true }),
+    };
+  }),
+).pipe(Layer.provide(Layer.merge(BunFileSystem.layer, BunPath.layer)));
 
 export const DomainProcessLive = Layer.succeed(DomainProcess, {
   writeStandardOutput: (text) =>

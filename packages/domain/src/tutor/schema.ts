@@ -1,4 +1,4 @@
-import { flow, Effect, Schema } from "effect";
+import { flow, Data, Effect, Schema } from "effect";
 
 const IdentifierSchema = Schema.NonEmptyString;
 
@@ -154,24 +154,24 @@ export const ConductInterviewV1Schema = Schema.Struct({
 
 export type ConductInterviewV1 = typeof ConductInterviewV1Schema.Type;
 
-export class TutorDecodeError extends Error {
-  readonly _tag = "DecodeError";
+export class TutorDecodeError extends Data.TaggedError("DecodeError")<{
+  readonly subject: "command" | "event" | "evidence";
+}> {
   readonly reasonCode = "DECODE_ERROR";
 
-  constructor(readonly subject: "command" | "event" | "evidence") {
-    super(`closed ${subject} schema rejected input`);
-    this.name = "TutorDecodeError";
+  override get message(): string {
+    return `closed ${this.subject} schema rejected input`;
   }
 }
 
 export const decodeConductInterviewV1 = flow(
   Schema.decodeUnknownEffect(ConductInterviewV1Schema, { onExcessProperty: "error" }),
-  Effect.mapError(() => new TutorDecodeError("command")),
+  Effect.mapError(() => new TutorDecodeError({ subject: "command" })),
 );
 
 export const decodeEventEnvelopeV1 = flow(
   Schema.decodeUnknownEffect(EventEnvelopeV1Schema, { onExcessProperty: "error" }),
-  Effect.mapError(() => new TutorDecodeError("event")),
+  Effect.mapError(() => new TutorDecodeError({ subject: "event" })),
 );
 
 export const DescriptorSchema = Schema.Struct({
@@ -308,5 +308,5 @@ export type Evidence = typeof EvidenceSchema.Type;
 
 export const decodeEvidence = flow(
   Schema.decodeUnknownEffect(EvidenceSchema, { onExcessProperty: "error" }),
-  Effect.mapError(() => new TutorDecodeError("evidence")),
+  Effect.mapError(() => new TutorDecodeError({ subject: "evidence" })),
 );

@@ -3,7 +3,7 @@
  *
  * @since 0.1.0
  */
-import { Match, Effect, Result, Schema } from "effect";
+import { Data, Effect, Predicate, Result, Schema } from "effect";
 import { DomainFileSystem, joinPath, readTextFile } from "./runtime-services.js";
 import {
   decodeDepartment,
@@ -48,17 +48,11 @@ export type DatasetErrorCode =
   | "INVALID_PERSON_AUTHORITY"
   | "DUPLICATE_PERSON_AUTHORITY";
 
-export class DatasetInputError extends Error {
+export class DatasetInputError extends Data.TaggedError("DatasetInputError")<{
   readonly code: DatasetErrorCode;
   readonly file: string;
-
-  constructor(code: DatasetErrorCode, file: string, message = `${code}:${file}`) {
-    super(message);
-    this.name = "DatasetInputError";
-    this.code = code;
-    this.file = file;
-  }
-}
+  readonly message: string;
+}> {}
 
 export interface RawDatasetInput {
   readonly departments: Schema.Json;
@@ -132,7 +126,7 @@ const decodeCollection = <A>(
     return decodeRows(value, file, decoder);
   } catch (error) {
     if (error instanceof SchemaInputError) {
-      throw new DatasetInputError(error.code, file, error.message);
+      throw new DatasetInputError({ code: error.code, file, message: error.message });
     }
 
     throw error;
@@ -202,33 +196,37 @@ export const buildDataset = (input: RawDatasetInput): Dataset => {
   };
 };
 
-const readErrorCode = Match.type<unknown>().pipe(
-  Match.when(Schema.is(Schema.Struct({ code: Schema.String })), ({ code }) => code),
-  Match.orElse(() => undefined),
-);
-
 const readJson = (
   dataDir: string,
   file: RequiredFile,
 ): Effect.Effect<Schema.Json, DatasetInputError, DomainFileSystem> =>
   joinPath(dataDir, file).pipe(
     Effect.flatMap(readTextFile),
-    Effect.mapError(
-      (error) =>
-        new DatasetInputError(
-          readErrorCode(error.cause) === "ENOENT" ? "MISSING_INPUT" : "READ_FAILED",
-          file,
-          readErrorCode(error.cause) === "ENOENT"
-            ? "required sanitized input file is missing"
-            : "required sanitized input file could not be read",
-        ),
+    Effect.mapError((error) =>
+      Predicate.isTagged(error.reason, "NotFound")
+        ? new DatasetInputError({
+            code: "MISSING_INPUT",
+            file,
+            message: "required sanitized input file is missing",
+          })
+        : new DatasetInputError({
+            code: "READ_FAILED",
+            file,
+            message: "required sanitized input file could not be read",
+          }),
     ),
     Effect.flatMap((source) => {
       const decoded = Schema.decodeResult(Schema.fromJsonString(Schema.Json))(source);
 
       return Result.isSuccess(decoded)
         ? Effect.succeed(decoded.success)
-        : Effect.fail(new DatasetInputError("INVALID_JSON", file, "input file is not valid JSON"));
+        : Effect.fail(
+            new DatasetInputError({
+              code: "INVALID_JSON",
+              file,
+              message: "input file is not valid JSON",
+            }),
+          );
     }),
   );
 
@@ -237,11 +235,11 @@ export const loadDatasetEffect = (
 ): Effect.Effect<Dataset, DatasetInputError, DomainFileSystem> => {
   if (dataDir.trim().length === 0) {
     return Effect.fail(
-      new DatasetInputError(
-        "INVALID_ARGUMENT",
-        "dataDir",
-        "dataDir must be an explicit non-empty path",
-      ),
+      new DatasetInputError({
+        code: "INVALID_ARGUMENT",
+        file: "dataDir",
+        message: "dataDir must be an explicit non-empty path",
+      }),
     );
   }
 
@@ -282,26 +280,29 @@ export const loadPersonAuthorityEffect = (
   filePath: string,
 ): Effect.Effect<PersonAuthorityProjection, DatasetInputError, DomainFileSystem> =>
   readTextFile(filePath).pipe(
-    Effect.mapError(
-      (error) =>
-        new DatasetInputError(
-          readErrorCode(error.cause) === "ENOENT" ? "MISSING_INPUT" : "READ_FAILED",
-          "person-authority",
-          readErrorCode(error.cause) === "ENOENT"
-            ? "person authority file is missing"
-            : "person authority file could not be read",
-        ),
+    Effect.mapError((error) =>
+      Predicate.isTagged(error.reason, "NotFound")
+        ? new DatasetInputError({
+            code: "MISSING_INPUT",
+            file: "person-authority",
+            message: "person authority file is missing",
+          })
+        : new DatasetInputError({
+            code: "READ_FAILED",
+            file: "person-authority",
+            message: "person authority file could not be read",
+          }),
     ),
     Effect.flatMap((source) => {
       const parsed = Schema.decodeResult(Schema.fromJsonString(Schema.Json))(source);
 
       if (!Result.isSuccess(parsed)) {
         return Effect.fail(
-          new DatasetInputError(
-            "INVALID_JSON",
-            "person-authority",
-            "person authority file is not valid JSON",
-          ),
+          new DatasetInputError({
+            code: "INVALID_JSON",
+            file: "person-authority",
+            message: "person authority file is not valid JSON",
+          }),
         );
       }
 
@@ -311,11 +312,11 @@ export const loadPersonAuthorityEffect = (
 
       if (!Result.isSuccess(decoded)) {
         return Effect.fail(
-          new DatasetInputError(
-            "INVALID_PERSON_AUTHORITY",
-            "person-authority",
-            "person authority file is invalid",
-          ),
+          new DatasetInputError({
+            code: "INVALID_PERSON_AUTHORITY",
+            file: "person-authority",
+            message: "person authority file is invalid",
+          }),
         );
       }
 
@@ -325,11 +326,11 @@ export const loadPersonAuthorityEffect = (
       for (const row of decoded.success) {
         if (seen.has(row.userId)) {
           return Effect.fail(
-            new DatasetInputError(
-              "DUPLICATE_PERSON_AUTHORITY",
-              "person-authority",
-              "person authority user is duplicated",
-            ),
+            new DatasetInputError({
+              code: "DUPLICATE_PERSON_AUTHORITY",
+              file: "person-authority",
+              message: "person authority user is duplicated",
+            }),
           );
         }
 

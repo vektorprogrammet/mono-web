@@ -4,7 +4,7 @@
  *
  * @since 0.1.0
  */
-import { Schema } from "effect";
+import { DateTime, Schema } from "effect";
 import { Model } from "effect/unstable/schema";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { isRfc3339Instant, Rfc3339InstantSchema } from "../time.js";
@@ -35,7 +35,7 @@ export const isIsoDate = (value: string): boolean => {
   const month = Number(match[2]);
   const day = Number(match[3]);
 
-  return new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10) === value;
+  return DateTime.formatIsoDateUtc(DateTime.makeUnsafe(Date.UTC(year, month - 1, day))) === value;
 };
 
 export const isIsoInstant = isRfc3339Instant;

@@ -9,6 +9,7 @@ import {
   type ReceiptFile,
   type ReceiptStatus,
 } from "./schema.js";
+import { normalizeRfc3339Instant } from "../time.js";
 
 export const ReceiptQuarantineReason = Schema.Literals([
   "InvalidSourceRow",
@@ -214,9 +215,9 @@ export const importLegacyReceipt = (
       currency: "NOK",
       description: row.description,
       receiptDate: row.receiptDate,
-      submittedAt: new Date(row.submittedAt).toISOString(),
+      submittedAt: normalizeRfc3339Instant(row.submittedAt),
       status: importedStatus,
-      approvedAt: importedStatus === "Approved" ? new Date(row.refundDate!).toISOString() : null,
+      approvedAt: importedStatus === "Approved" ? normalizeRfc3339Instant(row.refundDate!) : null,
       paymentAccountCiphertext: row.paymentAccountCiphertext,
       file: row.file,
       revision: 0,

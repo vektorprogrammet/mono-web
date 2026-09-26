@@ -1,4 +1,4 @@
-import { Option, Schema } from "effect";
+import { Data, Option, Schema } from "effect";
 import { canonicalJsonBytes, sha256Hex } from "../shared-kernel/index.js";
 import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
 import { appointmentStateAt } from "./lifecycle.js";
@@ -78,19 +78,18 @@ export const ReviewedOrganizationSnapshot = Schema.Struct({
 
 export type ReviewedOrganizationSnapshot = typeof ReviewedOrganizationSnapshot.Type;
 
-export class OrganizationCohortFailure extends Error {
-  readonly name = "OrganizationCohortFailure";
-  constructor(
-    readonly code:
-      | "InvalidSnapshot"
-      | "InvalidReview"
-      | "SnapshotConflict"
-      | "SourceConflict"
-      | "ReferenceProvenanceConflict"
-      | "PersonSnapshotConflict"
-      | "NoAcceptedAppointments",
-  ) {
-    super(code);
+export class OrganizationCohortFailure extends Data.TaggedError("OrganizationCohortFailure")<{
+  readonly code:
+    | "InvalidSnapshot"
+    | "InvalidReview"
+    | "SnapshotConflict"
+    | "SourceConflict"
+    | "ReferenceProvenanceConflict"
+    | "PersonSnapshotConflict"
+    | "NoAcceptedAppointments";
+}> {
+  override get message(): string {
+    return this.code;
   }
 }
 
@@ -100,7 +99,7 @@ export const organizationEvidenceDigest = (value: Schema.Json): string =>
 export const organizationSnapshotDigest = (input: Schema.Json): string => {
   const decoded = Schema.decodeUnknownOption(Schema.Record(Schema.String, Schema.Json))(input);
 
-  if (Option.isNone(decoded)) throw new OrganizationCohortFailure("InvalidSnapshot");
+  if (Option.isNone(decoded)) throw new OrganizationCohortFailure({ code: "InvalidSnapshot" });
 
   const snapshot = Object.fromEntries(
     Object.entries(decoded.value).filter(([key]) => key !== "snapshotDigest"),
@@ -124,7 +123,7 @@ export const validateOrganizationReview = (
   try {
     review = Schema.decodeUnknownSync(OrganizationReview)(input, { onExcessProperty: "error" });
   } catch {
-    throw new OrganizationCohortFailure("InvalidReview");
+    throw new OrganizationCohortFailure({ code: "InvalidReview" });
   }
 
   const keys = new Set<string>();
@@ -134,7 +133,7 @@ export const validateOrganizationReview = (
   );
 
   if (entries.size !== review.memberships.length || entries.size !== occurrences.length)
-    throw new OrganizationCohortFailure("InvalidReview");
+    throw new OrganizationCohortFailure({ code: "InvalidReview" });
 
   for (const occurrence of occurrences) {
     const key = JSON.stringify([occurrence.sourceKind, occurrence.sourceId]);
@@ -146,7 +145,7 @@ export const validateOrganizationReview = (
       entry.sourceRowDigest !== occurrence.sourceRowDigest ||
       occurrence.sourceRowDigest !== organizationEvidenceDigest(occurrence.row)
     )
-      throw new OrganizationCohortFailure("InvalidReview");
+      throw new OrganizationCohortFailure({ code: "InvalidReview" });
     keys.add(key);
 
     if (entry.decision === "Excluded") {
@@ -158,7 +157,7 @@ export const validateOrganizationReview = (
       entry.endAt === undefined ||
       (entry.endAt !== null && compareRfc3339Instants(entry.endAt, entry.startAt) <= 0)
     )
-      throw new OrganizationCohortFailure("InvalidReview");
+      throw new OrganizationCohortFailure({ code: "InvalidReview" });
 
     const state = appointmentStateAt(
       { startAt: entry.startAt, endAt: entry.endAt, suspended: false },
@@ -166,7 +165,7 @@ export const validateOrganizationReview = (
     );
 
     if (state !== (entry.decision === "Historical" ? "Ended" : entry.decision))
-      throw new OrganizationCohortFailure("InvalidReview");
+      throw new OrganizationCohortFailure({ code: "InvalidReview" });
   }
 
   return review;
@@ -182,7 +181,7 @@ export const decodeReviewedOrganizationSnapshot = (
       onExcessProperty: "error",
     });
   } catch {
-    throw new OrganizationCohortFailure("InvalidSnapshot");
+    throw new OrganizationCohortFailure({ code: "InvalidSnapshot" });
   }
 
   if (
@@ -194,13 +193,13 @@ export const decodeReviewedOrganizationSnapshot = (
     new Set(snapshot.mappings.departments.map((row) => row.sourceDepartmentId)).size !==
       snapshot.mappings.departments.length
   )
-    throw new OrganizationCohortFailure("InvalidSnapshot");
+    throw new OrganizationCohortFailure({ code: "InvalidSnapshot" });
 
   if (
     snapshot.review.sourceRevision !== snapshot.sourceRevision ||
     snapshot.review.sourceWatermark !== snapshot.sourceWatermark
   )
-    throw new OrganizationCohortFailure("InvalidReview");
+    throw new OrganizationCohortFailure({ code: "InvalidReview" });
   validateOrganizationReview(snapshot.review, snapshot.occurrences);
 
   return snapshot;

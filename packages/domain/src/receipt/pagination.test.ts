@@ -29,13 +29,9 @@ describe("receipt continuation", () => {
     Effect.gen(function* () {
       const invalid = [
         "not base64!",
-        Encoding.encodeBase64(
-          JSON.stringify(["receipt-v2", "2038-06-13T12:00:00.123456Z", "receipt-1"]),
-        ),
-        Encoding.encodeBase64(
-          JSON.stringify(["receipt-v1", "2038-02-31T12:00:00.123456Z", "receipt-1"]),
-        ),
-        Encoding.encodeBase64(JSON.stringify(["receipt-v1", "2038-06-13T12:00:00.123456Z", ""])),
+        Encoding.encodeBase64('["receipt-v2","2038-06-13T12:00:00.123456Z","receipt-1"]'),
+        Encoding.encodeBase64('["receipt-v1","2038-02-31T12:00:00.123456Z","receipt-1"]'),
+        Encoding.encodeBase64('["receipt-v1","2038-06-13T12:00:00.123456Z",""]'),
       ];
 
       for (const cursor of invalid)

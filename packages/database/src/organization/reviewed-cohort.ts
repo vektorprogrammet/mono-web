@@ -102,10 +102,11 @@ const resolvedEvidence = async (tx: PoolClient, snapshot: ReviewedOrganizationSn
     reference.source_revision !== snapshot.sourceRevision ||
     reference.reference_digest !== snapshot.referenceDigest
   )
-    throw new OrganizationCohortFailure("ReferenceProvenanceConflict");
+    throw new OrganizationCohortFailure({ code: "ReferenceProvenanceConflict" });
   const decoded = Schema.decodeUnknownOption(References)(reference.source_id_mappings);
 
-  if (Option.isNone(decoded)) throw new OrganizationCohortFailure("ReferenceProvenanceConflict");
+  if (Option.isNone(decoded))
+    throw new OrganizationCohortFailure({ code: "ReferenceProvenanceConflict" });
 
   const acceptedDepartments = new Map(
     decoded.value.departments.map((row) => [row.sourceDepartmentId, row.departmentId]),
@@ -117,7 +118,7 @@ const resolvedEvidence = async (tx: PoolClient, snapshot: ReviewedOrganizationSn
       (row) => acceptedDepartments.get(row.sourceDepartmentId) !== row.departmentId,
     )
   )
-    throw new OrganizationCohortFailure("ReferenceProvenanceConflict");
+    throw new OrganizationCohortFailure({ code: "ReferenceProvenanceConflict" });
 
   const personSnapshot = await tx.query(
     `SELECT 1 FROM public.person_cohort_snapshots WHERE snapshot_key=$1 AND source_repository=$2 AND source_revision=$3 AND snapshot_id=$4 FOR SHARE`,
@@ -129,7 +130,8 @@ const resolvedEvidence = async (tx: PoolClient, snapshot: ReviewedOrganizationSn
     ],
   );
 
-  if (!personSnapshot.rowCount) throw new OrganizationCohortFailure("PersonSnapshotConflict");
+  if (!personSnapshot.rowCount)
+    throw new OrganizationCohortFailure({ code: "PersonSnapshotConflict" });
 
   const people = await tx.query<{ source_user_id: string; person_id: string }>(
     `SELECT a.source_user_id,i.person_id FROM public.person_cohort_accepted_mappings a JOIN public.person_cohort_imports i USING(source_repository,source_user_id) WHERE a.snapshot_key=$1 AND a.source_repository=$2 FOR SHARE`,
@@ -190,7 +192,7 @@ export const importReviewedOrganizationCohort = async (
 
     if (prior) {
       if (prior.snapshot_digest !== snapshot.snapshotDigest)
-        throw new OrganizationCohortFailure("SnapshotConflict");
+        throw new OrganizationCohortFailure({ code: "SnapshotConflict" });
       const result = await report(tx, snapshotKey, true);
 
       if (ownsTransaction) await tx.query("COMMIT");
@@ -228,7 +230,7 @@ export const importReviewedOrganizationCohort = async (
       );
 
       if (priorDigest && priorDigest !== organizationOccurrenceSourceDigest(snapshot, occurrence))
-        throw new OrganizationCohortFailure("SourceConflict");
+        throw new OrganizationCohortFailure({ code: "SourceConflict" });
     }
 
     const evidence = await resolvedEvidence(tx, snapshot);
@@ -271,7 +273,7 @@ export const importReviewedOrganizationCohort = async (
       ).rows[0];
 
       if (prior && (prior.source_digest !== sourceDigest || prior.target_id !== targetId))
-        throw new OrganizationCohortFailure("SourceConflict");
+        throw new OrganizationCohortFailure({ code: "SourceConflict" });
 
       return prior !== undefined;
     };
@@ -323,7 +325,7 @@ export const importReviewedOrganizationCohort = async (
         );
 
         if (!Predicate.isObjectOrArray(rawTeam) || !("id" in rawTeam))
-          throw new OrganizationCohortFailure("InvalidSnapshot");
+          throw new OrganizationCohortFailure({ code: "InvalidSnapshot" });
         const teamSourceId = String(rawTeam.id);
 
         const teamDigest = organizationEvidenceDigest({
@@ -431,7 +433,7 @@ export const importReviewedOrganizationCohort = async (
     }
 
     if (![...outcomes.values()].some((row) => row.result === "Accepted"))
-      throw new OrganizationCohortFailure("NoAcceptedAppointments");
+      throw new OrganizationCohortFailure({ code: "NoAcceptedAppointments" });
 
     for (const occurrence of snapshot.occurrences) {
       const row = outcomes.get(occurrence.occurrenceId)!;

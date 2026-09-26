@@ -7,7 +7,12 @@ describe("canonical JSON", () => {
   it("rejects values whose entries are not their encoding, at any depth", () => {
     const instant = DateTime.makeUnsafe("2038-06-13T12:00:00.123Z");
 
-    for (const value of [instant, new Date(0), new Uint8Array([1]), { at: [instant] }])
+    for (const value of [
+      instant,
+      DateTime.toDateUtc(instant),
+      new Uint8Array([1]),
+      { at: [instant] },
+    ])
       expect(() => canonicalJson(value)).toThrow("plain data only");
 
     expect(canonicalJson({ at: Schema.encodeSync(Instant)(instant), id: null })).toBe(

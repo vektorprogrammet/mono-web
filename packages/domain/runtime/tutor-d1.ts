@@ -686,22 +686,23 @@ const classifyBatchFailure = (
         });
       }
 
-      return yield* Effect.fail(new DuplicateCommandConflict(command.commandId));
+      return yield* new DuplicateCommandConflict({ commandId: command.commandId });
     }
 
     const currentHead = yield* readHead(d1, command.stream);
 
     if (currentHead === undefined) {
-      return yield* Effect.fail(new InvalidTransition("EMPTY_STREAM", undefined));
+      return yield* new InvalidTransition({ reasonCode: "EMPTY_STREAM", lawRef: undefined });
     }
 
     if (
       currentHead.current_version !== expectedHead.current_version ||
       currentHead.last_command_id !== expectedHead.last_command_id
     ) {
-      return yield* Effect.fail(
-        new StaleState(command.expectedVersion, currentHead.current_version),
-      );
+      return yield* new StaleState({
+        expectedVersion: command.expectedVersion,
+        currentVersion: currentHead.current_version,
+      });
     }
 
     return yield* Effect.fail(original);
@@ -732,13 +733,13 @@ const appendAccepted = (
         });
       }
 
-      return yield* Effect.fail(new DuplicateCommandConflict(command.commandId));
+      return yield* new DuplicateCommandConflict({ commandId: command.commandId });
     }
 
     const head = yield* readHead(d1, command.stream);
 
     if (head === undefined)
-      return yield* Effect.fail(new InvalidTransition("EMPTY_STREAM", undefined));
+      return yield* new InvalidTransition({ reasonCode: "EMPTY_STREAM", lawRef: undefined });
     preflightHead = head;
     const replay = yield* readStream(d1, command.stream);
 

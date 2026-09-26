@@ -15,79 +15,62 @@ import { canonicalJson } from "../shared-kernel/index.js";
 
 export const FIXTURE_CONDUCTED_AT = "2026-08-11T09:03:00Z";
 
-export class StreamMismatch extends Error {
-  readonly _tag = "StreamMismatch";
+export class StreamMismatch extends Data.TaggedError("StreamMismatch")<{
+  readonly detail:
+    | "COMMAND_STREAM"
+    | "COMMAND_CORRELATION"
+    | "EVENT_STREAM"
+    | "EVENT_CORRELATION"
+    | "STATE_STREAM";
+}> {
   readonly reasonCode = "STREAM_MISMATCH";
 
-  constructor(
-    readonly detail:
-      | "COMMAND_STREAM"
-      | "COMMAND_CORRELATION"
-      | "EVENT_STREAM"
-      | "EVENT_CORRELATION"
-      | "STATE_STREAM",
-  ) {
-    super(`stream identity rejected (${detail})`);
-    this.name = "StreamMismatch";
+  override get message(): string {
+    return `stream identity rejected (${this.detail})`;
   }
 }
 
-export class StaleState extends Error {
-  readonly _tag = "StaleState";
+export class StaleState extends Data.TaggedError("StaleState")<{
+  readonly expectedVersion: number;
+  readonly currentVersion: number;
+}> {
   readonly reasonCode = "STALE_VERSION";
+  override readonly message = "expected stream version is stale";
+}
 
-  constructor(
-    readonly expectedVersion: number,
-    readonly currentVersion: number,
-  ) {
-    super("expected stream version is stale");
-    this.name = "StaleState";
+export class InvalidTransition extends Data.TaggedError("InvalidTransition")<{
+  readonly reasonCode:
+    | "EMPTY_STREAM"
+    | "CANONICAL_SEQUENCE"
+    | "CONDUCT_REQUIRES_ACCEPTED"
+    | "TERMINAL_CONDUCTED";
+  readonly lawRef: "T-INT-1" | "T-INT-2" | undefined;
+}> {
+  override get message(): string {
+    return `transition rejected (${this.reasonCode})`;
   }
 }
 
-export class InvalidTransition extends Error {
-  readonly _tag = "InvalidTransition";
-
-  constructor(
-    readonly reasonCode:
-      | "EMPTY_STREAM"
-      | "CANONICAL_SEQUENCE"
-      | "CONDUCT_REQUIRES_ACCEPTED"
-      | "TERMINAL_CONDUCTED",
-    readonly lawRef: "T-INT-1" | "T-INT-2" | undefined,
-  ) {
-    super(`transition rejected (${reasonCode})`);
-    this.name = "InvalidTransition";
+export class OutOfOrderEvent extends Data.TaggedError("OutOfOrderEvent")<{
+  readonly reasonCode: "STREAM_VERSION_GAP" | "OCCURRED_AT_REWIND";
+}> {
+  override get message(): string {
+    return `event order rejected (${this.reasonCode})`;
   }
 }
 
-export class OutOfOrderEvent extends Error {
-  readonly _tag = "OutOfOrderEvent";
-
-  constructor(readonly reasonCode: "STREAM_VERSION_GAP" | "OCCURRED_AT_REWIND") {
-    super(`event order rejected (${reasonCode})`);
-    this.name = "OutOfOrderEvent";
-  }
-}
-
-export class DuplicateEvent extends Error {
-  readonly _tag = "DuplicateEvent";
+export class DuplicateEvent extends Data.TaggedError("DuplicateEvent")<{
+  readonly eventId: string;
+}> {
   readonly reasonCode = "DUPLICATE_EVENT_ID";
-
-  constructor(readonly eventId: string) {
-    super("duplicate event identity rejected");
-    this.name = "DuplicateEvent";
-  }
+  override readonly message = "duplicate event identity rejected";
 }
 
-export class DuplicateCommandConflict extends Error {
-  readonly _tag = "DuplicateCommandConflict";
+export class DuplicateCommandConflict extends Data.TaggedError("DuplicateCommandConflict")<{
+  readonly commandId: string;
+}> {
   readonly reasonCode = "DUPLICATE_COMMAND_CONFLICT";
-
-  constructor(readonly commandId: string) {
-    super("duplicate command body conflict");
-    this.name = "DuplicateCommandConflict";
-  }
+  override readonly message = "duplicate command body conflict";
 }
 
 export type TutorFailure =
@@ -174,7 +157,7 @@ export const foldEvents = (
 ): Effect.Effect<FoldedState, TutorFailure> =>
   Effect.gen(function* () {
     if (inputs.length === 0) {
-      return yield* Effect.fail(new InvalidTransition("EMPTY_STREAM", undefined));
+      return yield* new InvalidTransition({ reasonCode: "EMPTY_STREAM", lawRef: undefined });
     }
 
     const events: Array<EventEnvelopeV1> = [];
@@ -190,28 +173,31 @@ export const foldEvents = (
       const expectedType = expectedEventType(index);
 
       if (eventIds.has(event.eventId)) {
-        return yield* Effect.fail(new DuplicateEvent(event.eventId));
+        return yield* new DuplicateEvent({ eventId: event.eventId });
       }
 
       if (event.streamVersion !== expectedVersion) {
-        return yield* Effect.fail(new OutOfOrderEvent("STREAM_VERSION_GAP"));
+        return yield* new OutOfOrderEvent({ reasonCode: "STREAM_VERSION_GAP" });
       }
 
       if (previousOccurredAt !== undefined && event.occurredAt < previousOccurredAt) {
-        return yield* Effect.fail(new OutOfOrderEvent("OCCURRED_AT_REWIND"));
+        return yield* new OutOfOrderEvent({ reasonCode: "OCCURRED_AT_REWIND" });
       }
 
       if (stream === undefined) {
         stream = event.stream;
         correlationId = event.correlationId;
       } else if (!streamEqual(stream, event.stream)) {
-        return yield* Effect.fail(new StreamMismatch("EVENT_STREAM"));
+        return yield* new StreamMismatch({ detail: "EVENT_STREAM" });
       } else if (event.correlationId !== correlationId) {
-        return yield* Effect.fail(new StreamMismatch("EVENT_CORRELATION"));
+        return yield* new StreamMismatch({ detail: "EVENT_CORRELATION" });
       }
 
       if (expectedType === "Terminal" || event.eventType !== expectedType) {
-        return yield* Effect.fail(new InvalidTransition("CANONICAL_SEQUENCE", "T-INT-1"));
+        return yield* new InvalidTransition({
+          reasonCode: "CANONICAL_SEQUENCE",
+          lawRef: "T-INT-1",
+        });
       }
 
       eventIds.add(event.eventId);
@@ -222,7 +208,7 @@ export const foldEvents = (
     const firstEvent = events[0];
 
     if (firstEvent === undefined || stream === undefined || correlationId === undefined) {
-      return yield* Effect.fail(new InvalidTransition("EMPTY_STREAM", undefined));
+      return yield* new InvalidTransition({ reasonCode: "EMPTY_STREAM", lawRef: undefined });
     }
 
     return {
@@ -332,33 +318,39 @@ export const conductInterview = (
         });
       }
 
-      return yield* Effect.fail(new DuplicateCommandConflict(command.commandId));
+      return yield* new DuplicateCommandConflict({ commandId: command.commandId });
     }
 
     const folded = yield* foldEvents(state.events);
 
     if (!streamEqual(state.stream, folded.stream)) {
-      return yield* Effect.fail(new StreamMismatch("STATE_STREAM"));
+      return yield* new StreamMismatch({ detail: "STATE_STREAM" });
     }
 
     if (!streamEqual(command.stream, folded.stream)) {
-      return yield* Effect.fail(new StreamMismatch("COMMAND_STREAM"));
+      return yield* new StreamMismatch({ detail: "COMMAND_STREAM" });
     }
 
     if (command.correlationId !== folded.correlationId) {
-      return yield* Effect.fail(new StreamMismatch("COMMAND_CORRELATION"));
+      return yield* new StreamMismatch({ detail: "COMMAND_CORRELATION" });
     }
 
     if (command.expectedVersion !== folded.events.length) {
-      return yield* Effect.fail(new StaleState(command.expectedVersion, folded.events.length));
+      return yield* new StaleState({
+        expectedVersion: command.expectedVersion,
+        currentVersion: folded.events.length,
+      });
     }
 
     if (folded.nextEventType === "Terminal") {
-      return yield* Effect.fail(new InvalidTransition("TERMINAL_CONDUCTED", "T-INT-2"));
+      return yield* new InvalidTransition({ reasonCode: "TERMINAL_CONDUCTED", lawRef: "T-INT-2" });
     }
 
     if (folded.nextEventType !== "InterviewConducted") {
-      return yield* Effect.fail(new InvalidTransition("CONDUCT_REQUIRES_ACCEPTED", "T-INT-1"));
+      return yield* new InvalidTransition({
+        reasonCode: "CONDUCT_REQUIRES_ACCEPTED",
+        lawRef: "T-INT-1",
+      });
     }
 
     const event = conductEvent(command, folded);

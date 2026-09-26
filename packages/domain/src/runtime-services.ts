@@ -3,17 +3,19 @@
  *
  * @since 0.1.0
  */
-import { Cause, Context, Effect } from "effect";
+import { Context, Effect, type PlatformError } from "effect";
 
 export interface DomainFileSystemOperations {
-  readonly readTextFile: (path: string | URL) => Effect.Effect<string, Cause.UnknownError>;
+  readonly readTextFile: (path: string) => Effect.Effect<string, PlatformError.PlatformError>;
   readonly joinPath: (directory: string, file: string) => string;
   readonly writeTextFile: (
-    path: string | URL,
-    contents: string | Uint8Array,
-  ) => Effect.Effect<void, Cause.UnknownError>;
-  readonly makeTempDirectory: (prefix: string) => Effect.Effect<string, Cause.UnknownError>;
-  readonly removeTree: (path: string) => Effect.Effect<void, Cause.UnknownError>;
+    path: string,
+    contents: string,
+  ) => Effect.Effect<void, PlatformError.PlatformError>;
+  readonly makeTempDirectory: (
+    prefix: string,
+  ) => Effect.Effect<string, PlatformError.PlatformError>;
+  readonly removeTree: (path: string) => Effect.Effect<void, PlatformError.PlatformError>;
 }
 
 export class DomainFileSystem extends Context.Service<
@@ -31,8 +33,8 @@ export class DomainProcess extends Context.Service<DomainProcess, DomainProcessO
 ) {}
 
 export const readTextFile = (
-  path: string | URL,
-): Effect.Effect<string, Cause.UnknownError, DomainFileSystem> =>
+  path: string,
+): Effect.Effect<string, PlatformError.PlatformError, DomainFileSystem> =>
   DomainFileSystem.use((fileSystem) => fileSystem.readTextFile(path));
 
 export const joinPath = (
@@ -42,19 +44,19 @@ export const joinPath = (
   DomainFileSystem.use((fileSystem) => Effect.succeed(fileSystem.joinPath(directory, file)));
 
 export const writeTextFile = (
-  path: string | URL,
-  contents: string | Uint8Array,
-): Effect.Effect<void, Cause.UnknownError, DomainFileSystem> =>
+  path: string,
+  contents: string,
+): Effect.Effect<void, PlatformError.PlatformError, DomainFileSystem> =>
   DomainFileSystem.use((fileSystem) => fileSystem.writeTextFile(path, contents));
 
 export const makeTempDirectory = (
   prefix: string,
-): Effect.Effect<string, Cause.UnknownError, DomainFileSystem> =>
+): Effect.Effect<string, PlatformError.PlatformError, DomainFileSystem> =>
   DomainFileSystem.use((fileSystem) => fileSystem.makeTempDirectory(prefix));
 
 export const removeTree = (
   path: string,
-): Effect.Effect<void, Cause.UnknownError, DomainFileSystem> =>
+): Effect.Effect<void, PlatformError.PlatformError, DomainFileSystem> =>
   DomainFileSystem.use((fileSystem) => fileSystem.removeTree(path));
 
 export const writeStandardOutput = (text: string): Effect.Effect<void, never, DomainProcess> =>
