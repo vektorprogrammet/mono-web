@@ -39,7 +39,7 @@ describe("volunteer affiliation authority and lifecycle", () => {
       ),
     ).toThrow();
   });
-  it("historical leadership and active membership in another department do not authorize placement", () => {
+  it("historical leadership, a team leadership and membership in another department do not authorize placement", () => {
     const authority = Schema.decodeUnknownSync(OrganizationPersonAuthoritySchema)({
       personId: PersonId.make("coordinator"),
       evaluatedAt: "2026-09-06T00:00:00.000Z",
@@ -50,20 +50,40 @@ describe("volunteer affiliation authority and lifecycle", () => {
           teamId: "old-team",
           departmentId: DepartmentId.make("b"),
           active: false,
-          teamLeader: true,
+          unitLeader: true,
+          unitKind: "DepartmentBoard",
+          teamScope: "HomeDepartment",
+          departmentIndependent: true,
         },
         {
           membershipId: "current",
           teamId: "current-team",
           departmentId: DepartmentId.make("a"),
           active: true,
-          teamLeader: true,
+          unitLeader: true,
+          unitKind: "DepartmentBoard",
+          teamScope: "HomeDepartment",
+          departmentIndependent: true,
+        },
+        {
+          membershipId: "team-leader",
+          teamId: "skolekoordinering-c",
+          departmentId: DepartmentId.make("c"),
+          active: true,
+          unitLeader: true,
+          unitKind: "Team",
+          teamScope: "HomeDepartment",
+          departmentIndependent: true,
         },
       ],
+      nationalBoardSeats: [],
+      delegations: [],
     });
 
     expect(canManagePlacements(authority, DepartmentId.make("a"))).toBe(true);
     expect(canManagePlacements(authority, DepartmentId.make("b"))).toBe(false);
+    // An ordinary team's leader acts within the team (O8-11).
+    expect(canManagePlacements(authority, DepartmentId.make("c"))).toBe(false);
     // An ended administrator grant neither adds nor removes department leadership.
     expect(
       canManagePlacements(

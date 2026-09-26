@@ -7,6 +7,7 @@ declare module "react" {
     interface IntrinsicElements {
       "vektor-team-catalog": OrganizationCatalogElementProps;
       "vektor-field-of-study-catalog": OrganizationCatalogElementProps;
+      "vektor-delegation-management": OrganizationCatalogElementProps;
     }
   }
 }

@@ -85,7 +85,9 @@ export const listAdmissionPeriods = (request: Request, input: AdmissionApiHttpOp
         contexts: [
           genericContext({
             domainId: "admissions",
-            departmentId: Predicate.isTagged(actor, "DepartmentLeader") ? actor.departmentId : null,
+            departmentId: Predicate.isTagged(actor, "DepartmentAdministrator")
+              ? actor.departmentId
+              : null,
             authorityVersion: `admissions:${actor._tag}`,
           }),
         ],

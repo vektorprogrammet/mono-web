@@ -187,7 +187,7 @@ export const createAdmissionPeriod = (request: Request, input: AdmissionApiHttpO
             contexts: [
               genericContext({
                 domainId: "admissions",
-                departmentId: Predicate.isTagged(actor, "DepartmentLeader")
+                departmentId: Predicate.isTagged(actor, "DepartmentAdministrator")
                   ? actor.departmentId
                   : (payload.departmentId ?? null),
                 resourceKind: "admission-period",

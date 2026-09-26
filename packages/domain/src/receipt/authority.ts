@@ -1,4 +1,6 @@
 import { Scope } from "../authz/access.js";
+import { DelegationArea, type Delegation } from "../authz/delegation.js";
+import { delegationsReaching } from "../authz/reach.js";
 import { Effect, Schema } from "effect";
 import type { OrganizationPersonAuthority } from "../organization/authority.js";
 import { DepartmentId, PersonId } from "../organization/schema.js";
@@ -286,13 +288,57 @@ const activeOrganizationAuthorityInDepartment = (
     (membership) => membership.active && membership.departmentId === departmentId,
   );
 
-/** Combines canonical Economy records with one same-instant Organization projection. */
+/** The Economy fact that one reaching delegation stands for, keyed by the delegation. */
+const delegatedFact = (delegation: Delegation) => ({
+  scope: DelegationArea.guards.Department(delegation.area)
+    ? Scope.Department({ departmentId: delegation.area.departmentId })
+    : Scope.Global(),
+  startAt: delegation.startAt,
+  endAt: delegation.endAt,
+  revision: delegation.revision,
+});
+
+/**
+ * Combines canonical Economy records with one same-instant Organization projection. The
+ * economy team's national delegations reach here (O8-15): every current member of the team
+ * approves through `receipts.approve`, and only its current leaders, the finance lead, settle
+ * through the leaders-only `receipts.settle`. Each reaching delegation becomes one approval or
+ * settlement fact keyed `delegation:<id>`, beside the person's own Economy grants.
+ */
 export const projectReceiptAuthority = (
   organization: OrganizationPersonAuthority,
   paymentAuthorities: ReadonlyArray<ReceiptPaymentAuthority>,
-  approvalGrants: ReadonlyArray<ReceiptApprovalGrant>,
-  settlementGrants: ReadonlyArray<ReceiptSettlementGrant> = [],
+  directApprovalGrants: ReadonlyArray<ReceiptApprovalGrant>,
+  directSettlementGrants: ReadonlyArray<ReceiptSettlementGrant> = [],
 ): ReceiptAuthority => {
+  const approvalGrants: Array<ReceiptApprovalGrant> = [...directApprovalGrants];
+
+  for (const delegation of delegationsReaching(organization, "receipts.approve")) {
+    const approvalGrantId = ReceiptApprovalGrantId.make(`delegation:${delegation.delegationId}`);
+
+    if (approvalGrants.some((grant) => grant.approvalGrantId === approvalGrantId)) continue;
+    approvalGrants.push({
+      ...delegatedFact(delegation),
+      approvalGrantId,
+      personId: organization.personId,
+    });
+  }
+
+  const settlementGrants: Array<ReceiptSettlementGrant> = [...directSettlementGrants];
+
+  for (const delegation of delegationsReaching(organization, "receipts.settle")) {
+    const settlementGrantId = ReceiptSettlementGrantId.make(
+      `delegation:${delegation.delegationId}`,
+    );
+
+    if (settlementGrants.some((grant) => grant.settlementGrantId === settlementGrantId)) continue;
+    settlementGrants.push({
+      ...delegatedFact(delegation),
+      settlementGrantId,
+      personId: organization.personId,
+    });
+  }
+
   const projectedPayments: Array<ResolvedReceiptPaymentAuthority> = [];
 
   for (const authority of paymentAuthorities) {

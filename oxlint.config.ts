@@ -268,6 +268,26 @@ export default defineConfig({
       rules: { "anti-slop/no-raw-advisory-lock-sql": "off" },
     },
     {
+      // Unit leadership decides authority only through the reach interpreter (O8-11).
+      files: ["apps/*/src/**", "apps/dashboard/app/**", "packages/*/src/**"],
+      rules: { "anti-slop/no-leadership-reach": "error" },
+    },
+    {
+      // The interpreter reads leadership; the Organization adapters persist and project it; tests
+      // construct projections.
+      files: [
+        "packages/domain/src/authz/reach.ts",
+        "packages/database/src/organization/authority-postgres.ts",
+        "packages/database/src/organization/lifecycle-postgres.ts",
+        "packages/database/src/organization/postgres.ts",
+        "packages/database/src/organization/reviewed-cohort.ts",
+        "packages/database/src/test-support/**",
+        "packages/database/src/**/*-main.ts",
+        "**/*.test.ts",
+      ],
+      rules: { "anti-slop/no-leadership-reach": "off" },
+    },
+    {
       // Raw node-postgres files, pending Effect-SQL migration. Remove an entry when its file
       // moves to Effect SQL and lockAdvisory; do not add a raw-pg twin of the construct.
       files: [

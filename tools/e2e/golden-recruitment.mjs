@@ -74,11 +74,13 @@ export const seedRecruitment = async (pool) => {
   await pool.query(`
     INSERT INTO admission_period_departments(department_id,name) VALUES ('recruitment-department','Trondheim'),('recruitment-wrong-department','Annen');
     INSERT INTO admission_period_semesters(semester_id,start_at,end_at) VALUES ('recruitment-semester',date_trunc('milliseconds',now(),'UTC')-interval '30 days',date_trunc('milliseconds',now(),'UTC')+interval '90 days');
-    INSERT INTO organization_departments(department_id,name,short_name,email,city,active,revision) VALUES
-      ('recruitment-department','Vektorprogrammet Trondheim','Trondheim','trondheim@example.invalid','Trondheim',true,0),
-      ('recruitment-wrong-department','Annen avdeling','Annen','wrong@example.invalid','Annen',true,0);
-    INSERT INTO organization_teams(team_id,department_id,name,active,revision) VALUES
-      ('recruitment-team','recruitment-department','Koordinator',true,0),('recruitment-wrong-team','recruitment-wrong-department','Koordinator',true,0);
+    INSERT INTO organization_departments(department_id,name,short_name,email,city,active,independent,revision) VALUES
+      ('recruitment-department','Vektorprogrammet Trondheim','Trondheim','trondheim@example.invalid','Trondheim',true,true,0),
+      ('recruitment-wrong-department','Annen avdeling','Annen','wrong@example.invalid','Annen',true,false,0);
+    -- recruitment-team is the department's board (Styret) of an independent department, so its
+    -- leader reaches the department (O8-11). The wrong-department leader leads an ordinary team.
+    INSERT INTO organization_teams(team_id,department_id,name,kind,active,revision) VALUES
+      ('recruitment-team','recruitment-department','Koordinator','DepartmentBoard',true,0),('recruitment-wrong-team','recruitment-wrong-department','Koordinator','Team',true,0);
     INSERT INTO organization_memberships(membership_id,person_id,team_id,deleted_team_name,start_at,end_at,position_id,is_team_leader,is_suspended,revision) VALUES
       ('recruitment-leader','recruitment-leader','recruitment-team',NULL,date_trunc('milliseconds',now(),'UTC')-interval '1 day',NULL,'teamleader',true,false,0),
       ('recruitment-wrong','recruitment-wrong','recruitment-wrong-team',NULL,date_trunc('milliseconds',now(),'UTC')-interval '1 day',NULL,'teamleader',true,false,0);

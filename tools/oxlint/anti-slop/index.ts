@@ -4,6 +4,7 @@ import { noArrayFilterMapRule } from "./rules/no-array-filter-map.ts";
 import { noChainedTypeAssertionsRule } from "./rules/no-chained-type-assertions.ts";
 import { noConditionalEmptyObjectSpreadRule } from "./rules/no-conditional-empty-object-spread.ts";
 import { noKnownValueWideningRule } from "./rules/no-known-value-widening.ts";
+import { noLeadershipReachRule } from "./rules/no-leadership-reach.ts";
 import { noJsonTextParameterRule } from "./rules/no-json-text-parameter.ts";
 import { noModuleMockingRule } from "./rules/no-module-mocking.ts";
 import { noObjectParametersRule } from "./rules/no-object-parameters.ts";
@@ -31,6 +32,7 @@ const antiSlopPlugin = eslintCompatPlugin({
     "no-conditional-empty-object-spread": noConditionalEmptyObjectSpreadRule,
     "no-json-text-parameter": noJsonTextParameterRule,
     "no-known-value-widening": noKnownValueWideningRule,
+    "no-leadership-reach": noLeadershipReachRule,
     "no-module-mocking": noModuleMockingRule,
     "no-object-parameters": noObjectParametersRule,
     "no-raw-advisory-lock-sql": noRawAdvisoryLockSqlRule,

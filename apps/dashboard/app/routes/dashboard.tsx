@@ -269,6 +269,10 @@ const adminLinks = [
         title: "Teaminteresse",
         url: href("/teaminteresse"),
       },
+      {
+        title: "Delegeringer",
+        url: href("/delegeringer"),
+      },
     ],
   },
   {

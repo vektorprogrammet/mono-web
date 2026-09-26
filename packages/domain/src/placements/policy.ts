@@ -1,6 +1,6 @@
 import { Predicate, Data } from "effect";
 import {
-  mapOrganizationAuthorityToAdmissionPeriodActor,
+  mapOrganizationAuthorityToDepartmentActor,
   type OrganizationPersonAuthority,
 } from "../organization/index.js";
 import type { DepartmentId, PersonId } from "../organization/index.js";
@@ -56,12 +56,16 @@ export class SchoolServiceNotificationDeliveryError extends Data.TaggedError(
   readonly effectId: string;
 }> {}
 
-/** A coordinator is an active scoped department leader or an active global administrator. */
+/** A coordinator holds `placements.coordinate` in the department, or is an active global administrator. */
 export const canManagePlacements = (
   authority: OrganizationPersonAuthority,
   departmentId: DepartmentId,
 ): boolean => {
-  const decision = mapOrganizationAuthorityToAdmissionPeriodActor(authority, departmentId);
+  const decision = mapOrganizationAuthorityToDepartmentActor(
+    authority,
+    "placements.coordinate",
+    departmentId,
+  );
 
   return Predicate.isTagged(decision, "Allow") && !Predicate.isTagged(decision.value, "Member");
 };

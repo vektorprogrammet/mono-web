@@ -67,9 +67,23 @@ const administrator = Layer.mergeAll(
   }),
   Layer.mock(Organization, {
     resolvePersonAuthority: (personId, evaluatedAt) =>
-      Effect.succeed({ personId, evaluatedAt, globalAdministrator: "Active", memberships: [] }),
+      Effect.succeed({
+        personId,
+        evaluatedAt,
+        globalAdministrator: "Active",
+        memberships: [],
+        nationalBoardSeats: [],
+        delegations: [],
+      }),
     resolvePersonAuthorityForRead: (personId, evaluatedAt) =>
-      Effect.succeed({ personId, evaluatedAt, globalAdministrator: "Active", memberships: [] }),
+      Effect.succeed({
+        personId,
+        evaluatedAt,
+        globalAdministrator: "Active",
+        memberships: [],
+        nationalBoardSeats: [],
+        delegations: [],
+      }),
   }),
 );
 

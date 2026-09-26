@@ -58,9 +58,14 @@ const projection = (
       teamId: TeamId.make("schools-http-team"),
       departmentId: departmentA,
       active: true,
-      teamLeader: false,
+      unitLeader: false,
+      unitKind: "Team",
+      teamScope: "HomeDepartment",
+      departmentIndependent: false,
     },
   ],
+  nationalBoardSeats: [],
+  delegations: [],
   ...overrides,
 });
 
@@ -317,7 +322,12 @@ describe("Schools native HTTP adapter", () => {
         name: "absent authority",
         expectedStatus: 403,
         expectedTag: "NotInScope",
-        authority: projection({ memberships: [], globalAdministrator: "Absent" }),
+        authority: projection({
+          memberships: [],
+          nationalBoardSeats: [],
+          delegations: [],
+          globalAdministrator: "Absent",
+        }),
       },
       {
         name: "unknown department",

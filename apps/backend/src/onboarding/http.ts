@@ -1,7 +1,11 @@
-import { credentialMatchesAccessSpec, Scope } from "@vektorprogrammet/domain/authz";
+import {
+  credentialMatchesAccessSpec,
+  reaches,
+  ReachTarget,
+  Scope,
+} from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/database";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
-import { canManagePlacements } from "@vektorprogrammet/domain/placements";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import {
@@ -166,7 +170,10 @@ const scopeOf = (request: Request) => {
     : decodeRequest(OnboardingScope)(Object.fromEntries(query));
 };
 
-/** A coordinator of the department, then the declared AccessSpec, at one transaction instant. */
+/**
+ * Whoever holds `admissions.outcomes` in the department invites admitted applicants, then the
+ * declared AccessSpec, at one transaction instant.
+ */
 const authorize = (
   request: Request,
   endpoint: typeof ReadOnboardingEndpoint | typeof CommandOnboardingEndpoint,
@@ -177,7 +184,7 @@ const authorize = (
   Effect.gen(function* () {
     const auth = yield* resolveRequestPersonAuthorityInTransaction(request, { now });
 
-    if (!canManagePlacements(auth.authority, departmentId))
+    if (!reaches(auth.authority, "admissions.outcomes", ReachTarget.Department({ departmentId })))
       return yield* Problem.make("authority.denied");
 
     yield* authorizePerson(

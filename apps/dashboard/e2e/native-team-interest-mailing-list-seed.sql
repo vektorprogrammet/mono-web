@@ -6,6 +6,7 @@ INSERT INTO organization_departments (
   email,
   city,
   active,
+  independent,
   revision
 )
 SELECT
@@ -15,6 +16,7 @@ SELECT
   seed_row.email,
   seed_row.city,
   seed_row.active,
+  seed_row.independent,
   seed_row.revision
 FROM jsonb_to_recordset($1::jsonb) AS seed_row(
   department_id text,
@@ -23,6 +25,7 @@ FROM jsonb_to_recordset($1::jsonb) AS seed_row(
   email text,
   city text,
   active boolean,
+  independent boolean,
   revision integer
 )
 WHERE TRUE
@@ -44,6 +47,7 @@ INSERT INTO organization_teams (
   team_id,
   department_id,
   name,
+  kind,
   active,
   revision
 )
@@ -51,12 +55,14 @@ SELECT
   seed_row.team_id,
   seed_row.department_id,
   seed_row.name,
+  seed_row.kind,
   seed_row.active,
   seed_row.revision
 FROM jsonb_to_recordset($1::jsonb) AS seed_row(
   team_id text,
   department_id text,
   name text,
+  kind text,
   active boolean,
   revision integer
 )

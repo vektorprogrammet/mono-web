@@ -9,9 +9,9 @@ import { resolveBrowserApiUrl } from "../../lib/browser-api";
 import { nativeProblemFrom } from "../../lib/native-problem";
 import "./styles.css";
 
-const Field = S.Literals(["personId","unit","position","startAt","endAt","reason","boardName","accountPersonId"]);
+const Field = S.Literals(["personId","unit","position","startAt","endAt","reason","boardName","accountPersonId","classifiedTeam","unitKind","teamScope","recognisedDepartment"]);
 
-const Action = S.Literals(["Appoint","ReviseAppointment","EndAppointment","SuspendAppointment","ReinstateAppointment","CreateNationalBoard","DisableAccount","EnableAccount"]);
+const Action = S.Literals(["Appoint","ReviseAppointment","EndAppointment","SuspendAppointment","ReinstateAppointment","CreateNationalBoard","DisableAccount","EnableAccount","ClassifyTeam","RecogniseDepartment","WithdrawRecognition"]);
 
 const Operation = S.TaggedUnion({
   Ready: {},
@@ -26,6 +26,7 @@ const Model = S.Struct({
   snapshot:S.NullOr(AppointmentManagement), requestId:S.Int, operation:Operation, notice:Notice,
   commandId:S.String, selected:S.String, personId:S.String, unit:S.String, position:S.String,
   startAt:S.String,endAt:S.String,leadership:S.Boolean,reason:S.String,boardName:S.String,accountPersonId:S.String,
+  classifiedTeam:S.String,unitKind:S.String,teamScope:S.String,recognisedDepartment:S.String,
 });
 
 type Model = typeof Model.Type;
@@ -63,7 +64,7 @@ const failureMessage=flow(nativeProblemFrom, (decodedProblem): string => {
 
   if (encoded?.includes("credential.")) return "Økten er ikke lenger gyldig. Logg inn på nytt.";
 
-  if (encoded?.includes("validation.failed")) return "Kontroller tidsrommet og handlingen. Nasjonale verv gir ikke lokal ledertilgang.";
+  if (encoded?.includes("validation.failed")) return "Kontroller tidsrommet og handlingen. En avdeling har høyst ett styre, og et styre arbeider bare for sin avdeling.";
 
   if (encoded?.includes("idempotency.digest-conflict")) return "Kommandoen er allerede brukt med andre verdier. Hent oppdatert oversikt.";
 
@@ -109,7 +110,8 @@ const view=(model:Model,h:HtmlBuilder<Message>):Html => {
         current?h.empty:select("personId","Person",snapshot.people.map(person=>({value:person.personId,label:person.name}))),
         current?h.empty:select("unit","Organisatorisk enhet",snapshot.units.map(unit=>({value:`${unit.target.kind}:${unit.target.id}`,label:`${unit.name} (${unit.target.kind==="NationalBoard"?"Nasjonalt styre":"Lokalt team"})`}))),
         field("position","Stilling (valgfritt)"),field("startAt","Start (UTC)","datetime-local"),field("endAt","Slutt (UTC, valgfritt)","datetime-local"),
-        selectedUnit?.target.kind==="NationalBoard"?h.p([],["Nasjonale verv og styrelederstilling gir ikke global administratortilgang."]):h.label([],[h.input([h.Type("checkbox"),h.Checked(model.leadership),h.Disabled(blocked),h.OnChange(()=>Toggled())]),"Lederansvar i lokal avdeling"]),
+        h.label([],[h.input([h.Type("checkbox"),h.Checked(model.leadership),h.Disabled(blocked),h.OnChange(()=>Toggled())]),selectedUnit?.target.kind==="NationalBoard"?"Leder av Hovedstyret":"Leder av enheten"]),
+        h.p([],[selectedUnit?.target.kind==="NationalBoard"?"Lederen av Hovedstyret når alle avdelinger, men et verv gir aldri global administratortilgang.":"En teamleder handler innenfor teamet. Bare lederen av et selvstendig avdelingsstyre handler i hele avdelingen."]),
         field("reason","Begrunnelse for handlingen"),
       ]),
       h.div([h.Class("organization-management__actions")],[
@@ -122,6 +124,16 @@ const view=(model:Model,h:HtmlBuilder<Message>):Html => {
         h.h2([],["Native kontoer"]),h.p([],["Deaktivering sperrer innlogging og avslutter native økter og menneskelige OAuth-tilganger. Verv og tjenestehistorikk beholdes. Dette endrer ikke eksterne postkontoer eller tjenesteidentiteter."]),
         select("accountPersonId","Konto",snapshot.accounts.map(account=>({value:account.personId,label:`${names.get(account.personId)??account.personId} · ${account.disabled?"Deaktivert":"Aktiv"} · revisjon ${account.revision}`}))),
         h.div([h.Class("organization-management__actions")],[button("Deaktiver valgt konto",Submitted({action:"DisableAccount"})),button("Aktiver valgt konto",Submitted({action:"EnableAccount"}))]),
+      ]),
+      snapshot.governance===null?h.empty:h.section([], [
+        h.h2([],["Organisasjonsstyring"]),
+        h.p([],["Hovedstyret bestemmer hvilket team som er avdelingens styre, hvilke team som er nasjonale, og hvilke avdelinger som er selvstendige. Uten dette når ingen leder en avdeling."]),
+        select("classifiedTeam","Team",snapshot.governance.teams.map(team=>({value:team.teamId,label:`${team.name} · ${team.unitKind==="DepartmentBoard"?"Avdelingsstyre":"Team"} · ${team.teamScope==="National"?"Nasjonalt":"Lokalt"} · revisjon ${team.revision}`}))),
+        select("unitKind","Enhet",[{value:"Team",label:"Vanlig team"},{value:"DepartmentBoard",label:"Avdelingens styre"}]),
+        select("teamScope","Omfang",[{value:"HomeDepartment",label:"Egen avdeling"},{value:"National",label:"Nasjonalt"}]),
+        button("Lagre klassifisering",Submitted({action:"ClassifyTeam"})),
+        select("recognisedDepartment","Avdeling",snapshot.governance.departments.map(department=>({value:department.departmentId,label:`${department.name} · ${department.independent?"Selvstendig":"Ikke selvstendig"} · revisjon ${department.revision}`}))),
+        h.div([h.Class("organization-management__actions")],[button("Anerkjenn som selvstendig",Submitted({action:"RecogniseDepartment"})),button("Trekk tilbake selvstendighet",Submitted({action:"WithdrawRecognition"}))]),
       ]),
       h.h2([],["Historikk"]),h.ol([],snapshot.history.map(event=>h.li([], [
         `${event.occurredAt} · ${event.action} · ${names.get(event.actorPersonId)??event.actorPersonId} · ${event.reason} · ${event.subjectId}`,
@@ -143,6 +155,10 @@ const parseReinstateAppointment = S.decodeUnknownOption(OrganizationLifecycleCom
 const parseCreateNationalBoard = S.decodeUnknownOption(OrganizationLifecycleCommand.cases.CreateNationalBoard.mapFields(Struct.omit(["_tag"])));
 
 const parseChangeAccountAccess = S.decodeUnknownOption(OrganizationLifecycleCommand.cases.ChangeAccountAccess.mapFields(Struct.omit(["_tag"])));
+
+const parseClassifyTeam = S.decodeUnknownOption(OrganizationLifecycleCommand.cases.ClassifyTeam.mapFields(Struct.omit(["_tag"])));
+
+const parseRecogniseDepartment = S.decodeUnknownOption(OrganizationLifecycleCommand.cases.RecogniseDepartment.mapFields(Struct.omit(["_tag"])));
 
 export const embedAppointmentManagement=(container:HTMLElement):(()=>void)=>{
   const client=createEffectClient(resolveBrowserApiUrl(import.meta.env.VITE_API_URL,globalThis.location.origin));
@@ -167,6 +183,8 @@ Match.tag("SuspendAppointment", (command) => {return client.organization.execute
 Match.tag("ReinstateAppointment", (command) => {return client.organization.executeLifecycle({headers,payload:command});}),
 Match.tag("CreateNationalBoard", (command) => {return client.organization.executeLifecycle({headers,payload:command});}),
 Match.tag("ChangeAccountAccess", (command) => {return client.organization.executeLifecycle({headers,payload:command});}),
+Match.tag("ClassifyTeam", (command) => {return client.organization.executeLifecycle({headers,payload:command});}),
+Match.tag("RecogniseDepartment", (command) => {return client.organization.executeLifecycle({headers,payload:command});}),
 Match.exhaustive
 );
   });
@@ -219,6 +237,8 @@ const common={commandId:model.commandId,reason:model.reason.trim()};
 const row=model.snapshot.appointments.find(row=>row.appointmentId===model.selected);
 const unit=model.snapshot.units.find(unit=>unit.target.kind+":"+unit.target.id===model.unit);
 const account=model.snapshot.accounts.find(account=>account.personId===model.accountPersonId);
+const classified=model.snapshot.governance?.teams.find(team=>team.teamId===model.classifiedTeam);
+const recognised=model.snapshot.governance?.departments.find(department=>department.departmentId===model.recognisedDepartment);
 const existing={...common,appointmentId:row?.appointmentId,expectedRevision:row?.revision};
 const interval={position:model.position.trim()||null,leadership:model.leadership,startAt:model.startAt?model.startAt+(model.startAt.length===16?":00.000":"")+"Z":"",endAt:model.endAt?model.endAt+(model.endAt.length===16?":00.000":"")+"Z":null};
 
@@ -230,6 +250,8 @@ Match.when("SuspendAppointment",()=>parseSuspendAppointment(existing).pipe(Optio
 Match.when("ReinstateAppointment",()=>parseReinstateAppointment(existing).pipe(Option.map(OrganizationLifecycleCommand.cases.ReinstateAppointment.make))),
 Match.when("CreateNationalBoard",()=>parseCreateNationalBoard({...common,name:model.boardName.trim()}).pipe(Option.map(OrganizationLifecycleCommand.cases.CreateNationalBoard.make))),
 Match.whenOr("DisableAccount", "EnableAccount",()=>parseChangeAccountAccess({...common,personId:account?.personId,expectedRevision:account?.revision,disabled:message.action==="DisableAccount"}).pipe(Option.map(OrganizationLifecycleCommand.cases.ChangeAccountAccess.make))),
+Match.when("ClassifyTeam",()=>parseClassifyTeam({...common,teamId:classified?.teamId,unitKind:model.unitKind,teamScope:model.teamScope,expectedRevision:classified?.revision}).pipe(Option.map(OrganizationLifecycleCommand.cases.ClassifyTeam.make))),
+Match.whenOr("RecogniseDepartment", "WithdrawRecognition",()=>parseRecogniseDepartment({...common,departmentId:recognised?.departmentId,independent:message.action==="RecogniseDepartment",expectedRevision:recognised?.revision}).pipe(Option.map(OrganizationLifecycleCommand.cases.RecogniseDepartment.make))),
 Match.exhaustive);
 
 if(Option.isNone(parsed))return ({ model: {...model,notice:Notice.cases.Failure.make({message:"Fyll ut person, enhet, tidsrom og begrunnelse for valgt handling."})}, commands: [] });
@@ -240,7 +262,7 @@ Match.exhaustive
 );
   };
 
-  const program=Runtime.makeElement({Model,container,init:():Update.Return<Model, Message>=>({ model: {snapshot:null,operation:Operation.cases.Loading.make({command:null}),requestId:1,notice:Notice.cases.None.make({}),commandId:"",selected:"",personId:"",unit:"",position:"",startAt:"",endAt:"",leadership:false,reason:"",boardName:"",accountPersonId:""}, commands: [Load({requestId:1})] }),update,view,devTools:false,slow:false,
+  const program=Runtime.makeElement({Model,container,init:():Update.Return<Model, Message>=>({ model: {snapshot:null,operation:Operation.cases.Loading.make({command:null}),requestId:1,notice:Notice.cases.None.make({}),commandId:"",selected:"",personId:"",unit:"",position:"",startAt:"",endAt:"",leadership:false,reason:"",boardName:"",accountPersonId:"",classifiedTeam:"",unitKind:"Team",teamScope:"HomeDepartment",recognisedDepartment:""}, commands: [Load({requestId:1})] }),update,view,devTools:false,slow:false,
     crash:{view:(_context,h)=>h.section([h.Role("alert")],[h.h1([],["Vervoversikten kunne ikke startes"]),h.p([],["Last siden på nytt."])])},
   });
 

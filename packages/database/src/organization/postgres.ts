@@ -604,23 +604,19 @@ const decodeTeamInterestRegistration = flow(
   ),
 );
 
-const teamInterestScopeClause = (
-  database: DatabaseOperations,
-  authorizedDepartmentIds: ReadonlyArray<DepartmentId>,
-) =>
-  Statement.or(
-    authorizedDepartmentIds.map(
+const teamInterestScopeClause = (database: DatabaseOperations, filter: TeamInterestFilter) =>
+  Statement.or([
+    ...filter.authorizedDepartmentIds.map(
       (departmentId) => database`registration.department_id = ${departmentId}`,
     ),
-  );
+    ...filter.authorizedTeamIds.map((teamId) => database`registration.team_id = ${teamId}`),
+  ]);
 
 const teamInterestPredicate = (
   database: DatabaseOperations,
   filter: TeamInterestFilter,
 ): Statement.Fragment => {
-  const clauses: Array<Statement.Fragment> = [
-    teamInterestScopeClause(database, filter.authorizedDepartmentIds),
-  ];
+  const clauses: Array<Statement.Fragment> = [teamInterestScopeClause(database, filter)];
 
   if (filter.semesterId !== undefined) {
     clauses.push(database`registration.semester_id = ${filter.semesterId}`);
@@ -640,7 +636,8 @@ export const listOrganizationTeamInterestRegistrations = (
   OrganizationDecodeError | OrganizationPersistenceError,
   Database
 > => {
-  if (filter.authorizedDepartmentIds.length === 0) return Effect.succeed([]);
+  if (filter.authorizedDepartmentIds.length === 0 && filter.authorizedTeamIds.length === 0)
+    return Effect.succeed([]);
 
   return Effect.gen(function* () {
     const database = yield* Database;

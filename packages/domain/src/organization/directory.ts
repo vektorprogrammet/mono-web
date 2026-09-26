@@ -1,11 +1,11 @@
-import { Result, Array, Data } from "effect";
+import { Data } from "effect";
 import type { OrganizationAuthorityInstant } from "./authority.js";
 import {
-  type OrganizationAuthorityMembership,
   type OrganizationGlobalAdministratorStatus,
   type OrganizationPersonAuthority,
 } from "./authority.js";
 import { allow, deny, type Decision } from "../authz/decision.js";
+import { reachedDepartments, ReachedDepartments } from "../authz/reach.js";
 import type { DepartmentId, PersonId } from "./schema.js";
 
 /**
@@ -107,10 +107,10 @@ export const accumulateOrganizationDirectoryFacts = (input: {
 };
 
 /**
- * The authorized view of the whole directory (spec 0057 §Gating). An active
- * global administrator reads all departments; otherwise the union of
- * active-leader departments forms the scope. A list query evaluates the whole
- * authorized scope and never selects one membership and discards the others.
+ * The authorized view of the whole directory (spec 0057 §Gating). Whoever holds `people.read`
+ * for the whole organization reads all departments; otherwise the departments reached through a
+ * board leadership or a delegation form the scope. A list query evaluates the whole authorized
+ * scope and never selects one membership and discards the others.
  */
 export type DirectoryGateScope =
   | { readonly _tag: "AllDepartments" }
@@ -120,33 +120,29 @@ export const DirectoryGateScope = Data.taggedEnum<DirectoryGateScope>();
 
 /**
  * Maps the caller projection onto the directory gate (spec 0057 §Gating
- * table). Memberships that exist but carry no active leadership, and ended
- * grants, deny with `AuthorityInactive`; a person with no Organization
- * authority record at all denies with `NotInScope`.
+ * table). Memberships without department reach, and ended grants, deny with
+ * `AuthorityInactive`; a person with no Organization authority record at all
+ * denies with `NotInScope`.
  */
 export const resolveDirectoryGateScope = (
   authority: OrganizationPersonAuthority,
 ): Decision<DirectoryGateScope> => {
-  if (authority.globalAdministrator === "Active") {
+  const reached = reachedDepartments(authority, "people.read");
+
+  if (ReachedDepartments.$is("All")(reached)) {
     return allow<DirectoryGateScope>(DirectoryGateScope.AllDepartments());
   }
 
-  const departmentIds = [
-    ...new Set(
-      Array.filterMap(authority.memberships, (membership: OrganizationAuthorityMembership) =>
-        membership.active && membership.teamLeader
-          ? Result.succeed(membership.departmentId)
-          : Result.failVoid,
-      ),
-    ),
-  ].sort((left, right) => left.localeCompare(right));
-
-  if (departmentIds.length > 0) {
-    return allow<DirectoryGateScope>(DirectoryGateScope.Departments({ departmentIds }));
+  if (reached.departmentIds.length > 0) {
+    return allow<DirectoryGateScope>(
+      DirectoryGateScope.Departments({ departmentIds: reached.departmentIds }),
+    );
   }
 
   return deny<DirectoryGateScope>(
-    authority.memberships.length > 0 || authority.globalAdministrator === "Inactive"
+    authority.memberships.length > 0 ||
+      authority.nationalBoardSeats.length > 0 ||
+      authority.globalAdministrator === "Inactive"
       ? "AuthorityInactive"
       : "NotInScope",
   );

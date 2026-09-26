@@ -47,10 +47,9 @@ import {
   PersonId,
   SemesterId,
   authorizeOrganizationActor,
-  mapOrganizationAuthorityToAdmissionPeriodActor,
+  mapOrganizationAuthorityToDepartmentActor,
   mapOrganizationAuthorityToOrganizationActor,
   mapOrganizationAuthorityToProfileRole,
-  mapOrganizationAuthorityToRecruitmentActor,
 } from "@vektorprogrammet/domain/organization";
 import {
   createOrganizationGlobalAdministratorGrant,
@@ -363,26 +362,27 @@ const seedDatabase = (sql: DatabaseOperations) =>
       `;
       yield* sql`
         INSERT INTO public.organization_departments (
-          department_id, name, short_name, email, city
+          department_id, name, short_name, email, city, independent
         ) VALUES
           (
             ${ids.departments.alpha}, 'Authorization proof Alpha', 'A56A',
-            'authz-0056-alpha@example.invalid', 'Bergen'
+            'authz-0056-alpha@example.invalid', 'Bergen', TRUE
           ),
           (
             ${ids.departments.beta}, 'Authorization proof Beta', 'A56B',
-            'authz-0056-beta@example.invalid', 'Trondheim'
+            'authz-0056-beta@example.invalid', 'Trondheim', FALSE
           ),
           (
             'authz-backfill-department', 'Authorization backfill fixture', 'A56F',
-            'authz-0056-backfill@example.invalid', 'Oslo'
+            'authz-0056-backfill@example.invalid', 'Oslo', FALSE
           )
       `;
+      // The alpha team is its independent department's board: its leader reaches the department.
       yield* sql`
-        INSERT INTO public.organization_teams (team_id, department_id, name)
+        INSERT INTO public.organization_teams (team_id, department_id, name, kind)
         VALUES
-          (${ids.teams.alpha}, ${ids.departments.alpha}, 'Authorization proof Alpha team'),
-          (${ids.teams.beta}, ${ids.departments.beta}, 'Authorization proof Beta team')
+          (${ids.teams.alpha}, ${ids.departments.alpha}, 'Authorization proof Alpha board', 'DepartmentBoard'),
+          (${ids.teams.beta}, ${ids.departments.beta}, 'Authorization proof Beta team', 'Team')
       `;
       yield* sql`
         INSERT INTO public.organization_memberships (
@@ -1843,11 +1843,11 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
     };
 
     const admissionAcceptedDirectActor = requireAllowed(
-      mapOrganizationAuthorityToAdmissionPeriodActor(leaderFixture, alpha),
+      mapOrganizationAuthorityToDepartmentActor(leaderFixture, "admissions.periods", alpha),
     );
 
     const admissionAcceptedRulesEmptyActor = requireAllowed(
-      mapOrganizationAuthorityToAdmissionPeriodActor(leaderProjection, alpha),
+      mapOrganizationAuthorityToDepartmentActor(leaderProjection, "admissions.periods", alpha),
     );
 
     const admissionSemesterId = SemesterId.make(ids.domainBoundaries.recruitmentSemester);
@@ -1928,23 +1928,27 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
     };
 
     const admissionRejectedDirect = observeMapperDenial(
-      mapOrganizationAuthorityToAdmissionPeriodActor(inactiveLeaderFixture, alpha),
+      mapOrganizationAuthorityToDepartmentActor(inactiveLeaderFixture, "admissions.periods", alpha),
       { _tag: "Department" as const, departmentId: alpha },
       { globalAdministrator: "Absent" as const, membershipActive: false },
     );
 
     const admissionRejectedRulesEmpty = observeMapperDenial(
-      mapOrganizationAuthorityToAdmissionPeriodActor(inactiveLeaderProjection, alpha),
+      mapOrganizationAuthorityToDepartmentActor(
+        inactiveLeaderProjection,
+        "admissions.periods",
+        alpha,
+      ),
       { _tag: "Department" as const, departmentId: alpha },
       { globalAdministrator: "Absent" as const, membershipActive: false },
     );
 
     const recruitmentAcceptedDirectActor = requireAllowed(
-      mapOrganizationAuthorityToRecruitmentActor(leaderFixture, alpha),
+      mapOrganizationAuthorityToDepartmentActor(leaderFixture, "recruitment.interviews", alpha),
     );
 
     const recruitmentAcceptedRulesEmptyActor = requireAllowed(
-      mapOrganizationAuthorityToRecruitmentActor(leaderProjection, alpha),
+      mapOrganizationAuthorityToDepartmentActor(leaderProjection, "recruitment.interviews", alpha),
     );
 
     const recruitment = yield* Recruitment;
@@ -2016,13 +2020,21 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
     };
 
     const recruitmentRejectedDirect = observeMapperDenial(
-      mapOrganizationAuthorityToRecruitmentActor(inactiveLeaderFixture, alpha),
+      mapOrganizationAuthorityToDepartmentActor(
+        inactiveLeaderFixture,
+        "recruitment.interviews",
+        alpha,
+      ),
       { _tag: "Department" as const, departmentId: alpha },
       { globalAdministrator: "Absent" as const, membershipActive: false },
     );
 
     const recruitmentRejectedRulesEmpty = observeMapperDenial(
-      mapOrganizationAuthorityToRecruitmentActor(inactiveLeaderProjection, alpha),
+      mapOrganizationAuthorityToDepartmentActor(
+        inactiveLeaderProjection,
+        "recruitment.interviews",
+        alpha,
+      ),
       { _tag: "Department" as const, departmentId: alpha },
       { globalAdministrator: "Absent" as const, membershipActive: false },
     );

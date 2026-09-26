@@ -24,7 +24,7 @@ import type {
   ProfileRole,
 } from "@vektorprogrammet/domain/organization";
 import {
-  mapOrganizationAuthorityToAdmissionPeriodActor,
+  mapOrganizationAuthorityToDepartmentActor,
   mapOrganizationAuthorityToOrganizationActor,
   mapOrganizationAuthorityToProfileRole,
   Organization,
@@ -35,6 +35,7 @@ import {
   CredentialEvidenceRef,
   type CredentialOutcome,
   type Decision,
+  type OrganizationCapability,
 } from "@vektorprogrammet/domain/authz";
 import {
   RecruitmentInactiveActor,
@@ -436,14 +437,15 @@ export const resolveRequestPersonAuthority = (
   );
 
 /**
- * Maps the projection onto the admission actor for one department scope.
+ * Maps the projection onto the actor of one department scope for one capability.
  * Denials become typed 403-family errors (AuthorityInactive / NotInScope).
  */
-export const admissionActorForDepartment = (
+const departmentActorFor = (
   authority: OrganizationPersonAuthority,
+  capability: OrganizationCapability,
   departmentId: DepartmentId,
 ): AdmissionPeriodActor => {
-  const decision = mapOrganizationAuthorityToAdmissionPeriodActor(authority, departmentId);
+  const decision = mapOrganizationAuthorityToDepartmentActor(authority, capability, departmentId);
 
   if (Predicate.isTagged(decision, "Deny")) {
     throw decision.reason === "AuthorityInactive"
@@ -454,11 +456,11 @@ export const admissionActorForDepartment = (
   return decision.value;
 };
 
-/** Recruitment shares the admission department-scoped mapping (spec 0055). */
-export const recruitmentActorForDepartment = (
+/** The admission-period actor of one department scope. */
+export const admissionActorForDepartment = (
   authority: OrganizationPersonAuthority,
   departmentId: DepartmentId,
-): RecruitmentActor => admissionActorForDepartment(authority, departmentId);
+): AdmissionPeriodActor => departmentActorFor(authority, "admissions.periods", departmentId);
 
 /** Active global administrator maps to OrganizationAdministrator; everyone else Member. */
 export const organizationActorFrom = (authority: OrganizationPersonAuthority): OrganizationActor =>
@@ -523,7 +525,7 @@ export const recruitmentBoardActorFrom = (
   const departments = activeDepartments(authority);
 
   if (departments.length === 1) {
-    return admissionActorForDepartment(authority, departments[0]!);
+    return departmentActorFor(authority, "recruitment.interviews", departments[0]!);
   }
 
   throw departments.length === 0 && authority.memberships.length > 0

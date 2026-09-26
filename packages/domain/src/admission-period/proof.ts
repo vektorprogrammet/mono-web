@@ -47,11 +47,12 @@ export const admissionPeriodIsEligible = (
   );
 };
 
-const proofActor: AdmissionPeriodActor = AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
-  personId: PersonId.make("proof-leader"),
-  departmentId: DepartmentId.make("proof-department"),
-  active: true,
-});
+const proofActor: AdmissionPeriodActor =
+  AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
+    personId: PersonId.make("proof-leader"),
+    departmentId: DepartmentId.make("proof-department"),
+    active: true,
+  });
 
 const proofSemester = {
   semesterId: SemesterId.make("proof-semester"),

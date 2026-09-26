@@ -1,9 +1,7 @@
-import { Result, Array, Match, Data, Predicate } from "effect";
+import { Match, Data, Predicate } from "effect";
 import { allow, deny, type Decision } from "../authz/decision.js";
-import type {
-  OrganizationAuthorityMembership,
-  OrganizationPersonAuthority,
-} from "../organization/authority.js";
+import { reachedDepartments, ReachedDepartments } from "../authz/reach.js";
+import type { OrganizationPersonAuthority } from "../organization/authority.js";
 import type { DepartmentId, PersonId } from "../organization/schema.js";
 
 /** The content actor derived from one Organization projection at one instant. */
@@ -29,55 +27,47 @@ const compareDepartmentId = (left: DepartmentId, right: DepartmentId): number =>
 
 /**
  * Maps the complete Organization projection onto the content actor (spec 0062
- * §Actor model). Pure over its input; leadership never widens scope and an
- * administrator grant never combines with membership scoping. An ended
+ * §Actor model). Pure over its input. An active global administrator, or whoever
+ * holds `content.publish` for the whole organization, administers content. A
+ * person who holds `content.publish` in departments, through a board leadership or
+ * a delegation, publishes there. Any other active member edits own drafts in the
+ * member's departments; a team leadership never widens that scope. An ended
  * administrator grant removes no membership authority; it only names the denial
- * when no active membership remains.
+ * when nothing else remains.
  */
 export const resolveContentActor = (
   authority: OrganizationPersonAuthority,
 ): Decision<ContentActor> => {
-  if (authority.globalAdministrator === "Active") {
+  const publishing = reachedDepartments(authority, "content.publish");
+
+  if (ReachedDepartments.$is("All")(publishing)) {
     return allow<ContentActor>(ContentActor.ContentAdministrator({ personId: authority.personId }));
   }
 
-  let hasMembershipRecord = false;
-  const activeMemberships: Array<OrganizationAuthorityMembership> = [];
-
-  for (const membership of authority.memberships) {
-    hasMembershipRecord = true;
-
-    if (membership.active) activeMemberships.push(membership);
-  }
-
-  if (activeMemberships.length === 0) {
-    return deny<ContentActor>(
-      hasMembershipRecord || authority.globalAdministrator === "Inactive"
-        ? "AuthorityInactive"
-        : "NotInScope",
-    );
-  }
-
-  const leaderDepartmentIds = [
-    ...new Set(
-      Array.filterMap(activeMemberships, (membership) =>
-        membership.teamLeader ? Result.succeed(membership.departmentId) : Result.failVoid,
-      ),
-    ),
-  ].sort(compareDepartmentId);
-
-  if (leaderDepartmentIds.length > 0) {
+  if (publishing.departmentIds.length > 0) {
     return allow<ContentActor>(
       ContentActor.ContentPublisher({
         personId: authority.personId,
-        departmentIds: leaderDepartmentIds,
+        departmentIds: publishing.departmentIds,
       }),
     );
   }
 
   const departmentIds = [
-    ...new Set(activeMemberships.map((membership) => membership.departmentId)),
+    ...new Set(
+      authority.memberships.flatMap((membership) =>
+        membership.active ? [membership.departmentId] : [],
+      ),
+    ),
   ].sort(compareDepartmentId);
+
+  if (departmentIds.length === 0) {
+    return deny<ContentActor>(
+      authority.memberships.length > 0 || authority.globalAdministrator === "Inactive"
+        ? "AuthorityInactive"
+        : "NotInScope",
+    );
+  }
 
   return allow<ContentActor>(
     ContentActor.ContentEditor({ personId: authority.personId, departmentIds }),

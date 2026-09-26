@@ -1,6 +1,7 @@
 import { Effect, Schema } from "effect";
 import { SqlSchema } from "effect/unstable/sql";
 import { AdmissionSemester } from "@vektorprogrammet/domain/admission-period";
+import { reachedDepartments, ReachedDepartments } from "@vektorprogrammet/domain/authz";
 import {
   DepartmentId,
   PersonId,
@@ -37,22 +38,21 @@ export const readOrganizationMailingLists = Effect.fn("readOrganizationMailingLi
           input.authorizationInstant,
         );
 
-        const global = authority.globalAdministrator === "Active";
+        const reached = reachedDepartments(authority, "people.read");
+        const global = ReachedDepartments.$is("All")(reached);
 
-        const leaderDepartments = new Set(
-          authority.memberships
-            .filter((membership) => membership.active && membership.teamLeader)
-            .map((membership) => membership.departmentId),
+        const reachedDepartmentIds = new Set<DepartmentId>(
+          ReachedDepartments.$is("Departments")(reached) ? reached.departmentIds : [],
         );
 
         if (
           !global &&
-          (leaderDepartments.size === 0 ||
-            (input.departmentId !== undefined && !leaderDepartments.has(input.departmentId)))
+          (reachedDepartmentIds.size === 0 ||
+            (input.departmentId !== undefined && !reachedDepartmentIds.has(input.departmentId)))
         ) {
           return yield* new OrganizationRoleDenied({
             actorPersonId: input.actorPersonId,
-            requiredRole: "DepartmentLeader",
+            requiredRole: "DepartmentAdministrator",
           });
         }
 
@@ -68,7 +68,7 @@ export const readOrganizationMailingLists = Effect.fn("readOrganizationMailingLi
         const authorizedDepartmentIds = departments
           .filter(
             (department) =>
-              (global || leaderDepartments.has(department.departmentId)) &&
+              (global || reachedDepartmentIds.has(department.departmentId)) &&
               (input.departmentId === undefined || department.departmentId === input.departmentId),
           )
           .map((department) => department.departmentId);

@@ -611,11 +611,13 @@ try {
       await pool.query(`
       INSERT INTO admission_period_departments(department_id,name) VALUES ('${departmentId}','Trondheim'),('${wrongDepartmentId}','Annen');
       INSERT INTO admission_period_semesters(semester_id,start_at,end_at) VALUES ('${semesterId}','2024-01-01','2024-07-01');
-      INSERT INTO organization_departments(department_id,name,short_name,email,city,active,revision) VALUES
-        ('${departmentId}','Vektorprogrammet Trondheim','Trondheim','trondheim@example.invalid','Trondheim',true,0),
-        ('${wrongDepartmentId}','Annen avdeling','Annen','wrong@example.invalid','Annen',true,0);
-      INSERT INTO organization_teams(team_id,department_id,name,active,revision) VALUES
-        ('golden-team','${departmentId}','Koordinator',true,0),('golden-wrong-team','${wrongDepartmentId}','Annet team',true,0);
+      INSERT INTO organization_departments(department_id,name,short_name,email,city,active,independent,revision) VALUES
+        ('${departmentId}','Vektorprogrammet Trondheim','Trondheim','trondheim@example.invalid','Trondheim',true,true,0),
+        ('${wrongDepartmentId}','Annen avdeling','Annen','wrong@example.invalid','Annen',true,false,0);
+      -- golden-team is the department's board (Styret) of an independent department, so its
+      -- leader reaches the department (O8-11). The wrong-department leader leads an ordinary team.
+      INSERT INTO organization_teams(team_id,department_id,name,kind,active,revision) VALUES
+        ('golden-team','${departmentId}','Koordinator','DepartmentBoard',true,0),('golden-wrong-team','${wrongDepartmentId}','Annet team','Team',true,0);
       INSERT INTO organization_memberships(membership_id,person_id,team_id,deleted_team_name,start_at,end_at,position_id,is_team_leader,is_suspended,revision) VALUES
         ('golden-leader','${leaderId}','golden-team',NULL,date_trunc('milliseconds',now(),'UTC')-interval '1 day',NULL,'teamleader',true,false,0),
         ('golden-member','${member.personId}','golden-team',NULL,date_trunc('milliseconds',now(),'UTC')-interval '1 day',NULL,'member',false,false,0),

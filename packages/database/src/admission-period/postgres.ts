@@ -207,7 +207,7 @@ const checkActor = (
     if (!actor.active) return yield* new InactiveActor({ personId: actor.personId });
 
     if (
-      !Predicate.isTagged(actor, "DepartmentLeader") &&
+      !Predicate.isTagged(actor, "DepartmentAdministrator") &&
       !Predicate.isTagged(actor, "GlobalAdmin")
     ) {
       return yield* new AdmissionRoleDenied({ personId: actor.personId });
@@ -360,7 +360,7 @@ const effectiveCreateDepartment = (
   command: Extract<AdmissionPeriodCommand, { readonly _tag: "CreateAdmissionPeriod" }>,
   actor: AdmissionPeriodActor,
 ): Effect.Effect<DepartmentId, AdmissionPeriodFailure> => {
-  if (Predicate.isTagged(actor, "DepartmentLeader")) {
+  if (Predicate.isTagged(actor, "DepartmentAdministrator")) {
     if (command.departmentId !== undefined && command.departmentId !== actor.departmentId) {
       return Effect.fail(
         new AdmissionScopeDenied({
@@ -570,7 +570,7 @@ export const listAdmissionPeriodsForManagement = (
     return yield* projectionRows(
       sql,
       context.now,
-      Predicate.isTagged(context.actor, "DepartmentLeader")
+      Predicate.isTagged(context.actor, "DepartmentAdministrator")
         ? context.actor.departmentId
         : undefined,
     );

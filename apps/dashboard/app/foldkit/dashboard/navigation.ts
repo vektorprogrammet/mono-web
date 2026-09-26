@@ -4,7 +4,7 @@ import type { DashboardRole } from "./model";
 export type NavigationLink = Readonly<{
   label: string;
   href: string;
-  requiredRole: "team-member" | "team-leader" | "global-administrator";
+  requiredRole: "team-member" | "team-leader" | "department-administrator" | "global-administrator";
   external?: boolean;
 }>;
 
@@ -27,10 +27,18 @@ const memberLink = (label: string, href: string): NavigationLink => ({
   requiredRole: "team-member",
 });
 
+/** Work within the own team: a team leader, and anyone who reaches a department. */
 const leaderLink = (label: string, href: string): NavigationLink => ({
   label,
   href,
   requiredRole: "team-leader",
+});
+
+/** Department work: a board leadership or a delegation reaches it (O8-11). */
+const departmentLink = (label: string, href: string): NavigationLink => ({
+  label,
+  href,
+  requiredRole: "department-administrator",
 });
 
 export const controlPanelLink = memberLink("Kontrollpanel", "/dashboard");
@@ -40,9 +48,9 @@ export const admissionLinks = [
   memberLink("Tidligere assistenter", "/dashboard/tidligere-assistenter"),
   memberLink("Intervjufordeling", "/dashboard/intervjufordeling"),
   memberLink("Intervjuer", "/dashboard/intervjuer"),
-  leaderLink("Fullførte intervjuer", "/dashboard/intervjuer/rapport"),
-  leaderLink("Intervjubemanning", "/dashboard/intervjubemanning"),
-  leaderLink("Søkerkontoer", "/dashboard/onboarding"),
+  departmentLink("Fullførte intervjuer", "/dashboard/intervjuer/rapport"),
+  departmentLink("Intervjubemanning", "/dashboard/intervjubemanning"),
+  departmentLink("Søkerkontoer", "/dashboard/onboarding"),
 ] as const;
 
 export const navigationSections: ReadonlyArray<NavigationSection> = [
@@ -81,7 +89,7 @@ export const navigationSections: ReadonlyArray<NavigationSection> = [
       },
       {
         kind: "link",
-        link: leaderLink("Attester", "/dashboard/attester"),
+        link: departmentLink("Attester", "/dashboard/attester"),
       },
     ],
   },
@@ -100,6 +108,10 @@ export const navigationSections: ReadonlyArray<NavigationSection> = [
       {
         kind: "link",
         link: leaderLink("Teaminteresse", "/dashboard/teaminteresse"),
+      },
+      {
+        kind: "link",
+        link: departmentLink("Delegeringer", "/dashboard/delegeringer"),
       },
     ],
   },
@@ -144,7 +156,7 @@ export const navigationSections: ReadonlyArray<NavigationSection> = [
       },
       {
         kind: "link",
-        link: leaderLink("Linjer", "/dashboard/linjer"),
+        link: departmentLink("Linjer", "/dashboard/linjer"),
       },
       {
         kind: "link",
@@ -162,13 +174,23 @@ export const profileLinks = [
   memberLink("Mine utlegg", "/dashboard/mine-utlegg"),
 ] as const;
 
-export const hasTeamLeaderAccess = (role: DashboardRole | null): boolean =>
-  role === "ROLE_TEAM_LEADER" || role === "ROLE_ADMIN";
+const roleRank: Record<DashboardRole, number> = {
+  ROLE_TEAM_MEMBER: 0,
+  ROLE_TEAM_LEADER: 1,
+  ROLE_DEPARTMENT_ADMINISTRATOR: 2,
+  ROLE_ADMIN: 3,
+};
+
+const requiredRank: Record<NavigationLink["requiredRole"], number> = {
+  "team-member": 0,
+  "team-leader": 1,
+  "department-administrator": 2,
+  "global-administrator": 3,
+};
 
 export const canViewLink = (role: DashboardRole | null, link: NavigationLink): boolean =>
-  link.requiredRole === "global-administrator"
-    ? role === "ROLE_ADMIN"
-    : link.requiredRole === "team-member" || hasTeamLeaderAccess(role);
+  link.requiredRole === "team-member" ||
+  (role !== null && roleRank[role] >= requiredRank[link.requiredRole]);
 
 export const isActivePath = (activePath: string, href: string): boolean =>
   activePath === href || activePath.startsWith(`${href}/`);

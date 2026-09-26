@@ -251,7 +251,7 @@ test.describe("Native recruitment interview scheduling", () => {
       `${JSON.stringify({
         firstContextClosed,
         independentContextPersisted: true,
-        nativeActors: ["DepartmentLeader", "Member"],
+        nativeActors: ["DepartmentAdministrator", "Member"],
         bridgeOperations,
         legacyBrowserRequests,
         sessionCookieNames: {

@@ -1,15 +1,17 @@
 import { Effect, Schema } from "effect";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
+import { Delegation } from "@vektorprogrammet/domain/authz";
 import {
   CreateOrganizationGlobalAdministratorGrantInputSchema,
   EndOrganizationGlobalAdministratorGrantInputSchema,
+  OrganizationAuthorityBoardSeatSchema,
   OrganizationAuthorityInstantSchema,
+  OrganizationAuthorityMembershipSchema,
   OrganizationGlobalAdministratorGrantSchema,
   OrganizationGlobalAdministratorStatusSchema,
   RemoveOrganizationGlobalAdministratorGrantInputSchema,
   type OrganizationAuthorityInstant,
-  type OrganizationAuthorityMembership,
   type OrganizationGlobalAdministratorGrant,
   type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
@@ -19,66 +21,10 @@ import {
   OrganizationDecodeError,
   OrganizationPersistenceError,
 } from "@vektorprogrammet/domain/organization";
-import {
-  DepartmentId,
-  MembershipId,
-  PersonId,
-  TeamId,
-} from "@vektorprogrammet/domain/organization";
-
-const OrganizationAuthorityProjectionRowSchema = Schema.Struct({
-  globalAdministrator: OrganizationGlobalAdministratorStatusSchema,
-  membershipId: Schema.NullOr(MembershipId),
-  teamId: Schema.NullOr(TeamId),
-  departmentId: Schema.NullOr(DepartmentId),
-  active: Schema.NullOr(Schema.Boolean),
-  teamLeader: Schema.NullOr(Schema.Boolean),
-});
-
-type OrganizationAuthorityProjectionRow = typeof OrganizationAuthorityProjectionRowSchema.Type;
+import { PersonId } from "@vektorprogrammet/domain/organization";
 
 const decodeError = (operation: string, cause: unknown) =>
   new OrganizationDecodeError({ operation, message: String(cause) });
-
-const membershipFromRow = (
-  row: OrganizationAuthorityProjectionRow,
-): Effect.Effect<OrganizationAuthorityMembership | undefined, OrganizationDecodeError> => {
-  if (row.membershipId === null) {
-    return row.teamId === null &&
-      row.departmentId === null &&
-      row.active === null &&
-      row.teamLeader === null
-      ? Effect.succeed(undefined)
-      : Effect.fail(
-          decodeError(
-            "decode Organization person authority",
-            "membership projection has values without a membership identifier",
-          ),
-        );
-  }
-
-  if (
-    row.teamId === null ||
-    row.departmentId === null ||
-    row.active === null ||
-    row.teamLeader === null
-  ) {
-    return Effect.fail(
-      decodeError(
-        "decode Organization person authority",
-        "membership projection is missing a required value",
-      ),
-    );
-  }
-
-  return Effect.succeed({
-    membershipId: row.membershipId,
-    teamId: row.teamId,
-    departmentId: row.departmentId,
-    active: row.active,
-    teamLeader: row.teamLeader,
-  });
-};
 
 export type OrganizationAuthorityRowLockMode = "None" | "ForShare";
 
@@ -390,8 +336,21 @@ export const removeOrganizationGlobalAdministratorGrant = (
       );
   });
 
+const GlobalAdministratorRowSchema = Schema.Struct({
+  globalAdministrator: OrganizationGlobalAdministratorStatusSchema,
+});
+
+const OrganizationAuthorityFactsSchema = Schema.Struct({
+  globalAdministrator: Schema.Array(GlobalAdministratorRowSchema),
+  memberships: Schema.Array(OrganizationAuthorityMembershipSchema),
+  nationalBoardSeats: Schema.Array(OrganizationAuthorityBoardSeatSchema),
+  delegations: Schema.Array(Delegation),
+});
+
 /**
- * Caller-transaction Organization projection. `ForShare` is command-safe only
+ * Caller-transaction Organization projection: the global-administrator grants, the team and
+ * board appointments with their unit facts, the national board seats, and the delegations of the
+ * person's teams. `ForShare` locks every row that the decision reads and is command-safe only
  * when the supplied SQL client is the state-transition transaction client.
  */
 export const resolveOrganizationPersonAuthorityWithSql = (
@@ -408,120 +367,132 @@ export const resolveOrganizationPersonAuthorityWithSql = (
       authorizationInstant,
     ).pipe(Effect.mapError((cause) => decodeError("decode Organization authority instant", cause)));
 
-    const globalAdministratorLock = lockMode === "ForShare" ? sql`FOR SHARE` : sql``;
+    const shared = lockMode === "ForShare";
 
-    const membershipLock =
-      lockMode === "ForShare" ? sql`FOR SHARE OF membership, team, department` : sql``;
-
-    const selected = yield* sql<OrganizationAuthorityProjectionRow>`
+    const globalAdministrator = yield* sql`
       WITH locked_global_administrator_grants AS MATERIALIZED (
         SELECT grant_id, start_at, end_at
-        FROM public.organization_global_administrator_grants
+        FROM public.organization_global_administrator_grants AS administrator_grant
         WHERE person_id = ${personId}
         ORDER BY grant_id ASC
-        ${globalAdministratorLock}
-      ),
-      global_administrator AS (
-        SELECT CASE
-          WHEN COALESCE(
-            bool_or(
-              start_at <= ${evaluatedAt}::timestamptz
-              AND (end_at IS NULL OR ${evaluatedAt}::timestamptz < end_at)
-            ),
-            FALSE
-          ) THEN 'Active'
-          WHEN count(*) > 0 THEN 'Inactive'
-          ELSE 'Absent'
-        END AS "globalAdministrator"
-        FROM locked_global_administrator_grants
-      ),
-      person_memberships AS MATERIALIZED (
-        SELECT
-          membership.membership_id AS "membershipId",
-          team.team_id AS "teamId",
-          department.department_id AS "departmentId",
-          (
-            membership.start_at <= ${evaluatedAt}::timestamptz
-            AND (
-              membership.end_at IS NULL
-              OR ${evaluatedAt}::timestamptz < membership.end_at
-            )
-            AND NOT membership.is_suspended
-            AND team.active
-            AND department.active
-          ) AS active,
-          membership.is_team_leader AS "teamLeader"
-        FROM organization_memberships AS membership
-        INNER JOIN organization_teams AS team
-          ON team.team_id = membership.team_id
-        INNER JOIN organization_departments AS department
-          ON department.department_id = team.department_id
-        WHERE membership.person_id = ${personId}
-        ORDER BY department.department_id ASC, team.team_id ASC, membership.membership_id ASC
-        ${membershipLock}
+        ${shared ? sql`FOR SHARE` : sql``}
       )
+      SELECT CASE
+        WHEN COALESCE(
+          bool_or(
+            start_at <= ${evaluatedAt}::timestamptz
+            AND (end_at IS NULL OR ${evaluatedAt}::timestamptz < end_at)
+          ),
+          FALSE
+        ) THEN 'Active'
+        WHEN count(*) > 0 THEN 'Inactive'
+        ELSE 'Absent'
+      END AS "globalAdministrator"
+      FROM locked_global_administrator_grants
+    `;
+
+    const memberships = yield* sql`
       SELECT
-        global_administrator."globalAdministrator",
-        membership."membershipId",
-        membership."teamId",
-        membership."departmentId",
-        membership.active,
-        membership."teamLeader"
-      FROM global_administrator
-      LEFT JOIN person_memberships AS membership ON TRUE
-      ORDER BY
-        membership."departmentId" ASC NULLS LAST,
-        membership."teamId" ASC NULLS LAST,
-        membership."membershipId" ASC NULLS LAST
-    `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(
-          new OrganizationPersistenceError({
-            operation: "resolve Organization person authority",
-            message: String(cause),
-            cause,
-          }),
-        ),
-      ),
-    );
+        membership.membership_id AS "membershipId",
+        team.team_id AS "teamId",
+        department.department_id AS "departmentId",
+        (
+          membership.start_at <= ${evaluatedAt}::timestamptz
+          AND (membership.end_at IS NULL OR ${evaluatedAt}::timestamptz < membership.end_at)
+          AND NOT membership.is_suspended
+          AND team.active
+          AND department.active
+        ) AS active,
+        membership.is_team_leader AS "unitLeader",
+        team.kind AS "unitKind",
+        team.team_scope AS "teamScope",
+        department.independent AS "departmentIndependent"
+      FROM public.organization_memberships AS membership
+      INNER JOIN public.organization_teams AS team ON team.team_id = membership.team_id
+      INNER JOIN public.organization_departments AS department
+        ON department.department_id = team.department_id
+      WHERE membership.person_id = ${personId}
+      ORDER BY department.department_id ASC, team.team_id ASC, membership.membership_id ASC
+      ${shared ? sql`FOR SHARE OF membership, team, department` : sql``}
+    `;
 
-    const rows = yield* Schema.decodeUnknownEffect(
-      Schema.Array(OrganizationAuthorityProjectionRowSchema),
-    )(selected, { onExcessProperty: "error" }).pipe(
-      Effect.mapError((cause) => decodeError("decode Organization person authority", cause)),
-    );
+    const nationalBoardSeats = yield* sql`
+      SELECT
+        membership.membership_id AS "membershipId",
+        membership.board_id AS "boardId",
+        (
+          membership.start_at <= ${evaluatedAt}::timestamptz
+          AND (membership.end_at IS NULL OR ${evaluatedAt}::timestamptz < membership.end_at)
+          AND NOT membership.is_suspended
+        ) AS active,
+        membership.is_team_leader AS "unitLeader"
+      FROM public.organization_memberships AS membership
+      WHERE membership.person_id = ${personId} AND membership.board_id IS NOT NULL
+      ORDER BY membership.board_id ASC, membership.membership_id ASC
+      ${shared ? sql`FOR SHARE OF membership` : sql``}
+    `;
 
-    const first = rows[0];
+    const delegations = yield* sql`
+      SELECT
+        delegation.delegation_id AS "delegationId",
+        delegation.name,
+        delegation.team_id AS "teamId",
+        delegation.capability,
+        CASE delegation.area
+          WHEN 'Department' THEN jsonb_build_object(
+            '_tag', 'Department', 'departmentId', delegation.area_department_id)
+          ELSE jsonb_build_object('_tag', 'Organization')
+        END AS area,
+        delegation.holders,
+        to_char(delegation.start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startAt",
+        CASE
+          WHEN delegation.end_at IS NULL THEN NULL
+          ELSE to_char(delegation.end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+        END AS "endAt",
+        delegation.revision
+      FROM public.organization_delegations AS delegation
+      WHERE delegation.team_id IN (
+        SELECT membership.team_id
+        FROM public.organization_memberships AS membership
+        WHERE membership.person_id = ${personId} AND membership.team_id IS NOT NULL
+      )
+      ORDER BY delegation.team_id ASC, delegation.delegation_id ASC
+      ${shared ? sql`FOR SHARE OF delegation` : sql``}
+    `;
 
-    if (first === undefined) {
+    const facts = yield* Schema.decodeUnknownEffect(OrganizationAuthorityFactsSchema)(
+      { globalAdministrator, memberships, nationalBoardSeats, delegations },
+      { onExcessProperty: "error" },
+    ).pipe(Effect.mapError((cause) => decodeError("decode Organization person authority", cause)));
+
+    const status = facts.globalAdministrator[0];
+
+    if (status === undefined || facts.globalAdministrator.length !== 1) {
       return yield* decodeError(
         "decode Organization person authority",
-        "authority projection query returned no global-administrator status",
+        "authority projection returned no single global-administrator status",
       );
-    }
-
-    const memberships: Array<OrganizationAuthorityMembership> = [];
-
-    for (const row of rows) {
-      if (row.globalAdministrator !== first.globalAdministrator) {
-        return yield* decodeError(
-          "decode Organization person authority",
-          "authority projection returned inconsistent global-administrator statuses",
-        );
-      }
-
-      const membership = yield* membershipFromRow(row);
-
-      if (membership !== undefined) memberships.push(membership);
     }
 
     return {
       personId,
       evaluatedAt,
-      globalAdministrator: first.globalAdministrator,
-      memberships,
+      globalAdministrator: status.globalAdministrator,
+      memberships: facts.memberships,
+      nationalBoardSeats: facts.nationalBoardSeats,
+      delegations: facts.delegations,
     };
-  });
+  }).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(
+        new OrganizationPersistenceError({
+          operation: "resolve Organization person authority",
+          message: String(cause),
+          cause,
+        }),
+      ),
+    ),
+  );
 
 /** Existing service projection; receipt commands use the caller-SQL form. */
 export const resolveOrganizationPersonAuthority = (

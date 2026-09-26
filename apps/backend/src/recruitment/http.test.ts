@@ -89,7 +89,7 @@ const at = "2031-09-15T12:00:00.000Z";
 
 const departmentId = DepartmentId.make("http-department");
 
-const leader = AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
+const leader = AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
   personId: PersonId.make("http-leader"),
   departmentId,
   active: true,
@@ -156,6 +156,8 @@ const organization = {
       evaluatedAt: at,
       globalAdministrator: "Absent",
       memberships: [],
+      nationalBoardSeats: [],
+      delegations: [],
     }),
 } satisfies Partial<OrganizationOperations>;
 
@@ -937,7 +939,7 @@ it("authorizes the report collection for its current scoped leader and rejects m
             domainId: DomainId.make("recruitment"),
             departmentId,
             resource: null,
-            facts: { departmentLeaderPersonIds: leaders },
+            facts: { departmentAdministratorPersonIds: leaders },
             authorityVersion: AuthorityVersion.make(instant),
           },
         ],

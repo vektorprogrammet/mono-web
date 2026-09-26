@@ -15,7 +15,7 @@ import type { AdmissionApiHttpOptions } from "./http-context.js";
 export const admissionGrantScopes = (actor: AdmissionPeriodActor) =>
   Predicate.isTagged(actor, "GlobalAdmin")
     ? ([Scope.Global()] as const)
-    : Predicate.isTagged(actor, "DepartmentLeader")
+    : Predicate.isTagged(actor, "DepartmentAdministrator")
       ? ([Scope.Department({ departmentId: actor.departmentId })] as const)
       : [];
 

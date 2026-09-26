@@ -104,9 +104,10 @@ const personas = {
 };
 
 /**
- * Authority comes only from these rows: an active team leader in each department, an
- * active global administrator grant, a leader whose only membership has ended, and an
- * active non-leader member. The admission reference data uses the same departments, and
+ * Authority comes only from these rows: an active leader of each department's board (Styret),
+ * an active global administrator grant, a leader whose only membership has ended, and an
+ * active non-leader member. Both departments are independent, so each board leader reaches
+ * their own department (O8-11). The admission reference data uses the same departments, and
  * every person has the contact profile that the dashboard shell reads after sign-in.
  */
 const seedSql = `
@@ -116,15 +117,15 @@ ${Object.values(personas)
   .map(({ personId, email }, index) => `  ('${personId}', '${email}', '+47 900 00 ${40 + index}', 0)`)
   .join(",\n")};
 INSERT INTO organization_departments (
-  department_id, name, short_name, email, city, active, revision
+  department_id, name, short_name, email, city, active, independent, revision
 ) VALUES
   ('${reference.departmentId}', 'Vektorprogrammet Trondheim', 'Trondheim',
-    'trondheim@example.invalid', 'Trondheim', TRUE, 0),
+    'trondheim@example.invalid', 'Trondheim', TRUE, TRUE, 0),
   ('${reference.foreignDepartmentId}', 'Vektorprogrammet Bergen', 'Bergen',
-    'bergen@example.invalid', 'Bergen', TRUE, 0);
-INSERT INTO organization_teams (team_id, department_id, name, active, revision) VALUES
-  ('team-admission-trondheim', '${reference.departmentId}', 'Styret Trondheim', TRUE, 0),
-  ('team-admission-bergen', '${reference.foreignDepartmentId}', 'Styret Bergen', TRUE, 0);
+    'bergen@example.invalid', 'Bergen', TRUE, TRUE, 0);
+INSERT INTO organization_teams (team_id, department_id, name, kind, active, revision) VALUES
+  ('team-admission-trondheim', '${reference.departmentId}', 'Styret Trondheim', 'DepartmentBoard', TRUE, 0),
+  ('team-admission-bergen', '${reference.foreignDepartmentId}', 'Styret Bergen', 'DepartmentBoard', TRUE, 0);
 INSERT INTO organization_memberships (
   membership_id, person_id, team_id, start_at, end_at, is_team_leader, position_name
 ) VALUES

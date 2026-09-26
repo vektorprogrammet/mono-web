@@ -6,9 +6,14 @@ import {
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import { Database, type DatabaseOperations } from "../service.js";
 
-import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
+import {
+  DepartmentId,
+  mapOrganizationAuthorityToDepartmentActor,
+  PersonId,
+} from "@vektorprogrammet/domain/organization";
+import { resolveOrganizationPersonAuthorityWithSql } from "../organization/authority-postgres.js";
 import { sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
-import { Match, Effect, Schema } from "effect";
+import { Match, Effect, Predicate, Schema } from "effect";
 import {
   RecruitmentApplicationNotFound,
   RecruitmentDecodeError,
@@ -200,15 +205,11 @@ export const readRecruitmentApplicationHttpAccessPostgres = (input: {
     }),
   );
 
-const RecruitmentTargetActorSourceSchema = Schema.Struct({
-  globalAdministrator: Schema.Boolean,
-  activeMember: Schema.Boolean,
-  activeLeader: Schema.Boolean,
-});
-
 /**
- * Reconstructs the caller's current actor for one canonical target department.
- * This avoids selecting an unrelated first membership for item routes.
+ * Reconstructs the caller's current actor for one canonical target department through the one
+ * Organization projection and its `recruitment.interviews` reach. This avoids selecting an
+ * unrelated first membership for item routes. Without any authority in the department the actor
+ * is an inactive member, so the domain names the denial.
  */
 export const readRecruitmentTargetAuthorityPostgres = (input: {
   readonly personId: PersonId;
@@ -221,87 +222,39 @@ export const readRecruitmentTargetAuthorityPostgres = (input: {
 > =>
   Database.use((database) =>
     Effect.gen(function* () {
-      const rows = yield* database`
-        SELECT
-          EXISTS (
-            SELECT 1
-            FROM public.organization_global_administrator_grants AS administrator_grant
-            WHERE administrator_grant.person_id = ${input.personId}
-              AND administrator_grant.start_at <= ${input.authorizationInstant}::timestamptz
-              AND (
-                administrator_grant.end_at IS NULL
-                OR ${input.authorizationInstant}::timestamptz < administrator_grant.end_at
-              )
-          ) AS "globalAdministrator",
-          EXISTS (
-            SELECT 1
-            FROM public.organization_memberships AS membership
-            INNER JOIN public.organization_teams AS team
-              ON team.team_id = membership.team_id
-            INNER JOIN public.organization_departments AS department
-              ON department.department_id = team.department_id
-            WHERE membership.person_id = ${input.personId}
-              AND team.department_id = ${input.departmentId}
-              AND membership.start_at <= ${input.authorizationInstant}::timestamptz
-              AND (
-                membership.end_at IS NULL
-                OR ${input.authorizationInstant}::timestamptz < membership.end_at
-              )
-              AND NOT membership.is_suspended
-              AND team.active
-              AND department.active
-          ) AS "activeMember",
-          EXISTS (
-            SELECT 1
-            FROM public.organization_memberships AS membership
-            INNER JOIN public.organization_teams AS team
-              ON team.team_id = membership.team_id
-            INNER JOIN public.organization_departments AS department
-              ON department.department_id = team.department_id
-            WHERE membership.person_id = ${input.personId}
-              AND team.department_id = ${input.departmentId}
-              AND membership.start_at <= ${input.authorizationInstant}::timestamptz
-              AND (
-                membership.end_at IS NULL
-                OR ${input.authorizationInstant}::timestamptz < membership.end_at
-              )
-              AND NOT membership.is_suspended
-              AND membership.is_team_leader
-              AND team.active
-              AND department.active
-          ) AS "activeLeader"
-      `.pipe(
-        Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(persistenceError("read recruitment target actor", cause)),
-        ),
+      const authority = yield* resolveOrganizationPersonAuthorityWithSql(
+        database,
+        input.personId,
+        input.authorizationInstant,
+        "None",
+      ).pipe(
+        Effect.catchTags({
+          OrganizationDecodeError: (cause) =>
+            Effect.fail(decodeError("decode recruitment target actor", cause)),
+          OrganizationPersistenceError: (cause) =>
+            Effect.fail(persistenceError("read recruitment target actor", cause)),
+        }),
       );
 
-      const source = yield* Schema.decodeUnknownEffect(RecruitmentTargetActorSourceSchema)(
-        rows[0],
-        { onExcessProperty: "error" },
-      ).pipe(Effect.mapError((cause) => decodeError("decode recruitment target actor", cause)));
+      const activeMember = authority.memberships.some(
+        (membership) => membership.departmentId === input.departmentId && membership.active,
+      );
 
-      const actor = source.globalAdministrator
-        ? { _tag: "GlobalAdmin" as const, personId: input.personId, active: true }
-        : source.activeLeader
-          ? {
-              _tag: "DepartmentLeader" as const,
-              personId: input.personId,
-              departmentId: input.departmentId,
-              active: true,
-            }
-          : {
-              _tag: "Member" as const,
-              personId: input.personId,
-              departmentId: input.departmentId,
-              active: source.activeMember,
-            };
+      const decision = mapOrganizationAuthorityToDepartmentActor(
+        authority,
+        "recruitment.interviews",
+        input.departmentId,
+      );
 
-      const decodedActor = yield* Schema.decodeEffect(RecruitmentActorSchema)(actor, {
-        onExcessProperty: "error",
-      }).pipe(Effect.mapError((cause) => decodeError("decode recruitment target actor", cause)));
+      const actor = Predicate.isTagged(decision, "Allow")
+        ? decision.value
+        : RecruitmentActorSchema.cases.Member.make({
+            personId: input.personId,
+            departmentId: input.departmentId,
+            active: false,
+          });
 
-      return { actor: decodedActor, activeMember: source.activeMember };
+      return { actor, activeMember };
     }),
   );
 

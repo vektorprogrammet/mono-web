@@ -56,6 +56,7 @@ export const CAPABILITY_TYPES = {
   "organization.create-department": { ruleTarget: false, objectCapability: false },
   "organization.create-team": { ruleTarget: false, objectCapability: false },
   "organization.manage-appointments": { ruleTarget: false, objectCapability: false },
+  "organization.manage-delegations": { ruleTarget: false, objectCapability: false },
   "organization.create-field-of-study": { ruleTarget: false, objectCapability: false },
   "profile.read-directory": { ruleTarget: false, objectCapability: false },
   "schools.read-directory": { ruleTarget: false, objectCapability: false },
@@ -195,11 +196,11 @@ export type ResourceId = typeof ResourceId.Type;
 export const REQUIREMENT_IDS = [
   "sessions.owner",
   "profile.owner",
-  "organization.single-department-leader",
+  "organization.single-department-administrator",
   "organization.single-department-member",
   "onboarding.claim-token",
   "recruitment.interviewer-eligible",
-  "recruitment.assigned-interviewer-or-leader",
+  "recruitment.assigned-interviewer-or-administrator",
   "recruitment.assigned-interviewer",
   "recruitment.assigned-interviewer-or-co-interviewer",
   "recruitment.not-known-self",
@@ -246,6 +247,7 @@ export const SCOPE_RESOLVER_IDS = [
   "organization.department-create",
   "organization.team-create",
   "organization.appointment-management",
+  "organization.delegation-management",
   "organization.field-of-study-create",
   "profile.people-directory",
   "schools.directory",
@@ -621,14 +623,14 @@ export const REQUIREMENT_TYPES = {
     GenericRequirementContextSchema,
     ownedByPerson,
   ),
-  "organization.single-department-leader": registration(
+  "organization.single-department-administrator": registration(
     [
       "recruitment.application-assignments",
       "recruitment.application-by-id",
       "recruitment.interview-report",
     ],
     GenericRequirementContextSchema,
-    personListedBy("departmentLeaderPersonIds"),
+    personListedBy("departmentAdministratorPersonIds"),
   ),
   "organization.single-department-member": registration(
     ["recruitment.interviews"],
@@ -646,15 +648,15 @@ export const REQUIREMENT_TYPES = {
     GenericRequirementContextSchema,
     personListedBy("eligibleInterviewerPersonIds"),
   ),
-  "recruitment.assigned-interviewer-or-leader": registration(
+  "recruitment.assigned-interviewer-or-administrator": registration(
     ["recruitment.interview-by-id"],
     GenericRequirementContextSchema,
     (_parameters, principal, context) =>
       Predicate.isTagged(principal, "Person") &&
       (personIdIn(context.facts.assignedInterviewerPersonIds, principal.personId) ||
-        personIdIn(context.facts.departmentLeaderPersonIds, principal.personId))
+        personIdIn(context.facts.departmentAdministratorPersonIds, principal.personId))
         ? satisfied
-        : failed("NotAssignedInterviewerOrLeader"),
+        : failed("NotAssignedInterviewerOrAdministrator"),
   ),
   "recruitment.assigned-interviewer": registration(
     ["recruitment.interview-by-id"],
@@ -788,15 +790,15 @@ const resolverRequirements: Partial<
   "profile.current-person": ["profile.owner"],
   "onboarding.claim": ["onboarding.claim-token"],
   "recruitment.invitation-response-by-capability": ["recruitment.invitation-pending"],
-  "recruitment.application-assignments": ["organization.single-department-leader"],
-  "recruitment.interview-report": ["organization.single-department-leader"],
+  "recruitment.application-assignments": ["organization.single-department-administrator"],
+  "recruitment.interview-report": ["organization.single-department-administrator"],
   "recruitment.interviews": ["organization.single-department-member"],
   "recruitment.application-by-id": [
-    "organization.single-department-leader",
+    "organization.single-department-administrator",
     "recruitment.interviewer-eligible",
   ],
   "recruitment.interview-by-id": [
-    "recruitment.assigned-interviewer-or-leader",
+    "recruitment.assigned-interviewer-or-administrator",
     "recruitment.assigned-interviewer",
     "recruitment.assigned-interviewer-or-co-interviewer",
     "recruitment.not-known-self",

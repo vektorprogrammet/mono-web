@@ -8,7 +8,7 @@ import {
   PublicApplicationYearOfStudySchema,
 } from "../application/schema.js";
 import {
-  mapOrganizationAuthorityToAdmissionPeriodActor,
+  mapOrganizationAuthorityToDepartmentActor,
   type OrganizationPersonAuthority,
 } from "../organization/authority.js";
 import { DepartmentId, SemesterId } from "../organization/schema.js";
@@ -96,15 +96,19 @@ export type AdmissionOutcomeOperationFailure =
   | AdmissionOutcomePersistenceError;
 
 /**
- * Department admission management decides outcomes; other department members read only the
- * substitutes on call. Uses the canonical admission-period mapping, so multi-membership and
- * ended-grant semantics match admission management.
+ * Whoever holds `admissions.outcomes` in the department decides outcomes; other department members
+ * read only the substitutes on call. Uses the canonical department mapping, so multi-membership
+ * and ended-grant semantics match admission management.
  */
 export const admissionOutcomePermission = (
   authority: OrganizationPersonAuthority,
   departmentId: DepartmentId,
 ): "Denied" | "ReadOnly" | "Decide" => {
-  const decision = mapOrganizationAuthorityToAdmissionPeriodActor(authority, departmentId);
+  const decision = mapOrganizationAuthorityToDepartmentActor(
+    authority,
+    "admissions.outcomes",
+    departmentId,
+  );
 
   return Predicate.isTagged(decision, "Deny")
     ? "Denied"

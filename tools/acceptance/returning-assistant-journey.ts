@@ -1816,6 +1816,9 @@ export const runReturningAssistantBrowserJourney = async ({
       ],
     );
 
+    // Department administration (O8-11): an active, unsuspended leadership of the department's
+    // board (Styret) while the department is independent. An ordinary team leader acts only
+    // within its own team.
     const resolvedCoordinator = await pool.query(
       `SELECT
        membership.person_id,
@@ -1823,7 +1826,9 @@ export const runReturningAssistantBrowserJourney = async ({
        membership.is_team_leader,
        membership.is_suspended,
        team.department_id,
+       team.kind AS team_kind,
        team.active AS team_active,
+       department.independent AS department_independent,
        department.active AS department_active
      FROM public.organization_memberships membership
      JOIN public.organization_teams team USING (team_id)
@@ -1833,7 +1838,9 @@ export const runReturningAssistantBrowserJourney = async ({
        AND (membership.end_at IS NULL OR statement_timestamp() < membership.end_at)
        AND membership.is_team_leader
        AND NOT membership.is_suspended
+       AND team.kind = 'DepartmentBoard'
        AND team.active
+       AND department.independent
        AND department.active
      ORDER BY membership.membership_id`,
       ["report-coordinator-0103"],
@@ -1846,7 +1853,9 @@ export const runReturningAssistantBrowserJourney = async ({
         is_team_leader: true,
         is_suspended: false,
         department_id: departmentId,
+        team_kind: "DepartmentBoard",
         team_active: true,
+        department_independent: true,
         department_active: true,
       },
     ]);
@@ -1854,7 +1863,7 @@ export const runReturningAssistantBrowserJourney = async ({
       phase: "assignment-authority-resolved",
       coordinatorPersonId: "report-coordinator-0103",
       coordinatorEmail,
-      coordinatorRole: "DepartmentLeader",
+      coordinatorRole: "DepartmentAdministrator",
       assignedInterviewerPersonId: assignmentPayload.interviewerPersonId,
       coordinatorContext: resolvedCoordinator.rows,
       postClosePeriodContext: postClosePeriodContext.rows,

@@ -36,6 +36,8 @@ const organizationAuthority = (
   evaluatedAt,
   globalAdministrator,
   memberships,
+  nationalBoardSeats: [],
+  delegations: [],
 });
 
 const membership = (
@@ -46,7 +48,10 @@ const membership = (
   teamId: TeamId.make(`team-${departmentId}`),
   departmentId,
   active,
-  teamLeader: false,
+  unitLeader: false,
+  unitKind: "Team",
+  teamScope: "HomeDepartment",
+  departmentIndependent: false,
 });
 
 const paymentAuthority = (

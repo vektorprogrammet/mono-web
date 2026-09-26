@@ -5,6 +5,11 @@
  */
 import { Context, Effect } from "effect";
 import type {
+  DelegationCommand,
+  DelegationManagement,
+  DelegationResult,
+} from "../authz/delegation.js";
+import type {
   AppointmentManagement,
   OrganizationLifecycleCommand,
   OrganizationLifecycleResult,
@@ -51,9 +56,13 @@ import type { MailingList, MailingListType } from "./mailing-lists.js";
 import type { ProfileFailure } from "../profile/errors.js";
 import type { Profile } from "../profile/service.js";
 
-/** Spec 0059 read filter: the authorized scope is explicit input (0055). */
+/**
+ * Spec 0059 read filter: the authorized scope is explicit input (0055). A registration is in
+ * scope when its department or its team is authorized.
+ */
 export interface TeamInterestFilter {
   readonly authorizedDepartmentIds: ReadonlyArray<DepartmentId>;
+  readonly authorizedTeamIds: ReadonlyArray<TeamId>;
   readonly departmentId?: DepartmentId;
   readonly semesterId?: SemesterId;
 }
@@ -83,6 +92,15 @@ export interface OrganizationOperations {
     command: OrganizationLifecycleCommand,
     actorPersonId: PersonId,
   ) => Effect.Effect<OrganizationLifecycleResult, OrganizationLifecycleFailure>;
+  /** The teams, delegations and history within the person's `delegations.manage` reach. */
+  readonly readDelegationManagement: (
+    actorPersonId: PersonId,
+  ) => Effect.Effect<DelegationManagement, OrganizationLifecycleFailure>;
+  /** Issues or ends one delegation under current authority, with receipt and history. */
+  readonly executeDelegation: (
+    command: DelegationCommand,
+    actorPersonId: PersonId,
+  ) => Effect.Effect<DelegationResult, OrganizationLifecycleFailure>;
   readonly readDepartment: (
     departmentId: DepartmentId,
   ) => Effect.Effect<Department, OrganizationReadError>;

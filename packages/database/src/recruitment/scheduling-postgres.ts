@@ -61,7 +61,10 @@ import {
   type RecruitmentSchedulingInterview,
 } from "@vektorprogrammet/domain/recruitment";
 
-type DepartmentActor = Extract<RecruitmentActor, { readonly _tag: "DepartmentLeader" | "Member" }>;
+type DepartmentActor = Extract<
+  RecruitmentActor,
+  { readonly _tag: "DepartmentAdministrator" | "Member" }
+>;
 
 interface SchedulingBoardRow {
   readonly interviewId: string;
@@ -257,7 +260,7 @@ const readSchedulingRows = (
       AND NOT EXISTS (SELECT 1 FROM recruitment_interview_cancellations cancellation
         WHERE cancellation.interview_id = i.interview_id)
       AND (
-        ${Predicate.isTagged(actor, "DepartmentLeader")}
+        ${Predicate.isTagged(actor, "DepartmentAdministrator")}
         OR i.interviewer_person_id = ${actor.personId}
         OR (
           i.co_interviewer_person_id = ${actor.personId}
@@ -268,7 +271,7 @@ const readSchedulingRows = (
           )
         )
       )
-      AND (${Predicate.isTagged(actor, "DepartmentLeader")} OR invitation.response_state IS DISTINCT FROM 'Rejected')
+      AND (${Predicate.isTagged(actor, "DepartmentAdministrator")} OR invitation.response_state IS DISTINCT FROM 'Rejected')
     ORDER BY i.assigned_at ASC, i.interview_id ASC
   `.pipe(
     Effect.catchTag("SqlError", (cause) =>

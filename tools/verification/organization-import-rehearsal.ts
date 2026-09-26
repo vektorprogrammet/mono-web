@@ -3,6 +3,7 @@ import {
   LegacyDepartmentRowSchema,
   LegacyMembershipRowSchema,
   LegacyTeamRowSchema,
+  OrganizationPersonAuthoritySchema,
   type OrganizationImportResult,
 } from "@vektorprogrammet/domain/organization";
 import {
@@ -1020,20 +1021,7 @@ const StrictNativeProjectionSchema = Schema.Struct({
   }),
 });
 
-const PersonAuthorityProjectionSchema = Schema.Struct({
-  personId: Schema.String,
-  evaluatedAt: Schema.String,
-  globalAdministrator: Schema.String,
-  memberships: Schema.Array(
-    Schema.Struct({
-      membershipId: Schema.String,
-      teamId: Schema.String,
-      departmentId: Schema.String,
-      active: Schema.Boolean,
-      teamLeader: Schema.Boolean,
-    }),
-  ),
-});
+const PersonAuthorityProjectionSchema = OrganizationPersonAuthoritySchema;
 
 export const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
   contract: Schema.Struct({

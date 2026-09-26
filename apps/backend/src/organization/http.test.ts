@@ -142,6 +142,8 @@ const organization = {
       evaluatedAt,
       globalAdministrator: personId === "person-admin" ? "Active" : "Absent",
       memberships: [],
+      nationalBoardSeats: [],
+      delegations: [],
     }),
   createDepartment: (
     command: Parameters<OrganizationOperations["createDepartment"]>[0],
@@ -290,6 +292,8 @@ const http = makeOrganizationApiHttp(
         evaluatedAt: "2031-09-15T12:00:00.000Z",
         globalAdministrator: "Active",
         memberships: [],
+        nationalBoardSeats: [],
+        delegations: [],
       }),
   },
   services,

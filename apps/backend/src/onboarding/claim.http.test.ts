@@ -118,7 +118,14 @@ const http = makeBackendTestHttp(
     }),
     Layer.mock(Organization, {
       resolvePersonAuthority: (personId, evaluatedAt) =>
-        Effect.succeed({ personId, evaluatedAt, globalAdministrator: "Absent", memberships: [] }),
+        Effect.succeed({
+          personId,
+          evaluatedAt,
+          globalAdministrator: "Absent",
+          memberships: [],
+          nationalBoardSeats: [],
+          delegations: [],
+        }),
     }),
   ),
   {

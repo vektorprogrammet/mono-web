@@ -42,7 +42,7 @@ const leaderPersonId = "periods-leader";
 
 const adminPersonId = "periods-admin";
 
-/** One open autumn period and an empty spring semester, a department leader, and a global administrator. */
+/** One open autumn period and an empty spring semester, a Styret leader, and a global administrator. */
 const seed = Database.use((sql) =>
   Effect.gen(function* () {
     yield* sql`INSERT INTO admission_period_departments (department_id, name) VALUES (${departmentId}, 'Trondheim')`;
@@ -56,8 +56,9 @@ const seed = Database.use((sql) =>
       INSERT INTO admission_periods (admission_period_id, department_id, semester_id, start_at, end_at, last_command_id)
       VALUES ('period-autumn', ${departmentId}, 'semester-autumn', '2031-09-01T08:00:00.000Z', '2031-10-01T20:00:00.000Z', 'period-autumn-created')
     `;
-    yield* sql`INSERT INTO organization_departments (department_id, name, short_name, email, city) VALUES (${departmentId}, 'Trondheim', 'TRD', 'periods@example.invalid', 'Trondheim')`;
-    yield* sql`INSERT INTO organization_teams (team_id, department_id, name) VALUES ('periods-team', ${departmentId}, 'Styret')`;
+    yield* sql`INSERT INTO organization_departments (department_id, name, short_name, email, city, independent) VALUES (${departmentId}, 'Trondheim', 'TRD', 'periods@example.invalid', 'Trondheim', TRUE)`;
+    // The department's board (Styret) of an independent department: its leader manages admission periods.
+    yield* sql`INSERT INTO organization_teams (team_id, department_id, name, kind) VALUES ('periods-team', ${departmentId}, 'Styret', 'DepartmentBoard')`;
     yield* sql`INSERT INTO person_profiles (person_id, first_name, last_name) VALUES (${leaderPersonId}, 'Lise', 'Leader'), (${adminPersonId}, 'Ada', 'Admin')`;
     yield* sql`INSERT INTO organization_global_administrator_grants (grant_id, person_id, start_at) VALUES ('periods-admin-grant', ${adminPersonId}, '2020-01-01T00:00:00.000Z')`;
     yield* sql`

@@ -107,7 +107,7 @@ it("preserves identity, interval, and title through suspension and reinstatement
   expect(Result.getOrThrow(restored)).toEqual({ ...current, revision: 5 });
 });
 
-it("can clear an operational title and denies national local-leader authority", () => {
+it("can clear an operational title and appoints the national board's leader", () => {
   const revised = transitionAppointment(
     current,
     OrganizationLifecycleCommand.cases.ReviseAppointment.make({
@@ -144,8 +144,12 @@ it("can clear an operational title and denies national local-leader authority", 
       now,
     );
 
-    expect(observedTaggedValue).toHaveProperty(["_tag"], "Failure");
-    expect(observedTaggedValue).toMatchObject({ failure: { code: "Invalid" } });
+    // Hovedstyret has a leader; the leadership reaches every department (O8-4, O8-14).
+    expect(Result.getOrThrow(observedTaggedValue)).toMatchObject({
+      target: { kind: "NationalBoard", id: "board" },
+      leadership: true,
+      state: "Current",
+    });
   }
 });
 

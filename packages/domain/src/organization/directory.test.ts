@@ -20,18 +20,22 @@ const departmentB = DepartmentId.make("department-b");
 
 const person = PersonId.make("person-1");
 
+/** A membership; `boardLeader` leads the board of an independent department. */
 const membership = (
   membershipId: string,
   _personId: PersonId,
   departmentId: DepartmentId,
   active: boolean,
-  teamLeader = false,
+  boardLeader = false,
 ): OrganizationAuthorityMembership => ({
   membershipId: MembershipId.make(membershipId),
   teamId: TeamId.make(`team-${membershipId}`),
   departmentId,
   active,
-  teamLeader,
+  unitLeader: boardLeader,
+  unitKind: boardLeader ? "DepartmentBoard" : "Team",
+  teamScope: "HomeDepartment",
+  departmentIndependent: true,
 });
 
 describe("accumulateOrganizationDirectoryFacts", () => {
@@ -116,7 +120,14 @@ describe("resolveDirectoryGateScope", () => {
   const authority = (
     globalAdministrator: "Active" | "Inactive" | "Absent",
     memberships: ReadonlyArray<OrganizationAuthorityMembership>,
-  ) => ({ personId: person, evaluatedAt: instant, globalAdministrator, memberships });
+  ) => ({
+    personId: person,
+    evaluatedAt: instant,
+    globalAdministrator,
+    memberships,
+    nationalBoardSeats: [],
+    delegations: [],
+  });
 
   it("admits an active global administrator to all departments", () => {
     expect(resolveDirectoryGateScope(authority("Active", []))).toEqual(
@@ -124,7 +135,17 @@ describe("resolveDirectoryGateScope", () => {
     );
   });
 
-  it("unions the leader departments of a cross-department leader", () => {
+  it("gives an ordinary team leader no directory scope", () => {
+    expect(
+      resolveDirectoryGateScope(
+        authority("Absent", [
+          { ...membership("m1", person, departmentA, true, true), unitKind: "Team" },
+        ]),
+      ),
+    ).toEqual(deny("AuthorityInactive"));
+  });
+
+  it("unions the board-leader departments of a cross-department leader", () => {
     const scope = resolveDirectoryGateScope(
       authority("Absent", [
         membership("m1", person, departmentA, true, true),
@@ -171,6 +192,8 @@ describe("directoryRowInScope", () => {
       evaluatedAt: instant,
       globalAdministrator: "Absent",
       memberships: [membership("m1", person, departmentA, true, true)],
+      nationalBoardSeats: [],
+      delegations: [],
     });
 
     if (!Predicate.isTagged(scope, "Allow")) throw new Error("expected allowed leader scope");

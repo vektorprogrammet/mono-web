@@ -145,7 +145,7 @@ export const AdmissionDepartmentSchema = AdmissionDepartment;
 export const AdmissionFieldOfStudySchema = AdmissionFieldOfStudy;
 
 export const AdmissionPeriodActorSchema = Schema.TaggedUnion({
-  DepartmentLeader: {
+  DepartmentAdministrator: {
     personId: PersonId,
     departmentId: DepartmentId,
     active: Schema.Boolean,

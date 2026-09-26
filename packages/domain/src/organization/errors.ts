@@ -28,7 +28,7 @@ export class OrganizationRoleDenied extends Schema.TaggedError<OrganizationRoleD
   "OrganizationRoleDenied",
   {
     actorPersonId: PersonId,
-    requiredRole: Schema.Literals(["OrganizationAdministrator", "DepartmentLeader"]),
+    requiredRole: Schema.Literals(["OrganizationAdministrator", "DepartmentAdministrator"]),
   },
 ) {}
 

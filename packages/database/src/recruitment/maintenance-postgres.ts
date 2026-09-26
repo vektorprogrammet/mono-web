@@ -2,6 +2,12 @@ import { DateTime, Effect, Predicate, Schema } from "effect";
 import { SqlSchema } from "effect/unstable/sql";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
+  reachedDepartments,
+  ReachedDepartments,
+  reaches,
+  ReachTarget,
+} from "@vektorprogrammet/domain/authz";
+import {
   DepartmentId,
   PersonId,
   type OrganizationPersonAuthority,
@@ -54,13 +60,12 @@ const decodeCommand = Schema.decodeUnknownEffect(RecruitmentMaintenanceCommand, 
   onExcessProperty: "error",
 });
 
-const departmentsFor = (authority: OrganizationPersonAuthority) => [
-  ...new Set(
-    authority.memberships
-      .filter((entry) => entry.active && entry.teamLeader)
-      .map((entry) => entry.departmentId),
-  ),
-];
+/** Every interview in scope for staffing: `null` for the whole organization. */
+const staffingScope = (authority: OrganizationPersonAuthority) => {
+  const reached = reachedDepartments(authority, "recruitment.interviews");
+
+  return ReachedDepartments.$is("All")(reached) ? null : reached.departmentIds;
+};
 
 const authorityFor = Effect.fn("Recruitment.maintenanceAuthority")(function* (
   sql: DatabaseOperations,
@@ -153,7 +158,7 @@ export const readInterviewStaffing = (personId: PersonId) =>
         yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`;
         const now = DateTime.formatIso(yield* DateTime.now);
         const authority = yield* authorityFor(sql, personId, now, false);
-        const scope = authority.globalAdministrator === "Active" ? null : departmentsFor(authority);
+        const scope = staffingScope(authority);
 
         if (scope !== null && scope.length === 0) return yield* fail("Denied");
         const interviews = yield* staffingRows(sql, scope, null, false);
@@ -219,8 +224,11 @@ const authorizeWithSql = Effect.fn("Recruitment.authorizeMaintenance")(function*
   }
 
   if (
-    authority.globalAdministrator !== "Active" &&
-    !departmentsFor(authority).includes(identity!.departmentId)
+    !reaches(
+      authority,
+      "recruitment.interviews",
+      ReachTarget.Department({ departmentId: identity!.departmentId }),
+    )
   )
     return yield* fail("Denied");
   yield* lockAdvisory(sql, AdvisoryLockKey.recruitmentInterview(command.interviewId));

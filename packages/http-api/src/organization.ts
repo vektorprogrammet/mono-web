@@ -22,6 +22,14 @@ import {
   OrganizationLifecycleCommand,
   OrganizationLifecycleResult,
 } from "@vektorprogrammet/domain/organization";
+import {
+  DelegableCapability,
+  DelegationArea,
+  DelegationCommand,
+  DelegationManagement,
+  DelegationResult,
+  OrganizationCapability,
+} from "@vektorprogrammet/domain/authz";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, anonymousNativeAccess, personNativeAccess } from "./access.js";
 import { operationAnnotations, PersonSecurity } from "./common.js";
@@ -63,7 +71,7 @@ export {
 export type { DepartmentJson, FieldOfStudyJson, TeamJson };
 
 /**
- * Leader-scoped organization query. Repeated values remain representable because
+ * Reach-scoped organization query. Repeated values remain representable because
  * the current transport selects the first value.
  *
  * @since 0.1.0
@@ -270,7 +278,7 @@ export const ListTeamInterestEndpoint = HttpApiEndpoint.get(
   .annotateMerge(
     operationAnnotations(
       "List team interest",
-      "Returns registrations within the caller's leader scope.",
+      "Returns registrations within the caller's team-interest reach: the own team for its leader, whole departments for department reach.",
     ),
   );
 
@@ -298,7 +306,7 @@ export const ListMailingListsEndpoint = HttpApiEndpoint.get(
   .annotateMerge(
     operationAnnotations(
       "Project mailing lists",
-      "Projects addresses within the caller's leader scope.",
+      "Projects addresses within the departments where the caller reads people.",
     ),
   );
 
@@ -460,12 +468,82 @@ export const ExecuteOrganizationLifecycleEndpoint = HttpApiEndpoint.post(
     ),
   );
 
-export { AppointmentManagement, OrganizationLifecycleCommand, OrganizationLifecycleResult };
+/**
+ * The delegations that one person manages: a Styret leader those of its department's teams,
+ * Hovedstyret or a global administrator those of national teams.
+ */
+export const ReadDelegationManagementEndpoint = HttpApiEndpoint.get(
+  "readDelegationManagement",
+  "/api/organization/delegations",
+  {
+    success: privateReadResponse(DelegationManagement),
+    error: endpointProblemResponses(OrganizationLifecycleProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "organization.manage-delegations",
+        canonicalScopeResolver: "organization.delegation-management",
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
+  .annotateMerge(
+    operationAnnotations(
+      "Read delegation management",
+      "Returns the teams, delegations and history within the caller's delegation management reach.",
+    ),
+  );
+
+export const ExecuteDelegationEndpoint = HttpApiEndpoint.post(
+  "executeDelegation",
+  "/api/organization/delegations/commands",
+  {
+    headers: IdempotencyHeaders,
+    payload: DelegationCommand,
+    success: entityMutationResponse(DelegationResult),
+    error: endpointProblemResponses(OrganizationLifecycleProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "organization.manage-delegations",
+        canonicalScopeResolver: "organization.delegation-management",
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
+  .annotateMerge(
+    operationAnnotations(
+      "Issue or end a delegation",
+      "Issues or ends one named, time-bounded delegation with atomic history under current authority.",
+    ),
+  );
+
+export {
+  AppointmentManagement,
+  DelegableCapability,
+  DelegationArea,
+  DelegationCommand,
+  DelegationManagement,
+  DelegationResult,
+  OrganizationCapability,
+  OrganizationLifecycleCommand,
+  OrganizationLifecycleResult,
+};
 
 export class OrganizationApi extends HttpApiGroup.make("organization")
   .add(
     ReadAppointmentManagementEndpoint,
     ExecuteOrganizationLifecycleEndpoint,
+    ReadDelegationManagementEndpoint,
+    ExecuteDelegationEndpoint,
     ListDepartmentsEndpoint,
     ListTeamsEndpoint,
     ListFieldOfStudiesEndpoint,

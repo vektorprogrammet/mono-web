@@ -953,7 +953,7 @@ test.describe("Native recruitment invitation response", () => {
 
     for (const staffCase of [
       {
-        actor: "DepartmentLeader",
+        actor: "DepartmentAdministrator",
         email: "INVITATION_RESPONSE_E2E_LEADER_EMAIL",
         password: "INVITATION_RESPONSE_E2E_LEADER_PASSWORD",
       },
@@ -1028,7 +1028,7 @@ test.describe("Native recruitment invitation response", () => {
           sessionCookieNames,
           nativeLogin: true,
           acceptedVisible: true,
-          rejectedVisible: staffCase.actor === "DepartmentLeader",
+          rejectedVisible: staffCase.actor === "DepartmentAdministrator",
           requestedNewTimeVisible: true,
           responseMessagesProjected: true,
         };
@@ -1057,7 +1057,7 @@ test.describe("Native recruitment invitation response", () => {
       { actor: "Applicant:requested-new-time", operation: "readInvitationResponse" },
       { actor: "Applicant:requested-new-time", operation: "requestNewInvitationTime" },
       { actor: "Applicant:requested-new-time", operation: "readInvitationResponse" },
-      { actor: "DepartmentLeader", operation: "readSchedulingBoard" },
+      { actor: "DepartmentAdministrator", operation: "readSchedulingBoard" },
       { actor: "Member", operation: "readSchedulingBoard" },
     ];
 

@@ -138,10 +138,10 @@ INSERT INTO admission_applications (
   '${fieldOfStudyId}', 3, '2031-09-10T10:00:00.000Z', 0
 );
 INSERT INTO organization_departments (
-  department_id, name, short_name, email, city, active, revision
+  department_id, name, short_name, email, city, active, independent, revision
 ) VALUES (
   '${departmentId}', 'Vektorprogrammet Trondheim', 'Trondheim',
-  'trondheim@example.invalid', 'Trondheim', TRUE, 0
+  'trondheim@example.invalid', 'Trondheim', TRUE, TRUE, 0
 );
 INSERT INTO person_profiles (person_id, first_name, last_name, revision)
 VALUES
@@ -151,8 +151,10 @@ INSERT INTO person_contact_profiles (person_id, email, phone, revision)
 VALUES
   ('${actorPersonId}', 'lina.lagleder@example.invalid', '+47 900 00 051', 0),
   ('${interviewerPersonId}', 'irene.intervjuer@example.invalid', '+47 900 00 052', 0);
-INSERT INTO organization_teams (team_id, department_id, name, active, revision)
-VALUES ('${recruitmentTeamId}', '${departmentId}', 'Rekruttering', TRUE, 0);
+-- The team is the department's board (Styret) of an independent department, so its leader
+-- schedules as DepartmentAdministrator (O8-11).
+INSERT INTO organization_teams (team_id, department_id, name, kind, active, revision)
+VALUES ('${recruitmentTeamId}', '${departmentId}', 'Rekruttering', 'DepartmentBoard', TRUE, 0);
 INSERT INTO organization_memberships (
   membership_id, person_id, team_id, deleted_team_name, start_at, end_at,
   position_id, is_team_leader, is_suspended, revision
@@ -1208,7 +1210,7 @@ async function main() {
       browser.accessibilityViolations !== 0 ||
       browser.rawCapabilityObserved !== false ||
       browser.bearerTokenInjected !== false ||
-      JSON.stringify(browser.nativeActors) !== JSON.stringify(["DepartmentLeader", "Member"]) ||
+      JSON.stringify(browser.nativeActors) !== JSON.stringify(["DepartmentAdministrator", "Member"]) ||
       JSON.stringify(browser.sessionCookieNames?.leader) !==
         JSON.stringify(["better-auth.session_token"]) ||
       JSON.stringify(browser.sessionCookieNames?.interviewer) !==

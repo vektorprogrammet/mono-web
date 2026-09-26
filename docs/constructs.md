@@ -577,12 +577,13 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
 Transaction-scoped PostgreSQL advisory locks under registered keys.
 
 - `AdvisoryLockKey`: The registered advisory-lock keys, one constructor per namespace.
-  [packages/database/src/advisory-lock.ts:40](../packages/database/src/advisory-lock.ts#L40), 23 consumers:
+  [packages/database/src/advisory-lock.ts:40](../packages/database/src/advisory-lock.ts#L40), 24 consumers:
   - [apps/backend/src/http-api/receipt-transaction.test.ts](../apps/backend/src/http-api/receipt-transaction.test.ts)
   - [apps/backend/src/http-api/receipt-transaction.ts](../apps/backend/src/http-api/receipt-transaction.ts)
   - [packages/database/src/admission-period/postgres.ts](../packages/database/src/admission-period/postgres.ts)
   - [packages/database/src/application/postgres.ts](../packages/database/src/application/postgres.ts)
   - [packages/database/src/application/returning-postgres.ts](../packages/database/src/application/returning-postgres.ts)
+  - [packages/database/src/authz/delegation-postgres.ts](../packages/database/src/authz/delegation-postgres.ts)
   - [packages/database/src/authz/disposable-backfill.ts](../packages/database/src/authz/disposable-backfill.ts)
   - [packages/database/src/authz/postgres.ts](../packages/database/src/authz/postgres.ts)
   - [packages/database/src/content/postgres.ts](../packages/database/src/content/postgres.ts)
@@ -602,11 +603,12 @@ Transaction-scoped PostgreSQL advisory locks under registered keys.
   - [packages/database/src/schools/administration.ts](../packages/database/src/schools/administration.ts)
   - [packages/database/src/team-application/postgres.ts](../packages/database/src/team-application/postgres.ts)
 - `lockAdvisory`: Waits for the advisory lock on `key` until the current transaction ends.
-  [packages/database/src/advisory-lock.ts:126](../packages/database/src/advisory-lock.ts#L126), 22 consumers:
+  [packages/database/src/advisory-lock.ts:128](../packages/database/src/advisory-lock.ts#L128), 23 consumers:
   - [apps/backend/src/http-api/receipt-transaction.test.ts](../apps/backend/src/http-api/receipt-transaction.test.ts)
   - [packages/database/src/admission-period/postgres.ts](../packages/database/src/admission-period/postgres.ts)
   - [packages/database/src/application/postgres.ts](../packages/database/src/application/postgres.ts)
   - [packages/database/src/application/returning-postgres.ts](../packages/database/src/application/returning-postgres.ts)
+  - [packages/database/src/authz/delegation-postgres.ts](../packages/database/src/authz/delegation-postgres.ts)
   - [packages/database/src/authz/disposable-backfill.ts](../packages/database/src/authz/disposable-backfill.ts)
   - [packages/database/src/authz/postgres.ts](../packages/database/src/authz/postgres.ts)
   - [packages/database/src/content/postgres.ts](../packages/database/src/content/postgres.ts)
@@ -626,13 +628,14 @@ Transaction-scoped PostgreSQL advisory locks under registered keys.
   - [packages/database/src/schools/administration.ts](../packages/database/src/schools/administration.ts)
   - [packages/database/src/team-application/postgres.ts](../packages/database/src/team-application/postgres.ts)
 - `tryLockAdvisory`: Takes the exclusive advisory lock on `key` until the current transaction ends when no other transaction holds it.
-  [packages/database/src/advisory-lock.ts:142](../packages/database/src/advisory-lock.ts#L142), 1 consumer:
+  [packages/database/src/advisory-lock.ts:144](../packages/database/src/advisory-lock.ts#L144), 1 consumer:
   - [apps/backend/src/http-api/receipt-transaction.ts](../apps/backend/src/http-api/receipt-transaction.ts)
 - `lockOrganizationAdministratorSet`: Acquire before any person lock when changing the usable administrator set.
-  [packages/database/src/organization/authority-postgres.ts:90](../packages/database/src/organization/authority-postgres.ts#L90), 1 consumer:
+  [packages/database/src/organization/authority-postgres.ts:36](../packages/database/src/organization/authority-postgres.ts#L36), 1 consumer:
   - [packages/database/src/organization/lifecycle-postgres.ts](../packages/database/src/organization/lifecycle-postgres.ts)
 - `lockPersonAuthorization`: Serializes one person's protected command with person-keyed authority writers.
-  [packages/database/src/organization/authority-postgres.ts:98](../packages/database/src/organization/authority-postgres.ts#L98), 8 consumers:
+  [packages/database/src/organization/authority-postgres.ts:44](../packages/database/src/organization/authority-postgres.ts#L44), 9 consumers:
+  - [packages/database/src/authz/delegation-postgres.ts](../packages/database/src/authz/delegation-postgres.ts)
   - [packages/database/src/organization/lifecycle-postgres.ts](../packages/database/src/organization/lifecycle-postgres.ts)
   - [packages/database/src/organization/postgres.ts](../packages/database/src/organization/postgres.ts)
   - [packages/database/src/receipt/authority-postgres.ts](../packages/database/src/receipt/authority-postgres.ts)
@@ -647,7 +650,8 @@ Transaction-scoped PostgreSQL advisory locks under registered keys.
 Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account access.
 
 - `accountAccessEnabled`: Whether the native account of `personId` exists and is not disabled.
-  [packages/database/src/identity-access.ts:17](../packages/database/src/identity-access.ts#L17), 3 consumers:
+  [packages/database/src/identity-access.ts:17](../packages/database/src/identity-access.ts#L17), 4 consumers:
+  - [packages/database/src/authz/delegation-postgres.ts](../packages/database/src/authz/delegation-postgres.ts)
   - [packages/database/src/organization/lifecycle-postgres.ts](../packages/database/src/organization/lifecycle-postgres.ts)
   - [packages/database/src/recruitment/maintenance-postgres.ts](../packages/database/src/recruitment/maintenance-postgres.ts)
   - [packages/database/src/schools/administration.ts](../packages/database/src/schools/administration.ts)
@@ -844,7 +848,7 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [tools/verification/organization-import-rehearsal-main.ts](../tools/verification/organization-import-rehearsal-main.ts)
   - [tools/verification/organization-import-rehearsal.ts](../tools/verification/organization-import-rehearsal.ts)
 - `canonicalJsonBytes`: The UTF-8 bytes of the canonical JSON text of a datum.
-  [packages/domain/src/shared-kernel/canonical-json.ts:69](../packages/domain/src/shared-kernel/canonical-json.ts#L69), 58 consumers:
+  [packages/domain/src/shared-kernel/canonical-json.ts:69](../packages/domain/src/shared-kernel/canonical-json.ts#L69), 59 consumers:
   - [apps/backend/src/http-semantics.ts](../apps/backend/src/http-semantics.ts)
   - [apps/backend/src/receipt/import-snapshot.ts](../apps/backend/src/receipt/import-snapshot.ts)
   - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
@@ -855,6 +859,7 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [packages/database/runtime/receipt-postgres-proof-main.ts](../packages/database/runtime/receipt-postgres-proof-main.ts)
   - [packages/database/runtime/scheduling-postgres-proof-main.ts](../packages/database/runtime/scheduling-postgres-proof-main.ts)
   - [packages/database/runtime/schools-postgres-proof-main.ts](../packages/database/runtime/schools-postgres-proof-main.ts)
+  - [packages/database/src/authz/delegation-postgres.ts](../packages/database/src/authz/delegation-postgres.ts)
   - [packages/database/src/authz/disposable-backfill.test.ts](../packages/database/src/authz/disposable-backfill.test.ts)
   - [packages/database/src/authz/disposable-backfill.ts](../packages/database/src/authz/disposable-backfill.ts)
   - [packages/database/src/content/postgres.ts](../packages/database/src/content/postgres.ts)
@@ -904,7 +909,7 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [tools/verification/organization-import-rehearsal.ts](../tools/verification/organization-import-rehearsal.ts)
   - [tools/verification/receipt-import-rehearsal.ts](../tools/verification/receipt-import-rehearsal.ts)
 - `sha256Hex`: The lowercase hexadecimal SHA-256 digest of bytes.
-  [packages/domain/src/shared-kernel/canonical-json.ts:76](../packages/domain/src/shared-kernel/canonical-json.ts#L76), 62 consumers:
+  [packages/domain/src/shared-kernel/canonical-json.ts:76](../packages/domain/src/shared-kernel/canonical-json.ts#L76), 63 consumers:
   - [apps/backend/src/receipt/import-snapshot.ts](../apps/backend/src/receipt/import-snapshot.ts)
   - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
   - [packages/database/runtime/identity-postgres-proof-main.ts](../packages/database/runtime/identity-postgres-proof-main.ts)
@@ -915,6 +920,7 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [packages/database/runtime/scheduling-postgres-proof-main.ts](../packages/database/runtime/scheduling-postgres-proof-main.ts)
   - [packages/database/runtime/schools-postgres-proof-main.ts](../packages/database/runtime/schools-postgres-proof-main.ts)
   - [packages/database/src/application/returning-postgres.ts](../packages/database/src/application/returning-postgres.ts)
+  - [packages/database/src/authz/delegation-postgres.ts](../packages/database/src/authz/delegation-postgres.ts)
   - [packages/database/src/authz/disposable-backfill.ts](../packages/database/src/authz/disposable-backfill.ts)
   - [packages/database/src/content/postgres.ts](../packages/database/src/content/postgres.ts)
   - [packages/database/src/organization/lifecycle-postgres.ts](../packages/database/src/organization/lifecycle-postgres.ts)

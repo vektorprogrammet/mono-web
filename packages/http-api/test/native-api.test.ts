@@ -165,6 +165,18 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
   ],
   [
     "GET",
+    "/api/organization/delegations",
+    "organization.readDelegationManagement",
+    person("organization.manage-delegations", "organization.delegation-management", [], "SnapshotRead"),
+  ],
+  [
+    "POST",
+    "/api/organization/delegations/commands",
+    "organization.executeDelegation",
+    person("organization.manage-delegations", "organization.delegation-management", [], "Transaction"),
+  ],
+  [
+    "GET",
     "/api/admission-outcomes/scopes",
     "admissionOutcomes.listScopes",
     person("admissions.outcomes.read", "admissions.application-outcomes", [], "SnapshotRead"),
@@ -507,7 +519,7 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     person(
       "reviewApplicants",
       "recruitment.application-assignments",
-      ["organization.single-department-leader"],
+      ["organization.single-department-administrator"],
       "SnapshotRead",
     ),
   ],
@@ -529,7 +541,7 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     person(
       "recruitment.read-interview-report",
       "recruitment.interview-report",
-      ["organization.single-department-leader"],
+      ["organization.single-department-administrator"],
       "SnapshotRead",
     ),
   ],
@@ -540,7 +552,7 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     person(
       "reviewApplicants",
       "recruitment.application-by-id",
-      ["organization.single-department-leader", "recruitment.interviewer-eligible"],
+      ["organization.single-department-administrator", "recruitment.interviewer-eligible"],
       "Transaction",
     ),
   ],
@@ -551,7 +563,7 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     person(
       "recruitment.schedule-interview",
       "recruitment.interview-by-id",
-      ["recruitment.assigned-interviewer-or-leader"],
+      ["recruitment.assigned-interviewer-or-administrator"],
       "Transaction",
     ),
   ],
@@ -916,6 +928,7 @@ const entityMutationOperations = [
 
 const bodyPreconditionMutationOperations = [
   "organization.executeLifecycle",
+  "organization.executeDelegation",
   "directory.executeSchoolCommand",
   "recruitment.maintainRecruitment",
 ] as const;
@@ -941,6 +954,7 @@ const privateBinaryReadOperations = [
 
 const privateReadOperations = [
   "organization.readAppointmentManagement",
+  "organization.readDelegationManagement",
   "onboarding.readBoard",
   "onboarding.claim",
   "placements.listScopes",

@@ -118,6 +118,18 @@ export async function seedInterviewReportCoordinator(o: { pool: any; secrets: st
     userId: ids.person,
     accountId: ids.person,
   });
+  // The coordinator leads team-native-conduct-0063, the department's board (Styret) of an
+  // independent department, so the leadership reaches the department (O8-11). The conduct seed
+  // also runs against the pre-0037 schema, so the classification is set here; every clone of the
+  // team or department below, and in recommendation-check.ts, inherits it.
+  await pool.query(
+    `UPDATE public.organization_teams SET kind='DepartmentBoard' WHERE team_id=$1`,
+    [ids.team],
+  );
+  await pool.query(
+    `UPDATE public.organization_departments SET independent=true WHERE department_id=$1`,
+    [ids.department],
+  );
   await clone(
     "public.organization_memberships",
     "membership_id='membership-native-conduct-leader-0063'",
@@ -307,7 +319,7 @@ export async function observeInterviewReport(o: Options) {
 
       const authority = (
         await pool.query(
-          `SELECT m.membership_id,m.is_team_leader,m.is_suspended,m.end_at,t.team_id,t.active team_active,d.department_id,d.active department_active FROM public.organization_memberships m JOIN public.organization_teams t USING(team_id) JOIN public.organization_departments d USING(department_id) WHERE m.person_id=$1`,
+          `SELECT m.membership_id,m.is_team_leader,m.is_suspended,m.end_at,t.team_id,t.kind team_kind,t.active team_active,d.department_id,d.independent department_independent,d.active department_active FROM public.organization_memberships m JOIN public.organization_teams t USING(team_id) JOIN public.organization_departments d USING(department_id) WHERE m.person_id=$1`,
           [ids.person],
         )
       ).rows;

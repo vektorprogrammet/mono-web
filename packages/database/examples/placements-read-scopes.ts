@@ -16,6 +16,8 @@ const authority = OrganizationPersonAuthoritySchema.make({
   evaluatedAt: "2026-09-24T00:00:00.000Z",
   globalAdministrator: "Absent",
   memberships: [],
+  nationalBoardSeats: [],
+  delegations: [],
 });
 
 const program = Effect.gen(function* () {
