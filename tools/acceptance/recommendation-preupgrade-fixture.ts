@@ -270,7 +270,7 @@ export const readInterviewCorrectionPre0039Snapshot = async (
                  FROM public.recruitment_interview_schedules entry WHERE entry.interview_id = ANY($1::text[])), '[]'::jsonb) AS schedules,
        COALESCE((SELECT jsonb_agg(to_jsonb(entry) ORDER BY entry.interview_id)
                  FROM public.recruitment_invitations entry WHERE entry.interview_id = ANY($1::text[])), '[]'::jsonb) AS invitations,
-       COALESCE((SELECT jsonb_agg(to_jsonb(entry) ORDER BY entry.interview_id, entry.response_revision)
+       COALESCE((SELECT jsonb_agg(to_jsonb(entry) - 'envelope_sha256' ORDER BY entry.interview_id, entry.response_revision)
                  FROM public.recruitment_invitation_response_audit entry WHERE entry.interview_id = ANY($1::text[])), '[]'::jsonb) AS "invitationResponseAudits",
        COALESCE((SELECT jsonb_agg(to_jsonb(entry) ORDER BY entry.interview_id, entry.ordinal)
                  FROM public.recruitment_interview_question_snapshots entry WHERE entry.interview_id = ANY($1::text[])), '[]'::jsonb) AS "questionSnapshots",
