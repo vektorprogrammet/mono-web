@@ -1,11 +1,9 @@
-import { readFile } from "node:fs/promises";
-import { afterAll, describe, expect, it } from "vitest";
+import { describe, expect, layer } from "@effect/vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
-import { Schema, Predicate, Effect } from "effect";
+import { Schema, Predicate, Effect, FileSystem, Path } from "effect";
 import { Database } from "./service.js";
-import { DatabaseTestLive } from "./test-support/platform.js";
-import { makeControlledTestRuntime } from "../test/runtime.js";
+import { DatabaseTestLive, TestPlatform } from "./test-support/platform.js";
 import { type DatabaseMigrationId, selectDatabaseMigration } from "./migrations.js";
 
 const inventory = [
@@ -41,8 +39,6 @@ const checkedSourceUrls = [
   new URL("../migrations/0023-declarative-authorization-rules.sql", import.meta.url),
 ];
 
-const runtime = makeControlledTestRuntime(DatabaseTestLive());
-
 const ecmaScriptTrimBoundaryCharacters = [
   "\u0009",
   "\u000a",
@@ -71,73 +67,100 @@ const ecmaScriptTrimBoundaryCharacters = [
   "\ufeff",
 ] as const;
 
-afterAll(async () => {
-  await runtime.dispose();
-});
+const readMigrationSource = (url: URL) =>
+  Effect.gen(function* () {
+    const path = yield* Path.Path;
+    const fileSystem = yield* FileSystem.FileSystem;
 
-const applyMigrationsThrough = async (database: PGlite, lastMigrationId: DatabaseMigrationId) => {
+    return yield* fileSystem.readFileString(yield* path.fromFileUrl(url));
+  }).pipe(Effect.provide(TestPlatform));
+
+/** A PGlite without migrations for one test, closed when the test's scope closes. */
+const disposablePglite = Effect.acquireRelease(
+  Effect.promise(() => PGlite.create({ extensions: { btree_gist } })),
+  (database) => Effect.promise(() => database.close()),
+);
+
+const applyMigrationsThrough = (database: PGlite, lastMigrationId: DatabaseMigrationId) => {
   const { migration: last, preceding } = selectDatabaseMigration(lastMigrationId);
 
-  for (const migration of [...preceding, last]) {
-    await database.exec(await readFile(migration.url, "utf8"));
-  }
+  return Effect.forEach(
+    [...preceding, last],
+    (migration) =>
+      Effect.flatMap(readMigrationSource(migration.url), (source) =>
+        Effect.promise(() => database.exec(source)),
+      ),
+    { discard: true },
+  );
 };
 
-describe("native domain schema boundary", () => {
-  it("matches the checked inventory against all post-identity CREATE TABLE sources", async () => {
-    const sourceTables = (await Promise.all(checkedSourceUrls.map((url) => readFile(url, "utf8"))))
-      .flatMap((source) =>
-        [...source.matchAll(/CREATE TABLE IF NOT EXISTS\s+(?:public\.)?([a-z0-9_]+)/gi)].map(
-          (match) => match[1]!,
-        ),
-      )
-      .sort();
+layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
+  "database migrations",
+  (it) => {
+    describe("native domain schema boundary", () => {
+      it.effect(
+        "matches the checked inventory against all post-identity CREATE TABLE sources",
+        () =>
+          Effect.gen(function* () {
+            const sources = yield* Effect.forEach(checkedSourceUrls, readMigrationSource);
 
-    expect(sourceTables).toEqual([...inventory].sort());
-  });
+            const sourceTables = sources
+              .flatMap((source) =>
+                [
+                  ...source.matchAll(/CREATE TABLE IF NOT EXISTS\s+(?:public\.)?([a-z0-9_]+)/gi),
+                ].map((match) => match[1]!),
+              )
+              .sort();
 
-  it("keeps qualified inventory reads independent of search_path", async () => {
-    const evidence = await runtime.runPromise(
-      Effect.gen(function* () {
-        const database = yield* Database;
-        yield* database`
+            expect(sourceTables).toEqual([...inventory].sort());
+          }),
+      );
+
+      it.effect(
+        "keeps qualified inventory reads independent of search_path",
+        () =>
+          Effect.gen(function* () {
+            const evidence = yield* Effect.gen(function* () {
+              const database = yield* Database;
+              yield* database`
           CREATE TABLE auth.content_articles (article_id bigint NOT NULL)
         `;
-        yield* database`
+              yield* database`
           INSERT INTO auth.content_articles (article_id) VALUES (9007199254740991)
         `;
-        yield* database`SET search_path TO auth, public`;
+              yield* database`SET search_path TO auth, public`;
 
-        const authFirst = yield* database<{ readonly count: string }>`
+              const authFirst = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS "count" FROM public.content_articles
         `;
 
-        yield* database`SET search_path TO public`;
+              yield* database`SET search_path TO public`;
 
-        const publicFirst = yield* database<{ readonly count: string }>`
+              const publicFirst = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS "count" FROM public.content_articles
         `;
 
-        yield* database`DROP TABLE auth.content_articles`;
-        yield* database`SET search_path TO auth, public`;
+              yield* database`DROP TABLE auth.content_articles`;
+              yield* database`SET search_path TO auth, public`;
 
-        return { authFirst, publicFirst };
-      }),
-    );
+              return { authFirst, publicFirst };
+            });
 
-    expect(evidence.authFirst).toEqual(evidence.publicFirst);
-    expect(evidence.authFirst).toEqual([{ count: "0" }]);
-  }, 15_000);
+            expect(evidence.authFirst).toEqual(evidence.publicFirst);
+            expect(evidence.authFirst).toEqual([{ count: "0" }]);
+          }),
+        15_000,
+      );
 
-  it("places the complete post-identity inventory in public on fresh replay", async () => {
-    const evidence = await runtime.runPromise(
-      Effect.gen(function* () {
-        const database = yield* Database;
+      it.effect("places the complete post-identity inventory in public on fresh replay", () =>
+        Effect.gen(function* () {
+          const evidence = yield* Effect.gen(function* () {
+            const database = yield* Database;
 
-        const relations = yield* database<{
-          readonly tableName: string;
-          readonly schemaName: string;
-        }>`
+            const relations = yield* database<{
+              readonly tableName: string;
+              readonly schemaName: string;
+            }>`
           SELECT relation.relname AS "tableName", namespace.nspname AS "schemaName"
           FROM pg_catalog.pg_class AS relation
           INNER JOIN pg_catalog.pg_namespace AS namespace
@@ -148,7 +171,7 @@ describe("native domain schema boundary", () => {
           ORDER BY relation.relname, namespace.nspname
         `;
 
-        const authTables = yield* database<{ readonly tableName: string }>`
+            const authTables = yield* database<{ readonly tableName: string }>`
           SELECT relation.relname AS "tableName"
           FROM pg_catalog.pg_class AS relation
           INNER JOIN pg_catalog.pg_namespace AS namespace
@@ -161,10 +184,10 @@ describe("native domain schema boundary", () => {
           ORDER BY relation.relname
         `;
 
-        const triggerFunctions = yield* database<{
-          readonly functionName: string;
-          readonly schemaName: string;
-        }>`
+            const triggerFunctions = yield* database<{
+              readonly functionName: string;
+              readonly schemaName: string;
+            }>`
           SELECT procedure.proname AS "functionName", namespace.nspname AS "schemaName"
           FROM pg_catalog.pg_proc AS procedure
           INNER JOIN pg_catalog.pg_namespace AS namespace
@@ -179,48 +202,52 @@ describe("native domain schema boundary", () => {
           ORDER BY procedure.proname
         `;
 
-        return { relations, authTables, triggerFunctions };
-      }),
-    );
+            return { relations, authTables, triggerFunctions };
+          });
 
-    expect(evidence.relations).toEqual(
-      [...inventory].sort().map((tableName) => ({ tableName, schemaName: "public" })),
-    );
-    expect(evidence.authTables).toEqual(
-      ["account", "identity_security_audit", "session", "user", "verification"].map(
-        (tableName) => ({ tableName }),
-      ),
-    );
-    expect(evidence.triggerFunctions).toEqual([
-      { functionName: "prevent_content_publication_audit_mutation", schemaName: "public" },
-      { functionName: "prevent_identity_security_audit_mutation", schemaName: "auth" },
-      {
-        functionName: "prevent_recruitment_interview_lifecycle_mutation",
-        schemaName: "public",
-      },
-      {
-        functionName: "prevent_recruitment_interview_question_snapshot_mutation",
-        schemaName: "public",
-      },
-    ]);
-  });
-});
+          expect(evidence.relations).toEqual(
+            [...inventory].sort().map((tableName) => ({ tableName, schemaName: "public" })),
+          );
+          expect(evidence.authTables).toEqual(
+            ["account", "identity_security_audit", "session", "user", "verification"].map(
+              (tableName) => ({ tableName }),
+            ),
+          );
+          expect(evidence.triggerFunctions).toEqual([
+            { functionName: "prevent_content_publication_audit_mutation", schemaName: "public" },
+            { functionName: "prevent_identity_security_audit_mutation", schemaName: "auth" },
+            {
+              functionName: "prevent_recruitment_interview_lifecycle_mutation",
+              schemaName: "public",
+            },
+            {
+              functionName: "prevent_recruitment_interview_question_snapshot_mutation",
+              schemaName: "public",
+            },
+          ]);
+        }),
+      );
+    });
 
-describe("native HTTP semantics schema boundary", () => {
-  const nativeHttpMigration = selectDatabaseMigration("29_native-http-semantics").migration;
+    describe("native HTTP semantics schema boundary", () => {
+      const nativeHttpMigration = selectDatabaseMigration("29_native-http-semantics").migration;
 
-  it("places HTTP authorities in public with an auth-first search path", async () => {
-    const database = new PGlite({ extensions: { btree_gist } });
+      it.effect(
+        "places HTTP authorities in public with an auth-first search path",
+        () =>
+          Effect.gen(function* () {
+            const database = yield* disposablePglite;
 
-    try {
-      await applyMigrationsThrough(database, "28_service-principal-grants");
-      await database.exec("SET search_path TO auth, public");
-      await database.exec(await readFile(nativeHttpMigration.url, "utf8"));
+            yield* applyMigrationsThrough(database, "28_service-principal-grants");
+            yield* Effect.promise(() => database.exec("SET search_path TO auth, public"));
+            const nativeHttpSource = yield* readMigrationSource(nativeHttpMigration.url);
+            yield* Effect.promise(() => database.exec(nativeHttpSource));
 
-      const relations = await database.query<{
-        readonly schemaName: string;
-        readonly tableName: string;
-      }>(`
+            const relations = yield* Effect.promise(() =>
+              database.query<{
+                readonly schemaName: string;
+                readonly tableName: string;
+              }>(`
         SELECT
           namespace.nspname AS "schemaName",
           relation.relname AS "tableName"
@@ -235,21 +262,23 @@ describe("native HTTP semantics schema boundary", () => {
           )
           AND relation.relkind IN ('r', 'p', 'f')
         ORDER BY relation.relname, namespace.nspname
-      `);
+      `),
+            );
 
-      expect(relations.rows).toEqual([
-        { schemaName: "public", tableName: "native_http_idempotency_receipts" },
-        { schemaName: "public", tableName: "profile_http_versions" },
-        {
-          schemaName: "public",
-          tableName: "recruitment_invitation_response_command_receipts",
-        },
-      ]);
+            expect(relations.rows).toEqual([
+              { schemaName: "public", tableName: "native_http_idempotency_receipts" },
+              { schemaName: "public", tableName: "profile_http_versions" },
+              {
+                schemaName: "public",
+                tableName: "recruitment_invitation_response_command_receipts",
+              },
+            ]);
 
-      const functions = await database.query<{
-        readonly functionName: string;
-        readonly schemaName: string;
-      }>(`
+            const functions = yield* Effect.promise(() =>
+              database.query<{
+                readonly functionName: string;
+                readonly schemaName: string;
+              }>(`
         SELECT
           procedure.proname AS "functionName",
           namespace.nspname AS "schemaName"
@@ -265,28 +294,30 @@ describe("native HTTP semantics schema boundary", () => {
           )
           AND procedure.pronargs = 0
         ORDER BY procedure.proname, namespace.nspname
-      `);
+      `),
+            );
 
-      expect(functions.rows).toEqual([
-        { functionName: "ensure_profile_http_version", schemaName: "public" },
-        {
-          functionName: "increment_content_article_department_revision",
-          schemaName: "public",
-        },
-        { functionName: "increment_native_http_revision", schemaName: "public" },
-        {
-          functionName: "increment_profile_http_authority_version",
-          schemaName: "public",
-        },
-      ]);
+            expect(functions.rows).toEqual([
+              { functionName: "ensure_profile_http_version", schemaName: "public" },
+              {
+                functionName: "increment_content_article_department_revision",
+                schemaName: "public",
+              },
+              { functionName: "increment_native_http_revision", schemaName: "public" },
+              {
+                functionName: "increment_profile_http_authority_version",
+                schemaName: "public",
+              },
+            ]);
 
-      const triggers = await database.query<{
-        readonly functionName: string;
-        readonly functionSchema: string;
-        readonly tableName: string;
-        readonly tableSchema: string;
-        readonly triggerName: string;
-      }>(`
+            const triggers = yield* Effect.promise(() =>
+              database.query<{
+                readonly functionName: string;
+                readonly functionSchema: string;
+                readonly tableName: string;
+                readonly tableSchema: string;
+                readonly triggerName: string;
+              }>(`
         SELECT
           trigger.tgname AS "triggerName",
           table_namespace.nspname AS "tableSchema",
@@ -313,75 +344,80 @@ describe("native HTTP semantics schema boundary", () => {
             'content_article_departments_http_revision'
           )
         ORDER BY trigger.tgname
-      `);
+      `),
+            );
 
-      expect(triggers.rows).toEqual([
-        {
-          functionName: "increment_native_http_revision",
-          functionSchema: "public",
-          tableName: "admission_period_departments",
-          tableSchema: "public",
-          triggerName: "admission_period_departments_http_revision",
-        },
-        {
-          functionName: "increment_native_http_revision",
-          functionSchema: "public",
-          tableName: "admission_period_fields_of_study",
-          tableSchema: "public",
-          triggerName: "admission_period_fields_of_study_http_revision",
-        },
-        {
-          functionName: "increment_native_http_revision",
-          functionSchema: "public",
-          tableName: "admission_period_semesters",
-          tableSchema: "public",
-          triggerName: "admission_period_semesters_http_revision",
-        },
-        {
-          functionName: "increment_content_article_department_revision",
-          functionSchema: "public",
-          tableName: "content_article_departments",
-          tableSchema: "public",
-          triggerName: "content_article_departments_http_revision",
-        },
-        {
-          functionName: "increment_profile_http_authority_version",
-          functionSchema: "public",
-          tableName: "organization_global_administrator_grants",
-          tableSchema: "public",
-          triggerName: "organization_global_administrator_grants_profile_http_version",
-        },
-        {
-          functionName: "increment_profile_http_authority_version",
-          functionSchema: "public",
-          tableName: "organization_memberships",
-          tableSchema: "public",
-          triggerName: "organization_memberships_profile_http_version",
-        },
-        {
-          functionName: "ensure_profile_http_version",
-          functionSchema: "public",
-          tableName: "person_profiles",
-          tableSchema: "public",
-          triggerName: "person_profiles_http_version_insert",
-        },
-      ]);
+            expect(triggers.rows).toEqual([
+              {
+                functionName: "increment_native_http_revision",
+                functionSchema: "public",
+                tableName: "admission_period_departments",
+                tableSchema: "public",
+                triggerName: "admission_period_departments_http_revision",
+              },
+              {
+                functionName: "increment_native_http_revision",
+                functionSchema: "public",
+                tableName: "admission_period_fields_of_study",
+                tableSchema: "public",
+                triggerName: "admission_period_fields_of_study_http_revision",
+              },
+              {
+                functionName: "increment_native_http_revision",
+                functionSchema: "public",
+                tableName: "admission_period_semesters",
+                tableSchema: "public",
+                triggerName: "admission_period_semesters_http_revision",
+              },
+              {
+                functionName: "increment_content_article_department_revision",
+                functionSchema: "public",
+                tableName: "content_article_departments",
+                tableSchema: "public",
+                triggerName: "content_article_departments_http_revision",
+              },
+              {
+                functionName: "increment_profile_http_authority_version",
+                functionSchema: "public",
+                tableName: "organization_global_administrator_grants",
+                tableSchema: "public",
+                triggerName: "organization_global_administrator_grants_profile_http_version",
+              },
+              {
+                functionName: "increment_profile_http_authority_version",
+                functionSchema: "public",
+                tableName: "organization_memberships",
+                tableSchema: "public",
+                triggerName: "organization_memberships_profile_http_version",
+              },
+              {
+                functionName: "ensure_profile_http_version",
+                functionSchema: "public",
+                tableName: "person_profiles",
+                tableSchema: "public",
+                triggerName: "person_profiles_http_version_insert",
+              },
+            ]);
 
-      const exerciseAuthorities = async (
-        searchPath: "auth, public" | "public",
-        personId: string,
-        identitySha256: string,
-      ) => {
-        await database.exec(`SET search_path TO ${searchPath}`);
-        await database.query(
-          `
+            const exerciseAuthorities = (
+              searchPath: "auth, public" | "public",
+              personId: string,
+              identitySha256: string,
+            ) =>
+              Effect.gen(function* () {
+                yield* Effect.promise(() => database.exec(`SET search_path TO ${searchPath}`));
+                yield* Effect.promise(() =>
+                  database.query(
+                    `
             INSERT INTO public.person_profiles (person_id, first_name, last_name)
             VALUES ($1, 'HTTP', 'Authority')
           `,
-          [personId],
-        );
-        await database.query(
-          `
+                    [personId],
+                  ),
+                );
+                yield* Effect.promise(() =>
+                  database.query(
+                    `
             INSERT INTO public.native_http_idempotency_receipts (
               identity_sha256,
               request_sha256,
@@ -408,15 +444,17 @@ describe("native HTTP semantics schema boundary", () => {
               NULL
             )
           `,
-          [identitySha256, "f".repeat(64), `profile.updateOwnProfile:${personId}`],
-        );
+                    [identitySha256, "f".repeat(64), `profile.updateOwnProfile:${personId}`],
+                  ),
+                );
 
-        return database.query<{
-          readonly invitationReceiptCount: number;
-          readonly profileRevision: number;
-          readonly receiptStatus: number;
-        }>(
-          `
+                return yield* Effect.promise(() =>
+                  database.query<{
+                    readonly invitationReceiptCount: number;
+                    readonly profileRevision: number;
+                    readonly receiptStatus: number;
+                  }>(
+                    `
             SELECT
               (
                 SELECT representation_revision
@@ -433,49 +471,51 @@ describe("native HTTP semantics schema boundary", () => {
                 FROM public.recruitment_invitation_response_command_receipts
               ) AS "invitationReceiptCount"
           `,
-          [personId, identitySha256],
-        );
-      };
+                    [personId, identitySha256],
+                  ),
+                );
+              });
 
-      const authFirst = await exerciseAuthorities(
-        "auth, public",
-        "http-authority-auth-first",
-        "a".repeat(64),
+            const authFirst = yield* exerciseAuthorities(
+              "auth, public",
+              "http-authority-auth-first",
+              "a".repeat(64),
+            );
+
+            const publicOnly = yield* exerciseAuthorities(
+              "public",
+              "http-authority-public-only",
+              "b".repeat(64),
+            );
+
+            const expectedObservation = [
+              {
+                invitationReceiptCount: 0,
+                profileRevision: 0,
+                receiptStatus: 204,
+              },
+            ];
+
+            expect(authFirst.rows).toEqual(expectedObservation);
+            expect(publicOnly.rows).toEqual(expectedObservation);
+          }),
+        15_000,
       );
+    });
 
-      const publicOnly = await exerciseAuthorities(
-        "public",
-        "http-authority-public-only",
-        "b".repeat(64),
-      );
-
-      const expectedObservation = [
-        {
-          invitationReceiptCount: 0,
-          profileRevision: 0,
-          receiptStatus: 204,
-        },
-      ];
-
-      expect(authFirst.rows).toEqual(expectedObservation);
-      expect(publicOnly.rows).toEqual(expectedObservation);
-    } finally {
-      await database.close();
-    }
-  }, 15_000);
-});
-
-describe("identity security audit migration in PGlite", () => {
-  it("enforces the closed bounded append-only event contract", async () => {
-    const evidence = await runtime.runPromise(
-      Effect.gen(function* () {
-        const database = yield* Database;
-        yield* database`
+    describe("identity security audit migration in PGlite", () => {
+      it.effect(
+        "enforces the closed bounded append-only event contract",
+        () =>
+          Effect.gen(function* () {
+            const evidence = yield* Effect.gen(function* () {
+              const database = yield* Database;
+              yield* database`
           INSERT INTO public.person_profiles (person_id, first_name, last_name)
           VALUES ('identity-audit-person', 'Identity', 'Audit')
           ON CONFLICT (person_id) DO NOTHING
         `;
-        yield* database`
+              yield* database`
           INSERT INTO auth.identity_security_audit (
             event_id,
             event_kind,
@@ -499,23 +539,23 @@ describe("identity security audit migration in PGlite", () => {
           )
         `;
 
-        const update = yield* Effect.exit(
-          database`
+              const update = yield* Effect.exit(
+                database`
             UPDATE auth.identity_security_audit
             SET actor_principal = 'person:changed'
             WHERE event_id = 'identity-audit-valid'
           `.pipe(Effect.asVoid),
-        );
+              );
 
-        const deletion = yield* Effect.exit(
-          database`
+              const deletion = yield* Effect.exit(
+                database`
             DELETE FROM auth.identity_security_audit
             WHERE event_id = 'identity-audit-valid'
           `.pipe(Effect.asVoid),
-        );
+              );
 
-        const invalidKind = yield* Effect.exit(
-          database`
+              const invalidKind = yield* Effect.exit(
+                database`
             INSERT INTO auth.identity_security_audit (
               event_id, event_kind, subject_person_id, actor_principal,
               request_correlation, details
@@ -528,10 +568,10 @@ describe("identity security audit migration in PGlite", () => {
               ${database.json({ outcomeCode: "owned-session-revoked", affectedSessionCount: 1 })}
             )
           `.pipe(Effect.asVoid),
-        );
+              );
 
-        const unboundedDetails = yield* Effect.exit(
-          database`
+              const unboundedDetails = yield* Effect.exit(
+                database`
             INSERT INTO auth.identity_security_audit (
               event_id, event_kind, request_correlation, details
             ) VALUES (
@@ -545,10 +585,10 @@ describe("identity security audit migration in PGlite", () => {
               })}
             )
           `.pipe(Effect.asVoid),
-        );
+              );
 
-        const missingCorrelation = yield* Effect.exit(
-          database`
+              const missingCorrelation = yield* Effect.exit(
+                database`
             INSERT INTO auth.identity_security_audit (
               event_id, event_kind, subject_person_id, actor_principal, details
             ) VALUES (
@@ -559,57 +599,60 @@ describe("identity security audit migration in PGlite", () => {
               ${database.json({ outcomeCode: "owned-session-revoked", affectedSessionCount: 1 })}
             )
           `.pipe(Effect.asVoid),
-        );
+              );
 
-        const rows = yield* database<{
-          readonly eventId: string;
-          readonly details: unknown;
-        }>`
+              const rows = yield* database<{
+                readonly eventId: string;
+                readonly details: unknown;
+              }>`
           SELECT event_id AS "eventId", details
           FROM auth.identity_security_audit
           WHERE event_id = 'identity-audit-valid'
         `;
 
-        return {
-          updateRejected: Predicate.isTagged(update, "Failure"),
-          deleteRejected: Predicate.isTagged(deletion, "Failure"),
-          invalidKindRejected: Predicate.isTagged(invalidKind, "Failure"),
-          unboundedDetailsRejected: Predicate.isTagged(unboundedDetails, "Failure"),
-          missingCorrelationRejected: Predicate.isTagged(missingCorrelation, "Failure"),
-          rows,
-        };
-      }),
-    );
+              return {
+                updateRejected: Predicate.isTagged(update, "Failure"),
+                deleteRejected: Predicate.isTagged(deletion, "Failure"),
+                invalidKindRejected: Predicate.isTagged(invalidKind, "Failure"),
+                unboundedDetailsRejected: Predicate.isTagged(unboundedDetails, "Failure"),
+                missingCorrelationRejected: Predicate.isTagged(missingCorrelation, "Failure"),
+                rows,
+              };
+            });
 
-    expect(evidence).toEqual({
-      updateRejected: true,
-      deleteRejected: true,
-      invalidKindRejected: true,
-      unboundedDetailsRejected: true,
-      missingCorrelationRejected: true,
-      rows: [
-        {
-          eventId: "identity-audit-valid",
-          details: { outcomeCode: "owned-session-revoked", affectedSessionCount: 1 },
-        },
-      ],
+            expect(evidence).toEqual({
+              updateRejected: true,
+              deleteRejected: true,
+              invalidKindRejected: true,
+              unboundedDetailsRejected: true,
+              missingCorrelationRejected: true,
+              rows: [
+                {
+                  eventId: "identity-audit-valid",
+                  details: { outcomeCode: "owned-session-revoked", affectedSessionCount: 1 },
+                },
+              ],
+            });
+          }),
+        15_000,
+      );
     });
-  }, 15_000);
-});
 
-describe("declarative authorization rule migration in PGlite", () => {
-  it("uses supported JSONB operators and rejects incomplete or inexact Submit params", async () => {
-    const evidence = await runtime.runPromise(
-      Effect.gen(function* () {
-        const database = yield* Database;
-        yield* database`
+    describe("declarative authorization rule migration in PGlite", () => {
+      it.effect(
+        "uses supported JSONB operators and rejects incomplete or inexact Submit params",
+        () =>
+          Effect.gen(function* () {
+            const evidence = yield* Effect.gen(function* () {
+              const database = yield* Database;
+              yield* database`
           INSERT INTO public.person_profiles (person_id, first_name, last_name)
           VALUES ('authz-params-person', 'Authz', 'Params')
           ON CONFLICT (person_id) DO NOTHING
         `;
 
-        const insertSubmitRule = (ruleId: string, params: Schema.Json) =>
-          database`
+              const insertSubmitRule = (ruleId: string, params: Schema.Json) =>
+                database`
             INSERT INTO public.authz_rules (
               rule_id,
               capability_id,
@@ -639,191 +682,200 @@ describe("declarative authorization rule migration in PGlite", () => {
             )
           `.pipe(Effect.asVoid);
 
-        const valid = yield* Effect.exit(
-          insertSubmitRule("authz-params-valid", {
-            slot: "EconomyPaymentAuthority",
-            paymentAccountCiphertext: "ciphertext",
+              const valid = yield* Effect.exit(
+                insertSubmitRule("authz-params-valid", {
+                  slot: "EconomyPaymentAuthority",
+                  paymentAccountCiphertext: "ciphertext",
+                }),
+              );
+
+              const internalWhitespace = yield* Effect.exit(
+                insertSubmitRule("authz-params-internal-whitespace", {
+                  slot: "EconomyPaymentAuthority",
+                  paymentAccountCiphertext: "ciphertext\u00a0account",
+                }),
+              );
+
+              const remainingEcmaScriptTrimWhitespace = ecmaScriptTrimBoundaryCharacters.slice(2);
+
+              const invalidParams: ReadonlyArray<readonly [string, Schema.Json]> = [
+                ["missingKey", { slot: "EconomyPaymentAuthority" }],
+                ["arbitraryKey", { slot: "EconomyPaymentAuthority", arbitrary: "ciphertext" }],
+                [
+                  "extraKey",
+                  {
+                    slot: "EconomyPaymentAuthority",
+                    paymentAccountCiphertext: "ciphertext",
+                    arbitrary: true,
+                  },
+                ],
+                ["nonStringSlot", { slot: null, paymentAccountCiphertext: "ciphertext" }],
+                [
+                  "nonStringCiphertext",
+                  { slot: "EconomyPaymentAuthority", paymentAccountCiphertext: 42 },
+                ],
+                [
+                  "emptyCiphertext",
+                  { slot: "EconomyPaymentAuthority", paymentAccountCiphertext: "" },
+                ],
+                [
+                  "paddedCiphertext",
+                  {
+                    slot: "EconomyPaymentAuthority",
+                    paymentAccountCiphertext: " ciphertext ",
+                  },
+                ],
+                [
+                  "tabPaddedCiphertext",
+                  {
+                    slot: "EconomyPaymentAuthority",
+                    paymentAccountCiphertext: "ciphertext\t",
+                  },
+                ],
+                [
+                  "newlinePaddedCiphertext",
+                  {
+                    slot: "EconomyPaymentAuthority",
+                    paymentAccountCiphertext: "\nciphertext",
+                  },
+                ],
+                [
+                  "carriageReturnPaddedCiphertext",
+                  {
+                    slot: "EconomyPaymentAuthority",
+                    paymentAccountCiphertext: "ciphertext\r",
+                  },
+                ],
+                [
+                  "nbspPaddedCiphertext",
+                  {
+                    slot: "EconomyPaymentAuthority",
+                    paymentAccountCiphertext: "\u00a0ciphertext",
+                  },
+                ],
+              ];
+
+              const rejected: Record<string, boolean> = {};
+
+              for (const [name, params] of invalidParams) {
+                const outcome = yield* Effect.exit(
+                  insertSubmitRule(`authz-params-${name}`, params),
+                );
+
+                rejected[name] = Predicate.isTagged(outcome, "Failure");
+              }
+
+              let remainingEcmaScriptBoundariesRejected = true;
+
+              for (const [index, whitespace] of remainingEcmaScriptTrimWhitespace.entries()) {
+                const outcome = yield* Effect.exit(
+                  insertSubmitRule(`authz-params-ecma-boundary-${index}`, {
+                    slot: "EconomyPaymentAuthority",
+                    paymentAccountCiphertext: `${whitespace}ciphertext`,
+                  }),
+                );
+
+                remainingEcmaScriptBoundariesRejected &&= Predicate.isTagged(outcome, "Failure");
+              }
+
+              return {
+                validAccepted: Predicate.isTagged(valid, "Success"),
+                internalWhitespaceAccepted: Predicate.isTagged(internalWhitespace, "Success"),
+                rejected,
+                remainingEcmaScriptBoundariesRejected,
+              };
+            });
+
+            expect(evidence).toEqual({
+              validAccepted: true,
+              internalWhitespaceAccepted: true,
+              remainingEcmaScriptBoundariesRejected: true,
+              rejected: {
+                missingKey: true,
+                arbitraryKey: true,
+                extraKey: true,
+                nonStringSlot: true,
+                nonStringCiphertext: true,
+                emptyCiphertext: true,
+                paddedCiphertext: true,
+                tabPaddedCiphertext: true,
+                newlinePaddedCiphertext: true,
+                carriageReturnPaddedCiphertext: true,
+                nbspPaddedCiphertext: true,
+              },
+            });
           }),
-        );
+        15_000,
+      );
 
-        const internalWhitespace = yield* Effect.exit(
-          insertSubmitRule("authz-params-internal-whitespace", {
-            slot: "EconomyPaymentAuthority",
-            paymentAccountCiphertext: "ciphertext\u00a0account",
-          }),
-        );
-
-        const remainingEcmaScriptTrimWhitespace = ecmaScriptTrimBoundaryCharacters.slice(2);
-
-        const invalidParams: ReadonlyArray<readonly [string, Schema.Json]> = [
-          ["missingKey", { slot: "EconomyPaymentAuthority" }],
-          ["arbitraryKey", { slot: "EconomyPaymentAuthority", arbitrary: "ciphertext" }],
-          [
-            "extraKey",
-            {
-              slot: "EconomyPaymentAuthority",
-              paymentAccountCiphertext: "ciphertext",
-              arbitrary: true,
-            },
-          ],
-          ["nonStringSlot", { slot: null, paymentAccountCiphertext: "ciphertext" }],
-          [
-            "nonStringCiphertext",
-            { slot: "EconomyPaymentAuthority", paymentAccountCiphertext: 42 },
-          ],
-          ["emptyCiphertext", { slot: "EconomyPaymentAuthority", paymentAccountCiphertext: "" }],
-          [
-            "paddedCiphertext",
-            {
-              slot: "EconomyPaymentAuthority",
-              paymentAccountCiphertext: " ciphertext ",
-            },
-          ],
-          [
-            "tabPaddedCiphertext",
-            {
-              slot: "EconomyPaymentAuthority",
-              paymentAccountCiphertext: "ciphertext\t",
-            },
-          ],
-          [
-            "newlinePaddedCiphertext",
-            {
-              slot: "EconomyPaymentAuthority",
-              paymentAccountCiphertext: "\nciphertext",
-            },
-          ],
-          [
-            "carriageReturnPaddedCiphertext",
-            {
-              slot: "EconomyPaymentAuthority",
-              paymentAccountCiphertext: "ciphertext\r",
-            },
-          ],
-          [
-            "nbspPaddedCiphertext",
-            {
-              slot: "EconomyPaymentAuthority",
-              paymentAccountCiphertext: "\u00a0ciphertext",
-            },
-          ],
-        ];
-
-        const rejected: Record<string, boolean> = {};
-
-        for (const [name, params] of invalidParams) {
-          const outcome = yield* Effect.exit(insertSubmitRule(`authz-params-${name}`, params));
-          rejected[name] = Predicate.isTagged(outcome, "Failure");
-        }
-
-        let remainingEcmaScriptBoundariesRejected = true;
-
-        for (const [index, whitespace] of remainingEcmaScriptTrimWhitespace.entries()) {
-          const outcome = yield* Effect.exit(
-            insertSubmitRule(`authz-params-ecma-boundary-${index}`, {
-              slot: "EconomyPaymentAuthority",
-              paymentAccountCiphertext: `${whitespace}ciphertext`,
-            }),
-          );
-
-          remainingEcmaScriptBoundariesRejected &&= Predicate.isTagged(outcome, "Failure");
-        }
-
-        return {
-          validAccepted: Predicate.isTagged(valid, "Success"),
-          internalWhitespaceAccepted: Predicate.isTagged(internalWhitespace, "Success"),
-          rejected,
-          remainingEcmaScriptBoundariesRejected,
-        };
-      }),
-    );
-
-    expect(evidence).toEqual({
-      validAccepted: true,
-      internalWhitespaceAccepted: true,
-      remainingEcmaScriptBoundariesRejected: true,
-      rejected: {
-        missingKey: true,
-        arbitraryKey: true,
-        extraKey: true,
-        nonStringSlot: true,
-        nonStringCiphertext: true,
-        emptyCiphertext: true,
-        paddedCiphertext: true,
-        tabPaddedCiphertext: true,
-        newlinePaddedCiphertext: true,
-        carriageReturnPaddedCiphertext: true,
-        nbspPaddedCiphertext: true,
-      },
-    });
-  }, 15_000);
-
-  it("rejects every ECMAScript-trimmed authorization identifier at the SQL boundary", async () => {
-    const evidence = await runtime.runPromise(
-      Effect.gen(function* () {
-        const database = yield* Database;
-        const personId = "authz-identifiers-person";
-        const validTagId = "authz-identifiers-valid-tag";
-        yield* database`
+      it.effect(
+        "rejects every ECMAScript-trimmed authorization identifier at the SQL boundary",
+        () =>
+          Effect.gen(function* () {
+            const evidence = yield* Effect.gen(function* () {
+              const database = yield* Database;
+              const personId = "authz-identifiers-person";
+              const validTagId = "authz-identifiers-valid-tag";
+              yield* database`
           INSERT INTO public.person_profiles (person_id, first_name, last_name)
           VALUES (${personId}, 'Authz', 'Identifiers')
           ON CONFLICT (person_id) DO NOTHING
         `;
-        yield* database`
+              yield* database`
           INSERT INTO public.authz_tags (tag_id, name)
           VALUES (${validTagId}, 'Authz Identifiers Valid Tag')
           ON CONFLICT (tag_id) DO NOTHING
         `;
 
-        const boundaryCases = [
-          { name: "empty", makeValue: (_base: string) => "" },
-          ...ecmaScriptTrimBoundaryCharacters.flatMap((whitespace, index) => [
-            {
-              name: `leading-${index}`,
-              makeValue: (base: string) => `${whitespace}${base}`,
-            },
-            {
-              name: `trailing-${index}`,
-              makeValue: (base: string) => `${base}${whitespace}`,
-            },
-          ]),
-        ];
+              const boundaryCases = [
+                { name: "empty", makeValue: (_base: string) => "" },
+                ...ecmaScriptTrimBoundaryCharacters.flatMap((whitespace, index) => [
+                  {
+                    name: `leading-${index}`,
+                    makeValue: (base: string) => `${whitespace}${base}`,
+                  },
+                  {
+                    name: `trailing-${index}`,
+                    makeValue: (base: string) => `${base}${whitespace}`,
+                  },
+                ]),
+              ];
 
-        const unexpectedlyAccepted: Array<string> = [];
-        let attemptedCases = 0;
+              const unexpectedlyAccepted: Array<string> = [];
+              let attemptedCases = 0;
 
-        for (const [index, boundaryCase] of boundaryCases.entries()) {
-          const base = `authz-identifiers-${index}`;
-          const invalid = boundaryCase.makeValue(base);
+              for (const [index, boundaryCase] of boundaryCases.entries()) {
+                const base = `authz-identifiers-${index}`;
+                const invalid = boundaryCase.makeValue(base);
 
-          const attempts = [
-            [
-              "tagId",
-              database`
+                const attempts = [
+                  [
+                    "tagId",
+                    database`
                 INSERT INTO public.authz_tags (tag_id, name)
                 VALUES (${invalid}, ${`${base}-tag-name`})
               `.pipe(Effect.asVoid),
-            ],
-            [
-              "tagName",
-              database`
+                  ],
+                  [
+                    "tagName",
+                    database`
                 INSERT INTO public.authz_tags (tag_id, name)
                 VALUES (${`${base}-tag-id`}, ${invalid})
               `.pipe(Effect.asVoid),
-            ],
-            [
-              "assignmentId",
-              database`
+                  ],
+                  [
+                    "assignmentId",
+                    database`
                 INSERT INTO public.authz_tag_assignments (
                   assignment_id, tag_id, person_id, start_at
                 ) VALUES (
                   ${invalid}, ${validTagId}, ${personId}, '2030-01-01T00:00:00.000Z'
                 )
               `.pipe(Effect.asVoid),
-            ],
-            [
-              "assignmentTagId",
-              database`
+                  ],
+                  [
+                    "assignmentTagId",
+                    database`
                 INSERT INTO public.authz_tag_assignments (
                   assignment_id, tag_id, person_id, start_at
                 ) VALUES (
@@ -833,10 +885,10 @@ describe("declarative authorization rule migration in PGlite", () => {
                   '2030-01-01T00:00:00.000Z'
                 )
               `.pipe(Effect.asVoid),
-            ],
-            [
-              "ruleId",
-              database`
+                  ],
+                  [
+                    "ruleId",
+                    database`
                 INSERT INTO public.authz_rules (
                   rule_id, capability_id, effect_kind, subject_kind,
                   subject_person_id, subject_tag_id, scope, department_id,
@@ -848,10 +900,10 @@ describe("declarative authorization rule migration in PGlite", () => {
                   '2030-01-01T00:00:00.000Z'
                 )
               `.pipe(Effect.asVoid),
-            ],
-            [
-              "ruleSubjectTagId",
-              database`
+                  ],
+                  [
+                    "ruleSubjectTagId",
+                    database`
                 INSERT INTO public.authz_rules (
                   rule_id, capability_id, effect_kind, subject_kind,
                   subject_person_id, subject_tag_id, scope, department_id,
@@ -869,10 +921,10 @@ describe("declarative authorization rule migration in PGlite", () => {
                   '2030-01-01T00:00:00.000Z'
                 )
               `.pipe(Effect.asVoid),
-            ],
-            [
-              "capabilityId",
-              database`
+                  ],
+                  [
+                    "capabilityId",
+                    database`
                 INSERT INTO public.authz_rules (
                   rule_id, capability_id, effect_kind, subject_kind,
                   subject_person_id, subject_tag_id, scope, department_id,
@@ -890,10 +942,10 @@ describe("declarative authorization rule migration in PGlite", () => {
                   '2030-01-01T00:00:00.000Z'
                 )
               `.pipe(Effect.asVoid),
-            ],
-            [
-              "subjectKind",
-              database`
+                  ],
+                  [
+                    "subjectKind",
+                    database`
                 INSERT INTO public.authz_rules (
                   rule_id, capability_id, effect_kind, subject_kind,
                   subject_person_id, subject_tag_id, scope, department_id,
@@ -911,28 +963,28 @@ describe("declarative authorization rule migration in PGlite", () => {
                   '2030-01-01T00:00:00.000Z'
                 )
               `.pipe(Effect.asVoid),
-            ],
-          ] as const;
+                  ],
+                ] as const;
 
-          for (const [category, attempt] of attempts) {
-            attemptedCases += 1;
-            const outcome = yield* Effect.exit(attempt);
+                for (const [category, attempt] of attempts) {
+                  attemptedCases += 1;
+                  const outcome = yield* Effect.exit(attempt);
 
-            if (Predicate.isTagged(outcome, "Success")) {
-              unexpectedlyAccepted.push(`${category}:${boundaryCase.name}`);
-            }
-          }
-        }
+                  if (Predicate.isTagged(outcome, "Success")) {
+                    unexpectedlyAccepted.push(`${category}:${boundaryCase.name}`);
+                  }
+                }
+              }
 
-        const internalTagId = "authz\tidentifiers-tag";
+              const internalTagId = "authz\tidentifiers-tag";
 
-        const internalWhitespace = yield* Effect.exit(
-          Effect.gen(function* () {
-            yield* database`
+              const internalWhitespace = yield* Effect.exit(
+                Effect.gen(function* () {
+                  yield* database`
               INSERT INTO public.authz_tags (tag_id, name)
               VALUES (${internalTagId}, ${"Authz\u00a0Identifiers Tag"})
             `;
-            yield* database`
+                  yield* database`
               INSERT INTO public.authz_tag_assignments (
                 assignment_id, tag_id, person_id, start_at
               ) VALUES (
@@ -942,7 +994,7 @@ describe("declarative authorization rule migration in PGlite", () => {
                 '2030-01-01T00:00:00.000Z'
               )
             `;
-            yield* database`
+                  yield* database`
               INSERT INTO public.authz_rules (
                 rule_id, capability_id, effect_kind, subject_kind,
                 subject_person_id, subject_tag_id, scope, department_id,
@@ -960,30 +1012,34 @@ describe("declarative authorization rule migration in PGlite", () => {
                 '2030-01-01T00:00:00.000Z'
               )
             `;
+                }),
+              );
+
+              return {
+                attemptedCases,
+                internalWhitespaceAccepted: Predicate.isTagged(internalWhitespace, "Success"),
+                unexpectedlyAccepted,
+              };
+            });
+
+            expect(evidence).toEqual({
+              attemptedCases: (1 + ecmaScriptTrimBoundaryCharacters.length * 2) * 8,
+              internalWhitespaceAccepted: true,
+              unexpectedlyAccepted: [],
+            });
           }),
-        );
+        30_000,
+      );
 
-        return {
-          attemptedCases,
-          internalWhitespaceAccepted: Predicate.isTagged(internalWhitespace, "Success"),
-          unexpectedlyAccepted,
-        };
-      }),
-    );
+      it.effect(
+        "migration 25 accepts only Global, Domain(receipts), and Department rule scopes",
+        () =>
+          Effect.gen(function* () {
+            const database = yield* disposablePglite;
 
-    expect(evidence).toEqual({
-      attemptedCases: (1 + ecmaScriptTrimBoundaryCharacters.length * 2) * 8,
-      internalWhitespaceAccepted: true,
-      unexpectedlyAccepted: [],
-    });
-  }, 30_000);
-
-  it("migration 25 accepts only Global, Domain(receipts), and Department rule scopes", async () => {
-    const database = new PGlite({ extensions: { btree_gist } });
-
-    try {
-      await applyMigrationsThrough(database, "25_principal-credential-access-algebra");
-      await database.exec(`
+            yield* applyMigrationsThrough(database, "25_principal-credential-access-algebra");
+            yield* Effect.promise(() =>
+              database.exec(`
         INSERT INTO public.person_profiles (person_id, first_name, last_name)
         VALUES ('authz-domain-person', 'Authz', 'Domain');
         INSERT INTO public.organization_departments (
@@ -992,16 +1048,17 @@ describe("declarative authorization rule migration in PGlite", () => {
           'authz-domain-department', 'Authz Domain Department', 'ADD',
           'authz-domain@example.invalid', 'Oslo'
         );
-      `);
+      `),
+            );
 
-      const insert = (
-        ruleId: string,
-        scope: string,
-        domainId: string | null,
-        departmentId: string | null,
-      ) =>
-        database.query(
-          `
+            const insert = (
+              ruleId: string,
+              scope: string,
+              domainId: string | null,
+              departmentId: string | null,
+            ) =>
+              database.query(
+                `
             INSERT INTO public.authz_rules (
               rule_id, capability_id, effect_kind, subject_kind, subject_person_id,
               subject_tag_id, scope, domain_id, department_id, params, start_at
@@ -1012,56 +1069,64 @@ describe("declarative authorization rule migration in PGlite", () => {
               '2030-01-01T00:00:00.000Z'
             )
           `,
-          [ruleId, scope, domainId, departmentId],
-        );
+                [ruleId, scope, domainId, departmentId],
+              );
 
-      const accepted = async (
-        ruleId: string,
-        scope: string,
-        domainId: string | null,
-        departmentId: string | null,
-      ) => {
-        try {
-          await insert(ruleId, scope, domainId, departmentId);
+            const accepted = (
+              ruleId: string,
+              scope: string,
+              domainId: string | null,
+              departmentId: string | null,
+            ) =>
+              Effect.tryPromise(() => insert(ruleId, scope, domainId, departmentId)).pipe(
+                Effect.match({ onFailure: () => false, onSuccess: () => true }),
+              );
 
-          return true;
-        } catch {
-          return false;
-        }
-      };
+            const globalAccepted = yield* accepted("authz-global-valid", "Global", null, null);
 
-      const globalAccepted = await accepted("authz-global-valid", "Global", null, null);
-      const domainAccepted = await accepted("authz-domain-valid", "Domain", "receipts", null);
+            const domainAccepted = yield* accepted(
+              "authz-domain-valid",
+              "Domain",
+              "receipts",
+              null,
+            );
 
-      const departmentAccepted = await accepted(
-        "authz-department-valid",
-        "Department",
-        null,
-        "authz-domain-department",
-      );
+            const departmentAccepted = yield* accepted(
+              "authz-department-valid",
+              "Department",
+              null,
+              "authz-domain-department",
+            );
 
-      const receiptRejected = !(await accepted("authz-receipt-invalid", "Receipt", null, null));
-      const tenantRejected = !(await accepted("authz-tenant-invalid", "Tenant", null, null));
+            const receiptRejected = !(yield* accepted(
+              "authz-receipt-invalid",
+              "Receipt",
+              null,
+              null,
+            ));
 
-      const missingDomainRejected = !(await accepted(
-        "authz-domain-missing-id",
-        "Domain",
-        null,
-        null,
-      ));
+            const tenantRejected = !(yield* accepted("authz-tenant-invalid", "Tenant", null, null));
 
-      const wrongDomainRejected = !(await accepted(
-        "authz-domain-wrong-id",
-        "Domain",
-        "organization",
-        null,
-      ));
+            const missingDomainRejected = !(yield* accepted(
+              "authz-domain-missing-id",
+              "Domain",
+              null,
+              null,
+            ));
 
-      const rows = await database.query<{
-        readonly departmentId: string | null;
-        readonly domainId: string | null;
-        readonly scope: string;
-      }>(`
+            const wrongDomainRejected = !(yield* accepted(
+              "authz-domain-wrong-id",
+              "Domain",
+              "organization",
+              null,
+            ));
+
+            const rows = yield* Effect.promise(() =>
+              database.query<{
+                readonly departmentId: string | null;
+                readonly domainId: string | null;
+                readonly scope: string;
+              }>(`
         SELECT
           department_id AS "departmentId",
           domain_id AS "domainId",
@@ -1069,49 +1134,51 @@ describe("declarative authorization rule migration in PGlite", () => {
         FROM public.authz_rules
         WHERE rule_id IN ('authz-department-valid', 'authz-domain-valid', 'authz-global-valid')
         ORDER BY rule_id
-      `);
+      `),
+            );
 
-      expect({
-        globalAccepted,
-        domainAccepted,
-        departmentAccepted,
-        receiptRejected,
-        tenantRejected,
-        missingDomainRejected,
-        wrongDomainRejected,
-        rows: rows.rows,
-      }).toEqual({
-        globalAccepted: true,
-        domainAccepted: true,
-        departmentAccepted: true,
-        receiptRejected: true,
-        tenantRejected: true,
-        missingDomainRejected: true,
-        wrongDomainRejected: true,
-        rows: [
-          {
-            departmentId: "authz-domain-department",
-            domainId: null,
-            scope: "Department",
-          },
-          { departmentId: null, domainId: "receipts", scope: "Domain" },
-          { departmentId: null, domainId: null, scope: "Global" },
-        ],
-      });
-    } finally {
-      await database.close();
-    }
-  }, 15_000);
-});
+            expect({
+              globalAccepted,
+              domainAccepted,
+              departmentAccepted,
+              receiptRejected,
+              tenantRejected,
+              missingDomainRejected,
+              wrongDomainRejected,
+              rows: rows.rows,
+            }).toEqual({
+              globalAccepted: true,
+              domainAccepted: true,
+              departmentAccepted: true,
+              receiptRejected: true,
+              tenantRejected: true,
+              missingDomainRejected: true,
+              wrongDomainRejected: true,
+              rows: [
+                {
+                  departmentId: "authz-domain-department",
+                  domainId: null,
+                  scope: "Department",
+                },
+                { departmentId: null, domainId: "receipts", scope: "Domain" },
+                { departmentId: null, domainId: null, scope: "Global" },
+              ],
+            });
+          }),
+        15_000,
+      );
+    });
 
-describe("declarative rule reconciliation migration", () => {
-  const reconciliationMigration = selectDatabaseMigration(
-    "26_declarative-rule-reconciliation",
-  ).migration;
+    describe("declarative rule reconciliation migration", () => {
+      const reconciliationMigration = selectDatabaseMigration(
+        "26_declarative-rule-reconciliation",
+      ).migration;
 
-  const prepareMigration25State = async (database: PGlite) => {
-    await applyMigrationsThrough(database, "25_principal-credential-access-algebra");
-    await database.exec(`
+      const prepareMigration25State = (database: PGlite) =>
+        Effect.gen(function* () {
+          yield* applyMigrationsThrough(database, "25_principal-credential-access-algebra");
+          yield* Effect.promise(() =>
+            database.exec(`
       INSERT INTO public.person_profiles (person_id, first_name, last_name)
       VALUES ('migration-preflight-person', 'Migration', 'Preflight');
       INSERT INTO public.organization_departments (
@@ -1122,8 +1189,10 @@ describe("declarative rule reconciliation migration", () => {
       );
       INSERT INTO public.authz_tags (tag_id, name, revision)
       VALUES ('migration-preflight-tag', 'Migration preflight', 0);
-    `);
-    await database.exec(`
+    `),
+          );
+          yield* Effect.promise(() =>
+            database.exec(`
       ALTER TABLE public.authz_rules
         DROP CONSTRAINT authz_rules_subject_person_id_fkey,
         DROP CONSTRAINT authz_rules_subject_tag_id_fkey,
@@ -1135,11 +1204,13 @@ describe("declarative rule reconciliation migration", () => {
         DROP CONSTRAINT authz_rules_revision_nonnegative;
       ALTER TABLE public.authz_rules
         ADD CONSTRAINT authz_rules_params_declared CHECK (true);
-    `);
-  };
+    `),
+          );
+        });
 
-  const insertValidPreflightRows = (database: PGlite) =>
-    database.exec(`
+      const insertValidPreflightRows = (database: PGlite) =>
+        Effect.promise(() =>
+          database.exec(`
       INSERT INTO public.authz_rules (
         rule_id, capability_id, effect_kind, subject_kind,
         subject_person_id, subject_tag_id, scope, domain_id, department_id,
@@ -1170,28 +1241,34 @@ describe("declarative rule reconciliation migration", () => {
           '{"slot":"EconomyPaymentAuthority","paymentAccountCiphertext":"preflight-secret-ciphertext"}'::jsonb,
           '2030-01-01T00:00:00.000Z', NULL, 0
         );
-    `);
+    `),
+        );
 
-  it("reports every unsupported row once and aborts before mutation", async () => {
-    const database = new PGlite({ extensions: { btree_gist } });
+      it.effect(
+        "reports every unsupported row once and aborts before mutation",
+        () =>
+          Effect.gen(function* () {
+            const database = yield* disposablePglite;
 
-    try {
-      await prepareMigration25State(database);
+            yield* prepareMigration25State(database);
 
-      const columnsAfter25 = await database.query<{
-        readonly columnName: string;
-      }>(`
+            const columnsAfter25 = yield* Effect.promise(() =>
+              database.query<{
+                readonly columnName: string;
+              }>(`
         SELECT column_name AS "columnName"
         FROM information_schema.columns
         WHERE table_schema = 'public'
           AND table_name = 'authz_rules'
           AND column_name IN ('domain_id', 'resource_id')
         ORDER BY column_name
-      `);
+      `),
+            );
 
-      expect(columnsAfter25.rows).toEqual([{ columnName: "domain_id" }]);
-      await insertValidPreflightRows(database);
-      await database.exec(`
+            expect(columnsAfter25.rows).toEqual([{ columnName: "domain_id" }]);
+            yield* insertValidPreflightRows(database);
+            yield* Effect.promise(() =>
+              database.exec(`
         INSERT INTO public.authz_rules (
           rule_id, capability_id, effect_kind, subject_kind,
           subject_person_id, subject_tag_id, scope, domain_id, department_id,
@@ -1240,117 +1317,131 @@ describe("declarative rule reconciliation migration", () => {
             '{"slot":"unsupported","private":"do-not-report"}'::jsonb,
             '2030-01-01T00:00:00.000Z', NULL, 0
           );
-      `);
+      `),
+            );
 
-      let failureMessage = "";
+            const reconciliationSource = yield* readMigrationSource(reconciliationMigration.url);
 
-      try {
-        await database.exec(await readFile(reconciliationMigration.url, "utf8"));
-      } catch (cause) {
-        failureMessage = cause instanceof Error ? cause.message : String(cause);
-      }
+            const failureMessage = yield* Effect.tryPromise({
+              try: () => database.exec(reconciliationSource),
+              catch: (cause) => (cause instanceof Error ? cause.message : String(cause)),
+            }).pipe(Effect.match({ onFailure: (message) => message, onSuccess: () => "" }));
 
-      const reportMatch = /authz_rules preflight failed: (\[.*\])/u.exec(failureMessage);
-      expect(reportMatch).not.toBeNull();
-      expect(JSON.parse(reportMatch![1]!)).toEqual([
-        {
-          reasonCode: "INTERVAL_INVALID",
-          ruleId: "migration-preflight-interval",
-        },
-        {
-          reasonCode: "REVISION_INVALID",
-          ruleId: "migration-preflight-revision",
-        },
-        {
-          reasonCode: "SCOPE_COLUMNS_INVALID",
-          ruleId: "migration-preflight-scope-columns",
-        },
-        {
-          reasonCode: "SCOPE_REFERENCE_MISSING",
-          ruleId: "migration-preflight-scope-reference",
-        },
-        {
-          reasonCode: "SUBJECT_COLUMNS_INVALID",
-          ruleId: "migration-preflight-subject-columns",
-        },
-        {
-          reasonCode: "SUBJECT_REFERENCE_MISSING",
-          ruleId: "migration-preflight-subject-reference",
-        },
-        {
-          reasonCode: "VARIANT_INVALID",
-          ruleId: "migration-preflight-variant",
-        },
-      ]);
-      expect(failureMessage).not.toContain("preflight-secret-ciphertext");
-      expect(failureMessage).not.toContain("do-not-report");
-      expect(failureMessage).not.toContain("migration-preflight-valid-");
+            const reportMatch = /authz_rules preflight failed: (\[.*\])/u.exec(failureMessage);
+            expect(reportMatch).not.toBeNull();
 
-      const requirementConstraint = await database.query<{
-        readonly definition: string;
-      }>(`
+            const report = yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(
+              reportMatch![1]!,
+            );
+
+            expect(report).toEqual([
+              {
+                reasonCode: "INTERVAL_INVALID",
+                ruleId: "migration-preflight-interval",
+              },
+              {
+                reasonCode: "REVISION_INVALID",
+                ruleId: "migration-preflight-revision",
+              },
+              {
+                reasonCode: "SCOPE_COLUMNS_INVALID",
+                ruleId: "migration-preflight-scope-columns",
+              },
+              {
+                reasonCode: "SCOPE_REFERENCE_MISSING",
+                ruleId: "migration-preflight-scope-reference",
+              },
+              {
+                reasonCode: "SUBJECT_COLUMNS_INVALID",
+                ruleId: "migration-preflight-subject-columns",
+              },
+              {
+                reasonCode: "SUBJECT_REFERENCE_MISSING",
+                ruleId: "migration-preflight-subject-reference",
+              },
+              {
+                reasonCode: "VARIANT_INVALID",
+                ruleId: "migration-preflight-variant",
+              },
+            ]);
+            expect(failureMessage).not.toContain("preflight-secret-ciphertext");
+            expect(failureMessage).not.toContain("do-not-report");
+            expect(failureMessage).not.toContain("migration-preflight-valid-");
+
+            const requirementConstraint = yield* Effect.promise(() =>
+              database.query<{
+                readonly definition: string;
+              }>(`
         SELECT pg_get_constraintdef(oid) AS definition
         FROM pg_constraint
         WHERE conrelid = 'public.authz_rules'::regclass
           AND conname = 'authz_rules_params_declared'
-      `);
+      `),
+            );
 
-      expect(requirementConstraint.rows).toEqual([{ definition: "CHECK (true)" }]);
-    } finally {
-      await database.close();
-    }
-  }, 15_000);
+            expect(requirementConstraint.rows).toEqual([{ definition: "CHECK (true)" }]);
+          }),
+        15_000,
+      );
 
-  it("accepts complete valid rows from migration 25 state", async () => {
-    const database = new PGlite({ extensions: { btree_gist } });
+      it.effect(
+        "accepts complete valid rows from migration 25 state",
+        () =>
+          Effect.gen(function* () {
+            const database = yield* disposablePglite;
 
-    try {
-      await prepareMigration25State(database);
-      await insertValidPreflightRows(database);
-      await database.exec(await readFile(reconciliationMigration.url, "utf8"));
+            yield* prepareMigration25State(database);
+            yield* insertValidPreflightRows(database);
+            const reconciliationSource = yield* readMigrationSource(reconciliationMigration.url);
+            yield* Effect.promise(() => database.exec(reconciliationSource));
 
-      const rows = await database.query<{ readonly ruleId: string }>(`
+            const rows = yield* Effect.promise(() =>
+              database.query<{ readonly ruleId: string }>(`
         SELECT rule_id AS "ruleId"
         FROM public.authz_rules
         ORDER BY rule_id
-      `);
+      `),
+            );
 
-      expect(rows.rows).toEqual([
-        { ruleId: "migration-preflight-valid-department" },
-        { ruleId: "migration-preflight-valid-domain" },
-        { ruleId: "migration-preflight-valid-global" },
-        { ruleId: "migration-preflight-valid-payment" },
-      ]);
+            expect(rows.rows).toEqual([
+              { ruleId: "migration-preflight-valid-department" },
+              { ruleId: "migration-preflight-valid-domain" },
+              { ruleId: "migration-preflight-valid-global" },
+              { ruleId: "migration-preflight-valid-payment" },
+            ]);
 
-      const constraint = await database.query<{ readonly definition: string }>(`
+            const constraint = yield* Effect.promise(() =>
+              database.query<{ readonly definition: string }>(`
         SELECT pg_get_constraintdef(oid) AS definition
         FROM pg_constraint
         WHERE conrelid = 'public.authz_rules'::regclass
           AND conname = 'authz_rules_params_declared'
-      `);
+      `),
+            );
 
-      expect(constraint.rows[0]?.definition).toContain("receipts.pending");
-    } finally {
-      await database.close();
-    }
-  }, 15_000);
+            expect(constraint.rows[0]?.definition).toContain("receipts.pending");
+          }),
+        15_000,
+      );
 
-  it("accepts only exact requirements on allowed rule scopes", async () => {
-    const evidence = await runtime.runPromise(
-      Effect.gen(function* () {
-        const database = yield* Database;
-        yield* database`
+      it.effect(
+        "accepts only exact requirements on allowed rule scopes",
+        () =>
+          Effect.gen(function* () {
+            const evidence = yield* Effect.gen(function* () {
+              const database = yield* Database;
+              yield* database`
           INSERT INTO public.person_profiles (person_id, first_name, last_name)
           VALUES ('migration-requirement-person', 'Requirement', 'Rule')
         `;
 
-        const insert = (
-          ruleId: string,
-          scope: string,
-          domainId: string | null,
-          params: Schema.Json,
-        ) =>
-          database`
+              const insert = (
+                ruleId: string,
+                scope: string,
+                domainId: string | null,
+                params: Schema.Json,
+              ) =>
+                database`
             INSERT INTO public.authz_rules (
               rule_id, capability_id, effect_kind, subject_kind,
               subject_person_id, subject_tag_id, scope, domain_id, department_id,
@@ -1363,49 +1454,49 @@ describe("declarative rule reconciliation migration", () => {
             )
           `.pipe(Effect.asVoid);
 
-        yield* insert("migration-require-pending", "Domain", "receipts", {
-          requirementId: "receipts.pending",
-          parameters: {},
-        });
-        yield* insert("migration-require-approver", "Global", null, {
-          requirementId: "receipts.approver-relationship",
-          parameters: {},
-        });
+              yield* insert("migration-require-pending", "Domain", "receipts", {
+                requirementId: "receipts.pending",
+                parameters: {},
+              });
+              yield* insert("migration-require-approver", "Global", null, {
+                requirementId: "receipts.approver-relationship",
+                parameters: {},
+              });
 
-        const unsupported = yield* Effect.exit(
-          insert("migration-require-unsupported", "Domain", "receipts", {
-            requirementId: "receipts.owner",
-            parameters: {},
-          }),
-        );
+              const unsupported = yield* Effect.exit(
+                insert("migration-require-unsupported", "Domain", "receipts", {
+                  requirementId: "receipts.owner",
+                  parameters: {},
+                }),
+              );
 
-        const nonempty = yield* Effect.exit(
-          insert("migration-require-nonempty", "Domain", "receipts", {
-            requirementId: "receipts.pending",
-            parameters: { unexpected: true },
-          }),
-        );
+              const nonempty = yield* Effect.exit(
+                insert("migration-require-nonempty", "Domain", "receipts", {
+                  requirementId: "receipts.pending",
+                  parameters: { unexpected: true },
+                }),
+              );
 
-        const excess = yield* Effect.exit(
-          insert("migration-require-excess", "Domain", "receipts", {
-            requirementId: "receipts.pending",
-            parameters: {},
-            unexpected: true,
-          }),
-        );
+              const excess = yield* Effect.exit(
+                insert("migration-require-excess", "Domain", "receipts", {
+                  requirementId: "receipts.pending",
+                  parameters: {},
+                  unexpected: true,
+                }),
+              );
 
-        const receiptScope = yield* Effect.exit(
-          insert("migration-require-receipt-scope", "Receipt", null, {
-            requirementId: "receipts.pending",
-            parameters: {},
-          }),
-        );
+              const receiptScope = yield* Effect.exit(
+                insert("migration-require-receipt-scope", "Receipt", null, {
+                  requirementId: "receipts.pending",
+                  parameters: {},
+                }),
+              );
 
-        const rows = yield* database<{
-          readonly domainId: string | null;
-          readonly ruleId: string;
-          readonly scope: string;
-        }>`
+              const rows = yield* database<{
+                readonly domainId: string | null;
+                readonly ruleId: string;
+                readonly scope: string;
+              }>`
           SELECT
             rule_id AS "ruleId",
             scope,
@@ -1415,58 +1506,59 @@ describe("declarative rule reconciliation migration", () => {
           ORDER BY rule_id
         `;
 
-        yield* database`
+              yield* database`
           DELETE FROM public.authz_rules
           WHERE subject_person_id = 'migration-requirement-person'
         `;
-        yield* database`
+              yield* database`
           DELETE FROM public.person_profiles
           WHERE person_id = 'migration-requirement-person'
         `;
 
-        return {
-          excess: excess._tag,
-          nonempty: nonempty._tag,
-          receiptScope: receiptScope._tag,
-          rows,
-          unsupported: unsupported._tag,
-        };
-      }),
-    );
+              return {
+                excess: excess._tag,
+                nonempty: nonempty._tag,
+                receiptScope: receiptScope._tag,
+                rows,
+                unsupported: unsupported._tag,
+              };
+            });
 
-    expect(evidence).toEqual({
-      excess: "Failure",
-      nonempty: "Failure",
-      receiptScope: "Failure",
-      rows: [
-        {
-          domainId: null,
-          ruleId: "migration-require-approver",
-          scope: "Global",
-        },
-        {
-          domainId: "receipts",
-          ruleId: "migration-require-pending",
-          scope: "Domain",
-        },
-      ],
-      unsupported: "Failure",
+            expect(evidence).toEqual({
+              excess: "Failure",
+              nonempty: "Failure",
+              receiptScope: "Failure",
+              rows: [
+                {
+                  domainId: null,
+                  ruleId: "migration-require-approver",
+                  scope: "Global",
+                },
+                {
+                  domainId: "receipts",
+                  ruleId: "migration-require-pending",
+                  scope: "Domain",
+                },
+              ],
+              unsupported: "Failure",
+            });
+          }),
+        15_000,
+      );
     });
-  }, 15_000);
-});
 
-describe("instant precision boundary", () => {
-  it("guards every stored instant and its clock default at millisecond precision", async () => {
-    const columns = await runtime.runPromise(
-      Effect.gen(function* () {
-        const database = yield* Database;
+    describe("instant precision boundary", () => {
+      it.effect("guards every stored instant and its clock default at millisecond precision", () =>
+        Effect.gen(function* () {
+          const columns = yield* Effect.gen(function* () {
+            const database = yield* Database;
 
-        // The Migrator writes its own bookkeeping column with an untruncated default.
-        return yield* database<{
-          readonly column: string;
-          readonly guarded: boolean;
-          readonly untruncatedClockDefault: boolean;
-        }>`
+            // The Migrator writes its own bookkeeping column with an untruncated default.
+            return yield* database<{
+              readonly column: string;
+              readonly guarded: boolean;
+              readonly untruncatedClockDefault: boolean;
+            }>`
           SELECT
             format('%I.%I.%I', namespace.nspname, relation.relname, attribute.attname) AS "column",
             EXISTS (
@@ -1501,15 +1593,17 @@ describe("instant precision boundary", () => {
             AND (namespace.nspname, relation.relname) <> ('public', 'vektorprogrammet_schema_migrations')
           ORDER BY 1
         `;
-      }),
-    );
+          });
 
-    expect(columns.length).toBeGreaterThan(0);
-    expect(columns.flatMap(({ column, guarded }) => (guarded ? [] : [column]))).toEqual([]);
-    expect(
-      columns.flatMap(({ column, untruncatedClockDefault }) =>
-        untruncatedClockDefault ? [column] : [],
-      ),
-    ).toEqual([]);
-  });
-});
+          expect(columns.length).toBeGreaterThan(0);
+          expect(columns.flatMap(({ column, guarded }) => (guarded ? [] : [column]))).toEqual([]);
+          expect(
+            columns.flatMap(({ column, untruncatedClockDefault }) =>
+              untruncatedClockDefault ? [column] : [],
+            ),
+          ).toEqual([]);
+        }),
+      );
+    });
+  },
+);
