@@ -22,6 +22,7 @@ The shared constructs defined here. [docs/constructs.md](../../docs/constructs.m
 - [`reserveLoopbackPorts`](index.ts) (test-harness): Reserves `count` distinct loopback ports for the servers that a journey starts: its backend, dashboard, receivers, and clusters.
 - [`startDisposablePostgres`](index.ts) (test-harness): Starts a fresh cluster of the selected major on a private port and socket directory with trust authentication.
 - [`withDisposablePostgres`](index.ts) (test-harness): Runs `use` against the database `database` of a fresh cluster, which `startDisposablePostgres` starts, and removes the cluster when `use` settles, also when it fails.
+- [`startDisposablePgBouncer`](index.ts) (test-harness): Starts PgBouncer on a private loopback port in front of `upstream`, with trust authentication and every database of the cluster, in transaction pool mode unless `options` names another.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

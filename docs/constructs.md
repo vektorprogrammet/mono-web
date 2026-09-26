@@ -19,7 +19,7 @@ Consumers are the modules that import a construct, directly or through re-export
 | [runtime-bridge](#runtime-bridge) | 1          | Runs the Effect programs behind Promise callbacks that a third-party library calls, inside the scope of the layer that owns the library.    |
 | [pagination](#pagination)         | 4          | Keyset cursors and pages over ordered PostgreSQL reads.                                                                                     |
 | [digest](#digest)                 | 4          | Canonical JSON and SHA-256 digests that evidence and idempotency identities hash.                                                           |
-| [test-harness](#test-harness)     | 12         | Starts and drives disposable infrastructure for tests, proofs, and journeys: PostgreSQL clusters, loopback ports, and the local backend.    |
+| [test-harness](#test-harness)     | 13         | Starts and drives disposable infrastructure for tests, proofs, and journeys: PostgreSQL clusters, loopback ports, and the local backend.    |
 | [request-ledger](#request-ledger) | 2          | Classifies the requests that journey recorders observe by whole path segments: native contract operations and legacy routes.                |
 
 ## http-transport
@@ -1105,7 +1105,7 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [tools/verification/receipt-import-rehearsal.ts](../tools/verification/receipt-import-rehearsal.ts)
   - [tools/verification/unattended-delivery-recovery.ts](../tools/verification/unattended-delivery-recovery.ts)
 - `startDisposablePostgres`: Starts a fresh cluster of the selected major on a private port and socket directory with trust authentication.
-  [tools/postgres/index.ts:436](../tools/postgres/index.ts#L436), 35 consumers:
+  [tools/postgres/index.ts:436](../tools/postgres/index.ts#L436), 36 consumers:
   - [apps/backend/test/postgres.ts](../apps/backend/test/postgres.ts)
   - [apps/dashboard/e2e/run-real-admission-period-management.mjs](../apps/dashboard/e2e/run-real-admission-period-management.mjs)
   - [apps/dashboard/e2e/run-real-interview-response.mjs](../apps/dashboard/e2e/run-real-interview-response.mjs)
@@ -1125,6 +1125,7 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [packages/database/runtime/historical-service-cohort-rehearsal.ts](../packages/database/runtime/historical-service-cohort-rehearsal.ts)
   - [packages/database/runtime/person-cohort-rehearsal.ts](../packages/database/runtime/person-cohort-rehearsal.ts)
   - [packages/database/src/oauth-refresh-window.test.ts](../packages/database/src/oauth-refresh-window.test.ts)
+  - [packages/database/src/team-application/delivery-pgbouncer.test.ts](../packages/database/src/team-application/delivery-pgbouncer.test.ts)
   - [packages/database/src/team-application/queue-migration.test.ts](../packages/database/src/team-application/queue-migration.test.ts)
   - [tools/acceptance/onboarding-check.ts](../tools/acceptance/onboarding-check.ts)
   - [tools/acceptance/password-recovery-check.ts](../tools/acceptance/password-recovery-check.ts)
@@ -1146,6 +1147,9 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
   - [packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts](../packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts)
   - [tools/verification/organization-import-rehearsal-main.ts](../tools/verification/organization-import-rehearsal-main.ts)
+- `startDisposablePgBouncer`: Starts PgBouncer on a private loopback port in front of `upstream`, with trust authentication and every database of the cluster, in transaction pool mode unless `options` names another.
+  [tools/postgres/index.ts:746](../tools/postgres/index.ts#L746), 1 consumer:
+  - [packages/database/src/team-application/delivery-pgbouncer.test.ts](../packages/database/src/team-application/delivery-pgbouncer.test.ts)
 
 ## request-ledger
 

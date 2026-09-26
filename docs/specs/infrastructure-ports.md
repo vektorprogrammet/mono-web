@@ -43,6 +43,29 @@ The domain envelope keeps its identity and policy. The queue owns only the lease
 
 A version bump of `effect` re-audits `PersistedQueue` against these tests before it lands.
 
+### Pilot progress
+
+Status on 2026-09-26, branch `feat/team-application-queue-pilot-0926`. Commit `d37481ae` ports the spike onto main.
+Migration 0078 creates the store schema. It moves every outbox row onto a queue item with its id, status, and attempt count, fences the claim columns, and adds `team_application_delivery_state`. Migration 0079 drops the claim columns.
+Each condition, with its tests in `packages/database/src/team-application/` unless named otherwise:
+
+1. `delivery.test.ts` "commits the application, its receipt, both envelopes, and their queue items together, or none" (PGlite), and `delivery-pgbouncer.test.ts` with the same claim through PgBouncer in transaction mode. `startDisposablePgBouncer` in `tools/postgres` is the harness. PgBouncer restores a client's startup `search_path` only where the server reports it, so on PostgreSQL 17 the database must name it.
+2. `delivery.test.ts` "reclaims an expired lease for another worker and rejects the late former owner's outcome" and "rejects a stalled attempt's outcome after its own worker took the lease again". An attempt writes its outcome only while the queue item still has its attempt number.
+3. `delivery.test.ts` "retries with the stored envelope and the effect id as the provider idempotency key".
+4. `delivery.test.ts` "quarantines permanent and ambiguous failures and the last attempt's failure, visible in the delivery status", "quarantines without a provider call when the last attempt's lease expired", and "keeps the outbox evidence through queue cleanup, so a replay after it delivers nothing again".
+5. `delivery.test.ts` "cancels and clears undelivered notifications on deletion, also during an attempt" and "keeps the migration 0069 guards of terminal and private outbox rows".
+6. Open. `apps/backend/src/team-application/worker.test.ts` runs both trigger functions against PostgreSQL. No golden run is recorded on either trigger yet.
+7. `queue-migration.test.ts` "moves in-flight rows with their original ids and states, and drops the claim columns only after no worker can write them", on PostgreSQL and on PGlite, with the statements of the claim outbox.
+
+Negative controls, run on 2026-09-26: each test of conditions 1 to 5 and 7 passed on the unchanged source and failed with an assertion when one guarantee was removed from it. The removed guarantees were the queue offer, the attempt number in the lease fence, the stored idempotency key, the failure-kind check of the quarantine policy, the skip of a settled effect, the cancellation of `Failed` rows, and the claim fence of migration 0078. The PgBouncer test passed on PostgreSQL 18.
+
+Remaining steps, in order:
+
+1. The operation grant, as the lead decided on 2026-09-26. It is a service-principal grant "may run operation X", where X is an operation entry of the capability registry (`packages/domain/src/authz/schema.ts`), so that the other outboxes reuse it. It uses its own table in the next free migration. The receipt-approval grants keep their semantics. `docs/model/authority.als` adds the grant to the MachineGrant fact and checks that a drain grant confers no business capability; `just model` passes.
+2. The bounded drain handler: a POST operation of the native API that accepts an OAuth service bearer with the drain grant and runs `drainTeamApplicationOutbox` (`apps/backend/src/team-application/worker.ts`) up to its limit. `TEAM_APPLICATION_DELIVERY_TRIGGER=poll|drain` selects one trigger, and `apps/backend/src/main.ts` forks the worker only for `poll`.
+3. The golden journey on both triggers: `TEAM_APPLICATION_DELIVERY_TRIGGER=drain` provisions a service client and its grant as fixtures, and the harness calls the drain handler as the external scheduler. Run `just golden team-application` and both fault modes on each trigger through `just measure`.
+4. Add the drain trigger to `docs/delivery-recovery.md`. The second branch to land migration 0078 renumbers its migrations.
+
 ## Rules
 
 - No module outside a Layer imports a provider SDK, a platform binding, or a runtime-specific module.

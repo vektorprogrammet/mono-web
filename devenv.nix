@@ -137,6 +137,8 @@ in
     pkgs.git
     pkgs.just
     pkgs.openssl
+    # tools/postgres starts a disposable PgBouncer in front of a disposable cluster.
+    pkgs.pgbouncer
   ];
 
   env = {
