@@ -11,7 +11,7 @@ export interface Repository {
   readonly root: string;
   /** File paths relative to the root, with forward slashes, sorted. */
   readonly paths: ReadonlyArray<string>;
-  /** The paths that are symbolic links, such as a `CLAUDE.md` beside its `AGENTS.md`. */
+  /** The paths that are symbolic links, which conventions checks reject where a file is required. */
   readonly links: ReadonlySet<string>;
   readonly read: (path: string) => string;
   /** The target of a symbolic link, as the link stores it. */

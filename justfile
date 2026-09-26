@@ -56,7 +56,7 @@ layout *args:
 constructs *args:
     bun --no-env-file tools/conventions/src/cli.ts constructs "$@"
 
-# Check the AGENTS.md guide and CLAUDE.md link of every app, package, and context folder; `just guides write` renders them.
+# Check the AGENTS.md guide and the CLAUDE.md that imports it, of every app, package, and context folder; `just guides write` renders them.
 [group('check')]
 guides *args:
     bun --no-env-file tools/conventions/src/cli.ts guides "$@"

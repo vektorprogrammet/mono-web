@@ -5,13 +5,13 @@
  * `--staged`, which lists the files of the Git index instead of the working tree, so untracked
  * files do not count.
  */
-import { lstatSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { lstatSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { checkLayout, type Finding } from "./check.js";
 import { readContextModel } from "./cml.js";
 import { catalogue, checkConstructs, readConstructs, renderCatalogue } from "./constructs.js";
 import { checkExceptions } from "./exceptions.js";
-import { checkGuides, guideFile, guideText, linkFile, renderGuides } from "./guides.js";
+import { checkGuides, guideFile, guideText, linkFile, linkText, renderGuides } from "./guides.js";
 import { readWorkflow, testsWorkflow } from "./journeys.js";
 import { readJustfile } from "./justfile.js";
 import { contextMap } from "./layout.js";
@@ -23,7 +23,7 @@ const usage = `Usage: bun tools/conventions/src/cli.ts <layout | constructs | gu
 
 layout      the layout declaration against the tree, the generated README.md and AGENTS.md sections, and the hosted journeys
 constructs  the construct catalogue docs/constructs.md against the @construct tags and the imports
-guides      the AGENTS.md guide and CLAUDE.md link of every app, package, and context folder
+guides      the AGENTS.md guide, and the CLAUDE.md that imports it, of every app, package, and context folder
 exceptions  every suppression of an Effect rule against the registry docs/effect-exceptions.json
 
 check       report findings and exit 1 if there is one (the default)
@@ -131,17 +131,20 @@ const guides = (): Outcome => {
         );
 
       const link = join(root, guide.directory, linkFile);
-      let present = true;
+      let current: string | undefined;
 
       try {
-        lstatSync(link);
+        current = lstatSync(link).isSymbolicLink() ? undefined : readFileSync(link, "utf8");
       } catch {
-        present = false;
+        current = undefined;
       }
 
-      if (!present) {
-        symlinkSync(guideFile, link);
-        process.stdout.write(`guides: linked ${guide.directory}/${linkFile} to ${guideFile}\n`);
+      if (current !== linkText) {
+        rmSync(link, { force: true });
+        writeFileSync(link, linkText);
+        process.stdout.write(
+          `guides: wrote ${guide.directory}/${linkFile}, which imports ${guideFile}\n`,
+        );
       }
     }
   }

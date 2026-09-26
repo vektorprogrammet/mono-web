@@ -39,11 +39,21 @@ const findingsFor = (repository: Repository, path: string): ReadonlyArray<Findin
 const placements = "packages/domain/src/placements";
 
 describe("module guides", () => {
-  test("rejects a missing guide and a missing CLAUDE.md link", () => {
+  test("rejects a missing guide and a missing CLAUDE.md", () => {
     const repository = withChanges({}, [`${placements}/AGENTS.md`, `${placements}/CLAUDE.md`]);
 
     expect(findingsFor(repository, `${placements}/AGENTS.md`)).toHaveLength(1);
     expect(findingsFor(repository, `${placements}/CLAUDE.md`)).toHaveLength(1);
+  });
+
+  test("requires CLAUDE.md to be a file that only imports the guide", () => {
+    const claude = `${placements}/CLAUDE.md`;
+    const asLink: Repository = { ...base, links: new Set([...base.links, claude]) };
+
+    expect(findingsFor(base, claude)).toHaveLength(0);
+    expect(findingsFor(asLink, claude)).toHaveLength(1);
+    expect(findingsFor(withChanges({ [claude]: "Read AGENTS.md.\n" }), claude)).toHaveLength(1);
+    expect(findingsFor(withChanges({ [claude]: "@AGENTS.md\n\nMore.\n" }), claude)).toHaveLength(1);
   });
 
   test("requires a guide for a new context folder", () => {

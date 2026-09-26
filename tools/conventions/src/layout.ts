@@ -26,7 +26,7 @@ export const rootFiles = {
   ".oxfmtrc.json": "Formatter scope",
   "AGENTS.md": "Development practices",
   "CHANGELOG.md": "Change history generated from commits",
-  "CLAUDE.md": "Link to AGENTS.md",
+  "CLAUDE.md": "Imports AGENTS.md",
   "README.md": "Repository map and local commands",
   "STATE.md": "Current migration state",
   "bun.lock": "Resolved dependency versions",
