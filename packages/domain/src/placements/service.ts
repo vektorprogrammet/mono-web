@@ -135,7 +135,10 @@ export interface PlacementsOperations {
     input: PlacementExecution,
     checkPrecondition: (current: PlacementSnapshot) => Effect.Effect<void, E, R>,
   ) => Effect.Effect<PlacementSnapshot, PlacementOperationFailure | E, R>;
-  /** The departments where the principal confirms days served or issues certificates. */
+  /**
+   * The departments where the principal confirms days served or issues certificates. Either
+   * capability in one department grants the read; a principal with neither is denied.
+   */
   readonly readCertificateScopes: (
     principal: CertificatePrincipal,
   ) => Effect.Effect<CertificateScopes, CertificateReadFailure>;

@@ -15,6 +15,7 @@ import {
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import {
   CertificatePreviewResource,
+  CertificateScopes,
   CertificatesConfirmProblem,
   CertificatesIssueProblem,
   CertificatesReadProblem,
@@ -82,21 +83,24 @@ const spring = "cert-http-spring";
 
 const person = {
   leader: "cert-http-leader",
+  coordinator: "cert-http-coordinator",
   outsider: "cert-http-outsider",
   ada: "cert-http-ada",
   unprintable: "cert-http-li",
 } as const;
 
 /**
- * One independent department with a Styret leader and a team member without a seat. Ada and
- * Wei have accepted legacy totals from the spring at Lade; Wei's family name is written in a
- * script that the certificate font does not cover.
+ * One independent department with a Styret leader, a Skolekoordinering member who confirms days
+ * served by delegation, and a team member without either capability. Ada and Wei have accepted
+ * legacy totals from the spring at Lade; Wei's family name is written in a script that the
+ * certificate font does not cover.
  */
 const seed = Database.use((sql) =>
   Effect.gen(function* () {
     yield* sql`INSERT INTO person_profiles (person_id,first_name,last_name) VALUES
-      (${person.leader},'Siri','Styreleder'), (${person.outsider},'Ola','Utenfor'),
-      (${person.ada},'Ada','Assistent'), (${person.unprintable},'Wei','李')`;
+      (${person.leader},'Siri','Styreleder'), (${person.coordinator},'Kari','Koordinator'),
+      (${person.outsider},'Ola','Utenfor'), (${person.ada},'Ada','Assistent'),
+      (${person.unprintable},'Wei','李')`;
     yield* sql`INSERT INTO auth."user" (id,name,email,"emailVerified")
       SELECT person_id, first_name, person_id || '@example.invalid', true
       FROM person_profiles WHERE person_id LIKE 'cert-http-%'`;
@@ -105,11 +109,17 @@ const seed = Database.use((sql) =>
       (${department},'Trondheim','TRD','trd@example.invalid','Trondheim',true)`;
     yield* sql`INSERT INTO organization_teams (team_id,department_id,name,kind,team_scope) VALUES
       ('cert-http-styret',${department},'Styret','DepartmentBoard','HomeDepartment'),
+      ('cert-http-skolekoordinering',${department},'Skolekoordinering','Team','HomeDepartment'),
       ('cert-http-it',${department},'IT','Team','HomeDepartment')`;
     yield* sql`INSERT INTO organization_memberships
       (membership_id,person_id,team_id,position_name,start_at,is_team_leader) VALUES
       ('cert-http-m-leader',${person.leader},'cert-http-styret','Styreleder','2020-01-01',true),
+      ('cert-http-m-coordinator',${person.coordinator},'cert-http-skolekoordinering',NULL,'2020-01-01',false),
       ('cert-http-m-outsider',${person.outsider},'cert-http-it',NULL,'2020-01-01',false)`;
+    yield* sql`INSERT INTO organization_delegations
+      (delegation_id,name,team_id,capability,area,area_department_id,holders,start_at) VALUES
+      (${`delegation-${"e".repeat(64)}`},'Dager tjenestegjort','cert-http-skolekoordinering',
+        'placements.days-served','Department',${department},'AllMembers','2020-01-01T00:00:00Z')`;
     yield* sql`INSERT INTO admission_period_semesters (semester_id,start_at,end_at) VALUES
       (${spring},'2026-01-01T00:00:00Z','2026-08-01T00:00:00Z')`;
     yield* sql`INSERT INTO schools_directory_schools
@@ -272,6 +282,59 @@ const preview = (request: TestRequest, personId: string) =>
 
     return yield* decoded(response, CertificatePreviewResource);
   });
+
+describe("certificate scopes over HTTP", () => {
+  it.live("grants the scope read to either capability and denies everyone else", () =>
+    Effect.gen(function* () {
+      const { request, count } = fixture();
+      const leader = yield* request("/api/certificate-scopes", { person: person.leader });
+
+      const coordinator = yield* request("/api/certificate-scopes", {
+        person: person.coordinator,
+      });
+
+      const outsider = yield* request("/api/certificate-scopes", { person: person.outsider });
+
+      expect(leader.status).toBe(200);
+      expect((yield* decoded(leader, CertificateScopes)).departments).toEqual([
+        {
+          departmentId: department,
+          name: "Trondheim",
+          confirmDaysServed: true,
+          issueCertificates: true,
+        },
+      ]);
+      expect(coordinator.status).toBe(200);
+      expect((yield* decoded(coordinator, CertificateScopes)).departments).toEqual([
+        {
+          departmentId: department,
+          name: "Trondheim",
+          confirmDaysServed: true,
+          issueCertificates: false,
+        },
+      ]);
+      expect(outsider.status).toBe(403);
+      expect((yield* decoded(outsider, CertificatesReadProblem)).code).toBe("authority.denied");
+
+      // The delegated capability confirms days served and issues nothing.
+      expect((yield* request(daysServedPath, { person: person.coordinator })).status).toBe(200);
+
+      yield* confirmCalculated(request, person.ada);
+
+      const { etag } = yield* preview(request, person.ada);
+
+      const denied = yield* issue(request, {
+        issuer: person.coordinator,
+        personId: person.ada,
+        ifMatch: etag,
+        key: "coordinator",
+      });
+
+      expect(denied.status).toBe(403);
+      expect(yield* count("certificate_issues", person.ada)).toBe(0);
+    }),
+  );
+});
 
 describe("days served over HTTP", () => {
   it.live("confirms at the observed tag, refuses a stale one, and reads back the result", () =>

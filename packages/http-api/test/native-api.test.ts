@@ -857,7 +857,16 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     "GET",
     "/api/certificate-scopes",
     "certificates.readCertificateScopes",
-    person("certificates.issue", "placements.explicit-department", [], "SnapshotRead"),
+    {
+      ...person("certificates.issue", "placements.explicit-department", [], "SnapshotRead"),
+      // Either capability grants the read, in registry order.
+      capabilities: {
+        any: [
+          CapabilityTypeId.make("placements.days-served"),
+          CapabilityTypeId.make("certificates.issue"),
+        ],
+      },
+    },
   ],
   [
     "GET",

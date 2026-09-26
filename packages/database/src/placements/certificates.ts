@@ -579,41 +579,49 @@ const buildPreview = (
     }).pipe(Effect.mapError(persistenceFailure("build certificate preview")));
   });
 
-/** The departments where the principal confirms days served or issues certificates. */
+/**
+ * The departments where the principal confirms days served or issues certificates. Either
+ * capability in one department grants the read; a principal with neither is denied.
+ */
 export const readCertificateScopes = (principal: CertificatePrincipal) =>
   Effect.gen(function* () {
     const sql = yield* Database;
     const authority = yield* resolveAuthority(sql, principal, false);
 
-    const departments = yield* readGovernedDepartmentsWithSql(sql, null, "None").pipe(
+    const governed = yield* readGovernedDepartmentsWithSql(sql, null, "None").pipe(
       Effect.mapError(persistenceFailure("read certificate departments")),
     );
+
+    const departments = governed.flatMap((department) => {
+      const confirmDaysServed = reaches(
+        authority,
+        "placements.days-served",
+        ReachTarget.Department({ departmentId: department.departmentId }),
+      );
+
+      const issueCertificates = Option.isSome(certificateIssuerBasis(authority, department));
+
+      return confirmDaysServed || issueCertificates
+        ? [
+            {
+              departmentId: department.departmentId,
+              name: department.name,
+              confirmDaysServed,
+              issueCertificates,
+            },
+          ]
+        : [];
+    });
+
+    if (departments.length === 0)
+      return yield* new CertificateAccessDenied({ reason: "NotInScope" });
 
     const semesters = yield* findSemesters(null).pipe(
       Effect.mapError(persistenceFailure("read certificate semesters")),
     );
 
     return yield* CertificateScopes.makeEffect({
-      departments: departments.flatMap((department) => {
-        const confirmDaysServed = reaches(
-          authority,
-          "placements.days-served",
-          ReachTarget.Department({ departmentId: department.departmentId }),
-        );
-
-        const issueCertificates = Option.isSome(certificateIssuerBasis(authority, department));
-
-        return confirmDaysServed || issueCertificates
-          ? [
-              {
-                departmentId: department.departmentId,
-                name: department.name,
-                confirmDaysServed,
-                issueCertificates,
-              },
-            ]
-          : [];
-      }),
+      departments,
       semesters: semesters.map(({ semesterId, startAt, endAt }) => ({
         semesterId,
         startAt,

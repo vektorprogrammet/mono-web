@@ -160,11 +160,21 @@ export const ReadCertificateScopesEndpoint = HttpApiEndpoint.get(
   },
 )
   .middleware(PersonSecurity)
-  .pipe((endpoint) => annotateAccessSpec(endpoint, access("certificates.issue", "SnapshotRead")))
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "placements.days-served",
+        alternatives: ["certificates.issue"],
+        canonicalScopeResolver: "placements.explicit-department",
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Read certificate scopes",
-      "Returns the departments where the reader confirms days served or issues certificates, and the semesters.",
+      "Returns the departments where the reader confirms days served or issues certificates, and the semesters. Either capability in some department grants the read.",
     ),
   );
 
