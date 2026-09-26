@@ -184,6 +184,10 @@ legacy shutdown require explicit operator authority.
 - A migration that rewrites existing rows needs an upgrade proof.
   Seed data through the previous migration with the code of that time, apply the new migrations, and compare the exact rows, on PGlite and on each supported PostgreSQL major.
 - A new journey suite joins `just e2e` or `just golden`, and the hosted journey matrix.
+  A check is hermetic: it builds what it serves from the current source, starts its database with `startDisposablePostgres`, and reads no ambient environment.
+- A flaky check is a defect. Find the nondeterministic input and fix it. Do not add retries or loosen the assertion.
+- Size a delegated slice to finish in about 30 minutes of agent work.
+  Run a verification batch as one supervised script that writes a summary file, so that a budget stop keeps its results.
 - Observe exit codes and evidence. Never infer them from a summary.
 
 ## Boundary practices
