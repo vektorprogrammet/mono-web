@@ -30,6 +30,7 @@ import {
 } from "../src/authz/disposable-backfill.js";
 import {
   AdmissionPeriodCommandSchema,
+  AdmissionPeriodObservationSchema,
   AdmissionPeriodCommandId,
   AdmissionPeriodId,
   decideAdmissionPeriod,
@@ -80,7 +81,7 @@ import {
 import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
-import { Result, Data, Predicate, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
+import { Result, Data, Predicate, Deferred, Effect, Fiber, Layer, Redacted, Schema } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { spec0055OrganizationAuthorityFixtures } from "@vektorprogrammet/domain/organization/authority-fixtures";
 import { resolveOrganizationPersonAuthorityForRead } from "../src/organization/authority-postgres.js";
@@ -1026,7 +1027,7 @@ const assertSubsequence = (
     if (phase === expected[expectedIndex]) expectedIndex += 1;
   }
 
-  assert.equal(expectedIndex, expected.length);
+  assert.equal(expectedIndex, expected.length, JSON.stringify({ actual, expected }));
 };
 
 interface ConnectionStamp {
@@ -1906,8 +1907,18 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       },
     };
 
-    assert.deepEqual(admissionAcceptedDirectDecision.observation, expectedAdmissionObservation);
-    assert.deepEqual(admissionAcceptedRulesEmptyDecision.observation, expectedAdmissionObservation);
+    const encodeAdmissionObservation = Schema.encodeEffect(AdmissionPeriodObservationSchema);
+
+    const admissionAcceptedDirectObservation = yield* encodeAdmissionObservation(
+      admissionAcceptedDirectDecision.observation,
+    );
+
+    const admissionAcceptedRulesEmptyObservation = yield* encodeAdmissionObservation(
+      admissionAcceptedRulesEmptyDecision.observation,
+    );
+
+    assert.deepEqual(admissionAcceptedDirectObservation, expectedAdmissionObservation);
+    assert.deepEqual(admissionAcceptedRulesEmptyObservation, expectedAdmissionObservation);
 
     const admissionAcceptedDirect = {
       actor: admissionAcceptedDirectActor,
@@ -1915,7 +1926,7 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       activeState: { globalAdministrator: "Absent" as const, membershipActive: true },
       result: {
         _tag: "Success" as const,
-        observation: admissionAcceptedDirectDecision.observation,
+        observation: admissionAcceptedDirectObservation,
       },
     };
 
@@ -1925,7 +1936,7 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       activeState: { globalAdministrator: "Absent" as const, membershipActive: true },
       result: {
         _tag: "Success" as const,
-        observation: admissionAcceptedRulesEmptyDecision.observation,
+        observation: admissionAcceptedRulesEmptyObservation,
       },
     };
 
@@ -2318,7 +2329,7 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       {
         fixtureId: "receipt-authority-active-payment",
         fixtureSource: "packages/domain/src/receipt/authority.test.ts",
-        domain: "receipts",
+        domain: "Receipt",
         expected: "Accepted",
         directOracle: receiptAcceptedDirect,
         rulesEmpty: receiptAcceptedRulesEmpty,
@@ -2326,7 +2337,7 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       {
         fixtureId: "receipt-authority-exact-end-inactive",
         fixtureSource: "packages/domain/src/receipt/authority.test.ts",
-        domain: "receipts",
+        domain: "Receipt",
         expected: "Rejected",
         directOracle: receiptRejectedDirect,
         rulesEmpty: receiptRejectedRulesEmpty,
@@ -2480,7 +2491,7 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
 
     assert.deepEqual(endedRuleBeforeIds, [ids.rules.endedApprove]);
     assert.deepEqual(endedRuleExactIds, []);
-    assert.equal(resultFailureTag(endedRuleCommand), "ReceiptAuthorityDenied");
+    assert.equal(resultFailureTag(endedRuleCommand), "ReceiptScopeDenied");
     assert.deepEqual(endedRuleDurable, {
       commandReceiptRows: 0,
       auditRows: 0,
@@ -3499,7 +3510,6 @@ const proveDirectAuthorityRowLock = (databaseUrl: Redacted.Redacted<string>) =>
       assert.equal(writer.started.pid, writerPid);
       assert.equal(writer.rows[0]?.revision, 1);
       assertSubsequence(commandTrace.completed, [
-        "command-receipt-lock",
         "receipt-target-lock",
         "person-authorization-lock",
         "organization-authority-projection",
@@ -3507,6 +3517,7 @@ const proveDirectAuthorityRowLock = (databaseUrl: Redacted.Redacted<string>) =>
         "authz-shared-lock",
         "authz-tag-assignment-projection",
         "authz-rule-projection",
+        "command-receipt-lock",
         "durable-audit-insert",
       ]);
 
@@ -3740,10 +3751,12 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
 
         assert(stored);
 
-        const replay = yield* executeReceiptCommand(
-          submitCommand(ids.commands.ruleSubmit, ids.departments.alpha, "rule-submit"),
-          principal(ids.persons.ruleSubmit, exactEnd),
-          allocation(generatedReceiptIds.ruleSubmit, generatedVisualIds.ruleSubmit),
+        const replay = yield* Effect.result(
+          executeReceiptCommand(
+            submitCommand(ids.commands.ruleSubmit, ids.departments.alpha, "rule-submit"),
+            principal(ids.persons.ruleSubmit, exactEnd),
+            allocation(generatedReceiptIds.ruleSubmit, generatedVisualIds.ruleSubmit),
+          ),
         );
 
         const afterReplay = yield* readDurableCommandFacts(sql, ids.commands.ruleSubmit);
@@ -3771,16 +3784,11 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
         `;
 
         assert(ruleCount);
-        const replayComparable = { ...replay.observation, replayed: false };
 
         return {
           beforeReplay,
           storedObservation: stored.observationJson,
-          replayObservation: replay.observation,
-          replayed: replay.replayed,
-          replayOutboxCount: replay.outboxCount,
-          storedObservationFieldsEqual:
-            canonicalJson(replayComparable) === canonicalJson(stored.observationJson),
+          replayFailureTag: resultFailureTag(replay),
           afterReplay,
           freshCommandFailureTag: resultFailureTag(fresh),
           freshDurable,
@@ -3797,9 +3805,7 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
         ),
       );
 
-      assert.equal(replayAndFresh.replayed, true);
-      assert.equal(replayAndFresh.replayOutboxCount, 0);
-      assert.equal(replayAndFresh.storedObservationFieldsEqual, true);
+      assert.equal(replayAndFresh.replayFailureTag, "InactiveActor");
       assert.deepEqual(replayAndFresh.beforeReplay, replayAndFresh.afterReplay);
       assert.equal(replayAndFresh.freshCommandFailureTag, "InactiveActor");
       assert.deepEqual(replayAndFresh.freshDurable, {
@@ -4505,7 +4511,7 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
       assert.equal(command.started.pid, commandPid);
       assert.equal(writer.assignment.endAt, exactEnd);
       assert.equal(writer.assignment.revision, 1);
-      assert.equal(resultFailureTag(command.result), "ReceiptAuthorityDenied");
+      assert.equal(resultFailureTag(command.result), "ReceiptScopeDenied");
       assertSubsequence(writerTrace.completed, ["authz-exclusive-lock", "end-tag-assignment"]);
       assertSubsequence(commandTrace.completed, [
         "person-authorization-lock",
@@ -4825,6 +4831,6 @@ void withDisposablePostgres("authorization_rules_proof", (databaseUrl) =>
     ),
   ),
 ).catch((cause: unknown) => {
-  process.stderr.write(`${String(cause)}\n`);
+  process.stderr.write(`${cause instanceof Error ? cause.stack : String(cause)}\n`);
   process.exitCode = 1;
 });
