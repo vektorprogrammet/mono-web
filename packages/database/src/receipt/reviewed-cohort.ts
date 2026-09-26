@@ -462,9 +462,12 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
   ) => Effect.Effect<readonly ReceiptImportResult[], ReceiptCohortFailure>,
 ): Effect.fn.Return<ReviewedReceiptReport, ReceiptCohortFailure, Database> {
   const snapshot = yield* Effect.try({
-    try: () => immutable(decodeReviewedReceiptSnapshot(structuredClone(input))),
-    catch: (error) => (error instanceof ReceiptCohortFailure ? error : invalid("InvalidSnapshot")),
-  });
+    try: () => structuredClone(input),
+    catch: () => invalid("InvalidSnapshot"),
+  }).pipe(
+    Effect.flatMap((clone) => Effect.fromResult(decodeReviewedReceiptSnapshot(clone))),
+    Effect.map(immutable),
+  );
 
   const r = snapshot.review;
   const snapshotKey = receiptEvidenceDigest([r.sourceRepository, r.snapshotId]);

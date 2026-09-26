@@ -75,7 +75,7 @@ const fixture = () => {
   const database = backendDatabase(openPeriod);
 
   const http = makeBackendTestHttp(
-    decodeBackendConfig(environment),
+    Effect.runSync(decodeBackendConfig(environment)),
     Layer.mergeAll(database.layer, AdmissionsLive.pipe(Layer.provide(database.layer))),
     unavailableAuthHandler,
   );

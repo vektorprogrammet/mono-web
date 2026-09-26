@@ -15,7 +15,7 @@ const sender = Effect.runSync(Config.String("MAIL_SENDER").pipe(Config.withDefau
 
 if (!sender) throw new Error("MAIL_SENDER is required");
 
-const config = decodeBackendConfig(process.env);
+const config = Effect.runSync(decodeBackendConfig(process.env));
 
 try {
   const result = await Effect.runPromise(

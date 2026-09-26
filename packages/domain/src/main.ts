@@ -51,74 +51,94 @@ const USAGE = [
   "  --help                   Show this usage",
 ].join("\n");
 
-const valueAfter = (args: ReadonlyArray<string>, index: number, option: string): string => {
+const valueAfter = (
+  args: ReadonlyArray<string>,
+  index: number,
+  option: string,
+): Result.Result<string, CliError> => {
   const value = args[index + 1];
 
-  if (value === undefined || value.startsWith("--")) {
-    throw new CliError({
-      code: "MISSING_OPTION_VALUE",
-      message: `missing option value for ${option}`,
-    });
-  }
-
-  return value;
+  return value === undefined || value.startsWith("--")
+    ? Result.fail(
+        new CliError({
+          code: "MISSING_OPTION_VALUE",
+          message: `missing option value for ${option}`,
+        }),
+      )
+    : Result.succeed(value);
 };
 
-const parseArgs = (args: ReadonlyArray<string>): CliOptions => {
-  let dataDir: string | undefined;
-  let personAuthorityFile: string | undefined;
-  let snapshotId: string | undefined;
-  let snapshotHash: string | undefined;
-  let format: CliOptions["format"] = "json";
-  let output: string | undefined;
-  let fixtures = false;
-  let help = false;
+const parseArgs = (args: ReadonlyArray<string>): Result.Result<CliOptions, CliError> =>
+  Result.gen(function* () {
+    let dataDir: string | undefined;
+    let personAuthorityFile: string | undefined;
+    let snapshotId: string | undefined;
+    let snapshotHash: string | undefined;
+    let format: CliOptions["format"] = "json";
+    let output: string | undefined;
+    let fixtures = false;
+    let help = false;
 
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
 
-    if (arg === "--help" || arg === "-h") {
-      help = true;
-    } else if (arg === "--fixtures") {
-      fixtures = true;
-    } else if (arg === "--data-dir") {
-      dataDir = valueAfter(args, index, arg);
-      index += 1;
-    } else if (arg === "--person-authority") {
-      personAuthorityFile = valueAfter(args, index, arg);
-      index += 1;
-    } else if (arg === "--snapshot") {
-      snapshotId = valueAfter(args, index, arg);
-      index += 1;
-    } else if (arg === "--snapshot-hash") {
-      snapshotHash = valueAfter(args, index, arg);
-      index += 1;
-    } else if (arg === "--format") {
-      const selected = valueAfter(args, index, arg);
+      if (arg === "--help" || arg === "-h") {
+        help = true;
+      } else if (arg === "--fixtures") {
+        fixtures = true;
+      } else if (arg === "--data-dir") {
+        dataDir = yield* valueAfter(args, index, arg);
+        index += 1;
+      } else if (arg === "--person-authority") {
+        personAuthorityFile = yield* valueAfter(args, index, arg);
+        index += 1;
+      } else if (arg === "--snapshot") {
+        snapshotId = yield* valueAfter(args, index, arg);
+        index += 1;
+      } else if (arg === "--snapshot-hash") {
+        snapshotHash = yield* valueAfter(args, index, arg);
+        index += 1;
+      } else if (arg === "--format") {
+        const selected = yield* valueAfter(args, index, arg);
 
-      if (selected !== "json" && selected !== "markdown") {
-        throw new CliError({ code: "INVALID_FORMAT", message: "format must be json or markdown" });
+        if (selected !== "json" && selected !== "markdown") {
+          return yield* Result.fail(
+            new CliError({ code: "INVALID_FORMAT", message: "format must be json or markdown" }),
+          );
+        }
+
+        format = selected;
+        index += 1;
+      } else if (arg === "--output") {
+        output = yield* valueAfter(args, index, arg);
+        index += 1;
+      } else {
+        return yield* Result.fail(
+          new CliError({ code: "UNKNOWN_OPTION", message: `unknown option ${arg}` }),
+        );
       }
-
-      format = selected;
-      index += 1;
-    } else if (arg === "--output") {
-      output = valueAfter(args, index, arg);
-      index += 1;
-    } else {
-      throw new CliError({ code: "UNKNOWN_OPTION", message: `unknown option ${arg}` });
     }
-  }
 
-  if (!help && !fixtures && dataDir === undefined) {
-    throw new CliError({
-      code: "MISSING_DATA_DIR",
-      message: "--data-dir is required unless --fixtures is used",
-    });
-  }
+    if (!help && !fixtures && dataDir === undefined) {
+      return yield* Result.fail(
+        new CliError({
+          code: "MISSING_DATA_DIR",
+          message: "--data-dir is required unless --fixtures is used",
+        }),
+      );
+    }
 
-  return { dataDir, personAuthorityFile, snapshotId, snapshotHash, format, output, fixtures, help };
-};
+    return {
+      dataDir,
+      personAuthorityFile,
+      snapshotId,
+      snapshotHash,
+      format,
+      output,
+      fixtures,
+      help,
+    };
+  });
 
 const emit = (text: string, output: string | undefined) =>
   Effect.gen(function* () {
@@ -128,10 +148,7 @@ const emit = (text: string, output: string | undefined) =>
 
 export const main = (args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
-    const options = yield* Effect.try({
-      try: () => parseArgs(args),
-      catch: (cause) => (cause instanceof CliError ? cause : new Cause.UnknownError(cause)),
-    });
+    const options = yield* Effect.fromResult(parseArgs(args));
 
     if (options.help) {
       yield* emit(USAGE, options.output);

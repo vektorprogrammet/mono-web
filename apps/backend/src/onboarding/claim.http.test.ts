@@ -97,7 +97,7 @@ const seed = Database.use((sql) =>
 const database = backendDatabase(seed);
 
 const http = makeBackendTestHttp(
-  decodeBackendConfig(environment),
+  Effect.runSync(decodeBackendConfig(environment)),
   Layer.mergeAll(
     database.layer,
     // The session cookie and the bearer both name member-1; nothing else authenticates.

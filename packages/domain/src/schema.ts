@@ -357,8 +357,11 @@ export const decodeRows = <A>(
   value: Schema.Json,
   file: string,
   decoder: (value: Schema.Json) => DecodeResult<A>,
-) => {
-  if (!Array.isArray(value)) throw new SchemaInputError({ file });
+): Result.Result<
+  { readonly rows: ReadonlyArray<A>; readonly failures: ReadonlyArray<DecodeFailure> },
+  SchemaInputError
+> => {
+  if (!Array.isArray(value)) return Result.fail(new SchemaInputError({ file }));
   const rowsInput = value;
 
   const rows: A[] = [];
@@ -374,5 +377,5 @@ export const decodeRows = <A>(
     }
   }
 
-  return { rows, failures };
+  return Result.succeed({ rows, failures });
 };

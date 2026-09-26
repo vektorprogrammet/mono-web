@@ -1,4 +1,4 @@
-import { Match, Schema } from "effect";
+import { Schema } from "effect";
 import { ReceiptFileSchema, type ReceiptFile } from "./schema.js";
 
 const NonEmpty = Schema.String.pipe(Schema.check(Schema.isMinLength(1)));
@@ -29,34 +29,32 @@ export type ReceiptOutboxRequest = typeof ReceiptOutboxRequestSchema.Type;
 
 export type ReceiptOutboxEffectType = ReceiptOutboxRequest["_tag"];
 
-export function receiptOutboxRequest<Tag extends "PromoteReceiptFile" | "DeleteReceiptFile">(
+type ReceiptFileEffectType = "PromoteReceiptFile" | "DeleteReceiptFile";
+
+type ReceiptNoticeEffectType = Exclude<ReceiptOutboxEffectType, ReceiptFileEffectType>;
+
+/** A file effect names its file; every other effect names none. */
+export function receiptOutboxRequest<Tag extends ReceiptFileEffectType>(
   commandId: string,
   receiptId: string,
   effectType: Tag,
   file: ReceiptFile,
 ): Extract<ReceiptOutboxRequest, { readonly _tag: Tag }>;
+export function receiptOutboxRequest<Tag extends ReceiptNoticeEffectType>(
+  commandId: string,
+  receiptId: string,
+  effectType: Tag,
+): Extract<ReceiptOutboxRequest, { readonly _tag: Tag }>;
 export function receiptOutboxRequest(
   commandId: string,
   receiptId: string,
-  effectType: ReceiptOutboxEffectType,
-  file?: ReceiptFile,
-): ReceiptOutboxRequest;
-export function receiptOutboxRequest(
-  commandId: string,
-  receiptId: string,
-  effectType: ReceiptOutboxEffectType,
-  file?: ReceiptFile,
+  ...request: [effectType: ReceiptFileEffectType, file: ReceiptFile] | [ReceiptNoticeEffectType]
 ): ReceiptOutboxRequest {
-  const base = { effectId: `${commandId}:${effectType}`, receiptId, commandId };
+  const base = { effectId: `${commandId}:${request[0]}`, receiptId, commandId };
 
-  return Match.value(effectType).pipe(
-    Match.whenOr("PromoteReceiptFile", "DeleteReceiptFile", (type) => {
-      if (file === undefined) throw new Error(`${type} requires a file identity`);
-
-      return ReceiptOutboxRequestSchema.cases[type].make({ ...base, file });
-    }),
-    Match.orElse((type) => ReceiptOutboxRequestSchema.cases[type].make(base)),
-  );
+  return request.length === 2
+    ? ReceiptOutboxRequestSchema.cases[request[0]].make({ ...base, file: request[1] })
+    : ReceiptOutboxRequestSchema.cases[request[0]].make(base);
 }
 
 export const sameReceiptFile = (left: ReceiptFile, right: ReceiptFile): boolean =>

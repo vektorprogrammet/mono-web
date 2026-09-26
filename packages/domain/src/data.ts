@@ -17,7 +17,6 @@ import {
   type DepartmentRow,
   type GlobalContainerRow,
   type GlobalMembershipRow,
-  SchemaInputError,
   type TeamMembershipRow,
   type TeamRow,
 } from "./schema.js";
@@ -121,80 +120,80 @@ const decodeCollection = <A>(
   value: Schema.Json,
   file: RequiredFile,
   decoder: (value: Schema.Json) => DecodeResult<A>,
-) => {
-  try {
-    return decodeRows(value, file, decoder);
-  } catch (error) {
-    if (error instanceof SchemaInputError) {
-      throw new DatasetInputError({ code: error.code, file, message: error.message });
-    }
-
-    throw error;
-  }
-};
-
-export const buildDataset = (input: RawDatasetInput): Dataset => {
-  const departments = decodeCollection(input.departments, "department.json", decodeDepartment);
-  const teams = decodeCollection(input.teams, "team.json", decodeTeam);
-
-  const teamMemberships = decodeCollection(
-    input.teamMemberships,
-    "team_membership.json",
-    decodeTeamMembership,
+) =>
+  Result.mapError(
+    decodeRows(value, file, decoder),
+    (error) => new DatasetInputError({ code: error.code, file, message: error.message }),
   );
 
-  const executiveBoards = decodeCollection(
-    input.executiveBoards,
-    "executive_board.json",
-    decodeGlobalContainer,
-  );
+export const buildDataset = (input: RawDatasetInput): Result.Result<Dataset, DatasetInputError> =>
+  Result.gen(function* () {
+    const departments = yield* decodeCollection(
+      input.departments,
+      "department.json",
+      decodeDepartment,
+    );
 
-  const globalMemberships = decodeCollection(
-    input.globalMemberships,
-    "executive_board_membership.json",
-    decodeGlobalMembership,
-  );
+    const teams = yield* decodeCollection(input.teams, "team.json", decodeTeam);
 
-  const departmentMap = duplicateSafeMap(departments.rows);
-  const teamMap = duplicateSafeMap(teams.rows);
-  const executiveBoardMap = duplicateSafeMap(executiveBoards.rows);
+    const teamMemberships = yield* decodeCollection(
+      input.teamMemberships,
+      "team_membership.json",
+      decodeTeamMembership,
+    );
 
-  const decodeFailures = [
-    ...departments.failures,
-    ...teams.failures,
-    ...teamMemberships.failures,
-    ...executiveBoards.failures,
-    ...globalMemberships.failures,
-  ];
+    const executiveBoards = yield* decodeCollection(
+      input.executiveBoards,
+      "executive_board.json",
+      decodeGlobalContainer,
+    );
 
-  const duplicateIds: DuplicateIds = {
-    departments: departmentMap.duplicates,
-    teams: teamMap.duplicates,
-    executiveBoards: executiveBoardMap.duplicates,
-  };
+    const globalMemberships = yield* decodeCollection(
+      input.globalMemberships,
+      "executive_board_membership.json",
+      decodeGlobalMembership,
+    );
 
-  const files = [
-    { file: "department.json", rows: departments.rows.length },
-    { file: "team.json", rows: teams.rows.length },
-    { file: "team_membership.json", rows: teamMemberships.rows.length },
-    { file: "executive_board.json", rows: executiveBoards.rows.length },
-    { file: "executive_board_membership.json", rows: globalMemberships.rows.length },
-  ] satisfies ReadonlyArray<DatasetFileSummary>;
+    const departmentMap = duplicateSafeMap(departments.rows);
+    const teamMap = duplicateSafeMap(teams.rows);
+    const executiveBoardMap = duplicateSafeMap(executiveBoards.rows);
 
-  return {
-    departments: departments.rows,
-    teams: teams.rows,
-    teamMemberships: teamMemberships.rows,
-    executiveBoards: executiveBoards.rows,
-    globalMemberships: globalMemberships.rows,
-    departmentById: departmentMap.map,
-    teamById: teamMap.map,
-    executiveBoardById: executiveBoardMap.map,
-    duplicateIds,
-    decodeFailures,
-    input: { files, decodeFailures, duplicateIds },
-  };
-};
+    const decodeFailures = [
+      ...departments.failures,
+      ...teams.failures,
+      ...teamMemberships.failures,
+      ...executiveBoards.failures,
+      ...globalMemberships.failures,
+    ];
+
+    const duplicateIds: DuplicateIds = {
+      departments: departmentMap.duplicates,
+      teams: teamMap.duplicates,
+      executiveBoards: executiveBoardMap.duplicates,
+    };
+
+    const files = [
+      { file: "department.json", rows: departments.rows.length },
+      { file: "team.json", rows: teams.rows.length },
+      { file: "team_membership.json", rows: teamMemberships.rows.length },
+      { file: "executive_board.json", rows: executiveBoards.rows.length },
+      { file: "executive_board_membership.json", rows: globalMemberships.rows.length },
+    ] satisfies ReadonlyArray<DatasetFileSummary>;
+
+    return {
+      departments: departments.rows,
+      teams: teams.rows,
+      teamMemberships: teamMemberships.rows,
+      executiveBoards: executiveBoards.rows,
+      globalMemberships: globalMemberships.rows,
+      departmentById: departmentMap.map,
+      teamById: teamMap.map,
+      executiveBoardById: executiveBoardMap.map,
+      duplicateIds,
+      decodeFailures,
+      input: { files, decodeFailures, duplicateIds },
+    };
+  });
 
 const readJson = (
   dataDir: string,
@@ -250,13 +249,15 @@ export const loadDatasetEffect = (
     const executiveBoards = yield* readJson(dataDir, "executive_board.json");
     const globalMemberships = yield* readJson(dataDir, "executive_board_membership.json");
 
-    return buildDataset({
-      departments,
-      teams,
-      teamMemberships,
-      executiveBoards,
-      globalMemberships,
-    });
+    return yield* Effect.fromResult(
+      buildDataset({
+        departments,
+        teams,
+        teamMemberships,
+        executiveBoards,
+        globalMemberships,
+      }),
+    );
   });
 };
 

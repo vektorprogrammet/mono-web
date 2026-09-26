@@ -58,7 +58,7 @@ const environment = {
   RECEIPT_DELIVERY_MODE: "disabled",
 } as const;
 
-const config = decodeBackendConfig(environment);
+const config = Effect.runSync(decodeBackendConfig(environment));
 
 const database = backendDatabase();
 

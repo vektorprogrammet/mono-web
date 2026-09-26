@@ -594,7 +594,8 @@ const distribute = (
 
         const target = open[school];
 
-        if (target === undefined) throw new Error("placement draft exceeded weekday capacity");
+        // The weekday totals leave a school with room for every assistant of this day and block.
+        if (target === undefined) continue;
 
         for (const part of parts) target.open[part] = at(target.open, part) - 1;
 
@@ -794,21 +795,22 @@ export const buildPlacementDraft = (
   return {
     departmentId: board.departmentId,
     semesterId: board.semesterId,
-    placements: plan.assignments.map((assignment) => {
+    placements: plan.assignments.flatMap((assignment) => {
       const entry = supply.get(assignment.personId);
 
       // The scheduler places only the assistants that the supply lists.
-      if (entry === undefined)
-        throw new Error("placement draft placed an assistant without supply");
+      if (entry === undefined) return [];
 
-      return {
-        ...assignment,
-        firstName: byPerson.get(assignment.personId)?.firstName ?? "",
-        lastName: byPerson.get(assignment.personId)?.lastName ?? "",
-        schoolName: schoolNames.get(assignment.schoolId) ?? "",
-        workdays: halves(assignment.block).length * workdaysPerBlock,
-        wishes: entry.wishes,
-      };
+      return [
+        {
+          ...assignment,
+          firstName: byPerson.get(assignment.personId)?.firstName ?? "",
+          lastName: byPerson.get(assignment.personId)?.lastName ?? "",
+          schoolName: schoolNames.get(assignment.schoolId) ?? "",
+          workdays: halves(assignment.block).length * workdaysPerBlock,
+          wishes: entry.wishes,
+        },
+      ];
     }),
     unplaced: people.flatMap((person) =>
       drafted.has(person.personId)

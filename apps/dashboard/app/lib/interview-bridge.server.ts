@@ -2,7 +2,7 @@ import { RecruitmentInvitationCapabilitySchema,
 RecruitmentInvitationResponseMessageSchema, } from "@vektorprogrammet/http-api"
 import { parseJsonWithUniqueMembers } from "@vektorprogrammet/http-api"
 import { createConfiguredPromiseClient } from "@vektorprogrammet/sdk";
-import { Schema as S, Match, flow, Option } from "effect";
+import { Schema as S, Match, flow, Option, Result } from "effect";
 import { nativeProblemFrom } from "./native-problem";
 import { InvitationBridgeFailureSchema, decodeInvitationInteractionId, INVITATION_INTERACTION_HEADER, type InvitationBridgeFailure, type InvitationBridgeOperation, type InvitationInteractionId, InvitationBridgeOperationSchema } from "../foldkit/interview/bridge";
 
@@ -178,9 +178,7 @@ export const decodeOperationRequest = async (
   const bytes = await readBoundedRequestBody(request);
 
   try {
-    const value = parseJsonWithUniqueMembers(bytes);
-
-    return decodeOperation(value);
+    return decodeOperation(Result.getOrThrow(parseJsonWithUniqueMembers(bytes)));
   } catch {
     throw InvitationBridgeFailureSchema.cases.InvitationDecodeError.make({message: "Invalid invitation response request"}) satisfies InvitationBridgeFailure;
   }

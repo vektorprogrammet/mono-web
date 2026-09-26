@@ -1,4 +1,4 @@
-import { Predicate, Schema } from "effect";
+import { flow, Predicate, Result, Schema } from "effect";
 import { expect, it } from "@effect/vitest";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { importLegacyReceipt, ReceiptQuarantineReason } from "./import.js";
@@ -10,6 +10,9 @@ import {
   type ReceiptSourceRow,
   type ReviewedReceiptSnapshot,
 } from "./review.js";
+
+// A test observes a failed decode as the thrown cohort failure.
+const decodeSnapshot = flow(decodeReviewedReceiptSnapshot, Result.getOrThrow);
 
 const row: ReceiptSourceRow = {
   sourcePrimaryKey: "12",
@@ -77,23 +80,21 @@ it("requires exactly one review decision per source occurrence, including exclud
   });
 
   const input = { ...snapshot, review: { ...snapshot.review, entries: [excluded] } };
-  expect(decodeReviewedReceiptSnapshot(input).review.entries).toEqual([excluded]);
+  expect(decodeSnapshot(input).review.entries).toEqual([excluded]);
 
   for (const entries of [
     [],
     [excluded, excluded],
     [{ ...excluded, sourcePrimaryKey: "unknown" }],
   ]) {
-    expect(() =>
-      decodeReviewedReceiptSnapshot({ ...input, review: { ...input.review, entries } }),
-    ).toThrow();
+    expect(() => decodeSnapshot({ ...input, review: { ...input.review, entries } })).toThrow();
   }
 
-  expect(() => decodeReviewedReceiptSnapshot({ ...input, rows: [row, row] })).toThrow();
+  expect(() => decodeSnapshot({ ...input, rows: [row, row] })).toThrow();
 });
 
 it("binds raw stale refund dates and account commitments without interpreting either as payment", () => {
-  const decoded = decodeReviewedReceiptSnapshot(snapshot);
+  const decoded = decodeSnapshot(snapshot);
   expect(decoded.rows[0]?.refundDate).toBe(row.refundDate);
   expect(decoded.review.entries[0]).toMatchObject({ approvedAt: null });
 
@@ -101,11 +102,11 @@ it("binds raw stale refund dates and account commitments without interpreting ei
     { ...row, refundDate: null },
     { ...row, accountCommitment: "other-key:commitment" },
   ]) {
-    expect(() => decodeReviewedReceiptSnapshot({ ...snapshot, rows: [changed] })).toThrow();
+    expect(() => decodeSnapshot({ ...snapshot, rows: [changed] })).toThrow();
   }
 
   expect(() =>
-    decodeReviewedReceiptSnapshot({
+    decodeSnapshot({
       ...snapshot,
       review: {
         ...snapshot.review,
@@ -134,15 +135,15 @@ it("allows an explicitly unresolved owner, never an invented source ownership ma
     },
   };
 
-  expect(decodeReviewedReceiptSnapshot(input).review.entries[0]).toMatchObject({ person: null });
+  expect(decodeSnapshot(input).review.entries[0]).toMatchObject({ person: null });
   expect(() =>
-    decodeReviewedReceiptSnapshot({
+    decodeSnapshot({
       ...input,
       review: { ...input.review, entries: [{ ...decision, person: entry.person }] },
     }),
   ).toThrow();
   expect(() =>
-    decodeReviewedReceiptSnapshot({
+    decodeSnapshot({
       ...snapshot,
       review: {
         ...snapshot.review,
@@ -154,14 +155,14 @@ it("allows an explicitly unresolved owner, never an invented source ownership ma
 
 it("requires explicit timezone shape but leaves impossible calendars to native quarantine", () => {
   expect(() =>
-    decodeReviewedReceiptSnapshot({
+    decodeSnapshot({
       ...snapshot,
       review: { ...snapshot.review, entries: [{ ...entry, submittedAt: "2026-08-20T13:00:00" }] },
     }),
   ).toThrow();
   const invalidCalendar = { ...entry, receiptDate: "2026-02-31" };
 
-  const decoded = decodeReviewedReceiptSnapshot({
+  const decoded = decodeSnapshot({
     ...snapshot,
     review: { ...snapshot.review, entries: [invalidCalendar] },
   });
@@ -211,9 +212,9 @@ it("does not infer approval from a legacy refund date", () => {
     },
   };
 
-  expect(() => decodeReviewedReceiptSnapshot(input)).toThrow();
+  expect(() => decodeSnapshot(input)).toThrow();
   expect(
-    decodeReviewedReceiptSnapshot({
+    decodeSnapshot({
       ...input,
       review: { ...input.review, entries: [{ ...reviewed, approvedAt: "2026-08-25T12:00:00Z" }] },
     }).review.entries[0],
@@ -222,13 +223,13 @@ it("does not infer approval from a legacy refund date", () => {
 
 it("rejects undeclared private values instead of silently including them in evidence", () => {
   expect(() =>
-    decodeReviewedReceiptSnapshot({
+    decodeSnapshot({
       ...snapshot,
       rows: [{ ...row, accountNumber: "12345678901" }],
     }),
   ).toThrow();
   expect(() =>
-    decodeReviewedReceiptSnapshot({
+    decodeSnapshot({
       ...snapshot,
       review: {
         ...snapshot.review,

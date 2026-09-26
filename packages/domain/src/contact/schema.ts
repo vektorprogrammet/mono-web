@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import { Address4, Address6 } from "ip-address";
 import { DepartmentId } from "../organization/schema.js";
 
@@ -45,28 +45,22 @@ export const ContactMessage = Schema.Struct({
 export type ContactMessage = typeof ContactMessage.Type;
 
 /** Normalize address identity; networks, zones, lists and ports are not visitor addresses. */
-export const canonicalContactIp = (raw: string): string => {
-  if (!raw || /[\s,/%]/u.test(raw) || raw.includes("[") || raw.includes("]"))
-    throw new Error("Invalid visitor address");
+export const canonicalContactIp = (raw: string): Option.Option<string> => {
+  if (!raw || /[\s,/%]/u.test(raw) || raw.includes("[") || raw.includes("]")) return Option.none();
 
-  if (Address4.isValid(raw)) return new Address4(raw).correctForm();
+  if (Address4.isValid(raw)) return Option.some(new Address4(raw).correctForm());
+
+  if (!Address6.isValid(raw)) return Option.none();
   const address = new Address6(raw);
 
-  return address.isMapped4() ? address.to4().correctForm() : address.correctForm();
+  return Option.some(address.isMapped4() ? address.to4().correctForm() : address.correctForm());
 };
 
 export const ContactVisitorIp = Schema.String.pipe(
   Schema.check(
-    Schema.makeFilter(
-      (value) => {
-        try {
-          return canonicalContactIp(value) === value;
-        } catch {
-          return false;
-        }
-      },
-      { message: "a canonical visitor address" },
-    ),
+    Schema.makeFilter((value) => Option.contains(canonicalContactIp(value), value), {
+      message: "a canonical visitor address",
+    }),
   ),
   Schema.brand("ContactVisitorIp"),
 );

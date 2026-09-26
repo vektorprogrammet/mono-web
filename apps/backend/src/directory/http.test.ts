@@ -49,7 +49,7 @@ const environment = {
   RECEIPT_DELIVERY_MODE: "disabled",
 } as const;
 
-const config = decodeBackendConfig(environment);
+const config = Effect.runSync(decodeBackendConfig(environment));
 
 const instant = "2031-09-15T12:00:00.000Z";
 

@@ -10,45 +10,68 @@ import { Schema, flow, Match, Predicate } from "effect";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
-/**
- * The plain JSON value of a datum, with sorted object keys and non-finite numbers as `null`.
- *
- * @construct digest
- */
-export const canonicalJsonValue = Match.type<unknown>().pipe(
+/** A datum whose entries, at every depth, are its encoding. */
+type PlainData =
+  | null
+  | string
+  | boolean
+  | number
+  | ReadonlyArray<PlainData>
+  | { readonly [key: string]: PlainData };
+
+// Entries of a DateTime, Date, class instance, or byte array are not its encoded value.
+const isPlainData = (input: unknown): input is PlainData => {
+  if (Array.isArray(input)) return input.every(isPlainData);
+
+  if (!Predicate.isObjectOrArray(input))
+    return (
+      Predicate.isNull(input) ||
+      Predicate.isString(input) ||
+      Predicate.isBoolean(input) ||
+      Predicate.isNumber(input)
+    );
+
+  const prototype = Object.getPrototypeOf(input);
+
+  return (
+    (prototype === Object.prototype || prototype === null) &&
+    Object.values(input).every(isPlainData)
+  );
+};
+
+const decodePlainData = Schema.decodeUnknownSync(
+  Schema.declare(isPlainData, {
+    message: "canonical JSON accepts plain data only; encode through the owning schema",
+  }),
+);
+
+const canonicalPlainData: (value: PlainData) => Schema.Json = Match.type<PlainData>().pipe(
   Match.when(Predicate.isNull, () => null),
   Match.when(Predicate.isString, (value) => value),
   Match.when(Predicate.isBoolean, (value) => value),
   Match.when(Predicate.isNumber, (value) => (Number.isFinite(value) ? value : null)),
-  Match.when(Array.isArray, (values): Schema.Json => values.map(canonicalJsonValue)),
-  Match.when(Predicate.isObjectOrArray, (input): Schema.Json => {
-    const prototype = Object.getPrototypeOf(input);
-
-    // Entries of a DateTime, Date, class instance, or byte array are not its encoded value.
-    if (prototype !== Object.prototype && prototype !== null)
-      throw new Error("canonical JSON accepts plain data only; encode through the owning schema");
-
+  Match.when(Array.isArray, (values): Schema.Json => values.map(canonicalPlainData)),
+  Match.orElse((input): Schema.Json => {
     const output: Record<string, Schema.Json> = {};
 
     for (const [key, value] of Object.entries(input).sort(([left], [right]) =>
       left < right ? -1 : left > right ? 1 : 0,
     ))
-      output[key] = canonicalJsonValue(value);
+      output[key] = canonicalPlainData(value);
 
     return output;
   }),
-  Match.orElse((): never => {
-    throw new Error("canonical JSON cannot contain undefined or executable values");
-  }),
 );
 
-const encodeJsonValue = (value: Schema.Json): string => {
-  const encoded = JSON.stringify(value);
-
-  if (encoded === undefined) throw new Error("canonical JSON encoding failed");
-
-  return encoded;
-};
+/**
+ * The plain JSON value of a datum, with sorted object keys and non-finite numbers as `null`.
+ * A datum that is not plain data fails to decode.
+ *
+ * @construct digest
+ */
+export const canonicalJsonValue = Match.type<unknown>().pipe(
+  Match.orElse((datum): Schema.Json => canonicalPlainData(decodePlainData(datum))),
+);
 
 /**
  * The canonical JSON text of a datum, to hash or compare; a SQL `json` parameter takes
@@ -59,7 +82,7 @@ const encodeJsonValue = (value: Schema.Json): string => {
  *
  * @construct digest
  */
-export const canonicalJson = flow(canonicalJsonValue, encodeJsonValue);
+export const canonicalJson = flow(canonicalJsonValue, (value): string => JSON.stringify(value));
 
 /**
  * The UTF-8 bytes of the canonical JSON text of a datum.

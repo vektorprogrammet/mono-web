@@ -112,7 +112,7 @@ const fixture = (environment: Readonly<Record<string, string>> = {}) => {
   );
 
   const http = makeTeamApplicationsTestHttp(
-    decodeTeamApplicationApiConfig(environment),
+    Effect.runSync(decodeTeamApplicationApiConfig(environment)),
     Layer.mergeAll(
       database.layer,
       TeamApplicationsLive.pipe(Layer.provide(database.layer)),

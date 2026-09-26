@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { decodeOAuthBackendConfig } from "./config.js";
 
@@ -17,25 +18,31 @@ describe("OAuth backend configuration", () => {
     ["untrusted dashboard", { OAUTH_DASHBOARD_ORIGIN: "https://other.example.invalid" }],
   ])("rejects %s", (_name, override) => {
     expect(() =>
-      decodeOAuthBackendConfig({ ...localEnvironment, ...override }, ["http://127.0.0.1:4173"]),
+      Effect.runSync(
+        decodeOAuthBackendConfig({ ...localEnvironment, ...override }, ["http://127.0.0.1:4173"]),
+      ),
     ).toThrow();
   });
 
   it("requires a bounded internal source-network allowlist for internal ingress", () => {
     expect(() =>
-      decodeOAuthBackendConfig({ ...localEnvironment, BACKEND_INGRESS: "internal" }, [
-        "http://127.0.0.1:4173",
-      ]),
+      Effect.runSync(
+        decodeOAuthBackendConfig({ ...localEnvironment, BACKEND_INGRESS: "internal" }, [
+          "http://127.0.0.1:4173",
+        ]),
+      ),
     ).toThrow();
 
     expect(
-      decodeOAuthBackendConfig(
-        {
-          ...localEnvironment,
-          BACKEND_INGRESS: "internal",
-          OAUTH_INTERNAL_SOURCE_NETWORKS: "127.0.0.1/32,10.20.0.0/16",
-        },
-        ["http://127.0.0.1:4173"],
+      Effect.runSync(
+        decodeOAuthBackendConfig(
+          {
+            ...localEnvironment,
+            BACKEND_INGRESS: "internal",
+            OAUTH_INTERNAL_SOURCE_NETWORKS: "127.0.0.1/32,10.20.0.0/16",
+          },
+          ["http://127.0.0.1:4173"],
+        ),
       ).internalSourceNetworks,
     ).toEqual(["127.0.0.1/32", "10.20.0.0/16"]);
   });

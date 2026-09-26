@@ -1689,7 +1689,7 @@ const runRehearsal = async (
       RECEIPT_DELIVERY_MODE: "disabled",
     };
 
-    const config = decodeBackendConfig(configEnvironment);
+    const config = Effect.runSync(decodeBackendConfig(configEnvironment));
     stage = "migration and runtime composition";
     runtime = makeRehearsalRuntime(
       databaseUrl,
