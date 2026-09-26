@@ -151,12 +151,11 @@ the lead lands with `just land <branch>` and pushes `main`; hosted CI runs every
 
 Next, in this order:
 
-1. Keep hosted CI green; fix any red leg at its cause. Hosted run `36233895862` was the last complete one; confirm the first complete run at or after `b1c4a8a0`.
-2. Confirm that the first hosted run after the return of `proof authorization-rules`, `e2e recommendation`, and `e2e recommendation-report` passes those legs.
-3. Certificates for days served (O8-16), frozen in [certificates and days served](docs/specs/certificates-days-served.md). It adds the derived Styret and Hovedstyret seat list that the delegation slice specified.
-4. Retire the receipt person grants: the receipt seeds and the golden reimbursement journey issue the Økonomi delegations instead (O8-15).
-5. Formatter scope for the frontends; per-domain typed problems and instants; the remaining phases of [repository conventions](docs/specs/repository-conventions.md): boundary and reuse rules and the migration onto them, then agent docs.
-6. A reusable migration upgrade-proof recipe. The 72 to 75 proof was a throwaway harness.
+1. Keep hosted CI green; fix any red leg at its cause. Hosted Tests run `36268554218` at `165aa3ea` passed all 42 jobs, including the returned `proof authorization-rules`, `e2e recommendation`, and `e2e recommendation-report` legs; the Effect lint wiring passed Checks run `36267629067` at `cdfd81b4`.
+2. Certificates for days served (O8-16), frozen in [certificates and days served](docs/specs/certificates-days-served.md). It adds the derived Styret and Hovedstyret seat list that the delegation slice specified.
+3. Retire the receipt person grants: the receipt seeds and the golden reimbursement journey issue the Økonomi delegations instead (O8-15).
+4. Formatter scope for the frontends; per-domain typed problems and instants; the remaining phases of [repository conventions](docs/specs/repository-conventions.md): boundary and reuse rules and the migration onto them, then agent docs.
+5. A reusable migration upgrade-proof recipe. The 72 to 75 proof was a throwaway harness.
 
 The `legacy-data` devenv profile needs the home binary cache; since the homelab rebuild of 2026-09-26 a dead cache is non-fatal. Changing a root file such as `oxlint.config.ts` runs no package test in the pre-commit hook (Turbo maps changed files to packages); `just check` and CI still run them.
 
