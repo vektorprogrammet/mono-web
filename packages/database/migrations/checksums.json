@@ -74,5 +74,6 @@
   "73_retire-native-school-surveys": "4aa075e2ea7a0174dd909f19d2200a51369ddd96f950b28065d399b607b6fe21",
   "74_application-availability": "081d92f017902d406a3574a724d69e2f6cda637bb2b1d97ca3ad108928a8de67",
   "75_substitute-admission-outcome-coverage-records": "2d0b969239fcd4a93f92cada0e458a95695a7a357f5cffb027662c8a2b98a173",
-  "76_reach-and-delegation": "ea7ad5562544a4b3fff34c2c2020164f39fa3b0db6fa07896fb21cfce802e33c"
+  "76_reach-and-delegation": "ea7ad5562544a4b3fff34c2c2020164f39fa3b0db6fa07896fb21cfce802e33c",
+  "77_oauth-refresh-elapsed-windows": "42a6b36376e6a3e025b9eea971b406076f6b9e50d1d4ab8e6d122d7bdc46d779"
 }

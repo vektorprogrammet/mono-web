@@ -488,8 +488,8 @@ VALUES
    '2020-01-01T00:00:00.000Z', NULL, 0);
 INSERT INTO admission_period_semesters (semester_id, start_at, end_at)
 VALUES
-  ('${ids.semesterA}', date_trunc('milliseconds', statement_timestamp(), 'UTC') - interval '30 days',
-   date_trunc('milliseconds', statement_timestamp(), 'UTC') + interval '1 year'),
+  ('${ids.semesterA}', date_trunc('milliseconds', statement_timestamp(), 'UTC') - interval '720 hours',
+   date_trunc('milliseconds', statement_timestamp(), 'UTC') + interval '8760 hours'),
   ('${ids.semesterB}', '2010-01-01T00:00:00.000Z', '2010-06-30T23:59:59.000Z');
 COMMIT;
 `;

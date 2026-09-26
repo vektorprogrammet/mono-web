@@ -602,6 +602,11 @@ export const databaseMigrationDefinitions = [
     name: "reach-and-delegation",
     url: new URL("../migrations/0076-reach-and-delegation.sql", import.meta.url),
   },
+  {
+    id: "77_oauth-refresh-elapsed-windows",
+    name: "oauth-refresh-elapsed-windows",
+    url: new URL("../migrations/0077-oauth-refresh-elapsed-windows.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

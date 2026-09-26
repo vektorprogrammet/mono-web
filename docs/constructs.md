@@ -1001,13 +1001,15 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
 - `ReceiptE2EBarrierArrival`: `false` for unprobed requests; `true` once all three lanes are synchronized.
   [apps/backend/src/receipt/e2e-support.ts:17](../apps/backend/src/receipt/e2e-support.ts#L17), no consumers.
 - `selectDatabaseMigration`: Selects the registered migration `id` and the migrations that run before it; an absent id throws and names the nearest registered ids.
-  [packages/database/src/migrations.ts:653](../packages/database/src/migrations.ts#L653), 6 consumers:
+  [packages/database/src/migrations.ts:658](../packages/database/src/migrations.ts#L658), 8 consumers:
   - [packages/database/runtime/schema-boundary-postgres-proof-main.ts](../packages/database/runtime/schema-boundary-postgres-proof-main.ts)
   - [packages/database/src/database.test.ts](../packages/database/src/database.test.ts)
   - [packages/database/src/migration-registry.test.ts](../packages/database/src/migration-registry.test.ts)
   - [packages/database/src/migrations.test.ts](../packages/database/src/migrations.test.ts)
+  - [packages/database/src/oauth-refresh-window.test.ts](../packages/database/src/oauth-refresh-window.test.ts)
   - [packages/database/src/person-cohort-accepted-mappings.test.ts](../packages/database/src/person-cohort-accepted-mappings.test.ts)
   - [packages/database/src/rule-reconciliation-migration-postgres-proof.ts](../packages/database/src/rule-reconciliation-migration-postgres-proof.ts)
+  - [packages/database/src/schema-calendar-arithmetic.test.ts](../packages/database/src/schema-calendar-arithmetic.test.ts)
 - `journeyClock`: A journey clock at a reference instant that the caller pins.
   [tools/e2e/journey-clock.ts:32](../tools/e2e/journey-clock.ts#L32), 7 consumers:
   - [apps/dashboard/e2e/dashboard-list-type-boundary.spec.ts](../apps/dashboard/e2e/dashboard-list-type-boundary.spec.ts)
@@ -1098,7 +1100,7 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [tools/verification/receipt-import-rehearsal.ts](../tools/verification/receipt-import-rehearsal.ts)
   - [tools/verification/unattended-delivery-recovery.ts](../tools/verification/unattended-delivery-recovery.ts)
 - `startDisposablePostgres`: Starts a fresh cluster of the selected major on a private port and socket directory with trust authentication.
-  [tools/postgres/index.ts:436](../tools/postgres/index.ts#L436), 33 consumers:
+  [tools/postgres/index.ts:436](../tools/postgres/index.ts#L436), 34 consumers:
   - [apps/backend/test/postgres.ts](../apps/backend/test/postgres.ts)
   - [apps/dashboard/e2e/run-real-admission-period-management.mjs](../apps/dashboard/e2e/run-real-admission-period-management.mjs)
   - [apps/dashboard/e2e/run-real-interview-response.mjs](../apps/dashboard/e2e/run-real-interview-response.mjs)
@@ -1117,6 +1119,7 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [apps/homepage/e2e/run-real-public-applicant-admission.mjs](../apps/homepage/e2e/run-real-public-applicant-admission.mjs)
   - [packages/database/runtime/historical-service-cohort-rehearsal.ts](../packages/database/runtime/historical-service-cohort-rehearsal.ts)
   - [packages/database/runtime/person-cohort-rehearsal.ts](../packages/database/runtime/person-cohort-rehearsal.ts)
+  - [packages/database/src/oauth-refresh-window.test.ts](../packages/database/src/oauth-refresh-window.test.ts)
   - [tools/acceptance/onboarding-check.ts](../tools/acceptance/onboarding-check.ts)
   - [tools/acceptance/password-recovery-check.ts](../tools/acceptance/password-recovery-check.ts)
   - [tools/acceptance/recommendation-check.ts](../tools/acceptance/recommendation-check.ts)

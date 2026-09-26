@@ -3,9 +3,13 @@ import { PGlite } from "@electric-sql/pglite";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import { Pool } from "pg";
-import { databaseMigrationDefinitions } from "../migrations.js";
+import { type DatabaseMigrationDefinition, databaseMigrationDefinitions } from "../migrations.js";
 
-export const withPostgresTestDatabase = async <A>(use: (pool: Pool) => Promise<A>): Promise<A> => {
+/** Runs `use` on a PGlite database through `migrations`, by default every registered migration. */
+export const withPostgresTestDatabase = async <A>(
+  use: (pool: Pool) => Promise<A>,
+  migrations: ReadonlyArray<DatabaseMigrationDefinition> = databaseMigrationDefinitions,
+): Promise<A> => {
   const database = await PGlite.create({ extensions: { btree_gist } });
 
   const server = new PGLiteSocketServer({
@@ -18,7 +22,7 @@ export const withPostgresTestDatabase = async <A>(use: (pool: Pool) => Promise<A
   let pool: Pool | undefined;
 
   try {
-    for (const migration of databaseMigrationDefinitions) {
+    for (const migration of migrations) {
       await database.exec(await readFile(migration.url, "utf8"));
     }
 
