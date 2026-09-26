@@ -371,19 +371,19 @@ const lockDepartmentReference = (sql: DatabaseOperations, departmentId: Departme
 const existingTag = (tag: AuthzTag) =>
   readAuthzTag(tag.tagId).pipe(
     Effect.map((value): AuthzTag | undefined => value),
-    Effect.catchTag("AuthzRecordNotFound", () => Effect.succeed(undefined)),
+    Effect.catchTag("AuthzRecordNotFound", () => Effect.undefined),
   );
 
 const existingAssignment = (assignment: AuthzTagAssignment) =>
   readAuthzTagAssignment(assignment.assignmentId).pipe(
     Effect.map((value): AuthzTagAssignment | undefined => value),
-    Effect.catchTag("AuthzRecordNotFound", () => Effect.succeed(undefined)),
+    Effect.catchTag("AuthzRecordNotFound", () => Effect.undefined),
   );
 
 const existingRule = (rule: AuthzRule) =>
   readAuthzRule(rule.ruleId).pipe(
     Effect.map((value): AuthzRule | undefined => value),
-    Effect.catchTag("AuthzRecordNotFound", () => Effect.succeed(undefined)),
+    Effect.catchTag("AuthzRecordNotFound", () => Effect.undefined),
   );
 
 const assertIdenticalReplay = <A>(

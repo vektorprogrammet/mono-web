@@ -117,9 +117,7 @@ const findReceiptForSettlement = (
     WHERE receipt_id = ${receiptId}
     FOR UPDATE
   `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : receiptFromRow(rows[0]),
-    ),
+    Effect.flatMap((rows) => (rows[0] === undefined ? Effect.undefined : receiptFromRow(rows[0]))),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read Receipt for settlement", cause)),
     ),
@@ -153,7 +151,7 @@ const findSettlementByReceipt = (
     WHERE receipt_id = ${receiptId}
   `.pipe(
     Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : decodeSettlementEvidence(rows[0]),
+      rows[0] === undefined ? Effect.undefined : decodeSettlementEvidence(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read Receipt settlement", cause)),
@@ -181,7 +179,7 @@ const findSettlementById = (
     WHERE settlement_id = ${settlementId}
   `.pipe(
     Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : decodeSettlementEvidence(rows[0]),
+      rows[0] === undefined ? Effect.undefined : decodeSettlementEvidence(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read Receipt settlement replay", cause)),

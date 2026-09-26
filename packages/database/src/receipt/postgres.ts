@@ -195,9 +195,7 @@ const findReceipt = (
     WHERE receipt_id = ${receiptId}
     FOR UPDATE
   `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : receiptFromRow(rows[0]),
-    ),
+    Effect.flatMap((rows) => (rows[0] === undefined ? Effect.undefined : receiptFromRow(rows[0]))),
     Effect.catchTag("SqlError", (cause) => Effect.fail(persistenceError("read receipt", cause))),
   );
 
@@ -213,7 +211,7 @@ const findCommandReceipt = (
     Effect.flatMap((rows) => {
       const row = rows[0];
 
-      if (row === undefined) return Effect.succeed(undefined);
+      if (row === undefined) return Effect.undefined;
 
       return Schema.decodeUnknownEffect(StoredReceiptCommandEnvelopeSchema)(row.command_json, {
         onExcessProperty: "error",

@@ -56,7 +56,7 @@ const selectSettlementEvidence = (
     WHERE receipt_id = ${receiptId}
   `.pipe(
     Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : decodeSettlementEvidence(rows[0]),
+      rows[0] === undefined ? Effect.undefined : decodeSettlementEvidence(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(projectionError("read Receipt settlement evidence", cause)),

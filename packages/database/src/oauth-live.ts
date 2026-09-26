@@ -455,7 +455,7 @@ const resolveOAuthCredential = <R>(
     }
 
     const state = yield* lookup(decoded.claims, decoded.header.kid).pipe(
-      Effect.catch(() => Effect.succeed(undefined)),
+      Effect.catch(() => Effect.undefined),
     );
 
     if (state === undefined || state.key_alg !== "ES256") {

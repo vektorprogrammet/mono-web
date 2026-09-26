@@ -126,7 +126,7 @@ const readInvitationRow = (
   `.pipe(
     Effect.flatMap((rows) =>
       rows[0] === undefined
-        ? Effect.succeed(undefined)
+        ? Effect.undefined
         : decode(InvitationResponseRowSchema, "invitation response row")(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>
@@ -173,7 +173,7 @@ const lockInvitationRow = (
   `.pipe(
     Effect.flatMap((rows) =>
       rows[0] === undefined
-        ? Effect.succeed(undefined)
+        ? Effect.undefined
         : decode(InvitationResponseRowSchema, "locked invitation response row")(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>

@@ -174,7 +174,7 @@ const readInterview = (sql: DatabaseOperations, interviewId: string, lock: boole
   `.pipe(
     Effect.flatMap((rows) =>
       rows[0] === undefined
-        ? Effect.succeed(undefined)
+        ? Effect.undefined
         : decode(
             Schema.Struct({
               interviewId: Schema.String,
@@ -210,7 +210,7 @@ const readSchedule = (sql: DatabaseOperations, interviewId: string, lock: boolea
   `.pipe(
     Effect.flatMap((rows) =>
       rows[0] === undefined
-        ? Effect.succeed(undefined)
+        ? Effect.undefined
         : decode(
             Schema.Struct({
               interviewId: Schema.String,
@@ -239,7 +239,7 @@ const readInvitation = (sql: DatabaseOperations, interviewId: string, lock: bool
   `.pipe(
     Effect.flatMap((rows) =>
       rows[0] === undefined
-        ? Effect.succeed(undefined)
+        ? Effect.undefined
         : decode(Schema.Struct({ responseState: Schema.String }), "invitation row")(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>
@@ -276,7 +276,7 @@ const readConduct = (sql: DatabaseOperations, interviewId: string, lock: boolean
   `.pipe(
     Effect.flatMap((rows) =>
       rows[0] === undefined
-        ? Effect.succeed(undefined)
+        ? Effect.undefined
         : decode(
             Schema.Struct({
               answers: Schema.Unknown,
@@ -341,7 +341,7 @@ const readCancellation = (sql: DatabaseOperations, interviewId: string, lock: bo
   `.pipe(
     Effect.flatMap((rows) =>
       rows[0] === undefined
-        ? Effect.succeed(undefined)
+        ? Effect.undefined
         : decode(
             Schema.Struct({
               cancelledByPersonId: Schema.String,
@@ -365,7 +365,7 @@ const readReceipt = (sql: DatabaseOperations, commandId: string, lock: boolean) 
   `.pipe(
     Effect.flatMap((rows) =>
       rows[0] === undefined
-        ? Effect.succeed(undefined)
+        ? Effect.undefined
         : decode(
             Schema.Struct({
               commandSha256: Schema.String,
@@ -393,7 +393,7 @@ const readCorrectionReceipt = (sql: DatabaseOperations, commandId: string, lock:
   `.pipe(
     Effect.flatMap((rows) =>
       rows[0] === undefined
-        ? Effect.succeed(undefined)
+        ? Effect.undefined
         : decode(
             Schema.Struct({
               commandSha256: Schema.String,
@@ -428,7 +428,7 @@ const readEffectiveAssessment = (sql: DatabaseOperations, interviewId: string) =
    `.pipe(
     Effect.flatMap((rows) =>
       rows[0] === undefined
-        ? Effect.succeed(undefined)
+        ? Effect.undefined
         : decode(
             Schema.Struct({
               answers: Schema.Unknown,

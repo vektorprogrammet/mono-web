@@ -515,7 +515,7 @@ const readAssignmentApplication = (
   `.pipe(
     Effect.flatMap((rows) =>
       rows[0] === undefined
-        ? Effect.succeed(undefined)
+        ? Effect.undefined
         : decode(AssignmentApplicationRowSchema, "assignment application")(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>
@@ -539,7 +539,7 @@ const readStoredReceipt = (
   `.pipe(
     Effect.flatMap((rows) =>
       rows[0] === undefined
-        ? Effect.succeed(undefined)
+        ? Effect.undefined
         : decode(StoredReceiptRowSchema, "assignment command receipt")(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>
@@ -568,7 +568,7 @@ const readInterviewForApplication = (
   `.pipe(
     Effect.flatMap((rows) =>
       rows[0] === undefined
-        ? Effect.succeed(undefined)
+        ? Effect.undefined
         : decode(StoredInterviewRowSchema, "stored recruitment interview")(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>
@@ -593,7 +593,7 @@ const readInterviewSchema = (
   `.pipe(
     Effect.flatMap((rows) =>
       rows[0] === undefined
-        ? Effect.succeed(undefined)
+        ? Effect.undefined
         : decode(
             InterviewSchemaRowSchema,
             "interview schema row",

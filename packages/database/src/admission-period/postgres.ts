@@ -104,9 +104,7 @@ const findPeriodForUpdate = (
     WHERE admission_period_id = ${admissionPeriodId}
     FOR UPDATE
   `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : decodePeriodRow(rows[0]),
-    ),
+    Effect.flatMap((rows) => (rows[0] === undefined ? Effect.undefined : decodePeriodRow(rows[0]))),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(periodPersistenceError("read admission period", cause)),
     ),
@@ -126,9 +124,7 @@ const findPeriodByPairForUpdate = (
     WHERE department_id = ${departmentId} AND semester_id = ${semesterId}
     FOR UPDATE
   `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : decodePeriodRow(rows[0]),
-    ),
+    Effect.flatMap((rows) => (rows[0] === undefined ? Effect.undefined : decodePeriodRow(rows[0]))),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(periodPersistenceError("read admission period by scope", cause)),
     ),
@@ -146,7 +142,7 @@ const findSemester = (
     WHERE semester_id = ${semesterId}
   `.pipe(
     Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : decodeSemesterRow(rows[0]),
+      rows[0] === undefined ? Effect.undefined : decodeSemesterRow(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(periodPersistenceError("read admission semester", cause)),
