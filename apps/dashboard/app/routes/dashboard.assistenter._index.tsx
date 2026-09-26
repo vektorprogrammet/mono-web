@@ -10,6 +10,7 @@ import {
   type OwnAffiliationResource,
   type OwnCoverageResource,
   type PlacementBoardResource,
+  type PlacementDraftResource,
 } from "@vektorprogrammet/http-api";
 import { Record, Option, Schema, Match } from "effect";
 import { createElement, type ReactNode, useState } from "react";
@@ -26,6 +27,9 @@ import type { Route } from "./+types/dashboard.assistenter._index";
 const privateData = <T,>(value: T, status = 200) =>
   data(value, { status, headers: { "Cache-Control": "private, no-store" } });
 
+/** One chosen draft placement: the JSON of the Create command that applies it. */
+const DraftPlacementChoice = Schema.fromJsonString(PlacementCommand);
+
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
@@ -39,6 +43,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     let board: typeof PlacementBoardResource.Type | null = null;
     let ownCoverage: typeof OwnCoverageResource.Type | null = null;
     let coverage: typeof CoverageBoardResource.Type | null = null;
+    let draft: typeof PlacementDraftResource.Type | null = null;
 
     if (departmentId) {
       const scope = Schema.decodeUnknownSync(AffiliationScope)({ departmentId });
@@ -61,6 +66,10 @@ export async function loader({ request }: Route.LoaderArgs) {
 
         board = placement.body;
         coverage = coverageBoard.body;
+
+        if (q.get("draft") === "1") {
+          draft = (await client.placements.readDraft({ query: scope })).body;
+        }
       }
     }
 
@@ -68,6 +77,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       scopes,
       own,
       board,
+      draft,
       ownCoverage,
       coverage,
       departmentId,
@@ -79,6 +89,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       scopes: null,
       own: null,
       board: null,
+      draft: null,
       ownCoverage: null,
       coverage: null,
       departmentId,
@@ -225,6 +236,38 @@ export async function action({ request }: Route.ActionArgs) {
         departmentId,
         semesterId: form.get("semesterId"),
       });
+
+      if (action === "ApplyDraft") {
+        const choices = form.getAll("draftPlacement");
+        let etag = headers["if-match"];
+
+        // Each chosen placement is one Create command against the board version the last one left.
+        for (const [index, choice] of choices.entries()) {
+          const payload = Schema.decodeUnknownSync(DraftPlacementChoice)(choice, {
+            onExcessProperty: "error",
+          });
+
+          if (payload.action !== "Create") throw new Error("A draft choice creates a placement");
+
+          const response = await client.placements.commandBoard({
+            query,
+            headers: Schema.decodeUnknownSync(IdempotencyIfMatchHeaders)({
+              "if-match": etag,
+              "idempotency-key": `${headers["idempotency-key"]}-${index}`,
+            }),
+            payload,
+          });
+
+          etag = response.body.etag;
+        }
+
+        return privateData({
+          success: true as const,
+          message: `${choices.length} ${choices.length === 1 ? "plassering" : "plasseringer"} fra utkastet er opprettet.`,
+          conflict: false,
+          commandId: String(form.get("commandId")),
+        });
+      }
 
       const values = {
         schoolId: Number(form.get("schoolId")),
@@ -615,6 +658,126 @@ function PlacementFields({
         </select>
       </label>
     </div>
+  );
+}
+
+const weekdayLabel: Record<string, string> = {
+  Monday: "Mandag",
+  Tuesday: "Tirsdag",
+  Wednesday: "Onsdag",
+  Thursday: "Torsdag",
+  Friday: "Fredag",
+};
+
+const draftBlockLabel: Record<string, string> = {
+  "1": "bolk 1",
+  "2": "bolk 2",
+  Both: "begge bolker",
+};
+
+const unplacedReasonLabel = {
+  NoAvailability: "ingen registrert tilgjengelighet",
+  NoOpenPlace: "ingen ledig plass passer ukedagene og bolken",
+} as const;
+
+/**
+ * Generates a placement draft and applies the chosen placements through ordinary Create
+ * commands. Unchecking a row leaves that placement for manual adjustment.
+ */
+function PlacementDraftPanel({
+  draft,
+  scope,
+}: {
+  draft: typeof PlacementDraftResource.Type | null;
+  scope: { readonly departmentId: string; readonly semesterId: string };
+}) {
+  return (
+    <section className="space-y-3 rounded-lg border p-4" aria-labelledby="placement-draft-title">
+      <h2 id="placement-draft-title" className="text-xl font-semibold">
+        Utkast til skoleplassering
+      </h2>
+      <p className="text-sm text-muted-foreground">
+        Utkastet fordeler aktive frivillige uten plassering på åpne skolebehov etter ukedager og
+        bolk. Ingenting lagres før du oppretter plasseringene.
+      </p>
+      <Form method="get">
+        <input type="hidden" name="departmentId" value={scope.departmentId} />
+        <input type="hidden" name="semesterId" value={scope.semesterId} />
+        <input type="hidden" name="draft" value="1" />
+        <Button type="submit" variant="outline">
+          {draft ? "Lag utkastet på nytt" : "Lag utkast"}
+        </Button>
+      </Form>
+      {draft && (
+        <div className="space-y-3" data-placement-draft>
+          <p>
+            Utkastet fyller {draft.filledPlaces} av {draft.openPlaces} ledige plasser.
+          </p>
+          {draft.placements.length === 0 ? (
+            <p>Utkastet har ingen nye plasseringer.</p>
+          ) : (
+            <CommandForm
+              etag={draft.boardEtag}
+              hidden={{ ...scope, action: "ApplyDraft" }}
+              label="Opprett plasseringer fra utkastet"
+            >
+              <ul className="space-y-1">
+                {draft.placements.map((placement) => (
+                  <li key={placement.personId}>
+                    <label className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        name="draftPlacement"
+                        defaultChecked
+                        value={JSON.stringify({
+                          action: "Create",
+                          personId: placement.personId,
+                          schoolId: placement.schoolId,
+                          day: placement.day,
+                          workdays: placement.workdays,
+                          block: placement.block,
+                        })}
+                      />
+                      <span>
+                        {placement.firstName} {placement.lastName}: {placement.schoolName},{" "}
+                        {weekdayLabel[placement.day]}, {draftBlockLabel[placement.block]},{" "}
+                        {placement.workdays} dager
+                      </span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              <Button type="submit">Opprett valgte plasseringer</Button>
+            </CommandForm>
+          )}
+          {draft.unplaced.length > 0 && (
+            <div>
+              <h3 className="font-medium">Uten plass i utkastet</h3>
+              <ul className="list-disc pl-5">
+                {draft.unplaced.map((person) => (
+                  <li key={person.personId}>
+                    {person.firstName} {person.lastName}: {unplacedReasonLabel[person.reason]}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {draft.openSlots.length > 0 && (
+            <div>
+              <h3 className="font-medium">Ledige plasser etter utkastet</h3>
+              <ul className="list-disc pl-5">
+                {draft.openSlots.map((slot) => (
+                  <li key={`${slot.schoolId}-${slot.day}-${slot.block}`}>
+                    {slot.schoolName}, {weekdayLabel[slot.day]}, {draftBlockLabel[slot.block]}:{" "}
+                    {slot.places}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1250,7 +1413,7 @@ function CoordinatorCoveragePanel({
 }
 
 export default function Assistenter() {
-  const { scopes, own, board, ownCoverage, coverage, departmentId, semesterId, error } =
+  const { scopes, own, board, draft, ownCoverage, coverage, departmentId, semesterId, error } =
     useLoaderData<typeof loader>();
 
   const scope = { departmentId, semesterId };
@@ -1380,6 +1543,7 @@ export default function Assistenter() {
               </article>
             ))}
           </section>
+          <PlacementDraftPanel draft={draft} scope={scope} />
           <section className="space-y-3 rounded-lg border p-4">
             <h2 className="text-xl font-semibold">Ny skoleplassering</h2>
             <CommandForm

@@ -1,6 +1,7 @@
 import { Context, Data, type Effect } from "effect";
 import type { DepartmentId, OrganizationPersonAuthority, PersonId } from "../organization/index.js";
 import type { PlacementFailure } from "./policy.js";
+import type { PlacementDraft } from "./scheduler.js";
 import type {
   Affiliation,
   CoverageBoard,
@@ -65,6 +66,14 @@ export interface PlacementsOperations {
     personId: PersonId,
     departmentId: DepartmentId,
   ) => Effect.Effect<Affiliation, PlacementOperationFailure>;
+  /**
+   * Drafts placements for the scoped board after caller authorization. The draft reads
+   * demand, placements, capacity plans, and current availability, and writes nothing;
+   * the same facts give the same draft.
+   */
+  readonly readDraft: (
+    scope: PlacementScope,
+  ) => Effect.Effect<PlacementDraft, PlacementOperationFailure>;
   /** Reads the scoped board after caller authorization. */
   readonly readBoard: (
     scope: PlacementScope,

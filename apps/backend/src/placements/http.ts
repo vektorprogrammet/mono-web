@@ -29,10 +29,12 @@ import {
   OwnAffiliationResource,
   OwnCoverageResource,
   PlacementBoardResource,
+  PlacementDraftResource,
   ReadCoverageBoardEndpoint,
   ReadOwnAffiliationEndpoint,
   ReadOwnCoverageEndpoint,
   ReadPlacementBoardEndpoint,
+  ReadPlacementDraftEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
@@ -150,7 +152,8 @@ type Endpoint =
   | typeof ReadOwnCoverageEndpoint
   | typeof CommandOwnCoverageEndpoint
   | typeof ReadCoverageBoardEndpoint
-  | typeof CommandCoverageBoardEndpoint;
+  | typeof CommandCoverageBoardEndpoint
+  | typeof ReadPlacementDraftEndpoint;
 
 const authorize = (
   request: Request,
@@ -285,7 +288,10 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
   /**
    * Answers one read from a repeatable-read snapshot; every check runs inside it.
    */
-  const read = (request: Request, mode: "scopes" | "own" | "board" | "ownCoverage" | "coverage") =>
+  const read = (
+    request: Request,
+    mode: "scopes" | "own" | "board" | "draft" | "ownCoverage" | "coverage",
+  ) =>
     Database.use((sql) =>
       sql.withTransaction(
         Effect.gen(function* () {
@@ -347,6 +353,26 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
               yield* strictOutput(PlacementBoardResource)(
                 resource(yield* placements.readBoard(scope)),
               ),
+            );
+          }
+
+          if (mode === "draft") {
+            yield* authorize(
+              request,
+              ReadPlacementDraftEndpoint,
+              scope.departmentId,
+              true,
+              input.now,
+            );
+
+            // One snapshot: the draft is drafted from exactly the board version it names.
+            const board = resource(yield* placements.readBoard(scope));
+
+            return json(
+              yield* strictOutput(PlacementDraftResource)({
+                ...(yield* placements.readDraft(scope)),
+                boardEtag: board.etag,
+              }),
             );
           }
 
@@ -448,6 +474,9 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
         )
         .handleRaw("readBoard", ({ request }) =>
           webHandler(request, (webRequest) => read(webRequest, "board")),
+        )
+        .handleRaw("readDraft", ({ request }) =>
+          webHandler(request, (webRequest) => read(webRequest, "draft")),
         )
         .handleRaw("readOwnCoverage", ({ request }) =>
           webHandler(request, (webRequest) => read(webRequest, "ownCoverage")),
