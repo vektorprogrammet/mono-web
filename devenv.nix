@@ -76,6 +76,40 @@ let
     }
     .${pkgs.stdenv.hostPlatform.system} or null;
 
+  # secretspec.toml's Bitwarden Secrets Manager provider calls the official bws CLI.
+  # nixpkgs builds bws from source because it is unfree, so no binary cache holds it and
+  # every CI run would compile it. This is Bitwarden's static release binary, pinned to the
+  # sha256 in the release's bws-sha256-checksums file.
+  bws =
+    let
+      version = "2.1.0";
+      release =
+        {
+          x86_64-linux = {
+            triple = "x86_64-unknown-linux-musl";
+            sha256 = "f59ee150e42b82128d437087e9bac920053c6bfddcb960d20ce9386e5ac9bba6";
+          };
+          aarch64-linux = {
+            triple = "aarch64-unknown-linux-musl";
+            sha256 = "eb0f1ae61d1c3b74244d2841233276e05c77e8be4da197ed90fc6248387005e1";
+          };
+        }
+        .${pkgs.stdenv.hostPlatform.system}
+          or (throw "No bws ${version} release binary is pinned for ${pkgs.stdenv.hostPlatform.system}.");
+    in
+    pkgs.stdenvNoCC.mkDerivation {
+      pname = "bws";
+      inherit version;
+      src = pkgs.fetchurl {
+        url = "https://github.com/bitwarden/sdk-sm/releases/download/bws-v${version}/bws-${release.triple}-${version}.zip";
+        inherit (release) sha256;
+      };
+      nativeBuildInputs = [ pkgs.unzip ];
+      sourceRoot = ".";
+      installPhase = "install -Dm755 bws $out/bin/bws";
+      meta.license = lib.licenses.unfree;
+    };
+
   # Git runs hooks with the caller's PATH, also for commits outside `devenv shell`.
   hookEnv = pkgs.writeShellScript "hook-env" ''
     PATH=${config.devenv.profile}/bin:$PATH exec "$@"
@@ -99,6 +133,7 @@ in
   };
 
   packages = [
+    bws
     pkgs.git
     pkgs.just
     pkgs.openssl

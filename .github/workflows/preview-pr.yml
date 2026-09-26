@@ -71,11 +71,11 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: package.json
+      - uses: ./.github/actions/devenv
+        timeout-minutes: 3
 
       - name: Install trusted frozen dependencies
+        shell: devenv shell bash -- -e {0}
         run: bun install --frozen-lockfile
 
       - name: Download exact pull-request bundles
@@ -84,14 +84,15 @@ jobs:
           name: worker-preview-build-${{ github.event.pull_request.head.sha }}
           path: .
 
-      # On first use, `wrangler preview` creates vektor-preview-homepage and vektor-preview-dashboard
-      # without a production version. The token needs Account > Workers Scripts > Edit.
+      # The Workers exist, so the token needs only Workers Editor on those two Workers.
+      # secretspec gives this one step the Cloudflare secrets from Bitwarden Secrets Manager;
+      # GitHub holds only the read-only machine-account token.
       - name: Create or update isolated Worker Previews
         id: preview
+        shell: devenv shell secretspec -- run --profile preview -- bash -e {0}
         env:
           CI: "true"
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          BWS_ACCESS_TOKEN: ${{ secrets.BWS_ACCESS_TOKEN }}
           PREVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: bun tools/scripts/deploy-preview.ts "${{ github.event.pull_request.number }}"
 
@@ -174,17 +175,17 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: package.json
+      - uses: ./.github/actions/devenv
+        timeout-minutes: 3
 
       - name: Install trusted frozen dependencies
+        shell: devenv shell bash -- -e {0}
         run: bun install --frozen-lockfile
 
       - name: Delete both Worker Previews
+        shell: devenv shell secretspec -- run --profile preview -- bash -e {0}
         env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          BWS_ACCESS_TOKEN: ${{ secrets.BWS_ACCESS_TOKEN }}
         run: |
           set -Eeuo pipefail
           delete_preview() {

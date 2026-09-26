@@ -15,3 +15,7 @@ require_version: ">=2.3.1"
 # Fail when a process port is taken instead of moving it, so PGPORT in the shell
 # always names the `devenv up` PostgreSQL server.
 strict_ports: true
+# bws (Bitwarden Secrets Manager CLI) is unfree; secretspec.toml's provider needs it.
+nixpkgs:
+  permitted_unfree_packages:
+    - bws

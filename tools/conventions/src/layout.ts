@@ -35,6 +35,7 @@ export const rootFiles = {
   justfile: "Command surface",
   "oxlint.config.ts": "Lint policy",
   "package.json": "Workspaces, tool versions, and the dependency catalog",
+  "secretspec.toml": "Declared secrets per profile and their Bitwarden Secrets Manager provider",
   "tsconfig.json": "Shared TypeScript options",
   "turbo.json": "Turbo task graph",
 } satisfies Readonly<Record<string, string>>;
