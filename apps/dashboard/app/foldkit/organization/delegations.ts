@@ -16,7 +16,7 @@ import { nativeProblemFrom } from "../../lib/native-problem";
 import "./styles.css";
 
 /** Norwegian labels for every organisational capability. */
-export const capabilityLabels: Record<typeof OrganizationCapability.Type, string> = {
+export const capabilityLabels: Record<OrganizationCapability, string> = {
   "admissions.periods": "Opptaksperioder",
   "admissions.outcomes": "Opptaksutfall og søkerkontoer",
   "recruitment.interviews": "Intervjufordeling, bemanning og rapport",
@@ -426,7 +426,7 @@ export const embedDelegationManagement = (container: HTMLElement): (() => void) 
   // The pinned HttpApi client distributes a union payload over whole requests.
   // Narrow only at this transport boundary; the domain owns all transitions.
   const execute = Effect.fn("organization.executeDelegation")(function* (
-    command: typeof DelegationCommand.Type,
+    command: DelegationCommand,
   ) {
     const headers = { "idempotency-key": IdempotencyKey.make(command.commandId) };
 
@@ -614,7 +614,7 @@ export const embedDelegationManagement = (container: HTMLElement): (() => void) 
               ? undefined
               : DelegationArea.cases.Department.make({ departmentId: department.departmentId });
 
-        const parsed: Option.Option<typeof DelegationCommand.Type> =
+        const parsed: Option.Option<DelegationCommand> =
           action === "IssueDelegation"
             ? parseIssue({
                 ...common,

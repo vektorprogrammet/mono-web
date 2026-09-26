@@ -41,24 +41,24 @@ export interface SchedulingCommands {
   readonly ReadInterviewConduct: (args: {
     readonly requestId: number;
     readonly generation: number;
-    readonly interviewId: typeof RecruitmentInterviewId.Type;
+    readonly interviewId: RecruitmentInterviewId;
   }) => Command.Command<Message>;
   readonly FinalizeInterview: (args: {
     readonly requestId: number;
     readonly generation: number;
-    readonly interviewId: typeof RecruitmentInterviewId.Type;
+    readonly interviewId: RecruitmentInterviewId;
     readonly input: FinalizeInterviewInput;
   }) => Command.Command<Message>;
   readonly CorrectInterviewAssessment: (args: {
     readonly requestId: number;
     readonly generation: number;
-    readonly interviewId: typeof RecruitmentInterviewId.Type;
+    readonly interviewId: RecruitmentInterviewId;
     readonly input: CorrectInterviewAssessmentInput;
   }) => Command.Command<Message>;
   readonly CancelInterview: (args: {
     readonly requestId: number;
     readonly generation: number;
-    readonly interviewId: typeof RecruitmentInterviewId.Type;
+    readonly interviewId: RecruitmentInterviewId;
     readonly input: CancelInterviewInput;
   }) => Command.Command<Message>;
 }

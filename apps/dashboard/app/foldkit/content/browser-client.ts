@@ -8,7 +8,7 @@ export interface ContentWorkspaceOperations {
     ContentBridgeFailure
   >;
   readonly readArticle: (input: {
-    readonly articleId: typeof ArticleId.Type;
+    readonly articleId: ArticleId;
   }) => Effect.Effect<ContentArticleObservation, ContentBridgeFailure>;
   readonly createArticle: (
     command: ContentCreateCommand,

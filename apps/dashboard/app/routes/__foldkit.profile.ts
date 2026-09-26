@@ -51,7 +51,7 @@ export async function action({ request }: Route.ActionArgs) {
     return new Response(null, { status: 405, headers: responseHeaders });
   }
 
-  let command: typeof ProfileCommand.Type;
+  let command: ProfileCommand;
 
   try {
     command = S.decodeUnknownSync(ProfileCommand)(await request.json(), {

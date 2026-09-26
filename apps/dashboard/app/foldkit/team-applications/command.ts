@@ -70,19 +70,19 @@ export interface TeamApplicationsCommands {
     readonly requestId: number;
   }) => Command.Command<Message>;
   readonly ReadApplication: (args: {
-    readonly applicationId: typeof TeamApplicationId.Type;
+    readonly applicationId: TeamApplicationId;
     readonly requestId: number;
   }) => Command.Command<Message>;
   readonly DeleteApplication: (args: {
-    readonly applicationId: typeof TeamApplicationId.Type;
-    readonly commandId: typeof IdempotencyKey.Type;
+    readonly applicationId: TeamApplicationId;
+    readonly commandId: IdempotencyKey;
     readonly requestId: number;
   }) => Command.Command<Message>;
   readonly ReviseIntake: (args: {
     readonly teamId: TeamId;
-    readonly etag: typeof StrongETag.Type;
-    readonly patch: typeof TeamApplicationIntakeMergePatch.Type;
-    readonly commandId: typeof IdempotencyKey.Type;
+    readonly etag: StrongETag;
+    readonly patch: TeamApplicationIntakeMergePatch;
+    readonly commandId: IdempotencyKey;
     readonly requestId: number;
   }) => Command.Command<Message>;
   readonly Focus: (args: { readonly selector: string }) => Command.Command<Message>;

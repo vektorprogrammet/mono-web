@@ -133,7 +133,7 @@ export async function loader({ request, params }: Route.LoaderArgs): Promise<Res
     return privateFailure(authenticatedFailureStatus(error));
   }
 
-  let receiptId: typeof ReceiptId.Type;
+  let receiptId: ReceiptId;
 
   try {
     receiptId = Schema.decodeSync(ReceiptId)(params.receiptId);

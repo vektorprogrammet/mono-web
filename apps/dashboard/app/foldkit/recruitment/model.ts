@@ -49,7 +49,7 @@ export type ReadyModel = S.Schema.Type<typeof ReadyModel>;
 
 export const init = (
   input: RecruitmentInput,
-  idempotencyKeySeed: typeof IdempotencyKey.Type,
+  idempotencyKeySeed: IdempotencyKey,
 ): Model => (ReadyModel.make({
   board:
     Predicate.isTagged(input, "Loaded")

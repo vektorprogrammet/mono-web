@@ -10,7 +10,7 @@ import type { Route } from "./+types/dashboard.utlegg.oppgjor.$receiptId";
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  let receiptId: typeof ReceiptId.Type;
+  let receiptId: ReceiptId;
 
   try {
     receiptId = Schema.decodeSync(ReceiptId)(params.receiptId);

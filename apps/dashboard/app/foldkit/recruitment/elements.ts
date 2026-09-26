@@ -6,7 +6,7 @@ const RECRUITMENT_ELEMENT = "vektor-recruitment-board";
 
 const RECRUITMENT_INPUT_ATTRIBUTE = "recruitment-input";
 
-const makeIdempotencyKeySeed = (): typeof IdempotencyKey.Type => {
+const makeIdempotencyKeySeed = (): IdempotencyKey => {
   const bytes = window.crypto.getRandomValues(new Uint8Array(32));
   let seed = "";
 
