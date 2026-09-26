@@ -31,6 +31,7 @@
         "effect": "catalog:effect-v4",
       },
       "devDependencies": {
+        "@effect/vitest": "catalog:effect-v4",
         "@monoweb/postgres": "workspace:*",
         "@types/node": "^22",
         "oxlint": "^1.41.0",
@@ -2989,8 +2990,6 @@
 
     "@monoweb/placements-docs/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "@monoweb/postgres/@types/node": ["@types/node@22.19.14", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-a39m4Z/qy3oYWP8Fc5RO674p/ENAB88JbwnmNwu6+hlfDTbqwE649936RqKNAXAOUwfggSVg6y2KwQcYBYaTsA=="],
-
     "@monoweb/verification/@types/node": ["@types/node@22.19.14", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-a39m4Z/qy3oYWP8Fc5RO674p/ENAB88JbwnmNwu6+hlfDTbqwE649936RqKNAXAOUwfggSVg6y2KwQcYBYaTsA=="],
 
     "@parcel/watcher/picomatch": ["picomatch@4.0.3", "", {}, "sha512-5gTmgEY/sqK6gFXLIsQNH19lWb4ebPDLA4SdLP7dsWkIXHWlG66oPuVvXSGFPppYZz8ZDZq0dYYrbHfBCVUb1Q=="],
@@ -3102,14 +3101,6 @@
     "@types/pg/@types/node": ["@types/node@22.19.14", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-a39m4Z/qy3oYWP8Fc5RO674p/ENAB88JbwnmNwu6+hlfDTbqwE649936RqKNAXAOUwfggSVg6y2KwQcYBYaTsA=="],
 
     "@types/ws/@types/node": ["@types/node@22.19.14", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-a39m4Z/qy3oYWP8Fc5RO674p/ENAB88JbwnmNwu6+hlfDTbqwE649936RqKNAXAOUwfggSVg6y2KwQcYBYaTsA=="],
-
-    "@vektorprogrammet/backend/@types/node": ["@types/node@22.19.14", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-a39m4Z/qy3oYWP8Fc5RO674p/ENAB88JbwnmNwu6+hlfDTbqwE649936RqKNAXAOUwfggSVg6y2KwQcYBYaTsA=="],
-
-    "@vektorprogrammet/database/@types/node": ["@types/node@22.19.14", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-a39m4Z/qy3oYWP8Fc5RO674p/ENAB88JbwnmNwu6+hlfDTbqwE649936RqKNAXAOUwfggSVg6y2KwQcYBYaTsA=="],
-
-    "@vektorprogrammet/domain/@types/node": ["@types/node@22.19.14", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-a39m4Z/qy3oYWP8Fc5RO674p/ENAB88JbwnmNwu6+hlfDTbqwE649936RqKNAXAOUwfggSVg6y2KwQcYBYaTsA=="],
-
-    "@vektorprogrammet/http-api/@types/node": ["@types/node@22.19.14", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-a39m4Z/qy3oYWP8Fc5RO674p/ENAB88JbwnmNwu6+hlfDTbqwE649936RqKNAXAOUwfggSVg6y2KwQcYBYaTsA=="],
 
     "@vektorprogrammet/sdk/@types/node": ["@types/node@22.19.14", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-a39m4Z/qy3oYWP8Fc5RO674p/ENAB88JbwnmNwu6+hlfDTbqwE649936RqKNAXAOUwfggSVg6y2KwQcYBYaTsA=="],
 

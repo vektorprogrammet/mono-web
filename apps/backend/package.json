@@ -33,6 +33,7 @@
     "effect": "catalog:effect-v4"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:effect-v4",
     "@monoweb/postgres": "workspace:*",
     "@types/node": "^22",
     "oxlint": "^1.41.0",
