@@ -162,6 +162,11 @@ const bounded = (promise, milliseconds, label) =>
   });
 
 try {
+  // The Worker under test is built here from the committed source; a build left in
+  // apps/homepage/build by an earlier run or another revision is never served.
+  run("bun", ["--no-env-file", "run", "worker:build"], { cwd: homepage, timeout: 300_000 });
+  console.log(JSON.stringify({ phase: "homepage Worker built" }));
+
   const redirectPort = await listen(
     createServer((_request, response) => {
       redirectHits++;
