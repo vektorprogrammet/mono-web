@@ -32,7 +32,7 @@ import {
   startDisposablePostgres,
 } from "@monoweb/postgres";
 import * as BunServices from "@effect/platform-bun/BunServices";
-import { Schema, Cause, Predicate, Effect, Layer, Redacted, Struct } from "effect";
+import { Console, Schema, Cause, Predicate, Effect, Layer, Redacted, Struct } from "effect";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { Database, databaseHealth } from "@vektorprogrammet/database";
 import {
@@ -177,7 +177,7 @@ try {
     Effect.runPromise(program.pipe(Effect.provide(databaseLayer)));
 
   await run(databaseHealth);
-  console.log("0095 database migrated");
+  await Effect.runPromise(Console.log("0095 database migrated"));
   const backendOrigin = `http://127.0.0.1:${backendPort}`;
   const password = randomBytes(24).toString("hex");
   secretValues.push(password);
@@ -329,7 +329,7 @@ try {
       baselineFile.sha256,
     ],
   );
-  console.log("0095 native baseline seeded");
+  await Effect.runPromise(Console.log("0095 native baseline seeded"));
 
   const baseline = await snapshot(),
     baselineCredentials = await credentialDigest();
@@ -518,7 +518,7 @@ try {
 
   await importAll();
   await observeNoEffects();
-  console.log("0095 import and failure/retry passed");
+  await Effect.runPromise(Console.log("0095 import and failure/retry passed"));
 
   // Staging objects owned by rejected occurrences have no committed references.
   for (const file of prepared.staged) {
@@ -553,7 +553,7 @@ try {
     return cookie;
   };
 
-  console.log("0095 backend ready");
+  await Effect.runPromise(Console.log("0095 backend ready"));
 
   const cookie = await signIn(persons[0]!.email),
     foreign = await signIn(persons[1]!.email);
@@ -645,7 +645,7 @@ try {
     }
   }
 
-  console.log("0095 owner reads and denials passed");
+  await Effect.runPromise(Console.log("0095 owner reads and denials passed"));
 
   const collision = {
     ...accepted[0]!,
@@ -726,7 +726,7 @@ try {
   const current = await snapshot();
 
   for (const table of authorityTables) assert.equal(current[table], baseline[table]);
-  console.log("0095 replay and tamper observations passed");
+  await Effect.runPromise(Console.log("0095 replay and tamper observations passed"));
   let deliveryObservation: Awaited<ReturnType<typeof observeReceiptDelivery>> | null = null;
 
   if (process.env.RECEIPT_DELIVERY_REHEARSAL === "1") {
@@ -835,7 +835,9 @@ try {
       2,
     ),
   );
-  console.error(`0095 failure diagnostics: ${join(artifacts, "failure.json")}`);
+  await Effect.runPromise(
+    Console.error(`0095 failure diagnostics: ${join(artifacts, "failure.json")}`),
+  );
   throw new Error("Receipt rehearsal failed; inspect sanitized failure evidence");
 } finally {
   if (pool) await pool.end();
@@ -880,4 +882,4 @@ if (safe(encodedEvidence) !== encodedEvidence)
 
 await writeFile(join(artifacts, "evidence.json"), encodedEvidence, { mode: 0o600 });
 
-console.log(`0095 passed: ${join(artifacts, "evidence.json")}`);
+await Effect.runPromise(Console.log(`0095 passed: ${join(artifacts, "evidence.json")}`));

@@ -16,7 +16,7 @@ import {
   reserveLoopbackPorts,
   startDisposablePostgres,
 } from "@monoweb/postgres";
-import { Schema, flow, Predicate, Effect, Redacted } from "effect";
+import { Console, Schema, flow, Predicate, Effect, Redacted } from "effect";
 import { databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import {
@@ -1318,4 +1318,4 @@ for (const secret of secrets)
 
 await writeFile(join(artifacts, "evidence.json"), output);
 
-console.log(`0107 passed: ${artifacts}/evidence.json`);
+await Effect.runPromise(Console.log(`0107 passed: ${artifacts}/evidence.json`));

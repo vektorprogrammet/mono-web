@@ -25,7 +25,7 @@ import {
 } from "@vektorprogrammet/domain/receipt";
 import { CurrentAssignmentReview } from "@vektorprogrammet/domain/placements";
 import * as BunServices from "@effect/platform-bun/BunServices";
-import { Effect, Schema } from "effect";
+import { Console, Effect, Schema } from "effect";
 import type { Pool } from "pg";
 import * as PaymentCustody from "@vektorprogrammet/backend/receipt/payment-account";
 import { buildLegacyReferences } from "./legacy-cutover-references";
@@ -794,8 +794,10 @@ const main = async (): Promise<void> => {
   const args = process.argv.slice(2);
 
   if (args.length === 1 && args[0] === "--help") {
-    console.log(
-      "Usage: bun --no-env-file tools/e2e/run-legacy-candidate-rehearsal.ts --evidence-dir=<new-directory>\nRuns one invented candidate through local private MariaDB/PostgreSQL, both import CLIs and native services. No backup, production or provider access.",
+    await Effect.runPromise(
+      Console.log(
+        "Usage: bun --no-env-file tools/e2e/run-legacy-candidate-rehearsal.ts --evidence-dir=<new-directory>\nRuns one invented candidate through local private MariaDB/PostgreSQL, both import CLIs and native services. No backup, production or provider access.",
+      ),
     );
 
     return;
@@ -854,22 +856,24 @@ const main = async (): Promise<void> => {
     assert.equal(metadata.mode & 0o777, mode);
   }
 
-  console.log(
-    JSON.stringify({
-      scope: report.scope,
-      result: report.result,
-      productionReadiness: report.productionReadiness,
-      checks: report.checks.length,
-      unresolved: report.unresolved,
-      excluded: report.excluded,
-      evidence: "owner-only-report-and-checksummed-source",
-      ownedDatabasesCleaned: true,
-    }),
+  await Effect.runPromise(
+    Console.log(
+      JSON.stringify({
+        scope: report.scope,
+        result: report.result,
+        productionReadiness: report.productionReadiness,
+        checks: report.checks.length,
+        unresolved: report.unresolved,
+        excluded: report.excluded,
+        evidence: "owner-only-report-and-checksummed-source",
+        ownedDatabasesCleaned: true,
+      }),
+    ),
   );
 };
 
 if (process.argv[1] === fileURLToPath(import.meta.url))
-  await main().catch((cause) => {
+  await main().catch(async (cause) => {
     const error = cause instanceof AggregateError ? cause.errors[0] : cause;
 
     const location =
@@ -884,8 +888,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url))
         ? /^Candidate native journey failed: ([A-Za-z0-9-]+)$/.exec(error.message)?.[1]
         : undefined;
 
-    console.error(
-      `Synthetic combined candidate rehearsal failed at ${stage}${nativePhase ? `/${nativePhase}` : ""}${location ? ` (line ${location})` : ""}; details redacted`,
+    await Effect.runPromise(
+      Console.error(
+        `Synthetic combined candidate rehearsal failed at ${stage}${nativePhase ? `/${nativePhase}` : ""}${location ? ` (line ${location})` : ""}; details redacted`,
+      ),
     );
     process.exitCode = 1;
   });

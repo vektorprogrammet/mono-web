@@ -37,7 +37,7 @@ import {
   organizationImportSourceDigest,
 } from "@vektorprogrammet/database/organization";
 import { Pool, type PoolClient } from "pg";
-import { Effect, flow, Predicate, Schema } from "effect";
+import { Console, Effect, flow, Predicate, Schema } from "effect";
 import {
   buildLegacyReferences,
   departmentId,
@@ -638,7 +638,7 @@ const usage =
 
 if (import.meta.main) {
   if (process.argv.length === 3 && process.argv[2] === "--help") {
-    console.log(usage);
+    await Effect.runPromise(Console.log(usage));
   } else {
     try {
       const argumentsByName = Object.fromEntries(
@@ -719,13 +719,15 @@ if (import.meta.main) {
         organization,
       });
 
-      console.log(JSON.stringify(result));
+      await Effect.runPromise(Console.log(JSON.stringify(result)));
     } catch (error) {
       // Driver and SQL exceptions can contain credentials or Person fields. No row-level diagnostics.
-      console.error(
-        error instanceof CutoverStageFailure
-          ? error.message
-          : "Legacy cohort cutover failed; details redacted. No completion report was issued.",
+      await Effect.runPromise(
+        Console.error(
+          error instanceof CutoverStageFailure
+            ? error.message
+            : "Legacy cohort cutover failed; details redacted. No completion report was issued.",
+        ),
       );
       process.exitCode = 1;
     }

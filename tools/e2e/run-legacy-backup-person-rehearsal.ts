@@ -43,7 +43,16 @@ import {
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
 import { PersonId } from "@vektorprogrammet/domain/organization";
-import { flow, Predicate, Effect, Layer, Redacted, Schema, SchemaTransformation } from "effect";
+import {
+  Console,
+  flow,
+  Predicate,
+  Effect,
+  Layer,
+  Redacted,
+  Schema,
+  SchemaTransformation,
+} from "effect";
 import { Pool } from "pg";
 import { buildLegacyPersonSnapshot, LegacyUserJson } from "./legacy-person-snapshot";
 import { CutoverStageFailure, runLegacyServiceCutover } from "./run-legacy-service-cutover";
@@ -1595,4 +1604,4 @@ try {
 
 assert.ok(report !== undefined);
 
-console.log(JSON.stringify(report, null, 2));
+await Effect.runPromise(Console.log(JSON.stringify(report, null, 2)));

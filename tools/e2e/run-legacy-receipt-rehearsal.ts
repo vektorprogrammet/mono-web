@@ -29,7 +29,7 @@ import {
   type ReceiptSourceRow,
 } from "@vektorprogrammet/domain/receipt";
 import * as BunServices from "@effect/platform-bun/BunServices";
-import { Effect, Match, Redacted, Schema } from "effect";
+import { Console, Effect, Match, Redacted, Schema } from "effect";
 import type { Pool } from "pg";
 import * as PaymentCustody from "@vektorprogrammet/backend/receipt/payment-account";
 import * as FileCustody from "@vektorprogrammet/backend/receipt/filesystem";
@@ -1475,8 +1475,10 @@ const main = async (): Promise<void> => {
   const args = process.argv.slice(2);
 
   if (args.length === 1 && args[0] === "--help") {
-    console.log(
-      "Usage: bun --no-env-file tools/e2e/run-legacy-receipt-rehearsal.ts --evidence-dir=<new-directory>\nRuns invented source rows on private socket-only MariaDB/PostgreSQL and actual receipt CLI. No backup, production, or provider access.",
+    await Effect.runPromise(
+      Console.log(
+        "Usage: bun --no-env-file tools/e2e/run-legacy-receipt-rehearsal.ts --evidence-dir=<new-directory>\nRuns invented source rows on private socket-only MariaDB/PostgreSQL and actual receipt CLI. No backup, production, or provider access.",
+      ),
     );
 
     return;
@@ -1533,23 +1535,25 @@ const main = async (): Promise<void> => {
     assert.equal(metadata.mode & 0o777, mode);
   }
 
-  console.log(
-    JSON.stringify(
-      {
-        scope: report.scope,
-        counts: report.counts,
-        checks: report.checks.length,
-        evidence: "owner-only-report-and-checksummed-source",
-        ownedDatabasesCleaned: true,
-      },
-      null,
-      2,
+  await Effect.runPromise(
+    Console.log(
+      JSON.stringify(
+        {
+          scope: report.scope,
+          counts: report.counts,
+          checks: report.checks.length,
+          evidence: "owner-only-report-and-checksummed-source",
+          ownedDatabasesCleaned: true,
+        },
+        null,
+        2,
+      ),
     ),
   );
 };
 
 if (process.argv[1] === fileURLToPath(import.meta.url))
-  await main().catch((cause) => {
+  await main().catch(async (cause) => {
     const error = cause instanceof AggregateError ? cause.errors[0] : cause;
 
     const line =
@@ -1557,8 +1561,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url))
         ? /run-legacy-receipt-rehearsal\.ts:(\d+):/.exec(error.stack ?? "")?.[1]
         : undefined;
 
-    console.error(
-      `Synthetic receipt rehearsal failed at ${stage}${line ? ` (line ${line})` : ""}; details redacted`,
+    await Effect.runPromise(
+      Console.error(
+        `Synthetic receipt rehearsal failed at ${stage}${line ? ` (line ${line})` : ""}; details redacted`,
+      ),
     );
     process.exitCode = 1;
   });

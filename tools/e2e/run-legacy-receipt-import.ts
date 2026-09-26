@@ -7,7 +7,7 @@ import { readPrivateCohortJson } from "@vektorprogrammet/database/cohort-cli";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
 import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
 import { ReceiptCohortFailure, ReceiptReview } from "@vektorprogrammet/domain/receipt";
-import { Effect, Layer, Predicate, Redacted, Schema } from "effect";
+import { Console, Effect, Layer, Predicate, Redacted, Schema } from "effect";
 import {
   ReceiptFileStoreLive,
   ReceiptFileStoreResource,
@@ -255,7 +255,7 @@ const usage =
 
 if (import.meta.main) {
   if (process.argv.length === 3 && process.argv[2] === "--help") {
-    console.log(usage);
+    await Effect.runPromise(Console.log(usage));
   } else {
     try {
       const names = [
@@ -299,14 +299,16 @@ if (import.meta.main) {
           argumentsByName["organization-source"] === "include" ? "Include" : "NotRequested",
       });
 
-      console.log(JSON.stringify(report));
+      await Effect.runPromise(Console.log(JSON.stringify(report)));
 
       if (!report.complete) process.exitCode = 2;
     } catch (error) {
-      console.error(
-        error instanceof LegacyReceiptImportFailure
-          ? error.message
-          : "Legacy receipt import Selection/Failed failed; details redacted",
+      await Effect.runPromise(
+        Console.error(
+          error instanceof LegacyReceiptImportFailure
+            ? error.message
+            : "Legacy receipt import Selection/Failed failed; details redacted",
+        ),
       );
       process.exitCode = 1;
     }

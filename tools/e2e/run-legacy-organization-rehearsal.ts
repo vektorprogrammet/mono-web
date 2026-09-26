@@ -23,7 +23,7 @@ import {
   PersonId,
   type ReviewedOrganizationSnapshot,
 } from "@vektorprogrammet/domain/organization";
-import { Effect, flow, Layer, Predicate, Redacted, Schema } from "effect";
+import { Console, Effect, flow, Layer, Predicate, Redacted, Schema } from "effect";
 import type { Pool } from "pg";
 import { buildLegacyReferences, seedLegacyReferences } from "./legacy-cutover-references";
 import { buildLegacyOrganizationSnapshot } from "./legacy-organization-snapshot";
@@ -985,8 +985,10 @@ const main = async (): Promise<void> => {
   const args = process.argv.slice(2);
 
   if (args.length === 1 && args[0] === "--help") {
-    console.log(
-      "Usage: bun --no-env-file tools/e2e/run-legacy-organization-rehearsal.ts --evidence-dir=<new-directory>\nRuns synthetic, private socket-only MariaDB/PostgreSQL. No backup, production, or provider access.",
+    await Effect.runPromise(
+      Console.log(
+        "Usage: bun --no-env-file tools/e2e/run-legacy-organization-rehearsal.ts --evidence-dir=<new-directory>\nRuns synthetic, private socket-only MariaDB/PostgreSQL. No backup, production, or provider access.",
+      ),
     );
 
     return;
@@ -1016,23 +1018,27 @@ const main = async (): Promise<void> => {
     assert.equal(metadata.mode & 0o777, mode);
   }
 
-  console.log(
-    JSON.stringify(
-      {
-        scope: report.scope,
-        sourceRevision: report.source.revision,
-        counts: report.target.counts,
-        evidence: "owner-only-report.json",
-        ownedDatabasesCleaned: true,
-      },
-      null,
-      2,
+  await Effect.runPromise(
+    Console.log(
+      JSON.stringify(
+        {
+          scope: report.scope,
+          sourceRevision: report.source.revision,
+          counts: report.target.counts,
+          evidence: "owner-only-report.json",
+          ownedDatabasesCleaned: true,
+        },
+        null,
+        2,
+      ),
     ),
   );
 };
 
 if (process.argv[1] === fileURLToPath(import.meta.url))
-  await main().catch(() => {
-    console.error(`Synthetic organization rehearsal failed at ${stage}; details redacted`);
+  await main().catch(async () => {
+    await Effect.runPromise(
+      Console.error(`Synthetic organization rehearsal failed at ${stage}; details redacted`),
+    );
     process.exitCode = 1;
   });
