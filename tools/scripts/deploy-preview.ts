@@ -109,7 +109,7 @@ type PreviewUrls = {
 const parsePreviewResult = (output: string): PreviewUrls => {
   const jsonStart = output.lastIndexOf("\n{");
 
-  const parsed = Schema.decodeUnknownSync(Schema.fromJsonString(PreviewResult))(
+  const parsed = Schema.decodeSync(Schema.fromJsonString(PreviewResult))(
     jsonStart === -1 ? output : output.slice(jsonStart + 1),
   );
 

@@ -142,7 +142,7 @@ copyLinks(join(root, "node_modules"), join(directory, "node_modules"));
 
 symlinkSync(store, join(directory, "node_modules", ".bun"));
 
-const { workspaces } = Schema.decodeUnknownSync(
+const { workspaces } = Schema.decodeSync(
   Schema.fromJsonString(Schema.Struct({ workspaces: Schema.Array(Schema.String) })),
 )(readFileSync(join(directory, "package.json"), "utf8"));
 
@@ -195,7 +195,7 @@ if (dryRun.status !== 0) {
   fail(`turbo --dry=json failed: ${dryRun.stderr.trim()}`);
 }
 
-const affected = Schema.decodeUnknownSync(
+const affected = Schema.decodeSync(
   Schema.fromJsonString(
     Schema.Struct({ tasks: Schema.Array(Schema.Struct({ command: Schema.String })) }),
   ),
