@@ -33,9 +33,11 @@ const result = await Effect.runPromise(
       command: unknown;
     }>`SELECT command_json AS command FROM public.recruitment_interview_lifecycle_command_receipts WHERE interview_id='interview-recommendation-no'`;
 
-    const command = Schema.decodeUnknownSync(FinalizeInterviewCommandSchema)(rows[0]!.command);
+    const command = yield* Schema.decodeUnknownEffect(FinalizeInterviewCommandSchema)(
+      rows[0]!.command,
+    );
 
-    const actor = Schema.decodeSync(RecruitmentActorSchema)(
+    const actor = yield* Schema.decodeEffect(RecruitmentActorSchema)(
       RecruitmentActorSchema.cases.Member.make({
         personId: PersonId.make("journey-conduct-leader-0063"),
         departmentId: DepartmentId.make("department-native-conduct-0063"),

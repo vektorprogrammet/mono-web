@@ -62,10 +62,14 @@ const bridgeRequest = <A>(
         }) satisfies InvitationBridgeFailure;
       }
 
-      return S.decodeUnknownSync(schema)(expectedStatus === 204 ? undefined : await response.json(), {onExcessProperty: "error"});
+      return { payload: expectedStatus === 204 ? undefined : await response.json() };
     },
     catch: toFailure,
-  });
+  }).pipe(
+    Effect.flatMap(({ payload }) =>
+      S.decodeUnknownEffect(schema)(payload, {onExcessProperty: "error"}).pipe(Effect.mapError(toFailure)),
+    ),
+  );
 
 export const createBrowserInterviewClient = flow(decodeInvitationInteractionId, (decodedInteractionId): InvitationResponseClient => {
 

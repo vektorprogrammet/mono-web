@@ -239,10 +239,9 @@ const readCommandBody = (request: Request, maxBytes: number) =>
 
     if (text === undefined) return yield* Problem.make("request.too-large");
 
-    return yield* Effect.try({
-      try: () => Schema.decodeUnknownSync(Schema.Json)(JSON.parse(text)),
-      catch: requestInvalid,
-    });
+    return yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Json))(text).pipe(
+      Effect.mapError(requestInvalid),
+    );
   });
 
 /**

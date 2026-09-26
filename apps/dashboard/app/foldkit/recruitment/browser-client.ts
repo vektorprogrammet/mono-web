@@ -90,12 +90,16 @@ const bridgeRequest = <A>(
   schema: S.Decoder<A>,
 ): Effect.Effect<A, RecruitmentBridgeFailure> =>
   Effect.gen(function* () {
+    const body = yield* S.encodeEffect(RecruitmentBridgeOperationJson)(operation).pipe(
+      Effect.mapError(() => recruitmentNetworkFailure),
+    );
+
     const response = yield* Effect.tryPromise({
       try: () => fetch(`${import.meta.env.BASE_URL}recruitment`, {
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json", accept: "application/json" },
-        body: S.encodeSync(RecruitmentBridgeOperationJson)(operation),
+        body,
       }),
       catch: () => recruitmentNetworkFailure,
     });

@@ -936,7 +936,7 @@ describe("authorization rule decoding", () => {
       for (const input of [
         {
           ...common,
-          scope: Schema.decodeSync(Schema.fromJsonString(Schema.Json))(
+          scope: yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Json))(
             '{"_tag":"Receipt","receiptId":"authz-receipt"}',
           ),
           params: { requirementId: "receipts.pending", parameters: {} },

@@ -38,48 +38,58 @@ const bridgeRequest = <A>(
   schema: S.Decoder<A, never>,
   operation?: SocialEventsBridgeOperation,
 ): Effect.Effect<A, SocialEventsBridgeFailureType> =>
-  Effect.tryPromise({
-    try: async () => {
-      const response = await fetch(
-        bridgeUrl,
-        operation === undefined
-          ? {
-              method: "GET",
-              credentials: "same-origin",
-              headers: { accept: "application/json" },
-            }
-          : {
-              method: "POST",
-              credentials: "same-origin",
-              headers: {
-                accept: "application/json",
-                "content-type": "application/json",
+  Effect.gen(function* () {
+    // An operation that cannot be encoded fails like the request it never sent.
+    const body =
+      operation === undefined
+        ? undefined
+        : yield* S.encodeEffect(SocialEventsBridgeOperationJson)(operation).pipe(
+            Effect.mapError(() => socialEventsBridgeFailure("Network")),
+          );
+
+    return yield* Effect.tryPromise({
+      try: async () => {
+        const response = await fetch(
+          bridgeUrl,
+          body === undefined
+            ? {
+                method: "GET",
+                credentials: "same-origin",
+                headers: { accept: "application/json" },
+              }
+            : {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {
+                  accept: "application/json",
+                  "content-type": "application/json",
+                },
+                body,
               },
-              body: S.encodeSync(SocialEventsBridgeOperationJson)(operation),
-            },
-      );
-
-      const payload = (await response.json().catch(() => null));
-
-      return { response, payload };
-    },
-    catch: () => socialEventsBridgeFailure("Network"),
-  }).pipe(
-    Effect.flatMap(({ response, payload }) => {
-      if (!response.ok) {
-        return S.decodeUnknownEffect(SocialEventsBridgeFailure)(payload, {
-          onExcessProperty: "error",
-        }).pipe(
-          Effect.mapError(() => socialEventsBridgeFailure("SocialEventsDecodeError")),
-          Effect.flatMap(Effect.fail),
         );
-      }
 
-      return S.decodeUnknownEffect(schema)(payload, {
-        onExcessProperty: "error",
-      }).pipe(Effect.mapError(() => socialEventsBridgeFailure("SocialEventsDecodeError")));
-    }),
-  );
+        const payload = (await response.json().catch(() => null));
+
+        return { response, payload };
+      },
+      catch: () => socialEventsBridgeFailure("Network"),
+    }).pipe(
+      Effect.flatMap(({ response, payload }) => {
+        if (!response.ok) {
+          return S.decodeUnknownEffect(SocialEventsBridgeFailure)(payload, {
+            onExcessProperty: "error",
+          }).pipe(
+            Effect.mapError(() => socialEventsBridgeFailure("SocialEventsDecodeError")),
+            Effect.flatMap(Effect.fail),
+          );
+        }
+
+        return S.decodeUnknownEffect(schema)(payload, {
+          onExcessProperty: "error",
+        }).pipe(Effect.mapError(() => socialEventsBridgeFailure("SocialEventsDecodeError")));
+      }),
+    );
+  });
 
 export const createBrowserSocialEventsClient = (): SocialEventsClient => ({
   socialEvents: {

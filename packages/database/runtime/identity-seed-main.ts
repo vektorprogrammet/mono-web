@@ -139,7 +139,7 @@ const program = Effect.gen(function* () {
   assertLoopbackDatabaseUrl(postgresUrl);
   const schemaRevision = yield* applyMigrations(postgresUrl);
 
-  const trustedOrigins = Schema.decodeUnknownSync(
+  const trustedOrigins = yield* Schema.decodeUnknownEffect(
     Schema.fromJsonString(Schema.Array(Schema.String)),
   )(process.env.NATIVE_IDENTITY_TRUSTED_ORIGINS);
 

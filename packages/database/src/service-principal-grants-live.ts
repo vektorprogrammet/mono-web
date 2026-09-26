@@ -813,13 +813,10 @@ export const makeServicePrincipalGrantAuthorityService = (
       ),
     ),
   createGrant: (input) =>
-    Effect.try({
-      try: () =>
-        Schema.decodeSync(CreateServicePrincipalGrantInputSchema)(input, {
-          onExcessProperty: "error",
-        }),
-      catch: mutationRejected,
+    Schema.decodeEffect(CreateServicePrincipalGrantInputSchema)(input, {
+      onExcessProperty: "error",
     }).pipe(
+      Effect.mapError(mutationRejected),
       Effect.flatMap((decoded) =>
         Effect.tryPromise({
           try: () => mutateGrant(pool, (client) => createGrant(client, decoded)),
@@ -834,13 +831,10 @@ export const makeServicePrincipalGrantAuthorityService = (
       ),
     ),
   endGrant: (input) =>
-    Effect.try({
-      try: () =>
-        Schema.decodeSync(EndServicePrincipalGrantInputSchema)(input, {
-          onExcessProperty: "error",
-        }),
-      catch: mutationRejected,
+    Schema.decodeEffect(EndServicePrincipalGrantInputSchema)(input, {
+      onExcessProperty: "error",
     }).pipe(
+      Effect.mapError(mutationRejected),
       Effect.flatMap((decoded) =>
         Effect.tryPromise({
           try: () => mutateGrant(pool, (client) => endGrant(client, decoded)),
@@ -855,13 +849,10 @@ export const makeServicePrincipalGrantAuthorityService = (
       ),
     ),
   revokeGrant: (input) =>
-    Effect.try({
-      try: () =>
-        Schema.decodeSync(RevokeServicePrincipalGrantInputSchema)(input, {
-          onExcessProperty: "error",
-        }),
-      catch: mutationRejected,
+    Schema.decodeEffect(RevokeServicePrincipalGrantInputSchema)(input, {
+      onExcessProperty: "error",
     }).pipe(
+      Effect.mapError(mutationRejected),
       Effect.flatMap((decoded) =>
         Effect.tryPromise({
           try: () => mutateGrant(pool, (client) => revokeGrant(client, decoded)),

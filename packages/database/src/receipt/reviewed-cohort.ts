@@ -624,12 +624,17 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
             }
           }
 
+          const acceptedJson =
+            accepted === null
+              ? null
+              : yield* Schema.encodeEffect(AcceptedResultSchema)(decodeAccepted(accepted));
+
           yield* sql`
         INSERT INTO public.receipt_cohort_occurrences (
           snapshot_key, source_primary_key, source_row_digest, disposition, reasons_json, accepted_result_json
         ) VALUES (
           ${snapshotKey}, ${entry.sourcePrimaryKey}, ${entry.sourceRowDigest}, ${disposition},
-          ${sql.json(reasons)}, ${accepted === null ? null : sql.json(Schema.encodeSync(AcceptedResultSchema)(decodeAccepted(accepted)))}
+          ${sql.json(reasons)}, ${acceptedJson === null ? null : sql.json(acceptedJson)}
         )
       `;
 

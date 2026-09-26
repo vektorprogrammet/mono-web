@@ -368,13 +368,13 @@ const proof = Effect.gen(function* () {
     Predicate.isTagged(result, "Success") ? [result.value.observation] : [],
   );
 
-  const encodeObservation = Schema.encodeSync(RecruitmentScheduleObservationSchema);
+  const encodeObservation = Schema.encodeEffect(RecruitmentScheduleObservationSchema);
 
   const exactReplayObservation =
     identicalObservations[0] !== undefined &&
     identicalObservations[1] !== undefined &&
-    canonicalJson(encodeObservation(identicalObservations[0])) ===
-      canonicalJson(encodeObservation(identicalObservations[1]));
+    canonicalJson(yield* encodeObservation(identicalObservations[0])) ===
+      canonicalJson(yield* encodeObservation(identicalObservations[1]));
 
   const [linkage] = yield* sql<LinkageCountRow>`
     WITH cohort_interviews(interview_id) AS (
