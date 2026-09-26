@@ -111,7 +111,7 @@ e2e suite:
       *) echo "Unknown suite '$1'. Use admission-periods, applicant, approval, conduct, contact, content-publication, identity, interview-response, organization, owner, profile, recruitment, scheduling, schools, settlement, social-events, or substitutes." >&2; exit 2 ;;
     esac
 
-# Run a PostgreSQL proof: authorization-rules, completion-receipt, delivery-recovery, or rule-reconciliation.
+# Run a PostgreSQL proof: authorization-rules, delivery-recovery, or rule-reconciliation.
 [group('journeys')]
 proof name *args:
     #!/usr/bin/env bash
@@ -120,10 +120,9 @@ proof name *args:
     shift
     case "$name" in
       authorization-rules) exec bun run packages/database/runtime/authorization-rules-postgres-proof-main.ts "$@" ;;
-      completion-receipt) exec bun run tools/verification/completion-receipt-postgres-proof-main.ts "$@" ;;
       delivery-recovery) exec bun --no-env-file tools/verification/unattended-delivery-recovery.ts "$@" ;;
       rule-reconciliation) exec bun run packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts "$@" ;;
-      *) echo "Unknown proof '$name'. Use authorization-rules, completion-receipt, delivery-recovery, or rule-reconciliation." >&2; exit 2 ;;
+      *) echo "Unknown proof '$name'. Use authorization-rules, delivery-recovery, or rule-reconciliation." >&2; exit 2 ;;
     esac
 
 # Build a PostgreSQL fixture in JOURNEY_SEED_PG_URL: recommendation-preupgrade.
