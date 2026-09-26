@@ -52,9 +52,9 @@
   ],
   "styles": {
     "upstreamPath": "app/globals.css",
-    "localPath": "../../src/pages/_root.css",
+    "localPath": "../../styles/app.css",
     "changes": [
-      "Copy only the graph-frame utility; use local accessible light and dark colors."
+      "Copy only the graph-frame utility and the color tokens into the Fumadocs app stylesheet; use local accessible light and dark colors."
     ]
   }
 }
