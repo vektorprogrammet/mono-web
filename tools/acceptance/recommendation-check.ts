@@ -2077,9 +2077,9 @@ try {
       ),
     );
     await page.goto(`${ui}/dashboard/intervjuer`);
-    await open(page, "Sofie Gjennomfører");
   }
 
+  await open(page, "Sofie Gjennomfører");
   await fill(page);
   assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "");
   await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "editable-desktop.png") });

@@ -1,5 +1,6 @@
 // Negative controls run against the real repository and justfile with one change each: one more
-// e2e suite in the justfile dump, one more browser evidence script, or a renamed workflow job.
+// e2e suite in the justfile dump, one more browser evidence script, a renamed workflow job, or one
+// more Playwright spec or acceptance probe that no journey runs.
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { checkLayout } from "../src/check.js";
@@ -117,5 +118,21 @@ describe("hosted journeys", () => {
         (message) => message.includes("applicant-evidence"),
       ),
     ).toHaveLength(1);
+  });
+
+  test("rejects a Playwright spec that no journey runs, until the runner of a suite names it", () => {
+    const spec = "apps/dashboard/e2e/unlisted.spec.ts";
+    const runner = "apps/dashboard/e2e/run-real-native-schools-directory.mjs";
+    const named = `${base.read(runner)}\nexport const unlisted = "e2e/unlisted.spec.ts";\n`;
+
+    expect(messagesFor(withFiles({ [spec]: "" }), justfile, spec)).toHaveLength(1);
+    expect(messagesFor(withFiles({ [spec]: "", [runner]: named }), justfile, spec)).toEqual([]);
+  });
+
+  test("rejects an acceptance probe that no journey runs, and accepts an excluded spec", () => {
+    const probe = "tools/acceptance/unlisted-check.ts";
+
+    expect(messagesFor(withFiles({ [probe]: "" }), justfile, probe)).toHaveLength(1);
+    expect(messagesFor(base, justfile, "apps/homepage/e2e/preview-smoke.spec.ts")).toEqual([]);
   });
 });

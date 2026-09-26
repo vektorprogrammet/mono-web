@@ -113,12 +113,9 @@ function handleFixtureRequest(request: IncomingMessage, response: ServerResponse
   });
 }
 
+// /dashboard/assistenter is the native volunteer affiliation and school placement page, not an
+// unavailable projection; no page calls the legacy assistant overview in unsupportedDataPaths.
 const unavailablePages = [
-  {
-    route: "/dashboard/assistenter",
-    heading: "Assistentoversikten er ikke tilgjengelig",
-    body: "Den native tjenesten tilbyr ikke assistentdata ennå.",
-  },
   {
     route: "/dashboard/sponsorer",
     heading: "Sponsoroversikten er ikke tilgjengelig",

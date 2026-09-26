@@ -282,8 +282,11 @@ const subpathTarget = (exports: Schema.Json, subpath: string): string | undefine
 
 const moduleExtensions = [".ts", ".tsx", ".d.ts", ".js", ".jsx", ".mts", ".mjs", ".cts", ".cjs"];
 
-// TypeScript resolves `./file.js` to `./file.ts`, and an extensionless path to a file or index.
-const candidates = (path: string): ReadonlyArray<string> => {
+/**
+ * The files that a module path can name, in resolution order: TypeScript resolves `./file.js` to
+ * `./file.ts`, and an extensionless path to a file or index.
+ */
+export const moduleCandidates = (path: string): ReadonlyArray<string> => {
   const extension = /\.[cm]?[jt]sx?$/u.exec(path)?.[0];
 
   if (extension === undefined)
@@ -351,7 +354,7 @@ const readResolver = (
   }
 
   const file = (path: string): string | undefined =>
-    candidates(path).find((candidate) => files.has(candidate));
+    moduleCandidates(path).find((candidate) => files.has(candidate));
 
   const packageTarget = (specifier: string): string | undefined => {
     const segments = specifier.split("/");

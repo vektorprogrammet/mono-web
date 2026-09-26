@@ -40,12 +40,13 @@ export const SPEC_0067 = {
   evidencePath: "/tmp/mono-web-0067-organization-import-evidence.json",
 } as const;
 
+// The pages that the Chromium journey reads: the team-application chooser and the people directory.
 export const NATIVE_BROWSER_JOURNEY_REQUIREMENTS = [
-  { path: "/api/departments", access: "Public", requestSource: "BrowserSameOrigin" },
+  { path: "/api/departments", access: "Public", requestSource: "DashboardSsr" },
   { path: "/api/people", access: "BoundedSession", requestSource: "DashboardSsr" },
   { path: "/api/profile", access: "BoundedSession", requestSource: "DashboardSsr" },
   { path: "/api/session", access: "BoundedSession", requestSource: "DashboardSsr" },
-  { path: "/api/teams", access: "Public", requestSource: "BrowserSameOrigin" },
+  { path: "/api/teams", access: "Public", requestSource: "DashboardSsr" },
 ] as const;
 
 export const SPEC_0067_PREREQUISITES = {

@@ -384,41 +384,67 @@ Run the same journey locally with the listed command.
 
 [//]: # "hosted-journeys: generated from the justfile, tools/conventions/src/journeys.ts, and .github/workflows/tests.yml by just layout write; do not edit"
 
-`just layout write` generates this section and the matrix legs in `.github/workflows/tests.yml` from the names that `just golden`, `just e2e`, and `just proof` accept.
+`just layout write` generates this section and the matrix legs in `.github/workflows/tests.yml` from the names that `just golden`, `just e2e`, `just proof`, and `just rehearsal` accept.
 Each name is one leg, unless `tools/conventions/src/journeys.ts` gives it a job of its own or excludes it with its reason.
+A name runs the files that its command names, and in turn the files that those name. Each Playwright spec (`apps/*/e2e/**/*.spec.{ts,mjs}`) and each file of an acceptance probe (`tools/acceptance/**/*.{ts,mjs}`) runs under a name, unless the declaration excludes it.
 
-| Command                          | Hosted job                                                       |
-| -------------------------------- | ---------------------------------------------------------------- |
-| `just golden school-service`     | Golden school-service (required functional gate)                 |
-| `just golden recruitment`        | Browser journeys (golden recruitment)                            |
-| `just golden reimbursement`      | Browser journeys (golden reimbursement)                          |
-| `just golden team-application`   | Browser journeys (golden team-application)                       |
-| `just e2e applicant`             | Public applicant (PostgreSQL and Chromium)                       |
-| `just e2e contact`               | Browser journeys (e2e contact)                                   |
-| `just e2e admission-periods`     | Browser journeys (e2e admission-periods)                         |
-| `just e2e approval`              | Browser journeys (e2e approval)                                  |
-| `just e2e conduct`               | Browser journeys (e2e conduct)                                   |
-| `just e2e content-publication`   | Browser journeys (e2e content-publication)                       |
-| `just e2e identity`              | Native identity browser evidence (fresh PostgreSQL and Chromium) |
-| `just e2e interview-response`    | Browser journeys (e2e interview-response)                        |
-| `just e2e organization`          | Browser journeys (e2e organization)                              |
-| `just e2e owner`                 | Browser journeys (e2e owner)                                     |
-| `just e2e profile`               | Browser journeys (e2e profile)                                   |
-| `just e2e recruitment`           | Browser journeys (e2e recruitment)                               |
-| `just e2e scheduling`            | Browser journeys (e2e scheduling)                                |
-| `just e2e schools`               | Browser journeys (e2e schools)                                   |
-| `just e2e settlement`            | Browser journeys (e2e settlement)                                |
-| `just e2e social-events`         | Browser journeys (e2e social-events)                             |
-| `just e2e substitutes`           | Browser journeys (e2e substitutes)                               |
-| `just proof delivery-recovery`   | Browser journeys (proof delivery-recovery)                       |
-| `just proof rule-reconciliation` | Browser journeys (proof rule-reconciliation)                     |
+| Command                                      | Hosted job                                                       |
+| -------------------------------------------- | ---------------------------------------------------------------- |
+| `just golden school-service`                 | Golden school-service (required functional gate)                 |
+| `just golden recruitment`                    | Browser journeys (golden recruitment)                            |
+| `just golden reimbursement`                  | Browser journeys (golden reimbursement)                          |
+| `just golden team-application`               | Browser journeys (golden team-application)                       |
+| `just e2e applicant`                         | Public applicant (PostgreSQL and Chromium)                       |
+| `just e2e contact`                           | Browser journeys (e2e contact)                                   |
+| `just e2e admission-periods`                 | Browser journeys (e2e admission-periods)                         |
+| `just e2e approval`                          | Browser journeys (e2e approval)                                  |
+| `just e2e conduct`                           | Browser journeys (e2e conduct)                                   |
+| `just e2e content-publication`               | Browser journeys (e2e content-publication)                       |
+| `just e2e identity`                          | Native identity browser evidence (fresh PostgreSQL and Chromium) |
+| `just e2e interview-response`                | Browser journeys (e2e interview-response)                        |
+| `just e2e organization`                      | Browser journeys (e2e organization)                              |
+| `just e2e owner`                             | Browser journeys (e2e owner)                                     |
+| `just e2e profile`                           | Browser journeys (e2e profile)                                   |
+| `just e2e recruitment`                       | Browser journeys (e2e recruitment)                               |
+| `just e2e scheduling`                        | Browser journeys (e2e scheduling)                                |
+| `just e2e schools`                           | Browser journeys (e2e schools)                                   |
+| `just e2e settlement`                        | Browser journeys (e2e settlement)                                |
+| `just e2e social-events`                     | Browser journeys (e2e social-events)                             |
+| `just e2e substitutes`                       | Browser journeys (e2e substitutes)                               |
+| `just e2e sign-in-pages`                     | Browser journeys (e2e sign-in-pages)                             |
+| `just e2e unavailable-projections`           | Browser journeys (e2e unavailable-projections)                   |
+| `just e2e onboarding`                        | Browser journeys (e2e onboarding)                                |
+| `just e2e password-recovery`                 | Browser journeys (e2e password-recovery)                         |
+| `just e2e recommendation`                    | Browser journeys (e2e recommendation)                            |
+| `just e2e recommendation-applicant-progress` | Browser journeys (e2e recommendation-applicant-progress)         |
+| `just e2e recommendation-co-interviewer`     | Browser journeys (e2e recommendation-co-interviewer)             |
+| `just e2e recommendation-correction`         | Browser journeys (e2e recommendation-correction)                 |
+| `just e2e recommendation-report`             | Browser journeys (e2e recommendation-report)                     |
+| `just e2e recommendation-returning`          | Browser journeys (e2e recommendation-returning)                  |
+| `just proof delivery-recovery`               | Browser journeys (proof delivery-recovery)                       |
+| `just proof rule-reconciliation`             | Browser journeys (proof rule-reconciliation)                     |
+| `just rehearsal organization-import`         | Browser journeys (rehearsal organization-import)                 |
+| `just rehearsal receipt-import`              | Browser journeys (rehearsal receipt-import)                      |
+| `just rehearsal current-assignment`          | Browser journeys (rehearsal current-assignment)                  |
 
-These commands are not hosted:
+These commands and files are not hosted:
 
-| Command                                       | Reason                                                                                                                                                                                                 |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `just proof authorization-rules`              | Fails on main after its migration preflight: the admission matrix step compares an AdmissionPeriod instance with a plain object (packages/database/runtime/authorization-rules-postgres-proof-main.ts) |
-| `bun run --cwd apps/dashboard e2e:real-oauth` | Needs an external topology; without one, Playwright skips every test                                                                                                                                   |
+| Command or file                                            | Reason                                                                                                                                                                                                 |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `just proof authorization-rules`                           | Fails on main after its migration preflight: the admission matrix step compares an AdmissionPeriod instance with a plain object (packages/database/runtime/authorization-rules-postgres-proof-main.ts) |
+| `just rehearsal account-cohort`                            | Needs the PHP CLI of the legacy-data devenv profile; the hosted legs run the default profile                                                                                                           |
+| `just rehearsal legacy-current-assignment`                 | Needs MariaDB from the legacy-data devenv profile; the hosted legs run the default profile                                                                                                             |
+| `just rehearsal legacy-organization`                       | Needs MariaDB from the legacy-data devenv profile; the hosted legs run the default profile                                                                                                             |
+| `just rehearsal legacy-receipt`                            | Needs MariaDB from the legacy-data devenv profile; the hosted legs run the default profile                                                                                                             |
+| `just rehearsal legacy-candidate`                          | Needs MariaDB from the legacy-data devenv profile; the hosted legs run the default profile                                                                                                             |
+| `bun run --cwd apps/dashboard e2e:real-oauth`              | Needs an external topology; without one, Playwright skips every test                                                                                                                                   |
+| `apps/dashboard/e2e/native-session-journey.spec.ts`        | Needs a running stack with the accounts of just seed, such as devenv up, and REAL_NATIVE_IDENTITY_E2E and DASHBOARD_ORIGIN set; no runner owns that topology, and without it every test skips          |
+| `apps/dashboard/e2e/native-users-journey.spec.ts`          | Needs a running stack with the accounts of just seed, such as devenv up, and REAL_NATIVE_IDENTITY_E2E and DASHBOARD_ORIGIN set; no runner owns that topology, and without it every test skips          |
+| `apps/dashboard/e2e/native-team-interest-journey.spec.ts`  | Needs a stack that e2e/native-team-interest-mailing-list-seed.mjs seeds, with REAL_NATIVE_IDENTITY_E2E set; no runner or recipe provides it, and without it every test skips                           |
+| `apps/dashboard/e2e/native-mailing-lists-journey.spec.ts`  | Needs a stack that e2e/native-team-interest-mailing-list-seed.mjs seeds, with REAL_NATIVE_IDENTITY_E2E set; no runner or recipe provides it, and without it every test skips                           |
+| `apps/dashboard/e2e/native-recruitment-assignment.spec.ts` | Superseded by native-recruitment-session-journey.spec.ts, which just e2e recruitment runs; nothing sets its REAL_RECRUITMENT_E2E variables, so every test skips                                        |
+| `apps/homepage/e2e/preview-smoke.spec.ts`                  | Needs a deployed preview origin in PREVIEW_BASE_URL; without one, every test skips                                                                                                                     |
+| `apps/homepage/e2e/homepage-dev-journey.spec.ts`           | Not yet observed under a journey name: it builds and serves the homepage worker itself; it becomes a just e2e suite once it passes locally                                                             |
 
 [//]: # "hosted-journeys: end"
 
@@ -427,6 +453,7 @@ Each journey starts its own PostgreSQL, ports, and Chromium; some runners use fi
 The job uploads only the `/usr/bin/time` resource summary. Journey evidence stays in the job log.
 
 `just layout` fails when the legs, this section, or the browser evidence scripts of the apps disagree with the accepted names and `tools/conventions/src/journeys.ts`.
+It also fails on a Playwright spec or an acceptance probe file that no name runs and the declaration does not exclude, so a new check is hosted or excluded with its reason from the start.
 A new name becomes a leg, so add it to a recipe only after its journey passes locally.
 
 ## Development sequence

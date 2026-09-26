@@ -349,15 +349,19 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
 
       await Promise.race([
         (async () => {
-          await page.goto(`${dashboardOrigin}/dashboard/team`, {
+          // The team-application chooser lists every active team under its active department.
+          await page.goto(`${dashboardOrigin}/dashboard/teamsoknader`, {
             waitUntil: "domcontentloaded",
           });
-          const importedTeam = page.locator('[data-organization-id="6711"]');
-          await expect(page.getByRole("heading", { name: "Registrerte team" })).toBeVisible();
-          await expect(page.getByText("1 oppføring", { exact: true })).toBeVisible();
-          await expect(importedTeam).toContainText(expectedTeamName);
-          await expect(importedTeam).toContainText(expectedDepartmentName);
-          await expect(importedTeam).toContainText("Aktiv");
+          await expect(
+            page.getByRole("heading", { level: 1, name: "Team-søknader" }),
+          ).toBeVisible();
+          await expect(
+            page
+              .getByRole("region", { name: expectedDepartmentName })
+              .getByRole("link", { name: `Søknader til ${expectedTeamName}` }),
+          ).toBeVisible();
+          await expect(page.getByRole("link", { name: /^Søknader til / })).toHaveCount(1);
 
           await page.goto(`${dashboardOrigin}/dashboard/brukere`, {
             waitUntil: "domcontentloaded",
@@ -469,7 +473,7 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
             authorizationInstant,
             pages: [
               {
-                path: "/dashboard/team",
+                path: "/dashboard/teamsoknader",
                 observed: [expectedDepartmentName, expectedTeamName],
               },
               {

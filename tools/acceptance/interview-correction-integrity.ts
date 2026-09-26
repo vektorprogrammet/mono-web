@@ -149,8 +149,9 @@ const assertRejectedAndUnchanged = async <A>(
     try {
       await mutation(client);
     } catch (cause) {
+      // pg's DatabaseError always carries `constraint`, undefined when no constraint failed.
       failure = Schema.decodeUnknownSync(
-        Schema.Struct({ message: Schema.String, constraint: Schema.optionalKey(Schema.String) }),
+        Schema.Struct({ message: Schema.String, constraint: Schema.optional(Schema.String) }),
       )(cause);
     }
 

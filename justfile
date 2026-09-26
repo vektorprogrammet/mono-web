@@ -118,7 +118,7 @@ golden journey:
       *) echo "Unknown journey '$1'. Use school-service, recruitment, reimbursement, or team-application." >&2; exit 2 ;;
     esac
 
-# Run a browser suite: admission-periods, applicant, approval, conduct, contact, content-publication, identity, interview-response, organization, owner, profile, recruitment, scheduling, schools, settlement, social-events, or substitutes.
+# Run a browser suite: admission-periods, applicant, approval, conduct, contact, content-publication, identity, interview-response, onboarding, organization, owner, password-recovery, profile, recommendation, recommendation-applicant-progress, recommendation-co-interviewer, recommendation-correction, recommendation-report, recommendation-returning, recruitment, scheduling, schools, settlement, sign-in-pages, social-events, substitutes, or unavailable-projections.
 [group('journeys')]
 e2e suite:
     #!/usr/bin/env bash
@@ -128,7 +128,16 @@ e2e suite:
       contact) exec bun run --cwd apps/homepage e2e:contact:native ;;
       admission-periods | approval | conduct | content-publication | identity | interview-response | organization | owner | profile | recruitment | scheduling | schools | settlement | social-events | substitutes)
         exec bun run --cwd apps/dashboard "e2e:real-$1" ;;
-      *) echo "Unknown suite '$1'. Use admission-periods, applicant, approval, conduct, contact, content-publication, identity, interview-response, organization, owner, profile, recruitment, scheduling, schools, settlement, social-events, or substitutes." >&2; exit 2 ;;
+      sign-in-pages | unavailable-projections) exec bun run --cwd apps/dashboard "e2e:$1" ;;
+      onboarding) exec bun --no-env-file tools/acceptance/onboarding-check.ts --browser ;;
+      password-recovery) exec bun --no-env-file tools/acceptance/password-recovery-check.ts ;;
+      recommendation) exec bun --no-env-file tools/acceptance/recommendation-check.ts ;;
+      recommendation-applicant-progress) exec bun --no-env-file tools/acceptance/recommendation-check.ts --applicant-progress-mode ;;
+      recommendation-co-interviewer) exec bun --no-env-file tools/acceptance/recommendation-check.ts --co-interviewer-mode ;;
+      recommendation-correction) exec bun --no-env-file tools/acceptance/recommendation-check.ts --correction-mode ;;
+      recommendation-report) exec bun --no-env-file tools/acceptance/recommendation-check.ts --report ;;
+      recommendation-returning) exec bun --no-env-file tools/acceptance/recommendation-check.ts --returning-mode ;;
+      *) echo "Unknown suite '$1'. Use admission-periods, applicant, approval, conduct, contact, content-publication, identity, interview-response, onboarding, organization, owner, password-recovery, profile, recommendation, recommendation-applicant-progress, recommendation-co-interviewer, recommendation-correction, recommendation-report, recommendation-returning, recruitment, scheduling, schools, settlement, sign-in-pages, social-events, substitutes, or unavailable-projections." >&2; exit 2 ;;
     esac
 
 # Run a PostgreSQL proof: authorization-rules, delivery-recovery, or rule-reconciliation.
@@ -157,7 +166,7 @@ fixture name *args:
       *) echo "Unknown fixture '$name'. Use recommendation-preupgrade." >&2; exit 2 ;;
     esac
 
-# Run a migration rehearsal: organization-import, receipt-import, current-assignment, or, in the legacy-data profile, account-cohort, legacy-current-assignment, legacy-organization, legacy-receipt, legacy-candidate.
+# Run a migration rehearsal, where account-cohort and the legacy ones need the legacy-data profile: organization-import, receipt-import, current-assignment, account-cohort, legacy-current-assignment, legacy-organization, legacy-receipt, or legacy-candidate.
 [group('migration')]
 rehearsal name *args:
     #!/usr/bin/env bash

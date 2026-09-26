@@ -14,6 +14,7 @@ import {
   legs,
   matrixJob,
   ownJobOf,
+  runFiles,
   testsWorkflow,
   type Workflow,
 } from "./journeys.js";
@@ -124,19 +125,29 @@ const renderHostedJourneys = (justfile: Justfile, workflow: Workflow): string =>
     code(
       "script" in entry
         ? `bun run --cwd ${entry.directory} ${entry.script}`
-        : `just ${entry.recipe} ${entry.name}`,
+        : "file" in entry
+          ? entry.file
+          : `just ${entry.recipe} ${entry.name}`,
     ),
     entry.reason,
   ]);
 
+  const files = runFiles.map(({ kind, glob }) => `${kind} (${code(glob)})`);
+
   return [
     `${code("just layout write")} generates this section and the matrix legs in ${code(testsWorkflow)} from the names that ${recipes.slice(0, -1).join(", ")}, and ${recipes.at(-1) ?? ""} accept.`,
     `Each name is one leg, unless ${code(journeysDeclaration)} gives it a job of its own or excludes it with its reason.`,
+    `A name runs the files that its command names, and in turn the files that those name. Each ${files.join(" and each ")} runs under a name, unless the declaration excludes it.`,
     "",
     table(["Command", "Hosted job"], hosted),
     ...(excluded.length === 0
       ? []
-      : ["", "These commands are not hosted:", "", table(["Command", "Reason"], excluded)]),
+      : [
+          "",
+          "These commands and files are not hosted:",
+          "",
+          table(["Command or file", "Reason"], excluded),
+        ]),
   ].join("\n");
 };
 

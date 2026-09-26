@@ -161,8 +161,21 @@ jobs:
           - { recipe: e2e, suite: settlement }
           - { recipe: e2e, suite: social-events }
           - { recipe: e2e, suite: substitutes }
+          - { recipe: e2e, suite: sign-in-pages }
+          - { recipe: e2e, suite: unavailable-projections }
+          - { recipe: e2e, suite: onboarding }
+          - { recipe: e2e, suite: password-recovery }
+          - { recipe: e2e, suite: recommendation }
+          - { recipe: e2e, suite: recommendation-applicant-progress }
+          - { recipe: e2e, suite: recommendation-co-interviewer }
+          - { recipe: e2e, suite: recommendation-correction }
+          - { recipe: e2e, suite: recommendation-report }
+          - { recipe: e2e, suite: recommendation-returning }
           - { recipe: proof, suite: delivery-recovery }
           - { recipe: proof, suite: rule-reconciliation }
+          - { recipe: rehearsal, suite: organization-import }
+          - { recipe: rehearsal, suite: receipt-import }
+          - { recipe: rehearsal, suite: current-assignment }
         # browser-journeys: end
     defaults:
       run:

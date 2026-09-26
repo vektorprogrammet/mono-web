@@ -927,7 +927,7 @@ const observeExistingPageSessionCapability = async (
 ): Promise<ReadonlyArray<ExistingPageSessionCapabilityObservation>> => {
   const observations: ExistingPageSessionCapabilityObservation[] = [];
 
-  for (const path of ["/dashboard/team", "/dashboard/brukere"] as const) {
+  for (const path of ["/dashboard/teamsoknader", "/dashboard/brukere"] as const) {
     const response = await guard.fetchLoopback(`${dashboardOrigin}${path}`, {
       headers: {
         accept: "text/html",

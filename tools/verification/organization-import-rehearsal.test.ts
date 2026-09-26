@@ -109,9 +109,18 @@ describe("spec 0067 runtime capability contracts", () => {
         path: "/api/departments",
         status: 200,
         sessionCookieAuth: true,
-        requestSource: "BrowserSameOrigin",
+        requestSource: "DashboardSsr",
       }),
     ).toBe(true);
+    expect(
+      isExpectedNativeBrowserJourneyObservation({
+        method: "GET",
+        path: "/api/departments",
+        status: 200,
+        sessionCookieAuth: true,
+        requestSource: "BrowserSameOrigin",
+      }),
+    ).toBe(false);
     expect(
       isExpectedNativeBrowserJourneyObservation({
         method: "GET",

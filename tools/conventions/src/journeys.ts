@@ -5,18 +5,24 @@
  * its own or excludes it with its reason. `just layout write` renders the legs and the hosted
  * journeys section of docs/web-system-functional-testing.md from the sets and this declaration;
  * `just layout` reports every fact that disagrees with them. Change the hosting here first.
+ *
+ * A name also runs files: those that its command names, and in turn those that journey code
+ * names, such as the Playwright spec that a browser runner starts. Every Playwright spec of the
+ * apps and every file of the acceptance probes runs under some name, or this declaration excludes
+ * it with its reason, so no check exists that nothing runs.
  */
 import { posix } from "node:path";
 import { Schema } from "effect";
 import type { Finding } from "./check.js";
 import type { CaseStatement, Justfile, Recipe } from "./justfile.js";
-import { readManifest } from "./modules.js";
+import { packageDirectories } from "./layout.js";
+import { moduleCandidates, readManifest } from "./modules.js";
 import type { Repository } from "./repository.js";
 
 export const journeysDeclaration = "tools/conventions/src/journeys.ts";
 
 /** The recipes whose `case` statement is a closed set of journeys, in leg order. */
-export const journeyRecipes = ["golden", "e2e", "proof"] as const;
+export const journeyRecipes = ["golden", "e2e", "proof", "rehearsal"] as const;
 
 export type JourneyRecipe = (typeof journeyRecipes)[number];
 
@@ -31,6 +37,15 @@ export const evidenceRecipe: JourneyRecipe = "e2e";
 
 /** The browser evidence scripts of an app. `just e2e` runs each one, or `exclusions` lists it. */
 export const evidenceScripts = ["e2e:real-*", "e2e:*:real", "e2e:*:native"] as const;
+
+/** The files that a journey must run, unless `exclusions` lists them, and what each one is. */
+export const runFiles = [
+  { kind: "Playwright spec", glob: "apps/*/e2e/**/*.spec.{ts,mjs}" },
+  { kind: "file of an acceptance probe", glob: "tools/acceptance/**/*.{ts,mjs}" },
+] as const;
+
+/** Tests of the run files, which their package's test script runs instead of a journey. */
+const runFileTests = "**/*.test.{ts,mjs}";
 
 /** A name of a journey set, such as `identity` of `just e2e`. */
 export interface Journey {
@@ -68,10 +83,23 @@ export const ownJobs: ReadonlyArray<OwnJob> = [
   },
 ];
 
-/** A journey, or a browser evidence script of an app, that the workflow does not run. */
+/**
+ * A journey, a browser evidence script of an app, or a file that the workflow does not run. An
+ * excluded script or file also excludes the files that it runs.
+ */
 export type Exclusion =
   | (Journey & { readonly reason: string })
-  | { readonly directory: string; readonly script: string; readonly reason: string };
+  | { readonly directory: string; readonly script: string; readonly reason: string }
+  | { readonly file: string; readonly reason: string };
+
+const legacyDataMariaDb =
+  "Needs MariaDB from the legacy-data devenv profile; the hosted legs run the default profile";
+
+const devenvUpStack =
+  "Needs a running stack with the accounts of just seed, such as devenv up, and REAL_NATIVE_IDENTITY_E2E and DASHBOARD_ORIGIN set; no runner owns that topology, and without it every test skips";
+
+const teamInterestStack =
+  "Needs a stack that e2e/native-team-interest-mailing-list-seed.mjs seeds, with REAL_NATIVE_IDENTITY_E2E set; no runner or recipe provides it, and without it every test skips";
 
 export const exclusions: ReadonlyArray<Exclusion> = [
   {
@@ -81,9 +109,37 @@ export const exclusions: ReadonlyArray<Exclusion> = [
       "Fails on main after its migration preflight: the admission matrix step compares an AdmissionPeriod instance with a plain object (packages/database/runtime/authorization-rules-postgres-proof-main.ts)",
   },
   {
+    recipe: "rehearsal",
+    name: "account-cohort",
+    reason:
+      "Needs the PHP CLI of the legacy-data devenv profile; the hosted legs run the default profile",
+  },
+  { recipe: "rehearsal", name: "legacy-current-assignment", reason: legacyDataMariaDb },
+  { recipe: "rehearsal", name: "legacy-organization", reason: legacyDataMariaDb },
+  { recipe: "rehearsal", name: "legacy-receipt", reason: legacyDataMariaDb },
+  { recipe: "rehearsal", name: "legacy-candidate", reason: legacyDataMariaDb },
+  {
     directory: "apps/dashboard",
     script: "e2e:real-oauth",
     reason: "Needs an external topology; without one, Playwright skips every test",
+  },
+  { file: "apps/dashboard/e2e/native-session-journey.spec.ts", reason: devenvUpStack },
+  { file: "apps/dashboard/e2e/native-users-journey.spec.ts", reason: devenvUpStack },
+  { file: "apps/dashboard/e2e/native-team-interest-journey.spec.ts", reason: teamInterestStack },
+  { file: "apps/dashboard/e2e/native-mailing-lists-journey.spec.ts", reason: teamInterestStack },
+  {
+    file: "apps/dashboard/e2e/native-recruitment-assignment.spec.ts",
+    reason:
+      "Superseded by native-recruitment-session-journey.spec.ts, which just e2e recruitment runs; nothing sets its REAL_RECRUITMENT_E2E variables, so every test skips",
+  },
+  {
+    file: "apps/homepage/e2e/preview-smoke.spec.ts",
+    reason: "Needs a deployed preview origin in PREVIEW_BASE_URL; without one, every test skips",
+  },
+  {
+    file: "apps/homepage/e2e/homepage-dev-journey.spec.ts",
+    reason:
+      "Not yet observed under a journey name: it builds and serves the homepage worker itself; it becomes a just e2e suite once it passes locally",
   },
 ];
 
@@ -165,25 +221,116 @@ const kebabCase = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 // `bun run --cwd <directory> <script>`, where either word can be quoted.
 const packageScript = /\bbun\s+run\s+--cwd\s+([^\s;&|]+)\s+([^\s;&|]+)/gu;
 
+const unquote = (word: string): string => word.replaceAll(/["']/gu, "");
+
+// A quoted string that can name a file: a relative specifier, or a path with a script extension.
+const quotedPath = /(["'`])((?:\.\.?\/)?[\w@-][\w@./-]*)\1/gu;
+
+const scriptExtension = /\.[cm]?[jt]sx?$/u;
+
+const relativePath = /^\.\.?\//u;
+
+// The files whose names of other files a run follows: the browser runners, drivers, and probes.
+const journeyCode = /^(?:apps\/[^/]+\/e2e|tools)\//u;
+
+const appDirectories = Object.keys(packageDirectories).filter((directory) =>
+  directory.startsWith("apps/"),
+);
+
+/** What a command runs: its package scripts, as `<directory> <script>`, and its files. */
+interface Run {
+  readonly scripts: ReadonlySet<string>;
+  readonly files: ReadonlySet<string>;
+}
+
 /**
- * The package scripts that a `case` statement runs, as `<directory> <script>`. A branch runs its
- * script once for each of its names, which the case subject holds.
+ * The runs of commands in `repository`. A command runs the files that its words name, and the
+ * package scripts that it starts with `bun run --cwd`; a file runs the files that its quoted strings
+ * name. A relative path resolves from the directory of the command or file. A path with a script
+ * extension also resolves from the root and from each app directory, where the browser runners
+ * start Playwright. A run follows the files that its command names and the journey code that they
+ * name, but not the application code that they import.
  */
-const scriptsRun = (dispatch: CaseStatement): ReadonlyArray<string> => {
+const readRuns = (repository: Repository): ((command: string, directory?: string) => Run) => {
+  const files = new Set(repository.paths);
+  const names = new Map<string, ReadonlyArray<string>>();
+
+  const resolve = (directory: string, paths: ReadonlyArray<string>): ReadonlyArray<string> =>
+    paths.flatMap((path) => {
+      const bases = relativePath.test(path)
+        ? [directory]
+        : scriptExtension.test(path)
+          ? [directory, "", ...appDirectories]
+          : [];
+
+      return bases.flatMap((base) => {
+        const found = moduleCandidates(posix.join(base, path)).find((file) => files.has(file));
+
+        return found === undefined ? [] : [found];
+      });
+    });
+
+  const named = (file: string): ReadonlyArray<string> => {
+    const cached = names.get(file);
+
+    if (cached !== undefined) return cached;
+
+    const found = resolve(
+      posix.dirname(file),
+      [...repository.read(file).matchAll(quotedPath)].map(([, , text = ""]) => text),
+    );
+
+    names.set(file, found);
+
+    return found;
+  };
+
+  return (command, directory = "") => {
+    const scripts = new Set<string>();
+    const seeds = new Set<string>();
+
+    const visit = (text: string, from: string): void => {
+      for (const file of resolve(from, text.split(/[\s;&|()]+/u).map(unquote))) seeds.add(file);
+
+      for (const [, where = "", script = ""] of text.matchAll(packageScript)) {
+        const at = posix.join(from, unquote(where)).replace(/\/$/u, "");
+        const name = unquote(script);
+
+        if (scripts.has(`${at} ${name}`)) continue;
+
+        scripts.add(`${at} ${name}`);
+
+        const body = readManifest(repository, at)?.scripts?.[name];
+
+        if (body !== undefined) visit(body, at);
+      }
+    };
+
+    visit(command, directory);
+
+    const run = new Set<string>();
+    const queue = [...seeds];
+
+    for (let file = queue.pop(); file !== undefined; file = queue.pop()) {
+      if (run.has(file)) continue;
+
+      run.add(file);
+
+      if (seeds.has(file) || journeyCode.test(file)) queue.push(...named(file));
+    }
+
+    return { scripts, files: run };
+  };
+};
+
+/** The command of the branch that accepts `name`, with the case subject replaced by the name. */
+const commandOf = (dispatch: CaseStatement, name: string): string => {
   const variable = dispatch.subject.replace(/^\$\{?(.*?)\}?$/u, "$1");
+  const branch = dispatch.branches.find(({ patterns }) => patterns.includes(name));
 
-  return dispatch.branches.flatMap(({ patterns, command }) =>
-    [...command.matchAll(packageScript)].flatMap(([, directory = "", script = ""]) =>
-      patterns.map((name) => {
-        const expanded = script
-          .replaceAll(/["']/gu, "")
-          .replaceAll(`\${${variable}}`, name)
-          .replaceAll(`$${variable}`, name);
-
-        return `${posix.normalize(directory.replaceAll(/["']/gu, "")).replace(/\/$/u, "")} ${expanded}`;
-      }),
-    ),
-  );
+  return (branch?.command ?? "")
+    .replaceAll(`\${${variable}}`, name)
+    .replaceAll(`$${variable}`, name);
 };
 
 /** Every hosting finding: the journey sets, this declaration, the workflow, and the app scripts. */
@@ -285,28 +432,65 @@ export const checkJourneys = (
           message: `does not run just ${journey.recipe} ${journey.name}: it is not a ${matrixJob} leg, and ${journeysDeclaration} neither gives it a job of its own nor excludes it. Run just layout write, or declare it there`,
         });
 
-  const evidence = sets.find((set) => set.recipe === evidenceRecipe)?.dispatch;
-  const reachable = new Set(evidence === undefined ? [] : scriptsRun(evidence));
+  const runOf = readRuns(repository);
+  const evidence = new Set<string>();
+  // The first journey, in leg order, that runs each file.
+  const runners = new Map<string, Journey>();
+
+  for (const journey of members) {
+    const dispatch = sets.find((set) => set.recipe === journey.recipe)?.dispatch;
+
+    if (dispatch === undefined) continue;
+
+    const run = runOf(commandOf(dispatch, journey.name));
+
+    if (journey.recipe === evidenceRecipe) for (const script of run.scripts) evidence.add(script);
+
+    for (const file of run.files) if (!runners.has(file)) runners.set(file, journey);
+  }
+
+  // The files that an excluded script or file would run.
+  const excluded = new Set<string>();
 
   for (const entry of exclusions)
-    if ("script" in entry) {
-      const excluded = `the script ${entry.script} of ${entry.directory}`;
+    if ("recipe" in entry) {
+      if (!members.some((member) => sameJourney(member, entry)))
+        findings.push({
+          path: journeysDeclaration,
+          message: `excludes just ${entry.recipe} ${entry.name}, but the ${entry.recipe} recipe does not accept ${entry.name}; remove the entry`,
+        });
+    } else if ("script" in entry) {
+      const script = `the script ${entry.script} of ${entry.directory}`;
 
       if (!Object.hasOwn(readManifest(repository, entry.directory)?.scripts ?? {}, entry.script))
         findings.push({
           path: journeysDeclaration,
-          message: `excludes ${excluded}, which does not exist; remove the entry`,
+          message: `excludes ${script}, which does not exist; remove the entry`,
         });
-      else if (reachable.has(`${entry.directory} ${entry.script}`))
+      else if (evidence.has(`${entry.directory} ${entry.script}`))
         findings.push({
           path: journeysDeclaration,
-          message: `excludes ${excluded}, which just ${evidenceRecipe} runs; remove the entry`,
+          message: `excludes ${script}, which just ${evidenceRecipe} runs; remove the entry`,
         });
-    } else if (!members.some((member) => sameJourney(member, entry)))
-      findings.push({
-        path: journeysDeclaration,
-        message: `excludes just ${entry.recipe} ${entry.name}, but the ${entry.recipe} recipe does not accept ${entry.name}; remove the entry`,
-      });
+
+      for (const file of runOf(`bun run --cwd ${entry.directory} ${entry.script}`).files)
+        excluded.add(file);
+    } else {
+      const journey = runners.get(entry.file);
+
+      if (!repository.paths.includes(entry.file))
+        findings.push({
+          path: journeysDeclaration,
+          message: `excludes ${entry.file}, which does not exist; remove the entry`,
+        });
+      else if (journey !== undefined)
+        findings.push({
+          path: journeysDeclaration,
+          message: `excludes ${entry.file}, which just ${journey.recipe} ${journey.name} runs; remove the entry`,
+        });
+
+      for (const file of runOf(entry.file).files) excluded.add(file);
+    }
 
   const globs = evidenceScripts.map((pattern) => new Bun.Glob(pattern));
 
@@ -318,7 +502,7 @@ export const checkJourneys = (
     for (const script of Object.keys(readManifest(repository, directory)?.scripts ?? {}))
       if (
         globs.some((glob) => glob.match(script)) &&
-        !reachable.has(`${directory} ${script}`) &&
+        !evidence.has(`${directory} ${script}`) &&
         !exclusions.some(
           (entry) => "script" in entry && entry.directory === directory && entry.script === script,
         )
@@ -327,6 +511,22 @@ export const checkJourneys = (
           path,
           message: `has the browser evidence script ${script}, which just ${evidenceRecipe} does not run. Add its suite to the ${evidenceRecipe} recipe, or exclude it with its reason in ${journeysDeclaration}`,
         });
+  }
+
+  const kinds = runFiles.map(({ kind, glob }) => ({ kind, glob: new Bun.Glob(glob) }));
+  const tests = new Bun.Glob(runFileTests);
+  const recipes = journeyRecipes.map((recipe) => `just ${recipe}`);
+
+  for (const path of repository.paths) {
+    const kind = kinds.find(({ glob }) => glob.match(path))?.kind;
+
+    if (kind === undefined || tests.match(path) || runners.has(path) || excluded.has(path))
+      continue;
+
+    findings.push({
+      path,
+      message: `is a ${kind} that no journey runs: no name of ${recipes.slice(0, -1).join(", ")}, or ${recipes.at(-1) ?? ""} runs it, directly or through a file that it runs. Run it from a journey, or exclude it with its reason in ${journeysDeclaration}`,
+    });
   }
 
   return findings;
