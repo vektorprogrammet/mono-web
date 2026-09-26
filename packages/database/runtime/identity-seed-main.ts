@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { Database } from "../src/service.js";
 import { createLocalAccountIssuer } from "better-auth";
-import { Cause, Effect, Redacted, Schema } from "effect";
+import { Config, ConfigProvider, Effect, Redacted, Schema } from "effect";
 import { Pool } from "pg";
 import {
   NativeAuthEngine,
@@ -13,6 +13,7 @@ import {
 } from "../src/auth-engine.js";
 import { Layer } from "effect";
 import { DatabaseLive } from "../src/layers.js";
+import { pgQuery } from "../src/pg-pool.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 
 /**
@@ -56,11 +57,8 @@ const assertLoopbackDatabaseUrl = (postgresUrl: string): void => {
   );
 };
 
-const parsePersons = (raw: string | undefined): ReadonlyArray<SeedPerson> => {
-  assert.ok(raw !== undefined && raw.length > 0, "IDENTITY_SEED_PERSONS is required");
-
-  return Schema.decodeSync(Schema.fromJsonString(Schema.Array(SeedPerson)))(raw);
-};
+/** The bytes that `JSON.stringify` writes for `value`. */
+const jsonText = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 const applyMigrations = (postgresUrl: string) =>
   Effect.scoped(
@@ -80,80 +78,99 @@ const applyMigrations = (postgresUrl: string) =>
     ),
   );
 
-const seedPerson = async (
-  engine: AuthEngine,
-  observer: Pool,
-  person: SeedPerson,
-): Promise<{ readonly personId: string; readonly action: "created" | "skipped" }> => {
-  await observer.query(
-    `INSERT INTO public.person_profiles (person_id, first_name, last_name)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (person_id) DO NOTHING`,
-    [person.personId, person.firstName, person.lastName],
-  );
+const seedPerson = (engine: AuthEngine, observer: Pool, person: SeedPerson) =>
+  Effect.gen(function* () {
+    yield* pgQuery(
+      observer,
+      `INSERT INTO public.person_profiles (person_id, first_name, last_name)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (person_id) DO NOTHING`,
+      [person.personId, person.firstName, person.lastName],
+    );
 
-  const existing = await observer.query<{ readonly count: string }>(
-    `SELECT count(*)::text AS count FROM auth."user" WHERE id = $1 OR email = $2`,
-    [person.personId, person.email],
-  );
+    const existing = yield* pgQuery<{ readonly count: string }>(
+      observer,
+      `SELECT count(*)::text AS count FROM auth."user" WHERE id = $1 OR email = $2`,
+      [person.personId, person.email],
+    );
 
-  if (existing.rows[0]?.count !== "0") {
-    return { personId: person.personId, action: "skipped" };
-  }
+    if (existing.rows[0]?.count !== "0") {
+      return { personId: person.personId, action: "skipped" as const };
+    }
 
-  const context = await engine.$context;
-  await context.internalAdapter.createUser(
-    {
-      id: person.personId,
-      name: `${person.firstName} ${person.lastName}`,
-      email: person.email,
-      emailVerified: true,
-    },
-    { method: "email-password" },
-  );
-  await context.internalAdapter.linkAccount({
-    accountId: person.personId,
-    providerId: "credential",
-    issuer: createLocalAccountIssuer("credential"),
-    userId: person.personId,
-    password: await context.password.hash(person.password),
+    const context = yield* Effect.promise(() => engine.$context);
+
+    yield* Effect.tryPromise(() =>
+      context.internalAdapter.createUser(
+        {
+          id: person.personId,
+          name: `${person.firstName} ${person.lastName}`,
+          email: person.email,
+          emailVerified: true,
+        },
+        { method: "email-password" },
+      ),
+    );
+
+    const password = yield* Effect.tryPromise(() => context.password.hash(person.password));
+
+    yield* Effect.tryPromise(() =>
+      context.internalAdapter.linkAccount({
+        accountId: person.personId,
+        providerId: "credential",
+        issuer: createLocalAccountIssuer("credential"),
+        userId: person.personId,
+        password,
+      }),
+    );
+
+    const details = yield* jsonText({
+      outcomeCode: "account-provisioned",
+      affectedSessionCount: 0,
+    });
+
+    yield* pgQuery(
+      observer,
+      `INSERT INTO auth.identity_security_audit (
+         event_id, event_kind, subject_person_id, session_id, actor_principal,
+         request_correlation, source_ip, user_agent, details
+       ) VALUES ($1, 'account-provisioned-administratively', $2, NULL,
+         'administrative:identity-seed', NULL, NULL, NULL, $3::jsonb)`,
+      [randomUUID(), person.personId, details],
+    );
+
+    return { personId: person.personId, action: "created" as const };
   });
-  await observer.query(
-    `INSERT INTO auth.identity_security_audit (
-       event_id, event_kind, subject_person_id, session_id, actor_principal,
-       request_correlation, source_ip, user_agent, details
-     ) VALUES ($1, 'account-provisioned-administratively', $2, NULL,
-       'administrative:identity-seed', NULL, NULL, NULL, $3::jsonb)`,
-    [
-      randomUUID(),
-      person.personId,
-      JSON.stringify({ outcomeCode: "account-provisioned", affectedSessionCount: 0 }),
-    ],
-  );
-
-  return { personId: person.personId, action: "created" };
-};
 
 const program = Effect.gen(function* () {
-  const postgresUrl = process.env.IDENTITY_SEED_PG_URL ?? defaultSeedUrl;
-  const persons = parsePersons(process.env.IDENTITY_SEED_PERSONS);
+  const postgresUrl = yield* Config.String("IDENTITY_SEED_PG_URL").pipe(
+    Config.withDefault(defaultSeedUrl),
+  );
+
+  const persons = yield* Config.schema(
+    Schema.fromJsonString(Schema.Array(SeedPerson)),
+    "IDENTITY_SEED_PERSONS",
+  );
+
   assertLoopbackDatabaseUrl(postgresUrl);
   const schemaRevision = yield* applyMigrations(postgresUrl);
 
-  const trustedOrigins = yield* Schema.decodeUnknownEffect(
+  const trustedOrigins = yield* Config.schema(
     Schema.fromJsonString(Schema.Array(Schema.String)),
-  )(process.env.NATIVE_IDENTITY_TRUSTED_ORIGINS);
+    "NATIVE_IDENTITY_TRUSTED_ORIGINS",
+  );
 
   assert.ok(trustedOrigins.length > 0, "NATIVE_IDENTITY_TRUSTED_ORIGINS is required");
-  const deployment = process.env.NATIVE_IDENTITY_DEPLOYMENT;
-  assert.ok(
-    deployment === "local" || deployment === "production",
-    "NATIVE_IDENTITY_DEPLOYMENT is required",
+
+  const deployment = yield* Config.Literals(["local", "production"], "NATIVE_IDENTITY_DEPLOYMENT");
+
+  const secret = yield* Config.Redacted("BETTER_AUTH_SECRET").pipe(
+    Config.withDefault(Redacted.make("identity-seed-disposable-secret-0123456789abcdef")),
   );
 
   const config: AuthEngineConfig = {
     postgresUrl,
-    secret: process.env.BETTER_AUTH_SECRET ?? "identity-seed-disposable-secret-0123456789abcdef",
+    secret: Redacted.value(secret),
     oauth: {
       canonicalOrigin: trustedOrigins[0]!,
       dashboardOrigin: trustedOrigins[0]!,
@@ -176,36 +193,29 @@ const program = Effect.gen(function* () {
     (observer) =>
       NativeAuthEngine.pipe(
         Effect.flatMap((engine) =>
-          Effect.tryPromise({
-            try: async () => {
-              const seeded = [];
-
-              for (const person of persons) {
-                seeded.push(await seedPerson(engine, observer, person));
-              }
-
-              return seeded;
-            },
-            catch: (cause) => new Cause.UnknownError(cause),
-          }),
+          Effect.forEach(persons, (person) => seedPerson(engine, observer, person)),
         ),
         Effect.provide(NativeAuthEngineLive(config).pipe(Layer.provide(AuthPoolLive(config)))),
       ),
-    (observer) =>
-      Effect.tryPromise({
-        try: () => observer.end(),
-        catch: (cause) => new Cause.UnknownError(cause),
-      }),
+    (observer) => Effect.promise(() => observer.end()),
   );
 
-  yield* Effect.sync(() =>
-    process.stdout.write(
-      `${JSON.stringify({ schemaRevision, seeded: persons.length, outcomes })}\n`,
-    ),
-  );
+  const summary = yield* jsonText({ schemaRevision, seeded: persons.length, outcomes });
+
+  yield* Effect.sync(() => process.stdout.write(`${summary}\n`));
 });
 
-void Effect.runPromise(program.pipe(Effect.provide(TestPlatform))).catch((cause: unknown) => {
+// A set but empty variable is present, not absent: it never selects the default database.
+void Effect.runPromise(
+  program.pipe(
+    Effect.provide(
+      Layer.merge(
+        TestPlatform,
+        ConfigProvider.layer(ConfigProvider.fromEnv({ preserveEmptyStrings: true })),
+      ),
+    ),
+  ),
+).catch((cause: unknown) => {
   process.stderr.write(`${String(cause)}\n`);
   process.exitCode = 1;
 });

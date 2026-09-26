@@ -21,25 +21,32 @@ import { databaseSchemaRevision } from "../src/migrations.js";
 
 const personId = PersonId.make("profile-self-edit-e2e-0064");
 
-const expectedRevision = Number(process.env.PROFILE_E2E_EXPECTED_REVISION ?? "2");
+const leftCommandId = ProfileCommandId.make("profile-concurrency-left-0064");
 
-const left: UpdateOwnProfileCommand = UpdateOwnProfileCommand.make({
-  commandId: ProfileCommandId.make("profile-concurrency-left-0064"),
-  expectedNameRevision: expectedRevision,
-  expectedContactRevision: expectedRevision,
-  firstName: "Ada Contender A",
-  lastName: "Profile Contender A",
-  email: "profile-contender-a-0064@example.invalid",
-  phone: "+47 9000 0011",
-});
+const rightCommandId = ProfileCommandId.make("profile-concurrency-right-0064");
 
-const right: UpdateOwnProfileCommand = {
-  ...left,
-  commandId: ProfileCommandId.make("profile-concurrency-right-0064"),
-  firstName: "Ada Contender B",
-  lastName: "Profile Contender B",
-  email: "profile-contender-b-0064@example.invalid",
-  phone: "+47 9000 0012",
+/** The two contending self-edits; both expect `expectedRevision` for the name and the contact. */
+const contenders = (expectedRevision: number) => {
+  const left: UpdateOwnProfileCommand = UpdateOwnProfileCommand.make({
+    commandId: leftCommandId,
+    expectedNameRevision: expectedRevision,
+    expectedContactRevision: expectedRevision,
+    firstName: "Ada Contender A",
+    lastName: "Profile Contender A",
+    email: "profile-contender-a-0064@example.invalid",
+    phone: "+47 9000 0011",
+  });
+
+  const right: UpdateOwnProfileCommand = {
+    ...left,
+    commandId: rightCommandId,
+    firstName: "Ada Contender B",
+    lastName: "Profile Contender B",
+    email: "profile-contender-b-0064@example.invalid",
+    phone: "+47 9000 0012",
+  };
+
+  return { left, right };
 };
 
 const makeProofLayer = (url: Redacted.Redacted<string>, applicationName: string) => {
@@ -69,7 +76,11 @@ const contender = (
     return { pid: connection?.pid ?? -1, commandId: command.commandId, outcome };
   });
 
-const race = (url: Redacted.Redacted<string>) =>
+const race = (
+  url: Redacted.Redacted<string>,
+  left: UpdateOwnProfileCommand,
+  right: UpdateOwnProfileCommand,
+) =>
   Effect.gen(function* () {
     const readyA = yield* Deferred.make<void>();
     const readyB = yield* Deferred.make<void>();
@@ -131,7 +142,7 @@ const observe = (url: Redacted.Redacted<string>) =>
              expected_name_revision AS "expectedNameRevision", expected_contact_revision AS "expectedContactRevision",
              committed_name_revision AS "committedNameRevision", committed_contact_revision AS "committedContactRevision"
       FROM profile_self_edit_commands
-      WHERE command_id IN (${left.commandId}, ${right.commandId})
+      WHERE command_id IN (${leftCommandId}, ${rightCommandId})
       ORDER BY command_id
     `;
 
@@ -154,7 +165,13 @@ const runCommand = (
 const program = Effect.scoped(
   Effect.gen(function* () {
     const url = yield* Config.Redacted("PROFILE_E2E_PG_URL");
-    const raceResults = yield* race(url);
+
+    const expectedRevision = yield* Config.Int("PROFILE_E2E_EXPECTED_REVISION").pipe(
+      Config.withDefault(2),
+    );
+
+    const { left, right } = contenders(expectedRevision);
+    const raceResults = yield* race(url, left, right);
     const successes = raceResults.filter((entry) => Predicate.isTagged(entry.outcome, "Success"));
 
     const stale = raceResults.filter(

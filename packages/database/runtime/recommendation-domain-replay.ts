@@ -1,7 +1,7 @@
 import { PersonId, DepartmentId } from "@vektorprogrammet/domain/organization";
 /** Independent real-domain receipt replay after immutable applicant identity becomes known. */
 import assert from "node:assert/strict";
-import { Effect, Layer, Redacted, Schema } from "effect";
+import { Config, Console, DateTime, Effect, Layer, Redacted, Schema } from "effect";
 import { DatabaseLive } from "../src/layers.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 import { Database } from "../src/service.js";
@@ -12,23 +12,22 @@ import {
   RecruitmentActorSchema,
 } from "@vektorprogrammet/domain/recruitment";
 
-const url = process.env.JOURNEY_SEED_PG_URL!;
+const program = Effect.gen(function* () {
+  const url = yield* Config.String("JOURNEY_SEED_PG_URL");
 
-assert.equal(new URL(url).hostname, "127.0.0.1");
+  assert.equal(new URL(url).hostname, "127.0.0.1");
 
-const layer = OrganizationLive.pipe(
-  Layer.provideMerge(
-    DatabaseLive({
-      url: Redacted.make(url),
-      applicationName: "recommendation-domain-replay",
-      maxConnections: 1,
-    }),
-  ),
-  Layer.provide(TestPlatform),
-);
+  const layer = OrganizationLive.pipe(
+    Layer.provideMerge(
+      DatabaseLive({
+        url: Redacted.make(url),
+        applicationName: "recommendation-domain-replay",
+        maxConnections: 1,
+      }),
+    ),
+  );
 
-const result = await Effect.runPromise(
-  Effect.gen(function* () {
+  const result = yield* Effect.gen(function* () {
     const sql = yield* Database;
 
     const rows = yield* sql<{
@@ -47,12 +46,17 @@ const result = await Effect.runPromise(
       }),
     );
 
-    return yield* finalizeInterview(command, { actor, now: new Date().toISOString() }).pipe(
-      Effect.flip,
-    );
-  }).pipe(Effect.provide(layer)),
-);
+    const now = DateTime.formatIso(yield* DateTime.now);
 
-assert.equal(result._tag, "RecruitmentScopeDenied");
+    return yield* finalizeInterview(command, { actor, now }).pipe(Effect.flip);
+  }).pipe(Effect.provide(layer));
 
-console.log("Known self denied before real domain receipt replay");
+  assert.equal(result._tag, "RecruitmentScopeDenied");
+
+  yield* Console.log("Known self denied before real domain receipt replay");
+});
+
+void Effect.runPromise(program.pipe(Effect.provide(TestPlatform))).catch((cause: unknown) => {
+  process.stderr.write(`${String(cause)}\n`);
+  process.exitCode = 1;
+});

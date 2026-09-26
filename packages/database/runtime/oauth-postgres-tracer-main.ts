@@ -1,557 +1,589 @@
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { CredentialOutcomeSchema, PrincipalSchema } from "@vektorprogrammet/domain/authz";
-import { Schema, ManagedRuntime, Layer } from "effect";
+import { Config, ConfigProvider, Effect, FileSystem, Layer, Path, Predicate, Schema } from "effect";
 import { AuthLive, AuthEngine } from "../src/auth-live.js";
 import { AuthPoolLive } from "../src/auth-engine.js";
-import { DatabasePgPool } from "../src/pg-pool.js";
+import { DatabasePgPool, pgQuery } from "../src/pg-pool.js";
 import { OAuthClientOperator, OAuthCredentialAuthority } from "../src/oauth-live.js";
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
 import { createLocalAccountIssuer } from "better-auth";
 import { IdentityRequestContext } from "@vektorprogrammet/domain/identity";
 import { type AuthEngineConfig } from "../src/auth-engine.js";
 import { databaseMigrationDefinitions } from "../src/migrations.js";
+import { TestPlatform } from "../src/test-support/platform.js";
 
-import { Predicate } from "effect";
+/** The bytes that `JSON.stringify` writes for `value`. */
+const jsonText = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
-const databaseUrl =
-  process.env.OAUTH_PROOF_PG_URL ?? "postgres://postgres@127.0.0.1:45121/oauth_0082_proof";
+/** The JSON object of a response body. */
+const jsonRecordBody = (response: Response) =>
+  Effect.tryPromise(() => response.json()).pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(Schema.Record(Schema.String, Schema.Json))),
+  );
 
-const parsedDatabaseUrl = new URL(databaseUrl);
+const trace = (target: string) =>
+  Effect.gen(function* () {
+    const pool = yield* DatabasePgPool;
+    const authEngine = yield* AuthEngine;
+    const engine = authEngine.engine;
+    const engineContext = yield* Effect.promise(() => engine.$context);
 
-assert.ok(
-  ["127.0.0.1", "localhost", "::1"].includes(parsedDatabaseUrl.hostname),
-  "OAuth proof database must use a loopback host",
-);
+    yield* pgQuery(
+      pool,
+      `INSERT INTO public.person_profiles (person_id, first_name, last_name)
+       VALUES ('oauth-proof-person', 'OAuth', 'Proof')`,
+    );
 
-assert.match(
-  parsedDatabaseUrl.pathname,
-  /(?:proof|test)/u,
-  "OAuth proof database name must be disposable",
-);
+    const delegatedPassword = "oauth-proof-person-password";
 
-const migrationPool = new Pool({ connectionString: databaseUrl, max: 1 });
+    const delegatedPasswordHash = yield* Effect.tryPromise(() =>
+      engineContext.password.hash(delegatedPassword),
+    );
 
-for (const migration of databaseMigrationDefinitions) {
-  await migrationPool.query(await readFile(migration.url, "utf8"));
-}
+    yield* Effect.tryPromise(() =>
+      engineContext.internalAdapter.createUser(
+        {
+          id: "oauth-proof-person",
+          name: "OAuth Proof",
+          email: "oauth-proof-person@example.invalid",
+          emailVerified: true,
+        },
+        { method: "email-password" },
+      ),
+    );
 
-await migrationPool.end();
+    yield* Effect.tryPromise(() =>
+      engineContext.internalAdapter.linkAccount({
+        accountId: "oauth-proof-person",
+        providerId: "credential",
+        issuer: createLocalAccountIssuer("credential"),
+        userId: "oauth-proof-person",
+        password: delegatedPasswordHash,
+      }),
+    );
 
-const config: AuthEngineConfig = {
-  postgresUrl: databaseUrl,
-  secret: "oauth-0082-disposable-proof-secret-at-least-32-characters",
-  oauth: {
-    canonicalOrigin: "http://127.0.0.1:4173",
-    dashboardOrigin: "http://127.0.0.1:4173",
-    nativeApiResource: "urn:vektorprogrammet:native-api",
-  },
-  trustedOrigins: ["http://127.0.0.1:4173"],
-  secureCookies: false,
-};
+    const operator = yield* OAuthClientOperator;
 
-const authRuntime = ManagedRuntime.make(
-  AuthLive(config).pipe(Layer.provideMerge(AuthPoolLive(config))),
-);
+    const execution = {
+      dryRun: false,
+      target,
+      authority: "operator",
+      requestCorrelation: "oauth-0082-postgres-proof",
+    } as const;
 
-const pool = await authRuntime.runPromise(DatabasePgPool);
+    const key = yield* operator.bootstrapSigningKey(execution);
 
-const engine = (await authRuntime.runPromise(AuthEngine)).engine;
+    assert.ok(Predicate.isString(key.keyId));
 
-const engineContext = await engine.$context;
-
-await pool.query(
-  `INSERT INTO public.person_profiles (person_id, first_name, last_name)
-   VALUES ('oauth-proof-person', 'OAuth', 'Proof')`,
-);
-
-const delegatedPassword = "oauth-proof-person-password";
-
-const delegatedPasswordHash = await engineContext.password.hash(delegatedPassword);
-
-await engineContext.internalAdapter.createUser(
-  {
-    id: "oauth-proof-person",
-    name: "OAuth Proof",
-    email: "oauth-proof-person@example.invalid",
-    emailVerified: true,
-  },
-  { method: "email-password" },
-);
-
-await engineContext.internalAdapter.linkAccount({
-  accountId: "oauth-proof-person",
-  providerId: "credential",
-  issuer: createLocalAccountIssuer("credential"),
-  userId: "oauth-proof-person",
-  password: delegatedPasswordHash,
-});
-
-const operator = await authRuntime.runPromise(OAuthClientOperator);
-
-const execution = {
-  dryRun: false,
-  target: parsedDatabaseUrl.pathname.slice(1),
-  authority: "operator",
-  requestCorrelation: "oauth-0082-postgres-proof",
-} as const;
-
-const key = await authRuntime.runPromise(operator.bootstrapSigningKey(execution));
-
-assert.ok(Predicate.isString(key.keyId));
-
-const service = await authRuntime.runPromise(
-  operator.provision(
-    {
-      clientId: "oauth-proof-service",
-      name: "OAuth proof service",
-      clientKind: "Service",
-      redirectUris: [],
-      scopes: ["native-api"],
-      servicePrincipalId: "oauth-proof-principal",
-      servicePrincipalName: "OAuth proof principal",
-    },
-    execution,
-  ),
-);
-
-assert.ok(Predicate.isString(service.clientSecret));
-
-const resourceServer = await authRuntime.runPromise(
-  operator.provision(
-    {
-      clientId: "oauth-proof-resource-server",
-      name: "OAuth proof resource server",
-      clientKind: "ResourceServer",
-      redirectUris: [],
-      scopes: [],
-    },
-    execution,
-  ),
-);
-
-assert.ok(Predicate.isString(resourceServer.clientSecret));
-
-const delegated = await authRuntime.runPromise(
-  operator.provision(
-    {
-      clientId: "oauth-proof-delegated",
-      name: "OAuth proof delegated client",
-      clientKind: "DelegatedPublic",
-      redirectUris: ["http://127.0.0.1:4173/dashboard/oauth/callback"],
-      scopes: ["native-api", "offline_access"],
-    },
-    execution,
-  ),
-);
-
-assert.equal(delegated.clientSecret, undefined);
-
-const requestContext = new IdentityRequestContext({
-  requestCorrelation: "oauth-0082-postgres-proof-request",
-  sourceIp: "127.0.0.1",
-  userAgent: "oauth-0082-postgres-proof",
-});
-
-const authEngine = await authRuntime.runPromise(AuthEngine);
-
-const release = (request: Request, context: IdentityRequestContext) =>
-  authRuntime.runPromise(authEngine.oauthHandler(request, context));
-
-const issueServiceToken = async (): Promise<string> => {
-  const body = new URLSearchParams({
-    grant_type: "client_credentials",
-    scope: "native-api",
-    resource: "urn:vektorprogrammet:native-api",
-  });
-
-  const response = await release(
-    new Request("http://127.0.0.1:4173/api/auth/oauth2/token", {
-      method: "POST",
-      headers: {
-        authorization: `Basic ${Buffer.from(`${service.clientId}:${service.clientSecret!}`, "utf8").toString("base64")}`,
-        "content-type": "application/x-www-form-urlencoded",
+    const service = yield* operator.provision(
+      {
+        clientId: "oauth-proof-service",
+        name: "OAuth proof service",
+        clientKind: "Service",
+        redirectUris: [],
+        scopes: ["native-api"],
+        servicePrincipalId: "oauth-proof-principal",
+        servicePrincipalName: "OAuth proof principal",
       },
-      body,
-    }),
-    requestContext,
-  );
+      execution,
+    );
 
-  assert.equal(response.status, 200, "service token release must succeed");
+    assert.ok(Predicate.isString(service.clientSecret));
 
-  const payload = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(
-    await response.json(),
-  );
+    const resourceServer = yield* operator.provision(
+      {
+        clientId: "oauth-proof-resource-server",
+        name: "OAuth proof resource server",
+        clientKind: "ResourceServer",
+        redirectUris: [],
+        scopes: [],
+      },
+      execution,
+    );
 
-  assert.ok(Predicate.isString(payload.access_token));
-  assert.equal(payload.refresh_token, undefined);
+    assert.ok(Predicate.isString(resourceServer.clientSecret));
 
-  return payload.access_token;
-};
+    const delegated = yield* operator.provision(
+      {
+        clientId: "oauth-proof-delegated",
+        name: "OAuth proof delegated client",
+        clientKind: "DelegatedPublic",
+        redirectUris: ["http://127.0.0.1:4173/dashboard/oauth/callback"],
+        scopes: ["native-api", "offline_access"],
+      },
+      execution,
+    );
 
-const [firstToken, secondToken] = await Promise.all([issueServiceToken(), issueServiceToken()]);
+    assert.equal(delegated.clientSecret, undefined);
 
-assert.notEqual(firstToken, secondToken);
+    const requestContext = new IdentityRequestContext({
+      requestCorrelation: "oauth-0082-postgres-proof-request",
+      sourceIp: "127.0.0.1",
+      userAgent: "oauth-0082-postgres-proof",
+    });
 
-const authority = await authRuntime.runPromise(OAuthCredentialAuthority);
+    const issueServiceToken = Effect.gen(function* () {
+      const body = new URLSearchParams({
+        grant_type: "client_credentials",
+        scope: "native-api",
+        resource: "urn:vektorprogrammet:native-api",
+      });
 
-const accepted = await authRuntime.runPromise(
-  authority.resolve(
-    new Request("http://127.0.0.1:4173/api/proof", {
-      headers: { authorization: `Bearer ${firstToken}` },
-    }),
-    "OAuthServiceBearer",
-  ),
-);
+      const response = yield* authEngine.oauthHandler(
+        new Request("http://127.0.0.1:4173/api/auth/oauth2/token", {
+          method: "POST",
+          headers: {
+            authorization: `Basic ${Buffer.from(`${service.clientId}:${service.clientSecret!}`, "utf8").toString("base64")}`,
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          body,
+        }),
+        requestContext,
+      );
 
-assert.equal(accepted._tag, "Accepted");
+      assert.equal(response.status, 200, "service token release must succeed");
 
-if (Predicate.isTagged(accepted, "Accepted")) {
-  assert.equal(accepted.mechanism._tag, "OAuthServiceBearer");
-  assert.equal(accepted.principal._tag, "ServicePrincipal");
+      const payload = yield* jsonRecordBody(response);
 
-  if (Predicate.isTagged(accepted.principal, "ServicePrincipal")) {
-    assert.equal(accepted.principal.servicePrincipalId, "oauth-proof-principal");
-  }
-}
+      assert.ok(Predicate.isString(payload.access_token));
+      assert.equal(payload.refresh_token, undefined);
 
-const tracked = await pool.query<{ readonly count: string }>(
-  "SELECT count(*)::text AS count FROM auth.oauth_access_token_state WHERE client_id = $1",
-  [service.clientId],
-);
+      return payload.access_token;
+    });
 
-assert.equal(tracked.rows[0]?.count, "2");
+    const [firstToken, secondToken] = yield* Effect.all([issueServiceToken, issueServiceToken], {
+      concurrency: "unbounded",
+    });
 
-const serviceRuleSubjectColumn = await pool.query(
-  `SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'authz_rules'
-      AND column_name = 'subject_service_principal_id'`,
-);
+    assert.notEqual(firstToken, secondToken);
 
-assert.equal(serviceRuleSubjectColumn.rowCount, 1);
+    const authority = yield* OAuthCredentialAuthority;
 
-const introspection = (request: Request, context: IdentityRequestContext) =>
-  authRuntime.runPromise(authEngine.oauthIntrospectionHandler(request, context));
+    const accepted = yield* authority.resolve(
+      new Request("http://127.0.0.1:4173/api/proof", {
+        headers: { authorization: `Bearer ${firstToken}` },
+      }),
+      "OAuthServiceBearer",
+    );
 
-const introspectionRequest = (token: string): Request =>
-  new Request("http://127.0.0.1:4173/api/auth/oauth2/introspect", {
-    method: "POST",
-    headers: {
-      authorization: `Basic ${Buffer.from(`${resourceServer.clientId}:${resourceServer.clientSecret!}`, "utf8").toString("base64")}`,
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({ token }),
-  });
+    assert.equal(accepted._tag, "Accepted");
 
-const activeIntrospection = await introspection(introspectionRequest(firstToken), requestContext);
+    if (Predicate.isTagged(accepted, "Accepted")) {
+      assert.equal(accepted.mechanism._tag, "OAuthServiceBearer");
+      assert.equal(accepted.principal._tag, "ServicePrincipal");
 
-assert.equal(
-  Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(
-    await activeIntrospection.json(),
-  ).active,
-  true,
-);
+      if (Predicate.isTagged(accepted.principal, "ServicePrincipal")) {
+        assert.equal(accepted.principal.servicePrincipalId, "oauth-proof-principal");
+      }
+    }
 
-const revoke = await release(
-  new Request("http://127.0.0.1:4173/api/auth/oauth2/revoke", {
-    method: "POST",
-    headers: {
-      authorization: `Basic ${Buffer.from(`${service.clientId}:${service.clientSecret!}`, "utf8").toString("base64")}`,
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({ token: firstToken }),
-  }),
-  requestContext,
-);
+    const tracked = yield* pgQuery<{ readonly count: string }>(
+      pool,
+      "SELECT count(*)::text AS count FROM auth.oauth_access_token_state WHERE client_id = $1",
+      [service.clientId],
+    );
 
-assert.equal(revoke.status, 200);
+    assert.equal(tracked.rows[0]?.count, "2");
 
-const revoked = await authRuntime.runPromise(
-  authority.resolve(
-    new Request("http://127.0.0.1:4173/api/proof", {
-      headers: { authorization: `Bearer ${firstToken}` },
-    }),
-    "OAuthServiceBearer",
-  ),
-);
+    const serviceRuleSubjectColumn = yield* pgQuery(
+      pool,
+      `SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'authz_rules'
+          AND column_name = 'subject_service_principal_id'`,
+    );
 
-assert.deepEqual(revoked, CredentialOutcomeSchema.cases.Rejected.make({ reason: "Revoked" }));
+    assert.equal(serviceRuleSubjectColumn.rowCount, 1);
 
-const inactiveIntrospection = await introspection(introspectionRequest(firstToken), requestContext);
+    const introspectionRequest = (token: string): Request =>
+      new Request("http://127.0.0.1:4173/api/auth/oauth2/introspect", {
+        method: "POST",
+        headers: {
+          authorization: `Basic ${Buffer.from(`${resourceServer.clientId}:${resourceServer.clientSecret!}`, "utf8").toString("base64")}`,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({ token }),
+      });
 
-assert.deepEqual(await inactiveIntrospection.json(), { active: false });
+    const activeIntrospection = yield* authEngine.oauthIntrospectionHandler(
+      introspectionRequest(firstToken),
+      requestContext,
+    );
 
-await authRuntime.runPromise(operator.disableServicePrincipal("oauth-proof-principal", execution));
+    assert.equal((yield* jsonRecordBody(activeIntrospection)).active, true);
 
-const disabled = await authRuntime.runPromise(
-  authority.resolve(
-    new Request("http://127.0.0.1:4173/api/proof", {
-      headers: { authorization: `Bearer ${secondToken}` },
-    }),
-    "OAuthServiceBearer",
-  ),
-);
+    const revoke = yield* authEngine.oauthHandler(
+      new Request("http://127.0.0.1:4173/api/auth/oauth2/revoke", {
+        method: "POST",
+        headers: {
+          authorization: `Basic ${Buffer.from(`${service.clientId}:${service.clientSecret!}`, "utf8").toString("base64")}`,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({ token: firstToken }),
+      }),
+      requestContext,
+    );
 
-assert.deepEqual(disabled, CredentialOutcomeSchema.cases.Rejected.make({ reason: "Revoked" }));
+    assert.equal(revoke.status, 200);
 
-const signInResponse = await engine.api.signInEmail({
-  body: {
-    email: "oauth-proof-person@example.invalid",
-    password: delegatedPassword,
-  },
-  asResponse: true,
-});
+    const revoked = yield* authority.resolve(
+      new Request("http://127.0.0.1:4173/api/proof", {
+        headers: { authorization: `Bearer ${firstToken}` },
+      }),
+      "OAuthServiceBearer",
+    );
 
-assert.equal(signInResponse.status, 200);
+    assert.deepEqual(revoked, CredentialOutcomeSchema.cases.Rejected.make({ reason: "Revoked" }));
 
-const sessionSetCookie = signInResponse.headers
-  .getSetCookie()
-  .find((value) => value.startsWith("better-auth.session_token="));
+    const inactiveIntrospection = yield* authEngine.oauthIntrospectionHandler(
+      introspectionRequest(firstToken),
+      requestContext,
+    );
 
-assert.ok(sessionSetCookie !== undefined);
+    assert.deepEqual(yield* Effect.tryPromise(() => inactiveIntrospection.json()), {
+      active: false,
+    });
 
-const sessionCookie = sessionSetCookie.split(";", 1)[0]!;
+    yield* operator.disableServicePrincipal("oauth-proof-principal", execution);
 
-const verifier = randomBytes(32).toString("base64url");
+    const disabled = yield* authority.resolve(
+      new Request("http://127.0.0.1:4173/api/proof", {
+        headers: { authorization: `Bearer ${secondToken}` },
+      }),
+      "OAuthServiceBearer",
+    );
 
-const challenge = createHash("sha256").update(verifier, "utf8").digest("base64url");
+    assert.deepEqual(disabled, CredentialOutcomeSchema.cases.Rejected.make({ reason: "Revoked" }));
 
-const state = randomBytes(32).toString("base64url");
+    const signInResponse = yield* Effect.tryPromise(() =>
+      engine.api.signInEmail({
+        body: {
+          email: "oauth-proof-person@example.invalid",
+          password: delegatedPassword,
+        },
+        asResponse: true,
+      }),
+    );
 
-const authorizeUrl = new URL("http://127.0.0.1:4173/api/auth/oauth2/authorize");
+    assert.equal(signInResponse.status, 200);
 
-authorizeUrl.searchParams.set("response_type", "code");
+    const sessionSetCookie = signInResponse.headers
+      .getSetCookie()
+      .find((value) => value.startsWith("better-auth.session_token="));
 
-authorizeUrl.searchParams.set("client_id", delegated.clientId);
+    assert.ok(sessionSetCookie !== undefined);
 
-authorizeUrl.searchParams.set("redirect_uri", "http://127.0.0.1:4173/dashboard/oauth/callback");
+    const sessionCookie = sessionSetCookie.split(";", 1)[0]!;
 
-authorizeUrl.searchParams.set("state", state);
+    const verifier = randomBytes(32).toString("base64url");
 
-authorizeUrl.searchParams.set("code_challenge", challenge);
+    const challenge = createHash("sha256").update(verifier, "utf8").digest("base64url");
 
-authorizeUrl.searchParams.set("code_challenge_method", "S256");
+    const state = randomBytes(32).toString("base64url");
 
-authorizeUrl.searchParams.set("resource", "urn:vektorprogrammet:native-api");
+    const authorizeUrl = new URL("http://127.0.0.1:4173/api/auth/oauth2/authorize");
 
-authorizeUrl.searchParams.set("scope", "native-api offline_access");
+    authorizeUrl.searchParams.set("response_type", "code");
 
-authorizeUrl.searchParams.set("prompt", "consent");
+    authorizeUrl.searchParams.set("client_id", delegated.clientId);
 
-const authorizationResponse = await release(
-  new Request(authorizeUrl, {
-    headers: { cookie: sessionCookie, accept: "application/json" },
-  }),
-  requestContext,
-);
+    authorizeUrl.searchParams.set("redirect_uri", "http://127.0.0.1:4173/dashboard/oauth/callback");
 
-assert.equal(authorizationResponse.status, 200);
+    authorizeUrl.searchParams.set("state", state);
 
-const authorizationResult = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(
-  await authorizationResponse.json(),
-);
+    authorizeUrl.searchParams.set("code_challenge", challenge);
 
-assert.equal(authorizationResult.redirect, true);
+    authorizeUrl.searchParams.set("code_challenge_method", "S256");
 
-assert.ok(Predicate.isString(authorizationResult.url));
+    authorizeUrl.searchParams.set("resource", "urn:vektorprogrammet:native-api");
 
-const consentUrl = new URL(authorizationResult.url);
+    authorizeUrl.searchParams.set("scope", "native-api offline_access");
 
-assert.equal(
-  consentUrl.origin + consentUrl.pathname,
-  "http://127.0.0.1:4173/dashboard/oauth/consent",
-);
+    authorizeUrl.searchParams.set("prompt", "consent");
 
-const oauthQuery = consentUrl.search.slice(1);
+    const authorizationResponse = yield* authEngine.oauthHandler(
+      new Request(authorizeUrl, {
+        headers: { cookie: sessionCookie, accept: "application/json" },
+      }),
+      requestContext,
+    );
 
-assert.ok(oauthQuery.length > 0 && oauthQuery.length <= 8 * 1024);
+    assert.equal(authorizationResponse.status, 200);
 
-const consentResponse = await release(
-  new Request("http://127.0.0.1:4173/api/auth/oauth2/consent", {
-    method: "POST",
-    headers: {
-      cookie: sessionCookie,
-      origin: "http://127.0.0.1:4173",
-      accept: "application/json",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
+    const authorizationResult = yield* jsonRecordBody(authorizationResponse);
+
+    assert.equal(authorizationResult.redirect, true);
+
+    assert.ok(Predicate.isString(authorizationResult.url));
+
+    const consentUrl = new URL(authorizationResult.url);
+
+    assert.equal(
+      consentUrl.origin + consentUrl.pathname,
+      "http://127.0.0.1:4173/dashboard/oauth/consent",
+    );
+
+    const oauthQuery = consentUrl.search.slice(1);
+
+    assert.ok(oauthQuery.length > 0 && oauthQuery.length <= 8 * 1024);
+
+    const consentBody = yield* jsonText({
       accept: true,
       scope: "native-api offline_access",
       oauth_query: oauthQuery,
-    }),
-  }),
-  requestContext,
-);
+    });
 
-assert.equal(consentResponse.status, 200);
+    const consentResponse = yield* authEngine.oauthHandler(
+      new Request("http://127.0.0.1:4173/api/auth/oauth2/consent", {
+        method: "POST",
+        headers: {
+          cookie: sessionCookie,
+          origin: "http://127.0.0.1:4173",
+          accept: "application/json",
+          "content-type": "application/json",
+        },
+        body: consentBody,
+      }),
+      requestContext,
+    );
 
-const consentResult = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(
-  await consentResponse.json(),
-);
+    assert.equal(consentResponse.status, 200);
 
-assert.equal(consentResult.redirect, true);
+    const consentResult = yield* jsonRecordBody(consentResponse);
 
-assert.ok(Predicate.isString(consentResult.url));
+    assert.equal(consentResult.redirect, true);
 
-const callback = new URL(consentResult.url);
+    assert.ok(Predicate.isString(consentResult.url));
 
-assert.equal(callback.origin + callback.pathname, "http://127.0.0.1:4173/dashboard/oauth/callback");
+    const callback = new URL(consentResult.url);
 
-assert.equal(callback.searchParams.get("state"), state);
+    assert.equal(
+      callback.origin + callback.pathname,
+      "http://127.0.0.1:4173/dashboard/oauth/callback",
+    );
 
-assert.equal(callback.searchParams.get("iss"), "http://127.0.0.1:4173/api/auth");
+    assert.equal(callback.searchParams.get("state"), state);
 
-const authorizationCode = callback.searchParams.get("code");
+    assert.equal(callback.searchParams.get("iss"), "http://127.0.0.1:4173/api/auth");
 
-assert.ok(authorizationCode !== null);
+    const authorizationCode = callback.searchParams.get("code");
 
-const codeExchange = await release(
-  new Request("http://127.0.0.1:4173/api/auth/oauth2/token", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "authorization_code",
-      code: authorizationCode,
-      client_id: delegated.clientId,
-      redirect_uri: "http://127.0.0.1:4173/dashboard/oauth/callback",
-      code_verifier: verifier,
-      resource: "urn:vektorprogrammet:native-api",
-    }),
-  }),
-  requestContext,
-);
+    assert.ok(authorizationCode !== null);
 
-assert.equal(codeExchange.status, 200);
+    const codeExchange = yield* authEngine.oauthHandler(
+      new Request("http://127.0.0.1:4173/api/auth/oauth2/token", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code: authorizationCode,
+          client_id: delegated.clientId,
+          redirect_uri: "http://127.0.0.1:4173/dashboard/oauth/callback",
+          code_verifier: verifier,
+          resource: "urn:vektorprogrammet:native-api",
+        }),
+      }),
+      requestContext,
+    );
 
-const delegatedTokens = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(
-  await codeExchange.json(),
-);
+    assert.equal(codeExchange.status, 200);
 
-assert.ok(Predicate.isString(delegatedTokens.access_token));
+    const delegatedTokens = yield* jsonRecordBody(codeExchange);
 
-assert.ok(Predicate.isString(delegatedTokens.refresh_token));
+    assert.ok(Predicate.isString(delegatedTokens.access_token));
 
-const delegatedAccepted = await authRuntime.runPromise(
-  authority.resolve(
-    new Request("http://127.0.0.1:4173/api/proof", {
-      headers: { authorization: `Bearer ${delegatedTokens.access_token}` },
-    }),
-    "OAuthUserBearer",
-  ),
-);
+    assert.ok(Predicate.isString(delegatedTokens.refresh_token));
 
-assert.equal(delegatedAccepted._tag, "Accepted");
+    const delegatedAccepted = yield* authority.resolve(
+      new Request("http://127.0.0.1:4173/api/proof", {
+        headers: { authorization: `Bearer ${delegatedTokens.access_token}` },
+      }),
+      "OAuthUserBearer",
+    );
 
-if (Predicate.isTagged(delegatedAccepted, "Accepted")) {
-  assert.equal(delegatedAccepted.mechanism._tag, "OAuthUserBearer");
-  assert.deepEqual(
-    delegatedAccepted.principal,
-    PrincipalSchema.cases.Person.make({
-      personId: PersonId.make("oauth-proof-person"),
-    }),
-  );
-}
+    assert.equal(delegatedAccepted._tag, "Accepted");
 
-const delegatedRefreshToken = delegatedTokens.refresh_token;
+    if (Predicate.isTagged(delegatedAccepted, "Accepted")) {
+      assert.equal(delegatedAccepted.mechanism._tag, "OAuthUserBearer");
+      assert.deepEqual(
+        delegatedAccepted.principal,
+        PrincipalSchema.cases.Person.make({
+          personId: PersonId.make("oauth-proof-person"),
+        }),
+      );
+    }
 
-const refreshRequest = (): Request =>
-  new Request("http://127.0.0.1:4173/api/auth/oauth2/token", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: delegatedRefreshToken,
-      client_id: delegated.clientId,
-      scope: "native-api offline_access",
-      resource: "urn:vektorprogrammet:native-api",
-    }),
+    const delegatedRefreshToken = delegatedTokens.refresh_token;
+
+    const refreshRequest = (): Request =>
+      new Request("http://127.0.0.1:4173/api/auth/oauth2/token", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: delegatedRefreshToken,
+          client_id: delegated.clientId,
+          scope: "native-api offline_access",
+          resource: "urn:vektorprogrammet:native-api",
+        }),
+      });
+
+    const refreshResponses = yield* Effect.all(
+      [
+        authEngine.oauthHandler(refreshRequest(), requestContext),
+        authEngine.oauthHandler(refreshRequest(), requestContext),
+      ],
+      { concurrency: "unbounded" },
+    );
+
+    const refreshDiagnostics = yield* Effect.forEach(
+      refreshResponses,
+      (response) => Effect.tryPromise(() => response.clone().text()),
+      { concurrency: "unbounded" },
+    );
+
+    assert.deepEqual(
+      refreshResponses.map(({ status }) => status).sort((left, right) => left - right),
+      [200, 400],
+      refreshDiagnostics.join(" | "),
+    );
+
+    const rotatedResponse = refreshResponses.find(({ status }) => status === 200)!;
+
+    const rotatedTokens = yield* jsonRecordBody(rotatedResponse);
+
+    assert.ok(Predicate.isString(rotatedTokens.access_token));
+
+    assert.ok(Predicate.isString(rotatedTokens.refresh_token));
+
+    const replayRevoked = yield* authority.resolve(
+      new Request("http://127.0.0.1:4173/api/proof", {
+        headers: { authorization: `Bearer ${rotatedTokens.access_token}` },
+      }),
+      "OAuthUserBearer",
+    );
+
+    assert.deepEqual(
+      replayRevoked,
+      CredentialOutcomeSchema.cases.Rejected.make({ reason: "Revoked" }),
+    );
+
+    const family = yield* pgQuery<{ readonly revocation_reason: string | null }>(
+      pool,
+      `SELECT revocation_reason FROM auth.oauth_refresh_families
+        WHERE client_id = $1`,
+      [delegated.clientId],
+    );
+
+    assert.deepEqual(family.rows, [{ revocation_reason: "refresh-replay" }]);
+
+    const delegatedCredentialEvidence = [
+      authorizationCode,
+      delegatedTokens.access_token,
+      delegatedTokens.refresh_token,
+      rotatedTokens.access_token,
+      rotatedTokens.refresh_token,
+    ];
+
+    const audits = yield* pgQuery<{ readonly details: unknown }>(
+      pool,
+      "SELECT details FROM auth.oauth_security_audit ORDER BY occurred_at",
+    );
+
+    const boundedEvidence = yield* jsonText(audits.rows);
+
+    for (const forbidden of [
+      firstToken,
+      secondToken,
+      service.clientSecret!,
+      resourceServer.clientSecret!,
+      ...delegatedCredentialEvidence,
+    ]) {
+      assert.equal(
+        boundedEvidence.includes(forbidden),
+        false,
+        "security audit contained forbidden credential evidence",
+      );
+    }
+
+    const summary = yield* jsonText({
+      serviceCredential: "accepted-then-revoked",
+      serviceGrant: "absent",
+      concurrentTrackedJtis: 2,
+      internalIntrospection: "active-then-inactive",
+      delegatedAuthorization: "code-pkce-consent-accepted",
+      refreshReplay: "family-and-access-token-revoked",
+      redaction: "bounded",
+    });
+
+    yield* Effect.sync(() => process.stdout.write(`${summary}\n`));
   });
 
-const refreshResponses = await Promise.all([
-  release(refreshRequest(), requestContext),
-  release(refreshRequest(), requestContext),
-]);
-
-const refreshDiagnostics = await Promise.all(
-  refreshResponses.map(async (response) => await response.clone().text()),
-);
-
-assert.deepEqual(
-  refreshResponses.map(({ status }) => status).sort((left, right) => left - right),
-  [200, 400],
-  refreshDiagnostics.join(" | "),
-);
-
-const rotatedResponse = refreshResponses.find(({ status }) => status === 200)!;
-
-const rotatedTokens = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(
-  await rotatedResponse.json(),
-);
-
-assert.ok(Predicate.isString(rotatedTokens.access_token));
-
-assert.ok(Predicate.isString(rotatedTokens.refresh_token));
-
-const replayRevoked = await authRuntime.runPromise(
-  authority.resolve(
-    new Request("http://127.0.0.1:4173/api/proof", {
-      headers: { authorization: `Bearer ${rotatedTokens.access_token}` },
-    }),
-    "OAuthUserBearer",
-  ),
-);
-
-assert.deepEqual(replayRevoked, CredentialOutcomeSchema.cases.Rejected.make({ reason: "Revoked" }));
-
-const family = await pool.query<{ readonly revocation_reason: string | null }>(
-  `SELECT revocation_reason FROM auth.oauth_refresh_families
-    WHERE client_id = $1`,
-  [delegated.clientId],
-);
-
-assert.deepEqual(family.rows, [{ revocation_reason: "refresh-replay" }]);
-
-const delegatedCredentialEvidence = [
-  authorizationCode,
-  delegatedTokens.access_token,
-  delegatedTokens.refresh_token,
-  rotatedTokens.access_token,
-  rotatedTokens.refresh_token,
-];
-
-const audits = await pool.query<{ readonly details: unknown }>(
-  "SELECT details FROM auth.oauth_security_audit ORDER BY occurred_at",
-);
-
-const boundedEvidence = JSON.stringify(audits.rows);
-
-for (const forbidden of [
-  firstToken,
-  secondToken,
-  service.clientSecret!,
-  resourceServer.clientSecret!,
-  ...delegatedCredentialEvidence,
-]) {
-  assert.equal(
-    boundedEvidence.includes(forbidden),
-    false,
-    "security audit contained forbidden credential evidence",
+const program = Effect.gen(function* () {
+  const databaseUrl = yield* Config.String("OAUTH_PROOF_PG_URL").pipe(
+    Config.withDefault("postgres://postgres@127.0.0.1:45121/oauth_0082_proof"),
   );
-}
 
-process.stdout.write(
-  JSON.stringify({
-    serviceCredential: "accepted-then-revoked",
-    serviceGrant: "absent",
-    concurrentTrackedJtis: 2,
-    internalIntrospection: "active-then-inactive",
-    delegatedAuthorization: "code-pkce-consent-accepted",
-    refreshReplay: "family-and-access-token-revoked",
-    redaction: "bounded",
-  }) + "\n",
-);
+  const parsedDatabaseUrl = new URL(databaseUrl);
 
-await authRuntime.dispose();
+  assert.ok(
+    ["127.0.0.1", "localhost", "::1"].includes(parsedDatabaseUrl.hostname),
+    "OAuth proof database must use a loopback host",
+  );
+
+  assert.match(
+    parsedDatabaseUrl.pathname,
+    /(?:proof|test)/u,
+    "OAuth proof database name must be disposable",
+  );
+
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+
+  yield* Effect.acquireUseRelease(
+    Effect.sync(() => new Pool({ connectionString: databaseUrl, max: 1 })),
+    (migrationPool) =>
+      Effect.forEach(
+        databaseMigrationDefinitions,
+        (migration) =>
+          path.fromFileUrl(migration.url).pipe(
+            Effect.flatMap((file) => fs.readFileString(file)),
+            Effect.flatMap((source) => pgQuery(migrationPool, source)),
+          ),
+        { discard: true },
+      ),
+    (migrationPool) => Effect.promise(() => migrationPool.end()),
+  );
+
+  const config: AuthEngineConfig = {
+    postgresUrl: databaseUrl,
+    secret: "oauth-0082-disposable-proof-secret-at-least-32-characters",
+    oauth: {
+      canonicalOrigin: "http://127.0.0.1:4173",
+      dashboardOrigin: "http://127.0.0.1:4173",
+      nativeApiResource: "urn:vektorprogrammet:native-api",
+    },
+    trustedOrigins: ["http://127.0.0.1:4173"],
+    secureCookies: false,
+  };
+
+  yield* trace(parsedDatabaseUrl.pathname.slice(1)).pipe(
+    Effect.provide(AuthLive(config).pipe(Layer.provideMerge(AuthPoolLive(config)))),
+  );
+});
+
+// A set but empty variable is present, not absent: it never selects the default database.
+void Effect.runPromise(
+  program.pipe(
+    Effect.provide(
+      Layer.merge(
+        TestPlatform,
+        ConfigProvider.layer(ConfigProvider.fromEnv({ preserveEmptyStrings: true })),
+      ),
+    ),
+  ),
+).catch((cause: unknown) => {
+  process.stderr.write(`${String(cause)}\n`);
+  process.exitCode = 1;
+});

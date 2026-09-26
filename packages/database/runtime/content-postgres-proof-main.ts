@@ -21,7 +21,7 @@ import {
 import { Database, type DatabaseOperations } from "../src/service.js";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
-import { Predicate, Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
+import { Clock, Config, Deferred, Effect, Fiber, Layer, Predicate, Redacted, Schema } from "effect";
 import { DatabaseLive } from "../src/layers.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 
@@ -158,7 +158,7 @@ const program = Effect.scoped(
   Effect.gen(function* () {
     const databaseUrl = yield* Config.Redacted("DATABASE_URL");
     assertDisposablePostgres(databaseUrl);
-    const runId = `${Date.now().toString(36)}-${randomUUID()}`;
+    const runId = `${(yield* Clock.currentTimeMillis).toString(36)}-${randomUUID()}`;
     const personId = `content-proof-admin-${runId}`;
 
     const authorizationInstant = OrganizationAuthorityInstantSchema.make(
@@ -484,22 +484,20 @@ const program = Effect.scoped(
 
     assert.equal(currentAfterSnapshot, 3);
 
-    yield* Effect.sync(() =>
-      process.stdout.write(
-        `${JSON.stringify({
-          specId: "0062",
-          database: "PostgreSQL",
-          passed: true,
-          createReplay: true,
-          kindReuseConflict: true,
-          concurrentSlugConflict: true,
-          republishVersions: [1, 2],
-          publishUnpublishSerialized: true,
-          atomicReceiptsAndAudit: true,
-          repeatableReadSnapshot: { observedVersion: 2, concurrentVersion: 3 },
-        })}\n`,
-      ),
-    );
+    const evidence = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
+      specId: "0062",
+      database: "PostgreSQL",
+      passed: true,
+      createReplay: true,
+      kindReuseConflict: true,
+      concurrentSlugConflict: true,
+      republishVersions: [1, 2],
+      publishUnpublishSerialized: true,
+      atomicReceiptsAndAudit: true,
+      repeatableReadSnapshot: { observedVersion: 2, concurrentVersion: 3 },
+    });
+
+    yield* Effect.sync(() => process.stdout.write(`${evidence}\n`));
   }),
 );
 

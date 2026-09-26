@@ -1,138 +1,158 @@
-import { ManagedRuntime, Layer } from "effect";
+import { Config, Effect, FileSystem, Layer, Path, Redacted, Schema } from "effect";
 import { AuthLive, AuthEngine } from "../src/auth-live.js";
 import { AuthPoolLive } from "../src/auth-engine.js";
-import { DatabasePgPool } from "../src/pg-pool.js";
+import { DatabasePgPool, pgQuery } from "../src/pg-pool.js";
 import { OAuthClientOperator } from "../src/oauth-live.js";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import { createLocalAccountIssuer } from "better-auth";
 import { Pool } from "pg";
 import { type AuthEngineConfig } from "../src/auth-engine.js";
+import { TestPlatform } from "../src/test-support/platform.js";
 
 import { databaseMigrationDefinitions } from "../src/migrations.js";
 
-const databaseUrl = process.env.OAUTH_DASHBOARD_PG_URL ?? "";
+/** The bytes that `JSON.stringify` writes for `value`. */
+const jsonText = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
-const dashboardOrigin = process.env.OAUTH_DASHBOARD_ORIGIN ?? "";
+const program = Effect.gen(function* () {
+  const { databaseUrl, dashboardOrigin, backendOrigin, password } = yield* Config.all({
+    databaseUrl: Config.String("OAUTH_DASHBOARD_PG_URL"),
+    dashboardOrigin: Config.String("OAUTH_DASHBOARD_ORIGIN"),
+    backendOrigin: Config.String("OAUTH_CANONICAL_ORIGIN"),
+    password: Config.Redacted("OAUTH_E2E_PASSWORD"),
+  });
 
-const backendOrigin = process.env.OAUTH_CANONICAL_ORIGIN ?? "";
+  const parsedDatabaseUrl = new URL(databaseUrl);
 
-const password = process.env.OAUTH_E2E_PASSWORD ?? "";
+  assert.ok(["127.0.0.1", "localhost", "::1"].includes(parsedDatabaseUrl.hostname));
 
-const parsedDatabaseUrl = new URL(databaseUrl);
+  assert.match(parsedDatabaseUrl.pathname, /proof|test/u);
 
-assert.ok(["127.0.0.1", "localhost", "::1"].includes(parsedDatabaseUrl.hostname));
+  assert.equal(new URL(dashboardOrigin).hostname, "127.0.0.1");
 
-assert.match(parsedDatabaseUrl.pathname, /proof|test/u);
+  assert.equal(new URL(backendOrigin).hostname, "127.0.0.1");
 
-assert.equal(new URL(dashboardOrigin).hostname, "127.0.0.1");
+  assert.ok(Redacted.value(password).length >= 12);
 
-assert.equal(new URL(backendOrigin).hostname, "127.0.0.1");
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
 
-assert.ok(password.length >= 12);
+  yield* Effect.acquireUseRelease(
+    Effect.sync(() => new Pool({ connectionString: databaseUrl, max: 1 })),
+    (migrationPool) =>
+      Effect.gen(function* () {
+        for (const migration of databaseMigrationDefinitions) {
+          const source = yield* path
+            .fromFileUrl(migration.url)
+            .pipe(Effect.flatMap((file) => fs.readFileString(file)));
 
-const migrationPool = new Pool({ connectionString: databaseUrl, max: 1 });
+          yield* pgQuery(migrationPool, source);
+        }
 
-for (const migration of databaseMigrationDefinitions) {
-  await migrationPool.query(await readFile(migration.url, "utf8"));
-}
+        yield* pgQuery(
+          migrationPool,
+          `CREATE TABLE IF NOT EXISTS auth.vektorprogrammet_schema_migrations (
+             migration_id integer PRIMARY KEY,
+             created_at timestamptz NOT NULL DEFAULT now(),
+             name text NOT NULL
+           )`,
+        );
 
-await migrationPool.query(
-  `CREATE TABLE IF NOT EXISTS auth.vektorprogrammet_schema_migrations (
-     migration_id integer PRIMARY KEY,
-     created_at timestamptz NOT NULL DEFAULT now(),
-     name text NOT NULL
-   )`,
-);
-
-for (const migration of databaseMigrationDefinitions) {
-  await migrationPool.query(
-    `INSERT INTO auth.vektorprogrammet_schema_migrations (migration_id, name)
-     VALUES ($1, $2) ON CONFLICT (migration_id) DO NOTHING`,
-    [Number.parseInt(migration.id, 10), migration.name],
+        for (const migration of databaseMigrationDefinitions) {
+          yield* pgQuery(
+            migrationPool,
+            `INSERT INTO auth.vektorprogrammet_schema_migrations (migration_id, name)
+             VALUES ($1, $2) ON CONFLICT (migration_id) DO NOTHING`,
+            [Number.parseInt(migration.id, 10), migration.name],
+          );
+        }
+      }),
+    (migrationPool) => Effect.promise(() => migrationPool.end()),
   );
-}
 
-await migrationPool.end();
+  const config: AuthEngineConfig = {
+    postgresUrl: databaseUrl,
+    secret: "oauth-dashboard-disposable-secret-at-least-32-characters",
+    oauth: {
+      canonicalOrigin: backendOrigin,
+      dashboardOrigin,
+      nativeApiResource: "urn:vektorprogrammet:native-api",
+    },
+    trustedOrigins: [dashboardOrigin],
+    secureCookies: false,
+  };
 
-const config: AuthEngineConfig = {
-  postgresUrl: databaseUrl,
-  secret: "oauth-dashboard-disposable-secret-at-least-32-characters",
-  oauth: {
-    canonicalOrigin: backendOrigin,
-    dashboardOrigin,
-    nativeApiResource: "urn:vektorprogrammet:native-api",
-  },
-  trustedOrigins: [dashboardOrigin],
-  secureCookies: false,
-};
+  yield* Effect.gen(function* () {
+    const pool = yield* DatabasePgPool;
+    const { engine } = yield* AuthEngine;
+    const context = yield* Effect.promise(() => engine.$context);
 
-const authRuntime = ManagedRuntime.make(
-  AuthLive(config).pipe(Layer.provideMerge(AuthPoolLive(config))),
-);
+    yield* pgQuery(
+      pool,
+      `INSERT INTO public.person_profiles (person_id, first_name, last_name)
+       VALUES ('oauth-dashboard-person', 'OAuth', 'Dashboard')`,
+    );
 
-const pool = await authRuntime.runPromise(DatabasePgPool);
+    const passwordHash = yield* Effect.tryPromise(() =>
+      context.password.hash(Redacted.value(password)),
+    );
 
-const engine = (await authRuntime.runPromise(AuthEngine)).engine;
+    yield* Effect.tryPromise(() =>
+      context.internalAdapter.createUser(
+        {
+          id: "oauth-dashboard-person",
+          name: "OAuth Dashboard Person",
+          email: "oauth.dashboard@example.invalid",
+          emailVerified: true,
+        },
+        { method: "email-password" },
+      ),
+    );
 
-const context = await engine.$context;
+    yield* Effect.tryPromise(() =>
+      context.internalAdapter.linkAccount({
+        accountId: "oauth-dashboard-person",
+        providerId: "credential",
+        issuer: createLocalAccountIssuer("credential"),
+        userId: "oauth-dashboard-person",
+        password: passwordHash,
+      }),
+    );
 
-await pool.query(
-  `INSERT INTO public.person_profiles (person_id, first_name, last_name)
-   VALUES ('oauth-dashboard-person', 'OAuth', 'Dashboard')`,
-);
+    const operator = yield* OAuthClientOperator;
 
-const passwordHash = await context.password.hash(password);
+    const execution = {
+      dryRun: false,
+      target: parsedDatabaseUrl.pathname.slice(1),
+      authority: "operator",
+      requestCorrelation: "oauth-dashboard-browser-fixture",
+    } as const;
 
-await context.internalAdapter.createUser(
-  {
-    id: "oauth-dashboard-person",
-    name: "OAuth Dashboard Person",
-    email: "oauth.dashboard@example.invalid",
-    emailVerified: true,
-  },
-  { method: "email-password" },
-);
+    yield* operator.bootstrapSigningKey(execution);
 
-await context.internalAdapter.linkAccount({
-  accountId: "oauth-dashboard-person",
-  providerId: "credential",
-  issuer: createLocalAccountIssuer("credential"),
-  userId: "oauth-dashboard-person",
-  password: passwordHash,
+    yield* operator.provision(
+      {
+        clientId: "oauth-dashboard-public",
+        name: "Dashboard OAuth proof",
+        clientKind: "DelegatedPublic",
+        redirectUris: [`${dashboardOrigin}/dashboard/oauth/callback`],
+        scopes: ["native-api", "offline_access"],
+      },
+      execution,
+    );
+
+    const fixture = yield* jsonText({
+      database: "disposable",
+      person: "oauth-dashboard-person",
+      client: "oauth-dashboard-public",
+      signingKey: "active",
+    });
+
+    yield* Effect.sync(() => process.stdout.write(`${fixture}\n`));
+  }).pipe(Effect.provide(AuthLive(config).pipe(Layer.provideMerge(AuthPoolLive(config)))));
 });
 
-const operator = await authRuntime.runPromise(OAuthClientOperator);
-
-const execution = {
-  dryRun: false,
-  target: parsedDatabaseUrl.pathname.slice(1),
-  authority: "operator",
-  requestCorrelation: "oauth-dashboard-browser-fixture",
-} as const;
-
-await authRuntime.runPromise(operator.bootstrapSigningKey(execution));
-
-await authRuntime.runPromise(
-  operator.provision(
-    {
-      clientId: "oauth-dashboard-public",
-      name: "Dashboard OAuth proof",
-      clientKind: "DelegatedPublic",
-      redirectUris: [`${dashboardOrigin}/dashboard/oauth/callback`],
-      scopes: ["native-api", "offline_access"],
-    },
-    execution,
-  ),
-);
-
-process.stdout.write(
-  JSON.stringify({
-    database: "disposable",
-    person: "oauth-dashboard-person",
-    client: "oauth-dashboard-public",
-    signingKey: "active",
-  }) + "\n",
-);
-
-await authRuntime.dispose();
+void Effect.runPromise(program.pipe(Effect.provide(TestPlatform))).catch((cause: unknown) => {
+  process.stderr.write(`${String(cause)}\n`);
+  process.exitCode = 1;
+});

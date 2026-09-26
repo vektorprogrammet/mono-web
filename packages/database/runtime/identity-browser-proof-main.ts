@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { Effect, Redacted, Schema, flow } from "effect";
+import { Config, ConfigProvider, Effect, Layer, Redacted, Schema, flow } from "effect";
 import { Pool } from "pg";
 import { Database } from "../src/service.js";
 import { DatabaseLive } from "../src/layers.js";
+import { pgQuery } from "../src/pg-pool.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 
 const personId = "journey-0065-admin";
@@ -25,12 +26,11 @@ const activeRuleId = "identity-0056-active-other-person-rule";
 
 const expiredRuleId = "identity-0056-expired-journey-person-rule";
 
-const readBaseline = (name: string): Schema.Json => {
-  const raw = process.env[name];
-  assert.ok(raw !== undefined && raw.length > 0, `${name} is required`);
+/** A JSON baseline in one environment variable. */
+const JsonBaseline = Schema.fromJsonString(Schema.Json);
 
-  return Schema.decodeUnknownSync(Schema.Json)(JSON.parse(raw));
-};
+/** The bytes that `JSON.stringify` writes for `value`. */
+const jsonText = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 const SqlEvidenceRow = Schema.Record(Schema.String, Schema.Union([Schema.Json, Schema.Date]));
 
@@ -45,68 +45,77 @@ const normalizeRows = flow(Schema.decodeUnknownSync(Schema.Array(SqlEvidenceRow)
   ),
 );
 
-const readAuthSchemaState = async (observer: Pool) => {
-  const users = await observer.query<typeof SqlEvidenceRow.Type>(
-    `SELECT id, name, email, "emailVerified", image, "createdAt", "updatedAt"
-     FROM auth."user" ORDER BY id`,
-  );
+const readAuthSchemaState = (observer: Pool) =>
+  Effect.gen(function* () {
+    const users = yield* pgQuery<typeof SqlEvidenceRow.Type>(
+      observer,
+      `SELECT id, name, email, "emailVerified", image, "createdAt", "updatedAt"
+       FROM auth."user" ORDER BY id`,
+    );
 
-  const accounts = await observer.query<typeof SqlEvidenceRow.Type>(
-    `SELECT id, "accountId", "providerId", "userId", issuer, "createdAt", "updatedAt",
-       ("password" IS NOT NULL) AS "passwordPresent",
-       ("accessToken" IS NOT NULL OR "refreshToken" IS NOT NULL OR "idToken" IS NOT NULL)
-         AS "providerSecretPresent"
-     FROM auth.account ORDER BY id`,
-  );
+    const accounts = yield* pgQuery<typeof SqlEvidenceRow.Type>(
+      observer,
+      `SELECT id, "accountId", "providerId", "userId", issuer, "createdAt", "updatedAt",
+         ("password" IS NOT NULL) AS "passwordPresent",
+         ("accessToken" IS NOT NULL OR "refreshToken" IS NOT NULL OR "idToken" IS NOT NULL)
+           AS "providerSecretPresent"
+       FROM auth.account ORDER BY id`,
+    );
 
-  const sessions = await observer.query<{ readonly total: number; readonly live: number }>(
-    `SELECT count(*)::integer AS total,
-       count(*) FILTER (WHERE "expiresAt" > now())::integer AS live
-     FROM auth.session`,
-  );
+    const sessions = yield* pgQuery<{ readonly total: number; readonly live: number }>(
+      observer,
+      `SELECT count(*)::integer AS total,
+         count(*) FILTER (WHERE "expiresAt" > now())::integer AS live
+       FROM auth.session`,
+    );
 
-  const verification = await observer.query<{ readonly total: number }>(
-    `SELECT count(*)::integer AS total FROM auth.verification`,
-  );
+    const verification = yield* pgQuery<{ readonly total: number }>(
+      observer,
+      `SELECT count(*)::integer AS total FROM auth.verification`,
+    );
 
-  return {
-    users: normalizeRows(users.rows),
-    accounts: normalizeRows(accounts.rows),
-    sessions: {
-      total: Number(sessions.rows[0]?.total),
-      live: Number(sessions.rows[0]?.live),
-    },
-    verification: { total: Number(verification.rows[0]?.total) },
-  };
-};
+    return {
+      users: normalizeRows(users.rows),
+      accounts: normalizeRows(accounts.rows),
+      sessions: {
+        total: Number(sessions.rows[0]?.total),
+        live: Number(sessions.rows[0]?.live),
+      },
+      verification: { total: Number(verification.rows[0]?.total) },
+    };
+  });
 
-const readPublicAuthzState = async (observer: Pool) => {
-  const tags = await observer.query<typeof SqlEvidenceRow.Type>(
-    `SELECT tag_id AS "tagId", name, revision
-     FROM public.authz_tags ORDER BY tag_id`,
-  );
+const readPublicAuthzState = (observer: Pool) =>
+  Effect.gen(function* () {
+    const tags = yield* pgQuery<typeof SqlEvidenceRow.Type>(
+      observer,
+      `SELECT tag_id AS "tagId", name, revision
+       FROM public.authz_tags ORDER BY tag_id`,
+    );
 
-  const assignments = await observer.query<typeof SqlEvidenceRow.Type>(
-    `SELECT assignment_id AS "assignmentId", tag_id AS "tagId", person_id AS "personId",
-       start_at AS "startAt", end_at AS "endAt", revision
-     FROM public.authz_tag_assignments ORDER BY assignment_id`,
-  );
+    const assignments = yield* pgQuery<typeof SqlEvidenceRow.Type>(
+      observer,
+      `SELECT assignment_id AS "assignmentId", tag_id AS "tagId", person_id AS "personId",
+         start_at AS "startAt", end_at AS "endAt", revision
+       FROM public.authz_tag_assignments ORDER BY assignment_id`,
+    );
 
-  const rules = await observer.query<typeof SqlEvidenceRow.Type>(
-    `SELECT rule_id AS "ruleId", capability_id AS "capabilityId",
-       effect_kind AS "effectKind", subject_kind AS "subjectKind",
-       subject_person_id AS "subjectPersonId", subject_tag_id AS "subjectTagId",
-       scope, department_id AS "departmentId", params,
-       start_at AS "startAt", end_at AS "endAt", revision
-     FROM public.authz_rules ORDER BY rule_id`,
-  );
+    const rules = yield* pgQuery<typeof SqlEvidenceRow.Type>(
+      observer,
+      `SELECT rule_id AS "ruleId", capability_id AS "capabilityId",
+         effect_kind AS "effectKind", subject_kind AS "subjectKind",
+         subject_person_id AS "subjectPersonId", subject_tag_id AS "subjectTagId",
+         scope, department_id AS "departmentId", params,
+         start_at AS "startAt", end_at AS "endAt", revision
+       FROM public.authz_rules ORDER BY rule_id`,
+    );
 
-  return {
-    tags: normalizeRows(tags.rows),
-    assignments: normalizeRows(assignments.rows),
-    rules: normalizeRows(rules.rows),
-  };
-};
+    return {
+      tags: normalizeRows(tags.rows),
+      assignments: normalizeRows(assignments.rows),
+      rules: normalizeRows(rules.rows),
+    };
+  });
 
 const loopbackDatabase = (value: string): void => {
   const url = new URL(value);
@@ -138,26 +147,40 @@ const runMigrations = (url: string) =>
     ),
   );
 
-const run = async () => {
-  const url = process.env.IDENTITY_EVIDENCE_PG_URL ?? process.env.DATABASE_URL;
-  assert.ok(url !== undefined, "IDENTITY_EVIDENCE_PG_URL is required");
-  const authSchemaBaseline = readBaseline("IDENTITY_EVIDENCE_AUTH_SCHEMA_BASELINE");
-  const publicAuthzBaseline = readBaseline("IDENTITY_EVIDENCE_PUBLIC_AUTHZ_BASELINE");
-  loopbackDatabase(url);
+const program = Effect.scoped(
+  Effect.gen(function* () {
+    const url = yield* Config.String("IDENTITY_EVIDENCE_PG_URL").pipe(
+      Config.orElse(() => Config.String("DATABASE_URL")),
+    );
 
-  const schemaRevision = await Effect.runPromise(
-    runMigrations(url).pipe(Effect.provide(TestPlatform)),
-  );
+    const authSchemaBaseline = yield* Config.schema(
+      JsonBaseline,
+      "IDENTITY_EVIDENCE_AUTH_SCHEMA_BASELINE",
+    );
 
-  const observer = new Pool({
-    connectionString: url,
-    options: "-c search_path=public",
-    max: 1,
-    application_name: "identity-browser-0056-proof-observer",
-  });
+    const publicAuthzBaseline = yield* Config.schema(
+      JsonBaseline,
+      "IDENTITY_EVIDENCE_PUBLIC_AUTHZ_BASELINE",
+    );
 
-  try {
-    const migration = await observer.query(
+    loopbackDatabase(url);
+    const schemaRevision = yield* runMigrations(url);
+
+    const observer = yield* Effect.acquireRelease(
+      Effect.sync(
+        () =>
+          new Pool({
+            connectionString: url,
+            options: "-c search_path=public",
+            max: 1,
+            application_name: "identity-browser-0056-proof-observer",
+          }),
+      ),
+      (pool) => Effect.promise(() => pool.end()),
+    );
+
+    const migration = yield* pgQuery(
+      observer,
       `SELECT migration_id AS "migrationId", name
        FROM public.vektorprogrammet_schema_migrations
        WHERE migration_id = $1`,
@@ -166,7 +189,8 @@ const run = async () => {
 
     assert.deepEqual(migration.rows, [{ migrationId: 15, name: "native-identity-better-auth" }]);
 
-    const authzMigration = await observer.query(
+    const authzMigration = yield* pgQuery(
+      observer,
       `SELECT migration_id AS "migrationId", name
        FROM public.vektorprogrammet_schema_migrations
        WHERE migration_id = 23`,
@@ -176,7 +200,8 @@ const run = async () => {
       { migrationId: 23, name: "declarative-authorization-rules" },
     ]);
 
-    const auditMigration = await observer.query(
+    const auditMigration = yield* pgQuery(
+      observer,
       `SELECT migration_id AS "migrationId", name
        FROM public.vektorprogrammet_schema_migrations
        WHERE migration_id = 24`,
@@ -184,7 +209,8 @@ const run = async () => {
 
     assert.deepEqual(auditMigration.rows, [{ migrationId: 24, name: "identity-security-audit" }]);
 
-    const tables = await observer.query<{ readonly tableName: string }>(
+    const tables = yield* pgQuery<{ readonly tableName: string }>(
+      observer,
       `SELECT table_name AS "tableName" FROM information_schema.tables
        WHERE table_schema = 'auth' AND table_name = ANY($1::text[]) ORDER BY table_name`,
       [[...authTables]],
@@ -195,7 +221,8 @@ const run = async () => {
       [...authTables],
     );
 
-    const publicTables = await observer.query<{ readonly tableName: string }>(
+    const publicTables = yield* pgQuery<{ readonly tableName: string }>(
+      observer,
       `SELECT table_name AS "tableName" FROM information_schema.tables
        WHERE table_schema = 'public' AND table_name = ANY($1::text[]) ORDER BY table_name`,
       [[...authTables]],
@@ -203,7 +230,8 @@ const run = async () => {
 
     assert.deepEqual(publicTables.rows, []);
 
-    const publicAuthzTables = await observer.query<{ readonly tableName: string }>(
+    const publicAuthzTables = yield* pgQuery<{ readonly tableName: string }>(
+      observer,
       `SELECT table_name AS "tableName" FROM information_schema.tables
        WHERE table_schema = 'public' AND table_name = ANY($1::text[]) ORDER BY table_name`,
       [[...authzTables]],
@@ -214,7 +242,8 @@ const run = async () => {
       [...authzTables],
     );
 
-    const authAuthzTables = await observer.query<{ readonly tableName: string }>(
+    const authAuthzTables = yield* pgQuery<{ readonly tableName: string }>(
+      observer,
       `SELECT table_name AS "tableName" FROM information_schema.tables
        WHERE table_schema = 'auth' AND table_name = ANY($1::text[]) ORDER BY table_name`,
       [[...authzTables]],
@@ -222,7 +251,8 @@ const run = async () => {
 
     assert.deepEqual(authAuthzTables.rows, []);
 
-    const identityForeignKey = await observer.query(
+    const identityForeignKey = yield* pgQuery(
+      observer,
       `SELECT 1 FROM pg_constraint c
        JOIN pg_class source ON source.oid = c.conrelid
        JOIN pg_namespace source_schema ON source_schema.oid = source.relnamespace
@@ -235,7 +265,8 @@ const run = async () => {
 
     assert.equal(identityForeignKey.rowCount, 1);
 
-    const facts = await observer.query(
+    const facts = yield* pgQuery(
+      observer,
       `SELECT
          (SELECT count(*) FROM public.person_profiles WHERE person_id = $1) AS profiles,
          (SELECT count(*) FROM public.person_contact_profiles WHERE person_id = $1) AS contacts,
@@ -249,6 +280,7 @@ const run = async () => {
     );
 
     const row = facts.rows[0];
+    assert.ok(row !== undefined);
 
     const counts = Object.fromEntries(
       Object.entries(row).map(([key, value]) => [key, Number(value)]),
@@ -263,18 +295,19 @@ const run = async () => {
       sessionsTotal: 0,
       sessionsLive: 0,
     });
-    const authSchemaState = await readAuthSchemaState(observer);
+    const authSchemaState = yield* readAuthSchemaState(observer);
     assert.deepEqual(authSchemaState, authSchemaBaseline);
-    const publicAuthz = await readPublicAuthzState(observer);
+    const publicAuthz = yield* readPublicAuthzState(observer);
     assert.deepEqual(publicAuthz, publicAuthzBaseline);
 
-    const auditRows = await observer.query<{
+    const auditRows = yield* pgQuery<{
       readonly eventKind: string;
       readonly eventCount: string;
       readonly requestBindingValid: boolean;
       readonly detailsClosed: boolean;
       readonly subjectsLinked: boolean;
     }>(
+      observer,
       `SELECT
          event_kind AS "eventKind",
          count(*)::text AS "eventCount",
@@ -326,7 +359,8 @@ const run = async () => {
       ),
     );
 
-    const firstAuditEvent = await observer.query<{ readonly eventId: string }>(
+    const firstAuditEvent = yield* pgQuery<{ readonly eventId: string }>(
+      observer,
       `SELECT event_id AS "eventId"
        FROM auth.identity_security_audit
        ORDER BY occurred_at, event_id
@@ -336,26 +370,22 @@ const run = async () => {
     const eventId = firstAuditEvent.rows[0]?.eventId;
     assert.ok(eventId !== undefined);
 
-    const updateRejected = await observer
-      .query(`UPDATE auth.identity_security_audit SET details = details WHERE event_id = $1`, [
-        eventId,
-      ])
-      .then(
-        () => false,
-        () => true,
-      );
+    const updateRejected = yield* pgQuery(
+      observer,
+      `UPDATE auth.identity_security_audit SET details = details WHERE event_id = $1`,
+      [eventId],
+    ).pipe(Effect.match({ onFailure: () => true, onSuccess: () => false }));
 
-    const deleteRejected = await observer
-      .query(`DELETE FROM auth.identity_security_audit WHERE event_id = $1`, [eventId])
-      .then(
-        () => false,
-        () => true,
-      );
+    const deleteRejected = yield* pgQuery(
+      observer,
+      `DELETE FROM auth.identity_security_audit WHERE event_id = $1`,
+      [eventId],
+    ).pipe(Effect.match({ onFailure: () => true, onSuccess: () => false }));
 
     assert.equal(updateRejected, true);
     assert.equal(deleteRejected, true);
 
-    const activityResult = await observer.query<{
+    const activityResult = yield* pgQuery<{
       readonly observedAt: Date;
       readonly activeAssignments: string;
       readonly activeRules: string;
@@ -363,6 +393,7 @@ const run = async () => {
       readonly activeOtherPersonRules: string;
       readonly expiredJourneyPersonRules: string;
     }>(
+      observer,
       `SELECT now() AS "observedAt",
          (SELECT count(*) FROM public.authz_tag_assignments
            WHERE start_at <= now() AND (end_at IS NULL OR now() < end_at))
@@ -429,57 +460,64 @@ const run = async () => {
         expiredJourneyPersonRules: 1,
       },
     );
-    process.stdout.write(
-      `${JSON.stringify({
-        specId: "0065",
-        extensionSpecId: "0056",
-        database: "PostgreSQL",
-        migrations: [
-          { revision: 15, name: "native-identity-better-auth" },
-          { revision: 23, name: "declarative-authorization-rules" },
-          { revision: 24, name: "identity-security-audit" },
-        ],
-        schemaRevision,
-        authTables: [...authTables],
-        publicAuthTables: [],
-        authzTables: { public: [...authzTables], auth: [] },
-        personIdForeignKey: true,
-        seedRows: {
-          profiles: counts.profiles,
-          contacts: counts.contacts,
-          globalAdministratorGrants: counts.grants,
-          users: counts.users,
-          credentialAccounts: counts.accounts,
-        },
-        authSchemaState,
-        publicAuthz,
-        authzActivity,
-        sessions: { total: counts.sessionsTotal, live: counts.sessionsLive },
-        identitySecurityAudit: {
-          counts: auditCounts,
-          rowsBoundedAndLinked: true,
-          appendOnlyUpdateRejected: updateRejected,
-          appendOnlyDeleteRejected: deleteRejected,
-          observer: "distinct-loopback-postgresql-connection",
-          ordering: {
-            nativeSessionMutations: "state change and audit append share one adapter transaction",
-            betterAuthCredentialOperations:
-              "Better Auth commits first; the bounded audit append follows in a separate transaction",
-            atomicCredentialAuditClaimed: false,
-          },
-        },
+
+    const evidence = yield* jsonText({
+      specId: "0065",
+      extensionSpecId: "0056",
+      database: "PostgreSQL",
+      migrations: [
+        { revision: 15, name: "native-identity-better-auth" },
+        { revision: 23, name: "declarative-authorization-rules" },
+        { revision: 24, name: "identity-security-audit" },
+      ],
+      schemaRevision,
+      authTables: [...authTables],
+      publicAuthTables: [],
+      authzTables: { public: [...authzTables], auth: [] },
+      personIdForeignKey: true,
+      seedRows: {
+        profiles: counts.profiles,
+        contacts: counts.contacts,
+        globalAdministratorGrants: counts.grants,
+        users: counts.users,
+        credentialAccounts: counts.accounts,
+      },
+      authSchemaState,
+      publicAuthz,
+      authzActivity,
+      sessions: { total: counts.sessionsTotal, live: counts.sessionsLive },
+      identitySecurityAudit: {
+        counts: auditCounts,
+        rowsBoundedAndLinked: true,
+        appendOnlyUpdateRejected: updateRejected,
+        appendOnlyDeleteRejected: deleteRejected,
         observer: "distinct-loopback-postgresql-connection",
-        passed: true,
-      })}\n`,
-    );
-  } finally {
-    await observer.end();
-  }
-};
+        ordering: {
+          nativeSessionMutations: "state change and audit append share one adapter transaction",
+          betterAuthCredentialOperations:
+            "Better Auth commits first; the bounded audit append follows in a separate transaction",
+          atomicCredentialAuditClaimed: false,
+        },
+      },
+      observer: "distinct-loopback-postgresql-connection",
+      passed: true,
+    });
 
-const program = Effect.promise(run);
+    yield* Effect.sync(() => process.stdout.write(`${evidence}\n`));
+  }),
+);
 
-void Effect.runPromise(program).catch((cause: unknown) => {
+// A set but empty variable is present, not absent, as it was with `??`.
+void Effect.runPromise(
+  program.pipe(
+    Effect.provide(
+      Layer.merge(
+        TestPlatform,
+        ConfigProvider.layer(ConfigProvider.fromEnv({ preserveEmptyStrings: true })),
+      ),
+    ),
+  ),
+).catch((cause: unknown) => {
   process.stderr.write(`${String(cause)}\n`);
   process.exitCode = 1;
 });
