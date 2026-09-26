@@ -19,3 +19,6 @@ strict_ports: true
 nixpkgs:
   permitted_unfree_packages:
     - bws
+# secretspec.toml resolves secrets per command (`secretspec run --profile <profile>`), not into the shell.
+secretspec:
+  enable: false

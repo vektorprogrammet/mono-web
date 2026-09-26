@@ -104,14 +104,15 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
 - `Team.email` (`packages/domain/src/organization/schema.ts`) accepts text that is not a mailbox. Open team intake requires a deliverable mailbox; the write boundary does not check it.
 - Hand-written operation ids outside content, hand-written dashboard navigation paths, a fixed admissions `retry-after`, and fixed ports in older browser runners.
 - PR previews (operator decision, 2026-09-25): Cloudflare Worker Previews of the homepage and dashboard only, as `vektor-preview-homepage` and `vektor-preview-dashboard`, which `wrangler preview` creates on first use ([contract](docs/specs/worker-pr-previews.md)).
-  Their Cloudflare token (Workers Editor on the two preview Workers only) and account id live in Bitwarden Secrets Manager; `secretspec.toml` profile `preview` gives them to the deploy and delete steps, and GitHub holds only the read-only `BWS_ACCESS_TOKEN`. The parent Workers were created on 2026-09-26; no pull request has deployed a preview yet. They have no backend, so pages that read the API show the unavailable state.
+  Their Cloudflare token (Workers Editor on the two preview Workers only) and account id live in Bitwarden Secrets Manager; `secretspec.toml` profile `preview` gives them to the deploy and delete steps, and GitHub holds only the read-only `BWS_ACCESS_TOKEN`. The parent Workers were created on 2026-09-26 and hold no version.
+  The first secretspec deploy (draft PR #24, run `36239143975`) reached Bitwarden, which refused the machine-account token with `invalid_client`; no preview has deployed yet. They have no backend, so pages that read the API show the unavailable state.
   A native backend preview host is the planned follow-up: full-stack per-PR previews on DigitalOcean App Platform (`digitalocean/app_action` with `deploy_pr_preview`) so previews rehearse the production platform.
 - The `dev-main` stage was torn down on 2026-09-26: its Workers, custom domain, route, tunnel, tunnel DNS records, and workstation units are gone. `vektor.phibkro.org` is free for a future staging deployment of `main`.
   Retired Cloudflare Workers still deployed: p20 (homepage, dashboard, preview worker), p001 (homepage, dashboard), the superseded development backend (routes `vektor.phibkro.org/api/*` and `/health`), and `vektor-migration-docs`.
 - Hosted `Tests` run `36191536836` passed every job at `6c812703`, including the PostgreSQL 17 lane.
   The `Browser journeys` matrix runs every `just golden`, `just e2e`, `just proof`, and `just rehearsal` name that no other hosted job runs; `just layout write` generates its legs from the justfile, and `just layout` fails on a Playwright spec or acceptance probe that no name runs and no exclusion lists ([hosted journeys](docs/web-system-functional-testing.md#hosted-journeys)).
   Hosted run `36219552428` passed 16 of its first 17 legs; `e2e contact` failed because it served a homepage build it did not make, and its runner now builds one.
-  Hosted run `36233895862` at `74e165ef` passed 37 of 39 jobs, including every leg added since. Two legs failed on hosted runners only: `rehearsal organization-import` runs `git merge-base` against a commit that the shallow checkout lacks, and `e2e recommendation-returning` stored a revision with the first submission's values. Both are being fixed at their cause. `just proof authorization-rules` now passes its migration preflight but fails later, so it stays excluded ([hosted journeys](docs/web-system-functional-testing.md#hosted-journeys)).
+  Hosted run `36233895862` at `74e165ef` passed 37 of 39 jobs, including every leg added since. The two hosted-only failures are fixed at their cause: `rehearsal organization-import` no longer reads Git history (`anti-slop/no-git-history`), and `e2e recommendation-returning` asserts the revision that won the person lock. Journey ports come from `reserveLoopbackPorts` (`anti-slop/no-port-probe`). `just proof authorization-rules` passes its migration preflight but fails later, so it stays excluded ([hosted journeys](docs/web-system-functional-testing.md#hosted-journeys)).
   `just e2e recommendation` and `just e2e recommendation-report` are excluded: outside `--returning-mode`, recommendation-check.ts runs the returning journey without the invitation delivery hook that the journey requires since adf70a9a.
   No name hosts `recommendation-check.ts --returning-login-probe` (it records a login diagnostic and asserts nothing) or `bun run --cwd tools/e2e rehearsal:legacy-person` (it reads a private backup). `apps/dashboard/app/foldkit/organization` keeps Team catalog view and load branches that no element mounts since 62a7b94c.
 - The golden CI gate once failed at `ae5928fe` after a dashboard GET returned HTTP 503; a later diagnostic run passed and the cause is unproven. Evidence: `/tmp/golden-ci-success-ae5928fe`.
@@ -140,15 +141,16 @@ PGlite performance and full native composition are unmeasured.
 
 ### Lead handoff
 
-Updated 2026-09-26 at `74e165ef`. A new lead resumes from this section, `AGENTS.md`, and `docs/specs/`, not from chat or session files.
-No product branch is in flight: every worktree from this session is landed and removed.
+Updated 2026-09-26 at `b1c4a8a0`. A new lead resumes from this section, `AGENTS.md`, and `docs/specs/`, not from chat or session files.
+No product branch is in flight. Draft PR #24 (branch `test/preview-secretspec-0926`, an empty commit) exists only to prove the secretspec preview deploy and delete: rerun its failed deploy after the operator replaces `BWS_ACCESS_TOKEN`, check both preview URLs, then close it to exercise the delete.
+`spike/persisted-queue-outbox-0925` (worktree `mono-web-pq-spike-0925`, one commit) is an unlanded Effect PersistedQueue delivery spike for the [infrastructure ports](docs/specs/infrastructure-ports.md) outbox; decide it there.
 
 How work runs: one writer per worktree and branch; heavy commands go through `just measure`, whose machine-wide lock serialises every agent;
 the lead lands with `just land <branch>` and pushes `main`; hosted CI runs every journey named in the `just` sets.
 
 Next, in this order:
 
-1. Keep hosted CI green. The journey legs added on 2026-09-26 had passed only locally when they landed; fix any red leg at its cause.
+1. Keep hosted CI green; fix any red leg at its cause. Hosted run `36233895862` was the last complete one; confirm the first complete run at or after `b1c4a8a0`.
 2. The recommendation default and report modes (excluded; see Known gaps) and `just proof authorization-rules` (red at its admission step, excluded).
 3. Certificates for days served (O8-16). It adds the derived Styret and Hovedstyret seat list that the delegation slice specified.
 4. Retire the receipt person grants: the receipt seeds and the golden reimbursement journey issue the Økonomi delegations instead (O8-15).
@@ -164,7 +166,8 @@ The `legacy-data` devenv profile cannot build while the home binary cache answer
 - Homelab branch `feat/btrbk-root-offload-ironwolf` (in `/srv/share/projects/homelab-btrbk-offload`) is built, not merged or deployed.
   It keeps root snapshots 7d locally, sends the latest to the IronWolf until 2026-10-04 and 4w 6m after, caps `@downloads` at 2540G,
   ages `/tmp` at 7d, and makes a dead binary cache non-fatal. Merge it into homelab `main` and rebuild the workstation from the homelab justfile, following the steps in its docs.
-- Delete the superseded `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` GitHub secrets after the first secretspec preview deploy passes, and decide whether to delete the retired Cloudflare Workers listed above.
+- Replace the `BWS_ACCESS_TOKEN` repository secret with a valid access token of the machine account `vektorprogrammet-ci`, which reads Bitwarden project `2ddfeed1-59d8-4139-b6b0-b4d1001edcfc` on `vault.bitwarden.eu` (the current one is refused with `invalid_client`).
+  After the first secretspec preview deploy passes, delete the superseded `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` GitHub secrets, and decide whether to delete the retired Cloudflare Workers listed above.
 - Before any production use of reach and delegation: classify the Styret and national teams, recognize independent departments,
   and issue the Økonomi delegations, each by explicit command (see Production gates).
 
