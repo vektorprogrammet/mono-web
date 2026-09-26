@@ -65,6 +65,7 @@ Package manifests own the per-package scripts that recipes and Turbo run. Use `b
 | check     | `just layout [args...]`           | Check the repository layout and its generated sections: the README and AGENTS.md tables and the hosted journey legs; `just layout write` renders them.                                                                                       |
 | check     | `just lint [args...]`             | Lint with Oxlint.                                                                                                                                                                                                                            |
 | check     | `just measure [args...]`          | Run a heavy job under the machine-wide heavy lock and measure it, or show the ledger with `just measure --report`.                                                                                                                           |
+| check     | `just model <action>`             | Run the Alloy commands of docs/model/authority.als (check) or validate docs/model/contexts.cml (validate), a heavy job.                                                                                                                      |
 | check     | `just source-safety`              | Scan every file in the Git index for credentials, personal data, and SQL data.                                                                                                                                                               |
 | check     | `just test [args...]`             | Test every package, a heavy job (AGENTS.md#verification-and-resources). Arguments go to Turbo.                                                                                                                                               |
 | develop   | `just build [args...]`            | Build every package through Turbo. Arguments go to Turbo.                                                                                                                                                                                    |
@@ -219,7 +220,7 @@ and the browser suites (`just e2e <suite>`).
 A worker that needs one reports the exact command to the lead and does not start it.
 
 Heavy jobs are real PostgreSQL tests, browser suites and the servers they start, JVM model checks, `just check`, `just check-types`, and `just test`.
-Run every heavy job through `just measure --class <class> -- <command...>`.
+Run every heavy job through `just measure --class <class> -- <command...>`. `just model` does so itself.
 `just measure` holds the heavy lock while its command runs, an exclusive `flock` lock on `${XDG_RUNTIME_DIR:-/tmp}/vektorprogrammet/heavy.lock`.
 The lock is per machine and user: every worktree and every agent shares it, so one heavy job runs at a time.
 Hook jobs hold the same lock shared. A heavy job waits for the running hook jobs, and hook jobs that start later wait for the heavy job.

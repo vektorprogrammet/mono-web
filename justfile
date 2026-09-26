@@ -86,6 +86,16 @@ test *args:
 measure *args:
     bun --no-env-file tools/scripts/measure-job.ts "$@"
 
+# Run the Alloy commands of docs/model/authority.als (check) or validate docs/model/contexts.cml (validate), a heavy job.
+[group('check')]
+model action:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "$1" in
+      check | validate) exec just measure --class "model-$1" -- bun --no-env-file tools/scripts/model.ts "$1" ;;
+      *) echo "Unknown action '$1'. Use check or validate." >&2; exit 2 ;;
+    esac
+
 # Run a golden journey: school-service, recruitment, reimbursement, or team-application.
 [group('journeys')]
 golden journey:

@@ -22,3 +22,10 @@ Local invariants, pitfalls, and recipes go below this generated part; `just guid
 - An exclusive holder keeps the gate, `heavy-gate.lock`, until it exits. Hook jobs that arrive while it waits queue behind it, so a stream of hook jobs cannot starve it.
 - The lock descriptors stay in the process that took them. A job inherits only `VEKTORPROGRAMMET_HEAVY_LOCK`, so a process that a job leaves behind does not hold the lock.
 - `tests/heavy-lock.test.ts` runs real processes against its own `XDG_RUNTIME_DIR` and removes `VEKTORPROGRAMMET_HEAVY_LOCK`, so it also passes inside a hook job.
+
+## Model checks
+
+`model.ts` runs the model checks that `just model` puts under the heavy lock.
+
+- `check` runs Alloy 6 from nixpkgs with the command of the model header and compares each result with the command's `expect`. A name that contains `mutant` marks a mutant check.
+- `validate` runs Context Mapper CLI 6.12.0 on OpenJDK 17 from nixpkgs. The CLI archive must match the SHA-256 that Maven Central publishes. The CLI exits with 0 also when it reports errors, so the script reads its output.
