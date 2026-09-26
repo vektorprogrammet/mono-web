@@ -78,6 +78,7 @@ const effectConfig = {
     group({
       files: [
         "apps/dashboard/app/lib/preview-*.test.ts",
+        "apps/dashboard/app/foldkit/content/view.test.ts",
         "apps/dashboard/app/foldkit/dated-school-service/view.test.ts",
       ],
       role: "test",
@@ -331,6 +332,12 @@ export default defineConfig({
       // and runs no test, so it keeps a dev server; the journey in the same runner serves the build.
       files: ["apps/dashboard/e2e/run-real-native-organization-administration.mjs"],
       rules: { "anti-slop/no-dev-server": "off" },
+    },
+    {
+      // Foldkit views key each per-entry element whose controls dispatch messages built from the
+      // entry, so a reorder never moves one entry's commands onto another (hosted run 36240534206).
+      files: ["apps/dashboard/app/foldkit/**"],
+      rules: { "anti-slop/no-unkeyed-command-row": "error" },
     },
   ],
   ignorePatterns: [

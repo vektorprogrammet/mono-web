@@ -95,7 +95,7 @@ const view=(model:Model,h:HtmlBuilder<Message>):Html => {
       h.div([h.Class("organization-catalog__table-scroll"),h.Tabindex(0),h.AriaLabel("Verv, bla sidelengs ved behov")],[h.table([h.Class("organization-catalog__table")],[
         h.caption([],["Gjeldende, fremtidige, avsluttede og suspenderte verv"]),
         h.thead([],[h.tr([],["Person","Enhet og omfang","Stilling","Tilstand","Tidsrom","Revisjon","Handling"].map(label=>h.th([h.Scope("col")],[label])))]),
-        h.tbody([],snapshot.appointments.map(row=>h.tr([], [
+        h.tbody([],snapshot.appointments.map(row=>h.tr([h.Key(row.appointmentId)], [
           h.th([h.Scope("row")],[names.get(row.personId)??row.personId]),
           h.td([],[`${unitName(row.target.kind,row.target.id)} · ${row.target.kind==="NationalBoard"?"Nasjonalt":"Lokalt"}`]),
           h.td([],[`${row.position??"Stilling ikke oppgitt"}${row.leadership?" · Lederansvar":""}`]),

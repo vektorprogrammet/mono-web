@@ -87,7 +87,7 @@ const filterView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
 
 const candidateRow = (model: ReadyModel, candidate: Candidate, h: HtmlBuilder<Message>): Html =>
   h.tr(
-    [h.DataAttribute("application-id", candidate.applicationId)],
+    [h.Key(candidate.applicationId), h.DataAttribute("application-id", candidate.applicationId)],
     [
       h.th(
         [h.Scope("row")],

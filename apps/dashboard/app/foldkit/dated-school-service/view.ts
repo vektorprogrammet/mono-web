@@ -105,7 +105,7 @@ const coordinator = (model: Model, h: HtmlBuilder<Message>): Html => {
   return h.section([h.Class("dated-service__section")], [
     h.h3([], ["Daterte tjenester og beslutninger"]),
     coverage.commitments.length === 0 ? h.p([], ["Ingen datoer er planlagt i valgt semester."]) : h.empty,
-    ...coverage.commitments.map((c) => h.article([h.Class("dated-service__card"), h.DataAttribute("commitment-id", c.commitmentId)], [
+    ...coverage.commitments.map((c) => h.article([h.Key(c.commitmentId), h.Class("dated-service__card"), h.DataAttribute("commitment-id", c.commitmentId)], [
       h.h4([], [serviceTitle(c)]),
       h.p([], [`Bekreftet behov: ${c.requiredVolunteers}; planlagt: ${c.assignments.length}.`]),
       c.decision === null

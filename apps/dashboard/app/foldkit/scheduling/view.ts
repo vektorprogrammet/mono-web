@@ -180,7 +180,7 @@ const interviewCard = (
   const isScheduled = interview.schedule !== null;
 
   return h.article(
-    [h.Class("fs-interview"), h.AriaLabelledBy(`fs-applicant-${index}`)],
+    [h.Key(interview.interviewId), h.Class("fs-interview"), h.AriaLabelledBy(`fs-applicant-${index}`)],
     [
       h.div(
         [h.Class("fs-interview__header")],
@@ -574,7 +574,7 @@ Match.when({ kind: "text" }, (question) => ([
         ])),
 Match.when({ kind: "check" }, (question) => (question.alternatives.map((alternative, index) =>
             h.label(
-              [h.Class("fs-option flex min-h-11 items-center gap-3 py-2")],
+              [h.Key(alternative), h.Class("fs-option flex min-h-11 items-center gap-3 py-2")],
               [
                 h.input([
                   ...inputAttrs,
@@ -597,7 +597,7 @@ Match.when({ kind: "check" }, (question) => (question.alternatives.map((alternat
           ))),
 Match.orElse((question) => (question.alternatives.map((alternative, index) =>
             h.label(
-              [h.Class("fs-option flex min-h-11 items-center gap-3 py-2")],
+              [h.Key(alternative), h.Class("fs-option flex min-h-11 items-center gap-3 py-2")],
               [
                 h.input([
                   ...inputAttrs,
@@ -676,7 +676,7 @@ const scoreView = (model: ReadyModel, isTerminal: boolean, h: HtmlBuilder<Messag
         const field = model.score[axis];
 
         return h.div(
-          [h.Class("fs-score__field fs-field min-w-0")],
+          [h.Key(axis), h.Class("fs-score__field fs-field min-w-0")],
           [
             h.label([h.For(`score-${axis}`), h.Class("fs-label")], [label]),
             h.select(

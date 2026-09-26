@@ -126,7 +126,7 @@ export const managementView = (model: Model, h: HtmlBuilder<Message>): Html => {
         h.legend([], ["Tilknyttede avdelinger"]),
         ...data.departments.map((department) =>
           h.label(
-            [h.Class("schools-management__checkbox")],
+            [h.Key(department.departmentId), h.Class("schools-management__checkbox")],
             [
               h.input([
                 h.Type("checkbox"),
