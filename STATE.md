@@ -154,7 +154,7 @@ Next, in this order:
 2. The recommendation default and report modes (excluded; see Known gaps) and `just proof authorization-rules` (red at its admission step, excluded).
 3. Certificates for days served (O8-16). It adds the derived Styret and Hovedstyret seat list that the delegation slice specified.
 4. Retire the receipt person grants: the receipt seeds and the golden reimbursement journey issue the Økonomi delegations instead (O8-15).
-5. Formatter scope for the frontends; per-domain typed problems and instants; lint enforcement of shared constructs and migration of ad-hoc code onto them.
+5. Formatter scope for the frontends; per-domain typed problems and instants; the remaining phases of [repository conventions](docs/specs/repository-conventions.md): boundary and reuse rules and the migration onto them, then agent docs.
 6. A reusable migration upgrade-proof recipe. The 72 to 75 proof was a throwaway harness.
 
 The `legacy-data` devenv profile cannot build while the home binary cache answers 502. The homelab change in the operator steps makes a dead cache non-fatal.
@@ -253,7 +253,10 @@ For each new journey, create one active contract under `docs/specs/`. Remove it 
 
 Before cutover:
 
-- classify the legacy Styret teams and the national teams, and recognize independent departments, by explicit command (O8-11). Until then no imported team leader reaches a department;
+- classify the legacy Styret teams and the national teams, and recognize independent departments, by explicit command (O8-11). Until then no imported team leader reaches a department.
+  Compared with legacy, a leader of an ordinary team in department D without a board leadership or delegation loses: admission periods and outcome decisions of D; interview assignment, staffing, the full board, and the report of D;
+  placement coordination and applicant account invitations of D; school administration of D; appointments and team-interest registrations of D's other teams; D's people directory and mailing recipients;
+  publishing, unpublishing, pinning, and revising others' articles in D; and the pages "Fullførte intervjuer", "Intervjubemanning", "Søkerkontoer", "Attester", "Linjer", and the applicants board. Tell department leaders before cutover;
 - close required operational outcomes or obtain an approved, owned transition process;
 - reconcile identities, credentials, authority, recruitment, placements, claims, private files, and pending effects against the current source;
 - resolve or explicitly disposition each quarantine, unsupported credential, alias, and missing evidence item;

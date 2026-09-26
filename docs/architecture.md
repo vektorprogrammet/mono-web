@@ -209,6 +209,34 @@ Rules:
 - Revocation applies on the next authorized interaction. Cached UI state does not
   preserve authority.
 
+Organizational reach resolves in one place. `packages/domain/src/authz/reach.ts` holds the
+capability registry and interprets the facts that
+`packages/database/src/organization/authority-postgres.ts` reads: memberships with the team's
+kind and scope, national-board seats, the department's independence, and current delegations.
+An ordinary team leader acts only in its own team; a board leader reaches where the board sits;
+a delegation reaches only its team's members, its area, and its interval. The lint rule
+`anti-slop/no-leadership-reach` keeps leadership facts out of every other module.
+
+[`docs/model/authority.als`](model/authority.als) verifies the rules (`just model check`).
+Each code rule follows these predicates:
+
+| Code rule                                                            | Predicates                                                                                      |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| role type from unit kind and leadership; the capability registry     | `capabilityTable`, `typeFollowsPosition`                                                        |
+| seat per unit; Styret only while independent; Hovedstyret everywhere | `boardsSitWhereTheyServe`, K1, K2, X1, X2                                                       |
+| a team leader reaches only its team                                  | `teamRolesStayInTheirTeam` (L), mutant `leadersAdministerTheirDepartment`                       |
+| a board member or derived seat has no administration                 | `derivedSeatConfersNoAdministration` (Q2), mutant `styretMembersAdministerTheDepartment`        |
+| a delegation carries only delegable capabilities                     | `delegationsCarryDelegableActions`, K3 mutant `delegationsMayCarrySystemAdministration`         |
+| the delegation area lies inside the team's area; national by scope   | `delegationsStayInTheirTeamArea`, `teamAreaIsItsScope` (mutant `nationalByHome`)                |
+| the manager needs `delegations.manage` over the team's area          | `delegationsIssuedOverTheTeamArea` (mutant `delegationsIssuedAtTheHome`)                        |
+| a delegation reaches only its team, its area, and its interval       | `delegatedReach`, `delegationActive`, M1, M2, M3                                                |
+| leaders-only delegations; settlement only to leaders                 | `LeaderDelegation`, `settlementReachesLeaders`, `scenarioEconomyMemberApprovesButDoesNotSettle` |
+| authority is resolved per request, never cached                      | `effectiveByOwnState`                                                                           |
+| the global-administrator grant is an explicit list, apart from roles | `grantCapabilitiesExplicit`, K3                                                                 |
+
+The code is stricter than the model in two places: receipt delegations act only in the whole
+organization, and only an ordinary team holds a delegation.
+
 ## Persistence and concurrency
 
 PostgreSQL is the system of record for native business facts.

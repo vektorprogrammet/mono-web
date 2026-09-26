@@ -2,6 +2,14 @@
 
 Status: frozen for implementation on 2026-09-25. Remove this specification when the checks below run in hooks and CI and `AGENTS.md`, the README, and the module guides carry the enduring rules.
 
+Progress on 2026-09-26 (`ffb46b9b`), the active contract for lead-handoff items 5:
+
+- Phases 1 and 2 are done: the layout declaration and check, the `justfile`, module guides, and the construct catalogue run in hooks and CI.
+- Phase 3 is partial. Reuse rules in force: `no-raw-advisory-lock-sql`, `no-hand-rolled-postgres`, `no-port-probe`, `no-git-history`, `no-literal-window-instant`, `no-json-text-parameter`, and `no-leadership-reach`.
+  Not yet written: generated package rules and context boundary rules from the CML, `import/no-cycle`, raw SQL outside `packages/database`, outbox claim SQL, bare provider `fetch`, and `Date.now()`/`new Date()` in domain and backend code.
+- Phase 4 is done for each rule in force (each is an error with no violations); the rules not yet written have unmigrated violations.
+- Phase 5 has not started: no `ai-docs` package, `LLMS.md`, Knip, or syncpack.
+
 ## Goal
 
 The repository keeps its structure, its reuse of shared code, and its documentation correct by construction.
