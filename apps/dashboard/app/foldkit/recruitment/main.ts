@@ -24,7 +24,7 @@ export const embedRecruitment = (
 
   if (input.serializedInput !== null) {
     try {
-      const decoded = S.decodeUnknownSync(RecruitmentInputJson)(input.serializedInput, {
+      const decoded = S.decodeSync(RecruitmentInputJson)(input.serializedInput, {
         onExcessProperty: "error",
       });
 

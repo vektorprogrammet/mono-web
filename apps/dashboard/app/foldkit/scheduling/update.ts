@@ -400,7 +400,7 @@ export const updateFor =
           let input;
 
           try {
-            input = S.decodeUnknownSync(ScheduleInterviewInputSchema)(
+            input = S.decodeSync(ScheduleInterviewInputSchema)(
               {
                 params: { interviewId: interview.interviewId },
                 headers: {
@@ -803,7 +803,7 @@ export const updateFor =
           let input;
 
           try {
-            input = S.decodeUnknownSync(CancelInterviewInputSchema)(
+            input = S.decodeSync(CancelInterviewInputSchema)(
               {
                 params: { interviewId: model.selectedInterviewId },
                 headers: {

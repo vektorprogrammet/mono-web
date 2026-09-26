@@ -10,7 +10,7 @@ const initialModelFrom = (serializedInput: string | null): Model => {
 
   try {
     return init(
-      S.decodeUnknownSync(DashboardInputJson)(serializedInput, {
+      S.decodeSync(DashboardInputJson)(serializedInput, {
         onExcessProperty: "error",
       }),
     );

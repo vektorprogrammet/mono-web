@@ -86,7 +86,7 @@ export async function action({ request }: Route.ActionArgs) {
     });
 
     const result = await client.admissions.registerReturningAssistant({
-      headers: Schema.decodeUnknownSync(IdempotencyHeaders)({ "idempotency-key": commandId }),
+      headers: Schema.decodeSync(IdempotencyHeaders)({ "idempotency-key": commandId }),
       payload,
     });
 
@@ -156,7 +156,7 @@ const readReturningDrafts = (personId: string | undefined): SavedReturningDraft[
       if (key === null || !key.startsWith(storageKeyPrefix)) continue;
 
       try {
-        const value = Schema.decodeUnknownSync(ReturningDraftJsonSchema)(
+        const value = Schema.decodeSync(ReturningDraftJsonSchema)(
           storage.getItem(key) ?? "",
           { onExcessProperty: "error" },
         );

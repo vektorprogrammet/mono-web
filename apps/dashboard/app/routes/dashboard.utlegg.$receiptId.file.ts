@@ -136,7 +136,7 @@ export async function loader({ request, params }: Route.LoaderArgs): Promise<Res
   let receiptId: typeof ReceiptId.Type;
 
   try {
-    receiptId = Schema.decodeUnknownSync(ReceiptId)(params.receiptId);
+    receiptId = Schema.decodeSync(ReceiptId)(params.receiptId);
   } catch {
     return privateFailure(404);
   }

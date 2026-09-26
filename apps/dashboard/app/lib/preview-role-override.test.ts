@@ -25,7 +25,7 @@ import {
 const decodeInput = (json: string | null) => {
   if (json === null) return null;
 
-  return S.decodeUnknownSync(DashboardInputJson)(json, { onExcessProperty: "error" });
+  return S.decodeSync(DashboardInputJson)(json, { onExcessProperty: "error" });
 };
 
 const serverInput = JSON.stringify({

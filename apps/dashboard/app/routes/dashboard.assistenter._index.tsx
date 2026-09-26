@@ -46,12 +46,12 @@ export async function loader({ request }: Route.LoaderArgs) {
     let draft: typeof PlacementDraftResource.Type | null = null;
 
     if (departmentId) {
-      const scope = Schema.decodeUnknownSync(AffiliationScope)({ departmentId });
+      const scope = Schema.decodeSync(AffiliationScope)({ departmentId });
       own = (await client.placements.readOwnAffiliation({ query: scope })).body;
     }
 
     if (departmentId && semesterId) {
-      const scope = Schema.decodeUnknownSync(PlacementScope)({ departmentId, semesterId });
+      const scope = Schema.decodeSync(PlacementScope)({ departmentId, semesterId });
       ownCoverage = (await client.placements.readOwnCoverage({ query: scope })).body;
 
       if (
@@ -119,7 +119,7 @@ export async function action({ request }: Route.ActionArgs) {
       await client.placements.commandOwnAffiliation({
         query: Schema.decodeUnknownSync(AffiliationScope)({ departmentId }),
         headers,
-        payload: Schema.decodeUnknownSync(OwnAffiliationCommand)(
+        payload: Schema.decodeSync(OwnAffiliationCommand)(
           { action },
           { onExcessProperty: "error" },
         ),
@@ -205,7 +205,7 @@ export async function action({ request }: Route.ActionArgs) {
 
           const response = await client.placements.commandBoard({
             query,
-            headers: Schema.decodeUnknownSync(IdempotencyIfMatchHeaders)({
+            headers: Schema.decodeSync(IdempotencyIfMatchHeaders)({
               "if-match": etag,
               "idempotency-key": `${headers["idempotency-key"]}-${index}`,
             }),

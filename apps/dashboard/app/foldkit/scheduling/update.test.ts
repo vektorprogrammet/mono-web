@@ -143,7 +143,7 @@ const initialModel = (): ReadyModel =>
 const advance = (transition: SchedulingUpdate, model: Model, message: Message): ReadyModel =>
   ready(transition(model, message).model);
 
-const conductDetail = S.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)({
+const conductDetail = S.decodeSync(RecruitmentInterviewConductObservationSchema)({
   interviewId: "recruitment-interview-50",
   applicationId: "recruitment-application-50",
   applicant: {

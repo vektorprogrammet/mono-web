@@ -30,7 +30,7 @@ const schedule = {
 type CoInterviewer = Readonly<{ personId: string; displayName: string }>;
 
 const detailFor = (state: "Completed" | "Cancelled") =>
-  S.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)({
+  S.decodeSync(RecruitmentInterviewConductObservationSchema)({
     interviewId: schedule.interviewId,
     applicationId: "application-conduct-view",
     applicant: {
@@ -100,7 +100,7 @@ const terminalModel = (
 ): ReadyModel => {
   const detail = detailFor(state);
 
-  const board = S.decodeUnknownSync(SchedulingBoard)({
+  const board = S.decodeSync(SchedulingBoard)({
     departmentId: "department-conduct-view",
     interviews: [
       {

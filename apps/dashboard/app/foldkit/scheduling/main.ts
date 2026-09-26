@@ -24,7 +24,7 @@ export const embedScheduling = (
 
   if (input.serializedInput !== null) {
     try {
-      const decoded = S.decodeUnknownSync(SchedulingInputJson)(input.serializedInput, {
+      const decoded = S.decodeSync(SchedulingInputJson)(input.serializedInput, {
         onExcessProperty: "error",
       });
 

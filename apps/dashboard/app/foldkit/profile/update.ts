@@ -83,7 +83,7 @@ Match.orElse(() => (nameRules))
 
           if (!allFieldsValid(validated)) return ({ model: validated, commands: [] });
 
-          const command = S.decodeUnknownSync(ProfileCommand)(
+          const command = S.decodeSync(ProfileCommand)(
             {
               commandId: `${validated.commandIdSeed}-${validated.commandSequence}`,
               etag: validated.etag,

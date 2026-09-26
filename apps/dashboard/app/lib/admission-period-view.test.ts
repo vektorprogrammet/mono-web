@@ -128,7 +128,7 @@ expect(mapAdmissionPeriodError(Problem.fromWire({ code: "precondition.failed" },
   });
 
   it("carries the canonical item ETag into the deterministic view", () => {
-    const period = Schema.decodeUnknownSync(AdmissionPeriodManagementItem)(
+    const period = Schema.decodeSync(AdmissionPeriodManagementItem)(
       {
         id: "admission-period-1",
         departmentId: "department-trondheim",

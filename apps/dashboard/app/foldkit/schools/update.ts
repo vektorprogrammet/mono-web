@@ -330,7 +330,7 @@ export const updateFor =
               friday: capacity.friday === "" ? Number.NaN : Number(capacity.friday),
             };
 
-            const refs = Schema.decodeUnknownOption(
+            const refs = Schema.decodeOption(
               Schema.Struct({ departmentId: DepartmentId, semesterId: SemesterId }),
             )(capacity);
 

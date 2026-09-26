@@ -77,7 +77,7 @@ export async function action({ request }: Route.ActionArgs) {
     });
 
     return data(
-      S.decodeUnknownSync(ProfileInput)(
+      S.decodeSync(ProfileInput)(
         { profile: result.body, etag: result.headers.etag },
         { onExcessProperty: "error" },
       ),

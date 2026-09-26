@@ -57,7 +57,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     try {
       const board = (
         await client.admissionOutcomes.readOutcomes({
-          query: Schema.decodeUnknownSync(AdmissionOutcomeScope)(selection),
+          query: Schema.decodeSync(AdmissionOutcomeScope)(selection),
         })
       ).body;
 

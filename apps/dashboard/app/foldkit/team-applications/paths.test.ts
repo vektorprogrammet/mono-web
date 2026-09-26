@@ -56,7 +56,7 @@ const renderedHref = (linkName: string): string => {
     { view, update: (model: Model) => ({ model }) },
     Scene.given(
       init(
-        S.decodeUnknownSync(TeamId)("team it"),
+        S.decodeSync(TeamId)("team it"),
         IdempotencyKey.make("seed-0123456789abcdefghij"),
       ),
     ),

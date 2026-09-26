@@ -166,7 +166,7 @@ export const updateFor =
               }, commands: [] });
           }
 
-          const input = S.decodeUnknownSync(CreateApplicationInterviewInputSchema)(
+          const input = S.decodeSync(CreateApplicationInterviewInputSchema)(
             {
               params: { applicationId: model.selectedApplicationId },
               headers: {

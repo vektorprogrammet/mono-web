@@ -24,7 +24,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const board = departmentId
     ? (
         await client.onboarding.readBoard({
-          query: Schema.decodeUnknownSync(OnboardingScope)({ departmentId }),
+          query: Schema.decodeSync(OnboardingScope)({ departmentId }),
         })
       ).body
     : null;

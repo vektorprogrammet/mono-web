@@ -69,7 +69,7 @@ function receiptDecodeError(message: string, field?: ReceiptUiErrorField): Recei
 
 function decodeIdempotencyKey(value: string): IdempotencyKeyValue | undefined {
   try {
-    return Schema.decodeUnknownSync(IdempotencyKey)(value);
+    return Schema.decodeSync(IdempotencyKey)(value);
   } catch {
     return undefined;
   }
@@ -151,10 +151,10 @@ function parseReceiptIdentity(form: FormData): ParseResult<ParsedReceiptIdentity
   try {
     return {
       value: {
-        receiptId: Schema.decodeUnknownSync(ReceiptId)(
+        receiptId: Schema.decodeSync(ReceiptId)(
           readFormText(form, "receiptId")?.trim() ?? "",
         ),
-        etag: Schema.decodeUnknownSync(StrongETag)(readFormText(form, "etag")?.trim() ?? ""),
+        etag: Schema.decodeSync(StrongETag)(readFormText(form, "etag")?.trim() ?? ""),
       },
     };
   } catch {

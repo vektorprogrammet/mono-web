@@ -6,7 +6,7 @@ import { loadProfile, projectProfile } from "./profile-view";
 const profile = (
   overrides: Partial<typeof UserProfileResponse.Type> = {},
 ): typeof UserProfileResponse.Type =>
-  S.decodeUnknownSync(UserProfileResponse)({
+  S.decodeSync(UserProfileResponse)({
     personId: "person-17",
     firstName: "Ada",
     lastName: "Lovelace",

@@ -94,7 +94,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     if (result.body === undefined) throw new Error("Social-events scope response did not include a body");
 
     return data(
-      S.decodeUnknownSync(SocialEventScopeResource)(result.body, { onExcessProperty: "error" }),
+      S.decodeSync(SocialEventScopeResource)(result.body, { onExcessProperty: "error" }),
       { headers: responseHeaders },
     );
   } catch (error) {
@@ -145,7 +145,7 @@ export async function action({ request }: Route.ActionArgs) {
         if (result.body === undefined) throw new Error("Social-events list response did not include a body");
 
         return data(
-          S.decodeUnknownSync(SocialEventListResource)(result.body, { onExcessProperty: "error" }),
+          S.decodeSync(SocialEventListResource)(result.body, { onExcessProperty: "error" }),
           { headers: responseHeaders },
         );
       }
@@ -161,7 +161,7 @@ export async function action({ request }: Route.ActionArgs) {
         if (result.body === undefined) throw new Error("Social-events create response did not include a body");
 
         return data(
-          S.decodeUnknownSync(SocialEventResource)(result.body, { onExcessProperty: "error" }),
+          S.decodeSync(SocialEventResource)(result.body, { onExcessProperty: "error" }),
           { headers: responseHeaders },
         );
       }

@@ -76,7 +76,7 @@ function parseSettlementCommand(form: FormData): SettlementCommandParseResult {
   let etag: StrongETagValue | undefined;
 
   try {
-    etag = Schema.decodeUnknownSync(StrongETag)(etagText);
+    etag = Schema.decodeSync(StrongETag)(etagText);
   } catch {
     etag = undefined;
   }
@@ -131,10 +131,10 @@ function parseSettlementCommand(form: FormData): SettlementCommandParseResult {
   try {
     return {
       value: {
-        receiptId: Schema.decodeUnknownSync(ReceiptId)(receiptIdText),
-        etag: Schema.decodeUnknownSync(StrongETag)(etagText),
-        commandId: Schema.decodeUnknownSync(IdempotencyKey)(commandIdText),
-        payload: Schema.decodeUnknownSync(RecordReceiptSettlementRequest)({
+        receiptId: Schema.decodeSync(ReceiptId)(receiptIdText),
+        etag: Schema.decodeSync(StrongETag)(etagText),
+        commandId: Schema.decodeSync(IdempotencyKey)(commandIdText),
+        payload: Schema.decodeSync(RecordReceiptSettlementRequest)({
           expectedRevision,
           externalAuthority,
           externalReference,

@@ -65,7 +65,7 @@ function parseApprovalCommand(
   let etag: StrongETagValue | undefined;
 
   try {
-    etag = Schema.decodeUnknownSync(StrongETag)(etagText);
+    etag = Schema.decodeSync(StrongETag)(etagText);
   } catch {
     etag = undefined;
   }
@@ -84,9 +84,9 @@ function parseApprovalCommand(
     return {
       value: {
         intent,
-        receiptId: Schema.decodeUnknownSync(ReceiptId)(receiptIdText),
-        etag: Schema.decodeUnknownSync(StrongETag)(etagText),
-        commandId: Schema.decodeUnknownSync(IdempotencyKey)(commandIdText),
+        receiptId: Schema.decodeSync(ReceiptId)(receiptIdText),
+        etag: Schema.decodeSync(StrongETag)(etagText),
+        commandId: Schema.decodeSync(IdempotencyKey)(commandIdText),
       },
     };
   } catch {

@@ -7,7 +7,7 @@ import { describe, it } from "vitest";
 import { OrganizationCatalogData, init, type Model, TeamCatalogSnapshot, FieldOfStudyCatalogSnapshot } from "./model";
 import { view } from "./view";
 
-const department = S.decodeUnknownSync(DepartmentJsonSchema)({
+const department = S.decodeSync(DepartmentJsonSchema)({
   departmentId: "department-trondheim",
   name: "Vektorprogrammet Trondheim",
   shortName: "Trondheim",
@@ -22,7 +22,7 @@ const department = S.decodeUnknownSync(DepartmentJsonSchema)({
   revision: 0,
 });
 
-const team = S.decodeUnknownSync(TeamJsonSchema)({
+const team = S.decodeSync(TeamJsonSchema)({
   teamId: "team-rekruttering",
   departmentId: department.departmentId,
   name: "Rekruttering",
@@ -35,7 +35,7 @@ const team = S.decodeUnknownSync(TeamJsonSchema)({
   revision: 0,
 });
 
-const fieldOfStudy = S.decodeUnknownSync(FieldOfStudyJsonSchema)({
+const fieldOfStudy = S.decodeSync(FieldOfStudyJsonSchema)({
   fieldOfStudyId: "field-datateknologi",
   name: "Datateknologi",
   shortName: "Data",

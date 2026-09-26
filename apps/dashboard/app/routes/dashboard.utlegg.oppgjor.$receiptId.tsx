@@ -13,7 +13,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   let receiptId: typeof ReceiptId.Type;
 
   try {
-    receiptId = Schema.decodeUnknownSync(ReceiptId)(params.receiptId);
+    receiptId = Schema.decodeSync(ReceiptId)(params.receiptId);
   } catch {
     return {
       evidence: undefined,

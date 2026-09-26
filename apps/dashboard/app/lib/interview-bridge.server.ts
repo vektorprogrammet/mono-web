@@ -101,7 +101,7 @@ const invitationCapability = (
   }
 
   try {
-    return S.decodeUnknownSync(RecruitmentInvitationCapabilitySchema)(
+    return S.decodeSync(RecruitmentInvitationCapabilitySchema)(
       decodeURIComponent(encodedValues[0] ?? ""),
     );
   } catch {

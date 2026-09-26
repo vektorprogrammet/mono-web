@@ -66,7 +66,7 @@ board: result.body});
 message: boardFailureMessage(failure)});
   }
 
-  const dashboardInput = S.decodeUnknownSync(DashboardInput)(
+  const dashboardInput = S.decodeSync(DashboardInput)(
     {
       user: {
         name: `${profile.firstName} ${profile.lastName}`.trim(),

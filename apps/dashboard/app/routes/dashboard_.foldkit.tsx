@@ -45,7 +45,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const summary: LandingSummary = LandingSummary.make({});
 
-  const dashboardInput = S.decodeUnknownSync(DashboardInput)(
+  const dashboardInput = S.decodeSync(DashboardInput)(
     {
       user:
         profile === null

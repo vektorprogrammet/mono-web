@@ -34,7 +34,7 @@ const createCommand = (
   if (query === null) return null;
 
   try {
-    return S.decodeUnknownSync(SocialEventsCreateCommand)(
+    return S.decodeSync(SocialEventsCreateCommand)(
       {
         commandId,
         ...query,

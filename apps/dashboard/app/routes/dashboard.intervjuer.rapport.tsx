@@ -20,7 +20,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   try {
     for (const key of params.keys())
       if (params.getAll(key).length !== 1) throw new Error("duplicate query");
-    query = Schema.decodeUnknownSync(InterviewReportQuery)(Object.fromEntries(params), {
+    query = Schema.decodeSync(InterviewReportQuery)(Object.fromEntries(params), {
       onExcessProperty: "error",
     });
   } catch {
@@ -32,7 +32,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       { query },
     );
 
-    const report = Schema.decodeUnknownSync(InterviewReport)(result.body, {
+    const report = Schema.decodeSync(InterviewReport)(result.body, {
       onExcessProperty: "error",
     });
 

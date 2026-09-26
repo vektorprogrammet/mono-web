@@ -37,7 +37,7 @@ const etag = (letter: string): string => `"vkr2.${letter.repeat(43)}"`;
 
 const firstApplicationId = "0f8fad5b-d9cb-469f-a165-70867728950e";
 
-const teamId = S.decodeUnknownSync(TeamId)("team-it");
+const teamId = S.decodeSync(TeamId)("team-it");
 
 const seed = IdempotencyKey.make("seed-0123456789abcdefghij");
 
@@ -51,7 +51,7 @@ const intake = (overrides: Partial<typeof TeamApplicationIntakeResource.Encoded>
 });
 
 const listPage = (overrides: Partial<typeof TeamApplicationListResponse.Encoded> = {}) =>
-  S.decodeUnknownSync(TeamApplicationListResponse)({
+  S.decodeSync(TeamApplicationListResponse)({
     teamId: "team-it",
     teamName: "IT",
     items: [
@@ -67,7 +67,7 @@ const listPage = (overrides: Partial<typeof TeamApplicationListResponse.Encoded>
     ...overrides,
   });
 
-const application = S.decodeUnknownSync(TeamApplicationResource)({
+const application = S.decodeSync(TeamApplicationResource)({
   applicationId: firstApplicationId,
   teamId: "team-it",
   teamName: "IT",
@@ -353,7 +353,7 @@ describe("team application workflow", () => {
       saving,
       SucceededReviseIntake({
         requestId: saving.mutationRequestId,
-        intake: S.decodeUnknownSync(TeamApplicationIntakeResource)(
+        intake: S.decodeSync(TeamApplicationIntakeResource)(
           intake({ acceptApplication: false, open: false, revision: 4, etag: etag("B") }),
         ),
       }),

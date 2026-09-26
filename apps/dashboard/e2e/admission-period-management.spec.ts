@@ -116,7 +116,7 @@ const readLedger = async (path: string) =>
   (await readFile(path, "utf8"))
     .split("\n")
     .filter((line) => line.length > 0)
-    .map((line) => Schema.decodeUnknownSync(LedgerRecord)(line));
+    .map((line) => Schema.decodeSync(LedgerRecord)(line));
 
 /** The windows below must sit where the laws need them in the calendar that the runner seeds. */
 const assertCalendar = ({ fixedNow, semester }: JourneyReference) => {
@@ -276,11 +276,11 @@ test.describe("Native admission-period management", () => {
   }) => {
     test.setTimeout(180_000);
 
-    const reference = Schema.decodeUnknownSync(JourneyReference)(
+    const reference = Schema.decodeSync(JourneyReference)(
       requiredEnvironment("ADMISSION_E2E_REFERENCE"),
     );
 
-    const personas = Schema.decodeUnknownSync(JourneyPersonas)(
+    const personas = Schema.decodeSync(JourneyPersonas)(
       requiredEnvironment("ADMISSION_E2E_PERSONAS"),
     );
 

@@ -42,7 +42,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   try {
     const result = await client.recruitment.readSchedulingBoard();
-    scheduling = LoadedSchedulingInput.make({board: S.decodeUnknownSync(SchedulingBoard)(result.body, {
+    scheduling = LoadedSchedulingInput.make({board: S.decodeSync(SchedulingBoard)(result.body, {
         onExcessProperty: "error",
       })});
   } catch (error) {
@@ -57,7 +57,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     scheduling = FailedSchedulingInput.make({message: schedulingBoardFailureMessage(failure)});
   }
 
-  const dashboardInput = S.decodeUnknownSync(DashboardInput)(
+  const dashboardInput = S.decodeSync(DashboardInput)(
     {
       user: {
         name: `${profile.firstName} ${profile.lastName}`.trim(),

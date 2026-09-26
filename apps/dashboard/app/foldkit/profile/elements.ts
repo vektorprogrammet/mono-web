@@ -35,7 +35,7 @@ export const registerProfileEditorElement = (): void => {
             throw new Error("missing Profile command ID seed");
           }
 
-          const initialProfile: ProfileInput = S.decodeUnknownSync(ProfileInputJson)(serialized, {
+          const initialProfile: ProfileInput = S.decodeSync(ProfileInputJson)(serialized, {
             onExcessProperty: "error",
           });
 

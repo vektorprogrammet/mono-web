@@ -65,7 +65,7 @@ const update = updateFor(commands);
 
 describe("Foldkit Schools directory transitions", () => {
   it("keeps the selected capacity tuple after saving and refreshes its counts and revision", () => {
-    const data = Schema.decodeUnknownSync(SchoolManagement)({
+    const data = Schema.decodeSync(SchoolManagement)({
       departments: [
         { departmentId: departmentA, name: "A" },
         { departmentId: departmentB, name: "B" },
@@ -123,7 +123,7 @@ describe("Foldkit Schools directory transitions", () => {
       model,
       SucceededSchoolCommand({
         commandId,
-        result: Schema.decodeUnknownSync(SchoolCommandResult)({
+        result: Schema.decodeSync(SchoolCommandResult)({
           schoolId: 1,
           capacityId: 7,
           revision: 3,

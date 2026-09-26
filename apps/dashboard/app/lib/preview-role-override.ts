@@ -61,7 +61,7 @@ export const applyRoleOverrideToInput = (
   if (override === null || inputJson === null) return inputJson;
 
   try {
-    const input = S.decodeUnknownSync(S.fromJsonString(S.Record(S.String, S.Json)))(inputJson);
+    const input = S.decodeSync(S.fromJsonString(S.Record(S.String, S.Json)))(inputJson);
 
     return JSON.stringify({ ...input, role: override });
   } catch {

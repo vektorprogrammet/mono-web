@@ -259,7 +259,7 @@ export function parseAdmissionPeriodForm(
     let etag: StrongETagValue | undefined;
 
     try {
-      etag = Schema.decodeUnknownSync(StrongETag)(firstText(form, "etag").trim());
+      etag = Schema.decodeSync(StrongETag)(firstText(form, "etag").trim());
     } catch {
       etag = undefined;
     }
@@ -302,7 +302,7 @@ export function parseAdmissionPeriodForm(
     let payload: typeof AdmissionPeriodMergePatch.Type;
 
     try {
-      payload = Schema.decodeUnknownSync(AdmissionPeriodMergePatch)(
+      payload = Schema.decodeSync(AdmissionPeriodMergePatch)(
         { startAt, endAt },
         { onExcessProperty: "error" },
       );
@@ -365,7 +365,7 @@ export function parseAdmissionPeriodForm(
   // An empty department is an absent key: the SDK encodes a present undefined as null,
   // which the contract rejects.
   try {
-    payload = Schema.decodeUnknownSync(CreateAdmissionPeriodRequest)(
+    payload = Schema.decodeSync(CreateAdmissionPeriodRequest)(
       decoded.departmentId === undefined
         ? { semesterId: decoded.semesterId, startAt, endAt }
         : { semesterId: decoded.semesterId, startAt, endAt, departmentId: decoded.departmentId },

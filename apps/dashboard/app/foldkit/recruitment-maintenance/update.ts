@@ -344,7 +344,7 @@ export const updateFor =
               (entry) => entry.interviewId === model.selectedId,
             );
 
-            const pair = Schema.decodeUnknownOption(
+            const pair = Schema.decodeOption(
               Schema.Struct({
                 interviewerPersonId: PersonId,
                 coInterviewerPersonId: Schema.NullOr(PersonId),
