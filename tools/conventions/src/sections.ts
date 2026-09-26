@@ -73,10 +73,12 @@ const renderCommands = (justfile: Justfile): string =>
     justfile.recipes.map((recipe) => [recipe.group, code(recipe.usage), recipe.doc]),
   );
 
+// Link reference definitions render as nothing on GitHub and, unlike HTML comments, are valid MDX
+// for the documentation site.
 const begin = (id: SectionId) =>
-  `<!-- ${id}: generated from ${sources[id]} by \`just layout write\`; do not edit -->`;
+  `[//]: # "${id}: generated from ${sources[id]} by just layout write; do not edit"`;
 
-const end = (id: SectionId) => `<!-- ${id}: end -->`;
+const end = (id: SectionId) => `[//]: # "${id}: end"`;
 
 /** The rendered body of every section. */
 export const renderSections = (justfile: Justfile): Readonly<Record<SectionId, string>> => ({
@@ -101,7 +103,7 @@ export const spliceSections = (
 
   for (const id of ids) {
     const starts = lines.flatMap((line, index) =>
-      line.startsWith(`<!-- ${id}: generated `) ? [index] : [],
+      line.startsWith(`[//]: # "${id}: generated `) ? [index] : [],
     );
 
     const ends = lines.flatMap((line, index) => (line === end(id) ? [index] : []));

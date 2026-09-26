@@ -39,7 +39,7 @@ The local development instructions below do not establish migration completion.
 
 ## Repository map
 
-<!-- layout: generated from tools/conventions/src/layout.ts by `just layout write`; do not edit -->
+[//]: # "layout: generated from tools/conventions/src/layout.ts by just layout write; do not edit"
 
 | Path                    | Holds                                                                           |
 | ----------------------- | ------------------------------------------------------------------------------- |
@@ -71,7 +71,7 @@ Context folders in `packages/domain/src`, `packages/database/src`, `apps/backend
 Code that several contexts share lives in `shared-kernel`.
 `just layout` checks the tree against [tools/conventions/src/layout.ts](tools/conventions/src/layout.ts), which lists the exceptions and their reasons.
 
-<!-- layout: end -->
+[//]: # "layout: end"
 
 The legacy Symfony source lives in the separate
 [vektorprogrammet](https://github.com/vektorprogrammet/vektorprogrammet) repository. It is an input to
@@ -139,7 +139,7 @@ The Tests workflow runs every suite with the default major and the backend and d
 Run commands inside `devenv shell`, from this repository root. The root [justfile](justfile) is the command surface:
 `just` lists its recipes, and hooks and CI workflows call them.
 
-<!-- commands: generated from the justfile by `just layout write`; do not edit -->
+[//]: # "commands: generated from the justfile by just layout write; do not edit"
 
 | Group     | Recipe                            | Does                                                                                                                                                                                                                  |
 | --------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -165,7 +165,7 @@ Run commands inside `devenv shell`, from this repository root. The root [justfil
 | migration | `just migration <name> [args...]` | Run an operator migration command: legacy-service (the service cutover) or legacy-receipt.                                                                                                                            |
 | migration | `just rehearsal <name> [args...]` | Run a migration rehearsal: organization-import, receipt-import, current-assignment, or, in the legacy-data profile, account-cohort, legacy-current-assignment, legacy-organization, legacy-receipt, legacy-candidate. |
 
-<!-- commands: end -->
+[//]: # "commands: end"
 
 A fresh checkout builds, checks, and tests with:
 

@@ -53,7 +53,7 @@ Legacy data rehearsals that start MariaDB or the PHP CLI need `devenv --profile 
 The root [justfile](justfile) is the command surface: `just` lists its recipes, and hooks and CI workflows call them.
 Package manifests own the per-package scripts that recipes and Turbo run. Use `bun run`, not `bun test`, for package scripts.
 
-<!-- commands: generated from the justfile by `just layout write`; do not edit -->
+[//]: # "commands: generated from the justfile by just layout write; do not edit"
 
 | Group     | Recipe                            | Does                                                                                                                                                                                                                  |
 | --------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -79,7 +79,7 @@ Package manifests own the per-package scripts that recipes and Turbo run. Use `b
 | migration | `just migration <name> [args...]` | Run an operator migration command: legacy-service (the service cutover) or legacy-receipt.                                                                                                                            |
 | migration | `just rehearsal <name> [args...]` | Run a migration rehearsal: organization-import, receipt-import, current-assignment, or, in the legacy-data profile, account-cohort, legacy-current-assignment, legacy-organization, legacy-receipt, legacy-candidate. |
 
-<!-- commands: end -->
+[//]: # "commands: end"
 
 For focused Vitest checks, invoke Vitest directly through the package:
 
@@ -95,7 +95,7 @@ Focused Vitest does not prove those additional gates or the dashboard bundle gat
 
 ## Layout
 
-<!-- layout: generated from tools/conventions/src/layout.ts by `just layout write`; do not edit -->
+[//]: # "layout: generated from tools/conventions/src/layout.ts by just layout write; do not edit"
 
 | Path                    | Holds                                                                           |
 | ----------------------- | ------------------------------------------------------------------------------- |
@@ -127,7 +127,7 @@ Context folders in `packages/domain/src`, `packages/database/src`, `apps/backend
 Code that several contexts share lives in `shared-kernel`.
 `just layout` checks the tree against [tools/conventions/src/layout.ts](tools/conventions/src/layout.ts), which lists the exceptions and their reasons.
 
-<!-- layout: end -->
+[//]: # "layout: end"
 
 Keep the dependency graph in [docs/architecture.md](docs/architecture.md).
 Product packages must not import application source.
