@@ -27,6 +27,22 @@ The same commit can run locally, in CI, in a preview, and on a host such as a co
 - Password reset and onboarding delivery move onto `outbox-lifecycle.ts` before they get a drain.
 - `apps/backend/src/main.ts` selects exactly one trigger Layer per aggregate from configuration.
 
+## Team-application delivery pilot (operator decision, 2026-09-26)
+
+Team-application notifications run on Effect `PersistedQueue` (`effect/unstable/persistence`, pinned at `effect@4.0.0-rc.116`) as a pilot. They start from `spike/persisted-queue-outbox-0925`. The other nine outboxes stay on their PostgreSQL tables and `outbox-lifecycle.ts`. Their move is decided from the pilot's evidence, one context at a time, never all at once. `EventLog` and `SqlEventJournal` are not delivery candidates: they journal handled events and do not schedule work.
+
+The domain envelope keeps its identity and policy. The queue owns only the lease and the retry. The pilot lands when each of these has a test that fails when it breaks:
+
+- The application, command receipt, envelope, and queue item commit or roll back together in one transaction, on PGlite and on PostgreSQL through PgBouncer in transaction mode.
+- An expired lease is reclaimed, and a late former owner cannot record an outcome.
+- Retries keep the envelope unchanged and the `effect_id` as the provider idempotency key.
+- A permanent or ambiguous failure, and retry exhaustion, become the envelope's quarantine state, visible in the delivery status. Queue cleanup never deletes the only idempotency evidence while a command replay is possible.
+- Cancellation and terminal scrubbing of private fields behave as in migration `0069`.
+- The golden team-application journey and both fault modes pass on the polling trigger and on the bounded drain handler.
+- A migration moves in-flight rows with their original ids and states, and the old claim columns are dropped only after no worker can write them.
+
+A version bump of `effect` re-audits `PersistedQueue` against these tests before it lands.
+
 ## Rules
 
 - No module outside a Layer imports a provider SDK, a platform binding, or a runtime-specific module.

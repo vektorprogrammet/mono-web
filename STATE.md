@@ -141,9 +141,9 @@ PGlite performance and full native composition are unmeasured.
 
 ### Lead handoff
 
-Updated 2026-09-26 at `b1c4a8a0`. A new lead resumes from this section, `AGENTS.md`, and `docs/specs/`, not from chat or session files.
-No product branch is in flight.
-`spike/persisted-queue-outbox-0925` (worktree `mono-web-pq-spike-0925`, one commit) is an unlanded Effect PersistedQueue delivery spike for the [infrastructure ports](docs/specs/infrastructure-ports.md) outbox; decide it there.
+Updated 2026-09-26 at `d9f6afca`. A new lead resumes from this section, `AGENTS.md`, and `docs/specs/`, not from chat or session files.
+The Effect diagnostics contract ([spec](docs/specs/effect-diagnostics.md)) is in flight: slices E1 (`packages/database`) and F (plugin rules outside it) remain, then the wiring slice W makes every rule an error. Agents follow the `effect-house` overlay (`.agents/skills/effect-house/SKILL.md`); the homelab projects-tier extension injects it and the instruction chain on first touch.
+`spike/persisted-queue-outbox-0925` (worktree `mono-web-pq-spike-0925`) is the starting point of the team-application `PersistedQueue` pilot the operator chose on 2026-09-26; its landing conditions are in [infrastructure ports](docs/specs/infrastructure-ports.md#team-application-delivery-pilot-operator-decision-2026-09-26).
 
 How work runs: one writer per worktree and branch; heavy commands go through `just measure`, whose machine-wide lock serialises every agent;
 the lead lands with `just land <branch>` and pushes `main`; hosted CI runs every journey named in the `just` sets.
@@ -152,19 +152,17 @@ Next, in this order:
 
 1. Keep hosted CI green; fix any red leg at its cause. Hosted run `36233895862` was the last complete one; confirm the first complete run at or after `b1c4a8a0`.
 2. The recommendation default and report modes (excluded; see Known gaps) and `just proof authorization-rules` (red at its admission step, excluded).
-3. Certificates for days served (O8-16). It adds the derived Styret and Hovedstyret seat list that the delegation slice specified.
+3. Certificates for days served (O8-16), frozen in [certificates and days served](docs/specs/certificates-days-served.md). It adds the derived Styret and Hovedstyret seat list that the delegation slice specified.
 4. Retire the receipt person grants: the receipt seeds and the golden reimbursement journey issue the Økonomi delegations instead (O8-15).
 5. Formatter scope for the frontends; per-domain typed problems and instants; the remaining phases of [repository conventions](docs/specs/repository-conventions.md): boundary and reuse rules and the migration onto them, then agent docs.
 6. A reusable migration upgrade-proof recipe. The 72 to 75 proof was a throwaway harness.
 
-The `legacy-data` devenv profile cannot build while the home binary cache answers 502. The homelab change in the operator steps makes a dead cache non-fatal.
+The `legacy-data` devenv profile needs the home binary cache; since the homelab rebuild of 2026-09-26 a dead cache is non-fatal. Changing a root file such as `oxlint.config.ts` runs no package test in the pre-commit hook (Turbo maps changed files to packages); `just check` and CI still run them.
 
 ### Operator steps pending
 
 - Staging deploys run `docker compose down` without `--remove-orphans`. After the PostgreSQL 18 change reaches the `staging` branch,
   run `docker compose down --remove-orphans` once on the staging host to remove the orphaned `receipt-postgres` container.
-- Homelab `main` (fc719fb, merged 2026-09-26, not pushed) keeps root snapshots 7d locally, sends the latest to the IronWolf until 2026-10-04 and 4w 6m after,
-  caps `@downloads` at 2540G, ages `/tmp` at 7d, and makes a dead binary cache non-fatal. Rebuild the workstation from the homelab justfile, following the steps in its storage docs.
 - `BWS_ACCESS_TOKEN` (the only preview secret in GitHub) holds the access token of the machine account `vektorprogrammet-ci`, which reads Bitwarden project `2ddfeed1-59d8-4139-b6b0-b4d1001edcfc` in the US cloud; the Cloudflare token is its key `WORKERS_EDIT_CLOUDFLARE_API_TOKEN`. Rotate both before they expire.
 - Before any production use of reach and delegation: classify the Styret and national teams, recognize independent departments,
   and issue the Økonomi delegations, each by explicit command (see Production gates).
