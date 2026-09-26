@@ -741,7 +741,6 @@ export interface DisposablePgBouncer {
  * const url = pooler.urlOf("pilot");
  * await pooler.stop();
  * @avoid Spawning `pgbouncer` elsewhere, and judging readiness by an open port.
- * @construct test-harness
  */
 export const startDisposablePgBouncer = async (
   upstream: DisposablePostgres,
