@@ -75,7 +75,7 @@ const wait = async (test: () => Promise<boolean>) => {
 
 let postgres: DisposablePostgres | undefined;
 
-let pool: InstanceType<typeof Pool> | undefined;
+let pool: InstanceType<typeof Pool>;
 
 let browser: any;
 
@@ -415,7 +415,7 @@ try {
     post("reset-password", { token: concurrentToken, newPassword: "Concurrent-password-B-12345" }),
   ]);
 
-  assert.deepEqual(resetStatuses.map((r) => r.status).sort(), [200, 400]);
+  assert.deepEqual(resetStatuses.map((r) => r.status).sort((a, b) => a - b), [200, 400]);
 
   const winner =
     resetStatuses[0]!.status === 200

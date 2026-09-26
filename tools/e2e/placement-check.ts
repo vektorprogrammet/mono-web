@@ -24,7 +24,7 @@ import {
   startDisposablePostgres,
   type DisposablePostgres,
 } from "@monoweb/postgres";
-import { Schema, Record as Rec } from "effect";
+import { Schema, Record as Rec, Struct } from "effect";
 import { createGoldenObserver, goldenFaults, goldenSteps } from "./golden-school-service.mjs";
 import {
   goldenArtifactName,
@@ -165,7 +165,7 @@ const stopChild = async (child: ChildProcess): Promise<void> => {
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-let pool: InstanceType<typeof Pool> | undefined;
+let pool: InstanceType<typeof Pool>;
 
 let evidence: Schema.JsonObject | undefined;
 
@@ -232,8 +232,7 @@ const cleanup = () =>
 
     if (errors.length && failure === undefined) failure = "Resource cleanup failed";
 
-    const result = {
-      ...evidence,
+    const result = Struct.assign(evidence ?? {}, {
       passed: (evidence?.passed === true || evidence?.apiPassed === true) && failure === undefined,
       revision,
       sourceTree,
@@ -273,7 +272,7 @@ const cleanup = () =>
         receiverClosed: !notificationServer?.listening,
         errors,
       },
-    };
+    });
 
     await writeFile(join(artifacts, "evidence.json"), redactedEvidenceJson(secrets, result), {
       mode: 0o600,
@@ -828,10 +827,10 @@ try {
     });
 
     const query = Schema.decodeSync(PlacementScope)({ departmentId, semesterId });
-    const boardPath = `/api/placements?${new URLSearchParams(query)}`;
+    const boardPath = `/api/placements?${new URLSearchParams(query).toString()}`;
     const ownPath = `/api/placements/affiliation?departmentId=${departmentId}`;
-    const coverageBoardPath = `/api/placements/coverage?${new URLSearchParams(query)}`;
-    const ownCoveragePath = `/api/placements/coverage/own?${new URLSearchParams(query)}`;
+    const coverageBoardPath = `/api/placements/coverage?${new URLSearchParams(query).toString()}`;
+    const ownCoveragePath = `/api/placements/coverage/own?${new URLSearchParams(query).toString()}`;
 
     const request = async (
       path: string,
@@ -1069,7 +1068,7 @@ try {
     await command({ ...create, block: "2" });
     await command({ ...create, block: "Both" });
     // Forging board scope never changes the persisted item's canonical semester.
-    const otherPath = `/api/placements?${new URLSearchParams({ departmentId, semesterId: secondSemesterId })}`;
+    const otherPath = `/api/placements?${new URLSearchParams({ departmentId, semesterId: secondSemesterId }).toString()}`;
     const other = await expectStatus(await request(otherPath, leader), 200);
     await expectStatus(
       await request(otherPath, leader, { action: "Remove", placementId }, other.etag),
@@ -1453,7 +1452,7 @@ try {
         `/api/placements/coverage?${new URLSearchParams({
           departmentId: wrongDepartmentId,
           semesterId,
-        })}`,
+        }).toString()}`,
         leader,
       ),
       403,
@@ -2180,7 +2179,7 @@ try {
       finalApiCoverage.commitments
         .filter((item) => item.proposalId === apiCoverageProposalId)
         .map((item) => item.decision?.outcome)
-        .sort(),
+        .sort((a, b) => (String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0)),
       ["Cancelled", "Completed", "Unfulfilled", "Unfulfilled"].sort(),
     );
     assert.equal(

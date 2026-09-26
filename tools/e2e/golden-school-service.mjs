@@ -400,7 +400,7 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
 
   assert.deepEqual(
     added.map((row) => row.operation_id).sort(),
-    [...writes].sort(),
+    [...writes].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
     step + " must commit one successful receipt per executed write",
   );
 
@@ -424,7 +424,7 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
   if (step === "outcome-recorded")
     assert.deepEqual(
       added.map((row) => JSON.parse(row.body).applicationId).sort(),
-      [applicationId, secondApplicationId].sort(),
+      [applicationId, secondApplicationId].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
     );
 };
 

@@ -14,6 +14,7 @@ import {
   canonicalJsonBytes,
   sha256Hex,
 } from "../../packages/domain/src/shared-kernel/index.js";
+import type { PostgresQueryable } from "./postgres-observation.js";
 
 const leaderPersonId = "journey-conduct-leader-0063";
 
@@ -148,8 +149,6 @@ export const coInterviewerCorrection0106IdentitySeeds = [
 
 export type CoInterviewerCorrection0106Fixture = typeof coInterviewerCorrection0106Fixture;
 
-type SqlConnection = Pool | PoolClient;
-
 const clone = async (
   client: PoolClient,
   table: string,
@@ -260,7 +259,7 @@ const insertLifecycleRows = async (client: PoolClient, interviewId: string): Pro
 const recordIds = Object.values(fixtureIds);
 
 export const readInterviewCorrectionPre0039Snapshot = async (
-  connection: SqlConnection,
+  connection: PostgresQueryable,
 ): Promise<InterviewCorrectionPre0039Snapshot> => {
   const result = await connection.query(
     `SELECT
@@ -422,7 +421,7 @@ export const seedInterviewCorrectionPre0039Fixture = async ({
 };
 
 export const assertInterviewCorrectionPre0039Preserved = async (
-  connection: SqlConnection,
+  connection: PostgresQueryable,
   fixture: InterviewCorrectionPre0039Fixture,
 ): Promise<void> => {
   const after0039 = await readInterviewCorrectionPre0039Snapshot(connection);

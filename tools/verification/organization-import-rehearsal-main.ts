@@ -79,6 +79,7 @@ import {
   Predicate,
   Config,
   DateTime,
+  Formatter,
   Effect,
   Layer,
   ManagedRuntime,
@@ -87,11 +88,13 @@ import {
   Result,
   Schema,
 } from "effect";
-import { Etag, HttpEffect, HttpRouter } from "effect/unstable/http";
+import { Etag, HttpRouter } from "effect/unstable/http";
+import type { SqlError } from "effect/unstable/sql/SqlError";
 import {
   backendHttpHandler,
   decodeBackendConfig,
   ExternalNativeApiRouterLive,
+  nativeRouterWebHandler,
   type BackendConfig,
 } from "@vektorprogrammet/backend";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
@@ -1476,7 +1479,7 @@ const makeRehearsalRuntime = (
   return ManagedRuntime.make(Layer.mergeAll(servicesLayer, httpLayer, nativeApiLayer));
 };
 
-const seedPrerequisites = (sql: DatabaseOperations): Effect.Effect<void, unknown> =>
+const seedPrerequisites = (sql: DatabaseOperations): Effect.Effect<void, SqlError> =>
   sql.withTransaction(
     Effect.gen(function* () {
       for (const person of SPEC_0067_PREREQUISITES.persons) {
@@ -2035,7 +2038,7 @@ const runRehearsal = async (
     const router = await runtime.runPromise(HttpRouter.HttpRouter);
 
     const api = backendHttpHandler(
-      HttpEffect.toWebHandler(router.asHttpEffect()),
+      nativeRouterWebHandler(router),
       {
         handle: () => {
           identityCounters.authMutationAttempts += 1;
@@ -2738,7 +2741,9 @@ if (import.meta.main) {
       const detail =
         cause instanceof Error
           ? `${cause.stack ?? cause.message}${
-              cause.cause === undefined ? "" : `\nCaused by: ${String(cause.cause)}`
+              cause.cause === undefined
+                ? ""
+                : `\nCaused by: ${cause.cause instanceof Error ? String(cause.cause) : Formatter.format(cause.cause)}`
             }`
           : String(cause);
 

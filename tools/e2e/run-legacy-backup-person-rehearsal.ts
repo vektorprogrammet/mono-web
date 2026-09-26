@@ -958,7 +958,7 @@ const runRehearsal = async (temporaryRoot: string) => {
     ]);
 
     assert.deepEqual(
-      concurrentReports.map(({ replay }) => replay).sort(),
+      concurrentReports.map(({ replay }) => replay).sort((a, b) => Number(a) - Number(b)),
       [false, true],
       "Concurrent import did not serialize to one commit and one replay",
     );

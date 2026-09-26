@@ -41,7 +41,7 @@ Remove this specification when `just lint` enforces every Effect language-servic
 | A | `prefer-typed-schema-decoder` | 332 | Landed `5ee47aec`; 13 residual sites in `apps/dashboard/app/routes/*.tsx` move to D |
 | B | `unnecessary-fail-yieldable-error`, `unnecessary-typeof-type`, `effect-succeed-with-void`, `unnecessary-pipe-chain`, `unnecessary-effect-gen` | 207 | In progress |
 | C | `schema-number`, `schema-sync-in-effect`, `lazy-effect`, `multiple-catch-tag` | 132 | In progress |
-| D | every other non-`effectNative` preset rule everywhere (`any-unknown-in-error-context` 141, `leaking-requirements` 4, and the small ones), type-aware `typescript(*)` 138, A's residue; `prefer-schema-over-json`, `instance-of-schema`, and `extends-native-error` are `effectNative` rules, so they belong to E1–E3 in core code and are off elsewhere | 312 | In progress: `packages/database`, `packages/domain`, `packages/http-api` done |
+| D | every other non-`effectNative` preset rule everywhere (`any-unknown-in-error-context` 141, `leaking-requirements` 4, and the small ones), type-aware `typescript(*)` 138, A's residue; `prefer-schema-over-json`, `instance-of-schema`, and `extends-native-error` are `effectNative` rules, so they belong to E1–E3 in core code and are off elsewhere | 312 | Done: zero findings repository-wide (branches `refactor/effect-diagnostics-d-0926` and `refactor/effect-diagnostics-d2-0926`) |
 | E1 | `effectNative` rules in `packages/database` (`async-function` 376 and the rest) | ~470 | After C |
 | E2 | `effectNative` rules in `apps/backend` | ~400 | After E1 or D |
 | E3 | `effectNative` rules in `packages/domain` and `packages/http-api` | ~90 | After E1 or D |
@@ -55,6 +55,10 @@ Remove this specification when `just lint` enforces every Effect language-servic
 - `ContentManagement` (`packages/domain/src/content/service.ts`) expects `Organization`: the capability topology gives ContentManagement no layer dependency, so the composition root supplies Organization to every operation.
 - `PersonSecurity` and `PersonOrServiceSecurity` (`packages/http-api/src/common.ts`) expect `HttpServerRequest`, `ParsedSearchParams`, and `RouteContext`: HttpApiMiddleware security handlers run per request.
 
+`// oxlint-disable-next-line` comments:
+
+- `effecttsgo/any-unknown-in-error-context` in `nativeRouterWebHandler` (`apps/backend/src/router.ts`): Effect types the failure of `HttpRouter.asHttpEffect()` as `unknown`, and `HttpEffect.toWebHandler` renders every failure cause as a response. The backend entry point and the tools rehearsals build their native web handler only through this function.
+
 ## Done when
 
 1. `just lint` reports zero `effecttsgo/*` findings, and every preset rule is `"error"`; reintroducing one site fails `just lint` (negative control recorded in the commit message).
@@ -65,13 +69,11 @@ Remove this specification when `just lint` enforces every Effect language-servic
 
 Slices A, B, and C run in separate worktrees. A slice that stops before it is done commits its work in progress and lists its remaining packages here.
 
-Slice D (branch `refactor/effect-diagnostics-d-0926`) remains, by the D configuration on `f60aa1ed` (the preset rules outside `effectNative`, B, and C, plus the type-aware `typescript(*)` rules, all errors):
+Slice D is done. Type-aware lint of `apps/dashboard` and `apps/homepage` depends on the `react-router typegen` output (`.react-router/`, ignored by Git). Without it, `Route.*Args` resolve to error types, and the rules see `any` (for example, `prefer-typed-schema-decoder` then reports form values as already typed). Both states have zero D findings. Slice W runs `react-router typegen` before type-aware lint, as `check-types` does, so the result does not depend on the local checkout.
 
-- `apps/dashboard`: `prefer-typed-schema-decoder` 13 (the A residue in `app/routes/*.tsx`), `no-base-to-string` 17, `unbound-method` 12, `restrict-template-expressions` 10, `require-array-sort-compare` 10, `any-unknown-in-error-context` 6, `global-error-in-effect-failure` 3, `effect-map-void` 2.
-- `apps/backend`: `no-base-to-string` 3, `any-unknown-in-error-context` 2, `catch-all-to-map-error` 2, `catch-to-ignore` 1, `unbound-method` 1, `no-misused-spread` 1, `restrict-template-expressions` 1.
-- `apps/homepage`: `no-base-to-string` 5, `no-useless-default-assignment` 1. `packages/sdk`: `no-base-to-string` 1.
-- `tools/e2e`: `restrict-template-expressions` 8, `require-array-sort-compare` 5, `multiple-effect-provide` 2, `any-unknown-in-error-context` 1, `no-misused-spread` 1, `no-redundant-type-constituents` 1.
-- `tools/acceptance`: `no-redundant-type-constituents` 7, `restrict-template-expressions` 6, `require-array-sort-compare` 2, `no-misused-spread` 2.
-- `tools/verification`: `any-unknown-in-error-context` 3, `no-base-to-string` 1, `require-array-sort-compare` 1, `unbound-method` 1, `no-misused-spread` 1.
+The D fixes follow these forms:
 
-The fixes so far follow these forms: type the failure channel instead of `unknown` (an explicit error union, or inference where the success type is already annotated); `Effect.orElseSucceed` for `Effect.catch` to `Effect.succeed`; `Result.try` for synchronous `try/catch` in a generator; `Struct.assign` where a class instance is copied into a plain object, which keeps the plain result; an explicit comparator that keeps the previous order; an arrow for an unbound method; a precise parameter type instead of `String(unknown)`.
+- Failure channels: an explicit error union or inference instead of `unknown`; `EffectSdkFailure<Group, Operation>` (`@vektorprogrammet/sdk/effect`) for a generated SDK operation; a `Data.TaggedError` instead of the global `Error`.
+- Combinators: `Effect.orElseSucceed`, `Effect.mapError`, `Effect.ignore`, and `Effect.asVoid` for the `Effect.catch` and `Effect.map` forms; `Result.try` for synchronous `try/catch` in a generator; one `Effect.provide` of merged layers.
+- Values: `Struct.assign` where a class instance is copied into a plain object; an explicit comparator that keeps the previous order (`Order.String`, or a numeric difference); an arrow or `bind` for an unbound method.
+- Text: a precise type instead of `String(unknown)`; `formText` (`apps/dashboard/app/lib/form-text.ts`) for a form field; objects instead of mixed-type tuples in JavaScript files; `new Request(input).url` and `new Response(body).json()` in fetch doubles.

@@ -28,13 +28,14 @@ import {
   UserProfileResponse,
 } from "@vektorprogrammet/http-api";
 import { Cause, Effect, Layer, ManagedRuntime, Redacted, Schema } from "effect";
-import { Etag, HttpEffect, HttpRouter } from "effect/unstable/http";
+import { Etag, HttpRouter } from "effect/unstable/http";
 import { ReceiptDeliveryLive } from "@vektorprogrammet/backend/receipt/delivery";
 import {
   backendHttpHandler,
   decodeBackendConfig,
   ExternalNativeApiRouterLive,
   nativeHttpRouterConfig,
+  nativeRouterWebHandler,
   type BackendAuthHandler,
 } from "@vektorprogrammet/backend";
 import type { RehearsalTarget } from "./legacy-organization-rehearsal-runtime.js";
@@ -163,11 +164,7 @@ export const observeLegacyCandidateNativeJourney = async (
         authBoundary((engine) => engine.recordTrustedOriginRejection(context, flow)),
     };
 
-    const api = backendHttpHandler(
-      HttpEffect.toWebHandler(router.asHttpEffect()),
-      auth,
-      config.sessionBoundary,
-    );
+    const api = backendHttpHandler(nativeRouterWebHandler(router), auth, config.sessionBoundary);
 
     const request = (path: string, cookie?: string, body?: Schema.Json, authorization?: string) => {
       const headers = new Headers({ origin: dashboardOrigin });
@@ -289,7 +286,7 @@ export const observeLegacyCandidateNativeJourney = async (
     }
 
     const organizationPath = (department: string) =>
-      `/api/mailing-lists?${new URLSearchParams({ type: "assistants", department, semester: input.scope.semesterId })}`;
+      `/api/mailing-lists?${new URLSearchParams({ type: "assistants", department, semester: input.scope.semesterId }).toString()}`;
 
     await status(
       "leader-organization-own-scope",
@@ -313,7 +310,7 @@ export const observeLegacyCandidateNativeJourney = async (
       );
     }
 
-    const affiliationPath = `/api/placements/affiliation?${new URLSearchParams({ departmentId: input.scope.departmentId })}`;
+    const affiliationPath = `/api/placements/affiliation?${new URLSearchParams({ departmentId: input.scope.departmentId }).toString()}`;
 
     const ownAffiliation = await json(
       "member-imported-affiliation",
@@ -344,7 +341,7 @@ export const observeLegacyCandidateNativeJourney = async (
     );
 
     const boardPath = (departmentId: string) =>
-      `/api/placements?${new URLSearchParams({ departmentId, semesterId: input.scope.semesterId })}`;
+      `/api/placements?${new URLSearchParams({ departmentId, semesterId: input.scope.semesterId }).toString()}`;
 
     const board = await json(
       "leader-imported-placement",

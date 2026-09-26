@@ -532,7 +532,7 @@ export const runApplicantProgress0107 = async (input: {
     `${input.ui}/dashboard/assistenter?${new URLSearchParams({
       departmentId: "department-native-conduct-0063",
       semesterId: "semester-native-conduct-0063",
-    })}`,
+    }).toString()}`,
   );
 
   const approveAffiliation = input.page.getByRole("button", {
@@ -585,7 +585,7 @@ export const runApplicantProgress0107 = async (input: {
     `${input.ui}/dashboard/assistenter?${new URLSearchParams({
       departmentId: "department-native-conduct-0063",
       semesterId: "semester-native-conduct-0063",
-    })}`,
+    }).toString()}`,
   );
 
   const placement = input.page.getByRole("form", {

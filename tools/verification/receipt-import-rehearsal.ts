@@ -29,7 +29,7 @@ import {
   reserveLoopbackPorts,
   startDisposablePostgres,
 } from "@monoweb/postgres";
-import { Schema, Cause, Predicate, Effect, Redacted } from "effect";
+import { Schema, Cause, Predicate, Effect, Redacted, Struct } from "effect";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { Database, databaseHealth } from "@vektorprogrammet/database";
 import {
@@ -639,7 +639,9 @@ try {
   const collision = {
     ...accepted[0]!,
     sourcePrimaryKey: "destination-collision",
-    receipt: { ...accepted[0]!.receipt, receiptId: ReceiptId.make("receipt-0095-baseline") },
+    receipt: Struct.assign(accepted[0]!.receipt, {
+      receiptId: ReceiptId.make("receipt-0095-baseline"),
+    }),
     provenance: {
       ...accepted[0]!.provenance,
       destinationIdentity: "receipt-0095-baseline",

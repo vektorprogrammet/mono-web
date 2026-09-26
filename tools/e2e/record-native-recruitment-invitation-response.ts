@@ -66,7 +66,7 @@ try {
         deliverNextRecruitmentInvitationResponse(
           "native-invitation-response-recording-claim-" + String(index + 1),
           "2031-09-15T12:00:0" + String(index + 1) + ".000Z",
-        ).pipe(Effect.provide(recording.layer), Effect.provide(authorityLayers)),
+        ).pipe(Effect.provide(Layer.mergeAll(recording.layer, authorityLayers))),
       ),
     );
 

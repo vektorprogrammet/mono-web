@@ -1,4 +1,8 @@
-import { decodePostgresObservations, type PostgresObservation } from "./postgres-observation.js";
+import {
+  decodePostgresObservations,
+  type PostgresObservation,
+  type PostgresQueryable,
+} from "./postgres-observation.js";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
@@ -34,7 +38,7 @@ export type InterviewCorrectionIntegrityOptions = Readonly<{
 
 const freshId = (prefix: string) => `${prefix}-${randomBytes(12).toString("hex")}`;
 
-const queryRows = async (client: Pool | PoolClient, text: string, values: unknown[] = []) =>
+const queryRows = async (client: PostgresQueryable, text: string, values: unknown[] = []) =>
   decodePostgresObservations((await client.query(text, values)).rows);
 
 const readSnapshot = async (pool: Pool, interviewId: string): Promise<PersistedSnapshot> => ({

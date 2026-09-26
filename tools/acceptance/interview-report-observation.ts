@@ -307,7 +307,7 @@ export async function observeInterviewReport(o: Options) {
     session = cookie,
     extra: Record<string, string> = {},
   ) =>
-    fetch(`${api}/api/recruitment/interview-report?${new URLSearchParams(query)}`, {
+    fetch(`${api}/api/recruitment/interview-report?${new URLSearchParams(query).toString()}`, {
       headers: { cookie: session, origin: ui, ...extra },
     });
 

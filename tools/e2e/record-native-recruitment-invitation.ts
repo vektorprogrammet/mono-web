@@ -69,8 +69,7 @@ try {
   const result = await Effect.runPromise(
     Effect.scoped(
       deliverNextRecruitmentInvitation("native-scheduling-recording-claim", claimedAt).pipe(
-        Effect.provide(recording.layer),
-        Effect.provide(authorityLayers),
+        Effect.provide(Layer.mergeAll(recording.layer, authorityLayers)),
       ),
     ),
   );

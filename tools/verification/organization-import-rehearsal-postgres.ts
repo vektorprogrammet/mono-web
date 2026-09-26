@@ -5,6 +5,7 @@ import {
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
 import { Schema, Record as EffectRecord, Effect } from "effect";
+import type { SqlError } from "effect/unstable/sql/SqlError";
 
 export interface StableTableProjection {
   readonly qualifiedName: string;
@@ -107,7 +108,7 @@ export const compareStableByteSets = (
 
 export const readOrganizationImportStableState = (
   sql: DatabaseOperations,
-): Effect.Effect<OrganizationImportStableState, unknown> =>
+): Effect.Effect<OrganizationImportStableState, SqlError> =>
   Effect.gen(function* () {
     const departments = yield* sql`
       SELECT

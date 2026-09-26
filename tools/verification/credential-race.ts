@@ -15,7 +15,7 @@ export const proveCredentialResetRace = async (input: {
   readonly reset: (email: string) => Promise<void>;
 }) => {
   const context = await input.engine.$context;
-  const originalCreate = context.internalAdapter.createSession;
+  const originalCreate = context.internalAdapter.createSession.bind(context.internalAdapter);
   const nativeHash = await nativePasswordHash(input.password);
 
   for (const [id, hash] of [

@@ -1171,7 +1171,10 @@ const rehearse = async () =>
     ]);
 
     for (const report of concurrentReports) assertSummary(report);
-    assert.deepEqual(concurrentReports.map((report) => report.replay).sort(), [false, true]);
+    assert.deepEqual(
+      concurrentReports.map((report) => report.replay).sort((a, b) => Number(a) - Number(b)),
+      [false, true],
+    );
     const concurrencyReplay = await success(concurrent, concurrentRoots);
     assert.equal(concurrencyReplay.complete, true);
     const concurrentReceipts = await receipts(concurrent.pool);

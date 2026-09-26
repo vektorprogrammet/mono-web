@@ -97,7 +97,7 @@ const lintClock = (context: Context): number => {
       ? option.now
       : undefined;
   if (now === undefined) return Date.now();
-  const time = Date.parse(String(now));
+  const time = typeof now === "string" ? Date.parse(now) : Number.NaN;
   if (!Number.isFinite(time)) {
     throw new Error("no-literal-window-instant: the `now` option must be an RFC 3339 instant");
   }

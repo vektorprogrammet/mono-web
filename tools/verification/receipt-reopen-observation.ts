@@ -230,7 +230,7 @@ export async function observeReceiptReopening(options: {
     request(race.id, "reopen", race.etag),
   ]);
 
-  const concurrentStatuses = results.map((r) => r.status).sort();
+  const concurrentStatuses = results.map((r) => r.status).sort((a, b) => a - b);
   assert.equal(concurrentStatuses.filter((status) => status === 200).length, 1);
   assert.ok(
     concurrentStatuses

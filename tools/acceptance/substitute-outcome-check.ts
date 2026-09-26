@@ -11,7 +11,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { Predicate, Schema } from "effect";
+import { Predicate, Schema, Struct } from "effect";
 import { AdmissionOutcomeScope } from "../../packages/domain/src/admissions/outcome.js";
 import { PublicApplicationIdSchema } from "../../packages/domain/src/application/schema.js";
 import { AdmissionOutcomeBoardResource } from "../../packages/http-api/src/admission-outcomes.js";
@@ -62,7 +62,7 @@ const start = (command: string, args: string[], env = process.env) => {
 
 let postgres: DisposablePostgres | undefined;
 
-let database: InstanceType<typeof Client> | undefined;
+let database: InstanceType<typeof Client>;
 
 let evidence: Schema.JsonObject | undefined;
 
@@ -234,7 +234,7 @@ try {
   };
 
   const boardPath = (semesterId: string) =>
-    `/api/admission-outcomes?${new URLSearchParams({ departmentId, semesterId })}`;
+    `/api/admission-outcomes?${new URLSearchParams({ departmentId, semesterId }).toString()}`;
 
   const sdk = createPromiseClient(backendOrigin, { cookie: leader, origin: dashboardOrigin });
   const leaderScopes = await read(scopesPath);
@@ -507,10 +507,10 @@ try {
   ]);
 
   const statuses = concurrent.map((response) => response.status);
-  assert.equal(statuses.filter((status) => status === 200).length, 1, `concurrent records ${statuses}`);
+  assert.equal(statuses.filter((status) => status === 200).length, 1, `concurrent records ${statuses.join(",")}`);
   assert.ok(
     statuses.some((status) => status === 409 || status === 412),
-    `concurrent rejection ${statuses}`,
+    `concurrent rejection ${statuses.join(",")}`,
   );
 
   const rejectedHistory = [
@@ -694,10 +694,9 @@ try {
     await writeFile(
       evidencePath,
       JSON.stringify(
-        {
-          ...evidence,
+        Struct.assign(evidence, {
           cleanup: "owned processes exited; disposable PostgreSQL and credential manifest removed",
-        },
+        }),
         null,
         2,
       ),

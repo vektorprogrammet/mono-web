@@ -14,7 +14,7 @@ import {
   reserveLoopbackPorts,
   startDisposablePostgres,
 } from "../postgres/index.ts";
-import { Predicate, Schema } from "effect";
+import { Predicate, Schema, Struct } from "effect";
 
 const root = new URL("../../", import.meta.url).pathname;
 
@@ -95,7 +95,7 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 let postgres: DisposablePostgres | undefined;
 
-let pool: InstanceType<typeof Pool> | undefined;
+let pool: InstanceType<typeof Pool>;
 
 let evidence: Schema.JsonObject | undefined;
 
@@ -422,7 +422,7 @@ try {
     }),
   ]);
 
-  assert.deepEqual(claims.map((r) => r.status).sort(), [200, 400]);
+  assert.deepEqual(claims.map((r) => r.status).sort((a, b) => a - b), [200, 400]);
   const retryApplication = await submit("onboarding-retry@example.invalid", "Retry");
   rejectNext = true;
   const pre = await board();
@@ -736,7 +736,7 @@ try {
     await writeFile(
       join(artifacts, "evidence.json"),
       JSON.stringify(
-        { ...evidence, cleanup: "owned processes and credential manifest removed" },
+        Struct.assign(evidence, { cleanup: "owned processes and credential manifest removed" }),
         null,
         2,
       ),
