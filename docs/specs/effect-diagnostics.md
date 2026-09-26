@@ -39,13 +39,14 @@ Remove this specification when `just lint` enforces every Effect language-servic
 | Slice | Rules | Sites on `5ee47aec` | State |
 | ----- | ----- | ------------------: | ----- |
 | A | `prefer-typed-schema-decoder` | 332 | Landed `5ee47aec`; 13 residual sites in `apps/dashboard/app/routes/*.tsx` move to D |
-| B | `unnecessary-fail-yieldable-error`, `unnecessary-typeof-type`, `effect-succeed-with-void`, `unnecessary-pipe-chain`, `unnecessary-effect-gen` | 207 | In progress |
-| C | `schema-number`, `schema-sync-in-effect`, `lazy-effect`, `multiple-catch-tag` | 132 | In progress |
+| B | `unnecessary-fail-yieldable-error`, `unnecessary-typeof-type`, `effect-succeed-with-void`, `unnecessary-pipe-chain`, `unnecessary-effect-gen` | 207 | Done: landed `655390e2` |
+| C | `schema-number`, `schema-sync-in-effect`, `lazy-effect`, `multiple-catch-tag` | 132 | Done: landed `f60aa1ed` |
 | D | every other non-`effectNative` preset rule everywhere (`any-unknown-in-error-context` 141, `leaking-requirements` 4, and the small ones), type-aware `typescript(*)` 138, A's residue; `prefer-schema-over-json`, `instance-of-schema`, and `extends-native-error` are `effectNative` rules, so they belong to E1–E3 in core code and are off elsewhere | 312 | Done: zero findings repository-wide (branches `refactor/effect-diagnostics-d-0926` and `refactor/effect-diagnostics-d2-0926`) |
 | E1 | `effectNative` rules in `packages/database` (`async-function` 376 and the rest) | 489 | In progress: 299 left after step 5 (branch `refactor/effect-diagnostics-e1d-0926`); see Remaining steps |
 | E2 | `effectNative` rules in `apps/backend` | 450 on `282da16f` | Done: zero findings, no new exception (branches `refactor/effect-diagnostics-e2e-0926` and `refactor/effect-diagnostics-e1e-0926`) |
 | E3 | `effectNative` rules in `packages/domain` and `packages/http-api` | 104 on `40de8ee4` | Done: zero findings in both packages, no exception (branch `refactor/effect-diagnostics-e3-0926`) |
 | W | wiring (`oxlint.config.ts`, tsconfig, lint hook, CI), negative control | - | Prepared; lands last |
+| F | `@phibkro/oxlint-effect-plugin` rules in core code at `strict` strictness, with the `external-data` boundary on runtime adapters: `no-untyped-throw` 39 (`packages/domain`), `no-premature-execution` 11, `no-ambient-console` 9 and `no-cross-runtime` 8 (`tools/`), `no-native-promise-control-flow` 8, `no-raw-json-parse` 7 (measured on `5352a83d`; 14 of them in `packages/database`, after E1) | 77 | Open. Until `324936a4` these rules never ran in core code: the groups used extglob globs that Oxlint does not match. W sets them to `error` with the rest |
 
 ## Exceptions
 
