@@ -134,10 +134,12 @@ export const runLegacyReceiptImport = async (input: LegacyReceiptImportOptions) 
     stage = "ReviewRead";
 
     const review = Schema.decodeUnknownSync(ReceiptReview)(
-      await readPrivateCohortJson(
-        options.reviewPath,
-        () => new Error("InvalidSnapshot"),
-        16_777_216,
+      await Effect.runPromise(
+        readPrivateCohortJson(
+          options.reviewPath,
+          () => new ReceiptCohortFailure({ code: "InvalidSnapshot" }),
+          16_777_216,
+        ),
       ),
       { onExcessProperty: "error" },
     );
@@ -145,7 +147,13 @@ export const runLegacyReceiptImport = async (input: LegacyReceiptImportOptions) 
     stage = "KeyRead";
 
     const cipher = decodePaymentAccountCipher(
-      await readPrivateCohortJson(options.paymentKeyPath, () => new Error("InvalidSnapshot"), 4096),
+      await Effect.runPromise(
+        readPrivateCohortJson(
+          options.paymentKeyPath,
+          () => new ReceiptCohortFailure({ code: "InvalidSnapshot" }),
+          4096,
+        ),
+      ),
     );
 
     stage = "Transformation";

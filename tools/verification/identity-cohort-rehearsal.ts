@@ -32,16 +32,20 @@ import {
 import { identityRequestContext } from "@vektorprogrammet/backend/session-security";
 import { mailDeliveryConfig, HttpMailLive } from "@vektorprogrammet/backend/mail/http";
 import {
-  importIdentityCohort,
+  importIdentityCohort as importIdentityCohortEffect,
   IdentityCohortFailure,
 } from "@vektorprogrammet/database/identity-cohort";
 import { summarizeIdentityCohort } from "@vektorprogrammet/database/identity-cohort-cli";
-import { importPersonCohort } from "@vektorprogrammet/database/person-cohort";
+import { importPersonCohort as importPersonCohortEffect } from "@vektorprogrammet/database/person-cohort";
 import {
   isNativePasswordHash,
   verifyNativeOrLegacyPassword,
 } from "@vektorprogrammet/database/password-codec";
 import { proveCredentialResetRace } from "./credential-race.js";
+
+const importIdentityCohort = flow(importIdentityCohortEffect, Effect.runPromise);
+
+const importPersonCohort = flow(importPersonCohortEffect, Effect.runPromise);
 
 declare const Bun: {
   version: string;

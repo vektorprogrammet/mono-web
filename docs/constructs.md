@@ -809,7 +809,7 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [tools/verification/organization-import-rehearsal-postgres.ts](../tools/verification/organization-import-rehearsal-postgres.ts)
   - [tools/verification/receipt-import-rehearsal.ts](../tools/verification/receipt-import-rehearsal.ts)
 - `canonicalJson`: The canonical JSON text of a datum, to hash or compare; a SQL `json` parameter takes `canonicalJsonValue` instead.
-  [packages/domain/src/shared-kernel/canonical-json.ts:62](../packages/domain/src/shared-kernel/canonical-json.ts#L62), 57 consumers:
+  [packages/domain/src/shared-kernel/canonical-json.ts:62](../packages/domain/src/shared-kernel/canonical-json.ts#L62), 58 consumers:
   - [apps/backend/src/http-semantics.ts](../apps/backend/src/http-semantics.ts)
   - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
   - [packages/database/runtime/identity-postgres-proof-main.ts](../packages/database/runtime/identity-postgres-proof-main.ts)
@@ -828,6 +828,7 @@ Canonical JSON and SHA-256 digests that evidence and idempotency identities hash
   - [packages/database/src/historical-service-cohort.ts](../packages/database/src/historical-service-cohort.ts)
   - [packages/database/src/identity-cohort-cli.ts](../packages/database/src/identity-cohort-cli.ts)
   - [packages/database/src/identity-cohort.ts](../packages/database/src/identity-cohort.ts)
+  - [packages/database/src/organization/reviewed-cohort.ts](../packages/database/src/organization/reviewed-cohort.ts)
   - [packages/database/src/person-cohort-accepted-mappings.test.ts](../packages/database/src/person-cohort-accepted-mappings.test.ts)
   - [packages/database/src/person-cohort.ts](../packages/database/src/person-cohort.ts)
   - [packages/database/src/placements/current-assignment-cohort.test.ts](../packages/database/src/placements/current-assignment-cohort.test.ts)

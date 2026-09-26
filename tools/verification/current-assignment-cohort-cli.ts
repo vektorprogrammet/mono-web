@@ -12,7 +12,7 @@ import {
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { databaseHealth } from "@vektorprogrammet/database";
 
-const invalidSnapshot = () => new CurrentAssignmentFailure("InvalidSnapshot");
+const invalidSnapshot = () => new CurrentAssignmentFailure({ code: "InvalidSnapshot" });
 
 export const currentAssignmentForbiddenAmbientConfigurationKeys = [
   "DATABASE_URL",
@@ -67,7 +67,9 @@ export const runCurrentAssignmentCohortCli = async (): Promise<void> => {
   rejectCurrentAssignmentAmbientConfiguration(process.env, invalidSnapshot);
 
   const input = decodeCurrentAssignmentSnapshot(
-    await readPrivateCohortJson(process.env.CURRENT_ASSIGNMENT_INPUT, invalidSnapshot),
+    await Effect.runPromise(
+      readPrivateCohortJson(process.env.CURRENT_ASSIGNMENT_INPUT, invalidSnapshot),
+    ),
   );
 
   const url = disposableCurrentAssignmentDatabaseUrl(process.env.CURRENT_ASSIGNMENT_PG_URL);
@@ -79,7 +81,9 @@ export const runCurrentAssignmentCohortCli = async (): Promise<void> => {
   const pool = new Pool({ connectionString: url, max: 2 });
 
   try {
-    process.stdout.write(JSON.stringify(await importCurrentAssignmentCohort(pool, input)) + "\n");
+    process.stdout.write(
+      JSON.stringify(await Effect.runPromise(importCurrentAssignmentCohort(pool, input))) + "\n",
+    );
   } finally {
     await pool.end();
   }

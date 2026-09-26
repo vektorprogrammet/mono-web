@@ -31,7 +31,7 @@ const maxFileBytes = 10 * 1024 * 1024;
 export const reviewedReceiptTransformationRevision = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const sourceDigest = yield* Effect.promise(() => receiptImportSourceDigest());
+  const sourceDigest = yield* receiptImportSourceDigest();
 
   const sources = yield* Effect.forEach(
     ["./reviewed-import.ts", "./payment-account.ts", "./import-snapshot.ts", "./filesystem.ts"],

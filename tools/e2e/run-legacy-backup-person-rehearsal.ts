@@ -27,7 +27,7 @@ import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
 import {
   decodePersonCohort,
-  importPersonCohort,
+  importPersonCohort as importPersonCohortEffect,
   personCohortSourceRowDigest,
   PersonCohortFailure,
   type PersonCohortReport,
@@ -44,6 +44,8 @@ import { flow, Predicate, Effect, Redacted, Schema, SchemaTransformation } from 
 import { Pool } from "pg";
 import { buildLegacyPersonSnapshot, LegacyUserJson } from "./legacy-person-snapshot";
 import { CutoverStageFailure, runLegacyServiceCutover } from "./run-legacy-service-cutover";
+
+const importPersonCohort = flow(importPersonCohortEffect, Effect.runPromise);
 
 const moduleFile = fileURLToPath(import.meta.url);
 

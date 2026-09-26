@@ -1,14 +1,19 @@
 import { withPostgresTestDatabase } from "./test-support/postgres.js";
-import { PersonMapping, importPersonCohort } from "./person-cohort.js";
+import { PersonMapping, importPersonCohort as importPersonCohortEffect } from "./person-cohort.js";
 import { PersonId } from "@vektorprogrammet/domain/organization";
+import { Effect, flow } from "effect";
 import { describe, expect, it } from "vitest";
 import { disposableHistoricalServiceDatabaseUrl } from "./historical-service-cohort-cli.js";
 import {
   decodeHistoricalServiceSnapshot,
   HistoricalServiceFailure,
   historicalServiceSourceRowDigest,
-  importHistoricalServiceCohort,
+  importHistoricalServiceCohort as importHistoricalServiceCohortEffect,
 } from "./historical-service-cohort.js";
+
+const importPersonCohort = flow(importPersonCohortEffect, Effect.runPromise);
+
+const importHistoricalServiceCohort = flow(importHistoricalServiceCohortEffect, Effect.runPromise);
 
 describe("historical service boundary", () => {
   const fixture = {

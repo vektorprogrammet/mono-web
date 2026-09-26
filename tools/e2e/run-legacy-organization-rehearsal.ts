@@ -7,11 +7,11 @@ import { reachedDepartments, ReachedDepartments } from "@vektorprogrammet/domain
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
 import {
   decodePersonCohort,
-  importPersonCohort,
+  importPersonCohort as importPersonCohortEffect,
   type PersonCohortReport,
 } from "@vektorprogrammet/database/person-cohort";
 import {
-  importReviewedOrganizationCohort,
+  importReviewedOrganizationCohort as importReviewedOrganizationCohortEffect,
   resolveOrganizationPersonAuthorityForRead,
 } from "@vektorprogrammet/database/organization";
 import {
@@ -21,7 +21,7 @@ import {
   PersonId,
   type ReviewedOrganizationSnapshot,
 } from "@vektorprogrammet/domain/organization";
-import { Effect, Predicate, Redacted, Schema } from "effect";
+import { Effect, flow, Predicate, Redacted, Schema } from "effect";
 import type { Pool } from "pg";
 import { buildLegacyReferences, seedLegacyReferences } from "./legacy-cutover-references";
 import { buildLegacyOrganizationSnapshot } from "./legacy-organization-snapshot";
@@ -36,6 +36,13 @@ import {
   withOrganizationDatabases,
   type RehearsalTarget,
 } from "./legacy-organization-rehearsal-runtime";
+
+const importPersonCohort = flow(importPersonCohortEffect, Effect.runPromise);
+
+const importReviewedOrganizationCohort = flow(
+  importReviewedOrganizationCohortEffect,
+  Effect.runPromise,
+);
 
 let stage = "Options";
 
