@@ -8,7 +8,7 @@ import {
   recoverStaleOutboxClaim,
   type OutboxTable,
 } from "../outbox-lifecycle.js";
-import { Match, Predicate, Effect, Schema, Semaphore, Clock } from "effect";
+import { Clock, DateTime, Match, Predicate, Effect, Schema, Semaphore } from "effect";
 import {
   ReceiptAuxiliaryEffects,
   ReceiptFileService,
@@ -253,9 +253,11 @@ export const deliverNextReceiptOutbox = (
 
     return yield* deliveryPermit.withPermit(
       Effect.gen(function* () {
-        const acquiredAt = new Date(
-          Date.parse(claimedAt) + Math.max(0, (yield* Clock.currentTimeMillis) - waitingSince),
-        ).toISOString();
+        const acquiredAt = DateTime.formatIso(
+          DateTime.add(DateTime.makeUnsafe(claimedAt), {
+            milliseconds: Math.max(0, (yield* Clock.currentTimeMillis) - waitingSince),
+          }),
+        );
 
         const claim = yield* claimNextReceiptOutbox(claimId, acquiredAt, receiptId);
 

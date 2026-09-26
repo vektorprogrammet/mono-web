@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { DateTime, Effect } from "effect";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database } from "../service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
@@ -75,7 +75,11 @@ export const commandOnboarding = (input: {
       }
 
       if (input.command.action === "Revoke") return;
-      const expiresAt = new Date(Date.parse(input.now) + 86400000).toISOString();
+
+      const expiresAt = DateTime.formatIso(
+        DateTime.add(DateTime.makeUnsafe(input.now), { days: 1 }),
+      );
+
       yield* sql`INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES(${input.invitationId},${input.command.applicationId},${applicantId},${input.digest},${expiresAt},'Open',${input.actor},${input.now})`;
       yield* sql`INSERT INTO public.applicant_account_delivery(invitation_id,state,secret,recipient) SELECT ${input.invitationId},'Pending',${input.token},email FROM public.admission_applicants WHERE applicant_id=${applicantId}`;
       yield* sql`INSERT INTO public.applicant_account_audit VALUES(${input.invitationId + ":issue"},${applicantId},${input.invitationId},${input.actor},'Issued',${input.now})`;

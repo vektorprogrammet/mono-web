@@ -7,7 +7,7 @@ import {
 } from "@vektorprogrammet/domain/organization";
 import { Placements } from "@vektorprogrammet/domain/placements";
 import { PlacementsLive } from "@vektorprogrammet/database/placements";
-import { Effect, Layer } from "effect";
+import { Console, Effect, Layer } from "effect";
 
 // Synthetic, unprivileged authority for an empty disposable database.
 // A production caller resolves current authority inside its own transaction.
@@ -37,7 +37,7 @@ const program = Effect.gen(function* () {
   assert.equal(rejected._tag, "PlacementFailure");
   assert.equal(rejected.code, "scope.invalid");
   assert.equal(rejected.status, 422);
-  console.log("Empty scopes read; unknown department rejected with scope.invalid (422)");
+  yield* Console.log("Empty scopes read; unknown department rejected with scope.invalid (422)");
 });
 
 // DatabaseTestLive owns in-memory PGlite, canonical migrations, and database release.

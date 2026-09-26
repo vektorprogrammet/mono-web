@@ -149,8 +149,10 @@ const governanceFor = (sql: DatabaseOperations) =>
     return { teams, departments };
   });
 
+const isLifecycleFailure = Schema.is(OrganizationLifecycleFailure);
+
 const failure = (cause: unknown) =>
-  cause instanceof OrganizationLifecycleFailure
+  isLifecycleFailure(cause)
     ? cause
     : new OrganizationLifecycleFailure({ code: "Unavailable", cause });
 

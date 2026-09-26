@@ -43,8 +43,10 @@ const decode = <S extends Schema.Top>(schema: S) =>
     Effect.mapError(() => fail("Invalid")),
   );
 
+const isLifecycleFailure = Schema.is(OrganizationLifecycleFailure);
+
 const failure = (cause: unknown) =>
-  cause instanceof OrganizationLifecycleFailure
+  isLifecycleFailure(cause)
     ? cause
     : new OrganizationLifecycleFailure({ code: "Unavailable", cause });
 

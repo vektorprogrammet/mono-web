@@ -20,6 +20,7 @@ import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { Equal, flow, Predicate, Effect, Schema } from "effect";
 import {
   canonicalJson,
+  canonicalJsonValue,
   canonicalJsonBytes,
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
@@ -1227,7 +1228,6 @@ const executeAuthorizedReceiptCommandWithSql = (
       request: command,
     };
 
-    const commandJson = canonicalJson(commandEnvelope);
     const commandDigest = sha256Hex(canonicalJsonBytes(commandEnvelope));
 
     yield* lockAdvisory(sql, AdvisoryLockKey.receiptCommand(command.commandId)).pipe(
@@ -1331,7 +1331,7 @@ const executeAuthorizedReceiptCommandWithSql = (
         command_id, command_sha256, command_json, observation_json,
         receipt_id, committed_at
       ) VALUES (
-        ${command.commandId}, ${commandDigest}, ${sql.json(JSON.parse(commandJson))},
+        ${command.commandId}, ${commandDigest}, ${sql.json(canonicalJsonValue(commandEnvelope))},
         ${sql.json(decision.observation)}, ${decision.receipt.receiptId},
         ${principal.authorizationInstant}
       )

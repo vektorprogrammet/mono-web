@@ -10,7 +10,7 @@ import { Profile } from "@vektorprogrammet/domain/profile";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { normalizeRfc3339Instant, Rfc3339InstantSchema } from "@vektorprogrammet/domain/time";
 import {
-  canonicalJson,
+  canonicalJsonValue,
   canonicalJsonBytes,
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
@@ -555,7 +555,7 @@ const insertReceiptAndAudit = (input: {
         ${input.articleId},
         ${input.kind},
         ${sha256Hex(input.payloadBytes)},
-        ${sql.json(JSON.parse(canonicalJson(input.result)))},
+        ${sql.json(canonicalJsonValue(input.result))},
         date_trunc('milliseconds', now(), 'UTC')
       )
     `.pipe(
