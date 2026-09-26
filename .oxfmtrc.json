@@ -2,6 +2,7 @@
   "ignorePatterns": [
     "/?*",
     "!/.oxfmtrc.json",
+    "!/.agents/",
     "!/AGENTS.md",
     "!/README.md",
     "!/STATE.md",

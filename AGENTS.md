@@ -25,8 +25,6 @@ implemented surface. Local observations do not authorize production action.
 Use [rat-stack](https://ratstack.sh/llms.txt) as the architectural reference.
 Before code changes, search its rules and skills for the affected concern.
 Before simplification, read its [uncomplect skill](https://ratstack.sh/skills/uncomplect).
-Read the installed Effect package's `AGENTS.md`, linked `ai-docs`, and source before Effect changes.
-Check APIs against installed versions, not unrelated examples or newer package copies.
 
 Effect owns effectful work, typed failures, services, and resource cleanup.
 Alchemy owns cloud infrastructure and bindings.
@@ -44,6 +42,29 @@ The PostgreSQL adapter pin preserves `PgClient.fromPool` and the pool shared by 
 Before changing it, inspect the candidate adapter source.
 Verify pool ownership, transaction behavior, and shutdown against PostgreSQL.
 Keep infrastructure dependencies separate from the application catalog.
+
+## Effect first
+
+Before writing TypeScript, read the installed Effect guidance: `node_modules/effect/AGENTS.md`, the `ai-docs` that it links, and the source.
+Check APIs against the installed versions, not unrelated examples or newer package copies.
+Then read the skill `effect-first` and the overlay of this repository, [.agents/skills/effect-house/SKILL.md](.agents/skills/effect-house/SKILL.md).
+The overlay names the constructs, composition roots, test platform, runtime bridges, typed problems, and exception registry of this repository.
+
+Use the first form that expresses the intent:
+
+1. An Effect construct.
+2. A composition of Effect constructs.
+3. A small domain construct built from Effect constructs. Tag it `@construct` when two call sites share it.
+4. A boundary adapter behind a service that returns Effects.
+5. A registered exception.
+
+Keep a total, deterministic calculation a plain function. Do not wrap it in an Effect or a service.
+A suppression of an Effect rule, or a non-native substitute, names its entry in [docs/effect-exceptions.json](docs/effect-exceptions.json). `just exceptions` rejects one that does not.
+
+When the Effect skill tier of `/srv/share/projects` is installed, delegate Effect work to its profiles.
+Use `effect-backend-engineering` for `apps/backend` and the domain, database, and HTTP packages, and `effect-ui-development` for the Foldkit code of `apps/dashboard`.
+Use `effect-library-development` for `packages/sdk` and shared constructs, and `effect-engineering` for other work.
+Each profile reads the overlay above by its path, also when its session starts outside this repository.
 
 ## Commands
 
@@ -128,6 +149,7 @@ Focused Vitest does not prove those additional gates or the dashboard bundle gat
 | `patches`               | Dependency patches that `patchedDependencies` in package.json applies           |
 | `.github`               | Checks, Tests, Docs, and preview workflows and their actions                    |
 | `.claude`               | Claude Code settings and project rules                                          |
+| `.agents`               | Agent skills of the repository: the Effect house overlay                        |
 
 Apps and packages never import `tools/`.
 Context folders in `packages/domain/src`, `packages/database/src`, `apps/backend/src`, and `apps/dashboard/app/foldkit` carry the kebab-case name of a bounded context in [docs/model/contexts.cml](docs/model/contexts.cml).
@@ -147,7 +169,6 @@ Product packages must not import application source.
 - Use Bun as package manager and runtime unless a target requires Node.
 - Use Effect v4 as the application language for effectful code.
 - Push concrete runtimes and vendors into Layer implementations.
-- Use direct functions for total local calculations.
 - Use Schema at external, persistence, and transport boundaries.
 - Infer types from schemas. Do not duplicate interfaces.
 - Use Oxfmt and Oxlint. Do not add another formatter or linter.
