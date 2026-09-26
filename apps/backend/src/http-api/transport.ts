@@ -11,11 +11,16 @@ import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import { CONTACT_BACKEND_HEADER } from "@vektorprogrammet/domain/contact";
 import { Identity } from "@vektorprogrammet/domain/identity";
-import { credentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
+import {
+  credentialPresentation,
+  invitationCapabilityChallenge,
+  Problem,
+} from "@vektorprogrammet/http-api/http-semantics";
 import { Match, Effect, Layer, Redacted, Result, type SchemaIssue } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiError, HttpApiMiddleware } from "effect/unstable/httpapi";
 import {
+  headerCredentialCount,
   resolveAuthenticatedPerson,
   resolveAuthenticatedSession,
   resolveRequestCredentialAtInstant,
@@ -237,13 +242,30 @@ const personOrServiceSecurityLayer = Layer.effect(
   }),
 );
 
+/**
+ * An absent capability names no invitation. A present one is the request's one
+ * credential, so a session cookie or an Authorization header beside it fails
+ * before the capability is read.
+ */
 const invitationCapabilitySecurityLayer = Layer.succeed(
   InvitationCapabilitySecurity,
   InvitationCapabilitySecurity.of({
     invitationCapability: (httpEffect, { credential }) =>
-      Redacted.value(credential).length === 0
-        ? Effect.fail(Problem.make("resource.not-found"))
-        : httpEffect,
+      Effect.gen(function* () {
+        if (Redacted.value(credential).length === 0) {
+          return yield* Problem.make("resource.not-found");
+        }
+
+        const request = yield* HttpServerRequest.HttpServerRequest;
+
+        if (headerCredentialCount(request.headers.cookie, request.headers.authorization) > 0) {
+          return yield* Problem.credentialInvalid(
+            credentialPresentation({ presented: true, challenge: invitationCapabilityChallenge }),
+          );
+        }
+
+        return yield* httpEffect;
+      }),
   }),
 );
 

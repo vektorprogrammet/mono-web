@@ -11,6 +11,7 @@ import {
   CredentialMechanismSchema,
   CapabilityExpressionSchema,
   ConcealmentPolicySchema,
+  RequirementId,
 } from "@vektorprogrammet/domain/authz";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
@@ -117,18 +118,22 @@ export const ClaimOnboardingEndpoint = HttpApiEndpoint.post("claim", "/api/onboa
   .pipe((e) =>
     annotateAccessSpec(
       e,
+      // New-account mode: the token holder is the principal. Existing-account mode: the
+      // session or delegated bearer names the principal, and the token is its requirement.
       makeAccessSpec({
         exposure: "External",
         acceptedCredentials: [
           CredentialMechanismSchema.cases.ObjectCapability.make({
             capabilityType: CapabilityTypeId.make("onboarding.claim"),
           }),
+          CredentialMechanismSchema.cases.BetterAuthCookie.make({}),
+          CredentialMechanismSchema.cases.OAuthUserBearer.make({}),
         ],
-        principalKinds: ["CapabilityHolder"],
+        principalKinds: ["CapabilityHolder", "Person"],
         capabilities: CapabilityExpressionSchema.cases.One.make({
           capability: { type: CapabilityTypeId.make("onboarding.claim") },
         }),
-        requirements: [],
+        requirements: [{ id: RequirementId.make("onboarding.claim-token"), parameters: {} }],
         canonicalScopeResolver: "onboarding.claim",
         concealment: ConcealmentPolicySchema.cases.Reveal.make({}),
         decisionTime: "Transaction",
@@ -138,7 +143,7 @@ export const ClaimOnboardingEndpoint = HttpApiEndpoint.post("claim", "/api/onboa
   .annotateMerge(
     operationAnnotations(
       "Claim applicant account invitation",
-      "A purpose-specific token in the body is required and works once. In new-account mode the token is the one credential, so a session or bearer beside it is rejected. In existing-account mode the authenticated Person is the one principal, and the token must name the claimed invitation.",
+      "The body token is required in both modes and works once. In new-account mode the token is the one credential, so a session cookie or bearer beside it is rejected. In existing-account mode a session cookie or delegated bearer names the one principal, and the token is its requirement onboarding.claim-token: it must name an open invitation.",
     ),
   );
 

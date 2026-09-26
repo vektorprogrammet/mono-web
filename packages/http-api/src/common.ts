@@ -130,7 +130,10 @@ export const RecruitmentInvitationCapability = HttpApiSecurity.apiKey({
   in: "header",
 }).pipe(
   HttpApiSecurity.annotateMerge(
-    OpenApi.annotations({ description: "Opaque invitation response capability." }),
+    OpenApi.annotations({
+      description:
+        "Opaque invitation response capability. It is the request's one credential: a session cookie or bearer beside it is rejected.",
+    }),
   ),
 );
 
@@ -145,6 +148,17 @@ export const InvitationNotFoundResponse = problemStatusResponse(
 );
 
 /**
+ * A capability presented beside a session cookie or bearer. A request presents
+ * one credential, so neither acts.
+ *
+ * @since 0.2.0
+ * @category Schemas
+ */
+export const InvitationSecondCredentialResponse = problemStatusResponse(
+  problemUnion("InvitationSecondCredentialProblem", ["credential.invalid"]),
+);
+
+/**
  * Contract security marker for invitation-capability operations.
  *
  * @since 0.1.0
@@ -154,7 +168,7 @@ export class InvitationCapabilitySecurity extends HttpApiMiddleware.Service<Invi
   "@vektorprogrammet/http-api/InvitationCapabilitySecurity",
   {
     security: { invitationCapability: RecruitmentInvitationCapability },
-    error: InvitationNotFoundResponse,
+    error: [InvitationNotFoundResponse, InvitationSecondCredentialResponse],
   },
 ) {}
 

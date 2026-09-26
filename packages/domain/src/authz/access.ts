@@ -199,6 +199,7 @@ export const REQUIREMENT_IDS = [
   "profile.owner",
   "organization.single-department-leader",
   "organization.single-department-member",
+  "onboarding.claim-token",
   "recruitment.interviewer-eligible",
   "recruitment.assigned-interviewer-or-leader",
   "recruitment.assigned-interviewer",
@@ -644,6 +645,12 @@ export const REQUIREMENT_TYPES = {
     GenericRequirementContextSchema,
     personListedBy("departmentMemberPersonIds"),
   ),
+  // The claim link is usable: the invitation it names is open, unexpired, and not yet linked.
+  "onboarding.claim-token": registration(
+    ["onboarding.claim"],
+    GenericRequirementContextSchema,
+    stateIs("Open"),
+  ),
   "recruitment.interviewer-eligible": registration(
     ["recruitment.application-by-id"],
     GenericRequirementContextSchema,
@@ -789,6 +796,7 @@ const resolverRequirements: Partial<
   "identity.owned-sessions": ["sessions.owner"],
   "identity.session-by-id": ["sessions.owner"],
   "profile.current-person": ["profile.owner"],
+  "onboarding.claim": ["onboarding.claim-token"],
   "recruitment.invitation-response-by-capability": ["recruitment.invitation-pending"],
   "recruitment.application-assignments": ["organization.single-department-leader"],
   "recruitment.interview-report": ["organization.single-department-leader"],

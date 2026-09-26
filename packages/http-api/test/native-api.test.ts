@@ -284,10 +284,11 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     "/api/onboarding/claim",
     "onboarding.claim",
     expectedAccess({
-      credentials: ["ObjectCapability"],
-      principals: ["CapabilityHolder"],
+      credentials: ["BetterAuthCookie", "OAuthUserBearer", "ObjectCapability"],
+      principals: ["Person", "CapabilityHolder"],
       capability: "onboarding.claim",
       resolver: "onboarding.claim",
+      requirements: ["onboarding.claim-token"],
       decisionTime: "Transaction",
     }),
   ],
@@ -1180,10 +1181,11 @@ describe("native API reflection", () => {
     );
   });
 
-  it("documents mandatory body proof and conditional Person proof without inventing a header scheme", () => {
+  it("declares the body token and the existing-account Person credential without inventing a header scheme", () => {
     const spec = OpenApi.fromApi(ExternalNativeApi);
     const claim = spec.paths["/api/onboarding/claim"]!.post!;
-    expect(claim.security).toEqual([]);
+    // New-account mode needs no HTTP scheme; existing-account mode needs a session or bearer.
+    expect(claim.security).toEqual([{}, { cookieHeader: [] }, { oauthUserBearer: [] }]);
     expect(claim).toHaveProperty("x-vektor-body-capability",{
       type: "onboarding.claim",
       pointer: "/token",
@@ -1195,9 +1197,10 @@ describe("native API reflection", () => {
       mechanisms: ["BetterAuthCookie", "OAuthUserBearer"],
     });
     expect(claim).toMatchObject({ "x-vektor-access": {
-      acceptedCredentials: ["ObjectCapability"],
-      principalKinds: ["CapabilityHolder"],
+      acceptedCredentials: ["BetterAuthCookie", "OAuthUserBearer", "ObjectCapability"],
+      principalKinds: ["Person", "CapabilityHolder"],
       capabilities: { one: "onboarding.claim" },
+      requirements: [{ id: "onboarding.claim-token" }],
     } });
 
     const body = Schema.decodeUnknownSync(Schema.Struct({ content: Schema.Struct({ "application/json": Schema.Struct({ schema: Schema.Struct({ anyOf: Schema.Array(Schema.Struct({ required: Schema.Array(Schema.String) })) }) }) }) }))(claim.requestBody);

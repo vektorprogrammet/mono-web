@@ -215,14 +215,15 @@ type CapabilityTypeValue = (typeof CAPABILITY_TYPE_IDS)[number];
 
 const capabilityTypeValue = (id: CapabilityTypeId): CapabilityTypeValue => id;
 
+/**
+ * A capability carried in the request body. It needs no HTTP security scheme. When the
+ * body member at `personCredentialWhen` has the given value, the operation also requires
+ * the Person credential its AccessSpec accepts.
+ */
 type BodyCapabilityProjection = {
   readonly bodyPointer: string;
   readonly required: true;
-  readonly conditionalCredential: {
-    readonly when: { readonly pointer: string; readonly equals: string };
-    readonly principalKind: "Person";
-    readonly mechanisms: ReadonlyArray<"BetterAuthCookie" | "OAuthUserBearer">;
-  };
+  readonly personCredentialWhen: { readonly pointer: string; readonly equals: string };
 };
 
 const objectCapabilitySecurityScheme: Partial<
@@ -232,11 +233,7 @@ const objectCapabilitySecurityScheme: Partial<
   "onboarding.claim": {
     bodyPointer: "/token",
     required: true,
-    conditionalCredential: {
-      when: { pointer: "/mode", equals: "ExistingAccount" },
-      principalKind: "Person",
-      mechanisms: ["BetterAuthCookie", "OAuthUserBearer"],
-    },
+    personCredentialWhen: { pointer: "/mode", equals: "ExistingAccount" },
   },
   "recruitment.invitation-response": "invitationCapability",
 };
@@ -305,12 +302,22 @@ export const projectCredentialSecurity = (spec: AccessSpec): OpenApiSecurityProj
       throw new TypeError("None cannot be combined with another credential mechanism");
     }
 
-    return scheme === null ? [] : [{ [scheme]: [] }];
+    // A body capability is the alternative that needs no HTTP security scheme.
+    return scheme === null ? [{}] : [{ [scheme]: [] }];
   });
 };
 
 export const accessSpecAnnotations = (input: AccessSpec): Context.Context<AccessSpec> => {
   const spec = makeAccessSpec(input);
+
+  const personMechanisms = spec.acceptedCredentials
+    .filter(
+      (mechanism) =>
+        Predicate.isTagged(mechanism, "BetterAuthCookie") ||
+        Predicate.isTagged(mechanism, "OAuthUserBearer"),
+    )
+    .map((mechanism) => mechanism._tag)
+    .sort(compareByRegistry(CREDENTIAL_MECHANISM_KINDS));
 
   return Context.merge(
     Context.make(AccessSpecAnnotation, spec),
@@ -325,19 +332,32 @@ export const accessSpecAnnotations = (input: AccessSpec): Context.Context<Access
             const projection =
               objectCapabilitySecurityScheme[capabilityTypeValue(mechanism.capabilityType)];
 
-            return Predicate.isObjectOrArray(projection)
-              ? [
-                  [
-                    "x-vektor-body-capability",
-                    {
-                      type: mechanism.capabilityType,
-                      pointer: projection.bodyPointer,
-                      required: projection.required,
-                    },
-                  ],
-                  ["x-vektor-conditional-credential", projection.conditionalCredential],
-                ]
-              : [];
+            if (!Predicate.isObjectOrArray(projection)) return [];
+
+            if (personMechanisms.length === 0) {
+              throw new TypeError(
+                `body capability ${mechanism.capabilityType} requires a Person credential its AccessSpec does not accept`,
+              );
+            }
+
+            return [
+              [
+                "x-vektor-body-capability",
+                {
+                  type: mechanism.capabilityType,
+                  pointer: projection.bodyPointer,
+                  required: projection.required,
+                },
+              ],
+              [
+                "x-vektor-conditional-credential",
+                {
+                  when: projection.personCredentialWhen,
+                  principalKind: "Person",
+                  mechanisms: personMechanisms,
+                },
+              ],
+            ];
           }),
         ),
       },
