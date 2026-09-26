@@ -18,7 +18,7 @@ Consumers are the modules that import a construct, directly or through re-export
 | [worker](#worker)                 | 1          | Runs background workers on the Effect clock.                                                                                                |
 | [pagination](#pagination)         | 4          | Keyset cursors and pages over ordered PostgreSQL reads.                                                                                     |
 | [digest](#digest)                 | 4          | Canonical JSON and SHA-256 digests that evidence and idempotency identities hash.                                                           |
-| [test-harness](#test-harness)     | 9          | Starts and drives disposable infrastructure for tests, proofs, and journeys: PostgreSQL clusters, loopback ports, and the local backend.    |
+| [test-harness](#test-harness)     | 11         | Starts and drives disposable infrastructure for tests, proofs, and journeys: PostgreSQL clusters, loopback ports, and the local backend.    |
 
 ## http-transport
 
@@ -1001,6 +1001,24 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [apps/dashboard/e2e/run-real-receipt-owner.mjs](../apps/dashboard/e2e/run-real-receipt-owner.mjs)
   - [apps/homepage/e2e/run-real-public-applicant-admission.mjs](../apps/homepage/e2e/run-real-public-applicant-admission.mjs)
   - [tools/acceptance/substitute-outcome-check.ts](../tools/acceptance/substitute-outcome-check.ts)
+- `journeyClock`: A journey clock at a reference instant that the caller pins.
+  [tools/e2e/journey-clock.ts:32](../tools/e2e/journey-clock.ts#L32), 7 consumers:
+  - [apps/dashboard/e2e/dashboard-list-type-boundary.spec.ts](../apps/dashboard/e2e/dashboard-list-type-boundary.spec.ts)
+  - [apps/dashboard/e2e/run-real-interview-response.mjs](../apps/dashboard/e2e/run-real-interview-response.mjs)
+  - [apps/dashboard/e2e/run-real-native-receipt-settlement.mjs](../apps/dashboard/e2e/run-real-native-receipt-settlement.mjs)
+  - [apps/dashboard/e2e/run-real-native-recruitment-interview-scheduling.mjs](../apps/dashboard/e2e/run-real-native-recruitment-interview-scheduling.mjs)
+  - [tools/verification/application-worker.test.ts](../tools/verification/application-worker.test.ts)
+  - [tools/verification/current-assignment-cohort-rehearsal.ts](../tools/verification/current-assignment-cohort-rehearsal.ts)
+  - [tools/verification/organization-import-rehearsal.ts](../tools/verification/organization-import-rehearsal.ts)
+- `admissionJourneyClock`: The backend's admission clock: ADMISSION_FIXED_NOW when the runner pins one, otherwise the current time.
+  [tools/e2e/journey-clock.ts:52](../tools/e2e/journey-clock.ts#L52), 7 consumers:
+  - [apps/dashboard/e2e/native-conduct-journey-seed.mjs](../apps/dashboard/e2e/native-conduct-journey-seed.mjs)
+  - [apps/dashboard/e2e/native-recruitment-journey-seed.mjs](../apps/dashboard/e2e/native-recruitment-journey-seed.mjs)
+  - [apps/dashboard/e2e/real-interview-response.spec.ts](../apps/dashboard/e2e/real-interview-response.spec.ts)
+  - [tools/acceptance/applicant-progress-0107.ts](../tools/acceptance/applicant-progress-0107.ts)
+  - [tools/acceptance/co-interviewer-correction-0106.ts](../tools/acceptance/co-interviewer-correction-0106.ts)
+  - [tools/acceptance/returning-assistant-journey.ts](../tools/acceptance/returning-assistant-journey.ts)
+  - [tools/e2e/placement-check.ts](../tools/e2e/placement-check.ts)
 - `localBackendEnvironment`: The environment of a disposable local native backend for one composition.
   [tools/e2e/local-backend-environment.ts:25](../tools/e2e/local-backend-environment.ts#L25), 8 consumers:
   - [apps/dashboard/e2e/run-real-admission-period-management.mjs](../apps/dashboard/e2e/run-real-admission-period-management.mjs)

@@ -14,6 +14,7 @@ import {
 import { assertInterviewCorrectionIntegrity } from "./interview-correction-integrity.ts";
 import type { CoInterviewerCorrection0106Fixture } from "./recommendation-preupgrade-fixture.ts";
 import { Predicate, Schema } from "effect";
+import { admissionJourneyClock } from "../e2e/journey-clock.ts";
 
 type CorrectionRequestHeaders = {
   origin: string;
@@ -653,7 +654,8 @@ export async function runCoInterviewerCorrectionJourney(
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          scheduledAt: "2031-09-23T10:00:00.000Z",
+          // A schedule ahead of the backend's clock, so that only authority denies the command.
+          scheduledAt: admissionJourneyClock().fromNow(7),
           room: "Denied co-interviewer room",
           campus: "Gløshaugen",
           mapLink: "https://maps.example.invalid/co-interviewer-denied-0106",

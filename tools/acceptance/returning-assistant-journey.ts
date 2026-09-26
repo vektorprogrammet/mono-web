@@ -28,6 +28,7 @@ import {
 } from "../../packages/domain/src/application/schema.js";
 import { DepartmentId } from "../../packages/domain/src/organization/schema.js";
 import { Match, Predicate, Schema } from "effect";
+import { admissionJourneyClock } from "../e2e/journey-clock.ts";
 
 const person = {
   personId: "journey-returning-assistant-0104",
@@ -101,14 +102,7 @@ const foreignTeamId = "team-returning-foreign-0104";
 // The backend's admission clock: ADMISSION_FIXED_NOW when the runner pins one, otherwise the
 // current time. The conduct seed derives its semester, period, and interviews from the same
 // instant, so every instant below stays coherent with those windows.
-const journeyNow = Date.parse(process.env.ADMISSION_FIXED_NOW ?? new Date().toISOString());
-
-if (!Number.isFinite(journeyNow)) {
-  throw new Error("ADMISSION_FIXED_NOW must be an RFC 3339 instant");
-}
-
-const fromJourneyNow = (days: number, minutes = 0) =>
-  new Date(journeyNow + days * 86_400_000 + minutes * 60_000).toISOString();
+const { fromNow: fromJourneyNow } = admissionJourneyClock();
 
 // The next semester and period open one day after the conduct period opens and stay open
 // after it ends.

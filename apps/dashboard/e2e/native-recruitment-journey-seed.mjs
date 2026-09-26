@@ -28,6 +28,7 @@ import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { admissionJourneyClock } from "../../../tools/e2e/journey-clock.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -96,15 +97,7 @@ const interviewSchemaId = "interview-schema-native-journey-0049";
 // The backend's admission clock: ADMISSION_FIXED_NOW when the runner pins one, otherwise
 // the current time. Every window below is relative to it, so the admission period is open
 // whenever the journey runs.
-const journeyNow = Date.parse(process.env.ADMISSION_FIXED_NOW ?? new Date().toISOString());
-
-if (!Number.isFinite(journeyNow)) {
-  throw new Error("ADMISSION_FIXED_NOW must be an RFC 3339 instant");
-}
-
-const daysFromJourneyNow = (days) => new Date(journeyNow + days * 86_400_000).toISOString();
-
-const journeyInstant = daysFromJourneyNow(0);
+const { now: journeyInstant, fromNow: daysFromJourneyNow } = admissionJourneyClock();
 
 const membershipStartAt = daysFromJourneyNow(-60);
 

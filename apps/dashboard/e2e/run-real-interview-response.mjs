@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
+import { journeyClock } from "../../../tools/e2e/journey-clock.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -44,7 +45,11 @@ const commandTimeoutMs = 300_000;
 
 const shutdownTimeoutMs = 5_000;
 
-const fixedClock = "2031-09-15T12:00:00.000Z";
+// The backend's fixed admission clock. The semester, the admission period, and the schedules
+// derive from it; an offset of -720 minutes lands on midnight UTC.
+const clock = journeyClock("2031-09-15T12:00:00.000Z");
+
+const fixedClock = clock.now;
 
 const responseDeliveredAt = "2031-09-15T12:01:00.000Z";
 
@@ -86,7 +91,7 @@ const responseCases = [
     applicantName: "Ada Aksept",
     applicantEmail: "ada.aksept@example.invalid",
     applicantPhone: "90000511",
-    scheduledAt: "2031-09-20T13:30:00.000Z",
+    scheduledAt: clock.fromNow(5, 90),
     room: "R-051A",
     campus: "Gløshaugen",
     mapLink: "https://maps.example.invalid/invitation-response-accepted-0051",
@@ -107,7 +112,7 @@ const responseCases = [
     applicantName: "Rita Avslag",
     applicantEmail: "rita.avslag@example.invalid",
     applicantPhone: "90000512",
-    scheduledAt: "2031-09-20T14:30:00.000Z",
+    scheduledAt: clock.fromNow(5, 150),
     room: "R-051B",
     campus: "Gløshaugen",
     mapLink: "https://maps.example.invalid/invitation-response-rejected-0051",
@@ -128,7 +133,7 @@ const responseCases = [
     applicantName: "Nora Ny Tid",
     applicantEmail: "nora.ny.tid@example.invalid",
     applicantPhone: "90000513",
-    scheduledAt: "2031-09-20T15:30:00.000Z",
+    scheduledAt: clock.fromNow(5, 210),
     room: "R-051C",
     campus: "Gløshaugen",
     mapLink: "https://maps.example.invalid/invitation-response-requested-new-time-0051",
@@ -171,12 +176,12 @@ BEGIN;
 INSERT INTO admission_period_departments (department_id, name)
 VALUES ('${departmentId}', 'Trondheim');
 INSERT INTO admission_period_semesters (semester_id, start_at, end_at)
-VALUES ('${semesterId}', '2031-08-01T00:00:00.000Z', '2032-01-01T00:00:00.000Z');
+VALUES ('${semesterId}', '${clock.fromNow(-45, -720)}', '${clock.fromNow(108, -720)}');
 INSERT INTO admission_periods (
   admission_period_id, department_id, semester_id, start_at, end_at, revision, last_command_id
 ) VALUES (
   '${admissionPeriodId}', '${departmentId}', '${semesterId}',
-  '2031-09-01T00:00:00.000Z', '2031-10-01T00:00:00.000Z', 0,
+  '${clock.fromNow(-14, -720)}', '${clock.fromNow(16, -720)}', 0,
   'admission-period-native-invitation-response-seed-0051'
 );
 INSERT INTO admission_period_fields_of_study (
@@ -2217,6 +2222,8 @@ async function main() {
       INVITATION_RESPONSE_E2E_MEMBER_EMAIL: interviewerEmail,
       INVITATION_RESPONSE_E2E_MEMBER_PASSWORD: personaPassword,
       INVITATION_RESPONSE_E2E_BROWSER_EVIDENCE_PATH: browserEvidencePath,
+      // The spec derives the schedules from the same clock.
+      ADMISSION_FIXED_NOW: fixedClock,
     };
 
     await runCommand("bun", ["run", "build"], {

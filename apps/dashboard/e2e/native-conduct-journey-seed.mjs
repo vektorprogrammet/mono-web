@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { admissionJourneyClock } from "../../../tools/e2e/journey-clock.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -59,14 +60,7 @@ const invitationB = "invitation-native-conduct-b-0063";
 // The backend's admission clock: ADMISSION_FIXED_NOW when the runner pins one, otherwise
 // the current time. Every instant below is relative to it: the semester and the admission
 // period are current, and both interviews were assigned, accepted, and held in the days before.
-const journeyNow = Date.parse(process.env.ADMISSION_FIXED_NOW ?? new Date().toISOString());
-
-if (!Number.isFinite(journeyNow)) {
-  throw new Error("ADMISSION_FIXED_NOW must be an RFC 3339 instant");
-}
-
-const fromJourneyNow = (days, minutes = 0) =>
-  new Date(journeyNow + days * 86_400_000 + minutes * 60_000).toISOString();
+const { fromNow: fromJourneyNow } = admissionJourneyClock();
 
 const semesterStartAt = fromJourneyNow(-60);
 

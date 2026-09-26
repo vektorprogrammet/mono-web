@@ -19,6 +19,7 @@ import { chromium } from "@playwright/test";
 import { createPromiseClient } from "@vektorprogrammet/sdk";
 
 import { dashboardMount } from "../dashboard-base.ts";
+import { journeyClock } from "../../../tools/e2e/journey-clock.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -1411,7 +1412,8 @@ async function main() {
         externalAuthority: "External settlement authority",
         expectedRevision: duplicateCandidate.revision,
         externalReference: "future-settlement-reference-0114",
-        settledAt: "2099-01-01T00:00:00.000Z",
+        // A year after the run, so the backend's record always lies before it.
+        settledAt: journeyClock(new Date().toISOString()).fromNow(365),
       },
     );
 

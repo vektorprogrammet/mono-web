@@ -12,6 +12,7 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { journeyClock } from "../../../tools/e2e/journey-clock.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -53,7 +54,12 @@ const commandTimeoutMs = 300_000;
 
 const shutdownTimeoutMs = 5_000;
 
-const fixedClock = new Date(Date.now() + 5 * 60_000).toISOString();
+// The backend's admission clock, five minutes after the runner starts. The semester, the
+// admission period, the application, and the assignment lie around it and the schedule lies
+// ahead of it, so the journey does not depend on a calendar date.
+const clock = journeyClock(new Date(Date.now() + 5 * 60_000).toISOString());
+
+const fixedClock = clock.now;
 
 const departmentId = "department-native-scheduling-0050";
 
@@ -90,7 +96,7 @@ const personaPassword = "native-scheduling-0050-secret-0123456789";
 const betterAuthSecret = randomBytes(32).toString("base64url");
 
 const schedule = {
-  scheduledAt: "2031-09-20T13:30:00.000Z",
+  scheduledAt: clock.fromNow(7),
   room: "K-101",
   campus: "Gløshaugen",
   mapLink: "https://maps.example.invalid/native-scheduling-0050",
@@ -112,12 +118,12 @@ BEGIN;
 INSERT INTO admission_period_departments (department_id, name)
 VALUES ('${departmentId}', 'Trondheim');
 INSERT INTO admission_period_semesters (semester_id, start_at, end_at)
-VALUES ('${semesterId}', '2031-08-01T00:00:00.000Z', '2032-01-01T00:00:00.000Z');
+VALUES ('${semesterId}', '${clock.fromNow(-60)}', '${clock.fromNow(120)}');
 INSERT INTO admission_periods (
   admission_period_id, department_id, semester_id, start_at, end_at, revision, last_command_id
 ) VALUES (
   '${admissionPeriodId}', '${departmentId}', '${semesterId}',
-  '2031-09-01T00:00:00.000Z', '2031-10-01T00:00:00.000Z', 0,
+  '${clock.fromNow(-30)}', '${clock.fromNow(30)}', 0,
   'admission-period-native-scheduling-seed-0050'
 );
 INSERT INTO admission_period_fields_of_study (
@@ -135,7 +141,7 @@ INSERT INTO admission_applications (
   field_of_study_id, year_of_study, submitted_at, revision
 ) VALUES (
   '${applicationId}', '${applicantId}', '${admissionPeriodId}', '${departmentId}',
-  '${fieldOfStudyId}', 3, '2031-09-10T10:00:00.000Z', 0
+  '${fieldOfStudyId}', 3, '${clock.fromNow(-21)}', 0
 );
 INSERT INTO organization_departments (
   department_id, name, short_name, email, city, active, independent, revision
@@ -188,7 +194,7 @@ INSERT INTO recruitment_interviews (
   interview_schema_id, assigned_by_person_id, assigned_at, revision
 ) VALUES (
   '${interviewId}', '${applicationId}', '${departmentId}', '${interviewerPersonId}',
-  '${interviewSchemaId}', '${actorPersonId}', '2031-09-12T09:00:00.000Z', 0
+  '${interviewSchemaId}', '${actorPersonId}', '${clock.fromNow(-7)}', 0
 );
 COMMIT;
 `;
@@ -1161,6 +1167,7 @@ async function main() {
       SCHEDULING_E2E_INTERVIEWER_PASSWORD: personaPassword,
       SCHEDULING_E2E_APPLICANT_NAME: applicantName,
       SCHEDULING_E2E_INTERVIEWER_NAME: interviewerName,
+      SCHEDULING_E2E_SCHEDULED_AT: schedule.scheduledAt,
       SCHEDULING_E2E_BROWSER_EVIDENCE_PATH: browserEvidencePath,
       BACKEND_PG_URL: postgresUrl,
       SCHEDULING_RECORDING_EVIDENCE_PATH: recordingEvidencePath,

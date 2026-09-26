@@ -14,6 +14,8 @@ The package has no `exports`, so other packages do not import it.
 The shared constructs defined here. [docs/constructs.md](../../docs/constructs.md) lists their consumers.
 
 - [`reserveLoopbackPorts`](golden-harness.ts) (test-harness): The golden journeys' port reservation for runners that do not run inside the harness.
+- [`journeyClock`](journey-clock.ts) (test-harness): A journey clock at a reference instant that the caller pins.
+- [`admissionJourneyClock`](journey-clock.ts) (test-harness): The backend's admission clock: ADMISSION_FIXED_NOW when the runner pins one, otherwise the current time.
 - [`localBackendEnvironment`](local-backend-environment.ts) (test-harness): The environment of a disposable local native backend for one composition.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.

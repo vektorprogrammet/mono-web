@@ -8,8 +8,8 @@ const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5174"
 
 const REAL_NATIVE_SCHEDULING_E2E = process.env.REAL_NATIVE_SCHEDULING_E2E === "1";
 
+// The runner derives the instant from the backend's clock and passes it as SCHEDULING_E2E_SCHEDULED_AT.
 const SCHEDULE = {
-  scheduledAt: "2031-09-20T13:30:00.000Z",
   room: "K-101",
   campus: "Gløshaugen",
   mapLink: "https://maps.example.invalid/native-scheduling-0050",
@@ -91,6 +91,7 @@ test.describe("Native recruitment interview scheduling", () => {
     const applicantName = requiredEnvironment("SCHEDULING_E2E_APPLICANT_NAME");
     const interviewerName = requiredEnvironment("SCHEDULING_E2E_INTERVIEWER_NAME");
     const evidencePath = requiredEnvironment("SCHEDULING_E2E_BROWSER_EVIDENCE_PATH");
+    const scheduledAt = requiredEnvironment("SCHEDULING_E2E_SCHEDULED_AT");
     const bridgeOperations: string[] = [];
     const legacyBrowserRequests: string[] = [];
     const bearerRequests: string[] = [];
@@ -151,7 +152,7 @@ test.describe("Native recruitment interview scheduling", () => {
       await expect(
         dialog.getByRole("heading", { name: `Planlegg intervju med ${applicantName}` }),
       ).toBeVisible();
-      await dialog.getByLabel("Tidspunkt").fill(SCHEDULE.scheduledAt);
+      await dialog.getByLabel("Tidspunkt").fill(scheduledAt);
       await dialog.getByLabel("Rom").fill(SCHEDULE.room);
       await dialog.getByLabel("Campus").fill(SCHEDULE.campus);
       await dialog.getByLabel("Kartlenke").fill(SCHEDULE.mapLink);
@@ -259,7 +260,7 @@ test.describe("Native recruitment interview scheduling", () => {
           interviewer: interviewerSessionCookieNames,
         },
         bearerTokenInjected: bearerRequests.length > 0,
-        expectedSchedule: SCHEDULE,
+        expectedSchedule: { ...SCHEDULE, scheduledAt },
         accessibilityViolations: 0,
         pageErrors,
         rawCapabilityObserved: false,

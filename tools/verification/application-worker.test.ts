@@ -11,10 +11,15 @@ import { DatabaseTest } from "@vektorprogrammet/database/live";
 import { executePublicApplicationCommand } from "@vektorprogrammet/database/application";
 import { makeControlledTestRuntime } from "../../packages/database/test/runtime.js";
 import { runPublicApplicationOutboxWorker } from "@vektorprogrammet/backend/application/worker";
+import { journeyClock } from "../e2e/journey-clock.js";
 
 const runtime = makeControlledTestRuntime(DatabaseTest());
 
 afterAll(() => runtime.dispose());
+
+// The command's clock. The semester and the admission period are open around it, and the worker
+// runs one minute later; an offset of -721 minutes lands on midnight UTC.
+const commandClock = journeyClock("2031-09-15T12:01:00.000Z");
 
 const outboxReferenceFixture = Effect.gen(function* () {
   const database = yield* Database;
@@ -25,8 +30,8 @@ const outboxReferenceFixture = Effect.gen(function* () {
     INSERT INTO admission_period_semesters (semester_id, start_at, end_at)
     VALUES (
       'outbox-semester',
-      '2031-08-01T00:00:00.000Z',
-      '2031-12-31T00:00:00.000Z'
+      '${commandClock.fromNow(-45, -721)}',
+      '${commandClock.fromNow(107, -721)}'
     )
   `);
   yield* database.unsafe(`
@@ -47,8 +52,8 @@ const outboxReferenceFixture = Effect.gen(function* () {
       'outbox-period',
       'outbox-department',
       'outbox-semester',
-      '2031-09-01T00:00:00.000Z',
-      '2031-10-01T00:00:00.000Z',
+      '${commandClock.fromNow(-14, -721)}',
+      '${commandClock.fromNow(16, -721)}',
       0,
       'outbox-period-seed'
     )
@@ -88,7 +93,7 @@ describe("public application delivery worker", () => {
               },
             },
             {
-              now: "2031-09-15T12:01:00.000Z",
+              now: commandClock.now,
               applicantId: ApplicantIdSchema.make("worker-applicant"),
               applicationId: PublicApplicationIdSchema.make("worker-application"),
               activationToken: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq",
@@ -121,7 +126,7 @@ describe("public application delivery worker", () => {
           };
 
           const fiber = yield* Effect.forkScoped(
-            TestClock.setTime(Date.parse("2031-09-15T12:02:00.000Z")).pipe(
+            TestClock.setTime(Date.parse(commandClock.fromNow(0, 1))).pipe(
               Effect.andThen(
                 runPublicApplicationOutboxWorker(interpreter, {
                   workerId: "database-test-worker",
