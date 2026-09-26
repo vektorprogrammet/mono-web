@@ -270,7 +270,6 @@ export default defineConfig({
       // Raw node-postgres files, pending Effect-SQL migration. Remove an entry when its file
       // moves to Effect SQL and lockAdvisory; do not add a raw-pg twin of the construct.
       files: [
-        "apps/dashboard/e2e/run-real-native-school-survey.mjs",
         "packages/database/runtime/service-principal-grants-postgres-tracer-main.ts",
         "packages/database/src/historical-service-cohort.ts",
         "packages/database/src/identity-cohort.ts",

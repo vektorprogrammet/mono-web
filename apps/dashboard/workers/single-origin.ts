@@ -5,7 +5,7 @@
  * This module has no Cloudflare types and does no I/O. It decides where a
  * request goes and how a backend redirect maps onto the public origin. A future
  * single-origin edge adapter composes it with its own application bindings and
- * backend transport, and the school-survey runner composes it locally.
+ * backend transport.
  *
  * It lives in the dashboard because the dashboard owns the route families that
  * leave the homepage, and this directory already holds the dashboard's edge code.
@@ -50,9 +50,7 @@ const DASHBOARD_ROUTE_FAMILIES = {
   profile: true,
   recruitment: true,
   "social-events": true,
-  surveys: true,
   "tilbakestill-passord": true,
-  undersokelse: true,
 } as const satisfies Record<string, true>;
 
 const SINGLE_FETCH_SUFFIX = ".data";

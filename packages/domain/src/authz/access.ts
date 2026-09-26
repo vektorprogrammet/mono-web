@@ -140,7 +140,6 @@ export const DOMAIN_IDS = {
   recruitment: true,
   schools: true,
   "social-events": true,
-  surveys: true,
   "team-applications": true,
   system: true,
 } as const;
@@ -173,7 +172,6 @@ export const RESOURCE_KINDS = {
   "recruitment-interview": true,
   receipt: true,
   "content-article": true,
-  "school-survey": true,
 } as const;
 
 export const RESOURCE_KIND_VALUES = Record.keys(RESOURCE_KINDS);
@@ -283,14 +281,6 @@ export const SCOPE_RESOLVER_IDS = [
   "social-events.scope",
   "social-events.list",
   "social-events.create",
-  "surveys.form",
-  "surveys.response-create",
-  "surveys.admin-catalog",
-  "surveys.admin-list",
-  "surveys.admin-create",
-  "surveys.admin-close",
-  "surveys.admin-results",
-  "surveys.admin-results-export",
   "team-applications.public-intake",
   "team-applications.public-intakes",
   "team-applications.application-create",

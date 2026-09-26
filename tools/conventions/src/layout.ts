@@ -82,11 +82,6 @@ export interface FolderException {
   readonly reason: string;
 }
 
-const surveys = {
-  reason:
-    "Native school surveys. Surveys stay in Google Forms (operator decision 2026-09-25), so this code awaits retirement.",
-} satisfies FolderException;
-
 const substitutes = {
   context: "Placements",
   reason: "Absence and coverage records, which the CML keeps in Placements.",
@@ -124,7 +119,6 @@ export const contextLayers = {
     profile: { context: "People", reason: "Person profiles under their older name." },
     receipt: { context: "Economy", reason: "Expense claims under their older name." },
     substitutes,
-    surveys,
     "team-application": teamApplication,
     tutor: {
       reason:
@@ -142,7 +136,6 @@ export const contextLayers = {
     profile: { context: "People", reason: "Profile persistence under its older name." },
     receipt: { context: "Economy", reason: "Expense claim persistence under its older name." },
     substitutes,
-    surveys,
     "team-application": teamApplication,
     "test-support": {
       reason: "Disposable PostgreSQL fixtures and statement observers for tests and proofs.",
@@ -165,7 +158,6 @@ export const contextLayers = {
     profile: { context: "People", reason: "Profile HTTP handlers under their older name." },
     receipt: { context: "Economy", reason: "Expense claim HTTP handlers and private files." },
     substitutes,
-    surveys,
     "team-application": teamApplication,
     test: { reason: "Native HTTP composition for backend tests." },
   },
@@ -179,7 +171,6 @@ export const contextLayers = {
       reason: "Questionnaire and interview staffing maintenance.",
     },
     scheduling: { context: "Recruitment", reason: "Interview scheduling." },
-    surveys,
   },
 } satisfies Readonly<Record<string, Readonly<Record<string, FolderException>>>>;
 

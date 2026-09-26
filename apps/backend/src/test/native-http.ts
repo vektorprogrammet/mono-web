@@ -10,7 +10,6 @@ import {
   Schools,
   Recruitment,
   SocialEvents,
-  SchoolSurveys,
   Mail,
   ServicePrincipalGrantAuthority,
 } from "@vektorprogrammet/domain";
@@ -36,10 +35,8 @@ import {
   ReceiptsApi,
   RecruitmentApi,
   RequestSchemaErrorMiddleware,
-  SchoolSurveysApi,
   TeamApplicationsApi,
 } from "@vektorprogrammet/http-api";
-import { SchoolSurveysApiHandlers } from "../surveys/http.js";
 import { TeamApplicationsApiHandlers } from "../team-application/http.js";
 import { Context, Effect, Layer, Option, type FileSystem, type Path } from "effect";
 import { Etag, HttpRouter, HttpServerResponse, type HttpPlatform } from "effect/unstable/http";
@@ -128,10 +125,6 @@ const contentContract = HttpApi.make("external-native-api")
   .add(ContentApi)
   .middleware(RequestSchemaErrorMiddleware);
 
-const schoolSurveysContract = HttpApi.make("external-native-api")
-  .add(SchoolSurveysApi)
-  .middleware(RequestSchemaErrorMiddleware);
-
 const teamApplicationsContract = HttpApi.make("external-native-api")
   .add(TeamApplicationsApi)
   .middleware(RequestSchemaErrorMiddleware);
@@ -153,7 +146,6 @@ type BackendTestServices =
   | Content
   | ContentManagement
   | SocialEvents
-  | SchoolSurveys
   | TeamApplications
   | Mail
   | ReceiptAuxiliaryEffects
@@ -203,7 +195,6 @@ const unimplementedServices = Layer.mergeAll(
   Layer.mock(Content, {}),
   Layer.mock(ContentManagement, {}),
   Layer.mock(SocialEvents, {}),
-  Layer.mock(SchoolSurveys, {}),
   Layer.mock(TeamApplications, {}),
   Layer.mock(Mail, {}),
   Layer.mock(ReceiptAuxiliaryEffects, {}),
@@ -406,16 +397,6 @@ export const makeSchoolsTestHttp = <S extends TestServiceLayer>(
           options,
         ),
       ),
-      Layer.provide(NativeHttpApiMiddlewareLive),
-    ),
-    services,
-  ),
-});
-
-export const makeSchoolSurveysTestHttp = <S extends TestServiceLayer>(services: S) => ({
-  fetch: testFetch(
-    HttpApiBuilder.layer(schoolSurveysContract).pipe(
-      Layer.provide(SchoolSurveysApiHandlers()),
       Layer.provide(NativeHttpApiMiddlewareLive),
     ),
     services,

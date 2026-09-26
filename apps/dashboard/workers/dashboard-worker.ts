@@ -1,4 +1,4 @@
-import { dashboardApplicationRequest, dashboardAssetResponse } from "./asset-dispatch";
+import { dashboardAssetResponse } from "./asset-dispatch";
 import {
   type DashboardPreviewStage,
   isDashboardPreviewHost,
@@ -58,27 +58,11 @@ export const handleDashboardWorkerRequest = async (
     });
   }
 
-  const applicationRequest = dashboardApplicationRequest(request);
-
-  if (applicationRequest !== request) {
-    const url = new URL(applicationRequest.url);
-
-    const redirect = new Response(null, {
-      status: 307,
-      headers: {
-        "Cache-Control": "no-store",
-        Location: `${url.pathname}${url.search}`,
-      },
-    });
-
-    return withPreviewHeaders(redirect, host, stage);
-  }
-
-  const assetResponse = await dashboardAssetResponse(applicationRequest, env.ASSETS);
+  const assetResponse = await dashboardAssetResponse(request, env.ASSETS);
 
   if (assetResponse !== undefined) {
     return withPreviewHeaders(assetResponse, host, stage);
   }
 
-  return withPreviewHeaders(await applicationHandler(applicationRequest), host, stage);
+  return withPreviewHeaders(await applicationHandler(request), host, stage);
 };
