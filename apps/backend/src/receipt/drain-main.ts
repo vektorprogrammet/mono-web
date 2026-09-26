@@ -9,6 +9,7 @@ import {
   recoverStaleReceiptOutbox,
 } from "@vektorprogrammet/database/receipt/postgres";
 import { Config, DateTime, Predicate, Effect, Layer, Redacted, Schema } from "effect";
+import { FetchHttpClient } from "effect/unstable/http";
 import { ReceiptId } from "@vektorprogrammet/domain/receipt";
 import { decodeReceiptApiConfig } from "./config.js";
 import { ReceiptFileStoreLive } from "./filesystem.js";
@@ -45,7 +46,7 @@ const database = DatabaseLive({
 
 const services = Layer.mergeAll(
   database,
-  ReceiptDeliveryLive(config).pipe(Layer.provide(database)),
+  ReceiptDeliveryLive(config).pipe(Layer.provide(Layer.merge(database, FetchHttpClient.layer))),
   ReceiptFileStoreLive(decodeReceiptApiConfig()).pipe(Layer.provide(BunServices.layer)),
 );
 

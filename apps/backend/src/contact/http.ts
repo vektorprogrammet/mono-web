@@ -10,6 +10,7 @@ import { ContactQuotaLive } from "@vektorprogrammet/database/contact";
 import { ExternalNativeApi } from "@vektorprogrammet/http-api";
 import { Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Layer, Match } from "effect";
+import { HttpClient } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import type { ContactConfig } from "./config.js";
 import { deliverJson } from "../delivery/http.js";
@@ -34,22 +35,26 @@ const contactProblems = problemMapper<ContactFailure>()({
 });
 
 const deliveryFor = (config: ContactConfig) =>
-  Layer.succeed(
+  Layer.effect(
     ContactDelivery,
-    ContactDelivery.of({
-      send: (envelope) =>
-        deliverJson(
-          {
-            from: config.sender,
-            to: envelope.to,
-            replyTo: envelope.replyTo,
-            subject: `[Kontaktskjema] ${envelope.subject}`,
-            text: `Navn: ${envelope.name}\nE-post: ${envelope.replyTo}\n\n${envelope.message}`,
-          },
-          config.delivery,
-          globalThis.fetch,
-        ).pipe(Effect.mapError(() => new ContactFailure({ reason: "Unavailable" }))),
-    }),
+    Effect.map(HttpClient.HttpClient, (client) =>
+      ContactDelivery.of({
+        send: (envelope) =>
+          deliverJson(
+            {
+              from: config.sender,
+              to: envelope.to,
+              replyTo: envelope.replyTo,
+              subject: `[Kontaktskjema] ${envelope.subject}`,
+              text: `Navn: ${envelope.name}\nE-post: ${envelope.replyTo}\n\n${envelope.message}`,
+            },
+            config.delivery,
+          ).pipe(
+            Effect.provideService(HttpClient.HttpClient, client),
+            Effect.mapError(() => new ContactFailure({ reason: "Unavailable" })),
+          ),
+      }),
+    ),
   );
 
 /**

@@ -5,7 +5,8 @@ import {
   ReceiptDeliveryUnavailable,
 } from "@vektorprogrammet/domain/receipt";
 import { Predicate, Effect, Layer, Schema } from "effect";
-import { deliverJson, type HttpDeliveryConfig, type DeliveryFetch } from "../delivery/http.js";
+import { HttpClient } from "effect/unstable/http";
+import { deliverJson, type HttpDeliveryConfig } from "../delivery/http.js";
 
 /** The economy notification that the receipt outbox sends to the delivery endpoint. */
 export const ReceiptDeliveryEnvelope = Schema.Struct({
@@ -77,14 +78,12 @@ export const receiptDeliveryConfig = (
 };
 
 /** First-attempt contact snapshot, durable before network IO. Receiver must deduplicate deliveryId. */
-export const ReceiptDeliveryLive = (
-  config: ReceiptDeliveryConfig | undefined,
-  fetchEffect: DeliveryFetch = globalThis.fetch,
-) =>
+export const ReceiptDeliveryLive = (config: ReceiptDeliveryConfig | undefined) =>
   Layer.effect(
     ReceiptAuxiliaryEffects,
     Effect.gen(function* () {
       const sql = yield* Database;
+      const client = yield* HttpClient.HttpClient;
 
       return ReceiptAuxiliaryEffects.of({
         apply: (request, claimId) =>
@@ -203,9 +202,9 @@ export const ReceiptDeliveryLive = (
               }),
             );
 
-            yield* deliverJson(envelope, config.transport, fetchEffect, {
+            yield* deliverJson(envelope, config.transport, {
               "idempotency-key": request.effectId,
-            });
+            }).pipe(Effect.provideService(HttpClient.HttpClient, client));
           }).pipe(
             Effect.catchTags({
               SqlError: () => Effect.die(new Error("Receipt delivery persistence failed")),

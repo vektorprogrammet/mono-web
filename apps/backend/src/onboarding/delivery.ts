@@ -1,7 +1,7 @@
 import { Database } from "@vektorprogrammet/database";
-import { Effect, Schema } from "effect";
+import { Crypto, Effect, Schema } from "effect";
 import { ContactEmail } from "@vektorprogrammet/domain/contact";
-import { deliverJson, type HttpDeliveryConfig, type DeliveryFetch } from "../delivery/http.js";
+import { deliverJson, type HttpDeliveryConfig } from "../delivery/http.js";
 import { pollForever } from "../worker-support.js";
 
 export interface OnboardingDeliveryConfig {
@@ -62,14 +62,13 @@ export const onboardingDeliveryConfig = (
 export const drainOnboardingDelivery = (
   applicationId: string,
   config: OnboardingDeliveryConfig | undefined,
-  fetchEffect: DeliveryFetch = fetch,
 ) =>
   Database.use((sql) =>
     Effect.gen(function* () {
       yield* expireOnboardingSecrets;
 
       if (!config) return "Pending" as const;
-      const claimId = crypto.randomUUID();
+      const claimId = yield* Crypto.Crypto.use((crypto) => crypto.randomUUIDv4).pipe(Effect.orDie);
 
       const selected = yield* sql<{
         invitationId: string;
@@ -103,7 +102,6 @@ export const drainOnboardingDelivery = (
       const delivered = yield* deliverJson(
         yield* Schema.decodeUnknownEffect(Schema.Json)(saved[0]!.envelope),
         config.transport,
-        fetchEffect,
         {
           "idempotency-key": row.invitationId,
         },

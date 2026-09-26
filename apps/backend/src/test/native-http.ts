@@ -21,8 +21,7 @@ import {
 import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
 import { backendDatabase } from "../../test/database.js";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
-import * as BunFileSystem from "@effect/platform-bun/BunFileSystem";
-import * as BunPath from "@effect/platform-bun/BunPath";
+import { TestPlatform } from "./platform.js";
 
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
@@ -37,8 +36,14 @@ import {
   TeamApplicationsApi,
 } from "@vektorprogrammet/http-api";
 import { TeamApplicationsApiHandlers } from "../team-application/http.js";
-import { Context, Effect, Layer, Option, type FileSystem, type Path } from "effect";
-import { Etag, HttpRouter, HttpServerResponse, type HttpPlatform } from "effect/unstable/http";
+import { Context, Effect, Layer, Option, type Crypto, type FileSystem, type Path } from "effect";
+import {
+  Etag,
+  HttpRouter,
+  HttpServerResponse,
+  type HttpClient,
+  type HttpPlatform,
+} from "effect/unstable/http";
 import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
 import { DirectoryApiHandlers, type DirectoryApiHttpOptions } from "../directory/http.js";
 import { ContentApiHandlers } from "../content/http.js";
@@ -63,12 +68,8 @@ import {
 import { type SchoolsApiHttpOptions } from "../schools/http.js";
 import type { BackendConfig, TeamApplicationApiConfig } from "../config.js";
 
-const platform = Layer.mergeAll(
-  BunFileSystem.layer,
-  BunHttpPlatform.layer,
-  BunPath.layer,
-  Etag.layer,
-);
+// Handlers reach the platform per request, so the router serves it from its own context.
+const platform = Layer.mergeAll(TestPlatform, BunHttpPlatform.layer, Etag.layer);
 
 const testSessionBoundary = {
   deployment: "local",
@@ -152,12 +153,17 @@ type BackendTestServices =
 
 type TestServiceLayer = Layer.Layer<never>;
 
-type TestApplicationRequirement =
-  | BackendTestServices
-  | HttpRouter.HttpRouter
-  | HttpRouter.Request.From<"Requires", BackendTestServices>
+type TestPlatformServices =
   | FileSystem.FileSystem
   | Path.Path
+  | Crypto.Crypto
+  | HttpClient.HttpClient;
+
+type TestApplicationRequirement =
+  | BackendTestServices
+  | TestPlatformServices
+  | HttpRouter.HttpRouter
+  | HttpRouter.Request.From<"Requires", BackendTestServices | TestPlatformServices>
   | Etag.Generator
   | HttpPlatform.HttpPlatform;
 
@@ -229,7 +235,7 @@ const testRouterFetch = (
 
   const routerLayer = Layer.mergeAll(app, notFound, ProblemBoundaryLive).pipe(
     Layer.provideMerge(allServices),
-    Layer.provide(platform),
+    Layer.provideMerge(platform),
   );
 
   return async (request) => {
@@ -422,7 +428,7 @@ export const makeBackendTestHttp = (
   const routerLayer = provideTestServices(
     ExternalNativeApiRouterLive(config, options),
     services,
-  ).pipe(Layer.provide(platform));
+  ).pipe(Layer.provideMerge(platform));
 
   const native = async (request: Request): Promise<Response> => {
     const { dispose, handler } = HttpRouter.toWebHandler(routerLayer, {
@@ -447,7 +453,7 @@ export const makeBackendInternalTestHttp = (
   const routerLayer = provideTestServices(
     InternalNativeApiRouterLive(config, options),
     services,
-  ).pipe(Layer.provide(platform));
+  ).pipe(Layer.provideMerge(platform));
 
   return {
     fetch: async (request: Request): Promise<Response> => {

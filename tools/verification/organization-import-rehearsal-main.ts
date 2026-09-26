@@ -88,7 +88,7 @@ import {
   Result,
   Schema,
 } from "effect";
-import { Etag, HttpRouter } from "effect/unstable/http";
+import { Etag, FetchHttpClient, HttpRouter } from "effect/unstable/http";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import {
   backendHttpHandler,
@@ -1455,14 +1455,15 @@ const makeRehearsalRuntime = (
     servicePrincipalGrantLayer,
   );
 
-  const platformLayer = Layer.mergeAll(BunServices.layer, BunHttpPlatform.layer, Etag.layer);
+  const requestPlatformLayer = Layer.merge(BunServices.layer, FetchHttpClient.layer);
+  const platformLayer = Layer.mergeAll(requestPlatformLayer, BunHttpPlatform.layer, Etag.layer);
   const routerLayer = HttpRouter.layer;
   const httpLayer = Layer.merge(platformLayer, routerLayer);
 
   const nativeApiLayer = ExternalNativeApiRouterLive(config, {
     now: () => SPEC_0067.authorizationInstant,
   }).pipe(
-    HttpRouter.provideRequest(servicesLayer),
+    HttpRouter.provideRequest(Layer.merge(servicesLayer, requestPlatformLayer)),
     Layer.provide(servicesLayer),
     Layer.provide(httpLayer),
   );

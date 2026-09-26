@@ -28,7 +28,7 @@ import {
   UserProfileResponse,
 } from "@vektorprogrammet/http-api";
 import { type Effect, Layer, ManagedRuntime, Redacted, Schema } from "effect";
-import { Etag, HttpRouter } from "effect/unstable/http";
+import { Etag, FetchHttpClient, HttpRouter } from "effect/unstable/http";
 import { ReceiptDeliveryLive } from "@vektorprogrammet/backend/receipt/delivery";
 import {
   backendHttpHandler,
@@ -102,6 +102,7 @@ export const observeLegacyCandidateNativeJourney = async (
     maxConnections: 4,
   });
 
+  const platform = Layer.merge(BunServices.layer, FetchHttpClient.layer);
   const admissions = AdmissionsLive.pipe(Layer.provide(database));
   const organization = OrganizationLive.pipe(Layer.provide(database));
   const profile = ProfileLive.pipe(Layer.provide(Layer.merge(database, organization)));
@@ -122,12 +123,12 @@ export const observeLegacyCandidateNativeJourney = async (
     ),
     SocialEventsLive.pipe(Layer.provide(database)),
     TeamApplicationsLive.pipe(Layer.provide(database)),
-    ReceiptDeliveryLive(undefined).pipe(Layer.provide(database)),
+    ReceiptDeliveryLive(undefined).pipe(Layer.provide(Layer.merge(database, platform))),
     AuthLive(config.auth).pipe(Layer.provide(database)),
   );
 
   const http = Layer.mergeAll(
-    BunServices.layer,
+    platform,
     BunHttpPlatform.layer,
     Etag.layer,
     HttpRouter.layer.pipe(
@@ -136,7 +137,7 @@ export const observeLegacyCandidateNativeJourney = async (
   );
 
   const nativeApi = ExternalNativeApiRouterLive(config, { now: () => input.asOf }).pipe(
-    HttpRouter.provideRequest(services),
+    HttpRouter.provideRequest(Layer.merge(services, platform)),
     Layer.provide(services),
     Layer.provide(http),
   );

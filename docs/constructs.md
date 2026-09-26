@@ -734,7 +734,7 @@ Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account acc
 Delivers committed effects to providers after the transaction.
 
 - `deliverJson`: Shared acknowledged JSON transport; deliberately no retry on ambiguous acceptance.
-  [apps/backend/src/delivery/http.ts:35](../apps/backend/src/delivery/http.ts#L35), 10 consumers:
+  [apps/backend/src/delivery/http.ts:32](../apps/backend/src/delivery/http.ts#L32), 10 consumers:
   - [apps/backend/src/application/effects.ts](../apps/backend/src/application/effects.ts)
   - [apps/backend/src/contact/http.ts](../apps/backend/src/contact/http.ts)
   - [apps/backend/src/mail/http.ts](../apps/backend/src/mail/http.ts)

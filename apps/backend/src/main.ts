@@ -30,7 +30,7 @@ import { TeamApplicationsLive } from "@vektorprogrammet/database/team-applicatio
 import { runTeamApplicationDeliveryWorker } from "./team-application/worker.js";
 import { runPublicApplicationOutboxWorker } from "./application/worker.js";
 import { Cause, Effect, Exit, Fiber, Layer, ManagedRuntime, Redacted } from "effect";
-import { Etag, HttpRouter } from "effect/unstable/http";
+import { Etag, FetchHttpClient, HttpRouter } from "effect/unstable/http";
 import { publicApplicationHttpEffects } from "./application/effects.js";
 import { decodeBackendConfig } from "./config.js";
 import {
@@ -114,8 +114,11 @@ const capabilityLayers = Layer.mergeAll(
   teamApplicationsLayer,
 );
 
+// Handlers and workers reach the platform, delivery providers included, through these services.
+const platformLayer = Layer.merge(BunServices.layer, FetchHttpClient.layer);
+
 const receiptDeliveryLayer = ReceiptDeliveryLive(config.receiptDelivery).pipe(
-  Layer.provide(databaseLayer),
+  Layer.provide(Layer.merge(databaseLayer, platformLayer)),
 );
 
 const authLayer = AuthLive(config.auth).pipe(Layer.provide(databaseLayer));
@@ -127,7 +130,7 @@ const backendServicesLayer = Layer.mergeAll(
   authLayer,
 );
 
-const httpPlatformLayer = Layer.mergeAll(BunServices.layer, BunHttpPlatform.layer, Etag.layer);
+const httpPlatformLayer = Layer.mergeAll(platformLayer, BunHttpPlatform.layer, Etag.layer);
 
 const httpRouterLayer = HttpRouter.layer.pipe(
   Layer.provide(Layer.succeed(HttpRouter.RouterConfig)(nativeHttpRouterConfig)),
@@ -138,7 +141,7 @@ const httpLayer = Layer.merge(httpPlatformLayer, httpRouterLayer);
 const nativeApiLayer = (
   ingress === "external" ? ExternalNativeApiRouterLive(config) : InternalNativeApiRouterLive(config)
 ).pipe(
-  HttpRouter.provideRequest(backendServicesLayer),
+  HttpRouter.provideRequest(Layer.merge(backendServicesLayer, platformLayer)),
   Layer.provide(backendServicesLayer),
   Layer.provide(httpLayer),
 );
@@ -190,31 +193,33 @@ if (process.exitCode !== 1) {
   const onboardingExpiryFiber =
     ingress === "external" ? runtime.runFork(runOnboardingExpirySweeper) : undefined;
 
+  const { publicApplicationEffects, schoolServiceNotifications } = config;
+
   const workerFiber =
-    ingress === "internal" || config.publicApplicationEffects === undefined
+    ingress === "internal" || publicApplicationEffects === undefined
       ? undefined
       : runtime.runFork(
-          runPublicApplicationOutboxWorker(
-            publicApplicationHttpEffects(config.publicApplicationEffects),
-            {
+          Effect.flatMap(publicApplicationHttpEffects(publicApplicationEffects), (interpreter) =>
+            runPublicApplicationOutboxWorker(interpreter, {
               workerId: `backend-${randomUUID()}`,
-              pollIntervalMilliseconds: config.publicApplicationEffects.pollIntervalMilliseconds,
-              staleClaimMilliseconds: config.publicApplicationEffects.staleClaimMilliseconds,
-            },
+              pollIntervalMilliseconds: publicApplicationEffects.pollIntervalMilliseconds,
+              staleClaimMilliseconds: publicApplicationEffects.staleClaimMilliseconds,
+            }),
           ),
         );
 
   const schoolServiceWorkerFiber =
-    ingress === "internal" || config.schoolServiceNotifications === undefined
+    ingress === "internal" || schoolServiceNotifications === undefined
       ? undefined
       : runtime.runFork(
-          runSchoolServiceNotificationWorker(
-            schoolServiceNotificationDelivery(config.schoolServiceNotifications),
-            {
-              workerId: `school-service-${randomUUID()}`,
-              pollIntervalMilliseconds: config.schoolServiceNotifications.pollIntervalMilliseconds,
-              staleClaimMilliseconds: config.schoolServiceNotifications.staleClaimMilliseconds,
-            },
+          Effect.flatMap(
+            schoolServiceNotificationDelivery(schoolServiceNotifications),
+            (interpreter) =>
+              runSchoolServiceNotificationWorker(interpreter, {
+                workerId: `school-service-${randomUUID()}`,
+                pollIntervalMilliseconds: schoolServiceNotifications.pollIntervalMilliseconds,
+                staleClaimMilliseconds: schoolServiceNotifications.staleClaimMilliseconds,
+              }),
           ),
         );
 

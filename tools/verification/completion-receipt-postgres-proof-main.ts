@@ -15,6 +15,7 @@ import {
   releaseRecruitmentInterviewCompletion,
 } from "@vektorprogrammet/database/recruitment";
 import { Schema, Predicate, Effect, Layer, Redacted } from "effect";
+import { FetchHttpClient } from "effect/unstable/http";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 
 interface CapturedRequest {
@@ -120,9 +121,10 @@ const main = async (): Promise<void> => {
       NotificationGateway,
       NotificationGateway.of({
         deliverInterviewCompletionReceipt: (request) =>
-          deliverJson(request, transport, globalThis.fetch, {
+          deliverJson(request, transport, {
             "idempotency-key": request.effectId,
           }).pipe(
+            Effect.provide(FetchHttpClient.layer),
             Effect.map(() =>
               RecruitmentNotificationEvidenceSchema.make({
                 effectId: request.effectId,

@@ -1,4 +1,5 @@
-import { Effect, Layer, Redacted } from "effect";
+import { Config, Effect, Layer, Redacted } from "effect";
+import { FetchHttpClient } from "effect/unstable/http";
 import { Mail } from "@vektorprogrammet/domain/mail";
 import { DatabasePgPool, DatabaseLive } from "@vektorprogrammet/database/live";
 import { drainPasswordResetMail } from "@vektorprogrammet/database/password-recovery";
@@ -8,7 +9,8 @@ import { mailDeliveryConfig, HttpMailLive } from "../mail/http.js";
 if (process.argv.length !== 3 || process.argv[2] !== "--once")
   throw new Error("Usage: bun run apps/backend/src/password-recovery/drain-main.ts --once");
 
-const sender = process.env.MAIL_SENDER;
+// An unset or empty variable is missing.
+const sender = Effect.runSync(Config.String("MAIL_SENDER").pipe(Config.withDefault("")));
 
 if (!sender) throw new Error("MAIL_SENDER is required");
 
@@ -25,7 +27,7 @@ try {
       Effect.provide(
         Layer.mergeAll(
           DatabaseLive({ url: Redacted.make(config.auth.postgresUrl), maxConnections: 2 }),
-          HttpMailLive(mailDeliveryConfig(process.env)),
+          HttpMailLive(mailDeliveryConfig(process.env)).pipe(Layer.provide(FetchHttpClient.layer)),
         ),
       ),
     ),

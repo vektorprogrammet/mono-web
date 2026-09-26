@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { Effect, Exit } from "effect";
+import { describe, expect, it } from "@effect/vitest";
+import { Context, Effect } from "effect";
+import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { receiptDeliveryConfig } from "./delivery.js";
 import { deliverJson } from "../delivery/http.js";
 
@@ -36,48 +37,69 @@ describe("receipt acknowledged transport boundary", () => {
       receiptDeliveryConfig({ ...env, RECEIPT_DELIVERY_ECONOMY_RECIPIENTS: "{}" }),
     ).toThrow();
   });
-  it("sends stable identity only to configured transport with redirects disabled", async () => {
-    const config = receiptDeliveryConfig(env)!;
-    await Effect.runPromise(
-      deliverJson(
-        { deliveryId: "stable" },
-        config.transport,
-        async (url, init) => {
-          expect(new Request(url).url).toBe(env.RECEIPT_DELIVERY_URL);
-          expect(init?.redirect).toBe("error");
-          expect(init?.headers).toMatchObject({
-            authorization: "Bearer synthetic-token",
-            "idempotency-key": "stable",
-          });
+  it.effect("sends stable identity only to configured transport with redirects disabled", () =>
+    Effect.gen(function* () {
+      const config = receiptDeliveryConfig(env)!;
 
-          return new Response(null, { status: 202 });
-        },
-        { "idempotency-key": "stable" },
-      ),
-    );
-  });
-  it("does not acknowledge rejection or a timeout", async () => {
-    const config = receiptDeliveryConfig(env)!;
-    expect(
-      Exit.isFailure(
-        await Effect.runPromiseExit(
-          deliverJson({}, config.transport, async () => new Response(null, { status: 503 })),
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      Exit.isFailure(
-        await Effect.runPromiseExit(
-          deliverJson(
-            {},
-            config.transport,
-            async (_url, init) =>
-              new Promise((_resolve, reject) =>
-                init?.signal?.addEventListener("abort", () => reject(new Error("aborted"))),
-              ),
+      const requests: Array<{ readonly url: string; readonly redirect: RequestInit["redirect"] }> =
+        [];
+
+      yield* deliverJson({ deliveryId: "stable" }, config.transport, {
+        "idempotency-key": "stable",
+      }).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make((request, url, _signal, fiber) =>
+            Effect.sync(() => {
+              requests.push({
+                url: url.href,
+                redirect: Context.getOrUndefined(fiber.context, FetchHttpClient.RequestInit)
+                  ?.redirect,
+              });
+              expect(request.headers).toMatchObject({
+                authorization: "Bearer synthetic-token",
+                "idempotency-key": "stable",
+              });
+
+              return HttpClientResponse.fromWeb(request, new Response(null, { status: 202 }));
+            }),
           ),
         ),
-      ),
-    ).toBe(true);
-  });
+      );
+
+      expect(requests).toEqual([{ url: env.RECEIPT_DELIVERY_URL, redirect: "error" }]);
+    }),
+  );
+  it.live("does not acknowledge rejection or a timeout", () =>
+    Effect.gen(function* () {
+      const config = receiptDeliveryConfig(env)!;
+
+      const rejected = yield* Effect.flip(
+        deliverJson({}, config.transport).pipe(
+          Effect.provideService(
+            HttpClient.HttpClient,
+            HttpClient.make((request) =>
+              Effect.succeed(
+                HttpClientResponse.fromWeb(request, new Response(null, { status: 503 })),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(rejected).toHaveProperty("_tag", "HttpDeliveryFailure");
+      expect(rejected).toMatchObject({ reason: "Rejected", status: 503 });
+
+      const unanswered = yield* Effect.flip(
+        deliverJson({}, config.transport).pipe(
+          Effect.provideService(
+            HttpClient.HttpClient,
+            HttpClient.make(() => Effect.never),
+          ),
+        ),
+      );
+
+      expect(unanswered).toHaveProperty("_tag", "TimeoutError");
+    }),
+  );
 });

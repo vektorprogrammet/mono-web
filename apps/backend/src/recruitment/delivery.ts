@@ -1,4 +1,5 @@
 import { DateTime, Effect, Layer } from "effect";
+import { HttpClient } from "effect/unstable/http";
 import { NotificationGateway } from "@vektorprogrammet/domain/notification";
 import {
   RecruitmentNotificationDeliveryError,
@@ -7,7 +8,7 @@ import {
   type RecruitmentInvitationOutboxRequest,
   type RecruitmentInvitationResponseOutboxRequest,
 } from "@vektorprogrammet/domain/recruitment";
-import { deliverJson, type DeliveryFetch, type HttpDeliveryConfig } from "../delivery/http.js";
+import { deliverJson, type HttpDeliveryConfig } from "../delivery/http.js";
 
 export interface RecruitmentNotificationConfig extends HttpDeliveryConfig {
   readonly pollIntervalMilliseconds: number;
@@ -83,36 +84,40 @@ export const recruitmentNotificationConfig = (
 
 export const HttpRecruitmentNotificationsLive = (
   config: RecruitmentNotificationConfig,
-  fetchEffect: DeliveryFetch = globalThis.fetch,
-): Layer.Layer<NotificationGateway> => {
-  const deliver = (
-    request:
-      | RecruitmentInvitationOutboxRequest
-      | RecruitmentInvitationResponseOutboxRequest
-      | RecruitmentInterviewCompletionOutboxRequest,
-  ) =>
-    deliverJson(request, config, fetchEffect, { "idempotency-key": request.effectId }).pipe(
-      Effect.andThen(DateTime.now),
-      Effect.map((deliveredAt) =>
-        RecruitmentNotificationEvidenceSchema.make({
-          effectId: request.effectId,
-          deliveredAt: DateTime.formatIso(deliveredAt),
-          // This identifies the acknowledged HTTP submission, not downstream mailbox delivery.
-          providerReference: `http:${request.effectId}`,
-        }),
-      ),
-      Effect.mapError(
-        () =>
-          new RecruitmentNotificationDeliveryError({
-            effectId: request.effectId,
-            message: "Recruitment notification submission was not acknowledged",
-          }),
-      ),
-    );
+): Layer.Layer<NotificationGateway, never, HttpClient.HttpClient> =>
+  Layer.effect(
+    NotificationGateway,
+    Effect.map(HttpClient.HttpClient, (client) => {
+      const deliver = (
+        request:
+          | RecruitmentInvitationOutboxRequest
+          | RecruitmentInvitationResponseOutboxRequest
+          | RecruitmentInterviewCompletionOutboxRequest,
+      ) =>
+        deliverJson(request, config, { "idempotency-key": request.effectId }).pipe(
+          Effect.provideService(HttpClient.HttpClient, client),
+          Effect.andThen(DateTime.now),
+          Effect.map((deliveredAt) =>
+            RecruitmentNotificationEvidenceSchema.make({
+              effectId: request.effectId,
+              deliveredAt: DateTime.formatIso(deliveredAt),
+              // This identifies the acknowledged HTTP submission, not downstream mailbox delivery.
+              providerReference: `http:${request.effectId}`,
+            }),
+          ),
+          Effect.mapError(
+            () =>
+              new RecruitmentNotificationDeliveryError({
+                effectId: request.effectId,
+                message: "Recruitment notification submission was not acknowledged",
+              }),
+          ),
+        );
 
-  return Layer.succeed(NotificationGateway, {
-    deliverInterviewInvitation: deliver,
-    deliverInterviewInvitationResponse: deliver,
-    deliverInterviewCompletionReceipt: deliver,
-  });
-};
+      return NotificationGateway.of({
+        deliverInterviewInvitation: deliver,
+        deliverInterviewInvitationResponse: deliver,
+        deliverInterviewCompletionReceipt: deliver,
+      });
+    }),
+  );

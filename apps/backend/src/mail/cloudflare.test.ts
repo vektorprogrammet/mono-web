@@ -1,9 +1,10 @@
 import { Effect } from "effect";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "@effect/vitest";
 import { Mail, type MailDeliveryRequest } from "@vektorprogrammet/domain/mail";
 import {
   CloudflareMailLive,
   classifyCloudflareMailError,
+  type CloudflareEmailSendResult,
   type CloudflareMailConfig,
 } from "./cloudflare.js";
 import { makeRecordingMailLayer } from "./recording.js";
@@ -18,70 +19,75 @@ const request: MailDeliveryRequest = {
 };
 
 const deliver = (config: CloudflareMailConfig, value: MailDeliveryRequest = request) =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      return yield* (yield* Mail).deliver(value);
-    }).pipe(Effect.provide(CloudflareMailLive(config))),
-  );
+  Mail.use((mail) => mail.deliver(value)).pipe(Effect.provide(CloudflareMailLive(config)));
 
 describe("CloudflareMailLive", () => {
-  it("maps permanent provider codes, availability failures, and timeouts to distinct outcomes", async () => {
-    expect(classifyCloudflareMailError({ code: "E_RECIPIENT_NOT_ALLOWED" }).kind).toBe(
-      "permanent-rejection",
-    );
-    expect(classifyCloudflareMailError(new Error("network unavailable")).kind).toBe(
-      "temporary-unavailability",
-    );
-
-    {
-      const observed = deliver({
-        binding: { send: async () => new Promise<never>(() => undefined) },
-        deliveryTimeoutMilliseconds: 1,
-      });
-
-      await expect(observed).rejects.toHaveProperty("_tag", "MailDeliveryError");
-      await expect(observed).rejects.toMatchObject({ kind: "ambiguous-outcome" });
-    }
-  });
-
-  it("sends the immutable provider-neutral request and returns a stable acknowledgement", async () => {
-    const send = vi.fn(async () => ({ messageId: "cloudflare-message-1" }));
-    await expect(
-      deliver({ binding: { send }, deliveryTimeoutMilliseconds: 1_000 }),
-    ).resolves.toEqual({
-      providerReference: "cloudflare-message-1",
-    });
-    expect(send).toHaveBeenCalledWith({
-      from: request.sender,
-      to: request.recipient,
-      replyTo: request.replyTo,
-      subject: request.subject,
-      text: request.text,
-      headers: {
-        "Message-ID": "<password-reset%3Aaccount-123@delivery.vektorprogrammet.no>",
-      },
-    });
-  });
-
-  it("confines development delivery to the configured Cloudflare recipient", async () => {
-    const send = vi.fn(async () => ({ messageId: "cloudflare-message-1" }));
-    await deliver({
-      binding: { send },
-      deliveryTimeoutMilliseconds: 1_000,
-      recipientOverride: "development-mailbox@example.invalid",
-    });
-    expect(send).toHaveBeenCalledWith(
-      expect.objectContaining({ to: "development-mailbox@example.invalid" }),
-    );
-  });
-
-  it("records deterministic test deliveries without selecting a provider", async () => {
-    const recording = makeRecordingMailLayer();
-    await Effect.runPromise(
+  it.live(
+    "maps permanent provider codes, availability failures, and timeouts to distinct outcomes",
+    () =>
       Effect.gen(function* () {
-        return yield* (yield* Mail).deliver(request);
-      }).pipe(Effect.provide(recording.layer)),
-    );
-    expect(recording.deliveries()).toEqual([request]);
-  });
+        expect(classifyCloudflareMailError({ code: "E_RECIPIENT_NOT_ALLOWED" }).kind).toBe(
+          "permanent-rejection",
+        );
+        expect(classifyCloudflareMailError(new Error("network unavailable")).kind).toBe(
+          "temporary-unavailability",
+        );
+
+        const observed = yield* Effect.flip(
+          deliver({
+            binding: { send: () => Promise.withResolvers<CloudflareEmailSendResult>().promise },
+            deliveryTimeoutMilliseconds: 1,
+          }),
+        );
+
+        expect(observed).toHaveProperty("_tag", "MailDeliveryError");
+        expect(observed).toMatchObject({ kind: "ambiguous-outcome" });
+      }),
+  );
+
+  it.effect(
+    "sends the immutable provider-neutral request and returns a stable acknowledgement",
+    () =>
+      Effect.gen(function* () {
+        const send = vi.fn(() => Promise.resolve({ messageId: "cloudflare-message-1" }));
+
+        expect(yield* deliver({ binding: { send }, deliveryTimeoutMilliseconds: 1_000 })).toEqual({
+          providerReference: "cloudflare-message-1",
+        });
+        expect(send).toHaveBeenCalledWith({
+          from: request.sender,
+          to: request.recipient,
+          replyTo: request.replyTo,
+          subject: request.subject,
+          text: request.text,
+          headers: {
+            "Message-ID": "<password-reset%3Aaccount-123@delivery.vektorprogrammet.no>",
+          },
+        });
+      }),
+  );
+
+  it.effect("confines development delivery to the configured Cloudflare recipient", () =>
+    Effect.gen(function* () {
+      const send = vi.fn(() => Promise.resolve({ messageId: "cloudflare-message-1" }));
+
+      yield* deliver({
+        binding: { send },
+        deliveryTimeoutMilliseconds: 1_000,
+        recipientOverride: "development-mailbox@example.invalid",
+      });
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({ to: "development-mailbox@example.invalid" }),
+      );
+    }),
+  );
+
+  it.effect("records deterministic test deliveries without selecting a provider", () =>
+    Effect.gen(function* () {
+      const recording = makeRecordingMailLayer();
+
+      yield* Mail.use((mail) => mail.deliver(request)).pipe(Effect.provide(recording.layer));
+      expect(recording.deliveries()).toEqual([request]);
+    }),
+  );
 });

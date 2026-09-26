@@ -6,28 +6,25 @@ import {
 } from "@vektorprogrammet/domain/application";
 import { deliverJson } from "../delivery/http.js";
 import { Effect } from "effect";
+import { HttpClient } from "effect/unstable/http";
 import type { PublicApplicationEffectConfig } from "../config.js";
 
-export type PublicApplicationEffectFetch = (
-  input: string | URL | Request,
-  init?: RequestInit,
-) => Promise<Response>;
-
-const deliver = (
-  request: PublicApplicationOutboxRequest,
-  config: PublicApplicationEffectConfig,
-  fetchEffect: PublicApplicationEffectFetch,
-): Effect.Effect<void, PublicApplicationEffectDeliveryError> =>
-  deliverJson(request, config, fetchEffect, { "idempotency-key": request.effectId }).pipe(
-    Effect.mapError(() => new PublicApplicationEffectDeliveryError({ effectId: request.effectId })),
-  );
-
+/** The interpreter delivers every public application effect through the composition's client. */
 export const publicApplicationHttpEffects = (
   config: PublicApplicationEffectConfig,
-  fetchEffect: PublicApplicationEffectFetch = globalThis.fetch,
-): PublicApplicationEffectInterpreter =>
-  makePublicApplicationEffectInterpreter({
-    sendApplicantNotification: (request) => deliver(request, config, fetchEffect),
-    createAdmissionSubscription: (request) => deliver(request, config, fetchEffect),
-    writeApplicationAudit: (request) => deliver(request, config, fetchEffect),
+): Effect.Effect<PublicApplicationEffectInterpreter, never, HttpClient.HttpClient> =>
+  Effect.map(HttpClient.HttpClient, (client) => {
+    const deliver = (request: PublicApplicationOutboxRequest) =>
+      deliverJson(request, config, { "idempotency-key": request.effectId }).pipe(
+        Effect.provideService(HttpClient.HttpClient, client),
+        Effect.mapError(
+          () => new PublicApplicationEffectDeliveryError({ effectId: request.effectId }),
+        ),
+      );
+
+    return makePublicApplicationEffectInterpreter({
+      sendApplicantNotification: deliver,
+      createAdmissionSubscription: deliver,
+      writeApplicationAudit: deliver,
+    });
   });

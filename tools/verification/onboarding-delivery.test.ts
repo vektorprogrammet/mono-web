@@ -1,9 +1,11 @@
+import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Database } from "@vektorprogrammet/database";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import { claimOnboarding, commandOnboarding } from "@vektorprogrammet/database/onboarding";
-import { Predicate, Effect } from "effect";
+import { Crypto, Effect, Predicate } from "effect";
+import { HttpClient, HttpClientResponse, type HttpClientRequest } from "effect/unstable/http";
 import { DatabaseTest } from "@vektorprogrammet/database/live";
 import { makeControlledTestRuntime } from "../../packages/database/test/runtime.js";
 import { provisionOnboardingAccount } from "@vektorprogrammet/database/onboarding-account";
@@ -19,6 +21,9 @@ afterAll(() => runtime.dispose());
 const dept = DepartmentId.make("onboarding-dept");
 
 const actor = PersonId.make("onboarding-leader");
+
+// The drain draws its claim identity from Crypto; no digest belongs to this lifecycle.
+const testCrypto = Crypto.make({ randomBytes, digest: () => Effect.die("unexpected digest") });
 
 const now = new Date().toISOString();
 
@@ -92,27 +97,33 @@ describe("onboarding delivery lifecycle", () => {
       },
     };
 
-    const drain = (fetchEffect: Parameters<typeof drainOnboardingDelivery>[2]) =>
-      runtime.runPromise(drainOnboardingDelivery("onboard-app-4", config, fetchEffect));
+    const drain = (
+      applicationId: string,
+      deliveryConfig: typeof config | undefined,
+      respond: Parameters<typeof HttpClient.make>[0],
+    ) =>
+      runtime.runPromise(
+        drainOnboardingDelivery(applicationId, deliveryConfig).pipe(
+          Effect.provideService(HttpClient.HttpClient, HttpClient.make(respond)),
+          Effect.provideService(Crypto.Crypto, testCrypto),
+        ),
+      );
 
-    expect(await runtime.runPromise(drainOnboardingDelivery("onboard-app-4", undefined))).toBe(
+    const answer = (request: HttpClientRequest.HttpClientRequest, status: number) => {
+      if (!Predicate.isTagged(request.body, "Uint8Array")) throw new Error("Expected a JSON body");
+      envelopes.push(new TextDecoder().decode(request.body.body));
+
+      return HttpClientResponse.fromWeb(request, new Response(null, { status }));
+    };
+
+    expect(await drain("onboard-app-4", undefined, () => Effect.die("unexpected delivery"))).toBe(
       "Pending",
     );
     expect(
-      await drain(async (_, init) => {
-        if (!Predicate.isString(init?.body)) throw new Error("Expected serialized delivery body");
-        envelopes.push(init.body);
-
-        return new Response(null, { status: 503 });
-      }),
+      await drain("onboard-app-4", config, (request) => Effect.sync(() => answer(request, 503))),
     ).toBe("Pending");
     expect(
-      await drain(async (_, init) => {
-        if (!Predicate.isString(init?.body)) throw new Error("Expected serialized delivery body");
-        envelopes.push(init.body);
-
-        return new Response(null, { status: 204 });
-      }),
+      await drain("onboard-app-4", config, (request) => Effect.sync(() => answer(request, 204))),
     ).toBe("Delivered");
     expect(envelopes[0]).toBe(envelopes[1]);
 
@@ -126,17 +137,15 @@ describe("onboarding delivery lifecycle", () => {
     expect(rows[0]).toEqual({ state: "Delivered", secret: null, envelope: null });
     await issue(5);
     expect(
-      await runtime.runPromise(
-        drainOnboardingDelivery("onboard-app-5", config, async () => {
-          await runtime.runPromise(
+      await drain("onboard-app-5", config, (request) =>
+        Effect.promise(() =>
+          runtime.runPromise(
             Database.use(
               (sql) =>
                 sql`UPDATE applicant_account_delivery SET state='Cancelled',secret=NULL,envelope=NULL,claim_id=NULL,claimed_at=NULL WHERE invitation_id='onboard-invite-5'`,
             ),
-          );
-
-          return new Response(null, { status: 204 });
-        }),
+          ),
+        ).pipe(Effect.as(HttpClientResponse.fromWeb(request, new Response(null, { status: 204 })))),
       ),
     ).toBe("BusyOrComplete");
   });

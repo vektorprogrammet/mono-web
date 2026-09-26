@@ -8,7 +8,8 @@ import {
   type SchoolServiceNotificationRequest,
 } from "@vektorprogrammet/domain/placements";
 import { DateTime, Predicate, Duration, Effect } from "effect";
-import { deliverJson, type DeliveryFetch } from "../delivery/http.js";
+import { HttpClient } from "effect/unstable/http";
+import { deliverJson } from "../delivery/http.js";
 import { pollForever } from "../worker-support.js";
 
 export interface SchoolServiceNotificationConfig {
@@ -89,17 +90,19 @@ export const schoolServiceNotificationConfig = (
   };
 };
 
-export const schoolServiceNotificationDelivery =
-  (
-    config: SchoolServiceNotificationConfig,
-    fetchEffect: DeliveryFetch = globalThis.fetch,
-  ): SchoolServiceNotificationInterpreter =>
-  (request: SchoolServiceNotificationRequest) =>
-    deliverJson(request, config, fetchEffect, { "idempotency-key": request.effectId }).pipe(
-      Effect.mapError(
-        () => new SchoolServiceNotificationDeliveryError({ effectId: request.effectId }),
+export const schoolServiceNotificationDelivery = (
+  config: SchoolServiceNotificationConfig,
+): Effect.Effect<SchoolServiceNotificationInterpreter, never, HttpClient.HttpClient> =>
+  Effect.map(
+    HttpClient.HttpClient,
+    (client) => (request: SchoolServiceNotificationRequest) =>
+      deliverJson(request, config, { "idempotency-key": request.effectId }).pipe(
+        Effect.provideService(HttpClient.HttpClient, client),
+        Effect.mapError(
+          () => new SchoolServiceNotificationDeliveryError({ effectId: request.effectId }),
+        ),
       ),
-    );
+  );
 
 export const runSchoolServiceNotificationWorker = (
   interpreter: SchoolServiceNotificationInterpreter,

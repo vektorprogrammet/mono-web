@@ -1,4 +1,5 @@
-import { Predicate, Effect, Layer } from "effect";
+import { Effect, Layer } from "effect";
+import { HttpClient } from "effect/unstable/http";
 import { Mail, MailDeliveryError, type MailOperations } from "@vektorprogrammet/domain/mail";
 import { deliverJson, type HttpDeliveryConfig } from "../delivery/http.js";
 
@@ -32,44 +33,35 @@ export const mailDeliveryConfig = (
   return { endpoint, token: env.MAIL_DELIVERY_TOKEN!, deliveryTimeoutMilliseconds: timeout };
 };
 
-const makeHttpMailDelivery = (config: MailDeliveryConfig | undefined): MailOperations => ({
+const makeHttpMailDelivery = (
+  config: MailDeliveryConfig | undefined,
+  client: HttpClient.HttpClient,
+): MailOperations => ({
   deliver: (request) =>
-    Effect.suspend(() => {
-      if (config === undefined) {
-        return Effect.fail(new MailDeliveryError({ kind: "temporary-unavailability" }));
-      }
-
-      let rejected = false;
-
-      return deliverJson(
-        request,
-        config,
-        async (input, init) => {
-          const response = await fetch(input, init);
-          rejected = response.status >= 400 && response.status < 500;
-
-          return response;
-        },
-        { "idempotency-key": request.deliveryId },
-      ).pipe(
-        Effect.map(() => ({ providerReference: request.deliveryId })),
-        Effect.mapError(
-          (error) =>
-            new MailDeliveryError({
-              kind:
-                error !== null &&
-                (error === null || Predicate.isObjectOrArray(error)) &&
-                "_tag" in error &&
-                Predicate.isTagged(error, "TimeoutError")
-                  ? "ambiguous-outcome"
-                  : rejected
-                    ? "permanent-rejection"
-                    : "temporary-unavailability",
-            }),
+    config === undefined
+      ? Effect.fail(new MailDeliveryError({ kind: "temporary-unavailability" }))
+      : deliverJson(request, config, { "idempotency-key": request.deliveryId }).pipe(
+          Effect.provideService(HttpClient.HttpClient, client),
+          Effect.as({ providerReference: request.deliveryId }),
+          Effect.catchTags({
+            TimeoutError: () => Effect.fail(new MailDeliveryError({ kind: "ambiguous-outcome" })),
+            HttpDeliveryFailure: ({ status }) =>
+              Effect.fail(
+                new MailDeliveryError({
+                  kind:
+                    status !== undefined && status >= 400 && status < 500
+                      ? "permanent-rejection"
+                      : "temporary-unavailability",
+                }),
+              ),
+          }),
         ),
-      );
-    }),
 });
 
-export const HttpMailLive = (config: MailDeliveryConfig | undefined): Layer.Layer<Mail> =>
-  Layer.sync(Mail, () => makeHttpMailDelivery(config));
+export const HttpMailLive = (
+  config: MailDeliveryConfig | undefined,
+): Layer.Layer<Mail, never, HttpClient.HttpClient> =>
+  Layer.effect(
+    Mail,
+    Effect.map(HttpClient.HttpClient, (client) => makeHttpMailDelivery(config, client)),
+  );

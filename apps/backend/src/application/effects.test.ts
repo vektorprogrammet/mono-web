@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { Effect, Fiber } from "effect";
+import { describe, expect, it } from "@effect/vitest";
+import { Context, Deferred, Effect, Fiber, Predicate, Schema } from "effect";
+import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/unstable/http";
 import {
   PublicApplicationOutboxRequestSchema,
   ApplicantIdSchema,
@@ -7,8 +8,8 @@ import {
   PublicApplicationEffectIdSchema,
   PublicApplicationIdSchema,
 } from "@vektorprogrammet/domain/application";
+import type { PublicApplicationEffectConfig } from "../config.js";
 import { publicApplicationHttpEffects } from "./effects.js";
-import { forkTestEffect, runTestPromise } from "../../test/runtime.js";
 
 const request =
   PublicApplicationOutboxRequestSchema.members[0].cases.SendApplicantActivationOrConfirmation.make({
@@ -28,96 +29,112 @@ const config = {
   deliveryTimeoutMilliseconds: 1_000,
 } as const;
 
+/** The gateway over a provider double that answers each request with `respond`. */
+const gateway = (
+  respond: Parameters<typeof HttpClient.make>[0],
+  gatewayConfig: PublicApplicationEffectConfig = config,
+) =>
+  publicApplicationHttpEffects(gatewayConfig).pipe(
+    Effect.provideService(HttpClient.HttpClient, HttpClient.make(respond)),
+  );
+
+const JsonText = Schema.fromJsonString(Schema.Unknown);
+
 describe("public application effect gateway", () => {
-  it("uses effectId as the provider idempotency key", async () => {
-    const calls: Array<{ readonly input: string; readonly init?: RequestInit }> = [];
+  it.effect("uses effectId as the provider idempotency key", () =>
+    Effect.gen(function* () {
+      const calls: Array<{
+        readonly url: string;
+        readonly headers: Readonly<Record<string, string>>;
+        readonly redirect: RequestInit["redirect"];
+        readonly body: string;
+      }> = [];
 
-    const interpreter = publicApplicationHttpEffects(config, async (input, init) => {
-      calls.push({ input: new Request(input).url, init });
+      const interpreter = yield* gateway((providerRequest, url, _signal, fiber) =>
+        Effect.sync(() => {
+          calls.push({
+            url: url.href,
+            headers: providerRequest.headers,
+            redirect: Context.getOrUndefined(fiber.context, FetchHttpClient.RequestInit)?.redirect,
+            body: Predicate.isTagged(providerRequest.body, "Uint8Array")
+              ? new TextDecoder().decode(providerRequest.body.body)
+              : "",
+          });
 
-      return new Response(null, { status: 204 });
-    });
-
-    const evidence = await runTestPromise(interpreter.deliver(request, 0, 2));
-
-    expect(evidence).toEqual({
-      effectId: request.effectId,
-      kind: request._tag,
-      ordinal: 0,
-      attempts: 2,
-      status: "Delivered",
-    });
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.input).toBe(config.endpoint.href);
-    expect(new Headers(calls[0]?.init?.headers).get("idempotency-key")).toBe(request.effectId);
-    expect(calls[0]?.init?.redirect).toBe("error");
-    expect(await new Response(calls[0]?.init?.body).json()).toEqual(request);
-  });
-
-  it("maps provider rejection to the typed retry error", async () => {
-    const interpreter = publicApplicationHttpEffects(
-      config,
-      async () => new Response(null, { status: 503 }),
-    );
-
-    const failure = await runTestPromise(Effect.flip(interpreter.deliver(request, 0, 1)));
-    {
-      const observed = failure;
-      expect(observed).toHaveProperty("_tag", "PublicApplicationEffectDeliveryError");
-      expect(observed).toMatchObject({ effectId: request.effectId });
-    }
-  });
-
-  it("bounds provider delivery and aborts the timed-out request", async () => {
-    let aborted = false;
-
-    const interpreter = publicApplicationHttpEffects(
-      { ...config, deliveryTimeoutMilliseconds: 1 },
-      async (_input, init) =>
-        await new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener(
-            "abort",
-            () => {
-              aborted = true;
-              reject(new DOMException("aborted", "AbortError"));
-            },
-            { once: true },
-          );
+          return HttpClientResponse.fromWeb(providerRequest, new Response(null, { status: 204 }));
         }),
-    );
+      );
 
-    const failure = await runTestPromise(Effect.flip(interpreter.deliver(request, 0, 1)));
+      const evidence = yield* interpreter.deliver(request, 0, 2);
 
-    {
-      const observed = failure;
-      expect(observed).toHaveProperty("_tag", "PublicApplicationEffectDeliveryError");
-      expect(observed).toMatchObject({ effectId: request.effectId });
-    }
-
-    expect(aborted).toBe(true);
-  });
-
-  it("aborts an in-flight provider request when delivery is interrupted", async () => {
-    const started = Promise.withResolvers<void>();
-    let providerSignal: AbortSignal | undefined;
-
-    const interpreter = publicApplicationHttpEffects(config, async (_input, init) => {
-      providerSignal = init?.signal ?? undefined;
-      started.resolve();
-
-      return await new Promise<Response>((_resolve, reject) => {
-        providerSignal?.addEventListener(
-          "abort",
-          () => reject(new DOMException("aborted", "AbortError")),
-          { once: true },
-        );
+      expect(evidence).toEqual({
+        effectId: request.effectId,
+        kind: request._tag,
+        ordinal: 0,
+        attempts: 2,
+        status: "Delivered",
       });
-    });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.url).toBe(config.endpoint.href);
+      expect(calls[0]?.headers["idempotency-key"]).toBe(request.effectId);
+      expect(calls[0]?.headers).not.toHaveProperty("traceparent");
+      expect(calls[0]?.headers).not.toHaveProperty("b3");
+      expect(calls[0]?.redirect).toBe("error");
+      expect(yield* Schema.decodeUnknownEffect(JsonText)(calls[0]?.body)).toEqual(request);
+    }),
+  );
 
-    const fiber = forkTestEffect(interpreter.deliver(request, 0, 1));
-    await started.promise;
-    await runTestPromise(Fiber.interrupt(fiber));
+  it.effect("maps provider rejection to the typed retry error", () =>
+    Effect.gen(function* () {
+      const interpreter = yield* gateway((providerRequest) =>
+        Effect.succeed(
+          HttpClientResponse.fromWeb(providerRequest, new Response(null, { status: 503 })),
+        ),
+      );
 
-    expect(providerSignal?.aborted).toBe(true);
-  });
+      const failure = yield* Effect.flip(interpreter.deliver(request, 0, 1));
+
+      expect(failure).toHaveProperty("_tag", "PublicApplicationEffectDeliveryError");
+      expect(failure).toMatchObject({ effectId: request.effectId });
+    }),
+  );
+
+  it.live("bounds provider delivery and aborts the timed-out request", () =>
+    Effect.gen(function* () {
+      const signals: Array<AbortSignal> = [];
+
+      const interpreter = yield* gateway(
+        (_request, _url, signal) =>
+          Effect.suspend(() => {
+            signals.push(signal);
+
+            return Effect.never;
+          }),
+        { ...config, deliveryTimeoutMilliseconds: 1 },
+      );
+
+      const failure = yield* Effect.flip(interpreter.deliver(request, 0, 1));
+
+      expect(failure).toHaveProperty("_tag", "PublicApplicationEffectDeliveryError");
+      expect(failure).toMatchObject({ effectId: request.effectId });
+      expect(signals.map((signal) => signal.aborted)).toEqual([true]);
+    }),
+  );
+
+  it.effect("aborts an in-flight provider request when delivery is interrupted", () =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<AbortSignal>();
+
+      const interpreter = yield* gateway((_request, _url, signal) =>
+        Deferred.succeed(started, signal).pipe(Effect.andThen(Effect.never)),
+      );
+
+      const fiber = yield* Effect.forkChild(interpreter.deliver(request, 0, 1));
+      const signal = yield* Deferred.await(started);
+
+      yield* Fiber.interrupt(fiber);
+
+      expect(signal.aborted).toBe(true);
+    }),
+  );
 });

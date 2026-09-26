@@ -25,6 +25,7 @@ import {
 } from "@vektorprogrammet/database/auth-engine";
 import { DatabasePgPool } from "@vektorprogrammet/database/pg-pool";
 import { ManagedRuntime, Layer } from "effect";
+import { FetchHttpClient } from "effect/unstable/http";
 import {
   PasswordRecovery,
   drainPasswordResetMail,
@@ -986,7 +987,7 @@ try {
             MAIL_DELIVERY_TOKEN: deliveryToken,
             MAIL_DELIVERY_TIMEOUT_MS: "1000",
           }),
-        ),
+        ).pipe(Layer.provide(FetchHttpClient.layer)),
       ),
     ),
   );

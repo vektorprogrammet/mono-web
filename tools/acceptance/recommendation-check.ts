@@ -64,6 +64,7 @@ import {
 import { deliverJson } from "../../apps/backend/src/delivery/http.js";
 import { NotificationGateway } from "../../packages/domain/src/notification/service.js";
 import { Array as Arr, Predicate, Schema } from "effect";
+import { FetchHttpClient } from "effect/unstable/http";
 
 const root = new URL("../../", import.meta.url).pathname;
 
@@ -385,9 +386,10 @@ const deliverRecruitmentInvitationOnce = async ({
     NotificationGateway,
     NotificationGateway.of({
       deliverInterviewCompletionReceipt: (request) =>
-        deliverJson(request, transport, globalThis.fetch, {
+        deliverJson(request, transport, {
           "idempotency-key": request.effectId,
         }).pipe(
+          Effect.provide(FetchHttpClient.layer),
           Effect.map(() =>
             RecruitmentNotificationEvidenceSchema.make({
               effectId: request.effectId,
@@ -404,9 +406,10 @@ const deliverRecruitmentInvitationOnce = async ({
           ),
         ),
       deliverInterviewInvitation: (request) =>
-        deliverJson(request, transport, globalThis.fetch, {
+        deliverJson(request, transport, {
           "idempotency-key": request.effectId,
         }).pipe(
+          Effect.provide(FetchHttpClient.layer),
           Effect.map(() =>
             RecruitmentNotificationEvidenceSchema.make({
               effectId: request.effectId,
@@ -423,9 +426,10 @@ const deliverRecruitmentInvitationOnce = async ({
           ),
         ),
       deliverInterviewInvitationResponse: (request) =>
-        deliverJson(request, transport, globalThis.fetch, {
+        deliverJson(request, transport, {
           "idempotency-key": request.effectId,
         }).pipe(
+          Effect.provide(FetchHttpClient.layer),
           Effect.map(() =>
             RecruitmentNotificationEvidenceSchema.make({
               effectId: request.effectId,
