@@ -241,10 +241,9 @@ For property checks, generate reachable command sequences and assert business in
 Use the installed Arbitrary API with bounded runs, deterministic seeds, and typed options.
 Valid schema generation does not cover malformed wire input.
 
-Full end-to-end suites dominate machine load. Only the orchestrating lead starts them.
-They are the golden journeys (`just golden <journey>`) and their CI wrappers, `just proof delivery-recovery`,
-and the browser suites (`just e2e <suite>`).
-A worker that needs one reports the exact command to the lead and does not start it.
+Full end-to-end suites dominate machine load: the golden journeys (`just golden <journey>`) and their CI wrappers,
+`just proof delivery-recovery`, and the browser suites (`just e2e <suite>`).
+Any agent may run one, but only through `just measure`, so that the heavy lock admits one at a time.
 
 Heavy jobs are real PostgreSQL tests, browser suites and the servers they start, JVM model checks, `just check`, `just check-types`, and `just test`.
 Run every heavy job through `just measure --class <class> -- <command...>`. `just model` does so itself.
