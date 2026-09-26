@@ -1,6 +1,18 @@
 import type { AuthEngineConfig } from "./auth-engine.js";
-import { ManagedRuntime, Layer } from "effect";
+import { Config, ConfigProvider, Effect, ManagedRuntime, Layer } from "effect";
 import { NativeAuthEngine, NativeAuthEngineLive, AuthPoolLive } from "./auth-engine.js";
+
+// A set but empty variable stays empty: only an unset one takes the default.
+const generatorEnvironment = Effect.runSync(
+  Config.all({
+    postgresUrl: Config.String("AUTH_GENERATE_PG_URL").pipe(
+      Config.withDefault("postgres://postgres@127.0.0.1:45121/postgres"),
+    ),
+    secret: Config.String("BETTER_AUTH_SECRET").pipe(
+      Config.withDefault("generator-only-not-a-runtime-secret"),
+    ),
+  }).parse(ConfigProvider.fromEnv({ preserveEmptyStrings: true })),
+);
 
 /**
  * Generator-only config for migration 0015 provenance (spec 0054).
@@ -15,8 +27,7 @@ import { NativeAuthEngine, NativeAuthEngineLive, AuthPoolLive } from "./auth-eng
  * auth-engine.ts; this file only re-exports the engine for the CLI.
  */
 const config: AuthEngineConfig = {
-  postgresUrl: process.env.AUTH_GENERATE_PG_URL ?? "postgres://postgres@127.0.0.1:45121/postgres",
-  secret: process.env.BETTER_AUTH_SECRET ?? "generator-only-not-a-runtime-secret",
+  ...generatorEnvironment,
   oauth: {
     canonicalOrigin: "http://127.0.0.1:4173",
     dashboardOrigin: "http://127.0.0.1:4173",
