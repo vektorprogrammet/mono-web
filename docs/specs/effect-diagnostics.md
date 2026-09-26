@@ -44,7 +44,7 @@ Remove this specification when `just lint` enforces every Effect language-servic
 | D | every other non-`effectNative` preset rule everywhere (`any-unknown-in-error-context` 141, `leaking-requirements` 4, and the small ones), type-aware `typescript(*)` 138, A's residue; `prefer-schema-over-json`, `instance-of-schema`, and `extends-native-error` are `effectNative` rules, so they belong to E1–E3 in core code and are off elsewhere | 312 | Done: zero findings repository-wide (branches `refactor/effect-diagnostics-d-0926` and `refactor/effect-diagnostics-d2-0926`) |
 | E1 | `effectNative` rules in `packages/database` (`async-function` 376 and the rest) | ~470 | After C |
 | E2 | `effectNative` rules in `apps/backend` | 450 on `282da16f` | In progress: 430 left; see Remaining steps |
-| E3 | `effectNative` rules in `packages/domain` and `packages/http-api` | ~90 | After E1 or D |
+| E3 | `effectNative` rules in `packages/domain` and `packages/http-api` | 104 on `40de8ee4` | Done: zero findings in both packages, no exception (branch `refactor/effect-diagnostics-e3-0926`) |
 | W | wiring (`oxlint.config.ts`, tsconfig, lint hook, CI), negative control | - | Prepared; lands last |
 
 ## Exceptions
@@ -86,3 +86,10 @@ Slice E2 (`apps/backend`, counted with the wiring configuration of `build/effect
 3. After slice E1 lands its Effect-returning Identity and AuthEngine interfaces (`b846b919` on `refactor/effect-diagnostics-e1-0926`, whose backend callers migrate in step 1 of E1's remaining steps): `router.ts` (`BackendAuthHandler` methods return `Effect<…, IdentityEngineError>`, `backendHttpHandler` and `internalBackendHttpHandler` return `Effect<Response>`, and `main.ts` runs them once in `Bun.serve`), the `instance-of-schema` sites in `router.ts`, `authority.ts`, and `http-api/system.ts`, `global-date` in `authority.ts`, and `main.ts` (`process.env` through `Config`, the shutdown sequence as an Effect program).
 4. Small sites: `onboarding/http.ts:365` (`Crypto.Crypto` `randomUUIDv4`, with `BunCrypto.layer` in the test platform layer), `organization/http.ts` `readBoundedText` (the reader loop of `http-api/read-json.ts`), and `profile/http.ts:174` (parse with `Schema.fromJsonString(Schema.Unknown)`, then decode the patch, so the errors stay `request.malformed` and `validation.failed`).
 5. Test harness and tests: `apps/backend/test/postgres.ts` and `test/database.ts` return Effects (a `ManagedRuntime` owns the per-file cluster; the per-test database is released in `afterEach`), `src/test/native-http.ts` serves each request with `Effect.acquireUseRelease` around `HttpRouter.toWebHandler`, and every `*.test.ts` body becomes `it.live`/`it.effect` (311 `async-function` sites and the test `global-date`, `new-promise`, and `node-builtin-import` sites). `apps/backend/test/runtime.ts` is deleted when its last caller is converted.
+
+Slice E3 is done. Its fixes follow these forms:
+
+- Errors: `Data.TaggedError` with the previous tag, codes, and message (a `message` getter where the message derives from fields); construction sites pass one object.
+- Platform: `DomainFileSystem` fails with `PlatformError` and runs on the Effect `FileSystem` and `Path` services (`@effect/platform-bun` layers), which also write the OpenAPI projection and read the D1 migration.
+- Programs: `Effect.gen` instead of async functions; `Effect.exit` with `Cause.squash` where a test or proof observes a failure; `Deferred` and forked fibers instead of hand-built promises; a scoped layer instead of a mutable module runtime; `Effect.abortSignal` for a test's request lifetime.
+- Values: `Schema.fromJsonString` (with `space: 2` for the reports) instead of `JSON`; `DateTime` and `normalizeRfc3339Instant` instead of the `Date` constructor; `canonicalJson` to compare row snapshots; `Console.log` in the examples.
