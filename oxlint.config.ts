@@ -1,5 +1,12 @@
 import { defineConfig } from "oxlint";
-import { expandDomains, type ExpandInput, type RuleName } from "@phibkro/oxlint-effect-plugin";
+import {
+  DEFAULT_PLUGIN_NAME,
+  expandDomains,
+  RULE_NAMES,
+  type ExpandInput,
+  type OxlintConfigFragment,
+  type RuleName,
+} from "@phibkro/oxlint-effect-plugin";
 
 const advisorySeverity = {
   "no-ambient-console": "warn",
@@ -18,19 +25,40 @@ const group = <T extends Omit<ExpandInput["groups"][number], "severityOverrides"
   severityOverrides: advisorySeverity,
 });
 
+// Oxlint matches override globs without extglob support, so `!(…)` patterns match nothing.
+// Groups therefore use plain globs, ordered from broad sources to narrow exceptions:
+// the last matching group decides every Effect rule for a file (see `totalOverrides`).
 const effectConfig = {
   technology: "effect-v4",
   groups: [
     group({
-      files: ["packages/domain/src/**/!(*.test|*.spec).ts"],
+      files: ["packages/domain/src/**/*.ts"],
       role: "effect-library",
       platform: "node",
       strictness: "recommended",
     }),
     group({
-      files: ["packages/database/src/**/!(*.test|*.spec|*-main|*-cli).ts"],
+      files: ["packages/database/src/**/*.ts"],
       role: "runtime-adapter",
       platform: "node",
+      strictness: "recommended",
+    }),
+    group({
+      files: ["packages/sdk/src/**/*.ts"],
+      role: "effect-library",
+      platform: "portable",
+      strictness: "recommended",
+    }),
+    group({
+      files: ["apps/backend/src/**/*.ts"],
+      role: "runtime-adapter",
+      platform: "node",
+      strictness: "recommended",
+    }),
+    group({
+      files: ["packages/domain/src/placements/*.ts"],
+      role: "effect-library",
+      platform: "portable",
       strictness: "recommended",
     }),
     {
@@ -46,25 +74,15 @@ const effectConfig = {
       severityOverrides: { "no-ambient-authority": "error" },
     },
     group({
-      files: ["packages/domain/src/placements/!(*.test|*.spec).ts"],
-      role: "effect-library",
-      platform: "portable",
-      strictness: "recommended",
-    }),
-    group({
-      files: ["packages/sdk/src/**/!(*.test|*.spec).ts"],
-      role: "effect-library",
-      platform: "portable",
-      strictness: "recommended",
-    }),
-    group({
-      files: ["apps/backend/src/**/!(main|*.test|*.spec|*-main).ts"],
-      role: "runtime-adapter",
-      platform: "node",
-      strictness: "recommended",
-    }),
-    group({
-      files: ["infra/**/*.ts", "scripts/**/*.ts", "tools/acceptance/**/*.ts"],
+      files: [
+        "tools/acceptance/**/*.ts",
+        "tools/verification/**/*.ts",
+        "apps/backend/src/main.ts",
+        "apps/backend/src/**/*-main.ts",
+        "packages/database/runtime/**/*-main.ts",
+        "packages/database/src/**/*-main.ts",
+        "packages/database/src/**/*-cli.ts",
+      ],
       role: "composition-root",
       platform: "node",
       strictness: "recommended",
@@ -92,20 +110,27 @@ const effectConfig = {
       strictness: "recommended",
     }),
     group({
-      files: [
-        "apps/backend/src/main.ts",
-        "apps/backend/src/**/*-main.ts",
-        "packages/database/runtime/**/*-main.ts",
-        "tools/verification/**/!(*.test).ts",
-        "tools/e2e/legacy-candidate-native-journey.ts",
-        "packages/database/src/**/*-cli.ts",
-      ],
+      files: ["tools/e2e/legacy-candidate-native-journey.ts"],
       role: "composition-root",
       platform: "node",
       strictness: "recommended",
     }),
   ],
 } satisfies ExpandInput;
+
+// `expandDomains` lists only the rules that apply to a group, so a rule enabled by an earlier,
+// broader group would stay on for files of a later group where it does not apply.
+// Turning every other plugin rule off in each override makes the last matching group total.
+const totalOverrides = (fragment: OxlintConfigFragment): OxlintConfigFragment => ({
+  ...fragment,
+  overrides: fragment.overrides.map((override) => ({
+    ...override,
+    rules: {
+      ...Object.fromEntries(RULE_NAMES.map((name) => [`${DEFAULT_PLUGIN_NAME}/${name}`, "off"])),
+      ...override.rules,
+    },
+  })),
+});
 
 // Export maps own package access; these restrictions also close relative-import bypasses.
 const crossPackageSourceImportMessage =
@@ -142,7 +167,7 @@ const browserImportPatterns = [
   },
 ];
 
-const expandedEffectConfig = expandDomains(effectConfig);
+const expandedEffectConfig = totalOverrides(expandDomains(effectConfig));
 
 export default defineConfig({
   ...expandedEffectConfig,
