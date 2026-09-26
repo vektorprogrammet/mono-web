@@ -65,11 +65,31 @@ const canonicalPlainData: (value: PlainData) => Schema.Json = Match.type<PlainDa
 
 /**
  * The plain JSON value of a datum, with sorted object keys and non-finite numbers as `null`.
- * A datum that is not plain data fails to decode.
+ *
+ * @remarks
+ * It accepts plain data only, at every depth: `null`, strings, booleans, numbers, arrays, and
+ * objects whose prototype is `Object.prototype` or `null`. Object keys are sorted by UTF-16 code
+ * unit at every depth, and `NaN` and the infinities become `null`, as `JSON.stringify` writes
+ * them. The value is what a SQL `json` parameter stores, so a JSON column keeps the canonical form.
+ *
+ * @throws An `Error` whose cause is the schema issue, when the datum holds anything but plain data
+ * at any depth: `undefined`, a `DateTime`, a `Date`, a class instance, or bytes. Encode such a
+ * value through its owning schema first.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * sql.json(canonicalJsonValue(commandEnvelope));
+ * ```
+ *
+ * @avoid `sql.json(canonicalJson(value))`: `sql.json` encodes its argument again, so the column
+ * stores a JSON string, and `anti-slop/no-json-text-parameter` rejects it. Give a JSON parameter
+ * `canonicalJsonValue(value)`.
  *
  * @construct digest
  */
-export const canonicalJsonValue = Match.type<unknown>().pipe(
+export const canonicalJsonValue: <A>(datum: A) => Schema.Json = Match.type<unknown>().pipe(
   Match.orElse((datum): Schema.Json => canonicalPlainData(decodePlainData(datum))),
 );
 
@@ -77,22 +97,75 @@ export const canonicalJsonValue = Match.type<unknown>().pipe(
  * The canonical JSON text of a datum, to hash or compare; a SQL `json` parameter takes
  * `canonicalJsonValue` instead.
  *
- * `sql.json` encodes its argument, so this text would be stored as a JSON string, and
- * `anti-slop/no-json-text-parameter` rejects it there.
+ * @remarks
+ * `JSON.stringify` of `canonicalJsonValue`: sorted object keys at every depth, non-finite numbers
+ * as `null`, and no whitespace, so equal data always gives equal text. Command digests, lock keys,
+ * and evidence digests hash or embed this text.
+ *
+ * @throws An `Error` whose cause is the schema issue, when the datum is not plain data, as
+ * `canonicalJsonValue` throws.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * const commandJson = canonicalJson(payload);
+ * ```
+ *
+ * @avoid Comparing or hashing `JSON.stringify(value)`: its key order follows insertion, so equal
+ * data can give different text. Passing this text to `sql.json` stores a JSON string, which
+ * `anti-slop/no-json-text-parameter` rejects; a JSON parameter takes `canonicalJsonValue`.
  *
  * @construct digest
  */
-export const canonicalJson = flow(canonicalJsonValue, (value): string => JSON.stringify(value));
+export const canonicalJson: <A>(datum: A) => string = flow(canonicalJsonValue, (value): string =>
+  JSON.stringify(value),
+);
 
 /**
  * The UTF-8 bytes of the canonical JSON text of a datum.
  *
+ * @remarks
+ * `TextEncoder` output of `canonicalJson`: the input that `sha256Hex` digests for command
+ * receipts, idempotency identities, snapshot digests, and evidence hashes.
+ *
+ * @throws An `Error` whose cause is the schema issue, when the datum is not plain data, as
+ * `canonicalJsonValue` throws.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * const digest = sha256Hex(canonicalJsonBytes({ actorPersonId, command }));
+ * ```
+ *
+ * @avoid Digesting `new TextEncoder().encode(JSON.stringify(value))`: its key order follows
+ * insertion, so equal data can digest differently. Digest `canonicalJsonBytes(value)`.
+ *
  * @construct digest
  */
-export const canonicalJsonBytes = flow(canonicalJson, (json) => new TextEncoder().encode(json));
+export const canonicalJsonBytes: <A>(datum: A) => Uint8Array<ArrayBuffer> = flow(
+  canonicalJson,
+  (json) => new TextEncoder().encode(json),
+);
 
 /**
  * The lowercase hexadecimal SHA-256 digest of bytes.
+ *
+ * @remarks
+ * `@noble/hashes` computes the digest synchronously in plain JavaScript, so it needs no Web Crypto
+ * or Node API and gives the same 64 characters wherever it runs.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * const payloadDigest = sha256Hex(canonicalJsonBytes(command));
+ * ```
+ *
+ * @avoid Hashing `JSON.stringify` text, or writing a digest in base64 or upper case: stored
+ * digests compare as the lowercase hexadecimal digest of canonical JSON bytes, so any other form
+ * never matches. Digest `canonicalJsonBytes(value)` with `sha256Hex`.
  *
  * @construct digest
  */
