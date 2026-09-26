@@ -52,12 +52,12 @@ jobs:
       - name: Publish the Placements API reference with the site
         timeout-minutes: 1
         run: |
-          mkdir -p apps/docs/dist/public/packages/domain/src/placements
-          mv "$RUNNER_TEMP/placements-api" apps/docs/dist/public/packages/domain/src/placements/api
+          mkdir -p apps/docs/.output/public/packages/domain/src/placements
+          mv "$RUNNER_TEMP/placements-api" apps/docs/.output/public/packages/domain/src/placements/api
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         timeout-minutes: 2
         with:
-          path: apps/docs/dist/public
+          path: apps/docs/.output/public
 
   deploy:
     name: Deploy to GitHub Pages

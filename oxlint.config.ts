@@ -429,6 +429,8 @@ export default defineConfig({
   ignorePatterns: [
     "tools/oxlint/anti-slop/**",
     "apps/docs/components/mdxcn/**",
+    // TanStack Router writes the route tree; its header asks linters to skip it.
+    "apps/docs/src/routeTree.gen.ts",
     "**/build/**",
     "**/dist/**",
     "**/node_modules/**",
