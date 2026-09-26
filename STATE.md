@@ -104,7 +104,7 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
 - `Team.email` (`packages/domain/src/organization/schema.ts`) accepts text that is not a mailbox. Open team intake requires a deliverable mailbox; the write boundary does not check it.
 - Hand-written operation ids outside content, hand-written dashboard navigation paths, a fixed admissions `retry-after`, and fixed ports in older browser runners.
 - PR previews (operator decision, 2026-09-25): Cloudflare Worker Previews of the homepage and dashboard only, as `vektor-preview-homepage` and `vektor-preview-dashboard`, which `wrangler preview` creates on first use ([contract](docs/specs/worker-pr-previews.md)).
-  They need the `CLOUDFLARE_API_TOKEN` repository secret (operator step); no hosted run has deployed one yet. They have no backend, so pages that read the API show the unavailable state.
+  Their Cloudflare token (Workers Editor on the two preview Workers only) and account id live in Bitwarden Secrets Manager; `secretspec.toml` profile `preview` gives them to the deploy and delete steps, and GitHub holds only the read-only `BWS_ACCESS_TOKEN`. The parent Workers were created on 2026-09-26; no pull request has deployed a preview yet. They have no backend, so pages that read the API show the unavailable state.
   A native backend preview host is the planned follow-up: full-stack per-PR previews on DigitalOcean App Platform (`digitalocean/app_action` with `deploy_pr_preview`) so previews rehearse the production platform.
 - The `dev-main` stage was torn down on 2026-09-26: its Workers, custom domain, route, tunnel, tunnel DNS records, and workstation units are gone. `vektor.phibkro.org` is free for a future staging deployment of `main`.
   Retired Cloudflare Workers still deployed: p20 (homepage, dashboard, preview worker), p001 (homepage, dashboard), the superseded development backend (routes `vektor.phibkro.org/api/*` and `/health`), and `vektor-migration-docs`.
@@ -164,7 +164,7 @@ The `legacy-data` devenv profile cannot build while the home binary cache answer
 - Homelab branch `feat/btrbk-root-offload-ironwolf` (in `/srv/share/projects/homelab-btrbk-offload`) is built, not merged or deployed.
   It keeps root snapshots 7d locally, sends the latest to the IronWolf until 2026-10-04 and 4w 6m after, caps `@downloads` at 2540G,
   ages `/tmp` at 7d, and makes a dead binary cache non-fatal. Merge it into homelab `main` and rebuild the workstation from the homelab justfile, following the steps in its docs.
-- Add the `CLOUDFLARE_API_TOKEN` repository secret for the frontend previews, and decide whether to delete the retired Cloudflare Workers listed above.
+- Delete the superseded `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` GitHub secrets after the first secretspec preview deploy passes, and decide whether to delete the retired Cloudflare Workers listed above.
 - Before any production use of reach and delegation: classify the Styret and national teams, recognize independent departments,
   and issue the Økonomi delegations, each by explicit command (see Production gates).
 
