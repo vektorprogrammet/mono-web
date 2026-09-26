@@ -47,7 +47,7 @@ export const submitContact = (message: ContactMessage, ip: ContactVisitorIp) =>
     );
 
     if (!department.active || !Schema.is(ContactEmail)(department.email)) {
-      return yield* Effect.fail(new ContactFailure({ reason: "InvalidRecipient" }));
+      return yield* new ContactFailure({ reason: "InvalidRecipient" });
     }
 
     const delivery = yield* ContactDelivery;
