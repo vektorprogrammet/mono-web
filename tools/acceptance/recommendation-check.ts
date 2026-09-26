@@ -2577,11 +2577,12 @@ try {
   await page.waitForURL(/\/dashboard\/onboarding$/);
   await page.getByRole("heading", { name: "Søkerkontoer", exact: true }).waitFor();
   await page.goto(`${ui}/dashboard/intervjuer`);
-  await page.getByRole("link", { name: "Intervjuskjema", exact: true }).click();
-  await page.waitForURL(/\/dashboard\/intervjusjema$/);
-  await page.getByRole("heading", { name: "Intervjusjema", exact: true }).waitFor();
-  await page.goto(`${ui}/dashboard/intervjuer`);
-  await page.getByRole("link", { name: "Kontrollpanel", exact: true }).click();
+  const controlPanel = page.getByRole("link", { name: "Kontrollpanel", exact: true });
+  await controlPanel.waitFor();
+  // Only a global administrator maintains interview schemas since 7472f5ea, so a board leader's
+  // navigation offers no schema link.
+  assert.equal(await page.getByRole("link", { name: "Intervjuskjema", exact: true }).count(), 0);
+  await controlPanel.click();
   await page.waitForURL(/\/dashboard\/?$/);
   await page.getByRole("heading", { name: "Velkommen, Lina Lagleder", exact: true }).waitFor();
   await pool.query(
@@ -2607,7 +2608,7 @@ try {
   }
 
   recordGate(
-    "owned interview shell retains role-scoped onboarding and existing schema/dashboard navigation",
+    "owned interview shell retains role-scoped onboarding and dashboard navigation without the global administrators' schema link",
   );
 
   const rows = (
