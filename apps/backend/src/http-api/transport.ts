@@ -16,7 +16,7 @@ import {
   invitationCapabilityChallenge,
   Problem,
 } from "@vektorprogrammet/http-api/http-semantics";
-import { Match, Effect, Layer, Redacted, Result, type SchemaIssue } from "effect";
+import { Match, Effect, Layer, Redacted, Result, Schema, type SchemaIssue } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiError, HttpApiMiddleware } from "effect/unstable/httpapi";
 import {
@@ -108,8 +108,7 @@ const rejectCredential = (
     ),
   );
 
-const isUnauthenticated = (cause: unknown): cause is UnauthenticatedActor =>
-  cause instanceof UnauthenticatedActor;
+const isUnauthenticated = Schema.is(UnauthenticatedActor);
 
 const sessionSecurityLayer = Layer.effect(
   SessionSecurity,

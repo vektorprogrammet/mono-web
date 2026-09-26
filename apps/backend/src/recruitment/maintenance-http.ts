@@ -25,6 +25,7 @@ import {
   personPresentation,
   requireNoQuery,
   unreachable,
+  jsonText,
 } from "../http-api/problem.js";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
@@ -103,7 +104,7 @@ export const readRecruitmentMaintenanceHttp = (
             ),
           );
 
-    return new Response(JSON.stringify(encoded), {
+    return new Response(yield* jsonText(encoded), {
       headers: {
         "content-type": "application/json",
         "cache-control": PRIVATE_NO_STORE,
@@ -180,7 +181,7 @@ export const maintainRecruitmentHttp = (request: Request) =>
                   version: result.revision,
                 }),
               },
-              bodyBytes: new TextEncoder().encode(JSON.stringify(encoded)),
+              bodyBytes: new TextEncoder().encode(yield* jsonText(encoded)),
             };
           }),
         };

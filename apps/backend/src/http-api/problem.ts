@@ -61,6 +61,17 @@ export const problemWebResponse = (problem: Problem): Response =>
     headers: { ...problemHeaders(problem), "content-type": "application/problem+json" },
   });
 
+const JsonText = Schema.fromJsonString(Schema.Unknown);
+
+/**
+ * The JSON text of a representation, byte for byte what `JSON.stringify` writes.
+ * A value that JSON cannot represent is a defect.
+ *
+ * @construct http-problem
+ */
+export const jsonText = <A>(value: A): Effect.Effect<string> =>
+  Schema.encodeEffect(JsonText)(value).pipe(Effect.orDie);
+
 /**
  * Records, from the raw request only, whether person credential material was presented.
  *
@@ -153,6 +164,7 @@ export const problemMapper =
     });
 
     // SAFETY: failures with a mapped tag became the problem their case returns; the rest are unchanged.
+    // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- Each failure tag maps to the problem type its case returns; TypeScript cannot index the generic `Cases` by the failure tag to infer that union, so the mapped error channel is asserted once here.
     return mapped as Effect.Effect<A, MappedFailure<E, Failure, Cases>, R>;
   };
 
@@ -279,7 +291,7 @@ export const conditionalJson = (input: {
       });
     }
 
-    return new Response(JSON.stringify(input.body), {
+    return new Response(yield* jsonText(input.body), {
       status: 200,
       headers: {
         "cache-control": input.cacheControl,
@@ -432,15 +444,15 @@ export const authorizePerson = (
  */
 export const unreachable =
   <const Code extends NativeProblemCode>(code: Code, ...codes: ReadonlyArray<Code>) =>
-  <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, Exclude<E, Problem<Code>>, R> => {
+  <A, E, R>(effect: Effect.Effect<A, E, R>) => {
     const listed: ReadonlyArray<NativeProblemCode> = [code, ...codes];
 
-    const narrowed = Effect.catch(effect, (error) =>
-      isProblem(error) && listed.includes(error.code) ? Effect.die(error) : Effect.fail(error),
+    return Effect.catchIf(
+      effect,
+      (error): error is Extract<E, Problem<Code>> =>
+        isProblem(error) && listed.includes(error.code),
+      (error) => Effect.die(error),
     );
-
-    // SAFETY: only the listed problems left the error channel; every other failure re-fails unchanged.
-    return narrowed as Effect.Effect<A, Exclude<E, Problem<Code>>, R>;
   };
 
 /**

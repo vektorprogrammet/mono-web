@@ -49,6 +49,7 @@ import {
   requireNoQuery,
   strictOutput,
   webHandler,
+  jsonText,
 } from "../http-api/problem.js";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
@@ -336,7 +337,7 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
                 status: 200,
                 mediaType: "application/json",
                 headers: { "content-type": "application/json", etag: resource.etag },
-                bodyBytes: new TextEncoder().encode(JSON.stringify(resource)),
+                bodyBytes: new TextEncoder().encode(yield* jsonText(resource)),
               };
             }),
           };

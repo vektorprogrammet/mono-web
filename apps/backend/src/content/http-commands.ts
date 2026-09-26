@@ -47,6 +47,7 @@ import {
   semanticProblem,
   strictOutput,
   unreachable,
+  jsonText,
 } from "../http-api/problem.js";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
@@ -199,7 +200,7 @@ export const createArticle = (request: Request, maxBodyBytes: number) => {
 
                     const output = yield* strictOutput(ContentArticleDetailSchema)(detail);
 
-                    return new Response(JSON.stringify(output), {
+                    return new Response(yield* jsonText(output), {
                       status: 201,
                       headers: {
                         "cache-control": NO_STORE,
@@ -315,7 +316,7 @@ export const reviseArticle = (request: Request, articleId: ArticleId, maxBodyByt
                 const output = yield* strictOutput(ContentArticleDetailSchema)(detail);
                 const etag = yield* articleETagEffect(articleId, actor.personId);
 
-                return new Response(JSON.stringify(output), {
+                return new Response(yield* jsonText(output), {
                   status: 200,
                   headers: { "cache-control": NO_STORE, "content-type": "application/json", etag },
                 });
@@ -417,7 +418,7 @@ export const lifecycleArticle = (
 
                   const etag = yield* articleETagEffect(articleId, actor.personId);
 
-                  return new Response(JSON.stringify(output), {
+                  return new Response(yield* jsonText(output), {
                     status: 200,
                     headers: {
                       "cache-control": NO_STORE,
@@ -439,7 +440,7 @@ export const lifecycleArticle = (
 
                 const etag = yield* articleETagEffect(articleId, actor.personId);
 
-                return new Response(JSON.stringify(output), {
+                return new Response(yield* jsonText(output), {
                   status: 200,
                   headers: { "cache-control": NO_STORE, "content-type": "application/json", etag },
                 });

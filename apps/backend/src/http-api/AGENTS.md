@@ -14,6 +14,7 @@ No `exports` entry of [apps/backend/package.json](../../package.json) points int
 The shared constructs defined here. [docs/constructs.md](../../../../docs/constructs.md) lists their consumers.
 
 - [`problemWebResponse`](problem.ts) (http-problem): Renders one problem outside HttpApi encoding, with the encoder's body and headers.
+- [`jsonText`](problem.ts) (http-problem): The JSON text of a representation, byte for byte what `JSON.stringify` writes.
 - [`classifyCredential`](problem.ts) (http-problem): Records, from the raw request only, whether person credential material was presented.
 - [`webHandler`](problem.ts) (http-problem): Runs one Effect-native Web transport operation.
 - [`semanticProblem`](problem.ts) (http-problem): Runs a throwing semantic parser.

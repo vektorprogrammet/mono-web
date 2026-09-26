@@ -41,6 +41,7 @@ import {
   requireNoQuery,
   strictOutput,
   unreachable,
+  jsonText,
 } from "../http-api/problem.js";
 import { deriveStrongETag, PRIVATE_NO_STORE, PUBLIC_CACHE_CONTROL } from "../http-semantics.js";
 import { articleContext, authorizeContentOperation } from "./http-access.js";
@@ -82,7 +83,7 @@ export const readContentWorkspace = <E, R>(
     const workspace = yield* runContentWorkspace(actor.personId, actor.authorizationInstant, query);
     const body = yield* strictOutput(ContentWorkspaceSchema)(workspace);
 
-    return new Response(JSON.stringify(body), {
+    return new Response(yield* jsonText(body), {
       status: 200,
       headers: { "cache-control": PRIVATE_NO_STORE, "content-type": "application/json" },
     });

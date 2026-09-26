@@ -11,7 +11,7 @@ Consumers are the modules that import a construct, directly or through re-export
 | Category                          | Constructs | Holds                                                                                                                                       |
 | --------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | [http-transport](#http-transport) | 17         | Reads native HTTP requests and writes their representations: bounded JSON, preconditions, idempotency keys, entity tags, and cache headers. |
-| [http-problem](#http-problem)     | 58         | Answers a native HTTP request with a declared problem: failure mapping, credential classification, authorization, and decoding.             |
+| [http-problem](#http-problem)     | 59         | Answers a native HTTP request with a declared problem: failure mapping, credential classification, authorization, and decoding.             |
 | [sql-lock](#sql-lock)             | 5          | Transaction-scoped PostgreSQL advisory locks under registered keys.                                                                         |
 | [sql-lifecycle](#sql-lifecycle)   | 8          | Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account access.                                                        |
 | [delivery](#delivery)             | 1          | Delivers committed effects to providers after the transaction.                                                                              |
@@ -112,7 +112,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
   - [apps/backend/src/admission/http-reads.ts](../apps/backend/src/admission/http-reads.ts)
 - `admissionActorForAuthority`: The admission actor of one department scope.
-  [apps/backend/src/admission/http-context.ts:57](../apps/backend/src/admission/http-context.ts#L57), 1 consumer:
+  [apps/backend/src/admission/http-context.ts:61](../apps/backend/src/admission/http-context.ts#L61), 1 consumer:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
 - `decodeJson`: Reads and decodes one bounded JSON body.
   [apps/backend/src/admission/http-decode.ts:53](../apps/backend/src/admission/http-decode.ts#L53), 1 consumer:
@@ -159,11 +159,21 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/http-api/transport.ts](../apps/backend/src/http-api/transport.ts)
   - [apps/backend/src/receipt/http-commands.ts](../apps/backend/src/receipt/http-commands.ts)
   - [apps/backend/src/router.ts](../apps/backend/src/router.ts)
+- `jsonText`: The JSON text of a representation, byte for byte what `JSON.stringify` writes.
+  [apps/backend/src/http-api/problem.ts:72](../apps/backend/src/http-api/problem.ts#L72), 8 consumers:
+  - [apps/backend/src/admission/http-reads.ts](../apps/backend/src/admission/http-reads.ts)
+  - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
+  - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
+  - [apps/backend/src/content/http-reads.ts](../apps/backend/src/content/http-reads.ts)
+  - [apps/backend/src/recruitment/http-commands.ts](../apps/backend/src/recruitment/http-commands.ts)
+  - [apps/backend/src/recruitment/maintenance-http.ts](../apps/backend/src/recruitment/maintenance-http.ts)
+  - [apps/backend/src/schools/administration-http.ts](../apps/backend/src/schools/administration-http.ts)
+  - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
 - `classifyCredential`: Records, from the raw request only, whether person credential material was presented.
-  [apps/backend/src/http-api/problem.ts:69](../apps/backend/src/http-api/problem.ts#L69), 1 consumer:
+  [apps/backend/src/http-api/problem.ts:80](../apps/backend/src/http-api/problem.ts#L80), 1 consumer:
   - [apps/backend/src/http-api/transport.ts](../apps/backend/src/http-api/transport.ts)
 - `webHandler`: Runs one Effect-native Web transport operation.
-  [apps/backend/src/http-api/problem.ts:87](../apps/backend/src/http-api/problem.ts#L87), 14 consumers:
+  [apps/backend/src/http-api/problem.ts:98](../apps/backend/src/http-api/problem.ts#L98), 14 consumers:
   - [apps/backend/src/admission/http.ts](../apps/backend/src/admission/http.ts)
   - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/contact/http.ts](../apps/backend/src/contact/http.ts)
@@ -179,13 +189,13 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `semanticProblem`: Runs a throwing semantic parser.
-  [apps/backend/src/http-api/problem.ts:103](../apps/backend/src/http-api/problem.ts#L103), 4 consumers:
+  [apps/backend/src/http-api/problem.ts:114](../apps/backend/src/http-api/problem.ts#L114), 4 consumers:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
   - [apps/backend/src/admission/http-decode.ts](../apps/backend/src/admission/http-decode.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
   - [apps/backend/src/recruitment/http-commands.ts](../apps/backend/src/recruitment/http-commands.ts)
 - `problemMapper`: Builds the one failure-to-problem mapper of a domain.
-  [apps/backend/src/http-api/problem.ts:137](../apps/backend/src/http-api/problem.ts#L137), 15 consumers:
+  [apps/backend/src/http-api/problem.ts:148](../apps/backend/src/http-api/problem.ts#L148), 15 consumers:
   - [apps/backend/src/admission/http-problem.ts](../apps/backend/src/admission/http-problem.ts)
   - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/contact/http.ts](../apps/backend/src/contact/http.ts)
@@ -202,9 +212,9 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `headerValues`: The values of one request header; an absent header has none.
-  [apps/backend/src/http-api/problem.ts:164](../apps/backend/src/http-api/problem.ts#L164), no consumers.
+  [apps/backend/src/http-api/problem.ts:176](../apps/backend/src/http-api/problem.ts#L176), no consumers.
 - `requireNoQuery`: An operation that accepts no query answers any query as malformed.
-  [apps/backend/src/http-api/problem.ts:175](../apps/backend/src/http-api/problem.ts#L175), 17 consumers:
+  [apps/backend/src/http-api/problem.ts:187](../apps/backend/src/http-api/problem.ts#L187), 17 consumers:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
   - [apps/backend/src/admission/http-reads.ts](../apps/backend/src/admission/http-reads.ts)
   - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
@@ -223,7 +233,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `readJsonBody`: Reads a bounded JSON body of the one media type `mediaType` accepts.
-  [apps/backend/src/http-api/problem.ts:185](../apps/backend/src/http-api/problem.ts#L185), 11 consumers:
+  [apps/backend/src/http-api/problem.ts:197](../apps/backend/src/http-api/problem.ts#L197), 11 consumers:
   - [apps/backend/src/admission/http-decode.ts](../apps/backend/src/admission/http-decode.ts)
   - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/contact/http.ts](../apps/backend/src/contact/http.ts)
@@ -236,7 +246,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `idempotencyKeyOf`: Decodes the one Idempotency-Key a replayable mutation requires.
-  [apps/backend/src/http-api/problem.ts:205](../apps/backend/src/http-api/problem.ts#L205), 14 consumers:
+  [apps/backend/src/http-api/problem.ts:217](../apps/backend/src/http-api/problem.ts#L217), 14 consumers:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
   - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
@@ -252,7 +262,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `requiredIfMatchOf`: Decodes the one strong If-Match an item mutation requires.
-  [apps/backend/src/http-api/problem.ts:216](../apps/backend/src/http-api/problem.ts#L216), 9 consumers:
+  [apps/backend/src/http-api/problem.ts:228](../apps/backend/src/http-api/problem.ts#L228), 9 consumers:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
   - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
@@ -263,7 +273,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/recruitment/http-commands.ts](../apps/backend/src/recruitment/http-commands.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `httpIdentity`: Derives a command's idempotency identity; a tuple outside the frozen grammar is a request problem.
-  [apps/backend/src/http-api/problem.ts:227](../apps/backend/src/http-api/problem.ts#L227), 13 consumers:
+  [apps/backend/src/http-api/problem.ts:239](../apps/backend/src/http-api/problem.ts#L239), 13 consumers:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
   - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
@@ -278,7 +288,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `requireCurrentETag`: Fails a mutation whose If-Match no longer names the current representation.
-  [apps/backend/src/http-api/problem.ts:238](../apps/backend/src/http-api/problem.ts#L238), 9 consumers:
+  [apps/backend/src/http-api/problem.ts:250](../apps/backend/src/http-api/problem.ts#L250), 9 consumers:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
   - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
@@ -289,7 +299,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/recruitment/http-commands.ts](../apps/backend/src/recruitment/http-commands.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `conditionalJson`: Answers a conditional JSON read after authority and concealment: the representation, a bodyless 304, or precondition.failed.
-  [apps/backend/src/http-api/problem.ts:252](../apps/backend/src/http-api/problem.ts#L252), 6 consumers:
+  [apps/backend/src/http-api/problem.ts:264](../apps/backend/src/http-api/problem.ts#L264), 6 consumers:
   - [apps/backend/src/admission/http-representation.ts](../apps/backend/src/admission/http-representation.ts)
   - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-reads.ts](../apps/backend/src/content/http-reads.ts)
@@ -297,7 +307,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/profile/http.ts](../apps/backend/src/profile/http.ts)
   - [apps/backend/src/recruitment/http-reads.ts](../apps/backend/src/recruitment/http-reads.ts)
 - `personPresentation`: The person credential a request presented, for a rejection answered after ingress.
-  [apps/backend/src/http-api/problem.ts:298](../apps/backend/src/http-api/problem.ts#L298), 21 consumers:
+  [apps/backend/src/http-api/problem.ts:310](../apps/backend/src/http-api/problem.ts#L310), 21 consumers:
   - [apps/backend/src/admission/http-access.ts](../apps/backend/src/admission/http-access.ts)
   - [apps/backend/src/admission/http-problem.ts](../apps/backend/src/admission/http-problem.ts)
   - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
@@ -320,13 +330,13 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `isSerializationConflict`: Whether a failure, or one of its causes, is a lost serialization or deadlock race: a transaction.conflict the client may retry.
-  [apps/backend/src/http-api/problem.ts:311](../apps/backend/src/http-api/problem.ts#L311), 4 consumers:
+  [apps/backend/src/http-api/problem.ts:323](../apps/backend/src/http-api/problem.ts#L323), 4 consumers:
   - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/onboarding/http.ts](../apps/backend/src/onboarding/http.ts)
   - [apps/backend/src/placements/http.ts](../apps/backend/src/placements/http.ts)
   - [apps/backend/src/recruitment/http-problem.ts](../apps/backend/src/recruitment/http-problem.ts)
 - `requestInvalid`: The request as a whole fails validation; no single member is singled out.
-  [apps/backend/src/http-api/problem.ts:325](../apps/backend/src/http-api/problem.ts#L325), 6 consumers:
+  [apps/backend/src/http-api/problem.ts:337](../apps/backend/src/http-api/problem.ts#L337), 6 consumers:
   - [apps/backend/src/admission/http-problem.ts](../apps/backend/src/admission/http-problem.ts)
   - [apps/backend/src/contact/http.ts](../apps/backend/src/contact/http.ts)
   - [apps/backend/src/organization/http.ts](../apps/backend/src/organization/http.ts)
@@ -334,7 +344,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/receipt/http-decode.ts](../apps/backend/src/receipt/http-decode.ts)
   - [apps/backend/src/receipt/http-problem.ts](../apps/backend/src/receipt/http-problem.ts)
 - `decodeRequest`: Decodes one JSON request value strictly; any mismatch fails the whole request's validation.
-  [apps/backend/src/http-api/problem.ts:333](../apps/backend/src/http-api/problem.ts#L333), 12 consumers:
+  [apps/backend/src/http-api/problem.ts:345](../apps/backend/src/http-api/problem.ts#L345), 12 consumers:
   - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/contact/http.ts](../apps/backend/src/contact/http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
@@ -348,7 +358,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/recruitment/http-decode.ts](../apps/backend/src/recruitment/http-decode.ts)
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
 - `strictOutput`: Decodes one response value strictly.
-  [apps/backend/src/http-api/problem.ts:346](../apps/backend/src/http-api/problem.ts#L346), 9 consumers:
+  [apps/backend/src/http-api/problem.ts:358](../apps/backend/src/http-api/problem.ts#L358), 9 consumers:
   - [apps/backend/src/admission/http-reads.ts](../apps/backend/src/admission/http-reads.ts)
   - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
@@ -359,7 +369,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/recruitment/http-reads.ts](../apps/backend/src/recruitment/http-reads.ts)
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
 - `commandReceiptProblems`: HTTP command receipts: the transport's own persistence failures.
-  [apps/backend/src/http-api/problem.ts:356](../apps/backend/src/http-api/problem.ts#L356), 14 consumers:
+  [apps/backend/src/http-api/problem.ts:368](../apps/backend/src/http-api/problem.ts#L368), 14 consumers:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
   - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
@@ -375,7 +385,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `commandOutcomeResponse`: Answers a command receipt outcome: committed and replayed results, or an idempotency problem.
-  [apps/backend/src/http-api/problem.ts:371](../apps/backend/src/http-api/problem.ts#L371), 14 consumers:
+  [apps/backend/src/http-api/problem.ts:383](../apps/backend/src/http-api/problem.ts#L383), 14 consumers:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
   - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
@@ -391,7 +401,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `authorizeAnonymous`: An anonymous AccessSpec grants every caller and conceals nothing, so a denial means the spec and its scope resolution disagree: a defect.
-  [apps/backend/src/http-api/problem.ts:395](../apps/backend/src/http-api/problem.ts#L395), 6 consumers:
+  [apps/backend/src/http-api/problem.ts:407](../apps/backend/src/http-api/problem.ts#L407), 6 consumers:
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
   - [apps/backend/src/admission/http-reads.ts](../apps/backend/src/admission/http-reads.ts)
   - [apps/backend/src/content/http-reads.ts](../apps/backend/src/content/http-reads.ts)
@@ -399,7 +409,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/organization/http.ts](../apps/backend/src/organization/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `authorizePerson`: A rejected person credential is answered from the ingress evidence, never by string choice.
-  [apps/backend/src/http-api/problem.ts:411](../apps/backend/src/http-api/problem.ts#L411), 17 consumers:
+  [apps/backend/src/http-api/problem.ts:423](../apps/backend/src/http-api/problem.ts#L423), 17 consumers:
   - [apps/backend/src/admission/http-access.ts](../apps/backend/src/admission/http-access.ts)
   - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-access.ts](../apps/backend/src/content/http-access.ts)
@@ -418,7 +428,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `unreachable`: Marks problems a shared mapper can produce but this operation cannot, such as a serialization conflict inside a read-only snapshot.
-  [apps/backend/src/http-api/problem.ts:433](../apps/backend/src/http-api/problem.ts#L433), 17 consumers:
+  [apps/backend/src/http-api/problem.ts:445](../apps/backend/src/http-api/problem.ts#L445), 17 consumers:
   - [apps/backend/src/admission/http-access.ts](../apps/backend/src/admission/http-access.ts)
   - [apps/backend/src/admission/http-commands.ts](../apps/backend/src/admission/http-commands.ts)
   - [apps/backend/src/admission/http-reads.ts](../apps/backend/src/admission/http-reads.ts)
@@ -437,7 +447,7 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/social-events/http.ts](../apps/backend/src/social-events/http.ts)
   - [apps/backend/src/team-application/http.ts](../apps/backend/src/team-application/http.ts)
 - `ProblemBoundaryLive`: The only Cause consumer.
-  [apps/backend/src/http-api/problem.ts:454](../apps/backend/src/http-api/problem.ts#L454), 2 consumers:
+  [apps/backend/src/http-api/problem.ts:466](../apps/backend/src/http-api/problem.ts#L466), 2 consumers:
   - [apps/backend/src/router.ts](../apps/backend/src/router.ts)
   - [apps/backend/src/test/native-http.ts](../apps/backend/src/test/native-http.ts)
 - `NativeAccessRejected`: An AccessSpec evaluation that did not grant the operation.

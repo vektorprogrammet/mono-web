@@ -24,6 +24,7 @@ import {
   requireNoQuery,
   strictOutput,
   unreachable,
+  jsonText,
 } from "../http-api/problem.js";
 import { PRIVATE_NO_STORE, deriveStrongETag } from "../http-semantics.js";
 import { genericContext } from "../native-operation.js";
@@ -302,7 +303,7 @@ export const readApplicantProgress = (request: Request, input: AdmissionApiHttpO
 
         const decoded = yield* strictOutput(ApplicantProgressResponseSchema)(body);
 
-        return new Response(JSON.stringify(decoded), {
+        return new Response(yield* jsonText(decoded), {
           headers: {
             "content-type": "application/json; charset=utf-8",
             "cache-control": "private, no-store",

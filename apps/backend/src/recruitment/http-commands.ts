@@ -53,6 +53,7 @@ import {
   semanticProblem,
   strictOutput,
   unreachable,
+  jsonText,
 } from "../http-api/problem.js";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
@@ -369,7 +370,7 @@ export const createApplicationInterview = <R>(
                 interviewId: interview.interviewId,
               });
 
-              return new Response(JSON.stringify(output), {
+              return new Response(yield* jsonText(output), {
                 status: 201,
                 headers: {
                   "cache-control": NO_STORE,

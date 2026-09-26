@@ -58,6 +58,7 @@ import {
   strictOutput,
   unreachable,
   webHandler,
+  jsonText,
 } from "../http-api/problem.js";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
@@ -229,7 +230,7 @@ const snapshotRead = (
 
         const body = yield* read(observedAt, authorization);
 
-        return new Response(JSON.stringify(body), {
+        return new Response(yield* jsonText(body), {
           headers: {
             "content-type": "application/json",
             "cache-control": "private, no-store",

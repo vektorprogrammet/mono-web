@@ -13,7 +13,7 @@ import {
   type Organization,
   type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import {
   admissionActorForDepartment,
   unscopedAdmissionActorFrom,
@@ -48,6 +48,10 @@ export const requireActive = (actor: AdmissionPeriodActor) =>
     ? Effect.succeed(actor)
     : Effect.fail(new InactiveActor({ personId: actor.personId }));
 
+const isAdmissionActorDenial = Schema.is(
+  Schema.Union([InactiveActor, AdmissionScopeDenied, AdmissionRoleDenied]),
+);
+
 /**
  * The admission actor of one department scope. The mapping throws only its
  * three denials; anything else it throws is a defect.
@@ -64,12 +68,7 @@ export const admissionActorForAuthority = (
         ? unscopedAdmissionActorFrom(authority)
         : admissionActorForDepartment(authority, DepartmentId.make(departmentScope)),
     catch: (cause) => {
-      if (
-        cause instanceof InactiveActor ||
-        cause instanceof AdmissionScopeDenied ||
-        cause instanceof AdmissionRoleDenied
-      )
-        return cause;
+      if (isAdmissionActorDenial(cause)) return cause;
       throw cause;
     },
   }).pipe(Effect.flatMap(requireActive));

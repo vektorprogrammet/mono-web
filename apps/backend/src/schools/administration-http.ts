@@ -25,6 +25,7 @@ import {
   personPresentation,
   readJsonBody,
   requireNoQuery,
+  jsonText,
 } from "../http-api/problem.js";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import { deriveStrongETag, semanticRequestDigest } from "../http-semantics.js";
@@ -71,7 +72,7 @@ export const readSchoolManagementHttp = (request: Request) => {
     const snapshot = yield* Schools.use((schools) => schools.readManagement(personId));
     const encoded = yield* Schema.encodeEffect(SchoolManagement)(snapshot);
 
-    return new Response(JSON.stringify(encoded), {
+    return new Response(yield* jsonText(encoded), {
       headers: {
         "content-type": "application/json",
         "cache-control": "private, no-store",
@@ -134,7 +135,7 @@ export const executeSchoolCommandHttp = (request: Request) => {
                   version: result.revision,
                 }),
               },
-              bodyBytes: new TextEncoder().encode(JSON.stringify(encoded)),
+              bodyBytes: new TextEncoder().encode(yield* jsonText(encoded)),
             };
           }),
         };
