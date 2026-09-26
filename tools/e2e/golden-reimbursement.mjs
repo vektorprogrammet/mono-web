@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
-import { createServer } from "node:net";
 import { randomBytes } from "node:crypto";
 import { mkdtemp, mkdir, readFile, writeFile, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createRequire } from "node:module";
 import { setTimeout as pause } from "node:timers/promises";
-import { postgresVersion, startDisposablePostgres } from "@monoweb/postgres";
+import {
+  loopbackPortFree,
+  postgresVersion,
+  reserveLoopbackPorts,
+  startDisposablePostgres,
+} from "@monoweb/postgres";
 import { dashboardBuildInventory, sha256 } from "./golden-school-service-evidence.mjs";
 import {
   people,
@@ -139,20 +143,6 @@ const eventually = async (label, inspect, timeout = 30_000) => {
   }
 
   throw new Error(`Timed out: ${label}`);
-};
-
-const reservePort = async (requested = 0) => {
-  const server = createServer();
-  const ready = Promise.withResolvers();
-  server.once("error", ready.reject);
-  server.listen(requested, "127.0.0.1", ready.resolve);
-  await ready.promise;
-  const port = server.address().port;
-  const closed = Promise.withResolvers();
-  server.close((error) => (error ? closed.reject(error) : closed.resolve()));
-  await closed.promise;
-
-  return port;
 };
 
 const start = (binary, args, env = safeEnvironment, cwd = root) => {
@@ -344,13 +334,8 @@ const cleanup = () =>
       errors.push(sanitize(error));
     }
 
-    for (const port of ports) {
-      try {
-        await reservePort(port);
-      } catch {
-        errors.push(`owned listener ${port} remains`);
-      }
-    }
+    for (const port of ports)
+      if (!(await loopbackPortFree(port))) errors.push(`owned listener ${port} remains`);
 
     const groupsDrained = children.every((owned) => !groupAlive(owned));
 
@@ -398,15 +383,9 @@ try {
   for (const path of sourcePaths)
     sources.push({ path, sha256: sha256(await readFile(join(root, path))) });
 
-  const [pgPort, apiPort, dashboardPort, providerPort] = await Promise.all([
-    reservePort(),
-    reservePort(),
-    reservePort(),
-    reservePort(),
-  ]);
+  const [pgPort, apiPort, dashboardPort, providerPort] = await reserveLoopbackPorts(4);
 
   ports.push(pgPort, apiPort, dashboardPort, providerPort);
-  assert.equal(new Set(ports).size, ports.length);
 
   const origins = {
     backend: `http://127.0.0.1:${apiPort}`,

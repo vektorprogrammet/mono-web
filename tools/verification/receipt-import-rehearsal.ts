@@ -9,7 +9,6 @@ import assert from "node:assert/strict";
 import { observeReceiptDelivery } from "./receipt-delivery-observation.js";
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { createServer } from "node:net";
 import {
   mkdtemp,
   mkdir,
@@ -27,6 +26,7 @@ import { Pool } from "pg";
 import {
   type DisposablePostgres,
   postgresProgram,
+  reserveLoopbackPorts,
   startDisposablePostgres,
 } from "@monoweb/postgres";
 import { Schema, Cause, Predicate, Effect, Redacted } from "effect";
@@ -106,17 +106,6 @@ const safe = (value: string) =>
 
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-const freePort = async () => {
-  const s = createServer();
-  await new Promise<void>((r) => s.listen(0, "127.0.0.1", r));
-  const address = s.address();
-  assert.ok(address !== null && !Predicate.isString(address));
-  const p = address.port;
-  await new Promise<void>((r) => s.close(() => r()));
-
-  return p;
-};
-
 const start = (name: string, args: string[], env: NodeJS.ProcessEnv) => {
   const child = spawn(name, args, { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
   children.push(child);
@@ -169,8 +158,7 @@ let evidence: Schema.Json | undefined;
 let cleanupOkay = false;
 
 try {
-  const backendPort = await freePort(),
-    dashboardPort = await freePort();
+  const [backendPort, dashboardPort] = await reserveLoopbackPorts(2);
 
   const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 

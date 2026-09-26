@@ -6,12 +6,12 @@ import { randomBytes, createHash } from "node:crypto";
 import { mkdtemp, readFile, writeFile, rm, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
 import { Pool } from "pg";
 import {
   type DisposablePostgres,
   postgresProgram,
+  reserveLoopbackPorts,
   startDisposablePostgres,
 } from "@monoweb/postgres";
 import { Schema, flow, Predicate, Effect, Redacted } from "effect";
@@ -99,17 +99,6 @@ const digest = flow(Schema.decodeUnknownSync(Schema.Json), (value) =>
 );
 
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-const freePort = async () => {
-  const s = createServer();
-  await new Promise<void>((r) => s.listen(0, "127.0.0.1", r));
-  const address = s.address();
-  assert.ok(address !== null && !Predicate.isString(address));
-  const p = address.port;
-  await new Promise<void>((r) => s.close(() => r()));
-
-  return p;
-};
 
 const stop = async (child: ChildProcess) => {
   if (child.exitCode !== null || child.signalCode !== null) return;
@@ -781,7 +770,7 @@ try {
   );
   assert.equal((await pool.query("SELECT count(*)::int n FROM auth.session")).rows[0].n, 0);
 
-  const authPort = await freePort(),
+  const [authPort = 0] = await reserveLoopbackPorts(1),
     origin = `http://127.0.0.1:${authPort}`;
 
   const config: AuthEngineConfig = {

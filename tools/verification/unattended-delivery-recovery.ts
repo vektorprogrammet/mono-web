@@ -5,11 +5,15 @@ import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Pool } from "pg";
-import { type DisposablePostgres, startDisposablePostgres } from "@monoweb/postgres";
+import {
+  type DisposablePostgres,
+  loopbackPortFree,
+  reserveLoopbackPorts,
+  startDisposablePostgres,
+} from "@monoweb/postgres";
 
 const root = new URL("../../", import.meta.url).pathname;
 
@@ -41,21 +45,6 @@ const privateRoot = join(artifacts, "private");
 await mkdir(privateRoot, { mode: 0o700 });
 
 process.stdout.write(`evidence: ${artifacts}\n`);
-
-const port = async (requested = 0) => {
-  const server = createServer();
-  const listening = Promise.withResolvers<void>();
-  server.once("error", listening.reject);
-  server.listen(requested, "127.0.0.1", listening.resolve);
-  await listening.promise;
-  const address = server.address();
-  assert.ok(address && !Predicate.isString(address));
-  const closed = Promise.withResolvers<void>();
-  server.close(() => closed.resolve());
-  await closed.promise;
-
-  return address.port;
-};
 
 const eventually = async (label: string, inspect: () => Promise<boolean>, timeout = 20_000) => {
   const deadline = Date.now() + timeout;
@@ -110,11 +99,10 @@ const stop = async (process: NativeProcess, signal: NodeJS.Signals = "SIGTERM") 
   if (signal === "SIGTERM") assert.equal(code, 0, "graceful shutdown");
 };
 
-const pgPort = await port();
+// The replacement main of the recovery binds the fourth port.
+const ownedPorts = [...(await reserveLoopbackPorts(4))];
 
-const apiPort = await port();
-
-const dashboardPort = await port();
+const [pgPort, apiPort, dashboardPort, replacementPort] = ownedPorts;
 
 const pgDirectory = join(privateRoot, "postgres");
 
@@ -237,7 +225,7 @@ let completed = false;
 
 let sourceUnchanged = false;
 
-const ownedPorts = [pgPort, apiPort, providerPort];
+ownedPorts.push(providerPort);
 
 let current: NativeProcess | undefined;
 
@@ -545,8 +533,6 @@ try {
   resetMode = "accept";
   receiptMode = "accept";
   // A second main uses a separate listener, but the same durable queue and filesystem.
-  const replacementPort = await port();
-  ownedPorts.push(replacementPort);
   current = start({
     ...env,
     BACKEND_PORT: String(replacementPort),
@@ -729,7 +715,7 @@ try {
   await rm(privateRoot, { recursive: true, force: true });
 
   for (const expected of ownedPorts)
-    assert.equal(await port(expected), expected, "owned listener released");
+    assert.ok(await loopbackPortFree(expected), `owned listener ${expected} released`);
   const postRunRevision = run("git", ["rev-parse", "HEAD"]).trim();
   const postRunTree = run("git", ["rev-parse", "HEAD^{tree}"]).trim();
   sourceUnchanged =
