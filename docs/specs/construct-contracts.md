@@ -47,3 +47,21 @@ A tagged construct without each required tag is a finding, so the contract canno
 4. `just constructs consumers <name>` prints the same importers the old page listed for three sample constructs.
 5. The consumer-count finding is on, with no findings on main.
 6. `just check` and the hosted Checks workflow pass.
+
+## Progress
+
+Stopped at the run budget on 2026-09-26, branch `docs/construct-contracts-0926`. Every commit below passed the hooks; `just check` passed on fefacfde and 3e55af4c.
+
+- Step 1, fefacfde: `contracts.ts` reads the JSDoc, the annotations, and the channel split of any top-level declaration; `constructs.ts` renders the index and one page per category (`constructPages` holds both paths), and `just constructs consumers [name]` prints importers (identical to the old page for `webHandler`, `lockAdvisory`, `sha256Hex`, and `startDisposablePostgres`). Contract gaps and consumer counts are warnings.
+- Step 2, done: delivery (3e55af4c), worker (47f4f31f), runtime-bridge (6b963fda: untagged, category removed, `boundaries.md` names the runner as the pattern and the second runner as the promotion trigger), request-ledger (4d909b58), digest (ce2bdc45).
+- Step 2, open: pagination, sql-lock, sql-lifecycle, test-harness, http-transport, http-problem. Then step 3 (make `report.gaps` and `consumerFindings` failing, with negative controls) and step 4 (overlay links to `docs/constructs/<category>.md`, the construct section of `AGENTS.md`, and the local part of `tools/conventions/AGENTS.md`).
+- Rebase first: main 27849add conflicts in `tools/conventions/src/{cli,sections}.ts` and `README.md`. Keep main's `@AGENTS.md` changes, then regenerate with `just constructs write`, `just guides write`, and `just layout write`.
+
+Decisions for the open steps:
+
+- Consumers count importers outside the construct's module, less test files of its own app or package; a test elsewhere uses the construct, so it counts (`makeNativeProblem`).
+- Untag, keeping the JSDoc: pagination `withoutCursorTimestamp`; sql-lock `tryLockAdvisory`, `lockOrganizationAdministratorSet`; sql-lifecycle `recoverStaleOutboxClaim`; test-harness `ReceiptE2EBarrierArrival`, `selectedPostgresMajor`; http-transport all but `encodePathIdentity`, `normalizeTarget`, and `deriveHttpIdentity`; http-problem `decodeJson`, `decodeAdmissionPeriodPatch`, `submissionProblems`, `periodCommandProblems`, `authorizedActor`, `authorizedActorInTransaction`, `departmentQuery`, `versionFromQuery`, `classifyCredential`, `headerValues`, `NativeAccessRejected`, `storedReceiptProblems`, `projected`, `maintenanceProblems`, `schoolsProblems`, `schoolsCredentialProblems`, and `problemHeaders`.
+- Zero importers, for the pruning slice: `headerValues` (apps/backend/src/http-api/problem.ts), `jcsBytes` and `interpretMergePatchSource` (apps/backend/src/http-semantics.ts), `NativeAccessRejected` (apps/backend/src/native-operation.ts), `ReceiptE2EBarrierArrival` (apps/backend/src/receipt/e2e-support.ts), `selectedPostgresMajor` (tools/postgres/index.ts). `makeBetterAuthCallbackRunner` is used inside its module.
+- A failure outside the types goes into `@throws`, which the page renders as a Throws row. A parameter that accepts any value is generic (`<A>(datum: A)`), because `anti-slop/no-unknown-parameters` rejects `unknown`.
+- Annotate with the inferred type: a throwaway module that assigns each construct to a variable of type `0` makes `tsc --noErrorTruncation` print it. Problem mappers need a named cases value: export `ProblemMapper<Failure, Cases>` from `problem.ts`, move each cases object into a `satisfies`-checked constant or function, and annotate the mapper with `typeof` that value. `AdvisoryLockKey` gets an `AdvisoryLockKeys` interface that carries the member docs.
+- Keep clear of `tools/postgres/index.ts` line 27 and the PgBouncer block after `withDisposablePostgres` (QueuePilot).
