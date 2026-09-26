@@ -62,7 +62,7 @@ const propertyOptions = { arbitrary: { seed: 26092026, runs: 200, size: 30 } } a
 
 const halves = (block: string) => (block === "Both" ? ["1", "2"] : [block]);
 
-const accepted: Record<typeof DraftBlock.Type, ReadonlyArray<string>> = {
+const accepted: Record<DraftBlock, ReadonlyArray<string>> = {
   "1": ["1"],
   "2": ["2"],
   Either: ["1", "2"],

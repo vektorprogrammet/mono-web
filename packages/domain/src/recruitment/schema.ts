@@ -168,8 +168,7 @@ export type RecruitmentInterviewQuestionSnapshotInsert =
 export type RecruitmentInterviewQuestionSnapshotJson =
   typeof RecruitmentInterviewQuestionSnapshot.json.Type;
 
-export type RecruitmentInterviewQuestionSnapshotValue =
-  typeof RecruitmentInterviewQuestionSnapshot.Type;
+export type RecruitmentInterviewQuestionSnapshotValue = RecruitmentInterviewQuestionSnapshot;
 
 export const RecruitmentAssignmentCommandId = StableId.pipe(
   Schema.brand("RecruitmentAssignmentCommandId"),
@@ -252,7 +251,7 @@ export type InterviewSchemaJsonCreate = typeof InterviewSchema.jsonCreate.Type;
 
 export type InterviewSchemaJsonUpdate = typeof InterviewSchema.jsonUpdate.Type;
 
-export type InterviewSchemaValue = typeof InterviewSchema.Type;
+export type InterviewSchemaValue = InterviewSchema;
 
 export class RecruitmentInterview extends Model.Class<RecruitmentInterview>(
   "Recruitment.RecruitmentInterview",
@@ -302,7 +301,7 @@ export type RecruitmentInterviewInsert = typeof RecruitmentInterview.insert.Enco
 
 export type RecruitmentInterviewJson = typeof RecruitmentInterview.json.Type;
 
-export type RecruitmentInterviewValue = typeof RecruitmentInterview.Type;
+export type RecruitmentInterviewValue = RecruitmentInterview;
 
 const ScheduleMessage = Schema.String.pipe(
   Schema.check(
@@ -392,7 +391,7 @@ export class RecruitmentInterviewSchedule extends Model.Class<RecruitmentIntervi
 
 export type RecruitmentInterviewScheduleSelect = typeof RecruitmentInterviewSchedule.Encoded;
 
-export type RecruitmentInterviewScheduleValue = typeof RecruitmentInterviewSchedule.Type;
+export type RecruitmentInterviewScheduleValue = RecruitmentInterviewSchedule;
 
 export const RecruitmentInvitationCapabilitySchema = Schema.String.pipe(
   Schema.check(
@@ -511,7 +510,7 @@ export class RecruitmentInvitation extends Model.Class<RecruitmentInvitation>(
 
 export type RecruitmentInvitationSelect = typeof RecruitmentInvitation.Encoded;
 
-export type RecruitmentInvitationValue = typeof RecruitmentInvitation.Type;
+export type RecruitmentInvitationValue = RecruitmentInvitation;
 
 const RecruitmentInvitationResponseObservationFields = {
   scheduledAt: RecruitmentInterviewSchedule.fields.scheduledAt,
@@ -920,7 +919,7 @@ export type RecruitmentInterviewConductInsert = typeof RecruitmentInterviewCondu
 
 export type RecruitmentInterviewConductJson = typeof RecruitmentInterviewConduct.json.Type;
 
-export type RecruitmentInterviewConductValue = typeof RecruitmentInterviewConduct.Type;
+export type RecruitmentInterviewConductValue = RecruitmentInterviewConduct;
 
 export class RecruitmentInterviewCancellation extends Model.Class<RecruitmentInterviewCancellation>(
   "Recruitment.RecruitmentInterviewCancellation",
@@ -956,7 +955,7 @@ export type RecruitmentInterviewCancellationInsert =
 export type RecruitmentInterviewCancellationJson =
   typeof RecruitmentInterviewCancellation.json.Type;
 
-export type RecruitmentInterviewCancellationValue = typeof RecruitmentInterviewCancellation.Type;
+export type RecruitmentInterviewCancellationValue = RecruitmentInterviewCancellation;
 
 export const FinalizeInterviewCommandSchema = Schema.Struct({
   commandId: RecruitmentConductCommandId,
