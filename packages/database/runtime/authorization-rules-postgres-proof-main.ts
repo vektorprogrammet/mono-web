@@ -81,7 +81,7 @@ import {
 import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
-import { Result, Data, Predicate, Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
+import { Result, Data, Predicate, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { spec0055OrganizationAuthorityFixtures } from "@vektorprogrammet/domain/organization/authority-fixtures";
 import { resolveOrganizationPersonAuthorityForRead } from "../src/organization/authority-postgres.js";
 import { executeReceiptCommand } from "../src/receipt/postgres.js";
@@ -92,6 +92,7 @@ import {
   reversedDisposableAuthzBackfillInput,
   validDisposableAuthzBackfillInput,
 } from "../src/test-support/disposable-authz-backfill-fixtures.js";
+import { withDisposablePostgres } from "./disposable-postgres.js";
 
 const implementationBaseRevision = "f83d18ae408ad2c1e954d344620802a7ad1bda42";
 
@@ -303,13 +304,6 @@ const makeZeroRuleProofLayer = (url: Redacted.Redacted<string>, applicationName:
   );
 
   return Layer.merge(supportLayer, RecruitmentLive.pipe(Layer.provide(supportLayer)));
-};
-
-const assertDisposablePostgres = (url: Redacted.Redacted<string>): void => {
-  const parsed = new URL(Redacted.value(url));
-  assert.ok(["postgres:", "postgresql:"].includes(parsed.protocol));
-  assert.ok(["127.0.0.1", "localhost", "::1", "[::1]"].includes(parsed.hostname));
-  assert.match(decodeURIComponent(parsed.pathname.slice(1)), /proof|test/u);
 };
 
 const resetDatabaseObjects = (sql: DatabaseOperations) =>
@@ -4763,58 +4757,55 @@ const runProof = (databaseUrl: Redacted.Redacted<string>) =>
     };
   });
 
-const program = Effect.gen(function* () {
-  const databaseUrl = yield* Config.Redacted("DATABASE_URL").pipe(
-    Config.withDefault(Redacted.make("postgres://receipt:receipt@127.0.0.1:55432/receipt_proof")),
-  );
+const program = (databaseUrl: Redacted.Redacted<string>) =>
+  Effect.gen(function* () {
+    let cleaned = false;
 
-  assertDisposablePostgres(databaseUrl);
-  let cleaned = false;
+    const cleanupOnce = Effect.suspend(() =>
+      cleaned
+        ? Effect.void
+        : cleanupDatabase(databaseUrl).pipe(
+            Effect.tap(() => Effect.sync(() => void (cleaned = true))),
+            Effect.asVoid,
+          ),
+    ).pipe(
+      Effect.catchTags({
+        MigrationError: Effect.die,
+        SqlError: Effect.die,
+      }),
+    );
 
-  const cleanupOnce = Effect.suspend(() =>
-    cleaned
-      ? Effect.void
-      : cleanupDatabase(databaseUrl).pipe(
+    const evidence = yield* Effect.scoped(runProof(databaseUrl)).pipe(
+      Effect.flatMap((proof) =>
+        cleanupDatabase(databaseUrl).pipe(
           Effect.tap(() => Effect.sync(() => void (cleaned = true))),
-          Effect.asVoid,
+          Effect.map((cleanup) => ({ ...proof, cleanup, passed: true as const })),
         ),
-  ).pipe(
-    Effect.catchTags({
-      MigrationError: Effect.die,
-      SqlError: Effect.die,
-    }),
-  );
-
-  const evidence = yield* Effect.scoped(runProof(databaseUrl)).pipe(
-    Effect.flatMap((proof) =>
-      cleanupDatabase(databaseUrl).pipe(
-        Effect.tap(() => Effect.sync(() => void (cleaned = true))),
-        Effect.map((cleanup) => ({ ...proof, cleanup, passed: true as const })),
       ),
-    ),
-    Effect.ensuring(cleanupOnce),
-  );
+      Effect.ensuring(cleanupOnce),
+    );
 
-  assert.deepEqual(evidence.cleanup, {
-    participantConnectionsBeforeCleanup: 0,
-    remainingUserSchemas: 0,
-    remainingPublicRelations: 0,
-    remainingPublicRoutines: 0,
-    remainingNonDefaultExtensions: 0,
+    assert.deepEqual(evidence.cleanup, {
+      participantConnectionsBeforeCleanup: 0,
+      remainingUserSchemas: 0,
+      remainingPublicRelations: 0,
+      remainingPublicRoutines: 0,
+      remainingNonDefaultExtensions: 0,
+    });
+    const canonicalEvidence = canonicalJson(evidence);
+    assert.equal(canonicalEvidence.includes("postgres://"), false);
+    assert.equal(canonicalEvidence.includes("paymentAccountCiphertext"), false);
+    assert.equal(canonicalEvidence.includes("ciphertext:proof:"), false);
+    const evidenceSha256 = sha256Hex(canonicalJsonBytes(evidence));
+    yield* Effect.sync(() =>
+      process.stdout.write(`${canonicalJson({ ...evidence, evidenceSha256 })}\n`),
+    );
   });
-  const canonicalEvidence = canonicalJson(evidence);
-  assert.equal(canonicalEvidence.includes("postgres://"), false);
-  assert.equal(canonicalEvidence.includes("paymentAccountCiphertext"), false);
-  assert.equal(canonicalEvidence.includes("ciphertext:proof:"), false);
-  const evidenceSha256 = sha256Hex(canonicalJsonBytes(evidence));
-  yield* Effect.sync(() =>
-    process.stdout.write(`${canonicalJson({ ...evidence, evidenceSha256 })}\n`),
-  );
-});
 
-void Effect.runPromise(Effect.scoped(program).pipe(Effect.timeout("90 seconds"))).catch(
-  (cause: unknown) => {
-    process.stderr.write(`${String(cause)}\n`);
-    process.exitCode = 1;
-  },
-);
+// The proof resets every schema of its database, so it only ever runs on a cluster it created.
+void withDisposablePostgres("authorization_rules_proof", (databaseUrl) =>
+  Effect.runPromise(Effect.scoped(program(databaseUrl)).pipe(Effect.timeout("90 seconds"))),
+).catch((cause: unknown) => {
+  process.stderr.write(`${String(cause)}\n`);
+  process.exitCode = 1;
+});

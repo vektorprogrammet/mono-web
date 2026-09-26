@@ -18,7 +18,7 @@ Consumers are the modules that import a construct, directly or through re-export
 | [worker](#worker)                 | 1          | Runs background workers on the Effect clock.                                                                                                |
 | [pagination](#pagination)         | 4          | Keyset cursors and pages over ordered PostgreSQL reads.                                                                                     |
 | [digest](#digest)                 | 4          | Canonical JSON and SHA-256 digests that evidence and idempotency identities hash.                                                           |
-| [test-harness](#test-harness)     | 7          | Starts and drives disposable infrastructure for tests, proofs, and journeys: PostgreSQL clusters, loopback ports, and the local backend.    |
+| [test-harness](#test-harness)     | 8          | Starts and drives disposable infrastructure for tests, proofs, and journeys: PostgreSQL clusters, loopback ports, and the local backend.    |
 
 ## http-transport
 
@@ -974,6 +974,10 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
 
 - `ReceiptE2EBarrierArrival`: `false` for unprobed requests; `true` once all three lanes are synchronized.
   [apps/backend/src/receipt/e2e-support.ts:17](../apps/backend/src/receipt/e2e-support.ts#L17), no consumers.
+- `withDisposablePostgres`: Runs `use` against the one database `database` of a fresh cluster on a loopback port with trust authentication.
+  [packages/database/runtime/disposable-postgres.ts:46](../packages/database/runtime/disposable-postgres.ts#L46), 2 consumers:
+  - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
+  - [packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts](../packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts)
 - `reserveLoopbackPorts`: The golden journeys' port reservation for runners that do not run inside the harness.
   [tools/e2e/golden-harness.ts:472](../tools/e2e/golden-harness.ts#L472), 8 consumers:
   - [apps/dashboard/e2e/run-real-admission-period-management.mjs](../apps/dashboard/e2e/run-real-admission-period-management.mjs)
@@ -1017,9 +1021,9 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [apps/dashboard/e2e/run-real-receipt-owner.mjs](../apps/dashboard/e2e/run-real-receipt-owner.mjs)
   - [apps/homepage/e2e/run-native-contact.mjs](../apps/homepage/e2e/run-native-contact.mjs)
   - [apps/homepage/e2e/run-real-public-applicant-admission.mjs](../apps/homepage/e2e/run-real-public-applicant-admission.mjs)
+  - [packages/database/runtime/disposable-postgres.ts](../packages/database/runtime/disposable-postgres.ts)
   - [packages/database/runtime/historical-service-cohort-rehearsal.ts](../packages/database/runtime/historical-service-cohort-rehearsal.ts)
   - [packages/database/runtime/person-cohort-rehearsal.ts](../packages/database/runtime/person-cohort-rehearsal.ts)
-  - [packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts](../packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts)
   - [tools/acceptance/substitute-outcome-check.ts](../tools/acceptance/substitute-outcome-check.ts)
   - [tools/e2e/golden-harness.ts](../tools/e2e/golden-harness.ts)
   - [tools/e2e/golden-reimbursement.mjs](../tools/e2e/golden-reimbursement.mjs)
