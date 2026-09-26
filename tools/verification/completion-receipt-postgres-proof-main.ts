@@ -72,9 +72,7 @@ const main = async (): Promise<void> => {
       return;
     }
 
-    const body = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(
-      await readBody(request),
-    );
+    const body = Schema.decodeSync(Schema.fromJsonString(Schema.Json))(await readBody(request));
 
     const status = rejectNext ? 503 : 204;
     rejectNext = false;

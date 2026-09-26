@@ -2364,7 +2364,7 @@ const runRehearsal = async (
       | undefined;
 
     if (Predicate.isTagged(pageSessionCapability, "BrowserNotPractical")) {
-      artifactCore.browser = Schema.decodeUnknownSync(
+      artifactCore.browser = Schema.decodeSync(
         OrganizationImportRehearsalArtifactSchema.fields.browser,
       )(
         {
@@ -2516,7 +2516,7 @@ const runRehearsal = async (
     );
 
     if (failedBrowserEvidence !== undefined) {
-      artifactCore.browser = Schema.decodeUnknownSync(
+      artifactCore.browser = Schema.decodeSync(
         OrganizationImportRehearsalArtifactSchema.fields.browser,
       )(
         {

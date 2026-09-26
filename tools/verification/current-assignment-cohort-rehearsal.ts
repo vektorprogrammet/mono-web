@@ -378,7 +378,7 @@ try {
   const excludedBefore = digest((await facts(pool)).excluded);
 
   const runCli = (): Schema.Json =>
-    Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(
+    Schema.decodeSync(Schema.fromJsonString(Schema.Json))(
       execFileSync(
         process.execPath,
         ["run", "tools/verification/current-assignment-cohort-main.ts"],

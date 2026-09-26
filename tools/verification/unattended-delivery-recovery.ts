@@ -143,7 +143,7 @@ const provider = createHttpServer(async (request, response) => {
 
   for await (const chunk of request) payload += String(chunk);
 
-  const body = Schema.decodeUnknownSync(
+  const body = Schema.decodeSync(
     Schema.fromJsonString(Schema.Struct({ deliveryId: Schema.String })),
   )(payload);
 
