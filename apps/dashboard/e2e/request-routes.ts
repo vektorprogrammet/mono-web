@@ -31,6 +31,24 @@ export const addressesRoute = (pathname: string, route: string): boolean => {
 /**
  * Whether a request path addresses any of the routes, each matched by whole path segments.
  *
+ * @remarks
+ * A path addresses a route when the route's segments appear in it whole and consecutive, at any
+ * depth: `/mock/api` addresses `/mock/api/users` and `/app/mock/api/data.ts` but not
+ * `/mock/apis`. A React Router single-fetch path `<path>.data` addresses `<path>`, and empty
+ * segments do not count. `legacyRoutes` in this module is the one list of legacy routes; a
+ * journey that refuses more routes, such as its providers, spreads it into its own list.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * browserRequests.filter((request) => addressesAnyRoute(request.pathname, legacyRoutes));
+ * ```
+ *
+ * @avoid `pathname.includes(route)` or a prefix test: a session identifier or the content hash in a
+ * built file name contains a route name by chance, and `/mock/apis` starts with `/mock/api`.
+ * Match routes with `addressesAnyRoute`.
+ *
  * @construct request-ledger
  */
 export const addressesAnyRoute = (pathname: string, routes: ReadonlyArray<string>): boolean =>
