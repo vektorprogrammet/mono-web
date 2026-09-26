@@ -1428,11 +1428,11 @@ describe("frozen v0.2 boundary schemas", () => {
   const strict = { onExcessProperty: "error" } as const;
 
   it("keeps merge-patch absence distinct from null and unknown fields", () => {
-    expect(Schema.decodeUnknownSync(ProfileMergePatch)({ firstName: "Ada" }, strict)).toEqual({
+    expect(Schema.decodeSync(ProfileMergePatch)({ firstName: "Ada" }, strict)).toEqual({
       firstName: "Ada",
     });
-    expect(Schema.decodeUnknownSync(ProfileMergePatch)({}, strict)).toEqual({});
-    expect(Schema.decodeUnknownSync(ProfileMergePatch)({ email: null }, strict)).toEqual({
+    expect(Schema.decodeSync(ProfileMergePatch)({}, strict)).toEqual({});
+    expect(Schema.decodeSync(ProfileMergePatch)({ email: null }, strict)).toEqual({
       email: null,
     });
     expect(() =>
@@ -1442,7 +1442,7 @@ describe("frozen v0.2 boundary schemas", () => {
 
   it("cuts the directory response over to people names without an alias", () => {
     const response = { activePeople: [], inactivePeople: [], nextCursor: null };
-    expect(Schema.decodeUnknownSync(PeopleDirectoryResponse)(response, strict)).toEqual(response);
+    expect(Schema.decodeSync(PeopleDirectoryResponse)(response, strict)).toEqual(response);
     expect(() =>
       Schema.decodeUnknownSync(PeopleDirectoryResponse)(
         { activeUsers: [], inactiveUsers: [], nextCursor: null },
@@ -1457,7 +1457,7 @@ describe("frozen v0.2 boundary schemas", () => {
       code: "internal.error",
     } as const;
 
-    expect(Schema.decodeUnknownSync(SystemHealthProblem)(problem, strict)).toEqual(problem);
+    expect(Schema.decodeSync(SystemHealthProblem)(problem, strict)).toEqual(problem);
     expect(() =>
       Schema.decodeUnknownSync(SystemHealthProblem)(
         { ...problem, detail: "database password leaked" },
@@ -1481,7 +1481,7 @@ describe("frozen v0.2 boundary schemas", () => {
     } as const;
 
     expect(
-      Schema.decodeUnknownSync(ProfileUpdateOwnProfileProblem)(validationProblem, strict),
+      Schema.decodeSync(ProfileUpdateOwnProfileProblem)(validationProblem, strict),
     ).toEqual(validationProblem);
     const { validation: _, ...validationCore } = validationProblem;
     expect(() =>
