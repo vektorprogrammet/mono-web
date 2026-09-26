@@ -63,3 +63,21 @@ Vocs is removed.
 ## Non-goals
 
 A new docs domain, provider, or search backend beyond what the template configures. Rewriting page content. Moving `STATE.md`, the `AGENTS.md` files, or skills.
+
+## Progress
+
+Branch `docs/fumadocs-0926`, stopped at the request budget on 2026-09-26, rebased on `9ed098b3`. Do not land it before step 4: until then the site has no pages.
+
+Done:
+
+1. `a452c23f` The `tanstack-start-spa` scaffold replaces Vocs in `apps/docs`; `site.ts`, `sync-pages.ts`, and `vocs.config.ts` are gone. Vite builds under `/mono-web/`, and the Pages workflow uploads `apps/docs/.output/public`. A patch fixes the static server function cache under a base path (TanStack/router#6152). In a browser against the built SPA, client navigation and the static search work under `/mono-web/`.
+2. `6d34d3e6` The MDXCN components live in `apps/docs/src/components/mdxcn` with their license and provenance; `GraphFlow` is in the MDX component map.
+
+Remaining, in order. Drafts of the modules are in `/srv/share/projects/vektorprogrammet/fumadocs-drafts-0926/markdown/`, outside the repository; they are untested.
+
+3. Links: add `apps/docs/markdown/{pages,links,remark-repository-links}.ts` from the drafts and `apps/docs/source.config.ts`, which registers `remarkRepositoryLinks`. A page links a page by its MDX source and any other file by its path, both relative to the page; the site resolves a page link to its route and a path to its GitHub view, and a missing target or heading fails the build. `index.mdx` and `state.mdx` include `README.md` and `STATE.md` in place, so their links resolve relative to those files. Declare `unified`, `remark-parse`, `remark-mdx`, `remark-gfm`, `github-slugger`, `unist-util-visit`, `mdast-util-mdx`, `vfile`, `@types/mdast`, `@types/estree`, and `oxfmt` in `apps/docs`.
+4. Move, one commit: `git mv` `docs/*.md`, `docs/system-walkthrough.mdx`, and `docs/specs/*.md` to `apps/docs/content/docs/**/*.mdx`, and the module guides to `apps/docs/content/docs/guides/{placements,receipt}.mdx`. Change only the frontmatter (the first-level heading becomes `title`; `description` from the README documentation table), the links, `{@includeCode path}` to `<include>path</include>`, and MDX escapes. Replace the scaffold pages with `index.mdx` and `state.mdx`, and add `meta.json`: Start, System, Operations, Developer guides (with the Placements API reference link), Specs (`...specs`), Testing. In the same commit, move the spec exemption of `tools/conventions/src/check.ts` and the `hosted-journeys` file of `tools/conventions/src/sections.ts` to the MDX sources, and replace the links to the deleted `apps/docs/site.ts`.
+5. Generator: `apps/docs/markdown/{render,cli}.ts` from the drafts, with the scripts `generate` and `check`; run `just docs generate`, then both negative controls. Wire `just docs check` into `just check`, a pre-commit and pre-merge-commit hook in `devenv.nix`, and the Checks workflow. Move `docs/model` to `model/` and `docs/effect-exceptions.json` to `tools/conventions/effect-exceptions.json` with their readers, then `just guides write`.
+6. Registry: list the generators and their output paths in `tools/conventions/src/layout.ts`, fail the layout check on a file in `docs/` without a registered generator's marker (negative control), and update the `docs` and `apps/docs` descriptions.
+7. After ConstructContracts lands: `constructPages` writes `apps/docs/content/docs/constructs.mdx` and `constructs/<category>.mdx` with frontmatter and source-relative links.
+8. The documentation of the list above, then `just measure --class check -- just check`, the screenshots, and the removal of this specification.
