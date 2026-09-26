@@ -95,11 +95,11 @@ const contactIngress = (contact: typeof config | undefined) => {
 
 const problemOf = (response: Response) =>
   Effect.gen(function* () {
-    return {
-      status: response.status,
-      code: Schema.decodeUnknownSync(NativeProblem)(yield* Effect.promise(() => response.json()))
-        .code,
-    };
+    const problem = yield* Schema.decodeUnknownEffect(NativeProblem)(
+      yield* Effect.promise(() => response.json()),
+    );
+
+    return { status: response.status, code: problem.code };
   });
 
 describe("native contact trust boundary", () => {
