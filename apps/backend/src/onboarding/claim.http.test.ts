@@ -16,6 +16,7 @@ import { DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { backendDatabase } from "../../test/database.js";
 import { decodeBackendConfig } from "../config.js";
+import { jsonText } from "../http-api/problem.js";
 import { makeBackendTestHttp } from "../test/native-http.js";
 
 const environment = {
@@ -52,11 +53,11 @@ const tokens = {
   unknown: `onboard_${"c".repeat(64)}`,
 } as const;
 
-// The claim compares expiry with the database clock, so invitations are issued now.
-const issuedAt = new Date().toISOString();
-
 const seed = Database.use((sql) =>
   Effect.gen(function* () {
+    // The claim compares expiry with the database clock, so invitations are issued now.
+    const issuedAt = DateTime.formatIso(yield* DateTime.now);
+
     yield* sql`INSERT INTO admission_period_departments (department_id, name) VALUES ('claim-department', 'Trondheim')`;
     yield* sql`INSERT INTO admission_period_semesters (semester_id, start_at, end_at) VALUES ('claim-semester', '2031-08-01T00:00:00.000Z', '2032-01-01T00:00:00.000Z')`;
     yield* sql`
@@ -144,16 +145,19 @@ const claim = (body: typeof OnboardingClaim.Encoded, headers: Record<string, str
           origin: "http://127.0.0.1:5174",
           ...headers,
         },
-        body: JSON.stringify(body),
+        body: yield* jsonText(body),
       }),
     );
 
     const json: unknown = yield* Effect.promise(() => response.json());
 
     if (response.ok)
-      return { status: response.status, ...Schema.decodeUnknownSync(OnboardingClaimResult)(json) };
+      return {
+        status: response.status,
+        ...(yield* Schema.decodeUnknownEffect(OnboardingClaimResult)(json)),
+      };
 
-    const code = Schema.decodeUnknownSync(NativeProblem)(json).code;
+    const { code } = yield* Schema.decodeUnknownEffect(NativeProblem)(json);
 
     // A credential problem also names the credential the claim accepts.
     return response.status === 401
