@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, layer } from "@effect/vitest";
+import { Effect } from "effect";
 import { databaseMigrationDefinitions, selectDatabaseMigration } from "./migrations.js";
 import {
   appendToManifest,
@@ -9,6 +10,7 @@ import {
   readMigrationManifest,
   registryFindings,
 } from "./migration-registry.js";
+import { TestPlatform } from "./test-support/platform.js";
 
 const definition = (
   id: string,
@@ -19,20 +21,26 @@ const definition = (
   url: new URL(file, migrationsDirectory),
 });
 
-describe("migration registry", () => {
-  it("numbers, names, and files every registered migration by the registry rules", async () => {
-    expect(registryFindings(databaseMigrationDefinitions, await readMigrationFiles())).toEqual([]);
-  });
+layer(TestPlatform, { excludeTestServices: true })("migration registry", (it) => {
+  it.effect("numbers, names, and files every registered migration by the registry rules", () =>
+    Effect.gen(function* () {
+      expect(registryFindings(databaseMigrationDefinitions, yield* readMigrationFiles())).toEqual(
+        [],
+      );
+    }),
+  );
 
-  it("matches every registered migration file to its recorded checksum", async () => {
-    expect(
-      manifestFindings(
-        databaseMigrationDefinitions,
-        await readMigrationManifest(),
-        await digestMigrations(databaseMigrationDefinitions),
-      ),
-    ).toEqual([]);
-  });
+  it.effect("matches every registered migration file to its recorded checksum", () =>
+    Effect.gen(function* () {
+      expect(
+        manifestFindings(
+          databaseMigrationDefinitions,
+          yield* readMigrationManifest(),
+          yield* digestMigrations(databaseMigrationDefinitions),
+        ),
+      ).toEqual([]);
+    }),
+  );
 
   it("reports duplicate ids, gaps, names, files, and unread files", () => {
     const findings = registryFindings(

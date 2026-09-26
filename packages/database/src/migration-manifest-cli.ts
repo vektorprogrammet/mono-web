@@ -4,17 +4,18 @@
  * migrations that have no entry to `migrations/checksums.json`; it writes nothing and exits 1
  * when any other finding exists, so it never changes an existing entry.
  */
-import { writeFile } from "node:fs/promises";
+import { Effect } from "effect";
 import { databaseMigrationDefinitions } from "./migrations.js";
 import {
   appendToManifest,
   digestMigrations,
   manifestFindings,
-  migrationManifestUrl,
   readMigrationFiles,
   readMigrationManifest,
   registryFindings,
+  writeMigrationManifest,
 } from "./migration-registry.js";
+import { TestPlatform } from "./test-support/platform.js";
 
 const [command = "check", ...rest] = process.argv.slice(2);
 
@@ -23,33 +24,38 @@ if (!(command === "check" || command === "write") || rest.length > 0) {
   process.exit(2);
 }
 
-const manifest = await readMigrationManifest();
+const blocking = await Effect.runPromise(
+  Effect.gen(function* () {
+    const manifest = yield* readMigrationManifest();
 
-const digests = await digestMigrations(databaseMigrationDefinitions);
+    const digests = yield* digestMigrations(databaseMigrationDefinitions);
 
-const findings = [
-  ...registryFindings(databaseMigrationDefinitions, await readMigrationFiles()),
-  ...manifestFindings(databaseMigrationDefinitions, manifest, digests),
-];
+    const findings = [
+      ...registryFindings(databaseMigrationDefinitions, yield* readMigrationFiles()),
+      ...manifestFindings(databaseMigrationDefinitions, manifest, digests),
+    ];
 
-const blocking =
-  command === "write" ? findings.filter(({ kind }) => kind !== "unrecorded") : findings;
+    const blocking =
+      command === "write" ? findings.filter(({ kind }) => kind !== "unrecorded") : findings;
 
-for (const { id, message } of blocking) process.stderr.write(`${id}: ${message}\n`);
+    for (const { id, message } of blocking) process.stderr.write(`${id}: ${message}\n`);
 
-if (command === "write" && blocking.length === 0) {
-  const appended = findings.length;
+    if (command === "write" && blocking.length === 0) {
+      const appended = findings.length;
 
-  if (appended > 0)
-    await writeFile(
-      migrationManifestUrl,
-      `${JSON.stringify(appendToManifest(databaseMigrationDefinitions, manifest, digests), null, 2)}\n`,
-    );
+      if (appended > 0)
+        yield* writeMigrationManifest(
+          appendToManifest(databaseMigrationDefinitions, manifest, digests),
+        );
 
-  process.stdout.write(`migration-hashes: appended ${appended} migrations\n`);
-} else
-  process.stdout.write(
-    `migration-hashes: ${databaseMigrationDefinitions.length} migrations, ${blocking.length} findings${command === "write" ? "; wrote nothing" : ""}\n`,
-  );
+      process.stdout.write(`migration-hashes: appended ${appended} migrations\n`);
+    } else
+      process.stdout.write(
+        `migration-hashes: ${databaseMigrationDefinitions.length} migrations, ${blocking.length} findings${command === "write" ? "; wrote nothing" : ""}\n`,
+      );
+
+    return blocking;
+  }).pipe(Effect.provide(TestPlatform)),
+);
 
 process.exitCode = blocking.length === 0 ? 0 : 1;

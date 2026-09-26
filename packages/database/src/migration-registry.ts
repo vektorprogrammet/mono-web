@@ -14,10 +14,7 @@
  * not repair. `write` only appends the registered migrations that have no entry.
  */
 import { createHash } from "node:crypto";
-import { Schema } from "effect";
-import { readdir, readFile } from "node:fs/promises";
-import { basename } from "node:path";
-import { fileURLToPath } from "node:url";
+import { Effect, FileSystem, Path, Schema } from "effect";
 
 export interface RegisteredMigration {
   readonly id: string;
@@ -53,9 +50,13 @@ const migrationFileExceptions = {
 
 const idPattern = /^([1-9]\d*)_([a-z0-9]+(?:-[a-z0-9]+)*)$/u;
 
-const decodeManifest = Schema.decodeUnknownSync(
-  Schema.fromJsonString(Schema.Record(Schema.String, Schema.String)),
-);
+const MigrationManifestJson = Schema.fromJsonString(Schema.Record(Schema.String, Schema.String), {
+  space: 2,
+});
+
+/** The file name of a migration URL, percent-decoded as a file path is. */
+const migrationFile = (url: URL) =>
+  decodeURIComponent(url.pathname.slice(url.pathname.lastIndexOf("/") + 1));
 
 /** Findings for ids, names, and files that break the registry rules. */
 export const registryFindings = (
@@ -87,12 +88,12 @@ export const registryFindings = (
     const exception = Object.entries(migrationFileExceptions).find(([except]) => except === id);
     const expected = exception?.[1].file ?? `${number.padStart(4, "0")}-${suffix}.sql`;
 
-    const file = basename(fileURLToPath(url));
+    const file = migrationFile(url);
 
     if (file !== expected) finding(id, `The file is ${file}; the registry expects ${expected}.`);
   }
 
-  const referenced = new Set(definitions.map(({ url }) => basename(fileURLToPath(url))));
+  const referenced = new Set(definitions.map(({ url }) => migrationFile(url)));
 
   for (const file of files)
     if (!referenced.has(file)) finding(file, "No registered migration reads this file.");
@@ -150,29 +151,55 @@ export const appendToManifest = (
 ): MigrationManifest =>
   Object.fromEntries(definitions.map(({ id }) => [id, manifest[id] ?? digests.get(id)!]));
 
-export const digestMigrations = async (
+/** The SHA-256 of every definition's file, by id. */
+export const digestMigrations = Effect.fn("digestMigrations")(function* (
   definitions: ReadonlyArray<RegisteredMigration>,
-): Promise<ReadonlyMap<string, string>> =>
-  new Map(
-    await Promise.all(
-      definitions.map(
-        async ({ id, url }) =>
-          [
-            id,
-            createHash("sha256")
-              .update(await readFile(url))
-              .digest("hex"),
-          ] as const,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+
+  const digests = yield* Effect.forEach(
+    definitions,
+    ({ id, url }) =>
+      path.fromFileUrl(url).pipe(
+        Effect.flatMap((file) => fs.readFile(file)),
+        Effect.map((bytes) => [id, createHash("sha256").update(bytes).digest("hex")] as const),
       ),
-    ),
+    { concurrency: "unbounded" },
   );
 
-/** The SQL files directly in `migrations`. */
-export const readMigrationFiles = async (): Promise<ReadonlyArray<string>> =>
-  (await readdir(migrationsDirectory, { withFileTypes: true }))
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".sql"))
-    .map((entry) => entry.name)
-    .sort();
+  return new Map(digests);
+});
 
-export const readMigrationManifest = async (): Promise<MigrationManifest> =>
-  decodeManifest(await readFile(migrationManifestUrl, "utf8"));
+/** The SQL files directly in `migrations`. */
+export const readMigrationFiles = Effect.fn("readMigrationFiles")(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const directory = yield* path.fromFileUrl(migrationsDirectory);
+
+  const files = yield* Effect.filter(
+    (yield* fs.readDirectory(directory)).filter((name) => name.endsWith(".sql")),
+    (name) => fs.stat(path.join(directory, name)).pipe(Effect.map(({ type }) => type === "File")),
+  );
+
+  return files.sort();
+});
+
+export const readMigrationManifest = Effect.fn("readMigrationManifest")(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const text = yield* fs.readFileString(yield* path.fromFileUrl(migrationManifestUrl));
+
+  return yield* Schema.decodeEffect(MigrationManifestJson)(text);
+});
+
+/** Writes `manifest` as `migrations/checksums.json`: two-space JSON and a final newline. */
+export const writeMigrationManifest = Effect.fn("writeMigrationManifest")(function* (
+  manifest: MigrationManifest,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const text = yield* Schema.encodeEffect(MigrationManifestJson)(manifest);
+
+  yield* fs.writeFileString(yield* path.fromFileUrl(migrationManifestUrl), `${text}\n`);
+});
