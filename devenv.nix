@@ -173,8 +173,20 @@ in
     after = [ "devenv:processes:postgres" ];
   };
 
-  # Every hook runs a `just` recipe; the justfile is the one command surface.
+  # Every hook runs a `just` recipe; the justfile is the one command surface. The one exception is the
+  # stock conflict-marker check: an unresolved merge or rebase once committed its markers (2026-09-26).
   git-hooks.hooks = {
+    check-merge-conflicts = {
+      enable = true;
+      # The stock check only looks while Git records a merge; rebases and cherry-picks do not.
+      args = [ "--assume-in-merge" ];
+      stages = [
+        "pre-commit"
+        "pre-merge-commit"
+      ];
+      priority = 0;
+      fail_fast = true;
+    };
     # Staged files only. .oxfmtrc.json owns the formatter scope, also for explicit paths.
     format = {
       enable = true;
