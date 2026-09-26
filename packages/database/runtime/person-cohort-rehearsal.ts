@@ -240,7 +240,10 @@ try {
     importPersonCohort(pool, concurrentSnapshot),
   ]);
 
-  assert.deepEqual(concurrent.map(({ replay }) => replay).sort(), [false, true]);
+  assert.deepEqual(
+    concurrent.map(({ replay }) => replay).sort((left, right) => Number(left) - Number(right)),
+    [false, true],
+  );
   assert.deepEqual(concurrent[0]!.occurrences, concurrent[1]!.occurrences);
   assert.equal(concurrent[0]!.accepted, 1);
 

@@ -14,7 +14,7 @@ import {
   canonicalJsonBytes,
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
-import { flow, Effect, Schema } from "effect";
+import { flow, Effect, Schema, Struct } from "effect";
 import {
   CorrectionHistoryOriginalSchema,
   RecruitmentConductValidationError,
@@ -141,12 +141,11 @@ interface CancellationRow {
   readonly interviewRevision: number;
 }
 
-const persistenceError = (operation: string, cause?: unknown) =>
+const persistenceError = (operation: string, cause?: Error) =>
   new RecruitmentPersistenceError({
     operation,
     cause,
-    message:
-      cause instanceof Error ? cause.message : String(cause ?? "recruitment persistence failed"),
+    message: cause?.message ?? "recruitment persistence failed",
   });
 
 const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, operation: string) =>
@@ -1016,10 +1015,9 @@ const correctInTransaction = (
       loaded.interview.coInterviewerPersonId === loaded.actor.personId
         ? {
             ...state,
-            interview: {
-              ...state.interview,
+            interview: Struct.assign(state.interview, {
               interviewerPersonId: loaded.actor.personId,
-            },
+            }),
           }
         : state;
 

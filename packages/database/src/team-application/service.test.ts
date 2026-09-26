@@ -34,9 +34,9 @@ const input: TeamApplicationInput = {
   motivation: "Vil hjelpe elever med matematikk.",
 };
 
-const teamId = TeamId.make;
+const teamId = (value: string) => TeamId.make(value);
 
-const commandId = TeamApplicationCommandId.make;
+const commandId = (value: string) => TeamApplicationCommandId.make(value);
 
 const principal = (person: string) => ({
   personId: PersonId.make(person),
@@ -545,13 +545,20 @@ describe("team application delivery", () => {
       TeamApplicationOutboxDelivery.Idle(),
     );
 
+    const byEnvelope = (
+      left: ReadonlyArray<string | undefined>,
+      right: ReadonlyArray<string | undefined>,
+    ) => left.join().localeCompare(right.join());
+
     expect(
-      deliveries.map(({ recipient, replyTo, sender }) => [recipient, replyTo, sender]).toSorted(),
+      deliveries
+        .map(({ recipient, replyTo, sender }) => [recipient, replyTo, sender])
+        .toSorted(byEnvelope),
     ).toEqual(
       [
         [input.email, "it@example.invalid", "noreply@example.invalid"],
         ["it@example.invalid", input.email, "noreply@example.invalid"],
-      ].toSorted(),
+      ].toSorted(byEnvelope),
     );
     await expect(
       count(

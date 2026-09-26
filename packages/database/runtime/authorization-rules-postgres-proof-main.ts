@@ -81,6 +81,7 @@ import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { Result, Data, Predicate, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
+import type { SqlError } from "effect/unstable/sql/SqlError";
 import { spec0055OrganizationAuthorityFixtures } from "@vektorprogrammet/domain/organization/authority-fixtures";
 import { resolveOrganizationPersonAuthorityForRead } from "../src/organization/authority-postgres.js";
 import { executeReceiptCommand } from "../src/receipt/postgres.js";
@@ -764,7 +765,7 @@ interface DurableCommandFacts {
 const readDurableCommandFacts = (
   sql: DatabaseOperations,
   commandId: string,
-): Effect.Effect<DurableCommandFacts, unknown> =>
+): Effect.Effect<DurableCommandFacts, SqlError> =>
   Effect.gen(function* () {
     const [row] = yield* sql<DurableCommandFacts>`
       SELECT
@@ -801,7 +802,7 @@ interface AuthzRowCounts {
   readonly rules: number;
 }
 
-const readAuthzRowCounts = (sql: DatabaseOperations): Effect.Effect<AuthzRowCounts, unknown> =>
+const readAuthzRowCounts = (sql: DatabaseOperations): Effect.Effect<AuthzRowCounts, SqlError> =>
   Effect.gen(function* () {
     const [counts] = yield* sql<AuthzRowCounts>`
       SELECT
@@ -1032,7 +1033,7 @@ interface ConnectionStamp {
   readonly observedAt: string;
 }
 
-const connectionStamp = (sql: DatabaseOperations): Effect.Effect<ConnectionStamp, unknown> =>
+const connectionStamp = (sql: DatabaseOperations): Effect.Effect<ConnectionStamp, SqlError> =>
   Effect.gen(function* () {
     const [stamp] = yield* sql<ConnectionStamp>`
       SELECT
@@ -1064,7 +1065,7 @@ const awaitBlockedBy = (
   blockedPid: number,
   blockerPid: number,
   remainingQueries = 256,
-): Effect.Effect<BlockingRow, unknown> =>
+): Effect.Effect<BlockingRow, SqlError> =>
   Effect.gen(function* () {
     const [row] = yield* sql<BlockingRow>`
       SELECT

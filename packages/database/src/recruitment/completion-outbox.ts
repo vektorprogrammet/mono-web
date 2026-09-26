@@ -48,7 +48,7 @@ interface ClaimedRow {
   readonly claimId: string;
   readonly attempts: number;
   readonly payloadJson: unknown;
-  readonly deliveryEnvelope: unknown | null;
+  readonly deliveryEnvelope: unknown;
 }
 
 const ClaimedRowSchema = Schema.Struct({
@@ -262,7 +262,7 @@ const readFirstEnvelope = (
       interviewerEmail: interviewerContact.email,
     }).pipe(
       Effect.map((decoded) => ({ _tag: "Decoded" as const, value: decoded })),
-      Effect.catch(() => Effect.succeed({ _tag: "Invalid" as const })),
+      Effect.orElseSucceed(() => ({ _tag: "Invalid" as const })),
     );
 
     return Predicate.isTagged(decoded, "Decoded") ? decoded.value : undefined;

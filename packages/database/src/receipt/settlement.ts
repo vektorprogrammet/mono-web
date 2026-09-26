@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { flow, Predicate, Effect, Schema } from "effect";
+import { flow, Predicate, Effect, Schema, Struct } from "effect";
 import {
   canonicalJson,
   canonicalJsonBytes,
@@ -519,7 +519,7 @@ const executeAuthorizedReceiptSettlementWithSql = (
 
     return {
       observation,
-      receipt: { ...current, revision },
+      receipt: Struct.assign(current, { revision }),
       settlement,
       replayed: false,
       outboxCount: 1,

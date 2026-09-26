@@ -2,11 +2,12 @@ import * as PgClient from "@effect/sql-pg/PgClient";
 import { Schema, Data, Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { sharedPgLayer } from "./pg-pool.js";
-import { Database, DatabaseUnavailable, withTypedTransactionFailures } from "./service.js";
-
-export class DatabaseMigrationExternallyManaged extends Data.TaggedError(
-  "DatabaseMigrationExternallyManaged",
-) {}
+import {
+  Database,
+  DatabaseMigrationExternallyManaged,
+  DatabaseUnavailable,
+  withTypedTransactionFailures,
+} from "./service.js";
 
 export class DatabaseExternalSchemaUnavailable extends Data.TaggedError(
   "DatabaseExternalSchemaUnavailable",

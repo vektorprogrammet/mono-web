@@ -14,6 +14,7 @@ import { readFile } from "node:fs/promises";
 import { Data, Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as Migrator from "effect/unstable/sql/Migrator";
+import type { SqlError } from "effect/unstable/sql/SqlError";
 
 export class DatabaseMigrationReadError extends Data.TaggedError("DatabaseMigrationReadError")<{
   readonly migration: string;
@@ -162,7 +163,7 @@ const nativeHttpSemanticsMigrationUrl = new URL(
 
 export type ExecuteMigration = (
   source: string,
-) => Effect.Effect<void, unknown, SqlClient.SqlClient>;
+) => Effect.Effect<void, SqlError | DatabaseMigrationExecutionError, SqlClient.SqlClient>;
 
 const migration = (name: string, url: URL, execute: ExecuteMigration) =>
   Effect.gen(function* () {

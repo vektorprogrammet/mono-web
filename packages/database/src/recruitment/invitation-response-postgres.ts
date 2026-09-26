@@ -9,7 +9,7 @@ import {
   canonicalJsonBytes,
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
-import { Match, flow, Predicate, Effect, Schema } from "effect";
+import { Match, flow, Predicate, Effect, Schema, SchemaIssue } from "effect";
 import {
   RecruitmentInvitationResponseStateSchema,
   RecruitmentInvitationResponseMessageSchema,
@@ -69,6 +69,8 @@ const persistenceError = (operation: string, cause?: unknown): RecruitmentPersis
     cause,
     message: cause instanceof Error ? cause.message : "recruitment response persistence failed",
   });
+
+const formatIssue = SchemaIssue.makeFormatterDefault();
 
 const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, operation: string) =>
   flow(
@@ -374,7 +376,7 @@ const recordInvitationResponse = (
             });
 
       const request = yield* requestEffect.pipe(
-        Effect.mapError((cause) => new RecruitmentDecodeError({ message: String(cause) })),
+        Effect.mapError((issue) => new RecruitmentDecodeError({ message: formatIssue(issue) })),
       );
 
       yield* sql`UPDATE public.recruitment_invitation_response_audit SET envelope_sha256=${sha256Hex(canonicalJsonBytes(request))} WHERE invitation_id=${row.invitationId} AND response_revision=${responseRevision} AND envelope_sha256 IS NULL`.pipe(
@@ -465,7 +467,12 @@ const recordInvitationResponse = (
     );
 
     return yield* responseEffect.pipe(
-      Effect.mapError((cause) => new RecruitmentDecodeError({ message: String(cause) })),
+      Effect.mapError(
+        (cause) =>
+          new RecruitmentDecodeError({
+            message: SchemaIssue.isIssue(cause) ? formatIssue(cause) : String(cause),
+          }),
+      ),
     );
   });
 

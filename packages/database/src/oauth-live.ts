@@ -7,7 +7,8 @@ import {
   PrincipalSchema,
 } from "@vektorprogrammet/domain/authz";
 import { createHash, randomBytes, randomUUID, timingSafeEqual, webcrypto } from "node:crypto";
-import { Types, flow, Layer, Cause, Predicate, Context, Effect, Schema } from "effect";
+import { Types, flow, Layer, Cause, Predicate, Context, Effect, Result, Schema } from "effect";
+import type { SqlError } from "effect/unstable/sql/SqlError";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import {
   CredentialEvidenceRef,
@@ -353,7 +354,7 @@ const selectTokenState = async (
 const selectTokenStateInTransaction = (
   claims: NativeAccessTokenClaims,
   kid: string,
-): Effect.Effect<TokenStateRow | undefined, unknown, Database> =>
+): Effect.Effect<TokenStateRow | undefined, SqlError, Database> =>
   Database.use((sql) =>
     sql<TokenStateRow>`
       SELECT state.*, binding.client_kind, binding.secret_expires_at,
@@ -408,16 +409,16 @@ const canonicalClientScopes = (
   );
 };
 
-type TokenStateLookup<R> = (
+type TokenStateLookup<E, R> = (
   claims: NativeAccessTokenClaims,
   kid: string,
-) => Effect.Effect<TokenStateRow | undefined, unknown, R>;
+) => Effect.Effect<TokenStateRow | undefined, E, R>;
 
-const resolveOAuthCredential = <R>(
+const resolveOAuthCredential = <E, R>(
   request: Request,
   expected: OAuthExpectedMechanism,
   now: Date,
-  lookup: TokenStateLookup<R>,
+  lookup: TokenStateLookup<E, R>,
   config: OAuthProviderRuntimeConfig,
 ): Effect.Effect<CredentialOutcome, never, R> =>
   Effect.gen(function* () {
@@ -433,13 +434,14 @@ const resolveOAuthCredential = <R>(
       return CredentialOutcomeSchema.cases.Rejected.make({ reason: "AmbiguousMechanism" });
     }
 
-    let decoded: DecodedNativeJwt;
+    const token = bearer.token;
+    const decodedJwt = Result.try(() => decodeJwt(token));
 
-    try {
-      decoded = decodeJwt(bearer.token);
-    } catch {
+    if (Result.isFailure(decodedJwt)) {
       return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Malformed" });
     }
+
+    const decoded = decodedJwt.success;
 
     if (
       decoded.claims.iss !== oauthIssuer(config) ||
@@ -465,7 +467,7 @@ const resolveOAuthCredential = <R>(
     const signatureValid = yield* Effect.tryPromise({
       try: () => verifyJwtSignature(decoded, state.public_key),
       catch: (cause) => new Cause.UnknownError(cause),
-    }).pipe(Effect.catch(() => Effect.succeed(false)));
+    }).pipe(Effect.orElseSucceed(() => false));
 
     if (!signatureValid) return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Invalid" });
 

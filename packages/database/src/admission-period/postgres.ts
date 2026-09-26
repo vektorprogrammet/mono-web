@@ -2,7 +2,7 @@ import { canonicalJsonValue } from "@vektorprogrammet/domain/shared-kernel";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import type { DepartmentId } from "@vektorprogrammet/domain/organization";
-import { flow, Predicate, Effect, Schema } from "effect";
+import { flow, Predicate, Effect, Schema, Struct } from "effect";
 import { compareRfc3339Instants } from "@vektorprogrammet/domain/time";
 import {
   AdmissionPeriodDecodeError,
@@ -587,11 +587,11 @@ export const admissionPeriodProjectionFor = (
   period: AdmissionPeriod,
   semester: AdmissionSemesterValue,
   now: string,
-): AdmissionPeriodProjection => ({
-  ...period,
-  eligible:
-    compareRfc3339Instants(semester.startAt, now) <= 0 &&
-    compareRfc3339Instants(now, semester.endAt) < 0 &&
-    compareRfc3339Instants(period.startAt, now) <= 0 &&
-    compareRfc3339Instants(now, period.endAt) < 0,
-});
+): AdmissionPeriodProjection =>
+  Struct.assign(period, {
+    eligible:
+      compareRfc3339Instants(semester.startAt, now) <= 0 &&
+      compareRfc3339Instants(now, semester.endAt) < 0 &&
+      compareRfc3339Instants(period.startAt, now) <= 0 &&
+      compareRfc3339Instants(now, period.endAt) < 0,
+  });

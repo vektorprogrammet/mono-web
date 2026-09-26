@@ -462,7 +462,7 @@ const refreshDiagnostics = await Promise.all(
 );
 
 assert.deepEqual(
-  refreshResponses.map(({ status }) => status).sort(),
+  refreshResponses.map(({ status }) => status).sort((left, right) => left - right),
   [200, 400],
   refreshDiagnostics.join(" | "),
 );

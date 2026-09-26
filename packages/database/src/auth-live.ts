@@ -103,6 +103,11 @@ export interface IdentitySnapshotService {
   >;
 }
 
+/**
+ * Session reads run in the caller's ambient Database transaction, so every method requires it.
+ *
+ * @effect-expect-leaking Database
+ */
 export class IdentitySnapshot extends Context.Service<IdentitySnapshot, IdentitySnapshotService>()(
   "@vektorprogrammet/database/IdentitySnapshot",
 ) {}

@@ -582,12 +582,7 @@ const insertReceiptAndAudit = (input: {
 
 /** Resolves the Organization projection inside the command's own transaction. */
 const resolveAuthorityInTransaction = (input: {
-  readonly organization: {
-    resolvePersonAuthorityForRead: (
-      personId: PersonId,
-      instant: OrganizationAuthorityInstant,
-    ) => Effect.Effect<OrganizationPersonAuthority, unknown>;
-  };
+  readonly organization: Organization["Service"];
   readonly personId: PersonId;
   readonly authorizationInstant: OrganizationAuthorityInstant;
 }) =>

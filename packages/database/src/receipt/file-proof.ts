@@ -336,11 +336,7 @@ export const runReceiptFileProof = (
   failNextFileEffect: (effectId: string) => Effect.Effect<void>,
   auxiliaryEffectIds: Effect.Effect<ReadonlyArray<string>>,
   legacyUpgradeDatabase: PgPoolConfig,
-): Effect.Effect<
-  ReceiptFileProofEvidence,
-  unknown,
-  Database | ReceiptFileService | ReceiptAuxiliaryEffects
-> =>
+) =>
   Effect.gen(function* () {
     const sql = yield* Database;
     const files = yield* ReceiptFileService;
@@ -744,7 +740,7 @@ export const runReceiptFileProof = (
       throw new Error("stale Receipt outbox claim was not reclaimed and delivered");
     }
 
-    return {
+    const evidence: ReceiptFileProofEvidence = {
       specId: "0034",
       sourceRevision: "463d98c88e3ac89cbe6c4de28e449e69eca0a532",
       database: "PostgreSQL",
@@ -794,4 +790,6 @@ export const runReceiptFileProof = (
         attempts: Number(row.attempts),
       })),
     };
+
+    return evidence;
   });

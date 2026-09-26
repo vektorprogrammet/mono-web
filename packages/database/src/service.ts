@@ -1,13 +1,19 @@
 import { Schema, Context, Data, Effect } from "effect";
+import type * as Migrator from "effect/unstable/sql/Migrator";
 import type * as SqlClient from "effect/unstable/sql/SqlClient";
 import type { Row } from "effect/unstable/sql/SqlConnection";
 import type * as Statement from "effect/unstable/sql/Statement";
-import { isSqlError } from "effect/unstable/sql/SqlError";
+import { isSqlError, type SqlError } from "effect/unstable/sql/SqlError";
 
 export class DatabaseUnavailable extends Data.TaggedError("DatabaseUnavailable")<{
   readonly operation: "health";
   readonly cause: unknown;
 }> {}
+
+/** `Database.migrate` on a runtime whose deployment pipeline owns schema migration. */
+export class DatabaseMigrationExternallyManaged extends Data.TaggedError(
+  "DatabaseMigrationExternallyManaged",
+) {}
 
 /**
  * A value bound as one SQL parameter. node-postgres serializes any other object with
@@ -41,7 +47,10 @@ export interface DatabaseOperations extends Omit<SqlClient.SqlClient, never> {
    * `canonicalJsonValue(x)`, never JSON text: text is stored as a JSON string.
    */
   readonly json: (_: Schema.Json) => Statement.Fragment;
-  readonly migrate: Effect.Effect<void, unknown>;
+  readonly migrate: Effect.Effect<
+    void,
+    Migrator.MigrationError | SqlError | DatabaseMigrationExternallyManaged
+  >;
   readonly schemaRevision: string;
   readonly health: Effect.Effect<void, DatabaseUnavailable>;
 }

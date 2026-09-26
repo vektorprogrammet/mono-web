@@ -1,6 +1,7 @@
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import { Equal, flow, Effect, Schema } from "effect";
+import type { SqlError } from "effect/unstable/sql/SqlError";
 import {
   DepartmentCreatedObservationSchema,
   TeamCreatedObservationSchema,
@@ -61,7 +62,7 @@ interface ExistsRow {
   readonly exists: boolean;
 }
 
-const persistenceError = (operation: string, cause?: unknown) =>
+const persistenceError = (operation: string, cause?: SqlError) =>
   new OrganizationPersistenceError({
     operation,
     message: cause === undefined ? operation : String(cause),

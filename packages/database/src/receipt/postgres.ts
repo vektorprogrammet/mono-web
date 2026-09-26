@@ -564,7 +564,7 @@ export const reconcileReceiptImport = (
 
           const observed =
             matches && actual !== undefined
-              ? yield* observe(actual).pipe(Effect.catch(() => Effect.succeed(false)))
+              ? yield* observe(actual).pipe(Effect.orElseSucceed(() => false))
               : false;
 
           yield* sql`
