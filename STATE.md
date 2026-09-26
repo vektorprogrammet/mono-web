@@ -163,9 +163,8 @@ The `legacy-data` devenv profile cannot build while the home binary cache answer
 
 - Staging deploys run `docker compose down` without `--remove-orphans`. After the PostgreSQL 18 change reaches the `staging` branch,
   run `docker compose down --remove-orphans` once on the staging host to remove the orphaned `receipt-postgres` container.
-- Homelab branch `feat/btrbk-root-offload-ironwolf` (in `/srv/share/projects/homelab-btrbk-offload`) is built, not merged or deployed.
-  It keeps root snapshots 7d locally, sends the latest to the IronWolf until 2026-10-04 and 4w 6m after, caps `@downloads` at 2540G,
-  ages `/tmp` at 7d, and makes a dead binary cache non-fatal. Merge it into homelab `main` and rebuild the workstation from the homelab justfile, following the steps in its docs.
+- Homelab `main` (fc719fb, merged 2026-09-26, not pushed) keeps root snapshots 7d locally, sends the latest to the IronWolf until 2026-10-04 and 4w 6m after,
+  caps `@downloads` at 2540G, ages `/tmp` at 7d, and makes a dead binary cache non-fatal. Rebuild the workstation from the homelab justfile, following the steps in its storage docs.
 - `BWS_ACCESS_TOKEN` (the only preview secret in GitHub) holds the access token of the machine account `vektorprogrammet-ci`, which reads Bitwarden project `2ddfeed1-59d8-4139-b6b0-b4d1001edcfc` in the US cloud; the Cloudflare token is its key `WORKERS_EDIT_CLOUDFLARE_API_TOKEN`. Rotate both before they expire.
 - Before any production use of reach and delegation: classify the Styret and national teams, recognize independent departments,
   and issue the Økonomi delegations, each by explicit command (see Production gates).
