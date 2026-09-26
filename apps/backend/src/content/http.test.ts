@@ -17,6 +17,7 @@ import { NativeProblem } from "@vektorprogrammet/http-api/http-semantics";
 import { DateTime, Effect, Layer, Schema } from "effect";
 import { OpenApi } from "effect/unstable/httpapi";
 import { describe, expect, it } from "@effect/vitest";
+import { jsonText } from "../http-api/problem.js";
 import { makeContentManagementTestHttp, makePublicNewsTestHttp } from "../test/native-http.js";
 import { contentOperationId } from "./http-context.js";
 
@@ -26,7 +27,7 @@ const expectProblem = (response: Response, status: number, code: string) =>
     expect(response.headers.get("content-type")).toBe("application/problem+json");
     expect(response.headers.get("cache-control")).toBe("no-store");
 
-    const problem = Schema.decodeUnknownSync(NativeProblem)(
+    const problem = yield* Schema.decodeUnknownEffect(NativeProblem)(
       yield* Effect.promise(() => response.json()),
     );
 
@@ -188,7 +189,7 @@ describe("native content HTTP boundary", () => {
             "idempotency-key": "content-create-slug-conflict",
           },
           // The title leaves no letter or digit to build a slug from.
-          body: JSON.stringify({ title: "!!!", bodyHtml: "<p>Tekst</p>", departmentIds: [] }),
+          body: yield* jsonText({ title: "!!!", bodyHtml: "<p>Tekst</p>", departmentIds: [] }),
         }),
       );
 
