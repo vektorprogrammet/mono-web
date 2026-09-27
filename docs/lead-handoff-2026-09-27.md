@@ -8,14 +8,14 @@ in each branch's own spec file under `docs/specs/`; this file is the map, not th
 
 ## Machine and repository state
 
-|               |                                                                                                                           |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `main`        | `88b5281e`, clean, **10 commits ahead of `origin/main` and unpushed**                                                     |
-| `origin/main` | `8d1b7e09`; hosted Checks, Tests and Docs all green there (runs 36294080378, 36294080480, 36294080386)                    |
-| Worktrees     | 26 registered under `/srv/share/projects/vektorprogrammet/`; all 25 branch worktrees clean, no uncommitted files anywhere |
-| Heavy lock    | Unchanged. The admission tool that replaces it is spec'd, not built (see `homelab` below)                                 |
-| Agent memory  | `herdr.slice` caps restored to the declared 62.5%/75% (~42/50 GB); stale 20/24 GiB drop-ins removed by operator authority |
-| Production    | Untouched. Legacy PHP still authoritative. No deployment, no cloud provisioning, no cutover                               |
+|               |                                                                                                                                                                                                                                            |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `main`        | `1da22ce4`, clean, **12 commits ahead of `origin/main` and unpushed**; includes the handoff commit `9d5063d8` and the landed specs `d65af40d` (architecture), `d3371edf` (command grammar), `1da22ce4` (land installs)                     |
+| `origin/main` | `8d1b7e09`; hosted Checks, Tests and Docs all green there (runs 36294080378, 36294080480, 36294080386)                                                                                                                                     |
+| Worktrees     | 21 registered under `/srv/share/projects/vektorprogrammet/`; every branch worktree clean, no uncommitted files anywhere. The rehearsal-bookkeeping, architecture, command-grammar and land-installs worktrees were removed by `just land`. |
+| Heavy lock    | Unchanged. The admission tool that replaces it is spec'd, not built (see `homelab` below)                                                                                                                                                  |
+| Agent memory  | `herdr.slice` caps restored to the declared 62.5%/75% (~42/50 GB); stale 20/24 GiB drop-ins removed by operator authority                                                                                                                  |
+| Production    | Untouched. Legacy PHP still authoritative. No deployment, no cloud provisioning, no cutover                                                                                                                                                |
 
 ## Landed on `main` today
 
@@ -34,6 +34,12 @@ in each branch's own spec file under `docs/specs/`; this file is the map, not th
 - **Rehearsal bookkeeping** (`88b5281e`). `0078` seeded rows that broke **every** legacy rehearsal
   on `main`; the migration-bookkeeping tables are now declared once in
   `packages/database/src/schema-bookkeeping.ts` and read by the seeder.
+- **Specs landed directly on `main` today** (each a design awaiting decisions, no code): the
+  [architecture consolidation draft](specs/architecture-consolidation.md) (`d65af40d`), the
+  [command grammar](specs/command-grammar.md) (`d3371edf`, 11 open questions), and the
+  [landing-tool design and plan](specs/land-installs-0927.md) (`1da22ce4`). The
+  [schema-declaration design](specs/schema-declaration.md) is still on its branch
+  (`refactor/schema-declaration-0927`) because it is the first decision a fresh lead must make.
 
 ## Operator decisions taken today (2026-09-27)
 
@@ -123,9 +129,10 @@ Every branch below is clean, committed with hooks, and has its handoff in its ow
 
 | Branch                                                            | SHA              | Spec                                                | Next                                                                                                                                                                              |
 | ----------------------------------------------------------------- | ---------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `refactor/schema-declaration-0927`                                | `bc2a82d0`       | `docs/specs/schema-declaration.md`                  | Approve mechanism + 11 open questions, then build the declaration                                                                                                                 |
-| `docs/architecture-consolidation-0927`                            | `cfc4782b`       | `docs/specs/architecture-consolidation.md` (draft)  | Operator approval of the target; then step 1 (fences, dead code, SQL/context lint rules)                                                                                          |
-| `fix/land-installs-0927`                                          | `ba98fec7`       | `docs/specs/land-installs-0927.md`                  | Implement the plan verbatim; unblocks any dependency-changing branch                                                                                                              |
+| `refactor/schema-declaration-0927`                                | `bc2a82d0`       | `docs/specs/schema-declaration.md`                  | **First decision**: approve the mechanism and answer its 11 open questions, then build the declaration                                                                            |
+| landed as `d65af40d`                                              | —                | `docs/specs/architecture-consolidation.md` (draft)  | Operator approval of the target; then step 1 (fences, dead code, SQL/context lint rules)                                                                                          |
+| landed as `1da22ce4`                                              | —                | `docs/specs/land-installs-0927.md`                  | Implement the plan; unblocks any dependency-changing branch, including Fumadocs                                                                                                   |
+| landed as `d3371edf` (command grammar)                            | —                | `docs/specs/command-grammar.md`                     | Answer the 11 open questions, then implement after the collapse                                                                                                                   |
 | `docs/fumadocs-integration-0927`                                  | `2a6ca60b`       | none (retired; done)                                | Land after `land-installs`; 162 routes prerendered, 0 page errors, 146 links 200                                                                                                  |
 | `fix/admissions-core-0926`                                        | `5d05e6e2`       | `docs/specs/admissions-core-review-fixes.md`        | Independent re-review, then rebase + fold `0081`–`0084` into the schema declaration                                                                                               |
 | `fix/recruitment-review-0926`                                     | `27265998`       | `docs/specs/interview-correction-window.md`         | Phase A done (13 falsifiers green): generate SDK/OpenAPI, then the dashboard, journey, model, docs; phase B after admissions lands                                                |
