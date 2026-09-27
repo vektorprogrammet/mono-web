@@ -15,6 +15,7 @@ export const topLevelDirectories = {
   ".github": "Checks, Tests, Docs, and preview workflows and their actions",
   ".claude": "Claude Code settings and project rules",
   ".agents": "Agent skills of the repository: the Effect house overlay",
+  handoffs: "Dated lead handoffs, read first by a fresh lead and never published",
 } satisfies Readonly<Record<string, string>>;
 
 /** Files at the root. Everything else lives in a top-level directory. */

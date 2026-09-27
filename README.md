@@ -65,6 +65,7 @@ The local development instructions below do not establish migration completion.
 | `.github`               | Checks, Tests, Docs, and preview workflows and their actions                    |
 | `.claude`               | Claude Code settings and project rules                                          |
 | `.agents`               | Agent skills of the repository: the Effect house overlay                        |
+| `handoffs`              | Dated lead handoffs, read first by a fresh lead and never published             |
 
 Apps and packages never import `tools/`.
 Context folders in `packages/domain/src`, `packages/database/src`, `apps/backend/src`, and `apps/dashboard/app/foldkit` carry the kebab-case name of a bounded context in [docs/model/contexts.cml](docs/model/contexts.cml).

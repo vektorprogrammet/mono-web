@@ -87,7 +87,7 @@ hook has to trust.
    - If `existsSync(join(process.cwd(), "bun.lock"))`, run
      `spawnSync("bun", ["install", "--frozen-lockfile"], { stdio: "inherit" })` in main to sync
      `node_modules` to the now-landed `bun.lock`; on failure, print a clear remediation message
-     ("main landed at <sha>; node_modules needs `bun install --frozen-lockfile`") and exit 1 — this
+     (`main landed at <sha>; node_modules needs bun install --frozen-lockfile`) and exit 1 — this
      does not undo the already-successful git-level land.
    - `how = "merge commit"` unchanged.
 3. `tools/scripts/tests/land.test.ts`: add, following the existing fixture style (a fabricated

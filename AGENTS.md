@@ -8,10 +8,11 @@ Read [STATE.md](STATE.md) for current work.
 Read [docs/system.md](docs/system.md) for intended product behavior.
 Read [docs/architecture.md](docs/architecture.md) for technical boundaries.
 
-When a lead handoff document exists at `docs/lead-handoff-*.md`, read the newest one first. It
-records the operator decisions of that day, the known defects, and every in-flight branch with its
-spec file and next step. It is dated evidence, not a permanent authority; `STATE.md` stays the
-current state.
+When a lead handoff document exists at `handoffs/*.md`, read the newest one first. It records the
+operator decisions of that day, the known defects, and every in-flight branch with its spec file
+and next step. It is dated evidence, not a permanent authority; `STATE.md` stays the current state.
+Handoffs stay out of `docs/`, because the documentation site publishes every page there and the
+repository is public.
 
 The migration targets the native application. Legacy behavior comes from the live
 legacy system and its source in the separate vektorprogrammet repository; see
@@ -163,6 +164,7 @@ Focused Vitest does not prove those additional gates or the dashboard bundle gat
 | `.github`               | Checks, Tests, Docs, and preview workflows and their actions                    |
 | `.claude`               | Claude Code settings and project rules                                          |
 | `.agents`               | Agent skills of the repository: the Effect house overlay                        |
+| `handoffs`              | Dated lead handoffs, read first by a fresh lead and never published             |
 
 Apps and packages never import `tools/`.
 Context folders in `packages/domain/src`, `packages/database/src`, `apps/backend/src`, and `apps/dashboard/app/foldkit` carry the kebab-case name of a bounded context in [docs/model/contexts.cml](docs/model/contexts.cml).
