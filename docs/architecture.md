@@ -81,6 +81,7 @@ Required rules:
   lifecycle. A total local calculation stays a direct function.
 - Concrete runtimes and vendors belong in Layer implementations and composition
   roots.
+- The production database entry provides PostgreSQL only; PGlite and its extensions enter through `packages/database/src/test-support/platform.ts`, not through the backend or database barrel.
 - Core Effect code, in `packages/domain`, `packages/database`, `packages/http-api`, and `apps/backend`,
   reaches the clock, randomness, timers, the network, the environment, Node built-ins, and the console through Effect services,
   and uses Effect programs, tagged errors, and Schema instead of Promises, native errors, and `JSON`.

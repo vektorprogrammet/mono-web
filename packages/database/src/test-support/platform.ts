@@ -1,7 +1,7 @@
 import * as BunFileSystem from "@effect/platform-bun/BunFileSystem";
 import * as BunPath from "@effect/platform-bun/BunPath";
 import { Layer } from "effect";
-import { DatabaseTest } from "../layers.js";
+import { DatabaseTest } from "./pglite-layer.js";
 
 /**
  * The Bun file system and path services that the database tests, proofs, and CLIs run on. The
