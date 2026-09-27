@@ -1,0 +1,55 @@
+/* Unprefixed Tailwind utilities for the vendored MDXCN components only. */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+
+@source "../../components/mdxcn";
+
+@theme inline {
+  --color-foreground: var(--graph-foreground);
+  --color-graph-accent: var(--graph-accent);
+  --color-graph-accent-2: var(--graph-accent-2);
+  --color-graph-accent-3: var(--graph-accent-3);
+  --color-graph-frame: var(--graph-frame);
+  --color-graph-muted: var(--graph-muted);
+}
+
+:root {
+  --graph-foreground: light-dark(#202b36, #e6ebef);
+  --graph-accent: light-dark(#075d66, #5fc4cf);
+  --graph-accent-2: light-dark(#315b8b, #8fb4e3);
+  --graph-accent-3: light-dark(#75435f, #d99bbd);
+  --graph-frame: light-dark(#617277, #8b9ca1);
+  --graph-muted: light-dark(#53616c, #a3b0ba);
+}
+
+/* MDXCN graph-frame utility, copied from the pinned app/globals.css. */
+@utility graph-frame {
+  background-image:
+    repeating-linear-gradient(to right, var(--graph-frame) 0 2px, transparent 2px 7px),
+    repeating-linear-gradient(to bottom, var(--graph-frame) 0 2px, transparent 2px 7px),
+    repeating-linear-gradient(to right, var(--graph-frame) 0 2px, transparent 2px 7px),
+    repeating-linear-gradient(to bottom, var(--graph-frame) 0 2px, transparent 2px 7px);
+  background-repeat: repeat-x, repeat-y, repeat-x, repeat-y;
+  background-position:
+    0 0,
+    100% 0,
+    0 100%,
+    0 0;
+  background-size:
+    100% 1px,
+    1px 100%,
+    100% 1px,
+    1px 100%;
+}
+
+figure.graph-frame {
+  margin: 2.5rem 0;
+  line-height: 1.6;
+}
+
+figure.graph-frame figcaption {
+  max-width: calc(100% - 2rem);
+  white-space: normal;
+  text-align: center;
+  line-height: 1.4;
+}
