@@ -27,6 +27,7 @@
     "./profile": "./src/profile/index.ts",
     "./receipt/postgres": "./src/receipt/postgres-index.ts",
     "./runtime": "./src/runtime-layer.ts",
+    "./schema-bookkeeping": "./src/schema-bookkeeping.ts",
     "./recruitment": "./src/recruitment/index.ts",
     "./schools": "./src/schools/index.ts",
     "./social-events": "./src/social-events/index.ts",
