@@ -11,11 +11,8 @@ import { dirname, join } from "node:path";
 import { checkLayout, type Finding } from "./check.js";
 import { readContextModel } from "./cml.js";
 import {
-  checkPages,
-  consumerFindings,
+  checkConstructs,
   constructPages,
-  parseFindings,
-  readCandidates,
   readConstructs,
   readConsumers,
   renderPages,
@@ -108,29 +105,15 @@ const constructs = (): Outcome => {
       }
   }
 
-  const repository = readRepository(root, staged);
-  const report = readConstructs(repository);
-  const graph = readModuleGraph(repository);
-  const consumers = readConsumers(report.constructs, graph);
-  const candidates = readCandidates(repository, graph, report.constructs);
+  const check = checkConstructs(readRepository(root, staged));
 
   return {
-    findings: [
-      ...parseFindings(graph),
-      ...report.findings,
-      ...checkPages(repository, report.constructs),
-    ],
-    // Reported, not yet failing, until every construct carries its contract.
-    warnings: [
-      ...[...report.gaps, ...consumerFindings(consumers)].map(
-        (finding) => `${finding.path}: ${finding.message}`,
-      ),
-      ...candidates.map(
-        (candidate) =>
-          `${candidate.path}:${candidate.line}: ${candidate.name} has no @construct tag, and ${candidate.importers.length} modules outside ${packageOf(candidate.path) ?? "its package"} import it, in ${[...new Set(candidate.importers.map((importer) => packageOf(importer) ?? importer))].join(", ")}`,
-      ),
-    ],
-    summary: `${graph.modules.size} modules, ${report.constructs.length} constructs, ${consumers.reduce((sum, { importers }) => sum + importers.length, 0)} consumers, ${candidates.length} untagged candidates`,
+    findings: check.findings,
+    warnings: check.candidates.map(
+      (candidate) =>
+        `${candidate.path}:${candidate.line}: ${candidate.name} has no @construct tag, and ${candidate.importers.length} modules outside ${packageOf(candidate.path) ?? "its package"} import it, in ${[...new Set(candidate.importers.map((importer) => packageOf(importer) ?? importer))].join(", ")}`,
+    ),
+    summary: `${check.modules} modules, ${check.constructs.length} constructs, ${check.consumers.reduce((sum, { importers }) => sum + importers.length, 0)} consumers, ${check.candidates.length} untagged candidates`,
   };
 };
 

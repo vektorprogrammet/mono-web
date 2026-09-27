@@ -2,6 +2,7 @@
 // the real resolver, package exports, and pages.
 import { describe, expect, test } from "bun:test";
 import {
+  checkConstructs,
   checkPages,
   consumerFindings,
   constructPages,
@@ -161,7 +162,7 @@ describe("construct pages", () => {
   test("reports a missing contract tag and a missing annotation", () => {
     const gaps = (doc: string, declaration?: string) =>
       readConstructs(withFiles(probe(doc, declaration)))
-        .gaps.filter((finding) => finding.path.startsWith(`${kernel}/probe.ts:`))
+        .findings.filter((finding) => finding.path.startsWith(`${kernel}/probe.ts:`))
         .map((finding) => finding.message);
 
     expect(gaps(tagged(contract))).toEqual([]);
@@ -174,6 +175,25 @@ describe("construct pages", () => {
     expect(gaps(tagged(contract), "(value): number => value * 2")).toEqual([
       "has no type annotation on the parameter `value`",
     ]);
+  });
+
+  test("fails the check on a contract gap and on a construct that one module imports", () => {
+    const check = checkConstructs(
+      withFiles({
+        ...probe(tagged(contract.replace("@avoid", "Avoid:"))),
+        "apps/backend/src/probe-a.ts": fromKernel,
+      }),
+    );
+
+    const messages = check.findings
+      .filter((finding) => finding.path.startsWith(`${kernel}/probe.ts:`))
+      .map((finding) => finding.message);
+
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toBe(
+      "has no @avoid tag (the misuse that it prevents, and what to do instead)",
+    );
+    expect(messages[1]).toStartWith("tags probeDouble, which one module outside its own module");
   });
 
   test("rejects an unknown category and a tag on a declaration that is not exported", () => {
