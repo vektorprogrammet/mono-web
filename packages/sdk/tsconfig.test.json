@@ -3,9 +3,8 @@
   "compilerOptions": {
     "declaration": false,
     "noEmit": true,
-    "rootDir": ".",
-    "types": ["node", "bun"]
+    "rootDir": "."
   },
-  "files": ["src/__tests__/generated-native-client.test.ts", "scripts/generate-operations.ts"],
-  "include": []
+  "include": ["src/__tests__", "scripts"],
+  "exclude": []
 }

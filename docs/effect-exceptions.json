@@ -194,6 +194,33 @@
       "owner": "tools/acceptance",
       "examinedWith": { "@phibkro/oxlint-effect-plugin": "0.1.0", "effect": "4.0.0-rc.116" },
       "retirementTrigger": "The probe becomes an Effect program that its entry point runs, and it writes through Console of effect. Then remove the directives."
+    },
+    {
+      "id": "EX-0010",
+      "rules": ["FX001", "FX012"],
+      "scope": {
+        "files": [
+          "packages/sdk/src/effect-client.ts",
+          "packages/sdk/src/__tests__/generated-native-client.test.ts"
+        ],
+        "symbols": ["EffectSdk"]
+      },
+      "reason": "Command endpoints of the contract, such as placements.commandBoard, take a union of commands as their payload, and the dashboard sends a command that it has not narrowed to one member. patches/effect@4.0.0-rc.116.patch changes the declaration type HttpApiEndpoint.ClientRequest so that a generated client method takes the whole payload type. The client runtime is unchanged.",
+      "missingCapability": "HttpApiEndpoint.ClientRequest of effect 4.0.0-rc.116, unchanged in 4.0.0-rc.117 and on the main branch of effect-smol on 2026-09-27, distributes a union payload over its members: a method takes { payload: A } | { payload: B }, not { payload: A | B }, so a payload typed as the union fails with TS2345. Its conditional P extends Brand<…> names Payload[\"Type\"] in the false branch, and TypeScript narrows that to the member P inside the true branch of Payload[\"Type\"] extends infer P. A program with one union endpoint reproduces it with TypeScript 7.0.2 and 5.9.3.",
+      "nativeAlternatives": [
+        "Narrowing each command with Match and calling the method once per member: every caller of a union endpoint then repeats one identical call per command.",
+        "Asserting the request type at each call site: the assertion removes the check of the request against the contract.",
+        "One endpoint per command, or a struct that wraps the union: both change the HTTP contract and the wire format of every command endpoint.",
+        "Deriving the SDK client type again with a corrected request type: it copies HttpApiClient.Client.Method and its unexported MethodReturn from the Effect source, and the copy drifts with each release."
+      ],
+      "verification": [
+        "`bun run --cwd packages/sdk check-types` checks the type test \"accepts the complete command union through one Promise endpoint\" in packages/sdk/src/__tests__/generated-native-client.test.ts, which fails with TS2344 without the patch.",
+        "`just check-types` checks the dashboard callers that send an unnarrowed command union: apps/dashboard/app/foldkit/recruitment-maintenance/command.ts, apps/dashboard/app/foldkit/schools/browser-client.ts, and apps/dashboard/app/routes/dashboard.assistenter._index.tsx. Without the patch each fails with TS2345.",
+        "The patch changes only dist/unstable/httpapi/HttpApiEndpoint.d.ts and its source. The contract tests of the same test file run the unchanged client runtime."
+      ],
+      "owner": "packages/sdk",
+      "examinedWith": { "effect": "4.0.0-rc.116", "typescript": "7.0.2" },
+      "retirementTrigger": "An Effect release whose HttpApiEndpoint.ClientRequest takes the whole union as the payload of a union endpoint. Then remove the patch and its patchedDependencies entry, delete this entry and the comments that name it, and keep the type test, which then checks the release."
     }
   ]
 }
