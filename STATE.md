@@ -35,8 +35,8 @@ Operator decisions:
   until the admission decision is recorded; after that the department board leader, or a current
   holder of the delegable staffing delegation, may reopen one window per interview with a reason
   and an end instant no later than the semester's end; whoever reopens cannot correct under it; a
-  post-decision correction never changes what the recorded decision acts on. See
-  [docs/specs/interview-correction-window.md](docs/specs/interview-correction-window.md) (in progress on `fix/recruitment-review-0926`).
+  post-decision correction never changes what the recorded decision acts on. In progress on
+  `fix/recruitment-review-0926`; the specification is not on `main` yet, so it has no page here.
 - The deployment image and hosting are undecided. No image exists. Podman is the operator's
   preference for building and running one; Podman is not installed on this machine.
 

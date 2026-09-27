@@ -99,10 +99,17 @@ in each branch's own spec file under `docs/specs/`; this file is the map, not th
   local `main`, which _is_ HEAD. 122 of 123 pre-push runs finished in about 1 s. Hosted CI has been
   the real gate. The fix is to set the base to the pushed ref (see
   `docs/specs/command-grammar.md`).
-- **`just land` cannot land a branch that changes dependencies**: the pre-merge hook runs the merged
-  tree against the main checkout's stale `node_modules` (observed with Fumadocs: `Cannot find
-package 'yaml'`). Design and plan committed: `docs/specs/land-installs-0927.md` on
-  `fix/land-installs-0927` (`ba98fec7`); nothing implemented yet.
+- **`just docs check` does not validate links inside an in-place document.** `content/(start)/state.mdx`
+  is one line, `<include>../../STATE.md</include>`, so the links in `STATE.md` reach the site through the
+  build. A dead link in `STATE.md` passed `just docs check` with 0 findings and failed the hosted
+  `just docs build`. Only the build catches it, and the hosted Docs and Tests workflows both run it.
+  Fix: make the check read in-place documents too, or have `just check` run the build.
+- **FIXED on `main` (`afb11cf6`)**: `just land` could not merge a branch that changed
+  `package.json` or `bun.lock`, because the pre-merge hook checked the merged tree against the main
+  checkout's stale `node_modules` (Fumadocs died on `Cannot find package 'yaml'`). The hook now runs
+  `bun install --frozen-lockfile` first, and Fumadocs landed through it. The rest of
+  `docs/specs/land-installs-0927.md` (verifying in a temporary worktree so an aborted landing never
+  moves main's `node_modules`) is still open.
 - **`admission_period_outbox` is a dead outbox**: written, never read. The queue pilot's PersistedQueue
   store is the tenth delivery table.
 - **Four of seventeen commands have no domain receipt** (admissions outcome, onboarding, placements,
