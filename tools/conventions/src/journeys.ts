@@ -13,6 +13,7 @@
  */
 import { posix } from "node:path";
 import { Schema } from "effect";
+import { parse as parseYaml } from "yaml";
 import type { Finding } from "./check.js";
 import type { CaseStatement, Justfile, Recipe } from "./justfile.js";
 import { packageDirectories } from "./layout.js";
@@ -201,7 +202,7 @@ export interface Workflow {
 
 /** The jobs and the matrix legs of the Tests workflow text. */
 export const readWorkflow = (text: string): Workflow => {
-  const { jobs } = Schema.decodeUnknownSync(WorkflowFile)(Bun.YAML.parse(text));
+  const { jobs } = Schema.decodeUnknownSync(WorkflowFile)(parseYaml(text));
   const strategy = jobs[matrixJob]?.strategy;
 
   return {

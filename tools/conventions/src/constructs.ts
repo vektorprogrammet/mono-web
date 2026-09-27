@@ -294,7 +294,7 @@ export const readCandidates = (
 // Pages
 
 const marker =
-  '[//]: # "constructs: generated from the @construct tags and their JSDoc by just constructs write; do not edit"';
+  '[//]: # "constructs: generated from the @construct tags and their JSDoc by just docs generate; do not edit"';
 
 const code = (text: string): string => {
   const longest = Math.max(0, ...[...text.matchAll(/`+/gu)].map(([run]) => run.length));

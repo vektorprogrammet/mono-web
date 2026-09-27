@@ -1,7 +1,7 @@
 /**
  * Organisational capabilities and the delegation aggregate (AccessControl `Delegations`).
  *
- * `docs/model/authority.als` is the source of truth: a team role acts within its team, a board's
+ * `content/model/authority.als` is the source of truth: a team role acts within its team, a board's
  * leader acts where the board sits, and a team acts beyond itself only through an explicit, named,
  * time-bounded delegation of one capability in one area.
  */

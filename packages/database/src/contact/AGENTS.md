@@ -1,4 +1,4 @@
-[//]: # "guide: generated from docs/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
+[//]: # "guide: generated from content/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
 
 # packages/database/src/contact
 
@@ -12,7 +12,7 @@ The Contact context in other folders:
 
 ## Bounded context: Contact
 
-From [docs/model/contexts.cml](../../../../docs/model/contexts.cml).
+From [content/model/contexts.cml](../../../../content/model/contexts.cml).
 
 Relays a visitor's contact message to an active department mailbox. The message is transient; only the quota is durable. Submission is anonymous and rate limited per visitor address. The homepage server authenticates to the backend with a deployment secret; that secret names no principal.
 

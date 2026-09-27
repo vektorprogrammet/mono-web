@@ -2,8 +2,10 @@
  * Generated sections of Markdown and YAML files. Each section sits between a begin and an end
  * marker comment and is rendered from its source: the layout declaration and the justfile render
  * the sections of README.md and AGENTS.md, the justfile and the journeys declaration render the
- * hosted journeys of the Tests workflow and of its document, and `guides.ts` renders the module
- * guides. The tables use the column alignment that Oxfmt writes, so formatting never changes them.
+ * matrix legs of the Tests workflow, and `guides.ts` renders the module guides. The documentation
+ * site renders the hosted journeys of the testing page from the same names (`hostedJourneys`), so
+ * no generator writes into a content folder. The tables use the column alignment that Oxfmt
+ * writes, so formatting never changes them.
  */
 import { constructPages } from "./constructs.js";
 import {
@@ -29,7 +31,7 @@ import {
   topLevelDirectories,
 } from "./layout.js";
 
-type SectionId = "layout" | "commands" | "hosted-journeys" | "browser-journeys";
+type SectionId = "layout" | "commands" | "browser-journeys";
 
 /** A generated section: what renders it, from which source, and its body. */
 export interface Section {
@@ -45,7 +47,6 @@ const declaration = "tools/conventions/src/layout.ts";
 const generatedFiles = {
   "README.md": ["layout", "commands"],
   "AGENTS.md": ["layout", "commands"],
-  "docs/web-system-functional-testing.md": ["hosted-journeys"],
   [testsWorkflow]: ["browser-journeys"],
 } satisfies Readonly<Record<string, ReadonlyArray<SectionId>>>;
 
@@ -90,7 +91,7 @@ const renderLayout = (): string => {
     `${code("just layout")} checks the tree against [${declaration}](${declaration}), which lists the exceptions and their reasons.`,
     `Every app, package, and context folder has an ${code("AGENTS.md")} guide and a ${code("CLAUDE.md")} that imports it; ${code("just guides write")} renders their generated part.`,
     `[${constructPages.index}](${constructPages.index}) indexes the shared constructs, and a page per category in [${constructPages.contracts}](${constructPages.contracts}) holds their contracts; ${code("just constructs write")} renders them, and ${code("just constructs consumers <name>")} prints the modules that import one.`,
-    `[docs/effect-exceptions.json](docs/effect-exceptions.json) registers each suppression of an Effect rule; ${code("just exceptions")} checks it against the sites.`,
+    `[tools/conventions/effect-exceptions.json](tools/conventions/effect-exceptions.json) registers each suppression of an Effect rule; ${code("just exceptions")} checks it against the sites.`,
   ].join("\n");
 };
 
@@ -100,7 +101,11 @@ const renderCommands = (justfile: Justfile): string =>
     justfile.recipes.map((recipe) => [recipe.group, code(recipe.usage), recipe.doc]),
   );
 
-const renderHostedJourneys = (justfile: Justfile, workflow: Workflow): string => {
+/**
+ * The hosted journeys of the testing page: each command of a journey with the hosted job that
+ * runs it, and the commands and files that no hosted job runs, with their reasons.
+ */
+export const hostedJourneys = (justfile: Justfile, workflow: Workflow): string => {
   // GitHub names each leg after the matrix values, such as `Browser journeys (e2e contact)`.
   const legName = workflow.jobs.get(matrixJob) ?? matrixJob;
   const recipes = journeyRecipes.map((recipe) => code(`just ${recipe}`));
@@ -137,7 +142,7 @@ const renderHostedJourneys = (justfile: Justfile, workflow: Workflow): string =>
   const files = runFiles.map(({ kind, glob }) => `${kind} (${code(glob)})`);
 
   return [
-    `${code("just layout write")} generates this section and the matrix legs in ${code(testsWorkflow)} from the names that ${recipes.slice(0, -1).join(", ")}, and ${recipes.at(-1) ?? ""} accept.`,
+    `The documentation site renders this table, and ${code("just layout write")} the matrix legs in ${code(testsWorkflow)}, from the names that ${recipes.slice(0, -1).join(", ")}, and ${recipes.at(-1) ?? ""} accept.`,
     `Each name is one leg, unless ${code(journeysDeclaration)} gives it a job of its own or excludes it with its reason.`,
     `A name runs the files that its command names, and in turn the files that those name. Each ${files.join(" and each ")} runs under a name, unless the declaration excludes it.`,
     "",
@@ -159,22 +164,13 @@ const renderMatrix = (justfile: Justfile): string =>
     ...legs(justfile).map(({ recipe, name }) => `  - { recipe: ${recipe}, suite: ${name} }`),
   ].join("\n");
 
-const renderSections = (
-  justfile: Justfile,
-  workflow: Workflow,
-): Readonly<Record<SectionId, Section>> => ({
+const renderSections = (justfile: Justfile): Readonly<Record<SectionId, Section>> => ({
   layout: { id: "layout", source: declaration, recipe: "just layout write", body: renderLayout() },
   commands: {
     id: "commands",
     source: "the justfile",
     recipe: "just layout write",
     body: renderCommands(justfile),
-  },
-  "hosted-journeys": {
-    id: "hosted-journeys",
-    source: `the justfile, ${journeysDeclaration}, and ${testsWorkflow}`,
-    recipe: "just layout write",
-    body: renderHostedJourneys(justfile, workflow),
   },
   "browser-journeys": {
     id: "browser-journeys",
@@ -275,9 +271,8 @@ export interface SplicedFile extends Spliced {
 export const spliceFiles = (
   read: (path: string) => string,
   justfile: Justfile,
-  workflow: Workflow,
 ): ReadonlyArray<SplicedFile> => {
-  const sections = renderSections(justfile, workflow);
+  const sections = renderSections(justfile);
 
   return Object.entries(generatedFiles).map(([path, ids]) => {
     const current = read(path);

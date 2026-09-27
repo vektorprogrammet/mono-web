@@ -1,6 +1,6 @@
 # sql-lock
 
-[//]: # "constructs: generated from the @construct tags and their JSDoc by just constructs write; do not edit"
+[//]: # "constructs: generated from the @construct tags and their JSDoc by just docs generate; do not edit"
 
 Transaction-scoped PostgreSQL advisory locks under registered keys. The [index](../constructs.md) lists every category.
 

@@ -1,0 +1,209 @@
+---
+title: Repository conventions
+description: "Structure, reuse, and documentation that stay correct by construction: one source per fact, and a check on everything derived from it."
+---
+
+Status: frozen for implementation on 2026-09-25. Remove this specification when the checks below run in hooks and CI and `AGENTS.md`, the README, and the module guides carry the enduring rules.
+
+Progress on 2026-09-26 (`ffb46b9b`), the active contract for lead-handoff items 5:
+
+- Phases 1 and 2 are done: the layout declaration and check, the `justfile`, module guides, and the construct catalogue run in hooks and CI.
+- Phase 3 is partial. Reuse rules in force: `no-raw-advisory-lock-sql`, `no-hand-rolled-postgres`, `no-port-probe`, `no-git-history`, `no-dev-server`, `no-unkeyed-command-row`, `no-literal-window-instant`, `no-json-text-parameter`, and `no-leadership-reach`.
+  Not yet written: generated package rules and context boundary rules from the CML, `import/no-cycle`, raw SQL outside `packages/database`, outbox claim SQL, bare provider `fetch`, and `Date.now()`/`new Date()` in domain and backend code.
+- Phase 4 is done for each rule in force (each is an error with no violations); the rules not yet written have unmigrated violations.
+- Phase 5 has not started: no `ai-docs` package, `LLMS.md`, Knip, or syncpack.
+- The duplication check of [Duplication](#duplication) is specified on 2026-09-27 from a measurement on `8d1b7e09`, and not implemented. Its implementation starts after the [public surface](public-surface.mdx) slice lands.
+
+## Goal
+
+The repository keeps its structure, its reuse of shared code, and its documentation correct by construction.
+Each fact has one source. Everything derived from it is generated, or a check fails when it drifts.
+A person or an agent can find the right place for new code, the shared construct to use, and the commands to run without asking.
+
+## Sources of truth
+
+| Fact | Source | Derived from it |
+| --- | --- | --- |
+| Bounded contexts and their relationships | `content/model/contexts.cml` | context folder check, context boundary lint rules, context sections of module guides, docs-site context map |
+| Authority rules | `content/model/authority.als` | nothing generated; the Alloy checks run in CI |
+| Repository layout | one declaration in `tools/conventions` | layout check, layout table in `AGENTS.md` and the README |
+| Shared constructs | `@construct <category>` JSDoc tags on exports, with their contract tags and annotations | construct index and contract pages, consumers from the import graph on request, lint messages |
+| Worked examples for people and agents | type-checked files under `ai-docs/src` | `LLMS.md` and the docs-site guide section |
+| Commands | the root `justfile` | `just --list`, hook and CI invocations |
+| Public entry points | `exports` in each `package.json` | module guides, import rules |
+| Reviewed duplicates | `docs/duplication-exceptions.json` | duplication findings; the duplication baseline in `tools/conventions`, which only shrinks |
+
+## Decisions
+
+### Layout
+
+- Packages stay layer-first: `packages/domain`, `packages/database`, `packages/http-api`, `packages/sdk`, and `apps/backend` for composition.
+- Each layer uses the CML context name as its folder name: `packages/domain/src/<context>`, `packages/database/src/<context>`, `apps/backend/src/<context>`, `apps/dashboard/app/foldkit/<context>`.
+- Code shared by several contexts belongs to a CML Shared Kernel context, not to loose top-level files.
+- `packages/placements` folds back into `packages/domain/src/placements` and `packages/database/src/placements` before the context checks turn on.
+- Top-level entries are limited to `apps/`, `packages/`, `tools/`, `infra/`, `docs/`, `ai-docs/`, and the root configuration files. `tools/` code is never imported by `apps/` or `packages/`.
+- The shared canonical-JSON and digest helpers move out of `packages/domain/src/tutor` into a Shared Kernel folder.
+
+### Commands
+
+- The `justfile` is the only user-facing command surface.
+- A recipe delegates to a devenv task when it needs declared dependencies, such as PostgreSQL before tests. It delegates to a devenv script when it needs a pinned tool, and to a TypeScript file under `tools/` for real logic.
+- Root `package.json` scripts shrink to what Bun, Turbo, and tools require. Per-package scripts that Turbo runs stay.
+- Hooks and CI workflows call `just` recipes inside `devenv shell`.
+
+### Module guides
+
+- Every app, every package, and every context folder has an `AGENTS.md` with a `CLAUDE.md` that imports it (`@AGENTS.md`).
+- The context section is generated from the CML: responsibility, owned aggregates, what the context does not own, upstream and downstream relationships, and the role of this layer.
+- The constructs section and the entry-point section are generated from `@construct` tags and `exports`.
+- Local invariants, pitfalls, and recipes are hand-written below the generated sections.
+- Existing module READMEs stay as human guides. The generated guide links to them.
+
+### Shared constructs
+
+- A shared construct carries `@construct <category>` and its contract: a summary, `@remarks`, `@sideEffects`, `@example`, `@avoid`, and annotated parameters and return type.
+- The index lists each construct's name and summary, and the page of its category holds its contract. No page lists consumers; `just constructs consumers` computes them from the import graph when called.
+- A construct is created only when at least two call sites share the same logic; `just constructs` fails on one that fewer than two modules outside its own module and tests import.
+- Raw node-postgres code in `packages/database` moves to Effect SQL. No construct gets a second, raw-client twin.
+
+### Lint and boundary rules
+
+- Package level: the Oxlint `no-restricted-imports` patterns are generated from the CML context map and the layout declaration, and `import/no-cycle` is on.
+- Context level: custom rules in `tools/oxlint` forbid imports between context folders unless the CML declares the relationship, and require such imports to go through the context's entry module. The same rules cover the dashboard's Foldkit context folders.
+- Reuse rules name the construct to use. The first rules:
+  - raw SQL (`sql` tags, `pg`, or `SqlClient` imports) outside `packages/database`;
+  - hand-written advisory-lock SQL outside `lockAdvisory` (in force);
+  - outbox claim SQL outside `outbox-lifecycle.ts`;
+  - bare `fetch` for provider delivery outside `deliverJson`;
+  - `Date.now()` and `new Date()` in domain and backend code instead of `Clock` and `DateTime`;
+  - port reservation outside the golden harness helpers.
+- A new rule starts as a warning. It becomes an error in the commit that migrates its last violation.
+
+### Hygiene
+
+- Knip reports unused files, exports, and dependencies. syncpack keeps workspace versions and Bun catalogs consistent. One root Renovate configuration replaces the per-app files.
+- The source-safety scan runs over the whole staged tree on every commit, independent of the Turbo cache.
+
+### Duplication
+
+Copied code moves onto one construct, which lives at the smallest scope that covers all its users. The folder of a construct tells its scope.
+
+**Scope rule.** Put the shared code at the first level that covers every user:
+
+1. One module: a local function in that module, without `export`.
+2. One context folder of one layer: a lib module in that context folder.
+3. Several contexts of one app or package: the `shared-kernel` folder of that layer. Test helpers go to the test-support folder of the app or package, such as `apps/backend/test`.
+4. Several apps, packages, or tools: the owning package exports it through `package.json` `exports`. It carries `@construct <category>` and its contract, and `just constructs` checks it.
+
+If a construct for the logic exists, such as `loopbackPortFree` for a port check, the copies move onto it.
+
+**Tool.** jscpd, its Rust engine (major version 5). The root `package.json` and `bun.lock` own its version. No document copies the version. `just duplication` runs it with `bun x`, as `just lint-files` runs Oxlint. jscpd is a hygiene check, like Knip, not a linter.
+
+Tools examined on `8d1b7e09`, with the reason for each decision:
+
+| Tool and version | Decision | Reason |
+| --- | --- | --- |
+| jscpd 5.3.2 (Rust) | chosen | Line ranges agree with the source in each sampled finding. The full scan takes 0.23 s and 315 MiB, or 0.44 s and 276 MiB with 2 workers. It has ignore globs, an ignore pattern for tokens, and JSON output. |
+| jscpd 4.3.0 (TypeScript) | rejected | The same token model as version 5, and 12 s for the same scan. |
+| fallow 3.30.0 (`fallow dupes`) | rejected | Its line ranges are wrong for some groups: `packages/database/src/database.test.ts:140-372` for a 7-line clone at lines 146-152. 480 of its 584 group fingerprints are rank numbers: an unrelated new clone changed 142 of them. By default it skips every test file. |
+| similarity-ts 0.5.0 (nixpkgs) | rejected | It compares functions by AST, takes 24 s, and put 78 unrelated functions in one cluster. It has no baseline. |
+| PMD CPD | not run | It needs a JVM, and its token model is the same as that of jscpd. |
+| Oxlint 1.77.0, knip 6.38.0 | no coverage | Oxlint has only rules inside one file, such as `no-dupe-keys` and `import/no-duplicates`. The knip `duplicates` issue is one export under two names. Neither finds copied code. |
+
+Do not use the jscpd baseline file or the fallow `ignoredClones` list as the registry. Their keys changed when a clone that was not related appeared: 9 jscpd pairs and 142 fallow groups in one test.
+
+**Scope of the scan.** The check reads the JavaScript, TypeScript, TSX, and CSS files of the Git index. Because it reads the index, no ignored generated file enters the scan. The exclusions:
+
+| Excluded | Reason |
+| --- | --- |
+| The OpenAPI document and the SDK operations (`packages/http-api/openapi.json`, `packages/sdk/native-api-operations.json`) | Generated from the HTTP contract and ignored by Git. They are JSON, which the scan does not read. |
+| The React Router route types (`apps/*/.react-router`), `apps/docs/src/pages`, and `apps/docs/src/pages.gen.ts` | Generated and ignored by Git. `just lint` writes the route types into the working tree, and the index does not contain them. |
+| The construct pages (`docs/constructs.md`, `docs/constructs/`) and the generated sections of the guides | Generated from the tags. They are Markdown, which the scan does not read. |
+| The migrations (`packages/database/migrations`) | Applied migrations are frozen by their checksums and cannot change. They are SQL, which the scan does not read. |
+| `tools/oxlint/anti-slop/vendor` and `apps/docs/components/mdxcn` | Third-party code with its upstream and license record. A change there follows the upstream merge procedure. On `8d1b7e09` both have no clones. |
+| The rule tests of `tools/oxlint` (`tools/oxlint/**/*.test.ts`) | Check fixtures: each test keeps its valid and invalid cases side by side as strings, so repeated cases are on purpose. On `8d1b7e09` they have no clones. |
+| The controls of the duplication check (`tools/conventions/tests/fixtures/duplication`) | Check fixtures: the negative controls contain copies on purpose. |
+| Import statements (`--ignore-pattern 'import[^;]*;'`) | Identical import lists are module wiring, not copied logic. They made 48 of the 898 pairs at 50 tokens. |
+
+Tests, journey code, and proofs stay in the scan. Test helpers follow the scope rule, and a copy that isolates a test is a reviewed exception. For example, five tests of `tools/conventions` copy the repository overlay `withFiles`, and that helper goes to one test-support module.
+
+**Thresholds.** A clone has at least 100 tokens and 5 lines. The migration lowers the token minimum to 75.
+
+**Groups and their key.** jscpd reports pairs. The check joins pairs that share a fragment into one clone group. The key of a group is its set of instance files and the SHA-256 of its duplicated text with the whitespace collapsed. If lines move inside the files, the key stays. If the text changes or a new copy appears, the key changes. On `8d1b7e09`, all 114 keys stayed when a new clone appeared in another file and 3 lines were inserted above the clones of one file.
+
+**Reviewed exceptions.** `docs/duplication-exceptions.json` records each intentional duplicate: an id (`DX-NNNN`), the group key, the instance files, the reason, the owner, and the retirement trigger. Valid reasons are test isolation, a boundary between bounded contexts that must not share code, and a legacy migration command that retires at cutover. `just duplication` checks the registry in both directions, as `just exceptions` does. A group without an entry fails. An entry that matches no group fails, so the entry of a removed or changed clone must go.
+
+**Baseline.** `tools/conventions/duplication-baseline.json` holds the key of each clone group that is not yet migrated. The command `just duplication baseline` writes it once. After that, it only removes entries and refuses to add one. A baseline entry that matches no group fails the check, so each migration removes its entry in the same commit.
+
+**How it runs.**
+
+- `just duplication` is a recipe of the check group. It scans the full index and reports each finding with its instance locations, its token count, and the scope folder that the scope rule gives.
+- `just check` runs it in the lint phase, and the hosted Checks workflow runs it with the fast checks. The pre-push and pre-merge hooks run it through `just check`.
+- The pre-commit hook runs `just duplication --staged` when the commit stages a JavaScript, TypeScript, or CSS path. It scans a snapshot of the Git index, because a new clone usually copies a file that the commit does not change. On `8d1b7e09` the snapshot took 0.39 s and the scan 0.44 s with 2 workers, so the job takes no hook slot.
+
+**Falsifiers.** Each control is a test of `tools/conventions` or a commit on a scratch branch:
+
+- Negative: a 100-token block copied into a new file fails `just duplication`, the pre-commit hook, and hosted Checks, and the finding names both locations and the scope folder.
+- Negative: a third copy of a baselined clone fails, because its key changes.
+- Negative: a change to the text of a registered intentional duplicate fails until the entry is reviewed again.
+- Negative: an entry of the registry or the baseline that matches no group fails. A registry entry without a reason fails. `just duplication baseline` refuses to add an entry.
+- Positive: `main` with its baseline and registry passes.
+- Positive: lines inserted above a baselined clone, and a reformatted file, keep its entry.
+- Positive: a 99-token copy, two identical import lists, and a copy in `tools/oxlint/anti-slop/vendor` pass.
+- Positive: after `just lint` writes the route types, the check reports nothing in `.react-router`.
+
+**Migration.**
+
+1. Record the baseline at 100 tokens: 114 groups on `8d1b7e09`.
+2. Review each group. Move it onto a construct at the scope that the scope rule gives, or register it as an intentional duplicate with its reason. Start with the copies of the local journey runner.
+3. When the baseline is empty, lower the minimum to 75 tokens and record a new baseline: 246 groups on `8d1b7e09`. Migrate it to empty.
+4. Do not lower the minimum below 75 tokens without a new measurement. In a sample of 25 groups between 50 and 99 tokens, 7 were noise or intentional.
+
+The implementation runs after the public-surface slice. The cross-package constructs go through the package `exports` that the slice narrows, and its Knip check governs their new exports.
+
+**Measurement on `8d1b7e09`.** jscpd 5.3.2 over the 1,200 files of the scan, with the exclusions above and 5 lines minimum:
+
+| Tokens | Pairs | Groups | Instances | Duplicated lines | Of the lines |
+| --- | --- | --- | --- | --- | --- |
+| 50 | 860 | 659 | 1,504 | 12,814 | 4.08% |
+| 75 | 311 | 246 | 556 | 6,978 | 2.23% |
+| 100 | 148 | 114 | 258 | 4,505 | 1.44% |
+| 150 | 50 | 41 | 88 | 2,655 | 0.85% |
+
+At 100 tokens, `apps/dashboard` has 71 groups and 4,591 duplicated lines (5.8%), `packages/database` 17 and 651, `tools/e2e` 11 and 402, and `apps/backend` 10 and 613. The copies of the local journey runner (`run-real-*.mjs` in `apps/dashboard/e2e`, `apps/homepage/e2e`, and `tools/e2e`) make 49 of the 114 groups and 3,172 of the duplicated lines. They copy the port checks, process control, readiness waits, recording proxy, and cleanup. Their construct goes to the `exports` of `tools/e2e`, and the port checks move onto `loopbackPortFree` and `reserveLoopbackPorts`. The largest other group is `apps/dashboard/app/foldkit/content/styles.css`, which repeats lines 1-304 of the schools stylesheet. It goes to the `shared-kernel` folder of the Foldkit contexts.
+
+### Documentation for agents
+
+- `ai-docs/src/<NN>_<topic>/` holds an `index.md` and numbered, type-checked example files, following Effect's `ai-docs` layout.
+- A generator writes `LLMS.md` at the root. The docs site publishes it.
+- Examples come first for the recurring tasks: a command with an outbox effect, a Layer for a provider, a typed problem mapping, and a golden journey step.
+
+## Boundaries
+
+- No change to product behaviour, the HTTP wire contract, or the database schema, except moving files and import paths.
+- No new formatter or linter besides Oxfmt and Oxlint. Knip, syncpack, and jscpd are hygiene checks, not linters.
+- Context Mapper runs on a JDK from nixpkgs as a devenv task that only the generation step depends on. The default shell does not grow.
+- Nothing published, deployed, or pushed as part of this work beyond `main`.
+
+## Phases
+
+Each phase lands green on `main` before the next starts.
+
+1. Structure: fold Placements back, move the shared digest helpers, add the layout declaration and check, and switch commands to the `justfile`.
+2. Generated documentation: module guides, construct tags and catalogue, and docs-site pages.
+3. Rules: generated package rules, context boundary rules, and reuse rules, all as warnings. The duplication check and its baseline start after the public-surface slice.
+4. Migration: move each violation onto its construct. Promote each rule to an error once its violations reach zero. Migrate the duplication baseline to empty at each threshold.
+5. Agent documentation: the `ai-docs` package and generated `LLMS.md`.
+
+## Done when
+
+1. `just` lists every command that the README and `AGENTS.md` mention, and no root script duplicates a recipe.
+2. A new top-level folder, a package outside `apps/`, `packages/`, or `tools/`, or a context folder missing from the CML fails the layout check in the pre-commit hook and in CI.
+3. Editing the CML without regenerating fails the check that compares generated outputs, and so does editing a generated section of a module guide by hand.
+4. Every app, package, and context folder has a guide and a `CLAUDE.md` that imports it. The context section of each guide matches the CML.
+5. The catalogue lists every tagged construct with consumer counts computed from imports. An exported construct used by three or more modules outside its own without a tag is reported.
+6. A staged import across contexts without a declared CML relationship fails. A staged raw SQL statement outside `packages/database` fails. Each rule has a negative control in its test.
+7. Knip and syncpack run in CI with no unexplained findings.
+8. `LLMS.md` is generated from examples that type-check. A broken example fails the build.
+9. `just duplication` runs in `just check`, the pre-commit hook, and hosted Checks. Its controls in [Duplication](#duplication) pass, and its baseline is empty at 75 tokens.
+10. `bun run check`, the source-safety scan, and the hosted Checks and Tests workflows pass on the final commit.

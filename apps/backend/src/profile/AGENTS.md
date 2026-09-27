@@ -1,4 +1,4 @@
-[//]: # "guide: generated from docs/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
+[//]: # "guide: generated from content/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
 
 # apps/backend/src/profile
 
@@ -14,7 +14,7 @@ The People context in other folders:
 
 ## Bounded context: People
 
-From [docs/model/contexts.cml](../../../../docs/model/contexts.cml).
+From [content/model/contexts.cml](../../../../content/model/contexts.cml).
 
 Owns the stable human identity and its contact profile. Legacy data must resolve to a Person through explicit mapping and identity evidence before credentials, affiliations, placements or history can reference it.
 

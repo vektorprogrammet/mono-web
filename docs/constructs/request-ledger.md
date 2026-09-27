@@ -1,6 +1,6 @@
 # request-ledger
 
-[//]: # "constructs: generated from the @construct tags and their JSDoc by just constructs write; do not edit"
+[//]: # "constructs: generated from the @construct tags and their JSDoc by just docs generate; do not edit"
 
 Classifies the requests that journey recorders observe by whole path segments: native contract operations and legacy routes. The [index](../constructs.md) lists every category.
 

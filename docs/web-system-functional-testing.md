@@ -1,4 +1,8 @@
+[//]: # "generated from content/(testing)/web-system-functional-testing.mdx by just docs generate; do not edit"
+
 # Web-system functional testing
+
+Roadmap for functional tests that preserve web-system behavior while implementations change behind established boundaries.
 
 Status: implementation roadmap. [STATE.md](../STATE.md#evidence-boundary) records acceptance and remaining work.
 
@@ -334,7 +338,7 @@ See [STATE.md](../STATE.md) for the exercised revision and evidence limits.
 ### Claim to settlement evidence
 
 The [reimbursement runner](../tools/e2e/golden-reimbursement.mjs) owns the checkpoints for the continuous native receipt journey.
-The [Receipt guide](../packages/domain/src/receipt/README.md) explains its service, authority, private storage, and recovery boundaries.
+The [Receipt guide](packages/domain/receipt.md) explains its service, authority, private storage, and recovery boundaries.
 
 Use the local gate prerequisites and a clean committed checkout:
 
@@ -382,9 +386,7 @@ The wrapper `tools/e2e/golden-school-service-ci.mjs` and its evidence checks own
 The hosted `Tests` workflow runs these journeys on each push to `main` and each pull request.
 Run the same journey locally with the listed command.
 
-[//]: # "hosted-journeys: generated from the justfile, tools/conventions/src/journeys.ts, and .github/workflows/tests.yml by just layout write; do not edit"
-
-`just layout write` generates this section and the matrix legs in `.github/workflows/tests.yml` from the names that `just golden`, `just e2e`, `just proof`, and `just rehearsal` accept.
+The documentation site renders this table, and `just layout write` the matrix legs in `.github/workflows/tests.yml`, from the names that `just golden`, `just e2e`, `just proof`, and `just rehearsal` accept.
 Each name is one leg, unless `tools/conventions/src/journeys.ts` gives it a job of its own or excludes it with its reason.
 A name runs the files that its command names, and in turn the files that those name. Each Playwright spec (`apps/*/e2e/**/*.spec.{ts,mjs}`) and each file of an acceptance probe (`tools/acceptance/**/*.{ts,mjs}`) runs under a name, unless the declaration excludes it.
 
@@ -446,15 +448,14 @@ These commands and files are not hosted:
 | `apps/homepage/e2e/preview-smoke.spec.ts`                  | Needs a deployed preview origin in PREVIEW_BASE_URL; without one, every test skips                                                                                                                                              |
 | `apps/homepage/e2e/homepage-dev-journey.spec.ts`           | Needs a native backend: its Playwright web server serves the homepage alone, and the home page reads news from the API since 4efd0a2c, so it answers 503; it needs a runner that owns PostgreSQL, the backend, and the homepage |
 
-[//]: # "hosted-journeys: end"
-
 `Browser journeys` runs one journey on each runner, with `fail-fast` off.
 Each journey starts its own PostgreSQL, ports, and Chromium; some runners use fixed ports, so two journeys must not share a runner.
 The job uploads only the `/usr/bin/time` resource summary. Journey evidence stays in the job log.
 
-`just layout` fails when the legs, this section, or the browser evidence scripts of the apps disagree with the accepted names and `tools/conventions/src/journeys.ts`.
+`just layout` fails when the legs or the browser evidence scripts of the apps disagree with the accepted names and `tools/conventions/src/journeys.ts`.
 It also fails on a Playwright spec or an acceptance probe file that no name runs and the declaration does not exclude, so a new check is hosted or excluded with its reason from the start.
 A new name becomes a leg, so add it to a recipe only after its journey passes locally.
+The documentation site renders the table above from the same names, and `just docs check` fails when its Markdown in `docs/` is stale.
 
 ## Development sequence
 

@@ -1,10 +1,10 @@
-[//]: # "guide: generated from docs/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
+[//]: # "guide: generated from content/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
 
 # packages/domain/src/receipt
 
 This folder holds Economy code under another name. Expense claims under their older name.
 The domain layer holds business values, state transitions, failures, capability requirements, and service contracts. It imports no database, HTTP, application, browser, provider, or migration-tool code.
-The human guide is [README.md](README.md).
+The human guide is [packages/domain/content/receipt.mdx](../../content/receipt.mdx).
 
 The Economy context in other folders:
 
@@ -13,7 +13,7 @@ The Economy context in other folders:
 
 ## Bounded context: Economy
 
-From [docs/model/contexts.cml](../../../../docs/model/contexts.cml).
+From [content/model/contexts.cml](../../../../content/model/contexts.cml).
 
 Expense claims with private receipt files, approval, rejection and reopening, from assistants (travel to school) and team members (social events). Every member of the national economy team approves or rejects claims through a national delegation. Only its leader, the finance lead, pays out and records immutable settlement evidence, through a leaders-only delegation. Claim state, file custody, payment destinations, approval authority, settlement authority, delivery attempts and settlement history are separate facts.
 

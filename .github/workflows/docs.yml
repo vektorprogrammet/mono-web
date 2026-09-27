@@ -40,24 +40,16 @@ jobs:
       - name: Install frozen dependencies
         timeout-minutes: 3
         run: bun install --frozen-lockfile --ignore-scripts
-      # Before the site build: the command requires a clean checkout at the expected revision.
-      - name: Generate the Placements API reference
-        timeout-minutes: 4
+      # The site build owns OpenAPI, the Markdown read paths, and the Placements TypeDoc output.
+      - name: Build the site and its API references
+        timeout-minutes: 10
         env:
           PLACEMENTS_DOCS_EXPECTED_REVISION: ${{ github.sha }}
-        run: bun run --cwd tools/placements-docs docs:ci "$RUNNER_TEMP/placements-api"
-      - name: Build the site and check its links
-        timeout-minutes: 5
         run: just docs build
-      - name: Publish the Placements API reference with the site
-        timeout-minutes: 1
-        run: |
-          mkdir -p apps/docs/dist/public/packages/domain/src/placements
-          mv "$RUNNER_TEMP/placements-api" apps/docs/dist/public/packages/domain/src/placements/api
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         timeout-minutes: 2
         with:
-          path: apps/docs/dist/public
+          path: apps/docs/.output/public
 
   deploy:
     name: Deploy to GitHub Pages

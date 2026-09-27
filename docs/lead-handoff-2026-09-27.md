@@ -1,9 +1,15 @@
+[//]: # "generated from content/lead-handoff-2026-09-27.mdx by just docs generate; do not edit"
+
+# Lead handoff (2026-09-27)
+
+The state of the native migration at the end of 2026-09-27, the operator decisions of that day, and every in-flight branch with its next step.
+
 # Lead handoff (2026-09-27)
 
 **Read this first.** It records the state of the vektorprogrammet native migration at the end of
 2026-09-27, the operator decisions taken that day, and where every in-flight branch stands.
-A fresh lead starts here, then [docs/system.md](docs/system.md) for product meaning and
-[docs/architecture.md](docs/architecture.md) for technical boundaries. Per-agent branch state lives
+A fresh lead starts here, then [system model](system.md) for product meaning and
+[architecture](architecture.md) for technical boundaries. Per-agent branch state lives
 in each branch's own spec file under `docs/specs/`; this file is the map, not the detail.
 
 ## Machine and repository state
@@ -38,7 +44,7 @@ in each branch's own spec file under `docs/specs/`; this file is the map, not th
   [architecture consolidation draft](specs/architecture-consolidation.md) (`d65af40d`), the
   [command grammar](specs/command-grammar.md) (`d3371edf`, 11 open questions), and the
   [landing-tool design and plan](specs/land-installs-0927.md) (`1da22ce4`). The
-  [schema-declaration design](specs/schema-declaration.md) is still on its branch
+  schema-declaration design is still on its branch
   (`refactor/schema-declaration-0927`) because it is the first decision a fresh lead must make.
 
 ## Operator decisions taken today (2026-09-27)

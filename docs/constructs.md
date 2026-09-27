@@ -1,6 +1,6 @@
 # Shared constructs
 
-[//]: # "constructs: generated from the @construct tags and their JSDoc by just constructs write; do not edit"
+[//]: # "constructs: generated from the @construct tags and their JSDoc by just docs generate; do not edit"
 
 A shared construct is an export that owns logic that several call sites share. Use it instead of writing the logic again.
 Read about a construct in three steps, each only when you need it:

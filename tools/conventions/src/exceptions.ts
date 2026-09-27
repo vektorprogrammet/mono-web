@@ -1,7 +1,7 @@
 /**
  * The Effect exception registry.
  *
- * `docs/effect-exceptions.json` registers every site that does not follow an Effect rule: a
+ * `tools/conventions/effect-exceptions.json` registers every site that does not follow an Effect rule: a
  * disable comment of an Effect lint rule, an allow directive of the Oxlint Effect plugin, a
  * leaking-requirements expectation in a JSDoc block, an Effect diagnostics directive, or a
  * non-native substitute. Each entry records its scope, the capability that the native form lacks,
@@ -20,7 +20,7 @@ import type { Finding } from "./check.js";
 import { type Comment, docLines } from "./contracts.js";
 import type { Repository } from "./repository.js";
 
-export const registry = "docs/effect-exceptions.json";
+export const registry = "tools/conventions/effect-exceptions.json";
 
 /**
  * The Oxlint plugins whose rules enforce Effect: the Effect language service, the Effect plugin,

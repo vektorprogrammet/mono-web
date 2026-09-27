@@ -1,3 +1,9 @@
+[//]: # "generated from content/specs/land-installs-0927.mdx by just docs generate; do not edit"
+
+# Land gate checks the merged tree's own dependencies
+
+Why just land could not merge a branch that changed package.json, and the design that fixes it.
+
 # Land gate checks the merged tree's own dependencies
 
 Status: design frozen, no code written yet. Remove this specification once `tools/scripts/land.ts`,
@@ -30,7 +36,7 @@ Why (b) has fewer ways to leave main or its `node_modules` inconsistent:
 - Under (a), main sits in a "merge in progress" state for the entire duration of `check`/`test`
   (potentially many minutes: full test suite, lint, type check). Any interruption in that long
   window (SIGKILL, an unrelated crash) leaves main mid-merge with `node_modules` already mutated
-  to match the *merged* tree, while `git merge --abort` only restores *tracked* files (`bun.lock`,
+  to match the _merged_ tree, while `git merge --abort` only restores _tracked_ files (`bun.lock`,
   `package.json`) to main's old state — `node_modules` is untracked, so it is not restored. (a)'s
   own proposal papers over exactly this with a second explicit reinstall after abort, i.e. it
   needs a remedy because the defect is representable.
@@ -87,7 +93,7 @@ hook has to trust.
    - If `existsSync(join(process.cwd(), "bun.lock"))`, run
      `spawnSync("bun", ["install", "--frozen-lockfile"], { stdio: "inherit" })` in main to sync
      `node_modules` to the now-landed `bun.lock`; on failure, print a clear remediation message
-     ("main landed at <sha>; node_modules needs `bun install --frozen-lockfile`") and exit 1 — this
+     (`main landed at <sha>; node_modules needs bun install --frozen-lockfile`) and exit 1 — this
      does not undo the already-successful git-level land.
    - `how = "merge commit"` unchanged.
 3. `tools/scripts/tests/land.test.ts`: add, following the existing fixture style (a fabricated
@@ -100,7 +106,7 @@ hook has to trust.
      restructuring): feature branch adds the `local-dep` dependency to `package.json`, regenerates
      `bun.lock` to match, and adds `index.ts` importing and using it. `pre-merge-commit` is today's
      exact hook shape, `bun run index.ts` with no install first. Landing fails (`Cannot find
-     package`), main unchanged, `existsSync(join(main, "node_modules"))` is `false`.
+package`), main unchanged, `existsSync(join(main, "node_modules"))` is `false`.
    - **Green** (the fix): identical branch, `pre-merge-commit` now does
      `bun install --frozen-lockfile && bun run index.ts` (mirrors the fixed `merge-full`). Landing
      succeeds; assert `git rev-list --parents` on main same as the existing fast-forward test.
@@ -117,7 +123,7 @@ hook has to trust.
    so a failed or interrupted land never leaves main's checkout or `node_modules` inconsistent.
 5. Run `bun test tools/scripts/tests/land.test.ts` directly (fast, no heavy lock needed — these are
    plain git/bun operations, not `just check`/`just test`), then `just measure --class ... -- just
-   check --concurrency=1` per the assignment before the final commit.
+check --concurrency=1` per the assignment before the final commit.
 
 ## Not yet done
 

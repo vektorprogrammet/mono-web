@@ -46,6 +46,7 @@
     }
   },
   "patchedDependencies": {
-    "effect@4.0.0-rc.116": "patches/effect@4.0.0-rc.116.patch"
+    "effect@4.0.0-rc.116": "patches/effect@4.0.0-rc.116.patch",
+    "@tanstack/start-static-server-functions@1.167.37": "patches/@tanstack%2Fstart-static-server-functions@1.167.37.patch"
   }
 }
