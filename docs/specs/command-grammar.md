@@ -4,6 +4,32 @@ Status: frozen design on 2026-09-27, from the operator decision of 2026-09-27. N
 The lead settles the [open questions](#open-questions-for-the-lead); a settled answer changes this file before code does.
 Remove this specification when the registry, the runner, the hooks, and CI run the grammar, and `AGENTS.md`, `README.md`, and the effect-house overlay describe it.
 
+## Handoff (2026-09-27)
+
+The operator paused this slice for a handoff to a new lead. This section records the state at the handoff. Remove it when the open questions are answered and this file is landed.
+
+- **State.** Design only. The branch `docs/command-grammar-0927` holds this file in commits on top of `main` at `b3193cb1`. `main` was at `88b5281e` at the handoff. The branch is not landed and not pushed.
+- **Next step.** The lead answers the [open questions](#open-questions-for-the-lead) and writes each answer into this file. Then the lead rebases the branch onto `main` and lands it with `just land docs/command-grammar-0927`. The branch changes only this file.
+- **After landing.** Implementation starts when the schema collapse branch has landed and the landing queue is empty, in the window of the mono-web heavy-admit cutover ([Cutover](#cutover)). Its first step is the registry and the runner with `--plan`, with falsifiers F4 to F9, F16, and F17 on a scratch repository. Hooks, workflows, and callers change only after that step passes.
+- **Review.** Nobody has reviewed this file. No review finding is open.
+- **Known gaps for the review:**
+  1. The package `test` scripts of `packages/domain` and `apps/dashboard` also run fixture programs, D1 proofs, and the preview bundle gate (`AGENTS.md`, section Commands). This file does not assign them to `test:unit` or `test:pg`.
+  2. The families come from the heavy-admit design, which is proposed. Its C2 family names can change before it freezes, and its queue order is an open operator decision.
+  3. This file does not name the `changed` inputs of the two `model` targets. The obvious ones are `docs/model/authority.als`, `docs/model/contexts.cml`, and `tools/scripts/model.ts`.
+- **Verified:**
+  - The commit `45094472`, which added this file: `git commit` exited 0 with the hooks on, after `devenv shell -- true`. `hook-config-current`, `check-merge-conflicts`, `format`, and `source-safety` passed, and `lint` skipped because no JavaScript or TypeScript path was staged. `.oxfmtrc.json` excludes `docs/specs/`, so the format hook did not examine this file.
+  - A scan of this file outside code found no `<`, `>`, `{`, or `}` that MDX can read as markup.
+  - E1 to E3: just 1.58.0 of the devenv shell, on scratch justfiles in `/tmp`, since deleted. Exit 0 for `just check lint --staged` and `just check::lint --staged` under `mod check`. Exit 1 for `just check --staged` under `mod check`, for a recipe named `check:lint`, for a module and a recipe with one name, and for `just check::lint` with a `check *args` recipe.
+  - E9, E16, and E17: Turbo 2.8.13, the locked binary of the main checkout, in scratch repositories in `/tmp`, since deleted, and its source at tag `v2.8.13` (commit `0c5af8fb`). A research subagent ran these experiments. Nobody repeated them.
+  - E8 to E10: the ledger on 2026-09-27, 3411 rows.
+  - E4 to E7 and E11 to E15: the repository at `8d1b7e09` and `b3193cb1`.
+- **Not verified:**
+  - No implementation exists, so no falsifier (F1 to F18) exists or ran.
+  - `just docs build`, which builds the site and checks its links, did not run with this file. `just layout` did not run; its mention check skips `docs/specs/`.
+  - No pre-push or pre-merge hook ran on this branch.
+  - The value of `PRE_COMMIT_FROM_REF` for a new branch (E7) was observed once, with prek 0.5.2.
+- **Decisions waiting.** The lead decides open questions 1 to 11, and question 7 together with the heavy-admit lead. Questions 2 and 3 change an operator decision or the verification policy, so the lead decides whether they need the operator. The slice also waits for the schema collapse branch and for the heavy-admit design.
+
 ## Goal
 
 One grammar names every verification command, and one typed registry declares it.
