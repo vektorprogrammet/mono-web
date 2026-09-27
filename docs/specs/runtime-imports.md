@@ -59,4 +59,4 @@ An operation that no Effect API covers and no Layer can own becomes a registered
 
 ## Order
 
-Run after certificates, because phase 1 edits the same backend and database files. The construct-contracts and Fumadocs slices may land first. [Public surface](public-surface.md) comes after this.
+Run after certificates, because phase 1 edits the same backend and database files. The construct-contracts slice has landed, and the Fumadocs slice may land first. [Public surface](public-surface.md) comes after this.

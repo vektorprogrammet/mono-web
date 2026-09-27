@@ -21,16 +21,16 @@ Full lists: the SurfaceAnalysis report (`/tmp/surface-*.txt` on the workstation 
 
 - The public surface of a package is the closure of its `package.json` `exports` through re-exports. Barrels that are export-map targets re-export by name, not `export *`, so the surface is written down, not inferred.
 - **An export needs an importer, except package exports** (operator decision, 2026-09-27). A package's export-map closure is its public API: a declaration reachable from `package.json` `exports` may be exported without an in-repository importer, but it still needs its doc comment. Every other `export` needs at least one importer (a test counts). An internal export that nothing imports loses `export`, or is deleted when dead. knip's unused-exports check with entry exports excluded (`includeEntryExports: false`) is exactly this rule.
-- Every public declaration has a JSDoc comment that says what it is for. A type derived from a documented schema (`type X = typeof XSchema.Type`) is covered by the schema's comment. `@construct` exports keep the stricter tags of [construct contracts](construct-contracts.md).
+- Every public declaration has a JSDoc comment that says what it is for. A type derived from a documented schema (`type X = typeof XSchema.Type`) is covered by the schema's comment. `@construct` exports keep the stricter contract tags that `just constructs` checks ([docs/constructs.md](../constructs.md)).
 - knip runs in `just check` and hosted Checks with the tuned entries, and reports no unused files, exports, types, or dependencies.
 - No root barrel convention. The domain `.` entry, with 962 names and 4 importers, is removed, and its importers use subpaths. `"sideEffects": false` is set on domain once the bundle build shows it is safe.
 
 ## Steps
 
-1. Prune: delete the barrels no one imports (`domain/src/tutor/index.ts`, `sdk/src/index.ts`), remove the unused sdk `@effect/vitest` devDependency, remove the 11 alias duplicates, and apply the knip findings with tuned entries.
+1. Prune: delete the barrels no one imports (`domain/src/tutor/index.ts`, `sdk/src/index.ts`), remove the unused sdk `@effect/vitest` devDependency, remove the 11 alias duplicates, and apply the knip findings with tuned entries. Six exports lost their construct tags and have no importer on `8d1b7e09`: `headerValues`, `NativeAccessRejected`, `jcsBytes`, `interpretMergePatchSource`, and `ReceiptE2EBarrierArrival` in `apps/backend/src`, and `selectedPostgresMajor` in `tools/postgres`. If knip reports one as internal, drop its `export`. If it is reachable from a package's `exports`, keep it with its doc comment.
 2. Narrow: convert entry barrels to named re-exports (no `export *`), and remove domain `.`. Package exports are not pruned for lacking an in-repository importer.
 3. Collapse the clean merges that still apply.
-4. Enforce: `just surface` in `tools/conventions`, reusing the declaration and JSDoc reader that construct contracts builds, over the export-map closure. It reports an undocumented public declaration and a barrel with no importer. Turn it on per package as each package reaches zero findings (sdk and postgres pass today). Then write the docs, package by package.
+4. Enforce: `just surface` in `tools/conventions`, reusing the declaration and JSDoc reader of `just constructs` (`tools/conventions/src/contracts.ts`), over the export-map closure. It reports an undocumented public declaration and a barrel with no importer. Turn it on per package as each package reaches zero findings (sdk and postgres pass today). Then write the docs, package by package.
 
 ## Done when
 
@@ -42,4 +42,4 @@ Full lists: the SurfaceAnalysis report (`/tmp/surface-*.txt` on the workstation 
 
 ## Constraints
 
-Every rename or removal migrates all its callers in the same commit. Run it after the Fumadocs, certificates, construct-contracts, and runtime-import slices land, because it touches every package's entry points.
+Every rename or removal migrates all its callers in the same commit. Run it after the Fumadocs, certificates, and runtime-import slices land, because it touches every package's entry points. The construct-contracts slice is complete: hosted Checks passed on `8d1b7e09`.
