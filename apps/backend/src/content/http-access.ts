@@ -11,17 +11,32 @@ import {
 import type { ContentArticleDetail } from "@vektorprogrammet/domain/content";
 import type { PersonId } from "@vektorprogrammet/domain/organization";
 import { reflectAccessSpec } from "@vektorprogrammet/http-api";
-import type { CredentialPresentation } from "@vektorprogrammet/http-api/http-semantics";
-import { Option, type Schema } from "effect";
+import type { CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
+import { type Effect, Option, type Schema } from "effect";
 import { authorizePerson, unreachable } from "../http-api/problem.js";
 import type { ContentEndpoint } from "./http-context.js";
 
 export const contentScope: Scope = Scope.Domain({ domainId: DomainId.make("content") });
 
 /**
- * Evaluates a content endpoint's AccessSpec for one person with the content
- * grant scope. A command passes the credential its transaction resolved; a
- * read derives the credential from the request.
+ * Evaluates a content endpoint's AccessSpec for one person with the content grant scope.
+ *
+ * @remarks
+ * It runs `authorizePerson` with the endpoint's AccessSpec, the content domain as the grant scope,
+ * and `resolution` at `authorizationInstant`. A command passes the credential that its
+ * transaction resolved; a read passes the request, from which the credential is derived. Content
+ * access reveals every denial, so `unreachable("resource.not-found")` removes the concealment
+ * answer.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * yield* authorizeContentOperation({ endpoint: ReviseArticleEndpoint, credential: actor.credential, personId: actor.personId, authorizationInstant, resolution, presentation });
+ * ```
+ *
+ * @avoid Granting a content operation from a role check in the handler: the AccessSpec of the
+ * contract then stops being the authority for the endpoint. Evaluate it with this.
  *
  * @construct http-problem
  */
@@ -33,7 +48,10 @@ export const authorizeContentOperation = (input: {
   readonly request?: Request;
   readonly resolution: CanonicalScopeResolution<Schema.JsonObject>;
   readonly presentation: CredentialPresentation;
-}) =>
+}): Effect.Effect<
+  void,
+  Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">
+> =>
   authorizePerson(
     {
       spec: Option.getOrThrow(reflectAccessSpec(input.endpoint)),

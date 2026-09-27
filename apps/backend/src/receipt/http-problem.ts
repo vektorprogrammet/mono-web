@@ -10,21 +10,23 @@ import type {
 import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
 import type { Cause } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
-import { problemMapper, requestInvalid } from "../http-api/problem.js";
+import {
+  type CredentialCases,
+  type ProblemCases,
+  type ProblemMapper,
+  problemMapper,
+  requestInvalid,
+} from "../http-api/problem.js";
 
-/**
- * The one answer for every receipt failure other than a rejected credential,
- * including an unavailable store, Identity, or E2E barrier.
- *
- * @construct http-problem
- */
-export const receiptProblems = problemMapper<
+/** Every failure that a receipt handler answers, but a rejected credential. */
+type ReceiptHttpFailure =
   | Exclude<ReceiptFailure | ReceiptSettlementFailure, UnauthenticatedActor>
   | ReceiptFileFailure
   | IdentityEngineError
   | SqlError
-  | Cause.TimeoutError
->()({
+  | Cause.TimeoutError;
+
+const receiptCases = {
   InactiveActor: () => Problem.make("authority.denied"),
   ReceiptOwnerDenied: () => Problem.make("authority.denied"),
   ReceiptScopeDenied: () => Problem.make("authority.denied"),
@@ -50,7 +52,33 @@ export const receiptProblems = problemMapper<
   IdentityEngineError: () => Problem.make("receipts.unavailable"),
   SqlError: () => Problem.make("receipts.unavailable"),
   TimeoutError: () => Problem.make("receipts.unavailable"),
-});
+} satisfies ProblemCases<ReceiptHttpFailure>;
+
+/**
+ * The one answer for every receipt failure other than a rejected credential, including an
+ * unavailable store, Identity, or E2E barrier.
+ *
+ * @remarks
+ * An inactive actor, a denied owner, scope, or authority, and an ambiguous or failed authority
+ * requirement answer authority.denied. The receipt, settlement, file, and idempotency failures
+ * answer their receipt problems, and a command that does not decode answers validation.failed at
+ * the root. The store, the file store, Identity, SQL, and a timeout of the E2E barrier answer
+ * receipts.unavailable.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * command.pipe(receiptProblems, commandReceiptProblems, receiptCredentialProblems(presentation));
+ * ```
+ *
+ * @avoid Mapping a receipt failure in a handler: the receipt endpoints then answer one failure
+ * differently. Pipe the handler's effect through this.
+ *
+ * @construct http-problem
+ */
+export const receiptProblems: ProblemMapper<ReceiptHttpFailure, typeof receiptCases> =
+  problemMapper<ReceiptHttpFailure>()(receiptCases);
 
 /**
  * A stored receipt value a read cannot decode is the receipt store failing, not the request.
@@ -62,9 +90,26 @@ export const storedReceiptProblems = problemMapper<ReceiptDecodeError>()({
 /**
  * A credential rejected inside a receipt handler is answered from the request's own evidence.
  *
+ * @remarks
+ * The rejection answers `Problem.unauthenticated(presentation)`: credential.missing when the
+ * request presented no credential, and credential.invalid when it presented one that was
+ * rejected.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * command.pipe(receiptProblems, commandReceiptProblems, receiptCredentialProblems(presentation));
+ * ```
+ *
+ * @avoid Answering a rejected credential with a fixed code: a request that presented a rejected
+ * credential would be told that it presented none. Pipe the handler's effect through this.
+ *
  * @construct http-problem
  */
-export const receiptCredentialProblems = (presentation: CredentialPresentation) =>
-  problemMapper<UnauthenticatedActor>()({
+export const receiptCredentialProblems = (
+  presentation: CredentialPresentation,
+): ProblemMapper<UnauthenticatedActor, CredentialCases<"UnauthenticatedActor">> =>
+  problemMapper<UnauthenticatedActor>()<CredentialCases<"UnauthenticatedActor">>({
     UnauthenticatedActor: () => Problem.unauthenticated(presentation),
   });

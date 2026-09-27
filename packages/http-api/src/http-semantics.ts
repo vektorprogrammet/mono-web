@@ -1121,8 +1121,23 @@ function problemVariant(code: NativeProblemCode) {
 }
 
 /**
- * Creates a closed endpoint-specific Problem Details union. The registry owns
- * every status, and the union keeps each declared code as a literal.
+ * Creates a closed endpoint-specific Problem Details union.
+ *
+ * @remarks
+ * It builds one wire-ordered variant per distinct code of `codes`, whose status, type, title, and
+ * detail come from `NativeProblemRegistry`, and a validation code carries its validation
+ * extension. The union keeps each declared code as a literal, and `identifier` names it in the
+ * OpenAPI document. `endpointProblemResponses` splits it into one response per status.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * export const SessionUnauthorizedProblem = problemUnion("SessionUnauthorizedProblem", ["credential.missing", "credential.invalid"]);
+ * ```
+ *
+ * @avoid Writing a problem schema by hand, or giving a code its own status: the answer then
+ * differs from the registry that clients decode. Declare an endpoint's problems with this.
  *
  * @construct http-problem
  */
@@ -1131,7 +1146,7 @@ export const problemUnion = <
 >(
   identifier: string,
   codes: Codes,
-) => {
+): Schema.Union<Array<ProblemBodySchema<Codes[number]>>> => {
   // Array methods on `Codes` resolve through its constraint; the element view keeps the literals.
   const declared: ReadonlyArray<Codes[number]> = codes;
 
@@ -1221,10 +1236,27 @@ export interface WireProblemHeaders {
 }
 
 /**
- * One RFC 9457 failure in an Effect error channel. The registry owns its type,
- * title, status, and detail; the static constructors require exactly the
- * members its code needs, so no call site passes a status or picks a
- * credential code by string.
+ * One RFC 9457 failure in an Effect error channel.
+ *
+ * @remarks
+ * The registry owns its type, title, status, and detail, so a problem carries only its code and
+ * the members that the code needs: an instance, the challenge of a credential problem, the delay
+ * of a rate limit, or validation diagnostics. The static constructors require exactly those
+ * members: `make` for a plain code, `validation` for a validation code, `rateLimited`,
+ * `credentialMissing` and `credentialInvalid` for the ingress evidence of each, and
+ * `unauthenticated`, which answers from that evidence. A problem below status 500 is an answered
+ * client failure, which `ErrorReporter` ignores.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * return yield* Problem.make("precondition.failed");
+ * ```
+ *
+ * @avoid Failing with a status, a plain `Error`, or a body built by hand: the registry then no
+ * longer decides the answer, and an endpoint cannot declare the failure. Fail with a `Problem`
+ * that one of its constructors built.
  *
  * @construct http-problem
  */
@@ -1314,6 +1346,21 @@ export class Problem<const Code extends NativeProblemCode = NativeProblemCode> e
 /**
  * Narrows a caught value to a `Problem`, also one that another copy of this module created.
  *
+ * @remarks
+ * It checks for the `Problem` type identifier property, not the class, so a problem that a
+ * second copy of the module constructed, as a bundle or a test runner can load one, still
+ * matches.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * const code = isProblem(cause) ? codes.find((declared) => declared === cause.code) : undefined;
+ * ```
+ *
+ * @avoid `cause instanceof Problem`: a problem from another copy of the module fails it and is
+ * treated as a defect. Narrow with this.
+ *
  * @construct http-problem
  */
 export const isProblem = (u: unknown): u is Problem => Predicate.hasProperty(u, ProblemTypeId);
@@ -1327,6 +1374,21 @@ export interface ProblemWireRecord extends FrozenProblemDefinition {
 
 /**
  * The frozen RFC 9457 body: the registry entry, then code, instance, and validation.
+ *
+ * @remarks
+ * The body starts with the registry entry of the problem's code, its type, title, status, and
+ * detail, then adds the code, and the instance and validation diagnostics when the problem has
+ * them. Its members keep that order, so the JSON text is the same for every rendering.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * new Response(JSON.stringify(problemBody(problem)), { status: problem.status });
+ * ```
+ *
+ * @avoid Spreading a problem into a body: its constructor members, such as the challenge, then
+ * leak into the body, and the registry members go missing. Render the body with this.
  *
  * @construct http-problem
  */
@@ -1499,13 +1561,31 @@ export const problemStatusResponse = <const Union extends ProblemUnionSchema>(
 /**
  * Builds one safe fixed public problem value.
  *
+ * @remarks
+ * It answers the registry entry of `code`, with `code` and, when given, `instance`: the body that
+ * a server answers. When `expectedStatus` is given and differs from the registry status of the
+ * code, it throws, so a fixture cannot pair a code with another status.
+ *
+ * @throws An `Error` when `expectedStatus` differs from the status that the registry freezes for
+ * `code`.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * return Response.json(makeNativeProblem("content.article-not-found", 404), { status: 404 });
+ * ```
+ *
+ * @avoid Writing a problem body by hand in a test or a fixture: its title or status then drifts
+ * from the registry that clients decode. Build it with this.
+ *
  * @construct http-problem
  */
 export const makeNativeProblem = <Code extends NativeProblemCode>(
   code: Code,
   expectedStatus?: number,
   instance?: string,
-) => {
+): (typeof NativeProblemRegistry)[Code] & { readonly code: Code; readonly instance?: string } => {
   const definition = NativeProblemRegistry[code];
 
   if (expectedStatus !== undefined && definition.status !== expectedStatus) {

@@ -18,7 +18,7 @@ export interface LocalBackendComposition {
 }
 
 /** The variables that `localBackendEnvironment` sets, as `decodeBackendConfig` reads them. */
-export interface LocalBackendEnvironment {
+interface LocalBackendEnvironment {
   readonly BACKEND_HOST: string;
   readonly BACKEND_PORT: string;
   readonly BACKEND_PG_URL: string;

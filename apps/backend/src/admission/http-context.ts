@@ -53,15 +53,33 @@ const isAdmissionActorDenial = Schema.is(
 );
 
 /**
- * The admission actor of one department scope. The mapping throws only its
- * three denials; anything else it throws is a defect.
+ * The admission actor of one department scope.
+ *
+ * @remarks
+ * It maps the organization authority of a person to the admission actor of `departmentScope`,
+ * or to the person's own scope when none is given, and requires that actor to be active. The
+ * mapping throws only its three denials, which become failures; anything else that it throws is a
+ * defect.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * const actor = yield* admissionActorForAuthority(authorization.authority, payload.departmentId);
+ * ```
+ *
+ * @avoid Mapping the authority with `admissionActorForDepartment` in a handler: its denials are
+ * throws, which escape the error channel as defects. Map it with this.
  *
  * @construct http-problem
  */
 export const admissionActorForAuthority = (
   authority: OrganizationPersonAuthority,
   departmentScope?: string,
-) =>
+): Effect.Effect<
+  AdmissionPeriodActor,
+  AdmissionRoleDenied | AdmissionScopeDenied | InactiveActor
+> =>
   Effect.try({
     try: () =>
       departmentScope === undefined
