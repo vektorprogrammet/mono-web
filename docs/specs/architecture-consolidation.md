@@ -1,0 +1,957 @@
+[//]: # "generated from content/specs/architecture-consolidation.mdx by just docs generate; do not edit"
+
+# Architecture consolidation
+
+A modular monolith with a pure core: one decision runner, one receipt, one audit, one delivery mechanism, and one owner per rule.
+
+# Architecture consolidation
+
+Status: draft (2026-09-27). The operator has not approved the target. This
+specification records a measurement, a proposal, and the decisions that the
+proposal needs. It changes no code.
+
+Measurement commit: `b3193cb1` (main). The schema-collapse branch lands before
+any work in this specification.
+
+## Verdict
+
+The domains are not stateful. They are a pure library.
+
+The runtime is a modular monolith: one process, one PostgreSQL database, one
+transaction per command, no cross-process calls, no network between contexts.
+
+The persistence shell is not shaped like a monolith. Each bounded context owns a
+private receipt table, audit tables, history tables, and one or more outbox
+tables, and starts its own delivery worker with its own configuration. This is
+the persistence shape of a microservice deployment, without any of the benefit
+of a microservice deployment.
+
+The number of contexts is not the cause. The shell multiplies per context, and
+it does so without encapsulation: 31 of 66 context-map relations read upstream
+tables directly instead of through a published query.
+
+## Principles (operator, 2026-09-27)
+
+These principles are the target. Every section below is measured against them.
+
+1. A bounded context is a modelling and code-organisation boundary, not a
+   runtime boundary. Contexts do not merge to reduce infrastructure. Two
+   contexts merge only when one domain concept is split across them, shown by
+   duplicated or disagreeing rules and by co-change.
+2. Functional core, imperative shell. The core is a stateless library of pure
+   algebraic APIs: values, schemas, transition functions, decision functions,
+   and authority rules as total functions. A command's core is
+   `decide(state, command, now, authority) -> Result<Decision, DomainFailure>`.
+   A `Decision` is data: the next state, the effects to emit, the audit facts,
+   and the receipt payload. The core does no I/O and calls no service.
+3. The shell is one generic capability that runs decisions: one transaction
+   runner that loads state, resolves authority in the transaction, calls
+   `decide`, and persists the state, the command receipt, the audit facts, and
+   the delivery effects. One delivery mechanism delivers after commit. A
+   context difference is a parameter or data, not a copied table or a copied
+   adapter.
+4. Requirements are service interfaces (`Context.Service`). Layers are provided
+   at composition roots. Programs stay open over abstract services until a root
+   closes them. Pure algebraic APIs come first. A stateful API (`Ref`, `Queue`,
+   `PersistedQueue`, a `Stream` source, an actor, a session, a rate limiter) is
+   used only where state bound to operations is a real requirement, and that
+   requirement is named.
+5. Every database is disposable until production cutover. The schema is one
+   declaration per context under `packages/database/schema/`, edited in place.
+   Numbered migrations, checksums, the migration registry, and upgrade proofs
+   are deleted in the collapse branch that lands first.
+
+Algebraic before coalgebraic. A pure function is preferred over a service, a
+service over an actor, and an actor over a queue. A queue enters the design
+only where state bound to operations is a requirement that the measurement
+names.
+
+## How to read the measurements
+
+Every number in this document comes from a scan of the tree at `b3193cb1`, or
+from a named file and line. A statement that the tree does not prove is
+marked `[INFERENCE]`. Counts marked "verified" were recomputed from the
+migrations in statement order, because a name scan counts dropped tables.
+
+## 1. Corrected numbers
+
+The first count of the schema was made by name. Name counts include tables that
+a later migration dropped. The table below is the effective schema, recomputed
+in statement order over migrations 0001 to 0080.
+
+| Measure                     | Lead's count | Effective count | Difference                                                                                                                                      |
+| --------------------------- | ------------ | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tables                      | 169          | 155             | 16 were dropped after creation; 1 was renamed                                                                                                   |
+| `CREATE TABLE` statements   | —            | 171             | 168 distinct names ever existed                                                                                                                 |
+| Views                       | —            | 4               | `assistant_affiliation_history`, `auth.usable_human_sessions`, `recruitment_interview_effective_assessments`, `team_application_delivery_state` |
+| Live SQL functions          | 83           | 74              | 83 counts names ever created; 89 `CREATE FUNCTION` statements; 2 survey guards were dropped by 0073                                             |
+| `CREATE TRIGGER` statements | 144          | 126             | 126 live trigger bindings; 18 bound then dropped                                                                                                |
+| `CHECK` clauses             | 927          | 928             | text occurrences over the migrations                                                                                                            |
+| `EXCLUDE USING` clauses     | 10           | 8               | text occurrences; 8 in the migrations                                                                                                           |
+| `CREATE INDEX` statements   | 141          | 141             | verified                                                                                                                                        |
+
+### Outboxes and workers
+
+| Measure                                                    | Lead's count | Effective count   | Note                                                                                                                                                           |
+| ---------------------------------------------------------- | ------------ | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Outbox tables (`*_outbox`)                                 | 10           | 9                 | `school_service_dispatch_notification_outbox` created in 0046, dropped in 0075                                                                                 |
+| Delivery tables in total                                   | —            | 10                | the 9 outboxes plus `applicant_account_delivery`, which has no outbox shape and is drained inside the HTTP request (`apps/backend/src/onboarding/http.ts:327`) |
+| Queue store tables                                         | —            | 2                 | `effect_queue`, `effect_queue_migrations` from 0078 (PersistedQueue)                                                                                           |
+| Forked fibers in `main.ts`                                 | 7            | 7                 | 6 delivery workers plus the onboarding expiry sweeper (`main.ts:203-273`)                                                                                      |
+| Workers using `outbox-lifecycle.ts`                        | —            | 4                 | 6 tables: public application, school service, recruitment (3 tables in 1 fiber), receipt                                                                       |
+| Workers with a private mechanism                           | —            | 3                 | password reset, onboarding, team application (PersistedQueue)                                                                                                  |
+| Hand-rolled claim or settle statements outside the library | —            | 11                | password reset (3), onboarding (5), team application (3)                                                                                                       |
+| Outbox adapter code                                        | —            | about 3,570 lines | 6 lifecycle adapters (about 2,529), the shared library (335), the PersistedQueue adapter (about 363), plus password-recovery and admission-period lines        |
+| Backend worker and delivery code                           | —            | about 815 lines   | [scout estimate]                                                                                                                                               |
+
+One outbox has no consumer at all. `admission_period_outbox` receives INSERTs
+at `packages/database/src/admission-period/postgres.ts:302` and no worker reads
+it. Its effect, `PublishAdmissionPeriodChanged`, has no reader on `main`. The
+Messaging context that would read it is unbuilt. This is a dead outbox.
+
+### Receipts, audit, and history
+
+| Measure                                        | Lead's count | Effective count | Note                                                                                                                                     |
+| ---------------------------------------------- | ------------ | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Table names with `receipt`                     | 26           | 25              | 10 of them are Economy expense claims, not idempotency receipts                                                                          |
+| HTTP transport receipt tables                  | —            | 1               | `native_http_idempotency_receipts`                                                                                                       |
+| Domain receipt-shaped tables                   | —            | 17              | 14 `*_command_receipts`, `profile_self_edit_commands`, and 2 organization history tables that carry the receipt fields                   |
+| Live `*_audit` tables                          | 22           | 21              | `school_survey_audit` dropped by 0073                                                                                                    |
+| History tables                                 | —            | 5               | 2 are the receipt-fused organization tables; 3 are pure evidence                                                                         |
+| Files hand-writing audit or history INSERTs    | —            | 25              | [scout]                                                                                                                                  |
+| Shared receipt construct at the HTTP layer     | —            | 1               | `executeNativeHttpCommandPostgres` (`apps/backend/src/http-api/receipt-transaction.ts:250`), used by 12 of 12 command contexts, 0 bypass |
+| Shared receipt construct at the domain layer   | —            | 0               | all 17 domain sites hand-write read, digest compare, and insert                                                                          |
+| Shared audit construct                         | —            | 0               | 25 files hand-write the insert                                                                                                           |
+| `CHECK` clauses                                | 927          | 928             | text occurrences                                                                                                                         |
+| Triggers enforcing immutability or append-only | —            | about 20        | [scout], from the function list below                                                                                                    |
+
+### Contexts
+
+| Measure                                                  | Count | Note                                                                  |
+| -------------------------------------------------------- | ----- | --------------------------------------------------------------------- |
+| Bounded contexts                                         | 25    | 19 internal, 6 external                                               |
+| Context-map relations                                    | 66    | [scout]                                                               |
+| Relations translated by a published type, query, or port | 21    | 12 of them inferred, not traced [scout]                               |
+| Relations that only read upstream tables                 | 31    | the downstream adapter runs its own SQL against the upstream's tables |
+| Relations with no code                                   | 14    | Reporting is unbuilt except applicant progress; Messaging is unbuilt  |
+| Internal contexts with no code folder                    | 5     | AcademicCalendar, FileCustody, Mailing, Messaging, Reporting          |
+| `Context.Service` interfaces in `packages/domain/src`    | 23    | all genuine requirement interfaces                                    |
+| Pure functions wrapped as a service                      | 0     | —                                                                     |
+
+## 2. Statefulness
+
+### packages/domain is pure
+
+Verified by the scout and spot-checked. In `packages/domain/src`:
+
+- 0 uses of `Ref`, `SynchronizedRef`, `Queue`, `PubSub`, `Deferred`,
+  `Semaphore`, or `Cache`.
+- 0 module-level mutable state. Every `let` is function-local.
+- 0 uses of `Date.now()`, `Math.random`, `crypto`, `process`, `globalThis`, or
+  `console`.
+- 3 `Layer` values, all test doubles: `notification/recording.ts:28`,
+  `receipt/auxiliary-service.ts:41`, `receipt/file-service.ts:203`.
+- Every production `*Live` layer lives in `packages/database/src`,
+  `apps/backend/src`, or `packages/domain/runtime/node.ts`.
+
+The two ambient I/O interfaces, `DomainFileSystem` and
+`DomainProcess` (`packages/domain/src/runtime-services.ts:21` and `:31`), are
+the deliberate boundary. They are declared, and their implementations sit
+outside `src/`.
+
+The outlier is `TutorD1Proof` (`packages/domain/src/tutor/d1-proof.ts:22`). It
+is a proof harness behind a service, not a business capability.
+
+### A pure package is not a pure core
+
+Of 17 commands traced from HTTP handler to database, 14 decide inline in a
+`packages/database` adapter, as TypeScript or as SQL. Only 7 call sites invoke
+a pure domain decision function [scout]:
+
+| Pure decision function                                                                     | Called from                                      | Decision is a pure function?                                 |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------ | ------------------------------------------------------------ |
+| `decideAdmissionPeriod`                                                                    | `admission-period/postgres.ts:470`               | returns `Effect` with no requirement; the target is `Result` |
+| `decideReceipt`                                                                            | `receipt/postgres.ts:1327`                       | returns `Effect`; the target is `Result`                     |
+| `transitionAppointment`, `transitionTeamClassification`, `transitionDepartmentRecognition` | `organization/lifecycle-postgres.ts:388,412,543` | yes                                                          |
+| `transitionDelegation`                                                                     | `authz/delegation-postgres.ts:225`               | yes                                                          |
+| `transitionAccountAccess`                                                                  | `identity-access.ts:76`                          | yes                                                          |
+
+The worst case is `recordAdmissionOutcome`
+(`packages/database/src/admissions/outcome.ts:150-186`). The no-op check is at
+`:175` (`if (current.outcome === command.outcome) return current;`), the
+revision increment and the row lock are inline, and there is no domain
+`decide` and no domain receipt.
+
+A pure function can exist and go unused.
+`runPublicationTransition` (`packages/domain/src/content/journeys.ts:49`) has
+no reference anywhere in the tree, while the content adapter decides the same
+transition inline. [scout; verified by import scan]
+
+### Backend state
+
+13 stateful constructs [scout]. 12 serve a named requirement: the two
+PostgreSQL pools, the `ManagedRuntime`, the `FiberSet` runtime bridge for
+Better Auth callbacks, a request-scoped `WeakMap`, per-boot worker claim
+sequences, the PersistedQueue store, the onboarding sweeper (an idempotent
+`UPDATE` with no memory state), and an E2E-only receipt barrier.
+
+| Construct                                                                              | State                                                                                                          | Requirement                          | Restart                        | Two replicas                                                |
+| -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------ | ------------------------------ | ----------------------------------------------------------- |
+| `publicRateLimit` (`apps/backend/src/http-api/public-rate-limit.ts:21`)                | in-memory `Map`, key from `publicRateLimitKey` (`:10`), which returns the literal `"public"` for every request | rate limit per visitor address       | counters reset                 | the effective limit doubles                                 |
+| Better Auth rate limiter (`packages/database/src/auth-engine.ts`)                      | vendor default in-memory `Map`                                                                                 | rate limit per credential or address | counters reset                 | the effective limit doubles                                 |
+| `ADMISSION_FIXED_NOW` (`apps/backend/src/admission/config.ts:44`)                      | one instant per process                                                                                        | none; it is a journey pin            | the pin persists until restart | each replica pins its own instant                           |
+| `ManagedRuntime` (`main.ts:169`)                                                       | the process runtime                                                                                            | real                                 | rebuild on start               | no shared state                                             |
+| `pg.Pool` (`packages/database/src/pg-pool.ts:102`)                                     | pooled connections                                                                                             | real                                 | new connections on start       | one pool per replica; advisory locks are transaction-scoped |
+| `team_application` delivery queue (`packages/database/src/team-application/outbox.ts`) | `effect_queue` rows                                                                                            | real, durable                        | resumes from PostgreSQL        | lease-fenced; safe                                          |
+| `shuttingDown` flag and shutdown steps (`main.ts:312-343`)                             | process state                                                                                                  | real                                 | none                           | none                                                        |
+| Worker claim sequence (`apps/backend/src/application/worker.ts:36`)                    | a counter with a per-boot worker id                                                                            | real                                 | resets with a new worker id    | claim fencing makes it safe                                 |
+| E2E receipt barrier (`apps/backend/src/receipt/e2e-support.ts:38`)                     | `Deferred` plus a `Set`                                                                                        | local test only                      | none                           | none                                                        |
+
+The two rate limiters are the only state that breaks with a second replica. The
+in-flight branch `fix/oauth-review-0926` adds a durable PostgreSQL quota for
+`/oauth2/token`. `fix/delivery-review-0926` migration 0081 changes the
+already-PostgreSQL contact quota from a fixed to a rolling window. [INFERENCE]
+One anonymous caller can exhaust the shared `"public"` bucket, because the key
+ignores the address. The key function returns a constant; the evidence for
+abuse is inference, not observation.
+
+## 3. Mechanism by mechanism
+
+### Delivery
+
+ESSENTIAL differences:
+
+- Predecessor ordering, per aggregate, for 2 of 9 tables:
+  `economy_receipt_outbox` uses a `NOT EXISTS` on `committed_at` per receipt,
+  and `admission_application_outbox` uses `ordinal` within `command_id`. The
+  other 7 tables emit one effect per row.
+- Secret handling in 3 modes: password reset keeps the token off the row
+  (`payload_sha256` fingerprint only, 0068); the 6 lifecycle tables store the
+  payload and clear it at terminal status; `school_service_notification_outbox`
+  keeps its payload because it holds no private data.
+- Provider port: `Mail` (reset, team application), an HTTP effect endpoint
+  (public application, recruitment, school service via `deliverJson`), and
+  receipt auxiliary effects, which include file promotion and deletion
+  (`apps/backend/src/receipt/delivery.ts:96-145`).
+- Cancellation: only `team_application_outbox`, cancelled and cleared when the
+  application is deleted.
+- Retry and quarantine policy, per domain: password reset allows 3 attempts and
+  quarantines a stale or ambiguous claim with no resend
+  (`docs/delivery-recovery.md:82-90`); receipt work retries indefinitely
+  (`:98-113`); team application allows 48 attempts with doubling backoff
+  (`:126-136`).
+- Ordering key kind: a sequence, never an instant.
+  `fix/economy-review-0926` migration 0081 replaces the instant comparison in
+  `economy_receipt_outbox` with `receipt_revision`. The branch adds a lint rule
+  that rejects instant ordering [scout].
+
+ACCIDENTAL differences:
+
+- 9 tables carry the same claim, attempt, status, and failure columns. The 6
+  lifecycle adapters repeat the claim `CTE`, the quarantine wrapper, and the
+  complete, fail, and release triad about 18 times in total. About 11 more
+  claim and settle statements sit outside `outbox-lifecycle.ts`. [scout]
+- `claim_id` is `text` in 8 tables and `uuid` in password reset.
+- `applicant_account_delivery` uses its own status vocabulary and is drained in
+  the request. `docs/specs/infrastructure-ports.md:27` already calls this debt.
+- `recruitment_interview_completion_outbox` needed its own bugfix trigger
+  (`fix/delivery-review-0926` migration 0083) because the envelope freeze
+  forgot the terminal exception. Copy drift, not a need.
+- Each worker owns an environment-variable family
+  (`apps/backend/src/config.ts:221-235` and siblings). 6 families for one
+  delivery job.
+- One dead outbox, `admission_period_outbox`.
+
+Queue pilot evidence. PersistedQueue owns the lease, the attempt count, and the
+retry backoff. The outbox row keeps identity, envelope, policy, and outcome.
+`offer` joins the caller's SqlClient transaction
+(`packages/database/src/team-application/outbox.ts:118-142`), and an outcome
+write is fenced by the attempt number (`:206-248`). Tests with negative
+controls cover atomic commit including through PgBouncer, lease reclaim, the
+idempotency key, quarantine, cancellation, and row migration
+(`docs/specs/infrastructure-ports.md:50-60`). The store orders only by
+`visible_at` and sequence inside one `queue_name`
+(`effect/unstable/persistence/PersistedQueue.ts:1518-1524`). The pilot does
+not prove predecessor ordering. The golden journeys on both triggers are
+recorded as open on `feat/team-application-queue-pilot-0926` [scout]. The
+pilot branch now carries `0081-service-principal-operation-grants`, the drain
+handler, and the `TEAM_APPLICATION_DELIVERY_TRIGGER` switch.
+
+What the pilot decides. Two tables need predecessor ordering. PersistedQueue
+does not express it. Options: (a) keep the 2 ordered tables on
+`outbox-lifecycle.ts` and move the other 7 to PersistedQueue; (b) hold the
+envelope row in the generic envelope table and enqueue the successor only when
+the predecessor settles, so the queue needs no ordering. [INFERENCE] Option (b)
+keeps one mechanism. It is not proven; it needs a test.
+
+### Command receipts
+
+ESSENTIAL:
+
+- Two layers, both needed. The HTTP transport receipt stores rendered response
+  bytes and is tombstoned after 24 h
+  (`receipt-transaction.ts:186`); the domain receipt is the durable business
+  record and covers non-HTTP callers. `AGENTS.md` requires this split.
+- `team_application_command_receipts` keeps its identifiers after the
+  application row is deleted (0069:23).
+- `recruitment_schedule_command_receipts` seals an envelope digest once
+  (0062:42-56).
+- `profile_self_edit_commands` is PII-bearing and may be exempt by design.
+  [scout, unresolved]
+
+ACCIDENTAL:
+
+- 17 domain tables in 4 incompatible shapes: key `command_id` versus
+  `(actor_person_id, command_id)` in `schools_command_receipts` (0061) and
+  `recruitment_maintenance_command_receipts` (0062); receipt and history fused
+  (`organization_lifecycle_history` 0060, `organization_delegation_history` 0076) versus split; revision counters embedded in
+  `profile_self_edit_commands` (0014); column names `command_sha256` and
+  `command_json` versus `command_digest` and `result_json`.
+- 17 hand-written read, digest-compare, and insert sequences, 0 shared
+  construct. Only `canonicalJson` and `sha256Hex` are shared.
+- 4 of 17 traced commands have no domain receipt: admissions outcome
+  (`admissions/outcome.ts:150`), onboarding, placements, and social events
+  (`social-events/postgres.ts:285` has no lock, no transaction, and no replay
+  check).
+- `schools/administration.ts:228-231` resolves authority before it takes the
+  lock; every other context locks first.
+
+### Audit
+
+ESSENTIAL:
+
+- Security audit written outside commands by Better Auth and the OAuth adapter
+  (`auth.identity_security_audit`, `auth.oauth_security_audit`), with a closed
+  allow-list validator on the OAuth one (0027:273).
+- Privacy by design: `team_application_audit` excludes applicant contact
+  details (0069:43).
+- Economy legal retention: no retention policy was found in code or in
+  `docs/`. [INFERENCE] This is an open gap, not a verified requirement.
+
+ACCIDENTAL:
+
+- 21 audit and 5 history tables written from 25 files, with primary keys that
+  vary between `command_id`, a surrogate id, and
+  `(person_id, department_id, revision)`.
+- About 20 copy-pasted immutability trigger functions.
+- Deferred cyclic foreign keys and link triggers between receipt, audit, and
+  entity rows: organization (0013:182-335), social events (0043:97-106),
+  recruitment responses (0012:251-353). They exist only because receipt, audit,
+  and outbox are per-aggregate tables.
+
+## 4. Rules in the database
+
+### Verdict
+
+Mostly no. The database is mostly right. 48 of 74 live functions are structural
+integrity that a declaration should own: append-only receipts, audit, and
+evidence; envelope immutability; mechanical revision bumps; value-domain
+`CHECK` helpers; and the reservation plumbing for the `EXCLUDE` constraint
+`school_service_person_reservation_no_overlap`.
+
+The hand-rolled business logic is small and concentrated. 9 functions decide a
+lifecycle, eligibility, or window rule. 16 more are backstops that duplicate a
+core rule because some writers bypass the core today. 1 is dead.
+
+Counts were reconciled from the live function list. The two classification
+scouts each covered half the tree; the totals below are the union.
+
+| Class               | Count | Meaning                                                                                                  |
+| ------------------- | ----- | -------------------------------------------------------------------------------------------------------- |
+| K, keep             | 48    | append-only, immutability, mechanical revision, value-domain `CHECK`, `EXCLUDE` plumbing, link integrity |
+| M, move to the core | 9     | lifecycle, eligibility, and window rules that a pure `decide` owns                                       |
+| D, backstop         | 16    | duplicates a core rule, kept because a writer bypasses the core today                                    |
+| Dead                | 1     | no live trigger binding                                                                                  |
+| Total live          | 74    |                                                                                                          |
+
+One disagreement between the two scouts is recorded: under a strict
+immutability reading, `guard_school_service_proposal` (0045:35) and
+`guard_applicant_account_invitation` (0035:51) are K, because they freeze rows
+and forbid a second transition. Under a lifecycle reading, their
+`Draft` to `Confirmed` and `Open` to terminal rules are M. This document uses
+the K reading. [INFERENCE]
+
+### M functions, to move
+
+| Function                                                                                                    | Rule                                                                                                           | TypeScript counterpart                                                                    | Typed problem                                                                      | Lock that replaces the trigger                                                                                          |
+| ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `guard_school_service_commitment_insert` (0058:29)                                                          | proposal confirmed; snapshot matches; `service_date` inside the semester and on the weekday; no duplicate slot | `schoolServiceInSemester` exists only on `fix/placements-review-0926`, not on `main`      | `commitment.target-invalid`, `commitment.interval-invalid`, `commitment.duplicate` | `FOR SHARE` on `school_service_proposals`; the slot `UNIQUE` stays K                                                    |
+| `guard_school_service_decision_insert` (0075:161)                                                           | attendance equals roster minus absences plus coverage; outcome matches attendee count; interval has ended      | `schoolServiceAttendance` (`packages/domain/src/placements/policy.ts:220-238`), on `main` | `commitment.outcome-invalid`, `commitment.interval-invalid`                        | `FOR UPDATE` on `school_service_commitments`                                                                            |
+| `guard_school_service_live_coverage` (0059:51)                                                              | absence and coverage need a dated commitment; the write window closes at the decision                          | none                                                                                      | `commitment.closed`                                                                | `FOR UPDATE` on the commitment                                                                                          |
+| `guard_school_service_closure_insert` (0075:116)                                                            | `Covered` needs the current attending coverage record; `Uncovered` needs none                                  | adapter `coverage.ts` computes it at about `:612`, not in the domain                      | `coverage.not-recorded`                                                            | `FOR UPDATE` on the absence's commitment                                                                                |
+| `enforce_recruitment_interview_correction_chain` (0039:106)                                                 | predecessor revision equals the effective revision; resulting revision is predecessor plus one                 | `correctInterviewAssessment` (`packages/domain/src/recruitment/conduct.ts:367-429`)       | `RecruitmentInterviewStaleRevision` (`recruitment/errors.ts:106-113`)              | `AdvisoryLockKey.recruitmentInterview` (advisory-lock.ts:53,116)                                                        |
+| `guard_organization_delegation` (0076:74)                                                                   | a delegation ends earlier only; revision advances by one                                                       | `transitionDelegation` (`packages/domain/src/authz/delegation.ts:369-421`)                | `DelegationTransitionFailure{code:"Invalid"}` (`:357-362`)                         | `AdvisoryLockKey.delegationCommand` and `lockPersonAuthorization` (delegation-postgres.ts:178-179). Provably redundant. |
+| `organization_capture_deleted_team_name` (0008:134)                                                         | on team delete, copy the team name onto every live membership                                                  | none                                                                                      | none today; the trigger never fails                                                | `FOR UPDATE` on the team row and its memberships                                                                        |
+| `auth.oauth_refresh_absolute_expires_at` (0077:11) and `auth.oauth_refresh_inactivity_expires_at` (0077:16) | refresh-token windows                                                                                          | `oauth-live.ts` also calls them                                                           | none                                                                               | none; they are immutable `CHECK` helpers                                                                                |
+
+The last two are in this document's M column only because the window rule
+lives in SQL. One scout called them K (immutable helpers). The M reading makes
+the window visible in the domain. [INFERENCE]
+
+### D functions, to keep as a backstop
+
+| Function                                                                                                                                                              | Duplicates                                                                                               | Bypass writer that justifies the backstop                                                                        |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `auth.guard_session_issuance` (0060:40), `auth.guard_session_renewal` (0060:49), `auth.guard_credential_write` (0060:65), `auth.guard_human_token_issuance` (0060:78) | `accountAccessEnabled` (`packages/database/src/identity-access.ts:34`), `transitionAccountAccess`        | Better Auth writes `auth.*` through its own PostgreSQL adapter and never calls the domain                        |
+| `assert_organization_creation_links` (0013:182) and `enforce_organization_creation_links` (0013:267)                                                                  | none; the consistency a single runner makes structural                                                   | importers and `just seed` write the five tables separately                                                       |
+| `assert_recruitment_invitation_response_links` (0012:251) and `enforce_recruitment_invitation_response_links` (0012:318)                                              | same                                                                                                     | importers and fixtures                                                                                           |
+| `require_interviewer_recommendation` (0037:4)                                                                                                                         | `InterviewRecommendationSchema` is required by the conduct schema                                        | `tools/acceptance/recommendation-preupgrade-fixture.ts:377`, `recommendation-check.ts:2546`                      |
+| `freeze_receipt_delivery_envelope` (0033:10)                                                                                                                          | the claim fencing in `outbox-lifecycle.ts` (`settleClaim`, `OutboxClaimLost`, `:61-98`)                  | receipt rehearsal tooling and `just seed` write `economy_receipt_outbox` directly                                |
+| `guard_team_application_outbox` (0069:130)                                                                                                                            | the status guards in `team-application/outbox.ts:126-258`                                                | `just seed`, `tools/e2e` fixtures                                                                                |
+| `guard_school_service_coverage_record` (0075:56)                                                                                                                      | the self-cover check in `coverage.ts:436-445`                                                            | fixtures                                                                                                         |
+| `guard_school_service_occurrence_insert` (0058:242) and `verify_school_service_decision_occurrence` (0059:172)                                                        | none; they are the two directions of one deferred check                                                  | whichever of decision or occurrence is inserted second                                                           |
+| `increment_content_article_department_revision` (0029:192)                                                                                                            | the explicit bump in `content/postgres.ts:954-956,1048-1050,1169-1171` under a session flag (`:651-654`) | writers that skip the flag                                                                                       |
+| `version_applicant_identity_link` (0038:2)                                                                                                                            | `AdvisoryLockKey.personAuthorization` (advisory-lock.ts:14-16)                                           | `tools/acceptance/interview-correction-boundaries.ts:721-725,999-1003`, `returning-assistant-journey.ts:350-354` |
+
+With one write path for imports and fixtures, D shrinks to the 4 Better Auth
+guards plus the 2 pair checks that PostgreSQL needs for deferred cardinality.
+The target is 6.
+
+### Dead
+
+`prevent_recruitment_invitation_response_audit_mutation` (0012:359) has no
+live trigger. Migration 0062 dropped the trigger name and rebound it to
+`freeze_recruitment_envelope_evidence` (0062:56-58). The collapse must not
+carry this function forward.
+
+### TypeScript duplicates found
+
+| SQL rule                  | TypeScript counterpart                                                        | Where                                                                                         |
+| ------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| attendance derivation     | `schoolServiceAttendance`                                                     | `packages/domain/src/placements/policy.ts:220-238`, on `main`                                 |
+| correction revision chain | `correctInterviewAssessment`                                                  | `packages/domain/src/recruitment/conduct.ts:367-429`                                          |
+| delegation transition     | `transitionDelegation`                                                        | `packages/domain/src/authz/delegation.ts:369-421`                                             |
+| self-cover                | `recordCoverage`                                                              | `packages/database/src/placements/coverage.ts:436-445`                                        |
+| account access            | `accountAccessEnabled`, `transitionAccountAccess`                             | `identity-access.ts:34,76`; 4 SQL guards; 8 hand-written sites in 4 files [scout]             |
+| semester window           | `schoolServiceInSemester`                                                     | `packages/domain/src/placements/school-service-time.ts`, only on `fix/placements-review-0926` |
+| advisory lock keys        | `AdvisoryLockKey.personAuthorization`, `AdvisoryLockKey.recruitmentInterview` | `packages/database/src/advisory-lock.ts:14-16,53`                                             |
+| publication transition    | `runPublicationTransition`                                                    | `packages/domain/src/content/journeys.ts:49`, no reference on `main`                          |
+
+### Defects traced to SQL and migration logic
+
+| #   | Defect                                                                                                         | Where the logic lived                                                                                                                 | How it surfaced                                                                                                                   | Fix                                                                                                                                                                                                                                                                                                        |
+| --- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | "Admitted enough to proceed" had no gate on `main`                                                             | neither `onboarding/postgres.ts` nor `placements/service.ts` checks readiness; Issue checks only the `admissions.outcomes` capability | a coordinator with that capability can issue for a `Nei` applicant; a claimed applicant can request affiliation with no interview | two disagreeing SQL copies appeared on `fix/admissions-core-0926` (`b576058f`, `f674cc64`), then `705fa051` unified them as `admissionReadiness` (`packages/domain/src/admissions/readiness.ts:38`) over one `admissionEvidence` read (`packages/database/src/admissions/readiness.ts:19`). Not on `main`. |
+| D1a | the fence of the unified read is copied per caller                                                             | Issue takes `FOR SHARE` on the application and interview rows; Request takes `FOR UPDATE OF interview` only                           | a concurrent outcome decision can commit between the read and the write                                                           | open; this specification proposes the declared-lock-set type                                                                                                                                                                                                                                               |
+| D2  | terminal envelope `CHECK` plus composite parent foreign keys reject a fixture clone                            | 0083 on `fix/delivery-review-0926`                                                                                                    | the branch's own test drops every foreign key to seed a terminal row                                                              | in flight                                                                                                                                                                                                                                                                                                  |
+| D3  | the national-board singleton index plus `ON CONFLICT DO NOTHING` silently dropped a second board during import | 0081 on `fix/organization-review-0926`                                                                                                | the import reported success while it dropped real data                                                                            | typed `NationalBoardExists` and `MultipleNationalBoards` (`reviewed-cohort.ts:266-267,405-410`)                                                                                                                                                                                                            |
+| D4  | 0078's `effect_queue_migrations` bookkeeping rows fail every rehearsal's empty-target scan                     | 0078:37-46; `tools/e2e/legacy-cutover-references.ts:387-403` exempted one table name                                                  | every rehearsal failed on a fresh database                                                                                        | fixed on `main` by `53eed17a` (`schema-bookkeeping.ts`)                                                                                                                                                                                                                                                    |
+| D5  | organization governance triggers tested only on single-connection PGlite                                       | 0081, 0082 on `fix/organization-review-0926`                                                                                          | a trigger proves single-session rejection, never the commit race                                                                  | `test/organization-race-0927` `governance-race.test.ts`                                                                                                                                                                                                                                                    |
+| D6  | a department foreign-key violation in content answers 503, not 422                                             | untyped `SqlError` from `content/postgres.ts`                                                                                         | a wrong HTTP status, recorded in `STATE.md` known gaps                                                                            | open                                                                                                                                                                                                                                                                                                       |
+| D7  | a migration quarantines outbox rows as a business transition                                                   | 0005:8-31 updates status with no command, no actor, no audit                                                                          | indistinguishable from a worker's quarantine                                                                                      | historical; the collapse removes it                                                                                                                                                                                                                                                                        |
+| D8  | `admission_period_departments` duplicates `organization_departments` with no foreign key                       | 0002:1-4                                                                                                                              | two copies of "this department exists" can disagree; tests seed both by hand                                                      | open                                                                                                                                                                                                                                                                                                       |
+| D9  | 0072 disables about 50 triggers by a hand-listed name set for a backfill, "as in migration 48"                 | 0072:15-71                                                                                                                            | nothing checks that the disable and enable lists agree                                                                            | historical; the anti-pattern repeats                                                                                                                                                                                                                                                                       |
+
+## 5. Cross-context coupling
+
+| Measure                                                                   | Count         | Note                                                                                                                                             |
+| ------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Cross-context (file, foreign table) read relations in production adapters | about 82      | 54 in the Placements, Admissions, Recruitment, Schools cluster; 28 elsewhere; the two scouts counted with slightly different granularity         |
+| Cross-context writes                                                      | 3             | `team-application/postgres.ts` writes `organization_teams`; `onboarding-account.ts:18-19` writes `person_profiles` and `person_contact_profiles` |
+| Trigger-level cross writes                                                | 1 [INFERENCE] | `increment_profile_http_authority_version` (0029:100-132) bumps `profile_http_versions` from Organization events; mechanical                     |
+| Maximum foreign contexts per adapter file                                 | 5             | `placements/coverage.ts` and `placements/draft.ts`                                                                                               |
+
+The worst offenders read other contexts' tables directly for a projection:
+
+- `placements/coverage.ts:194-206` reads the current admission outcome, which
+  `admissions/outcome.ts:60-69` also projects.
+- `placements/draft.ts:22-56` reads interview conduct to decide that an
+  applicant is far enough along.
+- `application/postgres.ts:921-1053` (`readApplicantProgress`) is Reporting's
+  named first responsibility, embedded in Admissions, reading Recruitment and
+  Placements tables.
+- `schools/administration.ts:293-312` blocks an association removal by reading
+  Placements' `school_service_proposals` JSONB directly.
+- `organization/authority-postgres.ts:475-476` reads
+  `organization_delegations`, which AccessControl owns.
+- `authz/delegation-postgres.ts:78-81` reads `organization_teams` and
+  `organization_departments` directly, while `recruitment/postgres.ts:274-289`
+  (`liveInterviewerIds`) uses the Organization port for the same question.
+
+### Rules without one owner
+
+| Rule                                                | Copies                                                                                                                                                                                                                                                                                                           | Disagreement                                                                | Proposed owner                                                       |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| admitted enough to proceed                          | 0 on `main`; 2 on the fix branch, now 1                                                                                                                                                                                                                                                                          | yes, between the two copies                                                 | Admissions, with Recruitment publishing the effective recommendation |
+| current admission outcome                           | 2 (`admissions/outcome.ts:60-69`, `placements/coverage.ts:194-206`)                                                                                                                                                                                                                                              | none today                                                                  | Admissions                                                           |
+| admission period open                               | 3 (`admission-period/postgres.ts:520-545`, `application/postgres.ts:662-690`, `returning-postgres.ts:172-186`)                                                                                                                                                                                                   | none today                                                                  | Admissions                                                           |
+| active team membership in a department              | 5; the port-based `liveInterviewerIds` is correct; 2 raw copies in Recruitment (`maintenance-postgres.ts:170-175`, `http-postgres.ts:160-183`); 2 in Organization (`authority-postgres.ts` about `:430`, `directory-postgres.ts:69-79`); 1 in `lifecycle-postgres.ts:274-280` that omits `t.active AND d.active` | yes, the board-roster copy disagrees with the leadership copy at `:287-288` | Organization, through the port                                       |
+| account access enabled                              | 8 hand-written sites, 4 SQL guards                                                                                                                                                                                                                                                                               | none logically; drift is likely                                             | Identity, through `accountAccessEnabled`                             |
+| global-administrator status                         | 2 (`authority-postgres.ts` about `:400-415`, `directory-postgres.ts:100-118`)                                                                                                                                                                                                                                    | none                                                                        | Organization                                                         |
+| department identity                                 | 2 tables, no foreign key (D8)                                                                                                                                                                                                                                                                                    | possible                                                                    | Organization; Admissions references                                  |
+| department active                                   | Recruitment checks it; `placements/coverage.ts:78-122` does not                                                                                                                                                                                                                                                  | yes                                                                         | Organization                                                         |
+| association removal with a live Placements proposal | Schools reads Placements' JSONB                                                                                                                                                                                                                                                                                  | no second copy                                                              | Placements publishes a dependent-records query; Schools calls it     |
+
+## 6. Contexts
+
+### Relations: real versus shared tables
+
+Of 66 relations: 21 are translated through a published type, query, or port;
+31 only read upstream tables; 14 have no code. [scout; 12 of the 21 were
+inferred, not traced]
+
+Real translations:
+
+- AccessControl's reach interpreter, `packages/domain/src/authz/reach.ts`, over
+  the published `OrganizationPersonAuthority`.
+- People to Mailing: the `contacts: ReadonlyMap<PersonId, MailingListContact>`
+  parameter.
+- The 5 legacy importers, each behind an anti-corruption layer:
+  `person-cohort.ts`, `identity-cohort.ts`, `organization/import.ts`,
+  `historical-service-cohort.ts`, `receipt/reviewed-import.ts`.
+- The mail provider Layer, `apps/backend/src/mail/*`.
+- FileCustody to Economy through `files.readCommitted`.
+- `Profile.readContacts` and `Organization.readDepartment` service calls.
+
+Shared tables only: `organization_departments` read by 6 contexts,
+`person_profiles` by 5, `admission_period_semesters` by 5 (semester data lives
+inside Admissions). `TeamIntakeFacts` exists, but
+`team-application/postgres.ts:73-139` also reads Organization tables directly.
+Admissions to Recruitment is reversed in the code: the two read each other, a
+cycle. [scout]
+
+Not implemented: Reporting beyond applicant progress, Messaging in full, Google
+Workspace synchronization, and the HkDirCatalogue source.
+
+5 internal contexts have no code folder: AcademicCalendar (the
+`admission_period_semesters` table), FileCustody (inside
+`apps/backend/src/receipt`), Mailing (inside `organization/mailing-lists*`),
+Messaging (unbuilt), Reporting (applicant progress only).
+
+### Co-change
+
+Computed over the last 400 and 800 non-merge commits on `main`. Each changed
+path maps to a context through the `contextLayers` folders in
+`tools/conventions/src/layout.ts`; a migration maps to the contexts of the
+tables it creates or alters. Commits touching more than 3 contexts are treated
+as sweeps and excluded from the pair counts.
+
+| Window | Commits touching a context | Touching exactly one | Focused commits (at most 3) | Highest Jaccard pair                                                                              |
+| ------ | -------------------------- | -------------------- | --------------------------- | ------------------------------------------------------------------------------------------------- |
+| 800    | 268                        | 183                  | 229                         | People + Schools 0.11; AccessControl + Placements 0.11; Admissions + Recruitment 0.08             |
+| 400    | 156                        | —                    | 122                         | AccessControl + Organization 0.15; AccessControl + Placements 0.14; Admissions + Recruitment 0.07 |
+
+Counting every commit, the top pairs reach Jaccard 0.24 to 0.41
+(Admissions + Recruitment 0.31 at 800, 0.36 at 400), because cross-cutting
+sweeps dominate. Counting only focused commits, no pair exceeds 0.11.
+Co-change gives no merge signal: contexts mostly change alone.
+
+### Merge verdict (modelling-driven only)
+
+No runtime merges. One modelling fix.
+
+| Group                                                           | Split concept?                                                                                                                                                                                                                                                           | Verdict                                                                                                                                                                                                                                                                                                                                                      |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Admissions, Recruitment, onboarding, Identity claim, Placements | yes, for "admission standing": the effective recommendation and the latest outcome decide readiness, and the rule is missing on `main`, was then written twice in disagreeing SQL, and the outcome projection is duplicated. Admissions and Recruitment read each other. | Admissions owns the readiness rule and the outcome projection. Recruitment publishes the effective recommendation as a named, fenced query (the `705fa051` shape). Do not merge the contexts: co-change does not support it, and `docs/system.md:182-192` requires recommendation, invitation, claim, affiliation, and placement to stay separate decisions. |
+| People, Identity                                                | no                                                                                                                                                                                                                                                                       | keep separate. `onboarding-account.ts:18-21` is one joint account-creation transaction keyed by `PersonId`, which is a legitimate shared-transaction command.                                                                                                                                                                                                |
+| Organization, Mailing, Messaging                                | no                                                                                                                                                                                                                                                                       | keep separate. Mailing has no folder of its own; that is layout debt. Give it one. Build Messaging later, with its notices through the one delivery mechanism.                                                                                                                                                                                               |
+| Economy, FileCustody                                            | no                                                                                                                                                                                                                                                                       | keep separate. FileCustody's code is inside `apps/backend/src/receipt`; extract it as a reusable private-file capability.                                                                                                                                                                                                                                    |
+| AcademicCalendar, Admissions                                    | no                                                                                                                                                                                                                                                                       | keep separate. Move `admission_period_semesters` to its own schema file, and publish it as a named query.                                                                                                                                                                                                                                                    |
+| Content, Contact                                                | no                                                                                                                                                                                                                                                                       | keep separate. No shared tables, no cross-reads.                                                                                                                                                                                                                                                                                                             |
+
+## 7. The SQL boundary
+
+`docs/specs/repository-conventions.md:70-76` lists reuse rules. The first is
+"raw SQL (`sql` tags, `pg`, or `SqlClient` imports) outside
+`packages/database`". Phase 3 says the rules start as warnings, and
+`:202` says a staged raw SQL statement outside `packages/database` fails the
+check. Neither the rule nor the check exists. `tools/oxlint/anti-slop/rules`
+has 40 rules; none of them rejects raw SQL by location. `oxlint.config.ts`
+uses `no-restricted-imports` for package and cross-package imports only.
+
+The rules in phase 3 were never written: the raw-SQL rule, the context
+boundary rule, and the outbox claim rule. Only the advisory-lock rule
+(`anti-slop/no-raw-advisory-lock-sql`) is in force.
+
+Measured SQL outside `packages/database`, by file, with a statement regex
+(`INSERT INTO`, `DELETE FROM`, `UPDATE ... SET`, `SELECT ... FROM`, `CREATE
+TABLE|INDEX|TRIGGER|FUNCTION`, `TRUNCATE`):
+
+| Area                                                                           | Files with SQL statements | Non-test | Lead's count | Note                                                                                                                                                                   |
+| ------------------------------------------------------------------------------ | ------------------------- | -------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/backend/src`                                                             | 19                        | 5        | 9            | the 5 are `onboarding/delivery.ts`, `receipt/delivery.ts`, `receipt/drain-main.ts`, `receipt/http-reads.ts`, `http-api/receipt-transaction.ts`; 14 more are test files |
+| `apps/dashboard/e2e`, `apps/homepage/e2e`                                      | 22                        | 22       | 10 seeds     | 10 are `*-seed.mjs`, 11 are `run-real-*` or `run-native-*` runners, 1 is `receipt-approval.spec.ts`                                                                    |
+| `tools`                                                                        | 45                        | 39       | 34           | 11 acceptance, 17 e2e, 14 verification, plus oxlint and source-safety rule files that read SQL as data                                                                 |
+| `packages/domain/runtime`                                                      | 2                         | 2        | —            | the tutor D1 proof                                                                                                                                                     |
+| `apps/dashboard/app`, `apps/homepage/src`, `packages/http-api`, `packages/sdk` | 0                         | 0        | —            | —                                                                                                                                                                      |
+
+The lead's 9 for `apps/backend` counts files that import a SQL type or a `pg`
+client without running a statement, and the 10 for e2e counts only the seeds.
+[INFERENCE] The backend's 5 production files are the exact population that the
+rule would reject. The write path that the rule is meant to protect runs
+`receipt-transaction.ts:180-337` and `onboarding/delivery.ts:78-117` in
+`apps/backend`, outside `packages/database`.
+
+## 8. Target architecture
+
+### Core
+
+Each context exposes pure decision functions of the form
+`decide(state, command, now, authority) -> Result<Decision, DomainFailure>`. The
+existing examples are `decideAdmissionPeriod`
+(`packages/domain/src/admission-period/update.ts:141`),
+`transitionAppointment` (`packages/domain/src/organization/lifecycle.ts:213`),
+`decideReceipt` (`packages/domain/src/receipt/update.ts:383`), and the
+admission readiness function on the fix branch. The `Effect` return type
+becomes `Result`.
+
+A `Decision` is a tagged union of data: the next state, the delivery effects to
+emit, the audit facts, and the receipt payload. The core has no service call
+and no I/O. The `packages/domain` service interfaces stay as requirement
+interfaces; pure functions do not become services.
+
+### Shell: one transaction runner
+
+`runCommand`, the construct that `docs/specs/commands-and-concurrency.md`
+freezes, is the one runner. It does not exist on `main`. It sits below
+`executeNativeHttpCommandPostgres`, which stays the transport receipt layer.
+It takes:
+
+| Parameter   | Meaning                                                             | Today                                                                                   |
+| ----------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| lock set    | the advisory keys and row locks the command takes, in a fixed order | ad hoc `yield* lockAdvisory` calls; Placements, onboarding, and social events take none |
+| fence set   | the lock keys of every named query the command reads                | not declared anywhere                                                                   |
+| load state  | the owner's named query, with the row lock it needs                 | ad hoc `FOR UPDATE` selects                                                             |
+| decide      | the pure function                                                   | 7 of 17 commands                                                                        |
+| persist     | the context's own tables                                            | hand-written per table                                                                  |
+| receipt     | the command, the digest, the stored result                          | 17 tables, 4 shapes                                                                     |
+| audit facts | the kind registry and payload schema                                | 21 tables                                                                               |
+| effects     | the effect kinds and their envelope data                            | 9 outboxes                                                                              |
+
+The runner opens the transaction, takes the lock set, reads the receipt by
+digest, and on a match rechecks current authority and returns the stored
+result. It then loads state, resolves authority in the transaction, calls
+`decide`, persists the context's tables, writes one receipt row, writes the
+audit facts, enqueues the effects, and commits. No I/O is possible inside it,
+because the type carries no mail, HTTP, or file requirement.
+
+The declared lock set is what closes the D1a gap. A named query carries the
+keys that fence the facts it reads, and the runner takes those keys before the
+query runs. A caller cannot choose a different lock for the same query.
+
+### Shell: one receipt mechanism
+
+One domain receipt table. It keys on `command_id`, stores the canonical command
+JSON, its SHA-256 digest, the stored result, and the actor. The parameters per
+context are the receipt namespace (the command kind), the result schema, the
+retention class, and whether an envelope seal exists. The HTTP transport
+receipt stays as it is, because it answers a different question and is already
+one shared construct.
+
+The 4 commands with no domain receipt get one. The 4 receipt shapes collapse
+to one. The deferred link triggers between receipt, audit, and entity rows are
+replaced by the runner's single transaction.
+
+### Shell: one audit mechanism
+
+One audit-fact table. It keys on `command_id` and an ordinal, records the
+actor, the kind, and the payload, and is append-only. The security audit stays
+a separate table, because Better Auth writes it outside a command; it is a
+different lifecycle, not a different shape. A kind registry gives each payload
+its schema and its retention class. Economy retention is an open decision.
+
+### Shell: one delivery mechanism
+
+One envelope table, one queue, one worker loop. The policy per effect kind is
+data:
+
+| Policy field     | Values today                                                                     |
+| ---------------- | -------------------------------------------------------------------------------- |
+| ordering key     | none, or a per-aggregate sequence (`receipt_revision` after 0081, `ordinal`)     |
+| envelope mode    | frozen at enqueue, or off-row with a fingerprint (password reset)                |
+| secret handling  | scrub at terminal, retain (school service), off-row (reset)                      |
+| retry            | max attempts and backoff: 3 (reset), 48 (team application), unbounded (receipts) |
+| quarantine class | permanent, ambiguous, temporary, stale lease                                     |
+| cancellation     | none, or cancel and clear on parent delete                                       |
+| provider port    | `Mail`, HTTP effect endpoint, receipt auxiliary effects                          |
+| idempotency key  | `effect_id` in every table today                                                 |
+
+The queue pilot decides the lease and retry half. Ordering stays in the
+envelope: a successor is enqueued when its predecessor settles. [INFERENCE]
+This is the design that makes one mechanism possible; it needs a test that a
+failing predecessor keeps the successor undelivered.
+
+### Rules and ownership
+
+Each context declares its tables in `packages/database/schema/<context>.sql`.
+The declaration is the table-ownership registry. A cross-context read goes
+through a named query that the owner exports, and the named query carries its
+fence keys. A cross-context write is refused, except the 3 sites listed above,
+which move to a command in the owner.
+
+The one-owner-per-rule check:
+
+1. A rule is a pure function with an `@rule` tag in the owning context's
+   domain folder.
+2. A second context cannot reach the rule's facts in SQL, because the only
+   route to those facts is the owner's named query, which returns raw facts
+   and not the rule.
+3. A rule over a closed set of literals, such as `AdmissionOutcome` or
+   `InterviewRecommendation`, is read by the owner only. A lint rule rejects
+   those literals in another context's SQL or TypeScript. `doc/duplication`
+   and the jscpd baseline catch a copied function body inside one package.
+
+This is the `705fa051` shape generalised: one pure function, one SQL read, all
+callers use both.
+
+### The database keeps what is structural
+
+K stays. M moves. D shrinks to the Better Auth guards once fixtures and imports
+use the runner. Two constraints never move: the `EXCLUDE` constraint
+`school_service_person_reservation_no_overlap`, and every append-only trigger
+on receipts, audit, and evidence.
+
+## 9. Cutover strategy
+
+The operator's decision removes the hard part. Every database is disposable, so
+each mechanism moves as a clean cutover with no data migration, no dual read,
+and no drain. The code cutover is one slice per context.
+
+| Step | Context order                                                                                          | What moves                                                                                                                                                                                | Risk           | Value                                                               |
+| ---- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------- |
+| 0    | none                                                                                                   | the schema collapse: one declaration per context, DDL moved as-is                                                                                                                         | low            | makes every later step a file edit                                  |
+| 1    | none                                                                                                   | fences: table-ownership registry, the raw-SQL rule from `repository-conventions.md` phase 3, the rule-ownership check; delete the dead function and the unused `runPublicationTransition` | low            | stops new drift                                                     |
+| 2    | Admissions, then Recruitment                                                                           | owner-published named queries for readiness, current outcome, period open, active membership, account access, and administrator status; the readiness fix lands first                     | low to medium  | correctness; five duplicated rules collapse                         |
+| 3    | Placements first, then Organization, Schools, SocialEvents, Content, TeamApplications, Economy, People | `runCommand` with the one receipt table and the one audit table; M rules move to the core; the fixtures and importers move to the runner, so D shrinks                                    | medium         | removes 17 receipt sites, 25 audit sites, and 4 M rules per context |
+| 4    | after the pilot's golden runs pass on both triggers                                                    | one delivery mechanism: the 7 unordered tables, then password reset, then the 2 ordered tables; the dead admission-period outbox goes                                                     | medium to high | removes 6 workers, 6 configuration families, and the dead outbox    |
+| 5    | none                                                                                                   | in-memory rate limiters to PostgreSQL; `ADMISSION_FIXED_NOW` behind a local-deployment guard                                                                                              | low            | two replicas become safe                                            |
+
+Ordering constraints:
+
+- Step 0 lands first. The collapse moves the DDL as-is; nothing else changes.
+- Step 2 lands after `fix/admissions-core-0926` and
+  `fix/admissions-readiness-0927`, which carry the readiness fix.
+- Step 3's Placements slice lands after `fix/placements-review-0926`, which
+  carries the semester window counterpart.
+- Step 4 lands after `feat/team-application-queue-pilot-0926` completes its
+  golden runs, and after `fix/delivery-review-0926` and
+  `fix/economy-review-0926` land their 0081 to 0083 changes, so that the
+  ordering key and the terminal scrub are already fixed.
+- `experiment/domain-scope-0926` touches 171 files in `packages/domain`. It
+  lands before step 3, or it is dropped.
+- The migration numbers 0081 to 0083 are claimed by five branches. The collapse
+  removes the numbering. Before it lands, the branches renumber as they merge.
+
+What "moving in-flight effects safely" means after cutover. [INFERENCE] After
+the first production writer exists, a delivery cutover needs the same fencing
+the 0078 migration used: a schema change that makes the old claim columns
+unwritable, a drain of the old worker, then the new worker starts. That path
+is not exercised today because no worker has run against real data.
+
+## 10. Falsifiers
+
+Each check fails when the property breaks, and each has a negative control.
+
+1. A new aggregate gets a receipt, audit, and delivery without a new table. The
+   check scans the schema declaration for `*_command_receipts`, `*_audit`, and
+   `*_outbox` outside the shared shell files. It fails on a new table, with a
+   negative control.
+2. A context's adapter cannot name another context's table outside an
+   owner-exported named query. A check compares every table name in every SQL
+   fragment against the owning context's declaration. It fails on a new
+   violation, and the baseline only shrinks.
+3. A rule has one owner. A lint rule rejects another context's closed-set
+   literals in SQL and TypeScript. A second copy of `admissionReadiness` outside
+   the Admissions folder fails it.
+4. The decision is pure. A type test fails when a `decide` returns an `Effect`
+   with a requirement other than none, and when it performs I/O.
+5. No I/O inside a transaction. A write adapter that requires `Mail`, an HTTP
+   client, or a file store fails `tsc` under `runCommand`.
+6. The database holds only K. A check lists every `CREATE FUNCTION` and every
+   `RAISE` in the schema files; only functions on the K registry are legal.
+7. One write path. Fixtures and importers that INSERT into a context's tables
+   fail the same ownership check that a command passes. The 8 acceptance files
+   that write `recruitment_interview_conducts` directly are the baseline.
+8. Raw SQL lives in `packages/database`. The rule from
+   `repository-conventions.md:70-76` is written as a warning, then as an error
+   as the last violation migrates. The 5 backend files are the baseline.
+9. A second replica does not change a limit. A test with two backend processes
+   and a durable quota shows one shared quota. It fails with the in-memory
+   limiters, which is the negative control.
+10. A predecessor is not delivered before its predecessor settles. A test on a
+    two-effect aggregate fails when the ordering key is ignored.
+
+## 11. Costs, risks, and what not to change
+
+Costs.
+
+- The generic receipt table loses the per-aggregate foreign key from the receipt
+  to the row it describes. It gains a namespace column. [INFERENCE] The team
+  application receipt already keeps identifiers after the row is deleted
+  (0069:23), so the foreign key is not a hard requirement.
+- One receipt table and one audit table mix workloads that today sit apart. At
+  the current scale, under 3,000 people, that is not a performance concern.
+  [INFERENCE]
+- Each slice is a review cycle. 13 contexts for step 3.
+- Writing the 5 rules in `repository-conventions.md` phase 3 is new work that
+  the raw-SQL rule, the context boundary rule, and the outbox claim rule each
+  need.
+
+Risks.
+
+- The runner is the largest change. It touches every write path.
+- A pure `decide` under an advisory lock is serializable only where the lock is
+  declared. A missing key in a lock set is a silent correctness loss. The type
+  carries the set; a test asserts that two commands which guard one invariant
+  declare the same key.
+- PersistedQueue is in `effect/unstable`. A version bump re-audits it.
+- A single big-bang cutover of delivery is avoidable only if the 2 ordered
+  tables keep a proven ordering mechanism.
+- The in-flight branches will land first. Step 3 and step 4 conflict with them
+  file by file, so each slice waits for its branch.
+
+What not to change. These are the parts that already hold.
+
+- One process, one database, one transaction per command. No microservice.
+- The pure `packages/domain`. No service call in the core.
+- The generated HTTP contract and the SDK. One contract, generated artifacts.
+- The Foldkit models on the dashboard.
+- `executeNativeHttpCommandPostgres` and the 24-hour transport receipt. The one
+  shared receipt construct that exists.
+- `lockAdvisory` and `AdvisoryLockKey`. The lock registry, and the lint rule
+  that keeps hand-written lock SQL out.
+- `SqlSchema` and the owner-owned projection pattern.
+- The `EXCLUDE` constraint on person reservations, and the append-only triggers
+  on receipts, audit, and evidence.
+- The 19 internal contexts as modelling boundaries. One merge is proposed for a
+  rule, not for the contexts.
+- The 12 contexts whose domain logic is already pure. The target pattern
+  already exists: `decideAdmissionPeriod`, `transitionAppointment`,
+  `decideReceipt`, and the `admissionReadiness` fix on the branch.
+- CML as the model of record, and `just model check` as its check.
+
+## 12. Open decisions for the operator
+
+Each decision has options and a recommendation.
+
+1. Delivery mechanism for the 2 ordered tables.
+   - (a) Keep them on `outbox-lifecycle.ts`, move the other 7 to
+     PersistedQueue.
+   - (b) Hold the envelope in one table; enqueue a successor when its
+     predecessor settles.
+   - Recommendation: (b). It keeps one mechanism. The pilot does not prove it;
+     step 4 tests it first.
+
+2. The domain receipt table.
+   - (a) One table with a namespace column.
+   - (b) One table per context, generated from one template.
+   - Recommendation: (a). 17 tables that answer one question are the
+     duplication. The 2 receipt shapes that carry a real difference become
+     parameters.
+
+3. The audit-fact table.
+   - (a) One table with a kind registry and a retention class per kind.
+   - (b) Keep the 21 tables.
+   - Recommendation: (a), with `auth.identity_security_audit` and
+     `auth.oauth_security_audit` left separate, because Better Auth writes them
+     outside a command. Economy retention needs an operator answer before the
+     registry is written.
+
+4. The `repository-conventions.md` phase-3 rules.
+   - (a) Write all three now as warnings, and promote each to an error as its
+     baseline reaches zero.
+   - (b) Write only the raw-SQL rule first, since it has a measured
+     production baseline of 5 files.
+   - Recommendation: (b). The context boundary rule needs the table-ownership
+     registry from step 1 first, and the outbox claim rule needs step 4.
+
+5. Context folders for the 5 contexts with no folder.
+   - (a) Give AcademicCalendar, FileCustody, and Reporting a folder; leave
+     Mailing inside Organization until it has a second reader.
+   - (b) Remove the 5 contexts from CML and fold their responsibilities into
+     their neighbours.
+   - Recommendation: (a) for AcademicCalendar and Reporting; (a) for
+     FileCustody as a reusable capability; (a) for Mailing. The CML is the
+     model of record, and the concepts are distinct. Do not fold them.
+
+6. The dead admission-period outbox.
+   - (a) Delete it and the INSERT.
+   - (b) Keep it and build Messaging to consume it.
+   - Recommendation: (a). The effect has no reader. Messaging can enqueue
+     through the one delivery mechanism when it is built.
+
+7. The in-memory rate limiters.
+   - (a) Move both to PostgreSQL, following the contact quota pattern.
+   - (b) Keep the in-memory limit and one replica.
+   - Recommendation: (a). Two replicas is the selected deployment. A durable
+     quota is one table and one upsert.
+
+## 13. Proposed `docs/architecture.md` edit
+
+This edit records the principles as the architecture's single source. It is a
+proposal; the operator approves or rejects it. It replaces the current
+`## Domain services` and `## Delivery and providers` framing with the following
+wording.
+
+```text
+## Functional core and imperative shell
+
+A bounded context is a modelling and code-organisation boundary, not a runtime
+boundary. The shell is one generic capability: one transaction runner and one
+delivery mechanism. Context differences are parameters, not copied tables or
+adapters.
+
+The core of each context is a library of pure functions. A command's core is
+`decide(state, command, now, authority) -> Result<Decision, DomainFailure>`. A
+Decision is data: the next state, the delivery effects, the audit facts, and the
+receipt payload. The core has no I/O and calls no service.
+
+The shell provides:
+- one transaction runner: declared lock set, receipt by digest, fresh state load
+  through the owner's named query, authority in the transaction, `decide`, then
+  the state, the one receipt, the audit facts, and the delivery effects in one
+  transaction;
+- one delivery mechanism: one envelope table, one queue, one worker; the retry,
+  quarantine, ordering, envelope, and provider are policy data;
+- one audit mechanism: one append-only fact table with a kind registry, except
+  the security audit that the identity engine writes outside a command.
+
+The database keeps what is structural: primary keys, foreign keys, unique and
+partial unique constraints, exclusion constraints for no-overlap, value-domain
+checks, append-only immutability of receipts, audit, and evidence, and
+mechanical revision bumps. Lifecycle, authority, eligibility, and window rules
+live in the core. A rule in a trigger is a backstop, and it names the writer
+that justifies it.
+
+Each context declares its tables in its own schema file. A context reads
+another context's facts only through a named query that the owner exports. A
+named query carries the keys that fence the facts it reads; the runner takes
+those keys before the query runs.
+
+A stateful Effect API is used only where state bound to operations is a named
+requirement.
+```
+
+## Appendix: measurement method
+
+- Schema counts: migrations `packages/database/migrations/0001-*.sql` to
+  `0080-*.sql`, replayed in statement order, tracking `CREATE TABLE`, `ALTER
+TABLE ... RENAME TO`, `ALTER TABLE ... SET SCHEMA`, and `DROP TABLE`. A
+  statement order matters: migration 0003 drops and recreates
+  `admission_applications` and `admission_application_command_receipts`, and
+  0075 drops and recreates `school_service_person_reservations`. A scan that
+  groups by file over-reports drops.
+- Function and trigger counts: the same replay, tracking `CREATE FUNCTION`,
+  `DROP FUNCTION` including the multi-name form at 0073:13-16,
+  `CREATE TRIGGER` with its table, and `DROP TRIGGER`.
+- Constraint counts: text occurrences of `CHECK (`, `EXCLUDE USING`, and
+  `CREATE INDEX` over the migrations. These are text counts, not parsed
+  constraints. `EXCLUDE` is 8 in the files; the lead reported 10; the
+  difference is not explained. [INFERENCE] The lead may have counted the
+  operator's `ON CONFLICT` clauses or the ones in test fixtures.
+- Cross-context references: every table name from the effective list matched
+  against every production file in `packages/database/src`, classified as a
+  read or a write by the SQL keyword before it, and against the folder to
+  context map. Owners come from `docs/model/contexts.cml` responsibilities and
+  `tools/conventions/src/layout.ts`. Two corrections to the first pass:
+  `organization_delegations` and `organization_delegation_history` are
+  AccessControl's, and `organization_volunteer_affiliations` is Placements'.
+- Co-change: `git log --no-merges --name-only -n 400` and `-n 800` on `main`;
+  paths mapped through the four context layers and the migration table
+  prefixes; commits touching more than 3 contexts excluded as sweeps.
+- SQL outside `packages/database`: statement regex over all `.ts`, `.tsx`,
+  `.mjs`, and `.js` files outside the excluded build directories, with a table
+  pattern that requires a schema-qualified or snake_case table name to avoid
+  English matches such as "select from the list".
+- Scouting: 12 read-only scouts, each with a named assignment and a file:line
+  contract. Their reports are the source for every table marked [scout].

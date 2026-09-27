@@ -299,8 +299,14 @@ in
     };
     # Whole-tree checks, types, and every package test run against the merged result.
     # just land always creates a merge commit, including when the branch can fast-forward.
+    # The install comes first: a branch that changes package.json or bun.lock must be checked
+    # against the merged tree's own dependencies, not the previous node_modules. Without it a
+    # dependency change fails with a missing-package error that says nothing about the branch.
+    # It converges node_modules to the lockfile of whatever tree is checked, so an aborted merge
+    # leaves no stale tree behind. docs/specs/land-installs-0927.md holds the remaining design
+    # (verifying in a temporary worktree so an aborted landing never moves main's node_modules).
     merge-full = hook {
-      entry = "${hookEnv} just measure --class hook-pre-merge-full -- bash -c 'just check --concurrency=1 && just test --concurrency=1'";
+      entry = "${hookEnv} just measure --class hook-pre-merge-full -- bash -c 'bun install --frozen-lockfile && just check --concurrency=1 && just test --concurrency=1'";
       stages = [ "pre-merge-commit" ];
       priority = 2;
       fail_fast = true;

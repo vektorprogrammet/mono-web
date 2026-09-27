@@ -55,6 +55,7 @@ Each folder of `src` holds a bounded context of [content/model/contexts.cml](../
 | `@vektorprogrammet/database/profile`                       | [src/profile/index.ts](src/profile/index.ts)                                 |
 | `@vektorprogrammet/database/receipt/postgres`              | [src/receipt/postgres-index.ts](src/receipt/postgres-index.ts)               |
 | `@vektorprogrammet/database/runtime`                       | [src/runtime-layer.ts](src/runtime-layer.ts)                                 |
+| `@vektorprogrammet/database/schema-bookkeeping`            | [src/schema-bookkeeping.ts](src/schema-bookkeeping.ts)                       |
 | `@vektorprogrammet/database/recruitment`                   | [src/recruitment/index.ts](src/recruitment/index.ts)                         |
 | `@vektorprogrammet/database/schools`                       | [src/schools/index.ts](src/schools/index.ts)                                 |
 | `@vektorprogrammet/database/social-events`                 | [src/social-events/index.ts](src/social-events/index.ts)                     |

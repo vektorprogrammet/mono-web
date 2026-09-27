@@ -14,6 +14,7 @@ import { Data, Effect, FileSystem, Path } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as Migrator from "effect/unstable/sql/Migrator";
 import type { SqlError } from "effect/unstable/sql/SqlError";
+import { schemaMigrationLedger } from "./schema-bookkeeping.js";
 
 export class DatabaseMigrationReadError extends Data.TaggedError("DatabaseMigrationReadError")<{
   readonly migration: string;
@@ -723,5 +724,5 @@ export const selectDatabaseMigration = (id: DatabaseMigrationId): DatabaseMigrat
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),
-    table: "vektorprogrammet_schema_migrations",
+    table: schemaMigrationLedger.table,
   });
