@@ -42,7 +42,7 @@ It does not narrate each function or list every private table as a public contra
 Every app, package, and context folder also has a generated `AGENTS.md` guide.
 It states the folder's bounded context from the [context map](model/contexts.cml), its entry points, and the shared constructs that it defines.
 It links the folder's README, which stays the human guide.
-The [construct catalogue](constructs.md) lists every shared construct and the modules that import it.
+The [construct index](constructs.md) lists every shared construct in one line, and the page of its category in [constructs](constructs) holds its contract; `just constructs consumers <name>` prints the modules that import it.
 
 ## Effect contracts
 

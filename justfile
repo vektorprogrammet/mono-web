@@ -51,7 +51,7 @@ check *args: layout constructs guides exceptions source-safety (format "--check"
 layout *args:
     bun --no-env-file tools/conventions/src/cli.ts layout "$@"
 
-# Check the construct index and contract pages against the @construct tags and their JSDoc, and count each construct's consumers; `just constructs write` renders the pages, and `just constructs consumers [name]` prints the modules that import a construct.
+# Check the construct index and contract pages against the @construct tags and their JSDoc, each construct's contract tags and annotations, and that two modules share it; `just constructs write` renders the pages, and `just constructs consumers [name]` prints the modules that import a construct.
 [group('check')]
 constructs *args:
     bun --no-env-file tools/conventions/src/cli.ts constructs "$@"

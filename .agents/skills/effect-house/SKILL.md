@@ -15,14 +15,14 @@ The links are relative to this file, so the file is a complete entry point also 
 ## Before you write
 
 1. Read the `AGENTS.md` guide of the folder. Every app, package, and bounded-context folder has one. `just guides write` renders its first part from [docs/model/contexts.cml](../../../docs/model/contexts.cml), the `@construct` tags, and the package exports. Local invariants go below that part.
-2. Search [docs/constructs.md](../../../docs/constructs.md) for a construct that already owns the logic, and use it.
+2. Search the one-line index [docs/constructs.md](../../../docs/constructs.md) for a construct that already owns the logic, read its contract on the page of its category, and use it.
 3. Find the platform and test layers of the file's role: [references/composition-and-tests.md](references/composition-and-tests.md).
 4. At an HTTP boundary, a service interface, or a Promise callback, read [references/boundaries.md](references/boundaries.md).
 5. If a rule cannot be followed, register an exception: [references/exceptions.md](references/exceptions.md).
 
 ## Constructs (FX002)
 
-`just constructs` fails when [docs/constructs.md](../../../docs/constructs.md) differs from the `@construct` tags and the imports. Use a listed construct; do not write its logic again. Tag a new one `@construct <category>` when two call sites share its logic, then run `just constructs write`.
+Reading about a construct discloses in three steps, each only when you need it: the one-line index [docs/constructs.md](../../../docs/constructs.md), the contract on the page of its category in [docs/constructs](../../../docs/constructs) (signature, errors, requirements, side effects, how it works, one use, and the misuse to avoid), and its consumers, which `just constructs consumers <name>` prints; no page lists them. Use a listed construct; do not write its logic again. Tag a new one `@construct <category>` when two modules outside its own module share its logic, give its JSDoc a summary, `@remarks`, `@sideEffects`, `@example`, and `@avoid`, annotate its parameters and return type, and run `just constructs write`. `just constructs` fails on a page that differs from the tags, on a missing contract tag or annotation, and on a construct that fewer than two modules share.
 
 | Need                                       | Construct                                                                                                                      | Enforcement                           |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------- |
@@ -35,12 +35,12 @@ The links are relative to this file, so the file is a complete entry point also 
 | The Promise callbacks of a library         | The pattern of `makeBetterAuthCallbackRunner`, until a second runner makes it a construct ([runtime bridges][runtime-bridges]) | review-only                           |
 | The class of a request that a journey saw  | `isNativeRequest`, `addressesAnyRoute` ([request-ledger])                                                                      | review-only                           |
 
-[test-harness]: ../../../docs/constructs.md#test-harness
-[digest]: ../../../docs/constructs.md#digest
-[http-problem]: ../../../docs/constructs.md#http-problem
-[sql-lock]: ../../../docs/constructs.md#sql-lock
+[test-harness]: ../../../docs/constructs/test-harness.md
+[digest]: ../../../docs/constructs/digest.md
+[http-problem]: ../../../docs/constructs/http-problem.md
+[sql-lock]: ../../../docs/constructs/sql-lock.md
 [runtime-bridges]: references/boundaries.md#runtime-bridges-fx003-fx006
-[request-ledger]: ../../../docs/constructs.md#request-ledger
+[request-ledger]: ../../../docs/constructs/request-ledger.md
 
 ## House rules
 
@@ -64,25 +64,25 @@ The links are relative to this file, so the file is a complete entry point also 
 
 The portable skills cite the `effecttsgo/*` rules. The rules and checks of this repository map to the same FX ids:
 
-| Rule or check                                                                       | FX    | Rejects                                                                                                                                 |
-| ----------------------------------------------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `effect/no-cross-runtime`                                                           | FX003 | A built-in, global, or platform layer of a runtime other than the one that the file group declares                                      |
-| `effect/no-premature-execution`                                                     | FX003 | A program that runs, or a platform that is provided, outside a composition root                                                         |
-| `effect/no-ambient-authority`                                                       | FX002 | Clock, random, cryptographic, network, timer, environment, file system, process, or runtime authority outside a declared Effect service |
-| `effect/no-ambient-console`                                                         | FX011 | Console output outside the Effect observability capability                                                                              |
-| `effect/no-native-promise-control-flow`                                             | FX003 | `async`, `await`, a Promise construction or combinator, or `Effect.runPromise` in a library, service, or adapter                        |
-| `effect/no-untyped-throw`                                                           | FX005 | A `throw` in a library or service, where the failure belongs in the error channel                                                       |
-| `effect/no-raw-json-parse`                                                          | FX004 | `JSON.parse` of external data, where a schema decodes the text                                                                          |
-| `anti-slop-effect/no-manual-effect-error-tag`                                       | FX005 | A branch on `_tag` in a catch handler, where a tagged error handler fits                                                                |
-| `anti-slop-effect/no-manual-tag-comparison`, `anti-slop-effect/prefer-effect-match` | FX002 | A hand-written branch on `_tag`, or a chain of literal ternaries over one value, where `Match` fits                                     |
-| `anti-slop-effect/no-manual-tagged-construction`                                    | FX002 | A hand-written `_tag`, where the tagged value has a constructor                                                                         |
-| `anti-slop-effect/no-service-constructor-imports`                                   | FX003 | An import of a project `make<Capability>` constructor outside a test, where a layer provides the service                                |
-| `anti-slop/no-module-mocking`                                                       | FX015 | A module mock in a test                                                                                                                 |
-| The rules of the constructs table                                                   | FX002 | Logic that a listed construct owns                                                                                                      |
-| `just exceptions`                                                                   | FX012 | A suppression without a registered exception, and an entry that no longer matches its sites or versions                                 |
-| `just constructs`                                                                   | FX002 | A construct catalogue that differs from the `@construct` tags and the imports                                                           |
-| `just check-types`                                                                  | FX004 | A type error, and an HTTP contract that differs from the one that it regenerates                                                        |
-| `packages/database/src/migration-registry.test.ts`, `just migration-hashes`         | FX010 | An applied migration whose checksum changed, and a migration id, position, or file that the registry lacks                              |
+| Rule or check                                                                       | FX    | Rejects                                                                                                                                                                           |
+| ----------------------------------------------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `effect/no-cross-runtime`                                                           | FX003 | A built-in, global, or platform layer of a runtime other than the one that the file group declares                                                                                |
+| `effect/no-premature-execution`                                                     | FX003 | A program that runs, or a platform that is provided, outside a composition root                                                                                                   |
+| `effect/no-ambient-authority`                                                       | FX002 | Clock, random, cryptographic, network, timer, environment, file system, process, or runtime authority outside a declared Effect service                                           |
+| `effect/no-ambient-console`                                                         | FX011 | Console output outside the Effect observability capability                                                                                                                        |
+| `effect/no-native-promise-control-flow`                                             | FX003 | `async`, `await`, a Promise construction or combinator, or `Effect.runPromise` in a library, service, or adapter                                                                  |
+| `effect/no-untyped-throw`                                                           | FX005 | A `throw` in a library or service, where the failure belongs in the error channel                                                                                                 |
+| `effect/no-raw-json-parse`                                                          | FX004 | `JSON.parse` of external data, where a schema decodes the text                                                                                                                    |
+| `anti-slop-effect/no-manual-effect-error-tag`                                       | FX005 | A branch on `_tag` in a catch handler, where a tagged error handler fits                                                                                                          |
+| `anti-slop-effect/no-manual-tag-comparison`, `anti-slop-effect/prefer-effect-match` | FX002 | A hand-written branch on `_tag`, or a chain of literal ternaries over one value, where `Match` fits                                                                               |
+| `anti-slop-effect/no-manual-tagged-construction`                                    | FX002 | A hand-written `_tag`, where the tagged value has a constructor                                                                                                                   |
+| `anti-slop-effect/no-service-constructor-imports`                                   | FX003 | An import of a project `make<Capability>` constructor outside a test, where a layer provides the service                                                                          |
+| `anti-slop/no-module-mocking`                                                       | FX015 | A module mock in a test                                                                                                                                                           |
+| The rules of the constructs table                                                   | FX002 | Logic that a listed construct owns                                                                                                                                                |
+| `just exceptions`                                                                   | FX012 | A suppression without a registered exception, and an entry that no longer matches its sites or versions                                                                           |
+| `just constructs`                                                                   | FX002 | A construct page that differs from the `@construct` tags and their JSDoc, a construct without its contract tags or annotations, and a construct that fewer than two modules share |
+| `just check-types`                                                                  | FX004 | A type error, and an HTTP contract that differs from the one that it regenerates                                                                                                  |
+| `packages/database/src/migration-registry.test.ts`, `just migration-hashes`         | FX010 | An applied migration whose checksum changed, and a migration id, position, or file that the registry lacks                                                                        |
 
 `effect/no-native-promise-control-flow` and `effect/no-untyped-throw` are strict rules, so they run in every group whose role they cover. `effect/no-raw-json-parse` runs where a group declares the `external-data` boundary: the runtime adapters of `apps/backend` and `packages/database`.
 
@@ -93,7 +93,7 @@ The portable skills leave these facts to the overlay:
 - **Lint configuration and severities:** [Lint configuration](#lint-configuration).
 - **Project rules and checks:** [Project rules and checks](#project-rules-and-checks).
 - **Exception registry and its check:** [docs/effect-exceptions.json](../../../docs/effect-exceptions.json) and `just exceptions`; see [references/exceptions.md](references/exceptions.md).
-- **House constructs:** [Constructs](#constructs-fx002) and [docs/constructs.md](../../../docs/constructs.md).
+- **House constructs:** [Constructs](#constructs-fx002), the index [docs/constructs.md](../../../docs/constructs.md), and the contract pages in [docs/constructs](../../../docs/constructs).
 - **Composition roots, test platform, and runtime bridges:** [references/composition-and-tests.md](references/composition-and-tests.md) and [references/boundaries.md](references/boundaries.md).
 - **Layer names:** `<Service>Live` for a live layer, such as `DatabaseLive`, `ContentManagementLive`, and `ReceiptFileStoreLive`, and `DatabaseTest()` for the PGlite database of a test. Services have no `layer` or `layerTest` statics.
 - **Migrations and the test database:** `packages/database/migrations/NNNN-<name>.sql`, frozen by `packages/database/migrations/checksums.json`; `just migration-hashes write` records a new one. A test takes `DatabaseTest()` or a disposable cluster (`withDisposablePostgres`).
@@ -103,7 +103,7 @@ The portable skills leave these facts to the overlay:
 
 ## Done means
 
-- `just exceptions`, `just constructs`, `just guides`, and `just layout` pass. The pre-commit hook runs them on the staged tree.
+- `just exceptions`, `just constructs`, `just guides`, and `just layout` pass. The merge hook runs full checks on the merged tree. The pre-push hook runs them on direct commits.
 - `just lint` reports no finding, and the package type check passes. `just lint`, `just check-types`, and `just check` are heavy jobs: run them through `just measure`.
 - The changed behaviour has a focused test (`bun run --cwd <package> vitest run <file>`) or a journey, run through `just measure` when it starts PostgreSQL or a browser.
 - The report names each exception added, changed, or retired, with its id.
