@@ -7,81 +7,131 @@ import type {
 import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import { makeNativeValidationError, Problem } from "@vektorprogrammet/http-api/http-semantics";
 import type { OrganizationResolutionError } from "../authority.js";
-import { personPresentation, problemMapper, requestInvalid } from "../http-api/problem.js";
+import {
+  type CredentialCases,
+  type OutageCases,
+  personPresentation,
+  type ProblemCases,
+  type ProblemMapper,
+  problemMapper,
+  requestInvalid,
+} from "../http-api/problem.js";
 
 /** Public applications answer a spent rate limit with one fixed delay. */
 const RATE_LIMIT_RETRY_AFTER_SECONDS = 60;
 
+/** Every failure that an admission handler answers. */
+type AdmissionFailure =
+  | AdmissionPeriodFailure
+  | PublicApplicationError
+  | ReturningAssistantError
+  | IdentityEngineError
+  | OrganizationResolutionError;
+
+/** The unavailable problem of an admission endpoint: a read, a command, or a returning assistant. */
+type AdmissionUnavailable =
+  | "admissions.unavailable"
+  | "dependency.unavailable"
+  | "returning.unavailable";
+
+/** The failures that answer from the credential that the request presented. */
+type AdmissionCredentialTag = "UnauthenticatedActor" | "ReturningAssistantUnauthenticated";
+
+/** The failures of a store or dependency, which answer the endpoint's unavailable problem. */
+type AdmissionOutageTag =
+  | "AdmissionPeriodPersistenceError"
+  | "PublicApplicationPersistenceError"
+  | "PublicApplicationQueryLimitExceeded"
+  | "IdentityEngineError"
+  | "OrganizationDecodeError"
+  | "OrganizationPersistenceError";
+
+const admissionFixedCases = {
+  InactiveActor: () => Problem.make("authority.denied"),
+  AdmissionRoleDenied: () => Problem.make("authority.denied"),
+  AdmissionScopeDenied: () => Problem.make("authority.denied"),
+  // The domain decodes the whole command, so the rejection names the whole body.
+  AdmissionPeriodDecodeError: requestInvalid,
+  PublicApplicationDecodeError: requestInvalid,
+  ReturningAssistantDecodeError: requestInvalid,
+  // The frozen unions have no department or semester code; an unknown one is an invalid value.
+  DepartmentNotFound: () =>
+    Problem.validation("validation.failed", [
+      makeNativeValidationError("/departmentId", "invalid"),
+    ]),
+  SemesterNotFound: () =>
+    Problem.validation("validation.failed", [makeNativeValidationError("/semesterId", "invalid")]),
+  DepartmentRequired: () =>
+    Problem.validation("validation.failed", [
+      makeNativeValidationError("/departmentId", "missing"),
+    ]),
+  AdmissionPeriodNotFound: () => Problem.make("admission-period.not-found"),
+  InvalidAdmissionPeriodWindow: () => Problem.make("admission-period.invalid-window"),
+  AdmissionWindowOutsideSemester: () => Problem.make("admission-period.invalid-window"),
+  AdmissionPeriodAlreadyExists: () => Problem.make("admission-period.already-exists"),
+  StaleAdmissionPeriodRevision: () => Problem.make("precondition.failed"),
+  DuplicateAdmissionPeriodCommandConflict: () => Problem.make("idempotency.digest-conflict"),
+  NoEligibleAdmissionPeriod: () => Problem.make("application.no-eligible-period"),
+  AmbiguousAdmissionPeriod: () => Problem.make("application.ambiguous-period"),
+  FieldOfStudyNotFound: () => Problem.make("application.invalid-field-of-study"),
+  FieldOfStudyInactive: () => Problem.make("application.invalid-field-of-study"),
+  FieldOfStudyDepartmentMismatch: () => Problem.make("application.invalid-field-of-study"),
+  DuplicatePublicApplication: () => Problem.make("application.duplicate"),
+  DuplicatePublicApplicationCommandConflict: () => Problem.make("idempotency.digest-conflict"),
+  PublicApplicationNotFound: () => Problem.make("application.not-found"),
+  RequestBodyTooLarge: () => Problem.make("request.too-large"),
+  PublicApplicationRateLimitExceeded: () => Problem.rateLimited(RATE_LIMIT_RETRY_AFTER_SECONDS),
+  ReturningAssistantIdentityMissing: () => Problem.make("returning.identity-missing"),
+  ReturningAssistantIdentityAmbiguous: () => Problem.make("returning.identity-ambiguous"),
+  ReturningAssistantHistoryMissing: () => Problem.make("returning.history-missing"),
+  ReturningAssistantStudyMappingInvalid: () => Problem.make("returning.study-invalid"),
+  ReturningAssistantPeriodUnavailable: () => Problem.make("returning.period-unavailable"),
+  ReturningAssistantDuplicate: () => Problem.make("returning.period-unavailable"),
+  ReturningAssistantTeamScopeDenied: () => Problem.make("returning.team-scope-denied"),
+  ReturningAssistantRevisionConflict: () => Problem.make("returning.revision-conflict"),
+  ReturningAssistantCommandConflict: () => Problem.make("idempotency.digest-conflict"),
+  ReturningAssistantPersistenceError: () => Problem.make("returning.unavailable"),
+} satisfies ProblemCases<
+  Exclude<AdmissionFailure, { readonly _tag: AdmissionCredentialTag | AdmissionOutageTag }>
+>;
+
+/** The cases of `admissionProblems`, which answer an outage with `Unavailable`. */
+type AdmissionCases<Unavailable extends AdmissionUnavailable> = typeof admissionFixedCases &
+  CredentialCases<AdmissionCredentialTag> &
+  OutageCases<AdmissionOutageTag, Unavailable>;
+
 /**
- * The one answer for every admission failure. A failed dependency answers the
- * endpoint's own unavailable problem, and a rejected credential answers from
- * the request's credential evidence.
+ * The one answer for every admission failure.
+ *
+ * @remarks
+ * A failed store or dependency answers the endpoint's own unavailable problem, `unavailable`: a
+ * read answers admissions.unavailable, a command dependency.unavailable, and a returning-assistant
+ * operation returning.unavailable. A rejected credential answers from the credential that the
+ * request presented. A command that does not decode answers validation.failed at the root, and an
+ * unknown department or semester answers validation.failed at its member.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * command.pipe(admissionProblems(request, "dependency.unavailable"));
+ * ```
+ *
+ * @avoid Mapping an admission failure in a handler: the answers of the admission endpoints drift
+ * apart. Pipe the handler's effect through this, with the endpoint's unavailable problem.
  *
  * @construct http-problem
  */
-export const admissionProblems = <
-  Unavailable extends "admissions.unavailable" | "dependency.unavailable" | "returning.unavailable",
->(
+export const admissionProblems = <Unavailable extends AdmissionUnavailable>(
   request: Request,
   unavailable: Unavailable,
-) => {
+): ProblemMapper<AdmissionFailure, AdmissionCases<Unavailable>> => {
   const presentation = personPresentation(request);
 
-  return problemMapper<
-    | AdmissionPeriodFailure
-    | PublicApplicationError
-    | ReturningAssistantError
-    | IdentityEngineError
-    | OrganizationResolutionError
-  >()({
+  return problemMapper<AdmissionFailure>()<AdmissionCases<Unavailable>>({
+    ...admissionFixedCases,
     UnauthenticatedActor: () => Problem.unauthenticated(presentation),
     ReturningAssistantUnauthenticated: () => Problem.unauthenticated(presentation),
-    InactiveActor: () => Problem.make("authority.denied"),
-    AdmissionRoleDenied: () => Problem.make("authority.denied"),
-    AdmissionScopeDenied: () => Problem.make("authority.denied"),
-    // The domain decodes the whole command, so the rejection names the whole body.
-    AdmissionPeriodDecodeError: requestInvalid,
-    PublicApplicationDecodeError: requestInvalid,
-    ReturningAssistantDecodeError: requestInvalid,
-    // The frozen unions have no department or semester code; an unknown one is an invalid value.
-    DepartmentNotFound: () =>
-      Problem.validation("validation.failed", [
-        makeNativeValidationError("/departmentId", "invalid"),
-      ]),
-    SemesterNotFound: () =>
-      Problem.validation("validation.failed", [
-        makeNativeValidationError("/semesterId", "invalid"),
-      ]),
-    DepartmentRequired: () =>
-      Problem.validation("validation.failed", [
-        makeNativeValidationError("/departmentId", "missing"),
-      ]),
-    AdmissionPeriodNotFound: () => Problem.make("admission-period.not-found"),
-    InvalidAdmissionPeriodWindow: () => Problem.make("admission-period.invalid-window"),
-    AdmissionWindowOutsideSemester: () => Problem.make("admission-period.invalid-window"),
-    AdmissionPeriodAlreadyExists: () => Problem.make("admission-period.already-exists"),
-    StaleAdmissionPeriodRevision: () => Problem.make("precondition.failed"),
-    DuplicateAdmissionPeriodCommandConflict: () => Problem.make("idempotency.digest-conflict"),
-    NoEligibleAdmissionPeriod: () => Problem.make("application.no-eligible-period"),
-    AmbiguousAdmissionPeriod: () => Problem.make("application.ambiguous-period"),
-    FieldOfStudyNotFound: () => Problem.make("application.invalid-field-of-study"),
-    FieldOfStudyInactive: () => Problem.make("application.invalid-field-of-study"),
-    FieldOfStudyDepartmentMismatch: () => Problem.make("application.invalid-field-of-study"),
-    DuplicatePublicApplication: () => Problem.make("application.duplicate"),
-    DuplicatePublicApplicationCommandConflict: () => Problem.make("idempotency.digest-conflict"),
-    PublicApplicationNotFound: () => Problem.make("application.not-found"),
-    RequestBodyTooLarge: () => Problem.make("request.too-large"),
-    PublicApplicationRateLimitExceeded: () => Problem.rateLimited(RATE_LIMIT_RETRY_AFTER_SECONDS),
-    ReturningAssistantIdentityMissing: () => Problem.make("returning.identity-missing"),
-    ReturningAssistantIdentityAmbiguous: () => Problem.make("returning.identity-ambiguous"),
-    ReturningAssistantHistoryMissing: () => Problem.make("returning.history-missing"),
-    ReturningAssistantStudyMappingInvalid: () => Problem.make("returning.study-invalid"),
-    ReturningAssistantPeriodUnavailable: () => Problem.make("returning.period-unavailable"),
-    ReturningAssistantDuplicate: () => Problem.make("returning.period-unavailable"),
-    ReturningAssistantTeamScopeDenied: () => Problem.make("returning.team-scope-denied"),
-    ReturningAssistantRevisionConflict: () => Problem.make("returning.revision-conflict"),
-    ReturningAssistantCommandConflict: () => Problem.make("idempotency.digest-conflict"),
-    ReturningAssistantPersistenceError: () => Problem.make("returning.unavailable"),
     AdmissionPeriodPersistenceError: () => Problem.make(unavailable),
     PublicApplicationPersistenceError: () => Problem.make(unavailable),
     PublicApplicationQueryLimitExceeded: () => Problem.make(unavailable),

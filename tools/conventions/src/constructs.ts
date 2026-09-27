@@ -8,10 +8,10 @@
  * <name>` reads the import graph when called and prints the modules that import a construct; no
  * page lists them, so an import never changes a page.
  *
- * `just constructs` fails when a page differs from that rendering or when a tag is malformed or
- * misplaced. It reports a construct that lacks a contract tag or an annotation, or that fewer than
- * two modules outside its own module and the tests of its app or package import, and it warns
- * about functions that three or more modules outside their app or package import untagged.
+ * `just constructs` fails when a page differs from that rendering, when a tag is malformed or
+ * misplaced, when a construct lacks a contract tag or an annotation, and when fewer than two
+ * modules outside its own module and the tests of its app or package import it. It warns about
+ * functions that three or more modules outside their app or package import untagged.
  */
 import { posix } from "node:path";
 import type { Finding } from "./check.js";
@@ -24,7 +24,14 @@ import {
   type Tag,
   tagText,
 } from "./contracts.js";
-import { bindingKey, type ModuleGraph, moduleFile, packageOf, parseModule } from "./modules.js";
+import {
+  bindingKey,
+  type ModuleGraph,
+  moduleFile,
+  packageOf,
+  parseModule,
+  readModuleGraph,
+} from "./modules.js";
 import type { Repository } from "./repository.js";
 
 /**
@@ -71,10 +78,8 @@ export interface Construct {
 
 export interface ConstructReport {
   readonly constructs: ReadonlyArray<Construct>;
-  /** Malformed or misplaced tags, and unused categories. */
+  /** Malformed or misplaced tags, unused categories, and missing contract tags and annotations. */
   readonly findings: ReadonlyArray<Finding>;
-  /** The contract tags and annotations that constructs lack. */
-  readonly gaps: ReadonlyArray<Finding>;
 }
 
 /** An untagged function that three or more modules outside its app or package import. */
@@ -120,7 +125,6 @@ const constructTags = (tags: ReadonlyArray<Tag>): ReadonlyArray<string> =>
  */
 export const readConstructs = (repository: Repository): ConstructReport => {
   const findings: Array<Finding> = [];
-  const gaps: Array<Finding> = [];
   const constructs: Array<Construct> = [];
   const tagged = new Set<string>();
 
@@ -175,7 +179,7 @@ export const readConstructs = (repository: Repository): ConstructReport => {
         continue;
       }
 
-      for (const message of contractGaps(declared)) gaps.push({ path: place, message });
+      for (const message of contractGaps(declared)) findings.push({ path: place, message });
 
       for (const name of names) {
         const key = bindingKey({ path, name });
@@ -204,14 +208,14 @@ export const readConstructs = (repository: Repository): ConstructReport => {
         message: `declares the category ${category}, which no construct uses; remove it`,
       });
 
-  return { constructs: constructs.sort(byLocation), findings, gaps };
+  return { constructs: constructs.sort(byLocation), findings };
 };
 
 // ---------------------------------------------------------------------------------------------
 // Consumers
 
 /** The modules that do not parse, so that the graph may lack their imports and exports. */
-export const parseFindings = (graph: ModuleGraph): ReadonlyArray<Finding> =>
+const parseFindings = (graph: ModuleGraph): ReadonlyArray<Finding> =>
   [...graph.modules.values()].flatMap((module) =>
     module.errors.map((error) => ({ path: module.path, message: `does not parse: ${error}` })),
   );
@@ -428,7 +432,7 @@ const renderIndex = (
     "",
     "The JSDoc of a construct carries `@construct <category>`, a summary sentence, `@remarks`, `@sideEffects`, `@example`, and `@avoid`, and its parameters and return type carry annotations.",
     `Tag a construct only when at least ${sharedConsumers} modules outside its own module and the tests of its app or package import it.`,
-    `\`just constructs\` checks these pages against the tags, and it lists untagged functions that ${candidateImporters} or more modules outside their app or package import.`,
+    `\`just constructs\` fails when these pages differ from the tags, when a construct lacks one of these tags or annotations, and when fewer modules import it. It lists untagged functions that ${candidateImporters} or more modules outside their app or package import.`,
     "",
     ...categories.flatMap(({ category, holds, members }) => [
       `- [${category}](${posix.relative(from, pageOf(category))}): ${holds}`,
@@ -499,4 +503,37 @@ export const checkPages = (
         : [],
     ),
   ];
+};
+
+/** What `just constructs` reports: its findings fail the check, and its candidates do not. */
+interface ConstructCheck {
+  readonly constructs: ReadonlyArray<Construct>;
+  readonly consumers: ReadonlyArray<Consumers>;
+  readonly candidates: ReadonlyArray<Candidate>;
+  /** The number of modules in the import graph. */
+  readonly modules: number;
+  readonly findings: ReadonlyArray<Finding>;
+}
+
+/**
+ * The construct check: modules that do not parse, malformed or misplaced tags, contract gaps,
+ * pages that differ from their rendering, and constructs that fewer than two modules share.
+ */
+export const checkConstructs = (repository: Repository): ConstructCheck => {
+  const report = readConstructs(repository);
+  const graph = readModuleGraph(repository);
+  const consumers = readConsumers(report.constructs, graph);
+
+  return {
+    constructs: report.constructs,
+    consumers,
+    candidates: readCandidates(repository, graph, report.constructs),
+    modules: graph.modules.size,
+    findings: [
+      ...parseFindings(graph),
+      ...report.findings,
+      ...checkPages(repository, report.constructs),
+      ...consumerFindings(consumers),
+    ],
+  };
 };

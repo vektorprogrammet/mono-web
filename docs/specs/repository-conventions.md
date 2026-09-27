@@ -23,7 +23,7 @@ A person or an agent can find the right place for new code, the shared construct
 | Bounded contexts and their relationships | `docs/model/contexts.cml` | context folder check, context boundary lint rules, context sections of module guides, docs-site context map |
 | Authority rules | `docs/model/authority.als` | nothing generated; the Alloy checks run in CI |
 | Repository layout | one declaration in `tools/conventions` | layout check, layout table in `AGENTS.md` and the README |
-| Shared constructs | `@construct <category>` JSDoc tags on exports | construct catalogue page, consumer counts from the import graph, lint messages |
+| Shared constructs | `@construct <category>` JSDoc tags on exports, with their contract tags and annotations | construct index and contract pages, consumers from the import graph on request, lint messages |
 | Worked examples for people and agents | type-checked files under `ai-docs/src` | `LLMS.md` and the docs-site guide section |
 | Commands | the root `justfile` | `just --list`, hook and CI invocations |
 | Public entry points | `exports` in each `package.json` | module guides, import rules |
@@ -56,9 +56,9 @@ A person or an agent can find the right place for new code, the shared construct
 
 ### Shared constructs
 
-- A shared construct carries `@construct <category>` and a module header comment in the style of Effect's modules: purpose, when to use, details.
-- The catalogue lists name, summary, location, and consumers. Consumers are computed from the import graph.
-- A construct is created only when at least two call sites share the same logic.
+- A shared construct carries `@construct <category>` and its contract: a summary, `@remarks`, `@sideEffects`, `@example`, `@avoid`, and annotated parameters and return type.
+- The index lists each construct's name and summary, and the page of its category holds its contract. No page lists consumers; `just constructs consumers` computes them from the import graph when called.
+- A construct is created only when at least two call sites share the same logic; `just constructs` fails on one that fewer than two modules outside its own module and tests import.
 - Raw node-postgres code in `packages/database` moves to Effect SQL. No construct gets a second, raw-client twin.
 
 ### Lint and boundary rules

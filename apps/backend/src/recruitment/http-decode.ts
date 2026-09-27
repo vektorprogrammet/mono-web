@@ -10,12 +10,35 @@ import { decodeRequest, readJsonBody } from "../http-api/problem.js";
 
 /**
  * Every recruitment request body is one bounded `application/json` document.
- * The body reader is acquired when the effect runs, not when it is built.
+ *
+ * @remarks
+ * It reads the body with `readJsonBody` for the media type `application/json`, with or without
+ * parameters, up to `maxBodyBytes`. `Effect.suspend` takes the body reader when the effect runs,
+ * not when it is built, so a handler that builds the effect and never runs it leaves the body
+ * unread.
+ *
+ * @sideEffects Reads and consumes the request body when the effect runs.
+ *
+ * @example
+ * ```ts
+ * const body = yield* readRecruitmentBody(request, input.config.maxBodyBytes);
+ * ```
+ *
+ * @avoid A recruitment handler that reads its body with its own media type pattern or bound: the
+ * recruitment endpoints then accept different bodies. Read it with this.
  *
  * @construct http-problem
  */
-export const readRecruitmentBody = (request: Request, maxBodyBytes: number) =>
-  Effect.suspend(() => readJsonBody(request, /^application\/json(?:\s*;|$)/iu, maxBodyBytes));
+export const readRecruitmentBody = (
+  request: Request,
+  maxBodyBytes: number,
+): Effect.Effect<
+  Schema.Json,
+  | Problem<"internal.error">
+  | Problem<"media-type.unsupported">
+  | Problem<"request.malformed">
+  | Problem<"request.too-large">
+> => Effect.suspend(() => readJsonBody(request, /^application\/json(?:\s*;|$)/iu, maxBodyBytes));
 
 /** Decodes the single `status` assignment-board query parameter. */
 export const decodeBoardQuery = (request: Request) => {

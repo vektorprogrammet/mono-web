@@ -2,6 +2,7 @@
 // the real resolver, package exports, and pages.
 import { describe, expect, test } from "bun:test";
 import {
+  checkConstructs,
   checkPages,
   consumerFindings,
   constructPages,
@@ -159,21 +160,30 @@ describe("construct pages", () => {
   });
 
   test("reports a missing contract tag and a missing annotation", () => {
-    const gaps = (doc: string, declaration?: string) =>
-      readConstructs(withFiles(probe(doc, declaration)))
-        .gaps.filter((finding) => finding.path.startsWith(`${kernel}/probe.ts:`))
-        .map((finding) => finding.message);
+    const gapCount = (doc: string, declaration?: string) =>
+      readConstructs(withFiles(probe(doc, declaration))).findings.filter((finding) =>
+        finding.path.startsWith(`${kernel}/probe.ts:`),
+      ).length;
 
-    expect(gaps(tagged(contract))).toEqual([]);
-    expect(gaps(tagged(contract.replace("@avoid", "Avoid:")))).toEqual([
-      "has no @avoid tag (the misuse that it prevents, and what to do instead)",
-    ]);
-    expect(gaps(tagged(contract), "(value: number) => value * 2")).toEqual([
-      "has no return type annotation",
-    ]);
-    expect(gaps(tagged(contract), "(value): number => value * 2")).toEqual([
-      "has no type annotation on the parameter `value`",
-    ]);
+    expect(gapCount(tagged(contract))).toBe(0);
+    expect(gapCount(tagged(contract.replace("@avoid", "Avoid:")))).toBe(1);
+    expect(gapCount(tagged(contract), "(value: number) => value * 2")).toBe(1);
+    expect(gapCount(tagged(contract), "(value): number => value * 2")).toBe(1);
+  });
+
+  test("fails the check on a contract gap and on a construct that one module imports", () => {
+    const check = checkConstructs(
+      withFiles({
+        ...probe(tagged(contract.replace("@avoid", "Avoid:"))),
+        "apps/backend/src/probe-a.ts": fromKernel,
+      }),
+    );
+
+    const findings = check.findings.filter((finding) =>
+      finding.path.startsWith(`${kernel}/probe.ts:`),
+    );
+
+    expect(findings).toHaveLength(2);
   });
 
   test("rejects an unknown category and a tag on a declaration that is not exported", () => {

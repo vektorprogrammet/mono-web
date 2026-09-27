@@ -11,7 +11,7 @@ Read about a construct in three steps, each only when you need it:
 
 The JSDoc of a construct carries `@construct <category>`, a summary sentence, `@remarks`, `@sideEffects`, `@example`, and `@avoid`, and its parameters and return type carry annotations.
 Tag a construct only when at least 2 modules outside its own module and the tests of its app or package import it.
-`just constructs` checks these pages against the tags, and it lists untagged functions that 3 or more modules outside their app or package import.
+`just constructs` fails when these pages differ from the tags, when a construct lacks one of these tags or annotations, and when fewer modules import it. It lists untagged functions that 3 or more modules outside their app or package import.
 
 - [http-transport](constructs/http-transport.md): Reads native HTTP requests and writes their representations: bounded JSON, preconditions, idempotency keys, entity tags, and cache headers.
   - [`encodePathIdentity`](constructs/http-transport.md#encodepathidentity): Encodes one decoded identity as an uppercase RFC 3986 path segment.

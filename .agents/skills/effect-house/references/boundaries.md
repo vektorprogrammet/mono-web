@@ -26,9 +26,9 @@ The runner is no tagged construct while it is the only one, because a construct 
 
 [packages/http-api](../../../../packages/http-api) owns the contracts; the backend derives its transport from them, and `just check-types` asserts the generated HTTP contract.
 
-- A handler decodes its input with the contract schemas: `readJsonBody`, `decodeRequest`, and `strictOutput` ([docs/constructs.md#http-problem](../../../../docs/constructs.md#http-problem)).
+- A handler decodes its input with the contract schemas: `readJsonBody`, `decodeRequest`, and `strictOutput` ([docs/constructs/http-problem.md](../../../../docs/constructs/http-problem.md)).
 - A failure is a `Problem`. `Problem.make(code)` takes only the code; `NativeProblemRegistry` in [packages/http-api/src/http-semantics.ts](../../../../packages/http-api/src/http-semantics.ts) owns its status and body. An endpoint declares its closed union with `problemUnion`.
-- Each context maps its domain failures once with `problemMapper`, as `contentProblems` and `receiptProblems` do. A failure that an operation cannot produce is marked with `unreachable`.
+- Each context maps its domain failures once with `problemMapper`, as `contentProblems` and `receiptProblems` do, and declares the mapper's type as `ProblemMapper<Failure, Cases>`, where `Cases` is the type of its cases. A failure that an operation cannot produce is marked with `unreachable`.
 - `ProblemBoundaryLive` is the only consumer of a Cause. A handler does not catch defects or render causes itself.
 - A JSON representation is written with `jsonText`, which encodes through Schema and writes the bytes that `JSON.stringify` wrote.
 - Authority, receipts, preconditions, and outbox writes follow [AGENTS.md#boundary-practices](../../../../AGENTS.md#boundary-practices).
