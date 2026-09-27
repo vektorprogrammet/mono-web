@@ -1,4 +1,4 @@
-[//]: # "guide: generated from content/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
+[//]: # "guide: generated from docs/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
 
 # apps/backend/src/password-recovery
 
@@ -11,7 +11,7 @@ The Identity context in other folders:
 
 ## Bounded context: Identity
 
-From [content/model/contexts.cml](../../../../content/model/contexts.cml).
+From [docs/model/contexts.cml](../../../../docs/model/contexts.cml).
 
 Authenticates people and machines. An Account authenticates exactly one Person; credentials, sessions, recovery and claim capabilities belong to the account lifecycle. A service caller is a separate principal, never a synthetic Person.
 

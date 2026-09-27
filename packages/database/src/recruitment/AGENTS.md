@@ -1,4 +1,4 @@
-[//]: # "guide: generated from content/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
+[//]: # "guide: generated from docs/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
 
 # packages/database/src/recruitment
 
@@ -19,7 +19,7 @@ The Recruitment context in other folders:
 
 ## Bounded context: Recruitment
 
-From [content/model/contexts.cml](../../../../content/model/contexts.cml).
+From [docs/model/contexts.cml](../../../../docs/model/contexts.cml).
 
 Interview staffing, scheduling, invitations and responses, conduct, recommendation, corrections and onboarding invitations. Recommendation, invitation, account claim, affiliation and placement stay separate decisions.
 

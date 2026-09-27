@@ -1,8 +1,4 @@
-[//]: # "generated from content/specs/public-surface.mdx by just docs generate; do not edit"
-
 # Public surface
-
-Each package's public surface is exactly what other packages use, and every declaration on it has a doc comment.
 
 Status: frozen for implementation on 2026-09-26 (operator request; evidence below). Remove this specification when the checks below run in hooks and CI and `AGENTS.md`, the effect-house overlay, and the module guides describe the rule.
 

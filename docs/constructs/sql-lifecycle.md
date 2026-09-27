@@ -1,6 +1,6 @@
 # sql-lifecycle
 
-[//]: # "constructs: generated from the @construct tags and their JSDoc by just docs generate; do not edit"
+[//]: # "constructs: generated from the @construct tags and their JSDoc by just constructs write; do not edit"
 
 Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account access. The [index](../constructs.md) lists every category.
 

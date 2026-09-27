@@ -1,8 +1,4 @@
-[//]: # "generated from content/specs/certificates-days-served.mdx by just docs generate; do not edit"
-
 # Certificates and days served
-
-Confirmed days served per assistant, department, and semester, and the certificates and board rosters derived from them.
 
 Status: frozen for implementation on 2026-09-26 (operator decisions below). Remove this specification when `docs/system.md`, the code, and the checks below represent it.
 
@@ -100,8 +96,8 @@ Branch `feat/certificates-0926` (CertificatesBuild, CertificatesBuild2, then Cer
    - a stale revision on confirmation;
    - the issuer's derived seat ended between page load and issue, then a new appointment;
    - the 40001 trigger at commit, recovered in the same request (the sequence and `DEFERRABLE INITIALLY DEFERRED` constraint trigger of `certificates-http.test.ts`, installed through the journey's pool).
-     Add `certificates` to the `golden` recipe and the hosted matrix in `.github/workflows/tests.yml`, run `just layout write`, and pass 3 runs through `just measure`.
-3. Update the system document (Certificates; the derived seat roster under Organization administration): `content/(system)/system.mdx` once the Fumadocs site has landed, otherwise `docs/system.md`. Update `STATE.md` and `content/model/contexts.cml`, where `Certificate` becomes cumulative per assistant and department and the capabilities become `placements.days-served` and `certificates.issue`. Then remove this specification.
+   Add `certificates` to the `golden` recipe and the hosted matrix in `.github/workflows/tests.yml`, run `just layout write`, and pass 3 runs through `just measure`.
+3. Update the system document (Certificates; the derived seat roster under Organization administration): `apps/docs/content/docs/system.mdx` once the Fumadocs site has landed, otherwise `docs/system.md`. Update `STATE.md` and `docs/model/contexts.cml`, where `Certificate` becomes cumulative per assistant and department and the capabilities become `placements.days-served` and `certificates.issue`. Then remove this specification.
 
 ### Decisions this specification did not cover
 

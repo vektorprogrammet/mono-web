@@ -1,6 +1,6 @@
 # worker
 
-[//]: # "constructs: generated from the @construct tags and their JSDoc by just docs generate; do not edit"
+[//]: # "constructs: generated from the @construct tags and their JSDoc by just constructs write; do not edit"
 
 Runs background workers on the Effect clock. The [index](../constructs.md) lists every category.
 

@@ -1,4 +1,4 @@
-[//]: # "guide: generated from content/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
+[//]: # "guide: generated from docs/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
 
 # packages/database/src/organization
 
@@ -13,7 +13,7 @@ The Organization context in other folders:
 
 ## Bounded context: Organization
 
-From [content/model/contexts.cml](../../../../content/model/contexts.cml).
+From [docs/model/contexts.cml](../../../../docs/model/contexts.cml).
 
 Local departments, teams with a home department and a scope, department boards (Styret), the national board (Hovedstyret), positions and effective-dated appointments. Units are scopes, never holders: an ordinary team sits at its own scope, a department board at its department, the national board at national scope. Appointments are relationship facts that AccessControl reads. A position is an informal title that its unit defines; it maps to exactly one role type, and authority comes only from the role type, with the unit's reach. A title is never authority. Styret holds its own positions plus one derived seat for every leader of a local team with its home in the department; Hovedstyret holds its own positions plus one derived seat for every leader of a national team. A department governs itself only while Hovedstyret recognises it as independent; a department that is not independent, and a team without a board, fall under Hovedstyret. Members are students with a role; membership lapses after three semesters without one. A Hovedstyret seat does not make a person a global administrator. An ordinary team leader acts within the team. A functional team is an ordinary team; its department or national work comes only from delegations.
 

@@ -69,8 +69,6 @@ describe("paths", () => {
       ["packages/database/vitest.config.json", true],
       ["tools/verification/credential-race.ts", false],
       ["patches/effect@4.0.0-rc.116.patch", false],
-      ["patches/@tanstack%2Fstart-static-server-functions@1.167.37.patch", false],
-      ["patches/@scope%2Fperson@university.no.patch", true],
       ["apps/backend/test/database.sql", true],
       ["apps/backend/test/database-seed.ts", true],
       ["tools/verification/credentials.json", true],

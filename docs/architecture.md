@@ -1,8 +1,4 @@
-[//]: # "generated from content/(architecture)/architecture.mdx by just docs generate; do not edit"
-
 # Intended architecture
-
-Runtime, dependencies, persistence, delivery, and interface boundaries.
 
 **Status:** Target architecture for the native replacement. Revised 2026-09-24.
 
@@ -226,7 +222,7 @@ An ordinary team leader acts only in its own team; a board leader reaches where 
 a delegation reaches only its team's members, its area, and its interval. The lint rule
 `anti-slop/no-leadership-reach` keeps leadership facts out of every other module.
 
-[`content/model/authority.als`](../content/model/authority.als) verifies the rules (`just model check`).
+[`docs/model/authority.als`](model/authority.als) verifies the rules (`just model check`).
 Each code rule follows these predicates:
 
 | Code rule                                                            | Predicates                                                                                      |

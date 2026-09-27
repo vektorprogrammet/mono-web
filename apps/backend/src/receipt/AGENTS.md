@@ -1,4 +1,4 @@
-[//]: # "guide: generated from content/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
+[//]: # "guide: generated from docs/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
 
 # apps/backend/src/receipt
 
@@ -12,7 +12,7 @@ The Economy context in other folders:
 
 ## Bounded context: Economy
 
-From [content/model/contexts.cml](../../../../content/model/contexts.cml).
+From [docs/model/contexts.cml](../../../../docs/model/contexts.cml).
 
 Expense claims with private receipt files, approval, rejection and reopening, from assistants (travel to school) and team members (social events). Every member of the national economy team approves or rejects claims through a national delegation. Only its leader, the finance lead, pays out and records immutable settlement evidence, through a leaders-only delegation. Claim state, file custody, payment destinations, approval authority, settlement authority, delivery attempts and settlement history are separate facts.
 

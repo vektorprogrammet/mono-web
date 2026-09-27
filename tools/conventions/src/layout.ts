@@ -10,8 +10,7 @@ export const topLevelDirectories = {
   packages: "Layer-first libraries that the applications compose",
   tools: "Development, verification, and migration tools",
   infra: "Worker preview deployment configuration",
-  content: "Hand-written repository-wide documentation pages and the formal models",
-  docs: "Generated read paths: the Markdown of every documentation page, the construct pages, and llms.txt",
+  docs: "Intended system, architecture, operations, and active specifications",
   patches: "Dependency patches that `patchedDependencies` in package.json applies",
   ".github": "Checks, Tests, Docs, and preview workflows and their actions",
   ".claude": "Claude Code settings and project rules",
@@ -60,8 +59,7 @@ export const packageRoots = ["apps", "packages", "tools"] as const;
 export const packageDirectories = {
   "apps/backend": "Native Effect HTTP process and workers",
   "apps/dashboard": "Authenticated React Router and Foldkit application",
-  "apps/docs":
-    "Documentation site: renders the content folders and the code extracts to the static site and to docs/",
+  "apps/docs": "Documentation site that renders the repository documents",
   "apps/homepage": "Public React application",
   "packages/domain": "Business values, transitions, failures, and authority",
   "packages/database": "PostgreSQL schema, persistence, locks, audit, and outbox",
@@ -80,51 +78,8 @@ export const packageDirectories = {
   "tools/verification": "Cross-application PostgreSQL proofs and migration rehearsals",
 } satisfies Readonly<Record<string, string>>;
 
-/**
- * The folder of hand-written documentation: `content/` at the root for repository-wide pages, and
- * beside the `package.json` of an app, package, or tool for its own pages. No generator writes into
- * a content folder, so every file there is written by hand.
- */
-export const contentFolder = "content";
-
-/** What a content folder holds, by file name or extension. */
-export const contentFiles = {
-  ".mdx": "A page",
-  ".md": "A page",
-  "meta.json": "The navigation order and title of its folder",
-  ".png": "An image",
-  ".jpg": "An image",
-  ".svg": "An image",
-  ".webp": "An image",
-  ".als": "The Alloy model of authority",
-  ".cml": "The Context Mapper model of the bounded contexts",
-} satisfies Readonly<Record<string, string>>;
-
-/** The folder of generated files. Every file in it is the output of a registered generator. */
-export const generatedDirectory = "docs";
-
-/** A generator of files in the generated directory. */
-export interface Generator {
-  /** The globs of the paths that it writes, each in the generated directory. */
-  readonly outputs: ReadonlyArray<string>;
-  readonly writes: string;
-}
-
-/**
- * Every generator of the generated directory, by the recipe that runs it. Each file that one
- * writes names the recipe in a marker line near its top, `[//]: # "… by <recipe>; do not edit"`,
- * and its own check fails when the file differs from a fresh render.
- */
-export const generators = {
-  "just docs generate": {
-    outputs: ["docs/**/*.md", "docs/llms.txt"],
-    writes:
-      "The Markdown of content pages, the construct contracts, and the index of pages for language models",
-  },
-} satisfies Readonly<Record<string, Generator>>;
-
-/** Where the bounded contexts of `content/model/contexts.cml` are declared. */
-export const contextMap = "content/model/contexts.cml";
+/** Where the bounded contexts of `docs/model/contexts.cml` are declared. */
+export const contextMap = "docs/model/contexts.cml";
 
 /** The folder for code that several contexts share. It may appear in every context layer. */
 export const sharedKernel = "shared-kernel";
@@ -266,12 +221,6 @@ export const toolImportExceptions = [
     importers: ["apps/dashboard/e2e/", "apps/homepage/e2e/"],
     reason:
       "Browser evidence drivers share the golden harness: the local backend environment, evidence digests, and the delivery sink.",
-  },
-  {
-    tool: "tools/conventions",
-    importers: ["apps/docs/"],
-    reason:
-      "The documentation site is the only producer of documentation: it renders the content folders and calls the extractors that read the code, such as the layout declaration, the module guide summaries, and the construct pages.",
   },
 ] satisfies ReadonlyArray<ToolImportException>;
 

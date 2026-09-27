@@ -4,7 +4,7 @@
  * symbolic links and an editor that refuses to write through one both see the same instructions.
  *
  * A guide opens with its generated part, between markers. For a context folder, that part states
- * the bounded context from `content/model/contexts.cml`: its responsibility, the aggregates that it
+ * the bounded context from `docs/model/contexts.cml`: its responsibility, the aggregates that it
  * owns, what it uses but does not own, its upstream and downstream relationships, and the role of
  * the layer. Every guide lists the entry points that `exports` in `package.json` gives the folder
  * and the constructs that the folder defines. Local invariants, pitfalls, and recipes are written
@@ -21,7 +21,6 @@ import {
 } from "./cml.js";
 import { constructPages, contractLinks, type Construct } from "./constructs.js";
 import {
-  contentFolder,
   contextLayerRoles,
   contextLayers,
   contextMap,
@@ -335,27 +334,10 @@ const constructSection = (rendering: Rendering): ReadonlyArray<string> => {
   ];
 };
 
-/**
- * The human guide of a folder: its README, or the page of its workspace's content folder that
- * carries the folder's name, such as `packages/domain/content/placements.mdx` for
- * `packages/domain/src/placements`.
- */
-const humanGuide = (rendering: Rendering): ReadonlyArray<string> => {
-  const { directory, folder } = rendering.guide;
-  const owner = packageOf(directory);
-
-  const page =
-    folder === undefined || owner === undefined
-      ? undefined
-      : `${owner}/${contentFolder}/${folder.name}.mdx`;
-
-  if (rendering.repository.paths.includes(`${directory}/README.md`))
-    return ["The human guide is [README.md](README.md)."];
-
-  return page !== undefined && rendering.repository.paths.includes(page)
-    ? [`The human guide is [${page}](${posix.relative(directory, page)}).`]
+const humanGuide = (rendering: Rendering): ReadonlyArray<string> =>
+  rendering.repository.paths.includes(`${rendering.guide.directory}/README.md`)
+    ? ["The human guide is [README.md](README.md)."]
     : [];
-};
 
 const folderIntro = (rendering: Rendering, folder: ContextFolder): ReadonlyArray<string> => {
   const holds =

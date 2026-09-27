@@ -1,8 +1,4 @@
-[//]: # "generated from content/specs/worker-pr-previews.mdx by just docs generate; do not edit"
-
 # Worker PR previews
-
-Cloudflare Worker previews of the homepage and the dashboard for every same-repository pull request.
 
 Status: frontend preview automation exists in source. Workspace-gate and deployed-provider acceptance remain open.
 

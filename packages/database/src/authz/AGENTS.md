@@ -1,4 +1,4 @@
-[//]: # "guide: generated from content/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
+[//]: # "guide: generated from docs/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
 
 # packages/database/src/authz
 
@@ -11,7 +11,7 @@ The AccessControl context in other folders:
 
 ## Bounded context: AccessControl
 
-From [content/model/contexts.cml](../../../../content/model/contexts.cml).
+From [docs/model/contexts.cml](../../../../docs/model/contexts.cml).
 
 Publishes the principal, scope, role, capability and decision language every context authorizes against. permit = exactly one usable principal AND (an effective role whose reach covers the resource, with its named requirements met, OR an active principal-side grant that covers it, OR an unconsumed bearer capability for exactly this resource). An OAuth client acting for a person never exceeds the person's authority and stays inside its token scope; a bot changes data only with the person's confirmation. A unit sits at one scope: an ordinary team at itself, a department board at its department, the national board at national scope. Default deny; resolved inside the committing transaction; revocation applies on the next interaction.
 

@@ -14,7 +14,7 @@ The links are relative to this file, so the file is a complete entry point also 
 
 ## Before you write
 
-1. Read the `AGENTS.md` guide of the folder. Every app, package, and bounded-context folder has one. `just guides write` renders its first part from [content/model/contexts.cml](../../../content/model/contexts.cml), the `@construct` tags, and the package exports. Local invariants go below that part.
+1. Read the `AGENTS.md` guide of the folder. Every app, package, and bounded-context folder has one. `just guides write` renders its first part from [docs/model/contexts.cml](../../../docs/model/contexts.cml), the `@construct` tags, and the package exports. Local invariants go below that part.
 2. Search the one-line index [docs/constructs.md](../../../docs/constructs.md) for a construct that already owns the logic, read its contract on the page of its category, and use it.
 3. Find the platform and test layers of the file's role: [references/composition-and-tests.md](references/composition-and-tests.md).
 4. At an HTTP boundary, a service interface, or a Promise callback, read [references/boundaries.md](references/boundaries.md).
@@ -48,7 +48,7 @@ Reading about a construct discloses in three steps, each only when you need it: 
 - **Tests are Effect programs (FX015).** `@effect/vitest`, one Effect per test, suite resources as `layer(L, { excludeTestServices: true, timeout })`, and the test platform of the package (`TestPlatform`, and `DatabaseTestLive` in database suites). Enforcement: `effecttsgo/async-function` in core code, `anti-slop/no-module-mocking`. Details: [references/composition-and-tests.md](references/composition-and-tests.md).
 - **Services return Effects (FX003).** No Promise interface between Effect layers. A program runs only at a composition root or a runtime bridge. Enforcement: `effecttsgo/async-function` and `effecttsgo/new-promise` in core code, `effect/no-premature-execution`. Details: [references/boundaries.md](references/boundaries.md).
 - **HTTP failures are typed problems (FX004, FX005).** A handler decodes with the contract schemas and answers with a problem that the endpoint declares; `ProblemBoundaryLive` is the only consumer of a Cause. Enforcement: `just check-types`, which checks the endpoint unions and asserts the HTTP contract. Details: [references/boundaries.md](references/boundaries.md).
-- **Every exception is registered (FX012).** A suppression of an Effect rule names its entry in [tools/conventions/effect-exceptions.json](../../../tools/conventions/effect-exceptions.json). Enforcement: `just exceptions`. Details: [references/exceptions.md](references/exceptions.md).
+- **Every exception is registered (FX012).** A suppression of an Effect rule names its entry in [docs/effect-exceptions.json](../../../docs/effect-exceptions.json). Enforcement: `just exceptions`. Details: [references/exceptions.md](references/exceptions.md).
 
 ## Lint configuration
 
@@ -92,7 +92,7 @@ The portable skills leave these facts to the overlay:
 
 - **Lint configuration and severities:** [Lint configuration](#lint-configuration).
 - **Project rules and checks:** [Project rules and checks](#project-rules-and-checks).
-- **Exception registry and its check:** [tools/conventions/effect-exceptions.json](../../../tools/conventions/effect-exceptions.json) and `just exceptions`; see [references/exceptions.md](references/exceptions.md).
+- **Exception registry and its check:** [docs/effect-exceptions.json](../../../docs/effect-exceptions.json) and `just exceptions`; see [references/exceptions.md](references/exceptions.md).
 - **House constructs:** [Constructs](#constructs-fx002), the index [docs/constructs.md](../../../docs/constructs.md), and the contract pages in [docs/constructs](../../../docs/constructs).
 - **Composition roots, test platform, and runtime bridges:** [references/composition-and-tests.md](references/composition-and-tests.md) and [references/boundaries.md](references/boundaries.md).
 - **Layer names:** `<Service>Live` for a live layer, such as `DatabaseLive`, `ContentManagementLive`, and `ReceiptFileStoreLive`, and `DatabaseTest()` for the PGlite database of a test. Services have no `layer` or `layerTest` statics.

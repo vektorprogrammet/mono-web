@@ -1,15 +1,10 @@
-[//]: # "generated from content/specs/durable-workflows.mdx by just docs generate; do not edit"
-
 # Durable workflows
-
-Crash-safe workflows for cross-system provisioning and token rotation.
 
 Status: frozen for implementation on 2026-09-26 (operator decision). Remove this specification when the flows below run on it, and `docs/architecture.md` and the effect-house overlay describe when to use it.
 
 ## Problem
 
 A database transaction can't include work in another system. The review found two such flows where a partial failure left the system stuck:
-
 - OAuth client provisioning spans adapter calls and a transaction.
 - Refresh-token rotation happens in Better Auth before local tracking.
 
@@ -18,7 +13,6 @@ Outbox delivery covers "commit, then deliver". It doesn't cover a multi-step flo
 ## Decision
 
 Use Effect Cluster **workflows** (`effect/unstable/cluster`, pinned `effect@4.0.0-rc.116`) for multi-step flows across systems:
-
 - Each activity's result is persisted, and a replay after a crash or failure skips completed activities.
 - A failed step runs compensation for the completed ones.
 - Idempotency comes from the workflow execution id, derived from the command's idempotency key.

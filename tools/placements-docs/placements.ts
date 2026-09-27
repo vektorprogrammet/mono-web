@@ -74,7 +74,7 @@ const render = async (directory: string) => {
     name: "Placements developer guide",
     entryPoints,
     tsconfig: resolve(toolRoot, "tsconfig.json"),
-    readme: resolve(root, "docs/packages/domain/placements.md"),
+    readme: resolve(root, "packages/domain/src/placements/README.md"),
     basePath: root,
     displayBasePath: root,
     disableGit: true,

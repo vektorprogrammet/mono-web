@@ -1,6 +1,6 @@
 # test-harness
 
-[//]: # "constructs: generated from the @construct tags and their JSDoc by just docs generate; do not edit"
+[//]: # "constructs: generated from the @construct tags and their JSDoc by just constructs write; do not edit"
 
 Starts and drives disposable infrastructure for tests, proofs, and journeys: PostgreSQL clusters, loopback ports, and the local backend. The [index](../constructs.md) lists every category.
 

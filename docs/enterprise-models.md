@@ -1,8 +1,4 @@
-[//]: # "generated from content/(architecture)/enterprise-models.mdx by just docs generate; do not edit"
-
 # Enterprise models
-
-4EM and ArchiMate views derived from the system documents.
 
 **Status:** Draft target views. Revised 2026-09-24.
 

@@ -1,4 +1,4 @@
-[//]: # "guide: generated from content/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
+[//]: # "guide: generated from docs/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
 
 # apps/backend/src/mail
 
@@ -12,7 +12,7 @@ The Delivery context in other folders:
 
 ## Bounded context: Delivery
 
-From [content/model/contexts.cml](../../../../content/model/contexts.cml).
+From [docs/model/contexts.cml](../../../../docs/model/contexts.cml).
 
 Every command that needs external work commits one immutable envelope with its business fact. Workers claim, attempt, acknowledge or retry after commit. Retry reuses the envelope and effect identity; a provider failure never rolls back the business fact.
 

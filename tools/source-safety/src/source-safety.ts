@@ -38,12 +38,9 @@ const REVIEWED_SOURCE_PATHS = {
 const isReviewedSourcePath = (path: string): path is keyof typeof REVIEWED_SOURCE_PATHS =>
   Object.hasOwn(REVIEWED_SOURCE_PATHS, path);
 
-/**
- * Bun `patchedDependencies` files are named `<package>@<semver>.patch`, which resembles an email
- * address. Bun writes the slash of a scoped package as `%2F`, as in `@scope%2Fname@1.0.0.patch`.
- */
+/** Bun `patchedDependencies` files are named `<package>@<semver>.patch`, which resembles an email address. */
 const packagePatchPathPattern =
-  /^patches\/(?:@[a-z0-9][a-z0-9._~-]*%2F)?[a-z0-9][a-z0-9._~-]*@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\.patch$/;
+  /^patches\/[a-z0-9][a-z0-9._~-]*@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\.patch$/;
 
 /** Returns the review reason for tracked source that is safe despite its path class, or null. */
 const reviewedSourcePathReason = (path: string): string | null => {

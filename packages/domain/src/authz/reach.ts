@@ -1,5 +1,5 @@
 /**
- * The one interpreter of organisational reach (`content/model/authority.als`, `reach` and
+ * The one interpreter of organisational reach (`docs/model/authority.als`, `reach` and
  * `delegatedReach`). Every decision that depends on team or board leadership, or on a delegation,
  * asks this module; no other product code reads a leadership flag.
  */

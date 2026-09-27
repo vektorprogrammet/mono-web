@@ -1,7 +1,7 @@
 # Effect exceptions
 
 A site that cannot follow an Effect rule is an exception with a lifecycle (FX012).
-[tools/conventions/effect-exceptions.json](../../../../tools/conventions/effect-exceptions.json) registers each one.
+[docs/effect-exceptions.json](../../../../docs/effect-exceptions.json) registers each one.
 `just exceptions` checks the registry against the tree. The pre-commit hook, `just check`, and the Checks workflow run it.
 [tools/conventions/src/exceptions.ts](../../../../tools/conventions/src/exceptions.ts) is the check.
 

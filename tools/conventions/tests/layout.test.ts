@@ -86,45 +86,11 @@ describe("layout check", () => {
 
   test("rejects documentation that names a missing recipe", () => {
     expect(
-      findingsFor({ "content/probe.mdx": "Run `just deploy-everything`.\n" }, "content/probe.mdx"),
+      findingsFor({ "docs/probe.md": "Run `just deploy-everything`.\n" }, "docs/probe.md"),
     ).toHaveLength(1);
-    expect(
-      findingsFor({ "content/probe.mdx": "Run `just check`.\n" }, "content/probe.mdx"),
-    ).toHaveLength(0);
-  });
-
-  test("rejects a file written by hand in docs/, and accepts the output of a registered generator", () => {
-    const generated =
-      '[//]: # "generated from content/probe.mdx by just docs generate; do not edit"\n';
-
-    expect(findingsFor({ "docs/probe.md": "# Probe\n" }, "docs/probe.md")).toHaveLength(1);
-    expect(findingsFor({ "docs/probe.json": generated }, "docs/probe.json")).toHaveLength(1);
-    expect(findingsFor({ "docs/probe.md": generated }, "docs/probe.md")).toHaveLength(0);
-  });
-
-  test("rejects what a generator writes into a content folder, and accepts a page written by hand", () => {
-    const section = [
-      "# Probe",
-      "",
-      '[//]: # "probe: generated from the justfile by just layout write; do not edit"',
-      "",
-      '[//]: # "probe: end"',
-      "",
-    ].join("\n");
-
-    expect(findingsFor({ "content/probe.mdx": section }, "content/probe.mdx")).toHaveLength(1);
-    expect(
-      findingsFor(
-        { "tools/postgres/content/probe.ts": "export {};\n" },
-        "tools/postgres/content/probe.ts",
-      ),
-    ).toHaveLength(1);
-    expect(
-      findingsFor(
-        { "tools/postgres/content/intro.mdx": "# Intro\n" },
-        "tools/postgres/content/intro.mdx",
-      ),
-    ).toHaveLength(0);
+    expect(findingsFor({ "docs/probe.md": "Run `just check`.\n" }, "docs/probe.md")).toHaveLength(
+      0,
+    );
   });
 
   test("rejects a workspace that runs Vitest without a configuration that merges the shared one", () => {

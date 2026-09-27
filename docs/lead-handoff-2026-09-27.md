@@ -1,15 +1,9 @@
-[//]: # "generated from content/lead-handoff-2026-09-27.mdx by just docs generate; do not edit"
-
-# Lead handoff (2026-09-27)
-
-The state of the native migration at the end of 2026-09-27, the operator decisions of that day, and every in-flight branch with its next step.
-
 # Lead handoff (2026-09-27)
 
 **Read this first.** It records the state of the vektorprogrammet native migration at the end of
 2026-09-27, the operator decisions taken that day, and where every in-flight branch stands.
-A fresh lead starts here, then [system model](system.md) for product meaning and
-[architecture](architecture.md) for technical boundaries. Per-agent branch state lives
+A fresh lead starts here, then [docs/system.md](docs/system.md) for product meaning and
+[docs/architecture.md](docs/architecture.md) for technical boundaries. Per-agent branch state lives
 in each branch's own spec file under `docs/specs/`; this file is the map, not the detail.
 
 ## Machine and repository state
@@ -44,7 +38,7 @@ in each branch's own spec file under `docs/specs/`; this file is the map, not th
   [architecture consolidation draft](specs/architecture-consolidation.md) (`d65af40d`), the
   [command grammar](specs/command-grammar.md) (`d3371edf`, 11 open questions), and the
   [landing-tool design and plan](specs/land-installs-0927.md) (`1da22ce4`). The
-  schema-declaration design is still on its branch
+  [schema-declaration design](specs/schema-declaration.md) is still on its branch
   (`refactor/schema-declaration-0927`) because it is the first decision a fresh lead must make.
 
 ## Operator decisions taken today (2026-09-27)
@@ -111,6 +105,21 @@ in each branch's own spec file under `docs/specs/`; this file is the map, not th
   `bun install --frozen-lockfile` first, and Fumadocs landed through it. The rest of
   `docs/specs/land-installs-0927.md` (verifying in a temporary worktree so an aborted landing never
   moves main's `node_modules`) is still open.
+- **The merge gate cannot see a change that only breaks a browser journey.** It runs
+  `bun install --frozen-lockfile`, `just check` and `just test`; `just test` runs package tests, not
+  `just e2e` or `just golden`. The hosted `Tests` workflow is the only place journeys run, so a
+  regression that type-checks and unit-tests green but breaks every journey passes the gate and
+  fails only after the push. Proven on 2026-09-27 by the Fumadocs revert below. Fix: run at least one
+  journey in the gate, or a server-start check that exercises the built dashboard bundle.
+- **Fumadocs re-resolved the product's dependencies and was reverted (`d417ba0f`).** Adding
+  `apps/docs` rewrote `bun.lock` and hoisted versions the product apps share: `react` and
+  `react-dom` 19.2.8 to 19.3.0, `motion`/`framer-motion` 12.35.0 to 13.4.4, `vite` 8.2.2 to 8.3.1,
+  `srvx` 0.12.7 to 1.0.5, and downgrades of `ajv-formats` 3.0.1 to 2.1.1 and `type-fest` 5.10.0 to
+  4.41.0. Every hosted browser journey then failed with
+  `TypeError: Expected CommonJS module to have a function wrapper` from Bun while starting the
+  dashboard server. Requirements to land it: the docs site's dependency graph must not move any
+  version the product apps resolve (pin them, or give `apps/docs` an isolated install), and a
+  journey must prove it on hosted `Tests`.
 - **`admission_period_outbox` is a dead outbox**: written, never read. The queue pilot's PersistedQueue
   store is the tenth delivery table.
 - **Four of seventeen commands have no domain receipt** (admissions outcome, onboarding, placements,

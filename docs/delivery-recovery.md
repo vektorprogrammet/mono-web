@@ -1,8 +1,4 @@
-[//]: # "generated from content/(operations)/delivery-recovery.mdx by just docs generate; do not edit"
-
 # Native delivery recovery
-
-Native worker configuration, lifecycle, retry limits, and recovery proof.
 
 The external Bun backend owns password-reset mail, receipt outbox, and team application notification workers.
 The internal ingress never starts these workers. Recruitment and other existing workers keep their separate configuration.

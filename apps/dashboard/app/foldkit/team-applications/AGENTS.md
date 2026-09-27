@@ -1,4 +1,4 @@
-[//]: # "guide: generated from content/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
+[//]: # "guide: generated from docs/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
 
 # apps/dashboard/app/foldkit/team-applications
 
@@ -13,7 +13,7 @@ The TeamApplications context in other folders:
 
 ## Bounded context: TeamApplications
 
-From [content/model/contexts.cml](../../../../../content/model/contexts.cml).
+From [docs/model/contexts.cml](../../../../../docs/model/contexts.cml).
 
 A visitor applies to one team. Team members read the team's applications; the current team leader changes intake and deletes applications. Global administration grants no implicit access. No review outcome, hiring state or appointment.
 

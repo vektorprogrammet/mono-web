@@ -1,7 +1,7 @@
 /**
  * Reads a Context Mapper (CML) document without the JVM toolchain.
  *
- * The reader knows the part of CML that `content/model/contexts.cml` uses: top-level
+ * The reader knows the part of CML that `docs/model/contexts.cml` uses: top-level
  * `BoundedContext` declarations with their attributes and aggregates, and the relationships of
  * `ContextMap` declarations in the bracket notation, such as `A [U,OHS,PL] -> [D,CF] B`. Comments
  * and strings never count as declarations. A context map statement that it does not know is an

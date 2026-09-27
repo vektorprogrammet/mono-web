@@ -1,4 +1,4 @@
-[//]: # "guide: generated from content/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
+[//]: # "guide: generated from docs/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
 
 # packages/domain/src/admissions
 
@@ -17,7 +17,7 @@ The Admissions context in other folders:
 
 ## Bounded context: Admissions
 
-From [content/model/contexts.cml](../../../../content/model/contexts.cml).
+From [docs/model/contexts.cml](../../../../docs/model/contexts.cml).
 
 Admission periods per department and semester, public applications, and returning-assistant registrations. There is no inferred generic accepted-applicant fact.
 

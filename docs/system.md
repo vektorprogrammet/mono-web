@@ -1,8 +1,4 @@
-[//]: # "generated from content/(system)/system.mdx by just docs generate; do not edit"
-
 # Intended system
-
-Intended product, domain, ownership, authority, and journeys.
 
 **Status:** Target business model and product behavior. Revised 2026-09-26.
 

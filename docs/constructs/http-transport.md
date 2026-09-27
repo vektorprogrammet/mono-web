@@ -1,6 +1,6 @@
 # http-transport
 
-[//]: # "constructs: generated from the @construct tags and their JSDoc by just docs generate; do not edit"
+[//]: # "constructs: generated from the @construct tags and their JSDoc by just constructs write; do not edit"
 
 Reads native HTTP requests and writes their representations: bounded JSON, preconditions, idempotency keys, entity tags, and cache headers. The [index](../constructs.md) lists every category.
 

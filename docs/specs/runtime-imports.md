@@ -1,8 +1,4 @@
-[//]: # "generated from content/specs/runtime-imports.mdx by just docs generate; do not edit"
-
 # Runtime imports
-
-Only a Layer implementation touches the runtime directly; a composition root chooses Layers.
 
 Status: frozen for implementation on 2026-09-26 (operator decision). Remove this specification when the checks below run in hooks and CI and `AGENTS.md`, `docs/architecture.md`, and the effect-house overlay state the rule.
 
@@ -25,26 +21,26 @@ This makes the infrastructure-ports rule concrete: "No module outside a Layer im
 
 ## Where each use goes
 
-| Use                                                                  | Goes through                                                                                                                            |
-| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| random bytes, UUIDs                                                  | Effect `Crypto`                                                                                                                         |
-| hash of known bytes                                                  | `@noble/hashes` as a plain function (a total calculation, not a capability)                                                             |
-| HMAC, AES-GCM, HKDF, constant-time comparison                        | one repository service with keys as its authority; its single live Layer uses WebCrypto                                                 |
-| files, paths, processes, terminal, stdio, environment                | Effect `FileSystem`, `Path`, `ChildProcess`, `Terminal`, `Stdio`, `Config`                                                              |
-| time, sleep                                                          | `Clock`, `Effect.sleep`                                                                                                                 |
-| request-scoped state (`AsyncLocalStorage`)                           | Effect `Context`                                                                                                                        |
-| IP parsing in the router                                             | the HTTP adapter Layer, or a portable parser                                                                                            |
-| `Buffer`                                                             | `Uint8Array` and Effect `Encoding`                                                                                                      |
-| test assertions (`node:assert`)                                      | `@effect/vitest`                                                                                                                        |
-| `process.env` (408 uses)                                             | `Config` through `ConfigProvider.fromEnv`                                                                                               |
-| `process.stdout.write`, `stderr.write` (215)                         | `Stdio.stdout()`/`stderr()`, `Console`, `Terminal`                                                                                      |
-| `process.exit`, `exitCode` (115)                                     | `BunRuntime.runMain`. Its teardown maps the result to an exit code (0, 1, 130 on interrupt); `Runtime.errorExitCode` sets a custom code |
-| signal listeners: `process.on`, `once`, `off`, `removeListener` (75) | `runMain` turns SIGINT and SIGTERM into interruption, which runs `Scope` finalizers (`acquireRelease`, `addFinalizer`)                  |
-| `process.argv` (61)                                                  | `Stdio.args`, or `effect/unstable/cli` (`Command`, `Flag`, `Argument`) for a typed CLI                                                  |
-| `process.kill` of a child (55)                                       | the handle from `ChildProcessSpawner`: `kill`, `pid`, `exitCode`, `isRunning`                                                           |
-| `process.cwd` (5)                                                    | `Path.resolve(".")`                                                                                                                     |
-| `process.execPath`, `pid`, `getuid` (60)                             | no Effect API: one repository `RuntimeInfo` service with a Bun Layer                                                                    |
-| `process.versions.bun` (8)                                           | not needed: the composition root chose the runtime                                                                                      |
+| Use | Goes through |
+| --- | --- |
+| random bytes, UUIDs | Effect `Crypto` |
+| hash of known bytes | `@noble/hashes` as a plain function (a total calculation, not a capability) |
+| HMAC, AES-GCM, HKDF, constant-time comparison | one repository service with keys as its authority; its single live Layer uses WebCrypto |
+| files, paths, processes, terminal, stdio, environment | Effect `FileSystem`, `Path`, `ChildProcess`, `Terminal`, `Stdio`, `Config` |
+| time, sleep | `Clock`, `Effect.sleep` |
+| request-scoped state (`AsyncLocalStorage`) | Effect `Context` |
+| IP parsing in the router | the HTTP adapter Layer, or a portable parser |
+| `Buffer` | `Uint8Array` and Effect `Encoding` |
+| test assertions (`node:assert`) | `@effect/vitest` |
+| `process.env` (408 uses) | `Config` through `ConfigProvider.fromEnv` |
+| `process.stdout.write`, `stderr.write` (215) | `Stdio.stdout()`/`stderr()`, `Console`, `Terminal` |
+| `process.exit`, `exitCode` (115) | `BunRuntime.runMain`. Its teardown maps the result to an exit code (0, 1, 130 on interrupt); `Runtime.errorExitCode` sets a custom code |
+| signal listeners: `process.on`, `once`, `off`, `removeListener` (75) | `runMain` turns SIGINT and SIGTERM into interruption, which runs `Scope` finalizers (`acquireRelease`, `addFinalizer`) |
+| `process.argv` (61) | `Stdio.args`, or `effect/unstable/cli` (`Command`, `Flag`, `Argument`) for a typed CLI |
+| `process.kill` of a child (55) | the handle from `ChildProcessSpawner`: `kill`, `pid`, `exitCode`, `isRunning` |
+| `process.cwd` (5) | `Path.resolve(".")` |
+| `process.execPath`, `pid`, `getuid` (60) | no Effect API: one repository `RuntimeInfo` service with a Bun Layer |
+| `process.versions.bun` (8) | not needed: the composition root chose the runtime |
 
 An operation that no Effect API covers and no Layer can own becomes a registered exception (`just exceptions`) with a retirement trigger.
 

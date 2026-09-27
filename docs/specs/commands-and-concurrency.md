@@ -1,15 +1,10 @@
-[//]: # "generated from content/specs/commands-and-concurrency.mdx by just docs generate; do not edit"
-
 # Commands and concurrency
-
-Transaction capabilities, lock sets, context ownership, and structured Effect concurrency.
 
 Status: frozen for implementation on 2026-09-26 (operator decision). Remove this specification when the checks below run in hooks and CI, and `docs/architecture.md`, `AGENTS.md`, and the effect-house overlay state the rules.
 
 ## Problem
 
 A deep review of main found the same defect shapes in several contexts:
-
 - Writes spread over several transactions: OAuth client provisioning, refresh-token tracking after a provider rotation, and a draft applied as one request per row.
 - I/O done before its record commits: the provider rotates a token, then local tracking fails.
 - A cross-row invariant checked by one writer but not the others: an outcome or an independence flag against placements and boards.
