@@ -1,7 +1,8 @@
 /**
- * Checks every file in the Git index against the source-safety rules. In a commit hook the
- * index is the tree the commit records; in CI it is the checkout. It runs in the pre-commit
- * hook and in `just check`, so no task cache can skip it.
+ * Checks files in the Git index against the source-safety rules. In a commit hook the index is
+ * the tree the commit records; in CI it is the checkout. Every rule reads one path and its bytes,
+ * so the pre-commit hook checks only the index entries that differ from HEAD (`--changed`); the
+ * merge hook and `just check` check every entry, so no task cache can skip it.
  */
 import { spawnSync } from "node:child_process";
 import {
@@ -35,18 +36,58 @@ const git = (root: string, args: readonly string[], input?: string): Buffer => {
   return result.stdout;
 };
 
-/** Returns the findings for every path and textual blob in the index of the repository at `root`. */
-export const scanIndex = (root: string): SourceSafetyScan => {
+/** `index` checks every entry of the index; `changed` only the entries that differ from HEAD. */
+export type SourceSafetyScope = "index" | "changed";
+
+// Git's empty tree, which a repository without commits compares against.
+const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+/** The mode, object id, and path of each index entry in the scope, submodules excluded. */
+const indexEntries = (root: string, scope: SourceSafetyScope) => {
+  if (scope === "index")
+    // Each entry is `<mode> <object id> <stage>\t<path>`.
+    return git(root, ["ls-files", "--stage", "-z"])
+      .toString("utf8")
+      .split("\0")
+      .flatMap((entry) => {
+        const match = entry.match(/^(\d{6}) ([0-9a-f]+) \d\t(.+)$/su);
+
+        return match === null ? [] : [{ mode: match[1], objectId: match[2], path: match[3] }];
+      });
+
+  const head = spawnSync("git", ["-C", root, "rev-parse", "--verify", "--quiet", "HEAD"]);
+
+  // Each entry is `:<old mode> <new mode> <old id> <new id> <status>\0<path>\0`; deletions are gone.
+  const fields = git(root, [
+    "diff-index",
+    "--cached",
+    "--no-renames",
+    "--diff-filter=d",
+    "-z",
+    head.status === 0 ? "HEAD" : emptyTree,
+  ])
+    .toString("utf8")
+    .split("\0");
+
+  return Array.from({ length: Math.floor(fields.length / 2) }, (_, index) => {
+    const header = fields[index * 2] ?? "";
+    const match = /^:\d{6} (\d{6}) [0-9a-f]+ ([0-9a-f]+) [A-Z]\d*$/u.exec(header);
+
+    if (match === null) throw new Error("git diff-index returned an invalid entry: " + header);
+
+    return { mode: match[1], objectId: match[2], path: fields[index * 2 + 1] };
+  });
+};
+
+/** Returns the findings for every path and textual blob in the scope of the index at `root`. */
+export const scanIndex = (root: string, scope: SourceSafetyScope = "index"): SourceSafetyScan => {
   const findings: SourceSafetyFinding[] = [];
   const textual: { readonly path: string; readonly objectId: string }[] = [];
   let files = 0;
 
-  // Each entry is `<mode> <object id> <stage>\t<path>`; submodules (mode 160000) have no blob.
-  for (const entry of git(root, ["ls-files", "--stage", "-z"]).toString("utf8").split("\0")) {
-    const match = entry.match(/^(\d{6}) ([0-9a-f]+) \d\t(.+)$/su);
-
-    if (match === null || match[1] === "160000") continue;
-    const [, , objectId = "", path = ""] = match;
+  // Submodules (mode 160000) have no blob.
+  for (const { mode, objectId = "", path = "" } of indexEntries(root, scope)) {
+    if (mode === "160000" || path === "") continue;
     files += 1;
 
     if (sourcePathSafetyReason(path) !== null) findings.push({ path, reason: "UNSAFE_SOURCE" });
@@ -87,14 +128,24 @@ const REASON_TEXT: Record<SourceSafetyReason, string> = {
 };
 
 if (import.meta.main) {
+  const options = process.argv.slice(2);
+
+  if (options.some((option) => option !== "--changed")) {
+    process.stderr.write(
+      "Usage: just source-safety [--changed]\n--changed checks only the index entries that differ from HEAD.\n",
+    );
+    process.exit(2);
+  }
+
+  const scope: SourceSafetyScope = options.includes("--changed") ? "changed" : "index";
   const root = git(process.cwd(), ["rev-parse", "--show-toplevel"]).toString("utf8").trim();
-  const { files, findings } = scanIndex(root);
+  const { files, findings } = scanIndex(root, scope);
 
   for (const { path, reason } of findings)
     process.stderr.write(`${path}: ${REASON_TEXT[reason]}\n`);
 
   process.stdout.write(
-    `source-safety: ${files} indexed files, ${findings.length} unsafe${findings.length === 0 ? "" : " (see above)"}\n`,
+    `source-safety: ${files} ${scope === "index" ? "indexed" : "changed"} files, ${findings.length} unsafe${findings.length === 0 ? "" : " (see above)"}\n`,
   );
   process.exitCode = findings.length === 0 ? 0 : 1;
 }

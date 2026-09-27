@@ -1,6 +1,9 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig, mergeConfig } from "vitest/config";
+import { sharedVitestConfig } from "../../vitest.shared.js";
 
-export default defineConfig({
+export default mergeConfig(
+  sharedVitestConfig,
+  defineConfig({
   define: {
     __BUILD_COMMIT__: JSON.stringify("0000000000000000000000000000000000000000"),
     __BUILD_CONTENT_DIGEST__: JSON.stringify(
@@ -17,4 +20,5 @@ export default defineConfig({
     environment: "node",
     include: ["test/**/*.test.ts"],
   },
-});
+}),
+);

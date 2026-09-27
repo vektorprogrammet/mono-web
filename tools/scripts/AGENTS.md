@@ -15,22 +15,13 @@ Local invariants, pitfalls, and recipes go below this generated part; `just guid
 
 ## Heavy lock
 
-`heavy-lock.ts` owns the machine-wide heavy lock. `measure-job.ts` takes it exclusively, and `hook-slot.ts` takes it shared.
+`heavy-lock.ts` owns the machine-wide heavy lock. `measure-job.ts` takes it exclusively; `hook-slot.ts` and standalone Vitest runs take it shared with a slot.
 [AGENTS.md](../../AGENTS.md#verification-and-resources) states the contract.
 
 - A hook slot takes the heavy lock before its slot. A hook job that waits for a heavy job holds no slot, so the hooks of a commit inside that heavy job still get one.
 - An exclusive holder keeps the gate, `heavy-gate.lock`, until it exits. Hook jobs that arrive while it waits queue behind it, so a stream of hook jobs cannot starve it.
 - The lock descriptors stay in the process that took them. A job inherits only `VEKTORPROGRAMMET_HEAVY_LOCK`, so a process that a job leaves behind does not hold the lock.
 - `tests/heavy-lock.test.ts` runs real processes against its own `XDG_RUNTIME_DIR` and removes `VEKTORPROGRAMMET_HEAVY_LOCK`, so it also passes inside a hook job.
-
-## Staged checks
-
-`check-staged.ts` checks the staged tree in a temporary worktree. Its node_modules never come from this checkout, which may have installed another lockfile.
-
-- The staged `bun.lock`, `bunfig.toml`, `patches/`, and root and workspace `package.json` files key a frozen install under `${XDG_CACHE_HOME:-~/.cache}/vektorprogrammet/check-staged-installs`. A run with the same files reuses it; an install unused for a day is removed.
-- The snapshot copies the install's link trees and links its package store. A staged lockfile that its manifests do not satisfy fails the check.
-- The Bun that runs the script installs and runs the tasks. It must equal `packageManager` of the staged `package.json`; otherwise the script fails and names `devenv shell`.
-- `tests/check-staged.test.ts` stages a dependency that the fixture's node_modules lack, with its own caches, lock, and slots.
 
 ## Model checks
 

@@ -71,22 +71,27 @@ exceptions *args:
 migration-hashes *args:
     bun --no-env-file packages/database/src/migration-manifest-cli.ts "$@"
 
-# Scan every file in the Git index for credentials, personal data, and SQL data.
+# Scan the Git index for credentials, personal data, and SQL data. --changed limits a commit to staged changes.
 [group('check')]
-source-safety:
-    bun --no-env-file tools/source-safety/src/check.ts
+source-safety *args:
+    bun --no-env-file tools/source-safety/src/check.ts "$@"
 
-# Format with Oxfmt, or check the format with `just format --check`.
+# Format with Oxfmt, or check with `just format --check`. Oxfmt has no config key for threads.
 [group('check')]
 format *args="--write":
-    bun x oxfmt "$@"
+    bun x oxfmt --threads=2 "$@"
 
-# Lint with Oxlint in type-aware mode after generating the React Router route types, a heavy job (AGENTS.md#verification-and-resources).
+# Lint only named paths without generating route types. The pre-commit hook passes staged JS/TS paths here.
+[group('check')]
+lint-files *args:
+    bun x oxlint --threads=2 "$@"
+
+# Lint the full tree after generating React Router route types, a heavy job (AGENTS.md#verification-and-resources).
 [group('check')]
 lint *args=".":
     bun run --cwd apps/dashboard typegen
     bun run --cwd apps/homepage typegen
-    bun x oxlint "$@"
+    just lint-files "$@"
 
 # Type check every package and assert the HTTP contract. Arguments go to Turbo.
 [group('check')]
@@ -207,11 +212,6 @@ migration name *args:
       legacy-receipt) exec bun --no-env-file tools/e2e/run-legacy-receipt-import.ts "$@" ;;
       *) echo "Unknown migration '$name'. Use legacy-service or legacy-receipt." >&2; exit 2 ;;
     esac
-
-# Type check and test the packages that the staged tree changes (pre-commit and merge hooks).
-[group('hooks')]
-check-staged *args:
-    bun --no-env-file tools/scripts/check-staged.ts "$@"
 
 # Run a command in one of the machine-wide hook slots under the shared heavy lock (lint and pre-push hooks).
 [group('hooks')]

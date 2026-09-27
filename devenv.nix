@@ -189,90 +189,40 @@ in
       priority = 0;
       fail_fast = true;
     };
-    # Staged files only. .oxfmtrc.json owns the formatter scope, also for explicit paths.
+    # One formatter process for the staged paths. Prek must not launch a pool per file batch.
     format = {
       enable = true;
       entry = "${hookEnv} just format --check --no-error-on-unmatched-pattern";
+      require_serial = true;
       stages = [ "pre-commit" ];
       priority = 0;
       fail_fast = true;
     };
-    # Type-aware lint builds TypeScript programs, so it runs in a hook slot like the type checks.
-    # One process lints every staged file: parallel batches would each regenerate the same
-    # React Router route types at once, and one batch then reads another's half-written files.
+    # Type-aware lint still takes a hook slot, but it targets only staged JS/TS paths.
+    # Full route type generation and whole-tree lint run at merge/push.
     lint = {
       enable = true;
-      entry = "${hookEnv} just hook-slot --class hook-pre-commit-lint -- just lint --no-error-on-unmatched-pattern";
+      entry = "${hookEnv} just hook-slot --class hook-pre-commit-lint -- just lint-files --no-error-on-unmatched-pattern";
       files = "\\.(js|jsx|mjs|cjs|ts|tsx|mts|cts)$";
       require_serial = true;
       stages = [ "pre-commit" ];
       priority = 0;
       fail_fast = true;
     };
-    # The whole staged tree, whatever the task cache holds: no credential, personal data, or
-    # literal SQL data enters the public repository.
+    # Only changed index blobs are read on commit. The full index runs in just check.
     source-safety = hook {
-      entry = "${hookEnv} just source-safety";
-      stages = [
-        "pre-commit"
-        "pre-merge-commit"
-      ];
-      priority = 0;
-      fail_fast = true;
-    };
-    # The whole staged tree against the layout declaration, the context map, and the generated
-    # README and AGENTS.md sections and hosted journey legs.
-    layout = hook {
-      entry = "${hookEnv} just layout --staged";
-      stages = [
-        "pre-commit"
-        "pre-merge-commit"
-      ];
-      priority = 0;
-      fail_fast = true;
-    };
-    # The whole staged tree's construct tags and imports against docs/constructs.md.
-    constructs = hook {
-      entry = "${hookEnv} just constructs --staged";
-      stages = [
-        "pre-commit"
-        "pre-merge-commit"
-      ];
-      priority = 0;
-      fail_fast = true;
-    };
-    # The module guides and the CLAUDE.md files that import them against the context map, the construct tags,
-    # and the package exports of the staged tree.
-    guides = hook {
-      entry = "${hookEnv} just guides --staged";
-      stages = [
-        "pre-commit"
-        "pre-merge-commit"
-      ];
-      priority = 0;
-      fail_fast = true;
-    };
-    # Every suppression of an Effect rule in the staged tree names its entry in
-    # docs/effect-exceptions.json, and every entry names current sites and package versions.
-    exceptions = hook {
-      entry = "${hookEnv} just exceptions --staged";
-      stages = [
-        "pre-commit"
-        "pre-merge-commit"
-      ];
-      priority = 0;
-      fail_fast = true;
-    };
-    # Type checks and tests of the packages that the staged tree changes.
-    changed-packages = hook {
-      entry = "${hookEnv} just check-staged --class hook-pre-commit";
+      entry = "${hookEnv} just source-safety --changed";
       stages = [ "pre-commit" ];
-      priority = 1;
+      priority = 0;
+      fail_fast = true;
     };
-    # A merge without conflicts skips pre-commit. Its staged tree is the merge result.
-    merged-packages = hook {
-      entry = "${hookEnv} just check-staged --class hook-pre-merge-commit --dependents";
+    # Whole-tree checks, types, and every package test run against the merged result.
+    # just land always creates a merge commit, including when the branch can fast-forward.
+    merge-full = hook {
+      entry = "${hookEnv} just measure --class hook-pre-merge-full -- bash -c 'just check --concurrency=1 && just test --concurrency=1'";
       stages = [ "pre-merge-commit" ];
+      priority = 1;
+      fail_fast = true;
     };
     push-check = hook {
       # `just check` passes its arguments to `turbo check-types`.
