@@ -26,8 +26,8 @@ export default defineConfig({
         // blanket `eslint-disable`, which `just exceptions` rejects.
         routeTreeFileHeader: ["// @ts-nocheck", "// noinspection JSUnusedGlobalSymbols"],
       },
-      spa: { enabled: true, maskPath: "/_spa-shell" },
-      // Dynamic routes are discovered from the same content scan and OpenAPI contract as the site.
+      // GitHub Pages has no rewrites, so every page is prerendered and no SPA shell is served.
+      // The routes come from the same content scan and OpenAPI contract as the site.
       prerender: { enabled: true, crawlLinks: false, concurrency: 4, failOnError: true },
       pages: routes.map((path) => ({ path })),
     }),
