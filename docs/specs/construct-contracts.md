@@ -50,6 +50,8 @@ A tagged construct without each required tag is a finding, so the contract canno
 
 ## Progress
 
-Steps 1 to 4 are done on branch `docs/construct-contracts-0926`: the index and the category pages, the contract of every construct, the failing contract and consumer-count findings with their negative controls, and the descriptions in the effect-house overlay, `AGENTS.md`, and `tools/conventions/AGENTS.md`.
+Steps 1–5 are complete on local `main` at `15e0952e`.
+The pre-merge hook passed `just check` and `just test` on the merged tree.
+Step 6, hosted Checks, is pending.
 The 38 constructs that fewer than two modules shared lost their tags and kept their JSDoc. No other module imports six of them, so a pruning slice can drop their `export`: `headerValues` and `NativeAccessRejected` in `apps/backend/src`, `jcsBytes` and `interpretMergePatchSource` in `apps/backend/src/http-semantics.ts`, `ReceiptE2EBarrierArrival`, and `selectedPostgresMajor`.
 Item 6 waits for the hosted Checks run after the push; remove this specification when it passes.
