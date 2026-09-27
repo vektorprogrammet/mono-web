@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "check-types": "tsc --noEmit",
     "generate": "bun run --cwd ../../packages/http-api generate && bun --no-env-file markdown/cli.ts write",
-    "check": "bun run --cwd ../../packages/http-api generate && bun --no-env-file markdown/cli.ts check"
+    "check": "bun run --cwd ../../packages/http-api generate && bun --no-env-file markdown/cli.ts check",
+    "test": "bun test tests"
   },
   "dependencies": {
     "@monoweb/conventions": "workspace:*",

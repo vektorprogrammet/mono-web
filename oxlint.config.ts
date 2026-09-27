@@ -173,6 +173,7 @@ const effectConfig = {
     {
       // Bun runs these suites, and the journeys take their file locks through Bun's FFI.
       files: [
+        "apps/docs/tests/*.test.ts",
         "tools/conventions/tests/*.test.ts",
         "tools/e2e/safe-file-io.ts",
         "tools/scripts/tests/*.test.ts",

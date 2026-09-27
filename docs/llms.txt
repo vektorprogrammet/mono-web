@@ -46,7 +46,6 @@
 - [Commands and concurrency](specs/commands-and-concurrency.md)
 - [Durable workflows](specs/durable-workflows.md)
 - [Foldkit dashboard](specs/foldkit-dashboard.md)
-- [Fumadocs documentation site](specs/fumadocs-docs-site.md)
 - [Infrastructure ports](specs/infrastructure-ports.md)
 - [Native PostgreSQL driver](specs/native-postgres-driver.md)
 - [Public surface](specs/public-surface.md)
