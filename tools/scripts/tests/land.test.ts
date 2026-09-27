@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 
@@ -60,16 +60,29 @@ afterEach(() => {
 });
 
 describe("just land", () => {
-  test("fast-forwards main, removes the worktree, and deletes the branch", () => {
+  test("records a merge commit even when main can fast-forward", () => {
     const { main, feature } = repository();
-    const tip = git(feature, "rev-parse", "HEAD");
+    const parents = [git(main, "rev-parse", "HEAD"), git(feature, "rev-parse", "HEAD")];
     const result = runLand(main, "feature");
 
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("fast-forward");
-    expect(git(main, "rev-parse", "main")).toBe(tip);
+    expect(result.stdout).toContain("merge commit");
+    expect(git(main, "rev-list", "--parents", "--max-count=1", "main").split(" ").slice(1)).toEqual(parents);
     expect(existsSync(feature)).toBe(false);
     expect(git(main, "branch", "--list", "feature")).toBe("");
+  });
+
+  test("a failing pre-merge-commit hook blocks a fast-forwardable branch", () => {
+    const { main, feature } = repository();
+    const before = git(main, "rev-parse", "HEAD");
+    const hook = join(main, ".git", "hooks", "pre-merge-commit");
+    writeFileSync(hook, "#!/bin/sh\nexit 1\n");
+    chmodSync(hook, 0o755);
+
+    const result = runLand(main, "feature");
+    expect(result.status).toBe(1);
+    expect(git(main, "rev-parse", "HEAD")).toBe(before);
+    expect(existsSync(feature)).toBe(true);
   });
 
   test("records a merge commit when main has moved on", () => {

@@ -39,7 +39,15 @@ export const rootFiles = {
   "secretspec.toml": "Declared secrets per profile and their Bitwarden Secrets Manager provider",
   "tsconfig.json": "Shared TypeScript options",
   "turbo.json": "Turbo task graph",
+  "vitest.shared.ts": "Vitest settings that every workspace configuration merges",
 } satisfies Readonly<Record<string, string>>;
+
+/**
+ * The Vitest settings that every workspace shares, such as the worker cap. Vitest looks up its
+ * configuration in the working directory only, so a workspace whose `package.json` scripts run
+ * Vitest has a `vitest.config.*` that imports this file.
+ */
+export const sharedVitestConfig = "vitest.shared.ts" satisfies keyof typeof rootFiles;
 
 /** Directories that hold one directory per app, package, or tool. Each one is a workspace glob. */
 export const packageRoots = ["apps", "packages", "tools"] as const;

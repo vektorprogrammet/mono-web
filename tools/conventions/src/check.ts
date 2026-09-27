@@ -15,6 +15,7 @@ import {
   rootFiles,
   rootScripts,
   sharedKernel,
+  sharedVitestConfig,
   toolImportExceptions,
   topLevelDirectories,
 } from "./layout.js";
@@ -293,6 +294,80 @@ const rootScriptFindings = (repository: Repository): ReadonlyArray<Finding> => {
   ];
 };
 
+// A script that runs the Vitest binary, alone or after another command.
+const vitestScript = /(?:^|[\s;&|(])vitest(?:\s|$)/u;
+
+// The names that Vitest's findConfigFile tries first, before any vite.config.*.
+const vitestConfigName = /^vitest\.config\.[cm]?[jt]s$/u;
+
+// An import in a comment must not satisfy the rule.
+const comments = /\/\*[\s\S]*?\*\/|\/\/[^\n]*/gu;
+
+const sourceExtension = /\.[cm]?[jt]s$/u;
+
+/**
+ * Vitest looks up its configuration in the working directory only, so a root configuration does
+ * not reach `bun run --cwd <workspace> vitest`. Each workspace that runs Vitest merges the shared one.
+ */
+const vitestConfigFindings = (repository: Repository): ReadonlyArray<Finding> =>
+  repository.paths.flatMap((path) => {
+    const [root = "", , file, ...rest] = path.split("/");
+
+    if (
+      file !== "package.json" ||
+      rest.length > 0 ||
+      !packageRoots.some((packageRoot) => packageRoot === root)
+    )
+      return [];
+
+    const scripts = decodeManifest(repository.read(path)).scripts ?? {};
+
+    if (!Object.values(scripts).some((script) => vitestScript.test(script))) return [];
+
+    const directory = posix.dirname(path);
+
+    const configs = repository.paths.filter(
+      (candidate) =>
+        posix.dirname(candidate) === directory && vitestConfigName.test(posix.basename(candidate)),
+    );
+
+    if (configs.length === 0)
+      return [
+        {
+          path,
+          message: `runs Vitest, but ${directory} has no vitest.config.ts. Vitest reads its configuration from the working directory only; add one that merges ${sharedVitestConfig}`,
+        },
+      ];
+
+    const base = sharedVitestConfig.replace(sourceExtension, "");
+
+    return configs.flatMap((config) => {
+      const text = repository.read(config).replaceAll(comments, "");
+
+      const importsBase = [...text.matchAll(specifier)].some(([, imported = "", required = ""]) => {
+        const target = imported || required;
+
+        return (
+          target.startsWith(".") &&
+          posix.join(directory, target).replace(sourceExtension, "") === base
+        );
+      });
+
+      // Importing the base without composing it leaves Vitest's worker default unbounded.
+      const appliesBase = /\bmergeConfig\s*\(\s*sharedVitestConfig\s*,/u.test(text);
+      const overridesBound = /\b(?:maxWorkers|globalSetup)\s*:/u.test(text);
+
+      return importsBase && appliesBase && !overridesBound
+        ? []
+        : [
+            {
+              path: config,
+              message: `must merge ${sharedVitestConfig} first without overriding its worker or admission settings`,
+            },
+          ];
+    });
+  });
+
 // Fenced code blocks first, then inline code spans of the remaining text.
 const fencedCode = /^(`{3,})[^\n]*\n[\s\S]*?^\1[ \t]*$/gmu;
 
@@ -364,6 +439,7 @@ export const checkLayout = (repository: Repository, justfile: Justfile): Readonl
     ...contextFindings(repository),
     ...toolImportFindings(repository),
     ...rootScriptFindings(repository),
+    ...vitestConfigFindings(repository),
     ...commandMentionFindings(repository, justfile),
     ...checkJourneys(repository, justfile, workflow),
     ...sectionFindings(repository, justfile, workflow),

@@ -1,7 +1,10 @@
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vitest/config";
+import { defineConfig, mergeConfig } from "vitest/config";
+import { sharedVitestConfig } from "../../vitest.shared.js";
 
-export default defineConfig({
+export default mergeConfig(
+  sharedVitestConfig,
+  defineConfig({
   // Workspace packages such as the SDK resolve to source; Vitest appends its default conditions.
   resolve: {
     alias: {
@@ -16,4 +19,5 @@ export default defineConfig({
   test: {
     include: ["app/**/*.test.ts", "test/**/*.test.ts", "workers/**/*.test.ts"],
   },
-});
+}),
+);

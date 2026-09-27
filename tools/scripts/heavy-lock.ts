@@ -59,6 +59,15 @@ const flock = (descriptor: number, mode: HeavyLockMode, timeoutSeconds?: number)
   throw new Error(`flock exited with ${status ?? signal}.`);
 };
 
+/** Whether this process runs inside a job whose holder of the heavy lock is alive. */
+export const insideHeavyLock = () => {
+  const holder = Number(process.env[heavyLockVariable]);
+
+  return Number.isInteger(holder) && holder > 0 && alive(holder);
+};
+
+const lockDirectory = () => join(process.env.XDG_RUNTIME_DIR || "/tmp", "vektorprogrammet");
+
 /**
  * Takes the heavy lock for this process, unless the process runs inside a job that holds it.
  * Shows the holders while it waits. Returns the environment for the job's processes.
@@ -69,11 +78,9 @@ export const takeHeavyLock = (
   command: ReadonlyArray<string>,
   log: (message: string) => void,
 ): NodeJS.ProcessEnv => {
-  const holder = Number(process.env[heavyLockVariable]);
+  if (insideHeavyLock()) return process.env;
 
-  if (Number.isInteger(holder) && holder > 0 && alive(holder)) return process.env;
-
-  const directory = join(process.env.XDG_RUNTIME_DIR || "/tmp", "vektorprogrammet");
+  const directory = lockDirectory();
   const lockPath = join(directory, "heavy.lock");
   const gatePath = join(directory, "heavy-gate.lock");
   const waitStart = performance.now();
@@ -134,4 +141,81 @@ export const takeHeavyLock = (
     log(`got the heavy lock after ${Math.round((performance.now() - waitStart) / 1000)}s`);
 
   return { ...process.env, [heavyLockVariable]: String(process.pid) };
+};
+
+/**
+ * Takes one of the N machine-wide hook slots for this process, a flock(1) lock on
+ *   ${XDG_RUNTIME_DIR:-/tmp}/vektorprogrammet/hook-slot-<1..N>
+ * N is ${VEKTORPROGRAMMET_HOOK_SLOTS:-5}. If all slots are busy, it shows their holders and waits
+ * for one. Like the heavy lock, the slot is released when this process exits, also on a signal.
+ * Take the heavy lock first: a job that waits for a heavy job then holds no slot, so hook jobs
+ * inside that heavy job, such as the hooks of its commits, still get one.
+ */
+export const takeHookSlot = (jobClass: string, log: (message: string) => void) => {
+  // slots = min(memory bound 23.5 GiB / 3.2 GiB = 7, CPU bound 32 / 6 = 5) on
+  // the development machine. AGENTS.md shows how to derive it for another one.
+  const slotCount = Number(process.env.VEKTORPROGRAMMET_HOOK_SLOTS || "5");
+
+  if (!Number.isInteger(slotCount) || slotCount < 1)
+    throw new Error("VEKTORPROGRAMMET_HOOK_SLOTS must be a positive integer.");
+
+  const directory = lockDirectory();
+
+  mkdirSync(directory, { recursive: true });
+
+  const slotPath = (slot: number) => join(directory, `hook-slot-${slot}`);
+
+  // flock(1) locks the open file description of its standard input. This process keeps the
+  // descriptor open and passes it to no child, so the lock lasts exactly as long as this process.
+  const acquire = (slot: number, wait: boolean) => {
+    const descriptor = openSync(slotPath(slot), "a");
+
+    const { status, signal } = spawnSync("flock", [...(wait ? [] : ["--nonblock"]), "0"], {
+      stdio: [descriptor, "inherit", "inherit"],
+    });
+
+    if (status === 0) return descriptor;
+
+    closeSync(descriptor);
+
+    if (status === 1 && !wait) return undefined;
+
+    throw new Error(`flock exited with ${status ?? signal} on ${slotPath(slot)}.`);
+  };
+
+  let slot = 1;
+
+  let descriptor = acquire(slot, false);
+
+  while (descriptor === undefined && slot < slotCount) descriptor = acquire(++slot, false);
+
+  const waitStart = performance.now();
+
+  if (descriptor === undefined) {
+    // Waiters spread over the slots. Each one waits for one holder to finish.
+    slot = (process.pid % slotCount) + 1;
+
+    const holders = Array.from(
+      { length: slotCount },
+      (_, index) =>
+        `\n  slot ${index + 1}: ${readFileSync(slotPath(index + 1), "utf8").trim() || "unknown holder"}`,
+    );
+
+    log(`waiting for a hook slot; ${slotCount} of ${slotCount} are busy:${holders.join("")}`);
+
+    descriptor = acquire(slot, true);
+  }
+
+  ftruncateSync(descriptor, 0);
+
+  writeSync(
+    descriptor,
+    `pid ${process.pid}, ${jobClass}, since ${new Date().toTimeString().slice(0, 8)}, ${process.cwd()}\n`,
+  );
+
+  log(
+    `got hook slot ${slot} of ${slotCount} after ${Math.round((performance.now() - waitStart) / 1000)}s`,
+  );
+
+  return { slot, slotCount };
 };

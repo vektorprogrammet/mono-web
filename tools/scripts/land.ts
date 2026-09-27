@@ -8,9 +8,9 @@ main checked out. It refuses when:
 - main or the branch's worktree has changes or untracked files,
 - the branch shares no history with main,
 - the branch contains commits of another local branch that main does not contain.
-If main is an ancestor of the branch, main fast-forwards to it. Otherwise Git
-records a merge commit (--no-ff), and the merge hooks run. A merge that stops,
-for example on a conflict or a failed hook, is aborted, and main is unchanged.
+Every landing records a merge commit (--no-ff), even when main is an ancestor.
+The pre-merge-commit hook checks the full merged tree. A merge that stops, for
+example on a conflict or a failed hook, is aborted, and main is unchanged.
 Then it removes the branch's worktree, deletes the branch, and prints the landed
 commit. It does not push.
 `;
@@ -104,12 +104,7 @@ const before = read("rev-parse", "--short", "main");
 let how: string;
 
 if (isAncestor(tip, "main")) how = "main already contained it";
-else if (isAncestor("main", tip)) {
-  if (spawnSync("git", ["merge", "--ff-only", branch], { stdio: "inherit" }).status !== 0)
-    fail(`The fast-forward to ${branch} failed. main is unchanged.`);
-
-  how = "fast-forward";
-} else {
+else {
   if (spawnSync("git", ["merge", "--no-ff", "--no-edit", branch], { stdio: "inherit" }).status !== 0) {
     if (git("rev-parse", "--verify", "--quiet", "MERGE_HEAD").status === 0) read("merge", "--abort");
 

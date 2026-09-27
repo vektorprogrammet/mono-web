@@ -65,6 +65,8 @@ describe("paths", () => {
   test("admits only exactly reviewed paths that resemble a blocked class", () => {
     for (const [path, unsafe] of [
       ["apps/backend/test/database.ts", false],
+      ["packages/database/vitest.config.ts", false],
+      ["packages/database/vitest.config.json", true],
       ["tools/verification/credential-race.ts", false],
       ["patches/effect@4.0.0-rc.116.patch", false],
       ["apps/backend/test/database.sql", true],
@@ -328,6 +330,34 @@ describe("index scan", () => {
       stage(root);
       put(root, path, "APP_SECRET=\n");
       expect(scanIndex(root).findings).toEqual([{ path, reason: "UNSAFE_SOURCE" }]);
+    });
+  });
+  test("scans only changed staged blobs and ignores unstaged edits", () => {
+    withGitFixture((root) => {
+      const staged = "apps/example/.env.production";
+      const unstaged = "apps/example/.env.test";
+      put(root, staged, "APP_SECRET=" + String.fromCharCode(10));
+      put(root, unstaged, "APP_SECRET=" + String.fromCharCode(10));
+      stage(root);
+      execFileSync("git", [
+        "-C",
+        root,
+        "-c",
+        "user.name=Safety Test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "-qm",
+        "base",
+      ]);
+      put(root, staged, "APP_SECRET=staged-unsafe" + String.fromCharCode(10));
+      stage(root);
+      put(root, staged, "APP_SECRET=" + String.fromCharCode(10));
+      put(root, unstaged, "APP_SECRET=unstaged-unsafe" + String.fromCharCode(10));
+      expect(scanIndex(root, "changed")).toEqual({
+        files: 1,
+        findings: [{ path: staged, reason: "UNSAFE_SOURCE" }],
+      });
     });
   });
 });

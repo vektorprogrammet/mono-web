@@ -13,9 +13,14 @@ const base = readRepository(root, false);
 
 const justfile = readJustfile(join(root, "justfile"));
 
-const withFiles = (files: Readonly<Record<string, string>>): Repository => ({
+const withFiles = (
+  files: Readonly<Record<string, string>>,
+  removed: ReadonlyArray<string> = [],
+): Repository => ({
   root,
-  paths: [...new Set([...base.paths, ...Object.keys(files)])].sort(),
+  paths: [...new Set([...base.paths, ...Object.keys(files)])]
+    .filter((path) => !removed.includes(path))
+    .sort(),
   links: base.links,
   read: (path) => files[path] ?? base.read(path),
   readLink: base.readLink,
@@ -24,8 +29,9 @@ const withFiles = (files: Readonly<Record<string, string>>): Repository => ({
 const findingsFor = (
   files: Readonly<Record<string, string>>,
   path: string,
+  removed: ReadonlyArray<string> = [],
 ): ReadonlyArray<Finding> =>
-  checkLayout(withFiles(files), justfile).filter((finding) => finding.path === path);
+  checkLayout(withFiles(files, removed), justfile).filter((finding) => finding.path === path);
 
 describe("layout check", () => {
   test("rejects a new top-level directory", () => {
@@ -85,6 +91,54 @@ describe("layout check", () => {
     expect(findingsFor({ "docs/probe.md": "Run `just check`.\n" }, "docs/probe.md")).toHaveLength(
       0,
     );
+  });
+
+  test("rejects a workspace that runs Vitest without a configuration that merges the shared one", () => {
+    const config = "apps/backend/vitest.config.ts";
+
+    expect(findingsFor({}, "apps/backend/package.json", [config])).toHaveLength(1);
+    expect(
+      findingsFor(
+        {
+          [config]:
+            '// import { sharedVitestConfig } from "../../vitest.shared";\nimport { defineConfig } from "vitest/config";\n\nexport default defineConfig({});\n',
+        },
+        config,
+      ),
+    ).toHaveLength(1);
+    expect(
+      findingsFor(
+        {
+          [config]: `import { sharedVitestConfig } from "../../vitest.shared";
+import { defineConfig } from "vitest/config";
+export default defineConfig({});
+`,
+        },
+        config,
+      ),
+    ).toHaveLength(1);
+    expect(
+      findingsFor(
+        {
+          [config]: `import { mergeConfig } from "vitest/config";
+import { sharedVitestConfig } from "../../vitest.shared.js";
+export default mergeConfig(sharedVitestConfig, { test: { maxWorkers: 32 } });
+`,
+        },
+        config,
+      ),
+    ).toHaveLength(1);
+    expect(
+      findingsFor(
+        {
+          [config]:
+            'import { defineConfig, mergeConfig } from "vitest/config";\nimport { sharedVitestConfig } from "../../vitest.shared.js";\n\nexport default mergeConfig(sharedVitestConfig, defineConfig({}));\n',
+        },
+        config,
+      ),
+    ).toHaveLength(0);
+    expect(findingsFor({}, "apps/backend/package.json")).toHaveLength(0);
+    expect(findingsFor({}, config)).toHaveLength(0);
   });
 });
 
