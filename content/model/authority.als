@@ -5,7 +5,7 @@ module authority
  *
  * This model states intended behaviour. docs/system.md is the product authority, in its sections
  * "Authority model", "Organization administration", "Recruitment and affiliation", "Team
- * applications" and "Expense reimbursement". docs/model/contexts.cml places the same concepts in
+ * applications" and "Expense reimbursement". content/model/contexts.cml places the same concepts in
  * their bounded contexts.
  *
  * ROLE ALGEBRA. A role instance is (holder, role type, scope, interval, status). The holder is a

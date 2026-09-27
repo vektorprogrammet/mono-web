@@ -1,6 +1,6 @@
 # digest
 
-[//]: # "constructs: generated from the @construct tags and their JSDoc by just constructs write; do not edit"
+[//]: # "constructs: generated from the @construct tags and their JSDoc by just docs generate; do not edit"
 
 Canonical JSON and SHA-256 digests that evidence and idempotency identities hash. The [index](../constructs.md) lists every category.
 

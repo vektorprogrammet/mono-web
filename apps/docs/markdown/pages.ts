@@ -1,12 +1,13 @@
 /**
  * The pages of the documentation site and their read paths.
  *
- * Hand-written pages live in `content/` folders: the repository's own at the root, and one beside
- * the `package.json` of each app, package, and tool. The site shows a page of the root folder at
- * its path in that folder, and a page of a workspace under the workspace's path: the page of
+ * Hand-written pages live in content folders: the repository's own `content/`, and one beside the
+ * `package.json` of each app, package, and tool. The site shows a page of the root folder at its
+ * path in that folder, and a page of a workspace under the workspace's path: the page of
  * `content/specs/x.mdx` is `specs/x`, and the page of `packages/domain/content/receipt.mdx` is
  * `packages/domain/receipt`. A folder in parentheses, such as `content/(system)`, is a section of
- * the navigation that adds nothing to the path (a Fumadocs folder group).
+ * the navigation that adds nothing to the path (a Fumadocs folder group). The site generates the
+ * other pages from the repository into `apps/docs/generated`, as `generated.ts` describes.
  *
  * `just docs generate` writes the Markdown of each page to its read path, the file that agents and
  * GitHub readers open: `docs/` and the page's path, so `specs/x` reads at `docs/specs/x.md`. A page
@@ -14,15 +15,12 @@
  * `README.md`, is read in place: the document is its read path, and nothing is generated for it.
  */
 import { posix } from "node:path";
+import { contentFolder, generatedDirectory, packageRoots } from "@monoweb/conventions/layout";
 import { getSlugs } from "fumadocs-core/source";
-import { packageRoots } from "@monoweb/conventions/layout";
 import { urlOf } from "../src/lib/shared";
 
-/** The folder name of hand-written pages, at the root and in each workspace. */
-export const contentFolder = "content";
-
-/** Where `just docs generate` writes the Markdown of the pages. */
-export const outputDirectory = "docs";
+/** Where the site build writes the pages that it generates; Git ignores the folder. */
+export const generatedFolder = "apps/docs/generated";
 
 export interface Page {
   /** The MDX or Markdown file, relative to the repository root. */
@@ -43,24 +41,23 @@ const workspaceContent = new RegExp(
 );
 
 /**
- * The path of a file of a `content/` folder in the site's content tree, or undefined for a file
- * outside every `content/` folder.
+ * The path of a file of a content folder or of the generated folder in the site's content tree, or
+ * undefined for any other file.
  */
 export const contentPathOf = (file: string): string | undefined => {
   if (file.startsWith(`${contentFolder}/`)) return file.slice(contentFolder.length + 1);
+
+  if (file.startsWith(`${generatedFolder}/`)) return file.slice(generatedFolder.length + 1);
 
   const match = workspaceContent.exec(file);
 
   return match === null ? undefined : `${match[1]}/${match[2]}`;
 };
 
-/** Whether a file of a `content/` folder is a page, rather than navigation or an asset. */
-export const isPageFile = (file: string): boolean => /\.mdx?$/u.test(file);
-
 /** The read path of a page's path: `docs/`, the path without its folder groups, and `.md`. */
 export const readPathOf = (path: string): string =>
   posix.join(
-    outputDirectory,
+    generatedDirectory,
     path
       .split("/")
       .filter((segment) => !/^\(.+\)$/u.test(segment))
@@ -85,19 +82,6 @@ export const inPlaceDocumentOf = (source: string, text: string): string | undefi
     : posix.normalize(posix.join(posix.dirname(source), specifier));
 };
 
-/** The page of a source file, given its repository path, its site path, and its text. */
-export const pageOf = (source: string, path: string, text: string): Page => {
-  const document = inPlaceDocumentOf(source, text);
-
-  return {
-    source,
-    path,
-    url: urlOf(getSlugs(path)),
-    readPath: document ?? readPathOf(path),
-    generated: document === undefined,
-  };
-};
-
 /** The pages among repository paths, sorted by source. */
 export const pagesIn = (
   paths: Iterable<string>,
@@ -106,25 +90,32 @@ export const pagesIn = (
   [...paths].sort().flatMap((source) => {
     const path = contentPathOf(source);
 
-    return path === undefined || !isPageFile(path) ? [] : [pageOf(source, path, read(source))];
+    if (path === undefined || !/\.mdx?$/u.test(path)) return [];
+
+    const document = inPlaceDocumentOf(source, read(source));
+
+    return [
+      {
+        source,
+        path,
+        url: urlOf(getSlugs(path)),
+        readPath: document ?? readPathOf(path),
+        generated: document === undefined,
+      },
+    ];
   });
 
 /** Two pages with one read path or one route, which the site and the Markdown cannot tell apart. */
-export const collisions = (pages: ReadonlyArray<Page>): ReadonlyArray<string> => {
-  const problems: Array<string> = [];
-
-  for (const key of ["readPath", "url"] as const) {
+export const collisions = (pages: ReadonlyArray<Page>): ReadonlyArray<string> =>
+  (["readPath", "url"] as const).flatMap((key) => {
     const owners = new Map<string, Array<string>>();
 
     for (const page of pages)
       owners.set(page[key], [...(owners.get(page[key]) ?? []), page.source]);
 
-    for (const [value, sources] of owners)
-      if (sources.length > 1)
-        problems.push(
-          `${sources.join(" and ")} share the ${key === "url" ? "route" : "read path"} ${value}`,
-        );
-  }
-
-  return problems;
-};
+    return [...owners].flatMap(([value, sources]) =>
+      sources.length > 1
+        ? [`${sources.join(" and ")} share the ${key === "url" ? "route" : "read path"} ${value}`]
+        : [],
+    );
+  });

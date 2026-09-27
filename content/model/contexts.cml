@@ -2,7 +2,7 @@
  * Vektorprogrammet: intended bounded contexts, context map and aggregates (Context Mapper CML).
  *
  * docs/system.md is the product authority and docs/architecture.md holds the technical boundaries.
- * This model states intent; it does not describe the code on main. docs/model/authority.als states
+ * This model states intent; it does not describe the code on main. content/model/authority.als states
  * and checks the role and principal algebra that the AccessControl context publishes.
  *
  * Decisions that this model encodes:
@@ -89,7 +89,7 @@
  *   Open/Closed intake, Overdue commitment) are policies over state and an instant, not stored states.
  *
  * Validate with Context Mapper CLI 6.12.0 (Maven Central, org.contextmapper:context-mapper-cli):
- *   cm validate -i docs/model/contexts.cml
+ *   cm validate -i content/model/contexts.cml
  */
 
 Domain Vektorprogrammet {

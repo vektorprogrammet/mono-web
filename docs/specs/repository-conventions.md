@@ -1,4 +1,8 @@
+[//]: # "generated from content/specs/repository-conventions.mdx by just docs generate; do not edit"
+
 # Repository conventions
+
+Structure, reuse, and documentation that stay correct by construction: one source per fact, and a check on everything derived from it.
 
 Status: frozen for implementation on 2026-09-25. Remove this specification when the checks below run in hooks and CI and `AGENTS.md`, the README, and the module guides carry the enduring rules.
 
@@ -19,16 +23,16 @@ A person or an agent can find the right place for new code, the shared construct
 
 ## Sources of truth
 
-| Fact | Source | Derived from it |
-| --- | --- | --- |
-| Bounded contexts and their relationships | `docs/model/contexts.cml` | context folder check, context boundary lint rules, context sections of module guides, docs-site context map |
-| Authority rules | `docs/model/authority.als` | nothing generated; the Alloy checks run in CI |
-| Repository layout | one declaration in `tools/conventions` | layout check, layout table in `AGENTS.md` and the README |
-| Shared constructs | `@construct <category>` JSDoc tags on exports, with their contract tags and annotations | construct index and contract pages, consumers from the import graph on request, lint messages |
-| Worked examples for people and agents | type-checked files under `ai-docs/src` | `LLMS.md` and the docs-site guide section |
-| Commands | the root `justfile` | `just --list`, hook and CI invocations |
-| Public entry points | `exports` in each `package.json` | module guides, import rules |
-| Reviewed duplicates | `docs/duplication-exceptions.json` | duplication findings; the duplication baseline in `tools/conventions`, which only shrinks |
+| Fact                                     | Source                                                                                  | Derived from it                                                                                             |
+| ---------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Bounded contexts and their relationships | `content/model/contexts.cml`                                                            | context folder check, context boundary lint rules, context sections of module guides, docs-site context map |
+| Authority rules                          | `content/model/authority.als`                                                           | nothing generated; the Alloy checks run in CI                                                               |
+| Repository layout                        | one declaration in `tools/conventions`                                                  | layout check, layout table in `AGENTS.md` and the README                                                    |
+| Shared constructs                        | `@construct <category>` JSDoc tags on exports, with their contract tags and annotations | construct index and contract pages, consumers from the import graph on request, lint messages               |
+| Worked examples for people and agents    | type-checked files under `ai-docs/src`                                                  | `LLMS.md` and the docs-site guide section                                                                   |
+| Commands                                 | the root `justfile`                                                                     | `just --list`, hook and CI invocations                                                                      |
+| Public entry points                      | `exports` in each `package.json`                                                        | module guides, import rules                                                                                 |
+| Reviewed duplicates                      | `docs/duplication-exceptions.json`                                                      | duplication findings; the duplication baseline in `tools/conventions`, which only shrinks                   |
 
 ## Decisions
 
@@ -98,29 +102,29 @@ If a construct for the logic exists, such as `loopbackPortFree` for a port check
 
 Tools examined on `8d1b7e09`, with the reason for each decision:
 
-| Tool and version | Decision | Reason |
-| --- | --- | --- |
-| jscpd 5.3.2 (Rust) | chosen | Line ranges agree with the source in each sampled finding. The full scan takes 0.23 s and 315 MiB, or 0.44 s and 276 MiB with 2 workers. It has ignore globs, an ignore pattern for tokens, and JSON output. |
-| jscpd 4.3.0 (TypeScript) | rejected | The same token model as version 5, and 12 s for the same scan. |
-| fallow 3.30.0 (`fallow dupes`) | rejected | Its line ranges are wrong for some groups: `packages/database/src/database.test.ts:140-372` for a 7-line clone at lines 146-152. 480 of its 584 group fingerprints are rank numbers: an unrelated new clone changed 142 of them. By default it skips every test file. |
-| similarity-ts 0.5.0 (nixpkgs) | rejected | It compares functions by AST, takes 24 s, and put 78 unrelated functions in one cluster. It has no baseline. |
-| PMD CPD | not run | It needs a JVM, and its token model is the same as that of jscpd. |
-| Oxlint 1.77.0, knip 6.38.0 | no coverage | Oxlint has only rules inside one file, such as `no-dupe-keys` and `import/no-duplicates`. The knip `duplicates` issue is one export under two names. Neither finds copied code. |
+| Tool and version               | Decision    | Reason                                                                                                                                                                                                                                                                |
+| ------------------------------ | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| jscpd 5.3.2 (Rust)             | chosen      | Line ranges agree with the source in each sampled finding. The full scan takes 0.23 s and 315 MiB, or 0.44 s and 276 MiB with 2 workers. It has ignore globs, an ignore pattern for tokens, and JSON output.                                                          |
+| jscpd 4.3.0 (TypeScript)       | rejected    | The same token model as version 5, and 12 s for the same scan.                                                                                                                                                                                                        |
+| fallow 3.30.0 (`fallow dupes`) | rejected    | Its line ranges are wrong for some groups: `packages/database/src/database.test.ts:140-372` for a 7-line clone at lines 146-152. 480 of its 584 group fingerprints are rank numbers: an unrelated new clone changed 142 of them. By default it skips every test file. |
+| similarity-ts 0.5.0 (nixpkgs)  | rejected    | It compares functions by AST, takes 24 s, and put 78 unrelated functions in one cluster. It has no baseline.                                                                                                                                                          |
+| PMD CPD                        | not run     | It needs a JVM, and its token model is the same as that of jscpd.                                                                                                                                                                                                     |
+| Oxlint 1.77.0, knip 6.38.0     | no coverage | Oxlint has only rules inside one file, such as `no-dupe-keys` and `import/no-duplicates`. The knip `duplicates` issue is one export under two names. Neither finds copied code.                                                                                       |
 
 Do not use the jscpd baseline file or the fallow `ignoredClones` list as the registry. Their keys changed when a clone that was not related appeared: 9 jscpd pairs and 142 fallow groups in one test.
 
 **Scope of the scan.** The check reads the JavaScript, TypeScript, TSX, and CSS files of the Git index. Because it reads the index, no ignored generated file enters the scan. The exclusions:
 
-| Excluded | Reason |
-| --- | --- |
-| The OpenAPI document and the SDK operations (`packages/http-api/openapi.json`, `packages/sdk/native-api-operations.json`) | Generated from the HTTP contract and ignored by Git. They are JSON, which the scan does not read. |
-| The React Router route types (`apps/*/.react-router`), `apps/docs/src/pages`, and `apps/docs/src/pages.gen.ts` | Generated and ignored by Git. `just lint` writes the route types into the working tree, and the index does not contain them. |
-| The construct pages (`docs/constructs.md`, `docs/constructs/`) and the generated sections of the guides | Generated from the tags. They are Markdown, which the scan does not read. |
-| The migrations (`packages/database/migrations`) | Applied migrations are frozen by their checksums and cannot change. They are SQL, which the scan does not read. |
-| `tools/oxlint/anti-slop/vendor` and `apps/docs/components/mdxcn` | Third-party code with its upstream and license record. A change there follows the upstream merge procedure. On `8d1b7e09` both have no clones. |
-| The rule tests of `tools/oxlint` (`tools/oxlint/**/*.test.ts`) | Check fixtures: each test keeps its valid and invalid cases side by side as strings, so repeated cases are on purpose. On `8d1b7e09` they have no clones. |
-| The controls of the duplication check (`tools/conventions/tests/fixtures/duplication`) | Check fixtures: the negative controls contain copies on purpose. |
-| Import statements (`--ignore-pattern 'import[^;]*;'`) | Identical import lists are module wiring, not copied logic. They made 48 of the 898 pairs at 50 tokens. |
+| Excluded                                                                                                                  | Reason                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The OpenAPI document and the SDK operations (`packages/http-api/openapi.json`, `packages/sdk/native-api-operations.json`) | Generated from the HTTP contract and ignored by Git. They are JSON, which the scan does not read.                                                         |
+| The React Router route types (`apps/*/.react-router`), `apps/docs/src/pages`, and `apps/docs/src/pages.gen.ts`            | Generated and ignored by Git. `just lint` writes the route types into the working tree, and the index does not contain them.                              |
+| The construct pages (`docs/constructs.md`, `docs/constructs/`) and the generated sections of the guides                   | Generated from the tags. They are Markdown, which the scan does not read.                                                                                 |
+| The migrations (`packages/database/migrations`)                                                                           | Applied migrations are frozen by their checksums and cannot change. They are SQL, which the scan does not read.                                           |
+| `tools/oxlint/anti-slop/vendor` and `apps/docs/components/mdxcn`                                                          | Third-party code with its upstream and license record. A change there follows the upstream merge procedure. On `8d1b7e09` both have no clones.            |
+| The rule tests of `tools/oxlint` (`tools/oxlint/**/*.test.ts`)                                                            | Check fixtures: each test keeps its valid and invalid cases side by side as strings, so repeated cases are on purpose. On `8d1b7e09` they have no clones. |
+| The controls of the duplication check (`tools/conventions/tests/fixtures/duplication`)                                    | Check fixtures: the negative controls contain copies on purpose.                                                                                          |
+| Import statements (`--ignore-pattern 'import[^;]*;'`)                                                                     | Identical import lists are module wiring, not copied logic. They made 48 of the 898 pairs at 50 tokens.                                                   |
 
 Tests, journey code, and proofs stay in the scan. Test helpers follow the scope rule, and a copy that isolates a test is a reviewed exception. For example, five tests of `tools/conventions` copy the repository overlay `withFiles`, and that helper goes to one test-support module.
 
@@ -161,11 +165,11 @@ The implementation runs after the public-surface slice. The cross-package constr
 **Measurement on `8d1b7e09`.** jscpd 5.3.2 over the 1,200 files of the scan, with the exclusions above and 5 lines minimum:
 
 | Tokens | Pairs | Groups | Instances | Duplicated lines | Of the lines |
-| --- | --- | --- | --- | --- | --- |
-| 50 | 860 | 659 | 1,504 | 12,814 | 4.08% |
-| 75 | 311 | 246 | 556 | 6,978 | 2.23% |
-| 100 | 148 | 114 | 258 | 4,505 | 1.44% |
-| 150 | 50 | 41 | 88 | 2,655 | 0.85% |
+| ------ | ----- | ------ | --------- | ---------------- | ------------ |
+| 50     | 860   | 659    | 1,504     | 12,814           | 4.08%        |
+| 75     | 311   | 246    | 556       | 6,978            | 2.23%        |
+| 100    | 148   | 114    | 258       | 4,505            | 1.44%        |
+| 150    | 50    | 41     | 88        | 2,655            | 0.85%        |
 
 At 100 tokens, `apps/dashboard` has 71 groups and 4,591 duplicated lines (5.8%), `packages/database` 17 and 651, `tools/e2e` 11 and 402, and `apps/backend` 10 and 613. The copies of the local journey runner (`run-real-*.mjs` in `apps/dashboard/e2e`, `apps/homepage/e2e`, and `tools/e2e`) make 49 of the 114 groups and 3,172 of the duplicated lines. They copy the port checks, process control, readiness waits, recording proxy, and cleanup. Their construct goes to the `exports` of `tools/e2e`, and the port checks move onto `loopbackPortFree` and `reserveLoopbackPorts`. The largest other group is `apps/dashboard/app/foldkit/content/styles.css`, which repeats lines 1-304 of the schools stylesheet. It goes to the `shared-kernel` folder of the Foldkit contexts.
 

@@ -12,6 +12,8 @@ build
 /apps/docs/.output
 /apps/docs/.nitro
 /apps/docs/.tanstack
+/apps/docs/generated
+/apps/docs/.source
 
 # Derived from committed sources; regenerate them, never commit them
 /packages/http-api/openapi.json

@@ -1,10 +1,10 @@
-[//]: # "guide: generated from docs/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
+[//]: # "guide: generated from content/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
 
 # packages/domain/src/placements
 
 This folder holds the Placements bounded context in `packages/domain/src`.
 The domain layer holds business values, state transitions, failures, capability requirements, and service contracts. It imports no database, HTTP, application, browser, provider, or migration-tool code.
-The human guide is [README.md](README.md).
+The human guide is [packages/domain/content/placements.mdx](../../content/placements.mdx).
 
 The Placements context in other folders:
 
@@ -14,7 +14,7 @@ The Placements context in other folders:
 
 ## Bounded context: Placements
 
-From [docs/model/contexts.cml](../../../../docs/model/contexts.cml).
+From [content/model/contexts.cml](../../../../content/model/contexts.cml).
 
 Assistant supply (affiliation), semester placements, school demand, automatically drafted and reviewed proposals, confirmed rosters, dated school-service commitments, absences with a record of who covered each lesson date, days served and certificates, and immutable service outcomes and history. Substitutes and assistants arrange cover in Slack; the system records the result.
 

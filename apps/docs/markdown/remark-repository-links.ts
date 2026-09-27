@@ -3,16 +3,17 @@
  * repository path to its view on GitHub. A broken link fails the build. A page read in place shows
  * its document without the document's first-level heading, which the page title replaces.
  */
+import { extracts } from "@monoweb/conventions/documentation";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Root } from "mdast";
 import { SKIP, visit } from "unist-util-visit";
 import type { VFile } from "vfile";
-import { packageRoots } from "@monoweb/conventions/layout";
+import { contentFolder, packageRoots } from "@monoweb/conventions/layout";
 import { gitConfig } from "../src/lib/shared";
-import { linkResolver, type Target, type Tree } from "./links";
-import { contentFolder, pagesIn } from "./pages";
+import { linkResolver, markdownProcessor, type Target, type Tree } from "./links";
+import { generatedFolder, pagesIn } from "./pages";
 
 const root = fileURLToPath(new URL("../../..", import.meta.url));
 
@@ -30,9 +31,10 @@ const repository: Tree = {
 const toPosix = (path: string): string => path.split(sep).join("/");
 
 /** The files of every `content/` folder, relative to the repository root. */
-const contentFiles = (): ReadonlyArray<string> =>
+export const contentFiles = (root: string): ReadonlyArray<string> =>
   [
     contentFolder,
+    generatedFolder,
     ...packageRoots.flatMap((packageRoot) =>
       readdirSync(join(root, packageRoot)).map((name) => `${packageRoot}/${name}/${contentFolder}`),
     ),
@@ -59,7 +61,7 @@ const hrefOf = (target: Target, url: string): string => {
 export function remarkRepositoryLinks() {
   return (tree: Root, file: VFile): void => {
     const source = toPosix(relative(root, resolve(file.cwd, file.path)));
-    const pages = pagesIn(contentFiles(), repository.read);
+    const pages = pagesIn(contentFiles(root), repository.read);
     const page = pages.find((candidate) => candidate.source === source);
 
     if (page === undefined) return;
@@ -75,6 +77,16 @@ export function remarkRepositoryLinks() {
         return [SKIP, index];
       });
 
+    visit(tree, "mdxJsxFlowElement", (node, index, parent) => {
+      if (node.name !== "HostedJourneys" || index === undefined || parent === undefined) return;
+
+      if (node.attributes.length > 0 || node.children.length > 0)
+        file.fail("HostedJourneys takes no attributes or children", node);
+      const children = markdownProcessor.parse(extracts.HostedJourneys(root)).children;
+      parent.children.splice(index, 1, ...children);
+
+      return [SKIP, index + children.length];
+    });
     visit(tree, (node) => {
       if (node.type !== "link" && node.type !== "image" && node.type !== "definition") return;
 

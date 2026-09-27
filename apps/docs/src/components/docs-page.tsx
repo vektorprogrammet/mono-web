@@ -2,6 +2,7 @@ import { Link, notFound } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { staticFunctionMiddleware } from "@tanstack/start-static-server-functions";
 import { type SerializedPageTree, useFumadocsLoader } from "fumadocs-core/source/client";
+import type { OpenAPIPageProps_Spec } from "fumadocs-openapi/server";
 import { DocsLayout } from "fumadocs-ui/layouts/docs";
 import {
   DocsBody,
@@ -13,20 +14,28 @@ import {
 } from "fumadocs-ui/layouts/docs/page";
 import { Suspense, use } from "react";
 import { inPlaceDocumentOf } from "../../markdown/pages";
+import { OpenAPIPage } from "@/components/api-page";
 import { useMDXComponents } from "@/components/mdx";
 import { baseOptions } from "@/lib/layout.shared";
 import { getPageMarkdownUrl, gitConfig } from "@/lib/shared";
-import { docs, source } from "@/lib/source";
+import { docs } from "@/lib/docs";
 
-/** The data of a page's route. */
-export interface PageData {
-  /** The page's file in the content collection, relative to the repository root. */
-  readonly path: string;
-  /** The file that GitHub opens to edit the page. */
-  readonly editPath: string;
-  readonly markdownUrl: string;
-  readonly pageTree: SerializedPageTree;
-}
+/** Route data is either a content page or an API operation from the OpenAPI contract. */
+export type PageData =
+  | {
+      readonly type: "docs";
+      readonly path: string;
+      readonly editPath: string;
+      readonly markdownUrl: string;
+      readonly pageTree: SerializedPageTree;
+    }
+  | {
+      readonly type: "openapi";
+      readonly title: string;
+      readonly description?: string;
+      readonly props: OpenAPIPageProps_Spec;
+      readonly pageTree: SerializedPageTree;
+    };
 
 const serverLoader = createServerFn({
   method: "GET",
@@ -34,18 +43,43 @@ const serverLoader = createServerFn({
   .validator((slugs: string[]) => slugs)
   .middleware([staticFunctionMiddleware])
   .handler(async ({ data: slugs }): Promise<PageData> => {
+    const { source } = await import("@/lib/source");
+
+    const [fs, nodePath] = await Promise.all([import("node:fs"), import("node:path")]);
+
     const page = source.getPage(slugs);
 
     if (!page) throw notFound();
 
+    const pageTree = await source.serializePageTree(source.getPageTree());
+
+    if (page.type === "openapi") {
+      const title = page.data.title;
+
+      if (title === undefined) throw new Error(`The OpenAPI page ${page.url} has no title`);
+
+      return {
+        type: "openapi",
+        title,
+        description: page.data.description,
+        props: page.data.getOpenAPIPageProps(),
+        pageTree,
+      };
+    }
+
     const { path } = page.data.info;
 
     return {
+      type: "docs",
       path,
       // A page read in place is edited in the document that it includes.
-      editPath: inPlaceDocumentOf(path, await page.data.getText("raw")) ?? path,
+      editPath:
+        inPlaceDocumentOf(
+          path,
+          fs.readFileSync(nodePath.resolve(process.cwd(), "../..", path), "utf8"),
+        ) ?? path,
       markdownUrl: getPageMarkdownUrl(page).url,
-      pageTree: await source.serializePageTree(source.getPageTree()),
+      pageTree,
     };
   });
 
@@ -53,7 +87,7 @@ const serverLoader = createServerFn({
 export async function loadPage(slugs: string[]): Promise<PageData> {
   const data = await serverLoader({ data: slugs });
 
-  await docs.getPage(data.path)?.preload();
+  if (data.type === "docs") await docs.getPage(data.path)?.preload();
 
   return data;
 }
@@ -93,13 +127,23 @@ function Content({
 }
 
 export function DocsRoutePage({ data }: { data: PageData }) {
-  const { pageTree, path, editPath, markdownUrl } = useFumadocsLoader(data);
+  const page = useFumadocsLoader(data);
 
   return (
-    <DocsLayout {...baseOptions()} tree={pageTree}>
-      <Link to={markdownUrl} hidden />
+    <DocsLayout {...baseOptions()} tree={page.pageTree}>
+      {page.type === "docs" && <Link to={page.markdownUrl} hidden />}
       <Suspense>
-        <Content path={path} editPath={editPath} markdownUrl={markdownUrl} />
+        {page.type === "openapi" ? (
+          <DocsPage full>
+            <DocsTitle>{page.title}</DocsTitle>
+            <DocsDescription>{page.description}</DocsDescription>
+            <DocsBody>
+              <OpenAPIPage {...page.props} />
+            </DocsBody>
+          </DocsPage>
+        ) : (
+          <Content path={page.path} editPath={page.editPath} markdownUrl={page.markdownUrl} />
+        )}
       </Suspense>
     </DocsLayout>
   );

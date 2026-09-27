@@ -3,8 +3,8 @@ import { remarkRepositoryLinks } from "./markdown/remark-repository-links";
 
 export default defineConfig({
   mdxOptions: {
-    // First, so that it resolves every link before the preset turns images into imports, and
-    // removes the heading of a document read in place before the table of contents lists it.
+    // Resolve repository links before the preset turns images into imports.
+    // The in-place document heading is removed before the table of contents is assembled.
     remarkPlugins: (plugins) => [remarkRepositoryLinks, ...plugins],
   },
 });

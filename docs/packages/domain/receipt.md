@@ -1,21 +1,25 @@
+[//]: # "generated from packages/domain/content/receipt.mdx by just docs generate; do not edit"
+
 # Receipt developer guide
+
+Claim, approval, settlement evidence, private files, bounded reads, and recovery.
 
 ## Purpose and ownership
 
 Receipt owns claim decisions, approval, private-file references, and evidence of external settlement through the `Economy` service.
-The [expense contract](../../../../docs/system.md#expense-reimbursement) owns business meaning.
-The [architecture](../../../../docs/architecture.md#domain-services) owns dependency direction.
+The [expense contract](../../system.md#expense-reimbursement) owns business meaning.
+The [architecture](../../architecture.md#domain-services) owns dependency direction.
 
 Approval leaves a claim `Approved`. It does not prove payment.
 Settlement records evidence of an external action. The program does not execute a payment.
 Settlement evidence does not introduce a `Paid` lifecycle state.
 
-[Organization](../organization/authority.ts) supplies current Person and scope facts.
+[Organization](../../../packages/domain/src/organization/authority.ts) supplies current Person and scope facts.
 The native backend owns authentication, HTTP preconditions, private storage, and delivery composition.
 The database adapter owns locks, command receipts, audit, and durable outbox work.
 Dashboard roles and visible controls do not grant authority.
 
-Reviewed migration has a separate [review contract](review.ts) and [import implementation](../../../database/src/receipt/reviewed-cohort.ts).
+Reviewed migration has a separate [review contract](../../../packages/domain/src/receipt/review.ts) and [import implementation](../../../packages/database/src/receipt/reviewed-cohort.ts).
 An import creates no grants, native human audit events, notifications, or settlement evidence.
 Local examples and rehearsals do not authorize production access, provider changes, deployment, or cutover.
 
@@ -28,16 +32,16 @@ The package export maps define the supported receipt imports:
 | `@vektorprogrammet/domain/receipt`            | Public schemas, decisions, failures, `Economy`, `ReceiptFileService`, and `ReceiptAuxiliaryEffects`. |
 | `@vektorprogrammet/database/receipt/postgres` | `EconomyLive` and the exported file-read, recovery, and reviewed-import boundaries.                  |
 
-The [domain export map](../../package.json) and [database export map](../../../database/package.json) own these paths.
-The [domain barrel](index.ts) and [database barrel](../../../database/src/receipt/postgres-index.ts) own their exact exports.
+The [domain export map](../../../packages/domain/package.json) and [database export map](../../../packages/database/package.json) own these paths.
+The [domain barrel](../../../packages/domain/src/receipt/index.ts) and [database barrel](../../../packages/database/src/receipt/postgres-index.ts) own their exact exports.
 An exported recording adapter remains a test tool, not a durable storage implementation.
 Consumers must not import private PostgreSQL modules or write receipt tables directly.
 
-The [service declaration](service.ts) owns operation signatures, Effect requirements, and transaction-specific witnesses.
-The [schemas](schema.ts) own amounts, dates, identities, revisions, file metadata, and settlement evidence.
-The [HTTP contract](../../../http-api/src/receipts.ts) owns transport requests and responses.
+The [service declaration](../../../packages/domain/src/receipt/service.ts) owns operation signatures, Effect requirements, and transaction-specific witnesses.
+The [schemas](../../../packages/domain/src/receipt/schema.ts) own amounts, dates, identities, revisions, file metadata, and settlement evidence.
+The [HTTP contract](../../../packages/http-api/src/receipts.ts) owns transport requests and responses.
 Browser consumers use `@vektorprogrammet/sdk` or `@vektorprogrammet/sdk/effect`, not the database Layer.
-The [SDK export map](../../../sdk/package.json) owns these generated consumer entry points.
+The [SDK export map](../../../packages/sdk/package.json) owns these generated consumer entry points.
 
 ### Run the executable example
 
@@ -49,8 +53,8 @@ bun run --cwd packages/domain check-types
 bun run packages/domain/examples/receipt.ts
 ```
 
-The [example](../../examples/receipt.ts) uses the supported domain entry point, Effect, and Node assertions.
-The [domain compiler configuration](../../tsconfig.json) explicitly includes its directory.
+The [example](../../../packages/domain/examples/receipt.ts) uses the supported domain entry point, Effect, and Node assertions.
+The [domain compiler configuration](../../../packages/domain/tsconfig.json) explicitly includes its directory.
 The linked file is the executable source. This guide does not duplicate its code.
 
 The example produces a Pending proposal, rejects owner approval without scope, and produces an Approved proposal for a synthetic approver.
@@ -69,8 +73,8 @@ It requires no credentials, browser, database, provider, or temporary files.
 An Effect requirement supplies a dependency, not permission.
 An authenticated principal identifies a Person and one authorization instant. It does not carry trusted grants from the client.
 
-[Authority resolution](../../../database/src/receipt/authority-postgres.ts) combines current Organization facts with receipt payment, approval, and settlement grants.
-The [authority model](authority.ts) owns grant selection and denial behavior.
+[Authority resolution](../../../packages/database/src/receipt/authority-postgres.ts) combines current Organization facts with receipt payment, approval, and settlement grants.
+The [authority model](../../../packages/domain/src/receipt/authority.ts) owns grant selection and denial behavior.
 Submission requires a current payment authority. Multiple eligible departments require an explicit selection.
 Approval scope does not grant settlement scope.
 
@@ -95,7 +99,7 @@ It does not mean that file promotion or notification delivery succeeded.
 The transaction result distinguishes replay from a new decision.
 A replay returns the stored observation and the current receipt. These are not interchangeable snapshots.
 
-The [public projections](projections.ts) separate owner, approver, settlement queue, and evidence views.
+The [public projections](../../../packages/domain/src/receipt/projections.ts) separate owner, approver, settlement queue, and evidence views.
 `Receipt.json` omits the payment-account ciphertext and private-file metadata.
 Encode through the public schema. Raw `JSON.stringify(receipt)` does not enforce that omission.
 Do not expose storage identities, payment ciphertext, provider secrets, or persistence causes in logs or responses.
@@ -109,10 +113,10 @@ Do not expose storage identities, payment ciphertext, provider secrets, or persi
 | Existing settlement or duplicate external reference | Reconcile the existing evidence. Do not create a second record.                                |
 | Persistence or file failure                         | Preserve the cause privately and inspect the owned recovery boundary.                          |
 
-The [failure unions](errors.ts), [file failures](file-errors.ts), and [HTTP mapping](../../../../apps/backend/src/receipt/http-problem.ts) own exact tags and statuses.
+The [failure unions](../../../packages/domain/src/receipt/errors.ts), [file failures](../../../packages/domain/src/receipt/file-errors.ts), and [HTTP mapping](../../../apps/backend/src/receipt/http-problem.ts) own exact tags and statuses.
 Settlement also rejects a settlement time after its recorded time.
 Its immutable evidence binds the approved amount, destination fingerprint, external reference, actor, and revision.
-The [settlement implementation](../../../database/src/receipt/settlement.ts) owns those checks and uniqueness rules.
+The [settlement implementation](../../../packages/database/src/receipt/settlement.ts) owns those checks and uniqueness rules.
 
 ## Compose it
 
@@ -121,15 +125,15 @@ Its business methods therefore do not request the database again.
 Delivery also requires `ReceiptFileService` and `ReceiptAuxiliaryEffects` when the delivery effect runs.
 The service does not own a listener, worker process, or independent connection pool.
 
-The [native composition](../../../../apps/backend/src/main.ts) provides `EconomyLive` from the shared database Layer.
-It supplies the [filesystem Layer](../../../../apps/backend/src/receipt/filesystem.ts) and [delivery Layer](../../../../apps/backend/src/receipt/delivery.ts).
-The [R2 adapter](../../../../apps/backend/src/receipt/r2.ts) implements the same file-store contract for object storage but has no deployed composition.
+The [native composition](../../../apps/backend/src/main.ts) provides `EconomyLive` from the shared database Layer.
+It supplies the [filesystem Layer](../../../apps/backend/src/receipt/filesystem.ts) and [delivery Layer](../../../apps/backend/src/receipt/delivery.ts).
+The [R2 adapter](../../../apps/backend/src/receipt/r2.ts) implements the same file-store contract for object storage but has no deployed composition.
 A local native journey does not qualify object storage or a real notification provider.
 
-The [receipt configuration](../../../../apps/backend/src/receipt/config.ts) owns file roots and intake limits.
-The [backend configuration](../../../../apps/backend/src/config.ts) owns worker modes and polling.
-The [delivery parser](../../../../apps/backend/src/receipt/delivery.ts) owns provider configuration and deadline validation.
-The [recovery guide](../../../../docs/delivery-recovery.md#configuration) explains startup and shutdown requirements without another configuration surface.
+The [receipt configuration](../../../apps/backend/src/receipt/config.ts) owns file roots and intake limits.
+The [backend configuration](../../../apps/backend/src/config.ts) owns worker modes and polling.
+The [delivery parser](../../../apps/backend/src/receipt/delivery.ts) owns provider configuration and deadline validation.
+The [recovery guide](../../delivery-recovery.md#configuration) explains startup and shutdown requirements without another configuration surface.
 
 Requests and the worker must use the same private storage roots.
 Persistent roots, the database, and required secrets must survive a native process restart together.
@@ -154,10 +158,10 @@ post-commit delivery
   fenced claim -> private-file or notification interpreter -> completion
 ```
 
-The [HTTP transaction owner](../../../../apps/backend/src/http-api/receipt-transaction.ts) retains response receipts and preconditions.
-The [receipt HTTP commands](../../../../apps/backend/src/receipt/http-commands.ts) supply receipt-specific authority and execution.
-The [database command implementation](../../../database/src/receipt/postgres.ts) preserves state, revision, command receipt, audit, and outbox in one transaction.
-The [decision function](update.ts) owns legal lifecycle transitions.
+The [HTTP transaction owner](../../../apps/backend/src/http-api/receipt-transaction.ts) retains response receipts and preconditions.
+The [receipt HTTP commands](../../../apps/backend/src/receipt/http-commands.ts) supply receipt-specific authority and execution.
+The [database command implementation](../../../packages/database/src/receipt/postgres.ts) preserves state, revision, command receipt, audit, and outbox in one transaction.
+The [decision function](../../../packages/domain/src/receipt/update.ts) owns legal lifecycle transitions.
 HTTP responses do not replace domain command receipts.
 
 ### Files and interruption
@@ -193,7 +197,7 @@ An exact replay does not create another business audit event or outbox request.
 HTTP replay returns the retained response only after current authority passes.
 A new command with an old revision remains stale. Replay does not waive that precondition.
 
-The [outbox adapter](../../../database/src/receipt/outbox.ts) claims eligible work with a durable claim identity.
+The [outbox adapter](../../../packages/database/src/receipt/outbox.ts) claims eligible work with a durable claim identity.
 It prevents later effects on the same receipt from passing an undelivered predecessor.
 Completion and failure updates require the current claim identity.
 A stale owner cannot complete a replacement claim.
@@ -207,21 +211,21 @@ Receipt provider rejection, timeout, and transport failure remain retryable outc
 A timeout does not prove that the provider received nothing.
 The worker recovers stale claims and retries retained work without another business command.
 Database errors and invalid durable envelopes stop the root worker rather than fabricate delivery success.
-The [receipt recovery rules](../../../../docs/delivery-recovery.md#receipt-work) distinguish this behavior from password-reset ambiguity handling.
+The [receipt recovery rules](../../delivery-recovery.md#receipt-work) distinguish this behavior from password-reset ambiguity handling.
 
 ## Resource bounds
 
 The following sources own the limits. This guide does not duplicate their numeric values.
 
-| Boundary           | Canonical source and behavior                                                                                                                                                                                                                                                                                                                                     |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| File intake        | [`RECEIPT_FILE_MAX_BYTES`](schema.ts) owns the maximum file size; [receipt configuration](../../../../apps/backend/src/receipt/config.ts) defaults to it. The [bounded multipart reader](../../../http-api/src/receipt-upload.ts) limits actual transfer bytes before parsing, and the dashboard's owner form answers a larger file with 413 and commits nothing. |
-| Private files      | The [filesystem adapter](../../../../apps/backend/src/receipt/filesystem.ts) bounds staging and committed reads. Native downloads materialize bounded bytes and check their digest.                                                                                                                                                                               |
-| Collections        | [Pagination declarations](pagination.ts) own the page size and cursor types. The [collection methods](service.ts) return bounded pages.                                                                                                                                                                                                                           |
-| Delivery ownership | The [outbox adapter](../../../database/src/receipt/outbox.ts) bounds concurrent interpreters within the runtime and fences each durable claim.                                                                                                                                                                                                                    |
-| Provider calls     | The [delivery parser](../../../../apps/backend/src/receipt/delivery.ts) bounds deadlines. The [HTTP transport](../../../../apps/backend/src/delivery/http.ts) propagates cancellation without an internal retry loop.                                                                                                                                             |
-| Recovery           | The [worker](../../../../apps/backend/src/receipt/worker.ts) owns stale-claim recovery and retry cadence. The [request drain](../../../../apps/backend/src/receipt/outbox-drain.ts) bounds work per invocation.                                                                                                                                                   |
-| Processes          | The [native root](../../../../apps/backend/src/main.ts) owns the worker lifetime. The [shared pool](../../../database/src/pg-pool.ts) owns database acquisition and release.                                                                                                                                                                                      |
+| Boundary           | Canonical source and behavior                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| File intake        | [`RECEIPT_FILE_MAX_BYTES`](../../../packages/domain/src/receipt/schema.ts) owns the maximum file size; [receipt configuration](../../../apps/backend/src/receipt/config.ts) defaults to it. The [bounded multipart reader](../../../packages/http-api/src/receipt-upload.ts) limits actual transfer bytes before parsing, and the dashboard's owner form answers a larger file with 413 and commits nothing. |
+| Private files      | The [filesystem adapter](../../../apps/backend/src/receipt/filesystem.ts) bounds staging and committed reads. Native downloads materialize bounded bytes and check their digest.                                                                                                                                                                                                                             |
+| Collections        | [Pagination declarations](../../../packages/domain/src/receipt/pagination.ts) own the page size and cursor types. The [collection methods](../../../packages/domain/src/receipt/service.ts) return bounded pages.                                                                                                                                                                                            |
+| Delivery ownership | The [outbox adapter](../../../packages/database/src/receipt/outbox.ts) bounds concurrent interpreters within the runtime and fences each durable claim.                                                                                                                                                                                                                                                      |
+| Provider calls     | The [delivery parser](../../../apps/backend/src/receipt/delivery.ts) bounds deadlines. The [HTTP transport](../../../apps/backend/src/delivery/http.ts) propagates cancellation without an internal retry loop.                                                                                                                                                                                              |
+| Recovery           | The [worker](../../../apps/backend/src/receipt/worker.ts) owns stale-claim recovery and retry cadence. The [request drain](../../../apps/backend/src/receipt/outbox-drain.ts) bounds work per invocation.                                                                                                                                                                                                    |
+| Processes          | The [native root](../../../apps/backend/src/main.ts) owns the worker lifetime. The [shared pool](../../../packages/database/src/pg-pool.ts) owns database acquisition and release.                                                                                                                                                                                                                           |
 
 The shared delivery permit applies within one JavaScript process, before a durable claim.
 Database claim fences still apply across processes.
@@ -232,7 +236,7 @@ Failed receipt delivery remains eligible at the worker cadence until it succeeds
 The queue does not discard failed business effects to meet a resource limit.
 
 `ReceiptPage` contains `items` and an optional `nextCursor`. It has no total count.
-The [pagination declarations](pagination.ts) own cursor validation and encoding. The [service declaration](service.ts) owns each collection method signature.
+The [pagination declarations](../../../packages/domain/src/receipt/pagination.ts) own cursor validation and encoding. The [service declaration](../../../packages/domain/src/receipt/service.ts) owns each collection method signature.
 Owner and approval pages retain newest-submission-first order. Settlement pages retain oldest-approval-first order.
 The receipt identifier breaks timestamp ties. A cursor is not a saved authorization result.
 Each page resolves current read authority. Separate pages do not share a database snapshot.
@@ -242,7 +246,7 @@ They return a cursor from a visible row, not from a hidden candidate.
 Hidden leading batches do not hide later authorized records or expose hidden row identities through a continuation cursor.
 These queries bound candidate-row materialization and result size. They do not guarantee a constant query count or execution time.
 Current authority, rules, and grant projections remain complete. Their memory use scales with configured authority records.
-The [OAuth list boundary](../authz/service-principal-grants.ts) retains all applicable exact-grant evidence, not only the first grant.
+The [OAuth list boundary](../../../packages/domain/src/authz/service-principal-grants.ts) retains all applicable exact-grant evidence, not only the first grant.
 
 To continue the collection, pass the returned cursor through the same generated operation until `nextCursor` is absent.
 Keep only the current result page in the dashboard Model.
@@ -276,8 +280,8 @@ The decision checks defend legal transitions and invariants. They do not resolve
 The HTTP checks cover the adapter contract with their declared test dependencies, not a continuous browser journey.
 The generation step derives the transport artifacts and checks the contract release invariants. It does not exercise delivery.
 
-The [functional testing guide](../../../../docs/web-system-functional-testing.md) owns local journey commands and their evidence requirements.
-The [delivery recovery guide](../../../../docs/delivery-recovery.md#local-proof) owns the disposable native recovery proof.
+The [functional testing guide](../../web-system-functional-testing.md) owns local journey commands and their evidence requirements.
+The [delivery recovery guide](../../delivery-recovery.md#local-proof) owns the disposable native recovery proof.
 When the shared runtime slot is available, run the heavy journey.
 Its PostgreSQL, browser, private files, and loopback provider remain local resources.
 Source-bound observations must connect actors, commands, database facts, and exact private bytes.

@@ -1,4 +1,8 @@
+[//]: # "generated from content/(operations)/operational-responsibility-map.mdx by just docs generate; do not edit"
+
 # Operational responsibility map
+
+Stakeholders, end-to-end processes, and replacement contracts.
 
 **Status:** Target operating model and replacement contracts.
 

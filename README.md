@@ -20,12 +20,13 @@ The durable documentation set is:
 | [docs/architecture.md](docs/architecture.md)                                     | Runtime, dependencies, persistence, delivery, and interface boundaries              |
 | [docs/operational-responsibility-map.md](docs/operational-responsibility-map.md) | Stakeholders, end-to-end processes, and replacement contracts                       |
 | [docs/enterprise-models.md](docs/enterprise-models.md)                           | 4EM and ArchiMate views derived from the system documents                           |
-| [docs/system-walkthrough.mdx](docs/system-walkthrough.mdx)                       | Layered reading guide with MDXCN figures                                            |
-| [Placements developer guide](packages/domain/src/placements/README.md)           | Public imports, executable examples, API reference generation, and maintainer tasks |
-| [Receipt developer guide](packages/domain/src/receipt/README.md)                 | Claim, approval, settlement evidence, private files, bounded reads, and recovery    |
+| [docs/system-walkthrough.md](docs/system-walkthrough.md)                         | Layered reading guide with MDXCN figures                                            |
+| [Placements developer guide](docs/packages/domain/placements.md)                 | Public imports, executable examples, API reference generation, and maintainer tasks |
+| [Receipt developer guide](docs/packages/domain/receipt.md)                       | Claim, approval, settlement evidence, private files, bounded reads, and recovery    |
 | [Delivery recovery guide](docs/delivery-recovery.md)                             | Native worker configuration, lifecycle, retry limits, and recovery proof            |
 
-Create one file in `docs/specs/` only while a non-trivial journey is active.
+Write one active specification in `content/specs/` for a non-trivial journey.
+`just docs generate` provides `docs/specs/` as generated read paths; do not edit them.
 Remove the completed specification after its durable intent is present in the
 system document, code, and observable checks.
 
@@ -40,39 +41,40 @@ The local development instructions below do not establish migration completion.
 
 [//]: # "layout: generated from tools/conventions/src/layout.ts by just layout write; do not edit"
 
-| Path                    | Holds                                                                           |
-| ----------------------- | ------------------------------------------------------------------------------- |
-| `apps/backend`          | Native Effect HTTP process and workers                                          |
-| `apps/dashboard`        | Authenticated React Router and Foldkit application                              |
-| `apps/docs`             | Documentation site that renders the repository documents                        |
-| `apps/homepage`         | Public React application                                                        |
-| `packages/domain`       | Business values, transitions, failures, and authority                           |
-| `packages/database`     | PostgreSQL schema, persistence, locks, audit, and outbox                        |
-| `packages/http-api`     | HTTP contracts, middleware declarations, and OpenAPI                            |
-| `packages/sdk`          | Generated native API client                                                     |
-| `tools/acceptance`      | Local API and browser acceptance probes of single journeys                      |
-| `tools/conventions`     | Layout, guide, construct, and Effect exception checks and their generated files |
-| `tools/e2e`             | Golden journeys, local journey drivers, and legacy migration commands           |
-| `tools/oxlint`          | Project Oxlint rules                                                            |
-| `tools/placements-docs` | Placements API reference generation and checks                                  |
-| `tools/postgres`        | Disposable PostgreSQL clusters of the selected major                            |
-| `tools/scripts`         | Local launcher, Git hook runner, job measurement, preview deployment, changelog |
-| `tools/source-safety`   | Staged-tree scan for credentials and personal data                              |
-| `tools/verification`    | Cross-application PostgreSQL proofs and migration rehearsals                    |
-| `infra`                 | Worker preview deployment configuration                                         |
-| `docs`                  | Intended system, architecture, operations, and active specifications            |
-| `patches`               | Dependency patches that `patchedDependencies` in package.json applies           |
-| `.github`               | Checks, Tests, Docs, and preview workflows and their actions                    |
-| `.claude`               | Claude Code settings and project rules                                          |
-| `.agents`               | Agent skills of the repository: the Effect house overlay                        |
+| Path                    | Holds                                                                                                 |
+| ----------------------- | ----------------------------------------------------------------------------------------------------- |
+| `apps/backend`          | Native Effect HTTP process and workers                                                                |
+| `apps/dashboard`        | Authenticated React Router and Foldkit application                                                    |
+| `apps/docs`             | Documentation site: renders the content folders and the code extracts to the static site and to docs/ |
+| `apps/homepage`         | Public React application                                                                              |
+| `packages/domain`       | Business values, transitions, failures, and authority                                                 |
+| `packages/database`     | PostgreSQL schema, persistence, locks, audit, and outbox                                              |
+| `packages/http-api`     | HTTP contracts, middleware declarations, and OpenAPI                                                  |
+| `packages/sdk`          | Generated native API client                                                                           |
+| `tools/acceptance`      | Local API and browser acceptance probes of single journeys                                            |
+| `tools/conventions`     | Layout, guide, construct, and Effect exception checks and their generated files                       |
+| `tools/e2e`             | Golden journeys, local journey drivers, and legacy migration commands                                 |
+| `tools/oxlint`          | Project Oxlint rules                                                                                  |
+| `tools/placements-docs` | Placements API reference generation and checks                                                        |
+| `tools/postgres`        | Disposable PostgreSQL clusters of the selected major                                                  |
+| `tools/scripts`         | Local launcher, Git hook runner, job measurement, preview deployment, changelog                       |
+| `tools/source-safety`   | Staged-tree scan for credentials and personal data                                                    |
+| `tools/verification`    | Cross-application PostgreSQL proofs and migration rehearsals                                          |
+| `infra`                 | Worker preview deployment configuration                                                               |
+| `content`               | Hand-written repository-wide documentation pages and the formal models                                |
+| `docs`                  | Generated read paths: the Markdown of every documentation page, the construct pages, and llms.txt     |
+| `patches`               | Dependency patches that `patchedDependencies` in package.json applies                                 |
+| `.github`               | Checks, Tests, Docs, and preview workflows and their actions                                          |
+| `.claude`               | Claude Code settings and project rules                                                                |
+| `.agents`               | Agent skills of the repository: the Effect house overlay                                              |
 
 Apps and packages never import `tools/`.
-Context folders in `packages/domain/src`, `packages/database/src`, `apps/backend/src`, and `apps/dashboard/app/foldkit` carry the kebab-case name of a bounded context in [docs/model/contexts.cml](docs/model/contexts.cml).
+Context folders in `packages/domain/src`, `packages/database/src`, `apps/backend/src`, and `apps/dashboard/app/foldkit` carry the kebab-case name of a bounded context in [content/model/contexts.cml](content/model/contexts.cml).
 Code that several contexts share lives in `shared-kernel`.
 `just layout` checks the tree against [tools/conventions/src/layout.ts](tools/conventions/src/layout.ts), which lists the exceptions and their reasons.
 Every app, package, and context folder has an `AGENTS.md` guide and a `CLAUDE.md` that imports it; `just guides write` renders their generated part.
 [docs/constructs.md](docs/constructs.md) indexes the shared constructs, and a page per category in [docs/constructs](docs/constructs) holds their contracts; `just constructs write` renders them, and `just constructs consumers <name>` prints the modules that import one.
-[docs/effect-exceptions.json](docs/effect-exceptions.json) registers each suppression of an Effect rule; `just exceptions` checks it against the sites.
+[tools/conventions/effect-exceptions.json](tools/conventions/effect-exceptions.json) registers each suppression of an Effect rule; `just exceptions` checks it against the sites.
 
 [//]: # "layout: end"
 
@@ -133,10 +135,10 @@ Run commands inside `devenv shell`, from this repository root. The root [justfil
 
 | Group     | Recipe                            | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | --------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| check     | `just check [args...]`            | Check layout, constructs, guides, Effect exceptions, source safety, format, lint, types, and the HTTP contract. Arguments go to Turbo.                                                                                                                                                                                                                                                                                                                                            |
+| check     | `just check [args...]`            | Check layout, docs, constructs, guides, Effect exceptions, source safety, format, lint, types, and the HTTP contract. Arguments go to Turbo.                                                                                                                                                                                                                                                                                                                                      |
 | check     | `just check-types [args...]`      | Type check every package and assert the HTTP contract. Arguments go to Turbo.                                                                                                                                                                                                                                                                                                                                                                                                     |
 | check     | `just constructs [args...]`       | Check the construct index and contract pages against the @construct tags and their JSDoc, each construct's contract tags and annotations, and that two modules share it; `just constructs write` renders the pages, and `just constructs consumers [name]` prints the modules that import a construct.                                                                                                                                                                            |
-| check     | `just exceptions [args...]`       | Check that every suppression of an Effect rule names its entry in docs/effect-exceptions.json, and every entry its current sites and versions.                                                                                                                                                                                                                                                                                                                                    |
+| check     | `just exceptions [args...]`       | Check that every suppression of an Effect rule names its entry in tools/conventions/effect-exceptions.json, and every entry its current sites and versions.                                                                                                                                                                                                                                                                                                                       |
 | check     | `just format [args...]`           | Format with Oxfmt, or check with `just format --check`. Oxfmt has no config key for threads.                                                                                                                                                                                                                                                                                                                                                                                      |
 | check     | `just guides [args...]`           | Check the AGENTS.md guide and the CLAUDE.md that imports it, of every app, package, and context folder; `just guides write` renders them.                                                                                                                                                                                                                                                                                                                                         |
 | check     | `just layout [args...]`           | Check the repository layout and its generated sections: the README and AGENTS.md tables and the hosted journey legs; `just layout write` renders them.                                                                                                                                                                                                                                                                                                                            |
@@ -144,13 +146,13 @@ Run commands inside `devenv shell`, from this repository root. The root [justfil
 | check     | `just lint-files [args...]`       | Lint only named paths without generating route types. The pre-commit hook passes staged JS/TS paths here.                                                                                                                                                                                                                                                                                                                                                                         |
 | check     | `just measure [args...]`          | Run a heavy job under the machine-wide heavy lock and measure it, or show the ledger with `just measure --report`.                                                                                                                                                                                                                                                                                                                                                                |
 | check     | `just migration-hashes [args...]` | Check the migration registry and the checksums of applied migrations; `just migration-hashes write` records new ones.                                                                                                                                                                                                                                                                                                                                                             |
-| check     | `just model <action>`             | Run the Alloy commands of docs/model/authority.als (check) or validate docs/model/contexts.cml (validate), a heavy job.                                                                                                                                                                                                                                                                                                                                                           |
+| check     | `just model <action>`             | Run the Alloy commands of content/model/authority.als (check) or validate content/model/contexts.cml (validate), a heavy job.                                                                                                                                                                                                                                                                                                                                                     |
 | check     | `just source-safety [args...]`    | Scan the Git index for credentials, personal data, and SQL data. --changed limits a commit to staged changes.                                                                                                                                                                                                                                                                                                                                                                     |
 | check     | `just test [args...]`             | Test every package, a heavy job (AGENTS.md#verification-and-resources). Arguments go to Turbo.                                                                                                                                                                                                                                                                                                                                                                                    |
 | develop   | `just build [args...]`            | Build every package through Turbo. Arguments go to Turbo.                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | develop   | `just changelog [args...]`        | Regenerate CHANGELOG.md from conventional commits, or compare it with `--check`.                                                                                                                                                                                                                                                                                                                                                                                                  |
 | develop   | `just dev [args...]`              | Start the homepage, dashboard, and backend against BACKEND_PG_URL. `devenv up` runs it.                                                                                                                                                                                                                                                                                                                                                                                           |
-| develop   | `just docs [script]`              | Serve the documentation site, or run another of its scripts, such as `just docs build`.                                                                                                                                                                                                                                                                                                                                                                                           |
+| develop   | `just docs [script] [args...]`    | Serve the documentation site, or run another of its scripts, such as `just docs build`.                                                                                                                                                                                                                                                                                                                                                                                           |
 | develop   | `just land <branch>`              | Land a branch on main in the main checkout, then remove its worktree and delete it. It does not push.                                                                                                                                                                                                                                                                                                                                                                             |
 | develop   | `just seed`                       | Provision the native journey accounts in the `devenv up` database.                                                                                                                                                                                                                                                                                                                                                                                                                |
 | hooks     | `just hook-slot [args...]`        | Run a command in one of the machine-wide hook slots under the shared heavy lock (lint and pre-push hooks).                                                                                                                                                                                                                                                                                                                                                                        |
@@ -194,21 +196,21 @@ Use a separate source-matched committed snapshot for acceptance, as described in
 
 ### Documentation site
 
-[The documentation site](https://vektorprogrammet.github.io/mono-web/) renders the documents above in place.
-[apps/docs](apps/docs/site.ts) names the published sources and their navigation.
-The build mirrors them into an ignored Vocs pages directory; edit only the source documents.
-The build fails on a relative link to a path that does not exist. It does not check anchors.
-A link to a published document opens its page. A link to another repository file opens it on GitHub.
+[The documentation site](https://vektorprogrammet.github.io/mono-web/) renders the root and workspace `content/` folders.
+Write repository-wide MDX pages in `content/`. Write a workspace page beside its package manifest, in that workspace’s `content/`.
+`apps/docs` renders the site and generates Markdown read paths in `docs/`. Edit the MDX source, not the generated read path.
+`meta.json` files order the navigation. The build rejects links to missing files or headings.
+A page link opens its site route; a link to another repository path opens its GitHub view.
 
 ```bash
 bun install --frozen-lockfile
-just docs
+just docs generate
+just docs check
 just docs build
 ```
 
-Every Markdown file in `docs/` and `docs/specs/` must appear in a navigation section.
 The [documentation workflow](.github/workflows/docs.yml) builds the site on each push to `main` and publishes it to GitHub Pages.
-The walkthrough figures use the vendored MIT MDXCN component. Its [manifest](apps/docs/components/mdxcn/provenance.json) records upstream provenance.
+The walkthrough figures use the vendored MIT MDXCN component. Its [manifest](apps/docs/src/components/mdxcn/provenance.json) records upstream provenance.
 
 ### Local native development
 

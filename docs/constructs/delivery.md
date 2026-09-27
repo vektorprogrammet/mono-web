@@ -1,6 +1,6 @@
 # delivery
 
-[//]: # "constructs: generated from the @construct tags and their JSDoc by just constructs write; do not edit"
+[//]: # "constructs: generated from the @construct tags and their JSDoc by just docs generate; do not edit"
 
 Delivers committed effects to providers after the transaction. The [index](../constructs.md) lists every category.
 

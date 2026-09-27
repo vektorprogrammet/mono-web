@@ -22,13 +22,13 @@ const usage = `Usage:
   just model check
   just model validate
 
-check     Runs every command of docs/model/authority.als with Alloy 6 from nixpkgs
+check     Runs every command of content/model/authority.als with Alloy 6 from nixpkgs
           (nix shell nixpkgs#alloy6, the glucose solver) and compares each result
           with the command's \`expect\`. A check expects no counterexample (0). A
           mutant check, whose name contains "mutant", and a scenario run expect an
           instance (1). Prints the counts and every unexpected result, and keeps
           Alloy's output when there is one.
-validate  Validates docs/model/contexts.cml with Context Mapper CLI ${contextMapperVersion} from
+validate  Validates content/model/contexts.cml with Context Mapper CLI ${contextMapperVersion} from
           Maven Central on OpenJDK 17 from nixpkgs (nix shell
           nixpkgs#jdk17_headless). The CLI archive must match its SHA-256. It is
           kept in \${XDG_CACHE_HOME:-~/.cache}/vektorprogrammet.
@@ -54,7 +54,7 @@ const nixVersion = (attribute: string) => {
 };
 
 const check = () => {
-  const modelPath = join(root, "docs/model/authority.als");
+  const modelPath = join(root, "content/model/authority.als");
 
   const lines = readFileSync(modelPath, "utf8")
     .split("\n")
@@ -76,7 +76,7 @@ const check = () => {
   const version = nixVersion("alloy6");
 
   process.stderr.write(
-    `model: running ${commands.length} commands of docs/model/authority.als with Alloy ${version}\n`,
+    `model: running ${commands.length} commands of content/model/authority.als with Alloy ${version}\n`,
   );
 
   // The command of the model header. Alloy prints one line per command, writes
@@ -198,7 +198,7 @@ const validate = async () => {
       cm,
       "validate",
       "-i",
-      join(root, "docs/model/contexts.cml"),
+      join(root, "content/model/contexts.cml"),
     ],
     { encoding: "utf8" },
   );

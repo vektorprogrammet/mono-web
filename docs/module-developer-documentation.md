@@ -1,6 +1,10 @@
+[//]: # "generated from content/(architecture)/module-developer-documentation.mdx by just docs generate; do not edit"
+
 # Developer module documentation
 
-Status: implementation roadmap. The [Placements guide](../packages/domain/src/placements/README.md) implements the first pilot.
+Roadmap for module guides that let a developer use a module and a maintainer change it without reading its private implementation.
+
+Status: implementation roadmap. The [Placements guide](packages/domain/placements.md) implements the first pilot.
 [STATE.md](../STATE.md#evidence-boundary) records acceptance and remaining work.
 
 ## Goal
@@ -40,9 +44,9 @@ It uses a small diagram where a dependency or execution path needs explanation.
 It does not narrate each function or list every private table as a public contract.
 
 Every app, package, and context folder also has a generated `AGENTS.md` guide.
-It states the folder's bounded context from the [context map](model/contexts.cml), its entry points, and the shared constructs that it defines.
+It states the folder's bounded context from the [context map](../content/model/contexts.cml), its entry points, and the shared constructs that it defines.
 It links the folder's README, which stays the human guide.
-The [construct index](constructs.md) lists every shared construct in one line, and the page of its category in [constructs](constructs) holds its contract; `just constructs consumers <name>` prints the modules that import it.
+The [construct index](constructs.md) lists every shared construct in one line, and the page of its category in [constructs](constructs/) holds its contract; `just constructs consumers <name>` prints the modules that import it.
 
 ## Effect contracts
 
@@ -100,12 +104,12 @@ Their commands state required tools, configuration, cleanup, and evidence limits
 ## Existing tooling and adoption
 
 The repository already has a documentation entry point, system guides, package export maps, and generated HTTP artifacts.
-The [documentation site](../apps/docs/site.ts) renders the repository's Markdown and MDX documents in place with Vocs.
+The [documentation site](../apps/docs/source.config.ts) renders the repository's content folders with Fumadocs.
 It publishes existing documents; it is not a module reference or example-validation system.
 The [HTTP generator](../packages/http-api/scripts/generate-openapi.ts) derives OpenAPI from the contract before each type check, so no committed copy can drift.
 
 The pilot evaluated [Effect docgen](https://github.com/Effect-TS/docgen) before selecting a maintained alternative.
-The [guide tool-choice record](../packages/domain/src/placements/README.md#tool-choice) owns the qualification result and compatibility limits.
+The [guide tool-choice record](packages/domain/placements.md#tool-choice) owns the qualification result and compatibility limits.
 Future modules reuse the accepted tooling unless a concrete requirement needs another bounded qualification.
 Tool availability alone does not establish compatibility with this repository.
 
@@ -131,13 +135,13 @@ It does not duplicate the golden runner or introduce a second acceptance impleme
 
 ## Adopted extensions
 
-The [Placements CI gate](../packages/domain/src/placements/README.md#ci-and-retained-artifacts) implements the required-check slice locally.
+The [Placements CI gate](packages/domain/placements.md#ci-and-retained-artifacts) implements the required-check slice locally.
 It checks examples, generates one reference, and binds retained output to its clean source revision and file hashes.
 Hosted execution and repository protection remain separate acceptance gates.
 
 The generated API reference remains scoped to Placements. No second generator or documentation website is introduced.
 
-The [Receipt guide](../packages/domain/src/receipt/README.md) extends the same pattern to claims, approval, settlement evidence, private files, and recovery.
+The [Receipt guide](packages/domain/receipt.md) extends the same pattern to claims, approval, settlement evidence, private files, and recovery.
 Its [public-import example](../packages/domain/examples/receipt.ts) runs pure decisions and public encoding, not persistence or delivery.
 The domain compiler includes the example. The continuous reimbursement gate supplies separate native runtime evidence.
 

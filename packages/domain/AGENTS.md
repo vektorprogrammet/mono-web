@@ -1,4 +1,4 @@
-[//]: # "guide: generated from docs/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
+[//]: # "guide: generated from content/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
 
 # packages/domain
 
@@ -7,7 +7,7 @@ Package `@vektorprogrammet/domain`.
 
 ## Context folders
 
-Each folder of `src` holds a bounded context of [docs/model/contexts.cml](../../docs/model/contexts.cml), the shared kernel, or code that the layout declaration excepts. Each has its own guide.
+Each folder of `src` holds a bounded context of [content/model/contexts.cml](../../content/model/contexts.cml), the shared kernel, or code that the layout declaration excepts. Each has its own guide.
 
 | Folder             | Bounded context  | Guide                                       |
 | ------------------ | ---------------- | ------------------------------------------- |

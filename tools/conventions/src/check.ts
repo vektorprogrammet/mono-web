@@ -2,14 +2,18 @@
  * The layout rules. Each finding names a path and what to change; the declarations in `layout.ts`
  * and `journeys.ts` are the only places to allow an exception.
  */
-import { posix } from "node:path";
+import { matchesGlob, posix } from "node:path";
 import { Schema } from "effect";
 import { boundedContextNames, contextFolderName } from "./cml.js";
-import { checkJourneys, readWorkflow, testsWorkflow, type Workflow } from "./journeys.js";
+import { checkJourneys, readWorkflow, testsWorkflow } from "./journeys.js";
 import type { Justfile } from "./justfile.js";
 import {
+  contentFiles,
+  contentFolder,
   contextLayers,
   contextMap,
+  generatedDirectory,
+  generators,
   packageDirectories,
   packageRoots,
   rootFiles,
@@ -385,7 +389,8 @@ const commandMentionFindings = (
       !/\.mdx?$/u.test(path) ||
       repository.links.has(path) ||
       path === "CHANGELOG.md" ||
-      path.startsWith("docs/specs/")
+      path.startsWith(`${contentFolder}/specs/`) ||
+      path.startsWith(`${generatedDirectory}/specs/`)
     )
       return [];
 
@@ -409,12 +414,91 @@ const commandMentionFindings = (
     );
   });
 
-const sectionFindings = (
-  repository: Repository,
-  justfile: Justfile,
-  workflow: Workflow,
-): ReadonlyArray<Finding> =>
-  spliceFiles(repository.read, justfile, workflow).flatMap(({ path, current, text, missing }) => [
+/** A marker line of a generated file or section, which names the recipe that writes it. */
+const markerLine =
+  /^\[\/\/\]: # "(?:[\w-]+: )?generated from .+ by (just [a-z][\w-]*(?: [a-z][\w-]*)*); do not edit"$/u;
+
+/** The lines near the top of a generated file where its marker stands. */
+const markerLines = 5;
+
+const contentPath = new RegExp(
+  `^(?:${contentFolder}|(?:${packageRoots.join("|")})/[^/]+/${contentFolder})/`,
+  "u",
+);
+
+const generatorFindings = (): ReadonlyArray<Finding> =>
+  Object.entries(generators).flatMap(([recipe, generator]) =>
+    generator.outputs.flatMap((output) =>
+      output.startsWith(`${generatedDirectory}/`)
+        ? []
+        : [
+            {
+              path: declaration,
+              message: `lets ${recipe} write ${output}; a generator writes only into ${generatedDirectory}/, never into a ${contentFolder}/ folder`,
+            },
+          ],
+    ),
+  );
+
+/**
+ * Every file in the generated directory names a registered generator whose outputs hold it, and
+ * every file in a content folder is written by hand and of a kind that the folder holds.
+ */
+const documentationFindings = (repository: Repository): ReadonlyArray<Finding> =>
+  repository.paths.flatMap((path): ReadonlyArray<Finding> => {
+    if (path.startsWith(`${generatedDirectory}/`)) {
+      const recipe = repository
+        .read(path)
+        .split("\n", markerLines)
+        .map((line) => markerLine.exec(line)?.[1])
+        .find((match) => match !== undefined);
+
+      const generator = Object.entries(generators).find(([name]) => name === recipe)?.[1];
+
+      if (generator?.outputs.some((output) => matchesGlob(path, output)) === true) return [];
+
+      return [
+        {
+          path,
+          message:
+            recipe === undefined
+              ? `is written by hand, but ${generatedDirectory}/ holds only generated files. Write the page in a ${contentFolder}/ folder, whose Markdown just docs generate writes here`
+              : `names ${recipe}, which the generators in ${declaration} do not register for this path`,
+        },
+      ];
+    }
+
+    if (!contentPath.test(path)) return [];
+
+    const name = posix.basename(path);
+    const kind = Object.hasOwn(contentFiles, name) ? name : posix.extname(path);
+
+    if (!Object.hasOwn(contentFiles, kind))
+      return [
+        {
+          path,
+          message: `is not a kind of file that a ${contentFolder}/ folder holds: ${Object.keys(contentFiles).join(", ")}`,
+        },
+      ];
+
+    const recipe = repository
+      .read(path)
+      .split("\n")
+      .map((line) => markerLine.exec(line)?.[1])
+      .find((match) => match !== undefined);
+
+    return recipe === undefined
+      ? []
+      : [
+          {
+            path,
+            message: `holds what ${recipe} writes, but no generator writes into a ${contentFolder}/ folder. Render generated content from its source in apps/docs`,
+          },
+        ];
+  });
+
+const sectionFindings = (repository: Repository, justfile: Justfile): ReadonlyArray<Finding> =>
+  spliceFiles(repository.read, justfile).flatMap(({ path, current, text, missing }) => [
     ...missing.map((id) => ({
       path,
       message: `lacks one begin and one end marker of the generated ${id} section`,
@@ -441,7 +525,9 @@ export const checkLayout = (repository: Repository, justfile: Justfile): Readonl
     ...rootScriptFindings(repository),
     ...vitestConfigFindings(repository),
     ...commandMentionFindings(repository, justfile),
+    ...generatorFindings(),
+    ...documentationFindings(repository),
     ...checkJourneys(repository, justfile, workflow),
-    ...sectionFindings(repository, justfile, workflow),
+    ...sectionFindings(repository, justfile),
   ].sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
 };

@@ -1,22 +1,25 @@
-# Placements developer guide
+---
+title: Placements developer guide
+description: Public imports, executable examples, API reference generation, and maintainer tasks.
+---
 
 Placements owns volunteer affiliation, school placement, demand, rosters, and dated school-service commands.
 This guide serves consumers of the Placements context and maintainers of its implementation.
 Its portable contracts live in `packages/domain/src/placements`; its PostgreSQL implementation lives in `packages/database/src/placements`.
-The [module documentation roadmap](../../../../docs/module-developer-documentation.md) defines the documentation contract.
+The [module documentation roadmap](../../../content/(architecture)/module-developer-documentation.mdx) defines the documentation contract.
 
 ## Purpose and ownership
 
-The [intended system](../../../../docs/system.md#school-demand-and-placement) owns business meaning.
-Its [dated service rules](../../../../docs/system.md#dated-school-service) define valid outcomes.
-The [architecture](../../../../docs/architecture.md#ownership) owns dependency direction and runtime responsibilities.
+The [intended system](../../../content/(system)/system.mdx#school-demand-and-placement) owns business meaning.
+Its [dated service rules](../../../content/(system)/system.mdx#dated-school-service) define valid outcomes.
+The [architecture](../../../content/(architecture)/architecture.mdx#ownership) owns dependency direction and runtime responsibilities.
 
 Placements does not own sign-in, HTTP preconditions, HTTP response receipts, or provider configuration.
 The server entry point also exposes reviewed assignment-import helpers.
 Those helpers are migration tools, not a shortcut for ordinary user commands.
 The reference lists them because the export map exposes them, not because this guide authorizes a migration.
 
-The [domain manifest](../../package.json) and the [database manifest](../../../database/package.json) own supported imports:
+The [domain manifest](../package.json) and the [database manifest](../../database/package.json) own supported imports:
 
 - `@vektorprogrammet/domain/placements`: portable schemas, decisions, failures, and the service key.
 - `@vektorprogrammet/database/placements`: database-backed composition, delivery operations, and cohort import.
@@ -28,7 +31,7 @@ Private source links explain implementation. They do not authorize private impor
 
 ### Prerequisites
 
-Use the toolchain from the [root manifest](../../../../package.json) and lockfile.
+Use the toolchain from the [root manifest](../../../package.json) and lockfile.
 From the repository root, install dependencies with `bun install --frozen-lockfile`.
 The commands below run from that root.
 They need no credentials, external provider, PostgreSQL server, browser, or E2E CI branch.
@@ -58,11 +61,11 @@ It checks a successful scope read and a typed failure for an unknown department.
 A caller must select an existing scope before another attempt. Another attempt with the same missing scope does not recover it.
 
 The following inclusions render the exact executable files.
-In a Markdown source viewer, open [placements-affiliation.ts](../../examples/placements-affiliation.ts) and [placements-read-scopes.ts](../../../database/examples/placements-read-scopes.ts).
+In a Markdown source viewer, open [placements-affiliation.ts](../examples/placements-affiliation.ts) and [placements-read-scopes.ts](../../database/examples/placements-read-scopes.ts).
 
-{@includeCode ../../examples/placements-affiliation.ts}
+<include>../examples/placements-affiliation.ts</include>
 
-{@includeCode ../../../database/examples/placements-read-scopes.ts}
+<include>../../database/examples/placements-read-scopes.ts</include>
 
 These examples do not prove HTTP authorization, PostgreSQL concurrency, business-write atomicity, or real-provider delivery.
 The synthetic authority does not authenticate a real person.
@@ -95,10 +98,10 @@ Generated output is local and untracked. No hosted documentation website is nece
 
 ## Contract
 
-The [public service declaration](service.ts) owns API-specific guarantees and typed dependencies.
+The [public service declaration](../src/placements/service.ts) owns API-specific guarantees and typed dependencies.
 The generated `PlacementsOperations` reference renders those comments directly.
-The [schemas](schema.ts) own accepted values and results.
-The [policy declarations](policy.ts) own decision functions and failure codes.
+The [schemas](../src/placements/schema.ts) own accepted values and results.
+The [policy declarations](../src/placements/policy.ts) own decision functions and failure codes.
 This guide explains their relationship without maintaining a second signature list.
 
 `PlacementsLive` captures `Database` when the Layer acquires its service.
@@ -115,7 +118,7 @@ An Effect requirement expresses composition, not permission to act for a person.
 | Persistence failure | `PlacementPersistenceError` distinguishes transaction conflicts from internal errors. Its cause stays internal.                             |
 | Success             | `execute` returns a snapshot within the caller's transaction. This is not yet a commit or a provider acknowledgement.                       |
 
-The [HTTP adapter](../../../../apps/backend/src/placements/http.ts) shows the complete production call boundary.
+The [HTTP adapter](../../../apps/backend/src/placements/http.ts) shows the complete production call boundary.
 It resolves current authority and receipt identity before the service executes.
 It evaluates the ETag precondition under the department lock.
 A read preflight or a successful pure policy calculation does not replace this boundary.
@@ -131,10 +134,10 @@ Abrupt process termination, such as `SIGKILL`, does not run JavaScript finalizer
 
 Production composition differs from this fixture:
 
-- [Database Layers](../../../database/src/layers.ts) supply the adapter and run migrations.
-- [Backend composition](../../../../apps/backend/src/main.ts) shares the database Layer and supervises workers.
-- [HTTP command transactions](../../../../apps/backend/src/http-api/receipt-transaction.ts) own authority preparation, receipt lookup, replay, and transaction completion.
-- [Notification worker](../../../../apps/backend/src/placements/notification.ts) supplies the roster interpreter and recovery schedule.
+- [Database Layers](../../database/src/layers.ts) supply the adapter and run migrations.
+- [Backend composition](../../../apps/backend/src/main.ts) shares the database Layer and supervises workers.
+- [HTTP command transactions](../../../apps/backend/src/http-api/receipt-transaction.ts) own authority preparation, receipt lookup, replay, and transaction completion.
+- [Notification worker](../../../apps/backend/src/placements/notification.ts) supplies the roster interpreter and recovery schedule.
 
 A new server caller must preserve those responsibilities rather than call `execute` without an authorized transaction.
 The read example deliberately performs no mutation and requires no synthetic command receipt.
@@ -151,19 +154,19 @@ HTTP caller: current authority + receipt identity
   -> worker claim transaction -> interpreter -> delivery acknowledgement
 ```
 
-The [service implementation](../../../database/src/placements/service.ts) chooses the mutation path and holds the department lock.
-The [placement adapter](../../../database/src/placements/postgres.ts) and [coverage adapter](../../../database/src/placements/coverage.ts) implement reads and durable transitions.
+The [service implementation](../../database/src/placements/service.ts) chooses the mutation path and holds the department lock.
+The [placement adapter](../../database/src/placements/postgres.ts) and [coverage adapter](../../database/src/placements/coverage.ts) implement reads and durable transitions.
 Their table layouts are private implementation details.
 
 The department lock keeps the checked snapshot and subsequent transition within one serialized department operation.
 The caller transaction keeps business facts, audit/history, required notifications, and the response receipt together.
-The [service checks](../../../database/src/placements/service.test.ts) cover rejected preconditions and rollback when the caller cannot finish its receipt.
+The [service checks](../../database/src/placements/service.test.ts) cover rejected preconditions and rollback when the caller cannot finish its receipt.
 The guide does not replace these behavioral checks with source-text assertions.
 
 ### Placement drafts
 
 `readDraft` drafts one department and semester and writes nothing.
-The [draft read](../../../database/src/placements/draft.ts) collects the inputs; the pure [scheduler](scheduler.ts) drafts from them.
+The [draft read](../../database/src/placements/draft.ts) collects the inputs; the pure [scheduler](../src/placements/scheduler.ts) drafts from them.
 
 - Open demand: the demand of each school, weekday, and block, capped by the school's capacity plan for that weekday, less the active placements there.
   A school without a capacity plan for a weekday is bounded by its demand alone.
@@ -181,7 +184,7 @@ A coordinator applies the chosen rows as ordinary `Create` commands against the 
 ### Retry and interruption
 
 The Placements service does not install a retry policy.
-The HTTP adapter selects `serialization-once` in the [receipt transaction owner](../../../../apps/backend/src/http-api/receipt-transaction.ts).
+The HTTP adapter selects `serialization-once` in the [receipt transaction owner](../../../apps/backend/src/http-api/receipt-transaction.ts).
 That owner repeats preparation and execution after a retryable rollback, so authority must remain inside preparation.
 Provider I/O must remain outside the business transaction.
 
@@ -192,7 +195,7 @@ A caller must not invent a new command identity merely because the first respons
 
 ### Outbox and delivery
 
-[Roster delivery](../../../database/src/placements/outbox.ts) claims durable work before invoking an interpreter.
+[Roster delivery](../../database/src/placements/outbox.ts) claims durable work before invoking an interpreter.
 It fences acknowledgement updates with the claim identity.
 The worker can recover stale claims after interruption or process loss.
 An interpreter can succeed before acknowledgement persists, so a later delivery attempt can repeat the external effect.
@@ -200,7 +203,7 @@ The provider boundary must handle the stable logical effect identity. These func
 
 A committed command means durable business state and required queued work.
 An interpreter success means that interpreter returned successfully, not that a real provider satisfied a separate acceptance contract.
-The [durable-effects rules](../../../../docs/system.md#durable-effects) remain authoritative.
+The [durable-effects rules](../../../content/(system)/system.mdx#durable-effects) remain authoritative.
 
 ## Change and check it
 
@@ -236,7 +239,7 @@ An agent reader is useful evidence for command completeness, but it does not pro
 | Broken guide link or API reference                       | Generation and its link validation                                                            | External URL availability requires separate review.                      |
 | Changed durable command behavior                         | Existing focused service checks and the golden command below                                  | A documentation-only change does not require another E2E implementation. |
 
-The [local school-service gate](../../../../docs/web-system-functional-testing.md#local-school-service-gate) owns prerequisites for this accepted real-boundary command:
+The [local school-service gate](../../../content/(testing)/web-system-functional-testing.mdx#local-school-service-gate) owns prerequisites for this accepted real-boundary command:
 
 ```bash
 just golden school-service
@@ -283,7 +286,7 @@ The job can serve as a required check, but repository administrators must config
 
 ### Tool choice
 
-The [documentation tool manifest](../../../../tools/placements-docs/package.json) pins TypeDoc and its compatible documentation-only TypeScript compiler.
+The [documentation tool manifest](../../../tools/placements-docs/package.json) pins TypeDoc and its compatible documentation-only TypeScript compiler.
 The application and example compiler remains the version in the domain and database manifests.
 The separate parser compiler is not an application type-check substitute.
 
@@ -294,10 +297,10 @@ This result does not establish that every docgen feature is incompatible with th
 The pilot avoids duplicate barrel documentation and uses TypeDoc to follow the existing reexports instead.
 
 TypeDoc generates the local reference, renders this guide, and includes the exact example files through its built-in include directive.
-The [Placements documentation command](../../../../tools/placements-docs/placements.ts) derives entry points from the `./placements` export of each manifest and compares fresh output.
+The [Placements documentation command](../../../tools/placements-docs/placements.ts) derives entry points from the `./placements` export of each manifest and compares fresh output.
 It does not parse TypeScript itself.
-The [documentation site](../../../../apps/docs/site.ts) renders this guide beside the other repository documents and links the generated reference.
-The [HTTP generator](../../../http-api/scripts/generate-openapi.ts) remains the owner of HTTP reference artifacts.
+The [documentation site](../../../apps/docs/source.config.ts) renders this guide beside the other repository documents and links the generated reference.
+The [HTTP generator](../../http-api/scripts/generate-openapi.ts) remains the owner of HTTP reference artifacts.
 
 ## Cleanup and evidence
 

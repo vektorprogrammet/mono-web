@@ -28,11 +28,7 @@ const withFiles = (files: Readonly<Record<string, string>>): Repository => ({
 /** The repository after `just layout write` with `subject`. */
 const written = (subject: Justfile): Repository =>
   withFiles(
-    Object.fromEntries(
-      spliceFiles(base.read, subject, readWorkflow(base.read(testsWorkflow))).map(
-        ({ path, text }) => [path, text],
-      ),
-    ),
+    Object.fromEntries(spliceFiles(base.read, subject).map(({ path, text }) => [path, text])),
   );
 
 /**

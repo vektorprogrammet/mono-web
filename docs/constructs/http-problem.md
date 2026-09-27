@@ -1,6 +1,6 @@
 # http-problem
 
-[//]: # "constructs: generated from the @construct tags and their JSDoc by just constructs write; do not edit"
+[//]: # "constructs: generated from the @construct tags and their JSDoc by just docs generate; do not edit"
 
 Answers a native HTTP request with a declared problem: failure mapping, credential classification, authorization, and decoding. The [index](../constructs.md) lists every category.
 

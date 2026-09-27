@@ -1,4 +1,8 @@
+[//]: # "generated from content/(system)/system-walkthrough.mdx by just docs generate; do not edit"
+
 # How Vektorprogrammet works
+
+Layered reading guide with MDXCN figures.
 
 Vektorprogrammet connects volunteer university students with schools that need mathematics tutoring.
 The software helps people recruit volunteers, organize teams, plan school service, and record what actually happened.
@@ -15,19 +19,9 @@ You do not need to understand Effect or PostgreSQL before you start.
 There are two web applications and one modular native backend. PostgreSQL stores the durable business facts.
 Private receipt files have separate storage.
 
-<GraphFlow
-  title="From a screen to durable facts"
-  rows={[
-    {
-      nodes: [
-        { label: "Homepage / dashboard" },
-        { label: "SDK + HTTP contract" },
-        { label: "Bun backend", tone: "accent" },
-        { label: "PostgreSQL + files" },
-      ],
-    },
-  ]}
-/>
+**From a screen to durable facts**
+
+Homepage / dashboard → SDK + HTTP contract → **Bun backend** → PostgreSQL + files
 
 Read the arrows as responsibility boundaries, not four separate network calls.
 An SDK is client code, not another running service. Frontend server loaders can call the backend too.
@@ -244,19 +238,9 @@ This guarantee belongs to that command path, not automatically to every piece of
 A database transaction cannot atomically commit an email provider's behavior.
 The system therefore retains delivery work with the business decision, then attempts delivery separately.
 
-<GraphFlow
-  title="The durable outbox"
-  rows={[
-    {
-      nodes: [
-        { label: "Decision + envelope", tone: "accent" },
-        { label: "Committed outbox" },
-        { label: "Worker attempt" },
-        { label: "Recorded result" },
-      ],
-    },
-  ]}
-/>
+**The durable outbox**
+
+**Decision + envelope** → Committed outbox → Worker attempt → Recorded result
 
 The envelope describes the committed work. A worker claims it and calls the configured provider.
 An acknowledgement or recoverable failure records the attempt's outcome.
@@ -428,4 +412,4 @@ Its explanation follows the repository's business and architecture documents.
 Current status belongs in `STATE.md`; dependency versions belong in manifests and lockfiles.
 
 The two figures use [MDXCN](https://www.mdxcn.dev/)'s `GraphFlow` component.
-The [documentation site](https://vektorprogrammet.github.io/mono-web/docs/system-walkthrough) renders this [MDX source](system-walkthrough.mdx).
+The [documentation site](https://vektorprogrammet.github.io/mono-web/docs/system-walkthrough) renders this [MDX source](system-walkthrough.md).

@@ -5,10 +5,12 @@
   "type": "module",
   "sideEffects": false,
   "scripts": {
-    "dev": "vite dev",
-    "build": "vite build",
+    "dev": "bun run --cwd ../../packages/http-api generate && bun run --cwd ../../packages/sdk generate && bun --no-env-file markdown/prerender.ts && vite dev",
+    "build": "bun --no-env-file scripts/build.ts",
     "preview": "vite preview",
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "generate": "bun run --cwd ../../packages/http-api generate && bun --no-env-file markdown/cli.ts write",
+    "check": "bun run --cwd ../../packages/http-api generate && bun --no-env-file markdown/cli.ts check"
   },
   "dependencies": {
     "@monoweb/conventions": "workspace:*",
@@ -16,8 +18,10 @@
     "@tanstack/react-start": "1.168.58",
     "@tanstack/start-static-server-functions": "1.167.37",
     "cn": "^0.4.0",
+    "effect": "catalog:effect-v4",
     "fumadocs-core": "16.15.14",
     "fumadocs-mdx": "15.4.5",
+    "fumadocs-openapi": "12.0.3",
     "fumadocs-ui": "npm:@fumadocs/base-ui@16.15.14",
     "lucide-react": "^1.48.0",
     "motion": "^13.4.4",

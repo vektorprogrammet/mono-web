@@ -1,10 +1,15 @@
+[//]: # "generated from content/specs/foldkit-dashboard.mdx by just docs generate; do not edit"
+
 # Foldkit dashboard
+
+Deferred proposal for a single Foldkit dashboard application.
 
 Status: **deferred** on 2026-09-26 (operator). Not a binding contract; no agent builds against it. The operator is weighing it against React with TanStack Start/Router (the Fumadocs stack): React's maturity, ecosystem, and hiring pool versus one Effect model end to end. Decide before any phase starts. Until then, new dashboard code follows the current rules (Foldkit Model for workflow state, typed Effect client constructs usable from either).
 
 ## Proposal (not decided)
 
 The whole dashboard becomes one Foldkit application, and it runs Effect end to end:
+
 - **Server:** the Effect `HttpApi` backend, as today.
 - **Wire:** the `HttpApi` definitions in `packages/http-api`.
 - **Client:** Foldkit, which is built on Effect, calls the API through the typed Effect client derived from those same definitions.

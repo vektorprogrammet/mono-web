@@ -1,4 +1,8 @@
+[//]: # "generated from content/specs/native-postgres-driver.mdx by just docs generate; do not edit"
+
 # Native PostgreSQL driver
+
+Two scoped PostgreSQL pools and native Effect SQL driver compatibility.
 
 Status: frozen for implementation on 2026-09-27. Remove this specification when every Effect package resolves to one version, the `@effect/sql-pg` exception is gone from the version check, and `AGENTS.md` and `docs/architecture.md` describe the pools.
 
@@ -15,7 +19,7 @@ Move `packages/database` from `@effect/sql-pg` 4.0.0-rc.112, which wraps the `pg
   - changes the result codecs (`int8` becomes `bigint`, `date` a string, timestamps `Date`, `bytea` `Uint8Array`, unknown OIDs text);
   - enables named prepared statements by default (`PgClientConfig.prepare`);
   - turns `listen` into a scoped dequeue.
-  rc.114 sets the TLS SNI hostname by default for non-IP hosts. See the tagged CHANGELOG and `PgTypes.ts:1240-1320` at `effect@4.0.0-rc.116`.
+    rc.114 sets the TLS SNI hostname by default for non-IP hosts. See the tagged CHANGELOG and `PgTypes.ts:1240-1320` at `effect@4.0.0-rc.116`.
 - Better Auth and the Effect `Database` share one `pg.Pool` object, but they never share a transaction or a connection. `pgTransaction` is a client-scoped `BEGIN`/`COMMIT`; Better Auth's adapter calls and its hooks run outside any Effect transaction; transactional native commands read Better Auth's tables through Effect SQL (`authority.ts:121-160,270-355`). This comes from a code-path audit, not runtime tracing.
 - No Effect v4 `@effect/sql-kysely` exists: 0.48.0 peers on Effect 3. Better Auth's PostgreSQL support is Kysely over a `pg.Pool` or `PostgresDialect`.
 - Codec census: no uncast `int8` reads, no `bytea` reads, and no object-valued raw parameters were found. The 5 `Date` session fields match the new timestamp codec. Two seams run multi-statement SQL through `sql.unsafe`: migration execution (`layers.ts:73-74`) and the receipt file proof (`receipt/file-proof.ts:300-301`). Some test fixtures do too.
@@ -24,6 +28,7 @@ Move `packages/database` from `@effect/sql-pg` 4.0.0-rc.112, which wraps the `pg
 ## Decision
 
 **Two pools.**
+
 - The Effect `Database` uses the native client through `PgClient.layer`, owning its pool, with at most 8 connections (today's cap).
 - Better Auth keeps its own `pg.Pool` through its supported Kysely/pg adapter, with at most 4 connections.
 - That is 12 connections per backend process instead of 8. The deployment's connection budget must allow 12 × replicas, plus workers and CLIs.

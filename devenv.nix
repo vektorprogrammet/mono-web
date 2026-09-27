@@ -290,6 +290,13 @@ in
       priority = 1;
       fail_fast = true;
     };
+    # The staged MDX sources must agree with their generated Markdown read paths.
+    docs = hook {
+      entry = "${hookEnv} just docs check --staged";
+      stages = [ "pre-commit" ];
+      priority = 0;
+      fail_fast = true;
+    };
     # Whole-tree checks, types, and every package test run against the merged result.
     # just land always creates a merge commit, including when the branch can fast-forward.
     merge-full = hook {

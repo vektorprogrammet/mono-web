@@ -1,4 +1,8 @@
+[//]: # "generated from content/specs/infrastructure-ports.mdx by just docs generate; do not edit"
+
 # Infrastructure ports
+
+Every required service is an Effect service with interchangeable Layers that only the composition root selects.
 
 Status: frozen for implementation on 2026-09-25. Remove this specification when the architecture document, the code, and the checks below represent it.
 
@@ -10,14 +14,14 @@ The same commit can run locally, in CI, in a preview, and on a host such as a co
 
 ## Ports
 
-| Port | What the application requires | Layers |
-| --- | --- | --- |
-| `Database` | PostgreSQL 17 or 18 with `btree_gist`; only transaction-scoped advisory locks, so a transaction pooler works; TLS configurable | local devenv service, disposable test cluster, managed PostgreSQL by URL |
-| `ReceiptFileStore` | private object storage with conditional create, no-follow reads, and deletion | local filesystem; S3-compatible API (Supabase Storage, DigitalOcean Spaces, Cloudflare R2, MinIO) |
-| `Mail` | idempotent delivery of one rendered message per effect | HTTP relay, recording double, provider Layers added as needed |
-| `OutboxDrain` | bounded delivery of committed effects per aggregate | see Triggers |
-| Configuration | typed configuration read once at the composition root | Effect `ConfigProvider` from environment; optional `*_FILE` secrets |
-| Frontend serving | one public origin that routes `/api` to the backend, dashboard routes to the dashboard, and the rest to the homepage | Bun servers behind the provider-neutral router module; Cloudflare Workers for frontend previews |
+| Port               | What the application requires                                                                                                  | Layers                                                                                            |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `Database`         | PostgreSQL 17 or 18 with `btree_gist`; only transaction-scoped advisory locks, so a transaction pooler works; TLS configurable | local devenv service, disposable test cluster, managed PostgreSQL by URL                          |
+| `ReceiptFileStore` | private object storage with conditional create, no-follow reads, and deletion                                                  | local filesystem; S3-compatible API (Supabase Storage, DigitalOcean Spaces, Cloudflare R2, MinIO) |
+| `Mail`             | idempotent delivery of one rendered message per effect                                                                         | HTTP relay, recording double, provider Layers added as needed                                     |
+| `OutboxDrain`      | bounded delivery of committed effects per aggregate                                                                            | see Triggers                                                                                      |
+| Configuration      | typed configuration read once at the composition root                                                                          | Effect `ConfigProvider` from environment; optional `*_FILE` secrets                               |
+| Frontend serving   | one public origin that routes `/api` to the backend, dashboard routes to the dashboard, and the rest to the homepage           | Bun servers behind the provider-neutral router module; Cloudflare Workers for frontend previews   |
 
 ## Triggers for outbox delivery
 
@@ -61,7 +65,7 @@ Negative controls, run on 2026-09-26: each test of conditions 1 to 5 and 7 passe
 
 Remaining steps, in order:
 
-1. The operation grant, as the lead decided on 2026-09-26. It is a service-principal grant "may run operation X", where X is an operation entry of the capability registry (`packages/domain/src/authz/schema.ts`), so that the other outboxes reuse it. It uses its own table in the next free migration. The receipt-approval grants keep their semantics. `docs/model/authority.als` adds the grant to the MachineGrant fact and checks that a drain grant confers no business capability; `just model` passes.
+1. The operation grant, as the lead decided on 2026-09-26. It is a service-principal grant "may run operation X", where X is an operation entry of the capability registry (`packages/domain/src/authz/schema.ts`), so that the other outboxes reuse it. It uses its own table in the next free migration. The receipt-approval grants keep their semantics. `content/model/authority.als` adds the grant to the MachineGrant fact and checks that a drain grant confers no business capability; `just model` passes.
 2. The bounded drain handler: a POST operation of the native API that accepts an OAuth service bearer with the drain grant and runs `drainTeamApplicationOutbox` (`apps/backend/src/team-application/worker.ts`) up to its limit. `TEAM_APPLICATION_DELIVERY_TRIGGER=poll|drain` selects one trigger, and `apps/backend/src/main.ts` forks the worker only for `poll`.
 3. The golden journey on both triggers: `TEAM_APPLICATION_DELIVERY_TRIGGER=drain` provisions a service client and its grant as fixtures, and the harness calls the drain handler as the external scheduler. Run `just golden team-application` and both fault modes on each trigger through `just measure`.
 4. Add the drain trigger to `docs/delivery-recovery.md`. The second branch to land migration 0078 renumbers its migrations.

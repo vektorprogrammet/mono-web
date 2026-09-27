@@ -1,4 +1,8 @@
+[//]: # "generated from content/specs/fumadocs-docs-site.mdx by just docs generate; do not edit"
+
 # Fumadocs documentation site
+
+Hand-written MDX pages in content folders, rendered by apps/docs to a static site and to Markdown read paths in docs/.
 
 Status: frozen for implementation on 2026-09-26 (operator decisions below). Remove this specification when the checks below run in hooks and CI and `AGENTS.md`, the README, and the effect-house overlay describe the new layout.
 
@@ -31,7 +35,7 @@ Vocs is removed.
 - **Inputs and outputs** (operator decision, 2026-09-26). The documentation has two inputs and one producer:
   - **Inputs:** `content/` folders (hand-written prose, at the root and in each workspace) and `src/` (code: JSDoc and construct contracts, types, the OpenAPI contract, package `exports`, the formal models).
   - **Producer:** `apps/docs` is the only thing that turns inputs into documentation artifacts. It renders `content/` and calls the extractors that read `src/` (the construct and contract reader in `tools/conventions`, the OpenAPI output of `packages/http-api`, the TypeDoc reference). The extractors stay where they are and export their data; `apps/docs` owns the rendering.
-  - **Outputs:** the static site for people, and `docs/` for agents and GitHub readers: Markdown at stable paths plus `llms.txt` and `llms-full.txt`.
+  - **Outputs:** the static site for people, `docs/` for agents and GitHub readers (Markdown at stable paths and `llms.txt`), and `llms-full.txt` served from the site only.
   - `content/` holds hand-written pages only. No generator writes into `content/`, so a file there is always authored, and a file in `docs/` is always generated. Generated pages such as the construct catalogue and the API references are produced by `apps/docs` straight into the site and `docs/`.
   - Harness instruction files are not documentation artifacts: the generated part of each `AGENTS.md` stays in place. `just guides write` writes it from the same extractor function that produces the workspace summary on the site, so the two cannot disagree.
 - **mdxcn.** The existing graph components in `apps/docs/components/mdxcn` (with `provenance.json`) move into the Fumadocs app's MDX component map, under their existing license and provenance. New mdxcn components are installed through its registry CLI, never copied by hand.
@@ -44,9 +48,9 @@ Vocs is removed.
 
 1. `just docs build` builds the static site from a clean checkout. Every moved page renders, has a `title` and a `description`, and appears in the navigation from `meta.json` in today's section order: Start, the system pages, Operations, Specs, Testing. Links between pages resolve; the build fails on a broken internal link.
 2. `just docs generate` writes `docs/**`: cross-cutting pages at their current paths, and each workspace under `docs/<apps|packages|tools>/<name>/`. `just docs check` fails on a drift and on a hand edit (negative controls for both), and runs in `just check`, the pre-commit hook, and hosted Checks.
-2a. Adding `content/intro.mdx` to a workspace that had none makes that page appear in the workspace's section and in `docs/`, with no configuration change (test). Every workspace appears in the navigation.
+   2a. Adding `content/intro.mdx` to a workspace that had none makes that page appear in the workspace's section and in `docs/`, with no configuration change (test). Every workspace appears in the navigation.
 3. Every file in `docs/` is the output of a registered generator, and a hand-authored file there fails the layout check (negative control). The generators are listed in one place, with the output path of each.
-3a. No file under any `content/` folder is written by a generator. A generator that writes there fails the layout check (negative control).
+   3a. No file under any `content/` folder is written by a generator. A generator that writes there fails the layout check (negative control).
 4. `rg -l vocs` finds nothing outside git history and the changelog. `site.ts`, `sync-pages.ts`, and `vocs.config.ts` are gone.
 5. The mdxcn graph components render on the system walkthrough page.
 6. The docs workflow publishes the new build to Pages on `main`: the first run after landing succeeds, and the site answers.
@@ -66,18 +70,10 @@ A new docs domain, provider, or search backend beyond what the template configur
 
 ## Progress
 
-Branch `docs/fumadocs-0926`, stopped at the request budget on 2026-09-26, rebased on `9ed098b3`. Do not land it before step 4: until then the site has no pages.
+Integration branch `docs/fumadocs-integration-0927` starts from main `9f7066a9`, after HookBounds and construct contracts landed. The original branch staged, unstaged, and untracked bytes are archived under `/tmp/fumadocs-preserve-0927`.
 
-Done:
+`apps/docs` is the documentation producer. It renders root and workspace `content/`, derived workspace summaries, construct contracts, Placements TypeDoc, and public OpenAPI operations to the site. It writes Markdown read paths and `docs/llms.txt`; construct pages use `just docs generate`, while `just constructs write` delegates to it.
 
-1. `a452c23f` The `tanstack-start-spa` scaffold replaces Vocs in `apps/docs`; `site.ts`, `sync-pages.ts`, and `vocs.config.ts` are gone. Vite builds under `/mono-web/`, and the Pages workflow uploads `apps/docs/.output/public`. A patch fixes the static server function cache under a base path (TanStack/router#6152). In a browser against the built SPA, client navigation and the static search work under `/mono-web/`.
-2. `6d34d3e6` The MDXCN components live in `apps/docs/src/components/mdxcn` with their license and provenance; `GraphFlow` is in the MDX component map.
+Current proof: `just docs generate` and `just docs check` pass, including staged checks. `just layout`, `just guides`, `just exceptions`, and `just constructs` pass. Focused layout and construct tests pass. The site builds 164 prerender routes; a static server returns home, walkthrough, native PostgreSQL driver spec, one API operation, TypeDoc, and a Markdown read path.
 
-Remaining, in order. Drafts of the modules are in `/srv/share/projects/vektorprogrammet/fumadocs-drafts-0926/markdown/`, outside the repository; they are untested.
-
-3. Links: add `apps/docs/markdown/{pages,links,remark-repository-links}.ts` from the drafts and `apps/docs/source.config.ts`, which registers `remarkRepositoryLinks`. A page links a page by its MDX source and any other file by its path, both relative to the page; the site resolves a page link to its route and a path to its GitHub view, and a missing target or heading fails the build. `index.mdx` and `state.mdx` include `README.md` and `STATE.md` in place, so their links resolve relative to those files. Declare `unified`, `remark-parse`, `remark-mdx`, `remark-gfm`, `github-slugger`, `unist-util-visit`, `mdast-util-mdx`, `vfile`, `@types/mdast`, `@types/estree`, and `oxfmt` in `apps/docs`.
-4. Move, one commit: `git mv` `docs/*.md`, `docs/system-walkthrough.mdx`, and `docs/specs/*.md` to `apps/docs/content/docs/**/*.mdx`, and the module guides to `apps/docs/content/docs/guides/{placements,receipt}.mdx`. Change only the frontmatter (the first-level heading becomes `title`; `description` from the README documentation table), the links, `{@includeCode path}` to `<include>path</include>`, and MDX escapes. Replace the scaffold pages with `index.mdx` and `state.mdx`, and add `meta.json`: Start, System, Operations, Developer guides (with the Placements API reference link), Specs (`...specs`), Testing. In the same commit, move the spec exemption of `tools/conventions/src/check.ts` and the `hosted-journeys` file of `tools/conventions/src/sections.ts` to the MDX sources, and replace the links to the deleted `apps/docs/site.ts`.
-5. Generator: `apps/docs/markdown/{render,cli}.ts` from the drafts, with the scripts `generate` and `check`; run `just docs generate`, then both negative controls. Wire `just docs check` into `just check`, a pre-commit and pre-merge-commit hook in `devenv.nix`, and the Checks workflow. Move `docs/model` to `model/` and `docs/effect-exceptions.json` to `tools/conventions/effect-exceptions.json` with their readers, then `just guides write`.
-6. Registry: list the generators and their output paths in `tools/conventions/src/layout.ts`, fail the layout check on a file in `docs/` without a registered generator's marker (negative control), and update the `docs` and `apps/docs` descriptions.
-7. After ConstructContracts lands: `constructPages` writes `apps/docs/content/docs/constructs.mdx` and `constructs/<category>.mdx` with frontmatter and source-relative links.
-8. The documentation of the list above, then `just measure --class check -- just check`, the screenshots, and the removal of this specification.
+Remaining: rerun the build after the browser/server boundary fix, confirm no browser page errors, capture home, walkthrough, and spec screenshots, then commit with hooks. After commit, run `just check` once through the lead gate. The first Pages run after landing remains the lead’s check. Remove this specification after those gates pass.

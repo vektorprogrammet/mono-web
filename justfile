@@ -23,8 +23,8 @@ seed:
 
 # Serve the documentation site, or run another of its scripts, such as `just docs build`.
 [group('develop')]
-docs script="dev":
-    bun run --cwd apps/docs "$1"
+docs script="dev" *args:
+    script="$1"; shift; bun run --cwd apps/docs "$script" "$@"
 
 # Build every package through Turbo. Arguments go to Turbo.
 [group('develop')]
@@ -41,9 +41,9 @@ changelog *args:
 land branch:
     bun --no-env-file tools/scripts/land.ts "$1"
 
-# Check layout, constructs, guides, Effect exceptions, source safety, format, lint, types, and the HTTP contract. Arguments go to Turbo.
+# Check layout, docs, constructs, guides, Effect exceptions, source safety, format, lint, types, and the HTTP contract. Arguments go to Turbo.
 [group('check')]
-check *args: layout constructs guides exceptions source-safety (format "--check") lint
+check *args: layout (docs "check") constructs guides exceptions source-safety (format "--check") lint
     bun x turbo check-types "$@"
 
 # Check the repository layout and its generated sections: the README and AGENTS.md tables and the hosted journey legs; `just layout write` renders them.
@@ -54,14 +54,14 @@ layout *args:
 # Check the construct index and contract pages against the @construct tags and their JSDoc, each construct's contract tags and annotations, and that two modules share it; `just constructs write` renders the pages, and `just constructs consumers [name]` prints the modules that import a construct.
 [group('check')]
 constructs *args:
-    bun --no-env-file tools/conventions/src/cli.ts constructs "$@"
+    if [ "${1:-}" = write ]; then just docs generate && bun --no-env-file tools/conventions/src/cli.ts constructs check; else bun --no-env-file tools/conventions/src/cli.ts constructs "$@"; fi
 
 # Check the AGENTS.md guide and the CLAUDE.md that imports it, of every app, package, and context folder; `just guides write` renders them.
 [group('check')]
 guides *args:
     bun --no-env-file tools/conventions/src/cli.ts guides "$@"
 
-# Check that every suppression of an Effect rule names its entry in docs/effect-exceptions.json, and every entry its current sites and versions.
+# Check that every suppression of an Effect rule names its entry in tools/conventions/effect-exceptions.json, and every entry its current sites and versions.
 [group('check')]
 exceptions *args:
     bun --no-env-file tools/conventions/src/cli.ts exceptions "$@"
@@ -108,7 +108,7 @@ test *args:
 measure *args:
     bun --no-env-file tools/scripts/measure-job.ts "$@"
 
-# Run the Alloy commands of docs/model/authority.als (check) or validate docs/model/contexts.cml (validate), a heavy job.
+# Run the Alloy commands of content/model/authority.als (check) or validate content/model/contexts.cml (validate), a heavy job.
 [group('check')]
 model action:
     #!/usr/bin/env bash
