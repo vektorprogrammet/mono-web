@@ -3,6 +3,7 @@ import {
   canonicalJsonBytes,
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
+import { schemaBookkeepingTables } from "@vektorprogrammet/database/schema-bookkeeping";
 import type { Pool, PoolClient } from "pg";
 import type { LegacySourceSnapshot } from "./legacy-source-snapshot";
 import { flow } from "effect";
@@ -384,12 +385,20 @@ export const seedLegacyReferences = async (
       if (extraSchemas.rowCount)
         throw new Error("Native target contains an unexpected application schema");
 
-      const tables = await tx.query<{ schemaname: string; tablename: string }>(`
+      const tables = await tx.query<{ schemaname: string; tablename: string }>(
+        `
         SELECT schemaname, tablename FROM pg_catalog.pg_tables
          WHERE schemaname IN ('public', 'auth')
-           AND NOT (schemaname = 'public' AND tablename = 'vektorprogrammet_schema_migrations')
+           AND (schemaname, tablename) NOT IN (
+             SELECT schema, "table" FROM unnest($1::text[], $2::text[]) AS bookkeeping(schema, "table")
+           )
          ORDER BY schemaname, tablename
-      `);
+      `,
+        [
+          schemaBookkeepingTables.map(({ schema }) => schema),
+          schemaBookkeepingTables.map(({ table }) => table),
+        ],
+      );
 
       for (const { schemaname, tablename } of tables.rows) {
         const schema = '"' + schemaname.replaceAll('"', '""') + '"';
