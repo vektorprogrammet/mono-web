@@ -103,7 +103,8 @@ legacy tools.
 their exact versions, selected through the `nixpkgs-multiverse` input.
 The Checks and Tests workflows run their steps in the same shell through [.github/actions/devenv](.github/actions/devenv/action.yml).
 
-`devenv shell` installs the Git hooks, except when `CI` is set. Hooks check; they never rewrite or restage files.
+`devenv shell` installs the Git hooks, except when `CI` is set, and generates the hook configuration of its worktree. Hooks check; they never rewrite or restage files.
+A worktree without that configuration, or with one generated from another `devenv.nix`, `devenv.yaml`, or `devenv.lock`, fails every commit, merge, and push until `devenv shell` runs there.
 Pre-commit checks only staged paths: one serial, two-thread Oxfmt process, one bounded Oxlint process for staged JavaScript/TypeScript, conflict markers, and the changed Git-index blobs with [source-safety](tools/source-safety/src/source-safety.ts). It does not run package tests, type checks, or whole-tree convention checks.
 `just land` records a merge commit even when the branch could fast-forward. Its pre-merge-commit hook runs `just check` and `just test` across the full merged tree under the exclusive heavy lock. A failed check aborts the merge and preserves main. `just check` includes the complete source-safety, layout, construct, guides, exceptions, format, lint, and type checks.
 Pre-push runs `just check` and tests of packages changed from `main`; push only from a clean worktree. Prek temporarily moves unstaged changes aside while hooks run. Commit with no unstaged tracked changes to avoid a killed hook leaving its parking patch behind.
