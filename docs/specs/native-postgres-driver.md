@@ -36,6 +36,11 @@ A Kysely dialect over the native client and a custom Better Auth adapter are bot
 - Migration execution splits each migration file into statements with a parser that respects dollar quoting, comments, and string literals, and runs them in one transaction; or it uses the native client's documented multi-statement path if one exists. `just migration-hashes` and the upgrade proofs stay green.
 - Named prepared statements are disabled (`prepare: false`) unless the deployment's PgBouncer sets `max_prepared_statements`. The choice is one configuration key, tested both ways.
 - `auth` schema startup, TLS, and server-side `search_path` behave as today on both pools.
+- Codecs are declared, not left to defaults (sql-pg CHANGELOG rc.113 #7426, rc.116 #8240 and #8241):
+  - Every PostgreSQL enum or domain type that a query reads is registered through `PgTypes.register`, or cast to text in SQL. Unregistered OIDs now decode as UTF-8 text, and binary UDTs or enum arrays can garble a value or close the connection.
+  - `Date` parameters now bind as `timestamptz`. Every write to a `timestamp without time zone` column is listed and either casts explicitly or pins the session `TimeZone`, so a write can't shift with the server's zone.
+  - `±infinity` timestamps decode as an invalid `Date`. Find where they can occur and reject them.
+- `multiplexConcurrency` (default 32) and `connectionTTL` are set explicitly, with their reasons, beside the pool size.
 
 ## Done when
 
