@@ -21,6 +21,24 @@ Operator decisions:
   The root manifest declares the set once as `engines.postgresql`; `VEKTOR_POSTGRES_MAJOR` selects a major per environment.
 - `main` is pushed to `origin` (2026-09-25), so hosted CI runs.
   The SDK is not published (operator decision, 2026-09-25). `@vektorprogrammet/sdk` is private; the Release SDK workflow and Changesets are removed.
+- Migrations are frozen (2026-09-27). Nothing runs in production; every database is disposable; the
+  legacy database is reached only through import commands. The numbered migrations, the checksum
+  registry, `just migration-hashes` and upgrade proofs will be replaced by one schema declaration
+  we edit directly; the design awaits the operator's approval of its mechanism. No new numbered
+  migration is written and no branch renumbers one.
+- The architecture direction is FCIS with DDD (2026-09-27): bounded contexts are a modelling and
+  code-organisation boundary, not a runtime one; the core domain is a stateless library of pure
+  algebraic APIs; the shell is one generic imperative runner; Layer requirements are declared as
+  service interfaces and provided incrementally at composition roots; coalgebraic state only where
+  state bound to operations is a real requirement. See [docs/specs/architecture-consolidation.md](docs/specs/architecture-consolidation.md) (draft).
+- Interview corrections: the interviewer and the co-interviewer may correct a completed assessment
+  until the admission decision is recorded; after that the department board leader, or a current
+  holder of the delegable staffing delegation, may reopen one window per interview with a reason
+  and an end instant no later than the semester's end; whoever reopens cannot correct under it; a
+  post-decision correction never changes what the recorded decision acts on. See
+  [docs/specs/interview-correction-window.md](docs/specs/interview-correction-window.md) (in progress on `fix/recruitment-review-0926`).
+- The deployment image and hosting are undecided. No image exists. Podman is the operator's
+  preference for building and running one; Podman is not installed on this machine.
 
 Development stays local. `just dev` starts both frontends and the native Bun backend; PostgreSQL is a separate prerequisite.
 See [local development](README.md#local-native-development). External delivery is disabled in local development.

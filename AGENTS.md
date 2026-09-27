@@ -8,6 +8,11 @@ Read [STATE.md](STATE.md) for current work.
 Read [docs/system.md](docs/system.md) for intended product behavior.
 Read [docs/architecture.md](docs/architecture.md) for technical boundaries.
 
+When a lead handoff document exists at `docs/lead-handoff-*.md`, read the newest one first. It
+records the operator decisions of that day, the known defects, and every in-flight branch with its
+spec file and next step. It is dated evidence, not a permanent authority; `STATE.md` stays the
+current state.
+
 The migration targets the native application. Legacy behavior comes from the live
 legacy system and its source in the separate vektorprogrammet repository; see
 [docs/architecture.md](docs/architecture.md#legacy-source). It is not the target architecture.
