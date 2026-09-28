@@ -14,6 +14,7 @@ import {
 import { assertInterviewCorrectionIntegrity } from "./interview-correction-integrity.ts";
 import type { CoInterviewerCorrection0106Fixture } from "./recommendation-preupgrade-fixture.ts";
 import { Predicate, Schema } from "effect";
+import { replacedFetch } from "../../apps/dashboard/e2e/native-rpc-ledger.ts";
 import { admissionJourneyClock } from "../e2e/journey-clock.ts";
 
 type CorrectionRequestHeaders = {
@@ -152,11 +153,19 @@ export async function runCoInterviewerCorrectionJourney(
     return result;
   };
 
-  const getDetail = async (cookie: string): Promise<DetailResponse> => {
-    const response = await fetch(
-      `${api}/api/recruitment/interviews/${encodeURIComponent(fixture.targetInterviewId)}`,
-      { headers: headers(cookie) },
+  /** One RPC as the route it replaced answered, with the person's cookie and the dashboard origin. */
+  const recruitment = (tag: string, payload: Schema.Json, cookie: string) =>
+    replacedFetch({ origin: api, tag, payload, headers: headers(cookie) });
+
+  const readConduct = (cookie: string) =>
+    recruitment(
+      "recruitment.readInterviewConduct",
+      { interviewId: fixture.targetInterviewId },
+      cookie,
     );
+
+  const getDetail = async (cookie: string): Promise<DetailResponse> => {
+    const response = await readConduct(cookie);
 
     const responseEtag = response.headers.get("etag");
     assert.equal(response.status, 200, await response.clone().text());
@@ -171,7 +180,7 @@ export async function runCoInterviewerCorrectionJourney(
   };
 
   const getBoard = async (cookie: string): Promise<Board> => {
-    const response = await fetch(`${api}/api/recruitment/interviews`, { headers: headers(cookie) });
+    const response = await recruitment("recruitment.readSchedulingBoard", null, cookie);
     assert.equal(response.status, 200, await response.clone().text());
     const body: unknown = await response.json();
 
@@ -195,11 +204,11 @@ export async function runCoInterviewerCorrectionJourney(
     key: string,
     interviewId = fixture.targetInterviewId,
   ) =>
-    fetch(`${api}/api/recruitment/interviews/${encodeURIComponent(interviewId)}:correct`, {
-      method: "POST",
-      headers: { ...headers(cookie, etag, key), "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    recruitment(
+      "recruitment.correctInterviewAssessment",
+      { interviewId, idempotencyKey: key, ifMatch: etag, request: body },
+      cookie,
+    );
 
   const snapshot = async (): Promise<PersistedSnapshot> => ({
     interview: decodePostgresObservations(
@@ -456,10 +465,7 @@ export async function runCoInterviewerCorrectionJourney(
     );
     const deniedBefore = await snapshot();
 
-    const unassignedRead = await fetch(
-      `${api}/api/recruitment/interviews/${encodeURIComponent(fixture.targetInterviewId)}`,
-      { headers: headers(unassignedCookie) },
-    );
+    const unassignedRead = await readConduct(unassignedCookie);
 
     status("unassigned:read", unassignedRead.status);
     assert.equal(unassignedRead.status, 403, await unassignedRead.text());
@@ -507,10 +513,7 @@ export async function runCoInterviewerCorrectionJourney(
       assert.notEqual(changedPrimary.etag, primaryInitial.etag);
       assert.notEqual(changedBoardItem.etag, primaryBoardItemInitial.etag);
 
-      const changedCo = await fetch(
-        `${api}/api/recruitment/interviews/${encodeURIComponent(fixture.targetInterviewId)}`,
-        { headers: headers(co.cookie) },
-      );
+      const changedCo = await readConduct(co.cookie);
 
       status("designation-changed:co-read", changedCo.status);
       assert.equal(changedCo.status, 403, await changedCo.text());
@@ -607,61 +610,53 @@ export async function runCoInterviewerCorrectionJourney(
 
     const authorityBefore = await snapshot();
 
-    const finalization = await fetch(
-      `${api}/api/recruitment/interviews/${encodeURIComponent(fixture.targetInterviewId)}:finalize`,
+    const finalization = await recruitment(
+      "recruitment.finalizeInterview",
       {
-        method: "POST",
-        headers: {
-          ...headers(co.cookie, afterBrowserCorrection.etag, freshId("co-interviewer-finalize")),
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
+        interviewId: fixture.targetInterviewId,
+        idempotencyKey: freshId("co-interviewer-finalize"),
+        ifMatch: afterBrowserCorrection.etag,
+        request: Schema.encodeSync(Schema.Json)({
           answers: afterBrowserCorrection.body.answers,
           score: afterBrowserCorrection.body.score,
           recommendation: afterBrowserCorrection.body.recommendation,
         }),
       },
+      co.cookie,
     );
 
     status("co-interviewer:finalize", finalization.status);
     assert.equal(finalization.status, 403, await finalization.text());
 
-    const cancellation = await fetch(
-      `${api}/api/recruitment/interviews/${encodeURIComponent(fixture.targetInterviewId)}:cancel`,
+    const cancellation = await recruitment(
+      "recruitment.cancelInterview",
       {
-        method: "POST",
-        headers: {
-          ...headers(co.cookie, afterBrowserCorrection.etag, freshId("co-interviewer-cancel")),
-          "content-type": "application/json",
-        },
-        body: "{}",
+        interviewId: fixture.targetInterviewId,
+        idempotencyKey: freshId("co-interviewer-cancel"),
+        ifMatch: afterBrowserCorrection.etag,
       },
+      co.cookie,
     );
 
     status("co-interviewer:cancel", cancellation.status);
     assert.equal(cancellation.status, 403, await cancellation.text());
 
-    const schedule = await fetch(
-      `${api}/api/recruitment/interviews/${encodeURIComponent(fixture.targetInterviewId)}:schedule`,
+    const schedule = await recruitment(
+      "recruitment.scheduleInterview",
       {
-        method: "POST",
-        headers: {
-          ...headers(
-            co.cookie,
-            boardItem(await getBoard(co.cookie)).etag,
-            freshId("co-interviewer-schedule"),
-          ),
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
+        interviewId: fixture.targetInterviewId,
+        idempotencyKey: freshId("co-interviewer-schedule"),
+        ifMatch: boardItem(await getBoard(co.cookie)).etag,
+        request: {
           // A schedule ahead of the backend's clock, so that only authority denies the command.
           scheduledAt: admissionJourneyClock().fromNow(7),
           room: "Denied co-interviewer room",
           campus: "Gløshaugen",
           mapLink: "https://maps.example.invalid/co-interviewer-denied-0106",
           message: "This command must remain denied.",
-        }),
+        },
       },
+      co.cookie,
     );
 
     status("co-interviewer:schedule", schedule.status);

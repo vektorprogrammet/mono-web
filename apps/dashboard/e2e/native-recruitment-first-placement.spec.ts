@@ -2,8 +2,10 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Page, type Locator, type BrowserContext } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { PersonId } from "@vektorprogrammet/domain/organization";
+import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
+import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { PlacementScope } from "@vektorprogrammet/domain/placements";
+import { RecruitmentInterviewId } from "@vektorprogrammet/domain/recruitment";
 import { IdempotencyKey, StrongETag } from "@vektorprogrammet/rpc/problem";
 import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
 import { Predicate, Schema } from "effect";
@@ -242,33 +244,47 @@ test("continuous recruitment to first placement", async ({ browser }) => {
     // Claim URLs are bearer capabilities. Do not give the other applicant this capability.
     // Their own session cannot read the staff assessment or issue an invitation.
 
-    const privateRead = await other.request.get(
-      m.backendOrigin + "/api/recruitment/interviews/" + interviewId,
+    const native = nativeScriptClient(m.backendOrigin);
+
+    const sessionOf = async (page: Page) => ({
+      cookie: (await page.context().cookies(m.backendOrigin))
+        .map(({ name, value }) => `${name}=${value}`)
+        .join("; "),
+      origin: m.dashboardOrigin,
+    });
+
+    const privateRead = await native.call(await sessionOf(other), (client) =>
+      client["recruitment.readInterviewConduct"]({
+        interviewId: RecruitmentInterviewId.make(interviewId),
+      }),
     );
 
-    expect([403, 404]).toContain(privateRead.status());
-    expect(await privateRead.text()).not.toMatch(/Jeg vil hjelpe|explanatoryPower|ada@example/);
+    expect([403, 404]).toContain(privateRead.status);
+    expect(JSON.stringify(privateRead)).not.toMatch(/Jeg vil hjelpe|explanatoryPower|ada@example/);
 
-    const leaderBoard = await staff.request.get(
-      m.backendOrigin + "/api/onboarding?departmentId=" + m.departmentId,
+    const leaderBoard = await native.call(await sessionOf(staff), (client) =>
+      client["onboarding.readBoard"]({ departmentId: DepartmentId.make(m.departmentId) }),
     );
 
-    expect(leaderBoard.status()).toBe(200);
+    expect(leaderBoard.status).toBe(200);
 
-    const denied = await other.request.post(
-      m.backendOrigin + "/api/onboarding?departmentId=" + m.departmentId,
-      {
-        headers: {
-          origin: m.dashboardOrigin,
-          "if-match": (await leaderBoard.json()).etag,
-          "idempotency-key": "other-applicant-denied",
+    if (!leaderBoard.ok) throw new Error(`leader onboarding board: ${leaderBoard.code}`);
+
+    const denied = await native.call(await sessionOf(other), (client) =>
+      client["onboarding.command"]({
+        departmentId: DepartmentId.make(m.departmentId),
+        idempotencyKey: IdempotencyKey.make("other-applicant-denied"),
+        ifMatch: leaderBoard.value.etag,
+        request: {
+          applicationId: PublicApplicationIdSchema.make(mainApplication.application_id),
+          action: "Issue",
         },
-        data: { applicationId: mainApplication.application_id, action: "Issue" },
-      },
+      }),
     );
 
-    expect(denied.status()).toBe(403);
-    expect((await denied.json()).code).toBe("authority.denied");
+    await native.dispose();
+    expect(denied.status).toBe(403);
+    expect(denied.ok ? "success" : denied.code).toBe("authority.denied");
     await checkpoint("other-applicant-denied");
 
     await applicant.goto(mainClaim);

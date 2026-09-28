@@ -132,7 +132,7 @@ export const observeLegacyCandidateNativeJourney = async (
 
   const http = Layer.mergeAll(platform, BunHttpPlatform.layer, Etag.layer, HttpRouter.layer);
 
-  const nativeApi = ExternalNativeRpcRouterLive(config, { now: () => input.asOf }).pipe(
+  const nativeApi = ExternalNativeRpcRouterLive({ config, now: () => input.asOf }).pipe(
     HttpRouter.provideRequest(Layer.merge(services, platform)),
     Layer.provide(services),
     Layer.provide(http),

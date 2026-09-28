@@ -32,6 +32,7 @@ import {
 import { DepartmentId } from "../../packages/domain/src/organization/schema.js";
 import { Match, Predicate, Schema } from "effect";
 import { admissionJourneyClock } from "../e2e/journey-clock.ts";
+import { replacedFetch } from "../../apps/dashboard/e2e/native-rpc-ledger.ts";
 
 /** One RPC request on the JSON wire, as a browser sends it without the typed client. */
 const WireRequest = Schema.TaggedStruct("Request", {
@@ -180,6 +181,42 @@ const negativeProbePersons = [
     password: "returning-negative-0104-password",
   },
 ] as const;
+
+
+/**
+ * One recruitment RPC as the page's browser context would send it: with the context's cookies and
+ * the dashboard origin, answered as the HTTP response of the route that the RPC replaced.
+ */
+const pageRpc = (
+  page: Page,
+  input: {
+    readonly api: string;
+    readonly ui: string;
+    readonly tag: string;
+    readonly payload: Schema.Json;
+  },
+) =>
+  page
+    .context()
+    .cookies(input.api)
+    .then((cookies) =>
+      replacedFetch({
+        origin: input.api,
+        tag: input.tag,
+        payload: input.payload,
+        headers: {
+          origin: input.ui,
+          cookie: cookies.map(({ name, value }) => `${name}=${value}`).join("; "),
+        },
+      }),
+    )
+    .then((response) =>
+      response.text().then((text) => ({
+        status: () => response.status,
+        headers: () => Object.fromEntries(response.headers),
+        text: () => Promise.resolve(text),
+      })),
+    );
 
 export const returningAssistantFixture = {
   person,
@@ -1804,16 +1841,15 @@ export const runReturningAssistantBrowserJourney = async ({
       interviewSchemaId: "interview-schema-native-conduct-0063",
     };
 
-    const assignmentPath = `${api}/api/recruitment/applications/${encodeURIComponent(nextApplicationId)}/interviews`;
+    const assign = (assignmentPage: Page, idempotencyKey: string) =>
+      pageRpc(assignmentPage, {
+        api,
+        ui,
+        tag: "recruitment.createApplicationInterview",
+        payload: { applicationId: nextApplicationId, idempotencyKey, request: assignmentPayload },
+      });
 
-    const ambiguousAssignment = await page.request.post(assignmentPath, {
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": "returning-next-assignment-ambiguous-0104",
-        origin: ui,
-      },
-      data: assignmentPayload,
-    });
+    const ambiguousAssignment = await assign(page, "returning-next-assignment-ambiguous-0104");
 
     const ambiguousBodyText = await ambiguousAssignment.text();
     trace.push({
@@ -1962,20 +1998,14 @@ export const runReturningAssistantBrowserJourney = async ({
       await coordinatorPage.getByRole("button", { name: "Logg inn", exact: true }).click();
       await coordinatorPage.waitForURL(/\/dashboard\/?$/);
 
-      const assignmentResponse = await coordinatorPage.request.post(assignmentPath, {
-        headers: {
-          "content-type": "application/json",
-          "idempotency-key": assignmentCommandId,
-          origin: ui,
-        },
-        data: assignmentPayload,
-      });
+      const assignmentResponse = await assign(coordinatorPage, assignmentCommandId);
 
       assignmentStatus = assignmentResponse.status();
       assignmentBodyText = await assignmentResponse.text();
       assignmentETag = assignmentResponse.headers()["etag"] ?? "";
 
-      if (assignmentStatus !== 201) {
+      // An RPC command answers 200; the 201 was an HTTP transport fact.
+      if (assignmentStatus !== 200) {
         const assignmentActorContext = await pool.query(
           `SELECT
            membership.person_id,
@@ -2033,16 +2063,15 @@ export const runReturningAssistantBrowserJourney = async ({
       assert.ok(assignmentETag);
       const assignedETag = assignmentETag;
 
-      const scheduleResponse = await coordinatorPage.request.post(
-        `${api}/api/recruitment/interviews/${encodeURIComponent(nextInterviewId)}:schedule`,
-        {
-          headers: {
-            "content-type": "application/json",
-            "idempotency-key": "returning-next-schedule-0104",
-            "if-match": assignedETag,
-            origin: ui,
-          },
-          data: {
+      const scheduleResponse = await pageRpc(coordinatorPage, {
+        api,
+        ui,
+        tag: "recruitment.scheduleInterview",
+        payload: {
+          interviewId: nextInterviewId,
+          idempotencyKey: "returning-next-schedule-0104",
+          ifMatch: assignedETag,
+          request: {
             scheduledAt: nextInterviewScheduledAt,
             room: "Returning Room 0104",
             campus: "Gløshaugen",
@@ -2050,7 +2079,7 @@ export const runReturningAssistantBrowserJourney = async ({
             message: "Vi ser frem til intervjuet.",
           },
         },
-      );
+      });
 
       const scheduleBodyText = await scheduleResponse.text();
 
@@ -2122,16 +2151,17 @@ export const runReturningAssistantBrowserJourney = async ({
     assert.ok(invitationCapability);
     stage?.("returning:next-period-invitation");
 
-    const invitationHeaders = {
-      "x-recruitment-invitation-capability": invitationCapability,
-      origin: ui,
-    };
+    // The invitee presents only the capability, in the payload. The staff page's session cookie
+    // would be a second credential, so these requests go through fetch, which keeps no cookie jar.
+    const readInvitation = () =>
+      replacedFetch({
+        origin: api,
+        tag: "recruitment.readInvitationResponse",
+        payload: { capability: invitationCapability },
+        headers: { origin: ui },
+      });
 
-    // The invitee presents only the capability. The staff page's session cookie would be a
-    // second credential, so these requests go through fetch, which keeps no cookie jar.
-    const invitationPendingResponse = await fetch(`${api}/api/recruitment/invitation-response`, {
-      headers: invitationHeaders,
-    });
+    const invitationPendingResponse = await readInvitation();
 
     const invitationPendingText = await invitationPendingResponse.text();
 
@@ -2155,30 +2185,23 @@ export const runReturningAssistantBrowserJourney = async ({
       responseMessage: null,
     });
 
-    const invitationConfirmResponse = await fetch(
-      `${api}/api/recruitment/invitation-response:confirm`,
-      {
-        method: "POST",
-        headers: {
-          ...invitationHeaders,
-          "content-type": "application/json",
-          "if-match": invitationETag,
-        },
-        body: "{}",
-      },
-    );
+    const invitationConfirmResponse = await replacedFetch({
+      origin: api,
+      tag: "recruitment.confirmInvitation",
+      payload: { capability: invitationCapability, ifMatch: invitationETag },
+      headers: { origin: ui },
+    });
 
     const invitationConfirmText = await invitationConfirmResponse.text();
 
-    if (invitationConfirmResponse.status !== 204) {
+    // The confirmation answers the invitation's new tag with 200, where HTTP answered 204.
+    if (invitationConfirmResponse.status !== 200) {
       throw new Error(
         `next invitation confirmation failed ${invitationConfirmResponse.status} ${invitationConfirmText}`,
       );
     }
 
-    const invitationAcceptedResponse = await fetch(`${api}/api/recruitment/invitation-response`, {
-      headers: invitationHeaders,
-    });
+    const invitationAcceptedResponse = await readInvitation();
 
     assert.equal(invitationAcceptedResponse.status, 200);
 
@@ -2200,11 +2223,16 @@ export const runReturningAssistantBrowserJourney = async ({
       confirmStatus: invitationConfirmResponse.status,
     });
     stage?.("returning:next-period-finalization");
-    const conductPath = `${api}/api/recruitment/interviews/${encodeURIComponent(nextInterviewId)}`;
 
-    const conductResponse = await page.request.get(conductPath, {
-      headers: { origin: ui },
-    });
+    const readConduct = () =>
+      pageRpc(page, {
+        api,
+        ui,
+        tag: "recruitment.readInterviewConduct",
+        payload: { interviewId: nextInterviewId },
+      });
+
+    const conductResponse = await readConduct();
 
     assert.equal(conductResponse.status(), 200);
     const conductETag = conductResponse.headers()["etag"];
@@ -2236,17 +2264,19 @@ export const runReturningAssistantBrowserJourney = async ({
 
     const finalizeKey = "returning-native-finalize-0104";
 
-    const finalizeResponse = await page.request.post(`${conductPath}:finalize`, {
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": finalizeKey,
-        "if-match": conductETag,
-        origin: ui,
-      },
-      data: {
-        answers: finalizeAnswers,
-        score: { explanatoryPower: 9, roleModel: 9, suitability: 9 },
-        recommendation: "Kanskje",
+    const finalizeResponse = await pageRpc(page, {
+      api,
+      ui,
+      tag: "recruitment.finalizeInterview",
+      payload: {
+        interviewId: nextInterviewId,
+        idempotencyKey: finalizeKey,
+        ifMatch: conductETag,
+        request: {
+          answers: finalizeAnswers,
+          score: { explanatoryPower: 9, roleModel: 9, suitability: 9 },
+          recommendation: "Kanskje",
+        },
       },
     });
 
@@ -2267,9 +2297,7 @@ export const runReturningAssistantBrowserJourney = async ({
     assert.equal(finalizeBody.completionState, "Completed");
     assert.equal(finalizeBody.cancellationState, "NotCancelled");
 
-    const conductAfterResponse = await page.request.get(conductPath, {
-      headers: { origin: ui },
-    });
+    const conductAfterResponse = await readConduct();
 
     assert.equal(conductAfterResponse.status(), 200);
 

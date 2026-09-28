@@ -18,6 +18,7 @@ import { Predicate, Schema, Struct } from "effect";
 import { SubmitApplicationRequest } from "../../packages/rpc/src/v2-schemas.js";
 import { IdempotencyKey } from "../../packages/rpc/src/problem.js";
 import { nativeScriptClient } from "../../packages/rpc/src/script-client.js";
+import { replacedFetch } from "../../apps/dashboard/e2e/native-rpc-ledger.ts";
 
 const root = new URL("../../", import.meta.url).pathname;
 
@@ -259,11 +260,44 @@ try {
     const requestBody: Pick<RequestInit, "body"> =
       body === undefined ? {} : { body: JSON.stringify(body) };
 
-    return fetch(backendOrigin + path, {
-      method: body === undefined ? "GET" : "POST",
-      headers: nativeHeaders,
-      ...requestBody,
-    });
+    const url = new URL(path, backendOrigin);
+
+    // The identity engine stays HTTP; every onboarding operation is the RPC that replaced its
+    // route, answered as that route's HTTP response.
+    if (url.pathname.startsWith("/api/auth/")) {
+      return fetch(backendOrigin + path, {
+        method: body === undefined ? "GET" : "POST",
+        headers: nativeHeaders,
+        ...requestBody,
+      });
+    }
+
+    const rpcHeaders = { origin: dashboardOrigin, cookie };
+
+    if (url.pathname === "/api/onboarding/claim") {
+      return replacedFetch({
+        origin: backendOrigin,
+        tag: "onboarding.claim",
+        payload: body ?? null,
+        headers: rpcHeaders,
+      });
+    }
+
+    const scope = { departmentId: url.searchParams.get("departmentId") ?? "" };
+
+    return body === undefined
+      ? replacedFetch({
+          origin: backendOrigin,
+          tag: "onboarding.readBoard",
+          payload: scope,
+          headers: rpcHeaders,
+        })
+      : replacedFetch({
+          origin: backendOrigin,
+          tag: "onboarding.command",
+          payload: { ...scope, idempotencyKey: key, ifMatch: etag ?? "", request: body },
+          headers: rpcHeaders,
+        });
   };
 
   const expectStatus = async (response: Response, status: number) => {

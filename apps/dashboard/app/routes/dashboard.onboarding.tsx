@@ -1,10 +1,9 @@
-import { OnboardingCommand, OnboardingScope } from "@vektorprogrammet/rpc"
-import { IdempotencyIfMatchHeaders } from "@vektorprogrammet/rpc";
+import { IdempotencyKey, OnboardingCommand, OnboardingScope, StrongETag } from "@vektorprogrammet/rpc";
 import { Schema } from "effect";
 import { useState } from "react";
 import { Form, data, useFetcher, useLoaderData } from "react-router";
 import { Button } from "../components/ui/button";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import { formText } from "../lib/form-text";
 import type { Route } from "./+types/dashboard.onboarding";
@@ -14,21 +13,18 @@ const privateData = <T,>(value: T, status = 200) =>
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
 
-  const departments = (await client.placements.listScopes()).body.departments.filter(
-    (d) => d.canManage,
-  );
+  const scopes = await callNative(cookie, request, (client) => client["placements.listScopes"]());
+  const departments = scopes.departments.filter((d) => d.canManage);
 
   const departmentId = new URL(request.url).searchParams.get("departmentId") ?? "";
 
-  const board = departmentId
-    ? (
-        await client.onboarding.readBoard({
-          query: Schema.decodeSync(OnboardingScope)({ departmentId }),
-        })
-      ).body
-    : null;
+  const board =
+    departmentId === ""
+      ? null
+      : await callNative(cookie, request, (client) =>
+          client["onboarding.readBoard"](Schema.decodeSync(OnboardingScope)({ departmentId })),
+        );
 
   return privateData({ departments, departmentId, board });
 }
@@ -38,17 +34,21 @@ export async function action({ request }: Route.ActionArgs) {
   const form: FormData = await request.formData();
 
   try {
-    await createAuthenticatedClient(cookie, request).onboarding.command({
-      query: Schema.decodeUnknownSync(OnboardingScope)({ departmentId: form.get("departmentId") }),
-      headers: Schema.decodeUnknownSync(IdempotencyIfMatchHeaders)({
-        "if-match": form.get("etag"),
-        "idempotency-key": form.get("commandId"),
-      }),
-      payload: Schema.decodeUnknownSync(OnboardingCommand)({
+    const scope = Schema.decodeUnknownSync(OnboardingScope)({
+      departmentId: form.get("departmentId"),
+    });
+
+    const command = {
+      departmentId: scope.departmentId,
+      idempotencyKey: Schema.decodeUnknownSync(IdempotencyKey)(form.get("commandId")),
+      ifMatch: Schema.decodeUnknownSync(StrongETag)(form.get("etag")),
+      request: Schema.decodeUnknownSync(OnboardingCommand)({
         applicationId: form.get("applicationId"),
         action: form.get("action"),
       }),
-    });
+    };
+
+    await callNative(cookie, request, (client) => client["onboarding.command"](command));
 
     return privateData({
       ok: true,

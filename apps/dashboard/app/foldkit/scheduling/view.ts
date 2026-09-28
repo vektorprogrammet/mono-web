@@ -1,5 +1,5 @@
 import { Predicate, Match } from "effect";
-import { interviewRecommendations } from "@vektorprogrammet/rpc"
+import { interviewRecommendations } from "@vektorprogrammet/domain/recruitment";
 import type { RecruitmentInterviewConductObservation,
 RecruitmentInterviewQuestionSnapshot,
 RecruitmentSchedulingInterview, } from "@vektorprogrammet/rpc"
@@ -250,7 +250,7 @@ const interviewCard = (
 
 const successfulBoard = (
   model: ReadyModel,
-  board: typeof SchedulingBoard.Type,
+  board: SchedulingBoard,
   h: HtmlBuilder<Message>,
 ): Html =>
   h.section(

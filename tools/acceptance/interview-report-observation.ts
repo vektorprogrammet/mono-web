@@ -12,6 +12,12 @@ import {
   InterviewReportRow,
 } from "../../packages/domain/src/recruitment/report.js";
 import { Match, Predicate, Schema } from "effect";
+import { nativeRpcPath } from "../../packages/rpc/src/api.js";
+import {
+  nativeRpcRequestBody,
+  nativeRpcStatus,
+  nativeRpcValue,
+} from "../../apps/dashboard/e2e/native-operations.js";
 
 const ids = {
   person: "report-coordinator-0103",
@@ -301,23 +307,46 @@ export async function observeInterviewReport(o: Options) {
 
   assert.ok(cookie);
   o.secrets.push(cookie, ...cookie.split("; ").map((v) => v.slice(v.indexOf("=") + 1)));
-  assert.equal((await signIn.json()).user.id, ids.person);
+  assert.equal(
+    Schema.decodeUnknownSync(Schema.Struct({ user: Schema.Struct({ id: Schema.String }) }))(
+      await signIn.json(),
+    ).user.id,
+    ids.person,
+  );
 
-  const get = (
-    query: Record<string, string> = {},
-    session = cookie,
-    extra: Record<string, string> = {},
-  ) =>
-    fetch(`${api}/api/recruitment/interview-report?${new URLSearchParams(query).toString()}`, {
-      headers: { cookie: session, origin: ui, ...extra },
-    });
+  /**
+   * One RPC as a browser posts it, with the session cookie and the dashboard origin. The payload is
+   * hand built, so a value that its schema refuses reaches the server, which answers a defect.
+   */
+  const rpc = (tag: string, payload: Schema.Json, session: string) => {
+    const headers = new Headers({ origin: ui, "content-type": "application/json" });
+
+    if (session !== "") headers.set("cookie", session);
+
+    return fetch(`${api}${nativeRpcPath}`, {
+      method: "POST",
+      headers,
+      body: nativeRpcRequestBody(tag, payload),
+    }).then((response) =>
+      response.text().then((text) => ({
+        status: nativeRpcStatus(text) ?? response.status,
+        value: nativeRpcValue(text),
+        text,
+      })),
+    );
+  };
+
+  const get = (query: Record<string, string> = {}, session = cookie) =>
+    rpc("recruitment.readInterviewReport", query, session);
+
+  /** The code of the problem that an RPC answered. */
+  const problemCode = (value: Schema.Json | undefined) =>
+    Schema.decodeUnknownSync(Schema.Struct({ code: Schema.String }))(value).code;
 
   const read = async (query: Record<string, string> = {}): Promise<InterviewReport> => {
     const response = await get(query);
 
     if (response.status !== 200) {
-      const problem = await response.json().catch(() => ({}));
-
       const authority = (
         await pool.query(
           `SELECT m.membership_id,m.is_team_leader,m.is_suspended,m.end_at,t.team_id,t.kind team_kind,t.active team_active,d.department_id,d.independent department_independent,d.active department_active FROM public.organization_memberships m JOIN public.organization_teams t USING(team_id) JOIN public.organization_departments d USING(department_id) WHERE m.person_id=$1`,
@@ -330,15 +359,13 @@ export async function observeInterviewReport(o: Options) {
           gate: "report read",
           query,
           status: response.status,
-          code: problem.code,
+          problem: response.text,
           authority,
         }),
       );
     }
 
-    assert.match(response.headers.get("cache-control") ?? "", /no-store/);
-
-    return Schema.decodeUnknownSync(InterviewReport)(await response.json(), {
+    return Schema.decodeUnknownSync(InterviewReport)(response.value, {
       onExcessProperty: "error",
     });
   };
@@ -371,18 +398,12 @@ export async function observeInterviewReport(o: Options) {
   assert.equal(unselected.rows.length, 0);
   assert.ok(unselected.periods.some((p) => p.id === ids.closed));
   assert.ok(!unselected.periods.some((p) => p.id === ids.foreign));
-  const { createPromiseClient } = require("@vektorprogrammet/sdk");
 
-  const sdkResult = await createPromiseClient(api, {
-    cookie,
-    origin: ui,
-  }).recruitment.readInterviewReport({
-    query: Schema.decodeSync(InterviewReportQuery)({ admissionPeriodId: ids.period }),
-  });
-
-  const report: InterviewReport = Schema.decodeUnknownSync(InterviewReport)(sdkResult.body, {
-    onExcessProperty: "error",
-  });
+  const report: InterviewReport = await read(
+    Schema.encodeSync(InterviewReportQuery)(
+      Schema.decodeSync(InterviewReportQuery)({ admissionPeriodId: ids.period }),
+    ),
+  );
 
   const sqlRows = (
     await pool.query(
@@ -508,18 +529,26 @@ export async function observeInterviewReport(o: Options) {
   assert.equal((await get({}, "")).status, 401);
   assert.equal((await get({}, o.ordinaryCookie)).status, 403);
 
-  const assignedDetailResponse = await fetch(
-    `${api}/api/recruitment/interviews/interview-native-conduct-a-0063`,
-    { headers: { cookie: o.ordinaryCookie, origin: ui } },
-  );
+  const conduct = (session: string) =>
+    rpc(
+      "recruitment.readInterviewConduct",
+      { interviewId: "interview-native-conduct-a-0063" },
+      session,
+    );
 
-  assert.equal(assignedDetailResponse.status, 200, await assignedDetailResponse.clone().text());
+  const assignedDetailResponse = await conduct(o.ordinaryCookie);
+
+  assert.equal(assignedDetailResponse.status, 200, assignedDetailResponse.text);
+
+  const assignedResource = Schema.decodeUnknownSync(
+    Schema.Struct({ detail: Schema.Json, etag: Schema.String }),
+  )(assignedDetailResponse.value);
 
   const assignedDetail = Schema.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)(
-    await assignedDetailResponse.json(),
+    assignedResource.detail,
   );
 
-  const assignedETag = assignedDetailResponse.headers.get("etag");
+  const assignedETag = assignedResource.etag;
   assert.ok(Predicate.isString(assignedETag));
   assert.ok(Predicate.isNumber(assignedDetail.revision));
   assert.ok(Array.isArray(assignedDetail.answers));
@@ -529,57 +558,42 @@ export async function observeInterviewReport(o: Options) {
   );
   assert.notEqual(assignedDetail.recommendation, null);
 
-  const coordinatorDetailResponse = await fetch(
-    `${api}/api/recruitment/interviews/interview-native-conduct-a-0063`,
-    { headers: { cookie, origin: ui } },
-  );
+  const coordinatorDetailResponse = await conduct(cookie);
 
-  assert.equal(coordinatorDetailResponse.status, 403, await coordinatorDetailResponse.text());
+  assert.equal(coordinatorDetailResponse.status, 403, coordinatorDetailResponse.text);
 
-  const coordinatorCorrectionResponse = await fetch(
-    `${api}/api/recruitment/interviews/interview-native-conduct-a-0063:correct`,
+  const coordinatorCorrectionResponse = await rpc(
+    "recruitment.correctInterviewAssessment",
     {
-      method: "POST",
-      headers: {
-        cookie,
-        origin: ui,
-        "content-type": "application/json",
-        "if-match": assignedETag,
-        "idempotency-key": "report-coordinator-correction-denied-0103",
-      },
-      body: JSON.stringify({
+      interviewId: "interview-native-conduct-a-0063",
+      idempotencyKey: "report-coordinator-correction-denied-0103",
+      ifMatch: assignedETag,
+      request: Schema.encodeSync(Schema.Json)({
         expectedRevision: assignedDetail.revision,
         answers: assignedDetail.answers,
         score: assignedDetail.score,
         recommendation: assignedDetail.recommendation,
       }),
     },
+    cookie,
   );
 
-  assert.equal(
-    coordinatorCorrectionResponse.status,
-    403,
-    await coordinatorCorrectionResponse.text(),
-  );
+  assert.equal(coordinatorCorrectionResponse.status, 403, coordinatorCorrectionResponse.text);
   assert.deepEqual(await snapshot(), before);
   record(
     "report coordinator detail and correction deny for a non-assigned interview; no co-interviewer grant or writes",
   );
-  assert.equal(
-    (
-      await fetch(`${api}/api/recruitment/interviews/interview-native-conduct-a-0063`, {
-        headers: { cookie, origin: ui },
-      })
-    ).status,
-    403,
-  );
+  assert.equal((await conduct(cookie)).status, 403);
+
+  // The payload schema drops an unknown member, and refuses a value outside it before the
+  // handler: the server answers a defect where the HTTP query answered 400 or 422.
+  assert.equal((await get({ departmentId: ids.department })).status, 200);
 
   for (const [key, value] of [
-    ["departmentId", ids.department],
     ["sort", "bogus"],
     ["recommendation", ""],
   ] as const)
-    assert.ok([400, 422].includes((await get({ [key]: value })).status));
+    assert.equal((await get({ [key]: value })).status, 500);
   assert.deepEqual(await snapshot(), before);
   record(
     "real ordinary-interviewer conduct reported to non-assigned leader; exact population/projection/history/SQL and closed/empty periods; sort/filter/ties; no report writes; raw conduct remains denied",
@@ -599,21 +613,18 @@ export async function observeInterviewReport(o: Options) {
     ids.member,
   ]);
   record("authorized department without periods returns explicit empty selection and no rows");
-  const priorEtag = (await get({ admissionPeriodId: ids.period })).headers.get("etag");
-  const oldCondition = priorEtag ?? "*";
+  // The report carries no entity tag over RPC, so a denial takes no prior conditional token.
   const authorityDenials: Array<{ condition: string; status: number; code: string }> = [];
 
   const denyMutation = async (setup: string, restore: string) => {
     await pool.query(setup);
     const baseline = await snapshot();
 
-    const denial = await get({ admissionPeriodId: ids.period }, cookie, {
-      "if-none-match": oldCondition,
-    });
+    const denial = await get({ admissionPeriodId: ids.period }, cookie);
 
     const status = denial.status;
     assert.ok([401, 403].includes(status));
-    const code = (await denial.json()).code;
+    const code = problemCode(denial.value);
     assert.ok(["authority.denied", "credential.invalid"].includes(code));
     authorityDenials.push({ condition: setup, status, code });
     assert.deepEqual(await snapshot(), baseline);
@@ -648,7 +659,7 @@ export async function observeInterviewReport(o: Options) {
   authorityDenials.push({
     condition: "ambiguous-department",
     status: ambiguousStatus,
-    code: (await ambiguousResponse.json()).code,
+    code: problemCode(ambiguousResponse.value),
   });
   await pool.query(
     `DELETE FROM public.organization_memberships WHERE membership_id='report-ambiguous-membership'`,
@@ -703,7 +714,9 @@ export async function observeInterviewReport(o: Options) {
 
     if (response.status === 200)
       assert.ok(
-        !(await response.json()).rows.some((r: any) => r.interviewId === "report-interview-race"),
+        !Schema.decodeUnknownSync(InterviewReport)(response.value).rows.some(
+          (r) => r.interviewId === "report-interview-race",
+        ),
       );
 
     for (const filter of ["all", "Ja", "Nei", "Kanskje", "not-recorded"])
@@ -1055,7 +1068,7 @@ export async function observeInterviewReport(o: Options) {
       concurrentReadStatus,
       supersededResponse,
       authorityDenials,
-      conditionalRequest: { priorEtag, ifNoneMatch: oldCondition },
+      conditionalRequest: "dropped: an RPC read takes no If-None-Match",
       scope: "all completed native, not first-time-only; local synthetic; no effects",
     };
 

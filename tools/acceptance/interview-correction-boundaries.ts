@@ -1,5 +1,9 @@
 import { decodePostgresObservations, type PostgresObservation } from "./postgres-observation.js";
-import { NativeProblem } from "../../packages/http-api/src/http-semantics.js";
+import { NativeProblem } from "../../packages/rpc/src/problem.js";
+import {
+  replacedFetch,
+  replacedHttpResponse,
+} from "../../apps/dashboard/e2e/native-rpc-ledger.js";
 import { RecruitmentInterviewConductObservationSchema } from "../../packages/domain/src/recruitment/schema.js";
 import { Schema } from "effect";
 import assert from "node:assert/strict";
@@ -175,8 +179,12 @@ export async function assertInterviewCorrectionBoundaries(
     return result;
   };
 
+  // Each call is the RPC that replaced the route, answered as that route's HTTP response.
   const get = (id: string, requestCookie: string | null = cookie) =>
-    fetch(`${api}/api/recruitment/interviews/${id}`, {
+    replacedFetch({
+      origin: api,
+      tag: "recruitment.readInterviewConduct",
+      payload: { interviewId: id },
       headers: headers(requestCookie),
     });
 
@@ -187,30 +195,26 @@ export async function assertInterviewCorrectionBoundaries(
     key: string,
     requestCookie: string | null = cookie,
   ) =>
-    fetch(`${api}/api/recruitment/interviews/${id}:correct`, {
-      method: "POST",
-      headers: {
-        ...headers(requestCookie, etag, key),
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(body),
+    replacedFetch({
+      origin: api,
+      tag: "recruitment.correctInterviewAssessment",
+      payload: { interviewId: id, idempotencyKey: key, ifMatch: etag, request: body },
+      headers: headers(requestCookie),
     });
 
+  /** A body that is no RPC request message at all, posted to the RPC endpoint. */
   const postRaw = (
-    id: string,
+    _id: string,
     body: string,
-    etag: string,
-    key: string,
+    _etag: string,
+    _key: string,
     requestCookie: string | null = cookie,
   ) =>
-    fetch(`${api}/api/recruitment/interviews/${id}:correct`, {
+    fetch(`${api}/api/rpc`, {
       method: "POST",
-      headers: {
-        ...headers(requestCookie, etag, key),
-        "content-type": "application/json",
-      },
+      headers: { ...headers(requestCookie), "content-type": "application/json" },
       body,
-    });
+    }).then(replacedHttpResponse);
 
   const interviewIds = [interviewId, selfLinkRaceInterviewId];
   const applicantIds = [identity.applicantId, raceIdentity.applicantId];
@@ -817,6 +821,12 @@ export async function assertInterviewCorrectionBoundaries(
     ["null-recommendation", { ...currentPayload, recommendation: null }],
   ];
 
+  const semanticInvalidCases = new Set([
+    "unknown-question-same-cardinality",
+    "duplicate-question-same-cardinality",
+    "missing-question-entry",
+  ]);
+
   for (const [name, invalid] of invalidCases) {
     const before = await snapshot();
 
@@ -836,12 +846,19 @@ export async function assertInterviewCorrectionBoundaries(
           );
 
     status(`invalid:${name}`, response.status);
-    assert.equal(response.status, name === "malformed-json" ? 400 : 422, await response.text());
+
+    // Domain validation of the answers still answers recruitment.conduct-invalid (422). A payload
+    // outside its schema fails in the RPC server before the handler, as a defect (500), and a body
+    // that is no RPC message is refused by the server's transport.
+    const expected = semanticInvalidCases.has(name) ? 422 : name === "malformed-json" ? -1 : 500;
+
+    if (expected === -1) assert.ok(response.status >= 400, await response.text());
+    else assert.equal(response.status, expected, await response.text());
     await assertSnapshot(before, `invalid ${name}`);
   }
 
   record(
-    "malformed JSON, missing answer/question entry, and strict schema failures map to 400/422; each leaves exact state unchanged",
+    "malformed RPC bodies and schema failures are refused before the handler, and answer mismatches map to 422; each leaves exact state unchanged",
   );
   const sameKeyBefore = await snapshot();
 

@@ -1,8 +1,5 @@
-import {
-  RecruitmentReadInvitationResponseProblem,
-  RecruitmentRequestNewInvitationTimeProblem,
-} from "@vektorprogrammet/rpc";
-import { Predicate, Result, Schema } from "effect";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
+import { Predicate } from "effect";
 import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { createHash, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -13,12 +10,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { journeyClock } from "../../../tools/e2e/journey-clock.ts";
+import { replacedAnswer, replacedRequest } from "./native-rpc-ledger.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 
-const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
 
@@ -70,7 +67,6 @@ const recruitmentTeamId = "team-native-invitation-response-0051";
 
 const interviewSchemaId = "interview-schema-native-invitation-response-0051";
 
-const invitationCapabilityHeader = "x-recruitment-invitation-capability";
 
 const responseCases = [
   {
@@ -624,27 +620,39 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
 
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const requestBytes = Buffer.concat(chunks);
-    const requestJson = parseJsonBody(requestBytes);
-    const capabilityHeader = request.headers[invitationCapabilityHeader];
+    const rawRequestJson = parseJsonBody(requestBytes);
+    const rpc = path === "/api/rpc" ? replacedRequest(rawRequestJson) : undefined;
 
-    const capabilityValue = Array.isArray(capabilityHeader)
-      ? capabilityHeader[0]
-      : capabilityHeader;
+    // A native RPC is recorded as the HTTP route it replaced; its body is the command it carries.
+    const requestJson = rpc === undefined ? rawRequestJson : rpc.requestJson;
+
+    // The capability travels in the payload's `capability` member, where the dedicated header was.
+    const capabilityValue = rpc?.capability ?? undefined;
+
+    // The request text outside that one member, which must carry no capability.
+    const requestTextOutsideCapability =
+      capabilityValue === undefined
+        ? requestBytes.toString("utf8")
+        : requestBytes.toString("utf8").replace(JSON.stringify(capabilityValue), '""');
 
     const invitationActor = Predicate.isString(capabilityValue)
       ? (actorsByCapability.get(capabilityValue) ?? null)
       : null;
 
+    // No header carries a capability: it travels in the RPC payload alone.
     const nonCapabilityHeaders = Object.entries(request.headers)
-      .filter(([name]) => name !== invitationCapabilityHeader)
       .map(([, value]) => (Array.isArray(value) ? value.join(",") : (value ?? "")))
       .join("\n");
 
     const record = {
-      method,
-      path,
-      sessionCookieAuth: hasSessionCookie(request.headers.cookie),
-      authorizationHeaderPresent: request.headers.authorization !== undefined,
+      method: rpc?.method ?? method,
+      path: rpc?.path ?? path,
+      rpcTag: rpc?.tag ?? null,
+      sessionCookieAuth:
+        hasSessionCookie(request.headers.cookie) || hasSessionCookie(rpc?.messageHeaders.cookie),
+      authorizationHeaderPresent:
+        request.headers.authorization !== undefined ||
+        rpc?.messageHeaders.authorization !== undefined,
       invitationActor,
       requestHasInvitationCapability: Predicate.isString(capabilityValue),
       requestInvitationCapabilityValid:
@@ -655,13 +663,11 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
         hasObjectKey(requestJson, "capability"),
       requestRawCapabilityOutsideDedicatedHeader:
         containsRawCapability(request.url ?? "") ||
-        containsRawCapability(requestBytes.toString("utf8")) ||
+        containsRawCapability(requestTextOutsideCapability) ||
         containsRawCapability(nonCapabilityHeaders),
       requestJson,
-      idempotencyKey: Predicate.isString(request.headers["idempotency-key"])
-        ? request.headers["idempotency-key"]
-        : null,
-      ifMatch: Predicate.isString(request.headers["if-match"]) ? request.headers["if-match"] : null,
+      idempotencyKey: rpc?.idempotencyKey ?? null,
+      ifMatch: rpc?.ifMatch ?? null,
       responseHasResponseCapabilityField: false,
       responseRawCapability: false,
       responseJson: null,
@@ -702,7 +708,7 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
 
       const responseHeaders = [...upstream.headers.entries()]
         .flatMap(([name, value]) =>
-          name !== invitationCapabilityHeader ? [`${name}:${value}`] : [],
+          [`${name}:${value}`],
         )
         .join("\n");
 
@@ -711,6 +717,16 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
       record.responseEtag = upstream.headers.get("etag");
       record.responseContentType = upstream.headers.get("content-type");
       record.responseVary = upstream.headers.get("vary");
+
+      // An RPC answers 200 with its exit; the record keeps the status and body of that answer.
+      const answer = rpc === undefined ? undefined : replacedAnswer(responseJson);
+
+      if (answer !== undefined) {
+        record.status = answer.status;
+        record.responseJson = answer.responseJson;
+        record.responseEtag = answer.responseEtag;
+      }
+
       record.responseHasResponseCapabilityField = [
         "responseCapability",
         "invitationCapability",
@@ -777,128 +793,89 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
   };
 }
 
-const nativeMutationHeaders = (capability, etag) => ({
-  "content-type": "application/json",
-  "if-match": etag,
-  [invitationCapabilityHeader]: capability,
-});
+/** The script client of the backend, which sends each invitation RPC with its capability alone. */
+const invitationClient = () => nativeScriptClient(backendOrigin);
 
 /**
- * Decodes a failure through the endpoint's declared problem union: every required member with
- * its registry value, the optional `instance`, a validation code's `validation` extension, and
- * no undeclared member.
+ * Checks a failed invitation RPC against its expected code and the registry status of that code,
+ * and that its answer carries no raw capability.
  */
-async function expectNativeProblem(path, init, expectedStatus, expectedCode, declaredProblems) {
-  const response = await fetch(new URL(path, backendOrigin), init);
-  const responseText = await response.text();
-  assertNoRawCapability(responseText, `Native ${expectedCode} response`);
-  const problem = JSON.parse(responseText);
+function expectNativeProblem(result, expectedStatus, expectedCode, label) {
+  assertNoRawCapability(JSON.stringify(result), `Native ${label} response`);
 
-  const decoded = Schema.decodeUnknownResult(declaredProblems, { onExcessProperty: "error" })(
-    problem,
-  );
-
-  if (
-    response.status !== expectedStatus ||
-    !response.headers.get("content-type")?.startsWith("application/problem+json") ||
-    Result.isFailure(decoded) ||
-    decoded.success.code !== expectedCode ||
-    decoded.success.status !== expectedStatus
-  ) {
+  if (result.ok || result.status !== expectedStatus || result.code !== expectedCode) {
     throw new Error(
-      `Native ${expectedCode} boundary did not return its declared Problem Details: ${JSON.stringify({
-        status: response.status,
-        contentType: response.headers.get("content-type"),
-        code: problem?.code,
-        type: problem?.type,
-        keys:
-          problem === null || !Predicate.isObjectOrArray(problem)
-            ? []
-            : Object.keys(problem).sort(),
-        decodeFailure: Result.isFailure(decoded) ? String(decoded.failure) : undefined,
+      `Native ${label} boundary did not answer ${expectedCode}: ${JSON.stringify({
+        status: result.status,
+        code: result.ok ? undefined : result.code,
       })}`,
     );
   }
 
   return {
-    status: response.status,
-    code: decoded.success.code,
-    type: decoded.success.type,
-    responseKeys: Object.keys(problem).sort(),
+    status: result.status,
+    code: result.code,
+    type: result.code === "defect" ? undefined : result.problem.type,
     rawCapabilityObserved: false,
   };
 }
 
 async function exerciseNativeBoundaryFailures() {
   const capability = rawCapabilitiesByCase["requested-new-time"];
+  const client = invitationClient();
 
-  const read = await fetch(new URL("/api/recruitment/invitation-response", backendOrigin), {
-    headers: { [invitationCapabilityHeader]: capability },
-  });
+  try {
+    const read = await client.call({}, (native) =>
+      native["recruitment.readInvitationResponse"]({ capability }),
+    );
 
-  const readText = await read.text();
-  assertNoRawCapability(readText, "Native pending invitation boundary read");
-  const etag = read.headers.get("etag");
+    assertNoRawCapability(JSON.stringify(read), "Native pending invitation boundary read");
 
-  if (read.status !== 200 || etag === null) {
-    throw new Error("Native boundary rehearsal could not read the pending invitation");
+    if (!read.ok) {
+      throw new Error("Native boundary rehearsal could not read the pending invitation");
+    }
+
+    const etag = read.value.etag;
+    const malformedCapability = "A".repeat(43);
+    const overlongMessage = "x ".repeat(1_000_000);
+
+    const requestNewTime = (message) =>
+      client.call({}, (native) =>
+        native["recruitment.requestNewInvitationTime"]({
+          capability,
+          ifMatch: etag,
+          request: { message },
+        }),
+      );
+
+    // A malformed payload fails in the RPC server before the handler, as a defect: the HTTP
+    // contract's request.malformed, validation.failed, and request.too-large have no RPC answer.
+    return {
+      unknownCapability: expectNativeProblem(
+        await client.call({}, (native) =>
+          native["recruitment.readInvitationResponse"]({ capability: malformedCapability }),
+        ),
+        404,
+        "resource.not-found",
+        "unknown capability",
+      ),
+      capabilityTokenMessage: expectNativeProblem(
+        await requestNewTime(malformedCapability),
+        500,
+        "defect",
+        "capability-token message",
+      ),
+      overlongBody: expectNativeProblem(
+        await requestNewTime(overlongMessage),
+        500,
+        "defect",
+        "overlong message",
+      ),
+    };
+  } finally {
+    await client.dispose();
   }
-
-  const basePath = "/api/recruitment/invitation-response:request-new-time";
-  const malformedCapability = "A".repeat(43);
-  const overlongMessage = "x ".repeat(1_000_000);
-
-  return {
-    unknownCapability: await expectNativeProblem(
-      "/api/recruitment/invitation-response",
-      { headers: { [invitationCapabilityHeader]: malformedCapability } },
-      404,
-      "resource.not-found",
-      RecruitmentReadInvitationResponseProblem,
-    ),
-    duplicateJsonMember: await expectNativeProblem(
-      basePath,
-      {
-        method: "POST",
-        headers: nativeMutationHeaders(capability, etag),
-        body: '{"message":"first","message":"second"}',
-      },
-      400,
-      "request.malformed",
-      RecruitmentRequestNewInvitationTimeProblem,
-    ),
-    capabilityTokenMessage: await expectNativeProblem(
-      basePath,
-      {
-        method: "POST",
-        headers: nativeMutationHeaders(capability, etag),
-        body: JSON.stringify({ message: malformedCapability }),
-      },
-      422,
-      "validation.failed",
-      RecruitmentRequestNewInvitationTimeProblem,
-    ),
-    overlongBody: await expectNativeProblem(
-      basePath,
-      {
-        method: "POST",
-        headers: nativeMutationHeaders(capability, etag),
-        body: JSON.stringify({ message: overlongMessage }),
-      },
-      413,
-      "request.too-large",
-      RecruitmentRequestNewInvitationTimeProblem,
-    ),
-  };
 }
-
-const semanticResponseHeaders = (headers) =>
-  Object.fromEntries(
-    ["cache-control", "content-type", "etag", "location", "retry-after", "vary"].map((name) => [
-      name,
-      headers.get(name),
-    ]),
-  );
 
 async function exerciseNonReplayableRepeat(records) {
   const original = records.find(
@@ -906,42 +883,38 @@ async function exerciseNonReplayableRepeat(records) {
       record.invitationActor === "accepted" &&
       record.method === "POST" &&
       record.path === responseCases[0].commandPath &&
-      record.status === 204,
+      record.status === 200,
   );
 
   if (original === undefined || !Predicate.isString(original.ifMatch)) {
     throw new Error("Non-replay rehearsal could not locate the accepted invitation command");
   }
 
-  const response = await fetch(new URL(original.path, backendOrigin), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "if-match": original.ifMatch,
-      [invitationCapabilityHeader]: rawCapabilitiesByCase.accepted,
-    },
-    body: JSON.stringify(original.requestJson ?? {}),
-  });
+  const client = invitationClient();
 
-  const body = Buffer.from(await response.arrayBuffer());
-  assertNoRawCapability(body.toString("utf8"), "Non-replayable invitation repeat");
-  const problem = parseJsonBody(body);
+  try {
+    const repeated = await client.call({}, (native) =>
+      native["recruitment.confirmInvitation"]({
+        capability: rawCapabilitiesByCase.accepted,
+        ifMatch: original.ifMatch,
+      }),
+    );
 
-  if (
-    response.status !== 409 ||
-    problem?.code !== "invitation.already-responded" ||
-    !response.headers.get("content-type")?.startsWith("application/problem+json")
-  ) {
-    throw new Error("A repeated invitation command replayed instead of returning typed conflict");
+    assertNoRawCapability(JSON.stringify(repeated), "Non-replayable invitation repeat");
+
+    if (repeated.ok || repeated.status !== 409 || repeated.code !== "invitation.already-responded") {
+      throw new Error("A repeated invitation command replayed instead of returning typed conflict");
+    }
+
+    return {
+      status: repeated.status,
+      code: repeated.code,
+      replayedResponse: false,
+      recovery: "required-fresh-read",
+    };
+  } finally {
+    await client.dispose();
   }
-
-  return {
-    status: response.status,
-    code: problem.code,
-    replayedResponse: false,
-    recovery: "required-fresh-read",
-    headers: semanticResponseHeaders(response.headers),
-  };
 }
 
 function summarizeNativeContracts(records) {
@@ -952,7 +925,7 @@ function summarizeNativeContracts(records) {
   );
 
   const successfulMutations = invitationRecords.filter(
-    ({ method, status }) => method === "POST" && status === 204,
+    ({ method, status }) => method === "POST" && status === 200,
   );
 
   const terminalConflicts = invitationRecords.filter(
@@ -1477,7 +1450,7 @@ function assertNativeTransport(records) {
     {
       method: "POST",
       path: responseCases[0].commandPath,
-      status: 204,
+      status: 200,
       invitationActor: "accepted",
       sessionCookieAuth: false,
       authorizationHeaderPresent: false,
@@ -1509,7 +1482,7 @@ function assertNativeTransport(records) {
     {
       method: "POST",
       path: responseCases[1].commandPath,
-      status: 204,
+      status: 200,
       invitationActor: "rejected",
       sessionCookieAuth: false,
       authorizationHeaderPresent: false,
@@ -1565,7 +1538,7 @@ function assertNativeTransport(records) {
     {
       method: "POST",
       path: responseCases[2].commandPath,
-      status: 204,
+      status: 200,
       invitationActor: "requested-new-time",
       sessionCookieAuth: false,
       authorizationHeaderPresent: false,
@@ -1693,13 +1666,13 @@ function assertNativeTransport(records) {
       );
     }
 
-    if (record.status === 204) {
+    // A response answers only the invitation's new entity tag, as the 204 carried its ETag.
+    if (record.status === 200) {
       if (
         record.responseJson !== null ||
-        record.responseVary !== "Origin" ||
         !/^"vkr2\.[A-Za-z0-9_-]{43}"$/u.test(record.responseEtag ?? "")
       ) {
-        throw new Error("Invitation mutation did not return the generated 204 response contract");
+        throw new Error("Invitation mutation did not answer only the invitation's entity tag");
       }
 
       continue;
@@ -1707,7 +1680,7 @@ function assertNativeTransport(records) {
 
     if (
       record.status !== 409 ||
-      !record.responseContentType?.startsWith("application/problem+json") ||
+      !record.responseContentType?.startsWith("application/json") ||
       record.responseJson?.status !== 409 ||
       record.responseJson?.code !== "invitation.already-responded" ||
       record.responseJson?.type !==
@@ -2011,11 +1984,6 @@ async function main() {
       ADMISSION_FIXED_NOW: fixedClock,
     };
 
-    await runCommand("bun", ["run", "build"], {
-      cwd: sdkRoot,
-      env: dashboardEnvironment,
-      label: "Native invitation-response SDK build",
-    });
 
     // The journey serves a production build, whose bundles are never re-optimized and reloaded
     // under a navigating browser as a dev server's are.
