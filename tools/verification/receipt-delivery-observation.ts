@@ -1,6 +1,9 @@
-import { Schema, Predicate } from "effect";
 /** 0097 extends the owned 0095 PostgreSQL/API rehearsal after its zero-effect import window. */
 import assert from "node:assert/strict";
+import { Predicate } from "effect";
+import { ReceiptId } from "@vektorprogrammet/rpc";
+import { IdempotencyKey, StrongETag } from "@vektorprogrammet/rpc/problem";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
 import { observeReceiptReopening } from "./receipt-reopen-observation.js";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
@@ -137,46 +140,49 @@ export const observeReceiptDelivery = async (options: {
     return keys.get(key)!;
   };
 
-  const headers = (session: string, key: string, etag?: string) => {
-    const result = new Headers({
-      cookie: session,
-      origin: dashboardOrigin,
-      "idempotency-key": identity(key),
+  const native = nativeScriptClient(origin);
+  const as = (session: string) => ({ cookie: session, origin: dashboardOrigin });
+
+  /** One approval or rejection, as the session given, answered with its registry status. */
+  const transition = (
+    action: "approve" | "reject",
+    session: string,
+    key: string,
+    receipt: { readonly id: string; readonly etag: string },
+  ) =>
+    native.call(as(session), (client) => {
+      const payload = {
+        receiptId: ReceiptId.make(receipt.id),
+        idempotencyKey: IdempotencyKey.make(identity(key)),
+        ifMatch: StrongETag.make(receipt.etag),
+      };
+
+      return action === "approve"
+        ? client["receipts.approveReceipt"](payload)
+        : client["receipts.rejectReceipt"](payload);
     });
-
-    if (etag) {
-      result.set("if-match", etag);
-      result.set("content-type", "application/json");
-    }
-
-    return result;
-  };
 
   const submit = async (key: string) => {
-    const form = new FormData();
-    form.set("description", "Synthetic acknowledged delivery");
-    form.set("amountOre", "500");
-    form.set("receiptDate", "2026-09-06");
-    form.set(
-      "file",
-      new File(["%PDF-1.4\nSynthetic 0097\n%%EOF"], "receipt.pdf", { type: "application/pdf" }),
+    const result = await native.call(as(cookie), (client) =>
+      client["receipts.submitReceipt"]({
+        idempotencyKey: IdempotencyKey.make(identity(key)),
+        departmentId: "receipt-department-0095",
+        request: {
+          description: "Synthetic acknowledged delivery",
+          amountOre: 500,
+          receiptDate: "2026-09-06",
+          file: {
+            contentType: "application/pdf",
+            bytes: new TextEncoder().encode("%PDF-1.4\nSynthetic 0097\n%%EOF"),
+          },
+        },
+      }),
     );
 
-    const response = await fetch(`${origin}/api/receipts?departmentId=receipt-department-0095`, {
-      method: "POST",
-      headers: headers(cookie, key),
-      body: form,
-    });
+    assert.ok(result.ok, `synthetic submission answered ${result.status}`);
+    assert.ok(result.value.receiptId.length > 0);
 
-    assert.equal(response.status, 201, await response.clone().text());
-
-    const body = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(
-      await response.json(),
-    );
-
-    assert.ok(Predicate.isString(body.receiptId) && body.receiptId.length > 0);
-
-    return { id: body.receiptId, etag: response.headers.get("etag")! };
+    return { id: result.value.receiptId, etag: result.value.etag };
   };
 
   try {
@@ -240,13 +246,9 @@ export const observeReceiptDelivery = async (options: {
     // Approval uses owner contact, then freezes it across ambiguous acceptance and restart.
     mode = "ambiguous";
 
-    const approval = await fetch(`${origin}/api/receipts/${failed.id}:approve`, {
-      method: "POST",
-      headers: headers(approverCookie, "receipt0097-approve", failed.etag),
-      body: "{}",
-    });
+    const approval = await transition("approve", approverCookie, "receipt0097-approve", failed);
 
-    assert.equal(approval.status, 200, await approval.clone().text());
+    assert.equal(approval.status, 200, JSON.stringify(approval));
     assert.ok((await outbox(failed.id)).some((r) => r.status === "Failed"));
     const approvalEnvelope = attempts.at(-1)!;
     assert.equal(approvalEnvelope.to, "owner0095@example.invalid");
@@ -284,13 +286,9 @@ export const observeReceiptDelivery = async (options: {
     assert.ok((await outbox(concurrent.id)).every((r) => r.status === "Delivered"));
     mode = "redirect";
 
-    const rejected = await fetch(`${origin}/api/receipts/${concurrent.id}:reject`, {
-      method: "POST",
-      headers: headers(approverCookie, "receipt0097-reject", concurrent.etag),
-      body: "{}",
-    });
+    const rejected = await transition("reject", approverCookie, "receipt0097-reject", concurrent);
 
-    assert.equal(rejected.status, 200, await rejected.clone().text());
+    assert.equal(rejected.status, 200, JSON.stringify(rejected));
     assert.ok((await outbox(concurrent.id)).some((r) => r.status === "Failed"));
     assert.equal(redirected, 0);
     mode = "accept";
@@ -329,11 +327,7 @@ export const observeReceiptDelivery = async (options: {
       "UPDATE economy_receipt_approval_grants SET end_at=date_trunc('milliseconds',now(),'UTC'),revision=revision+1 WHERE approval_grant_id='receipt0097-approve'",
     );
 
-    const denied = await fetch(`${origin}/api/receipts/${missing.id}:reject`, {
-      method: "POST",
-      headers: headers(approverCookie, "receipt0097-denied", missing.etag),
-      body: "{}",
-    });
+    const denied = await transition("reject", approverCookie, "receipt0097-denied", missing);
 
     assert.equal(denied.status, 403);
     assert.equal(
@@ -369,6 +363,7 @@ export const observeReceiptDelivery = async (options: {
         "local synthetic; 2xx means transport acceptance, not human receipt; receiver deduplication required; at-least-once retry",
     };
   } finally {
+    await native.dispose();
     sink.closeAllConnections();
     await new Promise<void>((resolve) => sink.close(() => resolve()));
   }

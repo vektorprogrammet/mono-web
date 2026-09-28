@@ -373,8 +373,7 @@ try {
     "apps/dashboard",
     "packages/domain",
     "packages/database",
-    "packages/http-api",
-    "packages/sdk",
+    "packages/rpc",
     "tools/e2e",
   ])
     .split("\0")
@@ -524,7 +523,6 @@ try {
     REAL_NATIVE_IDENTITY_E2E: "1",
   };
 
-  await run("bun", ["--no-env-file", "run", "--cwd", "packages/sdk", "build"]);
   const dashboardRoot = join(root, "apps/dashboard");
   await run("bun", ["--no-env-file", "run", "build"], dashboardEnvironment, dashboardRoot, 300_000);
   const files = await dashboardBuildInventory(root);

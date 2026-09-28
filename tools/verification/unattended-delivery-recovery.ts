@@ -8,6 +8,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Pool } from "pg";
+import { IdempotencyKey } from "@vektorprogrammet/rpc/problem";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
 import {
   type DisposablePostgres,
   loopbackPortFree,
@@ -286,26 +288,31 @@ const resetRequest = async () => {
 };
 
 const receiptRequest = async () => {
-  const form = new FormData();
-  form.set("description", "Disposable delivery recovery proof");
-  form.set("amountOre", "500");
-  form.set("receiptDate", new Date().toISOString().slice(0, 10));
-  form.set(
-    "file",
-    new File(["%PDF-1.4\nDisposable receipt\n%%EOF"], "receipt.pdf", { type: "application/pdf" }),
-  );
+  const native = nativeScriptClient(origin);
 
-  const response = await fetch(`${origin}/api/receipts?departmentId=${department}`, {
-    method: "POST",
-    headers: { cookie, origin: dashboardOrigin, "idempotency-key": randomUUID() },
-    body: form,
-  });
+  try {
+    const result = await native.call({ cookie, origin: dashboardOrigin }, (client) =>
+      client["receipts.submitReceipt"]({
+        idempotencyKey: IdempotencyKey.make(randomUUID()),
+        departmentId: department,
+        request: {
+          description: "Disposable delivery recovery proof",
+          amountOre: 500,
+          receiptDate: new Date().toISOString().slice(0, 10),
+          file: {
+            contentType: "application/pdf",
+            bytes: new TextEncoder().encode("%PDF-1.4\nDisposable receipt\n%%EOF"),
+          },
+        },
+      }),
+    );
 
-  assert.equal(response.status, 201, "real receipt submission accepted");
+    assert.ok(result.ok, "real receipt submission accepted");
 
-  return Schema.decodeUnknownSync(Schema.Struct({ receiptId: Schema.String }))(
-    await response.json(),
-  ).receiptId;
+    return result.value.receiptId;
+  } finally {
+    await native.dispose();
+  }
 };
 
 const business = async () =>

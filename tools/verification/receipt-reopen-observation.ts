@@ -6,10 +6,19 @@ import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import type { Pool } from "pg";
-import { Schema } from "effect";
-import { ReceiptResource } from "@vektorprogrammet/rpc";
+import { Match } from "effect";
+import { ReceiptId } from "@vektorprogrammet/rpc";
 import { StrongETag, IdempotencyKey } from "@vektorprogrammet/rpc/problem";
-import { createPromiseClient } from "../../packages/sdk/src/promise.js";
+import { nativeScriptClient, type ScriptCallResult } from "@vektorprogrammet/rpc/script";
+
+type ReceiptAction = "approve" | "reject" | "reopen" | "withdraw";
+
+/** The resource of a successful receipt command; any other answer fails the observation. */
+const resourceOf = <A>(result: ScriptCallResult<A>, label: string): A => {
+  assert.ok(result.ok, `${label} answered ${result.status}`);
+
+  return result.value;
+};
 
 export async function observeReceiptReopening(options: {
   pool: Pool;
@@ -24,35 +33,31 @@ export async function observeReceiptReopening(options: {
   setDeliveryAvailable: (available: boolean) => void;
 }) {
   const { pool, origin, dashboardOrigin, cookie, approverCookie } = options;
-  const client = createPromiseClient(origin, { cookie: approverCookie, origin: dashboardOrigin });
+  const native = nativeScriptClient(origin);
+  const as = (session: string) => ({ cookie: session, origin: dashboardOrigin });
 
-  const headers = (session: string, etag?: string, key: string = randomUUID()) => {
-    const result = new Headers({
-      cookie: session,
-      origin: dashboardOrigin,
-      "content-type": "application/json",
-      "idempotency-key": key,
-    });
-
-    if (etag) {
-      result.set("if-match", etag);
-    }
-
-    return result;
-  };
-
+  /** One receipt transition, as the session given, answered with its registry status. */
   const request = (
     id: string,
-    action: string,
-    etag?: string,
+    action: ReceiptAction,
+    etag: string,
     session = approverCookie,
     key: string = randomUUID(),
-    body = "{}",
   ) =>
-    fetch(`${origin}/api/receipts/${id}:${action}`, {
-      method: "POST",
-      headers: headers(session, etag, key),
-      body,
+    native.call(as(session), (client) => {
+      const payload = {
+        receiptId: ReceiptId.make(id),
+        idempotencyKey: IdempotencyKey.make(key),
+        ifMatch: StrongETag.make(etag),
+      };
+
+      return Match.value(action).pipe(
+        Match.when("approve", () => client["receipts.approveReceipt"](payload)),
+        Match.when("reject", () => client["receipts.rejectReceipt"](payload)),
+        Match.when("reopen", () => client["receipts.reopenReceipt"](payload)),
+        Match.when("withdraw", () => client["receipts.withdrawReceipt"](payload)),
+        Match.exhaustive,
+      );
     });
 
   const row = async (id: string) =>
@@ -81,37 +86,33 @@ export async function observeReceiptReopening(options: {
   });
 
   const submit = async () => {
-    const form = new FormData();
-    form.set("description", "Synthetic correction 0102");
-    form.set("amountOre", "500");
-    form.set("receiptDate", "2026-09-06");
-    form.set(
-      "file",
-      new File(["%PDF-1.4\nSynthetic 0102\n%%EOF"], "receipt.pdf", { type: "application/pdf" }),
+    const resource = resourceOf(
+      await native.call(as(cookie), (client) =>
+        client["receipts.submitReceipt"]({
+          idempotencyKey: IdempotencyKey.make(randomUUID()),
+          departmentId: "receipt-department-0095",
+          request: {
+            description: "Synthetic correction 0102",
+            amountOre: 500,
+            receiptDate: "2026-09-06",
+            file: {
+              contentType: "application/pdf",
+              bytes: new TextEncoder().encode("%PDF-1.4\nSynthetic 0102\n%%EOF"),
+            },
+          },
+        }),
+      ),
+      "synthetic submission",
     );
-
-    const response = await fetch(`${origin}/api/receipts?departmentId=receipt-department-0095`, {
-      method: "POST",
-      headers: { cookie, origin: dashboardOrigin, "idempotency-key": randomUUID() },
-      body: form,
-    });
-
-    assert.equal(response.status, 201, "synthetic submission");
-    const resource = Schema.decodeUnknownSync(ReceiptResource)(await response.json());
 
     return { id: resource.receiptId, etag: resource.etag };
   };
 
   const rejected = async () => {
     const receipt = await submit();
-    const response = await request(receipt.id, "reject", receipt.etag);
-    assert.equal(response.status, 200);
+    const response = resourceOf(await request(receipt.id, "reject", receipt.etag), "rejection");
 
-    return {
-      ...receipt,
-      initialEtag: receipt.etag,
-      etag: Schema.decodeUnknownSync(StrongETag)(response.headers.get("etag")),
-    };
+    return { ...receipt, initialEtag: receipt.etag, etag: response.etag };
   };
 
   options.setDeliveryAvailable(false);
@@ -121,23 +122,11 @@ export async function observeReceiptReopening(options: {
   assert.ok(before.outbox.some((item: any) => item.status === "Failed"));
   const attemptsBefore = options.attempts();
 
-  // Invalid commands must have no persisted footprint.
+  // Invalid commands must have no persisted footprint. The payload schema requires If-Match and
+  // has no member for authority, so a missing revision or an extra authority cannot be sent.
   for (const [name, response, expected] of [
     ["owner", await request(target.id, "reopen", target.etag, cookie), 403],
-    ["missing revision", await request(target.id, "reopen"), 428],
     ["stale revision", await request(target.id, "reopen", target.initialEtag), 412],
-    [
-      "extra authority",
-      await request(
-        target.id,
-        "reopen",
-        target.etag,
-        approverCookie,
-        randomUUID(),
-        '{"actor":{"approvalScope":"Global"}}',
-      ),
-      422,
-    ],
   ] as const)
     assert.equal(response.status, expected, name);
   assert.deepEqual(await snapshot(target.id), before);
@@ -182,13 +171,12 @@ export async function observeReceiptReopening(options: {
   await pool.query("DROP TRIGGER fail_reopen_0102 ON economy_receipt_audit");
   await pool.query("DROP FUNCTION fail_reopen_0102()");
 
-  const reopened = await client.receipts.reopenReceipt({
-    params: { receiptId: target.id },
-    headers: { "if-match": target.etag, "idempotency-key": retryKey },
-    payload: {},
-  });
+  const reopened = resourceOf(
+    await request(target.id, "reopen", target.etag, approverCookie, retryKey),
+    "reopening",
+  );
 
-  assert.equal(reopened.body.status, "Pending");
+  assert.equal(reopened.status, "Pending");
   const after = await snapshot(target.id);
   assert.deepEqual(after.receipt, {
     ...before.receipt,
@@ -200,16 +188,15 @@ export async function observeReceiptReopening(options: {
   assert.deepEqual(after.outbox, before.outbox);
   assert.equal(options.attempts(), attemptsBefore);
 
-  const replay = await client.receipts.reopenReceipt({
-    params: { receiptId: target.id },
-    headers: { "if-match": target.etag, "idempotency-key": retryKey },
-    payload: {},
-  });
+  const replay = resourceOf(
+    await request(target.id, "reopen", target.etag, approverCookie, retryKey),
+    "reopening replay",
+  );
 
-  assert.deepEqual(replay.body, reopened.body);
+  assert.deepEqual(replay, reopened);
   assert.deepEqual(await snapshot(target.id), after);
   assert.equal(
-    (await request(target.id, "reopen", reopened.body.etag, approverCookie, retryKey)).status,
+    (await request(target.id, "reopen", reopened.etag, approverCookie, retryKey)).status,
     409,
   );
   await pool.query(
@@ -222,7 +209,7 @@ export async function observeReceiptReopening(options: {
   await pool.query(
     "UPDATE economy_receipt_approval_grants SET end_at=NULL,revision=revision+1 WHERE approval_grant_id='receipt0097-approve'",
   );
-  assert.equal((await request(target.id, "reopen", reopened.body.etag)).status, 409);
+  assert.equal((await request(target.id, "reopen", reopened.etag)).status, 409);
   const race = await rejected();
 
   const results = await Promise.all([
@@ -250,7 +237,7 @@ export async function observeReceiptReopening(options: {
   );
   assert.equal((await request(race.id, "approve", race.etag)).status, 412);
 
-  for (const action of ["approve", "withdraw"]) {
+  for (const action of ["approve", "withdraw"] as const) {
     const receipt = await submit();
 
     const closed = await request(
@@ -260,9 +247,9 @@ export async function observeReceiptReopening(options: {
       action === "withdraw" ? cookie : approverCookie,
     );
 
-    assert.equal(closed.status, 200);
+    const closedEtag = resourceOf(closed, `${action} of a pending receipt`).etag;
     const closedBefore = await snapshot(receipt.id);
-    assert.equal((await request(receipt.id, "reopen", closed.headers.get("etag")!)).status, 409);
+    assert.equal((await request(receipt.id, "reopen", closedEtag)).status, 409);
     assert.deepEqual(await snapshot(receipt.id), closedBefore);
   }
 
@@ -326,7 +313,7 @@ export async function observeReceiptReopening(options: {
   const mutations: Array<{ path: string; status: number }> = [];
 
   try {
-    for (const cwd of [join(options.root, "packages/sdk"), dashboardRoot]) {
+    for (const cwd of [dashboardRoot]) {
       const build = spawn("bun", ["run", "build"], {
         cwd,
         env: environment,
@@ -551,6 +538,7 @@ export async function observeReceiptReopening(options: {
     };
   } finally {
     if (browser) await browser.close();
+    await native.dispose();
 
     for (const child of children) {
       if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) continue;

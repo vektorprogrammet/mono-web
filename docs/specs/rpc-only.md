@@ -280,7 +280,16 @@ Notes (directory):
 
 | RPC tag | Replaces | Transport facts | Credentials | Status |
 | --- | --- | --- | --- | --- |
-| `receipts.readReceiptEvidence` | GET `/api/receipt-lifecycle-evidence-records/{receiptId}` | - | cookieHeader | todo |
+| `receipts.readReceiptEvidence` | GET `/api/receipt-lifecycle-evidence-records/{receiptId}` | - | cookieHeader | ported |
+
+Notes (internal):
+
+- `InternalNativeRpcRouterLive` alone serves it, at `internalNativeRpcPath`; `NativeRpcs` has no
+  such tag. It keeps `SessionCredential`, the internal AccessSpec, and its evaluation in one
+  repeatable-read snapshot; a bearer answers credential.invalid. The shared client and script
+  client build only `NativeRpcs`, so `receipts.spec.ts` posts the RPC to the internal path with
+  `apps/dashboard/e2e/receipt-rpc.ts`, and `apps/backend/src/receipt/rpc.test.ts` serves the
+  internal router itself.
 
 ### onboarding (`packages/rpc/src/onboarding.ts`)
 
@@ -417,19 +426,78 @@ Notes (profile):
 
 | RPC tag | Replaces | Transport facts | Credentials | Status |
 | --- | --- | --- | --- | --- |
-| `receipts.approveReceipt` | POST `/api/receipts/{receiptId}:approve` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | todo |
-| `receipts.listReceipts` | GET `/api/receipts` | query: cursor, status | cookieHeader, oauthUserBearer | todo |
-| `receipts.listReceiptsForApproval` | GET `/api/receipt-approval-queue` | query: cursor, status | cookieHeader, oauthUserBearer, oauthServiceBearer | todo |
-| `receipts.listReceiptsForSettlement` | GET `/api/receipt-settlement-queue` | query: cursor | cookieHeader, oauthUserBearer | todo |
-| `receipts.readReceiptFile` | GET `/api/receipts/{receiptId}/file` | binary application/octet-stream | cookieHeader, oauthUserBearer | todo |
-| `receipts.readReceiptFileForApproval` | GET `/api/receipt-approval-queue/{receiptId}/file` | binary application/octet-stream | cookieHeader, oauthUserBearer | todo |
-| `receipts.readReceiptSettlementForFinance` | GET `/api/receipt-settlement-queue/{receiptId}` | - | cookieHeader, oauthUserBearer | todo |
-| `receipts.rejectReceipt` | POST `/api/receipts/{receiptId}:reject` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | todo |
-| `receipts.reopenReceipt` | POST `/api/receipts/{receiptId}:reopen` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | todo |
-| `receipts.reviseReceipt` | PATCH `/api/receipts/{receiptId}` | idempotencyKey; ifMatch; multipart upload | cookieHeader, oauthUserBearer | todo |
-| `receipts.settleReceipt` | POST `/api/receipts/{receiptId}:settle` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | todo |
-| `receipts.submitReceipt` | POST `/api/receipts` | idempotencyKey; multipart upload; query: departmentId | cookieHeader, oauthUserBearer | todo |
-| `receipts.withdrawReceipt` | POST `/api/receipts/{receiptId}:withdraw` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | todo |
+| `receipts.approveReceipt` | POST `/api/receipts/{receiptId}:approve` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+| `receipts.listReceipts` | GET `/api/receipts` | query: cursor, status | cookieHeader, oauthUserBearer | ported |
+| `receipts.listReceiptsForApproval` | GET `/api/receipt-approval-queue` | query: cursor, status | cookieHeader, oauthUserBearer, oauthServiceBearer | ported |
+| `receipts.listReceiptsForSettlement` | GET `/api/receipt-settlement-queue` | query: cursor | cookieHeader, oauthUserBearer | ported |
+| `receipts.readReceiptFile` | GET `/api/receipts/{receiptId}/file` | binary application/octet-stream | cookieHeader, oauthUserBearer | ported |
+| `receipts.readReceiptFileForApproval` | GET `/api/receipt-approval-queue/{receiptId}/file` | binary application/octet-stream | cookieHeader, oauthUserBearer | ported |
+| `receipts.readReceiptSettlementForFinance` | GET `/api/receipt-settlement-queue/{receiptId}` | - | cookieHeader, oauthUserBearer | ported |
+| `receipts.rejectReceipt` | POST `/api/receipts/{receiptId}:reject` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+| `receipts.reopenReceipt` | POST `/api/receipts/{receiptId}:reopen` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+| `receipts.reviseReceipt` | PATCH `/api/receipts/{receiptId}` | idempotencyKey; ifMatch; multipart upload | cookieHeader, oauthUserBearer | ported |
+| `receipts.settleReceipt` | POST `/api/receipts/{receiptId}:settle` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+| `receipts.submitReceipt` | POST `/api/receipts` | idempotencyKey; multipart upload; query: departmentId | cookieHeader, oauthUserBearer | ported |
+| `receipts.withdrawReceipt` | POST `/api/receipts/{receiptId}:withdraw` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+
+Notes (receipts):
+
+- The thirteen RPCs keep the old operation IDs as tags and the old routes (`/api/receipts`,
+  `/api/receipts/{id}`, `/api/receipts/{id}/withdraw|approve|reject|reopen|settle`) as normalized
+  targets. Each command's receipt stores the HTTP capsule byte for byte (201 with `Location` and
+  `ETag` for a submission, 200 with `ETag` otherwise), whose body `commandOutcome` decodes, so a
+  retry that straddles the cutover replays. The empty-body transitions take
+  `{ receiptId, idempotencyKey, ifMatch }` and no `request`; their digest still covers `{}`.
+- Authority is unchanged: every command resolves the credential inside its serializable
+  transaction and authorizes through `Economy.authorizeReceiptMutation`, the If-Match check runs
+  there, and the owner file read evaluates the owner grant in its snapshot
+  (`apps/backend/src/receipt/{commands,reads}.ts`, tested in `rpc.test.ts` on PostgreSQL).
+- Files: a submission or revision carries `{ contentType, bytes }` (`ReceiptFileUpload`), and the
+  two file reads answer `ReceiptFileContent` (stored media type and bytes). The JSON serialization
+  carries bytes as base64: a request or answer is about 4/3 of the file, and the server and client
+  each hold the base64 text, the decoded bytes, and the `File` that staging reads, roughly three
+  copies of a 10 MiB file per call. `RpcSerialization.layerSchemaBinary` (MessagePack) would carry
+  raw bytes; it needs its own RPC path and client, so it is not adopted here.
+- The size and media-type limits are checked in the handler (`validate.ts`) and still answer
+  validation.failed: an empty file, a file over `maxFileBytes`, or a media type other than JPEG,
+  PNG, or PDF. `request.too-large` is gone: nothing bounds the RPC body before it is read and
+  parsed. The browser still posts a multipart form to the dashboard, whose bounded reader
+  (`apps/dashboard/app/lib/receipt-upload.server.ts`, moved from `packages/http-api`) answers a
+  larger file with 413 before any RPC.
+- The browser still gets the approval file at `/dashboard/utlegg/{id}/file`: the dashboard route
+  calls `receipts.readReceiptFileForApproval` and answers the bytes with the private headers
+  (`cache-control: private, no-store`, `vary: Origin`, `nosniff`, `inline` disposition) derived
+  from the stored media type. The backend's own `Cache-Control`, `Content-Disposition`, and
+  `Content-Length` on its file answers are gone.
+- Dropped: 201, `Location`, and the `ETag` header on commands (each `ReceiptResource` keeps its
+  `etag`); the `ETag` header of `receipts.settleReceipt`, which named the settled receipt's revision
+  beside the evidence (no RPC takes it: a settled receipt answers receipt.already-settled; a client
+  reads the tag from `receipts.listReceipts`); the private `Cache-Control`/`Vary` of the reads.
+- Dropped probes: a malformed JSON body, an excess member, a query on a command, and an unknown
+  list filter cannot reach the handler (the payload schema fails as a defect or strips the
+  member), so `request.malformed`, `media-type.unsupported`, `idempotency-key.invalid`,
+  `precondition.required`, and the old `validation.failed` for a non-empty transition body are gone.
+  `listReceipts` takes a single `status`, as its handler accepted. A cursor text that no list
+  issued fails decoding as a defect instead of request.malformed; the dashboard routes decode the
+  cursor first and show their decode error.
+- The settlement request (`RecordReceiptSettlementRequest`) now fails decoding as a defect instead
+  of validation.failed with pointers; the dashboard settlement form decodes it first and shows its
+  own field errors. The owner form checks its fields before it calls, too.
+- The E2E concurrency barrier reads its probe from the RPC `headers`, so a journey sends
+  `x-receipt-e2e-concurrency-probe` as a real HTTP header of the RPC request. The
+  `x-receipt-e2e-concurrency-synchronized` response header is gone: an RPC answer carries no
+  header. A lane that the others never meet still times out as receipts.unavailable, so the
+  approval journey reads synchronization from the three outcomes (200, 200, 412). A probe that names
+  another lane or receipt, which answered request.malformed, is now a defect (internal.error).
+- Every receipt RPC re-resolves the credential in its handler, so each declares credential.missing
+  and credential.invalid.
+- Callers migrated: the dashboard routes `dashboard.utlegg*` and `dashboard.mine-utlegg*`, their
+  unit tests, `receipts.spec.ts`, `receipt-approval.spec.ts`, `run-real-receipt-owner.mjs`,
+  `run-real-receipt-approval.mjs`, `run-real-native-receipt-settlement.mjs`, the golden
+  reimbursement journey, `tools/verification/receipt-*.ts`, `unattended-delivery-recovery.ts`, and
+  the receipt reads of `tools/e2e/legacy-candidate-native-journey.ts`. The journey recorders label
+  each RPC with the route it replaced. `apps/dashboard/e2e/fixtures/receipt-api.ts`, an HTTP stub
+  of the old contract that nothing ran, is deleted. None of these journeys was run.
 
 ### recruitment (`packages/rpc/src/recruitment.ts`)
 

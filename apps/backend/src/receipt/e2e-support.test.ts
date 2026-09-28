@@ -1,6 +1,7 @@
 import { isProblem, type Problem } from "@vektorprogrammet/rpc/problem";
 import { Cause, Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
+import { Headers } from "effect/unstable/http";
 import { describe, expect, it } from "@effect/vitest";
 import {
   RECEIPT_E2E_CONCURRENCY_REQUEST_HEADER,
@@ -9,9 +10,7 @@ import {
 } from "./e2e-support.js";
 
 const probe = (lane: ReceiptE2EConcurrencyLane | null) =>
-  new Request("http://backend.test/api/receipts/receipt-1/approve", {
-    headers: lane === null ? {} : { [RECEIPT_E2E_CONCURRENCY_REQUEST_HEADER]: lane },
-  });
+  Headers.fromInput(lane === null ? {} : { [RECEIPT_E2E_CONCURRENCY_REQUEST_HEADER]: lane });
 
 const malformedStatus = (failure: Problem<"request.malformed"> | Cause.TimeoutError) =>
   isProblem(failure) ? `${failure.code}:${failure.status}` : "other";

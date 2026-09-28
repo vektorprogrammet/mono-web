@@ -4,7 +4,7 @@ import { isUnauthorizedError, mapReceiptSettlementEvidenceView, mapApprovalRecei
 import { ReceiptId } from "@vektorprogrammet/rpc";
 import { Schema } from "effect";
 import { Link, useLoaderData } from "react-router";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/dashboard.utlegg.oppgjor.$receiptId";
 
@@ -21,15 +21,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     };
   }
 
-  const client = createAuthenticatedClient(cookie, request);
-
   try {
-    const result = await client.receipts.readReceiptSettlementForFinance({
-      params: { receiptId },
-    });
+    const result = await callNative(cookie, request, (client) =>
+      client["receipts.readReceiptSettlementForFinance"]({ receiptId }),
+    );
 
     return {
-      evidence: mapReceiptSettlementEvidenceView(result.body),
+      evidence: mapReceiptSettlementEvidenceView(result),
       error: undefined,
     };
   } catch (error) {
