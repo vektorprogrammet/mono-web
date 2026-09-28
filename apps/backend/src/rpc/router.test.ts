@@ -4,10 +4,15 @@ import { isProblem } from "@vektorprogrammet/rpc/problem";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { SemesterId } from "@vektorprogrammet/domain";
 import { Effect, Layer, Schema } from "effect";
+import { HttpRouter } from "effect/unstable/http";
 import { RpcClient } from "effect/unstable/rpc";
 import { backendTestConfig } from "../../test/config.js";
 import { backendHttpHandler, nativeRpcMaxBodyBytes } from "../router.js";
-import { makeBackendTestRpc, testAuthHandler } from "../test/native-rpc.js";
+import {
+  backendTestRouterLayer,
+  makeBackendTestRpc,
+  testAuthHandler,
+} from "../test/native-rpc.js";
 
 // The identity engine rejects every session, as it does a forged or expired one.
 const rejectingIdentity = Layer.mock(Identity, {
@@ -50,6 +55,25 @@ it.effect("the health probe stays plain HTTP", () =>
 
     expect(response.status).toBe(200);
     expect(yield* Effect.promise(() => response.json())).toEqual({ status: "ok" });
+  }),
+);
+
+it.effect("the health probe answers every probe with its own body", () =>
+  Effect.gen(function* () {
+    // The process serves every request on one router, and a readiness loop probes many times: a
+    // body shared between answers is locked after the first.
+    const { handler, dispose } = HttpRouter.toWebHandler(
+      backendTestRouterLayer({ config: backendTestConfig, services: rejectingIdentity }),
+      { disableLogger: true },
+    );
+
+    const bodies = yield* Effect.forEach([1, 2, 3], () =>
+      Effect.promise(() =>
+        handler(new Request("http://native-rpc.test/health")).then((response) => response.json()),
+      ),
+    ).pipe(Effect.ensuring(Effect.promise(() => dispose())));
+
+    expect(bodies).toEqual([{ status: "ok" }, { status: "ok" }, { status: "ok" }]);
   }),
 );
 

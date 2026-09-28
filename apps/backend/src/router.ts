@@ -211,7 +211,8 @@ const healthRoute = HttpRouter.use((router) =>
     "GET",
     "/health",
     databaseHealth.pipe(
-      Effect.as(HttpServerResponse.fromWeb(jsonResponse({ status: "ok" }))),
+      // A web Response's body is read once, so each probe gets its own answer.
+      Effect.map(() => HttpServerResponse.fromWeb(jsonResponse({ status: "ok" }))),
       Effect.orElseSucceed(() =>
         HttpServerResponse.fromWeb(problemWebResponse(Problem.make("health.unavailable"))),
       ),

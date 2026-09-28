@@ -142,6 +142,20 @@ export interface BackendTestRpcOptions {
  *
  * A test sends a person's credential per call with `RpcClient.withHeaders`, as a server does.
  */
+/**
+ * The external native router over `services`, every other service unimplemented. A test that
+ * serves several requests on one router, as the process does, builds its web handler once.
+ */
+export const backendTestRouterLayer = ({
+  config,
+  services,
+  options = {},
+}: Pick<BackendTestRpcOptions, "config" | "services" | "options">) =>
+  ExternalNativeRpcRouterLive({ ...options, config }).pipe(
+    Layer.provideMerge(completeServices(services)),
+    Layer.provideMerge(platform),
+  );
+
 export const makeBackendTestRpc = ({
   config,
   services,
@@ -149,10 +163,7 @@ export const makeBackendTestRpc = ({
   options = {},
   transportHeaders = {},
 }: BackendTestRpcOptions) => {
-  const routerLayer = ExternalNativeRpcRouterLive({ ...options, config }).pipe(
-    Layer.provideMerge(completeServices(services)),
-    Layer.provideMerge(platform),
-  );
+  const routerLayer = backendTestRouterLayer({ config, services, options });
 
   const native = serveEachRequest(() =>
     HttpRouter.toWebHandler(routerLayer, { disableLogger: true }),
