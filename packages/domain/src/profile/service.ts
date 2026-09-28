@@ -67,5 +67,5 @@ export interface DirectoryPage {
 }
 
 export class Profile extends Context.Service<Profile, ProfileOperations>()(
-  "@vektorprogrammet/domain/Profile",
+  "@vektorprogrammet/domain/profile/service/Profile",
 ) {}

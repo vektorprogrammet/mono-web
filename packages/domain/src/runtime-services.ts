@@ -21,7 +21,7 @@ export interface DomainFileSystemOperations {
 export class DomainFileSystem extends Context.Service<
   DomainFileSystem,
   DomainFileSystemOperations
->()("@vektorprogrammet/domain/DomainFileSystem") {}
+>()("@vektorprogrammet/domain/runtime-services/DomainFileSystem") {}
 
 export interface DomainProcessOperations {
   readonly writeStandardOutput: (text: string) => Effect.Effect<void>;
@@ -29,7 +29,7 @@ export interface DomainProcessOperations {
 }
 
 export class DomainProcess extends Context.Service<DomainProcess, DomainProcessOperations>()(
-  "@vektorprogrammet/domain/DomainProcess",
+  "@vektorprogrammet/domain/runtime-services/DomainProcess",
 ) {}
 
 export const readTextFile = (

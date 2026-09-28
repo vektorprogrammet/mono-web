@@ -222,5 +222,5 @@ export interface PlacementsOperations {
 
 /** The portable service key. The server entry point supplies its database-backed Layer. */
 export class Placements extends Context.Service<Placements, PlacementsOperations>()(
-  "@vektorprogrammet/domain/Placements",
+  "@vektorprogrammet/domain/placements/service/Placements",
 ) {}

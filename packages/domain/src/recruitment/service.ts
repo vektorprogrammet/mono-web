@@ -240,5 +240,5 @@ export interface RecruitmentOperations {
 }
 
 export class Recruitment extends Context.Service<Recruitment, RecruitmentOperations>()(
-  "@vektorprogrammet/domain/Recruitment",
+  "@vektorprogrammet/domain/recruitment/service/Recruitment",
 ) {}

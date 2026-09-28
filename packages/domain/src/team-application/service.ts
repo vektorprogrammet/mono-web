@@ -170,4 +170,4 @@ export interface TeamApplicationsOperations {
 export class TeamApplications extends Context.Service<
   TeamApplications,
   TeamApplicationsOperations
->()("@vektorprogrammet/domain/team-application/TeamApplications") {}
+>()("@vektorprogrammet/domain/team-application/service/TeamApplications") {}

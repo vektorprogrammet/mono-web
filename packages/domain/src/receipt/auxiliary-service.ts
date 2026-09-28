@@ -27,7 +27,7 @@ export interface ReceiptAuxiliaryEffectsOperations {
 export class ReceiptAuxiliaryEffects extends Context.Service<
   ReceiptAuxiliaryEffects,
   ReceiptAuxiliaryEffectsOperations
->()("@vektorprogrammet/domain/ReceiptAuxiliaryEffects") {}
+>()("@vektorprogrammet/domain/receipt/auxiliary-service/ReceiptAuxiliaryEffects") {}
 
 export interface ReceiptAuxiliaryRecordingControl {
   readonly layer: Layer.Layer<ReceiptAuxiliaryEffects>;

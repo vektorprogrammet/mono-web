@@ -271,7 +271,7 @@ const rowCounts = (db: LocalBinding): Effect.Effect<RowCounts> =>
 
 /** One disposable Miniflare D1 binding per journey run; every case resets its schema. */
 class ProofRuntime extends Context.Service<ProofRuntime, LocalRuntime>()(
-  "@vektorprogrammet/domain/runtime/ProofRuntime",
+  "@vektorprogrammet/domain/runtime/tutor-d1-proof-main/ProofRuntime",
 ) {}
 
 const ProofRuntimeLive = Layer.effect(

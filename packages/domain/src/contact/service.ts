@@ -19,14 +19,14 @@ export class ContactDelivery extends Context.Service<
   {
     readonly send: (envelope: ContactEnvelope) => Effect.Effect<void, ContactFailure>;
   }
->()("@vektorprogrammet/ContactDelivery") {}
+>()("@vektorprogrammet/domain/contact/service/ContactDelivery") {}
 
 export class ContactQuota extends Context.Service<
   ContactQuota,
   {
     readonly consume: (ip: ContactVisitorIp) => Effect.Effect<void, ContactFailure>;
   }
->()("@vektorprogrammet/ContactQuota") {}
+>()("@vektorprogrammet/domain/contact/service/ContactQuota") {}
 
 /** Quota commits before recipient lookup or delivery, so neither failure refunds an attempt. */
 export const submitContact = (message: ContactMessage, ip: ContactVisitorIp) =>

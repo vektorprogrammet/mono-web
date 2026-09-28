@@ -23,7 +23,7 @@ export interface ReceiptFileServiceOperations {
 export class ReceiptFileService extends Context.Service<
   ReceiptFileService,
   ReceiptFileServiceOperations
->()("@vektorprogrammet/domain/ReceiptFileService") {}
+>()("@vektorprogrammet/domain/receipt/file-service/ReceiptFileService") {}
 
 export interface ReceiptFileEvent {
   readonly effectId: string;

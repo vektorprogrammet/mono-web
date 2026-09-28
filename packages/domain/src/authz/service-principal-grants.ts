@@ -182,7 +182,7 @@ export interface ServicePrincipalGrantAuthorityOperations {
 export class ServicePrincipalGrantAuthority extends Context.Service<
   ServicePrincipalGrantAuthority,
   ServicePrincipalGrantAuthorityOperations
->()("@vektorprogrammet/domain/ServicePrincipalGrantAuthority") {}
+>()("@vektorprogrammet/domain/authz/service-principal-grants/ServicePrincipalGrantAuthority") {}
 
 export const makeServicePrincipalReceiptGrant = Schema.decodeUnknownSync(
   ServicePrincipalReceiptGrantSchema,

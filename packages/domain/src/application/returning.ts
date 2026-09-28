@@ -202,4 +202,4 @@ export interface ReturningAssistantOperations {
 export class ReturningAssistants extends Context.Service<
   ReturningAssistants,
   ReturningAssistantOperations
->()("@vektorprogrammet/domain/ReturningAssistants") {}
+>()("@vektorprogrammet/domain/application/returning/ReturningAssistants") {}

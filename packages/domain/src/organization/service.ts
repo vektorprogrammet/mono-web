@@ -210,5 +210,5 @@ export interface OrganizationOperations {
 }
 
 export class Organization extends Context.Service<Organization, OrganizationOperations>()(
-  "@vektorprogrammet/domain/Organization",
+  "@vektorprogrammet/domain/organization/service/Organization",
 ) {}
