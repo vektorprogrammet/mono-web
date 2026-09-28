@@ -2,8 +2,8 @@
 
 # apps/backend/src/admission
 
-This folder holds Admissions code under another name. HTTP handlers of admission periods and applications.
-The backend layer holds HTTP handlers, delivery workers, and provider adapters that the native process composes. It keeps response receipts and preconditions in the transport, and provider I/O after commit.
+This folder holds Admissions code under another name. RPC handlers of admission periods and applications.
+The backend layer holds RPC handlers, delivery workers, and provider adapters that the native process composes. It keeps command receipts and preconditions in the transport, and provider I/O after commit.
 
 The Admissions context in other folders:
 

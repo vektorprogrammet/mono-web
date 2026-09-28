@@ -3,7 +3,7 @@
 # apps/backend/src/password-recovery
 
 This folder holds Identity code under another name. The password recovery worker.
-The backend layer holds HTTP handlers, delivery workers, and provider adapters that the native process composes. It keeps response receipts and preconditions in the transport, and provider I/O after commit.
+The backend layer holds RPC handlers, delivery workers, and provider adapters that the native process composes. It keeps command receipts and preconditions in the transport, and provider I/O after commit.
 
 The Identity context in other folders:
 

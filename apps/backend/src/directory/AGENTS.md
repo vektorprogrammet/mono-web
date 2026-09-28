@@ -3,7 +3,7 @@
 # apps/backend/src/directory
 
 This folder holds People code under another name. The people directory read.
-The backend layer holds HTTP handlers, delivery workers, and provider adapters that the native process composes. It keeps response receipts and preconditions in the transport, and provider I/O after commit.
+The backend layer holds RPC handlers, delivery workers, and provider adapters that the native process composes. It keeps command receipts and preconditions in the transport, and provider I/O after commit.
 
 The People context in other folders:
 

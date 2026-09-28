@@ -230,15 +230,6 @@ const crossPackageSourceImportPatterns = [
   },
 ];
 
-// Same boundary without the SDK, whose export map resolves to built `dist/` unless the source condition is set.
-const crossPackageSourceImportPatternsExceptSdk = [
-  {
-    regex:
-      "^(\\./)?(\\.\\./)+(apps/[^/]+|tools/[^/]+|packages/(database|domain|rpc)|[^./][^/]*)/src(/|$)",
-    message: crossPackageSourceImportMessage,
-  },
-];
-
 const productImportPatterns = [
   ...crossPackageSourceImportPatterns,
   {
@@ -334,18 +325,6 @@ export default defineConfig({
       files: ["tools/acceptance/**"],
       rules: {
         "no-restricted-imports": "off",
-      },
-    },
-    {
-      // Bun resolves the SDK to built `dist/` without `--conditions=@vektorprogrammet/source`; these drivers import its source.
-      files: [
-        "tools/e2e/placement-check.ts",
-        "tools/verification/organization-import-rehearsal-main.ts",
-        "tools/verification/receipt-import-rehearsal.ts",
-        "tools/verification/receipt-reopen-observation.ts",
-      ],
-      rules: {
-        "no-restricted-imports": ["error", { patterns: crossPackageSourceImportPatternsExceptSdk }],
       },
     },
     {

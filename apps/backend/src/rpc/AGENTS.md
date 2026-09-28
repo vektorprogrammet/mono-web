@@ -3,7 +3,7 @@
 # apps/backend/src/rpc
 
 This folder is not a bounded context. Transport shared by every context: credential middlewares, problems, rate limits, command receipts.
-The backend layer holds HTTP handlers, delivery workers, and provider adapters that the native process composes. It keeps response receipts and preconditions in the transport, and provider I/O after commit.
+The backend layer holds RPC handlers, delivery workers, and provider adapters that the native process composes. It keeps command receipts and preconditions in the transport, and provider I/O after commit.
 
 ## Entry points
 

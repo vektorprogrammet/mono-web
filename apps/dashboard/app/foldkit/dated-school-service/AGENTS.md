@@ -3,7 +3,7 @@
 # apps/dashboard/app/foldkit/dated-school-service
 
 This folder holds Placements code under another name. Dated school-service commitments.
-The dashboard layer holds authenticated journeys: one Foldkit Model per workflow renders server-owned facts and submits commands through the generated SDK.
+The dashboard layer holds authenticated journeys: one Foldkit Model per workflow renders server-owned facts and submits commands through the RPC client.
 
 The Placements context in other folders:
 

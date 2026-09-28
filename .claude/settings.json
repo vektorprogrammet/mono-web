@@ -11,9 +11,9 @@
           },
           {
             "type": "command",
-            "command": "jq -r '.tool_input.file_path' | { read -r f; if [[ \"$f\" == *.ts && \"$f\" == */packages/sdk/* ]]; then cd packages/sdk && bunx tsc --noEmit 2>/dev/null | tail -3; fi; }",
+            "command": "jq -r '.tool_input.file_path' | { read -r f; if [[ \"$f\" == *.ts && \"$f\" == */packages/rpc/* ]]; then cd packages/rpc && bunx tsc --noEmit 2>/dev/null | tail -3; fi; }",
             "asyncRewake": true,
-            "statusMessage": "Checking SDK types..."
+            "statusMessage": "Checking RPC contract types..."
           }
         ]
       }

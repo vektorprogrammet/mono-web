@@ -41,7 +41,7 @@ changelog *args:
 land branch:
     bun --no-env-file tools/scripts/land.ts "$1"
 
-# Check layout, constructs, guides, Effect exceptions, source safety, format, lint, types, and the HTTP contract. Arguments go to Turbo.
+# Check layout, constructs, guides, Effect exceptions, source safety, format, lint, and types. Arguments go to Turbo.
 [group('check')]
 check *args: layout constructs guides exceptions source-safety (format "--check") lint
     bun x turbo check-types "$@"
@@ -93,7 +93,7 @@ lint *args=".":
     bun run --cwd apps/homepage typegen
     just lint-files "$@"
 
-# Type check every package and assert the HTTP contract. Arguments go to Turbo.
+# Type check every package. Arguments go to Turbo.
 [group('check')]
 check-types *args:
     bun x turbo check-types "$@"

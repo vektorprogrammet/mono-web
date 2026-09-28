@@ -147,7 +147,7 @@ export const contextLayers = {
   "apps/backend/src": {
     admission: {
       context: "Admissions",
-      reason: "HTTP handlers of admission periods and applications.",
+      reason: "RPC handlers of admission periods and applications.",
     },
     application: { context: "Admissions", reason: "Application effects and their worker." },
     directory: { context: "People", reason: "The people directory read." },
@@ -158,10 +158,10 @@ export const contextLayers = {
     mail: { context: "Delivery", reason: "Mail provider adapters behind the Delivery mail port." },
     onboarding,
     "password-recovery": { context: "Identity", reason: "The password recovery worker." },
-    profile: { context: "People", reason: "Profile HTTP handlers under their older name." },
-    receipt: { context: "Economy", reason: "Expense claim HTTP handlers and private files." },
+    profile: { context: "People", reason: "Profile RPC handlers under their older name." },
+    receipt: { context: "Economy", reason: "Expense claim RPC handlers and private files." },
     "team-application": teamApplication,
-    test: { reason: "Native HTTP composition for backend tests." },
+    test: { reason: "Native RPC composition for backend tests." },
   },
   "apps/dashboard/app/foldkit": {
     dashboard: { reason: "The application shell: navigation and the routes to each context page." },
@@ -185,9 +185,9 @@ export const contextLayerRoles = {
   "packages/database/src":
     "The persistence layer holds PostgreSQL adapters and service Layers. They keep state, revision, command receipts, audit, and outbox writes in the caller's transaction, and own SQL projections, joins, ordering, scope, and storage codecs.",
   "apps/backend/src":
-    "The backend layer holds HTTP handlers, delivery workers, and provider adapters that the native process composes. It keeps response receipts and preconditions in the transport, and provider I/O after commit.",
+    "The backend layer holds RPC handlers, delivery workers, and provider adapters that the native process composes. It keeps command receipts and preconditions in the transport, and provider I/O after commit.",
   "apps/dashboard/app/foldkit":
-    "The dashboard layer holds authenticated journeys: one Foldkit Model per workflow renders server-owned facts and submits commands through the generated SDK.",
+    "The dashboard layer holds authenticated journeys: one Foldkit Model per workflow renders server-owned facts and submits commands through the RPC client.",
 } satisfies Readonly<Record<keyof typeof contextLayers, string>>;
 
 /**
