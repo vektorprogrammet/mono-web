@@ -98,25 +98,69 @@ with the reason in Missing capabilities.
 
 | RPC tag | Replaces | Transport facts | Credentials | Status |
 | --- | --- | --- | --- | --- |
-| `admissionOutcomes.listScopes` | GET `/api/admission-outcomes/scopes` | - | cookieHeader, oauthUserBearer | todo |
-| `admissionOutcomes.readOutcome` | GET `/api/admission-outcomes/{applicationId}` | ifMatch; if-none-match (dropped) | cookieHeader, oauthUserBearer | todo |
-| `admissionOutcomes.readOutcomes` | GET `/api/admission-outcomes` | query: departmentId, semesterId | cookieHeader, oauthUserBearer | todo |
-| `admissionOutcomes.recordOutcome` | POST `/api/admission-outcomes/{applicationId}:record` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | todo |
+| `admissionOutcomes.listScopes` | GET `/api/admission-outcomes/scopes` | - | cookieHeader, oauthUserBearer | ported |
+| `admissionOutcomes.readOutcome` | GET `/api/admission-outcomes/{applicationId}` | ifMatch; if-none-match (dropped) | cookieHeader, oauthUserBearer | ported |
+| `admissionOutcomes.readOutcomes` | GET `/api/admission-outcomes` | query: departmentId, semesterId | cookieHeader, oauthUserBearer | ported |
+| `admissionOutcomes.recordOutcome` | POST `/api/admission-outcomes/{applicationId}:record` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+
+Notes:
+
+- The four RPCs keep the old operation IDs as tags and the old routes as `normalizedTarget`.
+  `recordOutcome` still takes `DepartmentReach<"admissions.outcomes">` from the application's own
+  department; another department's application answers authority.denied before any write
+  (`apps/backend/src/admission/outcome.rpc.test.ts`).
+- Dropped: `If-None-Match` and 304 on `readOutcome`, and its `ETag` header; the resource keeps
+  `etag`. `precondition.required`: the payload requires `ifMatch`.
+- A command whose outcome does not decode, or that lacks `ifMatch`, fails in the RPC server as a
+  defect instead of validation.failed or precondition.required. An unknown member of the command
+  is dropped, not answered validation.failed. `dashboard.vikarer` decodes its form itself, so no
+  field error is lost.
 
 ### admissions (`packages/rpc/src/admissions.ts`)
 
 | RPC tag | Replaces | Transport facts | Credentials | Status |
 | --- | --- | --- | --- | --- |
-| `admissions.createAdmissionPeriod` | POST `/api/admission-periods` | idempotencyKey | cookieHeader, oauthUserBearer | todo |
-| `admissions.listAdmissionPeriods` | GET `/api/admission-periods` | ifMatch; if-none-match (dropped) | cookieHeader, oauthUserBearer | todo |
-| `admissions.listApplicationOptions` | GET `/api/application-options` | ifMatch; if-none-match (dropped) | none | todo |
-| `admissions.listOpenAdmissionPeriods` | GET `/api/open-admission-periods` | ifMatch; if-none-match (dropped) | none | todo |
-| `admissions.readApplicantProgress` | GET `/api/applicant-progress` | - | cookieHeader, oauthUserBearer | todo |
-| `admissions.readApplicationConfirmation` | GET `/api/applications/{applicationId}` | - | none | todo |
-| `admissions.readReturningAssistantOptions` | GET `/api/returning-assistant/options` | - | cookieHeader, oauthUserBearer | todo |
-| `admissions.registerReturningAssistant` | POST `/api/returning-assistant/registrations` | idempotencyKey | cookieHeader, oauthUserBearer | todo |
-| `admissions.reviseAdmissionPeriod` | PATCH `/api/admission-periods/{admissionPeriodId}` | idempotencyKey; ifMatch; merge patch | cookieHeader, oauthUserBearer | todo |
-| `admissions.submitApplication` | POST `/api/applications` | idempotencyKey | none | todo |
+| `admissions.createAdmissionPeriod` | POST `/api/admission-periods` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `admissions.listAdmissionPeriods` | GET `/api/admission-periods` | ifMatch; if-none-match (dropped) | cookieHeader, oauthUserBearer | ported |
+| `admissions.listApplicationOptions` | GET `/api/application-options` | ifMatch; if-none-match (dropped) | none | ported |
+| `admissions.listOpenAdmissionPeriods` | GET `/api/open-admission-periods` | ifMatch; if-none-match (dropped) | none | ported |
+| `admissions.readApplicantProgress` | GET `/api/applicant-progress` | - | cookieHeader, oauthUserBearer | ported |
+| `admissions.readApplicationConfirmation` | GET `/api/applications/{applicationId}` | - | none | ported |
+| `admissions.readReturningAssistantOptions` | GET `/api/returning-assistant/options` | - | cookieHeader, oauthUserBearer | ported |
+| `admissions.registerReturningAssistant` | POST `/api/returning-assistant/registrations` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `admissions.reviseAdmissionPeriod` | PATCH `/api/admission-periods/{admissionPeriodId}` | idempotencyKey; ifMatch; merge patch | cookieHeader, oauthUserBearer | ported |
+| `admissions.submitApplication` | POST `/api/applications` | idempotencyKey | none | ported |
+
+Notes:
+
+- The ten RPCs keep the old operation IDs as tags and the old routes as `normalizedTarget`, so
+  command receipts and command IDs that straddle the cutover stay stable.
+- Dropped on `listOpenAdmissionPeriods` and `listApplicationOptions`: the public `Cache-Control`
+  (a `max-age`/`s-maxage` of at most 30 s, bounded by the next window boundary), the collection
+  `ETag`, and `If-None-Match`/304. A CDN or browser no longer caches the public catalog.
+- Dropped on `listAdmissionPeriods`: the collection `ETag` and `If-None-Match`/304. Each item
+  keeps its `etag`, which `reviseAdmissionPeriod` takes as `ifMatch`.
+- Commands answer 200, not 201, and carry no `Location` or `ETag` header. The period item carries
+  its `etag`; the application confirmation and the returning registration had no body tag, so a
+  client that read their `ETag` header loses it.
+- A payload that does not decode fails in the RPC server as a defect, before the handler, instead
+  of validation.failed with a pointer per rejected member, and an unknown member is dropped
+  instead of rejected. The homepage application form and the dashboard period and returning
+  forms decode the same schemas before they call, so they lose no field error; a third-party
+  client does. Semantic validation (an unknown department or semester, a missing department of a
+  global administrator, the merge-patch no-change and field-not-deletable rules) still answers
+  validation.failed with its pointer.
+- `request.too-large` is gone: `ADMISSION_MAX_BODY_BYTES` (16 KiB) no longer bounds admission
+  payloads, and neither `router.ts` nor the session boundary bounds the RPC body. The payload
+  schemas still bound each field, but only after the whole body is read and parsed.
+- `rate-limit.exceeded` and 503 problems no longer carry `Retry-After`: the RPC problem encodes
+  the body only. The public rate limit is consumed after the payload decodes, not before.
+- `reviseAdmissionPeriod` answers an identifier that no path can spell with validation.failed at
+  `/admissionPeriodId` instead of request.malformed.
+- Callers outside this slice's files were ported at their call sites only:
+  `apps/dashboard/e2e/native-placement.spec.ts`, `native-recruitment-interview-conduct.spec.ts`,
+  `tools/e2e/placement-check.ts`, `tools/acceptance/onboarding-check.ts`, and
+  `recommendation-check.ts`.
 
 ### certificates (`packages/rpc/src/certificates.ts`)
 
