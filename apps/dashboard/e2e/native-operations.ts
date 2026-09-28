@@ -115,8 +115,12 @@ export const nativeRpcStatus = (body: string): number | undefined => {
       );
 };
 
-/** The RPC client posts to the endpoint URL, which its HTTP client may end with one slash. */
-const isRpcPath = (pathname: string): boolean =>
+/**
+ * Whether a request path is the RPC endpoint. The RPC client prepends the endpoint URL to an empty
+ * request URL, so it posts to `/api/rpc/`; a probe or script client posts to `/api/rpc`. A recorder
+ * asks this rather than comparing the path with one spelling.
+ */
+export const isNativeRpcPath = (pathname: string): boolean =>
   pathname === nativeRpcPath || pathname === `${nativeRpcPath}/`;
 
 /**
@@ -127,7 +131,7 @@ const isRpcPath = (pathname: string): boolean =>
 export const isNativeOperation = (method: string, pathname: string, body?: string): boolean => {
   if (method === "GET" && pathname === "/health") return true;
 
-  if (method !== "POST" || !isRpcPath(pathname)) return false;
+  if (method !== "POST" || !isNativeRpcPath(pathname)) return false;
 
   if (body === undefined) return true;
 
