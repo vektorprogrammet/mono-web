@@ -16,16 +16,24 @@ export interface JobExit {
   readonly signal: NodeJS.Signals | null;
 }
 
+/** How a job ended, and the first signal that this process forwarded to it, if any. */
+export interface ForwardedJobExit extends JobExit {
+  readonly forwarded: NodeJS.Signals | null;
+}
+
 /** The job's program could not start. */
 export class JobStartFailure extends Data.TaggedError("JobStartFailure")<{
   readonly message: string;
 }> {}
 
-/** A job, the variables that it adds to the environment, and the signals forwarded to it. */
+/** A job, its environment, and the signals forwarded to it. */
 export interface Job {
   readonly command: string;
   readonly arguments: ReadonlyArray<string>;
+  /** Added to the environment of this process, or the whole environment with `isolated`. */
   readonly variables: Readonly<Record<string, string>>;
+  readonly isolated?: boolean | undefined;
+  readonly cwd?: string | undefined;
   readonly forwardedSignals: ReadonlyArray<NodeJS.Signals>;
 }
 
@@ -38,17 +46,29 @@ export const runJob = ({
   command,
   arguments: jobArguments,
   variables,
+  isolated = false,
+  cwd,
   forwardedSignals,
-}: Job): Effect.Effect<JobExit, JobStartFailure> =>
+}: Job): Effect.Effect<ForwardedJobExit, JobStartFailure> =>
   Effect.uninterruptible(
-    Effect.callback<JobExit, JobStartFailure>((resume) => {
+    Effect.callback<ForwardedJobExit, JobStartFailure>((resume) => {
       const child = spawn(command, jobArguments, {
         stdio: "inherit",
-        env: { ...process.env, ...variables },
+        env: isolated ? { ...variables } : { ...process.env, ...variables },
+        cwd,
       });
 
+      let forwarded: NodeJS.Signals | null = null;
+
       const handlers = forwardedSignals.map(
-        (signal) => [signal, () => child.kill(signal)] as const,
+        (signal) =>
+          [
+            signal,
+            () => {
+              forwarded ??= signal;
+              child.kill(signal);
+            },
+          ] as const,
       );
 
       for (const [signal, handler] of handlers) process.on(signal, handler);
@@ -64,7 +84,7 @@ export const runJob = ({
 
       child.once("exit", (exitCode, signal) => {
         stop();
-        resume(Effect.succeed({ exitCode, signal }));
+        resume(Effect.succeed({ exitCode, signal, forwarded }));
       });
     }),
   );
