@@ -8,6 +8,7 @@ import {
   TeamApplications,
   type TeamApplicationInput,
   type TeamApplicationIntake,
+  TeamApplicationAction,
 } from "@vektorprogrammet/domain/team-application";
 import { DatabaseTestLive } from "../test-support/platform.js";
 import { Database } from "../service.js";
@@ -359,10 +360,18 @@ layer(teamApplicationsLayer, { excludeTestServices: true, timeout: "30 seconds" 
             Effect.flatMap(principal(person), (actor) =>
               inTransaction(
                 TeamApplications.use((service) =>
-                  service.deleteApplication(
-                    { commandId: commandId(command), applicationId },
-                    actor,
-                  ),
+                  service
+                    .authorize(
+                      actor,
+                      TeamApplicationAction.DeleteTeamApplication({ applicationId }),
+                    )
+                    .pipe(
+                      Effect.flatMap((authorization) =>
+                        service.deleteApplication(authorization, {
+                          commandId: commandId(command),
+                        }),
+                      ),
+                    ),
                 ),
               ),
             );
@@ -422,16 +431,26 @@ layer(teamApplicationsLayer, { excludeTestServices: true, timeout: "30 seconds" 
         Effect.flatMap(principal(person), (actor) =>
           inTransaction(
             TeamApplications.use((service) =>
-              service.reviseIntake(
-                {
-                  commandId: commandId(command),
-                  teamId: teamId("ta-revise"),
-                  acceptApplication: false,
-                  deadline: "2099-06-01T00:00:00+02:00",
-                },
-                actor,
-                check,
-              ),
+              service
+                .authorize(
+                  actor,
+                  TeamApplicationAction.ReviseTeamApplicationIntake({
+                    teamId: teamId("ta-revise"),
+                  }),
+                )
+                .pipe(
+                  Effect.flatMap((authorization) =>
+                    service.reviseIntake(
+                      authorization,
+                      {
+                        commandId: commandId(command),
+                        acceptApplication: false,
+                        deadline: "2099-06-01T00:00:00+02:00",
+                      },
+                      check,
+                    ),
+                  ),
+                ),
             ),
           ),
         );

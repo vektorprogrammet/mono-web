@@ -15,6 +15,7 @@ import {
   TeamApplication,
   TeamApplicationAccessDenied,
   TeamApplicationAction,
+  type TeamApplicationAuthorization,
   TeamApplicationCommandConflict,
   TeamApplicationConfirmation,
   TeamApplicationId,
@@ -404,10 +405,7 @@ const applicationTeam = (applicationId: TeamApplicationId, forDeletion: boolean)
     ),
   );
 
-export const authorizeTeamApplicationAction = (
-  principal: TeamApplicationPrincipal,
-  action: TeamApplicationAction,
-) =>
+const resolveActionActor = (principal: TeamApplicationPrincipal, action: TeamApplicationAction) =>
   TeamApplicationAction.$match(action, {
     ReadTeamApplications: ({ teamId }) => resolveTeamActor(principal, teamId, false),
     ReviseTeamApplicationIntake: ({ teamId }) => authorizeIntakeRevision(principal, teamId),
@@ -420,6 +418,22 @@ export const authorizeTeamApplicationAction = (
         Effect.flatMap((teamId) => resolveTeamActor(principal, teamId, true)),
       ),
   });
+
+/**
+ * Resolves current authority for one staff action on the caller's transaction, with the row locks
+ * a change takes, before a transport replay.
+ */
+export const authorizeTeamApplicationAction = <A extends TeamApplicationAction>(
+  principal: TeamApplicationPrincipal,
+  action: A,
+) =>
+  resolveActionActor(principal, action).pipe(
+    Effect.map(
+      (actor) =>
+        // SAFETY: the one constructor of the evidence brand; resolveActionActor above is what it proves.
+        ({ principal, action, actor }) as TeamApplicationAuthorization<A>,
+    ),
+  );
 
 export const readPublicTeamApplicationIntake = (teamId: TeamId) =>
   Effect.gen(function* () {
@@ -566,7 +580,7 @@ export const readTeamApplication = (
   applicationId: TeamApplicationId,
 ) =>
   Effect.gen(function* () {
-    const actor = yield* authorizeTeamApplicationAction(
+    const actor = yield* resolveActionActor(
       principal,
       TeamApplicationAction.ReadTeamApplication({ applicationId }),
     );
@@ -581,14 +595,14 @@ export const readTeamApplication = (
   });
 
 export const deleteTeamApplication = (
-  command: DeleteTeamApplicationCommand,
-  principal: TeamApplicationPrincipal,
+  authorization: TeamApplicationAuthorization<
+    Extract<TeamApplicationAction, { readonly _tag: "DeleteTeamApplication" }>
+  >,
+  input: Pick<DeleteTeamApplicationCommand, "commandId">,
 ) =>
   Effect.gen(function* () {
-    const actor = yield* authorizeTeamApplicationAction(
-      principal,
-      TeamApplicationAction.DeleteTeamApplication({ applicationId: command.applicationId }),
-    );
+    const { principal, actor } = authorization;
+    const command = { ...input, applicationId: authorization.action.applicationId };
 
     const digest = commandDigest({
       schema: "DeleteTeamApplication/v1",
@@ -644,12 +658,15 @@ export const deleteTeamApplication = (
   });
 
 export const reviseTeamApplicationIntake = <E, R>(
-  command: ReviseTeamApplicationIntakeCommand,
-  principal: TeamApplicationPrincipal,
+  authorization: TeamApplicationAuthorization<
+    Extract<TeamApplicationAction, { readonly _tag: "ReviseTeamApplicationIntake" }>
+  >,
+  input: Omit<ReviseTeamApplicationIntakeCommand, "teamId">,
   checkPrecondition: (current: TeamApplicationIntake) => Effect.Effect<void, E, R>,
 ) =>
   Effect.gen(function* () {
-    const actor = yield* authorizeIntakeRevision(principal, command.teamId);
+    const { principal, actor } = authorization;
+    const command = { ...input, teamId: authorization.action.teamId };
 
     const digest = commandDigest({
       schema: "ReviseTeamApplicationIntake/v1",

@@ -102,7 +102,10 @@ export const executeSchoolCommandHttp = (request: Request) => {
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const personId = yield* authorizeTransport(request, true, presentation);
-        yield* Schools.use((schools) => schools.authorizeCommand(command, personId));
+
+        const authorization = yield* Schools.use((schools) =>
+          schools.authorizeCommand(command, personId),
+        );
 
         const identity = yield* httpIdentity({
           credentialSubject: `Person:${personId}`,
@@ -118,9 +121,7 @@ export const executeSchoolCommandHttp = (request: Request) => {
             operationId,
           },
           execute: Effect.gen(function* () {
-            const result = yield* Schools.use((schools) =>
-              schools.executeCommand(command, personId),
-            );
+            const result = yield* Schools.use((schools) => schools.executeCommand(authorization));
 
             const encoded = yield* Schema.encodeEffect(SchoolCommandResult)(result);
 

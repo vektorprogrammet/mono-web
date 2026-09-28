@@ -45,6 +45,21 @@ export const RecruitmentMaintenanceCommand = Schema.TaggedUnion({
 
 export type RecruitmentMaintenanceCommand = typeof RecruitmentMaintenanceCommand.Type;
 
+/** Type-only brand. Only the Recruitment adapter that resolves current authority builds this evidence. */
+declare const RecruitmentMaintenanceAuthorizationBrand: unique symbol;
+
+/**
+ * Proof that a person may run one maintenance command, resolved with its locks inside the
+ * command's transaction: a questionnaire change needs an active global administrator, a staffing
+ * change `recruitment.interviews` over the interview's department. The command runs from it, and
+ * `maintainRecruitment` resolves no authority again. Valid only in the transaction that resolved it.
+ */
+export interface RecruitmentMaintenanceAuthorization {
+  readonly [RecruitmentMaintenanceAuthorizationBrand]: "RecruitmentMaintenanceAuthorization";
+  readonly personId: PersonId;
+  readonly command: RecruitmentMaintenanceCommand;
+}
+
 export const RecruitmentMaintenanceResult = Schema.TaggedUnion({
   QuestionnaireSaved: { interviewSchemaId: InterviewSchemaId, revision: Revision },
   InterviewStaffingChanged: { interviewId: RecruitmentInterviewId, revision: Revision },

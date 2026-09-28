@@ -20,6 +20,7 @@ import {
   InterviewStaffing,
   InterviewStaffingHistory,
   InterviewStaffingManagement,
+  type RecruitmentMaintenanceAuthorization,
   RecruitmentMaintenanceCommand,
   RecruitmentMaintenanceResult,
   RecruitmentMaintenanceFailure,
@@ -239,16 +240,18 @@ export const authorizeMaintenance = (command: RecruitmentMaintenanceCommand, per
     const sql = yield* Database;
     const decoded = yield* decodeCommand(command).pipe(Effect.mapError(() => fail("Invalid")));
     yield* authorizeWithSql(sql, decoded, personId);
+
+    // SAFETY: the one constructor of the evidence brand; authorizeWithSql above is what it proves.
+    return { personId, command: decoded } as RecruitmentMaintenanceAuthorization;
   }).pipe(mapFailure);
 
-export const maintainRecruitment = (input: RecruitmentMaintenanceCommand, personId: PersonId) =>
+export const maintainRecruitment = (authorization: RecruitmentMaintenanceAuthorization) =>
   Effect.gen(function* () {
-    const command = yield* decodeCommand(input).pipe(Effect.mapError(() => fail("Invalid")));
+    const { command, personId } = authorization;
     const sql = yield* Database;
 
     return yield* sql.withTransaction(
       Effect.gen(function* () {
-        yield* authorizeWithSql(sql, command, personId);
         yield* lockAdvisory(
           sql,
           AdvisoryLockKey.recruitmentMaintenanceCommand(personId, command.commandId),

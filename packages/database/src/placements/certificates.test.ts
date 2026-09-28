@@ -103,11 +103,17 @@ const confirm = (
 
     return yield* transaction(
       Placements.use((placements) =>
-        placements.confirmDaysServed(
-          reader,
-          { commandId: nextCommandId(), departmentId, semesterId, personId, total },
-          () => Effect.void,
-        ),
+        placements
+          .authorizeDaysServedConfirmation(reader, { departmentId, semesterId })
+          .pipe(
+            Effect.flatMap((authorization) =>
+              placements.confirmDaysServed(
+                authorization,
+                { commandId: nextCommandId(), personId, total },
+                () => Effect.void,
+              ),
+            ),
+          ),
       ),
     );
   });
@@ -118,11 +124,17 @@ const issue = (actor: PersonId, departmentId: DepartmentId, personId: PersonId) 
 
     return yield* transaction(
       Placements.use((placements) =>
-        placements.issueCertificate(
-          reader,
-          { commandId: nextCommandId(), departmentId, personId },
-          () => Effect.void,
-        ),
+        placements
+          .authorizeCertificateIssue(reader, departmentId, personId)
+          .pipe(
+            Effect.flatMap((authorization) =>
+              placements.issueCertificate(
+                authorization,
+                { commandId: nextCommandId() },
+                () => Effect.void,
+              ),
+            ),
+          ),
       ),
     );
   });
@@ -537,20 +549,23 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "60 seconds" })(
           const rejected = yield* Effect.flip(
             transaction(
               Placements.use((placements) =>
-                placements.confirmDaysServed(
-                  reader,
-                  {
-                    commandId: nextCommandId(),
+                placements
+                  .authorizeDaysServedConfirmation(reader, {
                     departmentId: trondheim,
                     semesterId: autumn,
-                    personId: person.bo,
-                    total: 5,
-                  },
-                  (current) =>
-                    daysServedEntryVersion(current) === stale
-                      ? Effect.void
-                      : Effect.fail("precondition.failed" as const),
-                ),
+                  })
+                  .pipe(
+                    Effect.flatMap((authorization) =>
+                      placements.confirmDaysServed(
+                        authorization,
+                        { commandId: nextCommandId(), personId: person.bo, total: 5 },
+                        (current) =>
+                          daysServedEntryVersion(current) === stale
+                            ? Effect.void
+                            : Effect.fail("precondition.failed" as const),
+                      ),
+                    ),
+                  ),
               ),
             ),
           );

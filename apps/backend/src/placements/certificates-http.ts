@@ -10,7 +10,6 @@ import { type CredentialOutcome, DomainId, Scope } from "@vektorprogrammet/domai
 import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import type { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
 import {
-  CertificateCommandTarget,
   daysServedEntryVersion,
   Placements,
   type CertificateCommandFailure,
@@ -364,12 +363,13 @@ const confirmDaysServed = (
         const current = yield* reader(request);
 
         // Authority is current before any stored response can be replayed.
-        yield* Placements.use((placements) =>
-          placements.authorizeCertificateCommand(
-            current.principal,
-            CertificateCommandTarget.ConfirmDaysServed({ departmentId, semesterId }),
-          ),
+        const authorization = yield* Placements.use((placements) =>
+          placements.authorizeDaysServedConfirmation(current.principal, {
+            departmentId,
+            semesterId,
+          }),
         );
+
         yield* authorizeReader(request, ConfirmDaysServedEndpoint, current, departmentId);
 
         const identity = yield* httpIdentity({
@@ -390,14 +390,8 @@ const confirmDaysServed = (
           },
           execute: Placements.use((placements) =>
             placements.confirmDaysServed(
-              current.principal,
-              {
-                commandId: identity.identitySha256,
-                departmentId,
-                semesterId,
-                personId,
-                total: input.value.total,
-              },
+              authorization,
+              { commandId: identity.identitySha256, personId, total: input.value.total },
               (entry) => requireCurrentETag(entryETag(entry), ifMatch),
             ),
           ).pipe(
@@ -439,12 +433,10 @@ const issueCertificate = (
         const current = yield* reader(request);
 
         // A revoked seat cannot replay a stored certificate.
-        yield* Placements.use((placements) =>
-          placements.authorizeCertificateCommand(
-            current.principal,
-            CertificateCommandTarget.IssueCertificate({ departmentId, personId }),
-          ),
+        const authorization = yield* Placements.use((placements) =>
+          placements.authorizeCertificateIssue(current.principal, departmentId, personId),
         );
+
         yield* authorizeReader(request, IssueCertificateEndpoint, current, departmentId);
 
         const identity = yield* httpIdentity({
@@ -466,8 +458,8 @@ const issueCertificate = (
           // The PDF renders before commit, so an unprintable certificate records no issue.
           execute: Placements.use((placements) =>
             placements.issueCertificate(
-              current.principal,
-              { commandId: identity.identitySha256, departmentId, personId },
+              authorization,
+              { commandId: identity.identitySha256 },
               (preview) => requireCurrentETag(certificateETag(preview), ifMatch),
             ),
           ).pipe(

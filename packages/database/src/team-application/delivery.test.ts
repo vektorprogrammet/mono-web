@@ -24,6 +24,7 @@ import {
   TeamApplicationOutboxDelivery,
   TeamApplications,
   type TeamApplicationInput,
+  TeamApplicationAction,
 } from "@vektorprogrammet/domain/team-application";
 import { DatabaseTestLive } from "../test-support/platform.js";
 import { Database } from "../service.js";
@@ -114,16 +115,23 @@ const deleteApplication = (applicationId: string, command: string) =>
     yield* Database.use((sql) =>
       sql.withTransaction(
         TeamApplications.use((service) =>
-          service.deleteApplication(
-            {
-              commandId: TeamApplicationCommandId.make(command),
-              applicationId: TeamApplicationId.make(applicationId),
-            },
-            {
-              personId: PersonId.make("pilot-leader"),
-              authorizationInstant: DateTime.formatIso(now),
-            },
-          ),
+          service
+            .authorize(
+              {
+                personId: PersonId.make("pilot-leader"),
+                authorizationInstant: DateTime.formatIso(now),
+              },
+              TeamApplicationAction.DeleteTeamApplication({
+                applicationId: TeamApplicationId.make(applicationId),
+              }),
+            )
+            .pipe(
+              Effect.flatMap((authorization) =>
+                service.deleteApplication(authorization, {
+                  commandId: TeamApplicationCommandId.make(command),
+                }),
+              ),
+            ),
         ),
       ),
     );
