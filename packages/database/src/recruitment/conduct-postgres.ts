@@ -151,12 +151,11 @@ const persistenceError = (operation: string, cause?: Error) =>
 const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, operation: string) =>
   flow(
     Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
-    Effect.mapError(
-      (cause) =>
-        RecruitmentPersistenceError.make({
-          operation: `decode ${operation}`,
-          message: String(cause),
-        }),
+    Effect.mapError((cause) =>
+      RecruitmentPersistenceError.make({
+        operation: `decode ${operation}`,
+        message: String(cause),
+      }),
     ),
   );
 

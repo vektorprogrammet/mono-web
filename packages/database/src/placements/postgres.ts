@@ -90,7 +90,7 @@ export const lockPlacementDepartment = (departmentId: DepartmentId) =>
       const rows =
         yield* sql`SELECT department_id FROM public.organization_departments WHERE department_id=${departmentId} FOR UPDATE`;
 
-      if (!rows.length) return yield* fail("scope.invalid");
+      if (rows.length === 0) return yield* fail("scope.invalid");
     }),
   );
 
@@ -100,7 +100,7 @@ export const readOwnAffiliation = (personId: PersonId, departmentId: DepartmentI
       const departments =
         yield* sql`SELECT department_id FROM public.organization_departments WHERE department_id=${departmentId}`;
 
-      if (!departments.length) return yield* fail("scope.invalid");
+      if (departments.length === 0) return yield* fail("scope.invalid");
 
       const rows =
         yield* sql`SELECT status,revision FROM public.organization_volunteer_affiliations WHERE person_id=${personId} AND department_id=${departmentId}`;
@@ -138,7 +138,7 @@ export const readPlacementBoard = (scope: PlacementScope) =>
       const semesters =
         yield* sql`SELECT semester_id FROM public.admission_period_semesters WHERE semester_id=${scope.semesterId}`;
 
-      if (!semesters.length) return yield* fail("scope.invalid");
+      if (semesters.length === 0) return yield* fail("scope.invalid");
 
       const affiliations =
         yield* sql`SELECT a.person_id AS "personId",a.department_id AS "departmentId",a.status,a.revision,p.first_name AS "firstName",p.last_name AS "lastName" FROM public.organization_volunteer_affiliations a JOIN public.person_profiles p USING(person_id) WHERE a.department_id=${scope.departmentId} ORDER BY p.last_name,p.first_name,a.person_id`;
@@ -380,9 +380,10 @@ export const mutatePlacementBoard = (
           ? undefined
           : board.placements.find((placement) => placement.placementId === command.placementId);
 
-      if (command.action !== "Create" && !existing) return yield* fail("resource.not-found", 404);
+      if (command.action !== "Create" && existing === undefined)
+        return yield* fail("resource.not-found", 404);
 
-      if (existing && !existing.active) return yield* fail("placement.inactive");
+      if (existing !== undefined && !existing.active) return yield* fail("placement.inactive");
       const personId = command.action === "Create" ? command.personId : existing!.personId;
       const placementId = command.action === "Create" ? newId : existing!.placementId;
       const revision = (existing?.revision ?? 0) + 1;
@@ -399,7 +400,7 @@ export const mutatePlacementBoard = (
         const overlaps =
           yield* sql`SELECT placement_id FROM public.assistant_placements WHERE active AND person_id=${personId} AND school_id=${command.schoolId} AND semester_id=${scope.semesterId} AND placement_id<>${placementId} AND block=${command.block}`;
 
-        if (overlaps.length) return yield* fail("placement.overlap", 409);
+        if (overlaps.length > 0) return yield* fail("placement.overlap", 409);
         yield* sql`INSERT INTO public.assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision) VALUES(${placementId},${personId},${scope.departmentId},${scope.semesterId},${command.schoolId},${command.day},${command.workdays},${command.block},true,${revision}) ON CONFLICT(placement_id) DO UPDATE SET school_id=EXCLUDED.school_id,day=EXCLUDED.day,workdays=EXCLUDED.workdays,block=EXCLUDED.block,revision=EXCLUDED.revision`;
       } else {
         yield* sql`UPDATE public.assistant_placements SET active=false,revision=${revision} WHERE placement_id=${placementId}`;

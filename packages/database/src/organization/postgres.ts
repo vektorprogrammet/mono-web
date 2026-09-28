@@ -39,31 +39,28 @@ const persistenceError = (operation: string, cause: unknown) =>
 
 const decodeDepartment = flow(
   Schema.decodeUnknownEffect(Department, { onExcessProperty: "error" }),
-  Effect.mapError(
-    (cause) =>
-      OrganizationDecodeError.make({
-        operation: "decode Department select",
-        message: String(cause),
-      }),
+  Effect.mapError((cause) =>
+    OrganizationDecodeError.make({
+      operation: "decode Department select",
+      message: String(cause),
+    }),
   ),
 );
 
 const decodeTeam = flow(
   Schema.decodeUnknownEffect(Team, { onExcessProperty: "error" }),
-  Effect.mapError(
-    (cause) =>
-      OrganizationDecodeError.make({ operation: "decode Team select", message: String(cause) }),
+  Effect.mapError((cause) =>
+    OrganizationDecodeError.make({ operation: "decode Team select", message: String(cause) }),
   ),
 );
 
 const decodeMembership = flow(
   Schema.decodeUnknownEffect(MembershipInvariantSchema, { onExcessProperty: "error" }),
-  Effect.mapError(
-    (cause) =>
-      OrganizationDecodeError.make({
-        operation: "decode Membership select",
-        message: String(cause),
-      }),
+  Effect.mapError((cause) =>
+    OrganizationDecodeError.make({
+      operation: "decode Membership select",
+      message: String(cause),
+    }),
   ),
 );
 
@@ -591,12 +588,11 @@ export const importOrganizationSnapshot = (
 
 const decodeTeamInterestRegistration = flow(
   Schema.decodeUnknownEffect(TeamInterestRegistration, { onExcessProperty: "error" }),
-  Effect.mapError(
-    (cause) =>
-      OrganizationDecodeError.make({
-        operation: "decode TeamInterestRegistration select",
-        message: String(cause),
-      }),
+  Effect.mapError((cause) =>
+    OrganizationDecodeError.make({
+      operation: "decode TeamInterestRegistration select",
+      message: String(cause),
+    }),
   ),
 );
 

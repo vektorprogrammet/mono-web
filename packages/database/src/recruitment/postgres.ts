@@ -206,11 +206,10 @@ const persistenceError = (operation: string, cause?: unknown): RecruitmentPersis
 const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, operation: string) =>
   flow(
     Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
-    Effect.mapError(
-      (cause) =>
-        RecruitmentDecodeError.make({
-          message: cause instanceof Error ? cause.message : `invalid ${operation}`,
-        }),
+    Effect.mapError((cause) =>
+      RecruitmentDecodeError.make({
+        message: cause instanceof Error ? cause.message : `invalid ${operation}`,
+      }),
     ),
   );
 
@@ -981,11 +980,10 @@ const assignmentInTransaction = (
       commandId: command.commandId,
       interview,
     }).pipe(
-      Effect.mapError(
-        (cause) =>
-          RecruitmentDecodeError.make({
-            message: cause instanceof Error ? cause.message : `invalid ${"assignment observation"}`,
-          }),
+      Effect.mapError((cause) =>
+        RecruitmentDecodeError.make({
+          message: cause instanceof Error ? cause.message : `invalid ${"assignment observation"}`,
+        }),
       ),
     );
 

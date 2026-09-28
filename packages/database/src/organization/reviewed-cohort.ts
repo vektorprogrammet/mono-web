@@ -20,6 +20,10 @@ export {
   OrganizationCohortFailure,
 } from "@vektorprogrammet/domain/organization";
 
+/** The truthiness test of a `rowCount`: present, not zero, and not NaN. */
+const hasRowCount = (rowCount: number | null): boolean =>
+  rowCount !== null && rowCount !== 0 && !Number.isNaN(rowCount);
+
 export const organizationImportSourceDigest = Effect.fn("organizationImportSourceDigest")(
   function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -113,7 +117,7 @@ const resolvedEvidence = Effect.fnUntraced(function* (
   )).rows[0];
 
   if (
-    !reference ||
+    reference === undefined ||
     reference.source_revision !== snapshot.sourceRevision ||
     reference.reference_digest !== snapshot.referenceDigest
   )
@@ -146,7 +150,7 @@ const resolvedEvidence = Effect.fnUntraced(function* (
     ],
   );
 
-  if (!personSnapshot.rowCount)
+  if (!hasRowCount(personSnapshot.rowCount))
     return yield* new OrganizationCohortFailure({ code: "PersonSnapshotConflict" });
 
   const people = yield* pgQuery<{ source_user_id: string; person_id: string }>(
@@ -175,7 +179,12 @@ const resolvedEvidence = Effect.fnUntraced(function* (
     const native = nativeDepartments.rows.find((row) => row.departmentId === mapping.departmentId);
     const sourceId = mapping.sourceDepartmentId.replace(/^legacy-department:/, "");
 
-    if (!native || !/^-?\d+$/.test(sourceId) || !Number.isSafeInteger(Number(sourceId))) return [];
+    if (
+      native === undefined ||
+      !/^-?\d+$/.test(sourceId) ||
+      !Number.isSafeInteger(Number(sourceId))
+    )
+      return [];
     const { departmentId: _departmentId, ...department } = native;
 
     return [{ ...department, id: Number(sourceId) }];
@@ -206,7 +215,7 @@ export const importReviewedOrganizationCohort = Effect.fn("importReviewedOrganiz
         [snapshotKey],
       )).rows[0];
 
-      if (prior) {
+      if (prior !== undefined) {
         if (prior.snapshot_digest !== snapshot.snapshotDigest)
           return yield* new OrganizationCohortFailure({ code: "SnapshotConflict" });
 
@@ -244,7 +253,11 @@ export const importReviewedOrganizationCohort = Effect.fn("importReviewedOrganiz
           canonicalJson([occurrence.sourceKind, occurrence.sourceId]),
         );
 
-        if (priorDigest && priorDigest !== organizationOccurrenceSourceDigest(snapshot, occurrence))
+        if (
+          priorDigest !== undefined &&
+          priorDigest !== "" &&
+          priorDigest !== organizationOccurrenceSourceDigest(snapshot, occurrence)
+        )
           return yield* new OrganizationCohortFailure({ code: "SourceConflict" });
       }
 
@@ -287,7 +300,10 @@ export const importReviewedOrganizationCohort = Effect.fn("importReviewedOrganiz
           [snapshot.sourceRepository, kind, sourceId],
         )).rows[0];
 
-        if (prior && (prior.source_digest !== sourceDigest || prior.target_id !== targetId))
+        if (
+          prior !== undefined &&
+          (prior.source_digest !== sourceDigest || prior.target_id !== targetId)
+        )
           return yield* new OrganizationCohortFailure({ code: "SourceConflict" });
 
         return prior !== undefined;
@@ -367,7 +383,7 @@ export const importReviewedOrganizationCohort = Effect.fn("importReviewedOrganiz
               ],
             );
 
-            unitAvailable = !!inserted.rowCount;
+            unitAvailable = hasRowCount(inserted.rowCount);
 
             if (unitAvailable) yield* recordSource("Team", teamSourceId, teamDigest, team.teamId);
           }
@@ -386,25 +402,29 @@ export const importReviewedOrganizationCohort = Effect.fn("importReviewedOrganiz
               [boardId, board.name],
             );
 
-            unitAvailable = !!inserted.rowCount;
+            unitAvailable = hasRowCount(inserted.rowCount);
 
             if (unitAvailable) yield* recordSource("Board", String(board.id), boardDigest, boardId);
           }
         }
 
         if (unitAvailable && membership.teamId !== null)
-          unitAvailable = !!(yield* pgQuery(
-            tx,
-            "SELECT 1 FROM public.organization_teams WHERE team_id=$1 FOR SHARE",
-            [membership.teamId],
-          )).rowCount;
+          unitAvailable = hasRowCount(
+            (yield* pgQuery(
+              tx,
+              "SELECT 1 FROM public.organization_teams WHERE team_id=$1 FOR SHARE",
+              [membership.teamId],
+            )).rowCount,
+          );
 
         if (unitAvailable && boardId !== null)
-          unitAvailable = !!(yield* pgQuery(
-            tx,
-            "SELECT 1 FROM public.organization_national_boards WHERE board_id=$1 FOR SHARE",
-            [boardId],
-          )).rowCount;
+          unitAvailable = hasRowCount(
+            (yield* pgQuery(
+              tx,
+              "SELECT 1 FROM public.organization_national_boards WHERE board_id=$1 FOR SHARE",
+              [boardId],
+            )).rowCount,
+          );
         let inserted = false;
 
         if (unitAvailable) {
@@ -426,7 +446,7 @@ export const importReviewedOrganizationCohort = Effect.fn("importReviewedOrganiz
             ],
           );
 
-          inserted = !!result.rowCount;
+          inserted = hasRowCount(result.rowCount);
         }
 
         if (inserted)

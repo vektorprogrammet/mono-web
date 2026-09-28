@@ -263,7 +263,7 @@ export const maintainRecruitment = (authorization: RecruitmentMaintenanceAuthori
           result: unknown;
         }>`SELECT command_digest AS digest,result_json AS result FROM public.recruitment_maintenance_command_receipts WHERE actor_person_id=${personId} AND command_id=${command.commandId}`;
 
-        if (receipts[0]) {
+        if (receipts[0] !== undefined) {
           if (receipts[0].digest !== digest) return yield* fail("Conflict");
 
           return yield* Schema.decodeUnknownEffect(RecruitmentMaintenanceResult)(
@@ -277,7 +277,7 @@ export const maintainRecruitment = (authorization: RecruitmentMaintenanceAuthori
           yield* sealInterviewResponseEnvelopes(command.interviewId);
           const before = (yield* staffingRows(sql, null, command.interviewId, true))[0];
 
-          if (!before) return yield* fail("NotFound");
+          if (before === undefined) return yield* fail("NotFound");
 
           if (before.terminal) return yield* fail("Terminal");
 

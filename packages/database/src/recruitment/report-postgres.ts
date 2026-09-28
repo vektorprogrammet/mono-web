@@ -60,7 +60,9 @@ export const readCompletedInterviewReport = (
   Effect.gen(function* () {
     const query = yield* Schema.decodeEffect(InterviewReportQuery)(input, {
       onExcessProperty: "error",
-    }).pipe(Effect.mapError(() => RecruitmentDecodeError.make({ message: "invalid report query" })));
+    }).pipe(
+      Effect.mapError(() => RecruitmentDecodeError.make({ message: "invalid report query" })),
+    );
 
     const sql = yield* Database;
 
@@ -135,8 +137,8 @@ export const readCompletedInterviewReport = (
                 .map(({ linkedPersonId: _identity, ...row }) => row),
               { onExcessProperty: "error" },
             ).pipe(
-              Effect.mapError(
-                () => RecruitmentDecodeError.make({ message: "invalid persisted report row" }),
+              Effect.mapError(() =>
+                RecruitmentDecodeError.make({ message: "invalid persisted report row" }),
               ),
             );
           }

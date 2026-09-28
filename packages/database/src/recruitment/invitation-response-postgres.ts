@@ -75,11 +75,10 @@ const formatIssue = SchemaIssue.makeFormatterDefault();
 const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, operation: string) =>
   flow(
     Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
-    Effect.mapError(
-      (cause) =>
-        RecruitmentDecodeError.make({
-          message: cause instanceof Error ? cause.message : `invalid ${operation}`,
-        }),
+    Effect.mapError((cause) =>
+      RecruitmentDecodeError.make({
+        message: cause instanceof Error ? cause.message : `invalid ${operation}`,
+      }),
     ),
   );
 
@@ -196,12 +195,11 @@ const observationFromRow = (
     responseState: row.responseState,
     responseMessage: row.responseMessage,
   }).pipe(
-    Effect.mapError(
-      (cause) =>
-        RecruitmentDecodeError.make({
-          message:
-            cause instanceof Error ? cause.message : `invalid ${"invitation response observation"}`,
-        }),
+    Effect.mapError((cause) =>
+      RecruitmentDecodeError.make({
+        message:
+          cause instanceof Error ? cause.message : `invalid ${"invitation response observation"}`,
+      }),
     ),
   );
 
@@ -467,11 +465,10 @@ const recordInvitationResponse = (
     );
 
     return yield* responseEffect.pipe(
-      Effect.mapError(
-        (cause) =>
-          RecruitmentDecodeError.make({
-            message: SchemaIssue.isIssue(cause) ? formatIssue(cause) : String(cause),
-          }),
+      Effect.mapError((cause) =>
+        RecruitmentDecodeError.make({
+          message: SchemaIssue.isIssue(cause) ? formatIssue(cause) : String(cause),
+        }),
       ),
     );
   });

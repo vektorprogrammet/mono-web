@@ -160,11 +160,10 @@ const readApplicantContacts = (
 const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, operation: string) =>
   flow(
     Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
-    Effect.mapError(
-      (cause) =>
-        RecruitmentDecodeError.make({
-          message: cause instanceof Error ? cause.message : `invalid ${operation}`,
-        }),
+    Effect.mapError((cause) =>
+      RecruitmentDecodeError.make({
+        message: cause instanceof Error ? cause.message : `invalid ${operation}`,
+      }),
     ),
   );
 
@@ -662,11 +661,10 @@ const writeScheduleRows = (
       responseState: "Pending",
       notificationState: "Pending",
     }).pipe(
-      Effect.mapError(
-        (cause) =>
-          RecruitmentDecodeError.make({
-            message: cause instanceof Error ? cause.message : `invalid ${"schedule observation"}`,
-          }),
+      Effect.mapError((cause) =>
+        RecruitmentDecodeError.make({
+          message: cause instanceof Error ? cause.message : `invalid ${"schedule observation"}`,
+        }),
       ),
     );
 
@@ -719,14 +717,13 @@ const writeScheduleRows = (
         message: command.message,
         responseCapability: context.responseCapability,
       }).pipe(
-        Effect.mapError(
-          (cause) =>
-            RecruitmentDecodeError.make({
-              message:
-                cause instanceof Error
-                  ? cause.message
-                  : `invalid ${"invitation notification request"}`,
-            }),
+        Effect.mapError((cause) =>
+          RecruitmentDecodeError.make({
+            message:
+              cause instanceof Error
+                ? cause.message
+                : `invalid ${"invitation notification request"}`,
+          }),
         ),
       );
 

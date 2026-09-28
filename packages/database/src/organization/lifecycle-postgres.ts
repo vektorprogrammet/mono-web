@@ -452,7 +452,12 @@ export const executeOrganizationLifecycle = Effect.fn("executeOrganizationLifecy
 
         const subject = "personId" in command ? command.personId : observed?.personId;
 
-        for (const id of [...new Set([actorPersonId, ...(subject ? [subject] : [])])].sort())
+        for (const id of [
+          ...new Set([
+            actorPersonId,
+            ...(subject !== undefined && subject !== "" ? [subject] : []),
+          ]),
+        ].sort())
           yield* lockPersonAuthorization(sql, id);
         const now = DateTime.formatIso(yield* DateTime.now);
         const authority = yield* authorityFor(sql, actorPersonId, now);
@@ -464,15 +469,18 @@ export const executeOrganizationLifecycle = Effect.fn("executeOrganizationLifecy
               )
             : undefined;
 
-        if ("appointmentId" in command && (!current || current.personId !== observed?.personId))
+        if (
+          "appointmentId" in command &&
+          (current === undefined || current.personId !== observed?.personId)
+        )
           return yield* fail("NotFound");
         const target = Predicate.isTagged(command, "Appoint") ? command.target : current?.target;
         const units = yield* unitsFor(sql);
 
-        if (target) {
+        if (target !== undefined) {
           const unit = units.find((unit) => unit.kind === target.kind && unit.id === target.id);
 
-          if (!unit) return yield* fail("NotFound");
+          if (unit === undefined) return yield* fail("NotFound");
 
           if (!allowedUnit(authority, unit)) return yield* fail("Denied");
         } else if (
@@ -496,7 +504,7 @@ export const executeOrganizationLifecycle = Effect.fn("executeOrganizationLifecy
           result: unknown;
         }>`SELECT command_digest AS digest,result_json AS result FROM organization_lifecycle_history WHERE command_id=${command.commandId}`)[0];
 
-        if (receipt) {
+        if (receipt !== undefined) {
           if (receipt.digest !== digest) return yield* fail("Conflict");
 
           return yield* decode(OrganizationLifecycleResult)(receipt.result);

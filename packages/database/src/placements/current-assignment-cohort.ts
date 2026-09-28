@@ -12,6 +12,10 @@ import {
 } from "@vektorprogrammet/domain/placements";
 import { pgQuery, pgTransaction } from "../pg-pool.js";
 
+/** The truthiness test of a `rowCount`: present, not zero, and not NaN. */
+const hasRowCount = (rowCount: number | null): boolean =>
+  rowCount !== null && rowCount !== 0 && !Number.isNaN(rowCount);
+
 export const currentAssignmentImportSourceDigest = Effect.fn("currentAssignmentImportSourceDigest")(
   function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -213,7 +217,7 @@ export const decodeReconciledCurrentAssignmentSnapshot = flow(
 
         if (
           sourceIds.has(row.sourceAssignmentId) ||
-          !entry ||
+          entry === undefined ||
           row.sourceSemesterId !== review.sourceSemesterId ||
           row.active !== entry.active ||
           row.affiliationEvidenceRef !== entry.affiliationEvidenceRef ||
@@ -290,7 +294,8 @@ const validateReconciledProvenance = Effect.fnUntraced(function* (
     [snapshot.sourceRepository, snapshot.snapshotId],
   )).rows[0];
 
-  if (!evidence) return yield* new CurrentAssignmentFailure({ code: "ReferenceProvenanceMissing" });
+  if (evidence === undefined)
+    return yield* new CurrentAssignmentFailure({ code: "ReferenceProvenanceMissing" });
 
   if (
     evidence.source_revision !== snapshot.sourceRevision ||
@@ -334,7 +339,8 @@ const validateReconciledProvenance = Effect.fnUntraced(function* (
     semesters.size !== references.semesters.length ||
     schools.size !== references.schools.length ||
     relationships.size !== references.relationships.length ||
-    !semesterId ||
+    semesterId === undefined ||
+    semesterId === "" ||
     references.relationships.some(
       ({ sourceDepartmentId, sourceSchoolId, departmentId, schoolId }) =>
         departments.get(sourceDepartmentId) !== departmentId ||
@@ -358,7 +364,8 @@ const validateReconciledProvenance = Effect.fnUntraced(function* (
     [semesterId, snapshot.review.asOf],
   );
 
-  if (!semester.rowCount) return yield* new CurrentAssignmentFailure({ code: "InvalidSnapshot" });
+  if (!hasRowCount(semester.rowCount))
+    return yield* new CurrentAssignmentFailure({ code: "InvalidSnapshot" });
 
   const personSnapshot = yield* pgQuery(
     tx,
@@ -373,7 +380,7 @@ const validateReconciledProvenance = Effect.fnUntraced(function* (
     ],
   );
 
-  if (!personSnapshot.rowCount)
+  if (!hasRowCount(personSnapshot.rowCount))
     return yield* new CurrentAssignmentFailure({ code: "PersonSnapshotConflict" });
 
   return relationships;
@@ -453,14 +460,14 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
       [snapshotKey],
     );
 
-    if (prior.rows[0] && prior.rows[0].snapshot_digest !== snapshotDigest)
+    if (prior.rows[0] !== undefined && prior.rows[0].snapshot_digest !== snapshotDigest)
       return yield* new CurrentAssignmentFailure({ code: "SnapshotConflict" });
 
     const sourceRelationships = snapshot.synthetic
       ? undefined
       : yield* validateReconciledProvenance(tx, snapshot);
 
-    if (prior.rows[0]) {
+    if (prior.rows[0] !== undefined) {
       if (!snapshot.synthetic) {
         const review = yield* pgQuery(
           tx,
@@ -477,7 +484,7 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
           ],
         );
 
-        if (!review.rowCount)
+        if (!hasRowCount(review.rowCount))
           return yield* new CurrentAssignmentFailure({ code: "SnapshotConflict" });
       }
 
@@ -487,13 +494,13 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
     for (const occurrence of decoded) {
       const row = occurrence.value;
 
-      if (!row?.active || !rowDigestMatches(row)) continue;
+      if (row?.active !== true || !rowDigestMatches(row)) continue;
       const mappings = mappingsBySource.get(row.sourceAssignmentId) ?? [];
 
       if (mappings.length !== 1 || !referencesMatch(row, mappings[0]!)) continue;
 
       if (
-        sourceRelationships &&
+        sourceRelationships !== undefined &&
         !sourceRelationships.has(canonicalJson([row.sourceDepartmentId, row.sourceSchoolId]))
       )
         continue;
@@ -527,17 +534,21 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
     for (const occurrence of decoded) {
       const sourceAssignmentId = sourceIdOf(occurrence.row);
 
-      const previousDigest = sourceAssignmentId
-        ? importedBySource.get(sourceAssignmentId)
-        : undefined;
+      const previousDigest =
+        sourceAssignmentId !== undefined && sourceAssignmentId !== ""
+          ? importedBySource.get(sourceAssignmentId)
+          : undefined;
 
       if (previousDigest === undefined) continue;
-      const mappings = sourceAssignmentId ? (mappingsBySource.get(sourceAssignmentId) ?? []) : [];
+      const mappings =
+        sourceAssignmentId !== undefined && sourceAssignmentId !== ""
+          ? (mappingsBySource.get(sourceAssignmentId) ?? [])
+          : [];
       const mapping = mappings.length === 1 ? mappings[0] : undefined;
 
       if (
-        !occurrence.value ||
-        !mapping ||
+        occurrence.value === undefined ||
+        mapping === undefined ||
         !referencesMatch(occurrence.value, mapping) ||
         !rowDigestMatches(occurrence.value) ||
         previousDigest !== assignmentSourceDigest(snapshot, occurrence.value, mapping)
@@ -581,21 +592,22 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
 
     for (const occurrence of decoded) {
       const row = occurrence.value;
-      const mappings = row ? (mappingsBySource.get(row.sourceAssignmentId) ?? []) : [];
+      const mappings =
+        row !== undefined ? (mappingsBySource.get(row.sourceAssignmentId) ?? []) : [];
       const mapping = mappings.length === 1 ? mappings[0] : undefined;
       let reason: CurrentAssignmentReason;
       let sourceDigest: string | undefined;
       let placementId: string | undefined;
       let createAffiliation = false;
 
-      if (!row || !rowDigestMatches(row)) reason = "InvalidRow";
+      if (row === undefined || !rowDigestMatches(row)) reason = "InvalidRow";
       else if (!row.active) reason = "Inactive";
       else if ((sourceCounts.get(row.sourceAssignmentId) ?? 0) > 1) reason = "DuplicateSource";
       else if (mappings.length === 0) reason = "MappingMissing";
       else if (mappings.length > 1) reason = "MappingAmbiguous";
       else if (!referencesMatch(row, mapping!)) reason = "SourceReferenceMismatch";
       else if (
-        sourceRelationships &&
+        sourceRelationships !== undefined &&
         !sourceRelationships.has(canonicalJson([row.sourceDepartmentId, row.sourceSchoolId]))
       )
         reason = "SchoolDepartmentMismatch";
@@ -624,7 +636,7 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
             ],
           );
 
-          if (!personEvidence.rowCount) reason = "PersonReconciliationMissing";
+          if (!hasRowCount(personEvidence.rowCount)) reason = "PersonReconciliationMissing";
           else {
             const references = (yield* pgQuery<{
               department_exists: boolean;
@@ -693,7 +705,7 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
                 ],
               );
 
-              if (affiliation) {
+              if (affiliation !== undefined) {
                 if (
                   affiliation.status !== "Active" ||
                   affiliation.revision !== 1 ||
@@ -701,12 +713,15 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
                   affiliationProvenance.rows[0]!.source_repository !== snapshot.sourceRepository
                 )
                   reason = "TargetConflict";
-                else if (deterministicPlacement.rowCount) reason = "TargetConflict";
-                else if (overlappingPlacement.rowCount) reason = "PlacementOverlap";
+                else if (hasRowCount(deterministicPlacement.rowCount)) reason = "TargetConflict";
+                else if (hasRowCount(overlappingPlacement.rowCount)) reason = "PlacementOverlap";
                 else reason = "Imported";
-              } else if (affiliationProvenance.rowCount || deterministicPlacement.rowCount) {
+              } else if (
+                hasRowCount(affiliationProvenance.rowCount) ||
+                hasRowCount(deterministicPlacement.rowCount)
+              ) {
                 reason = "TargetConflict";
-              } else if (overlappingPlacement.rowCount) reason = "PlacementOverlap";
+              } else if (hasRowCount(overlappingPlacement.rowCount)) reason = "PlacementOverlap";
               else {
                 createAffiliation = true;
                 reason = "Imported";
@@ -725,7 +740,15 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
         [snapshotKey, occurrence.occurrenceId, accepted ? "Accepted" : "Quarantined", reason],
       );
 
-      if (reason === "Imported" && row && mapping && sourceDigest && placementId) {
+      if (
+        reason === "Imported" &&
+        row !== undefined &&
+        mapping !== undefined &&
+        sourceDigest !== undefined &&
+        sourceDigest !== "" &&
+        placementId !== undefined &&
+        placementId !== ""
+      ) {
         if (createAffiliation)
           yield* pgQuery(
             tx,
