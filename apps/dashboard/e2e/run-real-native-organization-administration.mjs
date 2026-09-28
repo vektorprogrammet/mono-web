@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 import { deriveHttpIdentity } from "@vektorprogrammet/backend/http-semantics";
+import { isRpcPath } from "./native-operations.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -496,7 +497,8 @@ async function startRecordingProxy(targetOrigin) {
       status: 0,
     };
 
-    const rpc = url.pathname === "/api/rpc" ? parseRpcRequest(record.request) : undefined;
+    const rpc =
+      method === "POST" && isRpcPath(url.pathname) ? parseRpcRequest(record.request) : undefined;
 
     // A native RPC is recorded as the route it replaced, with its key and request from the payload.
     if (rpc !== undefined) {
