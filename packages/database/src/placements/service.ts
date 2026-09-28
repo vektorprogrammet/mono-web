@@ -89,7 +89,18 @@ export const PlacementsLive = Layer.effect(
       checkPrecondition: (current: PlacementSnapshot) => Effect.Effect<void, E, R>,
     ) =>
       Effect.gen(function* () {
-        const { mutation, actor, now, commandId } = input;
+        const { mutation, now, commandId } = input;
+
+        // A coordinator acts only in the department its evidence names.
+        if (
+          "coordinator" in input &&
+          input.coordinator.departmentId !== mutation.scope.departmentId
+        )
+          return yield* Effect.die(
+            new Error("placement coordinator evidence names another department"),
+          );
+
+        const actor = "coordinator" in input ? input.coordinator.personId : input.actor;
         yield* run(lockPlacementDepartment(mutation.scope.departmentId));
 
         return yield* Match.value(mutation).pipe(

@@ -18,6 +18,7 @@ Tag a construct only when at least 2 modules outside its own module and the test
   - [`normalizeTarget`](constructs/http-transport.md#normalizetarget): Fills a route template with its encoded identities; a missing identity is a malformed request.
   - [`deriveHttpIdentity`](constructs/http-transport.md#derivehttpidentity): Derives the private storage digest and domain command ID from the identity tuple.
 - [authority-evidence](constructs/authority-evidence.md): Checks a resolved authority and returns the evidence that a command which needs that authority takes; nothing else constructs it.
+  - [`requireDepartmentReach`](constructs/authority-evidence.md#requiredepartmentreach): Checks that a resolved authority reaches one department with a capability, and returns the evidence that a department-scoped command requires.
   - [`requireOrganizationAdministrator`](constructs/authority-evidence.md#requireorganizationadministrator): Checks that a resolved authority holds active global administration, and returns the evidence that the Organization administration commands require.
 - [http-problem](constructs/http-problem.md): Answers a native HTTP request with a declared problem: failure mapping, credential classification, authorization, and decoding.
   - [`authorizeAdmissionPerson`](constructs/http-problem.md#authorizeadmissionperson): Evaluates one admission person AccessSpec.

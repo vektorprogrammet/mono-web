@@ -1,3 +1,4 @@
+import { administratorDepartmentReach } from "@vektorprogrammet/domain/organization/authority-fixtures";
 import { createHash } from "node:crypto";
 import { Database, IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { commandOnboarding } from "@vektorprogrammet/database/onboarding";
@@ -10,7 +11,7 @@ import {
 } from "@vektorprogrammet/domain/authz";
 import { IdentityActor, IdentitySessionNotFound } from "@vektorprogrammet/domain/identity";
 import { OnboardingClaim, OnboardingClaimResult } from "@vektorprogrammet/domain/onboarding";
-import { DepartmentId, Organization, PersonId } from "@vektorprogrammet/domain/organization";
+import { Organization, PersonId } from "@vektorprogrammet/domain/organization";
 import { NativeProblem } from "@vektorprogrammet/http-api";
 import { DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "@effect/vitest";
@@ -78,12 +79,15 @@ const seed = Database.use((sql) =>
       `;
       yield* sql.withTransaction(
         commandOnboarding({
-          departmentId: DepartmentId.make("claim-department"),
+          coordinator: administratorDepartmentReach(
+            "claim-issuer",
+            "admissions.outcomes",
+            "claim-department",
+          ),
           command: {
             applicationId: PublicApplicationIdSchema.make(`claim-application-${applicant}`),
             action: "Issue",
           },
-          actor: PersonId.make("claim-issuer"),
           now: issuedAt,
           invitationId: `claim-invitation-${applicant}`,
           token: tokens[applicant],

@@ -10,7 +10,7 @@ import {
   type AdmissionPeriodCommand,
 } from "../admission-period/schema.js";
 import type { OrganizationPersonAuthority } from "../organization/authority.js";
-import type { PersonId } from "../organization/schema.js";
+import type { DepartmentReach } from "../authz/reach.js";
 import type {
   AdmissionOutcomeBoard,
   AdmissionOutcomeCommand,
@@ -86,7 +86,8 @@ export interface AdmissionsOperations {
     input: {
       readonly applicationId: AdmissionOutcomeEntry["applicationId"];
       readonly command: AdmissionOutcomeCommand;
-      readonly actor: PersonId;
+      /** Reach over the application's department; another department's evidence is denied. */
+      readonly decider: DepartmentReach<"admissions.outcomes">;
       readonly now: string;
     },
     checkPrecondition: (current: AdmissionOutcomeEntry) => Effect.Effect<void, E, R>,

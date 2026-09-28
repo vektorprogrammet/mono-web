@@ -1,5 +1,6 @@
 import { Context, Data, type Effect } from "effect";
 import type { DepartmentId, OrganizationPersonAuthority, PersonId } from "../organization/index.js";
+import type { DepartmentReach } from "../authz/reach.js";
 import type {
   CertificateCommandTarget,
   CertificateAssistant,
@@ -61,12 +62,26 @@ export type PlacementMutation =
 
 export type PlacementSnapshot = Affiliation | PlacementBoard | OwnCoverageView | CoverageBoard;
 
-export interface PlacementExecution {
-  readonly mutation: PlacementMutation;
-  readonly actor: PersonId;
-  readonly now: string;
-  readonly commandId: string;
-}
+/**
+ * One placement mutation. A person changes their own affiliation or coverage as themselves; a
+ * board or coverage-board change needs a coordinator's reach over the mutation's department.
+ */
+export type PlacementExecution =
+  | {
+      readonly mutation: Extract<
+        PlacementMutation,
+        { readonly mode: "affiliation" | "ownCoverage" }
+      >;
+      readonly actor: PersonId;
+      readonly now: string;
+      readonly commandId: string;
+    }
+  | {
+      readonly mutation: Extract<PlacementMutation, { readonly mode: "board" | "coverage" }>;
+      readonly coordinator: DepartmentReach<"placements.coordinate">;
+      readonly now: string;
+      readonly commandId: string;
+    };
 
 /** One page of the assistants of a department and semester, with the scope's labels. */
 export interface DaysServedPage extends AssistantPage<DaysServedEntry> {

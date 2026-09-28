@@ -161,7 +161,7 @@ export const admissionOutcomeOperations = (
         }),
       ),
     readAdmissionOutcome: (applicationId) => run(readEntry(applicationId)),
-    recordAdmissionOutcome: ({ applicationId, command, actor, now }, checkPrecondition) =>
+    recordAdmissionOutcome: ({ applicationId, command, decider, now }, checkPrecondition) =>
       Effect.gen(function* () {
         yield* run(
           Database.use(
@@ -170,6 +170,11 @@ export const admissionOutcomeOperations = (
           ),
         );
         const current = yield* run(readEntry(applicationId));
+
+        // The evidence decides only in its own department, checked on the locked application.
+        if (current.departmentId !== decider.departmentId)
+          return yield* new AdmissionOutcomeFailure({ code: "authority.denied", status: 403 });
+
         yield* checkPrecondition(current);
 
         if (current.outcome === command.outcome) return current;
@@ -179,7 +184,7 @@ export const admissionOutcomeOperations = (
             yield* Database.use(
               (sql) => sql`INSERT INTO public.admission_application_outcomes
               (application_id, revision, outcome, decided_by_person_id, decided_at)
-              VALUES (${applicationId}, ${current.revision + 1}, ${command.outcome}, ${actor}, ${now})`,
+              VALUES (${applicationId}, ${current.revision + 1}, ${command.outcome}, ${decider.personId}, ${now})`,
             );
 
             return yield* readEntry(applicationId);

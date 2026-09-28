@@ -10,7 +10,7 @@ import {
   type AdmissionOutcomeEntry,
   type AdmissionOutcomeOperationFailure,
 } from "@vektorprogrammet/domain/admissions";
-import { Scope } from "@vektorprogrammet/domain/authz";
+import { requireDepartmentReach, Scope } from "@vektorprogrammet/domain/authz";
 import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import type { OrganizationPersistenceError } from "@vektorprogrammet/domain/organization";
 import {
@@ -293,11 +293,16 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
 
           const auth = yield* personAuthority(request);
 
+          // Deciding needs the department's reach; the command takes it as evidence.
+          const decider = yield* Effect.fromResult(
+            requireDepartmentReach(auth.authority, "admissions.outcomes", selected.departmentId),
+          ).pipe(Effect.mapError(() => Problem.make("authority.denied")));
+
           yield* authorize(
             request,
             RecordAdmissionOutcomeEndpoint,
             selected.departmentId,
-            true,
+            false,
             auth,
           );
 
@@ -322,7 +327,7 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
                   {
                     applicationId,
                     command,
-                    actor: auth.authority.personId,
+                    decider,
                     now: auth.authorizationInstant,
                   },
                   (current) => requireCurrentETag(outcomeResource(current).etag, ifMatch),

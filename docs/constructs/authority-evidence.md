@@ -4,6 +4,50 @@
 
 Checks a resolved authority and returns the evidence that a command which needs that authority takes; nothing else constructs it. The [index](../constructs.md) lists every category.
 
+## `requireDepartmentReach`
+
+Checks that a resolved authority reaches one department with a capability, and returns the evidence that a department-scoped command requires.
+
+```ts
+requireDepartmentReach<C extends OrganizationCapability>(
+  authority: OrganizationPersonAuthority,
+  capability: C,
+  departmentId: DepartmentId
+): Result.Result<DepartmentReach<C>, DepartmentReachDenied>
+```
+
+- Inputs:
+  - `authority: OrganizationPersonAuthority`
+  - `capability: C`
+  - `departmentId: DepartmentId`
+- Output: `Result.Result<DepartmentReach<C>, DepartmentReachDenied>`
+- Errors: `DepartmentReachDenied`
+- Requirements: none
+- Side effects: none
+- Source: [packages/domain/src/authz/reach.ts:194](../../packages/domain/src/authz/reach.ts#L194)
+
+**How it works**
+
+It is the only constructor of `DepartmentReach` and decides exactly as `reaches`
+with a department target: a board leadership of the independent department, a national board
+leadership, a delegation over the department or the organization, or an active global
+administrator where the capability admits one. A team leadership never reaches a department.
+
+**Use**
+
+```ts
+const coordinator = yield* Effect.fromResult(
+  requireDepartmentReach(authority, "placements.coordinate", departmentId),
+);
+yield* placements.execute({ mutation, coordinator, now, commandId });
+```
+
+**Avoid**
+
+Checking `reaches` at the call site and passing a department and a person to the
+command: the command then trusts that some caller checked, for that department. Require the
+evidence, and take the department from it.
+
 ## `requireOrganizationAdministrator`
 
 Checks that a resolved authority holds active global administration, and returns the evidence that the Organization administration commands require.

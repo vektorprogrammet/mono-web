@@ -1,7 +1,6 @@
 import {
   credentialMatchesAccessSpec,
-  reaches,
-  ReachTarget,
+  requireDepartmentReach,
   Scope,
 } from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/database";
@@ -184,8 +183,9 @@ const authorize = (
   Effect.gen(function* () {
     const auth = yield* resolveRequestPersonAuthorityInTransaction(request, { now });
 
-    if (!reaches(auth.authority, "admissions.outcomes", ReachTarget.Department({ departmentId })))
-      return yield* Problem.make("authority.denied");
+    const coordinator = yield* Effect.fromResult(
+      requireDepartmentReach(auth.authority, "admissions.outcomes", departmentId),
+    ).pipe(Effect.mapError(() => Problem.make("authority.denied")));
 
     yield* authorizePerson(
       {
@@ -208,7 +208,7 @@ const authorize = (
       presentation,
     );
 
-    return auth;
+    return { ...auth, coordinator };
   });
 
 /**
@@ -302,9 +302,8 @@ export const OnboardingApiHandlers = (input: {
               const current = resource(yield* readOnboardingBoard(scope.departmentId));
               yield* requireCurrentETag(current.etag, ifMatch);
               yield* commandOnboarding({
-                departmentId: scope.departmentId,
+                coordinator: auth.coordinator,
                 command: selected,
-                actor: auth.authority.personId,
                 now: auth.authorizationInstant,
                 invitationId: "onboarding-" + identity.identitySha256,
                 token,

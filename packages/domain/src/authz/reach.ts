@@ -3,7 +3,7 @@
  * `delegatedReach`). Every decision that depends on team or board leadership, or on a delegation,
  * asks this module; no other product code reads a leadership flag.
  */
-import { Data, Match, Option, Order } from "effect";
+import { Data, Match, Option, Order, Result } from "effect";
 import type { OrganizationPersonAuthority } from "../organization/authority.js";
 import type { DepartmentId, MembershipId, PersonId, TeamId } from "../organization/schema.js";
 import {
@@ -143,6 +143,71 @@ export const reaches = (
   capability: OrganizationCapability,
   target: ReachTarget,
 ): boolean => reachScopes(authority, capability).some((scope) => scopeCovers(scope, target));
+
+/** Type-only brand. No module exports a value of it, so only {@link requireDepartmentReach} builds the evidence. */
+declare const DepartmentReachBrand: unique symbol;
+
+/**
+ * Proof that a person held `capability` over one department when their authority was resolved.
+ * A command takes the department from it, so the proof cannot be pointed at another department.
+ */
+export interface DepartmentReach<C extends OrganizationCapability> {
+  readonly [DepartmentReachBrand]: C;
+  readonly personId: PersonId;
+  readonly capability: C;
+  readonly departmentId: DepartmentId;
+}
+
+/** The person does not hold the capability over the department. */
+export class DepartmentReachDenied extends Data.TaggedError("DepartmentReachDenied")<{
+  readonly personId: PersonId;
+  readonly capability: OrganizationCapability;
+  readonly departmentId: DepartmentId;
+}> {}
+
+/**
+ * Checks that a resolved authority reaches one department with a capability, and returns the
+ * evidence that a department-scoped command requires.
+ *
+ * @remarks
+ * It is the only constructor of {@link DepartmentReach} and decides exactly as {@link reaches}
+ * with a department target: a board leadership of the independent department, a national board
+ * leadership, a delegation over the department or the organization, or an active global
+ * administrator where the capability admits one. A team leadership never reaches a department.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * const coordinator = yield* Effect.fromResult(
+ *   requireDepartmentReach(authority, "placements.coordinate", departmentId),
+ * );
+ * yield* placements.execute({ mutation, coordinator, now, commandId });
+ * ```
+ *
+ * @avoid Checking `reaches` at the call site and passing a department and a person to the
+ * command: the command then trusts that some caller checked, for that department. Require the
+ * evidence, and take the department from it.
+ *
+ * @construct authority-evidence
+ */
+export const requireDepartmentReach = <C extends OrganizationCapability>(
+  /** The person's authority, resolved from current facts inside the command transaction. */
+  authority: OrganizationPersonAuthority,
+  /** The capability that the command needs. */
+  capability: C,
+  /** The department that the command acts in. */
+  departmentId: DepartmentId,
+): /** Evidence for the department, or the typed denial. */
+Result.Result<DepartmentReach<C>, DepartmentReachDenied> =>
+  reaches(authority, capability, ReachTarget.Department({ departmentId }))
+    ? Result.succeed(
+        // SAFETY: the one constructor of the evidence brand; the reach check above is what it proves.
+        { personId: authority.personId, capability, departmentId } as DepartmentReach<C>,
+      )
+    : Result.fail(
+        new DepartmentReachDenied({ personId: authority.personId, capability, departmentId }),
+      );
 
 /** The departments that the person reaches as a whole. */
 export type ReachedDepartments = Data.TaggedEnum<{
