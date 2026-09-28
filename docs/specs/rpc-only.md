@@ -260,9 +260,32 @@ Notes (directory):
 
 | RPC tag | Replaces | Transport facts | Credentials | Status |
 | --- | --- | --- | --- | --- |
-| `onboarding.claim` | POST `/api/onboarding/claim` | - | cookieHeader | todo |
-| `onboarding.command` | POST `/api/onboarding` | idempotencyKey; ifMatch; query: departmentId | cookieHeader, oauthUserBearer | todo |
-| `onboarding.readBoard` | GET `/api/onboarding` | query: departmentId | cookieHeader, oauthUserBearer | todo |
+| `onboarding.claim` | POST `/api/onboarding/claim` | - | cookieHeader | ported |
+| `onboarding.command` | POST `/api/onboarding` | idempotencyKey; ifMatch; query: departmentId | cookieHeader, oauthUserBearer | ported |
+| `onboarding.readBoard` | GET `/api/onboarding` | query: departmentId | cookieHeader, oauthUserBearer | ported |
+
+Notes (onboarding):
+
+- The three RPCs keep the old operation IDs as tags. `onboarding.command` keeps
+  `/api/onboarding/{departmentId}` as its normalized target and digests the command's JSON with its
+  `ifMatch`, as the HTTP handler did; its receipt keeps the HTTP capsule (resource body, `etag`
+  header). The command still takes `DepartmentReach<"admissions.outcomes">` (the coordinator) as
+  evidence, resolved in the committing transaction (`apps/backend/src/onboarding/claim.rpc.test.ts`).
+- `onboarding.readBoard` and `onboarding.command` take `{ departmentId }` in the payload; the
+  command also takes `idempotencyKey`, `ifMatch`, and `request` (the command). Both answer
+  `OnboardingResource`, the board with its `etag`, as before; the command's `ETag` header is gone.
+- `onboarding.claim` has no credential middleware, as the HTTP route had no security scheme: the
+  handler answers credential.missing or credential.invalid itself. A new-account claim with a
+  cookie or bearer beside its token answers credential.invalid; an existing-account claim takes the
+  browser session and refuses a delegated bearer. Credential problems carry no `WWW-Authenticate`
+  challenge over RPC.
+- Dropped: `validation.failed` from decoding the claim or the command (a payload that does not
+  decode now fails in the RPC server as a defect), `request.malformed`, `request.too-large`
+  (8 KiB body bound), `media-type.unsupported`, `precondition.required`, `precondition.invalid`,
+  and `idempotency-key.invalid`. The dashboard's onboarding and account-claim forms decode the same
+  schemas before they call, so no field error is lost.
+- `apps/dashboard/app/routes/dashboard.onboarding.tsx` reads `placements.listScopes` for its
+  department list; that RPC belongs to the placements slice and does not type-check until it lands.
 
 ### organization (`packages/rpc/src/organization.ts`)
 
@@ -374,22 +397,73 @@ Notes (profile):
 
 | RPC tag | Replaces | Transport facts | Credentials | Status |
 | --- | --- | --- | --- | --- |
-| `recruitment.cancelInterview` | POST `/api/recruitment/interviews/{interviewId}:cancel` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | todo |
-| `recruitment.confirmInvitation` | POST `/api/recruitment/invitation-response:confirm` | ifMatch | invitationCapability | todo |
-| `recruitment.correctInterviewAssessment` | POST `/api/recruitment/interviews/{interviewId}:correct` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | todo |
-| `recruitment.createApplicationInterview` | POST `/api/recruitment/applications/{applicationId}/interviews` | idempotencyKey | cookieHeader, oauthUserBearer | todo |
-| `recruitment.finalizeInterview` | POST `/api/recruitment/interviews/{interviewId}:finalize` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | todo |
-| `recruitment.maintainRecruitment` | POST `/api/recruitment/maintenance/commands` | idempotencyKey | cookieHeader, oauthUserBearer | todo |
-| `recruitment.readAssignmentBoard` | GET `/api/recruitment/application-assignments` | query: status | cookieHeader, oauthUserBearer | todo |
-| `recruitment.readInterviewConduct` | GET `/api/recruitment/interviews/{interviewId}` | ifMatch; if-none-match (dropped) | cookieHeader, oauthUserBearer | todo |
-| `recruitment.readInterviewReport` | GET `/api/recruitment/interview-report` | query: admissionPeriodId, recommendation, participation, sort, direction | cookieHeader, oauthUserBearer | todo |
-| `recruitment.readInterviewStaffing` | GET `/api/recruitment/interview-staffing` | - | cookieHeader, oauthUserBearer | todo |
-| `recruitment.readInvitationResponse` | GET `/api/recruitment/invitation-response` | ifMatch; if-none-match (dropped) | invitationCapability | todo |
-| `recruitment.readQuestionnaires` | GET `/api/recruitment/questionnaires` | - | cookieHeader, oauthUserBearer | todo |
-| `recruitment.readSchedulingBoard` | GET `/api/recruitment/interviews` | - | cookieHeader, oauthUserBearer | todo |
-| `recruitment.rejectInvitation` | POST `/api/recruitment/invitation-response:reject` | ifMatch | invitationCapability | todo |
-| `recruitment.requestNewInvitationTime` | POST `/api/recruitment/invitation-response:request-new-time` | ifMatch | invitationCapability | todo |
-| `recruitment.scheduleInterview` | POST `/api/recruitment/interviews/{interviewId}:schedule` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | todo |
+| `recruitment.cancelInterview` | POST `/api/recruitment/interviews/{interviewId}:cancel` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+| `recruitment.confirmInvitation` | POST `/api/recruitment/invitation-response:confirm` | ifMatch | invitationCapability | ported |
+| `recruitment.correctInterviewAssessment` | POST `/api/recruitment/interviews/{interviewId}:correct` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+| `recruitment.createApplicationInterview` | POST `/api/recruitment/applications/{applicationId}/interviews` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `recruitment.finalizeInterview` | POST `/api/recruitment/interviews/{interviewId}:finalize` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+| `recruitment.maintainRecruitment` | POST `/api/recruitment/maintenance/commands` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `recruitment.readAssignmentBoard` | GET `/api/recruitment/application-assignments` | query: status | cookieHeader, oauthUserBearer | ported |
+| `recruitment.readInterviewConduct` | GET `/api/recruitment/interviews/{interviewId}` | ifMatch; if-none-match (dropped) | cookieHeader, oauthUserBearer | ported |
+| `recruitment.readInterviewReport` | GET `/api/recruitment/interview-report` | query: admissionPeriodId, recommendation, participation, sort, direction | cookieHeader, oauthUserBearer | ported |
+| `recruitment.readInterviewStaffing` | GET `/api/recruitment/interview-staffing` | - | cookieHeader, oauthUserBearer | ported |
+| `recruitment.readInvitationResponse` | GET `/api/recruitment/invitation-response` | ifMatch; if-none-match (dropped) | invitationCapability | ported |
+| `recruitment.readQuestionnaires` | GET `/api/recruitment/questionnaires` | - | cookieHeader, oauthUserBearer | ported |
+| `recruitment.readSchedulingBoard` | GET `/api/recruitment/interviews` | - | cookieHeader, oauthUserBearer | ported |
+| `recruitment.rejectInvitation` | POST `/api/recruitment/invitation-response:reject` | ifMatch | invitationCapability | ported |
+| `recruitment.requestNewInvitationTime` | POST `/api/recruitment/invitation-response:request-new-time` | ifMatch | invitationCapability | ported |
+| `recruitment.scheduleInterview` | POST `/api/recruitment/interviews/{interviewId}:schedule` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+
+Notes (recruitment):
+
+- The sixteen RPCs keep the old operation IDs as tags and the old routes as `normalizedTarget`, so
+  receipts and domain command IDs that straddle the cutover stay stable. Every command keeps its
+  AccessSpec, its authority resolved inside the committing transaction, and its command receipt;
+  `recruitment.maintainRecruitment` still takes `RecruitmentMaintenanceAuthorization` and requires
+  `commandId` to equal the idempotency key (`idempotency.digest-conflict`).
+- Interview command receipts keep the HTTP capsule byte for byte: the response body and the
+  interview's new entity tag as the `etag` header (assignment: status 201 and `location` too). The
+  RPC answers `{ result, etag }` (assignment: `{ interview, etag }`), and a replay decodes the stored
+  capsule, so a retry across the cutover answers the first response.
+- ETags that a later RPC takes as `ifMatch` travel as fields: `readInterviewConduct` answers
+  `{ detail, etag }`, the scheduling board keeps an `etag` per interview, `readInvitationResponse`
+  answers `{ observation, etag }`, and each invitation response answers `{ etag }` where HTTP
+  answered 204 with an `ETag` header. `readQuestionnaires`, `readInterviewStaffing`, and
+  `maintainRecruitment` lose their ETag headers; no RPC took them as `ifMatch`.
+- Invitation responses take `InvitationCapabilityCredential`. The capability moved from the
+  `X-Recruitment-Invitation-Capability` header into the payload (`capability`), where the handler
+  decodes it: a malformed, empty, or unknown capability answers resource.not-found, and every
+  AccessSpec denial is concealed as resource.not-found as before. A cookie or bearer beside the
+  capability answers credential.invalid (no `WWW-Authenticate` challenge over RPC). A payload with
+  no `capability` member at all fails in the RPC server as a defect.
+- Dropped: `If-None-Match`/304 and the read-side `If-Match` (412) on `readInvitationResponse` and
+  `readInterviewConduct`, and the private `Cache-Control`/`Vary` of every read.
+- Dropped as HTTP parsing: `request.malformed`, `header.malformed`, `origin.denied`,
+  `request.too-large` (the recruitment body bound, and the 1 MiB maintenance bound),
+  `media-type.unsupported`, `idempotency-key.invalid`, `precondition.required`,
+  `precondition.invalid`. Structural validation moved to the RPC server: a finalization or
+  correction whose answers, scores, or recommendation do not decode, an invitation message that
+  fails its schema (such as one containing a capability-like token), and an interview report query
+  with an unknown sort or filter now fail as a defect instead of validation.failed or
+  request.malformed; an unknown report query member is dropped instead of refused. Answers that
+  decode but do not fit the questionnaire still answer recruitment.conduct-invalid. The dashboard
+  bridge and Foldkit forms decode the same schemas first, so no UI loses a field error.
+- `recruitment.cancelInterview` takes no `request` member: the HTTP body was an exact empty object,
+  which the digest still uses. `recruitment.confirmInvitation` likewise takes no body.
+- An identifier that no route path can spell (a lone surrogate passes the identifier schemas) makes
+  the normalized target throw; it is now a defect (internal.error) instead of request.malformed.
+- The old `index.ts` exports `recruitmentInterviewAccessContext`, `interviewETag`,
+  `invitationETag`, and `schedulingBoardWithETags` had no caller outside the backend's own tests,
+  so they stay module exports of `apps/backend/src/recruitment/`.
+- Clients: the dashboard recruitment bridge (`routes/__foldkit.recruitment.ts`), the interview
+  invitation bridge (`lib/interview-bridge.server.ts`, capability calls with no session cookie via
+  `callNativeAnonymously`), the maintenance Foldkit program (`callBrowserNative`), and the
+  interview, applicant, onboarding, and account-claim routes call the RPCs. Journey recorders
+  classify each RPC as the route it replaced (`apps/dashboard/e2e/native-rpc-ledger.ts`), so their
+  transport assertions keep their route names; statuses that were 201 or 204 are now 200. The
+  acceptance probes read each RPC as the replaced route's response (`replacedFetch`).
+- Journeys were ported for compilation only and not run (the lead runs them at integration).
+
 
 ### social-events (`packages/rpc/src/social-events.ts`)
 
