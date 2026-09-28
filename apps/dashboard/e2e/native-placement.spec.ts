@@ -1,17 +1,18 @@
 import AxeBuilder from "@axe-core/playwright";
 import type { AdmissionOutcomeCommand } from "@vektorprogrammet/domain/admissions";
-import type {
+import {
   CoverageCommand,
   OwnCoverageCommand,
   PlacementCommand,
+  PlacementScope,
 } from "@vektorprogrammet/domain/placements";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type BrowserContext, type Page, type Locator } from "@playwright/test";
-import { PublicApplicationIdSchema } from "@vektorprogrammet/rpc";
+import { type NativeRpcClient, PublicApplicationIdSchema } from "@vektorprogrammet/rpc";
 import { IdempotencyKey, StrongETag } from "@vektorprogrammet/rpc/problem";
 import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
-import { Order } from "effect";
+import { type Effect, Match, Order, Schema } from "effect";
 
 const manifestPath = process.env.PLACEMENT_JOURNEY_MANIFEST;
 
@@ -81,45 +82,6 @@ const submittedAndRemoved = async (form: Locator) => {
   await expect(form).toHaveCount(0);
 };
 
-const readBoard = async (page: Page) => {
-  const response = await page.request.get(
-    `${manifest.backendOrigin}/api/placements?${new URLSearchParams({ departmentId: manifest.departmentId, semesterId: manifest.semesterId })}`,
-    { headers: { origin: manifest.dashboardOrigin } },
-  );
-
-  expect(response.status()).toBe(200);
-
-  return response.json();
-};
-
-const readCoverageBoard = async (page: Page) => {
-  const response = await page.request.get(
-    `${manifest.backendOrigin}/api/placements/coverage?${new URLSearchParams({
-      departmentId: manifest.departmentId,
-      semesterId: manifest.semesterId,
-    })}`,
-    { headers: { origin: manifest.dashboardOrigin } },
-  );
-
-  expect(response.status()).toBe(200);
-
-  return response.json();
-};
-
-const readOwnCoverage = async (page: Page) => {
-  const response = await page.request.get(
-    `${manifest.backendOrigin}/api/placements/coverage/own?${new URLSearchParams({
-      departmentId: manifest.departmentId,
-      semesterId: manifest.semesterId,
-    })}`,
-    { headers: { origin: manifest.dashboardOrigin } },
-  );
-
-  expect(response.status()).toBe(200);
-
-  return response.json();
-};
-
 let outcomeClient: ReturnType<typeof nativeScriptClient> | undefined;
 
 /** The native RPC client of the admission-outcome calls, made once the manifest names the backend. */
@@ -136,6 +98,37 @@ const sessionOf = async (page: Page) => ({
     .join("; "),
   origin: manifest.dashboardOrigin,
 });
+
+/** The department and semester of the journey, as the placement RPCs take them. */
+const placementScope = () =>
+  Schema.decodeSync(PlacementScope)({
+    departmentId: manifest.departmentId,
+    semesterId: manifest.semesterId,
+  });
+
+/**
+ * Answers one placement read as the person of `page`; a refusal fails the journey. The journey
+ * reads the answer as the untyped JSON body it read over HTTP.
+ */
+const readAs = async <A>(
+  page: Page,
+  read: (client: NativeRpcClient["Service"]) => Effect.Effect<A, unknown>,
+): Promise<any> => {
+  const answer = await outcomes().call(await sessionOf(page), read);
+
+  if (!answer.ok) throw new Error(`The placement read answered ${answer.code}`);
+
+  return answer.value;
+};
+
+const readBoard = (page: Page) =>
+  readAs(page, (client) => client["placements.readBoard"](placementScope()));
+
+const readCoverageBoard = (page: Page) =>
+  readAs(page, (client) => client["placements.readCoverageBoard"](placementScope()));
+
+const readOwnCoverage = (page: Page) =>
+  readAs(page, (client) => client["placements.readOwnCoverage"](placementScope()));
 
 /** Admission management reads one application's outcome entry with its version. */
 const readOutcome = async (page: Page, applicationId: string) => {
@@ -1014,20 +1007,54 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     expected: number,
     expectedCode?: string,
   ) => {
-    const response = await actor.request.post(`${manifest.backendOrigin}${path}`, {
-      headers: {
-        origin: manifest.dashboardOrigin,
-        "if-match": etag,
-        "idempotency-key": crypto.randomUUID(),
-      },
-      data: payload,
-    });
+    // Each path names the placement command RPC that replaced its HTTP route.
+    const target = new URL(path, manifest.backendOrigin).pathname;
 
-    const problem = await response.json();
-    expect(response.status(), JSON.stringify(problem)).toBe(expected);
+    expect([
+      "/api/placements",
+      "/api/placements/coverage",
+      "/api/placements/coverage/own",
+    ]).toContain(target);
 
-    if (expectedCode !== undefined) expect(problem.code).toBe(expectedCode);
-    http.push({ check, status: response.status(), boundary: "authenticated-http" });
+    const keys = {
+      ...placementScope(),
+      idempotencyKey: IdempotencyKey.make(crypto.randomUUID()),
+      ifMatch: StrongETag.make(etag),
+    };
+
+    const session = await sessionOf(actor);
+
+    const answer = await Match.value(target).pipe(
+      Match.when("/api/placements", () =>
+        outcomes().call(session, (client) =>
+          client["placements.commandBoard"]({
+            ...keys,
+            request: Schema.decodeUnknownSync(PlacementCommand)(payload),
+          }),
+        ),
+      ),
+      Match.when("/api/placements/coverage", () =>
+        outcomes().call(session, (client) =>
+          client["placements.commandCoverageBoard"]({
+            ...keys,
+            request: Schema.decodeUnknownSync(CoverageCommand)(payload),
+          }),
+        ),
+      ),
+      Match.orElse(() =>
+        outcomes().call(session, (client) =>
+          client["placements.commandOwnCoverage"]({
+            ...keys,
+            request: Schema.decodeUnknownSync(OwnCoverageCommand)(payload),
+          }),
+        ),
+      ),
+    );
+
+    expect(answer.status, JSON.stringify(answer)).toBe(expected);
+
+    if (expectedCode !== undefined) expect(answer.ok ? undefined : answer.code).toBe(expectedCode);
+    http.push({ check, status: answer.status, boundary: "authenticated-rpc" });
   };
 
   /** An admission-outcome record the backend refuses, with its registry status and code. */

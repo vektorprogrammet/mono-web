@@ -272,7 +272,6 @@ try {
     reservation.listen(Number(environment.PORT), "127.0.0.1", resolve);
   });
   await new Promise((resolve) => reservation.close(resolve));
-  await run("bun", ["--no-env-file", "run", "build"], join(root, "packages/sdk"));
   await run("bun", ["--no-env-file", "run", "build"], dashboardRoot);
 
   const sourceTree = spawnSync("git", ["rev-parse", "HEAD^{tree}"], {
