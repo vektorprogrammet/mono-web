@@ -3,6 +3,7 @@
 # tools/acceptance
 
 Local API and browser acceptance probes of single journeys.
+Package `@monoweb/acceptance`.
 
 ## Entry points
 
