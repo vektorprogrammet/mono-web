@@ -8,6 +8,7 @@
     "test": "bun test tests"
   },
   "dependencies": {
+    "@effect/platform-bun": "catalog:effect-v4",
     "effect": "catalog:effect-v4",
     "rolldown": "1.2.6"
   },

@@ -80,10 +80,11 @@ Required rules:
 - Concrete runtimes and vendors belong in Layer implementations and composition
   roots.
 - The production database entry provides PostgreSQL only; PGlite and its extensions enter through `packages/database/src/test-support/platform.ts`, not through the backend or database barrel.
-- Core Effect code, in `packages/domain`, `packages/database`, `packages/rpc`, and `apps/backend`,
+- Effect code, in `packages`, `apps/backend`, `apps/docs`, and `tools`,
   reaches the clock, randomness, timers, the network, the environment, Node built-ins, and the console through Effect services,
   and uses Effect programs, tagged errors, and Schema instead of Promises, native errors, and `JSON`.
-  Oxlint rejects the platform forms there (the `effectNative` rules of the Effect language service); the other apps, packages, and tools are not Effect programs.
+  Oxlint reports every Effect language-service rule there as an error (operator decision, 2026-09-28); a journey driver or tool is an Effect program whose composition root provides the Bun platform.
+  `apps/homepage` and `apps/dashboard` run only the recommended and correctness rules.
 - Do not add a microservice until an observed operational need requires an
   independent deployment boundary.
 - Oxlint rejects the selected browser-to-database, product-to-proof, and cross-package source imports, including relative paths.
