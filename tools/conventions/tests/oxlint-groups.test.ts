@@ -1,6 +1,6 @@
 // Oxlint override globs do not support extglob, and an override that matches no file fails
 // silently: the Effect domain groups once used `!(…)` patterns and no core rule ever ran.
-import { correctness, effectNative, recommended } from "@effect/tsgo/oxlint-presets";
+import { correctness, effectNative, presets, recommended } from "@effect/tsgo/oxlint-presets";
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import config from "../../../oxlint.config.ts";
@@ -57,14 +57,14 @@ describe("oxlint override globs", () => {
 describe("Effect domain groups", () => {
   test("core sources receive their role's rules", () => {
     expect(effectRulesFor("packages/domain/src/probe.ts")).toContain("effect/no-ambient-authority");
-    expect(effectRulesFor("packages/sdk/src/probe.ts")).toContain("effect/no-ambient-authority");
+    expect(effectRulesFor("packages/rpc/src/client.ts")).toContain("effect/no-ambient-authority");
     expect(effectRulesFor("packages/database/src/probe.ts")).toContain("effect/no-ambient-console");
     expect(effectRulesFor("apps/backend/src/probe.ts")).toContain("effect/no-ambient-console");
   });
 
   test("core sources run the strict rules, and the adapters decode external data", () => {
     expect(effectRulesFor("packages/domain/src/probe.ts")).toContain("effect/no-untyped-throw");
-    expect(effectRulesFor("packages/sdk/src/probe.ts")).toContain(
+    expect(effectRulesFor("packages/rpc/src/client.ts")).toContain(
       "effect/no-native-promise-control-flow",
     );
     expect(effectRulesFor("packages/database/src/probe.ts")).toContain(
@@ -124,38 +124,67 @@ const settingsFor = (path: string) =>
   );
 
 describe("Effect language-service rules", () => {
-  const presetRules = [
-    ...new Set([recommended, correctness].flatMap((preset) => Object.keys(preset.rules ?? {}))),
-  ];
+  // Every rule of every preset the package ships, so an upgrade that adds a rule or a category
+  // is an error at once, not a rule that never runs.
+  const shippedRules = [
+    ...new Set(Object.values(presets).flatMap((preset) => Object.keys(preset.rules ?? {}))),
+  ].sort();
 
-  const nativeRules = Object.keys(effectNative.rules ?? {}).sort();
+  // The React applications keep the recommended and correctness rules, less effectNative.
+  const reactApplicationRules = new Set(
+    [recommended, correctness]
+      .flatMap((preset) => Object.keys(preset.rules ?? {}))
+      .filter((rule) => !Object.hasOwn(effectNative.rules ?? {}, rule)),
+  );
 
   const notErrorsAt = (path: string) => {
     const settings = settingsFor(path);
 
-    return presetRules
-      .filter((rule) => {
-        const setting = settings.get(rule);
+    return shippedRules.filter((rule) => {
+      const setting = settings.get(rule);
 
-        return (Array.isArray(setting) ? setting[0] : setting) !== "error";
-      })
-      .sort();
+      return (Array.isArray(setting) ? setting[0] : setting) !== "error";
+    });
   };
 
-  test("are errors in core Effect code, the effectNative rules included", () => {
-    expect(notErrorsAt("packages/domain/src/probe.ts")).toEqual([]);
-    expect(notErrorsAt("packages/database/src/probe.test.ts")).toEqual([]);
-    expect(notErrorsAt("packages/http-api/src/probe.ts")).toEqual([]);
-    expect(notErrorsAt("apps/backend/src/probe.ts")).toEqual([]);
+  test("the package ships the presets the configuration names", () => {
+    expect(Object.keys(presets).sort()).toEqual([
+      "antipattern",
+      "correctness",
+      "effectNative",
+      "recommended",
+      "style",
+    ]);
   });
 
-  test("are errors elsewhere, except the effectNative rules", () => {
-    expect(notErrorsAt("apps/dashboard/app/probe.tsx")).toEqual(nativeRules);
-    expect(notErrorsAt("packages/sdk/src/probe.ts")).toEqual(nativeRules);
-    expect(notErrorsAt("tools/e2e/probe.ts")).toEqual(nativeRules);
+  test("are all errors outside the React applications", () => {
+    for (const path of [
+      "packages/domain/src/probe.ts",
+      "packages/database/src/probe.test.ts",
+      "packages/rpc/src/probe.ts",
+      "apps/backend/src/probe.ts",
+      "apps/docs/src/probe.tsx",
+      "tools/e2e/probe.ts",
+      "tools/acceptance/probe.ts",
+      "tools/conventions/src/probe.ts",
+    ]) {
+      expect({ path, notErrors: notErrorsAt(path) }).toEqual({ path, notErrors: [] });
+    }
   });
 
-  test("are relaxed by no override", () => {
+  test("keep the recommended and correctness rules in the React applications", () => {
+    const off = shippedRules.filter((rule) => !reactApplicationRules.has(rule));
+
+    for (const path of [
+      "apps/dashboard/app/probe.tsx",
+      "apps/dashboard/e2e/probe.spec.ts",
+      "apps/homepage/src/probe.tsx",
+    ]) {
+      expect({ path, notErrors: notErrorsAt(path) }).toEqual({ path, notErrors: off });
+    }
+  });
+
+  test("are relaxed by no override but the React applications'", () => {
     const relaxed = overrides.flatMap((override) =>
       Object.entries(override.rules ?? {}).some(
         ([rule, setting]) =>
@@ -166,6 +195,6 @@ describe("Effect language-service rules", () => {
         : [],
     );
 
-    expect(relaxed).toEqual([]);
+    expect(relaxed).toEqual(["apps/homepage/**", "apps/dashboard/**"]);
   });
 });

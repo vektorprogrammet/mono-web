@@ -1,4 +1,10 @@
-import { correctness, effectNative, recommended } from "@effect/tsgo/oxlint-presets";
+import {
+  antipattern,
+  correctness,
+  effectNative,
+  recommended,
+  style,
+} from "@effect/tsgo/oxlint-presets";
 import { defineConfig, type OxlintConfig } from "oxlint";
 import {
   DEFAULT_PLUGIN_NAME,
@@ -8,22 +14,35 @@ import {
   type OxlintConfigFragment,
 } from "@phibkro/oxlint-effect-plugin";
 
-// The Effect language-service rules of the `@effect/tsgo` presets need type information, and each
-// one is an error. The effectNative rules replace platform APIs with Effect services, so they run
-// only in the core Effect packages: the other apps, packages, and tools are not Effect programs.
-const effectTsgoPresets = [recommended, correctness];
+// Every Effect language-service rule that `@effect/tsgo` ships is an error: its correctness,
+// antipattern, style, and effectNative presets. They need type information. The two React
+// applications are the exception: apps/homepage and apps/dashboard keep the recommended and
+// correctness rules without the effectNative ones, because React components and Playwright specs
+// build on the platform APIs those rules replace.
+const effectTsgoPresets = [recommended, correctness, antipattern, style, effectNative];
 
-const coreEffectFiles = [
-  "apps/backend/**",
-  "packages/database/**",
-  "packages/domain/**",
-  "packages/rpc/**",
-];
+const reactApplicationFiles = ["apps/homepage/**", "apps/dashboard/**"];
 
 const presetRules = (presets: ReadonlyArray<OxlintConfig>, severity: "error" | "off") =>
   Object.fromEntries(
     presets.flatMap((preset) => Object.keys(preset.rules ?? {})).map((rule) => [rule, severity]),
   );
+
+// The Effect rules of the React applications: recommended and correctness, less effectNative.
+const reactApplicationRules = () => {
+  const kept = new Set(
+    [recommended, correctness]
+      .flatMap((preset) => Object.keys(preset.rules ?? {}))
+      .filter((rule) => !Object.hasOwn(effectNative.rules ?? {}, rule)),
+  );
+
+  return Object.fromEntries(
+    Object.keys(presetRules(effectTsgoPresets, "error")).map((rule) => [
+      rule,
+      kept.has(rule) ? "error" : "off",
+    ]),
+  );
+};
 
 // Bun implements these Node modules, and the Bun groups import them beside Bun's own modules.
 // The rule admits extra modules but no globals, so these files import `process` and `Buffer` too.
@@ -250,7 +269,6 @@ export default defineConfig({
   ],
   rules: {
     ...presetRules(effectTsgoPresets, "error"),
-    ...presetRules([effectNative], "off"),
     "no-restricted-imports": ["error", { patterns: crossPackageSourceImportPatterns }],
     "anti-slop-effect/no-manual-effect-error-tag": "error",
     "anti-slop-effect/no-manual-tag-comparison": "error",
@@ -281,7 +299,6 @@ export default defineConfig({
   },
   overrides: [
     ...expandedEffectConfig.overrides,
-    { files: coreEffectFiles, rules: presetRules([effectNative], "error") },
     {
       files: ["apps/*/src/**", "apps/dashboard/app/**", "packages/*/src/**"],
       rules: {
@@ -421,6 +438,8 @@ export default defineConfig({
       globals: { Bun: "readonly", HTMLRewriter: "readonly" },
       rules: { "no-undef": "error" },
     },
+    // Last, so no broader group decides the Effect rules of the React applications.
+    { files: reactApplicationFiles, rules: reactApplicationRules() },
   ],
   ignorePatterns: [
     "tools/oxlint/anti-slop/**",
