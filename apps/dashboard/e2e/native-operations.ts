@@ -116,7 +116,7 @@ export const nativeRpcStatus = (body: string): number | undefined => {
 };
 
 /** The RPC client posts to the endpoint URL, which its HTTP client may end with one slash. */
-const isRpcPath = (pathname: string): boolean =>
+export const isRpcPath = (pathname: string): boolean =>
   pathname === nativeRpcPath || pathname === `${nativeRpcPath}/`;
 
 /**
