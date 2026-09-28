@@ -256,6 +256,18 @@ const browserImportPatterns = [
 
 const expandedEffectConfig = totalOverrides(expandDomains(effectConfig));
 
+// Effect.provide belongs at an entry point, which the rule cannot recognise itself: its
+// documentation asks to disable it there. The entry points are the files that `effectConfig`
+// declares as composition roots or tests, and the backend test harness that serves them.
+const entryPointFiles = [
+  ...new Set(
+    effectConfig.groups
+      .filter((group) => group.role === "composition-root" || group.role === "test")
+      .flatMap((group) => group.files),
+  ),
+  "apps/backend/src/test/**/*.ts",
+];
+
 export default defineConfig({
   ...expandedEffectConfig,
   extends: effectTsgoPresets,
@@ -438,6 +450,7 @@ export default defineConfig({
       globals: { Bun: "readonly", HTMLRewriter: "readonly" },
       rules: { "no-undef": "error" },
     },
+    { files: entryPointFiles, rules: { "effecttsgo/strict-effect-provide": "off" } },
     // Last, so no broader group decides the Effect rules of the React applications.
     { files: reactApplicationFiles, rules: reactApplicationRules() },
   ],

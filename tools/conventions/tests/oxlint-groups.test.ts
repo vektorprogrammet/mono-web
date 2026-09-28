@@ -157,18 +157,34 @@ describe("Effect language-service rules", () => {
     ]);
   });
 
-  test("are all errors outside the React applications", () => {
+  test("are all errors outside the React applications and the entry points", () => {
     for (const path of [
       "packages/domain/src/probe.ts",
-      "packages/database/src/probe.test.ts",
+      "packages/database/src/probe.ts",
       "packages/rpc/src/probe.ts",
       "apps/backend/src/probe.ts",
       "apps/docs/src/probe.tsx",
-      "tools/e2e/probe.ts",
-      "tools/acceptance/probe.ts",
+      "tools/scripts/probe.ts",
       "tools/conventions/src/probe.ts",
     ]) {
       expect({ path, notErrors: notErrorsAt(path) }).toEqual({ path, notErrors: [] });
+    }
+  });
+
+  test("leave only Effect.provide to the entry points", () => {
+    for (const path of [
+      "packages/database/src/probe.test.ts",
+      "packages/database/src/probe-main.ts",
+      "apps/backend/src/main.ts",
+      "apps/backend/src/test/probe.ts",
+      "tools/acceptance/probe.ts",
+      "tools/verification/probe.ts",
+      "tools/e2e/probe.ts",
+    ]) {
+      expect({ path, notErrors: notErrorsAt(path) }).toEqual({
+        path,
+        notErrors: ["effecttsgo/strict-effect-provide"],
+      });
     }
   });
 
@@ -184,17 +200,24 @@ describe("Effect language-service rules", () => {
     }
   });
 
-  test("are relaxed by no override but the React applications'", () => {
-    const relaxed = overrides.flatMap((override) =>
-      Object.entries(override.rules ?? {}).some(
-        ([rule, setting]) =>
-          rule.startsWith("effecttsgo/") &&
-          (Array.isArray(setting) ? setting[0] : setting) !== "error",
-      )
-        ? override.files
-        : [],
-    );
+  test("are relaxed only for the React applications, and Effect.provide for the entry points", () => {
+    const relaxations = overrides.flatMap((override) => {
+      const rules = Object.entries(override.rules ?? {})
+        .filter(
+          ([rule, setting]) =>
+            rule.startsWith("effecttsgo/") &&
+            (Array.isArray(setting) ? setting[0] : setting) !== "error",
+        )
+        .map(([rule]) => rule);
 
-    expect(relaxed).toEqual(["apps/homepage/**", "apps/dashboard/**"]);
+      return rules.length === 0 ? [] : [{ files: override.files, rules }];
+    });
+
+    expect(relaxations.map(({ files }) => files.includes("apps/dashboard/**"))).toEqual([
+      false,
+      true,
+    ]);
+    expect(relaxations[0]?.rules).toEqual(["effecttsgo/strict-effect-provide"]);
+    expect(relaxations[1]?.files).toEqual(["apps/homepage/**", "apps/dashboard/**"]);
   });
 });
