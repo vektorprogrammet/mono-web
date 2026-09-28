@@ -173,7 +173,7 @@ Measured on `c2bb975`, with PostgreSQL 18:
   check, so it adds a brand without deleting code.
 - Content. The database adapter resolves authority itself, in the transaction. The handler-side
   `authorizeContentOperation` is a second gate in front of it, not the authority.
-- `authorizeAnonymous` and `authorizePerson` in `apps/backend/src/http-api/problem.ts`. They check
+- `authorizeAnonymous` and `authorizePerson` in `apps/backend/src/rpc/problem.ts`. They check
   the credential, not authority. `authorizeAnonymous` has no production consumer; a test keeps it
   consistent with the AccessSpec. The `authorizePerson` sites that run after a domain call only
   shape the response.
