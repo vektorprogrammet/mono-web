@@ -8,7 +8,7 @@
  * Every RPC travels as `POST /api/rpc`; its outcome keeps the status that the problem registry
  * gives a declared problem, and 200 for a success.
  */
-import { Match, Option, Predicate, Schema } from "effect";
+import { Array as Arr, Match, Option, Predicate, Schema } from "effect";
 
 type Route = readonly [method: "GET" | "POST", path: string];
 
@@ -137,12 +137,15 @@ const RpcAnswer = Schema.Tuple([
   Schema.Struct({
     exit: Schema.Union([
       Schema.TaggedStruct("Success", { value: Schema.Json }),
-      Schema.TaggedStruct("Failure", {
-        cause: Schema.Tuple([Schema.Struct({ error: Schema.Json })]),
-      }),
+      Schema.TaggedStruct("Failure", { cause: Schema.Array(Schema.Json) }),
     ]),
   }),
 ]);
+
+/** The reason of a failure that carries a declared problem; a defect carries none. */
+const FailReason = Schema.Struct({ error: Schema.Json });
+
+const isFailReason = Schema.is(FailReason);
 
 const ProblemStatus = Schema.Struct({ status: Schema.Int });
 
@@ -188,8 +191,9 @@ const unwrapTagged = (value: Schema.Json): ReplacedAnswer =>
 
 /**
  * The answer of the RPC response that a proxied body carries: a success answers its value at 200,
- * and a failure answers its problem at the registry status of the problem's code. `undefined` for
- * a body that is no RPC response.
+ * a failure answers its problem at the registry status of the problem's code, and a defect, such as
+ * a payload that the server refused before the handler, answers 500 with the cause as its body.
+ * `undefined` for a body that is no RPC response.
  */
 export const replacedAnswer = (responseJson: Schema.Json | undefined): ReplacedAnswer | undefined =>
   Option.match(Schema.decodeUnknownOption(RpcAnswer)(responseJson), {
@@ -197,14 +201,19 @@ export const replacedAnswer = (responseJson: Schema.Json | undefined): ReplacedA
     onSome: ([{ exit }]) =>
       Match.value(exit).pipe(
         Match.tag("Success", ({ value }) => unwrapTagged(value)),
-        Match.tag("Failure", ({ cause: [{ error }] }) => ({
-          status: Option.match(Schema.decodeUnknownOption(ProblemStatus)(error), {
-            onNone: () => 500,
-            onSome: ({ status }) => status,
+        Match.tag("Failure", ({ cause }) =>
+          Option.match(Arr.findFirst(cause, isFailReason), {
+            onNone: () => ({ status: 500, responseJson: cause, responseEtag: null }),
+            onSome: ({ error }) => ({
+              status: Option.match(Schema.decodeUnknownOption(ProblemStatus)(error), {
+                onNone: () => 500,
+                onSome: ({ status }) => status,
+              }),
+              responseJson: error,
+              responseEtag: null,
+            }),
           }),
-          responseJson: error,
-          responseEtag: null,
-        })),
+        ),
         Match.exhaustive,
       ),
   });
