@@ -257,6 +257,13 @@ const entryPointFiles = [
       .flatMap((group) => group.files),
   ),
   "apps/backend/src/test/**/*.ts",
+  // The proofs, rehearsals, and examples of the domain and database packages run as programs, and
+  // the runtimes they share provide each proof its own database or platform.
+  "packages/domain/runtime/**/*.ts",
+  "packages/database/runtime/**/*.ts",
+  "packages/database/examples/**/*.ts",
+  "packages/database/src/receipt/file-proof.ts",
+  "packages/database/src/rule-reconciliation-migration-postgres-proof.ts",
 ];
 
 export default defineConfig({
