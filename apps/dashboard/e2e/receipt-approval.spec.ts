@@ -93,16 +93,21 @@ const PDF_RECEIPT_FILE = {
   name: "receipt.pdf",
 } as const;
 
-/** Receipt bodies decode through the RPC contract and reject undeclared members. */
+/**
+ * Receipt bodies decode through the RPC contract's JSON codec, the one that RPC serialization
+ * derives, and reject undeclared members. File bytes travel as base64 on that codec.
+ */
 const exactDecoding = { onExcessProperty: "error" } as const;
 
-const decodeReceiptResource = Schema.decodeUnknownSync(ReceiptResource);
+const decodeReceiptResource = Schema.decodeUnknownSync(Schema.toCodecJson(ReceiptResource));
 
-const decodeOwnedReceiptPage = Schema.decodeUnknownSync(ReceiptListResponse);
+const decodeOwnedReceiptPage = Schema.decodeUnknownSync(Schema.toCodecJson(ReceiptListResponse));
 
-const decodeApprovalQueuePage = Schema.decodeUnknownSync(ReceiptApprovalQueueResponse);
+const decodeApprovalQueuePage = Schema.decodeUnknownSync(
+  Schema.toCodecJson(ReceiptApprovalQueueResponse),
+);
 
-const decodeReceiptFile = Schema.decodeUnknownSync(ReceiptFileContent);
+const decodeReceiptFile = Schema.decodeUnknownSync(Schema.toCodecJson(ReceiptFileContent));
 
 const fileIdentitySchema = z.array(
   z
