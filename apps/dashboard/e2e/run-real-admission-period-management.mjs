@@ -1,7 +1,8 @@
-import { Predicate } from "effect";
+import { Match, Predicate } from "effect";
 import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { deriveHttpIdentity, encodePathIdentity } from "@vektorprogrammet/backend/http-semantics";
 import { nativeRpcPath } from "@vektorprogrammet/rpc";
+import { isRpcPath, nativeRpcOutcome } from "./native-operations.ts";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
@@ -396,25 +397,19 @@ const rpcRequestEntry = (bytes) => {
 
 /**
  * The outcome of one RPC answer: 200 for a success, the registry status and code of a declared
- * problem, and 500 for a defect.
+ * problem, and 500 for a defect or a body that is no RPC answer.
  */
 const rpcAnswerOutcome = (bytes) => {
-  const answers = parseJsonBody(bytes);
-  const answer = Array.isArray(answers) ? answers[0] : null;
-  const exit = Predicate.hasProperty(answer, "exit") ? answer.exit : null;
+  const outcome = nativeRpcOutcome(bytes.toString("utf8"));
 
-  if (Predicate.isTagged(exit, "Success")) return { status: 200, problemCode: null };
-
-  const cause = Predicate.hasProperty(exit, "cause") && Array.isArray(exit.cause) ? exit.cause : [];
-  const failure = cause.find((reason) => Predicate.isTagged(reason, "Fail"));
-  const problem = Predicate.hasProperty(failure, "error") ? failure.error : null;
-
-  return Predicate.hasProperty(problem, "code") &&
-    Predicate.isString(problem.code) &&
-    Predicate.hasProperty(problem, "status") &&
-    Predicate.isNumber(problem.status)
-    ? { status: problem.status, problemCode: problem.code }
-    : { status: 500, problemCode: "defect" };
+  return outcome === undefined
+    ? { status: 500, problemCode: "defect" }
+    : Match.value(outcome).pipe(
+        Match.tag("Success", () => ({ status: 200, problemCode: null })),
+        Match.tag("Problem", ({ status, problem }) => ({ status, problemCode: problem.code })),
+        Match.tag("Defect", () => ({ status: 500, problemCode: "defect" })),
+        Match.exhaustive,
+      );
 };
 
 /**
@@ -439,7 +434,7 @@ async function startRecordingProxy(ledgerPath) {
 
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const requestBytes = Buffer.concat(chunks);
-    const isRpc = method === "POST" && url.pathname === nativeRpcPath;
+    const isRpc = method === "POST" && isRpcPath(url.pathname);
 
     const entry = {
       method: isRpc ? "RPC" : method,
