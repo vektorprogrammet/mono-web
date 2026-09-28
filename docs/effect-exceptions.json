@@ -195,6 +195,56 @@
         "effect": "4.0.0-rc.116"
       },
       "retirementTrigger": "The probe becomes an Effect program that its entry point runs, and it writes through Console of effect. Then remove the directives."
+    },
+    {
+      "id": "EX-0010",
+      "rules": ["FX002", "effecttsgo/missing-pipeable-signature"],
+      "scope": {
+        "files": ["apps/backend/src/receipt/import-snapshot.ts"],
+        "symbols": ["decodeSnapshot"]
+      },
+      "reason": "decodeSnapshot is the Schema decoder of a receipt snapshot with excess properties refused. Its callers pass fixtures and malformed rows whose static type is not JSON, such as rows with `data: unknown`, because the importer must quarantine them; its second parameter is the parse options of the decoder, not the subject of a data-last call.",
+      "missingCapability": "None in Effect. Schema.decodeUnknownSync returns `(input: unknown, options?: ParseOptions) => A`, and the rule asks for a pipeable overload of that signature, which a decoder of one subject has no use for.",
+      "nativeAlternatives": [
+        "A one-parameter wrapper typed `(input: Schema.Json)`, as the domain decoders use: the receipt import rehearsal and the snapshot test pass rows whose data is `unknown` or `Json | undefined`, so each caller would have to change its fixture types.",
+        "A one-parameter wrapper typed `(input: unknown)`: `anti-slop/no-unknown-parameters` rejects it.",
+        "Exporting ReceiptSnapshot and decoding at each call site: every caller would repeat `onExcessProperty: \"error\"`, a fact that one decoder should own.",
+        "`dual` from `effect/Function`: the second parameter is parse options, so a data-last form reads the options as the subject."
+      ],
+      "verification": [
+        "`apps/backend/src/receipt/import-snapshot.test.ts` decodes a synthetic snapshot through it.",
+        "`just rehearsal receipt-import` (`tools/verification/receipt-import-rehearsal.ts`) decodes its manifest through it, and `tools/e2e/run-legacy-receipt-rehearsal.ts` checks that it rejects another snapshot kind."
+      ],
+      "owner": "apps/backend/src/receipt",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "@effect/tsgo": "0.36.4"
+      },
+      "retirementTrigger": "The callers decode JSON-typed input, or the rule exempts Schema decoders. Then give decodeSnapshot a one-parameter form and remove the suppression."
+    },
+    {
+      "id": "EX-0011",
+      "rules": ["FX002", "effecttsgo/node-builtin-import"],
+      "scope": {
+        "files": ["apps/docs/site.ts", "apps/docs/remark-repository-links.ts"],
+        "symbols": ["specs", "title", "remarkRepositoryLinks"]
+      },
+      "reason": "Vocs loads `vocs.config.ts` under Node and calls its sidebar builders and remark plugins synchronously: `site.ts` lists the specifications and reads each page's first heading while the configuration evaluates, and the remark plugin checks whether a linked repository path exists while it transforms a page.",
+      "missingCapability": "Effect FileSystem has no synchronous backend: the Node and Bun layers implement every operation asynchronously, so Effect.runSync cannot read a directory or a file.",
+      "nativeAlternatives": [
+        "Effect.runSync with the FileSystem service: fails with an asynchronous operation.",
+        "An asynchronous configuration that runs an Effect program with Effect.runPromise: Vite awaits a Promise default export, but the production branch of the Vocs 2.10.0 resolver spreads the default export without awaiting it, and the remark plugin would run a program outside a composition root in every transform.",
+        "Precomputing titles and link targets in `scripts/sync-pages.ts`: the remark plugin resolves links to any repository path, and `vocs dev` would read stale titles until the script ran again."
+      ],
+      "verification": [
+        "`bun run --cwd apps/docs build` renders every published page, builds the sidebar from `site.ts`, and fails on a dead link that the remark plugin leaves unchanged.",
+        "The Docs workflow runs that build."
+      ],
+      "owner": "apps/docs",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116"
+      },
+      "retirementTrigger": "Vocs awaits an asynchronous configuration in every branch and remark plugins may run Effect programs through a runtime bridge, or Effect gains a synchronous FileSystem. Then read through FileSystem and remove the suppressions."
     }
   ]
 }

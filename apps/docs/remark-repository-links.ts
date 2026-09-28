@@ -2,7 +2,9 @@
 // A link to a published document becomes its site route; a link to any other
 // repository file or directory becomes its GitHub view. A link to a missing path
 // stays unchanged, so the Vocs dead-link check fails the build.
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0011: remark runs this plugin synchronously, and Effect FileSystem has no synchronous backend
 import { existsSync, statSync } from "node:fs";
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0011: remark runs this plugin synchronously, and Effect Path is a service of the same platform layer
 import { posix, relative, resolve, sep } from "node:path";
 import type { Root } from "mdast";
 import { visit } from "unist-util-visit";

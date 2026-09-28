@@ -73,6 +73,7 @@ export const digest = (value: Uint8Array | string): string =>
 
 export const rowDigest = (row: Schema.Json): string => sha256Hex(canonicalJsonBytes(row));
 
+// oxlint-disable-next-line effecttsgo/missing-pipeable-signature -- EX-0010: a Schema decoder whose second parameter is parse options; its callers pass non-JSON fixtures
 export const decodeSnapshot = Schema.decodeUnknownSync(ReceiptSnapshot, {
   onExcessProperty: "error",
 });

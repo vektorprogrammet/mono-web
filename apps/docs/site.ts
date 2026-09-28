@@ -1,6 +1,8 @@
 // The documentation site renders repository Markdown in place. This manifest names the
 // published sources; `scripts/sync-pages.ts` mirrors them into the ignored `src/pages`.
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0011: Vocs evaluates this manifest synchronously, and Effect FileSystem has no synchronous backend
 import { readdirSync, readFileSync } from "node:fs";
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0011: Vocs evaluates this manifest synchronously, and Effect Path is a service of the same platform layer
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 

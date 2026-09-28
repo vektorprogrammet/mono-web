@@ -103,7 +103,9 @@
       "name": "@monoweb/docs",
       "version": "0.1.0",
       "dependencies": {
+        "@effect/platform-bun": "catalog:effect-v4",
         "cn": "0.4.0",
+        "effect": "catalog:effect-v4",
         "mermaid": "11.17.2",
         "motion": "12.35.0",
         "react": "19.3.0",
