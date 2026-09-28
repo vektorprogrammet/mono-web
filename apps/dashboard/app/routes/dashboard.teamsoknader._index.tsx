@@ -1,27 +1,26 @@
 import { Link, useLoaderData } from "react-router";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/dashboard.teamsoknader._index";
 
 /** Every active team: the directory has no membership read, so the team page enforces access. */
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
 
   const [departments, teams] = await Promise.all([
-    client.organization.listDepartments({ headers: {} }),
-    client.organization.listTeams({ headers: {} }),
+    callNative(cookie, request, (client) => client["organization.listDepartments"]()),
+    callNative(cookie, request, (client) => client["organization.listTeams"]()),
   ]).catch(() => [undefined, undefined] as const);
 
-  if (departments?.body === undefined || teams?.body === undefined) {
+  if (departments === undefined || teams === undefined) {
     throw new Response("Teamoversikten er midlertidig utilgjengelig.", { status: 503 });
   }
 
   const collator = new Intl.Collator("nb");
-  const activeTeams = teams.body.filter((team) => team.active);
+  const activeTeams = teams.filter((team) => team.active);
 
   return {
-    departments: departments.body
+    departments: departments
       .filter((department) => department.active)
       .map((department) => ({
         departmentId: department.departmentId,

@@ -164,10 +164,27 @@ Notes (contact):
 
 | RPC tag | Replaces | Transport facts | Credentials | Status |
 | --- | --- | --- | --- | --- |
-| `directory.executeSchoolCommand` | POST `/api/schools/commands` | idempotencyKey | cookieHeader, oauthUserBearer | todo |
-| `directory.listPeople` | GET `/api/people` | - | cookieHeader, oauthUserBearer | todo |
-| `directory.listSchools` | GET `/api/schools` | query: department | cookieHeader, oauthUserBearer | todo |
-| `directory.readSchoolManagement` | GET `/api/schools/management` | - | cookieHeader, oauthUserBearer | todo |
+| `directory.executeSchoolCommand` | POST `/api/schools/commands` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `directory.listPeople` | GET `/api/people` | - | cookieHeader, oauthUserBearer | ported |
+| `directory.listSchools` | GET `/api/schools` | query: department | cookieHeader, oauthUserBearer | ported |
+| `directory.readSchoolManagement` | GET `/api/schools/management` | - | cookieHeader, oauthUserBearer | ported |
+
+Notes (directory):
+
+- `directory.listPeople` drops `directory.cursor-malformed`: only a query string produced it, and
+  the RPC takes no payload.
+- `directory.listSchools` takes `{ departmentId? }` (`SchoolDirectoryQuerySchema`). An unknown,
+  duplicate, or empty department parameter answered `request.malformed` before authentication; the
+  typed client cannot send one now, and a hand-built payload fails in the RPC server as a defect.
+- `directory.readSchoolManagement` and `directory.executeSchoolCommand` lose their private
+  `Cache-Control` and the command's ETag header; no RPC took that ETag as `ifMatch`. The command's
+  `commandId` must still equal its idempotency key (`idempotency.digest-conflict`).
+- The dashboard Foldkit schools client calls these RPCs from the browser through
+  `apps/dashboard/app/lib/browser-native.ts`. The RPC client dies on an answer that does not fit the
+  contract; that helper turns such a defect into the typed `NativeAnswerInvalid` failure, so the
+  view shows its failure message as it did for a malformed HTTP body.
+- `apps/dashboard/e2e/run-real-native-schools-directory.mjs` records each RPC with the registry
+  status of its exit, and forces its one upstream failure as a `schools.unavailable` exit.
 
 ### internal (`packages/rpc/src/receipts.ts (InternalReceiptsRpcs)`)
 
@@ -187,19 +204,52 @@ Notes (contact):
 
 | RPC tag | Replaces | Transport facts | Credentials | Status |
 | --- | --- | --- | --- | --- |
-| `organization.createDepartment` | POST `/api/departments` | idempotencyKey | cookieHeader, oauthUserBearer | todo |
-| `organization.createFieldOfStudy` | POST `/api/field-of-studies` | idempotencyKey | cookieHeader, oauthUserBearer | todo |
-| `organization.createTeam` | POST `/api/teams` | idempotencyKey | cookieHeader, oauthUserBearer | todo |
-| `organization.executeDelegation` | POST `/api/organization/delegations/commands` | idempotencyKey | cookieHeader, oauthUserBearer | todo |
-| `organization.executeLifecycle` | POST `/api/organization/appointments/commands` | idempotencyKey | cookieHeader, oauthUserBearer | todo |
-| `organization.listDepartments` | GET `/api/departments` | ifMatch; if-none-match (dropped) | none | todo |
-| `organization.listFieldOfStudies` | GET `/api/field-of-studies` | ifMatch; if-none-match (dropped) | none | todo |
-| `organization.listMailingLists` | GET `/api/mailing-lists` | query: department, semester, type | cookieHeader, oauthUserBearer | todo |
-| `organization.listTeamInterest` | GET `/api/team-interest-registrations` | query: department, semester | cookieHeader, oauthUserBearer | todo |
-| `organization.listTeams` | GET `/api/teams` | ifMatch; if-none-match (dropped) | none | todo |
-| `organization.readAppointmentManagement` | GET `/api/organization/appointments` | - | cookieHeader, oauthUserBearer | todo |
-| `organization.readBoardRosters` | GET `/api/organization/board-rosters` | - | cookieHeader, oauthUserBearer | todo |
-| `organization.readDelegationManagement` | GET `/api/organization/delegations` | - | cookieHeader, oauthUserBearer | todo |
+| `organization.createDepartment` | POST `/api/departments` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `organization.createFieldOfStudy` | POST `/api/field-of-studies` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `organization.createTeam` | POST `/api/teams` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `organization.executeDelegation` | POST `/api/organization/delegations/commands` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `organization.executeLifecycle` | POST `/api/organization/appointments/commands` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `organization.listDepartments` | GET `/api/departments` | ifMatch; if-none-match (dropped) | none | ported |
+| `organization.listFieldOfStudies` | GET `/api/field-of-studies` | ifMatch; if-none-match (dropped) | none | ported |
+| `organization.listMailingLists` | GET `/api/mailing-lists` | query: department, semester, type | cookieHeader, oauthUserBearer | ported |
+| `organization.listTeamInterest` | GET `/api/team-interest-registrations` | query: department, semester | cookieHeader, oauthUserBearer | ported |
+| `organization.listTeams` | GET `/api/teams` | ifMatch; if-none-match (dropped) | none | ported |
+| `organization.readAppointmentManagement` | GET `/api/organization/appointments` | - | cookieHeader, oauthUserBearer | ported |
+| `organization.readBoardRosters` | GET `/api/organization/board-rosters` | - | cookieHeader, oauthUserBearer | ported |
+| `organization.readDelegationManagement` | GET `/api/organization/delegations` | - | cookieHeader, oauthUserBearer | ported |
+
+Notes (organization):
+
+- `listDepartments`, `listTeams`, `listFieldOfStudies` lose `If-None-Match`/304, their ETags, and
+  their public `Cache-Control` (`public, max-age=60, s-maxage=300`): an RPC is a POST that no shared
+  cache stores, so every read reaches the backend. No RPC took those ETags as `ifMatch`.
+- The three create commands answer 200 with the resource instead of 201 with `Location` and ETag;
+  `executeLifecycle` and `executeDelegation` lose their ETag header. No RPC took those ETags as
+  `ifMatch`. Receipts keep the old route paths as normalized targets, so a replay across the cutover
+  answers the stored resource.
+- Structural validation moved to the RPC server: a command body that is not JSON, of another media
+  type, or larger than `ORGANIZATION_MAX_BODY_BYTES` answered `validation.failed` or
+  `request.too-large`; a payload that does not decode now fails before the handler, and the per
+  operation body bound no longer applies (the config is still decoded, and unused). An excess
+  property, such as `actorRole`, was rejected with `validation.failed`; the RPC payload schema now
+  drops it. No dashboard form showed field pointers from these failures.
+- `listTeamInterest` takes `{ departmentId?, semesterId? }` and `listMailingLists` takes
+  `{ departmentId?, semesterId?, type? }`. A malformed identifier or an unknown list type answered
+  `request.malformed` 400; the typed client cannot send one now.
+- `executeLifecycle` and `executeDelegation` keep their rule that the command's `commandId` equals
+  its idempotency key.
+- The Foldkit organization catalogs and the appointment and delegation management call these RPCs
+  from the browser through `apps/dashboard/app/lib/browser-native.ts`; the catalog's 304 failure is
+  gone.
+- `run-real-native-organization-administration.mjs` and the organization import rehearsal record
+  each RPC as the route that it replaced, so their receipts and evidence keep those names; they now
+  also read `system.readSession` and `profile.readOwnProfile` of other slices.
+- Callers left in files that other slices own, for their owners or the lead:
+  `apps/dashboard/app/routes/__foldkit.content.ts` (`listDepartments`), its
+  `foldkit/content/bridge-route.test.ts` and `apps/homepage/test/{news,contact-message}.test.ts`
+  (fetch mocks of `/api/departments`), `apps/dashboard/e2e/golden-team-application-browser.ts`
+  (`executeLifecycle`), and `tools/e2e/legacy-candidate-native-journey.ts` (`listMailingLists`,
+  on the deleted `ExternalNativeApiRouterLive`).
 
 ### placements (`packages/rpc/src/placements.ts`)
 

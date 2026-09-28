@@ -1,32 +1,36 @@
-import { MailingListQuery, type PlacementScopes } from "@vektorprogrammet/rpc";
-import { Match, Schema } from "effect";
+import { MailingListQuery, type NativeRpcClient } from "@vektorprogrammet/rpc";
+import { type Effect, Match, Schema } from "effect";
 import { Form, data, useLoaderData, useNavigation } from "react-router";
 import { Button } from "../components/ui/button";
 import { requireAuth } from "../lib/auth.server";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import { nativeProblemFrom } from "../lib/native-problem";
 import { semesterLabel } from "../lib/semester-label";
 import type { Route } from "./+types/dashboard.epostliste._index";
 
+type PlacementScopes = Effect.Success<ReturnType<NativeRpcClient["Service"]["placements.listScopes"]>>;
+
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
   const params = new URL(request.url).searchParams;
   const department = params.get("department") ?? "";
   const semester = params.get("semester") ?? "";
   const type = params.get("type") ?? "assistants";
-  let scopes: typeof PlacementScopes.Type | null = null;
+  let scopes: PlacementScopes | null = null;
 
   try {
-    scopes = (await client.placements.listScopes()).body;
+    scopes = await callNative(cookie, request, (client) => client["placements.listScopes"]());
 
-    const query = Schema.decodeUnknownSync(Schema.Struct(MailingListQuery))({
-      department: department || undefined,
-      semester: semester || undefined,
+    const query = Schema.decodeUnknownSync(MailingListQuery)({
+      departmentId: department || undefined,
+      semesterId: semester || undefined,
       type,
     });
 
-    const lists = (await client.organization.listMailingLists({ query })).body;
+    const lists = await callNative(cookie, request, (client) =>
+      client["organization.listMailingLists"](query),
+    );
+
     const emails = [...new Set(lists.flatMap((list) => list.emails))];
 
     return data(

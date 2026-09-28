@@ -5,13 +5,10 @@ import type { Html, HtmlBuilder } from "foldkit/html";
 import {
   DelegableCapability,
   DelegationArea,
-  DelegationCommand,
-  DelegationManagement,
-  IdempotencyKey,
   type OrganizationCapability,
-} from "@vektorprogrammet/rpc";
-import { createEffectClient } from "@vektorprogrammet/sdk/effect";
-import { resolveBrowserApiUrl } from "../../lib/browser-api";
+} from "@vektorprogrammet/domain/authz";
+import { DelegationCommand, DelegationManagement, IdempotencyKey } from "@vektorprogrammet/rpc";
+import { callBrowserNative } from "../../lib/browser-native";
 import { nativeProblemFrom } from "../../lib/native-problem";
 import "./styles.css";
 
@@ -404,16 +401,15 @@ const view = (model: Model, h: HtmlBuilder<Message>): Html => {
 };
 
 export const embedDelegationManagement = (container: HTMLElement): (() => void) => {
-  const client = createEffectClient(
-    resolveBrowserApiUrl(import.meta.env.VITE_API_URL, globalThis.location.origin),
-  );
-
   const Load = Command.define("LoadDelegationManagement", {
     args: { requestId: S.Int },
     messages: [Loaded, LoadFailed],
     execute: ({ requestId }) =>
       Effect.gen(function* () {
-        const { body } = yield* client.organization.readDelegationManagement();
+        const body = yield* callBrowserNative((client) =>
+          client["organization.readDelegationManagement"](),
+        );
+
         const now = DateTime.formatIso(yield* DateTime.now);
 
         return Loaded({ requestId, snapshot: body, commandId: crypto.randomUUID(), now });
@@ -424,23 +420,13 @@ export const embedDelegationManagement = (container: HTMLElement): (() => void) 
       ),
   });
 
-  // The pinned HttpApi client distributes a union payload over whole requests.
-  // Narrow only at this transport boundary; the domain owns all transitions.
-  const execute = Effect.fn("organization.executeDelegation")(function* (
-    command: DelegationCommand,
-  ) {
-    const headers = { "idempotency-key": IdempotencyKey.make(command.commandId) };
-
-    return yield* Match.value(command).pipe(
-      Match.tag("IssueDelegation", (payload) =>
-        client.organization.executeDelegation({ headers, payload }),
-      ),
-      Match.tag("EndDelegation", (payload) =>
-        client.organization.executeDelegation({ headers, payload }),
-      ),
-      Match.exhaustive,
+  const execute = (command: DelegationCommand) =>
+    callBrowserNative((client) =>
+      client["organization.executeDelegation"]({
+        idempotencyKey: IdempotencyKey.make(command.commandId),
+        request: command,
+      }),
     );
-  });
 
   const Save = Command.define("SaveDelegationCommand", {
     args: { requestId: S.Int, command: DelegationCommand },

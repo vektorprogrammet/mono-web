@@ -1,4 +1,4 @@
-import { Order, Predicate } from "effect";
+import { Match, Option, Order, Predicate, Schema } from "effect";
 import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -368,6 +368,75 @@ const parseJsonBody = (bytes) => {
   }
 };
 
+/**
+ * The HTTP route that each native RPC of this journey replaced. The ledger classifies an RPC by
+ * the route it replaced, so its facts stay comparable with the commands' receipts, whose
+ * normalized targets are those routes.
+ */
+const replacedRoutes = new Map([
+  ["organization.listDepartments", ["GET", "/api/departments"]],
+  ["organization.listTeams", ["GET", "/api/teams"]],
+  ["organization.listFieldOfStudies", ["GET", "/api/field-of-studies"]],
+  ["organization.createDepartment", ["POST", "/api/departments"]],
+  ["organization.createTeam", ["POST", "/api/teams"]],
+  ["organization.createFieldOfStudy", ["POST", "/api/field-of-studies"]],
+  ["profile.readOwnProfile", ["GET", "/api/profile"]],
+  ["system.readSession", ["GET", "/api/session"]],
+]);
+
+/** The one RPC request that a request body carries: its tag and payload. */
+const RpcRequestMessage = Schema.Struct({ tag: Schema.String, payload: Schema.Unknown });
+
+const parseRpcRequest = (json) =>
+  Option.getOrUndefined(Schema.decodeUnknownOption(RpcRequestMessage)(json));
+
+/** The answer that ends one RPC request: a success value, or one failure's error. */
+const RpcAnswer = Schema.Tuple([
+  Schema.Struct({
+    exit: Schema.Union([
+      Schema.TaggedStruct("Success", { value: Schema.Unknown }),
+      Schema.TaggedStruct("Failure", {
+        cause: Schema.Tuple([Schema.Struct({ error: Schema.Unknown })]),
+      }),
+    ]),
+  }),
+]);
+
+const ProblemStatus = Schema.Struct({ status: Schema.Int });
+
+/**
+ * Unwraps the answer of one RPC: a success answers its value at 200, and a failure answers its
+ * problem at the registry status of the problem's code.
+ */
+const unwrapRpcAnswer = (json) =>
+  Option.match(Schema.decodeUnknownOption(RpcAnswer)(json), {
+    onNone: () => undefined,
+    onSome: ([{ exit }]) =>
+      Match.value(exit).pipe(
+        Match.tag("Success", ({ value }) => ({ status: 200, json: value })),
+        Match.tag("Failure", ({ cause: [{ error }] }) => ({
+          status: Option.match(Schema.decodeUnknownOption(ProblemStatus)(error), {
+            onNone: () => 500,
+            onSome: ({ status }) => status,
+          }),
+          json: error,
+        })),
+        Match.exhaustive,
+      ),
+  });
+
+/** An own-profile answer names its person, bare or beside its entity tag. */
+const ProfileAnswer = Schema.Union([
+  Schema.Struct({ personId: Schema.String }),
+  Schema.Struct({ profile: Schema.Struct({ personId: Schema.String }) }),
+]);
+
+const profilePersonId = (value) =>
+  Option.match(Schema.decodeUnknownOption(ProfileAnswer)(value), {
+    onNone: () => undefined,
+    onSome: (profile) => ("profile" in profile ? profile.profile.personId : profile.personId),
+  });
+
 const sessionCookieNames = new Set([
   "better-auth.session_token",
   "__Secure-better-auth.session_token",
@@ -423,8 +492,27 @@ async function startRecordingProxy(targetOrigin) {
       responseContentType: null,
       responseEtag: null,
       responseLocation: null,
+      transportPath: url.pathname,
+      rpcTag: null,
       status: 0,
     };
+
+    const rpc = url.pathname === "/api/rpc" ? parseRpcRequest(record.request) : undefined;
+
+    // A native RPC is recorded as the route it replaced, with its key and request from the payload.
+    if (rpc !== undefined) {
+      const replaced = replacedRoutes.get(rpc.tag);
+      const payload = Predicate.isObjectOrArray(rpc.payload) ? rpc.payload : {};
+
+      record.transportPath = url.pathname;
+      record.rpcTag = rpc.tag;
+      record.method = replaced?.[0] ?? method;
+      record.path = replaced?.[1] ?? url.pathname;
+      record.idempotencyKey = Predicate.isString(payload.idempotencyKey)
+        ? payload.idempotencyKey
+        : null;
+      record.request = "request" in payload ? payload.request : rpc.payload;
+    }
 
     records.push(record);
 
@@ -461,17 +549,21 @@ async function startRecordingProxy(targetOrigin) {
       record.responseEtag = upstream.headers.get("etag");
       record.responseLocation = upstream.headers.get("location");
 
-      if (
-        cookieKey !== undefined &&
-        upstream.status === 200 &&
-        url.pathname === "/api/profile" &&
-        responseJson !== null &&
-        Predicate.isObjectOrArray(responseJson) &&
-        "personId" in responseJson &&
-        Predicate.isString(responseJson.personId)
-      ) {
-        sessionPersonsByCookie.set(cookieKey, responseJson.personId);
-        record.sessionPersonId = responseJson.personId;
+      const answer = record.rpcTag === null ? undefined : unwrapRpcAnswer(responseJson);
+
+      if (answer !== undefined) {
+        record.status = answer.status;
+        record.responseJson = answer.json;
+      }
+
+      const profilePerson =
+        record.path === "/api/profile" && record.status === 200
+          ? profilePersonId(record.responseJson)
+          : undefined;
+
+      if (cookieKey !== undefined && profilePerson !== undefined) {
+        sessionPersonsByCookie.set(cookieKey, profilePerson);
+        record.sessionPersonId = profilePerson;
       }
 
       if (record.sessionPersonId !== null) {
@@ -662,12 +754,6 @@ const hasExactKeys = (value, expectedKeys) =>
   !Array.isArray(value) &&
   JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expectedKeys].sort(Order.String));
 
-const assertStrongEtag = (etag, label) => {
-  if (!Predicate.isString(etag) || !/^"vkr2\.[A-Za-z0-9_-]{43}"$/u.test(etag)) {
-    throw new Error(`${label} did not return a canonical strong ETag`);
-  }
-};
-
 const assertProblemResponse = (record, expected) => {
   const expectedKeys = ["code", "detail", "status", "title", "type"];
 
@@ -689,7 +775,9 @@ const assertProblemResponse = (record, expected) => {
     ("instance" in (record.responseJson ?? {}) &&
       record.responseJson.instance !== null &&
       !Predicate.isString(record.responseJson.instance)) ||
-    !record.responseContentType?.startsWith("application/problem+json")
+    !record.responseContentType?.startsWith(
+      record.rpcTag === null ? "application/problem+json" : "application/json",
+    )
   ) {
     throw new Error(
       `${record.method} ${record.path} did not return the generated ${expected.code} Problem Details shape`,
@@ -1027,15 +1115,15 @@ async function main() {
         administrator: {
           nativeLogin: true,
           sessionCookieNames: ["better-auth.session_token"],
-          apiSessionPath: "/api/session",
-          personBindingPath: "/api/profile",
+          apiSessionRpc: "system.readSession",
+          personBindingRpc: "profile.readOwnProfile",
           personId: adminPersonId,
         },
         member: {
           nativeLogin: true,
           sessionCookieNames: ["better-auth.session_token"],
-          apiSessionPath: "/api/session",
-          personBindingPath: "/api/profile",
+          apiSessionRpc: "system.readSession",
+          personBindingRpc: "profile.readOwnProfile",
           personId: memberPersonId,
         },
       },
@@ -1143,23 +1231,10 @@ async function main() {
         record.idempotencyKey !== null ||
         record.ifMatch !== null ||
         !record.responseContentType?.startsWith("application/json") ||
-        !hasExactKeys(record.responseJson, [
-          "contactRevision",
-          "email",
-          "firstName",
-          "lastName",
-          "nameRevision",
-          "personId",
-          "phone",
-          "role",
-        ])
+        profilePersonId(record.responseJson) === undefined
       ) {
-        throw new Error(
-          "Native Organization profile resolution did not use the generated v0.2 shape",
-        );
+        throw new Error("Native Organization profile resolution did not name its person");
       }
-
-      assertStrongEtag(record.responseEtag, "Native Organization profile resolution");
     }
 
     const retiredOrganizationRequests = proxy.records.filter(
@@ -1198,10 +1273,9 @@ async function main() {
           !Array.isArray(record.responseJson) ||
           record.responseJson.some((item) => !hasExactKeys(item, responseKeys))
         ) {
-          throw new Error(`GET ${record.path} did not use the generated v0.2 read contract`);
+          throw new Error(`GET ${record.path} did not use the native read contract`);
         }
 
-        assertStrongEtag(record.responseEtag, `GET ${record.path}`);
         continue;
       }
 
@@ -1217,20 +1291,16 @@ async function main() {
         record.idempotencyKey.length === 0 ||
         record.ifMatch !== null
       ) {
-        throw new Error(`POST ${record.path} did not use the generated v0.2 mutation contract`);
+        throw new Error(`POST ${record.path} did not use the native mutation contract`);
       }
 
-      if (record.status === 201) {
-        if (
-          !hasExactKeys(record.responseJson, responseKeys) ||
-          !record.responseContentType?.startsWith("application/json") ||
-          !Predicate.isString(record.responseLocation) ||
-          record.responseLocation.length === 0
-        ) {
-          throw new Error(`POST ${record.path} did not return the generated create response`);
-        }
-
-        assertStrongEtag(record.responseEtag, `POST ${record.path}`);
+      // An RPC create answers the created resource; Location and ETag were HTTP transport facts.
+      if (
+        record.status === 200 &&
+        (!hasExactKeys(record.responseJson, responseKeys) ||
+          !record.responseContentType?.startsWith("application/json"))
+      ) {
+        throw new Error(`POST ${record.path} did not return the native create response`);
       }
     }
 
@@ -1259,7 +1329,7 @@ async function main() {
     const expectedStatusFacts = [
       [
         "/api/departments",
-        201,
+        200,
         true,
         false,
         adminPersonId,
@@ -1268,7 +1338,7 @@ async function main() {
       ],
       [
         "/api/teams",
-        201,
+        200,
         true,
         false,
         adminPersonId,
@@ -1277,7 +1347,7 @@ async function main() {
       ],
       [
         "/api/field-of-studies",
-        201,
+        200,
         true,
         false,
         adminPersonId,
@@ -1304,7 +1374,7 @@ async function main() {
       ],
       [
         "/api/departments",
-        201,
+        200,
         true,
         false,
         adminPersonId,
@@ -1381,22 +1451,17 @@ async function main() {
 
     const departmentReplays = organizationRequests.filter(
       ({ path, status, idempotencyKey }) =>
-        path === "/api/departments" && status === 201 && idempotencyKey === commandIds.department,
+        path === "/api/departments" && status === 200 && idempotencyKey === commandIds.department,
     );
 
     if (departmentReplays.length !== 2) {
-      throw new Error("Native Organization exact replay did not preserve the create status");
+      throw new Error("Native Organization exact replay did not preserve the create answer");
     }
 
     assertEqual(
       departmentReplays[1].responseJson,
       departmentReplays[0].responseJson,
       "Native Organization exact replay response",
-    );
-    assertEqual(
-      departmentReplays[1].responseEtag,
-      departmentReplays[0].responseEtag,
-      "Native Organization exact replay ETag",
     );
 
     evidence = {
@@ -1412,6 +1477,7 @@ async function main() {
         ({
           method,
           path,
+          rpcTag,
           status,
           sessionCookieAuth,
           authorizationHeaderPresent,
@@ -1424,6 +1490,7 @@ async function main() {
         }) => ({
           method,
           path,
+          rpcTag,
           status,
           sessionCookieAuth,
           authorizationHeaderPresent,

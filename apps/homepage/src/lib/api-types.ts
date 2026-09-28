@@ -1,14 +1,13 @@
 import {
-  ListDepartmentsEndpoint,
   ListNewsEndpoint,
   ListTeamApplicationIntakesEndpoint,
-  ListTeamsEndpoint,
   ReadApplicationCatalogEndpoint,
   ReadNewsArticleEndpoint,
   ReadTeamApplicationIntakeEndpoint,
   SubmitContactMessageEndpoint,
   SubmitTeamApplicationEndpoint,
 } from "@vektorprogrammet/rpc";
+import type { DepartmentJson, TeamJson } from "@vektorprogrammet/rpc";
 import type { HttpApiEndpoint, HttpApiSchema } from "effect/unstable/httpapi";
 
 type EndpointResponseBody<Response> =
@@ -19,7 +18,7 @@ type EndpointBody<Endpoint extends HttpApiEndpoint.Constraint> = Exclude<
   void
 >;
 
-export type HomepageDepartment = EndpointBody<typeof ListDepartmentsEndpoint>[number];
+export type HomepageDepartment = DepartmentJson;
 
 export type PublishedNewsListing = EndpointBody<typeof ListNewsEndpoint>;
 
@@ -39,7 +38,7 @@ export type ContactMessageHeaders = HttpApiEndpoint.Headers<
 
 export type NewsArticleSlug = HttpApiEndpoint.Params<typeof ReadNewsArticleEndpoint>["Type"]["slug"];
 
-export type HomepageTeam = EndpointBody<typeof ListTeamsEndpoint>[number];
+export type HomepageTeam = TeamJson;
 
 export type HomepageTeamIntake = EndpointBody<typeof ListTeamApplicationIntakesEndpoint>[number];
 

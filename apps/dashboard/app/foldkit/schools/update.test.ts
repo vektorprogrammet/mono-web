@@ -1,5 +1,5 @@
-import { DepartmentId, SchoolManagement, SchoolCommandResult } from "@vektorprogrammet/rpc";
-import { SchoolId, type SchoolDirectory } from "@vektorprogrammet/rpc";
+import { DepartmentId, SchoolId } from "@vektorprogrammet/domain";
+import { SchoolManagement, SchoolCommandResult, type SchoolDirectory } from "@vektorprogrammet/rpc";
 import { Tabs } from "@foldkit/ui";
 import { Effect, Predicate, Schema } from "effect";
 import { describe, expect, it } from "vitest";

@@ -1,4 +1,4 @@
-import { DepartmentId } from "@vektorprogrammet/rpc";
+import { DepartmentId } from "@vektorprogrammet/domain";
 import { Effect, Match, Schema as S } from "effect";
 import { Command } from "foldkit";
 import type { SchoolsBridgeFailure } from "./bridge";

@@ -1,10 +1,9 @@
-import { DepartmentId } from "@vektorprogrammet/rpc";
+import { DepartmentId, SchoolId } from "@vektorprogrammet/domain";
 import {
   SchoolDirectorySchema,
   SchoolManagement,
   SchoolCommand,
   SchoolCommandResult,
-  SchoolId,
 } from "@vektorprogrammet/rpc";
 import { Tabs } from "@foldkit/ui";
 import { Schema as S } from "effect";

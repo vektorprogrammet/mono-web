@@ -1,16 +1,23 @@
+import type { DepartmentId } from "@vektorprogrammet/domain";
 import type {
-  DepartmentId,
-  SchoolDirectory,
+  NativeRpcClient,
   SchoolCommand,
   SchoolCommandResult,
+  SchoolDirectory,
   SchoolManagement,
 } from "@vektorprogrammet/rpc";
 import { IdempotencyKey } from "@vektorprogrammet/rpc";
-import { createEffectClient, type EffectSdkFailure } from "@vektorprogrammet/sdk/effect";
 import { Effect } from "effect";
-import { resolveBrowserApiUrl } from "../../lib/browser-api";
+import { callBrowserNative, type NativeAnswerInvalid } from "../../lib/browser-native";
 import { nativeProblemFrom } from "../../lib/native-problem";
 import { schoolsBridgeFailure, type SchoolsBridgeFailure } from "./bridge";
+
+type NativeClient = NativeRpcClient["Service"];
+
+/** The failure of one native RPC call: its declared problems, transport errors, and an invalid answer. */
+type RpcFailure<Tag extends keyof NativeClient> =
+  | Effect.Error<ReturnType<NativeClient[Tag]>>
+  | NativeAnswerInvalid;
 
 export interface SchoolsListInput {
   readonly department?: DepartmentId;
@@ -23,47 +30,43 @@ export interface SchoolsDirectoryClient {
     ) => Effect.Effect<SchoolDirectory, SchoolsBridgeFailure>;
     readonly readManagement: () => Effect.Effect<
       SchoolManagement,
-      EffectSdkFailure<"directory", "readSchoolManagement">
+      RpcFailure<"directory.readSchoolManagement">
     >;
     readonly executeCommand: (
       command: SchoolCommand,
-    ) => Effect.Effect<SchoolCommandResult, EffectSdkFailure<"directory", "executeSchoolCommand">>;
+    ) => Effect.Effect<SchoolCommandResult, RpcFailure<"directory.executeSchoolCommand">>;
   };
 }
 
-export const createBrowserSchoolsDirectoryClient = (): SchoolsDirectoryClient => {
-  const client = createEffectClient(
-    resolveBrowserApiUrl(import.meta.env.VITE_API_URL, globalThis.location.origin),
-  );
-
-  return {
-    directory: {
-      listSchools: (input = {}) =>
-        client.directory.listSchools({ query: input }).pipe(
-          Effect.map(({ body }) => body),
-          Effect.mapError((error) => {
-            const code = nativeProblemFrom(error)?.code;
-
-            return schoolsBridgeFailure(
-              code === "authority.denied"
-                ? "NotInScope"
-                : code === "credential.invalid" || code === "credential.missing"
-                  ? "UnauthenticatedActor"
-                  : code === "schools.invalid-department"
-                    ? "SchoolsDepartmentNotFound"
-                    : "SchoolsPersistenceError",
-            );
-          }),
+export const createBrowserSchoolsDirectoryClient = (): SchoolsDirectoryClient => ({
+  directory: {
+    listSchools: (input = {}) =>
+      callBrowserNative((client) =>
+        client["directory.listSchools"](
+          input.department === undefined ? {} : { departmentId: input.department },
         ),
-      readManagement: () =>
-        client.directory.readSchoolManagement().pipe(Effect.map(({ body }) => body)),
-      executeCommand: (command) =>
-        client.directory
-          .executeSchoolCommand({
-            payload: command,
-            headers: { "idempotency-key": IdempotencyKey.make(command.commandId) },
-          })
-          .pipe(Effect.map(({ body }) => body)),
-    },
-  };
-};
+      ).pipe(
+        Effect.mapError((error) => {
+          const code = nativeProblemFrom(error)?.code;
+
+          return schoolsBridgeFailure(
+            code === "authority.denied"
+              ? "NotInScope"
+              : code === "credential.invalid" || code === "credential.missing"
+                ? "UnauthenticatedActor"
+                : code === "schools.invalid-department"
+                  ? "SchoolsDepartmentNotFound"
+                  : "SchoolsPersistenceError",
+          );
+        }),
+      ),
+    readManagement: () => callBrowserNative((client) => client["directory.readSchoolManagement"]()),
+    executeCommand: (command) =>
+      callBrowserNative((client) =>
+        client["directory.executeSchoolCommand"]({
+          idempotencyKey: IdempotencyKey.make(command.commandId),
+          request: command,
+        }),
+      ),
+  },
+});
