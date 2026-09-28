@@ -32,7 +32,13 @@ export const recruitmentNotificationConfig = (
     return undefined;
   }
 
-  if (mode !== "http" || !endpointValue || !token) {
+  if (
+    mode !== "http" ||
+    endpointValue === undefined ||
+    endpointValue === "" ||
+    token === undefined ||
+    token === ""
+  ) {
     throw new Error("Recruitment notification HTTP configuration is incomplete");
   }
 
@@ -41,10 +47,10 @@ export const recruitmentNotificationConfig = (
 
   if (
     (endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && loopback)) ||
-    endpoint.username ||
-    endpoint.password ||
-    endpoint.search ||
-    endpoint.hash
+    endpoint.username !== "" ||
+    endpoint.password !== "" ||
+    endpoint.search !== "" ||
+    endpoint.hash !== ""
   ) {
     throw new Error(
       "Recruitment delivery requires HTTPS or loopback HTTP without URL credentials, query, or fragment",
@@ -105,12 +111,11 @@ export const HttpRecruitmentNotificationsLive = (
               providerReference: `http:${request.effectId}`,
             }),
           ),
-          Effect.mapError(
-            () =>
-              new RecruitmentNotificationDeliveryError({
-                effectId: request.effectId,
-                message: "Recruitment notification submission was not acknowledged",
-              }),
+          Effect.mapError(() =>
+            RecruitmentNotificationDeliveryError.make({
+              effectId: request.effectId,
+              message: "Recruitment notification submission was not acknowledged",
+            }),
           ),
         );
 
