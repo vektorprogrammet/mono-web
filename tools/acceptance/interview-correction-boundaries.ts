@@ -827,8 +827,8 @@ export async function assertInterviewCorrectionBoundaries(
     "missing-question-entry",
   ]);
 
-  const decodeProtocolDefect = Schema.decodeOption(
-    Schema.fromJsonString(Schema.Tuple([Schema.TaggedStruct("Defect", {})])),
+  const decodeMalformed = Schema.decodeOption(
+    Schema.fromJsonString(Schema.Struct({ code: Schema.Literal("request.malformed") })),
   );
 
   for (const [name, invalid] of invalidCases) {
@@ -853,12 +853,13 @@ export async function assertInterviewCorrectionBoundaries(
 
     // Domain validation of the answers still answers recruitment.conduct-invalid (422). A payload
     // outside its schema fails in the RPC server before the handler, as a defect (500). A body that
-    // is no RPC message is refused by the server's transport: the RPC protocol answers one Defect
-    // message and no RPC exit, where the HTTP route answered request.malformed (400).
+    // is not JSON is refused by the ingress before any RPC runs, as request.malformed (400).
     if (name === "malformed-json") {
       const refusal = await response.text();
 
-      assert.ok(Option.isSome(decodeProtocolDefect(refusal)), refusal);
+      assert.equal(response.status, 400, refusal);
+
+      assert.ok(Option.isSome(decodeMalformed(refusal)), refusal);
     } else {
       assert.equal(
         response.status,
