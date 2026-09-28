@@ -14,6 +14,7 @@ import {
 import { Match, Predicate, Schema } from "effect";
 import { nativeRpcPath } from "../../packages/rpc/src/api.js";
 import {
+  nativeRpcOutcome,
   nativeRpcRequestBody,
   nativeRpcStatus,
   nativeRpcValue,
@@ -328,20 +329,31 @@ export async function observeInterviewReport(o: Options) {
       headers,
       body: nativeRpcRequestBody(tag, payload),
     }).then((response) =>
-      response.text().then((text) => ({
-        status: nativeRpcStatus(text) ?? response.status,
-        value: nativeRpcValue(text),
-        text,
-      })),
+      response.text().then((text) => {
+        const outcome = nativeRpcOutcome(text);
+
+        return {
+          status: nativeRpcStatus(text) ?? response.status,
+          value: nativeRpcValue(text),
+          problem: Predicate.isTagged(outcome, "Problem") ? outcome.problem : undefined,
+          text,
+        };
+      }),
     );
   };
 
   const get = (query: Record<string, string> = {}, session = cookie) =>
     rpc("recruitment.readInterviewReport", query, session);
 
-  /** The code of the problem that an RPC answered. */
-  const problemCode = (value: Schema.Json | undefined) =>
-    Schema.decodeUnknownSync(Schema.Struct({ code: Schema.String }))(value).code;
+  /** The code of the problem that an RPC answered; an answer without one fails the gate. */
+  const problemCode = (response: {
+    readonly problem: { readonly code: string } | undefined;
+    readonly text: string;
+  }) => {
+    assert.ok(response.problem !== undefined, response.text);
+
+    return response.problem.code;
+  };
 
   const read = async (query: Record<string, string> = {}): Promise<InterviewReport> => {
     const response = await get(query);
@@ -624,7 +636,7 @@ export async function observeInterviewReport(o: Options) {
 
     const status = denial.status;
     assert.ok([401, 403].includes(status));
-    const code = problemCode(denial.value);
+    const code = problemCode(denial);
     assert.ok(["authority.denied", "credential.invalid"].includes(code));
     authorityDenials.push({ condition: setup, status, code });
     assert.deepEqual(await snapshot(), baseline);
@@ -659,7 +671,7 @@ export async function observeInterviewReport(o: Options) {
   authorityDenials.push({
     condition: "ambiguous-department",
     status: ambiguousStatus,
-    code: problemCode(ambiguousResponse.value),
+    code: problemCode(ambiguousResponse),
   });
   await pool.query(
     `DELETE FROM public.organization_memberships WHERE membership_id='report-ambiguous-membership'`,
