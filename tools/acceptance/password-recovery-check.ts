@@ -1,28 +1,42 @@
-import { type Server } from "bun";
 /** Spec0054.2: real PostgreSQL, HTTP acknowledgement mailbox and production browser journey. */
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { createRequire } from "node:module";
-import process from "node:process";
-import { Predicate, Console, Effect, Layer, Schema } from "effect";
-import { FetchHttpClient, type HttpClient } from "effect/unstable/http";
-import { MailDeliveryRequest, Mail } from "../../packages/domain/src/mail.js";
-import { stopOwnedProcess } from "./owned-process.js";
+import * as BunRuntime from "@effect/platform-bun/BunRuntime";
+import * as BunServices from "@effect/platform-bun/BunServices";
 import {
-  type DisposablePostgres,
-  loopbackPortFree,
-  reserveLoopbackPorts,
-  startDisposablePostgres,
-} from "../postgres/index.ts";
+  Cause,
+  Config,
+  Console,
+  Data,
+  Duration,
+  Effect,
+  FileSystem,
+  Layer,
+  Path,
+  Predicate,
+  Schedule,
+  Schema,
+} from "effect";
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientRequest,
+  type HttpClientResponse,
+} from "effect/unstable/http";
+import { MailDeliveryRequest, Mail } from "../../packages/domain/src/mail.js";
+import { loopbackPortFree, reserveLoopbackPorts, startDisposablePostgres } from "../postgres/index.ts";
 import { drainPasswordResetMail } from "../../packages/database/src/password-recovery.js";
 import { HttpMailLive } from "../../apps/backend/src/mail/http.js";
 import { nativeRpcRequestBody, nativeRpcStatus } from "../../apps/dashboard/e2e/native-operations.js";
-
-const root = new URL("../../", import.meta.url).pathname;
+import {
+  answersOk,
+  commandOutput,
+  indentedJsonText,
+  jsonText,
+  ProbeFailure,
+  startOwnedProcess,
+} from "./acceptance-process.ts";
 
 const requireDatabase = createRequire(
   new URL("../../packages/database/package.json", import.meta.url),
@@ -36,524 +50,586 @@ const { Pool } = requireDatabase("pg");
 
 const { chromium } = requireDashboard("@playwright/test");
 
-const logs: string[] = [];
+/** A PostgreSQL call, or the disposable cluster, that failed. */
+class DatabaseFailure extends Data.TaggedError("DatabaseFailure")<{ readonly cause: unknown }> {}
 
-const run = (command: string, args: string[], env = process.env, cwd = root) =>
-  execFileSync(command, args, {
-    cwd,
-    env,
-    encoding: "utf8",
-    timeout: 180000,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+/** A Playwright call that failed. */
+class BrowserFailure extends Data.TaggedError("BrowserFailure")<{ readonly cause: unknown }> {}
 
-assert.equal(run("git", ["status", "--porcelain"]).trim(), "", "committed clean tree required");
+/** The rows of one query; the probe reads the columns that its statement selects. */
+interface QueryResult {
+  readonly rows: Array<any>;
+}
 
-const revision = run("git", ["rev-parse", "HEAD"]).trim();
+/** The name and value of the first cookie that a response sets, as a `Cookie` header sends it. */
+const firstCookie = (response: HttpClientResponse.HttpClientResponse): string | undefined => {
+  const cookie = Object.values(response.cookies.cookies)[0];
 
-const artifacts = await mkdtemp(join(tmpdir(), "vektor-recovery-0054-"));
-
-const children: ReturnType<typeof spawn>[] = [];
-
-const start = (command: string, args: string[], env = process.env, cwd = root) => {
-  const child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
-  children.push(child);
-  child.stdout?.on("data", (chunk) => logs.push(String(chunk)));
-  child.stderr?.on("data", (chunk) => logs.push(String(chunk)));
-
-  return child;
+  return cookie === undefined ? undefined : `${cookie.name}=${cookie.valueEncoded}`;
 };
 
-const wait = async (test: () => Promise<boolean>) => {
-  for (let i = 0; i < 150; i++) {
-    try {
-      if (await test()) return;
-    } catch {}
+/** One Playwright call; the probe loads Playwright untyped, so its handles are `any`. */
+const browserStep = (step: () => Promise<any>): Effect.Effect<any, BrowserFailure> =>
+  Effect.tryPromise({ try: step, catch: (cause) => new BrowserFailure({ cause }) });
 
-    await new Promise((ok) => setTimeout(ok, 100));
-  }
+const MailboxMessages = Schema.Array(Schema.Struct({ text: Schema.String }));
 
-  throw new Error("Readiness timeout");
-};
+const journey = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const root = path.resolve(import.meta.dirname, "../..");
+  const logs: string[] = [];
 
-let postgres: DisposablePostgres | undefined;
+  const run = (command: string, args: ReadonlyArray<string>, env = {}, cwd = root) =>
+    commandOutput({ command, args, cwd, env, deadline: "180 seconds", stderr: "pipe" });
 
-let pool: InstanceType<typeof Pool>;
+  assert.equal(
+    (yield* run("git", ["status", "--porcelain"])).trim(),
+    "",
+    "committed clean tree required",
+  );
 
-let browser: any;
+  const revision = (yield* run("git", ["rev-parse", "HEAD"])).trim();
+  const artifacts = yield* fs.makeTempDirectory({ prefix: "vektor-recovery-0054-" });
 
-let page: any;
+  const start = (command: string, args: ReadonlyArray<string>, env = {}, cwd = root) =>
+    startOwnedProcess({ command, args, cwd, env, output: (text) => logs.push(text) });
 
-let mailbox: Server<undefined> | undefined;
-
-const secrets: string[] = [];
-
-const gates: string[] = [];
-
-const submissions: { tokenPresent: boolean; queryAbsent: boolean }[] = [];
-
-try {
-  const [apiPort] = await reserveLoopbackPorts(1),
-    uiPort = 5174;
-
-  assert.ok(await loopbackPortFree(uiPort), `loopback port ${uiPort} is in use`);
-
-  postgres = await startDisposablePostgres();
-  const pg = postgres.url;
-  pool = new Pool({ connectionString: pg });
-
-  const canonicalOrigin = `http://127.0.0.1:${apiPort}`,
-    dashboardOrigin = `http://127.0.0.1:${uiPort}`;
-
-  /** The status that `system.readSession` answers for a cookie, sent as the browser sends it. */
-  const readSessionStatus = async (cookie: string) =>
-    nativeRpcStatus(
-      await (
-        await fetch(`${canonicalOrigin}/api/rpc`, {
-          method: "POST",
-          headers: { cookie, origin: dashboardOrigin, "content-type": "application/json" },
-          body: nativeRpcRequestBody("system.readSession"),
-        })
-      ).text(),
+  const wait = (url: string) =>
+    answersOk(url).pipe(
+      Effect.filterOrFail(
+        (ready) => ready,
+        () => new ProbeFailure({ message: "Readiness timeout" }),
+      ),
+      Effect.retry({ schedule: Schedule.spaced("100 millis"), times: 149 }),
     );
 
-  const env = {
-    ...process.env,
-    BACKEND_HOST: "127.0.0.1",
-    BACKEND_PORT: String(apiPort),
-    BACKEND_PG_URL: pg,
-    BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
-    NATIVE_IDENTITY_DEPLOYMENT: "local",
-    NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
-    OAUTH_CANONICAL_ORIGIN: canonicalOrigin,
-    OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
-    OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
-    PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-  PASSWORD_RESET_DELIVERY_MODE: "disabled",
-  RECEIPT_DELIVERY_MODE: "disabled",
-    JOURNEY_SEED_PG_URL: pg,
-    API_URL: canonicalOrigin,
-    VITE_API_URL: canonicalOrigin,
-    PASSWORD_RECOVERY_ENGINE: "native",
-    HOST: "127.0.0.1",
-    PORT: String(uiPort),
-    NODE_ENV: "production",
-    DASHBOARD_MOUNT: "/",
-  };
+  const secrets: string[] = [];
+  const gates: string[] = [];
+  const submissions: { tokenPresent: boolean; queryAbsent: boolean }[] = [];
+  let page: any;
 
-  run("bun", ["apps/dashboard/e2e/native-recruitment-journey-seed.mjs"], env);
-  start("bun", ["apps/backend/src/main.ts"], env);
-  await wait(async () => {
-    const r = await fetch(`${canonicalOrigin}/health`);
+  const checks = Effect.gen(function* () {
+    const [apiPort] = yield* Effect.tryPromise({
+      try: () => reserveLoopbackPorts(1),
+      catch: (cause) => new DatabaseFailure({ cause }),
+    });
 
-    return r.ok;
-  });
+    const uiPort = 5174;
 
-  const email = "lina.leader@example.invalid",
-    oldPassword = "journey-secret-0123456789abcdef",
-    newPassword = "New-password-recovery-0123456789";
+    assert.ok(
+      yield* Effect.promise(() => loopbackPortFree(uiPort)),
+      `loopback port ${uiPort} is in use`,
+    );
 
-  secrets.push(email, oldPassword, newPassword);
+    const postgres = yield* Effect.acquireRelease(
+      Effect.tryPromise({
+        try: () => startDisposablePostgres(),
+        catch: (cause) => new DatabaseFailure({ cause }),
+      }),
+      (cluster) => Effect.promise(() => cluster.stop()),
+    );
 
-  const post = async (
-    path: string,
-    body: Schema.Json,
-    origin = dashboardOrigin,
-  ): Promise<Response> => {
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const response = await fetch(`${canonicalOrigin}/api/auth/${path}`, {
-        method: "POST",
-        headers: { origin, "content-type": "application/json" },
-        body: JSON.stringify(body),
-        redirect: "manual",
+    const pg = postgres.url;
+
+    const pool = yield* Effect.acquireRelease(
+      Effect.sync(() => new Pool({ connectionString: pg })),
+      (owned) => Effect.promise(() => owned.end()),
+    );
+
+    const query = (text: string, values?: ReadonlyArray<string>) =>
+      Effect.tryPromise({
+        try: (): Promise<QueryResult> => pool.query(text, values),
+        catch: (cause) => new DatabaseFailure({ cause }),
       });
 
-      if (response.status !== 429) return response;
-      const retry = Number(response.headers.get("x-retry-after"));
-      assert.ok(Number.isFinite(retry) && retry >= 0 && retry <= 60, "bounded engine retry window");
-      gates.push("real credential rate limit observed; waited retry window");
-      await response.body?.cancel();
-      await new Promise((ok) => setTimeout(ok, retry * 1000 + 100));
-    }
+    const canonicalOrigin = `http://127.0.0.1:${apiPort}`,
+      dashboardOrigin = `http://127.0.0.1:${uiPort}`;
 
-    throw new Error("Credential rate limit did not clear");
-  };
+    /** The status that `system.readSession` answers for a cookie, sent as the browser sends it. */
+    const readSessionStatus = (cookie: string) =>
+      HttpClient.execute(
+        HttpClientRequest.post(`${canonicalOrigin}/api/rpc`, {
+          headers: { cookie, origin: dashboardOrigin },
+        }).pipe(
+          HttpClientRequest.bodyText(
+            nativeRpcRequestBody("system.readSession"),
+            "application/json",
+          ),
+        ),
+      ).pipe(
+        Effect.flatMap((response) => response.text),
+        Effect.map(nativeRpcStatus),
+      );
 
-  const login = async (password: string) => {
-    const r = await post("sign-in/email", { email, password });
-    assert.equal(r.status, 200);
+    const env = {
+      BACKEND_HOST: "127.0.0.1",
+      BACKEND_PORT: String(apiPort),
+      BACKEND_PG_URL: pg,
+      BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
+      NATIVE_IDENTITY_DEPLOYMENT: "local",
+      NATIVE_IDENTITY_TRUSTED_ORIGINS: yield* jsonText([dashboardOrigin]),
+      OAUTH_CANONICAL_ORIGIN: canonicalOrigin,
+      OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
+      OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
+      PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+      PASSWORD_RESET_DELIVERY_MODE: "disabled",
+      RECEIPT_DELIVERY_MODE: "disabled",
+      JOURNEY_SEED_PG_URL: pg,
+      API_URL: canonicalOrigin,
+      VITE_API_URL: canonicalOrigin,
+      PASSWORD_RECOVERY_ENGINE: "native",
+      HOST: "127.0.0.1",
+      PORT: String(uiPort),
+      NODE_ENV: "production",
+      DASHBOARD_MOUNT: "/",
+    };
 
-    return r.headers.getSetCookie()[0]!.split(";")[0]!;
-  };
+    yield* run("bun", ["apps/dashboard/e2e/native-recruitment-journey-seed.mjs"], env);
+    yield* start("bun", ["apps/backend/src/main.ts"], env);
+    yield* wait(`${canonicalOrigin}/health`);
 
-  const cookie1 = await login(oldPassword),
-    cookie2 = await login(oldPassword);
+    const email = "lina.leader@example.invalid",
+      oldPassword = "journey-secret-0123456789abcdef",
+      newPassword = "New-password-recovery-0123456789";
 
-  secrets.push(cookie1, cookie2);
-  const messages = new Map<string, { text: string; recipient: string }>();
-  let rejectMail = false;
-  const mailboxToken = randomBytes(24).toString("hex");
-  secrets.push(mailboxToken);
-  mailbox = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    async fetch(request) {
-      if (request.headers.get("authorization") !== `Bearer ${mailboxToken}`)
-        return new Response(null, { status: 401 });
+    secrets.push(email, oldPassword, newPassword);
 
-      if (request.method === "GET") return Response.json([...messages.values()]);
+    /** One identity-engine request that follows no redirect, waiting out a real rate limit. */
+    const post = (path: string, body: Schema.Json, origin = dashboardOrigin) =>
+      Effect.gen(function* () {
+        const request = HttpClientRequest.post(`${canonicalOrigin}/api/auth/${path}`, {
+          headers: { origin },
+        }).pipe(HttpClientRequest.bodyText(yield* jsonText(body), "application/json"));
 
-      if (rejectMail) return new Response(null, { status: 503 });
+        for (let attempt = 0; attempt < 4; attempt++) {
+          const response = yield* HttpClient.execute(request).pipe(
+            Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" }),
+          );
 
-      const body = Schema.decodeUnknownSync(MailDeliveryRequest)(await request.json());
+          if (response.status !== 429) return response;
+          const retry = Number(response.headers["x-retry-after"]);
+          assert.ok(
+            Number.isFinite(retry) && retry >= 0 && retry <= 60,
+            "bounded engine retry window",
+          );
+          gates.push("real credential rate limit observed; waited retry window");
+          yield* Effect.sleep(Duration.millis(retry * 1000 + 100));
+        }
 
-      messages.set(body.deliveryId, body);
+        return yield* new ProbeFailure({ message: "Credential rate limit did not clear" });
+      });
 
-      return Response.json({ acknowledged: true });
-    },
-  });
+    const login = (password: string) =>
+      Effect.gen(function* () {
+        const response = yield* post("sign-in/email", { email, password });
+        assert.equal(response.status, 200);
+        const cookie = firstCookie(response);
+        assert.ok(cookie !== undefined);
 
-  const delivery = HttpMailLive({
-    endpoint: new URL(`http://127.0.0.1:${mailbox.port}/mail`),
-    token: mailboxToken,
-    deliveryTimeoutMilliseconds: 2000,
-  });
+        return cookie;
+      });
 
-  const drainWith = (provider: Layer.Layer<Mail, never, HttpClient.HttpClient>) =>
-    Effect.runPromise(
-      Mail.use((mail) =>
-        drainPasswordResetMail(pool,
-        {
-          oauth: {
-            canonicalOrigin,
-            dashboardOrigin,
-            nativeApiResource: "urn:vektorprogrammet:native-api",
+    const cookie1 = yield* login(oldPassword),
+      cookie2 = yield* login(oldPassword);
+
+    secrets.push(cookie1, cookie2);
+    const messages = new Map<string, { text: string; recipient: string }>();
+    let rejectMail = false;
+    const mailboxToken = randomBytes(24).toString("hex");
+    secrets.push(mailboxToken);
+
+    const mailbox = yield* Effect.acquireRelease(
+      Effect.sync(() =>
+        Bun.serve({
+          hostname: "127.0.0.1",
+          port: 0,
+          fetch(request) {
+            if (request.headers.get("authorization") !== `Bearer ${mailboxToken}`)
+              return new Response(null, { status: 401 });
+
+            if (request.method === "GET") return Response.json([...messages.values()]);
+
+            if (rejectMail) return new Response(null, { status: 503 });
+
+            return request.json().then((json) => {
+              const body = Schema.decodeUnknownSync(MailDeliveryRequest)(json);
+              messages.set(body.deliveryId, body);
+
+              return Response.json({ acknowledged: true });
+            });
           },
-        },
-        mail,
-        "recovery@example.invalid",),
-      ).pipe(Effect.provide(provider.pipe(Layer.provide(FetchHttpClient.layer)))),
+        }),
+      ),
+      (server) => Effect.promise(() => server.stop(true)),
     );
 
-  const drain = () => drainWith(delivery);
+    const delivery = HttpMailLive({
+      endpoint: new URL(`http://127.0.0.1:${mailbox.port}/mail`),
+      token: mailboxToken,
+      deliveryTimeoutMilliseconds: 2000,
+    });
 
-  run("bun", ["run", "build"], env, join(root, "apps/dashboard"));
-  start("bun", ["server.mjs"], env, join(root, "apps/dashboard"));
-  await wait(async () => (await fetch(`${dashboardOrigin}/glemt-passord`)).ok);
-  browser = await chromium.launch({
-    headless: true,
-    executablePath:
-      process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ?? "/etc/profiles/per-user/nori/bin/chromium",
-  });
-  const browserContext = await browser.newContext();
-  page = await browserContext.newPage();
-  page.on("request", (request: any) => {
-    const url = new URL(request.url());
+    const drainWith = (provider: Layer.Layer<Mail, never, HttpClient.HttpClient>) =>
+      Mail.use((mail) =>
+        drainPasswordResetMail(
+          pool,
+          {
+            oauth: {
+              canonicalOrigin,
+              dashboardOrigin,
+              nativeApiResource: "urn:vektorprogrammet:native-api",
+            },
+          },
+          mail,
+          "recovery@example.invalid",
+        ),
+      ).pipe(Effect.provide(provider.pipe(Layer.provide(FetchHttpClient.layer))));
 
-    if (
-      request.method() === "POST" &&
-      ["/tilbakestill-passord", "/tilbakestill-passord.data"].includes(url.pathname)
-    ) {
-      const body = new URLSearchParams(request.postData() ?? "");
-      submissions.push({
-        tokenPresent: !!body.get("token"),
-        queryAbsent: !url.searchParams.has("token"),
-      });
-    }
-  });
-  const errors: string[] = [];
-  page.on("pageerror", () => errors.push("Browser runtime error"));
-  await page.goto(`${dashboardOrigin}/glemt-passord`);
-  await page.getByLabel("E-post", { exact: true }).fill(email);
-  await page.getByRole("button", { name: "Send tilbakestillingslenke" }).click();
-  await page.getByText("Hvis kontoen finnes", { exact: false }).waitFor();
-  await page.goto(`${dashboardOrigin}/glemt-passord`);
-  await page.getByLabel("E-post", { exact: true }).fill("unknown@example.invalid");
-  await page.getByRole("button", { name: "Send tilbakestillingslenke" }).click();
-  await page.getByText("Hvis kontoen finnes", { exact: false }).waitFor();
-  assert.equal(
-    (await pool.query("SELECT count(*)::int n FROM auth.password_reset_email_outbox")).rows[0].n,
-    1,
-  );
-  assert.equal(await drainWith(HttpMailLive(undefined)), "Failed");
-  rejectMail = true;
-  assert.equal(await drain(), "Failed");
-  rejectMail = false;
+    const drain = drainWith(delivery);
 
-  const operator = start("bun", ["apps/backend/src/password-recovery/drain-main.ts", "--once"], {
-    ...env,
-    MAIL_DELIVERY_URL: `http://127.0.0.1:${mailbox.port}/mail`,
-    MAIL_DELIVERY_TOKEN: mailboxToken,
-    MAIL_DELIVERY_TIMEOUT_MS: "2000",
-    MAIL_SENDER: "recovery@example.invalid",
-  });
+    yield* run("bun", ["run", "build"], env, path.join(root, "apps/dashboard"));
+    yield* start("bun", ["server.mjs"], env, path.join(root, "apps/dashboard"));
+    yield* wait(`${dashboardOrigin}/glemt-passord`);
 
-  assert.equal(await new Promise((resolve) => operator.once("exit", resolve)), 0);
-  assert.equal(
-    (await pool.query("SELECT status FROM auth.password_reset_email_outbox")).rows[0].status,
-    "Delivered",
-  );
-  gates.push(
-    "known/unknown concealment, durable acceptance, missing authority, HTTP503 retry and ACK",
-  );
+    const executablePath = yield* Config.String("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH").pipe(
+      Config.withDefault("/etc/profiles/per-user/nori/bin/chromium"),
+    );
 
-  const received = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ text: Schema.String })))(
-    await (
-      await fetch(`http://127.0.0.1:${mailbox.port}/mail`, {
+    const browser = yield* Effect.acquireRelease(
+      browserStep(() => chromium.launch({ headless: true, executablePath })),
+      (owned) => Effect.promise(() => owned.close()),
+    );
+
+    const browserContext = yield* browserStep(() => browser.newContext());
+    page = yield* browserStep(() => browserContext.newPage());
+    page.on("request", (request: any) => {
+      const url = new URL(request.url());
+
+      if (
+        request.method() === "POST" &&
+        ["/tilbakestill-passord", "/tilbakestill-passord.data"].includes(url.pathname)
+      ) {
+        const body = new URLSearchParams(request.postData() ?? "");
+        const token = body.get("token");
+        submissions.push({
+          tokenPresent: token !== null && token !== "",
+          queryAbsent: !url.searchParams.has("token"),
+        });
+      }
+    });
+    const errors: string[] = [];
+    page.on("pageerror", () => errors.push("Browser runtime error"));
+    yield* browserStep(() => page.goto(`${dashboardOrigin}/glemt-passord`));
+    yield* browserStep(() => page.getByLabel("E-post", { exact: true }).fill(email));
+    yield* browserStep(() =>
+      page.getByRole("button", { name: "Send tilbakestillingslenke" }).click(),
+    );
+    yield* browserStep(() => page.getByText("Hvis kontoen finnes", { exact: false }).waitFor());
+    yield* browserStep(() => page.goto(`${dashboardOrigin}/glemt-passord`));
+    yield* browserStep(() =>
+      page.getByLabel("E-post", { exact: true }).fill("unknown@example.invalid"),
+    );
+    yield* browserStep(() =>
+      page.getByRole("button", { name: "Send tilbakestillingslenke" }).click(),
+    );
+    yield* browserStep(() => page.getByText("Hvis kontoen finnes", { exact: false }).waitFor());
+    assert.equal(
+      (yield* query("SELECT count(*)::int n FROM auth.password_reset_email_outbox")).rows[0].n,
+      1,
+    );
+    assert.equal(yield* drainWith(HttpMailLive(undefined)), "Failed");
+    rejectMail = true;
+    assert.equal(yield* drain, "Failed");
+    rejectMail = false;
+
+    const operator = yield* start(
+      "bun",
+      ["apps/backend/src/password-recovery/drain-main.ts", "--once"],
+      {
+        ...env,
+        MAIL_DELIVERY_URL: `http://127.0.0.1:${mailbox.port}/mail`,
+        MAIL_DELIVERY_TOKEN: mailboxToken,
+        MAIL_DELIVERY_TIMEOUT_MS: "2000",
+        MAIL_SENDER: "recovery@example.invalid",
+      },
+    );
+
+    assert.equal(yield* operator.exitCode, 0);
+    assert.equal(
+      (yield* query("SELECT status FROM auth.password_reset_email_outbox")).rows[0].status,
+      "Delivered",
+    );
+    gates.push(
+      "known/unknown concealment, durable acceptance, missing authority, HTTP503 retry and ACK",
+    );
+
+    const received = yield* HttpClient.execute(
+      HttpClientRequest.get(`http://127.0.0.1:${mailbox.port}/mail`, {
         headers: { authorization: `Bearer ${mailboxToken}` },
-      })
-    ).json(),
-  );
+      }),
+    ).pipe(
+      Effect.flatMap((response) => response.json),
+      Effect.flatMap(Schema.decodeUnknownEffect(MailboxMessages)),
+    );
 
-  const resetUrl = received[0]!.text.match(
-    /https?:\/\/[^\s]+\/api\/auth\/reset-password\/[^\s]+/u,
-  )?.[0];
+    const resetUrl = received[0]!.text.match(
+      /https?:\/\/[^\s]+\/api\/auth\/reset-password\/[^\s]+/u,
+    )?.[0];
 
-  assert.ok(resetUrl, "password reset email contains its reset link");
-  const token = new URL(resetUrl).pathname.split("/").at(-1)!;
-  secrets.push(token, resetUrl);
-  await page.goto(resetUrl);
-  assert.equal(new URL(page.url()).pathname, "/tilbakestill-passord");
-  await page.getByLabel("Nytt passord", { exact: true }).fill("x".repeat(129));
-  await page.getByLabel("Gjenta passord", { exact: true }).fill("x".repeat(129));
-  await page.getByRole("button", { name: "Lagre passord" }).click();
-  await page.getByRole("alert").waitFor();
-  await page.getByLabel("Nytt passord", { exact: true }).fill(newPassword);
-  await page.getByLabel("Gjenta passord", { exact: true }).fill(newPassword);
-  await page.getByRole("button", { name: "Lagre passord" }).click();
-  await page.waitForURL("**/login?reset=true");
-  gates.push("browser policy rejection then corrected reset reaches login");
+    assert.ok(resetUrl !== undefined, "password reset email contains its reset link");
+    const token = new URL(resetUrl).pathname.split("/").at(-1)!;
+    secrets.push(token, resetUrl);
+    yield* browserStep(() => page.goto(resetUrl));
+    assert.equal(new URL(page.url()).pathname, "/tilbakestill-passord");
+    yield* browserStep(() =>
+      page.getByLabel("Nytt passord", { exact: true }).fill("x".repeat(129)),
+    );
+    yield* browserStep(() =>
+      page.getByLabel("Gjenta passord", { exact: true }).fill("x".repeat(129)),
+    );
+    yield* browserStep(() => page.getByRole("button", { name: "Lagre passord" }).click());
+    yield* browserStep(() => page.getByRole("alert").waitFor());
+    yield* browserStep(() => page.getByLabel("Nytt passord", { exact: true }).fill(newPassword));
+    yield* browserStep(() => page.getByLabel("Gjenta passord", { exact: true }).fill(newPassword));
+    yield* browserStep(() => page.getByRole("button", { name: "Lagre passord" }).click());
+    yield* browserStep(() => page.waitForURL("**/login?reset=true"));
+    gates.push("browser policy rejection then corrected reset reaches login");
 
-  for (const cookie of [cookie1, cookie2]) {
-    assert.equal(await readSessionStatus(cookie), 401);
-  }
+    for (const cookie of [cookie1, cookie2]) {
+      assert.equal(yield* readSessionStatus(cookie), 401);
+    }
 
-  gates.push("both old sessions denied");
-  assert.equal((await post("sign-in/email", { email, password: oldPassword })).status, 401);
-  await login(newPassword);
-  assert.equal((await post("reset-password", { token, newPassword: oldPassword })).status, 400);
-  gates.push(
-    "browser callback/reset, both old sessions denied, old password denied, new login, reused token denied",
-  );
+    gates.push("both old sessions denied");
+    assert.equal((yield* post("sign-in/email", { email, password: oldPassword })).status, 401);
+    yield* login(newPassword);
+    assert.equal(
+      (yield* post("reset-password", { token, newPassword: oldPassword })).status,
+      400,
+    );
+    gates.push(
+      "browser callback/reset, both old sessions denied, old password denied, new login, reused token denied",
+    );
 
-  const requestReset = () =>
-    post("request-password-reset", {
+    const requestReset = post("request-password-reset", {
       email,
       redirectTo: `${dashboardOrigin}/tilbakestill-passord`,
     });
 
-  assert.equal((await requestReset()).status, 200);
-  await pool.query(
-    `UPDATE auth.verification SET "expiresAt"=date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')-INTERVAL '1 second' WHERE identifier LIKE 'reset-password:%'`,
-  );
-  assert.equal(await drain(), "Quarantined");
-  await page.goto(
-    `${canonicalOrigin}/api/auth/reset-password/expired-or-malformed?callbackURL=${encodeURIComponent(`${dashboardOrigin}/tilbakestill-passord`)}`,
-  );
-  await page.getByText("Lenken er ugyldig eller utløpt.").waitFor();
-  assert.equal(
-    (await post("request-password-reset", { email, redirectTo: `${dashboardOrigin}/login` }))
-      .status,
-    403,
-  );
-  assert.equal(
-    (
-      await post(
+    assert.equal((yield* requestReset).status, 200);
+    yield* query(
+      `UPDATE auth.verification SET "expiresAt"=date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')-INTERVAL '1 second' WHERE identifier LIKE 'reset-password:%'`,
+    );
+    assert.equal(yield* drain, "Quarantined");
+    yield* browserStep(() =>
+      page.goto(
+        `${canonicalOrigin}/api/auth/reset-password/expired-or-malformed?callbackURL=${encodeURIComponent(`${dashboardOrigin}/tilbakestill-passord`)}`,
+      ),
+    );
+    yield* browserStep(() => page.getByText("Lenken er ugyldig eller utløpt.").waitFor());
+    assert.equal(
+      (yield* post("request-password-reset", { email, redirectTo: `${dashboardOrigin}/login` }))
+        .status,
+      403,
+    );
+    assert.equal(
+      (yield* post(
         "request-password-reset",
         { email, redirectTo: `${dashboardOrigin}/tilbakestill-passord` },
         "https://evil.example",
-      )
-    ).status,
-    403,
-  );
-  assert.equal(
-    (
-      await fetch(
+      )).status,
+      403,
+    );
+    assert.equal(
+      (yield* HttpClient.get(
         `${canonicalOrigin}/api/auth/reset-password/malformed?callbackURL=${encodeURIComponent(`${dashboardOrigin}/login`)}`,
-        { redirect: "manual" },
-      )
-    ).status,
-    403,
-  );
-  gates.push("expired quarantine, invalid callback page, origin and callback path denial");
-  await pool.query(
-    `CREATE FUNCTION auth.reject_recovery_enqueue() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic enqueue failure'; END $$; CREATE TRIGGER reject_recovery_enqueue BEFORE INSERT ON auth.password_reset_email_outbox FOR EACH ROW EXECUTE FUNCTION auth.reject_recovery_enqueue()`,
-  );
-  assert.equal((await requestReset()).status, 503);
-  await pool.query(
-    `DROP TRIGGER reject_recovery_enqueue ON auth.password_reset_email_outbox; DROP FUNCTION auth.reject_recovery_enqueue()`,
-  );
-  gates.push("enqueue failure replaces swallowed engine success with503");
-  await requestReset();
-  await pool.query(
-    `UPDATE auth.password_reset_email_outbox SET status='Processing',claim_id=gen_random_uuid(),claimed_at=date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')-INTERVAL '2 minutes' WHERE status='Pending'`,
-  );
-  // An expired claim may already have sent its mail, so the drain quarantines it instead of resending.
-  assert.equal(await drain(), "Empty");
-  assert.equal(
-    (
-      await pool.query(
+      ).pipe(Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" }))).status,
+      403,
+    );
+    gates.push("expired quarantine, invalid callback page, origin and callback path denial");
+    yield* query(
+      `CREATE FUNCTION auth.reject_recovery_enqueue() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic enqueue failure'; END $$; CREATE TRIGGER reject_recovery_enqueue BEFORE INSERT ON auth.password_reset_email_outbox FOR EACH ROW EXECUTE FUNCTION auth.reject_recovery_enqueue()`,
+    );
+    assert.equal((yield* requestReset).status, 503);
+    yield* query(
+      `DROP TRIGGER reject_recovery_enqueue ON auth.password_reset_email_outbox; DROP FUNCTION auth.reject_recovery_enqueue()`,
+    );
+    gates.push("enqueue failure replaces swallowed engine success with503");
+    yield* requestReset;
+    yield* query(
+      `UPDATE auth.password_reset_email_outbox SET status='Processing',claim_id=gen_random_uuid(),claimed_at=date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')-INTERVAL '2 minutes' WHERE status='Pending'`,
+    );
+    // An expired claim may already have sent its mail, so the drain quarantines it instead of resending.
+    assert.equal(yield* drain, "Empty");
+    assert.equal(
+      (yield* query(
         `SELECT count(*)::int AS n FROM auth.password_reset_email_outbox WHERE status='Quarantined' AND last_failure_code='stale-claim'`,
-      )
-    ).rows[0].n,
-    1,
-  );
-  await requestReset();
-  const simultaneous = await Promise.all([drain(), drain()]);
-  assert.deepEqual(simultaneous.sort(), ["Delivered", "Empty"]);
-  gates.push("stale claim quarantined and concurrent SKIP LOCKED claims");
+      )).rows[0].n,
+      1,
+    );
+    yield* requestReset;
+    const simultaneous = yield* Effect.all([drain, drain], { concurrency: "unbounded" });
+    assert.deepEqual(simultaneous.toSorted(), ["Delivered", "Empty"]);
+    gates.push("stale claim quarantined and concurrent SKIP LOCKED claims");
 
-  const nextToken = async () => {
-    assert.equal((await requestReset()).status, 200);
+    const nextToken = Effect.gen(function* () {
+      assert.equal((yield* requestReset).status, 200);
 
-    const row = (
-      await pool.query(
+      const row = (yield* query(
         `SELECT identifier FROM auth.verification WHERE identifier LIKE 'reset-password:%' ORDER BY "createdAt" DESC LIMIT 1`,
-      )
-    ).rows[0];
+      )).rows[0];
 
-    const value = row.identifier.slice("reset-password:".length);
-    secrets.push(value);
+      const value: string = row.identifier.slice("reset-password:".length);
+      secrets.push(value);
 
-    return value;
-  };
+      return value;
+    });
 
-  const concurrentToken = await nextToken();
+    const concurrentToken = yield* nextToken;
 
-  const resetStatuses = await Promise.all([
-    post("reset-password", { token: concurrentToken, newPassword: "Concurrent-password-A-12345" }),
-    post("reset-password", { token: concurrentToken, newPassword: "Concurrent-password-B-12345" }),
-  ]);
+    const resetStatuses = yield* Effect.all(
+      [
+        post("reset-password", {
+          token: concurrentToken,
+          newPassword: "Concurrent-password-A-12345",
+        }),
+        post("reset-password", {
+          token: concurrentToken,
+          newPassword: "Concurrent-password-B-12345",
+        }),
+      ],
+      { concurrency: "unbounded" },
+    );
 
-  assert.deepEqual(resetStatuses.map((r) => r.status).sort((a, b) => a - b), [200, 400]);
+    assert.deepEqual(
+      resetStatuses.map((r) => r.status).toSorted((a, b) => a - b),
+      [200, 400],
+    );
 
-  const winner =
-    resetStatuses[0]!.status === 200
-      ? "Concurrent-password-A-12345"
-      : "Concurrent-password-B-12345";
+    const winner =
+      resetStatuses[0].status === 200
+        ? "Concurrent-password-A-12345"
+        : "Concurrent-password-B-12345";
 
-  await login(winner);
-  gates.push("one consumed token, concurrent different-password reset exactly one success");
-  const auditFailureToken = await nextToken();
-  await pool.query(
-    `CREATE FUNCTION auth.reject_recovery_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_kind='password-reset-success' THEN RAISE EXCEPTION 'synthetic audit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_recovery_audit BEFORE INSERT ON auth.identity_security_audit FOR EACH ROW EXECUTE FUNCTION auth.reject_recovery_audit()`,
-  );
-  assert.equal(
-    (await post("reset-password", { token: auditFailureToken, newPassword })).status,
-    503,
-  );
-  await pool.query(
-    `DROP TRIGGER reject_recovery_audit ON auth.identity_security_audit; DROP FUNCTION auth.reject_recovery_audit()`,
-  );
-  assert.equal(
-    (
-      await pool.query(
+    yield* login(winner);
+    gates.push("one consumed token, concurrent different-password reset exactly one success");
+    const auditFailureToken = yield* nextToken;
+    yield* query(
+      `CREATE FUNCTION auth.reject_recovery_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_kind='password-reset-success' THEN RAISE EXCEPTION 'synthetic audit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_recovery_audit BEFORE INSERT ON auth.identity_security_audit FOR EACH ROW EXECUTE FUNCTION auth.reject_recovery_audit()`,
+    );
+    assert.equal(
+      (yield* post("reset-password", { token: auditFailureToken, newPassword })).status,
+      503,
+    );
+    yield* query(
+      `DROP TRIGGER reject_recovery_audit ON auth.identity_security_audit; DROP FUNCTION auth.reject_recovery_audit()`,
+    );
+    assert.equal(
+      (yield* query(
         `SELECT count(*)::int n FROM auth.session WHERE "userId"='journey-rec-leader-0049'`,
-      )
-    ).rows[0].n,
-    0,
-  );
-  const partialCookie = await login(newPassword);
-  gates.push(
-    "audit failure after password update and session deletion returns503; credential changed",
-  );
-  const deletionFailureToken = await nextToken();
-  await pool.query(
-    `CREATE FUNCTION auth.reject_recovery_session_delete() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic session deletion failure'; END $$; CREATE TRIGGER reject_recovery_session_delete BEFORE DELETE ON auth.session FOR EACH ROW EXECUTE FUNCTION auth.reject_recovery_session_delete()`,
-  );
-  assert.ok(
-    (await post("reset-password", { token: deletionFailureToken, newPassword: oldPassword }))
-      .status >= 500,
-  );
-  await pool.query(
-    `DROP TRIGGER reject_recovery_session_delete ON auth.session; DROP FUNCTION auth.reject_recovery_session_delete()`,
-  );
-
-  assert.equal(await readSessionStatus(partialCookie), 200);
-  await login(oldPassword);
-  gates.push("session deletion failure returns5xx; password changed with old session still live");
-  const expiredToken = await nextToken();
-  await pool.query(
-    `UPDATE auth.verification SET "expiresAt"=date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')-INTERVAL '1 second' WHERE identifier=$1`,
-    [`reset-password:${expiredToken}`],
-  );
-  await page.goto(
-    `${canonicalOrigin}/api/auth/reset-password/${expiredToken}?callbackURL=${encodeURIComponent(`${dashboardOrigin}/tilbakestill-passord`)}`,
-  );
-  await page.getByText("Lenken er ugyldig eller utløpt.").waitFor();
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: join(artifacts, "invalid-link-mobile.png") });
-  const AxeBuilder = requireDashboard("@axe-core/playwright").default;
-  const axe = await new AxeBuilder({ page }).analyze();
-  assert.deepEqual(axe.violations, []);
-  gates.push("actual expired token callback, mobile invalid-link view, Axe");
-
-  for (const [id, identifier, value] of [
-    [
-      "invalid-verification-proof",
-      "not-a-reset-identifier",
-      "journey-rec-leader-0049",
-      "verification-invalid",
-    ],
-    [
-      "mismatched-verification-proof",
-      "reset-password:synthetic-mismatch",
-      "wrong-person",
-      "authority-mismatch",
-    ],
-  ]) {
-    await pool.query(
-      `INSERT INTO auth.verification(id,identifier,value,"expiresAt","createdAt","updatedAt") VALUES($1,$2,$3,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')+INTERVAL '1 hour',date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'),date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))`,
-      [id, identifier, value],
+      )).rows[0].n,
+      0,
     );
-    await pool.query(
-      `INSERT INTO auth.password_reset_email_outbox(effect_id,verification_id,subject_person_id,status) VALUES($1,$2,'journey-rec-leader-0049','Pending')`,
-      [`password-reset:${id}`, id],
+    const partialCookie = yield* login(newPassword);
+    gates.push(
+      "audit failure after password update and session deletion returns503; credential changed",
     );
-  }
+    const deletionFailureToken = yield* nextToken;
+    yield* query(
+      `CREATE FUNCTION auth.reject_recovery_session_delete() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic session deletion failure'; END $$; CREATE TRIGGER reject_recovery_session_delete BEFORE DELETE ON auth.session FOR EACH ROW EXECUTE FUNCTION auth.reject_recovery_session_delete()`,
+    );
+    assert.ok(
+      (yield* post("reset-password", { token: deletionFailureToken, newPassword: oldPassword }))
+        .status >= 500,
+    );
+    yield* query(
+      `DROP TRIGGER reject_recovery_session_delete ON auth.session; DROP FUNCTION auth.reject_recovery_session_delete()`,
+    );
 
-  // Drain earlier reset-consumed/expired effects first, then malformed fixtures; none can be mailed.
-  for (let n = 0; n < 16; n++) {
-    const result = await drain();
+    assert.equal(yield* readSessionStatus(partialCookie), 200);
+    yield* login(oldPassword);
+    gates.push("session deletion failure returns5xx; password changed with old session still live");
+    const expiredToken = yield* nextToken;
+    yield* query(
+      `UPDATE auth.verification SET "expiresAt"=date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')-INTERVAL '1 second' WHERE identifier=$1`,
+      [`reset-password:${expiredToken}`],
+    );
+    yield* browserStep(() =>
+      page.goto(
+        `${canonicalOrigin}/api/auth/reset-password/${expiredToken}?callbackURL=${encodeURIComponent(`${dashboardOrigin}/tilbakestill-passord`)}`,
+      ),
+    );
+    yield* browserStep(() => page.getByText("Lenken er ugyldig eller utløpt.").waitFor());
+    yield* browserStep(() => page.setViewportSize({ width: 390, height: 844 }));
+    yield* browserStep(() =>
+      page.screenshot({ path: path.join(artifacts, "invalid-link-mobile.png") }),
+    );
+    const AxeBuilder = requireDashboard("@axe-core/playwright").default;
+    const axe = yield* browserStep(() => new AxeBuilder({ page }).analyze());
+    assert.deepEqual(axe.violations, []);
+    gates.push("actual expired token callback, mobile invalid-link view, Axe");
 
-    if (result === "Empty") break;
-    assert.equal(result, "Quarantined");
-  }
+    for (const [id, identifier, value] of [
+      [
+        "invalid-verification-proof",
+        "not-a-reset-identifier",
+        "journey-rec-leader-0049",
+        "verification-invalid",
+      ],
+      [
+        "mismatched-verification-proof",
+        "reset-password:synthetic-mismatch",
+        "wrong-person",
+        "authority-mismatch",
+      ],
+    ] as const) {
+      yield* query(
+        `INSERT INTO auth.verification(id,identifier,value,"expiresAt","createdAt","updatedAt") VALUES($1,$2,$3,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')+INTERVAL '1 hour',date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'),date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))`,
+        [id, identifier, value],
+      );
+      yield* query(
+        `INSERT INTO auth.password_reset_email_outbox(effect_id,verification_id,subject_person_id,status) VALUES($1,$2,'journey-rec-leader-0049','Pending')`,
+        [`password-reset:${id}`, id],
+      );
+    }
 
-  const invalid = (
-    await pool.query(
+    // Drain earlier reset-consumed/expired effects first, then malformed fixtures; none can be mailed.
+    for (let n = 0; n < 16; n++) {
+      const result = yield* drain;
+
+      if (result === "Empty") break;
+      assert.equal(result, "Quarantined");
+    }
+
+    const invalid = (yield* query(
       `SELECT last_failure_code FROM auth.password_reset_email_outbox WHERE verification_id IN ('invalid-verification-proof','mismatched-verification-proof') ORDER BY verification_id`,
-    )
-  ).rows;
+    )).rows;
 
-  assert.deepEqual(
-    invalid.map((r: any) => r.last_failure_code),
-    ["verification-invalid", "authority-mismatch"],
-  );
-  assert.ok(submissions.length >= 2);
-  assert.ok(submissions.every((item) => item.tokenPresent && item.queryAbsent));
-  gates.push(
-    "invalid and authority-mismatched verification quarantined; browser token only in request body",
-  );
+    assert.deepEqual(
+      invalid.map((r: any) => r.last_failure_code),
+      ["verification-invalid", "authority-mismatch"],
+    );
+    assert.ok(submissions.length >= 2);
+    assert.ok(submissions.every((item) => item.tokenPresent && item.queryAbsent));
+    gates.push(
+      "invalid and authority-mismatched verification quarantined; browser token only in request body",
+    );
 
-  const audits = (
-    await pool.query(
+    const audits = (yield* query(
       "SELECT event_kind,subject_person_id,details,request_correlation FROM auth.identity_security_audit ORDER BY occurred_at",
-    )
-  ).rows;
+    )).rows;
 
-  const outbox = (await pool.query("SELECT * FROM auth.password_reset_email_outbox")).rows;
-  const safe = JSON.stringify({ audits, outbox, logs });
+    const outbox = (yield* query("SELECT * FROM auth.password_reset_email_outbox")).rows;
+    const safe = yield* jsonText({ audits, outbox, logs });
 
-  for (const secret of secrets) assert.ok(!safe.includes(secret), "sensitive value leaked");
-  assert.ok(audits.some((r: any) => r.event_kind === "password-reset-success"));
-  assert.deepEqual(errors, []);
-  await page.goto(`${dashboardOrigin}/tilbakestill-passord`);
-  await page.screenshot({ path: join(artifacts, "invalid-link.png") });
-  await writeFile(
-    join(artifacts, "evidence.json"),
-    JSON.stringify(
-      {
+    for (const secret of secrets) assert.ok(!safe.includes(secret), "sensitive value leaked");
+    assert.ok(audits.some((r: any) => r.event_kind === "password-reset-success"));
+    assert.deepEqual(errors, []);
+    yield* browserStep(() => page.goto(`${dashboardOrigin}/tilbakestill-passord`));
+    yield* browserStep(() => page.screenshot({ path: path.join(artifacts, "invalid-link.png") }));
+    yield* fs.writeFileString(
+      path.join(artifacts, "evidence.json"),
+      yield* indentedJsonText({
         revision,
         gates,
         audits: audits.map((r: any) => ({
@@ -563,54 +639,55 @@ try {
         outbox: outbox.map((r: any) => ({ status: r.status, attempts: r.attempts })),
         browserErrors: errors,
         transport: "synthetic authenticated loopback HTTP mailbox; not production email",
-      },
-      null,
-      2,
-    ),
-  );
-  await Effect.runPromise(
-    Console.log(JSON.stringify({ result: "Passed", artifacts, revision, gates })),
-  );
-} catch (error) {
-  let text = page
-    ? await page
-        .locator("body")
-        .innerText()
-        .catch(() => "")
-    : "";
-
-  for (const secret of secrets) text = text.replaceAll(secret, "[redacted]");
-  await Effect.runPromise(
-    Console.error(
-      JSON.stringify({
-        failure: error instanceof Error ? error.name : "Failure",
-        assertion:
-          error !== null &&
-          (error === null || Predicate.isObjectOrArray(error)) &&
-          "actual" in error &&
-          "expected" in error
-            ? {
-                actual: Predicate.isNumber(error.actual)
-                  ? error.actual
-                  : Object.prototype.toString.call(error.actual),
-                expected: Predicate.isNumber(error.expected)
-                  ? error.expected
-                  : Object.prototype.toString.call(error.expected),
-              }
-            : null,
-        gates,
-        submissions,
-        pageText: text.slice(0, 1800),
-        artifacts,
       }),
-    ),
-  );
-  process.exitCode = 1;
-} finally {
-  await browser?.close();
-  await mailbox?.stop(true);
-  await pool?.end();
+    );
+    yield* Console.log(yield* jsonText({ result: "Passed", artifacts, revision, gates }));
+  });
 
-  for (const child of children.reverse()) await stopOwnedProcess(child);
-  await postgres?.stop();
-}
+  /** The redacted report of a failure, written before the browser and processes are released. */
+  const report = (cause: Cause.Cause<unknown>) =>
+    Effect.gen(function* () {
+      const error = Cause.squash(cause);
+
+      let text =
+        page === undefined
+          ? ""
+          : yield* Effect.promise(
+              (): Promise<string> =>
+                page
+                .locator("body")
+                .innerText()
+                .catch(() => ""),
+            );
+
+      for (const secret of secrets) text = text.replaceAll(secret, "[redacted]");
+      yield* Console.error(
+        yield* jsonText({
+          failure: error instanceof Error ? error.name : "Failure",
+          assertion:
+            Predicate.isObjectOrArray(error) && "actual" in error && "expected" in error
+              ? {
+                  actual: Predicate.isNumber(error.actual)
+                    ? error.actual
+                    : Object.prototype.toString.call(error.actual),
+                  expected: Predicate.isNumber(error.expected)
+                    ? error.expected
+                    : Object.prototype.toString.call(error.expected),
+                }
+              : null,
+          gates,
+          submissions,
+          pageText: text.slice(0, 1800),
+          artifacts,
+        }),
+      );
+    });
+
+  yield* checks.pipe(Effect.tapCause(report), Effect.scoped);
+});
+
+// The failure report above is the redacted evidence; the runtime's own report could print secrets.
+BunRuntime.runMain(
+  journey.pipe(Effect.provide(Layer.mergeAll(BunServices.layer, FetchHttpClient.layer))),
+  { disableErrorReporting: true },
+);
