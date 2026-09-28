@@ -58,7 +58,7 @@ An observer must not derive expected results from the mutation implementation un
 
 Reuse these sources before adding another runner or abstraction:
 
-- [Native assignment runner](../tools/e2e/run-real-native-recruitment-assignment.mjs): isolated runtime, canonical migrations, native authentication, and persistence evidence.
+- [Native assignment runner](../tools/e2e/run-real-native-recruitment-assignment.ts): isolated runtime, canonical migrations, native authentication, and persistence evidence.
 - [Interview-conduct browser scenario](../apps/dashboard/e2e/native-recruitment-interview-conduct.spec.ts): multiple actors, reload, and stale updates.
 - [Placement browser runner](../apps/dashboard/e2e/run-real-native-placement.mjs): scenario manifest and parent-owned database lifecycle.
 - [Playwright report sanitizer](../apps/dashboard/e2e/runtime-evidence-receipt.mjs): sanitized Playwright results and outcomes for runner evidence.
