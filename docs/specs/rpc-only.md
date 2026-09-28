@@ -62,12 +62,32 @@ dashboard bridge `apps/dashboard/app/routes/__foldkit.social-events.ts`. Copy it
 - **Re-exports.** A contract re-exports only the schemas its own RPCs use. Clients import other
   domain values from `@vektorprogrammet/domain`.
 - **Clients.** The dashboard server calls `callNative(cookie, request, (client) => ...)` from
-  `apps/dashboard/app/lib/api.server.ts`. Journey drivers and probes use `makeScriptClient` from
+  `apps/dashboard/app/lib/api.server.ts`. Journey drivers and probes use `nativeScriptClient` from
   `@vektorprogrammet/rpc/script`, whose results keep the registry status of each problem. Backend
   tests use `makeBackendTestRpc` from `apps/backend/src/test/native-rpc.ts`.
 - **Files.** Uploads and downloads travel as bytes in the payload (`Schema.Uint8Array`) on the JSON
   endpoint, where the dashboard server relays them. If a browser needs a direct URL, or JSON size
   is a problem, record it; `RpcSerialization.layerSchemaBinary` exists and would need its own path.
+
+## Lint policy
+
+Every Effect language-service rule that `@effect/tsgo` ships is an error, except in
+`apps/homepage` and `apps/dashboard` (recommended and correctness only), and
+`strict-effect-provide` at the entry points that `oxlint.config.ts` declares
+(`tools/conventions/tests/oxlint-groups.test.ts` guards both). Every file a worker creates or
+changes lints clean: `bun x oxlint --threads=2 <files>`. The rules ship no autofix through Oxlint.
+
+- `missing-pipeable-signature`: give an exported function of two or more parameters a pipeable
+  form with `dual` from `effect/Function`, typed as an overload pair (precedent:
+  `backendHttpHandler` in `apps/backend/src/router.ts`). With optional trailing parameters,
+  use the predicate form `dual((args) => <first argument is the data>, impl)`, or take one named
+  options interface instead (precedent: `makeBackendTestRpc`, `ExternalNativeRpcRouterLive`).
+- `new-schema-class`: `X.make(...)`, not `new X(...)`, for Schema classes and tagged errors.
+- `strict-boolean-expressions`: compare explicitly (`!== undefined`, `.length > 0`,
+  `Option.isSome`), never rely on truthiness.
+- `schema-struct-with-tag`, `prefer-typed-schema-decoder`, `unnecessary-arrow-block`,
+  `deterministic-keys`, `nested-effect-gen-yield`: follow the rule's message; each has one form.
+- A suppression needs its entry in `docs/effect-exceptions.json`; prefer the fix.
 
 ## Effect lookup order
 

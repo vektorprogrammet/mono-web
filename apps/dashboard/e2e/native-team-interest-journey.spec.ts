@@ -1,4 +1,4 @@
-import { makeScriptClient } from "@vektorprogrammet/rpc/script";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
 import { expect, test, type Page } from "@playwright/test";
 
 const nativeIdentityMode = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
@@ -73,7 +73,7 @@ test.describe("Native team-interest journey (spec 0059)", () => {
   test("native RPC gates anonymous callers", async ({ baseURL }) => {
     test.skip(!nativeIdentityMode, "requires the real native identity topology");
 
-    const native = makeScriptClient(apiOrigin);
+    const native = nativeScriptClient(apiOrigin);
 
     try {
       const anonymous = await native.call(

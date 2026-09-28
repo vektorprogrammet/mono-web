@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { addressesAnyRoute, legacyRoutes } from "../../apps/dashboard/e2e/request-routes.js";
 import { nativeRpcPath } from "@vektorprogrammet/rpc";
-import { makeScriptClient, type ScriptCallResult } from "@vektorprogrammet/rpc/script";
+import { nativeScriptClient, type ScriptCallResult } from "@vektorprogrammet/rpc/script";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { randomBytes } from "node:crypto";
@@ -2125,7 +2125,7 @@ const runRehearsal = async (
     guard.addHttp(dashboardOrigin, "dashboard-loopback");
     const cookieHeader = `${SPEC_0067.sessionCookieName}=${sessionCookie}`;
 
-    const native = makeScriptClient(backendOrigin);
+    const native = nativeScriptClient(backendOrigin);
     const anonymousHeaders = { origin: dashboardOrigin };
     const administratorHeaders = { cookie: cookieHeader, origin: dashboardOrigin };
 

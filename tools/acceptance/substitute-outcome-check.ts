@@ -19,7 +19,7 @@ import {
 } from "../../packages/rpc/src/admission-outcomes.js";
 import { nativeRpcPath } from "../../packages/rpc/src/api.js";
 import { IdempotencyKey, type StrongETag } from "../../packages/rpc/src/problem.js";
-import { makeScriptClient, type ScriptCallResult } from "../../packages/rpc/src/script-client.js";
+import { nativeScriptClient, type ScriptCallResult } from "../../packages/rpc/src/script-client.js";
 import { SubmitApplicationRequest } from "../../packages/rpc/src/v2-schemas.js";
 import { localBackendEnvironment } from "../e2e/local-backend-environment.ts";
 import {
@@ -175,7 +175,7 @@ try {
     member = await login(persons.member),
     other = await login(persons.otherDepartment);
 
-  const native = makeScriptClient(backendOrigin);
+  const native = nativeScriptClient(backendOrigin);
 
   /** Headers of one call: the dashboard origin, and the person's session when there is one. */
   const as = (cookie?: string): Readonly<Record<string, string>> =>

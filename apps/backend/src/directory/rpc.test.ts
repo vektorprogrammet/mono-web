@@ -359,7 +359,7 @@ const backendServices = Layer.mergeAll(
   Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
 );
 
-const backend = makeBackendTestRpc(backendTestConfig, backendServices);
+const backend = makeBackendTestRpc({ config: backendTestConfig, services: backendServices });
 
 const listPeople = Effect.gen(function* () {
   const client = yield* backend.client;

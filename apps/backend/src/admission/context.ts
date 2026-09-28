@@ -5,7 +5,10 @@ import {
   InactiveActor,
   type AdmissionPeriodActor,
 } from "@vektorprogrammet/domain/admission-period";
-import { DepartmentId, type OrganizationPersonAuthority } from "@vektorprogrammet/domain/organization";
+import {
+  DepartmentId,
+  type OrganizationPersonAuthority,
+} from "@vektorprogrammet/domain/organization";
 import { Effect, Schema } from "effect";
 import { admissionActorForDepartment, unscopedAdmissionActorFrom } from "../authority.js";
 

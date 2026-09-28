@@ -7,7 +7,10 @@ import {
   PublicApplicationIdSchema,
   PublicApplicationSubmitInputSchema,
 } from "@vektorprogrammet/domain/application";
-import { PublicApplicationConfirmationSchema, SubmitApplicationRequest } from "@vektorprogrammet/rpc";
+import {
+  PublicApplicationConfirmationSchema,
+  SubmitApplicationRequest,
+} from "@vektorprogrammet/rpc";
 import { IdempotencyKey, isProblem, type Problem } from "@vektorprogrammet/rpc/problem";
 import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import { Deferred, Effect, Fiber, Layer, Schedule, Schema } from "effect";
@@ -72,10 +75,10 @@ const fixture = () =>
   Effect.gen(function* () {
     const database = backendDatabase(openPeriod);
 
-    const backend = makeBackendTestRpc(
-      yield* decodeBackendConfig(environment),
-      Layer.mergeAll(database.layer, AdmissionsLive.pipe(Layer.provide(database.layer))),
-    );
+    const backend = makeBackendTestRpc({
+      config: yield* decodeBackendConfig(environment),
+      services: Layer.mergeAll(database.layer, AdmissionsLive.pipe(Layer.provide(database.layer))),
+    });
 
     const client = yield* backend.client;
 
@@ -116,7 +119,8 @@ const fixture = () =>
   });
 
 /** The problem code of a failed call; a transport failure has none. */
-const codeOf = (failure: Problem | RpcClientError) => (isProblem(failure) ? failure.code : "defect");
+const codeOf = (failure: Problem | RpcClientError) =>
+  isProblem(failure) ? failure.code : "defect";
 
 describe("public application submission over RPC", () => {
   it.live("rejects an unknown department as a validation failure at /departmentId", () =>

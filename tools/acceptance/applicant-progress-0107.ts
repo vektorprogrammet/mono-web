@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { inspect } from "node:util";
 import { decodeApplicantProgressResponse } from "../../packages/domain/src/application/schema.js";
-import { makeScriptClient } from "../../packages/rpc/src/script-client.js";
+import { nativeScriptClient } from "../../packages/rpc/src/script-client.js";
 import type { Page } from "playwright";
 import { join } from "node:path";
 import type { Pool, PoolClient } from "pg";
@@ -349,7 +349,7 @@ export const runApplicantProgress0107 = async (input: {
   readonly errors: string[];
   readonly audit: (page: Page) => Promise<ReadonlyArray<unknown>>;
 }) => {
-  const native = makeScriptClient(input.api);
+  const native = nativeScriptClient(input.api);
 
   /** Reads the progress as the person whose session `cookie` names, or anonymously. */
   const readProgress = (cookie: string | null = input.cookie) =>

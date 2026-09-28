@@ -161,15 +161,15 @@ const fixture = () =>
     const connection = () =>
       DatabaseRuntimeLive({ ...target, maxConnections: 1 }).pipe(Layer.orDie);
 
-    const backend = makeBackendTestRpc(
-      yield* decodeBackendConfig(environment),
-      Layer.mergeAll(
+    const backend = makeBackendTestRpc({
+      config: yield* decodeBackendConfig(environment),
+      services: Layer.mergeAll(
         AdmissionsLive,
         OrganizationLive,
         Layer.succeed(IdentitySnapshot, identitySnapshot),
         Layer.succeed(Identity, identity),
       ).pipe(Layer.provideMerge(connection())),
-    );
+    });
 
     const client = yield* backend.client;
 
@@ -427,9 +427,10 @@ describe("admission period management over RPC and PostgreSQL", () => {
     Effect.gen(function* () {
       const { client, as } = yield* fixture();
 
-      const denied = yield* as(client["admissions.listAdmissionPeriods"](), "periods-stranger").pipe(
-        Effect.flip,
-      );
+      const denied = yield* as(
+        client["admissions.listAdmissionPeriods"](),
+        "periods-stranger",
+      ).pipe(Effect.flip);
 
       expect(isProblem(denied) && denied.code).toBe("authority.denied");
     }),

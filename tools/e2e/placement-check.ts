@@ -8,7 +8,7 @@ import {
   SchoolServiceNotificationRequest,
 } from "@vektorprogrammet/domain/placements";
 import { IdempotencyIfMatchHeaders, IdempotencyKey } from "@vektorprogrammet/rpc/problem";
-import { makeScriptClient } from "@vektorprogrammet/rpc/script";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
 /** 0096/0110/0111 real local API + browser acceptance with an owned process lifecycle. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
@@ -1606,7 +1606,7 @@ try {
     const coverageApplicationId = "application-coverage-0111";
 
     // Admission outcomes are served as RPCs; the leader calls them with the leader's session.
-    const outcomeClient = makeScriptClient(backendOrigin);
+    const outcomeClient = nativeScriptClient(backendOrigin);
     const leaderSession = { cookie: leader, origin: dashboardOrigin };
     const outcomeApplicationId = PublicApplicationIdSchema.make(coverageApplicationId);
 

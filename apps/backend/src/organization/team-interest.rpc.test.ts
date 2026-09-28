@@ -291,14 +291,14 @@ const identity = Identity.of({
   signOut: () => Effect.succeed({ setCookies: [] }),
 } satisfies IdentityOperations);
 
-const backend = makeBackendTestRpc(
-  backendTestConfig,
-  Layer.mergeAll(
+const backend = makeBackendTestRpc({
+  config: backendTestConfig,
+  services: Layer.mergeAll(
     Layer.mock(Organization, organization),
     Layer.succeed(Identity, identity),
     Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
   ),
-);
+});
 
 const asSession =
   (token: string) =>

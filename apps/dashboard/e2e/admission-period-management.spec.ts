@@ -13,7 +13,7 @@ import {
   NativeProblemRegistry,
   type StrongETag,
 } from "@vektorprogrammet/rpc/problem";
-import { makeScriptClient, type ScriptCallResult } from "@vektorprogrammet/rpc/script";
+import { nativeScriptClient, type ScriptCallResult } from "@vektorprogrammet/rpc/script";
 import { DateTime, Schema } from "effect";
 import { dashboardMount, dashboardPagePath } from "../dashboard-base";
 
@@ -155,7 +155,7 @@ function expectValue<A>(answer: ScriptCallResult<A>): A {
 }
 
 const nativeApi = (backendOrigin: string, dashboardOrigin: string) => {
-  const native = makeScriptClient(backendOrigin);
+  const native = nativeScriptClient(backendOrigin);
 
   /** The headers of one call: the person's session, sent from the dashboard origin. */
   const as = (session?: string): Readonly<Record<string, string>> =>

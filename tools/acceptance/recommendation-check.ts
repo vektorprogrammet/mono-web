@@ -65,7 +65,7 @@ import { deliverJson } from "../../apps/backend/src/delivery/http.js";
 import { NotificationGateway } from "../../packages/domain/src/notification/service.js";
 import { Array as Arr, Predicate, Schema } from "effect";
 import { PublicApplicationIdSchema } from "../../packages/domain/src/application/schema.js";
-import { makeScriptClient } from "../../packages/rpc/src/script-client.js";
+import { nativeScriptClient } from "../../packages/rpc/src/script-client.js";
 import { FetchHttpClient } from "effect/unstable/http";
 
 const root = new URL("../../", import.meta.url).pathname;
@@ -2364,7 +2364,7 @@ try {
   assert.ok(!applicantObservation.includes("Kanskje"));
 
   // The public application confirmation is an anonymous RPC.
-  const confirmations = makeScriptClient(api);
+  const confirmations = nativeScriptClient(api);
 
   const applicationProjection = await confirmations.call({}, (client) =>
     client["admissions.readApplicationConfirmation"]({

@@ -1,7 +1,7 @@
 import { type RecruitmentInvitationDeliveryResult } from "../../packages/database/src/recruitment/index.js";
 import { nativeRpcPath } from "../../packages/rpc/src/api.js";
 import { IdempotencyKey, NativeProblem } from "../../packages/rpc/src/problem.js";
-import { makeScriptClient } from "../../packages/rpc/src/script-client.js";
+import { nativeScriptClient } from "../../packages/rpc/src/script-client.js";
 import {
   RecruitmentInterviewResource,
   ScheduleInterviewResponse,
@@ -729,7 +729,7 @@ export const runReturningAssistantBrowserJourney = async ({
       .map((cookie) => `${cookie.name}=${cookie.value}`)
       .join("; ");
 
-    const native = makeScriptClient(api);
+    const native = nativeScriptClient(api);
 
     /** The browser context's current session, sent from the dashboard origin. */
     const sessionHeaders = async () => ({

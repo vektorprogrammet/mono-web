@@ -4,7 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { DepartmentId } from "@vektorprogrammet/domain";
 import { IdempotencyKey, nativeRpcPath } from "@vektorprogrammet/rpc";
-import { makeScriptClient, type ScriptCallResult } from "@vektorprogrammet/rpc/script";
+import { nativeScriptClient, type ScriptCallResult } from "@vektorprogrammet/rpc/script";
 import { expect, test, type Page, type Request } from "@playwright/test";
 
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5185";
@@ -23,7 +23,7 @@ const requiredEnvironment = (name: string): string => {
   return value;
 };
 
-const native = makeScriptClient(API_ORIGIN);
+const native = nativeScriptClient(API_ORIGIN);
 
 /** The JSON evidence of one RPC answer: its value, or its problem body. */
 const answerBody = <A>(result: ScriptCallResult<A>): Schema.Json => {

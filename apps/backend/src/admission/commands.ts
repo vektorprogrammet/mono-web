@@ -57,7 +57,11 @@ import {
 } from "../rpc/problem.js";
 import { publicRateLimitKey } from "../rpc/public-rate-limit.js";
 import { executeNativeHttpCommandPostgres, successCapsule } from "../rpc/receipt-transaction.js";
-import { admissionGrantScopes, authorizeAdmissionPerson, returningAuthorization } from "./access.js";
+import {
+  admissionGrantScopes,
+  authorizeAdmissionPerson,
+  returningAuthorization,
+} from "./access.js";
 import { admissionActorForAuthority } from "./context.js";
 import { admissionProblems } from "./problem.js";
 

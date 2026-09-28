@@ -74,9 +74,13 @@ const securityServices = Layer.mergeAll(
   Layer.succeed(Identity, identity),
   Layer.mock(IdentitySnapshot, {
     resolveSession: (cookieHeader) =>
-      identity.resolveSession(cookieHeader).pipe(
-        Effect.catchTag("IdentitySessionExpired", () => Effect.fail(new IdentitySessionNotFound())),
-      ),
+      identity
+        .resolveSession(cookieHeader)
+        .pipe(
+          Effect.catchTag("IdentitySessionExpired", () =>
+            Effect.fail(new IdentitySessionNotFound()),
+          ),
+        ),
   }),
   Layer.succeed(
     OAuthCredentialAuthority,
@@ -104,15 +108,15 @@ const backendFor = (
   const database = backendDatabase(seedProfile(representationRevision));
   const organization = Layer.mock(Organization, { resolvePersonAuthority: () => resolved });
 
-  return makeBackendTestRpc(
-    backendTestConfig,
-    Layer.mergeAll(
+  return makeBackendTestRpc({
+    config: backendTestConfig,
+    services: Layer.mergeAll(
       database.layer,
       organization,
       securityServices,
       ProfileLive.pipe(Layer.provide(Layer.merge(database.layer, organization))),
     ),
-  );
+  });
 };
 
 const problemCode = <E>(failure: E) => (isProblem(failure) ? failure.code : failure);
@@ -159,8 +163,9 @@ describe("profile.readOwnProfile", () => {
   it.live("changes its entity tag only after the persisted representation revision changes", () =>
     Effect.gen(function* () {
       const read = (resolved: OrganizationPersonAuthority, representationRevision: number) =>
-        Effect.flatMap(backendFor(Effect.succeed(resolved), representationRevision).client, (client) =>
-          client["profile.readOwnProfile"]().pipe(RpcClient.withHeaders(cookie)),
+        Effect.flatMap(
+          backendFor(Effect.succeed(resolved), representationRevision).client,
+          (client) => client["profile.readOwnProfile"]().pipe(RpcClient.withHeaders(cookie)),
         );
 
       const leader = authority("Absent", [{ active: true, unitLeader: true }]);

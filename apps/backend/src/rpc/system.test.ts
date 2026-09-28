@@ -63,9 +63,13 @@ const backendFor = (identity: IdentityOperations, recorded: Recorded = { revoked
 
   const snapshot = IdentitySnapshot.of({
     resolveSession: (cookieHeader) =>
-      identity.resolveSession(cookieHeader).pipe(
-        Effect.catchTag("IdentitySessionExpired", () => Effect.fail(new IdentitySessionNotFound())),
-      ),
+      identity
+        .resolveSession(cookieHeader)
+        .pipe(
+          Effect.catchTag("IdentitySessionExpired", () =>
+            Effect.fail(new IdentitySessionNotFound()),
+          ),
+        ),
     revokeCurrentSession: (_actor, request) =>
       Effect.sync(() => {
         recorded.revoked.push({ operation: "current", request });
@@ -74,7 +78,9 @@ const backendFor = (identity: IdentityOperations, recorded: Recorded = { revoked
       }),
     revokeSession: (_actor, sessionId, request) =>
       identity.revokeSession(undefined, sessionId, request).pipe(
-        Effect.tap(() => Effect.sync(() => recorded.revoked.push({ operation: sessionId, request }))),
+        Effect.tap(() =>
+          Effect.sync(() => recorded.revoked.push({ operation: sessionId, request })),
+        ),
         Effect.catchTag(["IdentitySessionNotFound", "IdentitySessionExpired"], () =>
           Effect.fail(new IdentityOwnedSessionNotFound({ sessionId })),
         ),
@@ -93,9 +99,9 @@ const backendFor = (identity: IdentityOperations, recorded: Recorded = { revoked
       }),
   });
 
-  return makeBackendTestRpc(
-    backendTestConfig,
-    Layer.mergeAll(
+  return makeBackendTestRpc({
+    config: backendTestConfig,
+    services: Layer.mergeAll(
       database.layer,
       Layer.succeed(Identity, identity),
       Layer.succeed(IdentitySnapshot, snapshot),
@@ -107,7 +113,9 @@ const backendFor = (identity: IdentityOperations, recorded: Recorded = { revoked
         }),
       ),
     ),
-  );
+    // The browser's user agent is an HTTP header; the audit records it from the request.
+    transportHeaders: { "user-agent": "session-rpc-test" },
+  });
 };
 
 const cookie = { cookie: `theme=dark; ${token}=valid-session` };
@@ -121,7 +129,7 @@ describe("session RPCs", () => {
     Effect.gen(function* () {
       const recorded: Recorded = { revoked: [] };
       const client = yield* backendFor(identityOperations(), recorded).client;
-      const as = RpcClient.withHeaders({ ...cookie, "user-agent": "session-rpc-test" });
+      const as = RpcClient.withHeaders(cookie);
 
       expect(yield* client["system.readSession"]().pipe(as)).toEqual({
         sessionId: "session-1",

@@ -1,7 +1,7 @@
 import { CancelInterviewResponse, ConductObservation } from "@vektorprogrammet/rpc";
 import { RecruitmentBridgeFailure } from "../app/foldkit/recruitment/bridge";
 import { ApplicantProgressResponseSchema } from "@vektorprogrammet/rpc";
-import { makeScriptClient } from "@vektorprogrammet/rpc/script";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
 import { Schema, Predicate } from "effect";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -309,7 +309,7 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
         .map(({ name, value }) => `${name}=${value}`)
         .join("; ");
 
-      const progressClient = makeScriptClient(apiOrigin);
+      const progressClient = nativeScriptClient(apiOrigin);
 
       const applicantProgress = await progressClient.call(
         { cookie: applicantCookie, origin: dashboardOrigin },

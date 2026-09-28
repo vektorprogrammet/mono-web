@@ -1,5 +1,5 @@
 import { DepartmentId, SemesterId } from "@vektorprogrammet/domain";
-import { makeScriptClient } from "@vektorprogrammet/rpc/script";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
 import { expect, test, type Page } from "@playwright/test";
 
 const nativeIdentityMode = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
@@ -23,7 +23,7 @@ const trondheim = DepartmentId.make("department-0059-trondheim");
 
 const bergen = DepartmentId.make("department-0059-bergen");
 
-const native = makeScriptClient(apiOrigin);
+const native = nativeScriptClient(apiOrigin);
 
 /** The browser's cookies and the dashboard origin, which a native RPC takes from the page. */
 const pageHeaders = async (page: Page, baseURL: string | undefined) => ({

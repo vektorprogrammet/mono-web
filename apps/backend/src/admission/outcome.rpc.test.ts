@@ -110,15 +110,15 @@ const fixture = () =>
   Effect.gen(function* () {
     const database = backendDatabase(seed);
 
-    const backend = makeBackendTestRpc(
-      backendTestConfig,
-      Layer.mergeAll(
+    const backend = makeBackendTestRpc({
+      config: backendTestConfig,
+      services: Layer.mergeAll(
         AdmissionsLive,
         OrganizationLive,
         Layer.succeed(IdentitySnapshot, identitySnapshot),
         Layer.succeed(Identity, identity),
       ).pipe(Layer.provideMerge(database.layer)),
-    );
+    });
 
     const client = yield* backend.client;
 
@@ -143,7 +143,8 @@ const fixture = () =>
 const key = (value: string) => IdempotencyKey.make(value.padEnd(22, "0"));
 
 /** The problem code of a failed call; a transport failure has none. */
-const codeOf = (failure: Problem | RpcClientError) => (isProblem(failure) ? failure.code : "defect");
+const codeOf = (failure: Problem | RpcClientError) =>
+  isProblem(failure) ? failure.code : "defect";
 
 describe("admission outcomes over RPC and PostgreSQL", () => {
   it.live("lets the board leader decide, replay, and conflict on a stale version", () =>
@@ -151,7 +152,9 @@ describe("admission outcomes over RPC and PostgreSQL", () => {
       const { client, as, history } = yield* fixture();
 
       const scopes = yield* as(client["admissionOutcomes.listScopes"](), leaderA);
-      expect(scopes.departments.map((department) => department.departmentId)).toEqual([departmentA]);
+      expect(scopes.departments.map((department) => department.departmentId)).toEqual([
+        departmentA,
+      ]);
 
       const board = yield* as(
         client["admissionOutcomes.readOutcomes"]({ departmentId: departmentA, semesterId }),

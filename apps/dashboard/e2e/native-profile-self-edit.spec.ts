@@ -1,5 +1,5 @@
 import { IdempotencyKey, type NativeRpcClient, StrongETag } from "@vektorprogrammet/rpc";
-import { makeScriptClient } from "@vektorprogrammet/rpc/script";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
 import { type Effect, Predicate, Schema } from "effect";
 import AxeBuilder from "@axe-core/playwright";
 import { writeFile } from "node:fs/promises";
@@ -131,7 +131,7 @@ const assertAxe = async (page: Page, results: Record<string, number>, state: str
   results[state] = blockingViolations.length;
 };
 
-const nativeScript = makeScriptClient(apiOrigin);
+const nativeScript = nativeScriptClient(apiOrigin);
 
 type NativeClient = NativeRpcClient["Service"];
 

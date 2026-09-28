@@ -40,10 +40,10 @@ const organization = Layer.mock(Organization, {
 const contactIngress = (contact: typeof config | undefined) => {
   const database = backendDatabase();
 
-  const backend = makeBackendTestRpc(
-    { ...backendTestConfig, contact },
-    Layer.mergeAll(database.layer, organization),
-  );
+  const backend = makeBackendTestRpc({
+    config: { ...backendTestConfig, contact },
+    services: Layer.mergeAll(database.layer, organization),
+  });
 
   return {
     backend,
@@ -67,7 +67,9 @@ const contactIngress = (contact: typeof config | undefined) => {
       database.run(
         Database.use(
           (sql) =>
-            sql<{ count: number }>`SELECT count(*)::integer AS count FROM public.contact_rate_windows`,
+            sql<{
+              count: number;
+            }>`SELECT count(*)::integer AS count FROM public.contact_rate_windows`,
         ),
       ),
   };
@@ -117,9 +119,7 @@ describe("contact.submitContactMessage", () => {
       const ingress = contactIngress(config);
 
       for (const ip of ["", "::ffff:127.0.0.1", "127.0.0.1/32", "127.0.0.1,127.0.0.2"]) {
-        expect(yield* ingress.submit({ ip, token: config.backendToken })).toBe(
-          "header.malformed",
-        );
+        expect(yield* ingress.submit({ ip, token: config.backendToken })).toBe("header.malformed");
       }
 
       expect(yield* ingress.consumedWindows()).toEqual([{ count: 0 }]);

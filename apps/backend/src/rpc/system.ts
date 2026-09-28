@@ -6,7 +6,11 @@
  * the session inside the serializable transaction that commits it, and stores its no-content
  * answer as a command receipt, so a retry with the same idempotency key replays it.
  */
-import { IdentitySnapshot, type Database, type IdentitySnapshotService } from "@vektorprogrammet/database";
+import {
+  IdentitySnapshot,
+  type Database,
+  type IdentitySnapshotService,
+} from "@vektorprogrammet/database";
 import type { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import { Scope } from "@vektorprogrammet/domain/authz";
 import {
@@ -293,7 +297,10 @@ export const SystemRpcHandlers = (options: NativeRpcOptions) =>
         normalizedTarget: "/api/session",
         idempotencyKey,
         mutate: (identity, actor) =>
-          identity.revokeCurrentSession(actor, identityRequestContext(credentialRequestOf(headers))),
+          identity.revokeCurrentSession(
+            actor,
+            identityRequestContext(credentialRequestOf(headers)),
+          ),
       }).pipe(
         // Only the owned-session delete names a session other than the caller's own.
         unreachable("resource.not-found"),

@@ -1,7 +1,7 @@
 import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { CreateAdmissionPeriodRequest, SubmitApplicationRequest } from "@vektorprogrammet/rpc";
 import { IdempotencyKey } from "@vektorprogrammet/rpc/problem";
-import { makeScriptClient } from "@vektorprogrammet/rpc/script";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
 import { Predicate, Schema } from "effect";
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -394,7 +394,7 @@ async function signInLeader() {
 }
 
 async function createOpenPeriod(leaderCookie) {
-  const native = makeScriptClient(backendOrigin);
+  const native = nativeScriptClient(backendOrigin);
 
   try {
     const answer = await native.call({ cookie: leaderCookie, origin: staffOrigin }, (client) =>
@@ -647,7 +647,7 @@ function assertDurableEvidence(postgres, lifecycle, delivery, persistenceFailure
  * browser application's availability, so only the outage can reject it.
  */
 async function exercisePostgresFailure(postgres, availability) {
-  const native = makeScriptClient(backendOrigin);
+  const native = nativeScriptClient(backendOrigin);
 
   try {
     const request = decodeStrict(SubmitApplicationRequest)({

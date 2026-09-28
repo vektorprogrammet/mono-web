@@ -178,7 +178,13 @@ export const AdmissionOutcomesRpcHandlers = (options: NativeRpcOptions) => {
           );
 
           for (const department of scopes.departments)
-            yield* authorize(headers, ListAdmissionOutcomeScopes, department.departmentId, false, auth);
+            yield* authorize(
+              headers,
+              ListAdmissionOutcomeScopes,
+              department.departmentId,
+              false,
+              auth,
+            );
 
           return yield* strictOutput(AdmissionOutcomeScopes)(scopes);
         }),

@@ -14,7 +14,7 @@ const rejectingIdentity = Layer.mock(Identity, {
   resolveSession: () => Effect.fail(IdentitySessionNotFound.make({})),
 });
 
-const backend = makeBackendTestRpc(backendTestConfig, rejectingIdentity);
+const backend = makeBackendTestRpc({ config: backendTestConfig, services: rejectingIdentity });
 
 it.effect("an RPC without a credential answers credential.missing from the middleware", () =>
   Effect.gen(function* () {

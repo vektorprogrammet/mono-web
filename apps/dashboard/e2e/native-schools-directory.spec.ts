@@ -4,7 +4,7 @@ import { expect, test, type Browser, type BrowserContext, type Page } from "@pla
 import { Option, Schema } from "effect";
 import { DepartmentId } from "@vektorprogrammet/domain";
 import { NativeProblem, nativeRpcPath } from "@vektorprogrammet/rpc";
-import { makeScriptClient } from "@vektorprogrammet/rpc/script";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
 import { addressesAnyRoute, legacyRoutes } from "./request-routes.js";
 
 const realNativeIdentity = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
@@ -232,7 +232,7 @@ test.describe("Native Schools directory (spec 0061)", () => {
         administrator.page.getByRole("rowheader", { name: "Historisk Internasjonal" }),
       ).toBeVisible();
 
-      const native = makeScriptClient(apiOrigin);
+      const native = nativeScriptClient(apiOrigin);
 
       const emptyDepartment = await native
         .call(

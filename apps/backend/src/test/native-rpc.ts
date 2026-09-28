@@ -54,7 +54,7 @@ export type TestServiceLayer = Layer.Layer<never>;
 
 const unavailableIdentity = () =>
   Effect.fail(
-    new IdentityEngineError({ operation: "test", message: "Unexpected identity operation" }),
+    IdentityEngineError.make({ operation: "test", message: "Unexpected identity operation" }),
   );
 
 const unimplementedServices = Layer.mergeAll(
@@ -122,18 +122,33 @@ const serveEachRequest =
       ({ dispose }) => Effect.promise(() => dispose()),
     );
 
+export interface BackendTestRpcOptions {
+  readonly config: BackendConfig;
+  /** The services the test supplies; every other service is unimplemented. */
+  readonly services: TestServiceLayer;
+  readonly authHandler?: BackendAuthHandler;
+  readonly options?: BackendHttpOptions;
+  /**
+   * HTTP headers that every request of the client carries, as a browser's `user-agent` does. A
+   * header set with `RpcClient.withHeaders` travels in the RPC message instead, and the ingress
+   * keeps only the credential and contact headers of a message.
+   */
+  readonly transportHeaders?: Readonly<Record<string, string>>;
+}
+
 /**
  * The complete external backend over `services`: `fetch` answers one web request through the
  * ingress, and `client` is the native RPC client whose requests take that path.
  *
  * A test sends a person's credential per call with `RpcClient.withHeaders`, as a server does.
  */
-export const makeBackendTestRpc = (
-  config: BackendConfig,
-  services: TestServiceLayer,
-  authHandler: BackendAuthHandler = testAuthHandler,
-  options: BackendHttpOptions = {},
-) => {
+export const makeBackendTestRpc = ({
+  config,
+  services,
+  authHandler = testAuthHandler,
+  options = {},
+  transportHeaders = {},
+}: BackendTestRpcOptions) => {
   const routerLayer = ExternalNativeRpcRouterLive({ ...options, config }).pipe(
     Layer.provideMerge(completeServices(services)),
     Layer.provideMerge(platform),
@@ -151,7 +166,7 @@ export const makeBackendTestRpc = (
     Effect.gen(function* () {
       const web = new Request(new URL(nativeRpcPath, "http://native-rpc.test"), {
         method: request.method,
-        headers: { ...request.headers, origin },
+        headers: { ...request.headers, ...transportHeaders, origin },
         body: Predicate.isTagged(request.body, "Uint8Array") ? request.body.body : undefined,
       });
 

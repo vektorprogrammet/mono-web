@@ -17,7 +17,7 @@ import {
 import { Predicate, Schema, Struct } from "effect";
 import { SubmitApplicationRequest } from "../../packages/rpc/src/v2-schemas.js";
 import { IdempotencyKey } from "../../packages/rpc/src/problem.js";
-import { makeScriptClient } from "../../packages/rpc/src/script-client.js";
+import { nativeScriptClient } from "../../packages/rpc/src/script-client.js";
 
 const root = new URL("../../", import.meta.url).pathname;
 
@@ -294,7 +294,7 @@ try {
   const board = async () => expectStatus(await request(boardPath, leader), 200);
 
   // Public applications are served as an RPC; an applicant submits anonymously.
-  const applications = makeScriptClient(backendOrigin);
+  const applications = nativeScriptClient(backendOrigin);
 
   const submit = async (email: string, firstName: string) => {
     const request = Schema.decodeSync(SubmitApplicationRequest)({

@@ -1,5 +1,5 @@
 import { IdempotencyKey, nativeRpcPath, type NativeRpcClient, type SessionListResponse } from "@vektorprogrammet/rpc";
-import { makeScriptClient } from "@vektorprogrammet/rpc/script";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
 import { Effect, Predicate, Schema } from "effect";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
@@ -279,7 +279,7 @@ const signInContext = async (
   expect(response.status()).toBe(200);
 };
 
-const nativeScript = makeScriptClient(apiOrigin === "" ? "http://native.invalid" : apiOrigin);
+const nativeScript = nativeScriptClient(apiOrigin === "" ? "http://native.invalid" : apiOrigin);
 
 type NativeClient = NativeRpcClient["Service"];
 

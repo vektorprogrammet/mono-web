@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { expect, test, type BrowserContext, type Page, type Locator } from "@playwright/test";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/rpc";
 import { IdempotencyKey, StrongETag } from "@vektorprogrammet/rpc/problem";
-import { makeScriptClient } from "@vektorprogrammet/rpc/script";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
 import { Order } from "effect";
 
 const manifestPath = process.env.PLACEMENT_JOURNEY_MANIFEST;
@@ -120,11 +120,11 @@ const readOwnCoverage = async (page: Page) => {
   return response.json();
 };
 
-let outcomeClient: ReturnType<typeof makeScriptClient> | undefined;
+let outcomeClient: ReturnType<typeof nativeScriptClient> | undefined;
 
 /** The native RPC client of the admission-outcome calls, made once the manifest names the backend. */
 const outcomes = () => {
-  outcomeClient ??= makeScriptClient(manifest.backendOrigin);
+  outcomeClient ??= nativeScriptClient(manifest.backendOrigin);
 
   return outcomeClient;
 };

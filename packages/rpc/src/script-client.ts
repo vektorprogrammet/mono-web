@@ -28,7 +28,7 @@ export type ScriptCallResult<A> =
  * registry status of that code, and a defect or transport failure answers `defect`. `dispose`
  * releases the client.
  */
-export const makeScriptClient = (origin: string) => {
+export const nativeScriptClient = (origin: string) => {
   const runtime = ManagedRuntime.make(nativeRpcClientLayer(origin));
 
   const call = <A, E>(

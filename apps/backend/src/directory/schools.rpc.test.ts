@@ -122,9 +122,9 @@ const makeBackend = (
       }),
     ),
 ) =>
-  makeBackendTestRpc(
-    backendTestConfig,
-    Layer.mergeAll(
+  makeBackendTestRpc({
+    config: backendTestConfig,
+    services: Layer.mergeAll(
       database.layer,
       Layer.mock(Organization, {
         resolvePersonAuthorityForRead: () => Effect.succeed(authority),
@@ -142,10 +142,10 @@ const makeBackend = (
       Layer.succeed(Identity, identity),
       Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
     ),
-    testAuthHandler,
-    // The composition pins the authorization instant that the projection was evaluated at.
-    { now: () => instant },
-  );
+    authHandler: testAuthHandler,
+    options: // The composition pins the authorization instant that the projection was evaluated at.
+      { now: () => instant },
+  });
 
 const listSchools = (
   backend: ReturnType<typeof makeBackend>,

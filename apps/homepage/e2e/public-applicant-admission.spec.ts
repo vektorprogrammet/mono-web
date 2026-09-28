@@ -8,7 +8,7 @@ import {
   SubmitApplicationRequest,
 } from "@vektorprogrammet/rpc";
 import { IdempotencyKey, StrongETag } from "@vektorprogrammet/rpc/problem";
-import { makeScriptClient, type ScriptCallResult } from "@vektorprogrammet/rpc/script";
+import { nativeScriptClient, type ScriptCallResult } from "@vektorprogrammet/rpc/script";
 import { Schema, Struct } from "effect";
 import {
   expect,
@@ -143,7 +143,7 @@ function applicationInput(overrides: Partial<ApplicationInput> = {}): Applicatio
 type SubmittedApplication = ApplicationInput & { readonly applicantId?: string };
 
 /** The backend's native RPC client, one public call at a time. */
-const native = makeScriptClient(BACKEND_ORIGIN);
+const native = nativeScriptClient(BACKEND_ORIGIN);
 
 /**
  * Submits one application under its own idempotency key unless a replay names one. The input

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/rpc";
 import { IdempotencyKey } from "@vektorprogrammet/rpc/problem";
-import { makeScriptClient } from "@vektorprogrammet/rpc/script";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
 
 const manifestPath = process.env.SUBSTITUTE_JOURNEY_MANIFEST;
 
@@ -46,11 +46,11 @@ const outcomeForm = (page: Page, name: string) =>
 const onCallItems = (page: Page) =>
   page.getByRole("list", { name: "Vikarer på vakt", exact: true }).getByRole("listitem");
 
-let native: ReturnType<typeof makeScriptClient> | undefined;
+let native: ReturnType<typeof nativeScriptClient> | undefined;
 
 /** The backend's native RPC client, made on first use once the manifest names the backend. */
 const nativeClient = () => {
-  native ??= makeScriptClient(manifest.backendOrigin);
+  native ??= nativeScriptClient(manifest.backendOrigin);
 
   return native;
 };

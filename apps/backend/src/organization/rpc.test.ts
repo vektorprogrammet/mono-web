@@ -233,16 +233,16 @@ const identity = Identity.of({
 
 const database = backendDatabase();
 
-const backend = makeBackendTestRpc(
-  backendTestConfig,
-  Layer.mergeAll(
+const backend = makeBackendTestRpc({
+  config: backendTestConfig,
+  services: Layer.mergeAll(
     database.layer,
     Layer.succeed(IdentitySnapshot, identitySnapshot),
     Layer.mock(Organization, organization),
     Layer.succeed(Identity, identity),
     Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
   ),
-);
+});
 
 const asSession =
   (session: string) =>
