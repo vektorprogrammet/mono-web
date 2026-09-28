@@ -14,14 +14,14 @@
  */
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
-import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 // The package index pulls Bun's global types into this program; the subpath does not.
 import * as BunRuntime from "@effect/platform-bun/BunRuntime";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { sha256Hex, canonicalJsonBytes } from "@vektorprogrammet/domain/shared-kernel";
-import { Effect, FileSystem, Schema, Stream } from "effect";
+import { Clock, Config, Effect, FileSystem, Option, Path, Schema, Stream } from "effect";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
 import { ChildProcess } from "effect/unstable/process";
 import {
   eventually,
@@ -42,23 +42,33 @@ const entry = fileURLToPath(import.meta.url);
 const ProbeRow = Schema.Struct({ id: Schema.Int, label: Schema.String });
 
 const deliveryStatus = (url: string, token: string) =>
-  Effect.tryPromise({
-    try: () =>
-      fetch(url, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${token}`,
-          "content-type": "application/json",
-          "idempotency-key": "probe-delivery",
-        },
-        body: JSON.stringify({ deliveryId: "probe-delivery", recipient: "probe@example.invalid" }),
-      }).then(async (response) => {
-        await response.body?.cancel();
+  Effect.flatMap(HttpClient.HttpClient, (client) =>
+    client.execute(
+      HttpClientRequest.post(url, {
+        headers: { authorization: `Bearer ${token}`, "idempotency-key": "probe-delivery" },
+      }).pipe(
+        HttpClientRequest.bodyJsonUnsafe({
+          deliveryId: "probe-delivery",
+          recipient: "probe@example.invalid",
+        }),
+      ),
+    ),
+  ).pipe(
+    Effect.flatMap((response) => Effect.as(Effect.ignore(response.arrayBuffer), response.status)),
+    Effect.mapError((cause) =>
+      HarnessFailure.make({ stage: "probe-delivery", message: String(cause) }),
+    ),
+    Effect.provide(FetchHttpClient.layer),
+  );
 
-        return response.status;
-      }),
-    catch: (cause) => new HarnessFailure({ stage: "probe-delivery", message: String(cause) }),
-  });
+/** Whether the runner set the probe variable `name` to "1". */
+const probeFlag = (name: string) =>
+  Config.option(Config.String(name)).pipe(
+    Effect.map((value) => Option.getOrUndefined(value) === "1"),
+    Effect.mapError((cause) =>
+      HarnessFailure.make({ stage: "probe-config", message: String(cause) }),
+    ),
+  );
 
 const probeJourney: GoldenJourney = {
   id: "golden-harness-probe",
@@ -79,7 +89,7 @@ const probeJourney: GoldenJourney = {
           database.pool.query(
             "CREATE TABLE probe_events(id integer PRIMARY KEY, label text NOT NULL); INSERT INTO probe_events VALUES (1, 'booted')",
           ),
-        catch: (cause) => new HarnessFailure({ stage: "probe-sql", message: String(cause) }),
+        catch: (cause) => HarnessFailure.make({ stage: "probe-sql", message: String(cause) }),
       });
 
       const provider = yield* context.provider({
@@ -145,7 +155,9 @@ const probeJourney: GoldenJourney = {
         "10 seconds",
       );
 
-      if (process.env.GOLDEN_HARNESS_PROBE_CRASH === "1")
+      const crash = yield* probeFlag("GOLDEN_HARNESS_PROBE_CRASH");
+
+      if (crash)
         yield* context.spawn({
           label: "crasher",
           command: "sh",
@@ -177,13 +189,13 @@ const probeJourney: GoldenJourney = {
       yield* context.checkpoint("booted", observe);
       yield* context.faultPoint("after-boot");
 
-      if (process.env.GOLDEN_HARNESS_PROBE_HOLD === "1") {
+      if (yield* probeFlag("GOLDEN_HARNESS_PROBE_HOLD")) {
         yield* Effect.sync(() => process.stdout.write("probe: holding\n"));
 
         return yield* Effect.never;
       }
 
-      if (process.env.GOLDEN_HARNESS_PROBE_CRASH === "1") yield* Effect.sleep("30 seconds");
+      if (crash) yield* Effect.sleep("30 seconds");
 
       yield* context.checkpoint("finished", observe);
     }),
@@ -329,10 +341,11 @@ const runProbe = (probe: ProbeCase) =>
   Effect.scoped(
     Effect.gen(function* () {
       const lines: Array<string> = [];
+      const environment = yield* safeEnvironment;
 
       const handle = yield* ChildProcess.make("bun", ["--no-env-file", entry], {
         cwd: root,
-        env: { ...safeEnvironment(), GOLDEN_HARNESS_PROBE: "1", ...probe.env },
+        env: { ...environment, GOLDEN_HARNESS_PROBE: "1", ...probe.env },
         extendEnv: false,
         detached: true,
         stdin: "ignore",
@@ -366,7 +379,8 @@ const runProbe = (probe: ProbeCase) =>
 const verifyProbe = (probe: ProbeCase) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const started = Date.now();
+    const { join } = yield* Path.Path;
+    const started = yield* Clock.currentTimeMillis;
     const outcome = yield* runProbe(probe);
     const report = `${probe.name}\nstdout:\n${outcome.stdout.join("\n")}\nstderr:\n${outcome.stderr}`;
 
@@ -452,13 +466,15 @@ const verifyProbe = (probe: ProbeCase) =>
     assert.equal(yield* fs.exists(evidence.cleanup.privateRoot), false, "private root remains");
     yield* fs.remove(artifacts, { recursive: true });
 
-    return `${probe.name}: ok (exit ${outcome.exitCode}, ${evidence.cleanup.processes.length} groups gone, ${Date.now() - started} ms)`;
+    return `${probe.name}: ok (exit ${outcome.exitCode}, ${evidence.cleanup.processes.length} groups gone, ${(yield* Clock.currentTimeMillis) - started} ms)`;
   });
 
 // The guard must reject any uncommitted change and digest exactly the tracked bytes.
 const verifySourceGuard = Effect.scoped(
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
+    const { join } = yield* Path.Path;
+    const environment = yield* safeEnvironment;
     const repository = yield* fs.makeTempDirectoryScoped({ prefix: "golden-harness-guard-" });
 
     const git = (...args: ReadonlyArray<string>) =>
@@ -475,7 +491,7 @@ const verifySourceGuard = Effect.scoped(
         ],
         {
           cwd: repository,
-          env: { ...safeEnvironment(), GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" },
+          env: { ...environment, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" },
           extendEnv: false,
         },
       ).pipe(
@@ -518,5 +534,12 @@ const selfTest = Effect.gen(function* () {
   yield* Effect.sync(() => process.stdout.write(`self-test passed: ${lines.length} checks\n`));
 });
 
-if (process.env.GOLDEN_HARNESS_PROBE === "1") runGoldenJourney(probeJourney);
-else BunRuntime.runMain(selfTest.pipe(Effect.provide(BunServices.layer)));
+// A probe runner hands the process to the harness, which runs the journey and exits with its code.
+const program = Effect.gen(function* () {
+  if (yield* probeFlag("GOLDEN_HARNESS_PROBE"))
+    return yield* Effect.sync(() => runGoldenJourney(probeJourney));
+
+  return yield* selfTest;
+});
+
+BunRuntime.runMain(program.pipe(Effect.provide(BunServices.layer)));
