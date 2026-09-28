@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { randomBytes, randomUUID } from "node:crypto";
-import { Config, Data, type Duration, Effect, Option, Predicate, Schema } from "effect";
+import { Config, Data, Deferred, type Duration, Effect, Option, Predicate, Schema } from "effect";
 import { HttpServer, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { ChildProcess } from "effect/unstable/process";
 import { ReceiptId } from "@vektorprogrammet/rpc";
@@ -72,6 +72,8 @@ export const observeReceiptDelivery = <E, R>(options: ReceiptDeliveryOptions<E, 
       // A request that breaks a sink assertion answers 500; the observation fails on it at the end.
       const sinkFailures: string[] = [];
 
+      const withheld = yield* Deferred.make<void>();
+
       const receive = Effect.gen(function* () {
         const req = yield* HttpServerRequest.HttpServerRequest;
 
@@ -101,8 +103,13 @@ export const observeReceiptDelivery = <E, R>(options: ReceiptDeliveryOptions<E, 
 
         accepted.set(body.deliveryId, raw);
 
-        // Accepted remotely; intentionally withhold acknowledgement until the backend gives up.
-        if (mode === "ambiguous") return yield* Effect.never;
+        // Accepted remotely; intentionally withhold acknowledgement until the observation ends,
+        // long after the backend gave up on the request.
+        if (mode === "ambiguous") {
+          yield* Deferred.await(withheld);
+
+          return HttpServerResponse.empty({ status: 202 });
+        }
 
         return HttpServerResponse.empty({ status: 202 });
       }).pipe(
@@ -116,6 +123,9 @@ export const observeReceiptDelivery = <E, R>(options: ReceiptDeliveryOptions<E, 
       );
 
       yield* HttpServer.serveEffect(receive);
+
+      // Runs before the sink stops serving, so that no withheld request keeps the server open.
+      yield* Effect.addFinalizer(() => Deferred.succeed(withheld, undefined));
 
       const { address } = yield* HttpServer.HttpServer;
 
