@@ -241,14 +241,67 @@ Notes (contact):
 
 | RPC tag | Replaces | Transport facts | Credentials | Status |
 | --- | --- | --- | --- | --- |
-| `content.createArticle` | POST `/api/content/articles` | idempotencyKey | cookieHeader, oauthUserBearer | todo |
-| `content.listNews` | GET `/api/news` | ifMatch; if-none-match (dropped); query: department | none | todo |
-| `content.publishArticle` | POST `/api/content/articles/{articleId}:publish` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | todo |
-| `content.readArticle` | GET `/api/content/articles/{articleId}` | ifMatch; if-none-match (dropped) | cookieHeader, oauthUserBearer | todo |
-| `content.readContentWorkspace` | GET `/api/content/articles` | query: department | cookieHeader, oauthUserBearer | todo |
-| `content.readNewsArticle` | GET `/api/news/{slug}` | ifMatch; if-none-match (dropped); query: version | none | todo |
-| `content.reviseArticle` | PATCH `/api/content/articles/{articleId}` | idempotencyKey; ifMatch; merge patch | cookieHeader, oauthUserBearer | todo |
-| `content.unpublishArticle` | POST `/api/content/articles/{articleId}:unpublish` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | todo |
+| `content.createArticle` | POST `/api/content/articles` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `content.listNews` | GET `/api/news` | ifMatch; if-none-match (dropped); query: department | none | ported |
+| `content.publishArticle` | POST `/api/content/articles/{articleId}:publish` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+| `content.readArticle` | GET `/api/content/articles/{articleId}` | ifMatch; if-none-match (dropped) | cookieHeader, oauthUserBearer | ported |
+| `content.readContentWorkspace` | GET `/api/content/articles` | query: department | cookieHeader, oauthUserBearer | ported |
+| `content.readNewsArticle` | GET `/api/news/{slug}` | ifMatch; if-none-match (dropped); query: version | none | ported |
+| `content.reviseArticle` | PATCH `/api/content/articles/{articleId}` | idempotencyKey; ifMatch; merge patch | cookieHeader, oauthUserBearer | ported |
+| `content.unpublishArticle` | POST `/api/content/articles/{articleId}:unpublish` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+
+Notes (content):
+
+- The eight RPCs keep the old operation IDs as tags and the old routes as `normalizedTarget`
+  (`/api/content/articles`, `/api/content/articles/{articleId}`, and its `:publish` and
+  `:unpublish` forms). Each command's receipt keeps the HTTP capsule (a new draft: 201 with
+  `location` and `etag`; otherwise 200 with `etag`), and a replay decodes it, so a retry that
+  straddles the cutover answers its first response. The RPCs answer `ContentArticleResource`
+  (`{ article, etag }`) or `{ result, etag }`; the `etag` field replaces the `ETag` header, and
+  `reviseArticle`, `publishArticle`, and `unpublishArticle` take it as `ifMatch`.
+- Authority is unchanged: a command resolves the credential, the organization authority, and the
+  content actor inside its serializable transaction, evaluates its AccessSpec there with the
+  content grant scope, and compares `ifMatch` in `execute`, after the receipt lookup. The database
+  adapter still resolves content authority itself before it writes
+  (`apps/backend/src/content/rpc.test.ts`, on PostgreSQL). The handler's content actor check
+  (`resolveContentActor`) is kept. It denies the same persons that the adapter's own resolution
+  denies, but something observable depends on it: a read answers an unavailable Organization
+  projection as internal.error before any content read, where the adapter would answer
+  content.unavailable. In a command it reuses the authority that the transaction already resolved,
+  so it costs no query.
+- Public reads stay anonymous and evaluate their AccessSpec with `authorizeAnonymous`. Dropped on
+  `listNews` and `readNewsArticle`: the public `Cache-Control` (`public, max-age=60,
+  s-maxage=300, must-revalidate`), the `ETag`, `If-None-Match`/304, and the read-side `If-Match`
+  (412). A CDN or browser no longer caches news; every homepage render reaches the backend, as its
+  loaders already read fresh per render. The handlers no longer read the HTTP entity-tag sources of
+  the news tables.
+- Dropped on `readArticle`: `If-None-Match`/304 and the read-side `If-Match`; the resource keeps
+  `etag`. Staff reads and commands lose `Cache-Control: private, no-store`/`no-store`; commands
+  answer 200 instead of 201 and carry no `Location` or `ETag` header.
+- Dropped codes that only HTTP parsing produced: `request.malformed` (a query member other than
+  `department` or `version`, a slug that is no `ArticleSlug`), `header.malformed`, `origin.denied`,
+  `idempotency-key.invalid`, `request.too-large` (the 1 MiB content body bound),
+  `media-type.unsupported` (`application/merge-patch+json` for revisions), `precondition.required`,
+  `precondition.invalid`, and `validation.failed`, which only body decoding produced. Also dropped:
+  `dependency.unavailable`, which no content handler produced. The staff RPCs declare
+  `credential.missing` and `credential.invalid`, since each handler resolves the person again.
+- Structural validation moved to the RPC server: a draft or merge patch whose fields fail their
+  schemas, repeated department identifiers, a slug that is no `ArticleSlug`, or a version below 1
+  now fail as a defect (internal.error) instead of validation.failed or request.malformed, and an
+  unknown merge-patch member is stripped instead of answered validation.failed. The merge-patch
+  rules stay: no member answers validation.no-change, a `null` member
+  validation.field-not-deletable. The dashboard content bridge decodes `ContentBridgeActionSchema`
+  (the same field schemas) before it calls, so no UI loses a field error.
+- Clients: the dashboard bridge `routes/__foldkit.content.ts` calls the RPCs through `callNative`
+  (the Foldkit browser client still talks to the bridge; publish and unpublish still read the
+  current tag first). The homepage news loaders call `callHomepageNative`, and
+  `apps/homepage/src/lib/api-types.ts` takes the news types from the contract. The journey spec
+  posts its direct denial probes as RPCs from the page and records each RPC's tag and payload
+  facts; `run-real-native-content-publication.mjs` names each RPC by the route it replaced, forces
+  the first `content.readContentWorkspace` as a content.unavailable exit, and no longer builds the
+  deleted `packages/sdk`. The journey was ported for compilation only and not run.
+- `apps/homepage/vite-digests.ts` still labels the news routes `native-backend:/api/news`: a
+  projection-manifest source label, not a call, left as the other slices left theirs.
 
 ### directory (`packages/rpc/src/directory.ts`)
 

@@ -1,7 +1,5 @@
 import {
-  ListNewsEndpoint,
   ListTeamApplicationIntakesEndpoint,
-  ReadNewsArticleEndpoint,
   ReadTeamApplicationIntakeEndpoint,
   SubmitContactMessageEndpoint,
   SubmitTeamApplicationEndpoint,
@@ -10,6 +8,11 @@ import type {
   DepartmentJson,
   PublicApplicationCatalogSchema,
   TeamJson,
+} from "@vektorprogrammet/rpc";
+import type {
+  NewsArticleQuery,
+  PublishedNewsArticle as PublishedNewsArticleType,
+  PublishedNewsListing as PublishedNewsListingType,
 } from "@vektorprogrammet/rpc";
 import type { HttpApiEndpoint, HttpApiSchema } from "effect/unstable/httpapi";
 
@@ -23,11 +26,11 @@ type EndpointBody<Endpoint extends HttpApiEndpoint.Constraint> = Exclude<
 
 export type HomepageDepartment = DepartmentJson;
 
-export type PublishedNewsListing = EndpointBody<typeof ListNewsEndpoint>;
+export type PublishedNewsListing = PublishedNewsListingType;
 
 export type PublishedNewsSummary = PublishedNewsListing["articles"][number];
 
-export type PublishedNewsArticle = EndpointBody<typeof ReadNewsArticleEndpoint>;
+export type PublishedNewsArticle = PublishedNewsArticleType;
 
 export type PublicApplicationCatalog = typeof PublicApplicationCatalogSchema.Type;
 
@@ -39,7 +42,7 @@ export type ContactMessageHeaders = HttpApiEndpoint.Headers<
   typeof SubmitContactMessageEndpoint
 >["Type"];
 
-export type NewsArticleSlug = HttpApiEndpoint.Params<typeof ReadNewsArticleEndpoint>["Type"]["slug"];
+export type NewsArticleSlug = NewsArticleQuery["slug"];
 
 export type HomepageTeam = TeamJson;
 

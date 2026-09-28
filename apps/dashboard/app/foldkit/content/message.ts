@@ -1,5 +1,5 @@
 import { ArticleId, ContentWorkspaceSchema } from "@vektorprogrammet/rpc"
-import { DepartmentId } from "@vektorprogrammet/rpc"
+import { DepartmentId } from "@vektorprogrammet/domain"
 import { Schema as S } from "effect";
 import { taggedStruct } from "foldkit/schema";
 import { ContentArticleObservationSchema } from "./bridge";

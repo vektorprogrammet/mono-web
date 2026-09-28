@@ -1,7 +1,7 @@
 import { ContentFailure } from "./model";
 import { FailedCommand } from "./message";
 import { ArticleId } from "@vektorprogrammet/rpc";
-import { DepartmentId } from "@vektorprogrammet/rpc";
+import { DepartmentId } from "@vektorprogrammet/domain";
 import { IdempotencyKey } from "@vektorprogrammet/rpc";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";

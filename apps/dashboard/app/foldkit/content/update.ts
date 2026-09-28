@@ -1,6 +1,6 @@
 import { Predicate } from "effect";
 import type { ArticleId, ContentWorkspace } from "@vektorprogrammet/rpc"
-import type { DepartmentId } from "@vektorprogrammet/rpc"
+import type { DepartmentId } from "@vektorprogrammet/domain"
 import type { StrongETag } from "@vektorprogrammet/rpc";
 import { Match as M } from "effect";
 import { Command, Update } from "foldkit";

@@ -9,47 +9,52 @@ type NewsApiFixture = {
 };
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ArticleSlug, DepartmentJsonSchema, makeNativeProblem } from "@vektorprogrammet/rpc";
+import { ArticleSlug, DepartmentJsonSchema, PublishedNewsArticleSchema, PublishedNewsListingSchema } from "@vektorprogrammet/rpc";
 import { Schema } from "effect";
 import type { PublishedNewsSummary, HomepageDepartment, PublishedNewsArticle, PublishedNewsListing } from "../src/lib/api-types";
+import { nativeRpcProblem, nativeRpcSuccess, stubNativeBackend } from "./native-rpc";
+
+vi.stubEnv("API_URL", "http://api.test");
 
 const apiState: NewsApiFixture = { listingCalls: 0, listResult: { articles: [] }, departments: [], readArticle: undefined, listError: undefined };
 
-const publicHeaders = {
-  "cache-control": "public, max-age=60, s-maxage=300, must-revalidate",
-  vary: "Origin",
-  etag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"',
-};
+const encodeListing = Schema.encodeSync(Schema.toCodecJson(PublishedNewsListingSchema));
+
+const encodeArticle = Schema.encodeSync(Schema.toCodecJson(PublishedNewsArticleSchema));
+
+const encodeDepartments = Schema.encodeSync(Schema.toCodecJson(Schema.Array(DepartmentJsonSchema)));
+
+/** The version selector of a `content.readNewsArticle` call. */
+const NewsArticleCall = Schema.Struct({ slug: Schema.String, version: Schema.optional(Schema.Finite) });
+
+const backend = stubNativeBackend();
 
 beforeEach(() => {
   vi.stubEnv("API_URL", "http://api.test");
 
-  const fetch: typeof globalThis.fetch = async (input) => {
-    const url = new URL(input instanceof Request ? input.url : String(input));
+  backend.answer((call) => {
+    if (call.tag === "organization.listDepartments") return nativeRpcSuccess(call, encodeDepartments(apiState.departments));
 
-    if (url.pathname === "/api/departments") return Response.json(apiState.departments, { headers: publicHeaders });
-
-    if (url.pathname === "/api/news") {
+    if (call.tag === "content.listNews") {
       if (apiState.listError !== undefined) throw new TypeError("Network unavailable");
       apiState.listingCalls += 1;
 
-      return Response.json(apiState.listResult, { headers: publicHeaders });
+      return nativeRpcSuccess(call, encodeListing(apiState.listResult));
     }
 
+    if (call.tag !== "content.readNewsArticle") throw new Error(`Unexpected news call ${call.tag}`);
+
+    const { version } = Schema.decodeUnknownSync(NewsArticleCall)(call.payload);
     const article = apiState.readArticle;
 
-    if (article === undefined || "notFound" in article || url.searchParams.get("version") === "99") {
-      return Response.json(makeNativeProblem("content.article-not-found", 404), {
-        status: 404, headers: { "cache-control": "no-store", vary: "Origin" },
-      });
+    if (article === undefined || "notFound" in article || version === 99) {
+      return nativeRpcProblem(call, "content.article-not-found");
     }
 
     if ("networkError" in article) throw new TypeError("Network unavailable");
 
-    return Response.json(url.searchParams.get("version") === "1" ? { ...article, bodyHtml: "<p>eldre, uforanderlige bytes</p>" } : article, { headers: publicHeaders });
-  };
-
-  vi.stubGlobal("fetch", fetch);
+    return nativeRpcSuccess(call, encodeArticle(version === 1 ? { ...article, bodyHtml: "<p>eldre, uforanderlige bytes</p>" } : article));
+  });
 });
 
 
@@ -75,7 +80,6 @@ const summary = (overrides: NewsSummaryOverrides = {}): PublishedNewsSummary => 
 afterEach(() => {
   apiState.listingCalls = 0;
   vi.unstubAllEnvs();
-  vi.unstubAllGlobals();
   apiState.listError = undefined;
   apiState.readArticle = undefined;
 });
