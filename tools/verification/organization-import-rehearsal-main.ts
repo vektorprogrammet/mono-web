@@ -465,6 +465,8 @@ const makeChildToolEnvironment = (runnerTempRoot: string): NodeJS.ProcessEnv => 
     "PATH",
     "LANG",
     "LC_ALL",
+    // A machine without Playwright's own browser names its Chromium, as the golden harness allows.
+    "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH",
     "NIX_SSL_CERT_FILE",
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
