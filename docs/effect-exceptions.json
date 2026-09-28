@@ -269,6 +269,77 @@
         "@effect/platform-bun": "4.0.0-rc.116"
       },
       "retirementTrigger": "The e2e program type-checks with Bun's global types, or a Node platform server becomes a dependency. Then serve the provider through HttpServer and remove the node:http import."
+    },
+    {
+      "id": "EX-0013",
+      "rules": ["FX002", "effecttsgo/node-builtin-import"],
+      "scope": {
+        "files": ["tools/scripts/heavy-lock.ts"],
+        "symbols": ["flockDescriptor", "openLockFile", "replaceLockText"]
+      },
+      "reason": "The machine-wide heavy lock and the hook slots are flock(1) locks on the open file description of a lock file that the holder keeps open until it exits. flock(1) locks the descriptor that it receives as standard input, and the holder truncates and writes that same descriptor to name itself, so waiting processes can show the live holders.",
+      "missingCapability": "Effect's ChildProcess accepts only \"pipe\", \"inherit\", \"ignore\", \"overlapped\", or a Stream as standard input, never a descriptor of this process, and FileSystem.File does not expose its descriptor in the examined version.",
+      "nativeAlternatives": [
+        "ChildProcess.make with a Stream as stdin: flock(1) would lock a pipe, not the lock file.",
+        "flock(1) with a file path and the job as its command: the lock would belong to flock's process, and the holder could not take the gate and the lock in two steps or write its line before the job starts.",
+        "FileSystem.open with an additional descriptor: the File handle has no descriptor to pass, and additional descriptors of ChildProcess are pipes."
+      ],
+      "verification": [
+        "`bun test tests` in tools/scripts runs `tests/heavy-lock.test.ts`: two heavy jobs serialize, a hook job waits for a heavy job, a heavy job waits for running hook jobs and before later ones, nested jobs do not wait for themselves, and a killed holder releases the lock.",
+        "Every heavy job of `just measure` takes the lock."
+      ],
+      "owner": "tools/scripts",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "@effect/platform-bun": "4.0.0-rc.116"
+      },
+      "retirementTrigger": "ChildProcess accepts a descriptor of this process as standard input and FileSystem.File exposes its descriptor, or the lock moves to an Effect service that owns flock(2). Then open the lock files through FileSystem, pass their descriptors through ChildProcess, and remove the node imports."
+    },
+    {
+      "id": "EX-0014",
+      "rules": ["FX002", "effecttsgo/process-env"],
+      "scope": {
+        "files": ["tools/scripts/vitest-admission.ts"],
+        "symbols": ["setup"]
+      },
+      "reason": "The Vitest global setup admits a run under the heavy lock and a hook slot, and the workers that Vitest starts afterwards must learn that their main process holds the lock, so that a `just measure` or a nested Vitest run inside a test does not wait for its own holder. Vitest starts its workers with the environment of its main process, so the setup writes VEKTORPROGRAMMET_HEAVY_LOCK into it.",
+      "missingCapability": "None in Effect: Config reads the environment and ChildProcess sets the environment of a child, but no Effect construct changes the environment of the running process, and Vitest, not this program, starts the workers.",
+      "nativeAlternatives": [
+        "ChildProcess with `env`: Vitest spawns its workers itself.",
+        "Vitest's `provide` of the global setup: it reaches the tests through `inject`, not the environment of the processes that a test starts."
+      ],
+      "verification": [
+        "A focused Vitest run, such as `bun run --cwd tools/postgres vitest run`, prints the admission lines and runs `tools/postgres/teardown.test.ts`, whose `just measure` child inside the run does not wait for its holder."
+      ],
+      "owner": "tools/scripts",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116"
+      },
+      "retirementTrigger": "Vitest passes an environment to its workers from the global setup, or the admission moves into the scripts that start Vitest. Then remove the write."
+    },
+    {
+      "id": "EX-0015",
+      "rules": ["FX002", "effecttsgo/node-builtin-import"],
+      "scope": {
+        "files": ["tools/scripts/job-process.ts"],
+        "symbols": ["runJob"]
+      },
+      "reason": "`just measure` and a hook slot run a job in their own process group with the terminal, forward SIGINT, SIGTERM, and SIGHUP to it, record in the ledger whether the job ended with an exit code or a signal, and then end the same way, so the caller sees the job's own status.",
+      "missingCapability": "A ChildProcess handle fails `exitCode` with an Unknown PlatformError when a signal ends the process, and names the signal only inside the message of its cause. Its scoped release also signals the child's process group, which a job that shares this process's group does not have.",
+      "nativeAlternatives": [
+        "ChildProcess with `detached: false` and the signal parsed from the message of the PlatformError: the ledger and the exit would depend on the wording of an error message.",
+        "ChildProcess with the default `detached: true`: the job leaves the terminal's process group, so a terminal interrupt reaches it only through forwarding, and the release kills the processes that the ledger counts as surviving."
+      ],
+      "verification": [
+        "`bun test tests` in tools/scripts runs real measure-job and hook-slot jobs to their exit codes in `tests/heavy-lock.test.ts`.",
+        "`bun --no-env-file tools/scripts/measure-job.ts --class probe -- true` appends a ledger row with its exit code, and every heavy job runs through it. No test sends a signal to a measured job."
+      ],
+      "owner": "tools/scripts",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "@effect/platform-bun": "4.0.0-rc.116"
+      },
+      "retirementTrigger": "A ChildProcess handle reports the terminating signal as a value. Then spawn the job through ChildProcess with `detached: false` and remove the node import."
     }
   ]
 }

@@ -2,15 +2,20 @@
 // silently: the Effect domain groups once used `!(…)` patterns and no core rule ever ran.
 import { correctness, effectNative, presets, recommended } from "@effect/tsgo/oxlint-presets";
 import { describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
+import { Effect } from "effect";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import config from "../../../oxlint.config.ts";
+import { ConventionsPlatform } from "../src/cli.js";
 import { repositoryRoot } from "../src/repository.js";
 
-const root = repositoryRoot(import.meta.dir);
+const tracked = await Effect.runPromise(
+  Effect.gen(function* () {
+    const root = yield* repositoryRoot(import.meta.dir);
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
-const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" })
-  .split("\0")
-  .filter((path) => path.length > 0);
+    return yield* spawner.string(ChildProcess.make("git", ["ls-files", "-z"], { cwd: root }));
+  }).pipe(Effect.provide(ConventionsPlatform)),
+).then((listed) => listed.split("\0").filter((path) => path.length > 0));
 
 const overrides = config.overrides ?? [];
 

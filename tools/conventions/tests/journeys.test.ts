@@ -2,18 +2,22 @@
 // e2e suite in the justfile dump, one more browser evidence script, a renamed workflow job, or one
 // more Playwright spec or acceptance probe that no journey runs.
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
+import { Effect } from "effect";
+import { ConventionsPlatform } from "../src/cli.js";
 import { checkLayout } from "../src/check.js";
 import { journeysDeclaration, readWorkflow, testsWorkflow } from "../src/journeys.js";
 import { decodeJustfile, dumpJustfile, type Justfile } from "../src/justfile.js";
 import { readRepository, repositoryRoot, type Repository } from "../src/repository.js";
 import { spliceFiles } from "../src/sections.js";
 
-const root = repositoryRoot(import.meta.dir);
+const run = <A, E>(effect: Effect.Effect<A, E, ConventionsPlatform>): Promise<A> =>
+  Effect.runPromise(effect.pipe(Effect.provide(ConventionsPlatform)));
 
-const base = readRepository(root, false);
+const root = await run(repositoryRoot(import.meta.dir));
 
-const dump = dumpJustfile(join(root, "justfile"));
+const base = await run(readRepository(root, false));
+
+const dump = await run(dumpJustfile(`${root}/justfile`));
 
 const justfile = decodeJustfile(dump);
 
