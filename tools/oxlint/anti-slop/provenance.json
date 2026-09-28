@@ -16,6 +16,7 @@
     "Added the repository-specific rule rules/no-hand-rolled-postgres.ts, its RuleTester test, and its registration in index.ts; UPSTREAM.txt records it.",
     "Added the repository-specific rule rules/no-git-history.ts, its RuleTester test, and its registration in index.ts; UPSTREAM.txt records it.",
     "Added the repository-specific rule rules/no-port-probe.ts, its RuleTester test, and its registration in index.ts; UPSTREAM.txt records it.",
-    "Added the repository-specific rule rules/no-rpc-path-comparison.ts, its RuleTester test, and its registration in index.ts; UPSTREAM.txt records it."
+    "Added the repository-specific rule rules/no-rpc-path-comparison.ts, its RuleTester test, and its registration in index.ts; UPSTREAM.txt records it.",
+    "Added the repository-specific rule rules/no-unsettled-axe.ts, its RuleTester test, and its registration in index.ts; UPSTREAM.txt records it."
   ]
 }

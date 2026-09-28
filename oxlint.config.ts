@@ -312,6 +312,8 @@ export default defineConfig({
     "anti-slop/no-rpc-path-comparison": "error",
     "anti-slop/no-runtime-typeof": "error",
     "anti-slop/no-shape-in-symbol-names": "error",
+    // Axe runs only through auditSettledPage, which waits for running transitions to finish.
+    "anti-slop/no-unsettled-axe": "error",
     "anti-slop/no-unknown-parameters": "error",
     "anti-slop/no-unknown-returns": "error",
     "anti-slop/no-unknown-type-aliases": "error",
@@ -372,6 +374,11 @@ export default defineConfig({
         "packages/database/src/schema-calendar-arithmetic.test.ts",
       ],
       rules: { "anti-slop/no-zoneless-calendar-interval": "off" },
+    },
+    {
+      // The settled-audit construct is the one module that loads and constructs axe.
+      files: ["apps/dashboard/e2e/settled-axe.ts"],
+      rules: { "anti-slop/no-unsettled-axe": "off" },
     },
     {
       // The definition of the RPC endpoint predicates compares the paths it names.
