@@ -349,6 +349,7 @@
         "pg": "8",
       },
       "devDependencies": {
+        "@effect/vitest": "catalog:effect-v4",
         "@types/node": "^22",
         "@types/pg": "^8.23.1",
         "typescript": "7.0.2",

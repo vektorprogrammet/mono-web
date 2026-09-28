@@ -1,6 +1,4 @@
-import process from "node:process";
-import * as BunServices from "@effect/platform-bun/BunServices";
-import { Effect, Layer, Redacted } from "effect";
+import { Config, Console, Effect, Option, Redacted, Schema } from "effect";
 import { Pool } from "pg";
 import {
   parseDisposableCohortDatabaseUrl,
@@ -46,51 +44,77 @@ export const currentAssignmentForbiddenAmbientConfigurationKeys = [
   "GATEWAY_API_TOKEN",
 ] as const;
 
-export const rejectCurrentAssignmentAmbientConfiguration = (
-  environment: Readonly<Record<string, string | undefined>>,
-  invalid: () => Error,
-): void => {
-  if (
-    currentAssignmentForbiddenAmbientConfigurationKeys.some((key) => environment[key] !== undefined)
-  )
-    throw invalid();
-};
-
 export const disposableCurrentAssignmentDatabaseUrl = (value: string | undefined): string =>
   parseDisposableCohortDatabaseUrl(value, /^\/current_assignment_rehearsal$/, invalidSnapshot);
 
-export const runCurrentAssignmentCohortCli = async (): Promise<void> => {
+// A variable that the environment may set; an unreadable source counts as an invalid snapshot.
+const optionalVariable = (key: string) =>
+  Config.option(Config.String(key)).pipe(Effect.mapError(invalidSnapshot));
+
+/** A failure of the CLI that carries no current assignment failure code. */
+export class CurrentAssignmentImportFailed extends Schema.TaggedError<CurrentAssignmentImportFailed>()(
+  "CurrentAssignmentImportFailed",
+  { cause: Schema.Defect() },
+) {}
+
+// A synchronous step of the boundary keeps its coded failure; anything else is an import failure.
+const boundaryStep = <A>(run: () => A) =>
+  Effect.try({
+    try: run,
+    catch: (cause) =>
+      cause instanceof CurrentAssignmentFailure
+        ? cause
+        : CurrentAssignmentImportFailed.make({ cause }),
+  });
+
+/**
+ * The guarded synthetic import: it takes the process arguments, reads its configuration from the
+ * environment, and writes the persisted report to standard output.
+ */
+export const runCurrentAssignmentCohortCli = Effect.fn("runCurrentAssignmentCohortCli")(function* (
+  argv: ReadonlyArray<string>,
+) {
+  const mode = yield* optionalVariable("CURRENT_ASSIGNMENT_MODE");
+  const deployment = yield* optionalVariable("NATIVE_IDENTITY_DEPLOYMENT");
+
   if (
-    process.argv.length !== 2 ||
-    process.env.CURRENT_ASSIGNMENT_MODE !== "synthetic" ||
-    process.env.NATIVE_IDENTITY_DEPLOYMENT !== "local"
+    argv.length !== 2 ||
+    !Option.contains(mode, "synthetic") ||
+    !Option.contains(deployment, "local")
   )
-    throw invalidSnapshot();
-  rejectCurrentAssignmentAmbientConfiguration(process.env, invalidSnapshot);
+    return yield* invalidSnapshot();
 
-  const input = decodeCurrentAssignmentSnapshot(
-    await Effect.runPromise(
-      readPrivateCohortJson(process.env.CURRENT_ASSIGNMENT_INPUT, invalidSnapshot),
-    ),
+  const ambient = yield* Effect.forEach(
+    currentAssignmentForbiddenAmbientConfigurationKeys,
+    optionalVariable,
   );
 
-  const url = disposableCurrentAssignmentDatabaseUrl(process.env.CURRENT_ASSIGNMENT_PG_URL);
-  await Effect.runPromise(
-    databaseHealth.pipe(
-      Effect.provide(
-        DatabaseLive({ url: Redacted.make(url), maxConnections: 1 }).pipe(
-          Layer.provide(BunServices.layer),
-        ),
-      ),
-    ),
-  );
-  const pool = new Pool({ connectionString: url, max: 2 });
+  if (ambient.some(Option.isSome)) return yield* invalidSnapshot();
 
-  try {
-    process.stdout.write(
-      JSON.stringify(await Effect.runPromise(importCurrentAssignmentCohort(pool, input))) + "\n",
-    );
-  } finally {
-    await pool.end();
-  }
-};
+  const inputPath = yield* optionalVariable("CURRENT_ASSIGNMENT_INPUT");
+
+  const json = yield* readPrivateCohortJson(Option.getOrUndefined(inputPath), invalidSnapshot);
+  const input = yield* boundaryStep(() => decodeCurrentAssignmentSnapshot(json));
+
+  const databaseUrl = yield* optionalVariable("CURRENT_ASSIGNMENT_PG_URL");
+
+  const url = yield* boundaryStep(() =>
+    disposableCurrentAssignmentDatabaseUrl(Option.getOrUndefined(databaseUrl)),
+  );
+
+  yield* databaseHealth.pipe(
+    Effect.provide(DatabaseLive({ url: Redacted.make(url), maxConnections: 1 })),
+  );
+
+  const report = yield* Effect.acquireUseRelease(
+    Effect.sync(() => new Pool({ connectionString: url, max: 2 })),
+    (pool) => importCurrentAssignmentCohort(pool, input),
+    (pool) => Effect.promise(() => pool.end()),
+  );
+
+  const reportText = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(report).pipe(
+    Effect.orDie,
+  );
+
+  yield* Console.log(reportText);
+});

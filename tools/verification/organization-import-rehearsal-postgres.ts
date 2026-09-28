@@ -5,6 +5,7 @@ import {
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
 import { Schema, Record as EffectRecord, Effect } from "effect";
+import { dual } from "effect/Function";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 
 export interface StableTableProjection {
@@ -92,19 +93,30 @@ export const stableByteSetEvidence = (state: OrganizationImportStableState) =>
     tables: byteSet.tables,
   }));
 
-export const compareStableByteSets = (
-  before: OrganizationImportStableState,
-  after: OrganizationImportStableState,
-): StableByteSetComparison =>
-  EffectRecord.map(before.byteSets, (left, name) => {
-    const right = after.byteSets[name];
+export const compareStableByteSets: {
+  (
+    after: OrganizationImportStableState,
+  ): (before: OrganizationImportStableState) => StableByteSetComparison;
+  (
+    before: OrganizationImportStableState,
+    after: OrganizationImportStableState,
+  ): StableByteSetComparison;
+} = dual(
+  2,
+  (
+    before: OrganizationImportStableState,
+    after: OrganizationImportStableState,
+  ): StableByteSetComparison =>
+    EffectRecord.map(before.byteSets, (left, name) => {
+      const right = after.byteSets[name];
 
-    return {
-      byteLengthEqual: left.byteLength === right.byteLength,
-      sha256Equal: left.sha256 === right.sha256,
-      directBytesEqual: Buffer.from(left.bytes).equals(Buffer.from(right.bytes)),
-    };
-  });
+      return {
+        byteLengthEqual: left.byteLength === right.byteLength,
+        sha256Equal: left.sha256 === right.sha256,
+        directBytesEqual: Buffer.from(left.bytes).equals(Buffer.from(right.bytes)),
+      };
+    }),
+);
 
 export const readOrganizationImportStableState = (
   sql: DatabaseOperations,
