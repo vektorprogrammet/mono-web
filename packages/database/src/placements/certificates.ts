@@ -71,7 +71,7 @@ const conflict = (cause: unknown, depth: number): boolean =>
 const persistenceFailure =
   (operation: string) =>
   (cause: unknown): CertificatePersistenceError =>
-    new CertificatePersistenceError({ operation, conflict: conflict(cause, 0), cause });
+    CertificatePersistenceError.make({ operation, conflict: conflict(cause, 0), cause });
 
 const SemesterRow = Schema.Struct({
   semesterId: SemesterId,
@@ -452,14 +452,14 @@ const requireDaysServedAuthority = (
 ) =>
   reaches(authority, "placements.days-served", ReachTarget.Department({ departmentId }))
     ? Effect.void
-    : Effect.fail(new CertificateAccessDenied({ reason: "NotInScope" }));
+    : Effect.fail(CertificateAccessDenied.make({ reason: "NotInScope" }));
 
 const requireDepartment = (departmentId: DepartmentId, lock: boolean) =>
   findDepartment({ departmentId, lock }).pipe(
     Effect.mapError(persistenceFailure("read certificate department")),
     Effect.flatMap(
       Option.match({
-        onNone: () => Effect.fail(new CertificateScopeNotFound()),
+        onNone: () => Effect.fail(CertificateScopeNotFound.make({})),
         onSome: Effect.succeed,
       }),
     ),
@@ -470,7 +470,7 @@ const requireSemester = (semesterId: SemesterId) =>
     Effect.mapError(persistenceFailure("read certificate semester")),
     Effect.flatMap(([semester]) =>
       semester === undefined
-        ? Effect.fail(new CertificateScopeNotFound())
+        ? Effect.fail(CertificateScopeNotFound.make({}))
         : Effect.succeed(semester),
     ),
   );
@@ -502,13 +502,13 @@ const requireIssuer = (
       command ? "ForShare" : "None",
     ).pipe(Effect.mapError(persistenceFailure("read governed department")));
 
-    if (department === undefined) return yield* new CertificateScopeNotFound();
+    if (department === undefined) return yield* CertificateScopeNotFound.make({});
 
     const issuer = yield* certificateIssuerWithSql(sql, authority, department).pipe(
       Effect.mapError(persistenceFailure("read certificate issuer")),
     );
 
-    if (Option.isNone(issuer)) return yield* new CertificateAccessDenied({ reason: "NotInScope" });
+    if (Option.isNone(issuer)) return yield* CertificateAccessDenied.make({ reason: "NotInScope" });
 
     return issuer.value;
   });
@@ -527,7 +527,7 @@ const buildPreview = (
       personId,
     }).pipe(Effect.mapError(persistenceFailure("read certificate assistant")));
 
-    if (assistant === undefined) return yield* new CertificateAssistantNotFound({ personId });
+    if (assistant === undefined) return yield* CertificateAssistantNotFound.make({ personId });
 
     const services = [
       ...(yield* readServices(department.departmentId, null, [personId]).pipe(
@@ -615,7 +615,7 @@ export const readCertificateScopes = (principal: CertificatePrincipal) =>
     });
 
     if (departments.length === 0)
-      return yield* new CertificateAccessDenied({ reason: "NotInScope" });
+      return yield* CertificateAccessDenied.make({ reason: "NotInScope" });
 
     const semesters = yield* findSemesters(null).pipe(
       Effect.mapError(persistenceFailure("read certificate semesters")),
@@ -700,7 +700,7 @@ const authorizeIssue = (
     const issuer = yield* requireIssuer(sql, authority, departmentId, true);
 
     if (personId === principal.personId)
-      return yield* new CertificateAccessDenied({ reason: "OwnCertificate" });
+      return yield* CertificateAccessDenied.make({ reason: "OwnCertificate" });
 
     return { department, issuer };
   });
@@ -761,7 +761,7 @@ export const confirmDaysServed = <E, R>(
     const current = yield* readEntry(scope, command.personId);
 
     if (Option.isNone(current))
-      return yield* new CertificateAssistantNotFound({ personId: command.personId });
+      return yield* CertificateAssistantNotFound.make({ personId: command.personId });
 
     yield* checkPrecondition(current.value);
 
@@ -785,7 +785,7 @@ export const confirmDaysServed = <E, R>(
     const confirmed = yield* readEntry(scope, command.personId);
 
     if (Option.isNone(confirmed))
-      return yield* new CertificateAssistantNotFound({ personId: command.personId });
+      return yield* CertificateAssistantNotFound.make({ personId: command.personId });
 
     return confirmed.value;
   });
@@ -857,7 +857,7 @@ export const readCertificate = (
     const issuer = yield* requireIssuer(sql, authority, departmentId, false);
 
     if (personId === principal.personId)
-      return yield* new CertificateAccessDenied({ reason: "OwnCertificate" });
+      return yield* CertificateAccessDenied.make({ reason: "OwnCertificate" });
 
     return yield* buildPreview(department, personId, issuer);
   });
@@ -881,7 +881,7 @@ export const issueCertificate = <E, R>(
     yield* checkPrecondition(preview);
 
     if (preview.content === null || preview.contentSha256 === null)
-      return yield* new CertificateEmpty();
+      return yield* CertificateEmpty.make({});
 
     const content = yield* Schema.encodeEffect(CertificateContent)(preview.content).pipe(
       Effect.mapError(persistenceFailure("encode certificate content")),

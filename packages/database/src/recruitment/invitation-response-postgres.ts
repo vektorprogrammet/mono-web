@@ -64,7 +64,7 @@ const RecruitmentInvitationResponseContextSchema = Schema.Struct({
 type RecordedResponseState = "Accepted" | "Rejected" | "RequestedNewTime";
 
 const persistenceError = (operation: string, cause?: unknown): RecruitmentPersistenceError =>
-  new RecruitmentPersistenceError({
+  RecruitmentPersistenceError.make({
     operation,
     cause,
     message: cause instanceof Error ? cause.message : "recruitment response persistence failed",
@@ -77,7 +77,7 @@ const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, operation: string
     Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
     Effect.mapError(
       (cause) =>
-        new RecruitmentDecodeError({
+        RecruitmentDecodeError.make({
           message: cause instanceof Error ? cause.message : `invalid ${operation}`,
         }),
     ),
@@ -87,7 +87,7 @@ const decodeCapability = flow(
   Schema.decodeUnknownEffect(RecruitmentInvitationCapabilitySchema, {
     onExcessProperty: "error",
   }),
-  Effect.mapError(() => new RecruitmentInvitationNotFound({})),
+  Effect.mapError(() => RecruitmentInvitationNotFound.make({})),
 );
 
 const readInvitationRow = (
@@ -198,7 +198,7 @@ const observationFromRow = (
   }).pipe(
     Effect.mapError(
       (cause) =>
-        new RecruitmentDecodeError({
+        RecruitmentDecodeError.make({
           message:
             cause instanceof Error ? cause.message : `invalid ${"invitation response observation"}`,
         }),
@@ -263,7 +263,7 @@ const recordInvitationResponse = (
   Effect.gen(function* () {
     const candidate = yield* readInvitationRow(sql, capabilitySha256);
 
-    if (candidate === undefined) return yield* new RecruitmentInvitationNotFound({});
+    if (candidate === undefined) return yield* RecruitmentInvitationNotFound.make({});
     // Serialize the response with schedule, cancellation, and staffing writers before row locks.
     yield* lockAdvisory(sql, AdvisoryLockKey.recruitmentInterview(candidate.interviewId)).pipe(
       Effect.catchTag("SqlError", (cause) =>
@@ -272,10 +272,10 @@ const recordInvitationResponse = (
     );
     const row = yield* lockInvitationRow(sql, capabilitySha256);
 
-    if (row === undefined) return yield* new RecruitmentInvitationNotFound({});
+    if (row === undefined) return yield* RecruitmentInvitationNotFound.make({});
 
     if (row.responseState !== "Pending" || row.responseRevision !== 0) {
-      return yield* new RecruitmentInvitationAlreadyResponded({});
+      return yield* RecruitmentInvitationAlreadyResponded.make({});
     }
 
     const notificationRequired = responseState !== "Accepted";
@@ -308,7 +308,7 @@ const recordInvitationResponse = (
     const responseRevision = updated[0]?.responseRevision;
 
     if (responseRevision !== 1) {
-      return yield* new RecruitmentInvitationAlreadyResponded({});
+      return yield* RecruitmentInvitationAlreadyResponded.make({});
     }
 
     yield* sql`
@@ -376,7 +376,7 @@ const recordInvitationResponse = (
             });
 
       const request = yield* requestEffect.pipe(
-        Effect.mapError((issue) => new RecruitmentDecodeError({ message: formatIssue(issue) })),
+        Effect.mapError((issue) => RecruitmentDecodeError.make({ message: formatIssue(issue) })),
       );
 
       yield* sql`UPDATE public.recruitment_invitation_response_audit SET envelope_sha256=${sha256Hex(canonicalJsonBytes(request))} WHERE invitation_id=${row.invitationId} AND response_revision=${responseRevision} AND envelope_sha256 IS NULL`.pipe(
@@ -469,7 +469,7 @@ const recordInvitationResponse = (
     return yield* responseEffect.pipe(
       Effect.mapError(
         (cause) =>
-          new RecruitmentDecodeError({
+          RecruitmentDecodeError.make({
             message: SchemaIssue.isIssue(cause) ? formatIssue(cause) : String(cause),
           }),
       ),
@@ -527,7 +527,7 @@ export const readInvitationResponse = (
     const capabilitySha256 = sha256Hex(new TextEncoder().encode(decodedCapability));
     const row = yield* readInvitationRow(sql, capabilitySha256);
 
-    if (row === undefined) return yield* new RecruitmentInvitationNotFound({});
+    if (row === undefined) return yield* RecruitmentInvitationNotFound.make({});
 
     return yield* observationFromRow(row);
   });

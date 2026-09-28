@@ -38,10 +38,10 @@ import { sealInterviewInvitationEnvelopes } from "./outbox.js";
 import { sealInterviewResponseEnvelopes } from "./response-outbox.js";
 
 const fail = (code: RecruitmentMaintenanceFailure["code"]) =>
-  new RecruitmentMaintenanceFailure({ code });
+  RecruitmentMaintenanceFailure.make({ code });
 
 const persistence = (cause: unknown) =>
-  new RecruitmentPersistenceError({
+  RecruitmentPersistenceError.make({
     operation: "recruitment maintenance",
     message: String(cause),
     cause,

@@ -28,7 +28,7 @@ import {
 import { PersonId } from "@vektorprogrammet/domain/organization";
 
 const decodeError = (operation: string, cause: unknown) =>
-  new OrganizationDecodeError({ operation, message: String(cause) });
+  OrganizationDecodeError.make({ operation, message: String(cause) });
 
 export type OrganizationAuthorityRowLockMode = "None" | "ForShare";
 
@@ -70,7 +70,7 @@ export const lockPersonAuthorization = (
   lockAdvisory(sql, AdvisoryLockKey.personAuthorization(personId)).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(
-        new OrganizationPersistenceError({
+        OrganizationPersistenceError.make({
           operation: "lock person authorization",
           message: String(cause),
           cause,
@@ -120,7 +120,7 @@ export const lockOrganizationGlobalAdministratorGrantForWrite = (
     const observedPerson = observed[0]?.personId;
 
     if (observedPerson === undefined) {
-      return yield* new OrganizationAuthorityRecordNotFound({ grantId });
+      return yield* OrganizationAuthorityRecordNotFound.make({ grantId });
     }
 
     yield* lockPersonAuthorization(sql, observedPerson);
@@ -155,14 +155,14 @@ export const lockOrganizationGlobalAdministratorGrantForWrite = (
       grant.personId !== observedPerson ||
       grant.revision !== expectedRevision
     ) {
-      return yield* new OrganizationAuthorityWriteConflict({ grantId, expectedRevision });
+      return yield* OrganizationAuthorityWriteConflict.make({ grantId, expectedRevision });
     }
 
     return grant;
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(
-        new OrganizationPersistenceError({
+        OrganizationPersistenceError.make({
           operation: "lock Organization global-administrator grant",
           message: String(cause),
         }),
@@ -223,7 +223,7 @@ export const createOrganizationGlobalAdministratorGrant = (
       .pipe(
         Effect.catchTag("SqlError", (cause) =>
           Effect.fail(
-            new OrganizationPersistenceError({
+            OrganizationPersistenceError.make({
               operation: "create Organization global-administrator grant",
               message: String(cause),
             }),
@@ -282,7 +282,7 @@ export const endOrganizationGlobalAdministratorGrant = (
           `;
 
           if (updated.length !== 1) {
-            return yield* new OrganizationAuthorityWriteConflict({
+            return yield* OrganizationAuthorityWriteConflict.make({
               grantId: command.grantId,
               expectedRevision: command.expectedRevision,
             });
@@ -294,7 +294,7 @@ export const endOrganizationGlobalAdministratorGrant = (
       .pipe(
         Effect.catchTag("SqlError", (cause) =>
           Effect.fail(
-            new OrganizationPersistenceError({
+            OrganizationPersistenceError.make({
               operation: "end Organization global-administrator grant",
               message: String(cause),
             }),
@@ -338,7 +338,7 @@ export const removeOrganizationGlobalAdministratorGrant = (
           `;
 
           if (removed.length !== 1) {
-            return yield* new OrganizationAuthorityWriteConflict({
+            return yield* OrganizationAuthorityWriteConflict.make({
               grantId: command.grantId,
               expectedRevision: command.expectedRevision,
             });
@@ -350,7 +350,7 @@ export const removeOrganizationGlobalAdministratorGrant = (
       .pipe(
         Effect.catchTag("SqlError", (cause) =>
           Effect.fail(
-            new OrganizationPersistenceError({
+            OrganizationPersistenceError.make({
               operation: "remove Organization global-administrator grant",
               message: String(cause),
             }),
@@ -508,7 +508,7 @@ export const resolveOrganizationPersonAuthorityWithSql = (
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(
-        new OrganizationPersistenceError({
+        OrganizationPersistenceError.make({
           operation: "resolve Organization person authority",
           message: String(cause),
           cause,
@@ -584,7 +584,7 @@ export const readGovernedDepartmentsWithSql = (
     ),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(
-        new OrganizationPersistenceError({
+        OrganizationPersistenceError.make({
           operation: "read governed departments",
           message: String(cause),
           cause,
@@ -668,7 +668,7 @@ export const certificateIssuerWithSql = (
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(
-        new OrganizationPersistenceError({
+        OrganizationPersistenceError.make({
           operation: "read certificate issuer seat",
           message: String(cause),
           cause,

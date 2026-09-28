@@ -19,7 +19,7 @@ export const readInterviewApplicantIdentity = (interviewId: RecruitmentInterview
         linkedApplicantPersonId: PersonId | null;
       }>`SELECT a.applicant_id AS "applicantId",i.department_id AS "departmentId",l.person_id AS "linkedApplicantPersonId" FROM public.recruitment_interviews i JOIN public.admission_applications a USING(application_id) LEFT JOIN public.applicant_account_links l USING(applicant_id) WHERE i.interview_id=${interviewId}`;
 
-      if (!rows[0]) return yield* new RecruitmentInterviewNotFound({ interviewId });
+      if (!rows[0]) return yield* RecruitmentInterviewNotFound.make({ interviewId });
 
       return rows[0];
     }),
@@ -36,7 +36,7 @@ export const guardInterviewApplicantIdentity = (
     const current = yield* readInterviewApplicantIdentity(interviewId);
 
     if (isKnownSelfInterview(current.linkedApplicantPersonId, personId))
-      return yield* new RecruitmentScopeDenied({ personId, departmentId: current.departmentId });
+      return yield* RecruitmentScopeDenied.make({ personId, departmentId: current.departmentId });
 
     return current;
   });

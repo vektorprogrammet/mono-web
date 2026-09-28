@@ -50,7 +50,7 @@ export const readOrganizationMailingLists = Effect.fn("readOrganizationMailingLi
           (reachedDepartmentIds.size === 0 ||
             (input.departmentId !== undefined && !reachedDepartmentIds.has(input.departmentId)))
         ) {
-          return yield* new OrganizationRoleDenied({
+          return yield* OrganizationRoleDenied.make({
             actorPersonId: input.actorPersonId,
             requiredRole: "DepartmentAdministrator",
           });
@@ -62,7 +62,7 @@ export const readOrganizationMailingLists = Effect.fn("readOrganizationMailingLi
           input.departmentId !== undefined &&
           !departments.some((department) => department.departmentId === input.departmentId)
         ) {
-          return yield* new OrganizationInvalidReference({ referenceKind: "Department" });
+          return yield* OrganizationInvalidReference.make({ referenceKind: "Department" });
         }
 
         const authorizedDepartmentIds = departments
@@ -93,7 +93,7 @@ export const readOrganizationMailingLists = Effect.fn("readOrganizationMailingLi
         const semester = semesters[0];
 
         if (semesters.length !== 1 || semester === undefined) {
-          return yield* new OrganizationInvalidReference({
+          return yield* OrganizationInvalidReference.make({
             referenceKind: input.semesterId === undefined ? "CurrentSemester" : "Semester",
           });
         }
@@ -174,7 +174,7 @@ export const readOrganizationMailingLists = Effect.fn("readOrganizationMailingLi
     .pipe(
       Effect.catchTag(["SqlError", "SchemaError"], (cause) =>
         Effect.fail(
-          new OrganizationPersistenceError({
+          OrganizationPersistenceError.make({
             operation: "read Organization mailing recipients",
             message: String(cause),
             cause,

@@ -120,7 +120,7 @@ export const RecruitmentInterviewCompletionDeliveryResult =
   Data.taggedEnum<RecruitmentInterviewCompletionDeliveryResult>();
 
 const persistenceError = (operation: string, cause?: unknown): RecruitmentPersistenceError =>
-  new RecruitmentPersistenceError({
+  RecruitmentPersistenceError.make({
     operation,
     cause,
     message: cause instanceof Error ? cause.message : "recruitment completion outbox failed",

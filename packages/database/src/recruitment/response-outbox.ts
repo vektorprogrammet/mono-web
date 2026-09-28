@@ -134,7 +134,7 @@ export const RecruitmentInvitationResponseDeliveryResult =
   Data.taggedEnum<RecruitmentInvitationResponseDeliveryResult>();
 
 const persistenceError = (operation: string, cause?: unknown): RecruitmentPersistenceError =>
-  new RecruitmentPersistenceError({
+  RecruitmentPersistenceError.make({
     operation,
     cause,
     message:

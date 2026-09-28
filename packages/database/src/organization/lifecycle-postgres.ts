@@ -40,7 +40,7 @@ import {
 } from "./authority-postgres.js";
 
 const fail = (code: OrganizationLifecycleFailure["code"]) =>
-  new OrganizationLifecycleFailure({ code });
+  OrganizationLifecycleFailure.make({ code });
 
 const decode = <S extends Schema.Top>(schema: S) =>
   flow(
@@ -159,7 +159,7 @@ const isLifecycleFailure = Schema.is(OrganizationLifecycleFailure);
 const failure = (cause: unknown) =>
   isLifecycleFailure(cause)
     ? cause
-    : new OrganizationLifecycleFailure({ code: "Unavailable", cause });
+    : OrganizationLifecycleFailure.make({ code: "Unavailable", cause });
 
 export const readAppointmentManagement = Effect.fn("readAppointmentManagement")(function* (
   actorPersonId: PersonId,

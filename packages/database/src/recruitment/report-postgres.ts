@@ -33,7 +33,7 @@ export const resolveInterviewReportLeader = (personId: PersonId, now: string) =>
       ),
     ];
 
-    if (departments.length !== 1) return yield* new RecruitmentRoleDenied({ personId });
+    if (departments.length !== 1) return yield* RecruitmentRoleDenied.make({ personId });
 
     const decision = mapOrganizationAuthorityToDepartmentActor(
       authority,
@@ -46,7 +46,7 @@ export const resolveInterviewReportLeader = (personId: PersonId, now: string) =>
       !Predicate.isTagged(decision.value, "DepartmentAdministrator") ||
       !decision.value.active
     )
-      return yield* new RecruitmentRoleDenied({ personId });
+      return yield* RecruitmentRoleDenied.make({ personId });
 
     return decision.value;
   });
@@ -60,7 +60,7 @@ export const readCompletedInterviewReport = (
   Effect.gen(function* () {
     const query = yield* Schema.decodeEffect(InterviewReportQuery)(input, {
       onExcessProperty: "error",
-    }).pipe(Effect.mapError(() => new RecruitmentDecodeError({ message: "invalid report query" })));
+    }).pipe(Effect.mapError(() => RecruitmentDecodeError.make({ message: "invalid report query" })));
 
     const sql = yield* Database;
 
@@ -74,7 +74,7 @@ export const readCompletedInterviewReport = (
             query.admissionPeriodId !== undefined &&
             !periods.some((period) => period.id === query.admissionPeriodId)
           )
-            return yield* new RecruitmentScopeDenied({
+            return yield* RecruitmentScopeDenied.make({
               personId,
               departmentId: actor.departmentId,
             });
@@ -136,7 +136,7 @@ export const readCompletedInterviewReport = (
               { onExcessProperty: "error" },
             ).pipe(
               Effect.mapError(
-                () => new RecruitmentDecodeError({ message: "invalid persisted report row" }),
+                () => RecruitmentDecodeError.make({ message: "invalid persisted report row" }),
               ),
             );
           }
@@ -156,7 +156,7 @@ export const readCompletedInterviewReport = (
       .pipe(
         Effect.catchTag("SqlError", (cause) =>
           Effect.fail(
-            new RecruitmentPersistenceError({
+            RecruitmentPersistenceError.make({
               operation: "read completed interview report",
               message: "report unavailable",
               cause,

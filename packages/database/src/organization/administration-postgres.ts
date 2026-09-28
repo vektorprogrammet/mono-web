@@ -62,13 +62,13 @@ interface ExistsRow {
 }
 
 const persistenceError = (operation: string, cause?: SqlError) =>
-  new OrganizationPersistenceError({
+  OrganizationPersistenceError.make({
     operation,
     message: cause === undefined ? operation : String(cause),
   });
 
 const decodeError = (operation: string, cause: unknown) =>
-  new OrganizationDecodeError({ operation, message: String(cause) });
+  OrganizationDecodeError.make({ operation, message: String(cause) });
 
 const decodeDepartment = flow(
   Schema.decodeUnknownEffect(Department, { onExcessProperty: "error" }),
@@ -107,7 +107,7 @@ const requireDepartment = (sql: DatabaseOperations, departmentId: DepartmentId) 
     Effect.flatMap((rows) =>
       rows[0]?.exists === true
         ? Effect.void
-        : Effect.fail(new OrganizationInvalidReference({ referenceKind: "Department" })),
+        : Effect.fail(OrganizationInvalidReference.make({ referenceKind: "Department" })),
     ),
   );
 
@@ -358,7 +358,7 @@ const receiptOrConflict = (
 ): Effect.Effect<OrganizationCommandReceiptRow | undefined, OrganizationCommandConflict> => {
   if (receipt === undefined || receipt.commandSha256 === digest) return Effect.succeed(receipt);
 
-  return Effect.fail(new OrganizationCommandConflict({ commandId }));
+  return Effect.fail(OrganizationCommandConflict.make({ commandId }));
 };
 
 /** Decoded models compare structurally, field by field. */

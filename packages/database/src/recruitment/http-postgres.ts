@@ -49,10 +49,10 @@ import {
 } from "@vektorprogrammet/domain/recruitment";
 
 const decodeError = (operation: string, cause: unknown) =>
-  new RecruitmentDecodeError({ message: `${operation}: ${String(cause)}` });
+  RecruitmentDecodeError.make({ message: `${operation}: ${String(cause)}` });
 
 const persistenceError = (operation: string, cause: unknown) =>
-  new RecruitmentPersistenceError({ operation, message: String(cause), cause });
+  RecruitmentPersistenceError.make({ operation, message: String(cause), cause });
 
 const capabilityDigest = (capability: RecruitmentInvitationCapability): string =>
   sha256Hex(new TextEncoder().encode(capability));
@@ -70,7 +70,7 @@ export const readRecruitmentInvitationHttpSnapshotPostgres = (
       const capability = yield* Schema.decodeEffect(RecruitmentInvitationCapabilitySchema)(
         capabilityInput,
         { onExcessProperty: "error" },
-      ).pipe(Effect.mapError(() => new RecruitmentInvitationNotFound({})));
+      ).pipe(Effect.mapError(() => RecruitmentInvitationNotFound.make({})));
 
       const capabilitySha256 = capabilityDigest(capability);
 
@@ -114,7 +114,7 @@ export const readRecruitmentInvitationHttpSnapshotPostgres = (
 
       const row = rows[0];
 
-      if (row === undefined) return yield* new RecruitmentInvitationNotFound({});
+      if (row === undefined) return yield* RecruitmentInvitationNotFound.make({});
 
       return yield* Schema.decodeUnknownEffect(RecruitmentInvitationHttpSnapshotSchema)(
         {
@@ -190,7 +190,7 @@ export const readRecruitmentApplicationHttpAccessPostgres = (input: {
       const row = rows[0];
 
       if (row === undefined) {
-        return yield* new RecruitmentApplicationNotFound({
+        return yield* RecruitmentApplicationNotFound.make({
           applicationId: input.applicationId,
         });
       }
@@ -349,7 +349,7 @@ export const readRecruitmentInterviewHttpSourcePostgres = (
 
       const interview = interviewRows[0];
 
-      if (interview === undefined) return yield* new RecruitmentInterviewNotFound({ interviewId });
+      if (interview === undefined) return yield* RecruitmentInterviewNotFound.make({ interviewId });
 
       const identity = yield* readInterviewApplicantIdentity(interviewId).pipe(
         Effect.catchTag("SqlError", (cause) =>

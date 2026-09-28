@@ -137,7 +137,7 @@ const StoredScheduleReceiptRowSchema = Schema.Struct({
 });
 
 const persistenceError = (operation: string, cause?: unknown): RecruitmentPersistenceError =>
-  new RecruitmentPersistenceError({
+  RecruitmentPersistenceError.make({
     operation,
     cause,
     message: cause instanceof Error ? cause.message : "recruitment persistence failed",
@@ -152,7 +152,7 @@ const readApplicantContacts = (
     .pipe(
       Effect.mapError((failure) =>
         Predicate.isTagged(failure, "PublicApplicationNotFound")
-          ? new RecruitmentApplicationNotFound({ applicationId: failure.applicationId })
+          ? RecruitmentApplicationNotFound.make({ applicationId: failure.applicationId })
           : persistenceError("read Admissions applicant contacts", failure),
       ),
     );
@@ -162,7 +162,7 @@ const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, operation: string
     Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
     Effect.mapError(
       (cause) =>
-        new RecruitmentDecodeError({
+        RecruitmentDecodeError.make({
           message: cause instanceof Error ? cause.message : `invalid ${operation}`,
         }),
     ),
@@ -205,19 +205,19 @@ const authorizeActor = (
 ): Effect.Effect<DepartmentActor, RecruitmentFailure> =>
   Effect.gen(function* () {
     if (!isRecruitmentNow(now)) {
-      return yield* new RecruitmentInvalidContext({ message: "invalid scheduling instant" });
+      return yield* RecruitmentInvalidContext.make({ message: "invalid scheduling instant" });
     }
 
-    if (!actor.active) return yield* new RecruitmentInactiveActor({ personId: actor.personId });
+    if (!actor.active) return yield* RecruitmentInactiveActor.make({ personId: actor.personId });
 
     if (Predicate.isTagged(actor, "GlobalAdmin")) {
-      return yield* new RecruitmentRoleDenied({ personId: actor.personId });
+      return yield* RecruitmentRoleDenied.make({ personId: actor.personId });
     }
 
     if (Predicate.isTagged(actor, "Member")) {
       const active = yield* memberHasActiveDepartmentMembership(actor, now, organization);
 
-      if (!active) return yield* new RecruitmentInactiveActor({ personId: actor.personId });
+      if (!active) return yield* RecruitmentInactiveActor.make({ personId: actor.personId });
     }
 
     return actor;
@@ -602,7 +602,7 @@ const writeScheduleRows = (
     );
 
     if (updated[0]?.revision !== scheduleRevision) {
-      return yield* new RecruitmentInterviewStaleRevision({
+      return yield* RecruitmentInterviewStaleRevision.make({
         interviewId: command.interviewId,
         expectedRevision: command.expectedRevision,
         actualRevision: interview.revision,
@@ -664,7 +664,7 @@ const writeScheduleRows = (
     }).pipe(
       Effect.mapError(
         (cause) =>
-          new RecruitmentDecodeError({
+          RecruitmentDecodeError.make({
             message: cause instanceof Error ? cause.message : `invalid ${"schedule observation"}`,
           }),
       ),
@@ -721,7 +721,7 @@ const writeScheduleRows = (
       }).pipe(
         Effect.mapError(
           (cause) =>
-            new RecruitmentDecodeError({
+            RecruitmentDecodeError.make({
               message:
                 cause instanceof Error
                   ? cause.message
@@ -783,20 +783,20 @@ const scheduleInTransaction = (
     const interview = yield* readSchedulingInterview(sql, command.interviewId);
 
     if (interview === undefined) {
-      return yield* new RecruitmentInterviewNotFound({ interviewId: command.interviewId });
+      return yield* RecruitmentInterviewNotFound.make({ interviewId: command.interviewId });
     }
 
     const actor = yield* authorizeActor(context.actor, context.now, organization);
 
     if (interview.departmentId !== actor.departmentId) {
-      return yield* new RecruitmentScopeDenied({
+      return yield* RecruitmentScopeDenied.make({
         personId: actor.personId,
         departmentId: DepartmentId.make(interview.departmentId),
       });
     }
 
     if (Predicate.isTagged(actor, "Member") && interview.interviewerPersonId !== actor.personId) {
-      return yield* new RecruitmentScopeDenied({
+      return yield* RecruitmentScopeDenied.make({
         personId: actor.personId,
         departmentId: actor.departmentId,
       });
@@ -806,7 +806,7 @@ const scheduleInTransaction = (
 
     if (storedReceipt !== undefined) {
       if (storedReceipt.commandSha256 !== digest) {
-        return yield* new RecruitmentScheduleCommandConflict({ commandId: command.commandId });
+        return yield* RecruitmentScheduleCommandConflict.make({ commandId: command.commandId });
       }
 
       if (storedReceipt.interviewId !== command.interviewId) {
@@ -832,7 +832,7 @@ const scheduleInTransaction = (
     }
 
     if (interview.revision !== command.expectedRevision) {
-      return yield* new RecruitmentInterviewStaleRevision({
+      return yield* RecruitmentInterviewStaleRevision.make({
         interviewId: command.interviewId,
         expectedRevision: command.expectedRevision,
         actualRevision: interview.revision,
@@ -926,7 +926,7 @@ export const scheduleInterview = (
     )(context.invitationId);
 
     if (!capabilityIsValid(context.responseCapability)) {
-      return yield* new RecruitmentInvalidContext({ message: "invalid response capability" });
+      return yield* RecruitmentInvalidContext.make({ message: "invalid response capability" });
     }
 
     const sql = yield* Database;

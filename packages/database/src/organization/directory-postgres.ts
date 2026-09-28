@@ -83,7 +83,7 @@ export const deriveOrganizationDirectoryFacts = (
     `.pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(
-          new OrganizationPersistenceError({
+          OrganizationPersistenceError.make({
             operation: "derive Organization directory memberships",
             message: String(cause),
           }),
@@ -117,7 +117,7 @@ export const deriveOrganizationDirectoryFacts = (
     `.pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(
-          new OrganizationPersistenceError({
+          OrganizationPersistenceError.make({
             operation: "derive Organization directory grants",
             message: String(cause),
           }),
@@ -139,4 +139,4 @@ export const deriveOrganizationDirectoryFacts = (
   });
 
 const decodeError = (operation: string, cause: unknown) =>
-  new OrganizationDecodeError({ operation, message: String(cause) });
+  OrganizationDecodeError.make({ operation, message: String(cause) });

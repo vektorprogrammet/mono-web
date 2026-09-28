@@ -35,13 +35,13 @@ import {
 } from "@vektorprogrammet/domain/organization";
 
 const persistenceError = (operation: string, cause: unknown) =>
-  new OrganizationPersistenceError({ operation, message: String(cause) });
+  OrganizationPersistenceError.make({ operation, message: String(cause) });
 
 const decodeDepartment = flow(
   Schema.decodeUnknownEffect(Department, { onExcessProperty: "error" }),
   Effect.mapError(
     (cause) =>
-      new OrganizationDecodeError({
+      OrganizationDecodeError.make({
         operation: "decode Department select",
         message: String(cause),
       }),
@@ -52,7 +52,7 @@ const decodeTeam = flow(
   Schema.decodeUnknownEffect(Team, { onExcessProperty: "error" }),
   Effect.mapError(
     (cause) =>
-      new OrganizationDecodeError({ operation: "decode Team select", message: String(cause) }),
+      OrganizationDecodeError.make({ operation: "decode Team select", message: String(cause) }),
   ),
 );
 
@@ -60,7 +60,7 @@ const decodeMembership = flow(
   Schema.decodeUnknownEffect(MembershipInvariantSchema, { onExcessProperty: "error" }),
   Effect.mapError(
     (cause) =>
-      new OrganizationDecodeError({
+      OrganizationDecodeError.make({
         operation: "decode Membership select",
         message: String(cause),
       }),
@@ -107,7 +107,7 @@ export const readOrganizationDepartment = (
     const sql = yield* Database;
     const department = yield* findDepartment(sql, departmentId);
 
-    return department === undefined ? yield* new DepartmentNotFound({ departmentId }) : department;
+    return department === undefined ? yield* DepartmentNotFound.make({ departmentId }) : department;
   });
 
 export const listOrganizationDepartments: Effect.Effect<
@@ -180,7 +180,7 @@ export const readOrganizationTeam = (
     const sql = yield* Database;
     const team = yield* findTeam(sql, teamId);
 
-    return team === undefined ? yield* new TeamNotFound({ teamId }) : team;
+    return team === undefined ? yield* TeamNotFound.make({ teamId }) : team;
   });
 
 export const listOrganizationTeams = (
@@ -308,7 +308,7 @@ export const readOrganizationMembership = (
     const sql = yield* Database;
     const membership = yield* findMembership(sql, membershipId, false);
 
-    return membership === undefined ? yield* new MembershipNotFound({ membershipId }) : membership;
+    return membership === undefined ? yield* MembershipNotFound.make({ membershipId }) : membership;
   });
 
 export const listOrganizationMembershipsForTeam = (
@@ -593,7 +593,7 @@ const decodeTeamInterestRegistration = flow(
   Schema.decodeUnknownEffect(TeamInterestRegistration, { onExcessProperty: "error" }),
   Effect.mapError(
     (cause) =>
-      new OrganizationDecodeError({
+      OrganizationDecodeError.make({
         operation: "decode TeamInterestRegistration select",
         message: String(cause),
       }),

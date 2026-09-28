@@ -142,7 +142,7 @@ interface CancellationRow {
 }
 
 const persistenceError = (operation: string, cause?: Error) =>
-  new RecruitmentPersistenceError({
+  RecruitmentPersistenceError.make({
     operation,
     cause,
     message: cause?.message ?? "recruitment persistence failed",
@@ -153,7 +153,7 @@ const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, operation: string
     Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
     Effect.mapError(
       (cause) =>
-        new RecruitmentPersistenceError({
+        RecruitmentPersistenceError.make({
           operation: `decode ${operation}`,
           message: String(cause),
         }),
@@ -525,7 +525,7 @@ const authorityActor = (
     );
 
     if (membership === undefined) {
-      return yield* new RecruitmentScopeDenied({ personId, departmentId });
+      return yield* RecruitmentScopeDenied.make({ personId, departmentId });
     }
 
     return yield* decode(
@@ -562,7 +562,7 @@ const authorizeAndLoad = (
     const interview = yield* readInterview(sql, interviewId, lock);
 
     if (interview === undefined)
-      return yield* new RecruitmentInterviewNotFound({
+      return yield* RecruitmentInterviewNotFound.make({
         interviewId: RecruitmentInterviewId.make(interviewId),
       });
     const authorizationInstant = context.authorizationInstant ?? context.now;
@@ -580,7 +580,7 @@ const authorizeAndLoad = (
     const isParticipant = interview.interviewerPersonId === actor.personId || isCoInterviewer;
 
     if (!isParticipant) {
-      return yield* new RecruitmentScopeDenied({
+      return yield* RecruitmentScopeDenied.make({
         personId: actor.personId,
         departmentId: actor.departmentId,
       });
@@ -591,7 +591,7 @@ const authorizeAndLoad = (
       : undefined;
 
     if (isCoInterviewer && coInterviewerConduct === undefined) {
-      return yield* new RecruitmentScopeDenied({
+      return yield* RecruitmentScopeDenied.make({
         personId: actor.personId,
         departmentId: actor.departmentId,
       });
@@ -631,12 +631,12 @@ const observation = (
 ): Effect.Effect<RecruitmentInterviewConductObservation, RecruitmentFailure> =>
   Effect.gen(function* () {
     if (state.schedule === null)
-      return yield* new RecruitmentInterviewNotScheduled({
+      return yield* RecruitmentInterviewNotScheduled.make({
         interviewId: state.interview.interviewId,
       });
 
     if (state.invitationResponse !== "Accepted") {
-      return yield* new RecruitmentInvitationNotAccepted({
+      return yield* RecruitmentInvitationNotAccepted.make({
         interviewId: state.interview.interviewId,
         responseState: state.invitationResponse ?? "Absent",
       });
@@ -818,7 +818,7 @@ const finalizeInTransaction = (
         receipt.interviewId !== command.interviewId ||
         receipt.kind !== "InterviewFinalized"
       ) {
-        return yield* new RecruitmentLifecycleCommandConflict({ commandId: command.commandId });
+        return yield* RecruitmentLifecycleCommandConflict.make({ commandId: command.commandId });
       }
 
       const stored = yield* decode(
@@ -845,7 +845,7 @@ const finalizeInTransaction = (
     const conduct = transition.state.conduct;
 
     if (conduct === null)
-      return yield* new RecruitmentConductValidationError({
+      return yield* RecruitmentConductValidationError.make({
         interviewId: command.interviewId,
         message: "finalization produced no conduct",
       });
@@ -855,7 +855,7 @@ const finalizeInTransaction = (
     }>`UPDATE recruitment_interviews SET revision = revision + 1 WHERE interview_id = ${command.interviewId} AND revision = ${command.expectedRevision} RETURNING revision`;
 
     if (updated[0]?.revision !== transition.state.revision)
-      return yield* new RecruitmentInterviewStaleRevision({
+      return yield* RecruitmentInterviewStaleRevision.make({
         interviewId: command.interviewId,
         expectedRevision: command.expectedRevision,
         actualRevision: loaded.interview.revision,
@@ -906,7 +906,7 @@ const cancelInTransaction = (
         receipt.interviewId !== command.interviewId ||
         receipt.kind !== "InterviewCancelled"
       ) {
-        return yield* new RecruitmentLifecycleCommandConflict({ commandId: command.commandId });
+        return yield* RecruitmentLifecycleCommandConflict.make({ commandId: command.commandId });
       }
 
       const stored = yield* decode(
@@ -933,7 +933,7 @@ const cancelInTransaction = (
     const cancellation = transition.state.cancellation;
 
     if (cancellation === null)
-      return yield* new RecruitmentConductValidationError({
+      return yield* RecruitmentConductValidationError.make({
         interviewId: command.interviewId,
         message: "cancellation produced no record",
       });
@@ -943,7 +943,7 @@ const cancelInTransaction = (
     }>`UPDATE recruitment_interviews SET revision = revision + 1 WHERE interview_id = ${command.interviewId} AND revision = ${command.expectedRevision} RETURNING revision`;
 
     if (updated[0]?.revision !== transition.state.revision)
-      return yield* new RecruitmentInterviewStaleRevision({
+      return yield* RecruitmentInterviewStaleRevision.make({
         interviewId: command.interviewId,
         expectedRevision: command.expectedRevision,
         actualRevision: loaded.interview.revision,
@@ -989,7 +989,7 @@ const correctInTransaction = (
 
     if (receipt !== undefined) {
       if (receipt.commandSha256 !== digest || receipt.interviewId !== command.interviewId)
-        return yield* new RecruitmentLifecycleCommandConflict({ commandId: command.commandId });
+        return yield* RecruitmentLifecycleCommandConflict.make({ commandId: command.commandId });
 
       const stored = yield* decode(
         CorrectInterviewAssessmentObservationSchema,
@@ -1031,7 +1031,7 @@ const correctInTransaction = (
     `;
 
     if (updated[0]?.revision !== transition.state.revision)
-      return yield* new RecruitmentInterviewStaleRevision({
+      return yield* RecruitmentInterviewStaleRevision.make({
         interviewId: command.interviewId,
         expectedRevision: command.expectedRevision,
         actualRevision: loaded.interview.revision,

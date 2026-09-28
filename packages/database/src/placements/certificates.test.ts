@@ -576,7 +576,7 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "60 seconds" })(
           // Without the delegated capability a team leader confirms nothing.
           const denied = yield* Effect.flip(confirm(person.itLeader, autumn, person.bo, 1));
 
-          expect(denied).toEqual(new CertificateAccessDenied({ reason: "NotInScope" }));
+          expect(denied).toEqual(CertificateAccessDenied.make({ reason: "NotInScope" }));
           expect(yield* confirmationRows(person.bo)).toHaveLength(2);
         }),
     );
@@ -595,7 +595,7 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "60 seconds" })(
             { semesterId: autumn, status: "Unconfirmed" },
           ]);
           expect(yield* Effect.flip(issue(person.styretLeader, trondheim, person.ada))).toEqual(
-            new CertificateEmpty(),
+            CertificateEmpty.make({}),
           );
 
           // Spring as calculated, autumn adjusted above its count of one; Ås confirms its own.
@@ -786,7 +786,7 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "60 seconds" })(
           expect(stored).toEqual([{ teamId: "cert-event", boardId: null }]);
           expect((yield* rosters(person.eventLeader)).boards).toEqual([]);
           expect(yield* Effect.flip(readDaysServed(person.eventLeader, autumn))).toEqual(
-            new CertificateAccessDenied({ reason: "NotInScope" }),
+            CertificateAccessDenied.make({ reason: "NotInScope" }),
           );
 
           const { authorizationInstant } = yield* principal(person.eventLeader);
@@ -815,7 +815,7 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "60 seconds" })(
 
           expect(after.map((seat) => seat.personId)).not.toContain(person.eventLeader);
           expect(yield* Effect.flip(issue(person.eventLeader, trondheim, person.cato))).toEqual(
-            new CertificateAccessDenied({ reason: "NotInScope" }),
+            CertificateAccessDenied.make({ reason: "NotInScope" }),
           );
         }),
     );
@@ -824,15 +824,15 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "60 seconds" })(
       Effect.gen(function* () {
         // An assistant without a seat is no issuer.
         expect(yield* Effect.flip(readCertificate(person.ada, trondheim, person.ada))).toEqual(
-          new CertificateAccessDenied({ reason: "NotInScope" }),
+          CertificateAccessDenied.make({ reason: "NotInScope" }),
         );
         // An issuing seat does not reach the holder's own certificate.
         expect(
           yield* Effect.flip(readCertificate(person.styretMember, trondheim, person.styretMember)),
-        ).toEqual(new CertificateAccessDenied({ reason: "OwnCertificate" }));
+        ).toEqual(CertificateAccessDenied.make({ reason: "OwnCertificate" }));
         expect(
           yield* Effect.flip(issue(person.styretMember, trondheim, person.styretMember)),
-        ).toEqual(new CertificateAccessDenied({ reason: "OwnCertificate" }));
+        ).toEqual(CertificateAccessDenied.make({ reason: "OwnCertificate" }));
         expect(yield* issueRows(person.styretMember)).toEqual([]);
 
         // The table refuses a self-issue that bypasses the service.

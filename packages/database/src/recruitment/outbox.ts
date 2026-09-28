@@ -153,7 +153,7 @@ export const RecruitmentInvitationDeliveryResult =
   Data.taggedEnum<RecruitmentInvitationDeliveryResult>();
 
 const persistenceError = (operation: string, cause?: unknown): RecruitmentPersistenceError =>
-  new RecruitmentPersistenceError({
+  RecruitmentPersistenceError.make({
     operation,
     cause,
     message: cause instanceof Error ? cause.message : "recruitment outbox persistence failed",
