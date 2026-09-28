@@ -1,6 +1,7 @@
 import * as PgliteClient from "@effect/sql-pglite/PgliteClient";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Predicate } from "effect";
+import { dual } from "effect/Function";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { databaseWithMigrations, type DatabaseLayerObserver } from "../database-construction.js";
 import { DatabaseMigrationExecutionError, type ExecuteMigration } from "../migrations.js";
@@ -42,8 +43,26 @@ const pgliteTestConfig = (
   };
 };
 
-/** In-memory PGlite, migrated like `DatabaseLive`; tests take it on Bun from `test-support/platform`. */
-export const DatabaseTest = (
+const makeDatabaseTest = (
   config?: Parameters<typeof PgliteClient.layer>[0],
   observer?: DatabaseLayerObserver,
 ) => DatabaseFromPglite(observer).pipe(Layer.provide(PgliteClient.layer(pgliteTestConfig(config))));
+
+type DatabaseTestLayer = ReturnType<typeof makeDatabaseTest>;
+
+/** The arguments of the data-first `DatabaseTest`: PGlite configuration, then a layer observer. */
+export type DatabaseTestOptions = Parameters<typeof makeDatabaseTest>;
+
+/** In-memory PGlite, migrated like `DatabaseLive`; tests take it on Bun from `test-support/platform`. */
+export const DatabaseTest: {
+  (
+    config?: Parameters<typeof PgliteClient.layer>[0],
+    observer?: DatabaseLayerObserver,
+  ): DatabaseTestLayer;
+  (
+    observer?: DatabaseLayerObserver,
+  ): (config?: Parameters<typeof PgliteClient.layer>[0]) => DatabaseTestLayer;
+} = dual(
+  (args) => args.length === 0 || !Predicate.hasProperty(args[0], "onAcquire"),
+  makeDatabaseTest,
+);

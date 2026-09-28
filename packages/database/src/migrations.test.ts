@@ -120,31 +120,29 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
         "keeps qualified inventory reads independent of search_path",
         () =>
           Effect.gen(function* () {
-            const evidence = yield* Effect.gen(function* () {
-              const database = yield* Database;
-              yield* database`
+            const database = yield* Database;
+            yield* database`
           CREATE TABLE auth.content_articles (article_id bigint NOT NULL)
         `;
-              yield* database`
+            yield* database`
           INSERT INTO auth.content_articles (article_id) VALUES (9007199254740991)
         `;
-              yield* database`SET search_path TO auth, public`;
+            yield* database`SET search_path TO auth, public`;
 
-              const authFirst = yield* database<{ readonly count: string }>`
+            const authFirst = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS "count" FROM public.content_articles
         `;
 
-              yield* database`SET search_path TO public`;
+            yield* database`SET search_path TO public`;
 
-              const publicFirst = yield* database<{ readonly count: string }>`
+            const publicFirst = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS "count" FROM public.content_articles
         `;
 
-              yield* database`DROP TABLE auth.content_articles`;
-              yield* database`SET search_path TO auth, public`;
+            yield* database`DROP TABLE auth.content_articles`;
+            yield* database`SET search_path TO auth, public`;
 
-              return { authFirst, publicFirst };
-            });
+            const evidence = { authFirst, publicFirst };
 
             expect(evidence.authFirst).toEqual(evidence.publicFirst);
             expect(evidence.authFirst).toEqual([{ count: "0" }]);
@@ -154,13 +152,12 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
 
       it.effect("places the complete post-identity inventory in public on fresh replay", () =>
         Effect.gen(function* () {
-          const evidence = yield* Effect.gen(function* () {
-            const database = yield* Database;
+          const database = yield* Database;
 
-            const relations = yield* database<{
-              readonly tableName: string;
-              readonly schemaName: string;
-            }>`
+          const relations = yield* database<{
+            readonly tableName: string;
+            readonly schemaName: string;
+          }>`
           SELECT relation.relname AS "tableName", namespace.nspname AS "schemaName"
           FROM pg_catalog.pg_class AS relation
           INNER JOIN pg_catalog.pg_namespace AS namespace
@@ -171,7 +168,7 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
           ORDER BY relation.relname, namespace.nspname
         `;
 
-            const authTables = yield* database<{ readonly tableName: string }>`
+          const authTables = yield* database<{ readonly tableName: string }>`
           SELECT relation.relname AS "tableName"
           FROM pg_catalog.pg_class AS relation
           INNER JOIN pg_catalog.pg_namespace AS namespace
@@ -184,10 +181,10 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
           ORDER BY relation.relname
         `;
 
-            const triggerFunctions = yield* database<{
-              readonly functionName: string;
-              readonly schemaName: string;
-            }>`
+          const triggerFunctions = yield* database<{
+            readonly functionName: string;
+            readonly schemaName: string;
+          }>`
           SELECT procedure.proname AS "functionName", namespace.nspname AS "schemaName"
           FROM pg_catalog.pg_proc AS procedure
           INNER JOIN pg_catalog.pg_namespace AS namespace
@@ -202,8 +199,7 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
           ORDER BY procedure.proname
         `;
 
-            return { relations, authTables, triggerFunctions };
-          });
+          const evidence = { relations, authTables, triggerFunctions };
 
           expect(evidence.relations).toEqual(
             [...inventory].sort().map((tableName) => ({ tableName, schemaName: "public" })),
@@ -508,14 +504,13 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
         "enforces the closed bounded append-only event contract",
         () =>
           Effect.gen(function* () {
-            const evidence = yield* Effect.gen(function* () {
-              const database = yield* Database;
-              yield* database`
+            const database = yield* Database;
+            yield* database`
           INSERT INTO public.person_profiles (person_id, first_name, last_name)
           VALUES ('identity-audit-person', 'Identity', 'Audit')
           ON CONFLICT (person_id) DO NOTHING
         `;
-              yield* database`
+            yield* database`
           INSERT INTO auth.identity_security_audit (
             event_id,
             event_kind,
@@ -539,23 +534,23 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
           )
         `;
 
-              const update = yield* Effect.exit(
-                database`
+            const update = yield* Effect.exit(
+              database`
             UPDATE auth.identity_security_audit
             SET actor_principal = 'person:changed'
             WHERE event_id = 'identity-audit-valid'
           `.pipe(Effect.asVoid),
-              );
+            );
 
-              const deletion = yield* Effect.exit(
-                database`
+            const deletion = yield* Effect.exit(
+              database`
             DELETE FROM auth.identity_security_audit
             WHERE event_id = 'identity-audit-valid'
           `.pipe(Effect.asVoid),
-              );
+            );
 
-              const invalidKind = yield* Effect.exit(
-                database`
+            const invalidKind = yield* Effect.exit(
+              database`
             INSERT INTO auth.identity_security_audit (
               event_id, event_kind, subject_person_id, actor_principal,
               request_correlation, details
@@ -568,10 +563,10 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
               ${database.json({ outcomeCode: "owned-session-revoked", affectedSessionCount: 1 })}
             )
           `.pipe(Effect.asVoid),
-              );
+            );
 
-              const unboundedDetails = yield* Effect.exit(
-                database`
+            const unboundedDetails = yield* Effect.exit(
+              database`
             INSERT INTO auth.identity_security_audit (
               event_id, event_kind, request_correlation, details
             ) VALUES (
@@ -585,10 +580,10 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
               })}
             )
           `.pipe(Effect.asVoid),
-              );
+            );
 
-              const missingCorrelation = yield* Effect.exit(
-                database`
+            const missingCorrelation = yield* Effect.exit(
+              database`
             INSERT INTO auth.identity_security_audit (
               event_id, event_kind, subject_person_id, actor_principal, details
             ) VALUES (
@@ -599,26 +594,25 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
               ${database.json({ outcomeCode: "owned-session-revoked", affectedSessionCount: 1 })}
             )
           `.pipe(Effect.asVoid),
-              );
+            );
 
-              const rows = yield* database<{
-                readonly eventId: string;
-                readonly details: unknown;
-              }>`
+            const rows = yield* database<{
+              readonly eventId: string;
+              readonly details: unknown;
+            }>`
           SELECT event_id AS "eventId", details
           FROM auth.identity_security_audit
           WHERE event_id = 'identity-audit-valid'
         `;
 
-              return {
-                updateRejected: Predicate.isTagged(update, "Failure"),
-                deleteRejected: Predicate.isTagged(deletion, "Failure"),
-                invalidKindRejected: Predicate.isTagged(invalidKind, "Failure"),
-                unboundedDetailsRejected: Predicate.isTagged(unboundedDetails, "Failure"),
-                missingCorrelationRejected: Predicate.isTagged(missingCorrelation, "Failure"),
-                rows,
-              };
-            });
+            const evidence = {
+              updateRejected: Predicate.isTagged(update, "Failure"),
+              deleteRejected: Predicate.isTagged(deletion, "Failure"),
+              invalidKindRejected: Predicate.isTagged(invalidKind, "Failure"),
+              unboundedDetailsRejected: Predicate.isTagged(unboundedDetails, "Failure"),
+              missingCorrelationRejected: Predicate.isTagged(missingCorrelation, "Failure"),
+              rows,
+            };
 
             expect(evidence).toEqual({
               updateRejected: true,
@@ -643,16 +637,15 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
         "uses supported JSONB operators and rejects incomplete or inexact Submit params",
         () =>
           Effect.gen(function* () {
-            const evidence = yield* Effect.gen(function* () {
-              const database = yield* Database;
-              yield* database`
+            const database = yield* Database;
+            yield* database`
           INSERT INTO public.person_profiles (person_id, first_name, last_name)
           VALUES ('authz-params-person', 'Authz', 'Params')
           ON CONFLICT (person_id) DO NOTHING
         `;
 
-              const insertSubmitRule = (ruleId: string, params: Schema.Json) =>
-                database`
+            const insertSubmitRule = (ruleId: string, params: Schema.Json) =>
+              database`
             INSERT INTO public.authz_rules (
               rule_id,
               capability_id,
@@ -682,109 +675,106 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
             )
           `.pipe(Effect.asVoid);
 
-              const valid = yield* Effect.exit(
-                insertSubmitRule("authz-params-valid", {
+            const valid = yield* Effect.exit(
+              insertSubmitRule("authz-params-valid", {
+                slot: "EconomyPaymentAuthority",
+                paymentAccountCiphertext: "ciphertext",
+              }),
+            );
+
+            const internalWhitespace = yield* Effect.exit(
+              insertSubmitRule("authz-params-internal-whitespace", {
+                slot: "EconomyPaymentAuthority",
+                paymentAccountCiphertext: "ciphertext\u00a0account",
+              }),
+            );
+
+            const remainingEcmaScriptTrimWhitespace = ecmaScriptTrimBoundaryCharacters.slice(2);
+
+            const invalidParams: ReadonlyArray<readonly [string, Schema.Json]> = [
+              ["missingKey", { slot: "EconomyPaymentAuthority" }],
+              ["arbitraryKey", { slot: "EconomyPaymentAuthority", arbitrary: "ciphertext" }],
+              [
+                "extraKey",
+                {
                   slot: "EconomyPaymentAuthority",
                   paymentAccountCiphertext: "ciphertext",
-                }),
-              );
-
-              const internalWhitespace = yield* Effect.exit(
-                insertSubmitRule("authz-params-internal-whitespace", {
+                  arbitrary: true,
+                },
+              ],
+              ["nonStringSlot", { slot: null, paymentAccountCiphertext: "ciphertext" }],
+              [
+                "nonStringCiphertext",
+                { slot: "EconomyPaymentAuthority", paymentAccountCiphertext: 42 },
+              ],
+              [
+                "emptyCiphertext",
+                { slot: "EconomyPaymentAuthority", paymentAccountCiphertext: "" },
+              ],
+              [
+                "paddedCiphertext",
+                {
                   slot: "EconomyPaymentAuthority",
-                  paymentAccountCiphertext: "ciphertext\u00a0account",
+                  paymentAccountCiphertext: " ciphertext ",
+                },
+              ],
+              [
+                "tabPaddedCiphertext",
+                {
+                  slot: "EconomyPaymentAuthority",
+                  paymentAccountCiphertext: "ciphertext\t",
+                },
+              ],
+              [
+                "newlinePaddedCiphertext",
+                {
+                  slot: "EconomyPaymentAuthority",
+                  paymentAccountCiphertext: "\nciphertext",
+                },
+              ],
+              [
+                "carriageReturnPaddedCiphertext",
+                {
+                  slot: "EconomyPaymentAuthority",
+                  paymentAccountCiphertext: "ciphertext\r",
+                },
+              ],
+              [
+                "nbspPaddedCiphertext",
+                {
+                  slot: "EconomyPaymentAuthority",
+                  paymentAccountCiphertext: "\u00a0ciphertext",
+                },
+              ],
+            ];
+
+            const rejected: Record<string, boolean> = {};
+
+            for (const [name, params] of invalidParams) {
+              const outcome = yield* Effect.exit(insertSubmitRule(`authz-params-${name}`, params));
+
+              rejected[name] = Predicate.isTagged(outcome, "Failure");
+            }
+
+            let remainingEcmaScriptBoundariesRejected = true;
+
+            for (const [index, whitespace] of remainingEcmaScriptTrimWhitespace.entries()) {
+              const outcome = yield* Effect.exit(
+                insertSubmitRule(`authz-params-ecma-boundary-${index}`, {
+                  slot: "EconomyPaymentAuthority",
+                  paymentAccountCiphertext: `${whitespace}ciphertext`,
                 }),
               );
 
-              const remainingEcmaScriptTrimWhitespace = ecmaScriptTrimBoundaryCharacters.slice(2);
+              remainingEcmaScriptBoundariesRejected &&= Predicate.isTagged(outcome, "Failure");
+            }
 
-              const invalidParams: ReadonlyArray<readonly [string, Schema.Json]> = [
-                ["missingKey", { slot: "EconomyPaymentAuthority" }],
-                ["arbitraryKey", { slot: "EconomyPaymentAuthority", arbitrary: "ciphertext" }],
-                [
-                  "extraKey",
-                  {
-                    slot: "EconomyPaymentAuthority",
-                    paymentAccountCiphertext: "ciphertext",
-                    arbitrary: true,
-                  },
-                ],
-                ["nonStringSlot", { slot: null, paymentAccountCiphertext: "ciphertext" }],
-                [
-                  "nonStringCiphertext",
-                  { slot: "EconomyPaymentAuthority", paymentAccountCiphertext: 42 },
-                ],
-                [
-                  "emptyCiphertext",
-                  { slot: "EconomyPaymentAuthority", paymentAccountCiphertext: "" },
-                ],
-                [
-                  "paddedCiphertext",
-                  {
-                    slot: "EconomyPaymentAuthority",
-                    paymentAccountCiphertext: " ciphertext ",
-                  },
-                ],
-                [
-                  "tabPaddedCiphertext",
-                  {
-                    slot: "EconomyPaymentAuthority",
-                    paymentAccountCiphertext: "ciphertext\t",
-                  },
-                ],
-                [
-                  "newlinePaddedCiphertext",
-                  {
-                    slot: "EconomyPaymentAuthority",
-                    paymentAccountCiphertext: "\nciphertext",
-                  },
-                ],
-                [
-                  "carriageReturnPaddedCiphertext",
-                  {
-                    slot: "EconomyPaymentAuthority",
-                    paymentAccountCiphertext: "ciphertext\r",
-                  },
-                ],
-                [
-                  "nbspPaddedCiphertext",
-                  {
-                    slot: "EconomyPaymentAuthority",
-                    paymentAccountCiphertext: "\u00a0ciphertext",
-                  },
-                ],
-              ];
-
-              const rejected: Record<string, boolean> = {};
-
-              for (const [name, params] of invalidParams) {
-                const outcome = yield* Effect.exit(
-                  insertSubmitRule(`authz-params-${name}`, params),
-                );
-
-                rejected[name] = Predicate.isTagged(outcome, "Failure");
-              }
-
-              let remainingEcmaScriptBoundariesRejected = true;
-
-              for (const [index, whitespace] of remainingEcmaScriptTrimWhitespace.entries()) {
-                const outcome = yield* Effect.exit(
-                  insertSubmitRule(`authz-params-ecma-boundary-${index}`, {
-                    slot: "EconomyPaymentAuthority",
-                    paymentAccountCiphertext: `${whitespace}ciphertext`,
-                  }),
-                );
-
-                remainingEcmaScriptBoundariesRejected &&= Predicate.isTagged(outcome, "Failure");
-              }
-
-              return {
-                validAccepted: Predicate.isTagged(valid, "Success"),
-                internalWhitespaceAccepted: Predicate.isTagged(internalWhitespace, "Success"),
-                rejected,
-                remainingEcmaScriptBoundariesRejected,
-              };
-            });
+            const evidence = {
+              validAccepted: Predicate.isTagged(valid, "Success"),
+              internalWhitespaceAccepted: Predicate.isTagged(internalWhitespace, "Success"),
+              rejected,
+              remainingEcmaScriptBoundariesRejected,
+            };
 
             expect(evidence).toEqual({
               validAccepted: true,
@@ -812,70 +802,69 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
         "rejects every ECMAScript-trimmed authorization identifier at the SQL boundary",
         () =>
           Effect.gen(function* () {
-            const evidence = yield* Effect.gen(function* () {
-              const database = yield* Database;
-              const personId = "authz-identifiers-person";
-              const validTagId = "authz-identifiers-valid-tag";
-              yield* database`
+            const database = yield* Database;
+            const personId = "authz-identifiers-person";
+            const validTagId = "authz-identifiers-valid-tag";
+            yield* database`
           INSERT INTO public.person_profiles (person_id, first_name, last_name)
           VALUES (${personId}, 'Authz', 'Identifiers')
           ON CONFLICT (person_id) DO NOTHING
         `;
-              yield* database`
+            yield* database`
           INSERT INTO public.authz_tags (tag_id, name)
           VALUES (${validTagId}, 'Authz Identifiers Valid Tag')
           ON CONFLICT (tag_id) DO NOTHING
         `;
 
-              const boundaryCases = [
-                { name: "empty", makeValue: (_base: string) => "" },
-                ...ecmaScriptTrimBoundaryCharacters.flatMap((whitespace, index) => [
-                  {
-                    name: `leading-${index}`,
-                    makeValue: (base: string) => `${whitespace}${base}`,
-                  },
-                  {
-                    name: `trailing-${index}`,
-                    makeValue: (base: string) => `${base}${whitespace}`,
-                  },
-                ]),
-              ];
+            const boundaryCases = [
+              { name: "empty", makeValue: (_base: string) => "" },
+              ...ecmaScriptTrimBoundaryCharacters.flatMap((whitespace, index) => [
+                {
+                  name: `leading-${index}`,
+                  makeValue: (base: string) => `${whitespace}${base}`,
+                },
+                {
+                  name: `trailing-${index}`,
+                  makeValue: (base: string) => `${base}${whitespace}`,
+                },
+              ]),
+            ];
 
-              const unexpectedlyAccepted: Array<string> = [];
-              let attemptedCases = 0;
+            const unexpectedlyAccepted: Array<string> = [];
+            let attemptedCases = 0;
 
-              for (const [index, boundaryCase] of boundaryCases.entries()) {
-                const base = `authz-identifiers-${index}`;
-                const invalid = boundaryCase.makeValue(base);
+            for (const [index, boundaryCase] of boundaryCases.entries()) {
+              const base = `authz-identifiers-${index}`;
+              const invalid = boundaryCase.makeValue(base);
 
-                const attempts = [
-                  [
-                    "tagId",
-                    database`
+              const attempts = [
+                [
+                  "tagId",
+                  database`
                 INSERT INTO public.authz_tags (tag_id, name)
                 VALUES (${invalid}, ${`${base}-tag-name`})
               `.pipe(Effect.asVoid),
-                  ],
-                  [
-                    "tagName",
-                    database`
+                ],
+                [
+                  "tagName",
+                  database`
                 INSERT INTO public.authz_tags (tag_id, name)
                 VALUES (${`${base}-tag-id`}, ${invalid})
               `.pipe(Effect.asVoid),
-                  ],
-                  [
-                    "assignmentId",
-                    database`
+                ],
+                [
+                  "assignmentId",
+                  database`
                 INSERT INTO public.authz_tag_assignments (
                   assignment_id, tag_id, person_id, start_at
                 ) VALUES (
                   ${invalid}, ${validTagId}, ${personId}, '2030-01-01T00:00:00.000Z'
                 )
               `.pipe(Effect.asVoid),
-                  ],
-                  [
-                    "assignmentTagId",
-                    database`
+                ],
+                [
+                  "assignmentTagId",
+                  database`
                 INSERT INTO public.authz_tag_assignments (
                   assignment_id, tag_id, person_id, start_at
                 ) VALUES (
@@ -885,10 +874,10 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
                   '2030-01-01T00:00:00.000Z'
                 )
               `.pipe(Effect.asVoid),
-                  ],
-                  [
-                    "ruleId",
-                    database`
+                ],
+                [
+                  "ruleId",
+                  database`
                 INSERT INTO public.authz_rules (
                   rule_id, capability_id, effect_kind, subject_kind,
                   subject_person_id, subject_tag_id, scope, department_id,
@@ -900,10 +889,10 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
                   '2030-01-01T00:00:00.000Z'
                 )
               `.pipe(Effect.asVoid),
-                  ],
-                  [
-                    "ruleSubjectTagId",
-                    database`
+                ],
+                [
+                  "ruleSubjectTagId",
+                  database`
                 INSERT INTO public.authz_rules (
                   rule_id, capability_id, effect_kind, subject_kind,
                   subject_person_id, subject_tag_id, scope, department_id,
@@ -921,10 +910,10 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
                   '2030-01-01T00:00:00.000Z'
                 )
               `.pipe(Effect.asVoid),
-                  ],
-                  [
-                    "capabilityId",
-                    database`
+                ],
+                [
+                  "capabilityId",
+                  database`
                 INSERT INTO public.authz_rules (
                   rule_id, capability_id, effect_kind, subject_kind,
                   subject_person_id, subject_tag_id, scope, department_id,
@@ -942,10 +931,10 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
                   '2030-01-01T00:00:00.000Z'
                 )
               `.pipe(Effect.asVoid),
-                  ],
-                  [
-                    "subjectKind",
-                    database`
+                ],
+                [
+                  "subjectKind",
+                  database`
                 INSERT INTO public.authz_rules (
                   rule_id, capability_id, effect_kind, subject_kind,
                   subject_person_id, subject_tag_id, scope, department_id,
@@ -963,28 +952,28 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
                   '2030-01-01T00:00:00.000Z'
                 )
               `.pipe(Effect.asVoid),
-                  ],
-                ] as const;
+                ],
+              ] as const;
 
-                for (const [category, attempt] of attempts) {
-                  attemptedCases += 1;
-                  const outcome = yield* Effect.exit(attempt);
+              for (const [category, attempt] of attempts) {
+                attemptedCases += 1;
+                const outcome = yield* Effect.exit(attempt);
 
-                  if (Predicate.isTagged(outcome, "Success")) {
-                    unexpectedlyAccepted.push(`${category}:${boundaryCase.name}`);
-                  }
+                if (Predicate.isTagged(outcome, "Success")) {
+                  unexpectedlyAccepted.push(`${category}:${boundaryCase.name}`);
                 }
               }
+            }
 
-              const internalTagId = "authz\tidentifiers-tag";
+            const internalTagId = "authz\tidentifiers-tag";
 
-              const internalWhitespace = yield* Effect.exit(
-                Effect.gen(function* () {
-                  yield* database`
+            const internalWhitespace = yield* Effect.exit(
+              Effect.gen(function* () {
+                yield* database`
               INSERT INTO public.authz_tags (tag_id, name)
               VALUES (${internalTagId}, ${"Authz\u00a0Identifiers Tag"})
             `;
-                  yield* database`
+                yield* database`
               INSERT INTO public.authz_tag_assignments (
                 assignment_id, tag_id, person_id, start_at
               ) VALUES (
@@ -994,7 +983,7 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
                 '2030-01-01T00:00:00.000Z'
               )
             `;
-                  yield* database`
+                yield* database`
               INSERT INTO public.authz_rules (
                 rule_id, capability_id, effect_kind, subject_kind,
                 subject_person_id, subject_tag_id, scope, department_id,
@@ -1012,15 +1001,14 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
                 '2030-01-01T00:00:00.000Z'
               )
             `;
-                }),
-              );
+              }),
+            );
 
-              return {
-                attemptedCases,
-                internalWhitespaceAccepted: Predicate.isTagged(internalWhitespace, "Success"),
-                unexpectedlyAccepted,
-              };
-            });
+            const evidence = {
+              attemptedCases,
+              internalWhitespaceAccepted: Predicate.isTagged(internalWhitespace, "Success"),
+              unexpectedlyAccepted,
+            };
 
             expect(evidence).toEqual({
               attemptedCases: (1 + ecmaScriptTrimBoundaryCharacters.length * 2) * 8,
@@ -1428,20 +1416,19 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
         "accepts only exact requirements on allowed rule scopes",
         () =>
           Effect.gen(function* () {
-            const evidence = yield* Effect.gen(function* () {
-              const database = yield* Database;
-              yield* database`
+            const database = yield* Database;
+            yield* database`
           INSERT INTO public.person_profiles (person_id, first_name, last_name)
           VALUES ('migration-requirement-person', 'Requirement', 'Rule')
         `;
 
-              const insert = (
-                ruleId: string,
-                scope: string,
-                domainId: string | null,
-                params: Schema.Json,
-              ) =>
-                database`
+            const insert = (
+              ruleId: string,
+              scope: string,
+              domainId: string | null,
+              params: Schema.Json,
+            ) =>
+              database`
             INSERT INTO public.authz_rules (
               rule_id, capability_id, effect_kind, subject_kind,
               subject_person_id, subject_tag_id, scope, domain_id, department_id,
@@ -1454,49 +1441,49 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
             )
           `.pipe(Effect.asVoid);
 
-              yield* insert("migration-require-pending", "Domain", "receipts", {
+            yield* insert("migration-require-pending", "Domain", "receipts", {
+              requirementId: "receipts.pending",
+              parameters: {},
+            });
+            yield* insert("migration-require-approver", "Global", null, {
+              requirementId: "receipts.approver-relationship",
+              parameters: {},
+            });
+
+            const unsupported = yield* Effect.exit(
+              insert("migration-require-unsupported", "Domain", "receipts", {
+                requirementId: "receipts.owner",
+                parameters: {},
+              }),
+            );
+
+            const nonempty = yield* Effect.exit(
+              insert("migration-require-nonempty", "Domain", "receipts", {
+                requirementId: "receipts.pending",
+                parameters: { unexpected: true },
+              }),
+            );
+
+            const excess = yield* Effect.exit(
+              insert("migration-require-excess", "Domain", "receipts", {
                 requirementId: "receipts.pending",
                 parameters: {},
-              });
-              yield* insert("migration-require-approver", "Global", null, {
-                requirementId: "receipts.approver-relationship",
+                unexpected: true,
+              }),
+            );
+
+            const receiptScope = yield* Effect.exit(
+              insert("migration-require-receipt-scope", "Receipt", null, {
+                requirementId: "receipts.pending",
                 parameters: {},
-              });
+              }),
+            );
 
-              const unsupported = yield* Effect.exit(
-                insert("migration-require-unsupported", "Domain", "receipts", {
-                  requirementId: "receipts.owner",
-                  parameters: {},
-                }),
-              );
-
-              const nonempty = yield* Effect.exit(
-                insert("migration-require-nonempty", "Domain", "receipts", {
-                  requirementId: "receipts.pending",
-                  parameters: { unexpected: true },
-                }),
-              );
-
-              const excess = yield* Effect.exit(
-                insert("migration-require-excess", "Domain", "receipts", {
-                  requirementId: "receipts.pending",
-                  parameters: {},
-                  unexpected: true,
-                }),
-              );
-
-              const receiptScope = yield* Effect.exit(
-                insert("migration-require-receipt-scope", "Receipt", null, {
-                  requirementId: "receipts.pending",
-                  parameters: {},
-                }),
-              );
-
-              const rows = yield* database<{
-                readonly domainId: string | null;
-                readonly ruleId: string;
-                readonly scope: string;
-              }>`
+            const rows = yield* database<{
+              readonly domainId: string | null;
+              readonly ruleId: string;
+              readonly scope: string;
+            }>`
           SELECT
             rule_id AS "ruleId",
             scope,
@@ -1506,23 +1493,22 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
           ORDER BY rule_id
         `;
 
-              yield* database`
+            yield* database`
           DELETE FROM public.authz_rules
           WHERE subject_person_id = 'migration-requirement-person'
         `;
-              yield* database`
+            yield* database`
           DELETE FROM public.person_profiles
           WHERE person_id = 'migration-requirement-person'
         `;
 
-              return {
-                excess: excess._tag,
-                nonempty: nonempty._tag,
-                receiptScope: receiptScope._tag,
-                rows,
-                unsupported: unsupported._tag,
-              };
-            });
+            const evidence = {
+              excess: excess._tag,
+              nonempty: nonempty._tag,
+              receiptScope: receiptScope._tag,
+              rows,
+              unsupported: unsupported._tag,
+            };
 
             expect(evidence).toEqual({
               excess: "Failure",
@@ -1550,16 +1536,15 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
     describe("instant precision boundary", () => {
       it.effect("guards every stored instant and its clock default at millisecond precision", () =>
         Effect.gen(function* () {
-          const columns = yield* Effect.gen(function* () {
-            const database = yield* Database;
+          const database = yield* Database;
 
-            // The Migrator writes its own bookkeeping column with an untruncated default, and the
-            // PersistedQueue store writes NOW() into its lease and visibility columns.
-            return yield* database<{
-              readonly column: string;
-              readonly guarded: boolean;
-              readonly untruncatedClockDefault: boolean;
-            }>`
+          // The Migrator writes its own bookkeeping column with an untruncated default, and the
+          // PersistedQueue store writes NOW() into its lease and visibility columns.
+          const columns = yield* database<{
+            readonly column: string;
+            readonly guarded: boolean;
+            readonly untruncatedClockDefault: boolean;
+          }>`
           SELECT
             format('%I.%I.%I', namespace.nspname, relation.relname, attribute.attname) AS "column",
             EXISTS (
@@ -1597,7 +1582,6 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
             )
           ORDER BY 1
         `;
-          });
 
           expect(columns.length).toBeGreaterThan(0);
           expect(columns.flatMap(({ column, guarded }) => (guarded ? [] : [column]))).toEqual([]);

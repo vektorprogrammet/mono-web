@@ -7,6 +7,7 @@ import {
 } from "@better-auth/oauth-provider";
 import { jwt } from "better-auth/plugins";
 import { Schema } from "effect";
+import { dual } from "effect/Function";
 
 export const OAUTH_NATIVE_API_RESOURCE = "urn:vektorprogrammet:native-api" as const;
 
@@ -71,18 +72,26 @@ export interface OAuthProviderRuntimeConfig {
 export const oauthIssuer = (config: OAuthProviderRuntimeConfig): string =>
   `${config.canonicalOrigin}${OAUTH_ISSUER_PATH}`;
 
-export const sha256Base64Url = (domain: string, value: string): string =>
+export const sha256Base64Url: {
+  (value: string): (domain: string) => string;
+  (domain: string, value: string): string;
+} = dual(2, (domain: string, value: string): string =>
   createHash("sha256")
     .update(domain, "utf8")
     .update("\0", "utf8")
     .update(value, "utf8")
-    .digest("base64url");
+    .digest("base64url"),
+);
 
 export const hashOAuthClientSecret = (secret: string): string =>
   sha256Base64Url("vektor-oauth-client-secret", secret);
 
-export const hashOAuthToken = (token: string, type: StoreTokenType): string =>
-  sha256Base64Url(`vektor-oauth-${type}`, token);
+export const hashOAuthToken: {
+  (type: StoreTokenType): (token: string) => string;
+  (token: string, type: StoreTokenType): string;
+} = dual(2, (token: string, type: StoreTokenType): string =>
+  sha256Base64Url(`vektor-oauth-${type}`, token),
+);
 
 export const makeOAuthOptions = (config: OAuthProviderRuntimeConfig): OAuthOptions<Scope[]> => ({
   loginPage: new URL(OAUTH_DASHBOARD_LOGIN_PATH, config.dashboardOrigin).toString(),

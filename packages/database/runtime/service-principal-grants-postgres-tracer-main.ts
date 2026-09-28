@@ -131,7 +131,7 @@ const trace = (target: string) =>
        )`,
     );
 
-    const requestContext = new IdentityRequestContext({
+    const requestContext = IdentityRequestContext.make({
       requestCorrelation: "service-principal-grants-token-request",
       sourceIp: "127.0.0.1",
       userAgent: "service-principal-grants-postgres-proof",

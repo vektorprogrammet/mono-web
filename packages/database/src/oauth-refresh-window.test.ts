@@ -18,7 +18,7 @@ const windows = selectDatabaseMigration("77_oauth-refresh-elapsed-windows");
 
 /** A disposable cluster. Its databases run their sessions in Europe/Oslo. */
 class OsloCluster extends Context.Service<OsloCluster, DisposablePostgres>()(
-  "oauth-refresh-window.test/OsloCluster",
+  "@vektorprogrammet/database/oauth-refresh-window.test/OsloCluster",
 ) {}
 
 const osloCluster = Layer.effect(

@@ -229,7 +229,7 @@ const appendAcceptedPersonMapping = Effect.fnUntraced(function* (
     values,
   );
 
-  if (inserted.rowCount) return;
+  if ((inserted.rowCount ?? 0) !== 0) return;
 
   const existing = yield* pgQuery(
     tx,
@@ -241,7 +241,8 @@ const appendAcceptedPersonMapping = Effect.fnUntraced(function* (
     values,
   );
 
-  if (!existing.rowCount) return yield* new PersonCohortFailure({ code: "SourceIdentityConflict" });
+  if ((existing.rowCount ?? 0) === 0)
+    return yield* new PersonCohortFailure({ code: "SourceIdentityConflict" });
 });
 
 /** Person/profile writes and source evidence share the caller transaction when supplied. */
@@ -302,7 +303,7 @@ export const importPersonCohort = Effect.fn("importPersonCohort")(function* (
       [snapshotKey],
     );
 
-    if (prior.rows[0]) {
+    if (prior.rows[0] !== undefined) {
       if (prior.rows[0].snapshot_digest !== snapshotDigest)
         return yield* new PersonCohortFailure({ code: "SnapshotConflict" });
       const result = yield* cohortReport(tx, snapshotKey, true);
@@ -317,9 +318,9 @@ export const importPersonCohort = Effect.fn("importPersonCohort")(function* (
       for (const occurrence of decoded) {
         if (!acceptedOccurrences.has(occurrence.occurrenceId)) continue;
         const row = occurrence.value;
-        const mappings = row ? mappingsBySource.get(row.sourceUserId) : undefined;
+        const mappings = row !== undefined ? mappingsBySource.get(row.sourceUserId) : undefined;
 
-        if (!row || mappings?.length !== 1)
+        if (row === undefined || mappings?.length !== 1)
           return yield* new PersonCohortFailure({ code: "SourceIdentityConflict" });
         const mapping = mappings[0]!;
         yield* appendAcceptedPersonMapping(tx, {
@@ -362,15 +363,23 @@ export const importPersonCohort = Effect.fn("importPersonCohort")(function* (
 
     for (const occurrence of decoded) {
       const sourceUserId = sourceIdOf(occurrence.row);
-      const previousDigest = sourceUserId ? importedDigests.get(sourceUserId) : undefined;
+
+      const previousDigest =
+        sourceUserId !== undefined && sourceUserId !== ""
+          ? importedDigests.get(sourceUserId)
+          : undefined;
 
       if (previousDigest !== undefined) {
-        const mappings = sourceUserId ? (mappingsBySource.get(sourceUserId) ?? []) : [];
+        const mappings =
+          sourceUserId !== undefined && sourceUserId !== ""
+            ? (mappingsBySource.get(sourceUserId) ?? [])
+            : [];
+
         const mapping = mappings.length === 1 ? mappings[0] : undefined;
 
         if (
-          !occurrence.value ||
-          !mapping ||
+          occurrence.value === undefined ||
+          mapping === undefined ||
           previousDigest !== digest({ row: occurrence.value, mapping })
         )
           return yield* new PersonCohortFailure({ code: "SourceIdentityConflict" });
@@ -396,12 +405,12 @@ export const importPersonCohort = Effect.fn("importPersonCohort")(function* (
 
     for (const occurrence of decoded) {
       const row = occurrence.value;
-      const mappings = row ? (mappingsBySource.get(row.sourceUserId) ?? []) : [];
+      const mappings = row !== undefined ? (mappingsBySource.get(row.sourceUserId) ?? []) : [];
       const mapping = mappings.length === 1 ? mappings[0] : undefined;
       let reason: PersonCohortReason;
       let sourceDigest: string | undefined;
 
-      if (!row) reason = "InvalidRow";
+      if (row === undefined) reason = "InvalidRow";
       else if (!row.active) reason = "Inactive";
       else if ((sourceCounts.get(row.sourceUserId) ?? 0) > 1) reason = "DuplicateSource";
       else if ((emailCounts.get(row.email.toLowerCase()) ?? 0) > 1) reason = "DuplicateEmail";
@@ -422,7 +431,7 @@ export const importPersonCohort = Effect.fn("importPersonCohort")(function* (
             [mapping!.personId],
           );
 
-          if (target.rowCount) reason = "TargetConflict";
+          if ((target.rowCount ?? 0) !== 0) reason = "TargetConflict";
           else {
             const emailOwner = yield* pgQuery(
               tx,
@@ -430,7 +439,7 @@ export const importPersonCohort = Effect.fn("importPersonCohort")(function* (
               [row.email.toLowerCase()],
             );
 
-            reason = emailOwner.rowCount ? "EmailConflict" : "CreatedPerson";
+            reason = (emailOwner.rowCount ?? 0) !== 0 ? "EmailConflict" : "CreatedPerson";
           }
         } else {
           const existing = (yield* pgQuery<{
@@ -447,7 +456,7 @@ export const importPersonCohort = Effect.fn("importPersonCohort")(function* (
             [mapping!.personId],
           )).rows[0];
 
-          if (!existing) reason = "PersonMissing";
+          if (existing === undefined) reason = "PersonMissing";
           else if (
             existing.name_revision !== mapping!.expectedNameRevision ||
             existing.contact_revision !== mapping!.expectedContactRevision
@@ -470,9 +479,10 @@ export const importPersonCohort = Effect.fn("importPersonCohort")(function* (
 
       if (
         (reason === "CreatedPerson" || reason === "LinkedExistingPerson") &&
-        row &&
-        mapping &&
-        sourceDigest
+        row !== undefined &&
+        mapping !== undefined &&
+        sourceDigest !== undefined &&
+        sourceDigest !== ""
       ) {
         if (reason === "CreatedPerson") {
           yield* pgQuery(
@@ -508,7 +518,13 @@ export const importPersonCohort = Effect.fn("importPersonCohort")(function* (
         );
       }
 
-      if (accepted && row && mapping && sourceDigest)
+      if (
+        accepted &&
+        row !== undefined &&
+        mapping !== undefined &&
+        sourceDigest !== undefined &&
+        sourceDigest !== ""
+      )
         yield* appendAcceptedPersonMapping(tx, {
           snapshotKey,
           occurrenceId: occurrence.occurrenceId,

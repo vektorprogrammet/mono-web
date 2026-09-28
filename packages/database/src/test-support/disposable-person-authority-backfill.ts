@@ -280,7 +280,7 @@ const isDeterministicJsonValue = (
 
       if (
         descriptor === undefined ||
-        !descriptor.enumerable ||
+        descriptor.enumerable !== true ||
         !("value" in descriptor) ||
         !isDeterministicJsonValue(descriptor.value, ancestors)
       ) {
@@ -316,7 +316,7 @@ const consolidateFacts = <A>(
       const existing = byIdentity.get(identity);
 
       if (existing !== undefined && valueOf(existing) !== valueOf(fact)) {
-        return yield* new DisposableAuthorityEvidenceConflict({
+        return yield* DisposableAuthorityEvidenceConflict.make({
           factKey: identity,
           message: "legacy token evidence contains conflicting authority facts",
         });
@@ -343,22 +343,20 @@ const decodeAndPlan = flow(
   Schema.decodeUnknownEffect(
     Schema.declare((input): input is Schema.Json => isDeterministicJsonValue(input)),
   ),
-  Effect.mapError(
-    () =>
-      new DisposableAuthorityEvidenceNondeterministicInput({
-        message: "evidence must be an acyclic plain JSON object with data properties",
-      }),
+  Effect.mapError(() =>
+    DisposableAuthorityEvidenceNondeterministicInput.make({
+      message: "evidence must be an acyclic plain JSON object with data properties",
+    }),
   ),
   Effect.flatMap((input) =>
     Effect.gen(function* () {
       const evidence = yield* Schema.decodeUnknownEffect(
         DisposablePreConfigPersonAuthorityEvidenceSchema,
       )(input, { onExcessProperty: "error" }).pipe(
-        Effect.mapError(
-          () =>
-            new DisposableAuthorityEvidenceDecodeError({
-              message: "invalid pre-config person-authority token-map evidence",
-            }),
+        Effect.mapError(() =>
+          DisposableAuthorityEvidenceDecodeError.make({
+            message: "invalid pre-config person-authority token-map evidence",
+          }),
         ),
       );
 
@@ -374,7 +372,7 @@ const decodeAndPlan = flow(
       const evaluatedMillis = instantMillis(evidence.evaluatedAt);
 
       if (startMillis > evaluatedMillis || (hasInactiveFact && startMillis === evaluatedMillis)) {
-        return yield* new DisposableAuthorityEvidenceDecodeError({
+        return yield* DisposableAuthorityEvidenceDecodeError.make({
           message:
             "authorityStartAt must not follow evaluatedAt and must precede it for inactive evidence",
         });
@@ -735,7 +733,7 @@ const insertionRequired = (
 
   if (rows.every((row) => row.sameFact)) {
     return Effect.fail(
-      new DisposableAuthorityEvidenceAmbiguousDuplicate({
+      DisposableAuthorityEvidenceAmbiguousDuplicate.make({
         factKey,
         message: "an equivalent authority fact already has a different stable identity",
       }),
@@ -743,7 +741,7 @@ const insertionRequired = (
   }
 
   return Effect.fail(
-    new DisposableAuthorityEvidenceConflict({
+    DisposableAuthorityEvidenceConflict.make({
       factKey,
       message: "planned authority interval conflicts with an existing authority fact",
     }),
@@ -755,14 +753,14 @@ const missingReference = (
   personId: string,
   referenceId: string,
 ) =>
-  new DisposableAuthorityEvidenceMissingReference({
+  DisposableAuthorityEvidenceMissingReference.make({
     referenceKind,
     personId,
     referenceId,
   });
 
 const evidenceConflict = (factKey: string, message: string) =>
-  new DisposableAuthorityEvidenceConflict({ factKey, message });
+  DisposableAuthorityEvidenceConflict.make({ factKey, message });
 
 /**
  * Backfills disposable authority rows from already JSON-decoded legacy test
@@ -1075,7 +1073,7 @@ export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = flow(
         .pipe(
           Effect.catchTag("SqlError", () =>
             Effect.fail(
-              new DisposableAuthorityEvidencePersistenceError({
+              DisposableAuthorityEvidencePersistenceError.make({
                 operation: "backfill disposable person authorities",
                 message: "database rejected disposable authority evidence",
               }),

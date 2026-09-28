@@ -6,6 +6,7 @@ import { canonicalJsonValue } from "@vektorprogrammet/domain/shared-kernel";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { getSessionCookie } from "better-auth/cookies";
 import { Context, Effect, Layer, Schema } from "effect";
+import { dual } from "effect/Function";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type { AuthorizationInstant } from "@vektorprogrammet/domain/authz";
 import { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
@@ -69,7 +70,7 @@ export interface AuthEngineService {
 }
 
 export class AuthEngine extends Context.Service<AuthEngine, AuthEngineService>()(
-  "@vektorprogrammet/database/AuthEngine",
+  "@vektorprogrammet/database/auth-live/AuthEngine",
 ) {}
 
 export interface IdentitySnapshotService {
@@ -120,7 +121,7 @@ export interface IdentitySnapshotService {
  * @effect-expect-leaking Database
  */
 export class IdentitySnapshot extends Context.Service<IdentitySnapshot, IdentitySnapshotService>()(
-  "@vektorprogrammet/database/IdentitySnapshot",
+  "@vektorprogrammet/database/auth-live/IdentitySnapshot",
 ) {}
 
 interface SessionRow extends QueryResultRow {
@@ -183,7 +184,7 @@ const auditEvent = (input: {
   readonly context: IdentityRequestContext | null;
   readonly details: IdentitySecurityEventDetails;
 }): IdentitySecurityEvent =>
-  new IdentitySecurityEvent({
+  IdentitySecurityEvent.make({
     eventKind: input.eventKind,
     subjectPersonId: input.subjectPersonId,
     sessionId: input.sessionId,
@@ -238,7 +239,7 @@ const appendAudit = (database: Pool | PoolClient, unsafeEvent: IdentitySecurityE
 const engineFailure = (operation: string, cause: unknown): IdentityEngineError =>
   Schema.is(IdentityEngineError)(cause)
     ? cause
-    : new IdentityEngineError({
+    : IdentityEngineError.make({
         operation,
         message: cause instanceof Error ? cause.message : "identity persistence failure",
       });
@@ -310,7 +311,7 @@ const snapshotMutationAudit = (
       subjectPersonId: actor.personId,
       sessionId: input.sessionId,
       context: request,
-      details: new IdentitySecurityEventDetails({
+      details: IdentitySecurityEventDetails.make({
         outcomeCode: input.outcomeCode,
         affectedSessionCount: input.affectedSessionCount,
       }),
@@ -323,7 +324,7 @@ export const makeIdentitySnapshotService = (config: AuthEngineConfig): IdentityS
     Effect.gen(function* () {
       const token = verifiedBetterAuthSessionToken(cookieHeader, config);
 
-      if (token === null) return yield* new IdentitySessionNotFound();
+      if (token === null) return yield* IdentitySessionNotFound.make();
       const sql = yield* Database;
 
       const rows = yield* sql<SnapshotSessionRow>`
@@ -336,7 +337,7 @@ export const makeIdentitySnapshotService = (config: AuthEngineConfig): IdentityS
 
       const row = rows[0];
 
-      if (row === undefined) return yield* new IdentitySessionNotFound();
+      if (row === undefined) return yield* IdentitySessionNotFound.make();
 
       return yield* decodeIdentityActor(row).pipe(
         Effect.mapError((cause) => engineFailure("decodeSnapshotSession", cause)),
@@ -356,7 +357,7 @@ export const makeIdentitySnapshotService = (config: AuthEngineConfig): IdentityS
         RETURNING "id" AS "sessionId"
       `;
 
-      if (deleted.length !== 1) return yield* new IdentitySessionNotFound();
+      if (deleted.length !== 1) return yield* IdentitySessionNotFound.make();
       yield* snapshotMutationAudit(actor, request, {
         eventKind: "sign-out",
         sessionId: actor.sessionId,
@@ -380,7 +381,7 @@ export const makeIdentitySnapshotService = (config: AuthEngineConfig): IdentityS
         RETURNING "id" AS "sessionId"
       `;
 
-      if (deleted.length !== 1) return yield* new IdentityOwnedSessionNotFound({ sessionId });
+      if (deleted.length !== 1) return yield* IdentityOwnedSessionNotFound.make({ sessionId });
       yield* snapshotMutationAudit(actor, request, {
         eventKind: "session-revoked-one",
         sessionId,
@@ -429,7 +430,7 @@ export const makeIdentitySnapshotService = (config: AuthEngineConfig): IdentityS
         RETURNING "id" AS "sessionId"
       `;
 
-      if (deleted.length === 0) return yield* new IdentitySessionNotFound();
+      if (deleted.length === 0) return yield* IdentitySessionNotFound.make();
       yield* snapshotMutationAudit(actor, request, {
         eventKind: "session-revoked-all",
         sessionId: actor.sessionId,
@@ -458,13 +459,13 @@ const identityOperations = (
       catch: (cause) => engineFailure("resolveSession", cause),
     });
 
-    if (session?.user == null) return yield* new IdentitySessionNotFound();
+    if (session?.user == null) return yield* IdentitySessionNotFound.make();
 
     const usable = yield* pgQuery(pool, `SELECT 1 FROM auth.usable_human_sessions WHERE id=$1`, [
       session.session.id,
     ]).pipe(Effect.mapError((cause) => engineFailure("resolveSession", cause)));
 
-    if (usable.rowCount !== 1) return yield* new IdentitySessionNotFound();
+    if (usable.rowCount !== 1) return yield* IdentitySessionNotFound.make();
 
     return yield* decodeIdentityActor({
       personId: session.user.id,
@@ -496,11 +497,11 @@ const identityOperations = (
       });
 
       if (!result.ok) {
-        if (result.status === 401) return yield* new IdentityInvalidCredentials();
+        if (result.status === 401) return yield* IdentityInvalidCredentials.make();
 
-        if (result.status === 429) return yield* new IdentityRateLimited();
+        if (result.status === 429) return yield* IdentityRateLimited.make();
 
-        return yield* new IdentityEngineError({
+        return yield* IdentityEngineError.make({
           operation: "signIn",
           message: `authentication provider returned status ${result.status}`,
         });
@@ -509,7 +510,7 @@ const identityOperations = (
       const [setCookie] = result.headers.getSetCookie();
 
       if (setCookie === undefined) {
-        return yield* new IdentityEngineError({
+        return yield* IdentityEngineError.make({
           operation: "signIn",
           message: "sign-in response carried no session cookie",
         });
@@ -542,7 +543,7 @@ const identityOperations = (
 
         const row = result.rows[0];
 
-        if (row === undefined) return yield* new IdentitySessionNotFound();
+        if (row === undefined) return yield* IdentitySessionNotFound.make();
 
         return yield* sessionProjection(row, actor.sessionId);
       }).pipe(Effect.mapError(keepSessionNotFound("readCurrentSession")));
@@ -587,7 +588,7 @@ const identityOperations = (
               [actor.sessionId, actor.personId],
             );
 
-            if (deleted.rowCount !== 1) return yield* new IdentitySessionNotFound();
+            if (deleted.rowCount !== 1) return yield* IdentitySessionNotFound.make();
             yield* appendAudit(
               client,
               auditEvent({
@@ -596,7 +597,7 @@ const identityOperations = (
                 subjectPersonId: actor.personId,
                 sessionId: actor.sessionId,
                 context: request,
-                details: new IdentitySecurityEventDetails({
+                details: IdentitySecurityEventDetails.make({
                   outcomeCode: "current-session-ended",
                   affectedSessionCount: 1,
                 }),
@@ -627,7 +628,7 @@ const identityOperations = (
             );
 
             if (deleted.rowCount !== 1) {
-              return yield* new IdentityOwnedSessionNotFound({ sessionId });
+              return yield* IdentityOwnedSessionNotFound.make({ sessionId });
             }
 
             yield* appendAudit(
@@ -638,7 +639,7 @@ const identityOperations = (
                 subjectPersonId: actor.personId,
                 sessionId,
                 context: request,
-                details: new IdentitySecurityEventDetails({
+                details: IdentitySecurityEventDetails.make({
                   outcomeCode: "owned-session-revoked",
                   affectedSessionCount: 1,
                 }),
@@ -683,7 +684,7 @@ const identityOperations = (
               subjectPersonId: actor.personId,
               sessionId: actor.sessionId,
               context: request,
-              details: new IdentitySecurityEventDetails({
+              details: IdentitySecurityEventDetails.make({
                 outcomeCode: "other-sessions-revoked",
                 affectedSessionCount: deleted.rowCount ?? deleted.rows.length,
               }),
@@ -711,7 +712,7 @@ const identityOperations = (
               [actor.personId],
             );
 
-            if ((deleted.rowCount ?? 0) === 0) return yield* new IdentitySessionNotFound();
+            if ((deleted.rowCount ?? 0) === 0) return yield* IdentitySessionNotFound.make();
             yield* appendAudit(
               client,
               auditEvent({
@@ -720,7 +721,7 @@ const identityOperations = (
                 subjectPersonId: actor.personId,
                 sessionId: actor.sessionId,
                 context: request,
-                details: new IdentitySecurityEventDetails({
+                details: IdentitySecurityEventDetails.make({
                   outcomeCode: "all-sessions-revoked",
                   affectedSessionCount: deleted.rowCount ?? deleted.rows.length,
                 }),
@@ -745,112 +746,124 @@ const identityOperations = (
 };
 
 /** @internal Exposed only for focused ordering tests around the Better Auth boundary. */
-export const auditedAuthHandler =
+export const auditedAuthHandler: {
+  (
+    identity: Pick<IdentityOperations, "resolveSession" | "recordSecurityEvent">,
+  ): (
+    handle: (request: Request) => Effect.Effect<Response, IdentityEngineError>,
+  ) => AuthEngineService["handler"];
+  (
+    handle: (request: Request) => Effect.Effect<Response, IdentityEngineError>,
+    identity: Pick<IdentityOperations, "resolveSession" | "recordSecurityEvent">,
+  ): AuthEngineService["handler"];
+} = dual(
+  2,
   (
     handle: (request: Request) => Effect.Effect<Response, IdentityEngineError>,
     identity: Pick<IdentityOperations, "resolveSession" | "recordSecurityEvent">,
   ): AuthEngineService["handler"] =>
-  (request, context) =>
-    Effect.gen(function* () {
-      const pathname = new URL(request.url).pathname;
+    (request, context) =>
+      Effect.gen(function* () {
+        const pathname = new URL(request.url).pathname;
 
-      const signOutActor =
-        request.method === "POST" && pathname === "/api/auth/sign-out"
-          ? yield* identity
-              .resolveSession(request.headers.get("cookie") ?? undefined)
-              .pipe(Effect.orElseSucceed(() => null))
-          : null;
+        const signOutActor =
+          request.method === "POST" && pathname === "/api/auth/sign-out"
+            ? yield* identity
+                .resolveSession(request.headers.get("cookie") ?? undefined)
+                .pipe(Effect.orElseSucceed(() => null))
+            : null;
 
-      const response = yield* handle(request);
+        const response = yield* handle(request);
 
-      const audit = Effect.gen(function* () {
-        if (request.method === "POST" && pathname === "/api/auth/sign-in/email") {
-          if (response.ok) {
-            const [setCookie] = response.headers.getSetCookie();
+        const audit = Effect.gen(function* () {
+          if (request.method === "POST" && pathname === "/api/auth/sign-in/email") {
+            if (response.ok) {
+              const [setCookie] = response.headers.getSetCookie();
 
-            if (setCookie === undefined) {
-              return yield* new IdentityEngineError({
-                operation: "auditSignIn",
-                message: "successful sign-in returned no cookie",
-              });
-            }
+              if (setCookie === undefined) {
+                return yield* IdentityEngineError.make({
+                  operation: "auditSignIn",
+                  message: "successful sign-in returned no cookie",
+                });
+              }
 
-            const actor = yield* identity.resolveSession(setCookie.split(";")[0]);
-            yield* identity.recordSecurityEvent(
-              auditEvent({
-                eventKind: "sign-in-success",
-                actor,
-                subjectPersonId: actor.personId,
-                sessionId: actor.sessionId,
-                context,
-                details: new IdentitySecurityEventDetails({
-                  outcomeCode: "credential-accepted",
-                  affectedSessionCount: 1,
+              const actor = yield* identity.resolveSession(setCookie.split(";")[0]);
+              yield* identity.recordSecurityEvent(
+                auditEvent({
+                  eventKind: "sign-in-success",
+                  actor,
+                  subjectPersonId: actor.personId,
+                  sessionId: actor.sessionId,
+                  context,
+                  details: IdentitySecurityEventDetails.make({
+                    outcomeCode: "credential-accepted",
+                    affectedSessionCount: 1,
+                  }),
                 }),
-              }),
-            );
-          } else {
+              );
+            } else {
+              yield* identity.recordSecurityEvent(
+                auditEvent({
+                  eventKind: "sign-in-failure",
+                  actor: null,
+                  subjectPersonId: null,
+                  sessionId: null,
+                  context,
+                  details: IdentitySecurityEventDetails.make({
+                    outcomeCode: "credential-rejected",
+                    affectedSessionCount: 0,
+                  }),
+                }),
+              );
+            }
+          } else if (request.method === "POST" && pathname === "/api/auth/sign-up/email") {
             yield* identity.recordSecurityEvent(
               auditEvent({
-                eventKind: "sign-in-failure",
+                eventKind: "sign-up-rejected",
                 actor: null,
                 subjectPersonId: null,
                 sessionId: null,
                 context,
-                details: new IdentitySecurityEventDetails({
-                  outcomeCode: "credential-rejected",
+                details: IdentitySecurityEventDetails.make({
+                  outcomeCode: "public-sign-up-disabled",
                   affectedSessionCount: 0,
                 }),
               }),
             );
+          } else if (response.ok && signOutActor !== null) {
+            yield* identity.recordSecurityEvent(
+              auditEvent({
+                eventKind: "sign-out",
+                actor: signOutActor,
+                subjectPersonId: signOutActor.personId,
+                sessionId: signOutActor.sessionId,
+                context,
+                details: IdentitySecurityEventDetails.make({
+                  outcomeCode: "current-session-ended",
+                  affectedSessionCount: 1,
+                }),
+              }),
+            );
           }
-        } else if (request.method === "POST" && pathname === "/api/auth/sign-up/email") {
-          yield* identity.recordSecurityEvent(
-            auditEvent({
-              eventKind: "sign-up-rejected",
-              actor: null,
-              subjectPersonId: null,
-              sessionId: null,
-              context,
-              details: new IdentitySecurityEventDetails({
-                outcomeCode: "public-sign-up-disabled",
-                affectedSessionCount: 0,
-              }),
-            }),
-          );
-        } else if (response.ok && signOutActor !== null) {
-          yield* identity.recordSecurityEvent(
-            auditEvent({
-              eventKind: "sign-out",
-              actor: signOutActor,
-              subjectPersonId: signOutActor.personId,
-              sessionId: signOutActor.sessionId,
-              context,
-              details: new IdentitySecurityEventDetails({
-                outcomeCode: "current-session-ended",
-                affectedSessionCount: 1,
-              }),
-            }),
-          );
-        }
-      });
+        });
 
-      return yield* audit.pipe(
-        Effect.as(response),
-        Effect.orElseSucceed(() =>
-          Response.json(
-            { error: { tag: "IdentityEngineError" } },
-            {
-              status: 503,
-              headers: {
-                "cache-control": "no-store",
-                "content-type": "application/json; charset=utf-8",
+        return yield* audit.pipe(
+          Effect.as(response),
+          Effect.orElseSucceed(() =>
+            Response.json(
+              { error: { tag: "IdentityEngineError" } },
+              {
+                status: 503,
+                headers: {
+                  "cache-control": "no-store",
+                  "content-type": "application/json; charset=utf-8",
+                },
               },
-            },
+            ),
           ),
-        ),
-      );
-    });
+        );
+      }),
+);
 
 /**
  * One scoped construction exposes the Better Auth engine, its typed Identity
@@ -919,7 +932,7 @@ export const AuthLive = (
               subjectPersonId: null,
               sessionId: null,
               context,
-              details: new IdentitySecurityEventDetails({
+              details: IdentitySecurityEventDetails.make({
                 outcomeCode: "origin-not-trusted",
                 affectedSessionCount: 0,
               }),

@@ -27,7 +27,8 @@
  * `payload_json` with `{}`. A table with only the lifecycle columns uses `Retain` and
  * records no delivery evidence. SQL failures remain `SqlError` for the caller to map.
  */
-import { Data, Effect } from "effect";
+import { Data, Effect, Predicate } from "effect";
+import { dual } from "effect/Function";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import * as Statement from "effect/unstable/sql/Statement";
 import type { DatabaseOperations } from "./service.js";
@@ -137,14 +138,29 @@ const recoverStale = (
  *
  * @construct sql-lifecycle
  */
-export const outboxClaimAssignments = (
-  sql: DatabaseOperations,
-  targetAlias: string,
-  claimId: string,
-  claimedAt: string,
-): Statement.Fragment =>
-  sql`status = 'Processing', claim_id = ${claimId}, claimed_at = ${claimedAt},
-    attempts = ${sql(targetAlias)}.attempts + 1, last_failure_tag = NULL`;
+export const outboxClaimAssignments: {
+  (
+    targetAlias: string,
+    claimId: string,
+    claimedAt: string,
+  ): (sql: DatabaseOperations) => Statement.Fragment;
+  (
+    sql: DatabaseOperations,
+    targetAlias: string,
+    claimId: string,
+    claimedAt: string,
+  ): Statement.Fragment;
+} = dual(
+  4,
+  (
+    sql: DatabaseOperations,
+    targetAlias: string,
+    claimId: string,
+    claimedAt: string,
+  ): Statement.Fragment =>
+    sql`status = 'Processing', claim_id = ${claimId}, claimed_at = ${claimedAt},
+    attempts = ${sql(targetAlias)}.attempts + 1, last_failure_tag = NULL`,
+);
 
 /**
  * Settles the claimed row as Delivered, with delivery evidence when the table records it.
@@ -169,29 +185,44 @@ export const outboxClaimAssignments = (
  *
  * @construct sql-lifecycle
  */
-export const markOutboxDelivered = (
-  sql: DatabaseOperations,
-  table: OutboxTable,
-  claim: OutboxClaim,
-  evidence?: OutboxDeliveryEvidence,
-): Effect.Effect<void, OutboxClaimLost | SqlError> => {
-  const payload = table.terminalPayload === "Scrub" ? scrubbedPayload : noAssignments;
+export const markOutboxDelivered: {
+  (
+    table: OutboxTable,
+    claim: OutboxClaim,
+    evidence?: OutboxDeliveryEvidence,
+  ): (sql: DatabaseOperations) => Effect.Effect<void, OutboxClaimLost | SqlError>;
+  (
+    sql: DatabaseOperations,
+    table: OutboxTable,
+    claim: OutboxClaim,
+    evidence?: OutboxDeliveryEvidence,
+  ): Effect.Effect<void, OutboxClaimLost | SqlError>;
+} = dual(
+  (args) => Predicate.isFunction(args[0]),
+  (
+    sql: DatabaseOperations,
+    table: OutboxTable,
+    claim: OutboxClaim,
+    evidence?: OutboxDeliveryEvidence,
+  ): Effect.Effect<void, OutboxClaimLost | SqlError> => {
+    const payload = table.terminalPayload === "Scrub" ? scrubbedPayload : noAssignments;
 
-  const deliveredAt =
-    evidence === undefined ? noAssignments : sql`, delivered_at = ${evidence.deliveredAt}`;
+    const deliveredAt =
+      evidence === undefined ? noAssignments : sql`, delivered_at = ${evidence.deliveredAt}`;
 
-  const providerReference =
-    evidence?.providerReference === undefined
-      ? noAssignments
-      : sql`, provider_reference = ${evidence.providerReference}`;
+    const providerReference =
+      evidence?.providerReference === undefined
+        ? noAssignments
+        : sql`, provider_reference = ${evidence.providerReference}`;
 
-  return settleClaim(
-    sql,
-    table,
-    claim,
-    sql`status = 'Delivered', last_failure_tag = NULL${payload}${deliveredAt}${providerReference}`,
-  );
-};
+    return settleClaim(
+      sql,
+      table,
+      claim,
+      sql`status = 'Delivered', last_failure_tag = NULL${payload}${deliveredAt}${providerReference}`,
+    );
+  },
+);
 
 /**
  * Settles the claimed row as Failed with its failure tag, so a later claim retries it.
@@ -213,13 +244,28 @@ export const markOutboxDelivered = (
  *
  * @construct sql-lifecycle
  */
-export const markOutboxFailed = (
-  sql: DatabaseOperations,
-  table: OutboxTable,
-  claim: OutboxClaim,
-  failureTag: string,
-): Effect.Effect<void, OutboxClaimLost | SqlError> =>
-  settleClaim(sql, table, claim, sql`status = 'Failed', last_failure_tag = ${failureTag}`);
+export const markOutboxFailed: {
+  (
+    table: OutboxTable,
+    claim: OutboxClaim,
+    failureTag: string,
+  ): (sql: DatabaseOperations) => Effect.Effect<void, OutboxClaimLost | SqlError>;
+  (
+    sql: DatabaseOperations,
+    table: OutboxTable,
+    claim: OutboxClaim,
+    failureTag: string,
+  ): Effect.Effect<void, OutboxClaimLost | SqlError>;
+} = dual(
+  4,
+  (
+    sql: DatabaseOperations,
+    table: OutboxTable,
+    claim: OutboxClaim,
+    failureTag: string,
+  ): Effect.Effect<void, OutboxClaimLost | SqlError> =>
+    settleClaim(sql, table, claim, sql`status = 'Failed', last_failure_tag = ${failureTag}`),
+);
 
 /**
  * Settles the claimed row as Quarantined, a terminal status, with its failure tag.
@@ -242,21 +288,36 @@ export const markOutboxFailed = (
  *
  * @construct sql-lifecycle
  */
-export const quarantineOutboxClaim = (
-  sql: DatabaseOperations,
-  table: OutboxTable,
-  claim: OutboxClaim,
-  failureTag: string,
-): Effect.Effect<void, OutboxClaimLost | SqlError> => {
-  const payload = table.terminalPayload === "Scrub" ? scrubbedPayload : noAssignments;
+export const quarantineOutboxClaim: {
+  (
+    table: OutboxTable,
+    claim: OutboxClaim,
+    failureTag: string,
+  ): (sql: DatabaseOperations) => Effect.Effect<void, OutboxClaimLost | SqlError>;
+  (
+    sql: DatabaseOperations,
+    table: OutboxTable,
+    claim: OutboxClaim,
+    failureTag: string,
+  ): Effect.Effect<void, OutboxClaimLost | SqlError>;
+} = dual(
+  4,
+  (
+    sql: DatabaseOperations,
+    table: OutboxTable,
+    claim: OutboxClaim,
+    failureTag: string,
+  ): Effect.Effect<void, OutboxClaimLost | SqlError> => {
+    const payload = table.terminalPayload === "Scrub" ? scrubbedPayload : noAssignments;
 
-  return settleClaim(
-    sql,
-    table,
-    claim,
-    sql`status = 'Quarantined', last_failure_tag = ${failureTag}${payload}`,
-  );
-};
+    return settleClaim(
+      sql,
+      table,
+      claim,
+      sql`status = 'Quarantined', last_failure_tag = ${failureTag}${payload}`,
+    );
+  },
+);
 
 /**
  * Returns an interrupted claim to Pending without a provider outcome; a lost claim needs none.
@@ -279,18 +340,33 @@ export const quarantineOutboxClaim = (
  *
  * @construct sql-lifecycle
  */
-export const releaseOutboxClaim = (
-  sql: DatabaseOperations,
-  table: OutboxTable,
-  claim: OutboxClaim,
-  failureTag: string,
-): Effect.Effect<void, SqlError> =>
-  leaveProcessing(
-    sql,
-    table,
-    claim,
-    sql`status = 'Pending', last_failure_tag = ${failureTag}`,
-  ).pipe(Effect.asVoid);
+export const releaseOutboxClaim: {
+  (
+    table: OutboxTable,
+    claim: OutboxClaim,
+    failureTag: string,
+  ): (sql: DatabaseOperations) => Effect.Effect<void, SqlError>;
+  (
+    sql: DatabaseOperations,
+    table: OutboxTable,
+    claim: OutboxClaim,
+    failureTag: string,
+  ): Effect.Effect<void, SqlError>;
+} = dual(
+  4,
+  (
+    sql: DatabaseOperations,
+    table: OutboxTable,
+    claim: OutboxClaim,
+    failureTag: string,
+  ): Effect.Effect<void, SqlError> =>
+    leaveProcessing(
+      sql,
+      table,
+      claim,
+      sql`status = 'Pending', last_failure_tag = ${failureTag}`,
+    ).pipe(Effect.asVoid),
+);
 
 /**
  * Recovers every Processing row claimed before `claimedBefore`.
@@ -314,22 +390,59 @@ export const releaseOutboxClaim = (
  *
  * @construct sql-lifecycle
  */
-export const recoverStaleOutboxClaims = (
-  sql: DatabaseOperations,
-  table: OutboxTable,
-  claimedBefore: string,
-  recovery: OutboxStaleRecovery,
-): Effect.Effect<number, SqlError> =>
-  recoverStale(sql, table, recovery, sql`claimed_at < ${claimedBefore}`);
+export const recoverStaleOutboxClaims: {
+  (
+    table: OutboxTable,
+    claimedBefore: string,
+    recovery: OutboxStaleRecovery,
+  ): (sql: DatabaseOperations) => Effect.Effect<number, SqlError>;
+  (
+    sql: DatabaseOperations,
+    table: OutboxTable,
+    claimedBefore: string,
+    recovery: OutboxStaleRecovery,
+  ): Effect.Effect<number, SqlError>;
+} = dual(
+  4,
+  (
+    sql: DatabaseOperations,
+    table: OutboxTable,
+    claimedBefore: string,
+    recovery: OutboxStaleRecovery,
+  ): Effect.Effect<number, SqlError> =>
+    recoverStale(sql, table, recovery, sql`claimed_at < ${claimedBefore}`),
+);
 
 /**
  * Recovers the rows of one claim when that claim was taken before `claimedBefore`.
  */
-export const recoverStaleOutboxClaim = (
-  sql: DatabaseOperations,
-  table: OutboxTable,
-  claimId: string,
-  claimedBefore: string,
-  recovery: OutboxStaleRecovery,
-): Effect.Effect<number, SqlError> =>
-  recoverStale(sql, table, recovery, sql`claim_id = ${claimId} AND claimed_at < ${claimedBefore}`);
+export const recoverStaleOutboxClaim: {
+  (
+    table: OutboxTable,
+    claimId: string,
+    claimedBefore: string,
+    recovery: OutboxStaleRecovery,
+  ): (sql: DatabaseOperations) => Effect.Effect<number, SqlError>;
+  (
+    sql: DatabaseOperations,
+    table: OutboxTable,
+    claimId: string,
+    claimedBefore: string,
+    recovery: OutboxStaleRecovery,
+  ): Effect.Effect<number, SqlError>;
+} = dual(
+  5,
+  (
+    sql: DatabaseOperations,
+    table: OutboxTable,
+    claimId: string,
+    claimedBefore: string,
+    recovery: OutboxStaleRecovery,
+  ): Effect.Effect<number, SqlError> =>
+    recoverStale(
+      sql,
+      table,
+      recovery,
+      sql`claim_id = ${claimId} AND claimed_at < ${claimedBefore}`,
+    ),
+);

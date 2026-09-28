@@ -56,7 +56,7 @@ export interface DatabaseOperations extends Omit<SqlClient.SqlClient, never> {
 }
 
 export class Database extends Context.Service<Database, DatabaseOperations>()(
-  "@vektorprogrammet/Database",
+  "@vektorprogrammet/database/service/Database",
 ) {}
 
 export const databaseHealth = Database.use((database) => database.health);
