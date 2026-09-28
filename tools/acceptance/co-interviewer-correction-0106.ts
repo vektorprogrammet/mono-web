@@ -13,7 +13,8 @@ import {
 } from "./interview-correction-boundaries.ts";
 import { assertInterviewCorrectionIntegrity } from "./interview-correction-integrity.ts";
 import type { CoInterviewerCorrection0106Fixture } from "./recommendation-preupgrade-fixture.ts";
-import { Predicate, Schema } from "effect";
+import { Effect, Predicate, Schema } from "effect";
+import { surfaceStepFailure } from "./journey-step.ts";
 import { replacedFetch } from "../../apps/dashboard/e2e/native-rpc-ledger.ts";
 import { admissionJourneyClock } from "../e2e/journey-clock.ts";
 
@@ -815,10 +816,16 @@ export async function runCoInterviewerCorrectionJourney(
       recordGate,
     });
 
-    await assertInterviewCorrectionIntegrity(pool, fixture.targetInterviewId, {
-      expectedCorrectedByPersonId: fixture.coInterviewer.personId,
-      expectedCoInterviewerPersonId: fixture.coInterviewer.personId,
-    });
+    await Effect.runPromise(
+      surfaceStepFailure(
+        assertInterviewCorrectionIntegrity({
+          pool,
+          interviewId: fixture.targetInterviewId,
+          expectedCorrectedByPersonId: fixture.coInterviewer.personId,
+          expectedCoInterviewerPersonId: fixture.coInterviewer.personId,
+        }),
+      ),
+    );
     assert.deepEqual(await effectSnapshot(), effectsBefore);
     const primaryFinal = await getDetail(primaryCookie);
     const coFinal = await getDetail(co.cookie);

@@ -172,6 +172,7 @@ const effectConfig = {
         "tools/acceptance/onboarding-check.ts",
         "tools/acceptance/password-recovery-check.ts",
         "tools/acceptance/substitute-outcome-check.ts",
+        "tools/acceptance/recommendation-check.ts",
         "tools/e2e/golden-harness.ts",
         "tools/e2e/golden-harness-self-test.ts",
         "tools/e2e/legacy-candidate-native-journey.ts",

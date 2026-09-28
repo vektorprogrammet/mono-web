@@ -8,7 +8,10 @@ export const PostgresObservation = Schema.Record(
 
 export type PostgresObservation = typeof PostgresObservation.Type;
 
-export const decodePostgresObservations = Schema.decodeUnknownSync(
+/** Decodes the rows of a query, and throws on a row that is no observation. */
+export const decodePostgresObservations: (
+  rows: ReadonlyArray<unknown>,
+) => ReadonlyArray<PostgresObservation> = Schema.decodeUnknownSync(
   Schema.Array(PostgresObservation),
 );
 
