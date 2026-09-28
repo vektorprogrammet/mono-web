@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { MailingListResponse } from "@vektorprogrammet/http-api";
+import { MailingListResponse } from "@vektorprogrammet/rpc";
 import { expect, test, type Page } from "@playwright/test";
 
 const nativeIdentityMode = process.env.REAL_NATIVE_IDENTITY_E2E === "1";

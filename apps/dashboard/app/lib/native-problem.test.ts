@@ -3,7 +3,7 @@ import {
   makeNativeValidationError,
   type NativeProblemCode,
   Problem,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { describe, expect, it } from "vitest";
 import { nativeFailureFrom, nativeProblemFrom } from "./native-problem";
 import {

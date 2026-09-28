@@ -1,5 +1,5 @@
 
-import { StrongETag } from "@vektorprogrammet/http-api";
+import { StrongETag } from "@vektorprogrammet/rpc";
 import { Schema as S, flow } from "effect";
 import { data } from "react-router";
 import { contentBridgeFailure, type ContentBridgeErrorTag, ContentBridgeActionSchema } from "../foldkit/content/bridge";

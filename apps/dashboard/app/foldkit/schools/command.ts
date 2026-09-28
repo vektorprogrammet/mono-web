@@ -1,4 +1,4 @@
-import { DepartmentId } from "@vektorprogrammet/http-api";
+import { DepartmentId } from "@vektorprogrammet/rpc";
 import { Effect, Match, Schema as S } from "effect";
 import { Command } from "foldkit";
 import type { SchoolsBridgeFailure } from "./bridge";
@@ -12,7 +12,7 @@ import {
   FailedSchoolCommand,
   type Message,
 } from "./message";
-import { SchoolCommand } from "@vektorprogrammet/http-api";
+import { SchoolCommand } from "@vektorprogrammet/rpc";
 import { nativeProblemFrom } from "../../lib/native-problem";
 import { SchoolDirectoryFailure, SchoolDirectoryRequestId } from "./model";
 

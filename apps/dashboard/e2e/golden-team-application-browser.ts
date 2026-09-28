@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import AxeBuilder from "@axe-core/playwright";
 import { chromium, expect as baseExpect, type BrowserContext, type Page } from "@playwright/test";
-import { OrganizationLifecycleCommand } from "@vektorprogrammet/http-api";
+import { OrganizationLifecycleCommand } from "@vektorprogrammet/rpc";
 import { Schema } from "effect";
 
 // Production bundles load their workflow before rendering server facts; five seconds is too tight.

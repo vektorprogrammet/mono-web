@@ -1,4 +1,4 @@
-import { isProblem, NativeProblem, problemBody, ValidationProblem } from "@vektorprogrammet/http-api";
+import { isProblem, NativeProblem, problemBody, ValidationProblem } from "@vektorprogrammet/rpc";
 import { Option, Schema } from "effect";
 
 const ProblemBody = Schema.Union([ValidationProblem, NativeProblem]);

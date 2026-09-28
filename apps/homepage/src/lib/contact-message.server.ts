@@ -1,4 +1,4 @@
-import { ContactMessage, isProblem } from "@vektorprogrammet/http-api";
+import { ContactMessage, isProblem } from "@vektorprogrammet/rpc";
 import { createEffectClient } from "@vektorprogrammet/sdk/effect";
 import { Match, Predicate, Effect, Schema } from "effect";
 import type { ContactMessagePayload, HomepageDepartment } from "./api-types";

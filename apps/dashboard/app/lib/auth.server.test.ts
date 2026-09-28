@@ -1,5 +1,5 @@
 import { Predicate } from "effect";
-import { makeNativeProblem } from "@vektorprogrammet/http-api";
+import { makeNativeProblem } from "@vektorprogrammet/rpc";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.hoisted(() => vi.stubEnv("API_URL", "http://api.test"));

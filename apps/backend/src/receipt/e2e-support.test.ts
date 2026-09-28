@@ -1,4 +1,4 @@
-import { isProblem, type Problem } from "@vektorprogrammet/http-api/http-semantics";
+import { isProblem, type Problem } from "@vektorprogrammet/rpc/problem";
 import { Cause, Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 import { describe, expect, it } from "@effect/vitest";

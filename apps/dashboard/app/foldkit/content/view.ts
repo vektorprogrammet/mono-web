@@ -1,5 +1,5 @@
 import { Predicate } from "effect";
-import { DepartmentId as DepartmentIdSchema } from "@vektorprogrammet/http-api"
+import { DepartmentId as DepartmentIdSchema } from "@vektorprogrammet/rpc"
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Message } from "./message";
 import { ChangedDepartmentFilter, ChangedDepartmentSelection, DeselectedArticle } from "./message";

@@ -11,7 +11,7 @@ import {
   type OwnCoverageResource,
   type PlacementBoardResource,
   type PlacementDraftResource,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Record, Option, Schema, Match } from "effect";
 import { createElement, type ReactNode, useState } from "react";
 import { Form, data, useActionData, useFetcher, useLoaderData, useLocation } from "react-router";

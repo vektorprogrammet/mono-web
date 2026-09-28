@@ -4,7 +4,7 @@
  * not import it; the parser decodes every answer through the contract schema, so a list that
  * drifts from the contract fails there.
  */
-import type { SubmitApplicationRequest } from "@vektorprogrammet/http-api";
+import type { SubmitApplicationRequest } from "@vektorprogrammet/rpc";
 import { Struct } from "effect";
 
 type AssistantAvailability = SubmitApplicationRequest["availability"];

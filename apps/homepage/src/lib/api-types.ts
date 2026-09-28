@@ -8,7 +8,7 @@ import {
   ReadTeamApplicationIntakeEndpoint,
   SubmitContactMessageEndpoint,
   SubmitTeamApplicationEndpoint,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import type { HttpApiEndpoint, HttpApiSchema } from "effect/unstable/httpapi";
 
 type EndpointResponseBody<Response> =

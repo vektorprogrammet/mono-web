@@ -6,7 +6,7 @@ import {
   TeamApplicationListResponse,
   TeamApplicationResource,
   type NativeProblemCode,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { createEffectClient, type FetchCapability } from "@vektorprogrammet/sdk/effect";
 import { Effect, Option, Predicate, Schema as S } from "effect";
 import { AsyncData, type Update } from "foldkit";

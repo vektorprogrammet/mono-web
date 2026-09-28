@@ -19,8 +19,7 @@
     "@vektorprogrammet/backend": "workspace:*",
     "@vektorprogrammet/database": "workspace:*",
     "@vektorprogrammet/domain": "workspace:*",
-    "@vektorprogrammet/http-api": "workspace:*",
-    "@vektorprogrammet/sdk": "workspace:*",
+    "@vektorprogrammet/rpc": "workspace:*",
     "better-auth": "1.7.1",
     "effect": "catalog:effect-v4",
     "pg": "8"

@@ -5,7 +5,7 @@ import {
   ReceiptListItem,
   ReceiptSettlementQueueItem,
   type StrongETag as StrongETagValue,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 
 type OwnedReceiptProjection = typeof ReceiptListItem.Type;
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import type * as GeneratedSdkModule from "../../packages/sdk/src/effect-client.js";
 import { addressesAnyRoute, legacyRoutes } from "../../apps/dashboard/e2e/request-routes.js";
-import { SessionResponse } from "@vektorprogrammet/http-api";
+import { SessionResponse } from "@vektorprogrammet/rpc";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { randomBytes } from "node:crypto";

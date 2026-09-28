@@ -4,7 +4,7 @@ import {
   type NativeProblemCode,
   PublicTeamApplicationIntake,
   TeamApplicationsSubmitProblem,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHomepageApiClient } from "../src/lib/api.server";

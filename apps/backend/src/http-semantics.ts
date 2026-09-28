@@ -12,7 +12,7 @@ import {
   type StrongETag,
   type ValidationProblemCode,
   StrongETag as StrongETagSchema,
-} from "@vektorprogrammet/http-api/http-semantics";
+} from "@vektorprogrammet/rpc/problem";
 import { Array as Arr, Data, Predicate, Result, Schema } from "effect";
 
 const encoder = new TextEncoder();

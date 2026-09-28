@@ -1,4 +1,4 @@
-import { ArticleId } from "@vektorprogrammet/http-api";
+import { ArticleId } from "@vektorprogrammet/rpc";
 import { Effect, Schema as S } from "effect";
 import { ContentArticleObservationSchema, ContentBridgeFailureSchema, ContentCreateCommandSchema, ContentReviseCommandSchema, ContentTransitionCommandSchema, ContentWorkspaceBootstrapSchema, contentBridgeFailure, type ContentArticleObservation, type ContentBridgeFailure, type ContentCreateCommand, type ContentReviseCommand, type ContentTransitionCommand, type ContentWorkspaceBootstrap, ContentBridgeAction } from "./bridge";
 

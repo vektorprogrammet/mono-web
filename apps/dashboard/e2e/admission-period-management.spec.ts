@@ -15,7 +15,7 @@ import {
   PublicApplicationConfirmationSchema,
   SessionUnauthorizedProblem,
   type SubmitApplicationRequest,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { DateTime, Schema } from "effect";
 import { dashboardMount, dashboardPagePath } from "../dashboard-base";
 

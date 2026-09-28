@@ -1,6 +1,6 @@
 import { RouterContextProvider } from "react-router";
 import { contactIngressContext } from "../src/lib/contact-context.server";
-import { DepartmentJsonSchema, type DepartmentJson } from "@vektorprogrammet/http-api"
+import { DepartmentJsonSchema, type DepartmentJson } from "@vektorprogrammet/rpc"
 import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -36,8 +36,8 @@ const submitContactMessage = (request: Request, slug?: string) =>
     visitorIp: ContactVisitorIp.make("127.0.0.1"),
   });
 
-import { ContactVisitorIp } from "@vektorprogrammet/http-api"
-import { makeNativeProblem } from "@vektorprogrammet/http-api";
+import { ContactVisitorIp } from "@vektorprogrammet/rpc"
+import { makeNativeProblem } from "@vektorprogrammet/rpc";
 
 const makeDepartment = (overrides: Partial<typeof DepartmentJsonSchema.Encoded> = {}): DepartmentJson =>
   Schema.decodeSync(DepartmentJsonSchema)({

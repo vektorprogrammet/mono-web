@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import type { RouteConfigEntry } from "@react-router/dev/routes";
-import { IdempotencyKey } from "@vektorprogrammet/http-api";
+import { IdempotencyKey } from "@vektorprogrammet/rpc";
 import { Option, Schema as S } from "effect";
 import { Scene } from "foldkit/test";
 import { matchRoutes, type RouteObject } from "react-router";

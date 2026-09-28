@@ -1,7 +1,7 @@
 import { Predicate } from "effect";
 import { InterviewSchemaId,
 type RecruitmentAssignmentBoard,
-RecruitmentInterviewerOptionSchema, } from "@vektorprogrammet/http-api"
+RecruitmentInterviewerOptionSchema, } from "@vektorprogrammet/rpc"
 import { Button, Dialog, Select } from "@foldkit/ui";
 import { Schema as S } from "effect";
 import { AsyncData } from "foldkit";

@@ -1,6 +1,6 @@
 import { RecruitmentInvitationCapabilitySchema,
-RecruitmentInvitationResponseMessageSchema, } from "@vektorprogrammet/http-api"
-import { parseJsonWithUniqueMembers } from "@vektorprogrammet/http-api"
+RecruitmentInvitationResponseMessageSchema, } from "@vektorprogrammet/rpc"
+import { parseJsonWithUniqueMembers } from "@vektorprogrammet/rpc"
 import { createConfiguredPromiseClient } from "@vektorprogrammet/sdk";
 import { Schema as S, Match, flow, Option, Result } from "effect";
 import { nativeProblemFrom } from "./native-problem";

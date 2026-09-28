@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { RECEIPT_FILE_MAX_BYTES } from "@vektorprogrammet/http-api";
+import { RECEIPT_FILE_MAX_BYTES } from "@vektorprogrammet/rpc";
 import { createStaticHandler, RouterContextProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nativeSessionResponse, sessionCookie } from "../test/native-http";

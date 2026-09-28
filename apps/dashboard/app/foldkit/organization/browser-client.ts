@@ -1,6 +1,6 @@
 import type { DepartmentJson,
 FieldOfStudyJson,
-TeamJson, } from "@vektorprogrammet/http-api"
+TeamJson, } from "@vektorprogrammet/rpc"
 import { createEffectClient, type EffectSdkFailure } from "@vektorprogrammet/sdk/effect";
 import { Data, Effect } from "effect";
 import { resolveBrowserApiUrl } from "../../lib/browser-api";

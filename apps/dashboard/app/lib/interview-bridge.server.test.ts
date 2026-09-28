@@ -1,4 +1,4 @@
-import { StrongETag } from "@vektorprogrammet/http-api";
+import { StrongETag } from "@vektorprogrammet/rpc";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InvitationBridgeFailureSchema, INVITATION_INTERACTION_HEADER } from "../foldkit/interview/bridge";
 

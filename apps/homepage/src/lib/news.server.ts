@@ -1,4 +1,4 @@
-import { ArticleSlug, isProblem } from "@vektorprogrammet/http-api";
+import { ArticleSlug, isProblem } from "@vektorprogrammet/rpc";
 import type { PublishedNewsArticle, PublishedNewsListing } from "./api-types";
 import { createHomepageApiClient } from "./api.server";
 import {

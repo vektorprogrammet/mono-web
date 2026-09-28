@@ -1,4 +1,4 @@
-import { MailingListQuery, type PlacementScopes } from "@vektorprogrammet/http-api";
+import { MailingListQuery, type PlacementScopes } from "@vektorprogrammet/rpc";
 import { Match, Schema } from "effect";
 import { Form, data, useLoaderData, useNavigation } from "react-router";
 import { Button } from "../components/ui/button";

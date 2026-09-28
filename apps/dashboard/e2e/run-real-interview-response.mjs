@@ -1,7 +1,7 @@
 import {
   RecruitmentReadInvitationResponseProblem,
   RecruitmentRequestNewInvitationTimeProblem,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Predicate, Result, Schema } from "effect";
 import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { createHash, randomBytes } from "node:crypto";

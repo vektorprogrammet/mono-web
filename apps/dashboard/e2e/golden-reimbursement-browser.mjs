@@ -5,7 +5,7 @@ import { writeFile } from "node:fs/promises";
 import { chromium, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { Predicate } from "effect";
-import { RECEIPT_FILE_MAX_BYTES, receiptTransferMaxBytes } from "@vektorprogrammet/http-api";
+import { RECEIPT_FILE_MAX_BYTES, receiptTransferMaxBytes } from "@vektorprogrammet/rpc";
 import { fixture, receiptBytes } from "../../../tools/e2e/golden-reimbursement-evidence.mjs";
 import { sha256 } from "../../../tools/e2e/golden-school-service-evidence.mjs";
 

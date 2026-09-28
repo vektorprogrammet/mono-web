@@ -1,56 +1,35 @@
-import { OnboardingApiHandlers } from "./onboarding/http.js";
-import { PlacementsApiHandlers } from "./placements/http.js";
-import { CertificateFontsLive } from "./placements/certificate-pdf.js";
-import { CertificatesApiHandlers } from "./placements/certificates-http.js";
-import { ContactApiHandlers } from "./contact/http.js";
 import { BlockList, isIP } from "node:net";
-import type { AuthEngineService, OAuthCredentialAuthority } from "@vektorprogrammet/database";
-import { InactiveActor, UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
+import { databaseHealth, type AuthEngineService } from "@vektorprogrammet/database";
+import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import {
-  RecruitmentInactiveActor,
-  RecruitmentRoleDenied,
-} from "@vektorprogrammet/domain/recruitment";
-import { type Identity, type IdentityEngineError } from "@vektorprogrammet/domain/identity";
-import { ARTICLE_SLUG_MAX_LENGTH } from "@vektorprogrammet/domain/content";
-import { ExternalNativeApi, InternalNativeApi } from "@vektorprogrammet/http-api";
-import { Problem } from "@vektorprogrammet/http-api/http-semantics";
-import { Schema, Cause, Predicate, Effect, Layer } from "effect";
+  InternalNativeRpcs,
+  internalNativeRpcPath,
+  NativeRpcs,
+  nativeRpcPath,
+} from "@vektorprogrammet/rpc";
+import { Problem, problemBody, problemHeaders } from "@vektorprogrammet/rpc/problem";
+import { Effect, Layer, Predicate, type Schema } from "effect";
 import { HttpEffect, HttpRouter, HttpServerResponse } from "effect/unstable/http";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { AdmissionsApiHandlers } from "./admission/http.js";
-import { admissionActorForAuthority } from "./admission/http-context.js";
-import { AdmissionOutcomesApiHandlers } from "./admission/outcome-http.js";
-import { DirectoryApiHandlers } from "./directory/http.js";
-import {
-  recruitmentBoardActorFrom,
-  resolveAuthenticatedPerson,
-  resolveAuthenticatedPersonAtInstant,
-  resolveRequestPerson,
-  resolveRequestPersonAtInstant,
-  resolveRequestCredentialAtInstant,
-  resolveRequestPersonAuthority,
-} from "./authority.js";
+import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
+import { AdmissionsRpcHandlers } from "./admission/rpc.js";
+import { AdmissionOutcomesRpcHandlers } from "./admission/outcome-rpc.js";
 import type { BackendConfig } from "./config.js";
-import { ContentApiHandlers } from "./content/http.js";
-import { SystemApiHandlers } from "./http-api/system.js";
-import { ProblemBoundaryLive, problemWebResponse } from "./http-api/problem.js";
-import { nativeHttpApiMiddlewareLayer } from "./http-api/transport.js";
+import { ContactRpcHandlers } from "./contact/rpc.js";
+import { ContentRpcHandlers } from "./content/rpc.js";
+import { DirectoryRpcHandlers } from "./directory/rpc.js";
 import { allowHeader } from "./http-semantics.js";
-import { externalNativePreflightMethodsForPath } from "./native-api-preflight.js";
-
 import { decideNativePreflight } from "./native-preflight.js";
-import { OrganizationApiHandlers } from "./organization/http.js";
-import { ProfileApiHandlers } from "./profile/http.js";
-import { InternalReceiptApiHandlers, ReceiptApiHandlers } from "./receipt/http.js";
-import type { ReceiptIdentityResolvers } from "./receipt/http-context.js";
-import {
-  ReceiptFileStoreResource,
-  ReceiptFileStoreLive,
-  type ReceiptFileStore,
-} from "./receipt/filesystem.js";
-import { RecruitmentApiHandlers } from "./recruitment/http.js";
-import { SocialEventsApiHandlers, type SocialEventTransactionHook } from "./social-events/http.js";
-import { TeamApplicationsApiHandlers } from "./team-application/http.js";
+import { OnboardingRpcHandlers } from "./onboarding/rpc.js";
+import { OrganizationRpcHandlers } from "./organization/rpc.js";
+import { CertificatesRpcHandlers } from "./placements/certificates-rpc.js";
+import { PlacementsRpcHandlers } from "./placements/rpc.js";
+import { ProfileRpcHandlers } from "./profile/rpc.js";
+import { InternalReceiptsRpcHandlers, ReceiptsRpcHandlers } from "./receipt/rpc.js";
+import { RecruitmentRpcHandlers } from "./recruitment/rpc.js";
+import { nativeRpcCredentialLayer } from "./rpc/credential.js";
+import type { NativeRpcOptions } from "./rpc/options.js";
+import { ProblemBoundaryLive } from "./rpc/problem.js";
+import { SystemRpcHandlers } from "./rpc/system.js";
 import {
   allowsNativePreflightHeaders,
   decideTrustedOrigin,
@@ -59,6 +38,18 @@ import {
   withTrustedOriginCors,
   type NativeSessionBoundaryPolicy,
 } from "./session-security.js";
+import { SocialEventsRpcHandlers } from "./social-events/rpc.js";
+import { TeamApplicationsRpcHandlers } from "./team-application/rpc.js";
+
+/**
+ * Renders one problem at the HTTP ingress, outside any RPC: an origin denial, a method outside a
+ * path's methods, an unknown path, and an unavailable health check.
+ */
+const problemWebResponse = (problem: Problem): Response =>
+  new Response(JSON.stringify(problemBody(problem)), {
+    status: problem.status,
+    headers: { ...problemHeaders(problem), "content-type": "application/problem+json" },
+  });
 
 /** A browser request from an origin the session boundary does not trust; the answer varies by Origin. */
 const originRejected = (): Response => {
@@ -68,7 +59,7 @@ const originRejected = (): Response => {
   return response;
 };
 
-/** A method outside the resource's frozen method set, with the path's Allow header. */
+/** A method outside the path's methods, with the path's Allow header. */
 const methodNotAllowed = (methods: ReadonlyArray<string>): Response => {
   const response = problemWebResponse(Problem.make("method.not-allowed"));
   response.headers.set("allow", allowHeader(methods));
@@ -76,11 +67,9 @@ const methodNotAllowed = (methods: ReadonlyArray<string>): Response => {
   return response;
 };
 
-export const nativeHttpRouterConfig = {
-  // FindMyWay compares the encoded path segment. The longest routed identifier is an article
-  // slug; the other identifiers are shorter.
-  maxParamLength: ARTICLE_SLUG_MAX_LENGTH,
-} as const;
+/** The HTTP methods of each native path: the RPC endpoint and the health probe. */
+export const nativePreflightMethodsForPath = (pathname: string): ReadonlyArray<string> =>
+  pathname === nativeRpcPath ? ["POST"] : pathname === "/health" ? ["GET"] : [];
 
 /**
  * Answers one web request. A failure is either rendered as a response or dies, and the server
@@ -100,7 +89,7 @@ const jsonResponse = (body: Schema.Json, status = 200): Response =>
 /**
  * The identity engine operations of the HTTP boundary: the Better Auth handler mounted only at
  * `/api/auth/*`, the trusted-origin rejection audit, and the optional OAuth surfaces. They share
- * the process-owned identity engine with the native API.
+ * the process-owned identity engine with the native RPC endpoint.
  */
 export type BackendAuthHandler = Pick<
   AuthEngineService,
@@ -110,165 +99,91 @@ export type BackendAuthHandler = Pick<
     Pick<AuthEngineService, "oauthHandler" | "oauthIntrospectionHandler" | "exactRedirectAccepted">
   >;
 
-const isRecruitmentActorDenial = Schema.is(
-  Schema.Union([InactiveActor, RecruitmentInactiveActor, RecruitmentRoleDenied]),
+export type BackendHttpOptions = Omit<NativeRpcOptions, "config">;
+
+/** `GET /health`: the database answers, or health.unavailable. Infrastructure probes it. */
+const healthRoute = HttpRouter.use((router) =>
+  router.add(
+    "GET",
+    "/health",
+    databaseHealth.pipe(
+      Effect.as(HttpServerResponse.fromWeb(jsonResponse({ status: "ok" }))),
+      Effect.orElseSucceed(() =>
+        HttpServerResponse.fromWeb(problemWebResponse(Problem.make("health.unavailable"))),
+      ),
+    ),
+  ),
 );
 
-export interface BackendHttpOptions {
-  /** Evidence compositions can pin one authorization instant without patching the global clock. */
-  readonly now?: () => string;
-  /** Test-only social-event transaction coordination for real concurrent snapshot evidence. */
-  readonly socialEventsTransactionHook?: SocialEventTransactionHook;
-  /** Selects the composition-owned private receipt store; Bun keeps its filesystem default. */
-  readonly receiptFileStore?: ReceiptFileStore;
-}
+const notFound = HttpRouter.use((router) =>
+  router.add(
+    "*",
+    "*",
+    Effect.sync(() =>
+      HttpServerResponse.fromWeb(problemWebResponse(Problem.make("resource.not-found"))),
+    ),
+  ),
+);
 
 /**
- * Builds every external native handler group from the process-owned capability
- * graph. This function constructs Layers once at the composition root.
+ * The external native routes: every native RPC at `nativeRpcPath`, and the health probe. The
+ * handlers of each context take the same options; the composition root builds them once.
  */
-export const ExternalNativeApiRouterLive = (
+export const ExternalNativeRpcRouterLive = (
   config: BackendConfig,
   options: BackendHttpOptions = {},
 ) => {
-  const receiptIdentity: ReceiptIdentityResolvers<
-    IdentityEngineError | UnauthenticatedActor,
-    Identity | OAuthCredentialAuthority
-  > = {
-    resolveAuthorizationPrincipal: (request: Request) =>
-      resolveRequestPersonAtInstant(request, { now: options.now }),
-    resolvePersonId: (request: Request) => resolveRequestPerson(request),
-    resolveApprovalCredential: (request: Request) =>
-      resolveRequestCredentialAtInstant(request, "Either", { now: options.now }),
-  };
-
-  const receiptOptions = {
-    config: config.receipt,
-    identity: receiptIdentity,
-    now: options.now,
-  };
-
-  const middlewareLayer = nativeHttpApiMiddlewareLayer(config.contact);
+  const rpcOptions: NativeRpcOptions = { ...options, config };
 
   const handlers = Layer.mergeAll(
-    AdmissionOutcomesApiHandlers({ now: options.now }),
-    PlacementsApiHandlers({ now: options.now }),
-    OnboardingApiHandlers({ now: options.now, delivery: config.onboarding }),
-    ContactApiHandlers(config.contact),
-    SystemApiHandlers(options),
-    AdmissionsApiHandlers({
-      config: config.admission,
-      resolveActor: (request, departmentScope) =>
-        resolveRequestPersonAuthority(request, { now: options.now }).pipe(
-          Effect.flatMap((authority) => admissionActorForAuthority(authority, departmentScope)),
-        ),
-    }),
-    ReceiptApiHandlers(receiptOptions).pipe(
-      Layer.provide(
-        options.receiptFileStore === undefined
-          ? ReceiptFileStoreLive({
-              stagingRoot: config.receipt.stagingRoot,
-              committedRoot: config.receipt.committedRoot,
-              failNextPromotionEffectId: config.receipt.e2e?.failNextPromotionEffectId,
-            })
-          : Layer.succeed(ReceiptFileStoreResource, options.receiptFileStore),
-      ),
-    ),
-    RecruitmentApiHandlers({
-      config: config.recruitment,
-      resolveActor: (request) =>
-        resolveRequestPersonAuthority(request, { now: options.now }).pipe(
-          Effect.flatMap((authority) =>
-            Effect.try({
-              try: () => recruitmentBoardActorFrom(authority),
-              catch: (cause) =>
-                isRecruitmentActorDenial(cause) ? cause : new Cause.UnknownError(cause),
-            }),
-          ),
-        ),
-    }),
-    OrganizationApiHandlers({
-      config: config.organization,
-      resolveAuthority: (request) => resolveRequestPersonAuthority(request, { now: options.now }),
-    }),
-    DirectoryApiHandlers(
-      {
-        resolveAuthority: (request) => resolveRequestPersonAuthority(request, { now: options.now }),
-      },
-      {
-        resolveActor: (request) => resolveRequestPersonAtInstant(request, { now: options.now }),
-      },
-    ),
-    ContentApiHandlers((request) => resolveRequestPersonAtInstant(request, { now: options.now })),
-    ProfileApiHandlers({
-      config,
-      resolveActor: (request) => resolveRequestPersonAuthority(request, { now: options.now }),
-    }),
-    SocialEventsApiHandlers({ transactionHook: options.socialEventsTransactionHook }),
-    TeamApplicationsApiHandlers(config.teamApplication),
-    CertificatesApiHandlers.pipe(Layer.provide(CertificateFontsLive)),
-  ).pipe(Layer.provide(middlewareLayer));
+    AdmissionOutcomesRpcHandlers(rpcOptions),
+    AdmissionsRpcHandlers(rpcOptions),
+    CertificatesRpcHandlers(rpcOptions),
+    ContactRpcHandlers(rpcOptions),
+    ContentRpcHandlers(rpcOptions),
+    DirectoryRpcHandlers(rpcOptions),
+    OnboardingRpcHandlers(rpcOptions),
+    OrganizationRpcHandlers(rpcOptions),
+    PlacementsRpcHandlers(rpcOptions),
+    ProfileRpcHandlers(rpcOptions),
+    ReceiptsRpcHandlers(rpcOptions),
+    RecruitmentRpcHandlers(rpcOptions),
+    SocialEventsRpcHandlers(rpcOptions),
+    SystemRpcHandlers(rpcOptions),
+    TeamApplicationsRpcHandlers(rpcOptions),
+  );
 
-  const nativeRoutes = HttpApiBuilder.layer(ExternalNativeApi).pipe(
+  const rpcRoute = RpcServer.layerHttp({
+    group: NativeRpcs,
+    path: nativeRpcPath,
+    protocol: "http",
+  }).pipe(
     Layer.provide(handlers),
-    Layer.provide(middlewareLayer),
+    Layer.provide(nativeRpcCredentialLayer(config.contact)),
+    Layer.provide(ProblemBoundaryLive),
+    Layer.provide(RpcSerialization.layerJson),
   );
 
-  const notFound = HttpRouter.use((router) =>
-    router.add(
-      "*",
-      "*",
-      Effect.sync(() =>
-        HttpServerResponse.fromWeb(problemWebResponse(Problem.make("resource.not-found"))),
-      ),
-    ),
-  );
-
-  return Layer.mergeAll(nativeRoutes, notFound, ProblemBoundaryLive);
+  return Layer.mergeAll(rpcRoute, healthRoute, notFound);
 };
 
-/** Builds the isolated internal API root for an explicitly selected ingress. */
-export const InternalNativeApiRouterLive = (
+/** The isolated internal RPC routes for an explicitly selected ingress. */
+export const InternalNativeRpcRouterLive = (
   config: BackendConfig,
   options: BackendHttpOptions = {},
 ) => {
-  const receiptIdentity: ReceiptIdentityResolvers<
-    IdentityEngineError | UnauthenticatedActor,
-    Identity
-  > = {
-    resolveAuthorizationPrincipal: (request: Request) =>
-      resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, {
-        now: options.now,
-      }),
-    resolvePersonId: (request: Request) =>
-      resolveAuthenticatedPerson(request.headers.get("cookie") ?? undefined),
-  };
-
-  const receiptOptions = {
-    config: config.receipt,
-    identity: receiptIdentity,
-    now: options.now,
-  };
-
-  const middlewareLayer = nativeHttpApiMiddlewareLayer(config.contact);
-  const handlers = InternalReceiptApiHandlers(receiptOptions).pipe(Layer.provide(middlewareLayer));
-
-  const internalRoutes = HttpApiBuilder.layer(InternalNativeApi).pipe(
-    Layer.provide(handlers),
-    Layer.provide(middlewareLayer),
+  const rpcRoute = RpcServer.layerHttp({
+    group: InternalNativeRpcs,
+    path: internalNativeRpcPath,
+    protocol: "http",
+  }).pipe(
+    Layer.provide(InternalReceiptsRpcHandlers({ ...options, config })),
+    Layer.provide(nativeRpcCredentialLayer(config.contact)),
+    Layer.provide(ProblemBoundaryLive),
+    Layer.provide(RpcSerialization.layerJson),
   );
 
-  const notFound = HttpRouter.use((router) =>
-    router.add(
-      "*",
-      "*",
-      Effect.sync(() =>
-        HttpServerResponse.fromWeb(problemWebResponse(Problem.make("resource.not-found"))),
-      ),
-    ),
-  );
-
-  return Layer.mergeAll(internalRoutes, notFound, ProblemBoundaryLive);
+  return Layer.mergeAll(rpcRoute, notFound);
 };
 
 const oauthAuthorizationServerMetadataPath = "/.well-known/oauth-authorization-server/api/auth";
@@ -378,8 +293,8 @@ export const nativeRouterWebHandler = (router: HttpRouter.HttpRouter): BackendHt
 };
 
 /**
- * Explicit external boundary around the native HttpApi handler.
- * Better Auth remains the only external path family outside `ExternalNativeApi`.
+ * Explicit external boundary around the native RPC handler. Better Auth and the OAuth routes are
+ * the only external path families outside `NativeRpcs` and the health probe.
  */
 export const backendHttpHandler =
   (
@@ -453,7 +368,7 @@ export const backendHttpHandler =
           pathname,
           requestedMethod,
           headersAllowed: allowsNativePreflightHeaders(prepared.request),
-          methodsForPath: externalNativePreflightMethodsForPath,
+          methodsForPath: nativePreflightMethodsForPath,
         });
 
         if (Predicate.isTagged(preflight, "HeaderMalformed")) {

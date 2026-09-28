@@ -1,5 +1,5 @@
 import { ReceiptFileStoreError, ReceiptFileStoreResource } from "./filesystem.js";
-import { jsonText } from "../http-api/problem.js";
+import { jsonText } from "../rpc/problem.js";
 import { Data, Match, Effect, Layer, Predicate } from "effect";
 import {
   ReceiptDecodeError,

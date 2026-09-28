@@ -3,7 +3,7 @@ import { Schema } from "effect";
 import { Form, Link, data, useLoaderData, useNavigation } from "react-router";
 import { InterviewReport,
 InterviewReportQuery,
-interviewScoreTotal, } from "@vektorprogrammet/http-api"
+interviewScoreTotal, } from "@vektorprogrammet/rpc"
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth, expiredSessionRedirect } from "../lib/auth.server";
 import { recruitmentFailureFromSdk } from "../foldkit/recruitment/bridge";

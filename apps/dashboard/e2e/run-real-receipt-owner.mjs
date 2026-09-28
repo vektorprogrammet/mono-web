@@ -1,5 +1,5 @@
 import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
-import { ReadReceiptEvidenceEndpoint } from "@vektorprogrammet/http-api";
+import { ReadReceiptEvidenceEndpoint } from "@vektorprogrammet/rpc";
 import { Predicate } from "effect";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";

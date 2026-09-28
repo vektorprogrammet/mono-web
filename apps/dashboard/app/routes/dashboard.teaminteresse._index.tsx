@@ -1,6 +1,6 @@
 import { DataTable } from "@/components/data-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { TeamInterestResponse } from "@vektorprogrammet/http-api";
+import { TeamInterestResponse } from "@vektorprogrammet/rpc";
 import { useLoaderData } from "react-router";
 import { requireAuth } from "../lib/auth.server";
 import { createAuthenticatedClient } from "../lib/api.server";

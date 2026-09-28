@@ -16,7 +16,7 @@
     "@vektorprogrammet/backend": "workspace:*",
     "@vektorprogrammet/database": "workspace:*",
     "@vektorprogrammet/domain": "workspace:*",
-    "@vektorprogrammet/http-api": "workspace:*",
+    "@vektorprogrammet/rpc": "workspace:*",
     "effect": "catalog:effect-v4",
     "mysql2": "^3.15.3",
     "pg": "8"

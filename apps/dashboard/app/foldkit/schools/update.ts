@@ -1,4 +1,4 @@
-import type { SchoolDirectory, SchoolDirectoryDepartment } from "@vektorprogrammet/http-api";
+import type { SchoolDirectory, SchoolDirectoryDepartment } from "@vektorprogrammet/rpc";
 import { Tabs } from "@foldkit/ui";
 import { Match as M, Option, Schema, Predicate } from "effect";
 import {
@@ -6,7 +6,7 @@ import {
   DepartmentId,
   SemesterId,
   type SchoolManagement,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Command, Update } from "foldkit";
 import type { SchoolsDirectoryCommands } from "./command";
 import { GotDirectoryTabMessage, type Message } from "./message";

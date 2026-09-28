@@ -1,4 +1,4 @@
-import { ArticleVersionNumber } from "@vektorprogrammet/http-api";
+import { ArticleVersionNumber } from "@vektorprogrammet/rpc";
 
 type NewsApiFixture = {
   listingCalls: number;
@@ -9,7 +9,7 @@ type NewsApiFixture = {
 };
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ArticleSlug, DepartmentJsonSchema, makeNativeProblem } from "@vektorprogrammet/http-api";
+import { ArticleSlug, DepartmentJsonSchema, makeNativeProblem } from "@vektorprogrammet/rpc";
 import { Schema } from "effect";
 import type { PublishedNewsSummary, HomepageDepartment, PublishedNewsArticle, PublishedNewsListing } from "../src/lib/api-types";
 

@@ -1,5 +1,5 @@
 import { Predicate, Schema, flow } from "effect";
-import { ReceiptId } from "@vektorprogrammet/http-api"
+import { ReceiptId } from "@vektorprogrammet/rpc"
 
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";

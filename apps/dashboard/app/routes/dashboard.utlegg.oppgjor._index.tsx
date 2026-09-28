@@ -18,7 +18,7 @@ import {
   StrongETag,
   type IdempotencyKey as IdempotencyKeyValue,
   type StrongETag as StrongETagValue,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Schema } from "effect";
 import { Link, useActionData, useLoaderData, useNavigation } from "react-router";
 import { createAuthenticatedClient } from "../lib/api.server";

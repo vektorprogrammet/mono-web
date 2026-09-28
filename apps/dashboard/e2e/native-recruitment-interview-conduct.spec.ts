@@ -1,4 +1,4 @@
-import { CancelInterviewResponse, ConductObservation } from "@vektorprogrammet/http-api";
+import { CancelInterviewResponse, ConductObservation } from "@vektorprogrammet/rpc";
 import { RecruitmentBridgeFailure } from "../app/foldkit/recruitment/bridge";
 import { Schema, Predicate } from "effect";
 import AxeBuilder from "@axe-core/playwright";

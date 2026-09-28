@@ -22,7 +22,7 @@ import {
   PlacementScopes,
   ReceiptListResponse,
   UserProfileResponse,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Effect, Layer, ManagedRuntime, Redacted, Schema } from "effect";
 import { Etag, FetchHttpClient, HttpRouter } from "effect/unstable/http";
 import { ReceiptDeliveryLive } from "@vektorprogrammet/backend/receipt/delivery";

@@ -1,4 +1,4 @@
-import type { StrongETag } from "@vektorprogrammet/http-api";
+import type { StrongETag } from "@vektorprogrammet/rpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";

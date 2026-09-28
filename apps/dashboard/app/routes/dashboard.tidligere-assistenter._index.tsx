@@ -1,6 +1,6 @@
-import { ReturningAssistantRegistrationInputSchema } from "@vektorprogrammet/http-api"
-import { PersonId } from "@vektorprogrammet/http-api"
-import { IdempotencyHeaders } from "@vektorprogrammet/http-api";
+import { ReturningAssistantRegistrationInputSchema } from "@vektorprogrammet/rpc"
+import { PersonId } from "@vektorprogrammet/rpc"
+import { IdempotencyHeaders } from "@vektorprogrammet/rpc";
 import { Record, Option, Predicate, Schema } from "effect";
 import { data, useFetcher, useLoaderData, useNavigation, useRouteError, useSearchParams } from "react-router";
 import { useState, useSyncExternalStore, type FormEvent } from "react";

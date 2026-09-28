@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { createPromiseClient } from "@vektorprogrammet/sdk";
-import { makeNativeProblem } from "@vektorprogrammet/http-api";
+import { makeNativeProblem } from "@vektorprogrammet/rpc";
 import { describe, expect, it } from "vitest";
 import {
   mapPublicApplicationError,

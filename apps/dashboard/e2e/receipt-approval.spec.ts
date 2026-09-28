@@ -20,7 +20,7 @@ import {
   ReceiptApprovalQueueResponse,
   ReceiptListResponse,
   ReceiptResource,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Schema } from "effect";
 import { z } from "zod";
 import { addressesAnyRoute, addressesRoute, legacyRoutes } from "./request-routes.js";

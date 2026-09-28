@@ -4,7 +4,7 @@ import {
   TeamApplicationCursor,
   TeamApplicationId,
   TeamApplicationIntakeMergePatch,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Effect, Match, Schema as S } from "effect";
 import { Command, Dom } from "foldkit";
 import type { TeamApplicationsFailure, TeamApplicationsOperations } from "./browser-client";

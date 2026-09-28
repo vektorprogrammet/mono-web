@@ -1,6 +1,6 @@
 import { ContactEmail } from "@vektorprogrammet/domain/contact";
 import { mailDeliveryConfig, type MailDeliveryConfig } from "./mail/http.js";
-import { publicRateLimit, type PublicRateLimit } from "./http-api/public-rate-limit.js";
+import { publicRateLimit, type PublicRateLimit } from "./rpc/public-rate-limit.js";
 import { receiptDeliveryConfig, type ReceiptDeliveryConfig } from "./receipt/delivery.js";
 import {
   recruitmentNotificationConfig,

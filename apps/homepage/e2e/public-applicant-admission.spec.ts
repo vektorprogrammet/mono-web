@@ -9,7 +9,7 @@ import {
   PublicApplicationConfirmationSchema,
   ReadApplicationCatalogEndpoint,
   SubmitApplicationRequest,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Schema, Struct } from "effect";
 import { type HttpApiEndpoint, HttpApiSchema } from "effect/unstable/httpapi";
 import {

@@ -5,7 +5,7 @@ import {
   AdmissionsApi,
   CreateAdmissionPeriodEndpoint,
   ReviseAdmissionPeriodEndpoint,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";

@@ -1,4 +1,4 @@
-import { NativeProblem, SessionResponse } from "@vektorprogrammet/http-api";
+import { NativeProblem, SessionResponse } from "@vektorprogrammet/rpc";
 import { Order, Predicate, Schema } from "effect";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";

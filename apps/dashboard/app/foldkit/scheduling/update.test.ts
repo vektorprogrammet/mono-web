@@ -1,14 +1,14 @@
 import { Dialog } from "@foldkit/ui";
 import { RecruitmentBridgeFailure } from "../recruitment/bridge";
 import { Predicate } from "effect";
-import { RecruitmentInterviewConductObservationSchema } from "@vektorprogrammet/http-api"
+import { RecruitmentInterviewConductObservationSchema } from "@vektorprogrammet/rpc"
 import {
   IdempotencyKey,
   ScheduleInterviewResponse,
   SchedulingBoard,
   StrongETag,
   type ScheduleInterviewRequest,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Effect, Schema as S } from "effect";
 import { AsyncData } from "foldkit";
 import { describe, expect, it } from "vitest";

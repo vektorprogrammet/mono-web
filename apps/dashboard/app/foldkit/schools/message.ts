@@ -1,11 +1,11 @@
-import { DepartmentId } from "@vektorprogrammet/http-api";
+import { DepartmentId } from "@vektorprogrammet/rpc";
 import {
   SchoolDirectorySchema,
   SchoolManagement,
   SchoolCommand,
   SchoolCommandResult,
   SchoolId,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Tabs } from "@foldkit/ui";
 import { Schema as S } from "effect";
 import { taggedStruct } from "foldkit/schema";

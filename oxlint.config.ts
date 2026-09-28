@@ -17,7 +17,7 @@ const coreEffectFiles = [
   "apps/backend/**",
   "packages/database/**",
   "packages/domain/**",
-  "packages/http-api/**",
+  "packages/rpc/**",
 ];
 
 const presetRules = (presets: ReadonlyArray<OxlintConfig>, severity: "error" | "off") =>
@@ -70,7 +70,7 @@ const effectConfig = {
       strictness: "strict",
     },
     {
-      files: ["packages/sdk/src/**/*.ts"],
+      files: ["packages/rpc/src/client.ts"],
       role: "effect-library",
       platform: "portable",
       strictness: "strict",
@@ -101,8 +101,8 @@ const effectConfig = {
       strictness: "strict",
     },
     {
-      // The SDK selects FetchHttpClient, closes the environment, and runs each operation for Promise callers.
-      files: ["packages/sdk/src/effect-client.ts", "packages/sdk/src/promise.ts"],
+      // The script client builds its own runtime and runs each RPC for Promise callers.
+      files: ["packages/rpc/src/script-client.ts"],
       role: "composition-root",
       platform: "portable",
       strictness: "strict",
@@ -215,7 +215,7 @@ const crossPackageSourceImportPatterns = [
 const crossPackageSourceImportPatternsExceptSdk = [
   {
     regex:
-      "^(\\./)?(\\.\\./)+(apps/[^/]+|tools/[^/]+|packages/(database|domain|http-api)|[^./][^/]*)/src(/|$)",
+      "^(\\./)?(\\.\\./)+(apps/[^/]+|tools/[^/]+|packages/(database|domain|rpc)|[^./][^/]*)/src(/|$)",
     message: crossPackageSourceImportMessage,
   },
 ];
@@ -289,11 +289,7 @@ export default defineConfig({
       },
     },
     {
-      files: [
-        "apps/homepage/src/**",
-        "apps/dashboard/app/**",
-        "packages/{domain,http-api,sdk}/src/**",
-      ],
+      files: ["apps/homepage/src/**", "apps/dashboard/app/**", "packages/{domain,rpc}/src/**"],
       rules: {
         "no-restricted-imports": [
           "error",

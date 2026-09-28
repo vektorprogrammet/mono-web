@@ -1,4 +1,4 @@
-import { ArticleDetailExample, DepartmentExample } from "@vektorprogrammet/http-api";
+import { ArticleDetailExample, DepartmentExample } from "@vektorprogrammet/rpc";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { conditionalReadHeaders, nativeProblemResponse, nativeSessionResponse, privateReadHeaders, routeArgs, sessionCookie } from "../../../test/native-http";
 

@@ -1,6 +1,6 @@
 import { Effect, Match, Schema as S } from "effect";
 import { Command } from "foldkit";
-import { IdempotencyKey, RecruitmentMaintenanceCommand } from "@vektorprogrammet/http-api";
+import { IdempotencyKey, RecruitmentMaintenanceCommand } from "@vektorprogrammet/rpc";
 import { createEffectClient } from "@vektorprogrammet/sdk/effect";
 import { resolveBrowserApiUrl } from "../../lib/browser-api";
 import { nativeProblemFrom } from "../../lib/native-problem";

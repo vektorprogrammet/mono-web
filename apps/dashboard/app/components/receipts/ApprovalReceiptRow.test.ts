@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { StrongETag } from "@vektorprogrammet/http-api";
+import { StrongETag } from "@vektorprogrammet/rpc";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ApprovalReceiptView } from "../../lib/receipt-view";

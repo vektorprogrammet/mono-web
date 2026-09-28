@@ -6,7 +6,7 @@ import type {
   TeamApplicationIntakeResource,
   TeamApplicationListResponse,
   TeamApplicationResource,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { createEffectClient, type EffectSdk } from "@vektorprogrammet/sdk/effect";
 import { Effect } from "effect";
 import { resolveBrowserApiUrl } from "../../lib/browser-api";

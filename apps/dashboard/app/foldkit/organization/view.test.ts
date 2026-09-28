@@ -1,7 +1,7 @@
 import { Scene } from "foldkit/test";
 import { DepartmentJsonSchema,
 FieldOfStudyJsonSchema,
-TeamJsonSchema, } from "@vektorprogrammet/http-api"
+TeamJsonSchema, } from "@vektorprogrammet/rpc"
 import { Schema as S } from "effect";
 import { describe, it } from "vitest";
 import { OrganizationCatalogData, init, type Model, TeamCatalogSnapshot, FieldOfStudyCatalogSnapshot } from "./model";

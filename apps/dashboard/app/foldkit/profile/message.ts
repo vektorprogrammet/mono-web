@@ -1,4 +1,4 @@
-import { StrongETag, UserProfileResponse } from "@vektorprogrammet/http-api";
+import { StrongETag, UserProfileResponse } from "@vektorprogrammet/rpc";
 import { Schema as S } from "effect";
 import { taggedStruct } from "foldkit/schema";
 import { ProfileBridgeFailure, ProfileRequestId } from "./bridge";

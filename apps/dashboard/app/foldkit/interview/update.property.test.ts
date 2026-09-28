@@ -1,5 +1,5 @@
 import { Predicate } from "effect";
-import { StrongETag } from "@vektorprogrammet/http-api";
+import { StrongETag } from "@vektorprogrammet/rpc";
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema as S } from "effect";
 import { Arbitrary } from "effect/unstable/arbitrary";

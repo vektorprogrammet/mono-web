@@ -1,4 +1,4 @@
-import { SessionListResponse } from "@vektorprogrammet/http-api";
+import { SessionListResponse } from "@vektorprogrammet/rpc";
 import { Schema, Predicate } from "effect";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";

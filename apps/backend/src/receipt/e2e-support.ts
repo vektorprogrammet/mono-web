@@ -2,7 +2,7 @@
  * Local E2E concurrency probe for receipt approval evidence.
  * Composed only when `ReceiptApiConfig.e2e` is present (local deployments only).
  */
-import { Problem } from "@vektorprogrammet/http-api/http-semantics";
+import { Problem } from "@vektorprogrammet/rpc/problem";
 import { Cause, Clock, Deferred, Duration, Effect } from "effect";
 import type { ReceiptApiConfig } from "./config.js";
 

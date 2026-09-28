@@ -4,7 +4,7 @@ import {
   IdempotencyIfMatchHeaders,
   PublicApplicationIdSchema,
   type AdmissionOutcomeResource,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Option, Predicate, Schema } from "effect";
 import { useState } from "react";
 import {

@@ -1,6 +1,6 @@
 import { HttpClientError } from "effect/unstable/http";
 import type { PublicApplicationCatalog } from "./api-types";
-import { isProblem, problemBody, validationProblemSchema, type ValidationProblem, IdempotencyKey, SubmitApplicationRequest } from "@vektorprogrammet/http-api";
+import { isProblem, problemBody, validationProblemSchema, type ValidationProblem, IdempotencyKey, SubmitApplicationRequest } from "@vektorprogrammet/rpc";
 import { Data, Match, Option, Predicate, Schema } from "effect";
 import {
   languageOptions,

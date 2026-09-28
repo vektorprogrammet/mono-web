@@ -1,5 +1,5 @@
-import { OnboardingCommand, OnboardingScope } from "@vektorprogrammet/http-api"
-import { IdempotencyIfMatchHeaders } from "@vektorprogrammet/http-api";
+import { OnboardingCommand, OnboardingScope } from "@vektorprogrammet/rpc"
+import { IdempotencyIfMatchHeaders } from "@vektorprogrammet/rpc";
 import { Schema } from "effect";
 import { useState } from "react";
 import { Form, data, useFetcher, useLoaderData } from "react-router";

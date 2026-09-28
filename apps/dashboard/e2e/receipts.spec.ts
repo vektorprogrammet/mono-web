@@ -19,7 +19,7 @@ import {
   ReceiptListResponse,
   ReceiptResource,
   UserProfileResponse,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { dashboardBaseUrl, dashboardMount } from "../dashboard-base";
 
 type JourneyOutcome = Data.TaggedEnum<{

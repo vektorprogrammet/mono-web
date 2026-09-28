@@ -7,7 +7,7 @@ import {
   TeamApplicationIntakeMergePatch,
   TeamApplicationListResponse,
   TeamApplicationResource,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Schema as S } from "effect";
 import { AsyncData } from "foldkit";
 

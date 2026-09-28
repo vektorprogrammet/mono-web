@@ -7,7 +7,7 @@ import {
   TeamApplicationInput,
   TeamApplicationsReadIntakeProblem,
   TeamApplicationsSubmitProblem,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Data, Match, Option, Predicate, Schema, Struct } from "effect";
 import type {
   HomepageTeamApplicationIntake,

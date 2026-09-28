@@ -3,8 +3,8 @@ import {
   SchoolId,
   SchoolManagement,
   SchoolCommand,
-} from "@vektorprogrammet/http-api";
-import { SchoolDirectoryDepartmentSchema, SchoolDirectorySchema } from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
+import { SchoolDirectoryDepartmentSchema, SchoolDirectorySchema } from "@vektorprogrammet/rpc";
 import { Tabs } from "@foldkit/ui";
 import { Schema as S } from "effect";
 import { AsyncData } from "foldkit";

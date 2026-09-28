@@ -1,6 +1,6 @@
 import { Predicate } from "effect";
-import type { RecruitmentInterviewQuestionSnapshot } from "@vektorprogrammet/http-api"
-import { IdempotencyKey } from "@vektorprogrammet/http-api";
+import type { RecruitmentInterviewQuestionSnapshot } from "@vektorprogrammet/rpc"
+import { IdempotencyKey } from "@vektorprogrammet/rpc";
 import { Dialog } from "@foldkit/ui";
 import { Match as M, Option, Schema as S } from "effect";
 import { AsyncData, Command, FieldValidation, Update } from "foldkit";

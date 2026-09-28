@@ -1,4 +1,4 @@
-import { CoverageBoardResource, OwnCoverageResource, PlacementBoardResource } from "@vektorprogrammet/http-api";
+import { CoverageBoardResource, OwnCoverageResource, PlacementBoardResource } from "@vektorprogrammet/rpc";
 import { Schema as S } from "effect";
 
 export const Input = S.Struct({

@@ -1,5 +1,5 @@
 import { Predicate } from "effect";
-import { IdempotencyKey } from "@vektorprogrammet/http-api";
+import { IdempotencyKey } from "@vektorprogrammet/rpc";
 import { Dialog } from "@foldkit/ui";
 import { Match as M, Option, Schema as S } from "effect";
 import { AsyncData, Command, Update } from "foldkit";

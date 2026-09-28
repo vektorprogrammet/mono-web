@@ -3,7 +3,7 @@ import { Predicate, DateTime, Effect, Schema as S, Option, Match, Struct, flow }
 import { Command, Runtime, Update } from "foldkit";
 import { taggedStruct } from "foldkit/schema";
 import type { Html, HtmlBuilder } from "foldkit/html";
-import { AppointmentManagement, OrganizationLifecycleCommand, IdempotencyKey } from "@vektorprogrammet/http-api";
+import { AppointmentManagement, OrganizationLifecycleCommand, IdempotencyKey } from "@vektorprogrammet/rpc";
 import { createEffectClient } from "@vektorprogrammet/sdk/effect";
 import { resolveBrowserApiUrl } from "../../lib/browser-api";
 import { nativeProblemFrom } from "../../lib/native-problem";

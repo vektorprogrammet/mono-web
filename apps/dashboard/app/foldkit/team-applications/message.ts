@@ -4,7 +4,7 @@ import {
   TeamApplicationIntakeResource,
   TeamApplicationListResponse,
   TeamApplicationResource,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Schema as S } from "effect";
 import { taggedStruct } from "foldkit/schema";
 import { MutationFailure, ReadFailure, RequestId } from "./model";

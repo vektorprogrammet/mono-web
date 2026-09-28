@@ -10,7 +10,8 @@ import {
   socialEventsBridgeFailure,
   type SocialEventsBridgeErrorTag,
 } from "../foldkit/social-events/bridge";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
+import { IdempotencyKey } from "@vektorprogrammet/rpc/problem";
 import { requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/__foldkit.social-events";
 
@@ -89,14 +90,11 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   try {
-    const result = await createAuthenticatedClient(cookie, request)["social-events"].readScope({});
-
-    if (result.body === undefined) throw new Error("Social-events scope response did not include a body");
-
-    return data(
-      S.decodeSync(SocialEventScopeResource)(result.body, { onExcessProperty: "error" }),
-      { headers: responseHeaders },
+    const scope = await callNative(cookie, request, (client) =>
+      client["social-events.readScope"](),
     );
+
+    return data(S.encodeSync(SocialEventScopeResource)(scope), { headers: responseHeaders });
   } catch (error) {
     const tag = tagFrom(error);
 
@@ -136,34 +134,28 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   try {
-    const socialEvents = createAuthenticatedClient(cookie, request)["social-events"];
-
     switch (operation.operation) {
       case "list": {
-        const result = await socialEvents.list({ query: operation.query });
+        const scope = operation.query;
 
-        if (result.body === undefined) throw new Error("Social-events list response did not include a body");
-
-        return data(
-          S.decodeSync(SocialEventListResource)(result.body, { onExcessProperty: "error" }),
-          { headers: responseHeaders },
+        const list = await callNative(cookie, request, (client) =>
+          client["social-events.list"](scope),
         );
+
+        return data(S.encodeSync(SocialEventListResource)(list), { headers: responseHeaders });
       }
 
       case "create": {
-        const { operation: _, commandId, ...payload } = operation;
+        const { operation: _, commandId, ...event } = operation;
 
-        const result = await socialEvents.create({
-          headers: { "idempotency-key": commandId },
-          payload,
-        });
-
-        if (result.body === undefined) throw new Error("Social-events create response did not include a body");
-
-        return data(
-          S.decodeSync(SocialEventResource)(result.body, { onExcessProperty: "error" }),
-          { headers: responseHeaders },
+        const created = await callNative(cookie, request, (client) =>
+          client["social-events.create"]({
+            idempotencyKey: IdempotencyKey.make(commandId),
+            request: event,
+          }),
         );
+
+        return data(S.encodeSync(SocialEventResource)(created), { headers: responseHeaders });
       }
     }
   } catch (error) {

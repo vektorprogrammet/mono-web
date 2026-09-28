@@ -29,7 +29,7 @@
     "@effect/platform-bun": "catalog:effect-v4",
     "@vektorprogrammet/database": "workspace:*",
     "@vektorprogrammet/domain": "workspace:*",
-    "@vektorprogrammet/http-api": "workspace:*",
+    "@vektorprogrammet/rpc": "workspace:*",
     "effect": "catalog:effect-v4"
   },
   "devDependencies": {

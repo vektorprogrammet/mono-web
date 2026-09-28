@@ -2,7 +2,7 @@ import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "
 import {
   AdmissionPeriodManagementItem,
   AdmissionsSubmitApplicationProblem,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Predicate, Schema } from "effect";
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";

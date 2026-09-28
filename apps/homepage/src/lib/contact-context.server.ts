@@ -1,4 +1,4 @@
-import { ContactVisitorIp as ContactVisitorIpSchema } from "@vektorprogrammet/http-api";
+import { ContactVisitorIp as ContactVisitorIpSchema } from "@vektorprogrammet/rpc";
 import { Schema } from "effect";
 import { createContext } from "react-router";
 import type { ContactMessageHeaders } from "./api-types";

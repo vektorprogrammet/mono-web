@@ -11,13 +11,13 @@ import {
   type ReceiptStatus,
   ReceiptUiError,
 } from "@/lib/receipt-view";
-import { ReceiptId } from "@vektorprogrammet/http-api";
+import { ReceiptId } from "@vektorprogrammet/rpc";
 import {
   IdempotencyKey,
   StrongETag,
   type IdempotencyKey as IdempotencyKeyValue,
   type StrongETag as StrongETagValue,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 
 import { Link, useActionData, useLoaderData, useNavigation } from "react-router";
 import { createAuthenticatedClient } from "../lib/api.server";

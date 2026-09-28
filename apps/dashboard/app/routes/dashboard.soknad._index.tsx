@@ -1,5 +1,5 @@
 import { Predicate } from "effect";
-import type { ApplicantProgressItem, ApplicantProgressState } from "@vektorprogrammet/http-api";
+import type { ApplicantProgressItem, ApplicantProgressState } from "@vektorprogrammet/rpc";
 import { data, Link, useLoaderData } from "react-router";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";

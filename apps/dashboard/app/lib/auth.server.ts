@@ -1,6 +1,6 @@
 import { Predicate, Schema as S, Data } from "effect";
 import { nativeDashboardRecoveryMode } from "../server/native-account-mode.server";
-import { IdempotencyKey } from "@vektorprogrammet/http-api";
+import { IdempotencyKey } from "@vektorprogrammet/rpc";
 
 import { redirect } from "react-router";
 import { createAuthenticatedClient, serverApiEndpoint } from "./api.server";

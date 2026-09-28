@@ -1,7 +1,7 @@
 import { ReceiptSettlementEvidence } from "@/components/receipts/ReceiptSettlementEvidence";
 import { Button } from "@/components/ui/button";
 import { isUnauthorizedError, mapReceiptSettlementEvidenceView, mapApprovalReceiptError, ReceiptUiError } from "@/lib/receipt-view";
-import { ReceiptId } from "@vektorprogrammet/http-api";
+import { ReceiptId } from "@vektorprogrammet/rpc";
 import { Schema } from "effect";
 import { Link, useLoaderData } from "react-router";
 import { createAuthenticatedClient } from "../lib/api.server";

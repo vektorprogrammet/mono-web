@@ -1,5 +1,5 @@
-import { StrongETag } from "@vektorprogrammet/http-api";
-import { Problem } from "@vektorprogrammet/http-api/http-semantics";
+import { StrongETag } from "@vektorprogrammet/rpc";
+import { Problem } from "@vektorprogrammet/rpc/problem";
 import { Effect } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import {

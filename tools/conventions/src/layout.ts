@@ -64,8 +64,7 @@ export const packageDirectories = {
   "apps/homepage": "Public React application",
   "packages/domain": "Business values, transitions, failures, and authority",
   "packages/database": "PostgreSQL schema, persistence, locks, audit, and outbox",
-  "packages/http-api": "HTTP contracts, middleware declarations, and OpenAPI",
-  "packages/sdk": "Generated native API client",
+  "packages/rpc": "The native RPC contract, its credential middlewares, problems, and client",
   "tools/acceptance": "Local API and browser acceptance probes of single journeys",
   "tools/conventions":
     "Layout, guide, construct, and Effect exception checks and their generated files",
@@ -153,9 +152,9 @@ export const contextLayers = {
     },
     application: { context: "Admissions", reason: "Application effects and their worker." },
     directory: { context: "People", reason: "The people directory read." },
-    "http-api": {
+    rpc: {
       reason:
-        "Transport shared by every context: problems, rate limits, JSON reading, receipt transactions.",
+        "Transport shared by every context: credential middlewares, problems, rate limits, command receipts.",
     },
     mail: { context: "Delivery", reason: "Mail provider adapters behind the Delivery mail port." },
     onboarding,

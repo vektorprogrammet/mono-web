@@ -9,7 +9,7 @@ import {
   DelegationManagement,
   IdempotencyKey,
   type OrganizationCapability,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { createEffectClient } from "@vektorprogrammet/sdk/effect";
 import { resolveBrowserApiUrl } from "../../lib/browser-api";
 import { nativeProblemFrom } from "../../lib/native-problem";

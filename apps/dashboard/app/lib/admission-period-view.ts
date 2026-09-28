@@ -1,7 +1,7 @@
 import { Predicate, Schema, Data, flow } from "effect";
 import { nativeProblemFrom as decodeNativeProblem, type NativeProblemSummary as DecodedNativeProblem, nativeFailureFrom } from "./native-problem";
 import { formText } from "./form-text";
-import { AdmissionPeriodId } from "@vektorprogrammet/http-api"
+import { AdmissionPeriodId } from "@vektorprogrammet/rpc"
 import {
   AdmissionPeriodManagementItem,
   AdmissionPeriodMergePatch,
@@ -10,7 +10,7 @@ import {
   StrongETag,
   type IdempotencyKey as IdempotencyKeyValue,
   type StrongETag as StrongETagValue,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 
 
 export type AdmissionPeriodUiErrorField = "semesterId" | "departmentId" | "startAt" | "endAt";

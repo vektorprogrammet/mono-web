@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { IdempotencyKey } from "@vektorprogrammet/http-api";
+import { IdempotencyKey } from "@vektorprogrammet/rpc";
 import { createPromiseClient } from "@vektorprogrammet/sdk";
 import {
   expect,

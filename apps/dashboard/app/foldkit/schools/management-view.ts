@@ -1,6 +1,6 @@
 import { Predicate } from "effect";
 import { Input, Select } from "@foldkit/ui";
-import { SchoolId } from "@vektorprogrammet/http-api";
+import { SchoolId } from "@vektorprogrammet/rpc";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Model } from "./model";
 import {

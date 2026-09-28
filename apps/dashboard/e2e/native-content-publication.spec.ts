@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { writeFile } from "node:fs/promises";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { Option, Schema } from "effect";
-import { NativeProblem } from "@vektorprogrammet/http-api";
+import { NativeProblem } from "@vektorprogrammet/rpc";
 import { ContentArticleObservationSchema, ContentBridgeActionSchema } from "../app/foldkit/content/bridge";
 import { addressesAnyRoute, legacyRoutes } from "./request-routes.js";
 

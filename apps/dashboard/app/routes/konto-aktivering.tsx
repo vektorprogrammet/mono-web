@@ -1,4 +1,4 @@
-import { OnboardingClaim } from "@vektorprogrammet/http-api"
+import { OnboardingClaim } from "@vektorprogrammet/rpc"
 import { Schema } from "effect";
 import { useSyncExternalStore } from "react";
 import { data, Link, useFetcher, useLoaderData } from "react-router";

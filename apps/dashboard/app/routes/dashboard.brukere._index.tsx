@@ -5,7 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useLoaderData } from "react-router";
-import { PeopleDirectoryEntry } from "@vektorprogrammet/http-api";
+import { PeopleDirectoryEntry } from "@vektorprogrammet/rpc";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import { createAuthenticatedClient } from "../lib/api.server";
 import type { Route } from "./+types/dashboard.brukere._index";

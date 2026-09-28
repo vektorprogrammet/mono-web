@@ -1,4 +1,4 @@
-import type { NativeProblemCode } from "@vektorprogrammet/http-api";
+import type { NativeProblemCode } from "@vektorprogrammet/rpc";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nativeProblemResponse, nativeSessionResponse, routeArgs, sessionCookie } from "../../../test/native-http";
 import { RecruitmentBridgeFailure } from "./bridge";

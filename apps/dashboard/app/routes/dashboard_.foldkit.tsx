@@ -1,4 +1,4 @@
-import { UserProfileResponse } from "@vektorprogrammet/http-api";
+import { UserProfileResponse } from "@vektorprogrammet/rpc";
 import { Schema as S } from "effect";
 import { createElement } from "react";
 import { data, useLoaderData } from "react-router";

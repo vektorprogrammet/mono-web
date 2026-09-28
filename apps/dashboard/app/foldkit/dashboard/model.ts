@@ -1,5 +1,5 @@
 import { Schema as S } from "effect";
-import { UserRoleSchema } from "@vektorprogrammet/http-api";
+import { UserRoleSchema } from "@vektorprogrammet/rpc";
 import { RecruitmentInput } from "../recruitment/model";
 import { SchedulingInput } from "../scheduling/model";
 import { isAdmissionPath } from "./navigation";

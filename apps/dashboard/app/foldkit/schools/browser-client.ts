@@ -4,8 +4,8 @@ import type {
   SchoolCommand,
   SchoolCommandResult,
   SchoolManagement,
-} from "@vektorprogrammet/http-api";
-import { IdempotencyKey } from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
+import { IdempotencyKey } from "@vektorprogrammet/rpc";
 import { createEffectClient, type EffectSdkFailure } from "@vektorprogrammet/sdk/effect";
 import { Effect } from "effect";
 import { resolveBrowserApiUrl } from "../../lib/browser-api";

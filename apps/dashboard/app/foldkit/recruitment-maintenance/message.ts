@@ -5,7 +5,7 @@ import {
   InterviewStaffingManagement,
   RecruitmentMaintenanceResult,
   RecruitmentInterviewQuestionKindSchema,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 
 export const SelectedRecord = taggedStruct("SelectedRecord", { id: S.String });
 

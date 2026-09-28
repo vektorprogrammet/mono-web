@@ -5,7 +5,7 @@
  * value in a path parameter never changes the answer. Use it to prove that a journey sends no
  * legacy, provider, recovery, or token request, rather than listing such routes by name.
  */
-import { ExternalNativeApi } from "@vektorprogrammet/http-api";
+import { ExternalNativeApi } from "@vektorprogrammet/rpc";
 import { OpenApi } from "effect/unstable/httpapi";
 
 const httpMethods = ["get", "put", "post", "delete", "options", "head", "patch", "trace"] as const;

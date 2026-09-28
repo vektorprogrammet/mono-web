@@ -40,11 +40,11 @@ import type { Repository } from "./repository.js";
  */
 export const constructCategories = {
   "http-transport":
-    "Reads native HTTP requests and writes their representations: bounded JSON, preconditions, idempotency keys, entity tags, and cache headers.",
+    "Derives the transport facts that commands keep across the cutover from HTTP: command identities, request digests, preconditions, and entity tags.",
   "authority-evidence":
     "Checks a resolved authority and returns the evidence that a command which needs that authority takes; nothing else constructs it.",
-  "http-problem":
-    "Answers a native HTTP request with a declared problem: failure mapping, credential classification, authorization, and decoding.",
+  "rpc-problem":
+    "Answers a native RPC with a declared problem: failure mapping, credential classification, authorization, command outcomes, and the defect boundary.",
   "sql-lock": "Transaction-scoped PostgreSQL advisory locks under registered keys.",
   "sql-lifecycle":
     "Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account access.",

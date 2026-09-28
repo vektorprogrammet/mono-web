@@ -1,5 +1,5 @@
 import { Match, Option, Predicate, Schema } from "effect";
-import { RecruitmentMaintenanceCommand, PersonId } from "@vektorprogrammet/http-api";
+import { RecruitmentMaintenanceCommand, PersonId } from "@vektorprogrammet/rpc";
 import type { Update } from "foldkit";
 import type { MaintenanceCommands } from "./command";
 import type { Message } from "./message";
