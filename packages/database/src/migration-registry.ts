@@ -15,6 +15,7 @@
  */
 import { createHash } from "node:crypto";
 import { Effect, FileSystem, Path, Schema } from "effect";
+import { dual } from "effect/Function";
 
 export interface RegisteredMigration {
   readonly id: string;
@@ -59,97 +60,137 @@ const migrationFile = (url: URL) =>
   decodeURIComponent(url.pathname.slice(url.pathname.lastIndexOf("/") + 1));
 
 /** Findings for ids, names, and files that break the registry rules. */
-export const registryFindings = (
-  definitions: ReadonlyArray<RegisteredMigration>,
-  files: ReadonlyArray<string>,
-): ReadonlyArray<MigrationFinding> => {
-  const findings: MigrationFinding[] = [];
-  const finding = (id: string, message: string) => findings.push({ kind: "registry", id, message });
-  const seen = new Set<string>();
+export const registryFindings: {
+  (
+    files: ReadonlyArray<string>,
+  ): (definitions: ReadonlyArray<RegisteredMigration>) => ReadonlyArray<MigrationFinding>;
+  (
+    definitions: ReadonlyArray<RegisteredMigration>,
+    files: ReadonlyArray<string>,
+  ): ReadonlyArray<MigrationFinding>;
+} = dual(
+  2,
+  (
+    definitions: ReadonlyArray<RegisteredMigration>,
+    files: ReadonlyArray<string>,
+  ): ReadonlyArray<MigrationFinding> => {
+    const findings: MigrationFinding[] = [];
 
-  for (const [index, { id, name, url }] of definitions.entries()) {
-    if (seen.has(id)) finding(id, "The id is registered more than once.");
-    seen.add(id);
+    const finding = (id: string, message: string) =>
+      findings.push({ kind: "registry", id, message });
 
-    const match = idPattern.exec(id);
+    const seen = new Set<string>();
 
-    if (match === null) {
-      finding(id, "The id is not `<number>_<kebab-case name>`.");
-      continue;
+    for (const [index, { id, name, url }] of definitions.entries()) {
+      if (seen.has(id)) finding(id, "The id is registered more than once.");
+      seen.add(id);
+
+      const match = idPattern.exec(id);
+
+      if (match === null) {
+        finding(id, "The id is not `<number>_<kebab-case name>`.");
+        continue;
+      }
+
+      const [, number = "", suffix = ""] = match;
+
+      if (Number(number) !== index + 1)
+        finding(id, `The id is at position ${index + 1}; ids count up from 1 without gaps.`);
+
+      if (name !== suffix) finding(id, `The name ${JSON.stringify(name)} is not the id's suffix.`);
+
+      const exception = Object.entries(migrationFileExceptions).find(([except]) => except === id);
+      const expected = exception?.[1].file ?? `${number.padStart(4, "0")}-${suffix}.sql`;
+
+      const file = migrationFile(url);
+
+      if (file !== expected) finding(id, `The file is ${file}; the registry expects ${expected}.`);
     }
 
-    const [, number = "", suffix = ""] = match;
+    const referenced = new Set(definitions.map(({ url }) => migrationFile(url)));
 
-    if (Number(number) !== index + 1)
-      finding(id, `The id is at position ${index + 1}; ids count up from 1 without gaps.`);
+    for (const file of files)
+      if (!referenced.has(file)) finding(file, "No registered migration reads this file.");
 
-    if (name !== suffix) finding(id, `The name ${JSON.stringify(name)} is not the id's suffix.`);
-
-    const exception = Object.entries(migrationFileExceptions).find(([except]) => except === id);
-    const expected = exception?.[1].file ?? `${number.padStart(4, "0")}-${suffix}.sql`;
-
-    const file = migrationFile(url);
-
-    if (file !== expected) finding(id, `The file is ${file}; the registry expects ${expected}.`);
-  }
-
-  const referenced = new Set(definitions.map(({ url }) => migrationFile(url)));
-
-  for (const file of files)
-    if (!referenced.has(file)) finding(file, "No registered migration reads this file.");
-
-  return findings;
-};
+    return findings;
+  },
+);
 
 /** Findings for manifest entries that differ from the files or from the registry. */
-export const manifestFindings = (
-  definitions: ReadonlyArray<RegisteredMigration>,
-  manifest: MigrationManifest,
-  digests: ReadonlyMap<string, string>,
-): ReadonlyArray<MigrationFinding> => [
-  ...definitions.flatMap(({ id }): MigrationFinding[] => {
-    const recorded = manifest[id];
+export const manifestFindings: {
+  (
+    manifest: MigrationManifest,
+    digests: ReadonlyMap<string, string>,
+  ): (definitions: ReadonlyArray<RegisteredMigration>) => ReadonlyArray<MigrationFinding>;
+  (
+    definitions: ReadonlyArray<RegisteredMigration>,
+    manifest: MigrationManifest,
+    digests: ReadonlyMap<string, string>,
+  ): ReadonlyArray<MigrationFinding>;
+} = dual(
+  3,
+  (
+    definitions: ReadonlyArray<RegisteredMigration>,
+    manifest: MigrationManifest,
+    digests: ReadonlyMap<string, string>,
+  ): ReadonlyArray<MigrationFinding> => [
+    ...definitions.flatMap(({ id }): MigrationFinding[] => {
+      const recorded = manifest[id];
 
-    if (recorded === undefined)
-      return [
-        {
-          kind: "unrecorded",
-          id,
-          message:
-            "The checksum manifest has no entry for this migration; run `just migration-hashes write`.",
-        },
-      ];
-
-    return recorded === digests.get(id)
-      ? []
-      : [
+      if (recorded === undefined)
+        return [
           {
-            kind: "changed",
+            kind: "unrecorded",
             id,
             message:
-              "The file differs from its recorded checksum. An applied migration is immutable; add a new migration instead.",
+              "The checksum manifest has no entry for this migration; run `just migration-hashes write`.",
           },
         ];
-  }),
-  ...Object.keys(manifest)
-    .filter((id) => !definitions.some((definition) => definition.id === id))
-    .map(
-      (id): MigrationFinding => ({
-        kind: "unregistered",
-        id,
-        message:
-          "The checksum manifest records a migration that the registry does not define. An applied migration stays registered.",
-      }),
-    ),
-];
+
+      return recorded === digests.get(id)
+        ? []
+        : [
+            {
+              kind: "changed",
+              id,
+              message:
+                "The file differs from its recorded checksum. An applied migration is immutable; add a new migration instead.",
+            },
+          ];
+    }),
+    ...Object.keys(manifest)
+      .filter((id) => !definitions.some((definition) => definition.id === id))
+      .map(
+        (id): MigrationFinding => ({
+          kind: "unregistered",
+          id,
+          message:
+            "The checksum manifest records a migration that the registry does not define. An applied migration stays registered.",
+        }),
+      ),
+  ],
+);
 
 /** The manifest in registry order with an entry for every registered migration; existing entries stay. */
-export const appendToManifest = (
-  definitions: ReadonlyArray<RegisteredMigration>,
-  manifest: MigrationManifest,
-  digests: ReadonlyMap<string, string>,
-): MigrationManifest =>
-  Object.fromEntries(definitions.map(({ id }) => [id, manifest[id] ?? digests.get(id)!]));
+export const appendToManifest: {
+  (
+    manifest: MigrationManifest,
+    digests: ReadonlyMap<string, string>,
+  ): (definitions: ReadonlyArray<RegisteredMigration>) => MigrationManifest;
+  (
+    definitions: ReadonlyArray<RegisteredMigration>,
+    manifest: MigrationManifest,
+    digests: ReadonlyMap<string, string>,
+  ): MigrationManifest;
+} = dual(
+  3,
+  (
+    definitions: ReadonlyArray<RegisteredMigration>,
+    manifest: MigrationManifest,
+    digests: ReadonlyMap<string, string>,
+  ): MigrationManifest =>
+    Object.fromEntries(definitions.map(({ id }) => [id, manifest[id] ?? digests.get(id)!])),
+);
 
 /** The SHA-256 of every definition's file, by id. */
 export const digestMigrations = Effect.fn("digestMigrations")(function* (

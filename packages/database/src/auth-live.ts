@@ -6,6 +6,7 @@ import { canonicalJsonValue } from "@vektorprogrammet/domain/shared-kernel";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { getSessionCookie } from "better-auth/cookies";
 import { Context, Effect, Layer, Schema } from "effect";
+import { dual } from "effect/Function";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type { AuthorizationInstant } from "@vektorprogrammet/domain/authz";
 import { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
@@ -745,112 +746,124 @@ const identityOperations = (
 };
 
 /** @internal Exposed only for focused ordering tests around the Better Auth boundary. */
-export const auditedAuthHandler =
+export const auditedAuthHandler: {
+  (
+    identity: Pick<IdentityOperations, "resolveSession" | "recordSecurityEvent">,
+  ): (
+    handle: (request: Request) => Effect.Effect<Response, IdentityEngineError>,
+  ) => AuthEngineService["handler"];
+  (
+    handle: (request: Request) => Effect.Effect<Response, IdentityEngineError>,
+    identity: Pick<IdentityOperations, "resolveSession" | "recordSecurityEvent">,
+  ): AuthEngineService["handler"];
+} = dual(
+  2,
   (
     handle: (request: Request) => Effect.Effect<Response, IdentityEngineError>,
     identity: Pick<IdentityOperations, "resolveSession" | "recordSecurityEvent">,
   ): AuthEngineService["handler"] =>
-  (request, context) =>
-    Effect.gen(function* () {
-      const pathname = new URL(request.url).pathname;
+    (request, context) =>
+      Effect.gen(function* () {
+        const pathname = new URL(request.url).pathname;
 
-      const signOutActor =
-        request.method === "POST" && pathname === "/api/auth/sign-out"
-          ? yield* identity
-              .resolveSession(request.headers.get("cookie") ?? undefined)
-              .pipe(Effect.orElseSucceed(() => null))
-          : null;
+        const signOutActor =
+          request.method === "POST" && pathname === "/api/auth/sign-out"
+            ? yield* identity
+                .resolveSession(request.headers.get("cookie") ?? undefined)
+                .pipe(Effect.orElseSucceed(() => null))
+            : null;
 
-      const response = yield* handle(request);
+        const response = yield* handle(request);
 
-      const audit = Effect.gen(function* () {
-        if (request.method === "POST" && pathname === "/api/auth/sign-in/email") {
-          if (response.ok) {
-            const [setCookie] = response.headers.getSetCookie();
+        const audit = Effect.gen(function* () {
+          if (request.method === "POST" && pathname === "/api/auth/sign-in/email") {
+            if (response.ok) {
+              const [setCookie] = response.headers.getSetCookie();
 
-            if (setCookie === undefined) {
-              return yield* IdentityEngineError.make({
-                operation: "auditSignIn",
-                message: "successful sign-in returned no cookie",
-              });
-            }
+              if (setCookie === undefined) {
+                return yield* IdentityEngineError.make({
+                  operation: "auditSignIn",
+                  message: "successful sign-in returned no cookie",
+                });
+              }
 
-            const actor = yield* identity.resolveSession(setCookie.split(";")[0]);
-            yield* identity.recordSecurityEvent(
-              auditEvent({
-                eventKind: "sign-in-success",
-                actor,
-                subjectPersonId: actor.personId,
-                sessionId: actor.sessionId,
-                context,
-                details: IdentitySecurityEventDetails.make({
-                  outcomeCode: "credential-accepted",
-                  affectedSessionCount: 1,
+              const actor = yield* identity.resolveSession(setCookie.split(";")[0]);
+              yield* identity.recordSecurityEvent(
+                auditEvent({
+                  eventKind: "sign-in-success",
+                  actor,
+                  subjectPersonId: actor.personId,
+                  sessionId: actor.sessionId,
+                  context,
+                  details: IdentitySecurityEventDetails.make({
+                    outcomeCode: "credential-accepted",
+                    affectedSessionCount: 1,
+                  }),
                 }),
-              }),
-            );
-          } else {
+              );
+            } else {
+              yield* identity.recordSecurityEvent(
+                auditEvent({
+                  eventKind: "sign-in-failure",
+                  actor: null,
+                  subjectPersonId: null,
+                  sessionId: null,
+                  context,
+                  details: IdentitySecurityEventDetails.make({
+                    outcomeCode: "credential-rejected",
+                    affectedSessionCount: 0,
+                  }),
+                }),
+              );
+            }
+          } else if (request.method === "POST" && pathname === "/api/auth/sign-up/email") {
             yield* identity.recordSecurityEvent(
               auditEvent({
-                eventKind: "sign-in-failure",
+                eventKind: "sign-up-rejected",
                 actor: null,
                 subjectPersonId: null,
                 sessionId: null,
                 context,
                 details: IdentitySecurityEventDetails.make({
-                  outcomeCode: "credential-rejected",
+                  outcomeCode: "public-sign-up-disabled",
                   affectedSessionCount: 0,
                 }),
               }),
             );
+          } else if (response.ok && signOutActor !== null) {
+            yield* identity.recordSecurityEvent(
+              auditEvent({
+                eventKind: "sign-out",
+                actor: signOutActor,
+                subjectPersonId: signOutActor.personId,
+                sessionId: signOutActor.sessionId,
+                context,
+                details: IdentitySecurityEventDetails.make({
+                  outcomeCode: "current-session-ended",
+                  affectedSessionCount: 1,
+                }),
+              }),
+            );
           }
-        } else if (request.method === "POST" && pathname === "/api/auth/sign-up/email") {
-          yield* identity.recordSecurityEvent(
-            auditEvent({
-              eventKind: "sign-up-rejected",
-              actor: null,
-              subjectPersonId: null,
-              sessionId: null,
-              context,
-              details: IdentitySecurityEventDetails.make({
-                outcomeCode: "public-sign-up-disabled",
-                affectedSessionCount: 0,
-              }),
-            }),
-          );
-        } else if (response.ok && signOutActor !== null) {
-          yield* identity.recordSecurityEvent(
-            auditEvent({
-              eventKind: "sign-out",
-              actor: signOutActor,
-              subjectPersonId: signOutActor.personId,
-              sessionId: signOutActor.sessionId,
-              context,
-              details: IdentitySecurityEventDetails.make({
-                outcomeCode: "current-session-ended",
-                affectedSessionCount: 1,
-              }),
-            }),
-          );
-        }
-      });
+        });
 
-      return yield* audit.pipe(
-        Effect.as(response),
-        Effect.orElseSucceed(() =>
-          Response.json(
-            { error: { tag: "IdentityEngineError" } },
-            {
-              status: 503,
-              headers: {
-                "cache-control": "no-store",
-                "content-type": "application/json; charset=utf-8",
+        return yield* audit.pipe(
+          Effect.as(response),
+          Effect.orElseSucceed(() =>
+            Response.json(
+              { error: { tag: "IdentityEngineError" } },
+              {
+                status: 503,
+                headers: {
+                  "cache-control": "no-store",
+                  "content-type": "application/json; charset=utf-8",
+                },
               },
-            },
+            ),
           ),
-        ),
-      );
-    });
+        );
+      }),
+);
 
 /**
  * One scoped construction exposes the Better Auth engine, its typed Identity

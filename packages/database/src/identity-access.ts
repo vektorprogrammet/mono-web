@@ -1,4 +1,5 @@
 import { Effect, Schema } from "effect";
+import { dual } from "effect/Function";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import type { PersonId } from "@vektorprogrammet/domain/organization";
 import {
@@ -31,16 +32,29 @@ import type { DatabaseOperations } from "./service.js";
  *
  * @construct sql-lifecycle
  */
-export const accountAccessEnabled = (
-  sql: DatabaseOperations,
-  personId: PersonId,
-  lock: "None" | "ForShare",
-): Effect.Effect<boolean, SqlError> =>
-  sql<{
-    readonly enabled: boolean;
-  }>`SELECT NOT access_disabled AS enabled FROM auth."user" WHERE id=${personId} ${lock === "ForShare" ? sql`FOR SHARE` : sql``}`.pipe(
-    Effect.map((rows) => rows[0]?.enabled === true),
-  );
+export const accountAccessEnabled: {
+  (
+    personId: PersonId,
+    lock: "None" | "ForShare",
+  ): (sql: DatabaseOperations) => Effect.Effect<boolean, SqlError>;
+  (
+    sql: DatabaseOperations,
+    personId: PersonId,
+    lock: "None" | "ForShare",
+  ): Effect.Effect<boolean, SqlError>;
+} = dual(
+  3,
+  (
+    sql: DatabaseOperations,
+    personId: PersonId,
+    lock: "None" | "ForShare",
+  ): Effect.Effect<boolean, SqlError> =>
+    sql<{
+      readonly enabled: boolean;
+    }>`SELECT NOT access_disabled AS enabled FROM auth."user" WHERE id=${personId} ${lock === "ForShare" ? sql`FOR SHARE` : sql``}`.pipe(
+      Effect.map((rows) => rows[0]?.enabled === true),
+    ),
+);
 
 /** Caller holds the administrator-set lock and sorted actor/subject person locks. */
 export const changeNativeAccountAccess = Effect.fn("changeNativeAccountAccess")(function* (

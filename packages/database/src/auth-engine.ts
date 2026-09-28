@@ -25,6 +25,7 @@ import {
   Predicate,
   type Scope,
 } from "effect";
+import { dual } from "effect/Function";
 
 /** Runs the Effect program behind one Better Auth callback as the Promise Better Auth awaits. */
 export type BetterAuthCallbackRunner = <A, E>(program: Effect.Effect<A, E>) => Promise<A>;
@@ -416,7 +417,7 @@ const makeAccessDatabaseHooks = (
   };
 };
 
-export const makeAuthEngineOptions = (
+const authEngineOptions = (
   config: AuthEngineConfig,
   database: Pool,
   run: BetterAuthCallbackRunner,
@@ -497,14 +498,44 @@ export const makeAuthEngineOptions = (
   };
 };
 
-export const makeAuthEngine = (
+type AuthEngineOptions = ReturnType<typeof authEngineOptions>;
+
+export const makeAuthEngineOptions: {
+  (
+    database: Pool,
+    run: BetterAuthCallbackRunner,
+    recovery?: PasswordRecovery["Service"],
+  ): (config: AuthEngineConfig) => AuthEngineOptions;
+  (
+    config: AuthEngineConfig,
+    database: Pool,
+    run: BetterAuthCallbackRunner,
+    recovery?: PasswordRecovery["Service"],
+  ): AuthEngineOptions;
+} = dual((args) => Predicate.isFunction(args[2]), authEngineOptions);
+
+const authEngine = (
   config: AuthEngineConfig,
   database: Pool,
   run: BetterAuthCallbackRunner,
   recovery?: PasswordRecovery["Service"],
-) => betterAuth(makeAuthEngineOptions(config, database, run, recovery));
+) => betterAuth(authEngineOptions(config, database, run, recovery));
 
-export type AuthEngine = ReturnType<typeof makeAuthEngine>;
+export type AuthEngine = ReturnType<typeof authEngine>;
+
+export const makeAuthEngine: {
+  (
+    database: Pool,
+    run: BetterAuthCallbackRunner,
+    recovery?: PasswordRecovery["Service"],
+  ): (config: AuthEngineConfig) => AuthEngine;
+  (
+    config: AuthEngineConfig,
+    database: Pool,
+    run: BetterAuthCallbackRunner,
+    recovery?: PasswordRecovery["Service"],
+  ): AuthEngine;
+} = dual((args) => Predicate.isFunction(args[2]), authEngine);
 
 export class NativeAuthEngine extends Context.Service<NativeAuthEngine, AuthEngine>()(
   "@vektorprogrammet/database/auth-engine/NativeAuthEngine",

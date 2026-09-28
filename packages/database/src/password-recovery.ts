@@ -13,6 +13,7 @@ import {
   Predicate,
   Schema,
 } from "effect";
+import { dual } from "effect/Function";
 import type { Pool, PoolClient } from "pg";
 import {
   IdentityEngineError,
@@ -93,10 +94,10 @@ export interface PasswordRecoveryService {
 }
 
 /** One AsyncLocalStorage scope per HTTP request; never keyed by caller-controlled correlation. */
-export const makePasswordRecovery = (
-  pool: Pool,
-  config: AuthEngineConfig,
-): PasswordRecoveryService => {
+export const makePasswordRecovery: {
+  (config: AuthEngineConfig): (pool: Pool) => PasswordRecoveryService;
+  (pool: Pool, config: AuthEngineConfig): PasswordRecoveryService;
+} = dual(2, (pool: Pool, config: AuthEngineConfig): PasswordRecoveryService => {
   const local = new AsyncLocalStorage<Coordination>();
   const callback = `${config.oauth.dashboardOrigin}/tilbakestill-passord`;
 
@@ -375,176 +376,192 @@ export const makePasswordRecovery = (
       );
     },
   };
-};
+});
 
 /** One bounded attempt. SKIP LOCKED and claim fencing allow independent operators safely. */
-export const drainPasswordResetMail = (
-  pool: Pool,
-  config: Pick<AuthEngineConfig, "oauth">,
-  mail: MailOperations,
-  sender: string,
-): Effect.Effect<"Empty" | "Delivered" | "Failed" | "Quarantined" | "LostClaim"> =>
-  Effect.uninterruptibleMask((restore) =>
-    Effect.gen(function* () {
-      const claim = randomUUID();
+export const drainPasswordResetMail: {
+  (
+    config: Pick<AuthEngineConfig, "oauth">,
+    mail: MailOperations,
+    sender: string,
+  ): (pool: Pool) => Effect.Effect<"Empty" | "Delivered" | "Failed" | "Quarantined" | "LostClaim">;
+  (
+    pool: Pool,
+    config: Pick<AuthEngineConfig, "oauth">,
+    mail: MailOperations,
+    sender: string,
+  ): Effect.Effect<"Empty" | "Delivered" | "Failed" | "Quarantined" | "LostClaim">;
+} = dual(
+  4,
+  (
+    pool: Pool,
+    config: Pick<AuthEngineConfig, "oauth">,
+    mail: MailOperations,
+    sender: string,
+  ): Effect.Effect<"Empty" | "Delivered" | "Failed" | "Quarantined" | "LostClaim"> =>
+    Effect.uninterruptibleMask((restore) =>
+      Effect.gen(function* () {
+        const claim = randomUUID();
 
-      const row = yield* pgTransaction(pool, (client) =>
-        Effect.gen(function* () {
-          yield* pgQuery(
-            client,
-            `UPDATE auth.password_reset_email_outbox SET status='Quarantined',claim_id=NULL,claimed_at=NULL,last_failure_code='stale-claim' WHERE status='Processing' AND claimed_at<CURRENT_TIMESTAMP-INTERVAL '60 seconds'`,
-          );
+        const row = yield* pgTransaction(pool, (client) =>
+          Effect.gen(function* () {
+            yield* pgQuery(
+              client,
+              `UPDATE auth.password_reset_email_outbox SET status='Quarantined',claim_id=NULL,claimed_at=NULL,last_failure_code='stale-claim' WHERE status='Processing' AND claimed_at<CURRENT_TIMESTAMP-INTERVAL '60 seconds'`,
+            );
 
-          return (yield* pgQuery<{
-            effect_id: string;
-            verification_id: string;
-            subject_person_id: string;
-            attempts: number;
-            payload_sha256: string | null;
-          }>(
-            client,
-            `WITH next AS (SELECT effect_id FROM auth.password_reset_email_outbox WHERE status='Pending' OR (status='Failed' AND attempts<3) ORDER BY created_at,effect_id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE auth.password_reset_email_outbox o SET status='Processing',claim_id=$1,claimed_at=date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'),attempts=attempts+1 FROM next WHERE o.effect_id=next.effect_id RETURNING o.*`,
-            [claim],
-          )).rows[0];
-        }),
-      ).pipe(Effect.orDie);
-
-      if (row === undefined) return "Empty";
-
-      const verification = (yield* pgQuery<{
-        identifier: string;
-        value: string;
-        expiresAt: Date;
-        email: string | null;
-      }>(
-        pool,
-        `SELECT v.identifier,v.value,v."expiresAt",u.email FROM auth.verification v LEFT JOIN auth."user" u ON u.id=$2 AND NOT u.access_disabled WHERE v.id=$1`,
-        [row.verification_id, row.subject_person_id],
-      ).pipe(Effect.orDie)).rows[0];
-
-      let failure:
-        | "verification-invalid"
-        | "verification-expired"
-        | "authority-mismatch"
-        | "provider-rejected"
-        | "provider-unavailable"
-        | "delivery-timeout"
-        | null = null;
-
-      let providerReference: string | null = null;
-      let interruptedCause: Cause.Cause<never> | undefined;
-      let quarantined = false;
-
-      if (
-        verification === undefined ||
-        !/^reset-password:[A-Za-z0-9_-]+$/.test(verification.identifier)
-      ) {
-        failure = "verification-invalid";
-      } else if (
-        verification.value !== row.subject_person_id ||
-        verification.email === null ||
-        verification.email === ""
-      ) {
-        failure = "authority-mismatch";
-      } else if (verification.expiresAt.getTime() <= (yield* Clock.currentTimeMillis)) {
-        failure = "verification-expired";
-      }
-
-      quarantined = failure !== null;
-
-      if (failure === null && verification !== undefined) {
-        const token = verification.identifier.slice("reset-password:".length);
-
-        const request = {
-          deliveryId: row.effect_id,
-          sender,
-          recipient: verification.email!,
-          subject: "Tilbakestill passordet ditt",
-          text: [
-            "Det ble bedt om et nytt passord for Vektorprogrammet-kontoen din.",
-            "",
-            "Bruk denne lenken for å velge et nytt passord:",
-            `${config.oauth.canonicalOrigin}/api/auth/reset-password/${token}?callbackURL=${encodeURIComponent(`${config.oauth.dashboardOrigin}/tilbakestill-passord`)}`,
-            `Lenken utløper ${verification.expiresAt.toISOString()}.`,
-            "",
-            "Hvis du ikke ba om dette, kan du se bort fra e-posten.",
-          ].join("\n"),
-        };
-
-        const fingerprint = createHash("sha256")
-          .update(yield* encodeMailRequestJson(request).pipe(Effect.orDie))
-          .digest("hex");
-
-        const frozen = yield* pgQuery(
-          pool,
-          "UPDATE auth.password_reset_email_outbox SET payload_sha256=COALESCE(payload_sha256,$3) WHERE effect_id=$1 AND claim_id=$2 AND status='Processing' RETURNING payload_sha256",
-          [row.effect_id, claim, fingerprint],
+            return (yield* pgQuery<{
+              effect_id: string;
+              verification_id: string;
+              subject_person_id: string;
+              attempts: number;
+              payload_sha256: string | null;
+            }>(
+              client,
+              `WITH next AS (SELECT effect_id FROM auth.password_reset_email_outbox WHERE status='Pending' OR (status='Failed' AND attempts<3) ORDER BY created_at,effect_id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE auth.password_reset_email_outbox o SET status='Processing',claim_id=$1,claimed_at=date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'),attempts=attempts+1 FROM next WHERE o.effect_id=next.effect_id RETURNING o.*`,
+              [claim],
+            )).rows[0];
+          }),
         ).pipe(Effect.orDie);
 
-        if (frozen.rowCount !== 1) return "LostClaim";
+        if (row === undefined) return "Empty";
 
-        if (frozen.rows[0]?.payload_sha256 !== fingerprint) {
+        const verification = (yield* pgQuery<{
+          identifier: string;
+          value: string;
+          expiresAt: Date;
+          email: string | null;
+        }>(
+          pool,
+          `SELECT v.identifier,v.value,v."expiresAt",u.email FROM auth.verification v LEFT JOIN auth."user" u ON u.id=$2 AND NOT u.access_disabled WHERE v.id=$1`,
+          [row.verification_id, row.subject_person_id],
+        ).pipe(Effect.orDie)).rows[0];
+
+        let failure:
+          | "verification-invalid"
+          | "verification-expired"
+          | "authority-mismatch"
+          | "provider-rejected"
+          | "provider-unavailable"
+          | "delivery-timeout"
+          | null = null;
+
+        let providerReference: string | null = null;
+        let interruptedCause: Cause.Cause<never> | undefined;
+        let quarantined = false;
+
+        if (
+          verification === undefined ||
+          !/^reset-password:[A-Za-z0-9_-]+$/.test(verification.identifier)
+        ) {
           failure = "verification-invalid";
-          quarantined = true;
-        } else {
-          const deliveryExit = yield* Effect.exit(restore(Effect.result(mail.deliver(request))));
+        } else if (
+          verification.value !== row.subject_person_id ||
+          verification.email === null ||
+          verification.email === ""
+        ) {
+          failure = "authority-mismatch";
+        } else if (verification.expiresAt.getTime() <= (yield* Clock.currentTimeMillis)) {
+          failure = "verification-expired";
+        }
 
-          if (Exit.isFailure(deliveryExit)) {
-            // Interruption is ambiguous. Persist quarantine before the owning fiber releases the pool.
-            if (!Cause.hasInterruptsOnly(deliveryExit.cause))
-              return yield* Effect.failCause(deliveryExit.cause);
-            interruptedCause = deliveryExit.cause;
-            failure = "delivery-timeout";
+        quarantined = failure !== null;
+
+        if (failure === null && verification !== undefined) {
+          const token = verification.identifier.slice("reset-password:".length);
+
+          const request = {
+            deliveryId: row.effect_id,
+            sender,
+            recipient: verification.email!,
+            subject: "Tilbakestill passordet ditt",
+            text: [
+              "Det ble bedt om et nytt passord for Vektorprogrammet-kontoen din.",
+              "",
+              "Bruk denne lenken for å velge et nytt passord:",
+              `${config.oauth.canonicalOrigin}/api/auth/reset-password/${token}?callbackURL=${encodeURIComponent(`${config.oauth.dashboardOrigin}/tilbakestill-passord`)}`,
+              `Lenken utløper ${verification.expiresAt.toISOString()}.`,
+              "",
+              "Hvis du ikke ba om dette, kan du se bort fra e-posten.",
+            ].join("\n"),
+          };
+
+          const fingerprint = createHash("sha256")
+            .update(yield* encodeMailRequestJson(request).pipe(Effect.orDie))
+            .digest("hex");
+
+          const frozen = yield* pgQuery(
+            pool,
+            "UPDATE auth.password_reset_email_outbox SET payload_sha256=COALESCE(payload_sha256,$3) WHERE effect_id=$1 AND claim_id=$2 AND status='Processing' RETURNING payload_sha256",
+            [row.effect_id, claim, fingerprint],
+          ).pipe(Effect.orDie);
+
+          if (frozen.rowCount !== 1) return "LostClaim";
+
+          if (frozen.rows[0]?.payload_sha256 !== fingerprint) {
+            failure = "verification-invalid";
             quarantined = true;
           } else {
-            const result = deliveryExit.value;
+            const deliveryExit = yield* Effect.exit(restore(Effect.result(mail.deliver(request))));
 
-            if (Predicate.isTagged(result, "Failure")) {
-              failure = Match.value(result.failure.kind).pipe(
-                Match.when("permanent-rejection", () => "provider-rejected" as const),
-                Match.when("ambiguous-outcome", () => "delivery-timeout" as const),
-                Match.orElse(() => "provider-unavailable" as const),
-              );
-              quarantined = result.failure.kind !== "temporary-unavailability" || row.attempts >= 3;
+            if (Exit.isFailure(deliveryExit)) {
+              // Interruption is ambiguous. Persist quarantine before the owning fiber releases the pool.
+              if (!Cause.hasInterruptsOnly(deliveryExit.cause))
+                return yield* Effect.failCause(deliveryExit.cause);
+              interruptedCause = deliveryExit.cause;
+              failure = "delivery-timeout";
+              quarantined = true;
             } else {
-              providerReference = result.success.providerReference;
+              const result = deliveryExit.value;
+
+              if (Predicate.isTagged(result, "Failure")) {
+                failure = Match.value(result.failure.kind).pipe(
+                  Match.when("permanent-rejection", () => "provider-rejected" as const),
+                  Match.when("ambiguous-outcome", () => "delivery-timeout" as const),
+                  Match.orElse(() => "provider-unavailable" as const),
+                );
+                quarantined =
+                  result.failure.kind !== "temporary-unavailability" || row.attempts >= 3;
+              } else {
+                providerReference = result.success.providerReference;
+              }
             }
           }
         }
-      }
 
-      const outcome = yield* pgTransaction(pool, (client) =>
-        Effect.gen(function* () {
-          const updated = yield* pgQuery(
-            client,
-            `UPDATE auth.password_reset_email_outbox SET status=$3,claim_id=NULL,claimed_at=NULL,delivered_at=CASE WHEN $3='Delivered' THEN date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC') ELSE NULL END,last_failure_code=$4,provider_reference=$5 WHERE effect_id=$1 AND claim_id=$2 AND status='Processing'`,
-            [
-              row.effect_id,
-              claim,
-              failure === null ? "Delivered" : quarantined ? "Quarantined" : "Failed",
-              failure,
-              providerReference,
-            ],
-          );
+        const outcome = yield* pgTransaction(pool, (client) =>
+          Effect.gen(function* () {
+            const updated = yield* pgQuery(
+              client,
+              `UPDATE auth.password_reset_email_outbox SET status=$3,claim_id=NULL,claimed_at=NULL,delivered_at=CASE WHEN $3='Delivered' THEN date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC') ELSE NULL END,last_failure_code=$4,provider_reference=$5 WHERE effect_id=$1 AND claim_id=$2 AND status='Processing'`,
+              [
+                row.effect_id,
+                claim,
+                failure === null ? "Delivered" : quarantined ? "Quarantined" : "Failed",
+                failure,
+                providerReference,
+              ],
+            );
 
-          if (updated.rowCount !== 1) return "LostClaim" as const;
-          yield* audit(
-            client,
-            failure === null ? "password-reset-mail-delivered" : "password-reset-mail-failed",
-            failure ?? "provider-acknowledged",
-            row.subject_person_id,
-            null,
-          );
+            if (updated.rowCount !== 1) return "LostClaim" as const;
+            yield* audit(
+              client,
+              failure === null ? "password-reset-mail-delivered" : "password-reset-mail-failed",
+              failure ?? "provider-acknowledged",
+              row.subject_person_id,
+              null,
+            );
 
-          return failure === null ? "Delivered" : quarantined ? "Quarantined" : "Failed";
-        }),
-      ).pipe(Effect.orDie);
+            return failure === null ? "Delivered" : quarantined ? "Quarantined" : "Failed";
+          }),
+        ).pipe(Effect.orDie);
 
-      if (interruptedCause !== undefined) return yield* Effect.failCause(interruptedCause);
+        if (interruptedCause !== undefined) return yield* Effect.failCause(interruptedCause);
 
-      return outcome;
-    }),
-  );
+        return outcome;
+      }),
+    ),
+);
 
 export class PasswordRecovery extends Context.Service<PasswordRecovery, PasswordRecoveryService>()(
   "@vektorprogrammet/database/password-recovery/PasswordRecovery",

@@ -1,5 +1,6 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Predicate } from "effect";
+import { dual } from "effect/Function";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { databaseWithMigrations, type DatabaseLayerObserver } from "./database-construction.js";
 import { sharedPgLayer } from "./pg-pool.js";
@@ -27,12 +28,27 @@ const DatabaseFromPg = (observer?: DatabaseLayerObserver) =>
     }),
   );
 
+const makeDatabaseLive = (
+  config: Parameters<typeof PgClient.layer>[0],
+  observer?: DatabaseLayerObserver,
+) => DatabaseFromPg(observer).pipe(Layer.provideMerge(sharedPgLayer(config)));
+
+type DatabaseLiveLayer = ReturnType<typeof makeDatabaseLive>;
+
 /**
  * PostgreSQL through the shared pool, migrated to the head revision when the layer is built. It
  * requires `FileSystem` and `Path`, which read the migration files; the composition root selects
  * their platform.
  */
-export const DatabaseLive = (
-  config: Parameters<typeof PgClient.layer>[0],
-  observer?: DatabaseLayerObserver,
-) => DatabaseFromPg(observer).pipe(Layer.provideMerge(sharedPgLayer(config)));
+export const DatabaseLive: {
+  (
+    observer?: DatabaseLayerObserver,
+  ): (config: Parameters<typeof PgClient.layer>[0]) => DatabaseLiveLayer;
+  (
+    config: Parameters<typeof PgClient.layer>[0],
+    observer?: DatabaseLayerObserver,
+  ): DatabaseLiveLayer;
+} = dual(
+  (args) => args.length > 0 && !Predicate.hasProperty(args[0], "onAcquire"),
+  makeDatabaseLive,
+);

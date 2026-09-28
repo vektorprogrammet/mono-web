@@ -25,8 +25,9 @@ import {
   Result,
   Schema,
 } from "effect";
+import { dual } from "effect/Function";
 import type { SqlError } from "effect/unstable/sql/SqlError";
-import type { Pool, PoolClient, QueryResultRow } from "pg";
+import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 import {
   CredentialEvidenceRef,
   ServicePrincipalId,
@@ -616,25 +617,28 @@ const resolveOAuthCredential = <E, R>(
     });
   });
 
-export const makeOAuthCredentialAuthorityService = (
-  pool: Pool,
-  config: OAuthProviderRuntimeConfig,
-): OAuthCredentialAuthorityService => ({
-  resolve: (request, expected, now) =>
-    Effect.flatMap(now === undefined ? DateTime.now : Effect.succeed(now), (instant) =>
-      resolveOAuthCredential(
-        request,
-        expected,
-        instant,
-        (claims, kid) => selectTokenState(pool, claims, kid),
-        config,
+export const makeOAuthCredentialAuthorityService: {
+  (config: OAuthProviderRuntimeConfig): (pool: Pool) => OAuthCredentialAuthorityService;
+  (pool: Pool, config: OAuthProviderRuntimeConfig): OAuthCredentialAuthorityService;
+} = dual(
+  2,
+  (pool: Pool, config: OAuthProviderRuntimeConfig): OAuthCredentialAuthorityService => ({
+    resolve: (request, expected, now) =>
+      Effect.flatMap(now === undefined ? DateTime.now : Effect.succeed(now), (instant) =>
+        resolveOAuthCredential(
+          request,
+          expected,
+          instant,
+          (claims, kid) => selectTokenState(pool, claims, kid),
+          config,
+        ),
       ),
-    ),
-  resolveInTransaction: (request, expected, now) =>
-    Effect.flatMap(now === undefined ? DateTime.now : Effect.succeed(now), (instant) =>
-      resolveOAuthCredential(request, expected, instant, selectTokenStateInTransaction, config),
-    ),
-});
+    resolveInTransaction: (request, expected, now) =>
+      Effect.flatMap(now === undefined ? DateTime.now : Effect.succeed(now), (instant) =>
+        resolveOAuthCredential(request, expected, instant, selectTokenStateInTransaction, config),
+      ),
+  }),
+);
 
 const sanitizedRequestContext = (context: IdentityRequestContext) => ({
   correlation: context.requestCorrelation.slice(0, 160),
@@ -873,358 +877,361 @@ const selectActiveSigningKeys = (pool: Pool) =>
         ORDER BY "createdAt" DESC`,
   );
 
-export const makeOAuthClientOperatorService = (
-  pool: Pool,
-  engine: OAuthEngineBoundary,
-): OAuthClientOperatorService => ({
-  provision: (unsafeManifest, execution) =>
-    Effect.gen(function* () {
-      const manifest = yield* Effect.try({
-        try: () => {
-          requireOperatorExecution(execution);
+export const makeOAuthClientOperatorService: {
+  (engine: OAuthEngineBoundary): (pool: Pool) => OAuthClientOperatorService;
+  (pool: Pool, engine: OAuthEngineBoundary): OAuthClientOperatorService;
+} = dual(
+  2,
+  (pool: Pool, engine: OAuthEngineBoundary): OAuthClientOperatorService => ({
+    provision: (unsafeManifest, execution) =>
+      Effect.gen(function* () {
+        const manifest = yield* Effect.try({
+          try: () => {
+            requireOperatorExecution(execution);
 
-          return validateManifest(unsafeManifest);
-        },
-        catch: operatorFailure("provision"),
-      });
+            return validateManifest(unsafeManifest);
+          },
+          catch: operatorFailure("provision"),
+        });
 
-      if (execution.dryRun) {
-        const result: OAuthProvisionResult = { clientId: manifest.clientId };
+        if (execution.dryRun) {
+          const result: OAuthProvisionResult = { clientId: manifest.clientId };
 
-        if (manifest.servicePrincipalId !== undefined)
-          return { ...result, servicePrincipalId: manifest.servicePrincipalId };
+          if (manifest.servicePrincipalId !== undefined)
+            return { ...result, servicePrincipalId: manifest.servicePrincipalId };
 
-        return result;
-      }
+          return result;
+        }
 
-      const confidential = manifest.clientKind !== "DelegatedPublic";
-      const rawSecret = confidential ? randomBytes(32).toString("base64url") : undefined;
-      const clientSecret = rawSecret === undefined ? undefined : `vkr_cs_${rawSecret}`;
+        const confidential = manifest.clientKind !== "DelegatedPublic";
+        const rawSecret = confidential ? randomBytes(32).toString("base64url") : undefined;
+        const clientSecret = rawSecret === undefined ? undefined : `vkr_cs_${rawSecret}`;
 
-      const storedSecret = rawSecret === undefined ? null : hashOAuthClientSecret(rawSecret);
+        const storedSecret = rawSecret === undefined ? null : hashOAuthClientSecret(rawSecret);
 
-      const instant = yield* DateTime.now;
-      const now = DateTime.toDateUtc(instant);
+        const instant = yield* DateTime.now;
+        const now = DateTime.toDateUtc(instant);
 
-      const context = yield* Effect.tryPromise({
-        try: () => engine.$context,
-        catch: operatorFailure("provision"),
-      });
+        const context = yield* Effect.tryPromise({
+          try: () => engine.$context,
+          catch: operatorFailure("provision"),
+        });
 
-      yield* Effect.tryPromise({
-        try: () =>
-          context.adapter.create({
-            model: "oauthClient",
-            data: clientProviderRecord(manifest, storedSecret, now),
-          }),
-        catch: operatorFailure("provision"),
-      });
-      yield* Effect.tryPromise({
-        try: () =>
-          context.adapter.create({
-            model: "oauthClientResource",
-            data: {
-              clientId: manifest.clientId,
-              resourceId: OAUTH_NATIVE_API_RESOURCE,
-              createdAt: now,
-            },
-          }),
-        catch: operatorFailure("provision"),
-      });
-      yield* pgTransaction(pool, (client) =>
-        Effect.gen(function* () {
-          if (manifest.clientKind === "Service") {
-            yield* pgQuery(
-              client,
-              `INSERT INTO public.service_principals (
+        yield* Effect.tryPromise({
+          try: () =>
+            context.adapter.create({
+              model: "oauthClient",
+              data: clientProviderRecord(manifest, storedSecret, now),
+            }),
+          catch: operatorFailure("provision"),
+        });
+        yield* Effect.tryPromise({
+          try: () =>
+            context.adapter.create({
+              model: "oauthClientResource",
+              data: {
+                clientId: manifest.clientId,
+                resourceId: OAUTH_NATIVE_API_RESOURCE,
+                createdAt: now,
+              },
+            }),
+          catch: operatorFailure("provision"),
+        });
+        yield* pgTransaction(pool, (client) =>
+          Effect.gen(function* () {
+            if (manifest.clientKind === "Service") {
+              yield* pgQuery(
+                client,
+                `INSERT INTO public.service_principals (
              service_principal_id, name, state, revision, created_at, updated_at
            ) VALUES ($1, $2, 'Active', 0, $3, $3)`,
-              [manifest.servicePrincipalId, manifest.servicePrincipalName, now],
-            );
-          }
+                [manifest.servicePrincipalId, manifest.servicePrincipalName, now],
+              );
+            }
 
-          yield* pgQuery(
-            client,
-            `INSERT INTO auth.oauth_client_bindings (
+            yield* pgQuery(
+              client,
+              `INSERT INTO auth.oauth_client_bindings (
            client_id, client_kind, service_principal_id, secret_expires_at,
            revision, created_at, updated_at
          ) VALUES ($1, $2, $3, $4, 0, $5, $5)`,
-            [
-              manifest.clientId,
-              manifest.clientKind,
-              manifest.servicePrincipalId ?? null,
-              confidential
-                ? DateTime.toDateUtc(
-                    DateTime.add(instant, { milliseconds: CLIENT_SECRET_LIFETIME_MS }),
-                  )
-                : null,
-              now,
-            ],
-          );
-          yield* appendAudit(client, {
-            eventKind: "oauth-client-provisioned",
-            clientId: manifest.clientId,
-            servicePrincipalId: manifest.servicePrincipalId,
-            actorPrincipal: "operator",
-            requestCorrelation: execution.requestCorrelation,
-            details: { client_kind: manifest.clientKind, resource: OAUTH_NATIVE_API_RESOURCE },
-          });
-        }),
-      );
+              [
+                manifest.clientId,
+                manifest.clientKind,
+                manifest.servicePrincipalId ?? null,
+                confidential
+                  ? DateTime.toDateUtc(
+                      DateTime.add(instant, { milliseconds: CLIENT_SECRET_LIFETIME_MS }),
+                    )
+                  : null,
+                now,
+              ],
+            );
+            yield* appendAudit(client, {
+              eventKind: "oauth-client-provisioned",
+              clientId: manifest.clientId,
+              servicePrincipalId: manifest.servicePrincipalId,
+              actorPrincipal: "operator",
+              requestCorrelation: execution.requestCorrelation,
+              details: { client_kind: manifest.clientKind, resource: OAUTH_NATIVE_API_RESOURCE },
+            });
+          }),
+        );
 
-      const result: Types.Mutable<OAuthProvisionResult> = { clientId: manifest.clientId };
+        const result: Types.Mutable<OAuthProvisionResult> = { clientId: manifest.clientId };
 
-      if (manifest.servicePrincipalId !== undefined)
-        result.servicePrincipalId = manifest.servicePrincipalId;
+        if (manifest.servicePrincipalId !== undefined)
+          result.servicePrincipalId = manifest.servicePrincipalId;
 
-      if (clientSecret !== undefined) result.clientSecret = clientSecret;
+        if (clientSecret !== undefined) result.clientSecret = clientSecret;
 
-      return result;
-    }).pipe(Effect.mapError(operatorFailure("provision"))),
-  rotateSecret: (clientId, execution) =>
-    Effect.gen(function* () {
-      yield* Effect.try({
-        try: () => requireOperatorExecution(execution),
-        catch: operatorFailure("rotateSecret"),
-      });
+        return result;
+      }).pipe(Effect.mapError(operatorFailure("provision"))),
+    rotateSecret: (clientId, execution) =>
+      Effect.gen(function* () {
+        yield* Effect.try({
+          try: () => requireOperatorExecution(execution),
+          catch: operatorFailure("rotateSecret"),
+        });
 
-      if (execution.dryRun) return { clientId };
-      const rawSecret = randomBytes(32).toString("base64url");
-      const secret = `vkr_cs_${rawSecret}`;
+        if (execution.dryRun) return { clientId };
+        const rawSecret = randomBytes(32).toString("base64url");
+        const secret = `vkr_cs_${rawSecret}`;
 
-      const digest = hashOAuthClientSecret(rawSecret);
+        const digest = hashOAuthClientSecret(rawSecret);
 
-      yield* pgTransaction(pool, (client) =>
-        Effect.gen(function* () {
-          yield* pgQuery(client, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-            clientId,
-          ]);
+        yield* pgTransaction(pool, (client) =>
+          Effect.gen(function* () {
+            yield* pgQuery(client, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+              clientId,
+            ]);
 
-          const updated = yield* pgQuery(
-            client,
-            `UPDATE auth."oauthClient" provider
+            const updated = yield* pgQuery(
+              client,
+              `UPDATE auth."oauthClient" provider
             SET "clientSecret" = $2, "updatedAt" = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
            FROM auth.oauth_client_bindings binding
           WHERE provider."clientId" = $1
             AND binding.client_id = provider."clientId"
             AND binding.client_kind <> 'DelegatedPublic'
             AND COALESCE(provider.disabled, false) = false`,
-            [clientId, digest],
-          );
+              [clientId, digest],
+            );
 
-          if (updated.rowCount !== 1) {
-            return yield* new OAuthClientOperatorError({
-              operation: "rotateSecret",
-              message: "live confidential client not found",
-              cause: undefined,
-            });
-          }
+            if (updated.rowCount !== 1) {
+              return yield* new OAuthClientOperatorError({
+                operation: "rotateSecret",
+                message: "live confidential client not found",
+                cause: undefined,
+              });
+            }
 
-          yield* pgQuery(
-            client,
-            `UPDATE auth.oauth_client_bindings
+            yield* pgQuery(
+              client,
+              `UPDATE auth.oauth_client_bindings
             SET secret_expires_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
                   + make_interval(secs => $2),
                 revision = revision + 1,
                 updated_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
           WHERE client_id = $1`,
-            [clientId, CLIENT_SECRET_LIFETIME_MS / 1_000],
-          );
-          yield* appendAudit(client, {
-            eventKind: "oauth-client-secret-rotated",
-            clientId,
-            actorPrincipal: "operator",
-            requestCorrelation: execution.requestCorrelation,
-          });
-        }),
-      );
+              [clientId, CLIENT_SECRET_LIFETIME_MS / 1_000],
+            );
+            yield* appendAudit(client, {
+              eventKind: "oauth-client-secret-rotated",
+              clientId,
+              actorPrincipal: "operator",
+              requestCorrelation: execution.requestCorrelation,
+            });
+          }),
+        );
 
-      return { clientId, clientSecret: secret };
-    }).pipe(Effect.mapError(operatorFailure("rotateSecret"))),
-  disableClient: (clientId, execution) =>
-    Effect.gen(function* () {
-      yield* Effect.try({
-        try: () => requireOperatorExecution(execution),
-        catch: operatorFailure("disableClient"),
-      });
+        return { clientId, clientSecret: secret };
+      }).pipe(Effect.mapError(operatorFailure("rotateSecret"))),
+    disableClient: (clientId, execution) =>
+      Effect.gen(function* () {
+        yield* Effect.try({
+          try: () => requireOperatorExecution(execution),
+          catch: operatorFailure("disableClient"),
+        });
 
-      if (execution.dryRun) return;
-      yield* pgTransaction(pool, (client) =>
-        Effect.gen(function* () {
-          yield* pgQuery(client, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-            clientId,
-          ]);
+        if (execution.dryRun) return;
+        yield* pgTransaction(pool, (client) =>
+          Effect.gen(function* () {
+            yield* pgQuery(client, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+              clientId,
+            ]);
 
-          const updated = yield* pgQuery(
-            client,
-            `UPDATE auth."oauthClient" SET disabled = true, "updatedAt" = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
+            const updated = yield* pgQuery(
+              client,
+              `UPDATE auth."oauthClient" SET disabled = true, "updatedAt" = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
           WHERE "clientId" = $1 AND COALESCE(disabled, false) = false`,
-            [clientId],
-          );
+              [clientId],
+            );
 
-          if (updated.rowCount !== 1) {
-            return yield* new OAuthClientOperatorError({
-              operation: "disableClient",
-              message: "live OAuth client not found",
-              cause: undefined,
+            if (updated.rowCount !== 1) {
+              return yield* new OAuthClientOperatorError({
+                operation: "disableClient",
+                message: "live OAuth client not found",
+                cause: undefined,
+              });
+            }
+
+            yield* pgQuery(
+              client,
+              `UPDATE auth.oauth_access_token_state SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'),
+           revocation_reason = 'client-disabled'
+         WHERE client_id = $1 AND revoked_at IS NULL`,
+              [clientId],
+            );
+            yield* pgQuery(
+              client,
+              `UPDATE auth.oauth_refresh_families SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'),
+           revocation_reason = 'client-disabled'
+         WHERE client_id = $1 AND revoked_at IS NULL`,
+              [clientId],
+            );
+            yield* appendAudit(client, {
+              eventKind: "oauth-client-disabled",
+              clientId,
+              actorPrincipal: "operator",
+              requestCorrelation: execution.requestCorrelation,
             });
-          }
+          }),
+        );
+      }).pipe(Effect.mapError(operatorFailure("disableClient"))),
+    disableServicePrincipal: (servicePrincipalId, execution) =>
+      Effect.gen(function* () {
+        yield* Effect.try({
+          try: () => requireOperatorExecution(execution),
+          catch: operatorFailure("disableServicePrincipal"),
+        });
 
-          yield* pgQuery(
-            client,
-            `UPDATE auth.oauth_access_token_state SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'),
-           revocation_reason = 'client-disabled'
-         WHERE client_id = $1 AND revoked_at IS NULL`,
-            [clientId],
-          );
-          yield* pgQuery(
-            client,
-            `UPDATE auth.oauth_refresh_families SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'),
-           revocation_reason = 'client-disabled'
-         WHERE client_id = $1 AND revoked_at IS NULL`,
-            [clientId],
-          );
-          yield* appendAudit(client, {
-            eventKind: "oauth-client-disabled",
-            clientId,
-            actorPrincipal: "operator",
-            requestCorrelation: execution.requestCorrelation,
-          });
-        }),
-      );
-    }).pipe(Effect.mapError(operatorFailure("disableClient"))),
-  disableServicePrincipal: (servicePrincipalId, execution) =>
-    Effect.gen(function* () {
-      yield* Effect.try({
-        try: () => requireOperatorExecution(execution),
-        catch: operatorFailure("disableServicePrincipal"),
-      });
-
-      if (execution.dryRun) return;
-      yield* pgTransaction(pool, (client) =>
-        Effect.gen(function* () {
-          const selected = yield* pgQuery<{ readonly client_id: string }>(
-            client,
-            `SELECT client_id FROM auth.oauth_client_bindings
+        if (execution.dryRun) return;
+        yield* pgTransaction(pool, (client) =>
+          Effect.gen(function* () {
+            const selected = yield* pgQuery<{ readonly client_id: string }>(
+              client,
+              `SELECT client_id FROM auth.oauth_client_bindings
           WHERE service_principal_id = $1 FOR UPDATE`,
-            [servicePrincipalId],
-          );
+              [servicePrincipalId],
+            );
 
-          const binding = selected.rows[0];
+            const binding = selected.rows[0];
 
-          if (binding === undefined) {
-            return yield* new OAuthClientOperatorError({
-              operation: "disableServicePrincipal",
-              message: "service-principal binding not found",
-              cause: undefined,
-            });
-          }
+            if (binding === undefined) {
+              return yield* new OAuthClientOperatorError({
+                operation: "disableServicePrincipal",
+                message: "service-principal binding not found",
+                cause: undefined,
+              });
+            }
 
-          yield* pgQuery(
-            client,
-            `UPDATE public.service_principals
+            yield* pgQuery(
+              client,
+              `UPDATE public.service_principals
             SET state = 'Disabled', revision = revision + 1, updated_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
           WHERE service_principal_id = $1 AND state = 'Active'`,
-            [servicePrincipalId],
-          );
-          yield* pgQuery(
-            client,
-            `UPDATE auth."oauthClient" SET disabled = true, "updatedAt" = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
+              [servicePrincipalId],
+            );
+            yield* pgQuery(
+              client,
+              `UPDATE auth."oauthClient" SET disabled = true, "updatedAt" = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
           WHERE "clientId" = $1`,
-            [binding.client_id],
-          );
-          yield* pgQuery(
-            client,
-            `UPDATE auth.oauth_access_token_state
+              [binding.client_id],
+            );
+            yield* pgQuery(
+              client,
+              `UPDATE auth.oauth_access_token_state
             SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), revocation_reason = 'service-principal-disabled'
           WHERE service_principal_id = $1 AND revoked_at IS NULL`,
-            [servicePrincipalId],
-          );
-          yield* appendAudit(client, {
-            eventKind: "oauth-service-principal-disabled",
-            clientId: binding.client_id,
-            servicePrincipalId,
+              [servicePrincipalId],
+            );
+            yield* appendAudit(client, {
+              eventKind: "oauth-service-principal-disabled",
+              clientId: binding.client_id,
+              servicePrincipalId,
+              actorPrincipal: "operator",
+              requestCorrelation: execution.requestCorrelation,
+            });
+          }),
+        );
+      }).pipe(Effect.mapError(operatorFailure("disableServicePrincipal"))),
+    bootstrapSigningKey: (execution) =>
+      Effect.gen(function* () {
+        yield* Effect.try({
+          try: () => requireOperatorExecution(execution),
+          catch: operatorFailure("bootstrapSigningKey"),
+        });
+
+        const selected = yield* selectActiveSigningKeys(pool);
+
+        if (selected.rows.length > 1) {
+          return yield* new OAuthClientOperatorError({
+            operation: "bootstrapSigningKey",
+            message: "multiple active ES256 signing keys",
+            cause: undefined,
+          });
+        }
+
+        if (selected.rows[0] !== undefined) return { keyId: selected.rows[0].id };
+
+        if (execution.dryRun) return {};
+        yield* Effect.tryPromise({
+          try: () =>
+            engine.api.signJWT({
+              body: {
+                payload: { sub: "oauth-signing-key-bootstrap", aud: OAUTH_NATIVE_API_RESOURCE },
+              },
+            }),
+          catch: operatorFailure("bootstrapSigningKey"),
+        });
+
+        const created = yield* selectActiveSigningKeys(pool);
+
+        const [key] = created.rows;
+
+        if (created.rows.length !== 1 || key === undefined) {
+          return yield* new OAuthClientOperatorError({
+            operation: "bootstrapSigningKey",
+            message: "signing key bootstrap did not create exactly one key",
+            cause: undefined,
+          });
+        }
+
+        yield* pgTransaction(pool, (client) =>
+          appendAudit(client, {
+            eventKind: "oauth-signing-key-rotated",
             actorPrincipal: "operator",
             requestCorrelation: execution.requestCorrelation,
-          });
-        }),
-      );
-    }).pipe(Effect.mapError(operatorFailure("disableServicePrincipal"))),
-  bootstrapSigningKey: (execution) =>
-    Effect.gen(function* () {
-      yield* Effect.try({
-        try: () => requireOperatorExecution(execution),
-        catch: operatorFailure("bootstrapSigningKey"),
-      });
-
-      const selected = yield* selectActiveSigningKeys(pool);
-
-      if (selected.rows.length > 1) {
-        return yield* new OAuthClientOperatorError({
-          operation: "bootstrapSigningKey",
-          message: "multiple active ES256 signing keys",
-          cause: undefined,
-        });
-      }
-
-      if (selected.rows[0] !== undefined) return { keyId: selected.rows[0].id };
-
-      if (execution.dryRun) return {};
-      yield* Effect.tryPromise({
-        try: () =>
-          engine.api.signJWT({
-            body: {
-              payload: { sub: "oauth-signing-key-bootstrap", aud: OAUTH_NATIVE_API_RESOURCE },
-            },
+            details: { key_id: key.id },
           }),
-        catch: operatorFailure("bootstrapSigningKey"),
-      });
+        );
 
-      const created = yield* selectActiveSigningKeys(pool);
-
-      const [key] = created.rows;
-
-      if (created.rows.length !== 1 || key === undefined) {
-        return yield* new OAuthClientOperatorError({
-          operation: "bootstrapSigningKey",
-          message: "signing key bootstrap did not create exactly one key",
-          cause: undefined,
+        return { keyId: key.id };
+      }).pipe(Effect.mapError(operatorFailure("bootstrapSigningKey"))),
+    retireSigningKeys: (execution, now) =>
+      Effect.gen(function* () {
+        yield* Effect.try({
+          try: () => requireOperatorExecution(execution),
+          catch: operatorFailure("retireSigningKeys"),
         });
-      }
 
-      yield* pgTransaction(pool, (client) =>
-        appendAudit(client, {
-          eventKind: "oauth-signing-key-rotated",
-          actorPrincipal: "operator",
-          requestCorrelation: execution.requestCorrelation,
-          details: { key_id: key.id },
-        }),
-      );
+        if (execution.dryRun) return 0;
 
-      return { keyId: key.id };
-    }).pipe(Effect.mapError(operatorFailure("bootstrapSigningKey"))),
-  retireSigningKeys: (execution, now) =>
-    Effect.gen(function* () {
-      yield* Effect.try({
-        try: () => requireOperatorExecution(execution),
-        catch: operatorFailure("retireSigningKeys"),
-      });
+        const cutoff = now ?? (yield* DateTime.now);
 
-      if (execution.dryRun) return 0;
-
-      const cutoff = now ?? (yield* DateTime.now);
-
-      const result = yield* pgQuery(
-        pool,
-        `DELETE FROM auth.jwks
+        const result = yield* pgQuery(
+          pool,
+          `DELETE FROM auth.jwks
         WHERE "expiresAt" IS NOT NULL
           AND "expiresAt" + interval '15 minutes' <= $1`,
-        [DateTime.toDateUtc(cutoff)],
-      );
+          [DateTime.toDateUtc(cutoff)],
+        );
 
-      return result.rowCount ?? 0;
-    }).pipe(Effect.mapError(operatorFailure("retireSigningKeys"))),
-});
+        return result.rowCount ?? 0;
+      }).pipe(Effect.mapError(operatorFailure("retireSigningKeys"))),
+  }),
+);
 
 const clientAuthoritySql = `SELECT binding.client_id, binding.client_kind, binding.service_principal_id,
             binding.secret_expires_at, client.disabled, client."clientSecret" AS client_secret,
@@ -1385,65 +1392,69 @@ const inactiveIntrospectionResponse = (): Response =>
     { status: 200, headers: { "cache-control": "no-store", pragma: "no-cache" } },
   );
 
-export const makeOAuthInternalIntrospectionHandler =
+export const makeOAuthInternalIntrospectionHandler: {
+  (pool: Pool): (engine: OAuthEngineBoundary) => OAuthIntrospectionHandler;
+  (engine: OAuthEngineBoundary, pool: Pool): OAuthIntrospectionHandler;
+} = dual(
+  2,
   (engine: OAuthEngineBoundary, pool: Pool): OAuthIntrospectionHandler =>
-  (request, context) =>
-    Effect.gen(function* () {
-      const pathname = new URL(request.url).pathname;
+    (request, context) =>
+      Effect.gen(function* () {
+        const pathname = new URL(request.url).pathname;
 
-      if (request.method !== "POST" || pathname !== "/api/auth/oauth2/introspect") {
-        return new Response("Not Found", { status: 404 });
-      }
+        if (request.method !== "POST" || pathname !== "/api/auth/oauth2/introspect") {
+          return new Response("Not Found", { status: 404 });
+        }
 
-      // The rejection answers inactive even when its audit row cannot be written.
-      const reject = (reason: string) =>
-        pgTransaction(pool, (transaction) =>
-          appendAudit(transaction, {
-            eventKind: "oauth-introspection-rejected",
-            actorPrincipal: "resource-server",
-            requestCorrelation: context.requestCorrelation,
-            sourceIp: sanitizedRequestContext(context).sourceIp,
-            userAgent: sanitizedRequestContext(context).userAgent,
-            details: { denial_category: reason },
-          }),
-        ).pipe(Effect.ignore, Effect.map(inactiveIntrospectionResponse));
+        // The rejection answers inactive even when its audit row cannot be written.
+        const reject = (reason: string) =>
+          pgTransaction(pool, (transaction) =>
+            appendAudit(transaction, {
+              eventKind: "oauth-introspection-rejected",
+              actorPrincipal: "resource-server",
+              requestCorrelation: context.requestCorrelation,
+              sourceIp: sanitizedRequestContext(context).sourceIp,
+              userAgent: sanitizedRequestContext(context).userAgent,
+              details: { denial_category: reason },
+            }),
+          ).pipe(Effect.ignore, Effect.map(inactiveIntrospectionResponse));
 
-      if (
-        request.headers.get("cookie") !== null ||
-        request.headers.get("content-type")?.split(";", 1)[0] !==
-          "application/x-www-form-urlencoded"
-      ) {
-        return yield* reject("invalid-request");
-      }
+        if (
+          request.headers.get("cookie") !== null ||
+          request.headers.get("content-type")?.split(";", 1)[0] !==
+            "application/x-www-form-urlencoded"
+        ) {
+          return yield* reject("invalid-request");
+        }
 
-      const body = yield* requestText(request);
+        const body = yield* requestText(request);
 
-      if (new TextEncoder().encode(body).byteLength > FORM_INPUT_LIMIT) {
-        return yield* reject("input-limit");
-      }
+        if (new TextEncoder().encode(body).byteLength > FORM_INPUT_LIMIT) {
+          return yield* reject("input-limit");
+        }
 
-      const now = yield* DateTime.now;
+        const now = yield* DateTime.now;
 
-      if (!(yield* authorizeOAuthIntrospectionClient(pool, request, now))) {
-        return yield* reject("invalid-client");
-      }
+        if (!(yield* authorizeOAuthIntrospectionClient(pool, request, now))) {
+          return yield* reject("invalid-client");
+        }
 
-      const provider = yield* boundedProviderResponse(engine, request);
-      const parsed = yield* decodeUnknownRecordJson(provider.body);
+        const provider = yield* boundedProviderResponse(engine, request);
+        const parsed = yield* decodeUnknownRecordJson(provider.body);
 
-      if (
-        parsed.active !== true ||
-        !Predicate.isString(parsed.jti) ||
-        !Predicate.isString(parsed.client_id) ||
-        !Predicate.isString(parsed.sub) ||
-        !Predicate.isString(parsed.scope)
-      ) {
-        return inactiveIntrospectionResponse();
-      }
+        if (
+          parsed.active !== true ||
+          !Predicate.isString(parsed.jti) ||
+          !Predicate.isString(parsed.client_id) ||
+          !Predicate.isString(parsed.sub) ||
+          !Predicate.isString(parsed.scope)
+        ) {
+          return inactiveIntrospectionResponse();
+        }
 
-      const tracked = yield* pgQuery(
-        pool,
-        `SELECT 1
+        const tracked = yield* pgQuery(
+          pool,
+          `SELECT 1
          FROM auth.oauth_access_token_state state
          JOIN auth.oauth_client_bindings binding ON binding.client_id = state.client_id
          JOIN auth."oauthClient" client ON client."clientId" = state.client_id
@@ -1492,43 +1503,44 @@ export const makeOAuthInternalIntrospectionHandler =
              AND state.client_id = $3
              AND $4::text IS NULL)
           )`,
-        [
-          parsed.jti,
-          parsed.client_id,
-          parsed.sub,
-          Predicate.isString(parsed.sid) ? parsed.sid : null,
-          OAUTH_NATIVE_API_RESOURCE,
-          parsed.scope,
-        ],
-      );
+          [
+            parsed.jti,
+            parsed.client_id,
+            parsed.sub,
+            Predicate.isString(parsed.sid) ? parsed.sid : null,
+            OAUTH_NATIVE_API_RESOURCE,
+            parsed.scope,
+          ],
+        );
 
-      if (tracked.rowCount !== 1) return inactiveIntrospectionResponse();
+        if (tracked.rowCount !== 1) return inactiveIntrospectionResponse();
 
-      const allowed = [
-        "active",
-        "client_id",
-        "token_type",
-        "scope",
-        "sub",
-        "aud",
-        "iss",
-        "exp",
-        "iat",
-        "jti",
-        "sid",
-      ] as const;
+        const allowed = [
+          "active",
+          "client_id",
+          "token_type",
+          "scope",
+          "sub",
+          "aud",
+          "iss",
+          "exp",
+          "iat",
+          "jti",
+          "sid",
+        ] as const;
 
-      const bounded: Partial<Record<(typeof allowed)[number], Schema.Json>> = {};
+        const bounded: Partial<Record<(typeof allowed)[number], Schema.Json>> = {};
 
-      for (const name of allowed) {
-        if (parsed[name] !== undefined) bounded[name] = parsed[name];
-      }
+        for (const name of allowed) {
+          if (parsed[name] !== undefined) bounded[name] = parsed[name];
+        }
 
-      return Response.json(bounded, {
-        status: 200,
-        headers: { "cache-control": "no-store", pragma: "no-cache" },
-      });
-    });
+        return Response.json(bounded, {
+          status: 200,
+          headers: { "cache-control": "no-store", pragma: "no-cache" },
+        });
+      }),
+);
 
 const invalidOAuthResponse = (status: number, error: string): Response =>
   Response.json(
@@ -1624,7 +1636,15 @@ interface OpenedRefreshFamily {
  * Opens a refresh family at the issue instant of its first token. Migration 0077 defines its
  * windows, which its checks enforce.
  */
-export const openRefreshFamily = (transaction: PoolClient, family: OpenedRefreshFamily) =>
+export const openRefreshFamily: {
+  (
+    family: OpenedRefreshFamily,
+  ): (transaction: PoolClient) => Effect.Effect<QueryResult<QueryResultRow>, PgQueryError>;
+  (
+    transaction: PoolClient,
+    family: OpenedRefreshFamily,
+  ): Effect.Effect<QueryResult<QueryResultRow>, PgQueryError>;
+} = dual(2, (transaction: PoolClient, family: OpenedRefreshFamily) =>
   pgQuery(
     transaction,
     `INSERT INTO auth.oauth_refresh_families (
@@ -1643,10 +1663,21 @@ export const openRefreshFamily = (transaction: PoolClient, family: OpenedRefresh
       family.sessionId,
       DateTime.toDateUtc(family.issuedAt),
     ],
-  );
+  ),
+);
 
 /** Records a refresh at `usedAt`, the issue instant of the new token in epoch seconds. */
-export const recordRefreshFamilyUse = (transaction: PoolClient, familyId: string, usedAt: number) =>
+export const recordRefreshFamilyUse: {
+  (
+    familyId: string,
+    usedAt: number,
+  ): (transaction: PoolClient) => Effect.Effect<QueryResult<QueryResultRow>, PgQueryError>;
+  (
+    transaction: PoolClient,
+    familyId: string,
+    usedAt: number,
+  ): Effect.Effect<QueryResult<QueryResultRow>, PgQueryError>;
+} = dual(3, (transaction: PoolClient, familyId: string, usedAt: number) =>
   pgQuery(
     transaction,
     `UPDATE auth.oauth_refresh_families
@@ -1655,7 +1686,8 @@ export const recordRefreshFamilyUse = (transaction: PoolClient, familyId: string
               auth.oauth_refresh_inactivity_expires_at(to_timestamp($2), absolute_expires_at)
       WHERE family_id = $1 AND revoked_at IS NULL`,
     [familyId, usedAt],
-  );
+  ),
+);
 
 const initialCodeExchange = (
   engine: OAuthEngineBoundary,
@@ -2309,101 +2341,115 @@ const handlePublicClient = (engine: OAuthEngineBoundary, pool: Pool, request: Re
     );
   });
 
-export const makeOAuthReleaseBarrier =
+export const makeOAuthReleaseBarrier: {
+  (
+    pool: Pool,
+    config: OAuthProviderRuntimeConfig,
+  ): (engine: OAuthEngineBoundary) => OAuthReleaseHandler;
+  (
+    engine: OAuthEngineBoundary,
+    pool: Pool,
+    config: OAuthProviderRuntimeConfig,
+  ): OAuthReleaseHandler;
+} = dual(
+  3,
   (
     engine: OAuthEngineBoundary,
     pool: Pool,
     config: OAuthProviderRuntimeConfig,
   ): OAuthReleaseHandler =>
-  (request, context) =>
-    Effect.gen(function* () {
-      const pathname = new URL(request.url).pathname;
+    (request, context) =>
+      Effect.gen(function* () {
+        const pathname = new URL(request.url).pathname;
 
-      if (request.method === "GET" && pathname === "/api/auth/oauth2/public-client") {
-        return yield* handlePublicClient(engine, pool, request);
-      }
+        if (request.method === "GET" && pathname === "/api/auth/oauth2/public-client") {
+          return yield* handlePublicClient(engine, pool, request);
+        }
 
-      if (request.method === "POST" && pathname === "/api/auth/oauth2/token") {
-        return yield* handleToken(engine, pool, request, context, config);
-      }
+        if (request.method === "POST" && pathname === "/api/auth/oauth2/token") {
+          return yield* handleToken(engine, pool, request, context, config);
+        }
 
-      if (request.method === "POST" && pathname === "/api/auth/oauth2/revoke") {
-        return yield* handleRevocation(engine, pool, request, context);
-      }
+        if (request.method === "POST" && pathname === "/api/auth/oauth2/revoke") {
+          return yield* handleRevocation(engine, pool, request, context);
+        }
 
-      if (request.method === "POST" && pathname === "/api/auth/oauth2/delete-consent") {
-        return yield* handleConsentWithdrawal(engine, pool, request, context);
-      }
+        if (request.method === "POST" && pathname === "/api/auth/oauth2/delete-consent") {
+          return yield* handleConsentWithdrawal(engine, pool, request, context);
+        }
 
-      const response = yield* providerResponse(engine, request);
+        const response = yield* providerResponse(engine, request);
 
-      if (pathname === "/api/auth/jwks" && response.ok) {
-        const body = yield* responseText(response);
-        const etag = `"${createHash("sha256").update(body, "utf8").digest("base64url")}"`;
+        if (pathname === "/api/auth/jwks" && response.ok) {
+          const body = yield* responseText(response);
+          const etag = `"${createHash("sha256").update(body, "utf8").digest("base64url")}"`;
 
-        return new Response(body, {
-          status: response.status,
-          statusText: response.statusText,
-          headers: {
-            ...Object.fromEntries(response.headers),
-            "cache-control": "public, max-age=300, must-revalidate",
-            etag,
-          },
-        });
-      }
-
-      if (pathname.startsWith("/api/auth/oauth2/")) {
-        response.headers.set("cache-control", "no-store");
-        response.headers.set("pragma", "no-cache");
-      }
-
-      return response;
-    }).pipe(
-      // The barrier answers every failure and defect of the exchange as temporarily unavailable.
-      Effect.catchCause(() =>
-        Effect.succeed(
-          Response.json(
-            { error: "temporarily_unavailable" },
-            {
-              status: 503,
-              headers: { "cache-control": "no-store", pragma: "no-cache" },
+          return new Response(body, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: {
+              ...Object.fromEntries(response.headers),
+              "cache-control": "public, max-age=300, must-revalidate",
+              etag,
             },
+          });
+        }
+
+        if (pathname.startsWith("/api/auth/oauth2/")) {
+          response.headers.set("cache-control", "no-store");
+          response.headers.set("pragma", "no-cache");
+        }
+
+        return response;
+      }).pipe(
+        // The barrier answers every failure and defect of the exchange as temporarily unavailable.
+        Effect.catchCause(() =>
+          Effect.succeed(
+            Response.json(
+              { error: "temporarily_unavailable" },
+              {
+                status: 503,
+                headers: { "cache-control": "no-store", pragma: "no-cache" },
+              },
+            ),
           ),
         ),
       ),
-    );
+);
 
-export const exactRedirectAccepted = (
-  pool: Pool,
-  clientId: string,
-  redirectUri: string,
-): Effect.Effect<boolean, PgQueryError> =>
-  Effect.gen(function* () {
-    const now = DateTime.toEpochMillis(yield* DateTime.now);
-    const client = yield* readClientAuthority(pool, clientId);
+export const exactRedirectAccepted: {
+  (clientId: string, redirectUri: string): (pool: Pool) => Effect.Effect<boolean, PgQueryError>;
+  (pool: Pool, clientId: string, redirectUri: string): Effect.Effect<boolean, PgQueryError>;
+} = dual(
+  3,
+  (pool: Pool, clientId: string, redirectUri: string): Effect.Effect<boolean, PgQueryError> =>
+    Effect.gen(function* () {
+      const now = DateTime.toEpochMillis(yield* DateTime.now);
+      const client = yield* readClientAuthority(pool, clientId);
 
-    if (
-      client === undefined ||
-      client.disabled === true ||
-      (client.client_kind !== "DelegatedPublic" &&
-        client.client_kind !== "DelegatedConfidential") ||
-      client.require_pkce !== true ||
-      client.grant_types?.join(" ") !== "authorization_code refresh_token" ||
-      (client.secret_expires_at !== null && client.secret_expires_at.getTime() <= now) ||
-      !client.redirect_uris.some((registered) => registered === redirectUri)
-    ) {
-      return false;
-    }
+      if (
+        client === undefined ||
+        client.disabled === true ||
+        (client.client_kind !== "DelegatedPublic" &&
+          client.client_kind !== "DelegatedConfidential") ||
+        client.require_pkce !== true ||
+        client.grant_types?.join(" ") !== "authorization_code refresh_token" ||
+        (client.secret_expires_at !== null && client.secret_expires_at.getTime() <= now) ||
+        !client.redirect_uris.some((registered) => registered === redirectUri)
+      ) {
+        return false;
+      }
 
-    const linked = yield* pgQuery(
-      pool,
-      `SELECT 1 FROM auth."oauthClientResource"
+      const linked = yield* pgQuery(
+        pool,
+        `SELECT 1 FROM auth."oauthClientResource"
       WHERE "clientId" = $1 AND "resourceId" = $2`,
-      [clientId, OAUTH_NATIVE_API_RESOURCE],
-    );
+        [clientId, OAUTH_NATIVE_API_RESOURCE],
+      );
 
-    return linked.rowCount === 1;
-  });
+      return linked.rowCount === 1;
+    }),
+);
 
 export class OAuthHandlers extends Context.Service<
   OAuthHandlers,

@@ -1,4 +1,5 @@
-import { Effect, FileSystem, Path } from "effect";
+import { Effect, FileSystem, Path, Predicate } from "effect";
+import { dual } from "effect/Function";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
   databaseSchemaRevision,
@@ -18,7 +19,7 @@ export interface DatabaseLayerObserver {
   readonly onRelease: () => void;
 }
 
-export const databaseWithMigrations = (
+const makeDatabaseWithMigrations = (
   executeMigration: ExecuteMigration,
   json: DatabaseOperations["json"],
   observer?: DatabaseLayerObserver,
@@ -62,3 +63,17 @@ export const databaseWithMigrations = (
 
     return database;
   });
+
+type DatabaseWithMigrations = ReturnType<typeof makeDatabaseWithMigrations>;
+
+export const databaseWithMigrations: {
+  (
+    json: DatabaseOperations["json"],
+    observer?: DatabaseLayerObserver,
+  ): (executeMigration: ExecuteMigration) => DatabaseWithMigrations;
+  (
+    executeMigration: ExecuteMigration,
+    json: DatabaseOperations["json"],
+    observer?: DatabaseLayerObserver,
+  ): DatabaseWithMigrations;
+} = dual((args) => Predicate.isFunction(args[1]), makeDatabaseWithMigrations);
