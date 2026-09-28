@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 import { deriveHttpIdentity } from "@vektorprogrammet/backend/http-semantics";
+import { isNativeRpcPath } from "./native-operations.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -383,8 +384,12 @@ const replacedRoutes = new Map([
   ["system.readSession", ["GET", "/api/session"]],
 ]);
 
-/** The one RPC request that a request body carries: its tag and payload. */
-const RpcRequestMessage = Schema.Struct({ tag: Schema.String, payload: Schema.Unknown });
+/** The one RPC request that a request body carries: its tag, payload, and message headers. */
+const RpcRequestMessage = Schema.Struct({
+  tag: Schema.String,
+  payload: Schema.Unknown,
+  headers: Schema.Array(Schema.Tuple([Schema.String, Schema.String])),
+});
 
 const parseRpcRequest = (json) =>
   Option.getOrUndefined(Schema.decodeUnknownOption(RpcRequestMessage)(json));
@@ -468,14 +473,25 @@ async function startRecordingProxy(targetOrigin) {
 
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const requestBytes = Buffer.concat(chunks);
-    const cookieKey = sessionCookieKey(request.headers.cookie);
+    const requestJson = parseJsonBody(requestBytes);
+
+    const rpc =
+      method === "POST" && isNativeRpcPath(url.pathname) ? parseRpcRequest(requestJson) : undefined;
+
+    // A caller that forwards a person's credential sends it as a header of the RPC message, which
+    // the backend lays over the HTTP header of the same name.
+    const callerHeader = (name) =>
+      rpc?.headers.findLast(([header]) => header.toLowerCase() === name)?.[1] ??
+      request.headers[name];
+
+    const cookieKey = sessionCookieKey(callerHeader("cookie"));
 
     const record = {
       method,
       path: url.pathname,
       query: url.search,
       sessionCookieAuth: cookieKey !== undefined,
-      authorizationHeaderPresent: request.headers.authorization !== undefined,
+      authorizationHeaderPresent: callerHeader("authorization") !== undefined,
       idempotencyKey: Predicate.isString(request.headers["idempotency-key"])
         ? request.headers["idempotency-key"]
         : null,
@@ -486,7 +502,7 @@ async function startRecordingProxy(targetOrigin) {
       sessionPersonId:
         cookieKey === undefined ? null : (sessionPersonsByCookie.get(cookieKey) ?? null),
       canonicalAuthorityFixture: null,
-      request: parseJsonBody(requestBytes),
+      request: requestJson,
       responseJson: null,
       responseContentType: null,
       responseEtag: null,
@@ -495,8 +511,6 @@ async function startRecordingProxy(targetOrigin) {
       rpcTag: null,
       status: 0,
     };
-
-    const rpc = url.pathname === "/api/rpc" ? parseRpcRequest(record.request) : undefined;
 
     // A native RPC is recorded as the route it replaced, with its key and request from the payload.
     if (rpc !== undefined) {

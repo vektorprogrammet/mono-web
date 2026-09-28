@@ -12,9 +12,20 @@ import { fileURLToPath } from "node:url";
 import { reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { chromium, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { Predicate, Schema } from "effect";
+import { Option, Predicate, Schema } from "effect";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
+
+/** The tag of one RPC request body, as the JSON serialization of the RPC client writes it. */
+const rpcTagOf = (body) =>
+  Option.getOrUndefined(
+    Option.map(
+      Schema.decodeUnknownOption(
+        Schema.fromJsonString(Schema.TaggedStruct("Request", { tag: Schema.String })),
+      )(body),
+      (message) => message.tag,
+    ),
+  );
 
 const homepage = join(root, "apps/homepage");
 
@@ -275,7 +286,16 @@ try {
 
         if (url.origin !== backendOrigin) throw new Error("Local Worker outbound origin rejected");
 
-        if (redirectContact && request.method === "POST") {
+        const body = ["GET", "HEAD"].includes(request.method)
+          ? undefined
+          : await request.arrayBuffer();
+
+        // Every native read is an RPC POST too, so only the contact command is redirected.
+        if (
+          redirectContact &&
+          body !== undefined &&
+          rpcTagOf(Buffer.from(body).toString("utf8")) === "contact.submitContactMessage"
+        ) {
           return new Response(null, { status: 307, headers: { location: redirectOrigin } });
         }
 
@@ -283,7 +303,7 @@ try {
 headers: request.headers,
 redirect: "manual" };
 
-if (!(["GET", "HEAD"].includes(request.method))) Object.assign(requestOptions1, { body: await request.arrayBuffer() });
+if (body !== undefined) Object.assign(requestOptions1, { body });
 const response = await fetch(url, requestOptions1);
 
         workerOutbound.push({

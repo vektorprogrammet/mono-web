@@ -1,11 +1,11 @@
 /**
  * The homepage server's calls to the native backend. The homepage calls public RPCs with no
  * person's credential; the contact form adds its deployment secret per call through `headers`. A
- * failure rejects with the RPC's `Problem`.
+ * failure rejects with the RPC's `Problem`, and a redirect rejects without being followed.
  */
 import {
   NativeRpcClient,
-  nativeRpcClientLayer,
+  nativeRpcServerClientLayer,
   withForwardedHeaders,
 } from "@vektorprogrammet/rpc/client";
 import { type Effect, ManagedRuntime } from "effect";
@@ -27,7 +27,7 @@ const nativeRuntime = (origin: string) => {
 
   if (existing !== undefined) return existing;
 
-  const runtime = ManagedRuntime.make(nativeRpcClientLayer(origin));
+  const runtime = ManagedRuntime.make(nativeRpcServerClientLayer(origin));
 
   runtimes.set(origin, runtime);
 
