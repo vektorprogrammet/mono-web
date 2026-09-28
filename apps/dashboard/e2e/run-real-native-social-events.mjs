@@ -223,9 +223,13 @@ const requestBody = async (request) => {
   return chunks.length === 0 ? undefined : Buffer.concat(chunks);
 };
 
-/** The one RPC request that a request body carries: its tag and payload. */
+/** The one RPC request that a request body carries: its tag, payload, and message headers. */
 const RpcRequestBody = Schema.fromJsonString(
-  Schema.Struct({ tag: Schema.String, payload: Schema.Unknown }),
+  Schema.Struct({
+    tag: Schema.String,
+    payload: Schema.Unknown,
+    headers: Schema.Array(Schema.Tuple([Schema.String, Schema.String])),
+  }),
 );
 
 const parseRpcRequest = (bytes) =>
@@ -253,6 +257,12 @@ const startRecordingProxy = async (ledger) => {
     const rpcRequest =
       request.method === "POST" && isNativeRpcPath(url.pathname) ? parseRpcRequest(body) : null;
 
+    // The backend reads an RPC's headers with the message headers merged over the HTTP headers,
+    // where a server caller such as the dashboard forwards the person's cookie.
+    const rpcHeaders = new Headers(headers);
+
+    for (const [name, value] of rpcRequest?.headers ?? []) rpcHeaders.set(name, value);
+
     const entry = {
       sequence: ledger.length + 1,
       method: request.method ?? "GET",
@@ -260,8 +270,8 @@ const startRecordingProxy = async (ledger) => {
       query: url.search,
       rpcTag: rpcRequest?.tag ?? null,
       rpcPayload: rpcRequest?.payload ?? null,
-      sessionCookie: (headers.get("cookie") ?? "").includes("better-auth.session_token="),
-      authorizationHeader: headers.has("authorization"),
+      sessionCookie: (rpcHeaders.get("cookie") ?? "").includes("better-auth.session_token="),
+      authorizationHeader: rpcHeaders.has("authorization"),
       status: 0,
       responseHeaders: {},
       outcome: null,
