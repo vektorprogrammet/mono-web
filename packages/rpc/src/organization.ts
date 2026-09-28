@@ -93,61 +93,52 @@ export const MailingListResponse = Schema.Array(
 
 export type MailingListResponse = typeof MailingListResponse.Type;
 
-export const ListDepartmentsProblem = problemUnion(
-  "ListDepartmentsProblem",
-  ["internal.error", "organization.unavailable"],
-);
+export const ListDepartmentsProblem = problemUnion("ListDepartmentsProblem", [
+  "internal.error",
+  "organization.unavailable",
+]);
 
 export const ListTeamsProblem = problemUnion("ListTeamsProblem", [
   "internal.error",
   "organization.unavailable",
 ]);
 
-export const ListFieldOfStudiesProblem = problemUnion(
-  "ListFieldOfStudiesProblem",
-  ["internal.error", "organization.unavailable"],
-);
+export const ListFieldOfStudiesProblem = problemUnion("ListFieldOfStudiesProblem", [
+  "internal.error",
+  "organization.unavailable",
+]);
 
-export const ListTeamInterestProblem = problemUnion(
-  "ListTeamInterestProblem",
-  [
-    "credential.missing",
-    "credential.invalid",
-    "authority.denied",
-    "internal.error",
-    "organization.invalid-reference",
-    "organization.unavailable",
-  ],
-);
+export const ListTeamInterestProblem = problemUnion("ListTeamInterestProblem", [
+  "credential.missing",
+  "credential.invalid",
+  "authority.denied",
+  "internal.error",
+  "organization.invalid-reference",
+  "organization.unavailable",
+]);
 
-export const ListMailingListsProblem = problemUnion(
-  "ListMailingListsProblem",
-  [
-    "credential.missing",
-    "credential.invalid",
-    "authority.denied",
-    "internal.error",
-    "organization.invalid-reference",
-    "organization.unavailable",
-  ],
-);
+export const ListMailingListsProblem = problemUnion("ListMailingListsProblem", [
+  "credential.missing",
+  "credential.invalid",
+  "authority.denied",
+  "internal.error",
+  "organization.invalid-reference",
+  "organization.unavailable",
+]);
 
-export const CreateDepartmentProblem = problemUnion(
-  "CreateDepartmentProblem",
-  [
-    "credential.missing",
-    "credential.invalid",
-    "authority.denied",
-    "idempotency.in-flight",
-    "idempotency.digest-conflict",
-    "idempotency.response-expired",
-    "transaction.conflict",
-    "internal.error",
-    "idempotency.unavailable",
-    "organization.invalid-reference",
-    "organization.unavailable",
-  ],
-);
+export const CreateDepartmentProblem = problemUnion("CreateDepartmentProblem", [
+  "credential.missing",
+  "credential.invalid",
+  "authority.denied",
+  "idempotency.in-flight",
+  "idempotency.digest-conflict",
+  "idempotency.response-expired",
+  "transaction.conflict",
+  "internal.error",
+  "idempotency.unavailable",
+  "organization.invalid-reference",
+  "organization.unavailable",
+]);
 
 export const CreateTeamProblem = problemUnion("CreateTeamProblem", [
   "credential.missing",
@@ -163,22 +154,19 @@ export const CreateTeamProblem = problemUnion("CreateTeamProblem", [
   "organization.unavailable",
 ]);
 
-export const CreateFieldOfStudyProblem = problemUnion(
-  "CreateFieldOfStudyProblem",
-  [
-    "credential.missing",
-    "credential.invalid",
-    "authority.denied",
-    "idempotency.in-flight",
-    "idempotency.digest-conflict",
-    "idempotency.response-expired",
-    "transaction.conflict",
-    "internal.error",
-    "idempotency.unavailable",
-    "organization.invalid-reference",
-    "organization.unavailable",
-  ],
-);
+export const CreateFieldOfStudyProblem = problemUnion("CreateFieldOfStudyProblem", [
+  "credential.missing",
+  "credential.invalid",
+  "authority.denied",
+  "idempotency.in-flight",
+  "idempotency.digest-conflict",
+  "idempotency.response-expired",
+  "transaction.conflict",
+  "internal.error",
+  "idempotency.unavailable",
+  "organization.invalid-reference",
+  "organization.unavailable",
+]);
 
 /** Appointment and delegation management: their reads and their commands. */
 export const OrganizationLifecycleProblem = problemUnion("OrganizationLifecycleProblem", [

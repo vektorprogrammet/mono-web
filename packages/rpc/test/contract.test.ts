@@ -11,13 +11,11 @@ import {
 } from "../src/index.js";
 import { isProblem, Problem, problemUnion, rpcProblems } from "../src/problem.js";
 
-const allRpcs = [
-  ...NativeRpcs.requests.values(),
-  ...InternalNativeRpcs.requests.values(),
-];
+const allRpcs = [...NativeRpcs.requests.values(), ...InternalNativeRpcs.requests.values()];
 
 // The operation-id grammar that command receipts store (`receipt-transaction.ts`).
-const operationId = /^[a-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*(?:\.[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*)+$/u;
+const operationId =
+  /^[a-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*(?:\.[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*)+$/u;
 
 describe("the native RPC contract", () => {
   it("serves every operation of every context", () => {

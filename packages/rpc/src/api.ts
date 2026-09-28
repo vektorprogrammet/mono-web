@@ -31,23 +31,25 @@ export const nativeRpcPath = "/api/rpc";
 /** The path that serves `InternalNativeRpcs`, on the internal ingress only. */
 export const internalNativeRpcPath = "/internal/rpc";
 
-export class NativeRpcs extends RpcGroup.make().merge(
-  AdmissionOutcomesRpcs,
-  AdmissionsRpcs,
-  CertificatesRpcs,
-  ContactRpcs,
-  ContentRpcs,
-  DirectoryRpcs,
-  OnboardingRpcs,
-  OrganizationRpcs,
-  PlacementsRpcs,
-  ProfileRpcs,
-  ReceiptsRpcs,
-  RecruitmentRpcs,
-  SocialEventsRpcs,
-  SystemRpcs,
-  TeamApplicationsRpcs,
-).middleware(ProblemBoundary) {}
+export class NativeRpcs extends RpcGroup.make()
+  .merge(
+    AdmissionOutcomesRpcs,
+    AdmissionsRpcs,
+    CertificatesRpcs,
+    ContactRpcs,
+    ContentRpcs,
+    DirectoryRpcs,
+    OnboardingRpcs,
+    OrganizationRpcs,
+    PlacementsRpcs,
+    ProfileRpcs,
+    ReceiptsRpcs,
+    RecruitmentRpcs,
+    SocialEventsRpcs,
+    SystemRpcs,
+    TeamApplicationsRpcs,
+  )
+  .middleware(ProblemBoundary) {}
 
 export class InternalNativeRpcs extends RpcGroup.make()
   .merge(InternalReceiptsRpcs)

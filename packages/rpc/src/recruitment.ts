@@ -86,9 +86,10 @@ export type {
 };
 
 /** Interview invitation state visible to the invitee. */
-export const InvitationResponseObservation = RecruitmentInvitationResponseObservationSchema.annotate(
-  { identifier: "InvitationResponseObservation" },
-);
+export const InvitationResponseObservation =
+  RecruitmentInvitationResponseObservationSchema.annotate({
+    identifier: "InvitationResponseObservation",
+  });
 
 /**
  * The invitation beside its strong entity tag, which a response takes as `ifMatch`. A response to
@@ -193,10 +194,11 @@ export const CancelInterviewResult = Schema.Struct({
 export type CancelInterviewResult = typeof CancelInterviewResult.Type;
 
 /** Problems of `recruitment.readInvitationResponse`. */
-export const ReadInvitationResponseProblem = problemUnion(
-  "ReadInvitationResponseProblem",
-  ["resource.not-found", "internal.error", "recruitment.unavailable"],
-);
+export const ReadInvitationResponseProblem = problemUnion("ReadInvitationResponseProblem", [
+  "resource.not-found",
+  "internal.error",
+  "recruitment.unavailable",
+]);
 
 const invitationResponseCodes = [
   "authority.denied",
@@ -226,43 +228,34 @@ export const RequestNewInvitationTimeProblem = problemUnion(
 );
 
 /** Problems of `recruitment.readAssignmentBoard`. */
-export const ReadAssignmentBoardProblem = problemUnion(
-  "ReadAssignmentBoardProblem",
-  [
-    "credential.missing",
-    "credential.invalid",
-    "authority.denied",
-    "internal.error",
-    "recruitment.admission-period-not-found",
-    "application.ambiguous-period",
-    "recruitment.unavailable",
-  ],
-);
+export const ReadAssignmentBoardProblem = problemUnion("ReadAssignmentBoardProblem", [
+  "credential.missing",
+  "credential.invalid",
+  "authority.denied",
+  "internal.error",
+  "recruitment.admission-period-not-found",
+  "application.ambiguous-period",
+  "recruitment.unavailable",
+]);
 
 /** Problems of `recruitment.readSchedulingBoard`. */
-export const ReadSchedulingBoardProblem = problemUnion(
-  "ReadSchedulingBoardProblem",
-  [
-    "credential.missing",
-    "credential.invalid",
-    "authority.denied",
-    "internal.error",
-    "recruitment.unavailable",
-  ],
-);
+export const ReadSchedulingBoardProblem = problemUnion("ReadSchedulingBoardProblem", [
+  "credential.missing",
+  "credential.invalid",
+  "authority.denied",
+  "internal.error",
+  "recruitment.unavailable",
+]);
 
 /** Problems of `recruitment.readInterviewReport`. */
-export const ReadInterviewReportProblem = problemUnion(
-  "ReadInterviewReportProblem",
-  [
-    "credential.missing",
-    "credential.invalid",
-    "authority.denied",
-    "transaction.conflict",
-    "internal.error",
-    "recruitment.unavailable",
-  ],
-);
+export const ReadInterviewReportProblem = problemUnion("ReadInterviewReportProblem", [
+  "credential.missing",
+  "credential.invalid",
+  "authority.denied",
+  "transaction.conflict",
+  "internal.error",
+  "recruitment.unavailable",
+]);
 
 const interviewCommandCodes = [
   "credential.missing",
@@ -278,45 +271,36 @@ const interviewCommandCodes = [
 ] as const;
 
 /** Problems of `recruitment.createApplicationInterview`. */
-export const CreateApplicationInterviewProblem = problemUnion(
-  "CreateApplicationInterviewProblem",
-  [
-    ...interviewCommandCodes,
-    "recruitment.admission-period-not-found",
-    "recruitment.application-not-found",
-    "application.ambiguous-period",
-    "recruitment.interview-schema-not-found",
-    "recruitment.application-already-assigned",
-    "recruitment.interview-schema-inactive",
-  ],
-);
+export const CreateApplicationInterviewProblem = problemUnion("CreateApplicationInterviewProblem", [
+  ...interviewCommandCodes,
+  "recruitment.admission-period-not-found",
+  "recruitment.application-not-found",
+  "application.ambiguous-period",
+  "recruitment.interview-schema-not-found",
+  "recruitment.application-already-assigned",
+  "recruitment.interview-schema-inactive",
+]);
 
 /** Problems of `recruitment.scheduleInterview`. */
-export const ScheduleInterviewProblem = problemUnion(
-  "ScheduleInterviewProblem",
-  [
-    ...interviewCommandCodes,
-    "precondition.failed",
-    "recruitment.interview-not-found",
-    "recruitment.already-scheduled",
-    "recruitment.schedule-in-past",
-  ],
-);
+export const ScheduleInterviewProblem = problemUnion("ScheduleInterviewProblem", [
+  ...interviewCommandCodes,
+  "precondition.failed",
+  "recruitment.interview-not-found",
+  "recruitment.already-scheduled",
+  "recruitment.schedule-in-past",
+]);
 
 /** Problems of `recruitment.readInterviewConduct`. */
-export const ReadInterviewConductProblem = problemUnion(
-  "ReadInterviewConductProblem",
-  [
-    "credential.missing",
-    "credential.invalid",
-    "authority.denied",
-    "internal.error",
-    "recruitment.interview-not-found",
-    "recruitment.interview-not-scheduled",
-    "recruitment.invitation-not-accepted",
-    "recruitment.unavailable",
-  ],
-);
+export const ReadInterviewConductProblem = problemUnion("ReadInterviewConductProblem", [
+  "credential.missing",
+  "credential.invalid",
+  "authority.denied",
+  "internal.error",
+  "recruitment.interview-not-found",
+  "recruitment.interview-not-scheduled",
+  "recruitment.invitation-not-accepted",
+  "recruitment.unavailable",
+]);
 
 const conductCommandCodes = [
   ...interviewCommandCodes,
@@ -328,22 +312,21 @@ const conductCommandCodes = [
 ] as const;
 
 /** Problems of `recruitment.finalizeInterview`. */
-export const FinalizeInterviewProblem = problemUnion(
-  "FinalizeInterviewProblem",
-  [...conductCommandCodes, "recruitment.invitation-not-accepted", "recruitment.conduct-invalid"],
-);
+export const FinalizeInterviewProblem = problemUnion("FinalizeInterviewProblem", [
+  ...conductCommandCodes,
+  "recruitment.invitation-not-accepted",
+  "recruitment.conduct-invalid",
+]);
 
 /** Problems of `recruitment.correctInterviewAssessment`. */
-export const CorrectInterviewAssessmentProblem = problemUnion(
-  "CorrectInterviewAssessmentProblem",
-  [...conductCommandCodes, "recruitment.invitation-not-accepted", "recruitment.conduct-invalid"],
-);
+export const CorrectInterviewAssessmentProblem = problemUnion("CorrectInterviewAssessmentProblem", [
+  ...conductCommandCodes,
+  "recruitment.invitation-not-accepted",
+  "recruitment.conduct-invalid",
+]);
 
 /** Problems of `recruitment.cancelInterview`. */
-export const CancelInterviewProblem = problemUnion(
-  "CancelInterviewProblem",
-  conductCommandCodes,
-);
+export const CancelInterviewProblem = problemUnion("CancelInterviewProblem", conductCommandCodes);
 
 /** Problems of the maintenance reads and command, which share one vocabulary. */
 export const RecruitmentMaintenanceProblem = problemUnion("RecruitmentMaintenanceProblem", [

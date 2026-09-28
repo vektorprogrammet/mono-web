@@ -156,30 +156,27 @@ export const ReadReturningAssistantOptionsProblem = problemUnion(
 );
 
 /** Problems of `admissions.registerReturningAssistant`. */
-export const RegisterReturningAssistantProblem = problemUnion(
-  "RegisterReturningAssistantProblem",
-  [
-    "credential.missing",
-    "credential.invalid",
-    "authority.denied",
-    "idempotency.in-flight",
-    "idempotency.digest-conflict",
-    "idempotency.response-expired",
-    "transaction.conflict",
-    "validation.failed",
-    "returning.identity-missing",
-    "returning.identity-ambiguous",
-    "returning.history-missing",
-    "returning.study-invalid",
-    "returning.period-unavailable",
-    "returning.team-scope-denied",
-    "returning.revision-conflict",
-    "internal.error",
-    "dependency.unavailable",
-    "idempotency.unavailable",
-    "returning.unavailable",
-  ],
-);
+export const RegisterReturningAssistantProblem = problemUnion("RegisterReturningAssistantProblem", [
+  "credential.missing",
+  "credential.invalid",
+  "authority.denied",
+  "idempotency.in-flight",
+  "idempotency.digest-conflict",
+  "idempotency.response-expired",
+  "transaction.conflict",
+  "validation.failed",
+  "returning.identity-missing",
+  "returning.identity-ambiguous",
+  "returning.history-missing",
+  "returning.study-invalid",
+  "returning.period-unavailable",
+  "returning.team-scope-denied",
+  "returning.revision-conflict",
+  "internal.error",
+  "dependency.unavailable",
+  "idempotency.unavailable",
+  "returning.unavailable",
+]);
 
 /** The currently open admission periods, for the public application form. */
 export const ListOpenAdmissionPeriods = Rpc.make("admissions.listOpenAdmissionPeriods", {
@@ -284,13 +281,10 @@ export const ReviseAdmissionPeriod = Rpc.make("admissions.reviseAdmissionPeriod"
   );
 
 /** The identity, placement, department, and admission-period options of a returning assistant. */
-export const ReadReturningAssistantOptions = Rpc.make(
-  "admissions.readReturningAssistantOptions",
-  {
-    success: ReturningAssistantOptionsSchema,
-    error: rpcProblems(ReadReturningAssistantOptionsProblem),
-  },
-)
+export const ReadReturningAssistantOptions = Rpc.make("admissions.readReturningAssistantOptions", {
+  success: ReturningAssistantOptionsSchema,
+  error: rpcProblems(ReadReturningAssistantOptionsProblem),
+})
   .middleware(PersonCredential)
   .pipe(
     withAccessSpec(

@@ -165,13 +165,10 @@ export const ReadTeamApplicationIntake = Rpc.make("team-applications.readTeamApp
 }).pipe(withAccessSpec(anonymousNativeAccess("team-applications.public-intake")));
 
 /** The intake state of at most `TEAM_APPLICATION_INTAKE_LIST_LIMIT` active teams. */
-export const ListTeamApplicationIntakes = Rpc.make(
-  "team-applications.listTeamApplicationIntakes",
-  {
-    success: TeamApplicationIntakeListResponse,
-    error: rpcProblems(TeamApplicationsListIntakesProblem),
-  },
-).pipe(withAccessSpec(anonymousNativeAccess("team-applications.public-intakes")));
+export const ListTeamApplicationIntakes = Rpc.make("team-applications.listTeamApplicationIntakes", {
+  success: TeamApplicationIntakeListResponse,
+  error: rpcProblems(TeamApplicationsListIntakesProblem),
+}).pipe(withAccessSpec(anonymousNativeAccess("team-applications.public-intakes")));
 
 /**
  * Stores one application to an open team and queues its receipt and team notification. An
