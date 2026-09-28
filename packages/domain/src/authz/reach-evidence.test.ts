@@ -16,6 +16,11 @@ import { DepartmentId, TeamId } from "../organization/schema.js";
 import { canManagePlacements } from "../placements/policy.js";
 import type { OrganizationOperations } from "../organization/service.js";
 import type { PlacementExecution } from "../placements/service.js";
+import {
+  requireSocialEventCreation,
+  type SocialEventCreation,
+} from "../social-events/authority.js";
+import type { SocialEventsOperations } from "../social-events/service.js";
 import type { AdmissionsOperations } from "../admissions/service.js";
 import {
   Delegation,
@@ -262,6 +267,26 @@ it.prop(
   propertyOptions,
 );
 
+it.prop(
+  "requireSocialEventCreation admits an active global administrator anywhere and an active appointment in the department",
+  { authority, department },
+  ({ authority, department }) => {
+    const result = requireSocialEventCreation(authority, department);
+
+    expect(Result.isSuccess(result)).toBe(
+      authority.globalAdministrator === "Active" ||
+        authority.memberships.some(
+          (membership) => membership.active && membership.departmentId === department,
+        ),
+    );
+
+    const facts = Result.isSuccess(result) ? result.success : result.failure;
+    expect(facts.personId).toBe(authority.personId);
+    expect(facts.departmentId).toBe(department);
+  },
+  propertyOptions,
+);
+
 it("requireDepartmentReach evidence is the only way to satisfy a department-scoped command", () => {
   type OutcomeDecider = Parameters<AdmissionsOperations["recordAdmissionOutcome"]>[0]["decider"];
 
@@ -279,6 +304,15 @@ it("requireDepartmentReach evidence is the only way to satisfy a department-scop
   }>().not.toExtend<OutcomeDecider>();
   expectTypeOf<DepartmentReach<"placements.coordinate">>().not.toExtend<OutcomeDecider>();
   expectTypeOf<DepartmentReach<"admissions.outcomes">>().not.toExtend<Coordinator>();
+
+  // A creator's person id is not creation evidence.
+  expectTypeOf<
+    Parameters<SocialEventsOperations["create"]>[0]
+  >().toEqualTypeOf<SocialEventCreation>();
+  expectTypeOf<{
+    readonly personId: SocialEventCreation["personId"];
+    readonly departmentId: SocialEventCreation["departmentId"];
+  }>().not.toExtend<SocialEventCreation>();
 
   // A handler-built filter is not a team-interest scope.
   expectTypeOf<{
