@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { nativeSessionResponse, routeArgs, sessionCookie } from "../test/native-http";
+import { routeArgs, sessionCookie } from "../test/native-http";
+import { isNativeRpcRequest, nativeSessionAnswer } from "../test/native-rpc";
 
 vi.hoisted(() => vi.stubEnv("API_URL", "http://api.test"));
 
@@ -31,7 +32,7 @@ beforeEach(() => {
     requests.push(request.clone());
     const path = new URL(request.url).pathname;
 
-    if (path === "/api/session") return nativeSessionResponse();
+    if (isNativeRpcRequest(request)) return nativeSessionAnswer(request);
 
     if (path === "/api/auth/oauth2/public-client") return Response.json({ client_id: "client", client_name: "Dashboard OAuth proof", client_kind: "DelegatedPublic" });
 
