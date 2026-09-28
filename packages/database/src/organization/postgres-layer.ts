@@ -76,8 +76,8 @@ export const OrganizationLive = Layer.effect(
       listHistoricalMemberships: listOrganizationHistoricalMemberships.pipe(
         Effect.provideService(Database, database),
       ),
-      listTeamInterestRegistrations: (filter) =>
-        listOrganizationTeamInterestRegistrations(filter).pipe(
+      listTeamInterestRegistrations: (scope, semesterId) =>
+        listOrganizationTeamInterestRegistrations(scope, semesterId).pipe(
           Effect.provideService(Database, database),
         ),
       projectMailingLists: (input) =>

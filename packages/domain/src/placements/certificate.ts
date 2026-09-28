@@ -3,7 +3,7 @@
  * of the department whose confirmed total is above zero, with the confirmed schools and days, and
  * it names the issuer and the seat that authorizes them (docs/system.md#certificates).
  */
-import { Data, Option, Order, Schema } from "effect";
+import { Option, Order, Schema } from "effect";
 import { CertificateIssuer } from "../organization/board-roster.js";
 import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
 import { canonicalJsonBytes, sha256Hex } from "../shared-kernel/canonical-json.js";
@@ -204,13 +204,36 @@ export const CertificateAssistant = Schema.Struct({
 
 export type CertificateAssistant = typeof CertificateAssistant.Type;
 
-/** The command whose authority a request resolves before a stored response can replay. */
-export type CertificateCommandTarget = Data.TaggedEnum<{
-  ConfirmDaysServed: { readonly departmentId: DepartmentId; readonly semesterId: SemesterId };
-  IssueCertificate: { readonly departmentId: DepartmentId; readonly personId: PersonId };
-}>;
+/** Type-only brands. Only the Placements adapter that resolves current authority builds these. */
+declare const DaysServedConfirmationAuthorizationBrand: unique symbol;
 
-export const CertificateCommandTarget = Data.taggedEnum<CertificateCommandTarget>();
+declare const CertificateIssueAuthorizationBrand: unique symbol;
+
+/**
+ * Proof that the principal holds `placements.days-served` in one department and semester, resolved
+ * under the department lock inside the command's transaction. `confirmDaysServed` confirms only in
+ * this scope and resolves no authority again. Valid only in the transaction that resolved it.
+ */
+export interface DaysServedConfirmationAuthorization {
+  readonly [DaysServedConfirmationAuthorizationBrand]: "DaysServedConfirmationAuthorization";
+  readonly principal: CertificatePrincipal;
+  readonly departmentId: DepartmentId;
+  readonly semesterId: SemesterId;
+}
+
+/**
+ * Proof that the principal currently issues the department's certificates, under the seat named by
+ * `issuer`, for one other person, resolved under the department lock inside the command's
+ * transaction. `issueCertificate` issues only this certificate and resolves no authority again.
+ * Valid only in the transaction that resolved it.
+ */
+export interface CertificateIssueAuthorization {
+  readonly [CertificateIssueAuthorizationBrand]: "CertificateIssueAuthorization";
+  readonly principal: CertificatePrincipal;
+  readonly department: { readonly departmentId: DepartmentId; readonly name: string };
+  readonly personId: PersonId;
+  readonly issuer: CertificateIssuer;
+}
 
 /** A semester with its bounds, as the scope choice and the days-served list name it. */
 export const CertificateSemesterScope = Schema.Struct({

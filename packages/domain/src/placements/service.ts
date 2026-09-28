@@ -1,13 +1,15 @@
 import { Context, Data, type Effect } from "effect";
 import type { DepartmentId, OrganizationPersonAuthority, PersonId } from "../organization/index.js";
+import type { DepartmentReach } from "../authz/reach.js";
 import type {
-  CertificateCommandTarget,
   CertificateAssistant,
+  CertificateIssueAuthorization,
   CertificateIssue,
   CertificatePreview,
   CertificatePrincipal,
   CertificateScopes,
   CertificateSemesterScope,
+  DaysServedConfirmationAuthorization,
   IssueCertificateCommand,
 } from "./certificate.js";
 import type {
@@ -61,12 +63,26 @@ export type PlacementMutation =
 
 export type PlacementSnapshot = Affiliation | PlacementBoard | OwnCoverageView | CoverageBoard;
 
-export interface PlacementExecution {
-  readonly mutation: PlacementMutation;
-  readonly actor: PersonId;
-  readonly now: string;
-  readonly commandId: string;
-}
+/**
+ * One placement mutation. A person changes their own affiliation or coverage as themselves; a
+ * board or coverage-board change needs a coordinator's reach over the mutation's department.
+ */
+export type PlacementExecution =
+  | {
+      readonly mutation: Extract<
+        PlacementMutation,
+        { readonly mode: "affiliation" | "ownCoverage" }
+      >;
+      readonly actor: PersonId;
+      readonly now: string;
+      readonly commandId: string;
+    }
+  | {
+      readonly mutation: Extract<PlacementMutation, { readonly mode: "board" | "coverage" }>;
+      readonly coordinator: DepartmentReach<"placements.coordinate">;
+      readonly now: string;
+      readonly commandId: string;
+    };
 
 /** One page of the assistants of a department and semester, with the scope's labels. */
 export interface DaysServedPage extends AssistantPage<DaysServedEntry> {
@@ -153,21 +169,22 @@ export interface PlacementsOperations {
     cursor?: string,
   ) => Effect.Effect<DaysServedPage, CertificateReadFailure>;
   /**
-   * Resolves the principal's current authority for one days-served or certificate command on the
-   * caller's transaction, with the command's locks, before a stored response can replay.
+   * Resolves the principal's current `placements.days-served` authority in one department and
+   * semester on the caller's transaction, under the department lock, before a stored response can
+   * replay.
    */
-  readonly authorizeCertificateCommand: (
+  readonly authorizeDaysServedConfirmation: (
     principal: CertificatePrincipal,
-    target: CertificateCommandTarget,
-  ) => Effect.Effect<void, CertificateAuthorizationFailure>;
+    scope: PlacementScope,
+  ) => Effect.Effect<DaysServedConfirmationAuthorization, CertificateAuthorizationFailure>;
   /**
-   * Appends the next confirmation of one assistant's total under the department lock, after the
+   * Appends the next confirmation of one assistant's total in the authorized scope, after the
    * transport precondition on the fresh entry. Never changes an earlier confirmation or a service
    * fact. The callback grants no authority and must not write business state.
    */
   readonly confirmDaysServed: <E, R>(
-    principal: CertificatePrincipal,
-    command: ConfirmDaysServedCommand,
+    authorization: DaysServedConfirmationAuthorization,
+    command: Omit<ConfirmDaysServedCommand, "departmentId" | "semesterId">,
     checkPrecondition: (current: DaysServedEntry) => Effect.Effect<void, E, R>,
   ) => Effect.Effect<DaysServedEntry, DaysServedCommandFailure | E, R>;
   /** One bounded page of the assistants with service facts in a department; issuers only. */
@@ -183,12 +200,22 @@ export interface PlacementsOperations {
     personId: PersonId,
   ) => Effect.Effect<CertificatePreview, CertificateReadFailure>;
   /**
-   * Records one issue of the current certificate under the department lock, after the transport
-   * precondition on the fresh preview: who, when, the authorizing seat, and the content hash.
+   * Resolves whether the principal currently issues the department's certificates for another
+   * person, on the caller's transaction and under the department lock, before a stored response
+   * can replay.
+   */
+  readonly authorizeCertificateIssue: (
+    principal: CertificatePrincipal,
+    departmentId: DepartmentId,
+    personId: PersonId,
+  ) => Effect.Effect<CertificateIssueAuthorization, CertificateAuthorizationFailure>;
+  /**
+   * Records one issue of the authorized certificate, after the transport precondition on the
+   * fresh preview: who, when, the authorizing seat, and the content hash.
    */
   readonly issueCertificate: <E, R>(
-    principal: CertificatePrincipal,
-    command: IssueCertificateCommand,
+    authorization: CertificateIssueAuthorization,
+    command: Pick<IssueCertificateCommand, "commandId">,
     checkPrecondition: (current: CertificatePreview) => Effect.Effect<void, E, R>,
   ) => Effect.Effect<CertificateIssue, CertificateCommandFailure | E, R>;
 }

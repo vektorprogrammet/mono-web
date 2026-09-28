@@ -47,7 +47,7 @@ import {
   OrganizationGlobalAdministratorGrantId,
   PersonId,
   SemesterId,
-  authorizeOrganizationActor,
+  requireOrganizationAdministrator,
   mapOrganizationAuthorityToDepartmentActor,
   mapOrganizationAuthorityToOrganizationActor,
   mapOrganizationAuthorityToProfileRole,
@@ -2058,13 +2058,10 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
     const organizationAcceptedRulesEmptyActor =
       mapOrganizationAuthorityToOrganizationActor(administratorProjection);
 
-    const organizationAcceptedDirectResult = yield* Effect.result(
-      authorizeOrganizationActor(organizationAcceptedDirectActor),
-    );
+    const organizationAcceptedDirectResult = requireOrganizationAdministrator(administratorFixture);
 
-    const organizationAcceptedRulesEmptyResult = yield* Effect.result(
-      authorizeOrganizationActor(organizationAcceptedRulesEmptyActor),
-    );
+    const organizationAcceptedRulesEmptyResult =
+      requireOrganizationAdministrator(administratorProjection);
 
     const organizationAcceptedDirect = {
       actor: organizationAcceptedDirectActor,
@@ -2086,13 +2083,9 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
     const organizationRejectedRulesEmptyActor =
       mapOrganizationAuthorityToOrganizationActor(memberProjection);
 
-    const organizationRejectedDirectResult = yield* Effect.result(
-      authorizeOrganizationActor(organizationRejectedDirectActor),
-    );
+    const organizationRejectedDirectResult = requireOrganizationAdministrator(memberFixture);
 
-    const organizationRejectedRulesEmptyResult = yield* Effect.result(
-      authorizeOrganizationActor(organizationRejectedRulesEmptyActor),
-    );
+    const organizationRejectedRulesEmptyResult = requireOrganizationAdministrator(memberProjection);
 
     const organizationRejectedDirect = {
       actor: organizationRejectedDirectActor,

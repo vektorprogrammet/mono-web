@@ -1,6 +1,5 @@
 import { backendDatabase } from "../../test/database.js";
 import { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
-import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
   Identity,
   IdentityActor,
@@ -21,14 +20,12 @@ import {
   DepartmentCreatedObservationSchema,
   TeamCreatedObservationSchema,
   FieldOfStudyCreatedObservationSchema,
-  OrganizationActorSchema,
-  OrganizationRoleDenied,
   OrganizationCommandConflict,
   OrganizationPersistenceError,
   OrganizationInvalidReference,
 } from "@vektorprogrammet/domain/organization";
 import { makeNativeValidationError } from "@vektorprogrammet/http-api/http-semantics";
-import { Predicate, DateTime, Effect, Layer, Schema } from "effect";
+import { DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { decodeOrganizationApiConfig } from "./config.js";
 import { jsonText } from "../http-api/problem.js";
@@ -148,18 +145,9 @@ const organization = {
     }),
   createDepartment: (
     command: Parameters<OrganizationOperations["createDepartment"]>[0],
-    actor: Parameters<OrganizationOperations["createDepartment"]>[1],
+    _administrator: Parameters<OrganizationOperations["createDepartment"]>[1],
   ) => {
     createCalls += 1;
-
-    if (Predicate.isTagged(actor, "OrganizationMember")) {
-      return Effect.fail(
-        new OrganizationRoleDenied({
-          actorPersonId: actor.personId,
-          requiredRole: "OrganizationAdministrator",
-        }),
-      );
-    }
 
     if (command.name === "Conflict") {
       return Effect.fail(new OrganizationCommandConflict({ commandId: command.commandId }));
@@ -276,19 +264,6 @@ const services = Layer.mergeAll(
 const http = makeOrganizationApiHttp(
   {
     config,
-    resolveActor: (request) => {
-      const cookieHeader = request.headers.get("cookie");
-
-      if (cookieHeader === null) {
-        return Effect.fail(new UnauthenticatedActor({ message: "authentication required" }));
-      }
-
-      return Effect.succeed(
-        cookieHeader.includes(`better-auth.session_token=${ADMIN_SESSION}`)
-          ? OrganizationActorSchema.members[0].make({ personId: PersonId.make("person-admin") })
-          : OrganizationActorSchema.members[1].make({ personId: PersonId.make("person-member") }),
-      );
-    },
     resolveAuthority: () =>
       Effect.succeed({
         personId: PersonId.make("person-admin"),

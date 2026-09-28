@@ -70,6 +70,12 @@ No upstream context.
 | -------------------------------- | -------------------- |
 | `@vektorprogrammet/domain/authz` | [index.ts](index.ts) |
 
+## Constructs
+
+The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../../../docs/constructs.md) indexes them all.
+
+- [`requireDepartmentReach`](../../../../docs/constructs/authority-evidence.md#requiredepartmentreach) (authority-evidence): Checks that a resolved authority reaches one department with a capability, and returns the evidence that a department-scoped command requires.
+
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 
 [//]: # "guide: end"

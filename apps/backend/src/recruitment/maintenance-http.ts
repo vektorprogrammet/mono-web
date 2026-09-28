@@ -141,8 +141,11 @@ export const maintainRecruitmentHttp = (request: Request) =>
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const personId = yield* authorizeTransport(request, "command");
+
         // Current authority is resolved inside the receipt transaction, before replay.
-        yield* Recruitment.use((service) => service.authorizeMaintenance(command, personId));
+        const authorization = yield* Recruitment.use((service) =>
+          service.authorizeMaintenance(command, personId),
+        );
 
         // A person subject, this fixed operation and target, and a parsed key always derive.
         const identity = deriveHttpIdentity({
@@ -160,7 +163,7 @@ export const maintainRecruitmentHttp = (request: Request) =>
           },
           execute: Effect.gen(function* () {
             const result = yield* Recruitment.use((service) =>
-              service.maintainRecruitment(command, personId),
+              service.maintainRecruitment(authorization),
             );
 
             // The domain produced the result, so encoding it cannot fail.

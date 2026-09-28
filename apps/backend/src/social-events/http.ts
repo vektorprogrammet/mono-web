@@ -4,6 +4,7 @@ import {
   SocialEventId,
   SocialEvents,
   socialEventCandidateGrantScopes,
+  requireSocialEventCreation,
   socialEventDepartmentAccessContext,
   socialEventScopeAccessContext,
   type SocialEventFailure,
@@ -327,6 +328,12 @@ const create = (request: Request, options: SocialEventsApiHttpOptions) =>
           authorization,
           context: socialEventDepartmentAccessContext(authorization.authority, body.departmentId),
         });
+
+        // The AccessSpec admitted the candidate grants; the command takes them as evidence.
+        const creator = yield* Effect.fromResult(
+          requireSocialEventCreation(authorization.authority, body.departmentId),
+        ).pipe(Effect.mapError(() => Problem.make("authority.denied")));
+
         yield* runTransactionHook(options, request, "create", "after-create-authorization");
         yield* SocialEvents.use(({ validateScope }) =>
           validateScope({ departmentId: body.departmentId, semesterId: body.semesterId }),
@@ -346,9 +353,8 @@ const create = (request: Request, options: SocialEventsApiHttpOptions) =>
             operationId,
           },
           execute: SocialEvents.use((events) =>
-            events.create({
+            events.create(creator, {
               commandId: SocialEventCommandId.make(identity.commandId),
-              actorPersonId: authorization.authority.personId,
               occurredAt: observedAt,
               eventId: SocialEventId.make(`social_event_${randomUUID()}`),
               request: body,

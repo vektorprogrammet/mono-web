@@ -2,7 +2,6 @@ import type { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-pe
 import {
   reachedDepartments,
   ReachedDepartments,
-  reachedTeams,
   ResourceId,
   ResourceKind,
   Scope,
@@ -20,14 +19,15 @@ import {
   Organization,
   OrganizationCommandId,
   OrganizationLifecycleCommand,
+  mapOrganizationAuthorityToOrganizationActor,
+  requireTeamInterestScope,
+  requireOrganizationAdministrator,
   SemesterId,
   type TeamId,
   TeamJsonSchema,
-  type OrganizationActor,
   type OrganizationCommandFailure,
   type OrganizationLifecycleFailure,
   type OrganizationPersonAuthority,
-  type TeamInterestFilter,
 } from "@vektorprogrammet/domain/organization";
 import type { Identity, IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import type { ProfileFailure } from "@vektorprogrammet/domain/profile";
@@ -61,10 +61,9 @@ import {
   Problem,
   type StrongETag,
 } from "@vektorprogrammet/http-api/http-semantics";
-import { DateTime, Effect, flow, Match, Option, Predicate, Schema } from "effect";
+import { DateTime, Effect, flow, Match, Option, Predicate, Result, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
-  organizationActorFrom,
   resolveRequestCredentialInTransaction,
   resolveRequestPersonAuthorityInTransaction,
   type OrganizationResolutionError,
@@ -102,14 +101,6 @@ import type { OrganizationApiConfig } from "./config.js";
 
 export interface OrganizationApiHttpOptions {
   readonly config: OrganizationApiConfig;
-  /** Cookie -> Organization projection -> OrganizationAdministrator|Member. */
-  readonly resolveActor: (
-    request: Request,
-  ) => Effect.Effect<
-    OrganizationActor,
-    IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
-    Identity | OAuthCredentialAuthority | Organization
-  >;
   /**
    * Cookie -> full 0055 authority projection for leader-scoped admin reads
    * (specs 0059/0060). One captured authorizationInstant per request.
@@ -414,36 +405,40 @@ const authorizeCreate = (input: {
 }) =>
   Effect.gen(function* () {
     const resolved = yield* resolveRequestPersonAuthorityInTransaction(input.request, {});
-    const actor = organizationActorFrom(resolved.authority);
+    const personId = resolved.authority.personId;
+    const administrator = requireOrganizationAdministrator(resolved.authority);
 
+    // The AccessSpec answers a denial, with its concealment; the evidence is what the command takes.
     yield* authorizePerson(
       {
         spec: Option.getOrThrow(reflectAccessSpec(input.endpoint)),
         credential: resolved.credential,
-        personId: actor.personId,
+        personId,
         resolution: {
           selection: "ExactlyOne",
           contexts: [
             genericContext({
               domainId: "organization",
-              authorityVersion: `organization:${actor._tag}`,
+              authorityVersion: `organization:${mapOrganizationAuthorityToOrganizationActor(resolved.authority)._tag}`,
             }),
           ],
         },
-        grantScopes: Predicate.isTagged(actor, "OrganizationAdministrator") ? [Scope.Global()] : [],
+        grantScopes: Result.isSuccess(administrator) ? [Scope.Global()] : [],
         now: resolved.authorizationInstant,
       },
       input.presentation,
     );
 
+    const evidence = yield* Effect.fromResult(administrator);
+
     const identity = yield* httpIdentity({
-      credentialSubject: `Person:${actor.personId}`,
+      credentialSubject: `Person:${personId}`,
       qualifiedOperationId: input.operationId,
       normalizedTarget: input.target,
       idempotencyKey: input.idempotencyKey,
     });
 
-    return { actor, identity };
+    return { administrator: evidence, identity };
   });
 
 const createDepartment = (request: Request, input: OrganizationApiHttpOptions) =>
@@ -461,7 +456,7 @@ const createDepartment = (request: Request, input: OrganizationApiHttpOptions) =
     // Domain and credential failures are mapped after the executor, with its receipt failures.
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
-        const { actor, identity } = yield* authorizeCreate({
+        const { administrator, identity } = yield* authorizeCreate({
           request,
           endpoint: CreateDepartmentEndpoint,
           operationId,
@@ -482,7 +477,7 @@ const createDepartment = (request: Request, input: OrganizationApiHttpOptions) =
                 commandId: OrganizationCommandId.make(identity.commandId),
                 ...payload,
               }),
-              actor,
+              administrator,
             ),
           ).pipe(
             Effect.flatMap(({ observation }) =>
@@ -532,7 +527,7 @@ const createTeam = (request: Request, input: OrganizationApiHttpOptions) =>
     // Domain and credential failures are mapped after the executor, with its receipt failures.
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
-        const { actor, identity } = yield* authorizeCreate({
+        const { administrator, identity } = yield* authorizeCreate({
           request,
           endpoint: CreateTeamEndpoint,
           operationId,
@@ -553,7 +548,7 @@ const createTeam = (request: Request, input: OrganizationApiHttpOptions) =>
                 commandId: OrganizationCommandId.make(identity.commandId),
                 ...payload,
               }),
-              actor,
+              administrator,
             ),
           ).pipe(
             Effect.flatMap(({ observation }) =>
@@ -603,7 +598,7 @@ const createFieldOfStudy = (request: Request, input: OrganizationApiHttpOptions)
     // Domain and credential failures are mapped after the executor, with its receipt failures.
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
-        const { actor, identity } = yield* authorizeCreate({
+        const { administrator, identity } = yield* authorizeCreate({
           request,
           endpoint: CreateFieldOfStudyEndpoint,
           operationId,
@@ -624,7 +619,7 @@ const createFieldOfStudy = (request: Request, input: OrganizationApiHttpOptions)
                 commandId: OrganizationCommandId.make(identity.commandId),
                 ...payload,
               }),
-              actor,
+              administrator,
             ),
           ).pipe(
             Effect.flatMap(({ observation }) =>
@@ -800,57 +795,34 @@ const listTeamInterest = (request: Request, input: OrganizationApiHttpOptions) =
   return Effect.gen(function* () {
     const authority = yield* input.resolveAuthority(request);
     const requested = yield* optionalQueryIdentity(request, "department", DepartmentId);
+    const departments = yield* Organization.use(({ listDepartments }) => listDepartments);
+
     // An authenticated caller without team-interest reach receives a typed denial, never an
     // empty success (spec 0059 authorization boundary). A team's current leader reads the
     // registrations of that team; department reach reads the whole department.
-    const scope = yield* authorizedDepartmentScope(authority, "team-interest.read");
-    const departmentScope = scope.departmentIds;
-
-    const teamScope = reachedTeams(authority, "team-interest.read").flatMap((teamId) => {
-      const membership = authority.memberships.find((entry) => entry.teamId === teamId);
-
-      return membership === undefined ? [] : [{ teamId, departmentId: membership.departmentId }];
-    });
-
-    if (!scope.organizationWide && departmentScope.length === 0 && teamScope.length === 0) {
-      return yield* Problem.make("authority.denied");
-    }
-
-    const authorizedTeams = teamScope.filter(
-      (team) =>
-        (requested === undefined || team.departmentId === requested) &&
-        !departmentScope.includes(team.departmentId),
-    );
-
-    const authorized =
-      requested === undefined
-        ? departmentScope
-        : departmentScope.includes(requested)
-          ? [requested]
-          : authorizedTeams.length > 0
-            ? []
-            : yield* Problem.make("authority.denied");
+    const scope = yield* Effect.fromResult(
+      requireTeamInterestScope(authority, {
+        requested,
+        departments: departments.map((department) => department.departmentId),
+      }),
+    ).pipe(Effect.mapError(() => Problem.make("authority.denied")));
 
     yield* authorizeOrganizationCollection({
       request,
       authority,
       endpoint: ListTeamInterestEndpoint,
-      departmentIds: authorized,
-      teams: authorizedTeams,
+      departmentIds: scope.departmentIds,
+      teams: scope.teams,
       presentation,
     });
 
     // Unknown department reference denies with 422 before any data leaves the store.
     if (requested !== undefined) yield* assertDepartmentsExist([requested]);
 
-    const filter: TeamInterestFilter = {
-      authorizedDepartmentIds: authorized,
-      authorizedTeamIds: authorizedTeams.map(({ teamId }) => teamId),
-      semesterId: yield* optionalQueryIdentity(request, "semester", SemesterId),
-    };
+    const semesterId = yield* optionalQueryIdentity(request, "semester", SemesterId);
 
     const rows = yield* Organization.use(({ listTeamInterestRegistrations }) =>
-      listTeamInterestRegistrations(filter),
+      listTeamInterestRegistrations(scope, semesterId),
     );
 
     return yield* privateReadJson(TeamInterestResponse)({

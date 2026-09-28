@@ -1,3 +1,4 @@
+import { administratorDepartmentReach } from "@vektorprogrammet/domain/organization/authority-fixtures";
 import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Database } from "@vektorprogrammet/database";
@@ -21,6 +22,8 @@ afterAll(() => runtime.dispose());
 const dept = DepartmentId.make("onboarding-dept");
 
 const actor = PersonId.make("onboarding-leader");
+
+const coordinator = administratorDepartmentReach("onboarding-leader", "admissions.outcomes", dept);
 
 // The drain draws its claim identity from Crypto; no digest belongs to this lifecycle.
 const testCrypto = Crypto.make({ randomBytes, digest: () => Effect.die("unexpected digest") });
@@ -51,12 +54,11 @@ const issue = (i: number) =>
     Database.use((sql) =>
       sql.withTransaction(
         commandOnboarding({
-          departmentId: dept,
+          coordinator,
           command: {
             applicationId: PublicApplicationIdSchema.make("onboard-app-" + i),
             action: "Issue",
           },
-          actor,
           now,
           invitationId: "onboard-invite-" + i,
           token: "onboard_" + String(i).repeat(64),
@@ -154,12 +156,11 @@ describe("onboarding delivery lifecycle", () => {
       Database.use((sql) =>
         sql.withTransaction(
           commandOnboarding({
-            departmentId: dept,
+            coordinator,
             command: {
               applicationId: PublicApplicationIdSchema.make("onboard-app-5"),
               action: "Issue",
             },
-            actor,
             now: "2000-01-01T00:00:00.000Z",
             invitationId: "expired-invitation",
             token: "onboard_" + "8".repeat(64),

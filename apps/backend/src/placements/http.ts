@@ -1,6 +1,10 @@
 import { Database } from "@vektorprogrammet/database";
 import type { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
-import { DomainId, Scope } from "@vektorprogrammet/domain/authz";
+import { DomainId, requireDepartmentReach, Scope } from "@vektorprogrammet/domain/authz";
+import type {
+  DepartmentId,
+  OrganizationPersonAuthority,
+} from "@vektorprogrammet/domain/organization";
 import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import {
   AffiliationScope,
@@ -11,11 +15,11 @@ import {
   Placements,
   PlacementScope,
   PlacementScopes,
-  canManagePlacements,
   type CoverageCommand as CoverageCommandType,
   type OwnAffiliationCommand as OwnAffiliationCommandType,
   type OwnCoverageCommand as OwnCoverageCommandType,
   type PlacementCommand as PlacementCommandType,
+  type PlacementExecution,
   type PlacementOperationFailure,
 } from "@vektorprogrammet/domain/placements";
 import {
@@ -44,6 +48,7 @@ import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
   type OrganizationResolutionError,
   resolveRequestPersonAuthorityInTransaction,
+  type TransactionPersonAuthority,
 } from "../authority.js";
 import {
   authorizePerson,
@@ -155,6 +160,48 @@ type Endpoint =
   | typeof CommandCoverageBoardEndpoint
   | typeof ReadPlacementDraftEndpoint;
 
+/** The coordinator's reach over the department, which a board or coverage-board change requires. */
+const requireCoordinator = (
+  authority: OrganizationPersonAuthority,
+  departmentId: DepartmentId | null,
+) =>
+  departmentId === null
+    ? Effect.fail(Problem.make("authority.denied"))
+    : Effect.fromResult(
+        requireDepartmentReach(authority, "placements.coordinate", departmentId),
+      ).pipe(Effect.mapError(() => Problem.make("authority.denied")));
+
+/** Evaluates the endpoint's AccessSpec for the resolved person in the department's scope. */
+const evaluateAccess = (
+  request: Request,
+  endpoint: Endpoint,
+  departmentId: PlacementScope["departmentId"] | null,
+  auth: TransactionPersonAuthority,
+) =>
+  authorizePerson(
+    {
+      spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
+      credential: auth.credential,
+      personId: auth.authority.personId,
+      resolution: {
+        selection: "ExactlyOne",
+        contexts: [
+          genericContext({
+            domainId: "organization",
+            departmentId: departmentId ?? undefined,
+            authorityVersion: auth.authorizationInstant,
+          }),
+        ],
+      },
+      grantScopes:
+        departmentId === null
+          ? [Scope.Domain({ domainId: DomainId.make("organization") })]
+          : [Scope.Department({ departmentId })],
+      now: auth.authorizationInstant,
+    },
+    personPresentation(request),
+  );
+
 const authorize = (
   request: Request,
   endpoint: Endpoint,
@@ -165,35 +212,26 @@ const authorize = (
   Effect.gen(function* () {
     const auth = yield* resolveRequestPersonAuthorityInTransaction(request, { now });
 
-    if (manage && (departmentId === null || !canManagePlacements(auth.authority, departmentId))) {
-      return yield* Problem.make("authority.denied");
-    }
+    if (manage) yield* requireCoordinator(auth.authority, departmentId);
 
-    yield* authorizePerson(
-      {
-        spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
-        credential: auth.credential,
-        personId: auth.authority.personId,
-        resolution: {
-          selection: "ExactlyOne",
-          contexts: [
-            genericContext({
-              domainId: "organization",
-              departmentId: departmentId ?? undefined,
-              authorityVersion: auth.authorizationInstant,
-            }),
-          ],
-        },
-        grantScopes:
-          departmentId === null
-            ? [Scope.Domain({ domainId: DomainId.make("organization") })]
-            : [Scope.Department({ departmentId })],
-        now: auth.authorizationInstant,
-      },
-      personPresentation(request),
-    );
+    yield* evaluateAccess(request, endpoint, departmentId, auth);
 
     return auth;
+  });
+
+/** Resolves the person, requires the coordinator's reach, and returns its evidence. */
+const authorizeCoordinator = (
+  request: Request,
+  endpoint: Endpoint,
+  departmentId: PlacementScope["departmentId"],
+  now?: () => string,
+) =>
+  Effect.gen(function* () {
+    const auth = yield* resolveRequestPersonAuthorityInTransaction(request, { now });
+    const coordinator = yield* requireCoordinator(auth.authority, departmentId);
+    yield* evaluateAccess(request, endpoint, departmentId, auth);
+
+    return { auth, coordinator };
   });
 
 type MutationSelection =
@@ -413,13 +451,43 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
       // Domain and credential failures are mapped after the executor, whose retry reads their causes.
       const outcome = yield* executeNativeHttpCommandPostgres(
         Effect.gen(function* () {
-          const auth = yield* authorize(
-            request,
-            selected.endpoint,
-            selected.scope.departmentId,
-            selected.manage,
-            input.now,
-          );
+          // A board or coverage-board change runs on the coordinator's evidence; a person's own
+          // affiliation or coverage runs as that person.
+          const { auth, execution } =
+            selected.mode === "board" || selected.mode === "coverage"
+              ? yield* authorizeCoordinator(
+                  request,
+                  selected.endpoint,
+                  selected.scope.departmentId,
+                  input.now,
+                ).pipe(
+                  Effect.map(({ auth, coordinator }) => ({
+                    auth,
+                    execution: (commandId: string): PlacementExecution => ({
+                      mutation: selected,
+                      coordinator,
+                      now: auth.authorizationInstant,
+                      commandId,
+                    }),
+                  })),
+                )
+              : yield* authorize(
+                  request,
+                  selected.endpoint,
+                  selected.scope.departmentId,
+                  false,
+                  input.now,
+                ).pipe(
+                  Effect.map((auth) => ({
+                    auth,
+                    execution: (commandId: string): PlacementExecution => ({
+                      mutation: selected,
+                      actor: auth.authority.personId,
+                      now: auth.authorizationInstant,
+                      commandId,
+                    }),
+                  })),
+                );
 
           const identity = yield* httpIdentity({
             credentialSubject: `Person:${auth.authority.personId}`,
@@ -438,14 +506,8 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
               const placements = yield* Placements;
 
               const changed = resource(
-                yield* placements.execute(
-                  {
-                    mutation: selected,
-                    actor: auth.authority.personId,
-                    now: auth.authorizationInstant,
-                    commandId: identity.identitySha256,
-                  },
-                  (current) => requireCurrentETag(resource(current).etag, ifMatch),
+                yield* placements.execute(execution(identity.identitySha256), (current) =>
+                  requireCurrentETag(resource(current).etag, ifMatch),
                 ),
               );
 

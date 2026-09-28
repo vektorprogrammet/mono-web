@@ -21,7 +21,8 @@ import {
   CertificateAccessDenied,
   CertificateAssistant,
   CertificateAssistantNotFound,
-  CertificateCommandTarget,
+  type CertificateIssueAuthorization,
+  type DaysServedConfirmationAuthorization,
   certificateContent,
   CertificateContent,
   certificateContentSha256,
@@ -705,21 +706,41 @@ const authorizeIssue = (
   });
 
 /**
- * Resolves the principal's current authority for one command on the caller's transaction, with
- * the locks that the command takes, so a stored response replays only to a current holder.
+ * Resolves the principal's current days-served authority in the scope on the caller's transaction,
+ * under the department lock, so a stored response replays only to a current holder.
  */
-export const authorizeCertificateCommand = (
+export const authorizeDaysServedConfirmation = (
   principal: CertificatePrincipal,
-  target: CertificateCommandTarget,
+  scope: PlacementScope,
 ) =>
   Effect.gen(function* () {
     const sql = yield* Database;
+    yield* authorizeConfirmation(sql, principal, scope);
 
-    yield* CertificateCommandTarget.$match(target, {
-      ConfirmDaysServed: (scope) => authorizeConfirmation(sql, principal, scope),
-      IssueCertificate: ({ departmentId, personId }) =>
-        Effect.asVoid(authorizeIssue(sql, principal, departmentId, personId)),
-    });
+    // SAFETY: the one constructor of the evidence brand; authorizeConfirmation above is what it proves.
+    return {
+      principal,
+      departmentId: scope.departmentId,
+      semesterId: scope.semesterId,
+    } as DaysServedConfirmationAuthorization;
+  });
+
+/**
+ * Resolves whether the principal currently issues the department's certificates for another
+ * person, on the caller's transaction and under the department lock, so a stored response replays
+ * only to a current issuer.
+ */
+export const authorizeCertificateIssue = (
+  principal: CertificatePrincipal,
+  departmentId: DepartmentId,
+  personId: PersonId,
+) =>
+  Effect.gen(function* () {
+    const sql = yield* Database;
+    const { department, issuer } = yield* authorizeIssue(sql, principal, departmentId, personId);
+
+    // SAFETY: the one constructor of the evidence brand; authorizeIssue above is what it proves.
+    return { principal, department, personId, issuer } as CertificateIssueAuthorization;
   });
 
 /**
@@ -727,15 +748,15 @@ export const authorizeCertificateCommand = (
  * precondition sees the fresh entry; the earlier confirmations and the service facts stay.
  */
 export const confirmDaysServed = <E, R>(
-  principal: CertificatePrincipal,
-  command: ConfirmDaysServedCommand,
+  authorization: DaysServedConfirmationAuthorization,
+  input: Omit<ConfirmDaysServedCommand, "departmentId" | "semesterId">,
   checkPrecondition: (current: DaysServedEntry) => Effect.Effect<void, E, R>,
 ) =>
   Effect.gen(function* () {
     const sql = yield* Database;
-    const scope = { departmentId: command.departmentId, semesterId: command.semesterId };
-
-    yield* authorizeConfirmation(sql, principal, scope);
+    const { principal, departmentId, semesterId } = authorization;
+    const command = { ...input, departmentId, semesterId };
+    const scope = { departmentId, semesterId };
 
     const current = yield* readEntry(scope, command.personId);
 
@@ -846,19 +867,14 @@ export const readCertificate = (
  * under which seat, and the hash of the content. The precondition sees the fresh preview.
  */
 export const issueCertificate = <E, R>(
-  principal: CertificatePrincipal,
-  command: IssueCertificateCommand,
+  authorization: CertificateIssueAuthorization,
+  input: Pick<IssueCertificateCommand, "commandId">,
   checkPrecondition: (current: CertificatePreview) => Effect.Effect<void, E, R>,
 ) =>
   Effect.gen(function* () {
     const sql = yield* Database;
-
-    const { department, issuer } = yield* authorizeIssue(
-      sql,
-      principal,
-      command.departmentId,
-      command.personId,
-    );
+    const { principal, department, personId, issuer } = authorization;
+    const command = { ...input, departmentId: department.departmentId, personId };
 
     const preview = yield* buildPreview(department, command.personId, issuer);
 

@@ -1,3 +1,4 @@
+import { administratorDepartmentReach } from "@vektorprogrammet/domain/organization/authority-fixtures";
 import { expect, layer } from "@effect/vitest";
 import { Database } from "./service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
@@ -15,6 +16,8 @@ import { provisionOnboardingAccount } from "./onboarding-account.js";
 const dept = DepartmentId.make("onboarding-dept");
 
 const actor = PersonId.make("onboarding-leader");
+
+const coordinator = administratorDepartmentReach("onboarding-leader", "admissions.outcomes", dept);
 
 const currentInstant = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -38,12 +41,11 @@ const issue = (i: number, now: string) =>
   Database.use((sql) =>
     sql.withTransaction(
       commandOnboarding({
-        departmentId: dept,
+        coordinator,
         command: {
           applicationId: PublicApplicationIdSchema.make("onboard-app-" + i),
           action: "Issue",
         },
-        actor,
         now,
         invitationId: "onboard-invite-" + i,
         token: "onboard_" + String(i).repeat(64),
@@ -151,12 +153,11 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "15 seconds" })(
           yield* Database.use((sql) =>
             sql.withTransaction(
               commandOnboarding({
-                departmentId: dept,
+                coordinator,
                 command: {
                   applicationId: PublicApplicationIdSchema.make("onboard-app-6"),
                   action: "Issue",
                 },
-                actor,
                 now,
                 invitationId: "aaa-reissued",
                 token: "onboard_" + "7".repeat(64),
@@ -194,21 +195,23 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "15 seconds" })(
               yield* sql`INSERT INTO admission_period_fields_of_study VALUES('onboarding-other-fos',${other},'Other Math',true)`;
               yield* sql`INSERT INTO admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at) VALUES(${applicationId},'onboard-applicant-3','onboarding-other-period',${other},'onboarding-other-fos',2,${now})`;
               yield* commandOnboarding({
-                departmentId: other,
+                coordinator: administratorDepartmentReach(
+                  "onboarding-leader",
+                  "admissions.outcomes",
+                  "onboarding-other",
+                ),
                 command: { applicationId, action: "Issue" },
-                actor,
                 now,
                 invitationId: "other-invite",
                 token: "onboard_" + "9".repeat(64),
                 digest: "9".repeat(64),
               });
               yield* commandOnboarding({
-                departmentId: dept,
+                coordinator,
                 command: {
                   applicationId: PublicApplicationIdSchema.make("onboard-app-3"),
                   action: "Revoke",
                 },
-                actor,
                 now,
                 invitationId: "original-revoke",
                 token: "unused",

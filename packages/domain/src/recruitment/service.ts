@@ -16,6 +16,7 @@ import type {
   RecruitmentInvitationTransition,
 } from "./access.js";
 import type {
+  RecruitmentMaintenanceAuthorization,
   RecruitmentMaintenanceCommand,
   RecruitmentMaintenanceResult,
   QuestionnaireManagement,
@@ -179,13 +180,14 @@ export interface RecruitmentOperations {
   readonly readInterviewStaffing: (
     personId: PersonId,
   ) => Effect.Effect<InterviewStaffingManagement, RecruitmentFailure>;
+  /** Resolves current authority for one command, with its locks, on the caller's transaction. */
   readonly authorizeMaintenance: (
     command: RecruitmentMaintenanceCommand,
     personId: PersonId,
-  ) => Effect.Effect<void, RecruitmentFailure>;
+  ) => Effect.Effect<RecruitmentMaintenanceAuthorization, RecruitmentFailure>;
+  /** Runs the authorized command in the transaction that authorized it. */
   readonly maintainRecruitment: (
-    command: RecruitmentMaintenanceCommand,
-    personId: PersonId,
+    authorization: RecruitmentMaintenanceAuthorization,
   ) => Effect.Effect<RecruitmentMaintenanceResult, RecruitmentFailure>;
   readonly readAssignmentBoard: (
     query: RecruitmentAssignmentBoardQuery,

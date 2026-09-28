@@ -1,3 +1,4 @@
+import { administratorDepartmentReach } from "@vektorprogrammet/domain/organization/authority-fixtures";
 import { expect, layer } from "@effect/vitest";
 import { Effect, Exit, Layer, Predicate } from "effect";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
@@ -20,10 +21,12 @@ const applicationId = PublicApplicationIdSchema.make("outcome-application");
 
 const recruiter = PersonId.make("outcome-recruiter");
 
+const decider = administratorDepartmentReach(recruiter, "admissions.outcomes", scope.departmentId);
+
 const record = (outcome: AdmissionOutcome, now = "2026-06-01T10:00:00.000Z") =>
   Admissions.use((service) =>
     service.recordAdmissionOutcome(
-      { applicationId, command: { outcome }, actor: recruiter, now },
+      { applicationId, command: { outcome }, decider, now },
       () => Effect.void,
     ),
   );
@@ -84,7 +87,7 @@ layer(suiteSeed.pipe(Layer.provideMerge(suiteLayer)), {
               {
                 applicationId,
                 command: { outcome: "Substitute" },
-                actor: recruiter,
+                decider,
                 now: "2026-06-01T10:00:00.000Z",
               },
               (current) => Effect.fail({ code: "precondition.failed", current }),
@@ -97,6 +100,37 @@ layer(suiteSeed.pipe(Layer.provideMerge(suiteLayer)), {
 
       expect(result.failure).toEqual({ code: "precondition.failed", current: result.before });
       expect(result.after).toEqual(result.before);
+      expect(result.after).toMatchObject({ outcome: null, revision: 0 });
+    }),
+  );
+
+  it.effect("refuses evidence for another department and writes nothing", () =>
+    Effect.gen(function* () {
+      const result = yield* observeRolledBack(
+        Effect.gen(function* () {
+          const failure = yield* Effect.flip(
+            Admissions.use((service) =>
+              service.recordAdmissionOutcome(
+                {
+                  applicationId,
+                  command: { outcome: "Admitted" },
+                  decider: administratorDepartmentReach(
+                    recruiter,
+                    "admissions.outcomes",
+                    "outcome-other-department",
+                  ),
+                  now: "2026-06-01T10:00:00.000Z",
+                },
+                () => Effect.void,
+              ),
+            ),
+          );
+
+          return { failure, after: yield* readEntry };
+        }),
+      );
+
+      expect(result.failure).toMatchObject({ code: "authority.denied", status: 403 });
       expect(result.after).toMatchObject({ outcome: null, revision: 0 });
     }),
   );

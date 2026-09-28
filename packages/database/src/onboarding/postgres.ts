@@ -1,6 +1,7 @@
 import { DateTime, Effect } from "effect";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database } from "../service.js";
+import type { DepartmentReach } from "@vektorprogrammet/domain/authz";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
   OnboardingFailure,
@@ -40,10 +41,14 @@ export const readOnboardingBoard = (departmentId: DepartmentId) =>
     }),
   );
 
+/**
+ * Issues, revokes, or retries one onboarding invitation in the coordinator's department. The
+ * department and the audited actor come from the evidence, so the command acts only where the
+ * coordinator holds `admissions.outcomes`.
+ */
 export const commandOnboarding = (input: {
-  departmentId: DepartmentId;
+  coordinator: DepartmentReach<"admissions.outcomes">;
   command: OnboardingCommand;
-  actor: PersonId;
   now: string;
   invitationId: string;
   token: string;
@@ -53,7 +58,7 @@ export const commandOnboarding = (input: {
     Effect.gen(function* () {
       const { applicantId } = yield* onboardingApplication(
         input.command.applicationId,
-        input.departmentId,
+        input.coordinator.departmentId,
       );
 
       yield* lockOnboardingApplicant(applicantId);
@@ -71,7 +76,7 @@ export const commandOnboarding = (input: {
 
       for (const row of old) {
         yield* sql`UPDATE public.applicant_account_delivery SET state='Cancelled',secret=NULL,envelope=NULL,claim_id=NULL,claimed_at=NULL WHERE invitation_id=${row.invitationId} AND state<>'Delivered'`;
-        yield* sql`INSERT INTO public.applicant_account_audit VALUES(${input.invitationId + ":revoke:" + row.invitationId},${applicantId},${row.invitationId},${input.actor},'Revoked',${input.now})`;
+        yield* sql`INSERT INTO public.applicant_account_audit VALUES(${input.invitationId + ":revoke:" + row.invitationId},${applicantId},${row.invitationId},${input.coordinator.personId},'Revoked',${input.now})`;
       }
 
       if (input.command.action === "Revoke") return;
@@ -80,9 +85,9 @@ export const commandOnboarding = (input: {
         DateTime.add(DateTime.makeUnsafe(input.now), { days: 1 }),
       );
 
-      yield* sql`INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES(${input.invitationId},${input.command.applicationId},${applicantId},${input.digest},${expiresAt},'Open',${input.actor},${input.now})`;
+      yield* sql`INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES(${input.invitationId},${input.command.applicationId},${applicantId},${input.digest},${expiresAt},'Open',${input.coordinator.personId},${input.now})`;
       yield* sql`INSERT INTO public.applicant_account_delivery(invitation_id,state,secret,recipient) SELECT ${input.invitationId},'Pending',${input.token},email FROM public.admission_applicants WHERE applicant_id=${applicantId}`;
-      yield* sql`INSERT INTO public.applicant_account_audit VALUES(${input.invitationId + ":issue"},${applicantId},${input.invitationId},${input.actor},'Issued',${input.now})`;
+      yield* sql`INSERT INTO public.applicant_account_audit VALUES(${input.invitationId + ":issue"},${applicantId},${input.invitationId},${input.coordinator.personId},'Issued',${input.now})`;
     }),
   );
 

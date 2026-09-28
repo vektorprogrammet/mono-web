@@ -22,7 +22,6 @@ import { admissionActorForAuthority } from "./admission/http-context.js";
 import { AdmissionOutcomesApiHandlers } from "./admission/outcome-http.js";
 import { DirectoryApiHandlers } from "./directory/http.js";
 import {
-  organizationActorFrom,
   recruitmentBoardActorFrom,
   resolveAuthenticatedPerson,
   resolveAuthenticatedPersonAtInstant,
@@ -190,10 +189,6 @@ export const ExternalNativeApiRouterLive = (
     }),
     OrganizationApiHandlers({
       config: config.organization,
-      resolveActor: (request) =>
-        resolveRequestPersonAuthority(request, { now: options.now }).pipe(
-          Effect.map(organizationActorFrom),
-        ),
       resolveAuthority: (request) => resolveRequestPersonAuthority(request, { now: options.now }),
     }),
     DirectoryApiHandlers(

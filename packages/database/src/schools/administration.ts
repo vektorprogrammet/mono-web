@@ -8,6 +8,7 @@ import {
   SchoolId,
   SchoolCapacityPlan,
   SchoolCommand,
+  type SchoolCommandAuthorization,
   SchoolCommandResult,
   ManagedSchool,
   SchoolDirectoryDepartmentSchema,
@@ -154,7 +155,10 @@ export const authorizeSchoolCommand = (command: SchoolCommand, personId: PersonI
   Effect.gen(function* () {
     const sql = yield* Database;
     const decoded = yield* decodeCommand(command).pipe(Effect.mapError(() => fail("Invalid")));
-    yield* authorizeWithSql(sql, decoded, personId);
+    const { school, departments } = yield* authorizeWithSql(sql, decoded, personId);
+
+    // SAFETY: the one constructor of the evidence brand; authorizeWithSql above is what it proves.
+    return { personId, command: decoded, school, departments } as SchoolCommandAuthorization;
   }).pipe(mapFailure);
 
 export const readSchoolManagement = (personId: PersonId) =>
@@ -220,14 +224,13 @@ export const readSchoolManagement = (personId: PersonId) =>
     );
   }).pipe(mapFailure);
 
-export const executeSchoolCommand = (input: SchoolCommand, personId: PersonId) =>
+export const executeSchoolCommand = (authorized: SchoolCommandAuthorization) =>
   Effect.gen(function* () {
     const sql = yield* Database;
-    const command = yield* decodeCommand(input).pipe(Effect.mapError(() => fail("Invalid")));
+    const { command, personId } = authorized;
 
     return yield* sql.withTransaction(
       Effect.gen(function* () {
-        const authorized = yield* authorizeWithSql(sql, command, personId);
         yield* lockAdvisory(sql, AdvisoryLockKey.schoolsCommand(personId, command.commandId));
 
         const digest = sha256Hex(

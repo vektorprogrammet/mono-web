@@ -9,6 +9,7 @@ import {
   SocialEventScope,
   SocialEventScopeResource,
   type CreateSocialEventCommand as CreateSocialEventCommandValue,
+  type SocialEventCreation,
   type SocialEventListResource as SocialEventListResourceValue,
   type SocialEventObservedAt as SocialEventObservedAtValue,
   type SocialEventResource as SocialEventResourceValue,
@@ -278,15 +279,19 @@ export const readSocialEventListPostgres = (
   );
 
 /**
- * Inserts the canonical event, one domain command receipt, and one audit row.
- * The caller owns the serializable HTTP transaction and has already performed
- * authority plus selected-scope validation before the generic receipt lookup.
+ * Inserts the canonical event, one domain command receipt, and one audit row, as the creator.
+ * The caller owns the serializable HTTP transaction and resolved the creator's evidence in it
+ * before the generic receipt lookup. The event's department is the evidence's department.
  */
 export const createSocialEventPostgres = (
-  input: CreateSocialEventCommandValue,
+  creator: SocialEventCreation,
+  input: Omit<CreateSocialEventCommandValue, "actorPersonId">,
 ): Effect.Effect<SocialEventResourceValue, SocialEventFailure, Database> =>
   Effect.gen(function* () {
-    const command = yield* decodeCreateCommand(input);
+    if (input.request.departmentId !== creator.departmentId)
+      return yield* Effect.die(new Error("social event creator evidence names another department"));
+
+    const command = yield* decodeCreateCommand({ ...input, actorPersonId: creator.personId });
 
     const scope = yield* validateSocialEventScopePostgres({
       departmentId: command.request.departmentId,

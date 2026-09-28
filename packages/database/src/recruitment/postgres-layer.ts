@@ -85,8 +85,8 @@ export const RecruitmentLive = Layer.effect(
           Effect.provideService(Admissions, admissions),
           Effect.provideService(Profile, profile),
         ),
-      maintainRecruitment: (command, personId) =>
-        maintainRecruitment(command, personId).pipe(
+      maintainRecruitment: (authorization) =>
+        maintainRecruitment(authorization).pipe(
           Effect.provideService(Database, database),
           Effect.provideService(Admissions, admissions),
           Effect.provideService(Profile, profile),

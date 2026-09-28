@@ -19,8 +19,8 @@ export const SchoolsLive: Layer.Layer<Schools, never, Database> = Layer.effect(
         readSchoolManagement(personId).pipe(Effect.provideService(Database, database)),
       authorizeCommand: (command, personId) =>
         authorizeSchoolCommand(command, personId).pipe(Effect.provideService(Database, database)),
-      executeCommand: (command, personId) =>
-        executeSchoolCommand(command, personId).pipe(Effect.provideService(Database, database)),
+      executeCommand: (authorization) =>
+        executeSchoolCommand(authorization).pipe(Effect.provideService(Database, database)),
       listDirectory: (input) =>
         listSchoolDirectoryPostgres(input).pipe(Effect.provideService(Database, database)),
     });

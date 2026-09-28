@@ -495,6 +495,9 @@ export const waitForHttp = (probe: HttpProbe) =>
 
         request.once("timeout", () => request.destroy());
         request.once("error", () => resume(Effect.succeed(0)));
+        // Bun's `destroy()` emits `close` but no `error`, so an attempt that timed out resumes
+        // here; without it one slow attempt outlives the deadline. A later resume is ignored.
+        request.once("close", () => resume(Effect.succeed(0)));
         request.end();
 
         return Effect.sync(() => request.destroy());

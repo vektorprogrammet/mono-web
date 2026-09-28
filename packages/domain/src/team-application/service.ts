@@ -43,6 +43,31 @@ export type TeamApplicationAction = Data.TaggedEnum<{
 
 export const TeamApplicationAction = Data.taggedEnum<TeamApplicationAction>();
 
+/** Type-only brand. Only the TeamApplications adapter that resolves current authority builds this. */
+declare const TeamApplicationAuthorizationBrand: unique symbol;
+
+/**
+ * Proof that a principal may take one staff action, resolved with its row locks inside the
+ * action's transaction. A change command runs from it: it takes its application or team from
+ * `action` and resolves no authority again. Valid only in the transaction that resolved it.
+ */
+export interface TeamApplicationAuthorization<A extends TeamApplicationAction> {
+  readonly [TeamApplicationAuthorizationBrand]: A["_tag"];
+  readonly principal: TeamApplicationPrincipal;
+  readonly action: A;
+  readonly actor: TeamApplicationActor;
+}
+
+type DeleteTeamApplicationAction = Extract<
+  TeamApplicationAction,
+  { readonly _tag: "DeleteTeamApplication" }
+>;
+
+type ReviseTeamApplicationIntakeAction = Extract<
+  TeamApplicationAction,
+  { readonly _tag: "ReviseTeamApplicationIntake" }
+>;
+
 export interface TeamApplicationSubmission {
   readonly confirmation: TeamApplicationConfirmation;
   readonly replayed: boolean;
@@ -95,11 +120,11 @@ export interface TeamApplicationsOperations {
    * Change actions lock the target row first. The result grants nothing beyond
    * the caller's transaction.
    */
-  readonly authorize: (
+  readonly authorize: <A extends TeamApplicationAction>(
     principal: TeamApplicationPrincipal,
-    action: TeamApplicationAction,
+    action: A,
   ) => Effect.Effect<
-    TeamApplicationActor,
+    TeamApplicationAuthorization<A>,
     TeamApplicationAccessDenied | TeamApplicationNotFound | TeamApplicationPersistenceError
   >;
   readonly listApplications: (
@@ -116,8 +141,8 @@ export interface TeamApplicationsOperations {
    * clears every undelivered notification envelope for it.
    */
   readonly deleteApplication: (
-    command: DeleteTeamApplicationCommand,
-    principal: TeamApplicationPrincipal,
+    authorization: TeamApplicationAuthorization<DeleteTeamApplicationAction>,
+    command: Pick<DeleteTeamApplicationCommand, "commandId">,
   ) => Effect.Effect<void, TeamApplicationDeleteFailure>;
   /**
    * Leader-only. Locks the team, supplies the fresh intake to the transport
@@ -125,8 +150,8 @@ export interface TeamApplicationsOperations {
    * authority and must not write business state.
    */
   readonly reviseIntake: <E, R>(
-    command: ReviseTeamApplicationIntakeCommand,
-    principal: TeamApplicationPrincipal,
+    authorization: TeamApplicationAuthorization<ReviseTeamApplicationIntakeAction>,
+    command: Omit<ReviseTeamApplicationIntakeCommand, "teamId">,
     checkPrecondition: (current: TeamApplicationIntake) => Effect.Effect<void, E, R>,
   ) => Effect.Effect<TeamApplicationIntakeRevision, TeamApplicationReviseFailure | E, R>;
   /**

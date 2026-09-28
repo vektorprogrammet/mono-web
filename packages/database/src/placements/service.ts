@@ -23,7 +23,8 @@ import {
 } from "./coverage.js";
 import { readPlacementDraft } from "./draft.js";
 import {
-  authorizeCertificateCommand,
+  authorizeCertificateIssue,
+  authorizeDaysServedConfirmation,
   confirmDaysServed,
   issueCertificate,
   listCertificates,
@@ -89,7 +90,18 @@ export const PlacementsLive = Layer.effect(
       checkPrecondition: (current: PlacementSnapshot) => Effect.Effect<void, E, R>,
     ) =>
       Effect.gen(function* () {
-        const { mutation, actor, now, commandId } = input;
+        const { mutation, now, commandId } = input;
+
+        // A coordinator acts only in the department its evidence names.
+        if (
+          "coordinator" in input &&
+          input.coordinator.departmentId !== mutation.scope.departmentId
+        )
+          return yield* Effect.die(
+            new Error("placement coordinator evidence names another department"),
+          );
+
+        const actor = "coordinator" in input ? input.coordinator.personId : input.actor;
         yield* run(lockPlacementDepartment(mutation.scope.departmentId));
 
         return yield* Match.value(mutation).pipe(
@@ -158,12 +170,12 @@ export const PlacementsLive = Layer.effect(
         readCertificateScopes(principal).pipe(Effect.provideService(Database, database)),
       readDaysServed: (principal, scope, cursor) =>
         readDaysServed(principal, scope, cursor).pipe(Effect.provideService(Database, database)),
-      authorizeCertificateCommand: (principal, target) =>
-        authorizeCertificateCommand(principal, target).pipe(
+      authorizeDaysServedConfirmation: (principal, scope) =>
+        authorizeDaysServedConfirmation(principal, scope).pipe(
           Effect.provideService(Database, database),
         ),
-      confirmDaysServed: (principal, command, checkPrecondition) =>
-        confirmDaysServed(principal, command, checkPrecondition).pipe(
+      confirmDaysServed: (authorization, command, checkPrecondition) =>
+        confirmDaysServed(authorization, command, checkPrecondition).pipe(
           Effect.provideService(Database, database),
         ),
       listCertificates: (principal, departmentId, cursor) =>
@@ -174,8 +186,12 @@ export const PlacementsLive = Layer.effect(
         readCertificate(principal, departmentId, personId).pipe(
           Effect.provideService(Database, database),
         ),
-      issueCertificate: (principal, command, checkPrecondition) =>
-        issueCertificate(principal, command, checkPrecondition).pipe(
+      authorizeCertificateIssue: (principal, departmentId, personId) =>
+        authorizeCertificateIssue(principal, departmentId, personId).pipe(
+          Effect.provideService(Database, database),
+        ),
+      issueCertificate: (authorization, command, checkPrecondition) =>
+        issueCertificate(authorization, command, checkPrecondition).pipe(
           Effect.provideService(Database, database),
         ),
       execute,

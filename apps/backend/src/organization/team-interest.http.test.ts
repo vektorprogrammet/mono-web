@@ -11,11 +11,11 @@ import {
   TeamId,
   SemesterId,
   MembershipId,
-  OrganizationActorSchema,
   DepartmentJsonSchema,
   Organization,
   PersonId,
   type OrganizationOperations,
+  type TeamInterestReadScope,
 } from "@vektorprogrammet/domain/organization";
 import { DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "@effect/vitest";
@@ -100,11 +100,8 @@ const registrationRows = [
   },
 ] as const;
 
-let lastTeamInterestFilter: {
-  authorizedDepartmentIds: ReadonlyArray<string>;
-  authorizedTeamIds: ReadonlyArray<string>;
-  semesterId?: string;
-};
+// The scope that the handler required on the last listing.
+let lastTeamInterestScope: TeamInterestReadScope | undefined;
 
 // The departments that the organization store holds; a test may empty it.
 let storedDepartments = [department, secondDepartment];
@@ -113,20 +110,16 @@ const organization = {
   listDepartments: Effect.sync(() => storedDepartments),
   listTeams: () => Effect.succeed([]),
   listFieldOfStudies: Effect.succeed([]),
-  listTeamInterestRegistrations: (filter: {
-    authorizedDepartmentIds: ReadonlyArray<string>;
-    authorizedTeamIds: ReadonlyArray<string>;
-    semesterId?: string;
-  }) =>
+  listTeamInterestRegistrations: (scope: TeamInterestReadScope, semesterId?: SemesterId) =>
     Effect.sync(() => {
-      lastTeamInterestFilter = filter;
+      lastTeamInterestScope = scope;
 
       const rows = registrationRows
         .filter(
           (row) =>
-            (filter.authorizedDepartmentIds.includes(row.departmentId) ||
-              filter.authorizedTeamIds.includes(row.teamId)) &&
-            (filter.semesterId === undefined || row.semesterId === filter.semesterId),
+            (scope.departmentIds.includes(row.departmentId) ||
+              scope.teams.some((team) => team.teamId === row.teamId)) &&
+            (semesterId === undefined || row.semesterId === semesterId),
         )
         .toSorted((left, right) => left.registrationId - right.registrationId);
 
@@ -280,10 +273,6 @@ const services = Layer.mergeAll(
 const http = makeOrganizationApiHttp(
   {
     config,
-    resolveActor: () =>
-      Effect.succeed(
-        OrganizationActorSchema.members[1].make({ personId: PersonId.make("person-member") }),
-      ),
     resolveAuthority: (request) => {
       const cookie = request.headers.get("cookie");
 
@@ -364,7 +353,7 @@ describe("spec 0059 team-interest HTTP boundary", () => {
         "hydra:totalItems": 2,
       });
       // Rows ordered registration_id ASC regardless of insert order.
-      expect(lastTeamInterestFilter.authorizedDepartmentIds).toEqual(["department-1"]);
+      expect(lastTeamInterestScope?.departmentIds).toEqual(["department-1"]);
     }),
   );
 
@@ -376,8 +365,8 @@ describe("spec 0059 team-interest HTTP boundary", () => {
         "hydra:member": [{ id: 3, userName: "User C", teamName: "Team Two" }],
         "hydra:totalItems": 1,
       });
-      expect(lastTeamInterestFilter.authorizedDepartmentIds).toEqual([]);
-      expect(lastTeamInterestFilter.authorizedTeamIds).toEqual(["team-2"]);
+      expect(lastTeamInterestScope?.departmentIds).toEqual([]);
+      expect(lastTeamInterestScope?.teams.map(({ teamId }) => teamId)).toEqual(["team-2"]);
 
       const otherDepartment = yield* get(
         "/api/team-interest-registrations?department=department-1",
@@ -402,10 +391,7 @@ describe("spec 0059 team-interest HTTP boundary", () => {
         ],
         "hydra:totalItems": 3,
       });
-      expect(lastTeamInterestFilter.authorizedDepartmentIds).toEqual([
-        "department-1",
-        "department-2",
-      ]);
+      expect(lastTeamInterestScope?.departmentIds).toEqual(["department-1", "department-2"]);
     }),
   );
 

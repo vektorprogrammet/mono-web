@@ -488,7 +488,7 @@ const deleteApplication = (request: Request, applicationId: TeamApplicationId) =
         const staff = yield* staffPrincipal(request);
 
         // Authority is current before any stored response can be replayed.
-        const actor = yield* TeamApplications.use((service) =>
+        const authorization = yield* TeamApplications.use((service) =>
           service.authorize(
             staff.principal,
             TeamApplicationAction.DeleteTeamApplication({ applicationId }),
@@ -498,7 +498,7 @@ const deleteApplication = (request: Request, applicationId: TeamApplicationId) =
         yield* authorizeStaff(
           DeleteTeamApplicationEndpoint,
           staff,
-          actor,
+          authorization.actor,
           "ExactlyOne",
           presentation,
         );
@@ -519,10 +519,9 @@ const deleteApplication = (request: Request, applicationId: TeamApplicationId) =
             operationId,
           },
           execute: TeamApplications.use((service) =>
-            service.deleteApplication(
-              { commandId: TeamApplicationCommandId.make(identity.commandId), applicationId },
-              staff.principal,
-            ),
+            service.deleteApplication(authorization, {
+              commandId: TeamApplicationCommandId.make(identity.commandId),
+            }),
           ).pipe(
             Effect.as<NativeHttpResponseCapsule>({
               status: 204,
@@ -586,7 +585,7 @@ const reviseIntake = (request: Request, teamId: TeamId) =>
         const staff = yield* staffPrincipal(request);
 
         // Authority is current before any stored response can be replayed.
-        const actor = yield* TeamApplications.use((service) =>
+        const authorization = yield* TeamApplications.use((service) =>
           service.authorize(
             staff.principal,
             TeamApplicationAction.ReviseTeamApplicationIntake({ teamId }),
@@ -596,7 +595,7 @@ const reviseIntake = (request: Request, teamId: TeamId) =>
         yield* authorizeStaff(
           ReviseTeamApplicationIntakeEndpoint,
           staff,
-          actor,
+          authorization.actor,
           "ExactlyOne",
           presentation,
         );
@@ -626,7 +625,7 @@ const reviseIntake = (request: Request, teamId: TeamId) =>
             operationId,
           },
           execute: TeamApplications.use((service) =>
-            service.reviseIntake(command, staff.principal, (current) =>
+            service.reviseIntake(authorization, command, (current) =>
               requireCurrentETag(intakeETag(teamId, current.revision), ifMatch),
             ),
           ).pipe(
