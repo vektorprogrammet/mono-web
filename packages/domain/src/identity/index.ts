@@ -14,8 +14,6 @@ export {
 } from "./errors.js";
 
 export {
-  decodeIdentityActor,
-  decodeIdentitySession,
   IdentityActor,
   IdentityRequestContext,
   IdentitySecurityEvent,

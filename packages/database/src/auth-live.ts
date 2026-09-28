@@ -12,8 +12,6 @@ import type { AuthorizationInstant } from "@vektorprogrammet/domain/authz";
 import { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
 import { Database } from "./service.js";
 import {
-  decodeIdentityActor,
-  decodeIdentitySession,
   Identity,
   IdentityEngineError,
   IdentityInvalidCredentials,
@@ -22,7 +20,8 @@ import {
   IdentitySecurityEvent,
   IdentitySecurityEventDetails,
   IdentitySessionNotFound,
-  type IdentityActor,
+  IdentityActor,
+  IdentitySession,
   type IdentityRequestContext,
   type IdentitySessionId,
   type IdentitySessionMutationSuccess,
@@ -30,6 +29,11 @@ import {
   type IdentityOperations,
 } from "@vektorprogrammet/domain/identity";
 import { DatabasePgPool, pgQuery, pgTransaction } from "./pg-pool.js";
+
+/** Decodes an engine-native actor row into the canonical domain shape. */
+const decodeIdentityActor = Schema.decodeUnknownEffect(IdentityActor);
+
+const decodeIdentitySession = Schema.decodeUnknownEffect(IdentitySession);
 
 import { type AuthEngineConfig } from "./auth-engine.js";
 import {

@@ -185,12 +185,13 @@ export class ServicePrincipalGrantAuthority extends Context.Service<
   ServicePrincipalGrantAuthorityOperations
 >()("@vektorprogrammet/domain/authz/service-principal-grants/ServicePrincipalGrantAuthority") {}
 
-export const makeServicePrincipalReceiptGrant = Schema.decodeUnknownSync(
-  ServicePrincipalReceiptGrantSchema,
-  {
+/** Decodes JSON data into a service principal receipt grant, rejecting properties the schema does not name. */
+export const makeServicePrincipalReceiptGrant = (
+  input: Schema.Json,
+): ServicePrincipalReceiptGrant =>
+  Schema.decodeUnknownSync(ServicePrincipalReceiptGrantSchema)(input, {
     onExcessProperty: "error",
-  },
-);
+  });
 
 export const composeServicePrincipalReceiptRuleRequirements: {
   (

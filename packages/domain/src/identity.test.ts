@@ -1,12 +1,9 @@
 import { expect, it } from "@effect/vitest";
 import { DateTime, Effect, Schema } from "effect";
-import {
-  IdentityActor,
-  IdentitySecurityEvent,
-  IdentitySession,
-  decodeIdentityActor,
-} from "./identity/index.js";
+import { IdentityActor, IdentitySecurityEvent, IdentitySession } from "./identity/index.js";
 import { PersonId } from "./organization/schema.js";
+
+const decodeIdentityActor = Schema.decodeUnknownEffect(IdentityActor);
 
 const instant = (text: string): Date => DateTime.toDateUtc(DateTime.makeUnsafe(text));
 
