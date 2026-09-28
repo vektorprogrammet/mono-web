@@ -81,20 +81,15 @@ guards nothing, and hand-written `pg_advisory_xact_lock` SQL, which
 Serializes one person's protected command with person-keyed authority writers.
 
 ```ts
-lockPersonAuthorization(
-  sql: DatabaseOperations,
-  personId: PersonId
-): Effect.Effect<void, OrganizationPersistenceError>
+const lockPersonAuthorization: { (personId: PersonId): (sql: DatabaseOperations) => Effect.Effect<void, OrganizationPersistenceError>; (sql: DatabaseOperations, personId: PersonId): Effect.Effect<void, OrganizationPersistenceError> }
 ```
 
-- Inputs:
-  - `sql: DatabaseOperations`
-  - `personId: PersonId`
-- Output: `Effect.Effect<void, OrganizationPersistenceError>`
-- Errors: `OrganizationPersistenceError`
+- Inputs: none
+- Output: `{ (personId: PersonId): (sql: DatabaseOperations) => Effect.Effect<void, OrganizationPersistenceError>; (sql: DatabaseOperations, personId: PersonId): Effect.Effect<void, OrganizationPersistenceError> }`
+- Errors: none
 - Requirements: none
 - Side effects: Holds the person's advisory lock until the transaction ends, and waits while another transaction holds it.
-- Source: [packages/database/src/organization/authority-postgres.ts:66](../../packages/database/src/organization/authority-postgres.ts#L66)
+- Source: [packages/database/src/organization/authority-postgres.ts:67](../../packages/database/src/organization/authority-postgres.ts#L67)
 
 **How it works**
 
