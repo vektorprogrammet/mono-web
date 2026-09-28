@@ -5,6 +5,7 @@ import { Option, Predicate, Schema } from "effect";
 import { nativeRpcPath } from "@vektorprogrammet/rpc";
 import { ContentArticleObservationSchema, ContentBridgeActionSchema } from "../app/foldkit/content/bridge";
 import {
+  isNativeRpcPath,
   nativeRpcOutcome,
   nativeRpcRequestBody,
   nativeRpcStatus,
@@ -127,7 +128,7 @@ const openContext = async (
 
     // An RPC names its operation and carries its key and entity tag in its payload.
     const rpc =
-      request.method() === "POST" && url.pathname === nativeRpcPath
+      request.method() === "POST" && isNativeRpcPath(url.pathname)
         ? { tag: nativeRpcTag(request.postData() ?? ""), facts: rpcPayloadFacts(request.postData()) }
         : undefined;
 
@@ -553,7 +554,7 @@ test.describe("Native Content publication (spec 0062)", () => {
       );
 
       const nativeContentRequests = browserRequests.filter(
-        (request) => request.pathname === nativeRpcPath && request.rpcTag?.startsWith("content.") === true,
+        (request) => isNativeRpcPath(request.pathname) && request.rpcTag?.startsWith("content.") === true,
       );
 
       const publicRequests = browserRequests.filter(

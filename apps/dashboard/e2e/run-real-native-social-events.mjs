@@ -10,7 +10,10 @@ import { fileURLToPath } from "node:url";
 import { startDisposablePostgres } from "@monoweb/postgres";
 import { chromium } from "@playwright/test";
 import pg from "pg";
-import { Order } from "effect";
+import { Option, Order, Schema } from "effect";
+import { nativeRpcPath } from "@vektorprogrammet/rpc";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
+import { isNativeRpcPath, nativeRpcOutcome, nativeRpcRequestBody } from "./native-operations.ts";
 
 const { Client } = pg;
 
@@ -220,6 +223,16 @@ const requestBody = async (request) => {
   return chunks.length === 0 ? undefined : Buffer.concat(chunks);
 };
 
+/** The one RPC request that a request body carries: its tag and payload. */
+const RpcRequestBody = Schema.fromJsonString(
+  Schema.Struct({ tag: Schema.String, payload: Schema.Unknown }),
+);
+
+const parseRpcRequest = (bytes) =>
+  bytes === undefined
+    ? null
+    : Option.getOrNull(Schema.decodeUnknownOption(RpcRequestBody)(bytes.toString("utf8")));
+
 const startRecordingProxy = async (ledger) => {
   const server = createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", apiOrigin);
@@ -236,22 +249,22 @@ const startRecordingProxy = async (ledger) => {
       }
     }
 
-    let requestJson = null;
-
-    if (body !== undefined && headers.get("content-type")?.includes("json")) {
-      requestJson = JSON.parse(body.toString("utf8"));
-    }
+    // Every native operation is one RPC at the RPC endpoint; the ledger names it by its tag.
+    const rpcRequest =
+      request.method === "POST" && isNativeRpcPath(url.pathname) ? parseRpcRequest(body) : null;
 
     const entry = {
       sequence: ledger.length + 1,
       method: request.method ?? "GET",
       path: url.pathname,
       query: url.search,
-      idempotencyKey: headers.get("idempotency-key"),
-      requestJson,
+      rpcTag: rpcRequest?.tag ?? null,
+      rpcPayload: rpcRequest?.payload ?? null,
+      sessionCookie: (headers.get("cookie") ?? "").includes("better-auth.session_token="),
+      authorizationHeader: headers.has("authorization"),
       status: 0,
       responseHeaders: {},
-      responseJson: null,
+      outcome: null,
     };
 
     ledger.push(entry);
@@ -268,9 +281,8 @@ const startRecordingProxy = async (ledger) => {
       entry.status = upstream.status;
       entry.responseHeaders = Object.fromEntries(upstream.headers.entries());
 
-      if (bytes.length > 0 && upstream.headers.get("content-type")?.includes("json")) {
-        entry.responseJson = JSON.parse(bytes.toString("utf8"));
-      }
+      // An RPC answers HTTP 200 with its exit: a value, a problem, or a defect.
+      if (entry.rpcTag !== null) entry.outcome = nativeRpcOutcome(bytes.toString("utf8")) ?? null;
 
       response.statusCode = upstream.status;
 
@@ -388,24 +400,35 @@ const signIn = async (browser, persona) => {
   };
 };
 
-const api = async (cookie, method, path, { body, key } = {}) => {
-  const headers = new Headers({ cookie, origin: dashboardOrigin });
+const native = nativeScriptClient(apiOrigin);
 
-  if (body !== undefined) headers.set("content-type", "application/json");
+/**
+ * Calls one social-event RPC as the person whose session cookie is given, from the dashboard
+ * origin, through the recording proxy. The answer keeps the registry status of each problem.
+ */
+const rpc = (cookie, call) => native.call({ cookie, origin: dashboardOrigin }, call);
 
-  if (key !== undefined) headers.set("idempotency-key", key);
-  const request = { method, headers, redirect: "manual", body: JSON.stringify(body) };
+/**
+ * Posts one RPC request message as raw JSON, so a payload that the typed client would refuse to
+ * encode still reaches the RPC server, and answers the outcome of its exit.
+ */
+const rawRpc = async (cookie, tag, payload) => {
+  const response = await fetch(`${apiOrigin}${nativeRpcPath}`, {
+    method: "POST",
+    headers: { cookie, origin: dashboardOrigin, "content-type": "application/json" },
+    body: nativeRpcRequestBody(tag, payload),
+    redirect: "manual",
+  });
 
-  const response = await fetch(`${apiOrigin}${path}`, request);
-  const bytes = Buffer.from(await response.arrayBuffer());
+  assert.equal(response.status, 200, `${tag} answers its exit over HTTP 200`);
 
-  return {
-    status: response.status,
-    headers: Object.fromEntries(response.headers.entries()),
-    body: bytes.length === 0 ? null : JSON.parse(bytes.toString("utf8")),
-    bytes,
-  };
+  return nativeRpcOutcome(await response.text());
 };
+
+const readScope = (cookie) => rpc(cookie, (client) => client["social-events.readScope"]());
+
+const createWith = (cookie, idempotencyKey, request) =>
+  rpc(cookie, (client) => client["social-events.create"]({ idempotencyKey, request }));
 
 const createBody = (overrides = {}) => ({
   departmentId: ids.departmentA,
@@ -419,21 +442,18 @@ const createBody = (overrides = {}) => ({
   ...overrides,
 });
 
-const createEvent = (cookie, key, overrides) =>
-  api(cookie, "POST", "/api/social-events", { key, body: createBody(overrides) });
+const createEvent = (cookie, key, overrides) => createWith(cookie, key, createBody(overrides));
 
 const listEvents = (cookie, departmentId = ids.departmentA, semesterId = ids.semesterA) =>
-  api(
-    cookie,
-    "GET",
-    `/api/social-events?departmentId=${encodeURIComponent(departmentId)}&semesterId=${encodeURIComponent(semesterId)}`,
-  );
+  rpc(cookie, (client) => client["social-events.list"]({ departmentId, semesterId }));
 
-const assertProblem = (response, status, code) => {
-  assert.equal(response.status, status);
-  assert.equal(response.body?.status, status);
-  assert.equal(response.body?.code, code);
-  assert.match(response.headers["content-type"] ?? "", /^application\/problem\+json/u);
+/** Asserts that one RPC answered the declared problem `code` at its registry `status`. */
+const assertProblem = (answer, status, code) => {
+  assert.equal(answer.ok, false, `expected ${code}`);
+  assert.equal(answer.status, status);
+  assert.equal(answer.code, code);
+  assert.equal(answer.problem?.status, status);
+  assert.equal(answer.problem?.code, code);
 };
 
 const isoAround = (instant, milliseconds) =>
@@ -501,17 +521,17 @@ const exerciseJourney = async ({ browser, ledger }) => {
   const pageErrors = [];
   member.page.on("pageerror", (error) => pageErrors.push(error.message));
 
-  const memberScope = await api(member.cookie, "GET", "/api/social-events/scope");
+  const memberScope = await readScope(member.cookie);
   assert.equal(memberScope.status, 200);
   assert.deepEqual(
-    memberScope.body.departments.map(({ departmentId }) => departmentId),
+    memberScope.value.departments.map(({ departmentId }) => departmentId),
     [ids.departmentA],
   );
   assert.deepEqual(
-    memberScope.body.semesters.map(({ semesterId }) => semesterId),
+    memberScope.value.semesters.map(({ semesterId }) => semesterId),
     [ids.semesterA, ids.semesterB],
   );
-  const referenceInstant = memberScope.body.observedAt;
+  const referenceInstant = memberScope.value.observedAt;
 
   await member.page.goto("/dashboard/arrangementer");
   await member.page.getByRole("heading", { name: "Arrangementer" }).waitFor();
@@ -551,23 +571,29 @@ const exerciseJourney = async ({ browser, ledger }) => {
   assert.match(await firstRow.innerText(), /Kun teammedlemmer/u);
 
   const firstUiPost = ledger.find(
-    ({ method, path, requestJson }) =>
-      method === "POST" && path === "/api/social-events" && requestJson?.title === "Sosial kveld",
+    ({ rpcTag, rpcPayload }) =>
+      rpcTag === "social-events.create" && rpcPayload?.request?.title === "Sosial kveld",
   );
 
   assert.ok(firstUiPost, "dashboard create reached the native API");
-  assert.equal(firstUiPost.status, 201);
-  assert.equal(firstUiPost.responseHeaders["cache-control"], "no-store");
-  assert.equal(firstUiPost.responseHeaders.vary, "Origin");
-  assert.match(firstUiPost.responseHeaders.etag ?? "", /^"vkr2\.[A-Za-z0-9_-]{43}"$/u);
-  assert.match(firstUiPost.responseHeaders.location ?? "", /^\/api\/social-events\//u);
+  assert.equal(firstUiPost.status, 200);
+  assert.equal(firstUiPost.outcome?._tag, "Success", "dashboard create committed");
+  assert.equal(firstUiPost.sessionCookie, true, "dashboard create carries the session cookie");
+  assert.equal(firstUiPost.authorizationHeader, false, "dashboard create carries no bearer");
+  assert.match(firstUiPost.responseHeaders["content-type"] ?? "", /^application\/json/u);
+  assert.match(firstUiPost.rpcPayload.idempotencyKey ?? "", /^\S+$/u);
+  assert.equal(firstUiPost.outcome.value.title, "Sosial kveld");
+  assert.equal(firstUiPost.outcome.value.revision, 0);
   const firstPostIndex = ledger.indexOf(firstUiPost);
   assert.ok(
     ledger
       .slice(firstPostIndex + 1)
       .some(
-        ({ method, path, status }) =>
-          method === "GET" && path === "/api/social-events" && status === 200,
+        ({ rpcTag, rpcPayload, outcome }) =>
+          rpcTag === "social-events.list" &&
+          rpcPayload?.departmentId === ids.departmentA &&
+          rpcPayload?.semesterId === ids.semesterA &&
+          outcome?._tag === "Success",
       ),
     "dashboard fetched a fresh scoped list after create",
   );
@@ -606,8 +632,8 @@ const exerciseJourney = async ({ browser, ledger }) => {
     endAt: isoAround(sameStart, 60 * 60 * 1000),
   });
 
-  assert.equal(equalA.status, 201);
-  assert.equal(equalB.status, 201);
+  assert.equal(equalA.status, 200);
+  assert.equal(equalB.status, 200);
 
   const boundaryDefinitions = [
     ["Før nå", -1],
@@ -633,15 +659,15 @@ const exerciseJourney = async ({ browser, ledger }) => {
       },
     );
 
-    assert.equal(created.status, 201, `create ${title}`);
+    assert.equal(created.status, 200, `create ${title}`);
   }
 
   const listed = await listEvents(member.cookie);
   assert.equal(listed.status, 200);
-  const equalRows = listed.body.events.filter(({ startAt }) => startAt === sameStart);
+  const equalRows = listed.value.events.filter(({ startAt }) => startAt === sameStart);
   assert.deepEqual(
     equalRows.map(({ eventId }) => eventId),
-    [equalA.body.eventId, equalB.body.eventId].sort(Order.String),
+    [equalA.value.eventId, equalB.value.eventId].sort(Order.String),
   );
 
   const { timeLabel } = await import("../app/foldkit/social-events/view.ts");
@@ -660,15 +686,14 @@ const exerciseJourney = async ({ browser, ledger }) => {
     null,
   );
 
-  const replay = await api(member.cookie, "POST", "/api/social-events", {
-    key: firstUiPost.idempotencyKey,
-    body: firstUiPost.requestJson,
-  });
+  const replay = await createWith(
+    member.cookie,
+    firstUiPost.rpcPayload.idempotencyKey,
+    firstUiPost.rpcPayload.request,
+  );
 
-  assert.equal(replay.status, 201);
-  assert.deepEqual(replay.body, firstUiPost.responseJson);
-  assert.equal(replay.headers.etag, firstUiPost.responseHeaders.etag);
-  assert.equal(replay.headers.location, firstUiPost.responseHeaders.location);
+  assert.equal(replay.status, 200);
+  assert.deepEqual(replay.value, firstUiPost.outcome.value);
   const afterReplay = await counts();
 
   const locker = await connect();
@@ -677,31 +702,24 @@ const exerciseJourney = async ({ browser, ledger }) => {
   const raceBody = createBody({ title: "Samtidig arrangement", link: null });
   const raceKey = "social-events-race-0110";
 
-  const raceOne = api(member.cookie, "POST", "/api/social-events", {
-    key: raceKey,
-    body: raceBody,
-  });
+  const raceOne = createWith(member.cookie, raceKey, raceBody);
 
   await waitForDatabaseWait("INSERT INTO public.social_events");
 
-  const raceTwo = api(member.cookie, "POST", "/api/social-events", {
-    key: raceKey,
-    body: raceBody,
-  });
+  const raceTwo = createWith(member.cookie, raceKey, raceBody);
 
   const quickRace = await withTimeout(raceTwo, 10_000, "matching command in-flight response");
   assertProblem(quickRace, 409, "idempotency.in-flight");
-  assert.equal(quickRace.headers["retry-after"], "1");
   await locker.query("COMMIT");
   await locker.end();
   const acceptedRace = await raceOne;
-  assert.equal(acceptedRace.status, 201);
+  assert.equal(acceptedRace.status, 200);
 
   const digestCounts = await counts();
 
-  const changedReplay = await api(member.cookie, "POST", "/api/social-events", {
-    key: raceKey,
-    body: { ...raceBody, title: "Endret samtidig arrangement" },
+  const changedReplay = await createWith(member.cookie, raceKey, {
+    ...raceBody,
+    title: "Endret samtidig arrangement",
   });
 
   assertProblem(changedReplay, 409, "idempotency.digest-conflict");
@@ -709,14 +727,14 @@ const exerciseJourney = async ({ browser, ledger }) => {
 
   const tombKey = "social-events-tombstone-0110";
   const tombCreated = await createEvent(member.cookie, tombKey, { title: "Utløpt svar" });
-  assert.equal(tombCreated.status, 201);
+  assert.equal(tombCreated.status, 200);
   await query(
     `UPDATE native_http_idempotency_receipts
         SET committed_at = committed_at - interval '25 hours',
             full_expires_at = full_expires_at - interval '25 hours'
       WHERE operation_id = 'social-events.create'
         AND convert_from(body_bytes, 'UTF8')::jsonb ->> 'eventId' = $1`,
-    [tombCreated.body.eventId],
+    [tombCreated.value.eventId],
   );
   const tombCounts = await counts();
   const tombReplay = await createEvent(member.cookie, tombKey, { title: "Utløpt svar" });
@@ -725,13 +743,19 @@ const exerciseJourney = async ({ browser, ledger }) => {
 
   const beforeValidation = await counts();
 
-  const invalidTime = await createEvent(member.cookie, "social-events-invalid-time-0110", {
-    title: "Ugyldig tid",
-    startAt: "2030-03-01T20:00:00.000Z",
-    endAt: "2030-03-01T19:00:00.000Z",
+  // The payload schema orders the times, so the RPC server refuses this payload as a defect
+  // before the handler runs (validation.failed came from HTTP body decoding). The typed client
+  // would refuse to encode it, so it travels as raw JSON.
+  const invalidTime = await rawRpc(member.cookie, "social-events.create", {
+    idempotencyKey: "social-events-invalid-time-0110",
+    request: createBody({
+      title: "Ugyldig tid",
+      startAt: "2030-03-01T20:00:00.000Z",
+      endAt: "2030-03-01T19:00:00.000Z",
+    }),
   });
 
-  assertProblem(invalidTime, 422, "validation.failed");
+  assert.equal(invalidTime?._tag, "Defect", "the RPC server refuses an end before the start");
   assert.deepEqual(await counts(), beforeValidation);
 
   const beforeAuthority = await counts();
@@ -762,10 +786,10 @@ const exerciseJourney = async ({ browser, ledger }) => {
 
   assert.deepEqual(await counts(), beforeAuthority);
 
-  const adminScope = await api(administrator.cookie, "GET", "/api/social-events/scope");
+  const adminScope = await readScope(administrator.cookie);
   assert.equal(adminScope.status, 200);
   assert.deepEqual(
-    adminScope.body.departments.map(({ departmentId }) => departmentId),
+    adminScope.value.departments.map(({ departmentId }) => departmentId),
     [ids.departmentB, ids.departmentA],
   );
   assert.equal((await listEvents(administrator.cookie, ids.departmentA)).status, 200);
@@ -776,7 +800,7 @@ const exerciseJourney = async ({ browser, ledger }) => {
     title: "Administrator Bergen",
   });
 
-  assert.equal(adminCreated.status, 201);
+  assert.equal(adminCreated.status, 200);
 
   const beforeUnknown = await counts();
   const unknownDepartment = "department-social-events-unknown-0110";
@@ -826,9 +850,9 @@ const exerciseJourney = async ({ browser, ledger }) => {
   await snapshotLocker.end();
   const [heldList, laterEvent] = await Promise.all([heldListPromise, laterEventPromise]);
   assert.equal(heldList.status, 200);
-  assert.equal(laterEvent.status, 201);
+  assert.equal(laterEvent.status, 200);
   assert.equal(
-    heldList.body.events.some(({ eventId }) => eventId === laterEvent.body.eventId),
+    heldList.value.events.some(({ eventId }) => eventId === laterEvent.value.eventId),
     false,
   );
   assertProblem(await listEvents(member.cookie), 403, "authority.denied");
@@ -847,19 +871,13 @@ const exerciseJourney = async ({ browser, ledger }) => {
   const revocableKey = "social-events-revocable-replay-0110";
   const revocableBody = createBody({ title: "Opprettet før tilbakekall" });
 
-  const revocable = await api(member.cookie, "POST", "/api/social-events", {
-    key: revocableKey,
-    body: revocableBody,
-  });
+  const revocable = await createWith(member.cookie, revocableKey, revocableBody);
 
-  assert.equal(revocable.status, 201);
+  assert.equal(revocable.status, 200);
   await setMemberActive(false);
   const beforeDeniedReplay = await counts();
   assertProblem(
-    await api(member.cookie, "POST", "/api/social-events", {
-      key: revocableKey,
-      body: revocableBody,
-    }),
+    await createWith(member.cookie, revocableKey, revocableBody),
     403,
     "authority.denied",
   );
@@ -947,14 +965,19 @@ const exerciseJourney = async ({ browser, ledger }) => {
 
   return {
     scope: { memberDepartments: [ids.departmentA], semesters: [ids.semesterA, ids.semesterB] },
-    exactCreateHeaders: firstUiPost.responseHeaders,
+    dashboardCreate: {
+      rpcTag: firstUiPost.rpcTag,
+      status: firstUiPost.status,
+      sessionCookie: firstUiPost.sessionCookie,
+      authorizationHeader: firstUiPost.authorizationHeader,
+    },
     postThenGet: true,
-    replay: { status: replay.status, eventId: replay.body.eventId },
+    replay: { status: replay.status, eventId: replay.value.eventId },
     race: { accepted: acceptedRace.status, inFlight: quickRace.status },
     negativeCases: {
       digestConflict: changedReplay.status,
       responseExpired: tombReplay.status,
-      invalidTime: invalidTime.status,
+      invalidTime: invalidTime._tag,
       crossDepartment: 403,
       inactive: 403,
       unaffiliated: 403,
@@ -1087,6 +1110,7 @@ try {
 } finally {
   try {
     if (browser !== undefined) await browser.close();
+    await native.dispose();
     await stop(dashboard);
     await closeServer(proxy);
     await stop(backend);

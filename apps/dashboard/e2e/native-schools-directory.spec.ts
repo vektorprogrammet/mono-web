@@ -5,6 +5,7 @@ import { Option, Schema } from "effect";
 import { DepartmentId } from "@vektorprogrammet/domain";
 import { NativeProblem, nativeRpcPath } from "@vektorprogrammet/rpc";
 import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
+import { isNativeRpcPath } from "./native-operations.js";
 import { addressesAnyRoute, legacyRoutes } from "./request-routes.js";
 
 const realNativeIdentity = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
@@ -309,7 +310,7 @@ test.describe("Native Schools directory (spec 0061)", () => {
 
         const rejection = denied.page.waitForResponse(
           (response) =>
-            new URL(response.url()).pathname === nativeRpcPath &&
+            isNativeRpcPath(new URL(response.url()).pathname) &&
             rpcTagOf(response.request().postData()) === listSchoolsTag,
         );
 
@@ -335,7 +336,7 @@ test.describe("Native Schools directory (spec 0061)", () => {
       const directoryRequests = browserRequests.filter(
         (request) =>
           request.method === "POST" &&
-          request.pathname === nativeRpcPath &&
+          isNativeRpcPath(request.pathname) &&
           request.rpcTag === listSchoolsTag,
       );
 
@@ -356,7 +357,7 @@ test.describe("Native Schools directory (spec 0061)", () => {
         rpcTag: listSchoolsTag,
         directoryRequests,
         directoryResponses: browserResponses.filter(
-          (response) => response.pathname === nativeRpcPath && response.rpcTag === listSchoolsTag,
+          (response) => isNativeRpcPath(response.pathname) && response.rpcTag === listSchoolsTag,
         ),
         observations,
         pageErrors,
