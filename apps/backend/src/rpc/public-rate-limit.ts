@@ -1,3 +1,5 @@
+import { dual } from "effect/Function";
+
 /** A fixed-window request count per key, held in one backend process. */
 export interface PublicRateLimit {
   readonly consume: (key: string, now: string) => boolean;
@@ -9,7 +11,10 @@ export interface PublicRateLimit {
  */
 export const publicRateLimitKey = (_request: Request): string => "public";
 
-export const publicRateLimit = (maxRequests = 5, windowMilliseconds = 60_000): PublicRateLimit => {
+export const publicRateLimit: {
+  (windowMilliseconds: number): (maxRequests: number) => PublicRateLimit;
+  (maxRequests: number, windowMilliseconds: number): PublicRateLimit;
+} = dual(2, (maxRequests: number, windowMilliseconds: number): PublicRateLimit => {
   if (!Number.isSafeInteger(maxRequests) || maxRequests < 1) {
     throw new Error("public rate limit must be a positive safe integer");
   }
@@ -39,4 +44,4 @@ export const publicRateLimit = (maxRequests = 5, windowMilliseconds = 60_000): P
       return true;
     },
   };
-};
+});

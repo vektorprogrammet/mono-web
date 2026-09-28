@@ -19,7 +19,7 @@ import { makeBackendTestRpc } from "../test/native-rpc.js";
 
 const token = "better-auth.session_token";
 
-const currentSession = new IdentitySession({
+const currentSession = IdentitySession.make({
   sessionId: "session-1",
   createdAt: DateTime.makeUnsafe("2031-09-15T12:00:00.000Z"),
   updatedAt: DateTime.makeUnsafe("2031-09-15T12:00:00.000Z"),
@@ -29,7 +29,7 @@ const currentSession = new IdentitySession({
   current: true,
 });
 
-const actor = new IdentityActor({
+const actor = IdentityActor.make({
   personId: PersonId.make("member-1"),
   sessionId: "session-1",
   expiresAt: currentSession.expiresAt,
@@ -41,7 +41,7 @@ const identityOperations = (overrides: Partial<IdentityOperations> = {}): Identi
   resolveSession: (cookieHeader) =>
     cookieHeader?.split(/;\s*/u).includes(`${token}=valid-session`) === true
       ? Effect.succeed(actor)
-      : Effect.fail(new IdentitySessionNotFound()),
+      : Effect.fail(IdentitySessionNotFound.make()),
   readCurrentSession: () => Effect.succeed(currentSession),
   listSessions: () => Effect.succeed([currentSession]),
   revokeCurrentSession: () => Effect.succeed({ setCookies: [] }),
@@ -67,7 +67,7 @@ const backendFor = (identity: IdentityOperations, recorded: Recorded = { revoked
         .resolveSession(cookieHeader)
         .pipe(
           Effect.catchTag("IdentitySessionExpired", () =>
-            Effect.fail(new IdentitySessionNotFound()),
+            Effect.fail(IdentitySessionNotFound.make()),
           ),
         ),
     revokeCurrentSession: (_actor, request) =>
@@ -82,7 +82,7 @@ const backendFor = (identity: IdentityOperations, recorded: Recorded = { revoked
           Effect.sync(() => recorded.revoked.push({ operation: sessionId, request })),
         ),
         Effect.catchTag(["IdentitySessionNotFound", "IdentitySessionExpired"], () =>
-          Effect.fail(new IdentityOwnedSessionNotFound({ sessionId })),
+          Effect.fail(IdentityOwnedSessionNotFound.make({ sessionId })),
         ),
       ),
     revokeOtherSessions: (_actor, request) =>
@@ -253,7 +253,7 @@ describe("session RPCs", () => {
 
               return owned.delete(sessionId)
                 ? Effect.succeed({ setCookies: [] })
-                : Effect.fail(new IdentityOwnedSessionNotFound({ sessionId }));
+                : Effect.fail(IdentityOwnedSessionNotFound.make({ sessionId }));
             }),
         }),
       ).client;

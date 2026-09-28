@@ -66,12 +66,12 @@ const validMailbox = (value: string): boolean =>
   !CONTROL.test(value) &&
   MAILBOX.test(value);
 
-const permanent = (): MailDeliveryError => new MailDeliveryError({ kind: "permanent-rejection" });
+const permanent = (): MailDeliveryError => MailDeliveryError.make({ kind: "permanent-rejection" });
 
 const temporary = (): MailDeliveryError =>
-  new MailDeliveryError({ kind: "temporary-unavailability" });
+  MailDeliveryError.make({ kind: "temporary-unavailability" });
 
-const ambiguous = (): MailDeliveryError => new MailDeliveryError({ kind: "ambiguous-outcome" });
+const ambiguous = (): MailDeliveryError => MailDeliveryError.make({ kind: "ambiguous-outcome" });
 
 export const classifyCloudflareMailError = (cause: unknown): MailDeliveryError => {
   if (
@@ -170,6 +170,6 @@ export const CloudflareMailLive = (
 
         return Mail.of(makeCloudflareMail(config));
       },
-      catch: () => new CloudflareMailConfigurationError(),
+      catch: () => CloudflareMailConfigurationError.make(),
     }),
   );

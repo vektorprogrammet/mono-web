@@ -12,17 +12,17 @@ export const mailDeliveryConfig = (
 
   if (keys.every((key) => env[key] === undefined)) return undefined;
 
-  if (keys.some((key) => !env[key])) throw new Error("Incomplete mail delivery configuration");
+  if (keys.some((key) => (env[key] ?? "").length === 0)) throw new Error("Incomplete mail delivery configuration");
   const endpoint = new URL(env.MAIL_DELIVERY_URL!);
   const timeout = Number(env.MAIL_DELIVERY_TIMEOUT_MS);
 
   if (
     (endpoint.protocol !== "https:" &&
       !(endpoint.protocol === "http:" && endpoint.hostname === "127.0.0.1")) ||
-    endpoint.username ||
-    endpoint.password ||
-    endpoint.search ||
-    endpoint.hash ||
+    endpoint.username.length > 0 ||
+    endpoint.password.length > 0 ||
+    endpoint.search.length > 0 ||
+    endpoint.hash.length > 0 ||
     !Number.isSafeInteger(timeout) ||
     timeout < 1 ||
     timeout > 30_000
@@ -39,15 +39,15 @@ const makeHttpMailDelivery = (
 ): MailOperations => ({
   deliver: (request) =>
     config === undefined
-      ? Effect.fail(new MailDeliveryError({ kind: "temporary-unavailability" }))
+      ? Effect.fail(MailDeliveryError.make({ kind: "temporary-unavailability" }))
       : deliverJson(request, config, { "idempotency-key": request.deliveryId }).pipe(
           Effect.provideService(HttpClient.HttpClient, client),
           Effect.as({ providerReference: request.deliveryId }),
           Effect.catchTags({
-            TimeoutError: () => Effect.fail(new MailDeliveryError({ kind: "ambiguous-outcome" })),
+            TimeoutError: () => Effect.fail(MailDeliveryError.make({ kind: "ambiguous-outcome" })),
             HttpDeliveryFailure: ({ status }) =>
               Effect.fail(
-                new MailDeliveryError({
+                MailDeliveryError.make({
                   kind:
                     status !== undefined && status >= 400 && status < 500
                       ? "permanent-rejection"

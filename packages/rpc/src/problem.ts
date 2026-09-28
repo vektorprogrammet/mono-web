@@ -4,6 +4,7 @@
  * @since 0.2.0
  */
 import { Data, ErrorReporter, Predicate, Struct, Schema, SchemaGetter, type Types } from "effect";
+import { dual } from "effect/Function";
 
 export { parseJsonWithUniqueMembers } from "@vektorprogrammet/domain/http-semantics";
 
@@ -49,7 +50,6 @@ export const Sha256Hex = Schema.String.pipe(
 
 export type Sha256Hex = typeof Sha256Hex.Type;
 
-
 const ValidationPointer = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter(
@@ -92,14 +92,24 @@ export const NativeValidationError = Schema.Union([
 
 export type NativeValidationError = typeof NativeValidationError.Type;
 
-export const makeNativeValidationError = <Code extends NativeValidationCode>(
-  pointer: string,
-  code: Code,
-) => ({
-  pointer,
-  code,
-  message: NativeValidationMessage[code],
-});
+/** One validation diagnostic, with the message that its code fixes. */
+type ValidationDiagnostic<Code extends NativeValidationCode> = {
+  pointer: string;
+  code: Code;
+  message: (typeof NativeValidationMessage)[Code];
+};
+
+export const makeNativeValidationError: {
+  <Code extends NativeValidationCode>(code: Code): (pointer: string) => ValidationDiagnostic<Code>;
+  <Code extends NativeValidationCode>(pointer: string, code: Code): ValidationDiagnostic<Code>;
+} = dual(
+  2,
+  <Code extends NativeValidationCode>(pointer: string, code: Code): ValidationDiagnostic<Code> => ({
+    pointer,
+    code,
+    message: NativeValidationMessage[code],
+  }),
+);
 
 const InstanceUrn = Schema.String.pipe(
   Schema.check(
@@ -931,18 +941,31 @@ export const ValidationProblem = Schema.Union([
 export type ValidationProblem = typeof ValidationProblem.Type;
 
 /** Creates one fixed RFC 9457 core variant from the frozen registry. */
-export const nativeProblemSchema = <Code extends NativeProblemCode>(
-  code: Code,
-  expectedStatus?: number,
-) => {
-  const definition = NativeProblemRegistry[code];
+export const nativeProblemSchema: {
+  <Code extends NativeProblemCode>(
+    code: Code,
+    expectedStatus?: number,
+  ): ReturnType<typeof nativeProblemCoreSchema<Code>>;
+  (
+    expectedStatus?: number,
+  ): <Code extends NativeProblemCode>(
+    code: Code,
+  ) => ReturnType<typeof nativeProblemCoreSchema<Code>>;
+} = dual(
+  (args) => Predicate.isString(args[0]),
+  <Code extends NativeProblemCode>(
+    code: Code,
+    expectedStatus?: number,
+  ): ReturnType<typeof nativeProblemCoreSchema<Code>> => {
+    const definition = NativeProblemRegistry[code];
 
-  if (expectedStatus !== undefined && definition.status !== expectedStatus) {
-    throw new Error(`${code} is frozen at HTTP ${definition.status}, not ${expectedStatus}`);
-  }
+    if (expectedStatus !== undefined && definition.status !== expectedStatus) {
+      throw new Error(`${code} is frozen at HTTP ${definition.status}, not ${expectedStatus}`);
+    }
 
-  return nativeProblemCoreSchema(code);
-};
+    return nativeProblemCoreSchema(code);
+  },
+);
 
 const isValidationProblemCode = (code: NativeProblemCode): code is ValidationProblemCode =>
   code === "validation.failed" ||
@@ -982,21 +1005,30 @@ function problemVariant(code: NativeProblemCode) {
  *
  * @construct rpc-problem
  */
-export const problemUnion = <
-  const Codes extends readonly [NativeProblemCode, ...ReadonlyArray<NativeProblemCode>],
->(
-  identifier: string,
-  codes: Codes,
-): Schema.Union<Array<ProblemBodySchema<Codes[number]>>> => {
-  // Array methods on `Codes` resolve through its constraint; the element view keeps the literals.
-  const declared: ReadonlyArray<Codes[number]> = codes;
+export const problemUnion: {
+  <const Codes extends readonly [NativeProblemCode, ...ReadonlyArray<NativeProblemCode>]>(
+    codes: Codes,
+  ): (identifier: string) => Schema.Union<Array<ProblemBodySchema<Codes[number]>>>;
+  <const Codes extends readonly [NativeProblemCode, ...ReadonlyArray<NativeProblemCode>]>(
+    identifier: string,
+    codes: Codes,
+  ): Schema.Union<Array<ProblemBodySchema<Codes[number]>>>;
+} = dual(
+  2,
+  <const Codes extends readonly [NativeProblemCode, ...ReadonlyArray<NativeProblemCode>]>(
+    identifier: string,
+    codes: Codes,
+  ): Schema.Union<Array<ProblemBodySchema<Codes[number]>>> => {
+    // Array methods on `Codes` resolve through its constraint; the element view keeps the literals.
+    const declared: ReadonlyArray<Codes[number]> = codes;
 
-  return Schema.Union([...new Set(declared)].map(problemVariant)).annotate({
-    identifier,
-    title: identifier,
-    description: `Closed RFC 9457 error union for ${identifier}.`,
-  });
-};
+    return Schema.Union([...new Set(declared)].map(problemVariant)).annotate({
+      identifier,
+      title: identifier,
+      description: `Closed RFC 9457 error union for ${identifier}.`,
+    });
+  },
+);
 
 export type NativeValidationDetails = typeof validationBody.Type;
 
@@ -1316,10 +1348,18 @@ export const rpcProblems = <const Union extends ProblemUnionSchema>(problem: Uni
   ).pipe(
     Schema.encodeTo(problem, {
       // SAFETY: the union above decoded one declared problem variant.
-      decode: SchemaGetter.transform((wire) => Problem.fromWire(wire as WireProblemBody<Union["Type"]["code"]>, {})),
+      decode: SchemaGetter.transform((wire) =>
+        Problem.fromWire(wire as WireProblemBody<Union["Type"]["code"]>, {}),
+      ),
       encode: SchemaGetter.transform((value) => problemBody(value)),
     }),
   );
+};
+
+/** The body of one registry problem, with its code and an optional instance. */
+type RegistryProblemBody<Code extends NativeProblemCode> = (typeof NativeProblemRegistry)[Code] & {
+  readonly code: Code;
+  readonly instance?: string;
 };
 
 /**
@@ -1345,19 +1385,32 @@ export const rpcProblems = <const Union extends ProblemUnionSchema>(problem: Uni
  *
  * @construct rpc-problem
  */
-export const makeNativeProblem = <Code extends NativeProblemCode>(
-  code: Code,
-  expectedStatus?: number,
-  instance?: string,
-): (typeof NativeProblemRegistry)[Code] & { readonly code: Code; readonly instance?: string } => {
-  const definition = NativeProblemRegistry[code];
+export const makeNativeProblem: {
+  <Code extends NativeProblemCode>(
+    code: Code,
+    expectedStatus?: number,
+    instance?: string,
+  ): RegistryProblemBody<Code>;
+  (
+    expectedStatus?: number,
+    instance?: string,
+  ): <Code extends NativeProblemCode>(code: Code) => RegistryProblemBody<Code>;
+} = dual(
+  (args) => Predicate.isString(args[0]),
+  <Code extends NativeProblemCode>(
+    code: Code,
+    expectedStatus?: number,
+    instance?: string,
+  ): RegistryProblemBody<Code> => {
+    const definition = NativeProblemRegistry[code];
 
-  if (expectedStatus !== undefined && definition.status !== expectedStatus) {
-    throw new Error(`${code} is frozen at HTTP ${definition.status}, not ${expectedStatus}`);
-  }
+    if (expectedStatus !== undefined && definition.status !== expectedStatus) {
+      throw new Error(`${code} is frozen at HTTP ${definition.status}, not ${expectedStatus}`);
+    }
 
-  return instance === undefined ? { ...definition, code } : { ...definition, code, instance };
-};
+    return instance === undefined ? { ...definition, code } : { ...definition, code, instance };
+  },
+);
 
 /** Path-level error for a method outside a resource's frozen method set. */
 export const NativeMethodNotAllowedProblem = nativeProblemSchema("method.not-allowed").annotate({

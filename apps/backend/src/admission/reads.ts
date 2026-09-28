@@ -41,11 +41,9 @@ import {
 } from "./access.js";
 import { admissionActorForAuthority } from "./context.js";
 import { admissionProblems, periodCommandProblems, submissionProblems } from "./problem.js";
+import { dual } from "effect/Function";
 
-export const readReturningAssistantOptions = (
-  headers: Headers.Headers,
-  options: NativeRpcOptions,
-) =>
+const readReturningAssistantOptionsEffect = (headers: Headers.Headers, options: NativeRpcOptions) =>
   Effect.gen(function* () {
     const authorization = yield* returningAuthorization(
       headers,
@@ -71,7 +69,17 @@ export const readReturningAssistantOptions = (
     ),
   );
 
-export const listAdmissionPeriods = (headers: Headers.Headers, options: NativeRpcOptions) =>
+export const readReturningAssistantOptions: {
+  (
+    options: NativeRpcOptions,
+  ): (headers: Headers.Headers) => ReturnType<typeof readReturningAssistantOptionsEffect>;
+  (
+    headers: Headers.Headers,
+    options: NativeRpcOptions,
+  ): ReturnType<typeof readReturningAssistantOptionsEffect>;
+} = dual(2, readReturningAssistantOptionsEffect);
+
+const listAdmissionPeriodsEffect = (headers: Headers.Headers, options: NativeRpcOptions) =>
   Effect.gen(function* () {
     const authority = yield* resolveRequestPersonAuthority(credentialRequestOf(headers), {
       now: options.now,
@@ -128,7 +136,17 @@ export const listAdmissionPeriods = (headers: Headers.Headers, options: NativeRp
     unreachable(...periodCommandProblems, "precondition.failed"),
   );
 
-export const listOpenAdmissionPeriods = (headers: Headers.Headers, options: NativeRpcOptions) =>
+export const listAdmissionPeriods: {
+  (
+    options: NativeRpcOptions,
+  ): (headers: Headers.Headers) => ReturnType<typeof listAdmissionPeriodsEffect>;
+  (
+    headers: Headers.Headers,
+    options: NativeRpcOptions,
+  ): ReturnType<typeof listAdmissionPeriodsEffect>;
+} = dual(2, listAdmissionPeriodsEffect);
+
+const listOpenAdmissionPeriodsEffect = (headers: Headers.Headers, options: NativeRpcOptions) =>
   Effect.gen(function* () {
     const now = yield* currentInstant(options.config.admission.now);
 
@@ -172,7 +190,17 @@ export const listOpenAdmissionPeriods = (headers: Headers.Headers, options: Nati
     ),
   );
 
-export const listApplicationOptions = (headers: Headers.Headers, options: NativeRpcOptions) =>
+export const listOpenAdmissionPeriods: {
+  (
+    options: NativeRpcOptions,
+  ): (headers: Headers.Headers) => ReturnType<typeof listOpenAdmissionPeriodsEffect>;
+  (
+    headers: Headers.Headers,
+    options: NativeRpcOptions,
+  ): ReturnType<typeof listOpenAdmissionPeriodsEffect>;
+} = dual(2, listOpenAdmissionPeriodsEffect);
+
+const listApplicationOptionsEffect = (headers: Headers.Headers, options: NativeRpcOptions) =>
   Effect.gen(function* () {
     const now = yield* currentInstant(options.config.admission.now);
 
@@ -200,7 +228,17 @@ export const listApplicationOptions = (headers: Headers.Headers, options: Native
     unreachable(...submissionProblems, "application.not-found"),
   );
 
-export const readApplicationConfirmation = (
+export const listApplicationOptions: {
+  (
+    options: NativeRpcOptions,
+  ): (headers: Headers.Headers) => ReturnType<typeof listApplicationOptionsEffect>;
+  (
+    headers: Headers.Headers,
+    options: NativeRpcOptions,
+  ): ReturnType<typeof listApplicationOptionsEffect>;
+} = dual(2, listApplicationOptionsEffect);
+
+const readApplicationConfirmationEffect = (
   headers: Headers.Headers,
   applicationId: PublicApplicationId,
   options: NativeRpcOptions,
@@ -235,7 +273,19 @@ export const readApplicationConfirmation = (
     unreachable(...submissionProblems),
   );
 
-export const readApplicantProgress = (headers: Headers.Headers, options: NativeRpcOptions) =>
+export const readApplicationConfirmation: {
+  (
+    applicationId: PublicApplicationId,
+    options: NativeRpcOptions,
+  ): (headers: Headers.Headers) => ReturnType<typeof readApplicationConfirmationEffect>;
+  (
+    headers: Headers.Headers,
+    applicationId: PublicApplicationId,
+    options: NativeRpcOptions,
+  ): ReturnType<typeof readApplicationConfirmationEffect>;
+} = dual(3, readApplicationConfirmationEffect);
+
+const readApplicantProgressEffect = (headers: Headers.Headers, options: NativeRpcOptions) =>
   Database.use((sql) =>
     sql.withTransaction(
       Effect.gen(function* () {
@@ -282,3 +332,13 @@ export const readApplicantProgress = (headers: Headers.Headers, options: NativeR
     admissionProblems(headers, "admissions.unavailable"),
     unreachable(...submissionProblems, "application.not-found"),
   );
+
+export const readApplicantProgress: {
+  (
+    options: NativeRpcOptions,
+  ): (headers: Headers.Headers) => ReturnType<typeof readApplicantProgressEffect>;
+  (
+    headers: Headers.Headers,
+    options: NativeRpcOptions,
+  ): ReturnType<typeof readApplicantProgressEffect>;
+} = dual(2, readApplicantProgressEffect);

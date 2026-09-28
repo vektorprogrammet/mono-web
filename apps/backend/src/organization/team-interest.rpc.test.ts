@@ -267,14 +267,14 @@ const oauthCredentialAuthority = OAuthCredentialAuthority.of({
 const identity = Identity.of({
   signIn: () => Effect.die("unexpected sign-in"),
   resolveSession: (cookieHeader: string | undefined) => {
-    const token = cookieHeader?.startsWith(tokenPrefix)
+    const token = cookieHeader?.startsWith(tokenPrefix) === true
       ? cookieHeader.slice(tokenPrefix.length)
       : "";
 
     return token.length === 0
-      ? Effect.fail(new IdentitySessionNotFound())
+      ? Effect.fail(IdentitySessionNotFound.make())
       : Effect.succeed(
-          new IdentityActor({
+          IdentityActor.make({
             personId: PersonId.make(token),
             sessionId: "team-interest-session",
             expiresAt: DateTime.makeUnsafe("2031-09-16T12:00:00.000Z"),

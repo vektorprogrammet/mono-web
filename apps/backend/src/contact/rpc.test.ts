@@ -33,7 +33,7 @@ const message = ContactMessage.make({
 
 /** An Organization in which no department can receive a message, so no delivery is attempted. */
 const organization = Layer.mock(Organization, {
-  readDepartment: (departmentId) => Effect.fail(new DepartmentNotFound({ departmentId })),
+  readDepartment: (departmentId) => Effect.fail(DepartmentNotFound.make({ departmentId })),
 });
 
 /** The contact RPC as the homepage server reaches it, with or without delivery configured. */

@@ -17,8 +17,8 @@ export const publicApplicationHttpEffects = (
     const deliver = (request: PublicApplicationOutboxRequest) =>
       deliverJson(request, config, { "idempotency-key": request.effectId }).pipe(
         Effect.provideService(HttpClient.HttpClient, client),
-        Effect.mapError(
-          () => new PublicApplicationEffectDeliveryError({ effectId: request.effectId }),
+        Effect.mapError(() =>
+          PublicApplicationEffectDeliveryError.make({ effectId: request.effectId }),
         ),
       );
 

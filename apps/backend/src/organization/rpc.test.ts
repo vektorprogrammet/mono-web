@@ -142,12 +142,12 @@ const organization = {
     createCalls += 1;
 
     if (command.name === "Conflict") {
-      return Effect.fail(new OrganizationCommandConflict({ commandId: command.commandId }));
+      return Effect.fail(OrganizationCommandConflict.make({ commandId: command.commandId }));
     }
 
     if (command.name === "Unavailable") {
       return Effect.fail(
-        new OrganizationPersistenceError({
+        OrganizationPersistenceError.make({
           operation: "createDepartment",
           message: "database unavailable",
         }),
@@ -160,7 +160,7 @@ const organization = {
     createCalls += 1;
 
     if (command.departmentId === "department-unknown") {
-      return Effect.fail(new OrganizationInvalidReference({ referenceKind: "Department" }));
+      return Effect.fail(OrganizationInvalidReference.make({ referenceKind: "Department" }));
     }
 
     return Effect.succeed({
@@ -185,9 +185,9 @@ const organization = {
 } satisfies Partial<OrganizationOperations>;
 
 const sessionPerson = (cookieHeader: string | undefined) =>
-  cookieHeader?.includes(ADMIN_SESSION)
+  cookieHeader?.includes(ADMIN_SESSION) === true
     ? PersonId.make("person-admin")
-    : cookieHeader?.includes(MEMBER_SESSION)
+    : cookieHeader?.includes(MEMBER_SESSION) === true
       ? PersonId.make("person-member")
       : undefined;
 
@@ -195,9 +195,9 @@ const sessionActor = (cookieHeader: string | undefined) => {
   const personId = sessionPerson(cookieHeader);
 
   return personId === undefined
-    ? Effect.fail(new IdentitySessionNotFound())
+    ? Effect.fail(IdentitySessionNotFound.make())
     : Effect.succeed(
-        new IdentityActor({
+        IdentityActor.make({
           personId,
           sessionId: "organization-rpc-session",
           expiresAt: DateTime.makeUnsafe("2031-09-16T12:00:00.000Z"),

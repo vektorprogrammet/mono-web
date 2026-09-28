@@ -6,6 +6,7 @@
  * `TestClock` instead of real time.
  */
 import { Duration, Effect, Schedule } from "effect";
+import { dual } from "effect/Function";
 
 export interface PollOptions<A> {
   /** Delay between the end of one tick and the start of the next. */
@@ -41,22 +42,25 @@ export interface PollOptions<A> {
  *
  * @construct worker
  */
-export const pollForever = <A, E, R>(
-  tick: Effect.Effect<A, E, R>,
-  options: PollOptions<A>,
-): Effect.Effect<never, E, R> => {
-  const { skipDelay } = options;
-  const spaced: Schedule.Schedule<number, A> = Schedule.spaced(options.interval);
+export const pollForever: {
+  <A>(options: PollOptions<A>): <E, R>(tick: Effect.Effect<A, E, R>) => Effect.Effect<never, E, R>;
+  <A, E, R>(tick: Effect.Effect<A, E, R>, options: PollOptions<A>): Effect.Effect<never, E, R>;
+} = dual(
+  2,
+  <A, E, R>(tick: Effect.Effect<A, E, R>, options: PollOptions<A>): Effect.Effect<never, E, R> => {
+    const { skipDelay } = options;
+    const spaced: Schedule.Schedule<number, A> = Schedule.spaced(options.interval);
 
-  const schedule =
-    skipDelay === undefined
-      ? spaced
-      : spaced.pipe(
-          Schedule.modifyDelay(({ input, duration }) =>
-            Effect.succeed(skipDelay(input) ? Duration.zero : duration),
-          ),
-        );
+    const schedule =
+      skipDelay === undefined
+        ? spaced
+        : spaced.pipe(
+            Schedule.modifyDelay(({ input, duration }) =>
+              Effect.succeed(skipDelay(input) ? Duration.zero : duration),
+            ),
+          );
 
-  // `Schedule.spaced` never completes, so only failure or interruption ends the repeat.
-  return Effect.repeat(tick, schedule).pipe(Effect.andThen(Effect.never));
-};
+    // `Schedule.spaced` never completes, so only failure or interruption ends the repeat.
+    return Effect.repeat(tick, schedule).pipe(Effect.andThen(Effect.never));
+  },
+);

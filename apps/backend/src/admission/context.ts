@@ -9,13 +9,14 @@ import {
   DepartmentId,
   type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
-import { Effect, Schema } from "effect";
+import { Effect, Predicate, Schema } from "effect";
 import { admissionActorForDepartment, unscopedAdmissionActorFrom } from "../authority.js";
+import { dual } from "effect/Function";
 
 export const requireActive = (actor: AdmissionPeriodActor) =>
   actor.active
     ? Effect.succeed(actor)
-    : Effect.fail(new InactiveActor({ personId: actor.personId }));
+    : Effect.fail(InactiveActor.make({ personId: actor.personId }));
 
 const isAdmissionActorDenial = Schema.is(
   Schema.Union([InactiveActor, AdmissionScopeDenied, AdmissionRoleDenied]),
@@ -42,20 +43,39 @@ const isAdmissionActorDenial = Schema.is(
  *
  * @construct rpc-problem
  */
-export const admissionActorForAuthority = (
-  authority: OrganizationPersonAuthority,
-  departmentScope?: string,
-): Effect.Effect<
-  AdmissionPeriodActor,
-  AdmissionRoleDenied | AdmissionScopeDenied | InactiveActor
-> =>
-  Effect.try({
-    try: () =>
-      departmentScope === undefined
-        ? unscopedAdmissionActorFrom(authority)
-        : admissionActorForDepartment(authority, DepartmentId.make(departmentScope)),
-    catch: (cause) => {
-      if (isAdmissionActorDenial(cause)) return cause;
-      throw cause;
-    },
-  }).pipe(Effect.flatMap(requireActive));
+export const admissionActorForAuthority: {
+  (
+    authority: OrganizationPersonAuthority,
+    departmentScope?: string,
+  ): Effect.Effect<
+    AdmissionPeriodActor,
+    AdmissionRoleDenied | AdmissionScopeDenied | InactiveActor
+  >;
+  (
+    departmentScope?: string,
+  ): (
+    authority: OrganizationPersonAuthority,
+  ) => Effect.Effect<
+    AdmissionPeriodActor,
+    AdmissionRoleDenied | AdmissionScopeDenied | InactiveActor
+  >;
+} = dual(
+  (args) => Predicate.isObject(args[0]),
+  (
+    authority: OrganizationPersonAuthority,
+    departmentScope?: string,
+  ): Effect.Effect<
+    AdmissionPeriodActor,
+    AdmissionRoleDenied | AdmissionScopeDenied | InactiveActor
+  > =>
+    Effect.try({
+      try: () =>
+        departmentScope === undefined
+          ? unscopedAdmissionActorFrom(authority)
+          : admissionActorForDepartment(authority, DepartmentId.make(departmentScope)),
+      catch: (cause) => {
+        if (isAdmissionActorDenial(cause)) return cause;
+        throw cause;
+      },
+    }).pipe(Effect.flatMap(requireActive)),
+);

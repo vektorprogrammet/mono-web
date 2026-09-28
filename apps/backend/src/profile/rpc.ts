@@ -104,7 +104,7 @@ const profileActor = (authority: OrganizationPersonAuthority) => {
   if (Predicate.isTagged(decision, "Deny")) {
     return Effect.fail(
       decision.reason === "Unauthenticated"
-        ? new UnauthenticatedActor({ message: "Authentication required" })
+        ? UnauthenticatedActor.make({ message: "Authentication required" })
         : Problem.make("authority.denied"),
     );
   }

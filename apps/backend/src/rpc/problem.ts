@@ -37,6 +37,7 @@ import {
   type NativeHttpReceiptInvalid,
   type NativeHttpReceiptPersistenceError,
 } from "./receipt-transaction.js";
+import { dual } from "effect/Function";
 
 const JsonText = Schema.fromJsonString(Schema.Unknown);
 
@@ -66,16 +67,29 @@ export const jsonText = <A>(value: A): Effect.Effect<string> =>
 /**
  * Records, from the raw request only, whether person credential material was presented.
  */
-export const classifyCredential = (
-  authorization: string | null | undefined,
-  cookie: string | null | undefined,
-  challenge: string,
-): CredentialPresentation =>
-  credentialPresentation({
-    presented:
-      Predicate.isNotNullish(authorization) || hasBetterAuthSessionCredential(cookie ?? null),
-    challenge,
-  });
+export const classifyCredential: {
+  (
+    cookie: string | null | undefined,
+    challenge: string,
+  ): (authorization: string | null | undefined) => CredentialPresentation;
+  (
+    authorization: string | null | undefined,
+    cookie: string | null | undefined,
+    challenge: string,
+  ): CredentialPresentation;
+} = dual(
+  3,
+  (
+    authorization: string | null | undefined,
+    cookie: string | null | undefined,
+    challenge: string,
+  ): CredentialPresentation =>
+    credentialPresentation({
+      presented:
+        Predicate.isNotNullish(authorization) || hasBetterAuthSessionCredential(cookie ?? null),
+      challenge,
+    }),
+);
 
 /**
  * Runs a throwing semantic parser.
@@ -98,19 +112,32 @@ export const classifyCredential = (
  *
  * @construct rpc-problem
  */
-export const semanticProblem = <A, const Code extends PlainProblemCode>(
-  parse: () => A,
-  codes: ReadonlyArray<Code>,
-): Effect.Effect<A, Problem<Code>> =>
-  Effect.suspend(() => {
-    try {
-      return Effect.succeed(parse());
-    } catch (cause) {
-      const code = isProblem(cause) ? codes.find((declared) => declared === cause.code) : undefined;
+export const semanticProblem: {
+  <const Code extends PlainProblemCode>(
+    codes: ReadonlyArray<Code>,
+  ): <A>(parse: () => A) => Effect.Effect<A, Problem<Code>>;
+  <A, const Code extends PlainProblemCode>(
+    parse: () => A,
+    codes: ReadonlyArray<Code>,
+  ): Effect.Effect<A, Problem<Code>>;
+} = dual(
+  2,
+  <A, const Code extends PlainProblemCode>(
+    parse: () => A,
+    codes: ReadonlyArray<Code>,
+  ): Effect.Effect<A, Problem<Code>> =>
+    Effect.suspend(() => {
+      try {
+        return Effect.succeed(parse());
+      } catch (cause) {
+        const code = isProblem(cause)
+          ? codes.find((declared) => declared === cause.code)
+          : undefined;
 
-      return code === undefined ? Effect.die(cause) : Effect.fail(Problem.make(code));
-    }
-  });
+        return code === undefined ? Effect.die(cause) : Effect.fail(Problem.make(code));
+      }
+    }),
+);
 
 interface TaggedFailure {
   readonly _tag: string;
@@ -250,13 +277,31 @@ export const commandIdentity = (
  *
  * @construct rpc-problem
  */
-export const requireCurrentETag = (
-  current: StrongETag,
-  ifMatch: StrongETag,
-): Effect.Effect<void, Problem<"precondition.failed">> =>
-  Predicate.isTagged(evaluateMutationPrecondition(current, ifMatch), "Failed")
-    ? Effect.fail(Problem.make("precondition.failed"))
-    : Effect.void;
+export const requireCurrentETag: {
+  (
+    ifMatch: StrongETag,
+  ): (current: StrongETag) => Effect.Effect<void, Problem<"precondition.failed">>;
+  (current: StrongETag, ifMatch: StrongETag): Effect.Effect<void, Problem<"precondition.failed">>;
+} = dual(
+  2,
+  (
+    current: StrongETag,
+    ifMatch: StrongETag,
+  ): Effect.Effect<void, Problem<"precondition.failed">> =>
+    Predicate.isTagged(evaluateMutationPrecondition(current, ifMatch), "Failed")
+      ? Effect.fail(Problem.make("precondition.failed"))
+      : Effect.void,
+);
+
+/** Whether a serialization failure or deadlock sits at most eight causes below `depth`. */
+const serializationConflictWithin = (cause: unknown, depth: number): boolean =>
+  depth < 8 &&
+  Predicate.isObjectOrArray(cause) &&
+  (("code" in cause && (cause.code === "40001" || cause.code === "40P01")) ||
+    (Predicate.hasProperty(cause, "reason") &&
+      (Predicate.isTagged(cause.reason, "SerializationError") ||
+        Predicate.isTagged(cause.reason, "DeadlockError"))) ||
+    (Predicate.hasProperty(cause, "cause") && serializationConflictWithin(cause.cause, depth + 1)));
 
 /**
  * Whether a failure, or one of its causes, is a lost serialization or deadlock race: a
@@ -279,14 +324,8 @@ export const requireCurrentETag = (
  *
  * @construct rpc-problem
  */
-export const isSerializationConflict = (cause: unknown, depth: number = 0): boolean =>
-  depth < 8 &&
-  Predicate.isObjectOrArray(cause) &&
-  (("code" in cause && (cause.code === "40001" || cause.code === "40P01")) ||
-    (Predicate.hasProperty(cause, "reason") &&
-      (Predicate.isTagged(cause.reason, "SerializationError") ||
-        Predicate.isTagged(cause.reason, "DeadlockError"))) ||
-    (Predicate.hasProperty(cause, "cause") && isSerializationConflict(cause.cause, depth + 1)));
+export const isSerializationConflict = (cause: unknown): boolean =>
+  serializationConflictWithin(cause, 0);
 
 /**
  * The request as a whole fails validation; no single member is singled out.
@@ -390,10 +429,14 @@ export const commandReceiptProblems: ProblemMapper<
  *
  * @construct rpc-problem
  */
-export const personPresentation = (
-  headers: Headers.Headers,
-  challenge: string = nativeUserChallenges(),
-): CredentialPresentation => classifyCredential(headers.authorization, headers.cookie, challenge);
+export const personPresentation: {
+  (headers: Headers.Headers, challenge?: string): CredentialPresentation;
+  (challenge?: string): (headers: Headers.Headers) => CredentialPresentation;
+} = dual(
+  (args) => Predicate.isObject(args[0]),
+  (headers: Headers.Headers, challenge: string = nativeUserChallenges()): CredentialPresentation =>
+    classifyCredential(headers.authorization, headers.cookie, challenge),
+);
 
 /**
  * The value of a command receipt outcome: the committed or replayed success, or an idempotency
@@ -488,16 +531,29 @@ export const ProblemBoundaryLive = Layer.succeed(ProblemBoundary)(
  *
  * @construct rpc-problem
  */
-export const authorizeAnonymous = (
-  spec: AccessSpec,
-  resolution: CanonicalScopeResolution<Schema.JsonObject>,
-  now: string,
-): Effect.Effect<void> =>
-  authorizeAnonymousNativeOperation(spec, resolution, now).pipe(
-    Effect.catch((failure) =>
-      Effect.die(new Error(`anonymous access denied with HTTP ${failure.status}`)),
+export const authorizeAnonymous: {
+  (
+    resolution: CanonicalScopeResolution<Schema.JsonObject>,
+    now: string,
+  ): (spec: AccessSpec) => Effect.Effect<void>;
+  (
+    spec: AccessSpec,
+    resolution: CanonicalScopeResolution<Schema.JsonObject>,
+    now: string,
+  ): Effect.Effect<void>;
+} = dual(
+  3,
+  (
+    spec: AccessSpec,
+    resolution: CanonicalScopeResolution<Schema.JsonObject>,
+    now: string,
+  ): Effect.Effect<void> =>
+    authorizeAnonymousNativeOperation(spec, resolution, now).pipe(
+      Effect.catch((failure) =>
+        Effect.die(new Error(`anonymous access denied with HTTP ${failure.status}`)),
+      ),
     ),
-  );
+);
 
 /**
  * A rejected person credential is answered from the ingress evidence, never by string choice.
@@ -521,25 +577,50 @@ export const authorizeAnonymous = (
  *
  * @construct rpc-problem
  */
-export const authorizePerson = (
-  input: NativePersonAuthorization,
-  presentation: CredentialPresentation,
-): Effect.Effect<
-  void,
-  | Problem<"authority.denied">
-  | Problem<"credential.invalid">
-  | Problem<"credential.missing">
-  | Problem<"resource.not-found">
-> =>
-  authorizePersonNativeOperation(input).pipe(
-    Effect.mapError((failure) =>
-      Match.value(failure.status).pipe(
-        Match.when(401, () => Problem.unauthenticated(presentation)),
-        Match.when(404, () => Problem.make("resource.not-found")),
-        Match.orElse(() => Problem.make("authority.denied")),
+export const authorizePerson: {
+  (
+    presentation: CredentialPresentation,
+  ): (
+    input: NativePersonAuthorization,
+  ) => Effect.Effect<
+    void,
+    | Problem<"authority.denied">
+    | Problem<"credential.invalid">
+    | Problem<"credential.missing">
+    | Problem<"resource.not-found">
+  >;
+  (
+    input: NativePersonAuthorization,
+    presentation: CredentialPresentation,
+  ): Effect.Effect<
+    void,
+    | Problem<"authority.denied">
+    | Problem<"credential.invalid">
+    | Problem<"credential.missing">
+    | Problem<"resource.not-found">
+  >;
+} = dual(
+  2,
+  (
+    input: NativePersonAuthorization,
+    presentation: CredentialPresentation,
+  ): Effect.Effect<
+    void,
+    | Problem<"authority.denied">
+    | Problem<"credential.invalid">
+    | Problem<"credential.missing">
+    | Problem<"resource.not-found">
+  > =>
+    authorizePersonNativeOperation(input).pipe(
+      Effect.mapError((failure) =>
+        Match.value(failure.status).pipe(
+          Match.when(401, () => Problem.unauthenticated(presentation)),
+          Match.when(404, () => Problem.make("resource.not-found")),
+          Match.orElse(() => Problem.make("authority.denied")),
+        ),
       ),
     ),
-  );
+);
 
 /**
  * Marks problems a shared mapper can produce but this operation cannot, such as a serialization

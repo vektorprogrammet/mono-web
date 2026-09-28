@@ -12,7 +12,6 @@ import {
   type AuthorizationMode,
   type CapabilityExpression,
   CapabilityTypeId,
-
   RequirementId,
   ScopeResolverId,
   type TypedRequirement,
@@ -32,20 +31,26 @@ const typedRequirements = (
   requirements.map((id) => ({ id: RequirementId.make(id), parameters: {} }));
 
 /** Colocated AccessSpec constructor for an anonymous native operation. */
-export const anonymousNativeAccess = (
-  canonicalScopeResolver: ScopeResolverValue,
-  decisionTime: AuthorizationMode = "SnapshotRead",
-): AccessSpec =>
-  makeAccessSpec({
-    exposure: "External",
-    acceptedCredentials: [CredentialMechanismSchema.cases.None.make({})],
-    principalKinds: ["Anonymous"],
-    capabilities: CapabilityExpressionSchema.cases.None.make({}),
-    requirements: [],
-    canonicalScopeResolver,
-    concealment: ConcealmentPolicySchema.cases.Reveal.make({}),
-    decisionTime,
-  });
+export const anonymousNativeAccess: {
+  (canonicalScopeResolver: ScopeResolverValue, decisionTime?: AuthorizationMode): AccessSpec;
+  (decisionTime?: AuthorizationMode): (canonicalScopeResolver: ScopeResolverValue) => AccessSpec;
+} = dual(
+  (args) => Schema.is(ScopeResolverId)(args[0]),
+  (
+    canonicalScopeResolver: ScopeResolverValue,
+    decisionTime: AuthorizationMode = "SnapshotRead",
+  ): AccessSpec =>
+    makeAccessSpec({
+      exposure: "External",
+      acceptedCredentials: [CredentialMechanismSchema.cases.None.make({})],
+      principalKinds: ["Anonymous"],
+      capabilities: CapabilityExpressionSchema.cases.None.make({}),
+      requirements: [],
+      canonicalScopeResolver,
+      concealment: ConcealmentPolicySchema.cases.Reveal.make({}),
+      decisionTime,
+    }),
+);
 
 /** Colocated AccessSpec constructor for a first-party cookie-only session operation. */
 export const browserSessionNativeAccess = (input: {
@@ -104,28 +109,39 @@ export const personNativeAccess = (input: {
   });
 
 /** Exact object-capability access contract for invitation response operations. */
-export const invitationNativeAccess = (
-  requirements: ReadonlyArray<"recruitment.invitation-pending">,
-  decisionTime: AuthorizationMode,
-): AccessSpec =>
-  makeAccessSpec({
-    exposure: "External",
-    acceptedCredentials: [
-      CredentialMechanismSchema.cases.ObjectCapability.make({
-        capabilityType: INVITATION_RESPONSE_CAPABILITY,
+export const invitationNativeAccess: {
+  (
+    decisionTime: AuthorizationMode,
+  ): (requirements: ReadonlyArray<"recruitment.invitation-pending">) => AccessSpec;
+  (
+    requirements: ReadonlyArray<"recruitment.invitation-pending">,
+    decisionTime: AuthorizationMode,
+  ): AccessSpec;
+} = dual(
+  2,
+  (
+    requirements: ReadonlyArray<"recruitment.invitation-pending">,
+    decisionTime: AuthorizationMode,
+  ): AccessSpec =>
+    makeAccessSpec({
+      exposure: "External",
+      acceptedCredentials: [
+        CredentialMechanismSchema.cases.ObjectCapability.make({
+          capabilityType: INVITATION_RESPONSE_CAPABILITY,
+        }),
+      ],
+      principalKinds: ["CapabilityHolder"],
+      capabilities: CapabilityExpressionSchema.cases.One.make({
+        capability: { type: INVITATION_RESPONSE_CAPABILITY },
       }),
-    ],
-    principalKinds: ["CapabilityHolder"],
-    capabilities: CapabilityExpressionSchema.cases.One.make({
-      capability: { type: INVITATION_RESPONSE_CAPABILITY },
+      requirements: typedRequirements(requirements),
+      canonicalScopeResolver: "recruitment.invitation-response-by-capability",
+      concealment: ConcealmentPolicySchema.cases.NotFound.make({
+        conceal: ["CredentialFailure", "PrincipalKind", "Capability", "Scope", "Requirement"],
+      }),
+      decisionTime,
     }),
-    requirements: typedRequirements(requirements),
-    canonicalScopeResolver: "recruitment.invitation-response-by-capability",
-    concealment: ConcealmentPolicySchema.cases.NotFound.make({
-      conceal: ["CredentialFailure", "PrincipalKind", "Capability", "Scope", "Requirement"],
-    }),
-    decisionTime,
-  });
+);
 
 /** Exact isolated internal receipt evidence access contract. */
 export const internalReceiptEvidenceAccess = (): AccessSpec =>
@@ -142,12 +158,14 @@ export const internalReceiptEvidenceAccess = (): AccessSpec =>
     decisionTime: "SnapshotRead",
   });
 
-import { Match, Predicate, Context, Option, type Schema } from "effect";
+import { Match, Predicate, Context, Option, Schema } from "effect";
 import type { Rpc, RpcMiddleware } from "effect/unstable/rpc";
+import { dual } from "effect/Function";
 
-export const AccessSpecAnnotation = Context.Service<AccessSpec>(
-  "@vektorprogrammet/rpc/AccessSpec",
-);
+/** The AccessSpec that annotates one RPC. */
+export class AccessSpecAnnotation extends Context.Service<AccessSpecAnnotation, AccessSpec>()(
+  "@vektorprogrammet/rpc/access/AccessSpecAnnotation",
+) {}
 
 const rank = (order: ReadonlyArray<string>, value: string): number => {
   const index = order.indexOf(value);
@@ -158,31 +176,22 @@ const rank = (order: ReadonlyArray<string>, value: string): number => {
 const compareByRegistry = (order: ReadonlyArray<string>) => (left: string, right: string) =>
   rank(order, left) - rank(order, right);
 
-const projectedCapabilities = (expression: CapabilityExpression) => {
-  return Match.value(expression).pipe(
-    Match.tag("None", () => {
-      return { none: true };
-    }),
-    Match.tag("One", (expression) => {
-      return { one: expression.capability.type };
-    }),
-    Match.tag("All", (expression) => {
-      return {
-        all: expression.capabilities
-          .map((capability) => capability.type)
-          .sort(compareByRegistry(CAPABILITY_TYPE_IDS)),
-      };
-    }),
-    Match.tag("Any", (expression) => {
-      return {
-        any: expression.capabilities
-          .map((capability) => capability.type)
-          .sort(compareByRegistry(CAPABILITY_TYPE_IDS)),
-      };
-    }),
+const projectedCapabilities = (expression: CapabilityExpression) =>
+  Match.value(expression).pipe(
+    Match.tag("None", () => ({ none: true })),
+    Match.tag("One", (expression) => ({ one: expression.capability.type })),
+    Match.tag("All", (expression) => ({
+      all: expression.capabilities
+        .map((capability) => capability.type)
+        .sort(compareByRegistry(CAPABILITY_TYPE_IDS)),
+    })),
+    Match.tag("Any", (expression) => ({
+      any: expression.capabilities
+        .map((capability) => capability.type)
+        .sort(compareByRegistry(CAPABILITY_TYPE_IDS)),
+    })),
     Match.exhaustive,
   );
-};
 
 const projectedRequirement = (requirement: TypedRequirement) => {
   const parameters = Object.keys(requirement.parameters);
@@ -266,12 +275,11 @@ export const assertAccessProjectionRegistryParity = (): void => {
 
 assertAccessProjectionRegistryParity();
 
-
 /**
  * Attaches the AccessSpec of one RPC. Every RPC carries exactly one; the handler evaluates it with
  * `authorizePerson` or `authorizeAnonymous`, and `reflectAccessSpec` reads it back.
  */
-export const accessSpecAnnotations = (input: AccessSpec): Context.Context<AccessSpec> => {
+export const accessSpecAnnotations = (input: AccessSpec): Context.Context<AccessSpecAnnotation> => {
   const spec = makeAccessSpec(input);
 
   const acceptsPerson = spec.acceptedCredentials.some(
@@ -298,8 +306,9 @@ export const accessSpecAnnotations = (input: AccessSpec): Context.Context<Access
 };
 
 /** The AccessSpec that `withAccessSpec` attached to an RPC. */
-export const reflectAccessSpec = (rpc: Pick<Rpc.AnyWithProps, "annotations">): Option.Option<AccessSpec> =>
-  Context.getOption(rpc.annotations, AccessSpecAnnotation);
+export const reflectAccessSpec = (
+  rpc: Pick<Rpc.AnyWithProps, "annotations">,
+): Option.Option<AccessSpec> => Context.getOption(rpc.annotations, AccessSpecAnnotation);
 
 /** Attaches `input` to `rpc`; a second AccessSpec on one RPC is a defect. */
 export const withAccessSpec =

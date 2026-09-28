@@ -64,6 +64,7 @@ import {
 } from "./access.js";
 import { admissionActorForAuthority } from "./context.js";
 import { admissionProblems } from "./problem.js";
+import { dual } from "effect/Function";
 
 /** The management representation of one admission period, with the tag that a revision names. */
 type ManagementItem = typeof AdmissionPeriodManagementItem.Type;
@@ -82,7 +83,7 @@ const managementItem = (period: Omit<ManagementItem, "etag">): ManagementItem =>
   }),
 });
 
-export const registerReturningAssistant = (
+const registerReturningAssistantEffect = (
   headers: Headers.Headers,
   payload: {
     readonly idempotencyKey: IdempotencyKey;
@@ -154,7 +155,25 @@ export const registerReturningAssistant = (
     return yield* commandOutcome(ReturningAssistantRegistrationResponseSchema)(outcome);
   }).pipe(admissionProblems(headers, "returning.unavailable"), commandReceiptProblems);
 
-export const createAdmissionPeriod = (
+export const registerReturningAssistant: {
+  (
+    payload: {
+      readonly idempotencyKey: IdempotencyKey;
+      readonly request: ReturningAssistantRegistrationInput;
+    },
+    options: NativeRpcOptions,
+  ): (headers: Headers.Headers) => ReturnType<typeof registerReturningAssistantEffect>;
+  (
+    headers: Headers.Headers,
+    payload: {
+      readonly idempotencyKey: IdempotencyKey;
+      readonly request: ReturningAssistantRegistrationInput;
+    },
+    options: NativeRpcOptions,
+  ): ReturnType<typeof registerReturningAssistantEffect>;
+} = dual(3, registerReturningAssistantEffect);
+
+const createAdmissionPeriodEffect = (
   headers: Headers.Headers,
   payload: {
     readonly idempotencyKey: IdempotencyKey;
@@ -246,6 +265,24 @@ export const createAdmissionPeriod = (
     unreachable("admission-period.not-found", "precondition.failed"),
   );
 
+export const createAdmissionPeriod: {
+  (
+    payload: {
+      readonly idempotencyKey: IdempotencyKey;
+      readonly request: CreateAdmissionPeriodRequest;
+    },
+    options: NativeRpcOptions,
+  ): (headers: Headers.Headers) => ReturnType<typeof createAdmissionPeriodEffect>;
+  (
+    headers: Headers.Headers,
+    payload: {
+      readonly idempotencyKey: IdempotencyKey;
+      readonly request: CreateAdmissionPeriodRequest;
+    },
+    options: NativeRpcOptions,
+  ): ReturnType<typeof createAdmissionPeriodEffect>;
+} = dual(3, createAdmissionPeriodEffect);
+
 /**
  * Judges the merge patch before the command: an empty patch changes nothing, and a null member
  * would delete a field that an admission period requires.
@@ -270,7 +307,7 @@ const interpretPatch = (patch: AdmissionPeriodMergePatch) =>
     return { source, startAt: patch.startAt ?? undefined, endAt: patch.endAt ?? undefined };
   });
 
-export const reviseAdmissionPeriod = (
+const reviseAdmissionPeriodEffect = (
   headers: Headers.Headers,
   payload: {
     readonly admissionPeriodId: AdmissionPeriodId;
@@ -316,7 +353,7 @@ export const reviseAdmissionPeriod = (
         const current = periods.find((period) => period.id === admissionPeriodId);
 
         if (current === undefined) {
-          return yield* new AdmissionPeriodNotFound({ admissionPeriodId });
+          return yield* AdmissionPeriodNotFound.make({ admissionPeriodId });
         }
 
         yield* authorizeAdmissionPerson(headers, {
@@ -386,7 +423,29 @@ export const reviseAdmissionPeriod = (
     unreachable("admission-period.already-exists"),
   );
 
-export const submitApplication = (
+export const reviseAdmissionPeriod: {
+  (
+    payload: {
+      readonly admissionPeriodId: AdmissionPeriodId;
+      readonly idempotencyKey: IdempotencyKey;
+      readonly ifMatch: StrongETag;
+      readonly request: AdmissionPeriodMergePatch;
+    },
+    options: NativeRpcOptions,
+  ): (headers: Headers.Headers) => ReturnType<typeof reviseAdmissionPeriodEffect>;
+  (
+    headers: Headers.Headers,
+    payload: {
+      readonly admissionPeriodId: AdmissionPeriodId;
+      readonly idempotencyKey: IdempotencyKey;
+      readonly ifMatch: StrongETag;
+      readonly request: AdmissionPeriodMergePatch;
+    },
+    options: NativeRpcOptions,
+  ): ReturnType<typeof reviseAdmissionPeriodEffect>;
+} = dual(3, reviseAdmissionPeriodEffect);
+
+const submitApplicationEffect = (
   headers: Headers.Headers,
   payload: {
     readonly idempotencyKey: IdempotencyKey;
@@ -400,7 +459,7 @@ export const submitApplication = (
     const now = yield* currentInstant(config.now);
 
     if (!config.rateLimit.consume(publicRateLimitKey(credentialRequestOf(headers)), now)) {
-      return yield* new PublicApplicationRateLimitExceeded({});
+      return yield* PublicApplicationRateLimitExceeded.make({});
     }
 
     const operationId = "admissions.submitApplication";
@@ -477,3 +536,21 @@ export const submitApplication = (
     // A submission looks up no confirmation, and the payload schema already bounded the request.
     unreachable("application.not-found", "request.too-large"),
   );
+
+export const submitApplication: {
+  (
+    payload: {
+      readonly idempotencyKey: IdempotencyKey;
+      readonly request: SubmitApplicationRequest;
+    },
+    options: NativeRpcOptions,
+  ): (headers: Headers.Headers) => ReturnType<typeof submitApplicationEffect>;
+  (
+    headers: Headers.Headers,
+    payload: {
+      readonly idempotencyKey: IdempotencyKey;
+      readonly request: SubmitApplicationRequest;
+    },
+    options: NativeRpcOptions,
+  ): ReturnType<typeof submitApplicationEffect>;
+} = dual(3, submitApplicationEffect);

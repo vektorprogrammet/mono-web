@@ -48,7 +48,7 @@ const authority = (
 
 const member = authority("Absent", [{ active: true, unitLeader: false }]);
 
-const actor = new IdentityActor({
+const actor = IdentityActor.make({
   personId,
   sessionId: "profile-test-session",
   expiresAt: DateTime.makeUnsafe("2032-04-02T12:00:00.000Z"),
@@ -59,7 +59,7 @@ const identity = Identity.of({
   resolveSession: (cookieHeader: string | undefined) =>
     cookieHeader?.includes("profile-test-session") === true
       ? Effect.succeed(actor)
-      : Effect.fail(new IdentitySessionNotFound()),
+      : Effect.fail(IdentitySessionNotFound.make()),
   readCurrentSession: () => Effect.die("unexpected session read"),
   listSessions: () => Effect.die("unexpected session list"),
   revokeCurrentSession: () => Effect.die("unexpected session mutation"),
@@ -78,7 +78,7 @@ const securityServices = Layer.mergeAll(
         .resolveSession(cookieHeader)
         .pipe(
           Effect.catchTag("IdentitySessionExpired", () =>
-            Effect.fail(new IdentitySessionNotFound()),
+            Effect.fail(IdentitySessionNotFound.make()),
           ),
         ),
   }),
@@ -145,7 +145,7 @@ describe("profile.readOwnProfile", () => {
     Effect.gen(function* () {
       const client = yield* backendFor(
         Effect.fail(
-          new OrganizationPersistenceError({
+          OrganizationPersistenceError.make({
             operation: "resolve profile test authority",
             message: "provider unavailable",
           }),
