@@ -17,23 +17,22 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
       "unions direct and rule scopes without broadening a Department rule",
       () =>
         Effect.gen(function* () {
-          const evidence = yield* Effect.gen(function* () {
-            const database = yield* Database;
-            const economy = yield* Economy;
-            const departmentA = DepartmentId.make("approval-query-department-a");
-            const departmentB = DepartmentId.make("approval-query-department-b");
-            const authorizationInstant = "2038-06-15T12:00:00.000Z";
-            const directGlobal = PersonId.make("approval-query-direct-global");
-            const directDepartment = PersonId.make("approval-query-direct-department");
-            const ruleDepartment = PersonId.make("approval-query-rule-department");
-            const ruleGlobal = PersonId.make("approval-query-rule-global");
-            const scopedGlobalSlot = PersonId.make("approval-query-scoped-global-slot");
-            const multipleScopes = PersonId.make("approval-query-multiple-scopes");
-            const expiredRule = PersonId.make("approval-query-expired-rule");
-            const detachedTag = PersonId.make("approval-query-detached-tag");
-            const noRule = PersonId.make("approval-query-no-rule");
+          const database = yield* Database;
+          const economy = yield* Economy;
+          const departmentA = DepartmentId.make("approval-query-department-a");
+          const departmentB = DepartmentId.make("approval-query-department-b");
+          const authorizationInstant = "2038-06-15T12:00:00.000Z";
+          const directGlobal = PersonId.make("approval-query-direct-global");
+          const directDepartment = PersonId.make("approval-query-direct-department");
+          const ruleDepartment = PersonId.make("approval-query-rule-department");
+          const ruleGlobal = PersonId.make("approval-query-rule-global");
+          const scopedGlobalSlot = PersonId.make("approval-query-scoped-global-slot");
+          const multipleScopes = PersonId.make("approval-query-multiple-scopes");
+          const expiredRule = PersonId.make("approval-query-expired-rule");
+          const detachedTag = PersonId.make("approval-query-detached-tag");
+          const noRule = PersonId.make("approval-query-no-rule");
 
-            yield* database`
+          yield* database`
       INSERT INTO public.person_profiles (person_id, first_name, last_name)
       VALUES
         (${directGlobal}, 'Direct', 'Global'),
@@ -46,7 +45,7 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
         (${detachedTag}, 'Detached', 'Tag'),
         (${noRule}, 'No', 'Rule')
     `;
-            yield* database`
+          yield* database`
       INSERT INTO public.organization_departments (
         department_id, name, short_name, email, city
       ) VALUES
@@ -55,13 +54,13 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
         (${departmentB}, 'Approval Department B', 'AQB',
           'approval-b@example.invalid', 'Trondheim')
     `;
-            yield* database`
+          yield* database`
       INSERT INTO public.organization_teams (team_id, department_id, name)
       VALUES
         ('approval-query-team-a', ${departmentA}, 'Approval Team A'),
         ('approval-query-team-b', ${departmentB}, 'Approval Team B')
     `;
-            yield* database`
+          yield* database`
       INSERT INTO public.organization_memberships (
         membership_id, person_id, team_id, start_at
       ) VALUES
@@ -86,7 +85,7 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
         ('approval-query-membership-none', ${noRule},
           'approval-query-team-a', '2038-01-01T00:00:00.000Z')
     `;
-            yield* database`
+          yield* database`
       INSERT INTO public.economy_receipt_approval_grants (
         approval_grant_id, person_id, scope, department_id, start_at
       ) VALUES
@@ -97,11 +96,11 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
         ('approval-query-grant-multiple', ${multipleScopes}, 'Department',
           ${departmentA}, '2038-01-01T00:00:00.000Z')
     `;
-            yield* database`
+          yield* database`
       INSERT INTO public.authz_tags (tag_id, name)
       VALUES ('approval-query-tag', 'Approval Query Tag')
     `;
-            yield* database`
+          yield* database`
       INSERT INTO public.authz_tag_assignments (
         assignment_id, tag_id, person_id, start_at, end_at
       ) VALUES (
@@ -109,7 +108,7 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
         '2038-01-01T00:00:00.000Z', ${authorizationInstant}
       )
     `;
-            yield* database`
+          yield* database`
       INSERT INTO public.authz_rules (
         rule_id, capability_id, effect_kind, subject_kind, subject_person_id,
         subject_tag_id, scope, department_id, params, start_at, end_at
@@ -151,7 +150,7 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
           '2038-01-01T00:00:00.000Z', NULL
         )
     `;
-            yield* database`
+          yield* database`
       INSERT INTO public.economy_receipts (
         receipt_id, visual_id, owner_person_id, department_id, amount_ore,
         currency, description, receipt_date, submitted_at, status, approved_at,
@@ -174,21 +173,21 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
         )
     `;
 
-            const list = (queryPersonId: PersonId, status?: "Pending" | "Rejected") =>
-              economy.listReceiptsForApproval(queryPersonId, authorizationInstant, status);
+          const list = (queryPersonId: PersonId, status?: "Pending" | "Rejected") =>
+            economy.listReceiptsForApproval(queryPersonId, authorizationInstant, status);
 
-            const directGlobalRows = yield* list(directGlobal);
-            const directDepartmentRows = yield* list(directDepartment);
-            const ruleDepartmentRows = yield* list(ruleDepartment);
-            const ruleGlobalRows = yield* list(ruleGlobal);
-            const scopedGlobalRows = yield* list(scopedGlobalSlot);
-            const multipleRows = yield* list(multipleScopes);
-            const filteredRows = yield* list(directGlobal, "Rejected");
-            const expiredFailure = yield* Effect.flip(list(expiredRule));
-            const detachedFailure = yield* Effect.flip(list(detachedTag));
-            const noRuleFailure = yield* Effect.flip(list(noRule));
+          const directGlobalRows = yield* list(directGlobal);
+          const directDepartmentRows = yield* list(directDepartment);
+          const ruleDepartmentRows = yield* list(ruleDepartment);
+          const ruleGlobalRows = yield* list(ruleGlobal);
+          const scopedGlobalRows = yield* list(scopedGlobalSlot);
+          const multipleRows = yield* list(multipleScopes);
+          const filteredRows = yield* list(directGlobal, "Rejected");
+          const expiredFailure = yield* Effect.flip(list(expiredRule));
+          const detachedFailure = yield* Effect.flip(list(detachedTag));
+          const noRuleFailure = yield* Effect.flip(list(noRule));
 
-            yield* database`
+          yield* database`
       INSERT INTO public.economy_receipts (
         receipt_id, visual_id, owner_person_id, department_id, amount_ore,
         currency, description, receipt_date, submitted_at, status, approved_at,
@@ -207,14 +206,14 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
       FROM generate_series(0, 59) AS n
       CROSS JOIN (VALUES ('a', ${departmentA}), ('b', ${departmentB})) AS departments(side, department_id)
     `;
-            const firstPage = yield* list(ruleDepartment, "Pending");
+          const firstPage = yield* list(ruleDepartment, "Pending");
 
-            if (firstPage.nextCursor === undefined)
-              throw new Error("First approval page lost continuation");
-            const firstCursor = yield* decodeReceiptCursor(firstPage.nextCursor);
-            yield* database`UPDATE public.economy_receipts SET status = 'Approved', approved_at = '2038-06-15T11:00:00Z'
+          if (firstPage.nextCursor === undefined)
+            throw new Error("First approval page lost continuation");
+          const firstCursor = yield* decodeReceiptCursor(firstPage.nextCursor);
+          yield* database`UPDATE public.economy_receipts SET status = 'Approved', approved_at = '2038-06-15T11:00:00Z'
       WHERE receipt_id = 'approval-page-a-000'`;
-            yield* database`
+          yield* database`
       INSERT INTO public.economy_receipts (
         receipt_id, visual_id, owner_person_id, department_id, amount_ore,
         currency, description, receipt_date, submitted_at, status, approved_at,
@@ -227,57 +226,56 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
       FROM public.economy_receipts WHERE receipt_id = 'approval-page-a-000'
     `;
 
-            const nextPage = yield* economy.listReceiptsForApproval(
-              ruleDepartment,
+          const nextPage = yield* economy.listReceiptsForApproval(
+            ruleDepartment,
+            authorizationInstant,
+            "Pending",
+            firstPage.nextCursor,
+          );
+
+          const pageDenied = yield* Effect.flip(
+            economy.listReceiptsForApproval(
+              noRule,
               authorizationInstant,
               "Pending",
               firstPage.nextCursor,
-            );
+            ),
+          );
 
-            const pageDenied = yield* Effect.flip(
-              economy.listReceiptsForApproval(
-                noRule,
-                authorizationInstant,
-                "Pending",
-                firstPage.nextCursor,
-              ),
-            );
+          const ownerFirst = yield* economy.listOwnedReceipts("approval-query-owner", "Pending");
 
-            const ownerFirst = yield* economy.listOwnedReceipts("approval-query-owner", "Pending");
+          if (ownerFirst.nextCursor === undefined)
+            throw new Error("First owner page lost continuation");
 
-            if (ownerFirst.nextCursor === undefined)
-              throw new Error("First owner page lost continuation");
+          const ownerNext = yield* economy.listOwnedReceipts(
+            "approval-query-owner",
+            "Pending",
+            ownerFirst.nextCursor,
+          );
 
-            const ownerNext = yield* economy.listOwnedReceipts(
-              "approval-query-owner",
-              "Pending",
-              ownerFirst.nextCursor,
-            );
+          const pagination = {
+            first: firstPage.items.map((row) => row.receiptId),
+            cursor: firstCursor,
+            next: nextPage.items.map((row) => row.receiptId),
+            nextCursor: nextPage.nextCursor,
+            denied: pageDenied._tag,
+            ownerFirst: ownerFirst.items.map((row) => row.receiptId),
+            ownerNext: ownerNext.items.map((row) => row.receiptId),
+          };
 
-            const pagination = {
-              first: firstPage.items.map((row) => row.receiptId),
-              cursor: firstCursor,
-              next: nextPage.items.map((row) => row.receiptId),
-              nextCursor: nextPage.nextCursor,
-              denied: pageDenied._tag,
-              ownerFirst: ownerFirst.items.map((row) => row.receiptId),
-              ownerNext: ownerNext.items.map((row) => row.receiptId),
-            };
-
-            return {
-              pagination,
-              directGlobal: directGlobalRows.items.map((row) => row.receiptId),
-              directDepartment: directDepartmentRows.items.map((row) => row.receiptId),
-              ruleDepartment: ruleDepartmentRows.items.map((row) => row.receiptId),
-              ruleGlobal: ruleGlobalRows.items.map((row) => row.receiptId),
-              scopedGlobal: scopedGlobalRows.items.map((row) => row.receiptId),
-              multiple: multipleRows.items.map((row) => row.receiptId),
-              filtered: filteredRows.items.map((row) => row.receiptId),
-              expiredFailure: expiredFailure._tag,
-              detachedFailure: detachedFailure._tag,
-              noRuleFailure: noRuleFailure._tag,
-            };
-          });
+          const evidence = {
+            pagination,
+            directGlobal: directGlobalRows.items.map((row) => row.receiptId),
+            directDepartment: directDepartmentRows.items.map((row) => row.receiptId),
+            ruleDepartment: ruleDepartmentRows.items.map((row) => row.receiptId),
+            ruleGlobal: ruleGlobalRows.items.map((row) => row.receiptId),
+            scopedGlobal: scopedGlobalRows.items.map((row) => row.receiptId),
+            multiple: multipleRows.items.map((row) => row.receiptId),
+            filtered: filteredRows.items.map((row) => row.receiptId),
+            expiredFailure: expiredFailure._tag,
+            detachedFailure: detachedFailure._tag,
+            noRuleFailure: noRuleFailure._tag,
+          };
 
           const { pagination, ...authorityEvidence } = evidence;
           expect(authorityEvidence).toEqual({
