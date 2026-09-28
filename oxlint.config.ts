@@ -184,6 +184,7 @@ const effectConfig = {
         "tools/verification/identity-cohort-rehearsal.ts",
         "tools/verification/organization-import-rehearsal-main.ts",
         "tools/verification/receipt-import-rehearsal.ts",
+        "tools/verification/recommendation-preupgrade-fixture.ts",
       ],
       role: "composition-root",
       platform: "bun",
