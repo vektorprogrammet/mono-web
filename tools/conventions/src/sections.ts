@@ -5,6 +5,7 @@
  * hosted journeys of the Tests workflow and of its document, and `guides.ts` renders the module
  * guides. The tables use the column alignment that Oxfmt writes, so formatting never changes them.
  */
+import { Predicate } from "effect";
 import { dual } from "effect/Function";
 import { constructPages } from "./constructs.js";
 import {
@@ -218,7 +219,7 @@ export const spliceSections: {
   (sections: ReadonlyArray<Section>, comment?: Comment): (text: string) => Spliced;
   (text: string, sections: ReadonlyArray<Section>, comment?: Comment): Spliced;
 } = dual(
-  (args) => typeof args[0] === "string",
+  (args) => Predicate.isString(args[0]),
   (text: string, sections: ReadonlyArray<Section>, comment: Comment = markdown): Spliced => {
     const lines = text.split("\n");
     const missing: Array<string> = [];

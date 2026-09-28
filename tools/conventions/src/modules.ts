@@ -404,6 +404,7 @@ const readResolver = (
 
   return (importer, specifier) => {
     const relative = specifier.startsWith("./") || specifier.startsWith("../");
+
     const key = relative
       ? repositoryPath.join(repositoryPath.dirname(importer), specifier)
       : specifier;
