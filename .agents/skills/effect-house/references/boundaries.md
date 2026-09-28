@@ -1,4 +1,4 @@
-# Services, HTTP boundaries, and runtime bridges
+# Services, RPC boundaries, and runtime bridges
 
 ## Services return Effects (FX003)
 
@@ -22,12 +22,12 @@ The pattern to copy is `makeBetterAuthCallbackRunner` in [packages/database/src/
 A new library of this kind gets its own runner, built the same way in the layer that owns the library. Do not run a program with `Effect.runPromise` inside a callback.
 The runner is no tagged construct while it is the only one, because a construct needs two consumers outside its own module. The second runner makes it one: move the logic that both share into one runner, tag it `@construct runtime-bridge`, and declare that category again in [tools/conventions/src/constructs.ts](../../../../tools/conventions/src/constructs.ts).
 
-## HTTP boundaries (FX004, FX005)
+## RPC boundaries (FX004, FX005)
 
-[packages/http-api](../../../../packages/http-api) owns the contracts; the backend derives its transport from them, and `just check-types` asserts the generated HTTP contract.
+[packages/rpc](../../../../packages/rpc) owns the contract ([docs/architecture.md](../../../../docs/architecture.md#rpc-contract-and-ingress)); the backend implements each context's group, and every client derives from the same group. Nothing is generated.
 
-- A handler decodes its input with the contract schemas: `readJsonBody`, `decodeRequest`, and `strictOutput` ([docs/constructs/http-problem.md](../../../../docs/constructs/http-problem.md)).
-- A failure is a `Problem`. `Problem.make(code)` takes only the code; `NativeProblemRegistry` in [packages/http-api/src/http-semantics.ts](../../../../packages/http-api/src/http-semantics.ts) owns its status and body. An endpoint declares its closed union with `problemUnion`.
+- The RPC server decodes a payload with the contract schema before the handler runs. A handler decodes its success value with `strictOutput` ([docs/constructs/rpc-problem.md](../../../../docs/constructs/rpc-problem.md)).
+- A failure is a `Problem`. `Problem.make(code)` takes only the code; `NativeProblemRegistry` in [packages/rpc/src/problem.ts](../../../../packages/rpc/src/problem.ts) owns its status and body. An RPC declares its closed union with `problemUnion` and takes it as `error: rpcProblems(...)`.
 - Each context maps its domain failures once with `problemMapper`, as `contentProblems` and `receiptProblems` do, and declares the mapper's type as `ProblemMapper<Failure, Cases>`, where `Cases` is the type of its cases. A failure that an operation cannot produce is marked with `unreachable`.
 - `ProblemBoundaryLive` is the only consumer of a Cause. A handler does not catch defects or render causes itself.
 - A JSON representation is written with `jsonText`, which encodes through Schema and writes the bytes that `JSON.stringify` wrote.

@@ -689,7 +689,7 @@ client. Decode it with the response schema first.
 
 ## `commandReceiptProblems`
 
-HTTP command receipts: the transport's own persistence failures.
+Command receipts: the transport's own persistence failures.
 
 ```ts
 const commandReceiptProblems: ProblemMapper<NativeHttpReceiptInvalid | NativeHttpReceiptPersistenceError, typeof commandReceiptCases>
@@ -890,7 +890,7 @@ contract then promises an answer that the operation never gives. Mark it unreach
 
 ## `problemUnion`
 
-Creates a closed endpoint-specific Problem Details union.
+Creates the closed Problem Details union of one RPC.
 
 ```ts
 const problemUnion: { <const Codes extends readonly [NativeProblemCode, ...ReadonlyArray<NativeProblemCode>]>(codes: Codes): (identifier: string) => Schema.Union<Array<ProblemBodySchema<Codes[number]>>>; <const Codes extends readonly [NativeProblemCode, ...ReadonlyArray<NativeProblemCode>]>(identifier: string, codes: Codes): Schema.Union<Array<ProblemBodySchema<Codes[number]>>> }
@@ -907,8 +907,8 @@ const problemUnion: { <const Codes extends readonly [NativeProblemCode, ...Reado
 
 It builds one wire-ordered variant per distinct code of `codes`, whose status, type, title, and
 detail come from `NativeProblemRegistry`, and a validation code carries its validation
-extension. The union keeps each declared code as a literal, and `identifier` names it in the
-OpenAPI document. `endpointProblemResponses` splits it into one response per status.
+extension. The union keeps each declared code as a literal, and `identifier` names the schema.
+`rpcProblems` makes it the error of an RPC.
 
 **Use**
 
@@ -919,7 +919,7 @@ export const SessionUnauthorizedProblem = problemUnion("SessionUnauthorizedProbl
 **Avoid**
 
 Writing a problem schema by hand, or giving a code its own status: the answer then
-differs from the registry that clients decode. Declare an endpoint's problems with this.
+differs from the registry that clients decode. Declare an RPC's problems with this.
 
 ## `Problem`
 

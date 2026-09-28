@@ -21,7 +21,7 @@ Private receipt files have separate storage.
     {
       nodes: [
         { label: "Homepage / dashboard" },
-        { label: "SDK + HTTP contract" },
+        { label: "RPC contract" },
         { label: "Bun backend", tone: "accent" },
         { label: "PostgreSQL + files" },
       ],
@@ -30,7 +30,7 @@ Private receipt files have separate storage.
 />
 
 Read the arrows as responsibility boundaries, not four separate network calls.
-An SDK is client code, not another running service. Frontend server loaders can call the backend too.
+An RPC client is code derived from the contract, not another running service. Frontend server loaders can call the backend too.
 
 - **Homepage:** public information and entry points, including recruitment.
 - **Dashboard:** authenticated work for volunteers, coordinators, organizational leaders, and finance roles.
@@ -131,21 +131,21 @@ A spinner cannot prove that a command succeeded. A stale screen cannot preserve 
 
 Sources: [frontend state](architecture.md#frontend-state), [dashboard entry](../apps/dashboard/app/entry.client.tsx), [school workflow](../apps/dashboard/app/foldkit/schools/main.ts), [custom element lifecycle](../apps/dashboard/app/foldkit/schools/elements.ts).
 
-## 4. The HTTP contract separates the browser from the server
+## 4. The RPC contract separates the browser from the server
 
 A screen sends an operation, not an arbitrary database edit.
 The operation has input schemas, response schemas, known failures, and protocol rules.
 
-The canonical application contract lives in `packages/http-api`.
-OpenAPI and consumer artifacts derive from that contract.
-The SDK creates typed operations from the external API definition and decodes responses.
-It is not a second place to define business meaning.
+The canonical application contract lives in `packages/rpc`, as Effect RPC groups.
+Each RPC names its operation, its payload and success schemas, and its declared problems.
+The backend implements the groups, and every client derives its typed calls from the same groups.
+Nothing is generated, and no client is a second place to define business meaning.
 
 | Boundary                       | What crosses it                                                          | What stays hidden                                    |
 | ------------------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------- |
 | Human browser to server        | Action, credentials, inputs, revision, and retry identity where required | Database tables and internal implementation          |
 | Machine to server              | Service identity, capability, scope, and supported credentials           | Provider-specific authentication plumbing            |
-| HTTP adapter to domain service | Business command or query, actor, domain values, and explicit failures   | HTTP parsing and response encoding                   |
+| RPC handler to domain service  | Business command or query, actor, domain values, and explicit failures   | Wire decoding and response encoding                  |
 | Domain service to persistence  | Reads, constraints, locks, and transactional writes                      | Public UI layout and transport details               |
 | Delivery program to provider   | A committed effect and its delivery identity                             | Authority to invent the underlying business decision |
 
@@ -162,10 +162,10 @@ A repeated command must not produce a second business effect.
 Reuse of the same retry identity for a different request is a conflict.
 
 Better Auth owns separate credential routes under `/api/auth/*`.
-The application has separate external and internal API roots. The public OpenAPI excludes the internal root.
+The application has separate external (`/api/rpc`) and internal (`/internal/rpc`) RPC groups. There is no OpenAPI document; third-party clients speak the Effect RPC wire protocol.
 An internal URL alone grants no authority.
 
-Sources: [API root](../packages/http-api/src/api.ts), [SDK construction](../packages/sdk/src/effect-client.ts), [interface contracts](architecture.md#interface-contracts), [encoding](architecture.md#boundary-encoding).
+Sources: [RPC groups](../packages/rpc/src/api.ts), [RPC client](../packages/rpc/src/client.ts), [RPC contract and ingress](architecture.md#rpc-contract-and-ingress), [interface contracts](architecture.md#interface-contracts), [encoding](architecture.md#boundary-encoding).
 
 ## 5. Identity answers who; authority answers what
 
@@ -191,7 +191,7 @@ An internal receipt-evidence operation still uses its specified Person credentia
 
 Network isolation adds a restriction. It does not replace business authorization.
 
-Sources: [identity and authority](architecture.md#identity-and-authority), [authentication engine](../packages/database/src/auth-engine.ts), [password policy](../packages/database/src/password-codec.ts), [receipt HTTP operations](../apps/backend/src/receipt/http.ts).
+Sources: [identity and authority](architecture.md#identity-and-authority), [authentication engine](../packages/database/src/auth-engine.ts), [password policy](../packages/database/src/password-codec.ts), [receipt RPC handlers](../apps/backend/src/receipt/rpc.ts).
 
 ## 6. Business services own the decisions
 
@@ -215,13 +215,13 @@ Portable contracts live in `packages/domain`; their PostgreSQL implementations l
 Placements exports its contracts as `@vektorprogrammet/domain/placements` and its database Layer as `@vektorprogrammet/database/placements`.
 Its service owns complete commands and queries; it is not only a schema collection.
 
-The Placements HTTP adapter handles transport concerns and calls the service inside the native command transaction.
+The Placements RPC handler handles transport concerns and calls the service inside the native command transaction.
 The service holds the department lock across its precondition, transition, audit, history, and outbox writes.
 
 This boundary permits changes to SQL or internal structure without changing what a caller's operation means.
 It does not imply that every older module already has the same boundary.
 
-Sources: [domain services](architecture.md#domain-services), [Placements service](../packages/domain/src/placements/service.ts), [Placements HTTP adapter](../apps/backend/src/placements/http.ts), [domain exports](../packages/domain/package.json), [database exports](../packages/database/package.json).
+Sources: [domain services](architecture.md#domain-services), [Placements service](../packages/domain/src/placements/service.ts), [Placements RPC handlers](../apps/backend/src/placements/rpc.ts), [domain exports](../packages/domain/package.json), [database exports](../packages/database/package.json).
 
 ## 7. Transactions protect facts; workers deliver effects
 
@@ -235,7 +235,7 @@ Locks protect decisions that depend on several current rows.
 Revision checks reject stale changes.
 A failed transaction leaves no partial business decision.
 
-The shared native HTTP command path uses a serializable transaction and a transaction advisory lock.
+The shared native command path uses a serializable transaction and a transaction advisory lock.
 It can replay a retained response or execute and retain one new response atomically.
 This guarantee belongs to that command path, not automatically to every piece of code in the repository.
 
@@ -282,7 +282,7 @@ Payment-account fields use authenticated encryption with receipt-specific contex
 A claim, an approval, and a settlement are separate facts.
 Settlement requires separate evidence and authority. A legacy “refunded” flag cannot establish native payment evidence.
 
-Sources: [command transaction](../apps/backend/src/http-api/receipt-transaction.ts), [persistence](architecture.md#persistence-and-concurrency), [delivery](architecture.md#delivery-and-providers), [recruitment worker](../apps/backend/src/recruitment/worker.ts), [reimbursement](system.md#expense-reimbursement).
+Sources: [command transaction](../apps/backend/src/rpc/receipt-transaction.ts), [persistence](architecture.md#persistence-and-concurrency), [delivery](architecture.md#delivery-and-providers), [recruitment worker](../apps/backend/src/recruitment/worker.ts), [reimbursement](system.md#expense-reimbursement).
 
 ## 8. The runtime connects the implementations
 
@@ -420,7 +420,7 @@ Sources: [planning](system.md#school-demand-and-placement), [coverage](system.md
 | Which module owns a decision?                   | [Architecture](architecture.md)                                              |
 | What is accepted, and what remains?             | [Current state](../STATE.md)                                                 |
 | How do I run the system or a rehearsal?         | [Developer guide](../README.md)                                              |
-| What can an API consumer request?               | [HTTP contract source](../packages/http-api/src/api.ts)                      |
+| What can an API consumer request?               | [RPC contract source](../packages/rpc/src/api.ts)                            |
 | What did the combined runner actually exercise? | [Migration rehearsal source](../tools/e2e/run-legacy-candidate-rehearsal.ts) |
 
 This is a reading guide, not another specification or readiness certificate.

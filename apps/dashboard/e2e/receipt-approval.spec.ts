@@ -93,7 +93,7 @@ const PDF_RECEIPT_FILE = {
   name: "receipt.pdf",
 } as const;
 
-/** Receipt bodies decode through the HTTP contract and reject undeclared members. */
+/** Receipt bodies decode through the RPC contract and reject undeclared members. */
 const exactDecoding = { onExcessProperty: "error" } as const;
 
 const decodeReceiptResource = Schema.decodeUnknownSync(ReceiptResource);

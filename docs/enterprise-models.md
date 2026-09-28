@@ -283,7 +283,7 @@ time. The arrows do not grant authority by themselves.
 
 ```mermaid
 flowchart TB
-  TC01["TR-C01 Public homepage"] --> TC03["TR-C03 Generated SDK and HTTP contract"]
+  TC01["TR-C01 Public homepage"] --> TC03["TR-C03 Effect RPC contract and derived clients"]
   TC02["TR-C02 Authenticated dashboard"] --> TC03
   TC03 --> TC04["TR-C04 Effect backend runtime"]
   TC04 --> TC05["TR-C05 Domain services"]
@@ -298,7 +298,7 @@ flowchart TB
 | -------- | ----------------------------------------------------------------------------------------------------------------- |
 | `TR-Q01` | Keep one modular backend until an observed operational need requires another deployment boundary.                 |
 | `TR-Q02` | Keep business rules and capability requirements in the domain package.                                            |
-| `TR-Q03` | Derive HTTP, OpenAPI, and SDK artifacts from one contract.                                                        |
+| `TR-Q03` | Derive every RPC handler and client from one contract. RPC produces no OpenAPI document.                          |
 | `TR-Q04` | Encode every external or durable boundary with Effect Schema.                                                     |
 | `TR-Q05` | Use PostgreSQL constraints, transactions, locks, and compare-and-set revisions for owned invariants.              |
 | `TR-Q06` | Enforce the same relationship-based authority for commands and queries.                                           |
@@ -500,7 +500,7 @@ flowchart LR
   AS03 -->|serving| BPR05["BUS-PRC05 Expense reimbursement"]
 ```
 
-`packages/domain`, `packages/database`, `packages/http-api`, and `packages/sdk` are
+`packages/domain`, `packages/database`, and `packages/rpc` are
 implementation modules within these components and interfaces. Their exact
 dependency graph remains authoritative in [architecture.md](architecture.md).
 

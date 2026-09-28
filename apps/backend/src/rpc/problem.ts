@@ -384,7 +384,7 @@ const commandReceiptCases = {
 } satisfies ProblemCases<NativeHttpReceiptInvalid | NativeHttpReceiptPersistenceError>;
 
 /**
- * HTTP command receipts: the transport's own persistence failures.
+ * Command receipts: the transport's own persistence failures.
  *
  * @remarks
  * An invalid stored receipt answers internal.error. A receipt persistence failure answers

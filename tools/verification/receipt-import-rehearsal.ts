@@ -4,7 +4,7 @@ import {
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
 import { ReceiptOutboxRequestSchema } from "@vektorprogrammet/domain/receipt";
-/** 0095: owned local PostgreSQL/auth/SDK/files import and restore rehearsal. */
+/** 0095: owned local PostgreSQL/auth/RPC/files import and restore rehearsal. */
 import assert from "node:assert/strict";
 import { observeReceiptDelivery } from "./receipt-delivery-observation.js";
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";

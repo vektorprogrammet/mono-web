@@ -2946,7 +2946,7 @@ try {
       productionBoundary:
         "No production data, provider, credentials, deployment, or cutover is contacted or changed.",
       apiGates: [
-        "real generated SDK read/write decoding",
+        "real RPC client read/write decoding",
         "private self discovery and no-team/regular-member privacy",
         "wrong-department/inactive/anonymous denies and global admin",
         "explicit historical scope and active associated schools",

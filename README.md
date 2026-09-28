@@ -29,7 +29,7 @@ Create one file in `docs/specs/` only while a non-trivial journey is active.
 Remove the completed specification after its durable intent is present in the
 system document, code, and observable checks.
 
-Code and generated contracts are authoritative for current implementation.
+Code and executable contracts are authoritative for current implementation.
 Do not keep generated code reference, runtime evidence, screenshots, logs, or
 dated migration reports in the repository.
 
@@ -109,11 +109,6 @@ Pre-commit checks only staged paths: one serial, two-thread Oxfmt process, one b
 Pre-push runs `just check` and tests of packages changed from `main`; push only from a clean worktree. Prek temporarily moves unstaged changes aside while hooks run. Commit with no unstaged tracked changes to avoid a killed hook leaving its parking patch behind.
 Every workspace that invokes Vitest merges [vitest.shared.ts](vitest.shared.ts), which bounds workers and admits standalone runs through the same machine-wide locks. Run hooks by hand with `just hooks` or `just hooks --hook-stage pre-push`.
 
-The root manifest declares a type-only Effect patch. It preserves union-command
-requests and callable Fetch inputs across runtimes. SDK type checks cover both
-contracts, including Bun types. Remove the patch when upstream declarations pass
-those checks without it.
-
 `engines.postgresql` lists the supported PostgreSQL majors, `"17 || 18"`. The hosted Supabase database runs 17.
 The highest major, 18, is the default. `VEKTOR_POSTGRES_MAJOR` selects another supported major for one environment,
 for example `VEKTOR_POSTGRES_MAJOR=17 devenv shell`. devenv re-evaluates the shell when the variable changes.
@@ -184,7 +179,6 @@ An affected package graph can run separately:
 
 ```bash
 just check-types -F @vektorprogrammet/backend --concurrency=1
-bun run --cwd packages/http-api generate
 ```
 
 Homepage builds require a clean committed source artifact. Do not weaken that provenance guard for a dirty operator tree.

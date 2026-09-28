@@ -42,13 +42,13 @@ Tag a construct only when at least 2 modules outside its own module and the test
   - [`isSerializationConflict`](constructs/rpc-problem.md#isserializationconflict): Whether a failure, or one of its causes, is a lost serialization or deadlock race: a transaction.conflict the client may retry.
   - [`requestInvalid`](constructs/rpc-problem.md#requestinvalid): The request as a whole fails validation; no single member is singled out.
   - [`strictOutput`](constructs/rpc-problem.md#strictoutput): Decodes one response value strictly.
-  - [`commandReceiptProblems`](constructs/rpc-problem.md#commandreceiptproblems): HTTP command receipts: the transport's own persistence failures.
+  - [`commandReceiptProblems`](constructs/rpc-problem.md#commandreceiptproblems): Command receipts: the transport's own persistence failures.
   - [`personPresentation`](constructs/rpc-problem.md#personpresentation): The credential evidence of an RPC request: which credential headers it presented.
   - [`commandOutcome`](constructs/rpc-problem.md#commandoutcome): The value of a command receipt outcome: the committed or replayed success, or an idempotency problem.
   - [`authorizeAnonymous`](constructs/rpc-problem.md#authorizeanonymous): An anonymous AccessSpec grants every caller and conceals nothing, so a denial means the spec and its scope resolution disagree: a defect.
   - [`authorizePerson`](constructs/rpc-problem.md#authorizeperson): A rejected person credential is answered from the ingress evidence, never by string choice.
   - [`unreachable`](constructs/rpc-problem.md#unreachable): Marks problems a shared mapper can produce but this operation cannot, such as a serialization conflict inside a read-only snapshot.
-  - [`problemUnion`](constructs/rpc-problem.md#problemunion): Creates a closed endpoint-specific Problem Details union.
+  - [`problemUnion`](constructs/rpc-problem.md#problemunion): Creates the closed Problem Details union of one RPC.
   - [`Problem`](constructs/rpc-problem.md#problem): One RFC 9457 failure in an Effect error channel.
   - [`isProblem`](constructs/rpc-problem.md#isproblem): Narrows a caught value to a `Problem`, also one that another copy of this module created.
   - [`problemBody`](constructs/rpc-problem.md#problembody): The frozen RFC 9457 body: the registry entry, then code, instance, and validation.

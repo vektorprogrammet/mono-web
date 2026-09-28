@@ -357,8 +357,8 @@ export function parseAdmissionPeriodForm(
 
   let payload: CreateAdmissionPeriodRequest;
 
-  // An empty department is an absent key: the SDK encodes a present undefined as null,
-  // which the contract rejects.
+  // An empty department is an absent key, as canonical command encoding requires (the former
+  // SDK encoded a present undefined as null, which the contract rejected).
   try {
     payload = Schema.decodeSync(CreateAdmissionPeriodRequest)(
       decoded.departmentId === undefined

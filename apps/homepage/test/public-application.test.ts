@@ -98,7 +98,7 @@ describe("public application form boundary", () => {
     }
   });
 
-  it("rejects excess and duplicate form members before the SDK call", () => {
+  it("rejects excess and duplicate form members before the RPC call", () => {
     const excess = completeForm();
     excess.set("applicantId", "browser-owned-identity");
     const duplicate = completeForm();

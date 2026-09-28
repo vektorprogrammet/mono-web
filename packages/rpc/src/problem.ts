@@ -985,13 +985,13 @@ function problemVariant(code: NativeProblemCode) {
 }
 
 /**
- * Creates a closed endpoint-specific Problem Details union.
+ * Creates the closed Problem Details union of one RPC.
  *
  * @remarks
  * It builds one wire-ordered variant per distinct code of `codes`, whose status, type, title, and
  * detail come from `NativeProblemRegistry`, and a validation code carries its validation
- * extension. The union keeps each declared code as a literal, and `identifier` names it in the
- * OpenAPI document. `endpointProblemResponses` splits it into one response per status.
+ * extension. The union keeps each declared code as a literal, and `identifier` names the schema.
+ * `rpcProblems` makes it the error of an RPC.
  *
  * @sideEffects none
  *
@@ -1001,7 +1001,7 @@ function problemVariant(code: NativeProblemCode) {
  * ```
  *
  * @avoid Writing a problem schema by hand, or giving a code its own status: the answer then
- * differs from the registry that clients decode. Declare an endpoint's problems with this.
+ * differs from the registry that clients decode. Declare an RPC's problems with this.
  *
  * @construct rpc-problem
  */
@@ -1194,7 +1194,7 @@ export class Problem<const Code extends NativeProblemCode = NativeProblemCode> e
       : Problem.credentialInvalid(presentation);
   }
 
-  /** Rebuilds a problem decoded from the wire by a generated client. */
+  /** Rebuilds a problem decoded from the wire by the RPC client. */
   static fromWire<const C extends NativeProblemCode>(
     body: WireProblemBody<C>,
     headers: WireProblemHeaders,

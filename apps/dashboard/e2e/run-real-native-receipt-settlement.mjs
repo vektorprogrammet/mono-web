@@ -1859,7 +1859,7 @@ async function main() {
     assert.equal(
       deliverySettlement.receiptId,
       deliveryCandidate.receiptId,
-      "SDK settlement response identifies the receipt",
+      "RPC settlement response identifies the receipt",
     );
 
     const failedDeliveryEvidence = await eventually(
@@ -2028,7 +2028,7 @@ async function main() {
     evidence = {
       topology: {
         dashboard: "production-react-router-server",
-        backend: "native-effect-http-api",
+        backend: "native-effect-rpc",
         client: "native-rpc-@vektorprogrammet/rpc",
         browser: "real-headless-chromium",
         database: "disposable-postgresql-local",

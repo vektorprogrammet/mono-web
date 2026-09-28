@@ -109,15 +109,15 @@ An Effect requirement expresses composition, not permission to act for a person.
 | Caller concern      | Contract and response                                                                                                                       |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | Authority           | The caller authenticates and authorizes each operation. The service key is not an authority token.                                          |
-| Command identity    | The transport derives `commandId` from its receipt identity. An arbitrary identifier does not provide HTTP replay protection.               |
+| Command identity    | The transport derives `commandId` from its receipt identity. An arbitrary identifier does not provide replay protection.                    |
 | Precondition        | The callback compares the locked snapshot with the caller's transport precondition. It does not grant authority or perform business writes. |
 | Domain rejection    | `PlacementFailure` supplies a tagged failure, code, and status. The caller corrects the relevant scope or command before another attempt.   |
 | Persistence failure | `PlacementPersistenceError` distinguishes transaction conflicts from internal errors. Its cause stays internal.                             |
 | Success             | `execute` returns a snapshot within the caller's transaction. This is not yet a commit or a provider acknowledgement.                       |
 
-The [HTTP adapter](../../../../apps/backend/src/placements/http.ts) shows the complete production call boundary.
+The [RPC handlers](../../../../apps/backend/src/placements/rpc.ts) show the complete production call boundary.
 It resolves current authority and receipt identity before the service executes.
-It evaluates the ETag precondition under the department lock.
+It evaluates the `ifMatch` entity-tag precondition under the department lock.
 A read preflight or a successful pure policy calculation does not replace this boundary.
 
 ## Compose it
@@ -133,7 +133,7 @@ Production composition differs from this fixture:
 
 - [Database Layers](../../../database/src/layers.ts) supply the adapter and run migrations.
 - [Backend composition](../../../../apps/backend/src/main.ts) shares the database Layer and supervises workers.
-- [HTTP command transactions](../../../../apps/backend/src/http-api/receipt-transaction.ts) own authority preparation, receipt lookup, replay, and transaction completion.
+- [Command transactions](../../../../apps/backend/src/rpc/receipt-transaction.ts) own authority preparation, receipt lookup, replay, and transaction completion.
 - [Notification worker](../../../../apps/backend/src/placements/notification.ts) supplies the roster interpreter and recovery schedule.
 
 A new server caller must preserve those responsibilities rather than call `execute` without an authorized transaction.
@@ -181,7 +181,7 @@ A coordinator applies the chosen rows as ordinary `Create` commands against the 
 ### Retry and interruption
 
 The Placements service does not install a retry policy.
-The HTTP adapter selects `serialization-once` in the [receipt transaction owner](../../../../apps/backend/src/http-api/receipt-transaction.ts).
+The RPC handler selects `serialization-once` in the [receipt transaction owner](../../../../apps/backend/src/rpc/receipt-transaction.ts).
 That owner repeats preparation and execution after a retryable rollback, so authority must remain inside preparation.
 Provider I/O must remain outside the business transaction.
 
@@ -297,7 +297,7 @@ TypeDoc generates the local reference, renders this guide, and includes the exac
 The [Placements documentation command](../../../../tools/placements-docs/placements.ts) derives entry points from the `./placements` export of each manifest and compares fresh output.
 It does not parse TypeScript itself.
 The [documentation site](../../../../apps/docs/site.ts) renders this guide beside the other repository documents and links the generated reference.
-The [HTTP generator](../../../http-api/scripts/generate-openapi.ts) remains the owner of HTTP reference artifacts.
+The [RPC contract](../../../rpc/src/placements.ts) is the reference of the Placements RPCs; RPC produces no OpenAPI document.
 
 ## Cleanup and evidence
 

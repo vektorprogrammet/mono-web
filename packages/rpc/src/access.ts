@@ -268,7 +268,7 @@ export const assertAccessProjectionRegistryParity = (): void => {
     expected.some((capabilityType, index) => capabilityType !== actual[index])
   ) {
     throw new TypeError(
-      `ObjectCapability OpenAPI security mapping does not match the domain registry: expected ${expected.join(",")}; received ${actual.join(",")}`,
+      `ObjectCapability security mapping does not match the domain registry: expected ${expected.join(",")}; received ${actual.join(",")}`,
     );
   }
 };

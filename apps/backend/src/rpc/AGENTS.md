@@ -20,7 +20,7 @@ The shared constructs defined here. Each name links to its contract; [docs/const
 - [`isSerializationConflict`](../../../../docs/constructs/rpc-problem.md#isserializationconflict) (rpc-problem): Whether a failure, or one of its causes, is a lost serialization or deadlock race: a transaction.conflict the client may retry.
 - [`requestInvalid`](../../../../docs/constructs/rpc-problem.md#requestinvalid) (rpc-problem): The request as a whole fails validation; no single member is singled out.
 - [`strictOutput`](../../../../docs/constructs/rpc-problem.md#strictoutput) (rpc-problem): Decodes one response value strictly.
-- [`commandReceiptProblems`](../../../../docs/constructs/rpc-problem.md#commandreceiptproblems) (rpc-problem): HTTP command receipts: the transport's own persistence failures.
+- [`commandReceiptProblems`](../../../../docs/constructs/rpc-problem.md#commandreceiptproblems) (rpc-problem): Command receipts: the transport's own persistence failures.
 - [`personPresentation`](../../../../docs/constructs/rpc-problem.md#personpresentation) (rpc-problem): The credential evidence of an RPC request: which credential headers it presented.
 - [`commandOutcome`](../../../../docs/constructs/rpc-problem.md#commandoutcome) (rpc-problem): The value of a command receipt outcome: the committed or replayed success, or an idempotency problem.
 - [`authorizeAnonymous`](../../../../docs/constructs/rpc-problem.md#authorizeanonymous) (rpc-problem): An anonymous AccessSpec grants every caller and conceals nothing, so a denial means the spec and its scope resolution disagree: a defect.

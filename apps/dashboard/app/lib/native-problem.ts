@@ -8,7 +8,7 @@ const decodeProblem = Schema.decodeUnknownOption(ProblemBody, { onExcessProperty
 export type NativeProblemSummary = typeof ProblemBody.Type;
 
 /**
- * Decode the `Problem` the generated SDK failed with. Pass the SDK cause unchanged:
+ * Decode the `Problem` the RPC client failed with. Pass the RPC cause unchanged:
  * a copy, a re-decoded value, or any other problem-shaped object is not problem evidence.
  */
 export const nativeProblemFrom = (cause: unknown): NativeProblemSummary | undefined =>

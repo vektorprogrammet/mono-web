@@ -173,7 +173,7 @@ const failure = {
 export const recruitmentNetworkFailure: RecruitmentBridgeFailure = failure.Network;
 
 /**
- * Projects a generated-SDK failure onto the bridge. Pass the SDK cause unchanged:
+ * Projects an RPC client failure onto the bridge. Pass the RPC cause unchanged:
  * the problem's registry status decides the case, and anything else is a transport failure.
  */
 export const recruitmentFailureFromSdk = (cause: unknown): RecruitmentBridgeFailure => {

@@ -27,7 +27,7 @@ const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)))
 
 const BooleanValue = Schema.Boolean;
 
-/** Numeric identity demanded by the frozen SDK TeamInterest schema (spec 0059). */
+/** Numeric identity demanded by the frozen TeamInterest schema (spec 0059). */
 const RegistrationNumber = Schema.Int.pipe(
   Schema.check(
     Schema.makeFilter(Number.isSafeInteger, { message: "a safe integer" }),
