@@ -147,7 +147,24 @@ Measured on `c2bb975`, with PostgreSQL 18:
   scope agrees with first-membership semantics; social-event creation agrees with its grant check.
   Generated inputs reach both outcomes (127 grants and 173 denials in one measured run).
 - The authorization-rules proof output is unchanged apart from process ids and timestamps.
-- Browser journeys: see the table in the commit that records them.
+- Browser and golden journeys, each exit 0 on a clean tree with PostgreSQL 18 and Chromium:
+
+  | Journey                        | Exercises                                                 | Revision  | Seconds |
+  | ------------------------------ | --------------------------------------------------------- | --------- | ------- |
+  | `just e2e organization`        | administrator evidence; member denied 403; replay         | `c2bb975` | 67      |
+  | `just e2e schools`             | school directory authority matrix                         | `416850c` | 83      |
+  | `just e2e social-events`       | social-event creation                                     | `416850c` | 77      |
+  | `just e2e substitutes`         | admission outcomes                                        | `416850c` | 76      |
+  | `just e2e onboarding`          | coordinator invitation; wrong department denied           | `416850c` | 77      |
+  | `just e2e recruitment`         | recruitment session                                       | `416850c` | 55      |
+  | `just golden school-service`   | placement board, coverage, forbidden step (26 steps)      | `416850c` | 118     |
+  | `just golden team-application` | intake revision, deletion, delivery recovery              | `3a55e3a` | 88      |
+
+  The first team-application run at `416850c` hung for 25 minutes before its first page. The
+  base `f433ea9` passed, and a rerun of `416850c` passed in 91 s. The cause was the readiness probe
+  of `tools/e2e/golden-harness.ts`, fixed in `3a55e3a`. No journey drives team interest in a
+  browser (`tools/conventions/src/journeys.ts` excludes its spec); the database and backend tests
+  cover it.
 
 ## Deliberately left
 
