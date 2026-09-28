@@ -138,7 +138,7 @@ const disposablePglite = Effect.acquireRelease(
 
 /** The PGlite that the shared recruitment layer owns, for tests that replay migration SQL on it. */
 class RecruitmentPglite extends Context.Service<RecruitmentPglite, PGlite>()(
-  "@vektorprogrammet/database/test/RecruitmentPglite",
+  "@vektorprogrammet/database/database.test/RecruitmentPglite",
 ) {}
 
 const sharedRecruitmentLayer = Layer.unwrap(

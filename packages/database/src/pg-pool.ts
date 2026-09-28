@@ -4,7 +4,7 @@ import { Pool, type PoolClient, type PoolConfig, type QueryResult, type QueryRes
 
 /** The one native PostgreSQL pool shared by Database and Better Auth. */
 export class DatabasePgPool extends Context.Service<DatabasePgPool, Pool>()(
-  "@vektorprogrammet/database/DatabasePgPool",
+  "@vektorprogrammet/database/pg-pool/DatabasePgPool",
 ) {}
 
 /** A node-postgres connection or statement failure, carrying the driver's message. */

@@ -547,7 +547,7 @@ export const drainPasswordResetMail = (
   );
 
 export class PasswordRecovery extends Context.Service<PasswordRecovery, PasswordRecoveryService>()(
-  "@vektorprogrammet/database/PasswordRecovery",
+  "@vektorprogrammet/database/password-recovery/PasswordRecovery",
 ) {}
 
 export const PasswordRecoveryLive = (config: AuthEngineConfig) =>

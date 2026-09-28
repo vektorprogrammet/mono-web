@@ -69,7 +69,7 @@ export interface AuthEngineService {
 }
 
 export class AuthEngine extends Context.Service<AuthEngine, AuthEngineService>()(
-  "@vektorprogrammet/database/AuthEngine",
+  "@vektorprogrammet/database/auth-live/AuthEngine",
 ) {}
 
 export interface IdentitySnapshotService {
@@ -120,7 +120,7 @@ export interface IdentitySnapshotService {
  * @effect-expect-leaking Database
  */
 export class IdentitySnapshot extends Context.Service<IdentitySnapshot, IdentitySnapshotService>()(
-  "@vektorprogrammet/database/IdentitySnapshot",
+  "@vektorprogrammet/database/auth-live/IdentitySnapshot",
 ) {}
 
 interface SessionRow extends QueryResultRow {

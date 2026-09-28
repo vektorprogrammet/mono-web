@@ -507,7 +507,7 @@ export const makeAuthEngine = (
 export type AuthEngine = ReturnType<typeof makeAuthEngine>;
 
 export class NativeAuthEngine extends Context.Service<NativeAuthEngine, AuthEngine>()(
-  "@vektorprogrammet/database/NativeAuthEngine",
+  "@vektorprogrammet/database/auth-engine/NativeAuthEngine",
 ) {}
 
 export const NativeAuthEngineLive = (config: AuthEngineConfig) =>

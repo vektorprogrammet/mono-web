@@ -89,7 +89,7 @@ export interface OAuthCredentialAuthorityService {
 export class OAuthCredentialAuthority extends Context.Service<
   OAuthCredentialAuthority,
   OAuthCredentialAuthorityService
->()("@vektorprogrammet/database/OAuthCredentialAuthority") {}
+>()("@vektorprogrammet/database/oauth-live/OAuthCredentialAuthority") {}
 
 export interface OAuthOperatorExecution {
   readonly dryRun: boolean;
@@ -164,7 +164,7 @@ export interface OAuthClientOperatorService {
 export class OAuthClientOperator extends Context.Service<
   OAuthClientOperator,
   OAuthClientOperatorService
->()("@vektorprogrammet/database/OAuthClientOperator") {}
+>()("@vektorprogrammet/database/oauth-live/OAuthClientOperator") {}
 
 type OAuthEngineBoundary = Pick<AuthEngine, "handler" | "$context"> & {
   readonly api: Pick<AuthEngine["api"], "signJWT">;
@@ -2411,7 +2411,7 @@ export class OAuthHandlers extends Context.Service<
     readonly release: OAuthReleaseHandler;
     readonly introspection: OAuthIntrospectionHandler;
   }
->()("@vektorprogrammet/database/OAuthHandlers") {}
+>()("@vektorprogrammet/database/oauth-live/OAuthHandlers") {}
 
 export const OAuthLive = (config: OAuthProviderRuntimeConfig) =>
   Layer.effectContext(
