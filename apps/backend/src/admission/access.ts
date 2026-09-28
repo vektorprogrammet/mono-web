@@ -28,6 +28,7 @@ import { genericContext, type NativePersonAuthorization } from "../native-operat
 import { credentialRequestOf } from "../rpc/credential.js";
 import type { NativeRpcOptions } from "../rpc/options.js";
 import { authorizePerson, personPresentation, unreachable } from "../rpc/problem.js";
+import { dual } from "effect/Function";
 
 export const admissionGrantScopes = (actor: AdmissionPeriodActor) =>
   Predicate.isTagged(actor, "GlobalAdmin")
@@ -64,13 +65,32 @@ export const returningPersonResource = (personId: string) =>
  *
  * @construct rpc-problem
  */
-export const authorizeAdmissionPerson = (
-  headers: Headers.Headers,
-  input: NativePersonAuthorization,
-): Effect.Effect<
-  void,
-  Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">
-> => authorizePerson(input, personPresentation(headers)).pipe(unreachable("resource.not-found"));
+export const authorizeAdmissionPerson: {
+  (
+    input: NativePersonAuthorization,
+  ): (
+    headers: Headers.Headers,
+  ) => Effect.Effect<
+    void,
+    Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">
+  >;
+  (
+    headers: Headers.Headers,
+    input: NativePersonAuthorization,
+  ): Effect.Effect<
+    void,
+    Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">
+  >;
+} = dual(
+  2,
+  (
+    headers: Headers.Headers,
+    input: NativePersonAuthorization,
+  ): Effect.Effect<
+    void,
+    Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">
+  > => authorizePerson(input, personPresentation(headers)).pipe(unreachable("resource.not-found")),
+);
 
 /**
  * Resolves the current person and authorizes one returning-assistant operation on that person's
@@ -95,45 +115,78 @@ export const authorizeAdmissionPerson = (
  *
  * @construct rpc-problem
  */
-export const returningAuthorization = (
-  headers: Headers.Headers,
-  options: NativeRpcOptions,
-  rpc: typeof ReadReturningAssistantOptions | typeof RegisterReturningAssistant,
-): Effect.Effect<
-  TransactionPersonAuthority,
-  | IdentityEngineError
-  | UnauthenticatedActor
-  | OrganizationResolutionError
-  | Problem<"authority.denied">
-  | Problem<"credential.invalid">
-  | Problem<"credential.missing">,
-  Database | Organization | IdentitySnapshot | OAuthCredentialAuthority
-> =>
-  Effect.gen(function* () {
-    const authorization = yield* resolveRequestPersonAuthorityInTransaction(
-      credentialRequestOf(headers),
-      { now: options.config.admission.now },
-    );
+export const returningAuthorization: {
+  (
+    options: NativeRpcOptions,
+    rpc: typeof ReadReturningAssistantOptions | typeof RegisterReturningAssistant,
+  ): (
+    headers: Headers.Headers,
+  ) => Effect.Effect<
+    TransactionPersonAuthority,
+    | IdentityEngineError
+    | UnauthenticatedActor
+    | OrganizationResolutionError
+    | Problem<"authority.denied">
+    | Problem<"credential.invalid">
+    | Problem<"credential.missing">,
+    Database | Organization | IdentitySnapshot | OAuthCredentialAuthority
+  >;
+  (
+    headers: Headers.Headers,
+    options: NativeRpcOptions,
+    rpc: typeof ReadReturningAssistantOptions | typeof RegisterReturningAssistant,
+  ): Effect.Effect<
+    TransactionPersonAuthority,
+    | IdentityEngineError
+    | UnauthenticatedActor
+    | OrganizationResolutionError
+    | Problem<"authority.denied">
+    | Problem<"credential.invalid">
+    | Problem<"credential.missing">,
+    Database | Organization | IdentitySnapshot | OAuthCredentialAuthority
+  >;
+} = dual(
+  3,
+  (
+    headers: Headers.Headers,
+    options: NativeRpcOptions,
+    rpc: typeof ReadReturningAssistantOptions | typeof RegisterReturningAssistant,
+  ): Effect.Effect<
+    TransactionPersonAuthority,
+    | IdentityEngineError
+    | UnauthenticatedActor
+    | OrganizationResolutionError
+    | Problem<"authority.denied">
+    | Problem<"credential.invalid">
+    | Problem<"credential.missing">,
+    Database | Organization | IdentitySnapshot | OAuthCredentialAuthority
+  > =>
+    Effect.gen(function* () {
+      const authorization = yield* resolveRequestPersonAuthorityInTransaction(
+        credentialRequestOf(headers),
+        { now: options.config.admission.now },
+      );
 
-    yield* authorizeAdmissionPerson(headers, {
-      spec: Option.getOrThrow(reflectAccessSpec(rpc)),
-      credential: authorization.credential,
-      personId: authorization.authority.personId,
-      resolution: {
-        selection: "ExactlyOne",
-        contexts: [
-          genericContext({
-            domainId: "admissions",
-            resourceKind: "person-profile",
-            resourceId: authorization.authority.personId,
-            facts: { ownerPersonId: authorization.authority.personId },
-            authorityVersion: "admissions:returning-assistant",
-          }),
-        ],
-      },
-      grantScopes: [returningPersonResource(authorization.authority.personId)],
-      now: authorization.authorizationInstant,
-    });
+      yield* authorizeAdmissionPerson(headers, {
+        spec: Option.getOrThrow(reflectAccessSpec(rpc)),
+        credential: authorization.credential,
+        personId: authorization.authority.personId,
+        resolution: {
+          selection: "ExactlyOne",
+          contexts: [
+            genericContext({
+              domainId: "admissions",
+              resourceKind: "person-profile",
+              resourceId: authorization.authority.personId,
+              facts: { ownerPersonId: authorization.authority.personId },
+              authorityVersion: "admissions:returning-assistant",
+            }),
+          ],
+        },
+        grantScopes: [returningPersonResource(authorization.authority.personId)],
+        now: authorization.authorizationInstant,
+      });
 
-    return authorization;
-  });
+      return authorization;
+    }),
+);

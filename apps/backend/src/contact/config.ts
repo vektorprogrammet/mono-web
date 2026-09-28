@@ -19,11 +19,14 @@ export const contactConfig = (
   const timeout = Number(env.CONTACT_DELIVERY_TIMEOUT_MS);
 
   if (
-    !backendToken ||
+    backendToken === undefined ||
     backendToken.length < 32 ||
-    !token ||
-    !sender ||
-    !endpoint ||
+    token === undefined ||
+    token.length === 0 ||
+    sender === undefined ||
+    sender.length === 0 ||
+    endpoint === undefined ||
+    endpoint.length === 0 ||
     !Schema.is(ContactEmail)(sender) ||
     !Number.isSafeInteger(timeout) ||
     timeout < 1 ||
@@ -34,7 +37,12 @@ export const contactConfig = (
   try {
     const url = new URL(endpoint);
 
-    if (url.username || url.password || url.hash || !["http:", "https:"].includes(url.protocol))
+    if (
+      url.username.length > 0 ||
+      url.password.length > 0 ||
+      url.hash.length > 0 ||
+      !["http:", "https:"].includes(url.protocol)
+    )
       return undefined;
 
     return {

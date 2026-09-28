@@ -1,6 +1,7 @@
 import { Problem } from "@vektorprogrammet/rpc/problem";
 import { Effect, Schema } from "effect";
 import { parseJsonWithoutDuplicateMembers } from "../http-semantics.js";
+import { dual } from "effect/Function";
 
 type ReadJsonProblem =
   | Problem<"request.malformed">
@@ -12,10 +13,10 @@ type ReadJsonProblem =
  * body that cannot be read at all is an internal error; everything else the
  * client sent wrong is request.malformed or request.too-large.
  */
-export const readBoundedJson = (
-  request: Request,
-  maxBytes: number,
-): Effect.Effect<Schema.Json, ReadJsonProblem> => {
+export const readBoundedJson: {
+  (maxBytes: number): (request: Request) => Effect.Effect<Schema.Json, ReadJsonProblem>;
+  (request: Request, maxBytes: number): Effect.Effect<Schema.Json, ReadJsonProblem>;
+} = dual(2, (request: Request, maxBytes: number): Effect.Effect<Schema.Json, ReadJsonProblem> => {
   const declared = request.headers.get("content-length");
 
   if (declared !== null && (!/^\d+$/u.test(declared) || !Number.isSafeInteger(Number(declared))))
@@ -25,7 +26,7 @@ export const readBoundedJson = (
     return Effect.fail(Problem.make("request.too-large"));
   const reader = request.body?.getReader();
 
-  if (!reader) return Effect.fail(Problem.make("request.malformed"));
+  if (reader === undefined) return Effect.fail(Problem.make("request.malformed"));
 
   return Effect.gen(function* () {
     const chunks: Uint8Array[] = [];
@@ -66,4 +67,4 @@ export const readBoundedJson = (
       catch: () => Problem.make("request.malformed"),
     });
   }).pipe(Effect.ensuring(Effect.sync(() => reader.releaseLock())));
-};
+});

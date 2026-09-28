@@ -149,7 +149,7 @@ const resolveSocialEventAuthority = (
     );
 
     if (!Predicate.isTagged(authenticated.credential.principal, "Person")) {
-      return yield* new UnauthenticatedActor({ message: "authentication required" });
+      return yield* UnauthenticatedActor.make({ message: "authentication required" });
     }
 
     const personId = authenticated.credential.principal.personId;

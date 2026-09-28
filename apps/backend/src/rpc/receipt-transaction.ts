@@ -3,6 +3,7 @@ import { isSqlError } from "effect/unstable/sql/SqlError";
 import { Database, type DatabaseOperations } from "@vektorprogrammet/database";
 import { jsonBodyBytes } from "../http-semantics.js";
 import { AdvisoryLockKey, tryLockAdvisory } from "@vektorprogrammet/database/advisory-lock";
+import { dual } from "effect/Function";
 
 const sha256Pattern = /^[a-f0-9]{64}$/u;
 
@@ -248,86 +249,107 @@ const writeCompleteReceipt = (
  * prepared program. Domain state, audit, outbox, and receipt writes therefore
  * commit or roll back as one unit.
  */
-export const executeNativeHttpCommandPostgres = <EPrepare, RPrepare, EExecute, RExecute>(
-  prepare: Effect.Effect<NativeHttpCommandPlan<EExecute, RExecute>, EPrepare, RPrepare>,
-  options: NativeHttpCommandExecutionOptions = {},
-): Effect.Effect<
-  NativeHttpCommandOutcome,
-  EPrepare | EExecute | NativeHttpReceiptInvalid | NativeHttpReceiptPersistenceError,
-  RPrepare | RExecute | Database
-> => {
-  const transaction = Database.use((sql) =>
-    sql.withTransaction(
-      Effect.gen(function* () {
-        yield* sql`SET TRANSACTION ISOLATION LEVEL SERIALIZABLE`;
-        const plan = yield* prepare;
-        const identity = plan.identity;
-        yield* Effect.try({
-          try: () => validateIdentity(identity),
-          catch: (cause) =>
-            cause instanceof NativeHttpReceiptInvalid
-              ? cause
-              : new NativeHttpReceiptInvalid({ reason: "invalid receipt identity" }),
-        });
+export const executeNativeHttpCommandPostgres: {
+  <EPrepare, RPrepare, EExecute, RExecute>(
+    prepare: Effect.Effect<NativeHttpCommandPlan<EExecute, RExecute>, EPrepare, RPrepare>,
+    options?: NativeHttpCommandExecutionOptions,
+  ): Effect.Effect<
+    NativeHttpCommandOutcome,
+    EPrepare | EExecute | NativeHttpReceiptInvalid | NativeHttpReceiptPersistenceError,
+    RPrepare | RExecute | Database
+  >;
+  (
+    options?: NativeHttpCommandExecutionOptions,
+  ): <EPrepare, RPrepare, EExecute, RExecute>(
+    prepare: Effect.Effect<NativeHttpCommandPlan<EExecute, RExecute>, EPrepare, RPrepare>,
+  ) => Effect.Effect<
+    NativeHttpCommandOutcome,
+    EPrepare | EExecute | NativeHttpReceiptInvalid | NativeHttpReceiptPersistenceError,
+    RPrepare | RExecute | Database
+  >;
+} = dual(
+  (args) => Effect.isEffect(args[0]),
+  <EPrepare, RPrepare, EExecute, RExecute>(
+    prepare: Effect.Effect<NativeHttpCommandPlan<EExecute, RExecute>, EPrepare, RPrepare>,
+    options: NativeHttpCommandExecutionOptions = {},
+  ): Effect.Effect<
+    NativeHttpCommandOutcome,
+    EPrepare | EExecute | NativeHttpReceiptInvalid | NativeHttpReceiptPersistenceError,
+    RPrepare | RExecute | Database
+  > => {
+    const transaction = Database.use((sql) =>
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* sql`SET TRANSACTION ISOLATION LEVEL SERIALIZABLE`;
+          const plan = yield* prepare;
+          const identity = plan.identity;
+          yield* Effect.try({
+            try: () => validateIdentity(identity),
+            catch: (cause) =>
+              cause instanceof NativeHttpReceiptInvalid
+                ? cause
+                : new NativeHttpReceiptInvalid({ reason: "invalid receipt identity" }),
+          });
 
-        const acquired = yield* tryLockAdvisory(
-          sql,
-          AdvisoryLockKey.httpCommandReceipt(identity.identitySha256),
-        );
+          const acquired = yield* tryLockAdvisory(
+            sql,
+            AdvisoryLockKey.httpCommandReceipt(identity.identitySha256),
+          );
 
-        if (!acquired) {
-          return NativeHttpCommandOutcome.InFlight({ retryAfterSeconds: 1 });
-        }
-
-        yield* redactIdentityIfExpired(sql, identity.identitySha256);
-        const stored = yield* readReceipt(sql, identity.identitySha256);
-
-        if (stored !== undefined) {
-          if (
-            stored.requestSha256 !== identity.requestSha256 ||
-            stored.operationId !== identity.operationId
-          ) {
-            return NativeHttpCommandOutcome.DigestConflict();
+          if (!acquired) {
+            return NativeHttpCommandOutcome.InFlight({ retryAfterSeconds: 1 });
           }
 
-          if (stored.state === "Tombstone") return NativeHttpCommandOutcome.ResponseExpired();
+          yield* redactIdentityIfExpired(sql, identity.identitySha256);
+          const stored = yield* readReceipt(sql, identity.identitySha256);
 
-          return NativeHttpCommandOutcome.Replay({ response: capsuleFromRow(stored) });
-        }
+          if (stored !== undefined) {
+            if (
+              stored.requestSha256 !== identity.requestSha256 ||
+              stored.operationId !== identity.operationId
+            ) {
+              return NativeHttpCommandOutcome.DigestConflict();
+            }
 
-        const response = yield* plan.execute.pipe(Effect.provideService(Database, sql));
-        yield* Effect.try({
-          try: () => validateCapsule(response),
-          catch: (cause) =>
-            cause instanceof NativeHttpReceiptInvalid
-              ? cause
-              : new NativeHttpReceiptInvalid({ reason: "invalid response capsule" }),
-        });
-        yield* writeCompleteReceipt(sql, identity, response);
+            if (stored.state === "Tombstone") return NativeHttpCommandOutcome.ResponseExpired();
 
-        return NativeHttpCommandOutcome.Committed({ response });
-      }),
-    ),
-  );
+            return NativeHttpCommandOutcome.Replay({ response: capsuleFromRow(stored) });
+          }
 
-  const retryUniqueConstraints = new Set(
-    options.retry === "serialization-or-unique-once" ? options.retryUniqueConstraints : [],
-  );
+          const response = yield* plan.execute.pipe(Effect.provideService(Database, sql));
+          yield* Effect.try({
+            try: () => validateCapsule(response),
+            catch: (cause) =>
+              cause instanceof NativeHttpReceiptInvalid
+                ? cause
+                : new NativeHttpReceiptInvalid({ reason: "invalid response capsule" }),
+          });
+          yield* writeCompleteReceipt(sql, identity, response);
 
-  const executed =
-    options.retry === undefined
-      ? transaction
-      : Effect.retry(transaction, {
-          times: 1,
-          while: (cause) => isRetryableCommandRace(cause, retryUniqueConstraints),
-        });
+          return NativeHttpCommandOutcome.Committed({ response });
+        }),
+      ),
+    );
 
-  return executed.pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(new NativeHttpReceiptPersistenceError({ operation: "execute", cause })),
-    ),
-  );
-};
+    const retryUniqueConstraints = new Set(
+      options.retry === "serialization-or-unique-once" ? options.retryUniqueConstraints : [],
+    );
+
+    const executed =
+      options.retry === undefined
+        ? transaction
+        : Effect.retry(transaction, {
+            times: 1,
+            while: (cause) => isRetryableCommandRace(cause, retryUniqueConstraints),
+          });
+
+    return executed.pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(new NativeHttpReceiptPersistenceError({ operation: "execute", cause })),
+      ),
+    );
+  },
+);
 
 /** Redacts all expired response capsules while retaining durable tombstones. */
 export const redactExpiredNativeHttpReceipts = Database.use((sql) =>
@@ -375,12 +397,25 @@ export const successCapsule =
     );
 
 /** The success that `successCapsule` stored. A stored value that no longer decodes is a defect. */
-export const decodeStoredSuccess = <S extends Schema.Codec<unknown, unknown, never, never>>(
-  success: S,
-  capsule: NativeHttpResponseCapsule,
-): Effect.Effect<S["Type"]> =>
-  capsule.bodyBytes === null
-    ? Effect.die(new NativeHttpReceiptInvalid({ reason: "a command receipt stores no success" }))
-    : Schema.decodeEffect(Schema.fromJsonString(Schema.toCodecJson(success)))(
-        new TextDecoder().decode(capsule.bodyBytes),
-      ).pipe(Effect.orDie);
+export const decodeStoredSuccess: {
+  (
+    capsule: NativeHttpResponseCapsule,
+  ): <S extends Schema.Codec<unknown, unknown, never, never>>(
+    success: S,
+  ) => Effect.Effect<S["Type"]>;
+  <S extends Schema.Codec<unknown, unknown, never, never>>(
+    success: S,
+    capsule: NativeHttpResponseCapsule,
+  ): Effect.Effect<S["Type"]>;
+} = dual(
+  2,
+  <S extends Schema.Codec<unknown, unknown, never, never>>(
+    success: S,
+    capsule: NativeHttpResponseCapsule,
+  ): Effect.Effect<S["Type"]> =>
+    capsule.bodyBytes === null
+      ? Effect.die(new NativeHttpReceiptInvalid({ reason: "a command receipt stores no success" }))
+      : Schema.decodeEffect(Schema.fromJsonString(Schema.toCodecJson(success)))(
+          new TextDecoder().decode(capsule.bodyBytes),
+        ).pipe(Effect.orDie),
+);

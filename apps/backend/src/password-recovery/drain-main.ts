@@ -14,7 +14,7 @@ if (process.argv.length !== 3 || process.argv[2] !== "--once")
 // An unset or empty variable is missing.
 const sender = Effect.runSync(Config.String("MAIL_SENDER").pipe(Config.withDefault("")));
 
-if (!sender) throw new Error("MAIL_SENDER is required");
+if (sender.length === 0) throw new Error("MAIL_SENDER is required");
 
 const config = Effect.runSync(decodeBackendConfig(process.env));
 

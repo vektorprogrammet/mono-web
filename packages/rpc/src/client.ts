@@ -15,7 +15,7 @@ const makeClient = RpcClient.make(NativeRpcs);
 export class NativeRpcClient extends Context.Service<
   NativeRpcClient,
   Effect.Success<typeof makeClient>
->()("@vektorprogrammet/rpc/NativeRpcClient") {}
+>()("@vektorprogrammet/rpc/client/NativeRpcClient") {}
 
 /**
  * The client of the backend at `origin`.

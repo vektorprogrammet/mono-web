@@ -52,6 +52,7 @@ import type {
   OrganizationDecodeError,
   OrganizationPersistenceError,
 } from "@vektorprogrammet/domain/organization";
+import { dual } from "effect/Function";
 
 /** Projection failures are infrastructure-level and surface as typed denials upstream. */
 export type OrganizationResolutionError = OrganizationDecodeError | OrganizationPersistenceError;
@@ -71,7 +72,7 @@ const sessionEffect = (
 ): Effect.Effect<IdentityActor, IdentityEngineError | UnauthenticatedActor, Identity> =>
   Identity.use(({ resolveSession }) => resolveSession(cookieHeader)).pipe(
     Effect.catchTag(["IdentitySessionNotFound", "IdentitySessionExpired"], () =>
-      Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
+      Effect.fail(UnauthenticatedActor.make({ message: "authentication required" })),
     ),
   );
 
@@ -81,12 +82,15 @@ const sessionEffect = (
  * credential at most: with two, it fails before either one is resolved, so no
  * principal is ever chosen between them, whether they name one Person or two.
  */
-export const headerCredentialCount = (
-  cookieHeader: string | null | undefined,
-  authorization: string | null | undefined,
-): number =>
-  (hasBetterAuthSessionCredential(cookieHeader ?? null) ? 1 : 0) +
-  (Predicate.isNotNullish(authorization) ? 1 : 0);
+export const headerCredentialCount: {
+  (authorization: string | null | undefined): (cookieHeader: string | null | undefined) => number;
+  (cookieHeader: string | null | undefined, authorization: string | null | undefined): number;
+} = dual(
+  2,
+  (cookieHeader: string | null | undefined, authorization: string | null | undefined): number =>
+    (hasBetterAuthSessionCredential(cookieHeader ?? null) ? 1 : 0) +
+    (Predicate.isNotNullish(authorization) ? 1 : 0),
+);
 
 type AcceptedCredential = Extract<CredentialOutcome, { readonly _tag: "Accepted" }>;
 
@@ -102,7 +106,7 @@ const requestCredentialEffect = (
   const cookieHeader = request.headers.get("cookie");
 
   if (headerCredentialCount(cookieHeader, authorization) > 1) {
-    return Effect.fail(new UnauthenticatedActor({ message: "authentication required" }));
+    return Effect.fail(UnauthenticatedActor.make({ message: "authentication required" }));
   }
 
   if (authorization !== null) {
@@ -110,7 +114,7 @@ const requestCredentialEffect = (
       Effect.flatMap((outcome) =>
         Predicate.isTagged(outcome, "Accepted")
           ? Effect.succeed(outcome)
-          : Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
+          : Effect.fail(UnauthenticatedActor.make({ message: "authentication required" })),
       ),
     );
   }
@@ -133,7 +137,7 @@ const requestPersonEffect = (
   Effect.flatMap(requestCredentialEffect(request, "OAuthUserBearer"), (credential) =>
     Predicate.isTagged(credential.principal, "Person")
       ? Effect.succeed(credential.principal.personId)
-      : Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
+      : Effect.fail(UnauthenticatedActor.make({ message: "authentication required" })),
   );
 
 const requestCredentialInTransactionEffect = (
@@ -149,7 +153,7 @@ const requestCredentialInTransactionEffect = (
   const cookieHeader = request.headers.get("cookie");
 
   if (headerCredentialCount(cookieHeader, authorization) > 1) {
-    return Effect.fail(new UnauthenticatedActor({ message: "authentication required" }));
+    return Effect.fail(UnauthenticatedActor.make({ message: "authentication required" }));
   }
 
   if (authorization !== null) {
@@ -159,13 +163,13 @@ const requestCredentialInTransactionEffect = (
       Effect.flatMap((outcome) =>
         Predicate.isTagged(outcome, "Accepted")
           ? Effect.succeed(outcome)
-          : Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
+          : Effect.fail(UnauthenticatedActor.make({ message: "authentication required" })),
       ),
     );
   }
 
   if (expected === "OAuthServiceBearer") {
-    return Effect.fail(new UnauthenticatedActor({ message: "authentication required" }));
+    return Effect.fail(UnauthenticatedActor.make({ message: "authentication required" }));
   }
 
   return IdentitySnapshot.use(({ resolveSession }) =>
@@ -178,7 +182,7 @@ const requestCredentialInTransactionEffect = (
       evidenceRef: CredentialEvidenceRef.make(`better-auth:session:${actor.sessionId}`),
     })),
     Effect.catchTag("IdentitySessionNotFound", () =>
-      Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
+      Effect.fail(UnauthenticatedActor.make({ message: "authentication required" })),
     ),
   );
 };
@@ -214,13 +218,26 @@ export interface TransactionPersonAuthorityResolutionOptions {
  * Resolves the session of a session-only operation. An Authorization header beside the
  * session cookie is a second credential, so the request fails without resolving either.
  */
-export const resolveAuthenticatedSession = (
-  cookieHeader: string | undefined,
-  authorization: string | undefined,
-): Effect.Effect<IdentityActor, IdentityEngineError | UnauthenticatedActor, Identity> =>
-  headerCredentialCount(cookieHeader, authorization) > 1
-    ? Effect.fail(new UnauthenticatedActor({ message: "authentication required" }))
-    : sessionEffect(cookieHeader);
+export const resolveAuthenticatedSession: {
+  (
+    authorization: string | undefined,
+  ): (
+    cookieHeader: string | undefined,
+  ) => Effect.Effect<IdentityActor, IdentityEngineError | UnauthenticatedActor, Identity>;
+  (
+    cookieHeader: string | undefined,
+    authorization: string | undefined,
+  ): Effect.Effect<IdentityActor, IdentityEngineError | UnauthenticatedActor, Identity>;
+} = dual(
+  2,
+  (
+    cookieHeader: string | undefined,
+    authorization: string | undefined,
+  ): Effect.Effect<IdentityActor, IdentityEngineError | UnauthenticatedActor, Identity> =>
+    headerCredentialCount(cookieHeader, authorization) > 1
+      ? Effect.fail(UnauthenticatedActor.make({ message: "authentication required" }))
+      : sessionEffect(cookieHeader),
+);
 
 /** Cookie -> canonical PersonId only; for adapters that authenticate without roles. */
 export const resolveAuthenticatedPerson = (
@@ -248,45 +265,90 @@ export interface AuthenticatedCredentialAtInstant {
 }
 
 /** Resolves one accepted request credential and captures one authorization instant. */
-export const resolveRequestCredentialAtInstant = (
-  request: Request,
-  expected: "OAuthUserBearer" | "OAuthServiceBearer" | "Either",
-  options: AuthorityResolutionOptions = {},
-): Effect.Effect<
-  AuthenticatedCredentialAtInstant,
-  IdentityEngineError | UnauthenticatedActor,
-  Identity | OAuthCredentialAuthority
-> =>
-  Effect.flatMap(requestCredentialEffect(request, expected), (credential) =>
-    Effect.map(currentInstant(options.now), (instant) => ({
-      credential,
-      authorizationInstant: AuthorizationInstant.make(instant),
-    })),
-  );
+export const resolveRequestCredentialAtInstant: {
+  (
+    request: Request,
+    expected: "OAuthUserBearer" | "OAuthServiceBearer" | "Either",
+    options?: AuthorityResolutionOptions,
+  ): Effect.Effect<
+    AuthenticatedCredentialAtInstant,
+    IdentityEngineError | UnauthenticatedActor,
+    Identity | OAuthCredentialAuthority
+  >;
+  (
+    expected: "OAuthUserBearer" | "OAuthServiceBearer" | "Either",
+    options?: AuthorityResolutionOptions,
+  ): (
+    request: Request,
+  ) => Effect.Effect<
+    AuthenticatedCredentialAtInstant,
+    IdentityEngineError | UnauthenticatedActor,
+    Identity | OAuthCredentialAuthority
+  >;
+} = dual(
+  (args) => args[0] instanceof Request,
+  (
+    request: Request,
+    expected: "OAuthUserBearer" | "OAuthServiceBearer" | "Either",
+    options: AuthorityResolutionOptions = {},
+  ): Effect.Effect<
+    AuthenticatedCredentialAtInstant,
+    IdentityEngineError | UnauthenticatedActor,
+    Identity | OAuthCredentialAuthority
+  > =>
+    Effect.flatMap(requestCredentialEffect(request, expected), (credential) =>
+      Effect.map(currentInstant(options.now), (instant) => ({
+        credential,
+        authorizationInstant: AuthorizationInstant.make(instant),
+      })),
+    ),
+);
 
 /**
  * Resolves the current cookie or delegated bearer state through the caller's
  * ambient database transaction, then returns that exact credential evidence
  * and authorization instant to the AccessSpec evaluator.
  */
-export const resolveRequestCredentialInTransaction = (
-  request: Request,
-  expected: "OAuthUserBearer" | "OAuthServiceBearer" | "Either",
-  options: TransactionCredentialResolutionOptions = {},
-): Effect.Effect<
-  AuthenticatedCredentialAtInstant,
-  IdentityEngineError | UnauthenticatedActor,
-  Database | IdentitySnapshot | OAuthCredentialAuthority
-> => {
-  return Effect.flatMap(
-    Effect.map(currentInstant(options.now), (instant) => AuthorizationInstant.make(instant)),
-    (authorizationInstant) =>
-      Effect.map(
-        requestCredentialInTransactionEffect(request, expected, authorizationInstant),
-        (credential) => ({ credential, authorizationInstant }),
-      ),
-  );
-};
+export const resolveRequestCredentialInTransaction: {
+  (
+    request: Request,
+    expected: "OAuthUserBearer" | "OAuthServiceBearer" | "Either",
+    options?: TransactionCredentialResolutionOptions,
+  ): Effect.Effect<
+    AuthenticatedCredentialAtInstant,
+    IdentityEngineError | UnauthenticatedActor,
+    Database | IdentitySnapshot | OAuthCredentialAuthority
+  >;
+  (
+    expected: "OAuthUserBearer" | "OAuthServiceBearer" | "Either",
+    options?: TransactionCredentialResolutionOptions,
+  ): (
+    request: Request,
+  ) => Effect.Effect<
+    AuthenticatedCredentialAtInstant,
+    IdentityEngineError | UnauthenticatedActor,
+    Database | IdentitySnapshot | OAuthCredentialAuthority
+  >;
+} = dual(
+  (args) => args[0] instanceof Request,
+  (
+    request: Request,
+    expected: "OAuthUserBearer" | "OAuthServiceBearer" | "Either",
+    options: TransactionCredentialResolutionOptions = {},
+  ): Effect.Effect<
+    AuthenticatedCredentialAtInstant,
+    IdentityEngineError | UnauthenticatedActor,
+    Database | IdentitySnapshot | OAuthCredentialAuthority
+  > =>
+    Effect.flatMap(
+      Effect.map(currentInstant(options.now), (instant) => AuthorizationInstant.make(instant)),
+      (authorizationInstant) =>
+        Effect.map(
+          requestCredentialInTransactionEffect(request, expected, authorizationInstant),
+          (credential) => ({ credential, authorizationInstant }),
+        ),
+    ),
+);
 
 export interface TransactionPersonAuthority {
   readonly credential: AcceptedCredential;
@@ -295,117 +357,248 @@ export interface TransactionPersonAuthority {
 }
 
 /** Resolves one current Person credential and its organization projection at one instant. */
-export const resolveRequestPersonAuthorityInTransaction = (
-  request: Request,
-  options: TransactionPersonAuthorityResolutionOptions = {},
-): Effect.Effect<
-  TransactionPersonAuthority,
-  IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
-  Database | Organization | IdentitySnapshot | OAuthCredentialAuthority
-> =>
-  Effect.gen(function* () {
-    const authenticated = yield* resolveRequestCredentialInTransaction(
-      request,
-      "OAuthUserBearer",
-      options,
-    );
+export const resolveRequestPersonAuthorityInTransaction: {
+  (
+    request: Request,
+    options?: TransactionPersonAuthorityResolutionOptions,
+  ): Effect.Effect<
+    TransactionPersonAuthority,
+    IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
+    Database | Organization | IdentitySnapshot | OAuthCredentialAuthority
+  >;
+  (
+    options?: TransactionPersonAuthorityResolutionOptions,
+  ): (
+    request: Request,
+  ) => Effect.Effect<
+    TransactionPersonAuthority,
+    IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
+    Database | Organization | IdentitySnapshot | OAuthCredentialAuthority
+  >;
+} = dual(
+  (args) => args[0] instanceof Request,
+  (
+    request: Request,
+    options: TransactionPersonAuthorityResolutionOptions = {},
+  ): Effect.Effect<
+    TransactionPersonAuthority,
+    IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
+    Database | Organization | IdentitySnapshot | OAuthCredentialAuthority
+  > =>
+    Effect.gen(function* () {
+      const authenticated = yield* resolveRequestCredentialInTransaction(
+        request,
+        "OAuthUserBearer",
+        options,
+      );
 
-    if (!Predicate.isTagged(authenticated.credential.principal, "Person")) {
-      return yield* new UnauthenticatedActor({ message: "authentication required" });
-    }
+      if (!Predicate.isTagged(authenticated.credential.principal, "Person")) {
+        return yield* UnauthenticatedActor.make({ message: "authentication required" });
+      }
 
-    const personId = authenticated.credential.principal.personId;
-    const organization = yield* Organization;
+      const personId = authenticated.credential.principal.personId;
+      const organization = yield* Organization;
 
-    const authority = yield* organization.resolvePersonAuthority(
-      personId,
-      decodeAuthorizationInstant(authenticated.authorizationInstant),
-    );
+      const authority = yield* organization.resolvePersonAuthority(
+        personId,
+        decodeAuthorizationInstant(authenticated.authorizationInstant),
+      );
 
-    return { ...authenticated, authority };
-  });
+      return { ...authenticated, authority };
+    }),
+);
 
 /**
  * Authenticates first, then captures exactly one instant for a caller-owned
  * read-only journey. Organization resolves its projection inside that journey.
  */
-export const resolveAuthenticatedPersonAtInstant = (
-  cookieHeader: string | undefined,
-  options: AuthorityResolutionOptions = {},
-): Effect.Effect<
-  AuthenticatedPersonAtInstant,
-  IdentityEngineError | UnauthenticatedActor,
-  Identity
-> =>
-  Effect.flatMap(sessionEffect(cookieHeader), (actor) =>
-    Effect.map(currentInstant(options.now), (instant) => ({
-      personId: actor.personId,
-      authorizationInstant: decodeAuthorizationInstant(instant),
-    })),
-  );
+export const resolveAuthenticatedPersonAtInstant: {
+  (
+    cookieHeader: string | undefined,
+    options?: AuthorityResolutionOptions,
+  ): Effect.Effect<
+    AuthenticatedPersonAtInstant,
+    IdentityEngineError | UnauthenticatedActor,
+    Identity
+  >;
+  (
+    options?: AuthorityResolutionOptions,
+  ): (
+    cookieHeader: string | undefined,
+  ) => Effect.Effect<
+    AuthenticatedPersonAtInstant,
+    IdentityEngineError | UnauthenticatedActor,
+    Identity
+  >;
+} = dual(
+  (args) => args.length >= 2 || (args.length === 1 && !Predicate.isObject(args[0])),
+  (
+    cookieHeader: string | undefined,
+    options: AuthorityResolutionOptions = {},
+  ): Effect.Effect<
+    AuthenticatedPersonAtInstant,
+    IdentityEngineError | UnauthenticatedActor,
+    Identity
+  > =>
+    Effect.flatMap(sessionEffect(cookieHeader), (actor) =>
+      Effect.map(currentInstant(options.now), (instant) => ({
+        personId: actor.personId,
+        authorizationInstant: decodeAuthorizationInstant(instant),
+      })),
+    ),
+);
 
 /** Authenticates either person mechanism before capturing one authorization instant. */
-export const resolveRequestPersonAtInstant = (
-  request: Request,
-  options: AuthorityResolutionOptions = {},
-): Effect.Effect<
-  AuthenticatedPersonAtInstant,
-  IdentityEngineError | UnauthenticatedActor,
-  Identity | OAuthCredentialAuthority
-> =>
-  Effect.flatMap(requestPersonEffect(request), (personId) =>
-    Effect.map(currentInstant(options.now), (instant) => ({
-      personId,
-      authorizationInstant: decodeAuthorizationInstant(instant),
-    })),
-  );
+export const resolveRequestPersonAtInstant: {
+  (
+    request: Request,
+    options?: AuthorityResolutionOptions,
+  ): Effect.Effect<
+    AuthenticatedPersonAtInstant,
+    IdentityEngineError | UnauthenticatedActor,
+    Identity | OAuthCredentialAuthority
+  >;
+  (
+    options?: AuthorityResolutionOptions,
+  ): (
+    request: Request,
+  ) => Effect.Effect<
+    AuthenticatedPersonAtInstant,
+    IdentityEngineError | UnauthenticatedActor,
+    Identity | OAuthCredentialAuthority
+  >;
+} = dual(
+  (args) => args[0] instanceof Request,
+  (
+    request: Request,
+    options: AuthorityResolutionOptions = {},
+  ): Effect.Effect<
+    AuthenticatedPersonAtInstant,
+    IdentityEngineError | UnauthenticatedActor,
+    Identity | OAuthCredentialAuthority
+  > =>
+    Effect.flatMap(requestPersonEffect(request), (personId) =>
+      Effect.map(currentInstant(options.now), (instant) => ({
+        personId,
+        authorizationInstant: decodeAuthorizationInstant(instant),
+      })),
+    ),
+);
 
 /** Captures ONE authorizationInstant per request and resolves the full projection. */
-export const resolvePersonAuthority = (
-  cookieHeader: string | undefined,
-  options: AuthorityResolutionOptions = {},
-): Effect.Effect<
-  OrganizationPersonAuthority,
-  IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
-  Organization | Identity
-> => {
-  return Effect.flatMap(
-    Effect.map(currentInstant(options.now), decodeAuthorizationInstant),
-    (instant) => personAuthorityEffect(cookieHeader, instant),
-  );
-};
+export const resolvePersonAuthority: {
+  (
+    cookieHeader: string | undefined,
+    options?: AuthorityResolutionOptions,
+  ): Effect.Effect<
+    OrganizationPersonAuthority,
+    IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
+    Organization | Identity
+  >;
+  (
+    options?: AuthorityResolutionOptions,
+  ): (
+    cookieHeader: string | undefined,
+  ) => Effect.Effect<
+    OrganizationPersonAuthority,
+    IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
+    Organization | Identity
+  >;
+} = dual(
+  (args) => args.length >= 2 || (args.length === 1 && !Predicate.isObject(args[0])),
+  (
+    cookieHeader: string | undefined,
+    options: AuthorityResolutionOptions = {},
+  ): Effect.Effect<
+    OrganizationPersonAuthority,
+    IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
+    Organization | Identity
+  > =>
+    Effect.flatMap(
+      Effect.map(currentInstant(options.now), decodeAuthorizationInstant),
+      (instant) => personAuthorityEffect(cookieHeader, instant),
+    ),
+);
 
 /** Resolves Identity first, then captures one authorization instant for a request. */
-export const resolvePersonAuthorityAfterSession = (
-  cookieHeader: string | undefined,
-  options: AuthorityResolutionOptions = {},
-): Effect.Effect<
-  OrganizationPersonAuthority,
-  IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
-  Organization | Identity
-> =>
-  Effect.flatMap(sessionEffect(cookieHeader), (actor) =>
-    Effect.flatMap(Effect.map(currentInstant(options.now), decodeAuthorizationInstant), (instant) =>
-      Organization.use(({ resolvePersonAuthority }) =>
-        resolvePersonAuthority(actor.personId, instant),
+export const resolvePersonAuthorityAfterSession: {
+  (
+    cookieHeader: string | undefined,
+    options?: AuthorityResolutionOptions,
+  ): Effect.Effect<
+    OrganizationPersonAuthority,
+    IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
+    Organization | Identity
+  >;
+  (
+    options?: AuthorityResolutionOptions,
+  ): (
+    cookieHeader: string | undefined,
+  ) => Effect.Effect<
+    OrganizationPersonAuthority,
+    IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
+    Organization | Identity
+  >;
+} = dual(
+  (args) => args.length >= 2 || (args.length === 1 && !Predicate.isObject(args[0])),
+  (
+    cookieHeader: string | undefined,
+    options: AuthorityResolutionOptions = {},
+  ): Effect.Effect<
+    OrganizationPersonAuthority,
+    IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
+    Organization | Identity
+  > =>
+    Effect.flatMap(sessionEffect(cookieHeader), (actor) =>
+      Effect.flatMap(
+        Effect.map(currentInstant(options.now), decodeAuthorizationInstant),
+        (instant) =>
+          Organization.use(({ resolvePersonAuthority }) =>
+            resolvePersonAuthority(actor.personId, instant),
+          ),
       ),
     ),
-  );
+);
 
 /** Resolves either person credential into the same current organization authority. */
-export const resolveRequestPersonAuthority = (
-  request: Request,
-  options: AuthorityResolutionOptions = {},
-): Effect.Effect<
-  OrganizationPersonAuthority,
-  IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
-  Organization | Identity | OAuthCredentialAuthority
-> =>
-  Effect.flatMap(requestPersonEffect(request), (personId) =>
-    Effect.flatMap(Effect.map(currentInstant(options.now), decodeAuthorizationInstant), (instant) =>
-      Organization.use(({ resolvePersonAuthority }) => resolvePersonAuthority(personId, instant)),
+export const resolveRequestPersonAuthority: {
+  (
+    request: Request,
+    options?: AuthorityResolutionOptions,
+  ): Effect.Effect<
+    OrganizationPersonAuthority,
+    IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
+    Organization | Identity | OAuthCredentialAuthority
+  >;
+  (
+    options?: AuthorityResolutionOptions,
+  ): (
+    request: Request,
+  ) => Effect.Effect<
+    OrganizationPersonAuthority,
+    IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
+    Organization | Identity | OAuthCredentialAuthority
+  >;
+} = dual(
+  (args) => args[0] instanceof Request,
+  (
+    request: Request,
+    options: AuthorityResolutionOptions = {},
+  ): Effect.Effect<
+    OrganizationPersonAuthority,
+    IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
+    Organization | Identity | OAuthCredentialAuthority
+  > =>
+    Effect.flatMap(requestPersonEffect(request), (personId) =>
+      Effect.flatMap(
+        Effect.map(currentInstant(options.now), decodeAuthorizationInstant),
+        (instant) =>
+          Organization.use(({ resolvePersonAuthority }) =>
+            resolvePersonAuthority(personId, instant),
+          ),
+      ),
     ),
-  );
+);
 
 /**
  * Maps the projection onto the actor of one department scope for one capability.
@@ -420,18 +613,22 @@ const departmentActorFor = (
 
   if (Predicate.isTagged(decision, "Deny")) {
     throw decision.reason === "AuthorityInactive"
-      ? new InactiveActor({ personId: authority.personId })
-      : new AdmissionScopeDenied({ personId: authority.personId, departmentId });
+      ? InactiveActor.make({ personId: authority.personId })
+      : AdmissionScopeDenied.make({ personId: authority.personId, departmentId });
   }
 
   return decision.value;
 };
 
 /** The admission-period actor of one department scope. */
-export const admissionActorForDepartment = (
-  authority: OrganizationPersonAuthority,
-  departmentId: DepartmentId,
-): AdmissionPeriodActor => departmentActorFor(authority, "admissions.periods", departmentId);
+export const admissionActorForDepartment: {
+  (departmentId: DepartmentId): (authority: OrganizationPersonAuthority) => AdmissionPeriodActor;
+  (authority: OrganizationPersonAuthority, departmentId: DepartmentId): AdmissionPeriodActor;
+} = dual(
+  2,
+  (authority: OrganizationPersonAuthority, departmentId: DepartmentId): AdmissionPeriodActor =>
+    departmentActorFor(authority, "admissions.periods", departmentId),
+);
 
 /** Coarse dashboard role from the full projection (spec 0055 §Profile).
  *  Returns the raw Decision so the adapter can translate Deny(reason) into its
@@ -472,8 +669,8 @@ export const unscopedAdmissionActorFrom = (
 
   throw departments.length === 0 &&
     (authority.memberships.length > 0 || authority.globalAdministrator === "Inactive")
-    ? new InactiveActor({ personId: authority.personId })
-    : new AdmissionRoleDenied({ personId: authority.personId });
+    ? InactiveActor.make({ personId: authority.personId })
+    : AdmissionRoleDenied.make({ personId: authority.personId });
 };
 
 /**
@@ -496,6 +693,6 @@ export const recruitmentBoardActorFrom = (
   }
 
   throw departments.length === 0 && authority.memberships.length > 0
-    ? new RecruitmentInactiveActor({ personId: authority.personId })
-    : new RecruitmentRoleDenied({ personId: authority.personId });
+    ? RecruitmentInactiveActor.make({ personId: authority.personId })
+    : RecruitmentRoleDenied.make({ personId: authority.personId });
 };

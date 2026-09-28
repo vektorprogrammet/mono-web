@@ -19,21 +19,15 @@ import {
 } from "@vektorprogrammet/domain/authz";
 import type { PersonId } from "@vektorprogrammet/domain/organization";
 import { Data, Match, Predicate, Effect, type Schema } from "effect";
+import { dual } from "effect/Function";
 
-const capabilities = (spec: AccessSpec) => {
-  return Match.value(spec.capabilities).pipe(
-    Match.tag("None", () => {
-      return [];
-    }),
-    Match.tag("One", (capabilities) => {
-      return [capabilities.capability];
-    }),
-    Match.tag("All", "Any", (capabilities) => {
-      return capabilities.capabilities;
-    }),
+const capabilities = (spec: AccessSpec) =>
+  Match.value(spec.capabilities).pipe(
+    Match.tag("None", () => []),
+    Match.tag("One", (capabilities) => [capabilities.capability]),
+    Match.tag("All", "Any", (capabilities) => capabilities.capabilities),
     Match.exhaustive,
   );
-};
 
 /**
  * An AccessSpec evaluation that did not grant the operation. The status is
@@ -44,29 +38,42 @@ export class NativeAccessRejected extends Data.TaggedError("NativeAccessRejected
   readonly status: 401 | 403 | 404;
 }> {}
 
-export const authorizeAnonymousNativeOperation = (
-  spec: AccessSpec,
-  resolution: CanonicalScopeResolution<Schema.JsonObject>,
-  now: string,
-): Effect.Effect<void, NativeAccessRejected> =>
-  evaluateAccessJourney(spec, undefined, {
-    now: Effect.succeed(AuthorizationInstant.make(now)),
-    resolveCredential: () =>
-      Effect.succeed({
-        _tag: "Accepted" as const,
-        mechanism: CredentialMechanismSchema.cases.None.make({}),
-        principal: PrincipalSchema.cases.Anonymous.make({}),
-        evidenceRef: CredentialEvidenceRef.make("anonymous"),
-      }),
-    resolveScope: () => Effect.succeed(resolution),
-    resolveGrants: () => Effect.succeed([]),
-  }).pipe(
-    Effect.flatMap((evaluation) => {
-      const status = accessHttpStatus(evaluation, spec.concealment);
+export const authorizeAnonymousNativeOperation: {
+  (
+    resolution: CanonicalScopeResolution<Schema.JsonObject>,
+    now: string,
+  ): (spec: AccessSpec) => Effect.Effect<void, NativeAccessRejected>;
+  (
+    spec: AccessSpec,
+    resolution: CanonicalScopeResolution<Schema.JsonObject>,
+    now: string,
+  ): Effect.Effect<void, NativeAccessRejected>;
+} = dual(
+  3,
+  (
+    spec: AccessSpec,
+    resolution: CanonicalScopeResolution<Schema.JsonObject>,
+    now: string,
+  ): Effect.Effect<void, NativeAccessRejected> =>
+    evaluateAccessJourney(spec, undefined, {
+      now: Effect.succeed(AuthorizationInstant.make(now)),
+      resolveCredential: () =>
+        Effect.succeed({
+          _tag: "Accepted" as const,
+          mechanism: CredentialMechanismSchema.cases.None.make({}),
+          principal: PrincipalSchema.cases.Anonymous.make({}),
+          evidenceRef: CredentialEvidenceRef.make("anonymous"),
+        }),
+      resolveScope: () => Effect.succeed(resolution),
+      resolveGrants: () => Effect.succeed([]),
+    }).pipe(
+      Effect.flatMap((evaluation) => {
+        const status = accessHttpStatus(evaluation, spec.concealment);
 
-      return status === 200 ? Effect.void : Effect.fail(new NativeAccessRejected({ status }));
-    }),
-  );
+        return status === 200 ? Effect.void : Effect.fail(new NativeAccessRejected({ status }));
+      }),
+    ),
+);
 
 type AcceptedCredential = Extract<CredentialOutcome, { readonly _tag: "Accepted" }>;
 

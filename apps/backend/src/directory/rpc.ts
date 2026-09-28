@@ -322,7 +322,7 @@ export const DirectoryRpcHandlers = (options: NativeRpcOptions) =>
         const operationId = "directory.executeSchoolCommand";
 
         if (idempotencyKey !== command.commandId)
-          return yield* new SchoolCommandFailure({ code: "Conflict" });
+          return yield* SchoolCommandFailure.make({ code: "Conflict" });
 
         // Domain and credential failures are mapped after the executor, whose retry reads their
         // causes.

@@ -78,15 +78,15 @@ const oauthCredentialAuthority = OAuthCredentialAuthority.of({
 const identity = Identity.of({
   signIn: () => Effect.die("unexpected sign-in"),
   resolveSession: (cookieHeader: string | undefined) =>
-    cookieHeader?.includes(SESSION)
+    cookieHeader?.includes(SESSION) === true
       ? Effect.succeed(
-          new IdentityActor({
+          IdentityActor.make({
             personId,
             sessionId: SESSION,
             expiresAt: DateTime.makeUnsafe("2032-04-02T12:00:00.000Z"),
           }),
         )
-      : Effect.fail(new IdentitySessionNotFound()),
+      : Effect.fail(IdentitySessionNotFound.make()),
   readCurrentSession: () => Effect.die("unexpected session read"),
   listSessions: () => Effect.die("unexpected session list"),
   revokeCurrentSession: () => Effect.die("unexpected session mutation"),
@@ -106,7 +106,7 @@ const makeBackend = (
     departmentId,
   ) =>
     Effect.succeed(
-      new Department({
+      Department.make({
         departmentId,
         name: "Fixture department",
         shortName: "Fixture",
@@ -290,7 +290,8 @@ describe("Schools directory RPC", () => {
             expectedStatus: 422,
             expectedTag: "SchoolsDepartmentNotFound",
             departmentId: departmentB,
-            readDepartment: (departmentId) => Effect.fail(new DepartmentNotFound({ departmentId })),
+            readDepartment: (departmentId) =>
+              Effect.fail(DepartmentNotFound.make({ departmentId })),
           },
           {
             name: "outside scope",
@@ -304,7 +305,7 @@ describe("Schools directory RPC", () => {
             expectedTag: "SchoolsPersistenceError",
             listDirectory: () =>
               Effect.fail(
-                new SchoolsPersistenceError({
+                SchoolsPersistenceError.make({
                   operation: "read Schools directory",
                   message: "unavailable",
                 }),
@@ -316,7 +317,7 @@ describe("Schools directory RPC", () => {
             expectedTag: "SchoolsDecodeError",
             listDirectory: () =>
               Effect.fail(
-                new SchoolsDecodeError({
+                SchoolsDecodeError.make({
                   operation: "decode Schools directory rows",
                   message: "malformed row",
                 }),

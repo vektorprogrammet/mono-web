@@ -70,7 +70,7 @@ const sessionActor = (cookie: string | undefined) => {
 
   return person === undefined
     ? undefined
-    : new IdentityActor({
+    : IdentityActor.make({
         personId: PersonId.make(person),
         sessionId: `session-${person}`,
         expiresAt: DateTime.makeUnsafe("2099-01-01T00:00:00.000Z"),
@@ -81,7 +81,9 @@ const identitySnapshot = IdentitySnapshot.of({
   resolveSession: (cookie) => {
     const actor = sessionActor(cookie);
 
-    return actor === undefined ? Effect.fail(new IdentitySessionNotFound()) : Effect.succeed(actor);
+    return actor === undefined
+      ? Effect.fail(IdentitySessionNotFound.make())
+      : Effect.succeed(actor);
   },
   revokeCurrentSession: () => Effect.die("unexpected session mutation"),
   revokeSession: () => Effect.die("unexpected session mutation"),
@@ -94,7 +96,9 @@ const identity = Identity.of({
   resolveSession: (cookie: string | undefined) => {
     const actor = sessionActor(cookie);
 
-    return actor === undefined ? Effect.fail(new IdentitySessionNotFound()) : Effect.succeed(actor);
+    return actor === undefined
+      ? Effect.fail(IdentitySessionNotFound.make())
+      : Effect.succeed(actor);
   },
   readCurrentSession: () => Effect.die("unexpected session read"),
   listSessions: () => Effect.die("unexpected session list"),

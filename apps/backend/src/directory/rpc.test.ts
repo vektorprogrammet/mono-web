@@ -106,21 +106,19 @@ const database = backendDatabase();
 const profile: ProfileOperations = {
   readProfiles: (personIds) =>
     Effect.succeed(
-      personIds.map(
-        (personId) =>
-          new PersonProfile({ personId, firstName: "First", lastName: "Last", revision: 0 }),
+      personIds.map((personId) =>
+        PersonProfile.make({ personId, firstName: "First", lastName: "Last", revision: 0 }),
       ),
     ),
   readContacts: (personIds) =>
     Effect.succeed(
-      personIds.map(
-        (personId) =>
-          new PersonContactProfile({
-            personId,
-            email: `${personId}@example.invalid`,
-            phone: "90000000",
-            revision: 0,
-          }),
+      personIds.map((personId) =>
+        PersonContactProfile.make({
+          personId,
+          email: `${personId}@example.invalid`,
+          phone: "90000000",
+          revision: 0,
+        }),
       ),
     ),
   readOwnProfile: (personId) =>
@@ -160,7 +158,7 @@ const profile: ProfileOperations = {
         );
 
         if (found < 0)
-          return yield* new ProfileContactNotFound({ personId: PersonId.make(tuple.personId) });
+          return yield* ProfileContactNotFound.make({ personId: PersonId.make(tuple.personId) });
         offset = found + 1;
       }
 
@@ -168,8 +166,8 @@ const profile: ProfileOperations = {
       const entries: Array<DirectoryEntry> = [];
 
       for (const person of page) {
-        if (missingContactFor === person.personId || !person.email) {
-          return yield* new ProfileContactNotFound({
+        if (missingContactFor === person.personId || person.email.length === 0) {
+          return yield* ProfileContactNotFound.make({
             personId: PersonId.make(person.personId),
           });
         }
@@ -244,7 +242,7 @@ const organization = {
       const grants = personIds.flatMap((personId) => {
         const grant = grantsByPerson[personId];
 
-        return grant
+        return grant !== undefined
           ? [{ personId: PersonId.make(personId), globalAdministrator: grant.status }]
           : [];
       });
@@ -334,13 +332,13 @@ const identity = Identity.of({
   resolveSession: (cookieHeader: string | undefined) =>
     cookieHeader !== undefined && cookieHeader.includes(`${token}=`)
       ? Effect.succeed(
-          new IdentityActor({
+          IdentityActor.make({
             personId: PersonId.make("person-caller"),
             sessionId: "session-1",
             expiresAt: DateTime.makeUnsafe("2031-09-16T00:00:00.000Z"),
           }),
         )
-      : Effect.fail(new IdentitySessionNotFound()),
+      : Effect.fail(IdentitySessionNotFound.make()),
   readCurrentSession: () => Effect.die("unexpected session read"),
   listSessions: () => Effect.die("unexpected session list"),
   revokeCurrentSession: () => Effect.die("unexpected session mutation"),

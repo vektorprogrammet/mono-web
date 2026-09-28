@@ -17,6 +17,7 @@ import {
   problemMapper,
   requestInvalid,
 } from "../rpc/problem.js";
+import { dual } from "effect/Function";
 
 /** Public applications answer a spent rate limit with one fixed delay. */
 const RATE_LIMIT_RETRY_AFTER_SECONDS = 60;
@@ -123,24 +124,35 @@ type AdmissionCases<Unavailable extends AdmissionUnavailable> = typeof admission
  *
  * @construct rpc-problem
  */
-export const admissionProblems = <Unavailable extends AdmissionUnavailable>(
-  headers: Headers.Headers,
-  unavailable: Unavailable,
-): ProblemMapper<AdmissionFailure, AdmissionCases<Unavailable>> => {
-  const presentation = personPresentation(headers);
+export const admissionProblems: {
+  <Unavailable extends AdmissionUnavailable>(
+    unavailable: Unavailable,
+  ): (headers: Headers.Headers) => ProblemMapper<AdmissionFailure, AdmissionCases<Unavailable>>;
+  <Unavailable extends AdmissionUnavailable>(
+    headers: Headers.Headers,
+    unavailable: Unavailable,
+  ): ProblemMapper<AdmissionFailure, AdmissionCases<Unavailable>>;
+} = dual(
+  2,
+  <Unavailable extends AdmissionUnavailable>(
+    headers: Headers.Headers,
+    unavailable: Unavailable,
+  ): ProblemMapper<AdmissionFailure, AdmissionCases<Unavailable>> => {
+    const presentation = personPresentation(headers);
 
-  return problemMapper<AdmissionFailure>()<AdmissionCases<Unavailable>>({
-    ...admissionFixedCases,
-    UnauthenticatedActor: () => Problem.unauthenticated(presentation),
-    ReturningAssistantUnauthenticated: () => Problem.unauthenticated(presentation),
-    AdmissionPeriodPersistenceError: () => Problem.make(unavailable),
-    PublicApplicationPersistenceError: () => Problem.make(unavailable),
-    PublicApplicationQueryLimitExceeded: () => Problem.make(unavailable),
-    IdentityEngineError: () => Problem.make(unavailable),
-    OrganizationDecodeError: () => Problem.make(unavailable),
-    OrganizationPersistenceError: () => Problem.make(unavailable),
-  });
-};
+    return problemMapper<AdmissionFailure>()<AdmissionCases<Unavailable>>({
+      ...admissionFixedCases,
+      UnauthenticatedActor: () => Problem.unauthenticated(presentation),
+      ReturningAssistantUnauthenticated: () => Problem.unauthenticated(presentation),
+      AdmissionPeriodPersistenceError: () => Problem.make(unavailable),
+      PublicApplicationPersistenceError: () => Problem.make(unavailable),
+      PublicApplicationQueryLimitExceeded: () => Problem.make(unavailable),
+      IdentityEngineError: () => Problem.make(unavailable),
+      OrganizationDecodeError: () => Problem.make(unavailable),
+      OrganizationPersistenceError: () => Problem.make(unavailable),
+    });
+  },
+);
 
 /**
  * Problems only a public application submission answers. The catalog, a confirmation, and

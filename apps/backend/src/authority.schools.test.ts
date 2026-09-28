@@ -40,7 +40,7 @@ it.effect("captures the Schools authorization instant exactly once after session
         Effect.sync(() => {
           events.push("session");
 
-          return new IdentityActor({
+          return IdentityActor.make({
             personId: PersonId.make("schools-authority-person"),
             sessionId: "schools-session",
             expiresAt: DateTime.makeUnsafe("2032-05-02T00:00:00.000Z"),
@@ -70,8 +70,8 @@ it.effect("captures the Schools authorization instant exactly once after session
 );
 
 it.effect.each([
-  ["missing", new IdentitySessionNotFound()],
-  ["expired", new IdentitySessionExpired()],
+  ["missing", IdentitySessionNotFound.make()],
+  ["expired", IdentitySessionExpired.make()],
 ] as const)("maps a %s session to unauthenticated authority", ([_name, failure]) =>
   Effect.gen(function* () {
     expect(
@@ -86,7 +86,7 @@ it.effect.each([
 
 it.effect("preserves a typed authentication engine failure", () =>
   Effect.gen(function* () {
-    const failure = new IdentityEngineError({
+    const failure = IdentityEngineError.make({
       operation: "getSession",
       message: "authentication provider unavailable",
     });

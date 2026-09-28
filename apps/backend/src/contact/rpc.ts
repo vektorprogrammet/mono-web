@@ -65,20 +65,30 @@ const decodeVisitorIp = Schema.decodeUnknownEffect(ContactVisitorIp);
 export const ContactRpcHandlers = (options: NativeRpcOptions) => {
   const config = options.config.contact;
 
-  const services =
-    config === undefined ? undefined : Layer.merge(ContactQuotaLive, deliveryFor(config));
+  return ContactRpcs.toLayer(
+    Effect.gen(function* () {
+      // Built once with the handlers: the quota and the delivery hold no state of a request.
+      const services =
+        config === undefined
+          ? undefined
+          : yield* Layer.build(Layer.merge(ContactQuotaLive, deliveryFor(config)));
 
-  return ContactRpcs.toLayer({
-    "contact.submitContactMessage": (message, { headers }) =>
-      Effect.gen(function* () {
-        const ip = yield* decodeVisitorIp(headers[CONTACT_IP_HEADER]).pipe(
-          Effect.mapError(() => Problem.make("header.malformed")),
-        );
+      return ContactRpcs.of({
+        "contact.submitContactMessage": (message, { headers }) =>
+          Effect.gen(function* () {
+            const ip = yield* decodeVisitorIp(headers[CONTACT_IP_HEADER]).pipe(
+              Effect.mapError(() => Problem.make("header.malformed")),
+            );
 
-        // Without configuration the credential admits every request, and nothing can be delivered.
-        if (services === undefined) return yield* Problem.make("contact.unavailable");
+            // Without configuration the credential admits every request, and nothing can be delivered.
+            if (services === undefined) return yield* Problem.make("contact.unavailable");
 
-        yield* submitContact(message, ip).pipe(Effect.provide(services), contactProblems);
-      }),
-  });
+            yield* submitContact(message, ip).pipe(
+              Effect.provideContext(services),
+              contactProblems,
+            );
+          }),
+      });
+    }),
+  );
 };

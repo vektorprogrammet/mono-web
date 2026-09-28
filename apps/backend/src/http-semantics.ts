@@ -14,6 +14,7 @@ import {
   StrongETag as StrongETagSchema,
 } from "@vektorprogrammet/rpc/problem";
 import { Array as Arr, Data, Predicate, Result, Schema } from "effect";
+import { dual } from "effect/Function";
 
 const encoder = new TextEncoder();
 
@@ -171,64 +172,75 @@ const jsonPointerProperty = (property: string): string =>
 /**
  * Preserves absence, value, and explicit deletion before typed merge-patch decoding.
  */
-export const interpretMergePatchSource = <const Fields extends ReadonlyArray<string>>(
-  source: Schema.Json,
-  allowedFields: Fields,
-): MergePatchInterpretation<Fields[number]> => {
-  if (!isJsonObject(source)) {
-    return MergePatchInterpretation.Rejected<Fields[number]>({
-      code: "validation.failed",
-      errors: [makeNativeValidationError("", "invalid")],
+export const interpretMergePatchSource: {
+  <const Fields extends ReadonlyArray<string>>(
+    allowedFields: Fields,
+  ): (source: Schema.Json) => MergePatchInterpretation<Fields[number]>;
+  <const Fields extends ReadonlyArray<string>>(
+    source: Schema.Json,
+    allowedFields: Fields,
+  ): MergePatchInterpretation<Fields[number]>;
+} = dual(
+  2,
+  <const Fields extends ReadonlyArray<string>>(
+    source: Schema.Json,
+    allowedFields: Fields,
+  ): MergePatchInterpretation<Fields[number]> => {
+    if (!isJsonObject(source)) {
+      return MergePatchInterpretation.Rejected<Fields[number]>({
+        code: "validation.failed",
+        errors: [makeNativeValidationError("", "invalid")],
+      });
+    }
+
+    const allowed = new Set<string>(allowedFields);
+    const ownKeys = Object.keys(source);
+    const unknownKeys = ownKeys.filter((key) => !allowed.has(key)).sort();
+
+    if (unknownKeys.length > 0) {
+      return MergePatchInterpretation.Rejected<Fields[number]>({
+        code: "validation.failed",
+        errors: unknownKeys.map((key) =>
+          makeNativeValidationError(jsonPointerProperty(key), "unknown"),
+        ),
+      });
+    }
+
+    if (ownKeys.length === 0) {
+      return MergePatchInterpretation.Rejected<Fields[number]>({
+        code: "validation.no-change",
+        errors: [makeNativeValidationError("", "no-change")],
+      });
+    }
+
+    const record = source;
+
+    const fields = allowedFields.map((field) => {
+      if (!Object.hasOwn(record, field)) return [field, MergePatchFieldState.Absent()] as const;
+      const value = record[field];
+
+      if (value === undefined) throw Problem.make("request.malformed");
+
+      return [
+        field,
+        value === null ? MergePatchFieldState.Null() : MergePatchFieldState.Value({ value }),
+      ] as const;
     });
-  }
 
-  const allowed = new Set<string>(allowedFields);
-  const ownKeys = Object.keys(source);
-  const unknownKeys = ownKeys.filter((key) => !allowed.has(key)).sort();
+    const deletedFields = fields.filter(([, state]) => Predicate.isTagged(state, "Null"));
 
-  if (unknownKeys.length > 0) {
-    return MergePatchInterpretation.Rejected<Fields[number]>({
-      code: "validation.failed",
-      errors: unknownKeys.map((key) =>
-        makeNativeValidationError(jsonPointerProperty(key), "unknown"),
-      ),
-    });
-  }
+    if (deletedFields.length > 0) {
+      return MergePatchInterpretation.Rejected<Fields[number]>({
+        code: "validation.field-not-deletable",
+        errors: deletedFields.map(([field]) =>
+          makeNativeValidationError(jsonPointerProperty(field), "field-not-deletable"),
+        ),
+      });
+    }
 
-  if (ownKeys.length === 0) {
-    return MergePatchInterpretation.Rejected<Fields[number]>({
-      code: "validation.no-change",
-      errors: [makeNativeValidationError("", "no-change")],
-    });
-  }
-
-  const record = source;
-
-  const fields = allowedFields.map((field) => {
-    if (!Object.hasOwn(record, field)) return [field, MergePatchFieldState.Absent()] as const;
-    const value = record[field];
-
-    if (value === undefined) throw Problem.make("request.malformed");
-
-    return [
-      field,
-      value === null ? MergePatchFieldState.Null() : MergePatchFieldState.Value({ value }),
-    ] as const;
-  });
-
-  const deletedFields = fields.filter(([, state]) => Predicate.isTagged(state, "Null"));
-
-  if (deletedFields.length > 0) {
-    return MergePatchInterpretation.Rejected<Fields[number]>({
-      code: "validation.field-not-deletable",
-      errors: deletedFields.map(([field]) =>
-        makeNativeValidationError(jsonPointerProperty(field), "field-not-deletable"),
-      ),
-    });
-  }
-
-  return MergePatchInterpretation.Accepted<Fields[number]>({ fields });
-};
+    return MergePatchInterpretation.Accepted<Fields[number]>({ fields });
+  },
+);
 
 const profileMergePatchFields = ["firstName", "lastName", "email", "phone"] as const;
 
@@ -410,17 +422,18 @@ export const encodePathIdentity = (identity: string): string => {
  *
  * @construct http-transport
  */
-export const normalizeTarget = (
-  routeTemplate: string,
-  identities: Readonly<Record<string, string>>,
-): string =>
+export const normalizeTarget: {
+  (identities: Readonly<Record<string, string>>): (routeTemplate: string) => string;
+  (routeTemplate: string, identities: Readonly<Record<string, string>>): string;
+} = dual(2, (routeTemplate: string, identities: Readonly<Record<string, string>>): string =>
   routeTemplate.replaceAll(/\{([^}]+)\}/gu, (_match, name: string) => {
     const identity = identities[name];
 
     if (identity === undefined) throw Problem.make("request.malformed");
 
     return encodePathIdentity(identity);
-  });
+  }),
+);
 
 export interface DerivedHttpIdentity {
   readonly identitySha256: Sha256Hex;
@@ -495,10 +508,13 @@ export const semanticRequestDigest = (request: CanonicalSemanticRequest): Sha256
   sha256Hex(jcsBytes(request));
 
 /** Builds the canonical envelope shared by every preconditioned mutation. */
-export const semanticMutationRequest = (
-  body: Schema.Json,
-  ifMatch: StrongETag,
-): CanonicalSemanticRequest => ({ body, ifMatch });
+export const semanticMutationRequest: {
+  (ifMatch: StrongETag): (body: Schema.Json) => CanonicalSemanticRequest;
+  (body: Schema.Json, ifMatch: StrongETag): CanonicalSemanticRequest;
+} = dual(
+  2,
+  (body: Schema.Json, ifMatch: StrongETag): CanonicalSemanticRequest => ({ body, ifMatch }),
+);
 
 export type SemanticFile = {
   readonly byteLength: number;
@@ -507,11 +523,17 @@ export type SemanticFile = {
 };
 
 /** Converts staged multipart bytes to their boundary-independent semantic value. */
-export const semanticFile = (bytes: Uint8Array, contentType: string): SemanticFile => ({
-  byteLength: bytes.byteLength,
-  contentType,
-  sha256: sha256Hex(bytes),
-});
+export const semanticFile: {
+  (contentType: string): (bytes: Uint8Array) => SemanticFile;
+  (bytes: Uint8Array, contentType: string): SemanticFile;
+} = dual(
+  2,
+  (bytes: Uint8Array, contentType: string): SemanticFile => ({
+    byteLength: bytes.byteLength,
+    contentType,
+    sha256: sha256Hex(bytes),
+  }),
+);
 
 export type ETagVersionSource =
   | number
@@ -591,13 +613,16 @@ export const evaluateReadPreconditions = (input: {
 };
 
 /** Evaluates one required mutation precondition after authorization and concealment. */
-export const evaluateMutationPrecondition = (
-  currentETag: StrongETag,
-  ifMatch: StrongETag,
-): PreconditionDecision =>
-  currentETag === ifMatch
-    ? PreconditionDecision.Proceed()
-    : PreconditionDecision.Failed({ code: "precondition.failed", status: 412 });
+export const evaluateMutationPrecondition: {
+  (ifMatch: StrongETag): (currentETag: StrongETag) => PreconditionDecision;
+  (currentETag: StrongETag, ifMatch: StrongETag): PreconditionDecision;
+} = dual(
+  2,
+  (currentETag: StrongETag, ifMatch: StrongETag): PreconditionDecision =>
+    currentETag === ifMatch
+      ? PreconditionDecision.Proceed()
+      : PreconditionDecision.Failed({ code: "precondition.failed", status: 412 }),
+);
 
 export const PUBLIC_CACHE_CONTROL = "public, max-age=60, s-maxage=300, must-revalidate";
 
@@ -606,10 +631,10 @@ export const PRIVATE_NO_STORE = "private, no-store";
 export const NO_STORE = "no-store";
 
 /** Computes freshness without crossing an admission start or end boundary. */
-export const admissionCacheControl = (
-  nowEpochMilliseconds: number,
-  futureBoundaries: ReadonlyArray<number>,
-): string => {
+export const admissionCacheControl: {
+  (futureBoundaries: ReadonlyArray<number>): (nowEpochMilliseconds: number) => string;
+  (nowEpochMilliseconds: number, futureBoundaries: ReadonlyArray<number>): string;
+} = dual(2, (nowEpochMilliseconds: number, futureBoundaries: ReadonlyArray<number>): string => {
   const next = futureBoundaries
     .filter((boundary) => boundary >= nowEpochMilliseconds)
     .sort((left, right) => left - right)[0];
@@ -620,7 +645,7 @@ export const admissionCacheControl = (
       : Math.max(0, Math.min(30, Math.floor((next - nowEpochMilliseconds) / 1000)));
 
   return `public, max-age=${ttl}, s-maxage=${ttl}, must-revalidate`;
-};
+});
 
 const methodOrder = ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"] as const;
 
