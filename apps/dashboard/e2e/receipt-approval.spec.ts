@@ -18,6 +18,7 @@ import {
 } from "@playwright/test";
 import {
   ReceiptApprovalQueueResponse,
+  ReceiptFileContent,
   ReceiptListResponse,
   ReceiptResource,
 } from "@vektorprogrammet/rpc";
@@ -30,6 +31,7 @@ import {
   nativeRpcStatus,
   nativeRpcValue,
 } from "./native-operations.js";
+import { type NativeRpcAnswer, postNativeRpc, rpcBytes } from "./receipt-rpc.js";
 import { addressesAnyRoute, addressesRoute, legacyRoutes } from "./request-routes.js";
 
 const execFileAsync = promisify(execFile);
@@ -100,15 +102,7 @@ const decodeOwnedReceiptPage = Schema.decodeUnknownSync(ReceiptListResponse);
 
 const decodeApprovalQueuePage = Schema.decodeUnknownSync(ReceiptApprovalQueueResponse);
 
-const receiptProblemSchema = z
-  .object({
-    type: z.string(),
-    title: z.string(),
-    status: z.number().int(),
-    code: z.string(),
-    detail: z.string(),
-  })
-  .passthrough();
+const decodeReceiptFile = Schema.decodeUnknownSync(ReceiptFileContent);
 
 const fileIdentitySchema = z.array(
   z
@@ -241,44 +235,117 @@ function sessionHeaders(cookie: string) {
   return { Cookie: cookie, Origin: DASHBOARD_ORIGIN };
 }
 
-const actionPath = (receiptId: string, intent: ResolutionIntent): string =>
-  `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}:${intent}`;
-
-const approvalFilePath = (receiptId: string): string =>
-  `${BACKEND_ORIGIN}/api/receipt-approval-queue/${encodeURIComponent(receiptId)}/file`;
-
 const dashboardApprovalFilePath = (receiptId: string): string =>
   `${DASHBOARD_ORIGIN}/dashboard/utlegg/${encodeURIComponent(receiptId)}/file`;
 
-const ownerFilePath = (receiptId: string): string =>
-  `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}/file`;
-
+/** The E2E barrier probe, a real HTTP header of the RPC request, which the handler reads. */
 const concurrencyProbeHeader = "x-receipt-e2e-concurrency-probe";
 
-const concurrencySynchronizedHeader = "x-receipt-e2e-concurrency-synchronized";
+/** The headers of one RPC as a session, or as no one. */
+const rpcHeaders = (cookie?: string): Record<string, string> =>
+  cookie === undefined ? { Origin: DASHBOARD_ORIGIN } : sessionHeaders(cookie);
 
-const actionHeaders = (cookie: string, idempotencyKey: string, ifMatch: string) => ({
-  ...sessionHeaders(cookie),
-  "content-type": "application/json",
-  "Idempotency-Key": idempotencyKey,
-  "If-Match": ifMatch,
-});
+const backendRpc = (
+  request: APIRequestContext,
+  tag: string,
+  payload: Schema.Json,
+  headers: Record<string, string>,
+) => postNativeRpc(request, { origin: BACKEND_ORIGIN, tag, payload, headers });
+
+/** Approves or rejects one receipt, as the session given, with an optional barrier probe. */
+const receiptAction = (
+  request: APIRequestContext,
+  receiptId: string,
+  intent: ResolutionIntent,
+  input: {
+    readonly cookie: string;
+    readonly idempotencyKey: string;
+    readonly ifMatch: string;
+    readonly probe?: string;
+  },
+) =>
+  backendRpc(
+    request,
+    intent === "approve" ? "receipts.approveReceipt" : "receipts.rejectReceipt",
+    { receiptId, idempotencyKey: input.idempotencyKey, ifMatch: input.ifMatch },
+    input.probe === undefined
+      ? rpcHeaders(input.cookie)
+      : { ...rpcHeaders(input.cookie), [concurrencyProbeHeader]: input.probe },
+  );
+
+/** Reads one receipt file as its approver. */
+const approvalFile = (
+  request: APIRequestContext,
+  receiptId: string,
+  cookie?: string,
+  probe?: string,
+) =>
+  backendRpc(
+    request,
+    "receipts.readReceiptFileForApproval",
+    { receiptId },
+    probe === undefined
+      ? rpcHeaders(cookie)
+      : { ...rpcHeaders(cookie), [concurrencyProbeHeader]: probe },
+  );
+
+/** Reads one receipt file as its owner. */
+const ownerFile = (request: APIRequestContext, receiptId: string, cookie?: string) =>
+  backendRpc(request, "receipts.readReceiptFile", { receiptId }, rpcHeaders(cookie));
+
+/** The approval queue, as the session given. */
+const approvalQueue = (request: APIRequestContext, cookie?: string, status?: ReceiptStatus) =>
+  backendRpc(
+    request,
+    "receipts.listReceiptsForApproval",
+    status === undefined ? {} : { status },
+    rpcHeaders(cookie),
+  );
 
 async function expectProblemCode(
-  response: APIResponse,
+  answer: NativeRpcAnswer,
   expectedStatus: number,
   expectedCode: string,
 ): Promise<string> {
-  expect(response.status()).toBe(expectedStatus);
-  expect(response.headers()["content-type"]).toContain("application/problem+json");
-  const problem = receiptProblemSchema.parse(await response.json());
-  expect(problem).toMatchObject({
+  expect(answer.status).toBe(expectedStatus);
+  expect(answer.problem).toMatchObject({
     status: expectedStatus,
     code: expectedCode,
     type: `urn:vektorprogrammet:problem:v0.2:${expectedCode}`,
   });
 
-  return problem.code;
+  return answer.problem?.code ?? "missing";
+}
+
+/**
+ * The verified bytes of one receipt file read over RPC: its stored media type and exact bytes,
+ * with no storage identity in the answer. The artifact names the disposition that the dashboard
+ * route answers for that media type.
+ */
+function expectApprovedRpcFile(
+  answer: NativeRpcAnswer,
+  file: ReceiptFileFixture,
+  fileIdentities: ReadonlyArray<FileIdentity>,
+) {
+  expect(answer.status).toBe(200);
+  const content = decodeReceiptFile(answer.value, exactDecoding);
+  expect(content.contentType).toBe(file.contentType);
+  const bytes = Buffer.from(content.bytes);
+  expect(Buffer.compare(bytes, file.bytes)).toBe(0);
+  const exposed = JSON.stringify({ ...content, bytes: undefined });
+
+  for (const identity of fileIdentities) {
+    expect(exposed).not.toContain(identity.fileRef);
+    expect(exposed).not.toContain(identity.objectKey);
+    expect(exposed).not.toContain(identity.sha256);
+  }
+
+  return {
+    byteLength: bytes.byteLength,
+    contentDisposition: `inline; filename="receipt.${file.extension}"`,
+    contentType: content.contentType,
+    sha256: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
+  };
 }
 
 function expectApprovedReceiptFileHeaders(
@@ -337,9 +404,8 @@ async function expectDashboardFileFailure(response: APIResponse, status: number)
   expect((await response.body()).byteLength).toBe(0);
 }
 
-function expectNoReceiptFileHeaders(response: APIResponse): void {
-  const headers = response.headers();
-  expect(headers["content-disposition"]).toBeUndefined();
+function expectNoReceiptFileHeaders(answer: NativeRpcAnswer): void {
+  expect(answer.value).toBeUndefined();
 }
 
 const fileIdentitySql = `
@@ -421,13 +487,10 @@ async function observeDurablePostgresFailure(
   let failure: { readonly status: number; readonly tag: string } | undefined;
 
   try {
-    const response = await request.get(`${BACKEND_ORIGIN}/api/receipt-approval-queue`, {
-      headers: sessionHeaders(cookie),
-      timeout: 5_000,
-    });
+    const response = await approvalQueue(request, cookie);
 
     failure = {
-      status: response.status(),
+      status: response.status,
       tag: await expectProblemCode(response, 503, "receipts.unavailable"),
     };
   } finally {
@@ -453,36 +516,37 @@ async function submitReceipt(
 ): Promise<SubmittedReceipt> {
   const submissionIdempotencyKey = randomUUID();
 
-  const response = await request.post(`${BACKEND_ORIGIN}/api/receipts`, {
-    headers: {
-      ...sessionHeaders(cookie),
-      "Idempotency-Key": submissionIdempotencyKey,
-    },
-    multipart: {
-      description,
-      amountOre: String(amountOre),
-      receiptDate: RECEIPT_DATE,
-      file: {
-        name: file.name,
-        mimeType: file.contentType,
-        buffer: file.bytes,
+  const response = await backendRpc(
+    request,
+    "receipts.submitReceipt",
+    {
+      idempotencyKey: submissionIdempotencyKey,
+      request: {
+        description,
+        amountOre,
+        receiptDate: RECEIPT_DATE,
+        file: { contentType: file.contentType, bytes: rpcBytes(file.bytes) },
       },
     },
-  });
+    sessionHeaders(cookie),
+  );
 
-  expect(response.status()).toBe(201);
-  const resource = decodeReceiptResource(await response.json(), exactDecoding);
+  expect(response.status).toBe(200);
+  const resource = decodeReceiptResource(response.value, exactDecoding);
   expect(resource).toMatchObject({
     status: "Pending",
     revision: 0,
   });
 
-  const ownedResponse = await request.get(`${BACKEND_ORIGIN}/api/receipts`, {
-    headers: sessionHeaders(cookie),
-  });
+  const ownedResponse = await backendRpc(
+    request,
+    "receipts.listReceipts",
+    {},
+    sessionHeaders(cookie),
+  );
 
-  expect(ownedResponse.status()).toBe(200);
-  const owned = decodeOwnedReceiptPage(await ownedResponse.json(), exactDecoding);
+  expect(ownedResponse.status).toBe(200);
+  const owned = decodeOwnedReceiptPage(ownedResponse.value, exactDecoding);
   const projection = owned.items.find((item) => item.receiptId === resource.receiptId);
 
   if (projection === undefined) {
@@ -497,15 +561,11 @@ async function listForApproval(
   cookie: string,
   status?: ReceiptStatus,
 ): Promise<typeof ReceiptApprovalQueueResponse.Type> {
-  const query = status === undefined ? "" : `?status=${encodeURIComponent(status)}`;
+  const response = await approvalQueue(request, cookie, status);
 
-  const response = await request.get(`${BACKEND_ORIGIN}/api/receipt-approval-queue${query}`, {
-    headers: sessionHeaders(cookie),
-  });
+  expect(response.status).toBe(200);
 
-  expect(response.status()).toBe(200);
-
-  return decodeApprovalQueuePage(await response.json(), exactDecoding);
+  return decodeApprovalQueuePage(response.value, exactDecoding);
 }
 
 async function authenticate(
@@ -579,9 +639,7 @@ async function authenticate(
   } else {
     const outcome = nativeRpcOutcome(profileAnswer);
 
-    expect(Predicate.isTagged(outcome, "Problem") && outcome.problem.code).toBe(
-      "authority.denied",
-    );
+    expect(Predicate.isTagged(outcome, "Problem") && outcome.problem.code).toBe("authority.denied");
   }
 
   return {
@@ -701,9 +759,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       });
     });
 
-    const unauthenticatedResponse = await request.get(
-      `${BACKEND_ORIGIN}/api/receipt-approval-queue`,
-    );
+    const unauthenticatedResponse = await approvalQueue(request);
 
     const unauthenticatedTag = await expectProblemCode(
       unauthenticatedResponse,
@@ -713,9 +769,10 @@ test.describe("Native scoped Receipt approval journey", () => {
 
     await expectUnauthenticatedBrowser(browser);
 
-    const expiredApiResponse = await request.get(`${BACKEND_ORIGIN}/api/receipt-approval-queue`, {
-      headers: sessionHeaders("better-auth.session_token=invalid-local-receipt-approval-session"),
-    });
+    const expiredApiResponse = await approvalQueue(
+      request,
+      "better-auth.session_token=invalid-local-receipt-approval-session",
+    );
 
     const expiredApiTag = await expectProblemCode(expiredApiResponse, 401, "credential.invalid");
 
@@ -729,15 +786,11 @@ test.describe("Native scoped Receipt approval journey", () => {
       noneScope: await authenticate(page, request, environment.noneScope),
     };
 
-    const inactiveResponse = await request.get(`${BACKEND_ORIGIN}/api/receipt-approval-queue`, {
-      headers: sessionHeaders(sessions.inactive.cookie),
-    });
+    const inactiveResponse = await approvalQueue(request, sessions.inactive.cookie);
 
     const inactiveTag = await expectProblemCode(inactiveResponse, 403, "authority.denied");
 
-    const noneScopeResponse = await request.get(`${BACKEND_ORIGIN}/api/receipt-approval-queue`, {
-      headers: sessionHeaders(sessions.noneScope.cookie),
-    });
+    const noneScopeResponse = await approvalQueue(request, sessions.noneScope.cookie);
 
     const noneScopeTag = await expectProblemCode(noneScopeResponse, 403, "authority.denied");
 
@@ -790,8 +843,9 @@ test.describe("Native scoped Receipt approval journey", () => {
 
     const fileReadMutationCountsBefore = await readReceiptMutationCounts();
 
-    const unauthenticatedApprovalFileResponse = await request.get(
-      approvalFilePath(approvedReceipt.projection.receiptId),
+    const unauthenticatedApprovalFileResponse = await approvalFile(
+      request,
+      approvedReceipt.projection.receiptId,
     );
 
     const unauthenticatedApprovalFileTag = await expectProblemCode(
@@ -802,11 +856,10 @@ test.describe("Native scoped Receipt approval journey", () => {
 
     expectNoReceiptFileHeaders(unauthenticatedApprovalFileResponse);
 
-    const invalidApprovalFileResponse = await request.get(
-      approvalFilePath(approvedReceipt.projection.receiptId),
-      {
-        headers: sessionHeaders("better-auth.session_token=invalid-local-receipt-approval-session"),
-      },
+    const invalidApprovalFileResponse = await approvalFile(
+      request,
+      approvedReceipt.projection.receiptId,
+      "better-auth.session_token=invalid-local-receipt-approval-session",
     );
 
     const invalidApprovalFileTag = await expectProblemCode(
@@ -817,61 +870,42 @@ test.describe("Native scoped Receipt approval journey", () => {
 
     expectNoReceiptFileHeaders(invalidApprovalFileResponse);
 
-    const activePngApprovalFileResponse = await request.get(
-      approvalFilePath(approvedReceipt.projection.receiptId),
-      { headers: sessionHeaders(sessions.departmentA.cookie) },
+    const activePngApprovalFileResponse = await approvalFile(
+      request,
+      approvedReceipt.projection.receiptId,
+      sessions.departmentA.cookie,
     );
 
-    const activePngApprovalFile = await expectApprovedReceiptFile(
+    const activePngApprovalFile = expectApprovedRpcFile(
       activePngApprovalFileResponse,
       approvedReceipt.file,
       fileIdentitiesBefore,
     );
 
-    expect(activePngApprovalFileResponse.url()).toBe(
-      approvalFilePath(approvedReceipt.projection.receiptId),
+    const activePdfApprovalFileResponse = await approvalFile(
+      request,
+      rejectReceipt.projection.receiptId,
+      sessions.departmentB.cookie,
     );
 
-    const activePdfApprovalFileResponse = await request.get(
-      approvalFilePath(rejectReceipt.projection.receiptId),
-      { headers: sessionHeaders(sessions.departmentB.cookie) },
-    );
-
-    const activePdfApprovalFile = await expectApprovedReceiptFile(
+    const activePdfApprovalFile = expectApprovedRpcFile(
       activePdfApprovalFileResponse,
       rejectReceipt.file,
       fileIdentitiesBefore,
     );
 
-    expect(activePdfApprovalFileResponse.url()).toBe(
-      approvalFilePath(rejectReceipt.projection.receiptId),
+    const ownerFileResponse = await ownerFile(
+      request,
+      approvedReceipt.projection.receiptId,
+      sessions.ownerA.cookie,
     );
 
-    const ownerFileResponse = await request.get(
-      ownerFilePath(approvedReceipt.projection.receiptId),
-      {
-        headers: sessionHeaders(sessions.ownerA.cookie),
-      },
-    );
+    expectApprovedRpcFile(ownerFileResponse, approvedReceipt.file, fileIdentitiesBefore);
 
-    expect(ownerFileResponse.status()).toBe(200);
-
-    const ownerFileMetadata = [
-      ownerFileResponse.url(),
-      ...Object.values(ownerFileResponse.headers()),
-    ].join("\n");
-
-    for (const identity of fileIdentitiesBefore) {
-      expect(ownerFileMetadata).not.toContain(identity.fileRef);
-      expect(ownerFileMetadata).not.toContain(identity.objectKey);
-      expect(ownerFileMetadata).not.toContain(identity.sha256);
-    }
-
-    expect(Buffer.compare(await ownerFileResponse.body(), approvedReceipt.file.bytes)).toBe(0);
-
-    const ownerApprovalFileResponse = await request.get(
-      approvalFilePath(approvedReceipt.projection.receiptId),
-      { headers: sessionHeaders(sessions.ownerA.cookie) },
+    const ownerApprovalFileResponse = await approvalFile(
+      request,
+      approvedReceipt.projection.receiptId,
+      sessions.ownerA.cookie,
     );
 
     const ownerApprovalFileTag = await expectProblemCode(
@@ -882,11 +916,10 @@ test.describe("Native scoped Receipt approval journey", () => {
 
     expectNoReceiptFileHeaders(ownerApprovalFileResponse);
 
-    const foreignOwnerFileResponse = await request.get(
-      ownerFilePath(approvedReceipt.projection.receiptId),
-      {
-        headers: sessionHeaders(sessions.ownerB.cookie),
-      },
+    const foreignOwnerFileResponse = await ownerFile(
+      request,
+      approvedReceipt.projection.receiptId,
+      sessions.ownerB.cookie,
     );
 
     const foreignOwnerFileTag = await expectProblemCode(
@@ -897,11 +930,10 @@ test.describe("Native scoped Receipt approval journey", () => {
 
     expectNoReceiptFileHeaders(foreignOwnerFileResponse);
 
-    const approverOwnerFileResponse = await request.get(
-      ownerFilePath(approvedReceipt.projection.receiptId),
-      {
-        headers: sessionHeaders(sessions.departmentA.cookie),
-      },
+    const approverOwnerFileResponse = await ownerFile(
+      request,
+      approvedReceipt.projection.receiptId,
+      sessions.departmentA.cookie,
     );
 
     const approverOwnerFileTag = await expectProblemCode(
@@ -912,9 +944,10 @@ test.describe("Native scoped Receipt approval journey", () => {
 
     expectNoReceiptFileHeaders(approverOwnerFileResponse);
 
-    const foreignApprovalFileResponse = await request.get(
-      approvalFilePath(rejectReceipt.projection.receiptId),
-      { headers: sessionHeaders(sessions.departmentA.cookie) },
+    const foreignApprovalFileResponse = await approvalFile(
+      request,
+      rejectReceipt.projection.receiptId,
+      sessions.departmentA.cookie,
     );
 
     const foreignApprovalFileTag = await expectProblemCode(
@@ -925,9 +958,10 @@ test.describe("Native scoped Receipt approval journey", () => {
 
     expectNoReceiptFileHeaders(foreignApprovalFileResponse);
 
-    const inactiveApprovalFileResponse = await request.get(
-      approvalFilePath(approvedReceipt.projection.receiptId),
-      { headers: sessionHeaders(sessions.inactive.cookie) },
+    const inactiveApprovalFileResponse = await approvalFile(
+      request,
+      approvedReceipt.projection.receiptId,
+      sessions.inactive.cookie,
     );
 
     const inactiveApprovalFileTag = await expectProblemCode(
@@ -938,9 +972,10 @@ test.describe("Native scoped Receipt approval journey", () => {
 
     expectNoReceiptFileHeaders(inactiveApprovalFileResponse);
 
-    const noScopeApprovalFileResponse = await request.get(
-      approvalFilePath(approvedReceipt.projection.receiptId),
-      { headers: sessionHeaders(sessions.noneScope.cookie) },
+    const noScopeApprovalFileResponse = await approvalFile(
+      request,
+      approvedReceipt.projection.receiptId,
+      sessions.noneScope.cookie,
     );
 
     const noScopeApprovalFileTag = await expectProblemCode(
@@ -951,9 +986,10 @@ test.describe("Native scoped Receipt approval journey", () => {
 
     expectNoReceiptFileHeaders(noScopeApprovalFileResponse);
 
-    const absentApprovalFileResponse = await request.get(
-      approvalFilePath(`receipt-absent-file-${randomUUID()}`),
-      { headers: sessionHeaders(sessions.global.cookie) },
+    const absentApprovalFileResponse = await approvalFile(
+      request,
+      `receipt-absent-file-${randomUUID()}`,
+      sessions.global.cookie,
     );
 
     const absentApprovalFileTag = await expectProblemCode(
@@ -1041,12 +1077,13 @@ test.describe("Native scoped Receipt approval journey", () => {
     await rename(committedFilePath, unavailableFilePath);
 
     try {
-      const missingObjectApprovalFileResponse = await request.get(
-        approvalFilePath(approvedReceipt.projection.receiptId),
-        { headers: sessionHeaders(sessions.departmentA.cookie) },
+      const missingObjectApprovalFileResponse = await approvalFile(
+        request,
+        approvedReceipt.projection.receiptId,
+        sessions.departmentA.cookie,
       );
 
-      missingObjectApprovalFileStatus = missingObjectApprovalFileResponse.status();
+      missingObjectApprovalFileStatus = missingObjectApprovalFileResponse.status;
       missingObjectApprovalFileTag = await expectProblemCode(
         missingObjectApprovalFileResponse,
         503,
@@ -1076,15 +1113,14 @@ test.describe("Native scoped Receipt approval journey", () => {
     const fileReadMutationCountsAfter = await readReceiptMutationCounts();
     expect(fileReadMutationCountsAfter).toEqual(fileReadMutationCountsBefore);
 
-    const inactiveCommandResponse = await request.post(
-      actionPath(approvedReceipt.projection.receiptId, "approve"),
+    const inactiveCommandResponse = await receiptAction(
+      request,
+      approvedReceipt.projection.receiptId,
+      "approve",
       {
-        headers: actionHeaders(
-          sessions.inactive.cookie,
-          randomUUID(),
-          approvedReceipt.projection.etag,
-        ),
-        data: {},
+        cookie: sessions.inactive.cookie,
+        idempotencyKey: randomUUID(),
+        ifMatch: approvedReceipt.projection.etag,
       },
     );
 
@@ -1094,68 +1130,8 @@ test.describe("Native scoped Receipt approval journey", () => {
       "authority.denied",
     );
 
-    const malformedJsonResponse = await request.post(
-      actionPath(approvedReceipt.projection.receiptId, "approve"),
-      {
-        headers: actionHeaders(
-          sessions.departmentA.cookie,
-          randomUUID(),
-          approvedReceipt.projection.etag,
-        ),
-        data: Buffer.from("{", "utf8"),
-      },
-    );
-
-    const malformedJsonTag = await expectProblemCode(
-      malformedJsonResponse,
-      400,
-      "request.malformed",
-    );
-
-    const excessJsonResponse = await request.post(
-      actionPath(approvedReceipt.projection.receiptId, "approve"),
-      {
-        headers: actionHeaders(
-          sessions.departmentA.cookie,
-          randomUUID(),
-          approvedReceipt.projection.etag,
-        ),
-        data: { unexpected: true },
-      },
-    );
-
-    const excessJsonTag = await expectProblemCode(excessJsonResponse, 422, "validation.failed");
-
-    const queryRejectedResponse = await request.post(
-      `${actionPath(approvedReceipt.projection.receiptId, "approve")}?unexpected=1`,
-      {
-        headers: actionHeaders(
-          sessions.departmentA.cookie,
-          randomUUID(),
-          approvedReceipt.projection.etag,
-        ),
-        data: {},
-      },
-    );
-
-    const queryRejectedTag = await expectProblemCode(
-      queryRejectedResponse,
-      400,
-      "request.malformed",
-    );
-
-    const invalidFilterResponse = await request.get(
-      `${BACKEND_ORIGIN}/api/receipt-approval-queue?status=Pending&unexpected=1`,
-      {
-        headers: sessionHeaders(sessions.departmentA.cookie),
-      },
-    );
-
-    const invalidFilterTag = await expectProblemCode(
-      invalidFilterResponse,
-      400,
-      "request.malformed",
-    );
+    // A malformed body, an excess member, a query, or an unknown filter cannot reach a receipt RPC:
+    // the payload schema has no place for them, so those HTTP probes are gone.
 
     const departmentAId = approvedReceipt.projection.departmentId;
     const departmentBId = rejectReceipt.projection.departmentId;
@@ -1326,15 +1302,14 @@ test.describe("Native scoped Receipt approval journey", () => {
     await expect(receiptRowFor(page, approvedReceipt.projection.receiptId)).toHaveCount(1);
     await expect(receiptRowFor(page, rejectReceipt.projection.receiptId)).toHaveCount(1);
 
-    const foreignScopeResponse = await request.post(
-      actionPath(rejectReceipt.projection.receiptId, "approve"),
+    const foreignScopeResponse = await receiptAction(
+      request,
+      rejectReceipt.projection.receiptId,
+      "approve",
       {
-        headers: actionHeaders(
-          sessions.departmentA.cookie,
-          randomUUID(),
-          rejectReceipt.projection.etag,
-        ),
-        data: {},
+        cookie: sessions.departmentA.cookie,
+        idempotencyKey: randomUUID(),
+        ifMatch: rejectReceipt.projection.etag,
       },
     );
 
@@ -1342,20 +1317,18 @@ test.describe("Native scoped Receipt approval journey", () => {
 
     const absentReceiptId = `receipt-absent-${randomUUID()}`;
 
-    const absentScopeResponse = await request.post(actionPath(absentReceiptId, "approve"), {
-      headers: actionHeaders(
-        sessions.departmentA.cookie,
-        randomUUID(),
-        approvedReceipt.projection.etag,
-      ),
-      data: {},
+    const absentScopeResponse = await receiptAction(request, absentReceiptId, "approve", {
+      cookie: sessions.departmentA.cookie,
+      idempotencyKey: randomUUID(),
+      ifMatch: approvedReceipt.projection.etag,
     });
 
     const absentScopeTag = await expectProblemCode(absentScopeResponse, 404, "receipt.not-found");
 
-    const globalAbsentResponse = await request.post(actionPath(absentReceiptId, "approve"), {
-      headers: actionHeaders(sessions.global.cookie, randomUUID(), approvedReceipt.projection.etag),
-      data: {},
+    const globalAbsentResponse = await receiptAction(request, absentReceiptId, "approve", {
+      cookie: sessions.global.cookie,
+      idempotencyKey: randomUUID(),
+      ifMatch: approvedReceipt.projection.etag,
     });
 
     const globalAbsentTag = await expectProblemCode(globalAbsentResponse, 404, "receipt.not-found");
@@ -1422,21 +1395,19 @@ test.describe("Native scoped Receipt approval journey", () => {
     await expect(approvedRow.locator('[data-revision="1"]')).toBeVisible();
     await expectNoApproveOrRejectControls(approvedRow);
 
-    const approvalReplayResponse = await request.post(
-      actionPath(approvedReceipt.projection.receiptId, "approve"),
+    const approvalReplayResponse = await receiptAction(
+      request,
+      approvedReceipt.projection.receiptId,
+      "approve",
       {
-        headers: actionHeaders(
-          sessions.global.cookie,
-          approvalMutation.idempotencyKey,
-          approvalMutation.ifMatch,
-        ),
-        data: {},
+        cookie: sessions.global.cookie,
+        idempotencyKey: approvalMutation.idempotencyKey,
+        ifMatch: approvalMutation.ifMatch,
       },
     );
 
-    expect(approvalReplayResponse.status()).toBe(200);
-    const approvalReplay = decodeReceiptResource(await approvalReplayResponse.json(), exactDecoding);
-    expect(approvalReplayResponse.headers()["etag"]).toBe(approvalReplay.etag);
+    expect(approvalReplayResponse.status).toBe(200);
+    const approvalReplay = decodeReceiptResource(approvalReplayResponse.value, exactDecoding);
     expect(approvalReplay).toMatchObject({
       receiptId: approvedReceipt.projection.receiptId,
       status: "Approved",
@@ -1444,15 +1415,14 @@ test.describe("Native scoped Receipt approval journey", () => {
     });
     await listForApproval(request, sessions.global.cookie);
 
-    const conflictingReplayResponse = await request.post(
-      actionPath(approvedReceipt.projection.receiptId, "approve"),
+    const conflictingReplayResponse = await receiptAction(
+      request,
+      approvedReceipt.projection.receiptId,
+      "approve",
       {
-        headers: actionHeaders(
-          sessions.global.cookie,
-          approvalMutation.idempotencyKey,
-          approvalReplay.etag,
-        ),
-        data: {},
+        cookie: sessions.global.cookie,
+        idempotencyKey: approvalMutation.idempotencyKey,
+        ifMatch: approvalReplay.etag,
       },
     );
 
@@ -1462,11 +1432,14 @@ test.describe("Native scoped Receipt approval journey", () => {
       "idempotency.digest-conflict",
     );
 
-    const staleTerminalResponse = await request.post(
-      actionPath(approvedReceipt.projection.receiptId, "reject"),
+    const staleTerminalResponse = await receiptAction(
+      request,
+      approvedReceipt.projection.receiptId,
+      "reject",
       {
-        headers: actionHeaders(sessions.global.cookie, randomUUID(), approvalMutation.ifMatch),
-        data: {},
+        cookie: sessions.global.cookie,
+        idempotencyKey: randomUUID(),
+        ifMatch: approvalMutation.ifMatch,
       },
     );
 
@@ -1476,11 +1449,14 @@ test.describe("Native scoped Receipt approval journey", () => {
       "precondition.failed",
     );
 
-    const terminalApprovedResponse = await request.post(
-      actionPath(approvedReceipt.projection.receiptId, "reject"),
+    const terminalApprovedResponse = await receiptAction(
+      request,
+      approvedReceipt.projection.receiptId,
+      "reject",
       {
-        headers: actionHeaders(sessions.global.cookie, randomUUID(), approvalReplay.etag),
-        data: {},
+        cookie: sessions.global.cookie,
+        idempotencyKey: randomUUID(),
+        ifMatch: approvalReplay.etag,
       },
     );
 
@@ -1501,21 +1477,19 @@ test.describe("Native scoped Receipt approval journey", () => {
     await expect(rejectRow.locator('[data-revision="1"]')).toHaveText("Versjon 1");
     await expectNoApproveOrRejectControls(rejectRow);
 
-    const rejectReplayResponse = await request.post(
-      actionPath(rejectReceipt.projection.receiptId, "reject"),
+    const rejectReplayResponse = await receiptAction(
+      request,
+      rejectReceipt.projection.receiptId,
+      "reject",
       {
-        headers: actionHeaders(
-          sessions.global.cookie,
-          rejectMutation.idempotencyKey,
-          rejectMutation.ifMatch,
-        ),
-        data: {},
+        cookie: sessions.global.cookie,
+        idempotencyKey: rejectMutation.idempotencyKey,
+        ifMatch: rejectMutation.ifMatch,
       },
     );
 
-    expect(rejectReplayResponse.status()).toBe(200);
-    const rejectReplay = decodeReceiptResource(await rejectReplayResponse.json(), exactDecoding);
-    expect(rejectReplayResponse.headers()["etag"]).toBe(rejectReplay.etag);
+    expect(rejectReplayResponse.status).toBe(200);
+    const rejectReplay = decodeReceiptResource(rejectReplayResponse.value, exactDecoding);
     expect(rejectReplay).toMatchObject({
       receiptId: rejectReceipt.projection.receiptId,
       status: "Rejected",
@@ -1523,12 +1497,11 @@ test.describe("Native scoped Receipt approval journey", () => {
     });
     await listForApproval(request, sessions.global.cookie);
 
-    const terminalRejectResponse = await request.post(
-      actionPath(rejectReceipt.projection.receiptId, "approve"),
-      {
-        headers: actionHeaders(sessions.global.cookie, randomUUID(), rejectReplay.etag),
-        data: {},
-      },
+    const terminalRejectResponse = await receiptAction(
+      request,
+      rejectReceipt.projection.receiptId,
+      "approve",
+      { cookie: sessions.global.cookie, idempotencyKey: randomUUID(), ifMatch: rejectReplay.etag },
     );
 
     const terminalRejectTag = await expectProblemCode(
@@ -1539,23 +1512,25 @@ test.describe("Native scoped Receipt approval journey", () => {
 
     const terminalFileReadMutationCountsBefore = await readReceiptMutationCounts();
 
-    const terminalApprovedApprovalFileResponse = await request.get(
-      approvalFilePath(approvedReceipt.projection.receiptId),
-      { headers: sessionHeaders(sessions.global.cookie) },
+    const terminalApprovedApprovalFileResponse = await approvalFile(
+      request,
+      approvedReceipt.projection.receiptId,
+      sessions.global.cookie,
     );
 
-    const terminalApprovedApprovalFile = await expectApprovedReceiptFile(
+    const terminalApprovedApprovalFile = expectApprovedRpcFile(
       terminalApprovedApprovalFileResponse,
       approvedReceipt.file,
       fileIdentitiesBefore,
     );
 
-    const terminalRejectApprovalFileResponse = await request.get(
-      approvalFilePath(rejectReceipt.projection.receiptId),
-      { headers: sessionHeaders(sessions.global.cookie) },
+    const terminalRejectApprovalFileResponse = await approvalFile(
+      request,
+      rejectReceipt.projection.receiptId,
+      sessions.global.cookie,
     );
 
-    const terminalRejectApprovalFile = await expectApprovedReceiptFile(
+    const terminalRejectApprovalFile = expectApprovedRpcFile(
       terminalRejectApprovalFileResponse,
       rejectReceipt.file,
       fileIdentitiesBefore,
@@ -1611,26 +1586,24 @@ test.describe("Native scoped Receipt approval journey", () => {
 
     const externalResolutionIdempotencyKey = randomUUID();
 
-    const externalResolutionResponse = await request.post(
-      actionPath(staleReceipt.projection.receiptId, "reject"),
+    const externalResolutionResponse = await receiptAction(
+      request,
+      staleReceipt.projection.receiptId,
+      "reject",
       {
-        headers: actionHeaders(
-          sessions.global.cookie,
-          externalResolutionIdempotencyKey,
-          staleReceipt.projection.etag,
-        ),
-        data: {},
+        cookie: sessions.global.cookie,
+        idempotencyKey: externalResolutionIdempotencyKey,
+        ifMatch: staleReceipt.projection.etag,
       },
     );
 
-    expect(externalResolutionResponse.status()).toBe(200);
+    expect(externalResolutionResponse.status).toBe(200);
 
     const externalResolution = decodeReceiptResource(
-      await externalResolutionResponse.json(),
+      externalResolutionResponse.value,
       exactDecoding,
     );
 
-    expect(externalResolutionResponse.headers()["etag"]).toBe(externalResolution.etag);
     expect(externalResolution).toMatchObject({
       status: "Rejected",
       revision: 1,
@@ -1658,48 +1631,41 @@ test.describe("Native scoped Receipt approval journey", () => {
 
     const [concurrentApprovalFileResponse, concurrentApproveResponse, concurrentRejectResponse] =
       await Promise.all([
-        request.get(approvalFilePath(concurrentReceipt.projection.receiptId), {
-          headers: {
-            ...sessionHeaders(sessions.global.cookie),
-            [concurrencyProbeHeader]: "file-read",
-          },
+        approvalFile(
+          request,
+          concurrentReceipt.projection.receiptId,
+          sessions.global.cookie,
+          "file-read",
+        ),
+        receiptAction(request, concurrentReceipt.projection.receiptId, "approve", {
+          cookie: sessions.global.cookie,
+          idempotencyKey: concurrentApproveIdempotencyKey,
+          ifMatch: concurrentReceipt.projection.etag,
+          probe: "approve",
         }),
-        request.post(actionPath(concurrentReceipt.projection.receiptId, "approve"), {
-          headers: {
-            ...actionHeaders(
-              sessions.global.cookie,
-              concurrentApproveIdempotencyKey,
-              concurrentReceipt.projection.etag,
-            ),
-            [concurrencyProbeHeader]: "approve",
-          },
-          data: {},
-        }),
-        request.post(actionPath(concurrentReceipt.projection.receiptId, "reject"), {
-          headers: {
-            ...actionHeaders(
-              sessions.global.cookie,
-              concurrentRejectIdempotencyKey,
-              concurrentReceipt.projection.etag,
-            ),
-            [concurrencyProbeHeader]: "reject",
-          },
-          data: {},
+        receiptAction(request, concurrentReceipt.projection.receiptId, "reject", {
+          cookie: sessions.global.cookie,
+          idempotencyKey: concurrentRejectIdempotencyKey,
+          ifMatch: concurrentReceipt.projection.etag,
+          probe: "reject",
         }),
       ]);
 
+    // An RPC answer carries no synchronization header. The barrier holds each probed lane until
+    // all three arrive and times a missing lane out as receipts.unavailable, so three answers
+    // other than a timeout or a defect show that the lanes met inside their transactions.
     for (const [lane, response] of [
       ["file-read", concurrentApprovalFileResponse],
       ["approve", concurrentApproveResponse],
       ["reject", concurrentRejectResponse],
     ] as const) {
       expect(
-        response.headers()[concurrencySynchronizedHeader],
-        `${lane} response status ${response.status()} did not prove barrier synchronization`,
-      ).toBe("1");
+        [500, 503].includes(response.status),
+        `${lane} response status ${response.status} did not prove barrier synchronization`,
+      ).toBe(false);
     }
 
-    const concurrentApprovalFile = await expectApprovedReceiptFile(
+    const concurrentApprovalFile = expectApprovedRpcFile(
       concurrentApprovalFileResponse,
       concurrentReceipt.file,
       fileIdentitiesBefore,
@@ -1726,29 +1692,22 @@ test.describe("Native scoped Receipt approval journey", () => {
       },
     ];
 
-    expect(concurrentAttempts.filter((attempt) => attempt.response.status() === 200)).toHaveLength(
-      1,
-    );
-    expect(concurrentAttempts.filter((attempt) => attempt.response.status() === 412)).toHaveLength(
-      1,
-    );
+    expect(concurrentAttempts.filter((attempt) => attempt.response.status === 200)).toHaveLength(1);
+    expect(concurrentAttempts.filter((attempt) => attempt.response.status === 412)).toHaveLength(1);
 
-    const concurrentWinner = concurrentAttempts.find(
-      (attempt) => attempt.response.status() === 200,
-    );
+    const concurrentWinner = concurrentAttempts.find((attempt) => attempt.response.status === 200);
 
-    const concurrentLoser = concurrentAttempts.find((attempt) => attempt.response.status() === 412);
+    const concurrentLoser = concurrentAttempts.find((attempt) => attempt.response.status === 412);
 
     if (concurrentWinner === undefined || concurrentLoser === undefined) {
       throw new Error("Concurrent Receipt resolution did not produce exactly one winner and loser");
     }
 
     const concurrentObservation = decodeReceiptResource(
-      await concurrentWinner.response.json(),
+      concurrentWinner.response.value,
       exactDecoding,
     );
 
-    expect(concurrentWinner.response.headers()["etag"]).toBe(concurrentObservation.etag);
     expect(concurrentObservation).toMatchObject({
       receiptId: concurrentReceipt.projection.receiptId,
       status: concurrentWinner.intent === "approve" ? "Approved" : "Rejected",
@@ -1763,26 +1722,21 @@ test.describe("Native scoped Receipt approval journey", () => {
 
     await listForApproval(request, sessions.global.cookie);
 
-    const concurrentReplayResponse = await request.post(
-      actionPath(concurrentReceipt.projection.receiptId, concurrentWinner.intent),
+    const concurrentReplayResponse = await receiptAction(
+      request,
+      concurrentReceipt.projection.receiptId,
+      concurrentWinner.intent,
       {
-        headers: actionHeaders(
-          sessions.global.cookie,
-          concurrentWinner.idempotencyKey,
-          concurrentReceipt.projection.etag,
-        ),
-        data: {},
+        cookie: sessions.global.cookie,
+        idempotencyKey: concurrentWinner.idempotencyKey,
+        ifMatch: concurrentReceipt.projection.etag,
       },
     );
 
-    expect(concurrentReplayResponse.status()).toBe(200);
+    expect(concurrentReplayResponse.status).toBe(200);
 
-    const concurrentReplay = decodeReceiptResource(
-      await concurrentReplayResponse.json(),
-      exactDecoding,
-    );
+    const concurrentReplay = decodeReceiptResource(concurrentReplayResponse.value, exactDecoding);
 
-    expect(concurrentReplayResponse.headers()["etag"]).toBe(concurrentReplay.etag);
     expect(concurrentReplay).toEqual(concurrentObservation);
     await listForApproval(request, sessions.global.cookie);
 
@@ -2008,10 +1962,10 @@ test.describe("Native scoped Receipt approval journey", () => {
       },
       statusMatrix: {
         approvalList: {
-          missingSession: unauthenticatedResponse.status(),
-          invalidSession: expiredApiResponse.status(),
-          inactiveActor: inactiveResponse.status(),
-          noScopeActor: noneScopeResponse.status(),
+          missingSession: unauthenticatedResponse.status,
+          invalidSession: expiredApiResponse.status,
+          inactiveActor: inactiveResponse.status,
+          noScopeActor: noneScopeResponse.status,
           departmentA: 200,
           departmentB: 200,
           global: 200,
@@ -2019,43 +1973,39 @@ test.describe("Native scoped Receipt approval journey", () => {
           recoveredAfterPostgresFailure: 200,
         },
         command: {
-          inactiveActor: inactiveCommandResponse.status(),
-          malformedJson: malformedJsonResponse.status(),
-          excessJson: excessJsonResponse.status(),
-          queryParameters: queryRejectedResponse.status(),
-          foreignDepartment: foreignScopeResponse.status(),
-          absentDepartmentScope: absentScopeResponse.status(),
-          absentGlobalScope: globalAbsentResponse.status(),
+          inactiveActor: inactiveCommandResponse.status,
+          foreignDepartment: foreignScopeResponse.status,
+          absentDepartmentScope: absentScopeResponse.status,
+          absentGlobalScope: globalAbsentResponse.status,
           acceptedApproval: 200,
           acceptedReject: 200,
-          identicalApprovalReplay: approvalReplayResponse.status(),
-          identicalRejectReplay: rejectReplayResponse.status(),
-          changedReplay: conflictingReplayResponse.status(),
-          staleRevision: staleTerminalResponse.status(),
-          terminalApproved: terminalApprovedResponse.status(),
-          terminalReject: terminalRejectResponse.status(),
-          concurrent: [
-            concurrentApproveResponse.status(),
-            concurrentRejectResponse.status(),
-          ].sort((left, right) => left - right),
+          identicalApprovalReplay: approvalReplayResponse.status,
+          identicalRejectReplay: rejectReplayResponse.status,
+          changedReplay: conflictingReplayResponse.status,
+          staleRevision: staleTerminalResponse.status,
+          terminalApproved: terminalApprovedResponse.status,
+          terminalReject: terminalRejectResponse.status,
+          concurrent: [concurrentApproveResponse.status, concurrentRejectResponse.status].sort(
+            (left, right) => left - right,
+          ),
         },
         approvalFile: {
-          missingSession: unauthenticatedApprovalFileResponse.status(),
-          invalidSession: invalidApprovalFileResponse.status(),
-          activePng: activePngApprovalFileResponse.status(),
-          activePdf: activePdfApprovalFileResponse.status(),
-          ownerEndpoint: ownerFileResponse.status(),
-          ownerApproval: ownerApprovalFileResponse.status(),
-          foreignOwner: foreignOwnerFileResponse.status(),
-          approverOwner: approverOwnerFileResponse.status(),
-          foreignScope: foreignApprovalFileResponse.status(),
-          inactive: inactiveApprovalFileResponse.status(),
-          noScope: noScopeApprovalFileResponse.status(),
-          absent: absentApprovalFileResponse.status(),
+          missingSession: unauthenticatedApprovalFileResponse.status,
+          invalidSession: invalidApprovalFileResponse.status,
+          activePng: activePngApprovalFileResponse.status,
+          activePdf: activePdfApprovalFileResponse.status,
+          ownerEndpoint: ownerFileResponse.status,
+          ownerApproval: ownerApprovalFileResponse.status,
+          foreignOwner: foreignOwnerFileResponse.status,
+          approverOwner: approverOwnerFileResponse.status,
+          foreignScope: foreignApprovalFileResponse.status,
+          inactive: inactiveApprovalFileResponse.status,
+          noScope: noScopeApprovalFileResponse.status,
+          absent: absentApprovalFileResponse.status,
           missingObject: missingObjectApprovalFileStatus,
-          terminalApproved: terminalApprovedApprovalFileResponse.status(),
-          terminalReject: terminalRejectApprovalFileResponse.status(),
-          concurrent: concurrentApprovalFileResponse.status(),
+          terminalApproved: terminalApprovedApprovalFileResponse.status,
+          terminalReject: terminalRejectApprovalFileResponse.status,
+          concurrent: concurrentApprovalFileResponse.status,
           dashboard: {
             missingSession: dashboardMissingSessionFileResponse.status(),
             invalidSession: dashboardInvalidSessionFileResponse.status(),
@@ -2109,10 +2059,6 @@ test.describe("Native scoped Receipt approval journey", () => {
         absentScope: absentScopeTag,
         globalAbsent: globalAbsentTag,
         browserScope: "ReceiptScopeDenied",
-        malformedJson: malformedJsonTag,
-        excessJson: excessJsonTag,
-        queryRejected: queryRejectedTag,
-        invalidFilter: invalidFilterTag,
         conflictingReplay: conflictingReplayTag,
         staleTerminal: staleTerminalTag,
         terminalApproved: terminalApprovedTag,

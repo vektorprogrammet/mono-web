@@ -3,18 +3,9 @@ import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { chmod, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { expect, test, type APIRequestContext, type Browser, type Page } from "@playwright/test";
+import { RECEIPT_FILE_MAX_BYTES } from "@vektorprogrammet/domain/receipt";
 import {
-  expect,
-  test,
-  type APIRequestContext,
-  type APIResponse,
-  type Browser,
-  type Page,
-} from "@playwright/test";
-import {
-  NativeProblem,
-  RECEIPT_FILE_MAX_BYTES,
-  ReadReceiptEvidenceEndpoint,
   ReceiptLifecycleEvidenceResponse,
   ReceiptListResponse,
   ReceiptResource,
@@ -22,6 +13,7 @@ import {
   OwnProfileResource,
 } from "@vektorprogrammet/rpc";
 import { nativeRpcRequestBody, nativeRpcStatus, nativeRpcValue } from "./native-operations.js";
+import { type NativeRpcAnswer, postNativeRpc, rpcBytes } from "./receipt-rpc.js";
 import { dashboardBaseUrl, dashboardMount } from "../dashboard-base";
 
 type JourneyOutcome = Data.TaggedEnum<{
@@ -76,8 +68,6 @@ const RECEIPT_BYTES = Buffer.from(
 
 // Responses decode with the API contract, so a contract change fails here instead of a copy.
 const exactDecoding = { onExcessProperty: "error" } as const;
-
-const decodeProblem = Schema.decodeUnknownSync(NativeProblem);
 
 const decodeReceiptResource = Schema.decodeUnknownSync(ReceiptResource);
 
@@ -275,16 +265,15 @@ async function captureLifecycleEvidence(
     readonly committed: ReadonlyArray<string>;
   };
 }> {
-  const evidencePath = ReadReceiptEvidenceEndpoint.path.replace(
-    ":receiptId",
-    encodeURIComponent(receiptId),
-  );
-
-  const response = await request.get(`${INTERNAL_BACKEND_ORIGIN}${evidencePath}`, {
+  const answer = await postNativeRpc(request, {
+    origin: INTERNAL_BACKEND_ORIGIN,
+    tag: "receipts.readReceiptEvidence",
+    payload: { receiptId },
     headers: sessionHeaders(sessionCookie),
+    internal: true,
   });
 
-  expect(response.status()).toBe(200);
+  expect(answer.status).toBe(200);
   const stagingRoot = process.env.RECEIPT_E2E_STAGING_ROOT;
   const committedRoot = process.env.RECEIPT_E2E_COMMITTED_ROOT;
 
@@ -292,7 +281,7 @@ async function captureLifecycleEvidence(
     throw new Error("Receipt lifecycle evidence roots are missing");
   }
 
-  const evidence = decodeLifecycleEvidence(await response.json(), exactDecoding);
+  const evidence = decodeLifecycleEvidence(answer.value, exactDecoding);
 
   return {
     ...evidence,
@@ -304,21 +293,27 @@ async function captureLifecycleEvidence(
 }
 
 async function expectProblemCode(
-  response: APIResponse,
+  answer: NativeRpcAnswer,
   expectedStatus: number,
   expectedCode: string,
 ): Promise<string> {
-  expect(response.status()).toBe(expectedStatus);
-  expect(response.headers()["content-type"]).toContain("application/problem+json");
-  const problem = decodeProblem(await response.json(), exactDecoding);
-  expect(problem).toMatchObject({
+  expect(answer.status).toBe(expectedStatus);
+  expect(answer.problem).toMatchObject({
     status: expectedStatus,
     code: expectedCode,
     type: `urn:vektorprogrammet:problem:v0.2:${expectedCode}`,
   });
 
-  return problem.code;
+  return answer.problem?.code ?? "missing";
 }
+
+/** One receipt RPC to the backend, as the headers given. */
+const receiptRpc = (
+  request: APIRequestContext,
+  tag: string,
+  payload: Schema.Json,
+  headers: Readonly<Record<string, string>>,
+) => postNativeRpc(request, { origin: BACKEND_ORIGIN, tag, payload, headers });
 
 function receiptRowFor(page: Page, receiptId: string) {
   return page.locator(`tr[data-receipt-id=${JSON.stringify(receiptId)}]`);
@@ -332,7 +327,14 @@ test.describe("Native Receipt owner journey", () => {
     page,
     request,
   }) => {
-    const unauthenticatedResponse = await request.get(`${BACKEND_ORIGIN}/api/receipts`);
+    const unauthenticatedResponse = await receiptRpc(
+      request,
+      "receipts.listReceipts",
+      {},
+      {
+        Origin: DASHBOARD_ORIGIN,
+      },
+    );
 
     const unauthenticatedTag = await expectProblemCode(
       unauthenticatedResponse,
@@ -486,10 +488,7 @@ test.describe("Native Receipt owner journey", () => {
 
     const submissionSuccess = submissionForm.getByRole("status");
     await expect(submissionSuccess).toBeVisible();
-    await expect(submissionSuccess).toHaveAttribute(
-      "data-command-id",
-      submissionIdempotencyKey,
-    );
+    await expect(submissionSuccess).toHaveAttribute("data-command-id", submissionIdempotencyKey);
     let receiptRow = page.locator("[data-receipt-id]").filter({ hasText: DESCRIPTION });
     await expect(receiptRow).toHaveCount(1);
     const receiptId = (await receiptRow.getByTestId("receipt-id").textContent())?.trim();
@@ -512,42 +511,40 @@ test.describe("Native Receipt owner journey", () => {
     await expect(receiptRow).toContainText(RECEIPT_DATE);
     await expect(receiptRow.locator('[data-status="Pending"]')).toBeVisible();
 
-    const submitReplayResponse = await request.post(`${BACKEND_ORIGIN}/api/receipts`, {
-      headers: {
-        ...authorization,
-        "Idempotency-Key": submissionIdempotencyKey,
-      },
-      multipart: {
-        description: DESCRIPTION,
-        amountOre: String(AMOUNT_ORE),
-        receiptDate: RECEIPT_DATE,
-        file: {
-          name: "receipt.png",
-          mimeType: "image/png",
-          buffer: RECEIPT_BYTES,
+    const submitReplayResponse = await receiptRpc(
+      request,
+      "receipts.submitReceipt",
+      {
+        idempotencyKey: submissionIdempotencyKey,
+        request: {
+          description: DESCRIPTION,
+          amountOre: AMOUNT_ORE,
+          receiptDate: RECEIPT_DATE,
+          file: { contentType: "image/png", bytes: rpcBytes(RECEIPT_BYTES) },
         },
       },
-    });
+      authorization,
+    );
 
-    expect(submitReplayResponse.status()).toBe(201);
-    const submitReplay = decodeReceiptResource(await submitReplayResponse.json(), exactDecoding);
-    expect(submitReplayResponse.headers()["etag"]).toBe(submitReplay.etag);
+    // A replay answers the first submission's resource; RPC answers carry no 201 or ETag header.
+    expect(submitReplayResponse.status).toBe(200);
+    const submitReplay = decodeReceiptResource(submitReplayResponse.value, exactDecoding);
     expect(submitReplay).toMatchObject({
       receiptId,
       status: "Pending",
       revision: 0,
     });
 
-    const ownedAtRevisionZeroResponse = await request.get(`${BACKEND_ORIGIN}/api/receipts`, {
-      headers: authorization,
-    });
-
-    expect(ownedAtRevisionZeroResponse.status()).toBe(200);
-
-    const ownedAtRevisionZero = decodeReceiptPage(
-      await ownedAtRevisionZeroResponse.json(),
-      exactDecoding,
+    const ownedAtRevisionZeroResponse = await receiptRpc(
+      request,
+      "receipts.listReceipts",
+      {},
+      authorization,
     );
+
+    expect(ownedAtRevisionZeroResponse.status).toBe(200);
+
+    const ownedAtRevisionZero = decodeReceiptPage(ownedAtRevisionZeroResponse.value, exactDecoding);
 
     expect(ownedAtRevisionZero.items).toHaveLength(1);
     const revisionZero = ownedAtRevisionZero.items[0];
@@ -595,10 +592,7 @@ test.describe("Native Receipt owner journey", () => {
 
     const revisionNotice = page.locator('[role="status"][data-action-intent="revise"]');
     await expect(revisionNotice).toBeVisible();
-    await expect(revisionNotice).toHaveAttribute(
-      "data-command-id",
-      stableRevisionIdempotencyKey,
-    );
+    await expect(revisionNotice).toHaveAttribute("data-command-id", stableRevisionIdempotencyKey);
     await expect(revisionNotice).toHaveAttribute("data-revision", "1");
     const revisionOneEtag = await revisionNotice.getAttribute("data-etag");
 
@@ -661,35 +655,26 @@ test.describe("Native Receipt owner journey", () => {
 
     if (revisionTwoEtag === null) throw new Error("Receipt revision two ETag is missing");
 
-    const replacementRetryResponse = await request.patch(
-      `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}`,
+    const replacementRetryResponse = await receiptRpc(
+      request,
+      "receipts.reviseReceipt",
       {
-        headers: {
-          ...authorization,
-          "Idempotency-Key": replacementIdempotencyKey,
-          "If-Match": revisionOneEtag,
-        },
-        multipart: {
+        receiptId,
+        idempotencyKey: replacementIdempotencyKey,
+        ifMatch: revisionOneEtag,
+        request: {
           description: REPLACED_DESCRIPTION,
-          amountOre: String(REVISED_AMOUNT_ORE),
+          amountOre: REVISED_AMOUNT_ORE,
           receiptDate: REVISED_RECEIPT_DATE,
-          file: {
-            name: "replacement.png",
-            mimeType: "image/png",
-            buffer: RECEIPT_BYTES,
-          },
+          file: { contentType: "image/png", bytes: rpcBytes(RECEIPT_BYTES) },
         },
       },
+      authorization,
     );
 
-    expect(replacementRetryResponse.status()).toBe(200);
+    expect(replacementRetryResponse.status).toBe(200);
 
-    const replacementRetry = decodeReceiptResource(
-      await replacementRetryResponse.json(),
-      exactDecoding,
-    );
-
-    expect(replacementRetryResponse.headers()["etag"]).toBe(replacementRetry.etag);
+    const replacementRetry = decodeReceiptResource(replacementRetryResponse.value, exactDecoding);
     expect(replacementRetry).toMatchObject({
       receiptId,
       revision: 2,
@@ -723,26 +708,26 @@ test.describe("Native Receipt owner journey", () => {
 
     await writeFile(lifecycleEvidencePath, JSON.stringify({ beforeFailure, afterRetry }), "utf8");
 
-    const stableRevisionReplayResponse = await request.patch(
-      `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}`,
+    const stableRevisionReplayResponse = await receiptRpc(
+      request,
+      "receipts.reviseReceipt",
       {
-        headers: {
-          ...authorization,
-          "Idempotency-Key": stableRevisionIdempotencyKey,
-          "If-Match": revisionZero.etag,
-        },
-        multipart: {
+        receiptId,
+        idempotencyKey: stableRevisionIdempotencyKey,
+        ifMatch: revisionZero.etag,
+        request: {
           description: REVISED_DESCRIPTION,
-          amountOre: String(REVISED_AMOUNT_ORE),
+          amountOre: REVISED_AMOUNT_ORE,
           receiptDate: REVISED_RECEIPT_DATE,
         },
       },
+      authorization,
     );
 
-    expect(stableRevisionReplayResponse.status()).toBe(200);
+    expect(stableRevisionReplayResponse.status).toBe(200);
 
     const stableRevisionReplay = decodeReceiptResource(
-      await stableRevisionReplayResponse.json(),
+      stableRevisionReplayResponse.value,
       exactDecoding,
     );
 
@@ -768,30 +753,29 @@ test.describe("Native Receipt owner journey", () => {
 
     const concurrentIdempotencyKey = randomUUID();
 
-    const concurrentRevisionResponse = await request.patch(
-      `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}`,
+    const concurrentRevisionResponse = await receiptRpc(
+      request,
+      "receipts.reviseReceipt",
       {
-        headers: {
-          ...authorization,
-          "Idempotency-Key": concurrentIdempotencyKey,
-          "If-Match": revisionTwoEtag,
-        },
-        multipart: {
+        receiptId,
+        idempotencyKey: concurrentIdempotencyKey,
+        ifMatch: revisionTwoEtag,
+        request: {
           description: CONCURRENT_DESCRIPTION,
-          amountOre: String(REVISED_AMOUNT_ORE),
+          amountOre: REVISED_AMOUNT_ORE,
           receiptDate: REVISED_RECEIPT_DATE,
         },
       },
+      authorization,
     );
 
-    expect(concurrentRevisionResponse.status()).toBe(200);
+    expect(concurrentRevisionResponse.status).toBe(200);
 
     const concurrentRevision = decodeReceiptResource(
-      await concurrentRevisionResponse.json(),
+      concurrentRevisionResponse.value,
       exactDecoding,
     );
 
-    expect(concurrentRevisionResponse.headers()["etag"]).toBe(concurrentRevision.etag);
     expect(concurrentRevision).toMatchObject({
       receiptId,
       status: "Pending",
@@ -819,22 +803,16 @@ test.describe("Native Receipt owner journey", () => {
     await expect(receiptRow.locator('[data-revision="3"]')).toHaveText("Versjon 3");
 
     const foreignContext = await browser.newContext({ baseURL: DASHBOARD_BASE_URL });
-    let foreignOwnerResponse: APIResponse;
+    let foreignOwnerResponse: NativeRpcAnswer;
 
     try {
       const foreignPage = await foreignContext.newPage();
       const foreignSession = await authenticate(foreignPage, request, receiptPersona("FOREIGN"));
-      foreignOwnerResponse = await request.post(
-        `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}:withdraw`,
-        {
-          headers: {
-            ...sessionHeaders(foreignSession),
-            "content-type": "application/json",
-            "Idempotency-Key": randomUUID(),
-            "If-Match": concurrentRevision.etag,
-          },
-          data: {},
-        },
+      foreignOwnerResponse = await receiptRpc(
+        request,
+        "receipts.withdrawReceipt",
+        { receiptId, idempotencyKey: randomUUID(), ifMatch: concurrentRevision.etag },
+        sessionHeaders(foreignSession),
       );
     } finally {
       await foreignContext.close();
@@ -858,10 +836,7 @@ test.describe("Native Receipt owner journey", () => {
     await expect(withdrawalNotice).toBeVisible();
     await expect(withdrawalNotice).toHaveAttribute("data-status", "Withdrawn");
     await expect(withdrawalNotice).toHaveAttribute("data-revision", "4");
-    await expect(withdrawalNotice).toHaveAttribute(
-      "data-command-id",
-      withdrawalIdempotencyKey,
-    );
+    await expect(withdrawalNotice).toHaveAttribute("data-command-id", withdrawalIdempotencyKey);
     const withdrawalEtag = await withdrawalNotice.getAttribute("data-etag");
 
     if (withdrawalEtag === null) throw new Error("Withdrawal ETag is missing");
@@ -881,27 +856,16 @@ test.describe("Native Receipt owner journey", () => {
     await expect(receiptRow.locator('[data-revision="4"]')).toBeVisible();
     await expect(receiptRow.getByRole("button")).toHaveCount(0);
 
-    const withdrawalReplayResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}:withdraw`,
-      {
-        headers: {
-          ...authorization,
-          "content-type": "application/json",
-          "Idempotency-Key": withdrawalIdempotencyKey,
-          "If-Match": concurrentRevision.etag,
-        },
-        data: {},
-      },
+    const withdrawalReplayResponse = await receiptRpc(
+      request,
+      "receipts.withdrawReceipt",
+      { receiptId, idempotencyKey: withdrawalIdempotencyKey, ifMatch: concurrentRevision.etag },
+      authorization,
     );
 
-    expect(withdrawalReplayResponse.status()).toBe(200);
+    expect(withdrawalReplayResponse.status).toBe(200);
 
-    const withdrawalReplay = decodeReceiptResource(
-      await withdrawalReplayResponse.json(),
-      exactDecoding,
-    );
-
-    expect(withdrawalReplayResponse.headers()["etag"]).toBe(withdrawalReplay.etag);
+    const withdrawalReplay = decodeReceiptResource(withdrawalReplayResponse.value, exactDecoding);
     expect(withdrawalReplay).toMatchObject({
       receiptId,
       status: "Withdrawn",
@@ -909,17 +873,11 @@ test.describe("Native Receipt owner journey", () => {
     });
     expect(withdrawalReplay.etag).toBe(withdrawalEtag);
 
-    const terminalResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}:withdraw`,
-      {
-        headers: {
-          ...authorization,
-          "content-type": "application/json",
-          "Idempotency-Key": randomUUID(),
-          "If-Match": withdrawalReplay.etag,
-        },
-        data: {},
-      },
+    const terminalResponse = await receiptRpc(
+      request,
+      "receipts.withdrawReceipt",
+      { receiptId, idempotencyKey: randomUUID(), ifMatch: withdrawalReplay.etag },
+      authorization,
     );
 
     const terminalTag = await expectProblemCode(
@@ -928,12 +886,15 @@ test.describe("Native Receipt owner journey", () => {
       "receipt.invalid-transition",
     );
 
-    const finalOwnedResponse = await request.get(`${BACKEND_ORIGIN}/api/receipts`, {
-      headers: authorization,
-    });
+    const finalOwnedResponse = await receiptRpc(
+      request,
+      "receipts.listReceipts",
+      {},
+      authorization,
+    );
 
-    expect(finalOwnedResponse.status()).toBe(200);
-    const finalOwned = decodeReceiptPage(await finalOwnedResponse.json(), exactDecoding);
+    expect(finalOwnedResponse.status).toBe(200);
+    const finalOwned = decodeReceiptPage(finalOwnedResponse.value, exactDecoding);
     expect(finalOwned.items).toHaveLength(1);
     expect(finalOwned.items[0]).toMatchObject({
       receiptId,
@@ -956,7 +917,7 @@ test.describe("Native Receipt owner journey", () => {
             fileStore: "private-filesystem",
           },
           unauthenticated: {
-            status: unauthenticatedResponse.status(),
+            status: unauthenticatedResponse.status,
             code: unauthenticatedTag,
           },
           rejected: [
@@ -971,12 +932,12 @@ test.describe("Native Receipt owner journey", () => {
             },
             {
               code: foreignOwnerTag,
-              status: foreignOwnerResponse.status(),
+              status: foreignOwnerResponse.status,
               revision: 3,
             },
             {
               code: terminalTag,
-              status: terminalResponse.status(),
+              status: terminalResponse.status,
               revision: withdrawalReplay.revision,
             },
           ],

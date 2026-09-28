@@ -22,6 +22,7 @@ import {
   PlacementScopes,
   nativeRpcPath,
   OwnProfileResource,
+  ReceiptFileContent,
   ReceiptListResponse,
 } from "@vektorprogrammet/rpc";
 import { Effect, Layer, ManagedRuntime, Redacted, Schema } from "effect";
@@ -221,6 +222,39 @@ export const observeLegacyCandidateNativeJourney = async (
       return { status: nativeRpcStatus(answer), value: nativeRpcValue(answer) };
     };
 
+    /**
+     * One receipt RPC as a browser posts it, with its credential and origin as HTTP headers,
+     * answered with its status under the HTTP contract and its value.
+     */
+    const receiptRpc = async (
+      name: string,
+      tag: "receipts.listReceipts" | "receipts.readReceiptFile",
+      payload: Schema.Json,
+      cookie?: string,
+      authorization?: string,
+    ) => {
+      phase = name;
+      const headers = new Headers({ origin: dashboardOrigin, "content-type": "application/json" });
+
+      if (cookie !== undefined) headers.set("cookie", cookie);
+
+      if (authorization !== undefined) headers.set("authorization", authorization);
+
+      const response = await runtime.runPromise(
+        api(
+          new Request(backendOrigin + nativeRpcPath, {
+            method: "POST",
+            headers,
+            body: nativeRpcRequestBody(tag, payload),
+          }),
+        ),
+      );
+
+      const answer = await response.text();
+
+      return { status: nativeRpcStatus(answer), value: nativeRpcValue(answer) };
+    };
+
     const ownProfile = async (name: string, cookie: string) => {
       const answer = await readOwnProfile(name, cookie);
       assert.equal(answer.status, 200);
@@ -398,12 +432,15 @@ export const observeLegacyCandidateNativeJourney = async (
     assert.equal(input.receipt.ownerPersonId, input.identities.member.personId);
 
     for (const label of ["leader", "member", "historicalLeader", "otherDepartment"] as const) {
-      const receipts = await json(
+      const listed = await receiptRpc(
         `${label}-receipt-owner-isolation`,
-        "/api/receipts",
-        ReceiptListResponse,
+        "receipts.listReceipts",
+        {},
         cookies[label],
       );
+
+      assert.equal(listed.status, 200);
+      const receipts = Schema.decodeUnknownSync(ReceiptListResponse)(listed.value);
 
       assert.ok(
         receipts.items.every((item) => item.ownerPersonId === input.identities[label].personId),
@@ -415,34 +452,54 @@ export const observeLegacyCandidateNativeJourney = async (
       checks.push(phase);
     }
 
-    const filePath = `/api/receipts/${encodeURIComponent(input.receipt.receiptId)}/file`;
-    phase = "owner-private-receipt-bytes";
-    const downloaded = await request(filePath, cookies.member);
+    const fileRead = { receiptId: input.receipt.receiptId };
+
+    const downloaded = await receiptRpc(
+      "owner-private-receipt-bytes",
+      "receipts.readReceiptFile",
+      fileRead,
+      cookies.member,
+    );
+
     assert.equal(downloaded.status, 200);
     assert.equal(
       createHash("sha256")
-        .update(Buffer.from(await downloaded.arrayBuffer()))
+        .update(Buffer.from(Schema.decodeUnknownSync(ReceiptFileContent)(downloaded.value).bytes))
         .digest("hex"),
       input.receipt.sha256,
     );
     checks.push(phase);
 
     for (const label of ["leader", "historicalLeader", "otherDepartment"] as const) {
-      await status(`${label}-private-receipt-denied`, filePath, 404, cookies[label]);
+      const denied = await receiptRpc(
+        `${label}-private-receipt-denied`,
+        "receipts.readReceiptFile",
+        fileRead,
+        cookies[label],
+      );
+
+      assert.equal(denied.status, 404);
+      checks.push(phase);
     }
 
-    await status("anonymous-private-receipt-denied", filePath, 401);
-    phase = "invalid-bearer-no-cookie-fallback";
+    const anonymous = await receiptRpc(
+      "anonymous-private-receipt-denied",
+      "receipts.readReceiptFile",
+      fileRead,
+    );
 
-    const invalidBearer = await request(
-      filePath,
+    assert.equal(anonymous.status, 401);
+    checks.push(phase);
+
+    const invalidBearer = await receiptRpc(
+      "invalid-bearer-no-cookie-fallback",
+      "receipts.readReceiptFile",
+      fileRead,
       cookies.member,
-      undefined,
       "Bearer candidate-invalid",
     );
 
     assert.equal(invalidBearer.status, 401);
-    await invalidBearer.body?.cancel();
     checks.push(phase);
 
     if (input.changeMemberPasswordTo !== undefined) {

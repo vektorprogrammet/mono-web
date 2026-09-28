@@ -47,7 +47,7 @@ import {
 import { ReceiptFileService } from "@vektorprogrammet/domain/receipt";
 import type { ReceiptImportResult } from "@vektorprogrammet/domain/receipt";
 import { ReceiptId } from "@vektorprogrammet/domain/receipt";
-import { createPromiseClient } from "../../packages/sdk/src/promise.js";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
 import {
   ReceiptFileStoreResource,
   ReceiptFileStoreLive,
@@ -563,7 +563,8 @@ try {
     foreign,
     ...[cookie, foreign].map((value) => value.slice(value.indexOf("=") + 1)),
   );
-  const client = createPromiseClient(backendOrigin, { cookie, origin: dashboardOrigin });
+  const native = nativeScriptClient(backendOrigin);
+  const ownerHeaders = { cookie, origin: dashboardOrigin };
 
   const reconciliationDiagnostics: Array<{
     sourcePrimaryKey: string;
@@ -579,8 +580,12 @@ try {
         Effect.tryPromise({
           try: async () => {
             phase = "native owner projection";
-            const list = await client.receipts.listReceipts({ query: {} });
-            const item = list.body.items.find((i) => i.receiptId === result.receipt.receiptId);
+            const list = await native.call(ownerHeaders, (client) =>
+              client["receipts.listReceipts"]({}),
+            );
+
+            assert.ok(list.ok, `listReceipts answered ${list.status}`);
+            const item = list.value.items.find((i) => i.receiptId === result.receipt.receiptId);
             assert.ok(item);
             assert.equal(item.amountOre, result.receipt.amountOre);
             assert.equal(item.status, result.receipt.status);
@@ -589,11 +594,15 @@ try {
             assert.ok(!JSON.stringify(item).includes(result.receipt.file.objectKey));
             phase = "native private byte download";
 
-            const downloaded = await client.receipts.readReceiptFile({
-              params: { receiptId: ReceiptId.make(result.receipt.receiptId) },
-            });
+            const downloaded = await native.call(ownerHeaders, (client) =>
+              client["receipts.readReceiptFile"]({
+                receiptId: ReceiptId.make(result.receipt.receiptId),
+              }),
+            );
 
-            return digest(downloaded.body) === result.receipt.file.sha256;
+            assert.ok(downloaded.ok, `readReceiptFile answered ${downloaded.status}`);
+
+            return digest(downloaded.value.bytes) === result.receipt.file.sha256;
           },
           catch: (cause) => {
             const reason = safe(String(cause));
@@ -636,12 +645,19 @@ try {
     });
 
     for (const deniedCookie of [foreign, undefined]) {
-      const r = await fetch(`${backendOrigin}/api/receipts/${result.receipt.receiptId}/file`, {
-        headers: deniedCookie ? { cookie: deniedCookie } : {},
-      });
+      const denied = await native.call(
+        deniedCookie === undefined
+          ? { origin: dashboardOrigin }
+          : { cookie: deniedCookie, origin: dashboardOrigin },
+        (client) =>
+          client["receipts.readReceiptFile"]({
+            receiptId: ReceiptId.make(result.receipt.receiptId),
+          }),
+      );
 
-      assert.equal(r.status, deniedCookie ? 404 : 401);
-      assert.ok(!Buffer.from(await r.arrayBuffer()).equals(bytes));
+      // A foreign owner is told the file does not exist; no credential is told to present one.
+      assert.equal(denied.ok, false);
+      assert.equal(denied.status, deniedCookie === undefined ? 401 : 404);
     }
   }
 
@@ -671,12 +687,16 @@ try {
   assert.equal(collisionLedger[0]?.result, "Quarantined");
   assert.ok(collisionLedger[0]?.reasons_json.reasons.includes("DestinationIdentityCollision"));
 
-  const invalidBearer = await fetch(
-    `${backendOrigin}/api/receipts/${accepted[0]!.receipt.receiptId}/file`,
-    { headers: { cookie, authorization: "Bearer invalid-synthetic-0095" } },
+  const invalidBearer = await native.call(
+    { cookie, authorization: "Bearer invalid-synthetic-0095", origin: dashboardOrigin },
+    (client) =>
+      client["receipts.readReceiptFile"]({
+        receiptId: ReceiptId.make(accepted[0]!.receipt.receiptId),
+      }),
   );
 
   assert.equal(invalidBearer.status, 401);
+  await native.dispose();
   const stable = await snapshot();
 
   const fileDigest = async () => {
