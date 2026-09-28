@@ -9,12 +9,20 @@ Answers a native RPC with a declared problem: failure mapping, credential classi
 Evaluates one admission person AccessSpec.
 
 ```ts
-const authorizeAdmissionPerson: { (input: NativePersonAuthorization): (headers: Headers.Headers) => Effect.Effect<void, Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">>; (headers: Headers.Headers, input: NativePersonAuthorization): Effect.Effect<void, Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">> }
+authorizeAdmissionPerson(
+  input: NativePersonAuthorization
+): (headers: Headers.Headers) => Effect.Effect<void, Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">>
+authorizeAdmissionPerson(
+  headers: Headers.Headers,
+  input: NativePersonAuthorization
+): Effect.Effect<void, Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">>
 ```
 
-- Inputs: none
-- Output: `{ (input: NativePersonAuthorization): (headers: Headers.Headers) => Effect.Effect<void, Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">>; (headers: Headers.Headers, input: NativePersonAuthorization): Effect.Effect<void, Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">> }`
-- Errors: none
+- Inputs:
+  - `headers: Headers.Headers`
+  - `input: NativePersonAuthorization`
+- Output: `Effect.Effect<void, Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">>`
+- Errors: `Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">`
 - Requirements: none
 - Side effects: none
 - Source: [apps/backend/src/admission/access.ts:68](../../apps/backend/src/admission/access.ts#L68)
@@ -41,13 +49,24 @@ RPC: admission specs reveal their denials, so that problem never occurs. Call th
 Resolves the current person and authorizes one returning-assistant operation on that person's own profile.
 
 ```ts
-const returningAuthorization: { (options: NativeRpcOptions, rpc: typeof ReadReturningAssistantOptions | typeof RegisterReturningAssistant): (headers: Headers.Headers) => Effect.Effect<TransactionPersonAuthority, | IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">, Database | Organization | IdentitySnapshot | OAuthCredentialAuthority>; (headers: Headers.Headers, options: NativeRpcOptions, rpc: typeof ReadReturningAssistantOptions | typeof RegisterReturningAssistant): Effect.Effect<TransactionPersonAuthority, | IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">, Database | Organization | IdentitySnapshot | OAuthCredentialAuthority> }
+returningAuthorization(
+  options: NativeRpcOptions,
+  rpc: typeof ReadReturningAssistantOptions | typeof RegisterReturningAssistant
+): (headers: Headers.Headers) => Effect.Effect<TransactionPersonAuthority, | IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">, Database | Organization | IdentitySnapshot | OAuthCredentialAuthority>
+returningAuthorization(
+  headers: Headers.Headers,
+  options: NativeRpcOptions,
+  rpc: typeof ReadReturningAssistantOptions | typeof RegisterReturningAssistant
+): Effect.Effect<TransactionPersonAuthority, | IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">, Database | Organization | IdentitySnapshot | OAuthCredentialAuthority>
 ```
 
-- Inputs: none
-- Output: `{ (options: NativeRpcOptions, rpc: typeof ReadReturningAssistantOptions | typeof RegisterReturningAssistant): (headers: Headers.Headers) => Effect.Effect<TransactionPersonAuthority, | IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">, Database | Organization | IdentitySnapshot | OAuthCredentialAuthority>; (headers: Headers.Headers, options: NativeRpcOptions, rpc: typeof ReadReturningAssistantOptions | typeof RegisterReturningAssistant): Effect.Effect<TransactionPersonAuthority, | IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">, Database | Organization | IdentitySnapshot | OAuthCredentialAuthority> }`
-- Errors: none
-- Requirements: none
+- Inputs:
+  - `headers: Headers.Headers`
+  - `options: NativeRpcOptions`
+  - `rpc: typeof ReadReturningAssistantOptions | typeof RegisterReturningAssistant`
+- Output: `Effect.Effect<TransactionPersonAuthority, | IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">, Database | Organization | IdentitySnapshot | OAuthCredentialAuthority>`
+- Errors: `| IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">`
+- Requirements: `Database | Organization | IdentitySnapshot | OAuthCredentialAuthority`
 - Side effects: Reads the person's session or token and organization authority in the caller's transaction.
 - Source: [apps/backend/src/admission/access.ts:118](../../apps/backend/src/admission/access.ts#L118)
 
@@ -74,12 +93,20 @@ operation acts on the person's own profile, not on a department. Resolve it with
 The admission actor of one department scope.
 
 ```ts
-const admissionActorForAuthority: { (authority: OrganizationPersonAuthority, departmentScope?: string): Effect.Effect<AdmissionPeriodActor, AdmissionRoleDenied | AdmissionScopeDenied | InactiveActor>; (departmentScope?: string): (authority: OrganizationPersonAuthority) => Effect.Effect<AdmissionPeriodActor, AdmissionRoleDenied | AdmissionScopeDenied | InactiveActor> }
+admissionActorForAuthority(
+  authority: OrganizationPersonAuthority,
+  departmentScope?: string
+): Effect.Effect<AdmissionPeriodActor, AdmissionRoleDenied | AdmissionScopeDenied | InactiveActor>
+admissionActorForAuthority(
+  departmentScope?: string
+): (authority: OrganizationPersonAuthority) => Effect.Effect<AdmissionPeriodActor, AdmissionRoleDenied | AdmissionScopeDenied | InactiveActor>
 ```
 
-- Inputs: none
-- Output: `{ (authority: OrganizationPersonAuthority, departmentScope?: string): Effect.Effect<AdmissionPeriodActor, AdmissionRoleDenied | AdmissionScopeDenied | InactiveActor>; (departmentScope?: string): (authority: OrganizationPersonAuthority) => Effect.Effect<AdmissionPeriodActor, AdmissionRoleDenied | AdmissionScopeDenied | InactiveActor> }`
-- Errors: none
+- Inputs:
+  - `authority: OrganizationPersonAuthority`
+  - `departmentScope?: string`
+- Output: `Effect.Effect<AdmissionPeriodActor, AdmissionRoleDenied | AdmissionScopeDenied | InactiveActor>`
+- Errors: `AdmissionRoleDenied | AdmissionScopeDenied | InactiveActor`
 - Requirements: none
 - Side effects: none
 - Source: [apps/backend/src/admission/context.ts:46](../../apps/backend/src/admission/context.ts#L46)
@@ -107,11 +134,19 @@ throws, which escape the error channel as defects. Map it with this.
 The one answer for every admission failure.
 
 ```ts
-const admissionProblems: { <Unavailable extends AdmissionUnavailable>(unavailable: Unavailable): (headers: Headers.Headers) => ProblemMapper<AdmissionFailure, AdmissionCases<Unavailable>>; <Unavailable extends AdmissionUnavailable>(headers: Headers.Headers, unavailable: Unavailable): ProblemMapper<AdmissionFailure, AdmissionCases<Unavailable>> }
+admissionProblems<Unavailable extends AdmissionUnavailable>(
+  unavailable: Unavailable
+): (headers: Headers.Headers) => ProblemMapper<AdmissionFailure, AdmissionCases<Unavailable>>
+admissionProblems<Unavailable extends AdmissionUnavailable>(
+  headers: Headers.Headers,
+  unavailable: Unavailable
+): ProblemMapper<AdmissionFailure, AdmissionCases<Unavailable>>
 ```
 
-- Inputs: none
-- Output: `{ <Unavailable extends AdmissionUnavailable>(unavailable: Unavailable): (headers: Headers.Headers) => ProblemMapper<AdmissionFailure, AdmissionCases<Unavailable>>; <Unavailable extends AdmissionUnavailable>(headers: Headers.Headers, unavailable: Unavailable): ProblemMapper<AdmissionFailure, AdmissionCases<Unavailable>> }`
+- Inputs:
+  - `headers: Headers.Headers`
+  - `unavailable: Unavailable`
+- Output: `ProblemMapper<AdmissionFailure, AdmissionCases<Unavailable>>`
 - Errors: none
 - Requirements: none
 - Side effects: none
@@ -561,12 +596,20 @@ receipt, and the domain command runs twice. Pass the old route path.
 Fails a mutation whose If-Match no longer names the current representation.
 
 ```ts
-const requireCurrentETag: { (ifMatch: StrongETag): (current: StrongETag) => Effect.Effect<void, Problem<"precondition.failed">>; (current: StrongETag, ifMatch: StrongETag): Effect.Effect<void, Problem<"precondition.failed">> }
+requireCurrentETag(
+  ifMatch: StrongETag
+): (current: StrongETag) => Effect.Effect<void, Problem<"precondition.failed">>
+requireCurrentETag(
+  current: StrongETag,
+  ifMatch: StrongETag
+): Effect.Effect<void, Problem<"precondition.failed">>
 ```
 
-- Inputs: none
-- Output: `{ (ifMatch: StrongETag): (current: StrongETag) => Effect.Effect<void, Problem<"precondition.failed">>; (current: StrongETag, ifMatch: StrongETag): Effect.Effect<void, Problem<"precondition.failed">> }`
-- Errors: none
+- Inputs:
+  - `current: StrongETag`
+  - `ifMatch: StrongETag`
+- Output: `Effect.Effect<void, Problem<"precondition.failed">>`
+- Errors: `Problem<"precondition.failed">`
 - Requirements: none
 - Side effects: none
 - Source: [apps/backend/src/rpc/problem.ts:278](../../apps/backend/src/rpc/problem.ts#L278)
@@ -724,11 +767,14 @@ failures differently. Pipe this after the domain's mapper.
 The credential evidence of an RPC request: which credential headers it presented.
 
 ```ts
-const personPresentation: { (headers: Headers.Headers, challenge?: string): CredentialPresentation; (challenge?: string): (headers: Headers.Headers) => CredentialPresentation }
+personPresentation(headers: Headers.Headers, challenge?: string): CredentialPresentation
+personPresentation(challenge?: string): (headers: Headers.Headers) => CredentialPresentation
 ```
 
-- Inputs: none
-- Output: `{ (headers: Headers.Headers, challenge?: string): CredentialPresentation; (challenge?: string): (headers: Headers.Headers) => CredentialPresentation }`
+- Inputs:
+  - `headers: Headers.Headers`
+  - `challenge?: string`
+- Output: `CredentialPresentation`
 - Errors: none
 - Requirements: none
 - Side effects: none
@@ -789,11 +835,22 @@ answer than the first attempt. Answer every outcome through this.
 An anonymous AccessSpec grants every caller and conceals nothing, so a denial means the spec and its scope resolution disagree: a defect.
 
 ```ts
-const authorizeAnonymous: { (resolution: CanonicalScopeResolution<Schema.JsonObject>, now: string): (spec: AccessSpec) => Effect.Effect<void>; (spec: AccessSpec, resolution: CanonicalScopeResolution<Schema.JsonObject>, now: string): Effect.Effect<void> }
+authorizeAnonymous(
+  resolution: CanonicalScopeResolution<Schema.JsonObject>,
+  now: string
+): (spec: AccessSpec) => Effect.Effect<void>
+authorizeAnonymous(
+  spec: AccessSpec,
+  resolution: CanonicalScopeResolution<Schema.JsonObject>,
+  now: string
+): Effect.Effect<void>
 ```
 
-- Inputs: none
-- Output: `{ (resolution: CanonicalScopeResolution<Schema.JsonObject>, now: string): (spec: AccessSpec) => Effect.Effect<void>; (spec: AccessSpec, resolution: CanonicalScopeResolution<Schema.JsonObject>, now: string): Effect.Effect<void> }`
+- Inputs:
+  - `spec: AccessSpec`
+  - `resolution: CanonicalScopeResolution<Schema.JsonObject>`
+  - `now: string`
+- Output: `Effect.Effect<void>`
 - Errors: none
 - Requirements: none
 - Side effects: none
@@ -821,12 +878,20 @@ handler then drift apart unnoticed. Evaluate it, so that a mismatch is a defect.
 A rejected person credential is answered from the ingress evidence, never by string choice.
 
 ```ts
-const authorizePerson: { (presentation: CredentialPresentation): (input: NativePersonAuthorization) => Effect.Effect<void, | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing"> | Problem<"resource.not-found">>; (input: NativePersonAuthorization, presentation: CredentialPresentation): Effect.Effect<void, | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing"> | Problem<"resource.not-found">> }
+authorizePerson(
+  presentation: CredentialPresentation
+): (input: NativePersonAuthorization) => Effect.Effect<void, | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing"> | Problem<"resource.not-found">>
+authorizePerson(
+  input: NativePersonAuthorization,
+  presentation: CredentialPresentation
+): Effect.Effect<void, | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing"> | Problem<"resource.not-found">>
 ```
 
-- Inputs: none
-- Output: `{ (presentation: CredentialPresentation): (input: NativePersonAuthorization) => Effect.Effect<void, | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing"> | Problem<"resource.not-found">>; (input: NativePersonAuthorization, presentation: CredentialPresentation): Effect.Effect<void, | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing"> | Problem<"resource.not-found">> }`
-- Errors: none
+- Inputs:
+  - `input: NativePersonAuthorization`
+  - `presentation: CredentialPresentation`
+- Output: `Effect.Effect<void, | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing"> | Problem<"resource.not-found">>`
+- Errors: `| Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing"> | Problem<"resource.not-found">`
 - Requirements: none
 - Side effects: none
 - Source: [apps/backend/src/rpc/problem.ts:585](../../apps/backend/src/rpc/problem.ts#L585)
@@ -893,11 +958,19 @@ contract then promises an answer that the operation never gives. Mark it unreach
 Creates the closed Problem Details union of one RPC.
 
 ```ts
-const problemUnion: { <const Codes extends readonly [NativeProblemCode, ...ReadonlyArray<NativeProblemCode>]>(codes: Codes): (identifier: string) => Schema.Union<Array<ProblemBodySchema<Codes[number]>>>; <const Codes extends readonly [NativeProblemCode, ...ReadonlyArray<NativeProblemCode>]>(identifier: string, codes: Codes): Schema.Union<Array<ProblemBodySchema<Codes[number]>>> }
+problemUnion<const Codes extends readonly [NativeProblemCode, ...ReadonlyArray<NativeProblemCode>]>(
+  codes: Codes
+): (identifier: string) => Schema.Union<Array<ProblemBodySchema<Codes[number]>>>
+problemUnion<const Codes extends readonly [NativeProblemCode, ...ReadonlyArray<NativeProblemCode>]>(
+  identifier: string,
+  codes: Codes
+): Schema.Union<Array<ProblemBodySchema<Codes[number]>>>
 ```
 
-- Inputs: none
-- Output: `{ <const Codes extends readonly [NativeProblemCode, ...ReadonlyArray<NativeProblemCode>]>(codes: Codes): (identifier: string) => Schema.Union<Array<ProblemBodySchema<Codes[number]>>>; <const Codes extends readonly [NativeProblemCode, ...ReadonlyArray<NativeProblemCode>]>(identifier: string, codes: Codes): Schema.Union<Array<ProblemBodySchema<Codes[number]>>> }`
+- Inputs:
+  - `identifier: string`
+  - `codes: Codes`
+- Output: `Schema.Union<Array<ProblemBodySchema<Codes[number]>>>`
 - Errors: none
 - Requirements: none
 - Side effects: none
@@ -1050,11 +1123,22 @@ leak into the body, and the registry members go missing. Render the body with th
 Builds one safe fixed public problem value.
 
 ```ts
-const makeNativeProblem: { <Code extends NativeProblemCode>(code: Code, expectedStatus?: number, instance?: string): RegistryProblemBody<Code>; (expectedStatus?: number, instance?: string): <Code extends NativeProblemCode>(code: Code) => RegistryProblemBody<Code> }
+makeNativeProblem<Code extends NativeProblemCode>(
+  code: Code,
+  expectedStatus?: number,
+  instance?: string
+): RegistryProblemBody<Code>
+makeNativeProblem(
+  expectedStatus?: number,
+  instance?: string
+): <Code extends NativeProblemCode>(code: Code) => RegistryProblemBody<Code>
 ```
 
-- Inputs: none
-- Output: `{ <Code extends NativeProblemCode>(code: Code, expectedStatus?: number, instance?: string): RegistryProblemBody<Code>; (expectedStatus?: number, instance?: string): <Code extends NativeProblemCode>(code: Code) => RegistryProblemBody<Code> }`
+- Inputs:
+  - `code: Code`
+  - `expectedStatus?: number`
+  - `instance?: string`
+- Output: `RegistryProblemBody<Code>`
 - Errors: none
 - Throws: An `Error` when `expectedStatus` differs from the status that the registry freezes for `code`.
 - Requirements: none

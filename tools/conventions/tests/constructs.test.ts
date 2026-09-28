@@ -159,6 +159,85 @@ describe("construct pages", () => {
     );
   });
 
+  test("describes a dual construct by its data-first overload, as a plain function", () => {
+    const plain = "(value: number, factor: number): number => value * factor";
+
+    const dual = [
+      "{",
+      "  (factor: number): (value: number) => number;",
+      "  (value: number, factor: number): number;",
+      `} = dual(2, ${plain})`,
+    ].join("\n");
+
+    // `probe` writes `export const probeDouble = <declaration>`; a dual construct annotates the name.
+    const annotated = (doc: string, declaration: string) => {
+      const files = probe(doc, declaration);
+      const path = `${kernel}/probe.ts`;
+      const text = files[path] ?? "";
+
+      return {
+        ...files,
+        [path]: `import { dual } from "effect/Function";\n\n${text.replace("probeDouble = {", "probeDouble: {")}`,
+      };
+    };
+
+    const contractOf = (files: Readonly<Record<string, string>>) => {
+      const page =
+        renderPages(readConstructs(withFiles(files)).constructs).get(
+          `${constructPages.contracts}/digest.md`,
+        ) ?? "";
+
+      const section = page.slice(page.indexOf("## `probeDouble`"));
+
+      return {
+        section,
+        channels: section
+          .slice(section.indexOf("- Inputs"), section.indexOf("- Side effects"))
+          .trimEnd(),
+      };
+    };
+
+    const fromPlain = contractOf(probe(tagged(contract), plain));
+    const fromDual = contractOf(annotated(tagged(contract), dual));
+
+    expect(fromPlain.channels).toBe(
+      [
+        "- Inputs:",
+        "  - `value: number`",
+        "  - `factor: number`",
+        "- Output: `number`",
+        "- Errors: none",
+        "- Requirements: none",
+      ].join("\n"),
+    );
+    expect(fromDual.channels).toBe(fromPlain.channels);
+    expect(fromDual.section).toContain(
+      "probeDouble(factor: number): (value: number) => number\nprobeDouble(value: number, factor: number): number\n",
+    );
+
+    const outside = {
+      "apps/backend/src/probe-a.ts": fromKernel,
+      "tools/e2e/probe-b.ts": fromKernel,
+      "packages/database/src/probe-c.ts": fromKernel,
+    };
+
+    const candidates = (files: Readonly<Record<string, string>>) => {
+      const repository = withFiles({ ...files, ...outside });
+
+      return readCandidates(
+        repository,
+        readModuleGraph(repository),
+        readConstructs(repository).constructs,
+      ).filter((candidate) => candidate.name === "probeDouble");
+    };
+
+    expect(candidates(annotated("", dual))).toHaveLength(1);
+    // A type with a member beside its call signature is no overload set, and no function.
+    expect(
+      candidates(annotated("", dual.replace("number;\n}", "number;\n  readonly arity: 2;\n}"))),
+    ).toHaveLength(0);
+  });
+
   test("reports a missing contract tag and a missing annotation", () => {
     const gapCount = (doc: string, declaration?: string) =>
       readConstructs(withFiles(probe(doc, declaration))).findings.filter((finding) =>

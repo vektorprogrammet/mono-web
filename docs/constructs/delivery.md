@@ -9,13 +9,24 @@ Delivers committed effects to providers after the transaction. The [index](../co
 Shared acknowledged JSON transport; deliberately no retry on ambiguous acceptance.
 
 ```ts
-const deliverJson: { (body: Schema.Json, config: HttpDeliveryConfig, headers?: Readonly<Record<string, string>>): Effect.Effect<void, HttpDeliveryFailure | Cause.TimeoutError, HttpClient.HttpClient>; (config: HttpDeliveryConfig, headers?: Readonly<Record<string, string>>): (body: Schema.Json) => Effect.Effect<void, HttpDeliveryFailure | Cause.TimeoutError, HttpClient.HttpClient> }
+deliverJson(
+  body: Schema.Json,
+  config: HttpDeliveryConfig,
+  headers?: Readonly<Record<string, string>>
+): Effect.Effect<void, HttpDeliveryFailure | Cause.TimeoutError, HttpClient.HttpClient>
+deliverJson(
+  config: HttpDeliveryConfig,
+  headers?: Readonly<Record<string, string>>
+): (body: Schema.Json) => Effect.Effect<void, HttpDeliveryFailure | Cause.TimeoutError, HttpClient.HttpClient>
 ```
 
-- Inputs: none
-- Output: `{ (body: Schema.Json, config: HttpDeliveryConfig, headers?: Readonly<Record<string, string>>): Effect.Effect<void, HttpDeliveryFailure | Cause.TimeoutError, HttpClient.HttpClient>; (config: HttpDeliveryConfig, headers?: Readonly<Record<string, string>>): (body: Schema.Json) => Effect.Effect<void, HttpDeliveryFailure | Cause.TimeoutError, HttpClient.HttpClient> }`
-- Errors: none
-- Requirements: none
+- Inputs:
+  - `body: Schema.Json`
+  - `config: HttpDeliveryConfig`
+  - `headers?: Readonly<Record<string, string>>`
+- Output: `Effect.Effect<void, HttpDeliveryFailure | Cause.TimeoutError, HttpClient.HttpClient>`
+- Errors: `HttpDeliveryFailure | Cause.TimeoutError`
+- Requirements: `HttpClient.HttpClient`
 - Side effects: One HTTP POST to `config.endpoint`; the timeout waits on the Effect clock.
 - Source: [apps/backend/src/delivery/http.ts:57](../../apps/backend/src/delivery/http.ts#L57)
 

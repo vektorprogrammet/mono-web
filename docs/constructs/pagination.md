@@ -42,11 +42,14 @@ Declare the row as `CursorPositioned<Row>` and select its text with `receiptCurs
 Selects the ordering column as microsecond UTC text so cursor positions compare exactly.
 
 ```ts
-const receiptCursorTimestamp: { (column: Statement.Fragment): (sql: DatabaseOperations) => Statement.Fragment; (sql: DatabaseOperations, column: Statement.Fragment): Statement.Fragment }
+receiptCursorTimestamp(column: Statement.Fragment): (sql: DatabaseOperations) => Statement.Fragment
+receiptCursorTimestamp(sql: DatabaseOperations, column: Statement.Fragment): Statement.Fragment
 ```
 
-- Inputs: none
-- Output: `{ (column: Statement.Fragment): (sql: DatabaseOperations) => Statement.Fragment; (sql: DatabaseOperations, column: Statement.Fragment): Statement.Fragment }`
+- Inputs:
+  - `sql: DatabaseOperations`
+  - `column: Statement.Fragment`
+- Output: `Statement.Fragment`
 - Errors: none
 - Requirements: none
 - Side effects: none: it builds a fragment, and the statement that embeds it reads the rows.

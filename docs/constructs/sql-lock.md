@@ -45,12 +45,23 @@ new namespace; a change to an existing one is a lock migration.
 Waits for the advisory lock on `key` until the current transaction ends.
 
 ```ts
-const lockAdvisory: { (key: AdvisoryLockKey, mode?: AdvisoryLockMode): (sql: DatabaseOperations) => Effect.Effect<void, SqlError>; (sql: DatabaseOperations, key: AdvisoryLockKey, mode?: AdvisoryLockMode): Effect.Effect<void, SqlError> }
+lockAdvisory(
+  key: AdvisoryLockKey,
+  mode?: AdvisoryLockMode
+): (sql: DatabaseOperations) => Effect.Effect<void, SqlError>
+lockAdvisory(
+  sql: DatabaseOperations,
+  key: AdvisoryLockKey,
+  mode?: AdvisoryLockMode
+): Effect.Effect<void, SqlError>
 ```
 
-- Inputs: none
-- Output: `{ (key: AdvisoryLockKey, mode?: AdvisoryLockMode): (sql: DatabaseOperations) => Effect.Effect<void, SqlError>; (sql: DatabaseOperations, key: AdvisoryLockKey, mode?: AdvisoryLockMode): Effect.Effect<void, SqlError> }`
-- Errors: none
+- Inputs:
+  - `sql: DatabaseOperations`
+  - `key: AdvisoryLockKey`
+  - `mode?: AdvisoryLockMode`
+- Output: `Effect.Effect<void, SqlError>`
+- Errors: `SqlError`
 - Requirements: none
 - Side effects: Holds a PostgreSQL advisory lock until the transaction ends, and waits while another transaction holds a conflicting one.
 - Source: [packages/database/src/advisory-lock.ts:204](../../packages/database/src/advisory-lock.ts#L204)
@@ -81,12 +92,20 @@ guards nothing, and hand-written `pg_advisory_xact_lock` SQL, which
 Serializes one person's protected command with person-keyed authority writers.
 
 ```ts
-const lockPersonAuthorization: { (personId: PersonId): (sql: DatabaseOperations) => Effect.Effect<void, OrganizationPersistenceError>; (sql: DatabaseOperations, personId: PersonId): Effect.Effect<void, OrganizationPersistenceError> }
+lockPersonAuthorization(
+  personId: PersonId
+): (sql: DatabaseOperations) => Effect.Effect<void, OrganizationPersistenceError>
+lockPersonAuthorization(
+  sql: DatabaseOperations,
+  personId: PersonId
+): Effect.Effect<void, OrganizationPersistenceError>
 ```
 
-- Inputs: none
-- Output: `{ (personId: PersonId): (sql: DatabaseOperations) => Effect.Effect<void, OrganizationPersistenceError>; (sql: DatabaseOperations, personId: PersonId): Effect.Effect<void, OrganizationPersistenceError> }`
-- Errors: none
+- Inputs:
+  - `sql: DatabaseOperations`
+  - `personId: PersonId`
+- Output: `Effect.Effect<void, OrganizationPersistenceError>`
+- Errors: `OrganizationPersistenceError`
 - Requirements: none
 - Side effects: Holds the person's advisory lock until the transaction ends, and waits while another transaction holds it.
 - Source: [packages/database/src/organization/authority-postgres.ts:67](../../packages/database/src/organization/authority-postgres.ts#L67)
