@@ -16,7 +16,12 @@ import { createPromiseClient } from "@vektorprogrammet/sdk";
 
 import { dashboardMount } from "../dashboard-base.ts";
 import { journeyClock } from "../../../tools/e2e/journey-clock.ts";
-import { isNativeRequest } from "./native-operations.ts";
+import {
+  isNativeRequest,
+  nativeRpcRequestBody,
+  nativeRpcStatus,
+  nativeRpcValue,
+} from "./native-operations.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -636,12 +641,16 @@ async function login(browser, persona) {
   assert.ok(sessionCookie, `${persona.personId} session cookie is missing`);
   const cookie = `${sessionCookie.name}=${sessionCookie.value}`;
 
-  const sessionResponse = await fetch(`${backendOrigin}/api/session`, {
-    headers: nativeHeaders(cookie),
-  });
+  const sessionAnswer = await (
+    await fetch(`${backendOrigin}/api/rpc`, {
+      method: "POST",
+      headers: nativeHeaders(cookie, { "content-type": "application/json" }),
+      body: nativeRpcRequestBody("system.readSession"),
+    })
+  ).text();
 
-  assert.equal(sessionResponse.status, 200, `${persona.personId} native session read`);
-  const session = await sessionResponse.json();
+  assert.equal(nativeRpcStatus(sessionAnswer), 200, `${persona.personId} native session read`);
+  const session = nativeRpcValue(sessionAnswer);
   assert.equal(
     session?.personId,
     persona.personId,

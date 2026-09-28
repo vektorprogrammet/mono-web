@@ -3,6 +3,8 @@ import AxeBuilder from "@axe-core/playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { expect, test, type Request } from "@playwright/test";
+import { nativeRpcPath } from "@vektorprogrammet/rpc";
+import { nativeRpcRequestBody, nativeRpcStatus, nativeRpcValue } from "./native-operations.js";
 
 const dashboardOrigin = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5194";
 
@@ -138,12 +140,22 @@ test.describe("Native recruitment assignment journey (spec 0049.3)", () => {
     expect(sessionCookies).toHaveLength(1);
     expect(sessionCookies[0]?.name).toBe("better-auth.session_token");
     expect(sessionCookies[0]?.value ?? "").not.toBe("");
-    const sessionResponse = await page.context().request.get(`${apiOrigin}/api/session`);
-    expect(sessionResponse.status()).toBe(200);
-    expect(await sessionResponse.json()).toMatchObject({ current: true });
-    const profileResponse = await page.context().request.get(`${apiOrigin}/api/profile`);
-    expect(profileResponse.status()).toBe(200);
-    expect(await profileResponse.json()).toMatchObject({ personId: expectedLeaderPersonId });
+
+    // One RPC as the browser context sends it, with its cookie and the dashboard origin.
+    const readNative = async (tag: string) =>
+      (
+        await page.context().request.post(`${apiOrigin}${nativeRpcPath}`, {
+          headers: { Origin: dashboardOrigin, "content-type": "application/json" },
+          data: nativeRpcRequestBody(tag),
+        })
+      ).text();
+
+    const session = await readNative("system.readSession");
+    expect(nativeRpcStatus(session)).toBe(200);
+    expect(nativeRpcValue(session)).toMatchObject({ current: true });
+    const profile = await readNative("profile.readOwnProfile");
+    expect(nativeRpcStatus(profile)).toBe(200);
+    expect(nativeRpcValue(profile)).toMatchObject({ profile: { personId: expectedLeaderPersonId } });
 
     await page.goto("/dashboard/sokere");
     await expect(page).toHaveURL(/\/dashboard\/sokere$/);

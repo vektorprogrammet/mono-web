@@ -8,7 +8,7 @@
  * such routes by name.
  */
 import { NativeProblem, NativeRpcs, nativeRpcPath } from "@vektorprogrammet/rpc";
-import { Array as Arr, Match, Option, Schema } from "effect";
+import { Array as Arr, Match, Option, Predicate, Schema } from "effect";
 
 /** One RPC request message, as the JSON serialization of the RPC client sends it over HTTP. */
 const RpcRequestMessage = Schema.fromJsonString(
@@ -92,6 +92,13 @@ export const nativeRpcOutcome = (body: string): NativeRpcOutcome | undefined => 
     ),
     Match.exhaustive,
   );
+};
+
+/** The success value that one RPC response carries, or `undefined` for any other answer. */
+export const nativeRpcValue = (body: string): Schema.Json | undefined => {
+  const outcome = nativeRpcOutcome(body);
+
+  return Predicate.isTagged(outcome, "Success") ? outcome.value : undefined;
 };
 
 /** The status that one RPC response answered under the HTTP contract: 200, or its problem's. */

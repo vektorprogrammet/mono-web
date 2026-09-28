@@ -21,8 +21,15 @@ import {
   ReceiptListResponse,
   ReceiptResource,
 } from "@vektorprogrammet/rpc";
-import { Schema } from "effect";
+import { Predicate, Schema } from "effect";
 import { z } from "zod";
+import { nativeRpcPath } from "@vektorprogrammet/rpc";
+import {
+  nativeRpcOutcome,
+  nativeRpcRequestBody,
+  nativeRpcStatus,
+  nativeRpcValue,
+} from "./native-operations.js";
 import { addressesAnyRoute, addressesRoute, legacyRoutes } from "./request-routes.js";
 
 const execFileAsync = promisify(execFile);
@@ -538,34 +545,43 @@ async function authenticate(
   if (sessionCookie === undefined) throw new Error("Better Auth session cookie is missing");
   const cookie = `${sessionCookie.name}=${sessionCookie.value}`;
 
-  const sessionResponse = await request.get(`${BACKEND_ORIGIN}/api/session`, {
-    headers: sessionHeaders(cookie),
-  });
+  // One RPC as a browser sends it, with the session cookie and the dashboard origin.
+  const readNative = async (tag: string) =>
+    (
+      await request.post(`${BACKEND_ORIGIN}${nativeRpcPath}`, {
+        headers: { ...sessionHeaders(cookie), "content-type": "application/json" },
+        data: nativeRpcRequestBody(tag),
+      })
+    ).text();
 
-  expect(sessionResponse.status()).toBe(200);
+  const sessionAnswer = await readNative("system.readSession");
+
+  expect(nativeRpcStatus(sessionAnswer)).toBe(200);
 
   const session = z
     .object({ sessionId: z.string(), personId: z.string(), current: z.literal(true) })
     .passthrough()
-    .parse(await sessionResponse.json());
+    .parse(nativeRpcValue(sessionAnswer));
 
   expect(session.personId).toBe(persona.personId);
 
-  const profileResponse = await request.get(`${BACKEND_ORIGIN}/api/profile`, {
-    headers: sessionHeaders(cookie),
-  });
+  const profileAnswer = await readNative("profile.readOwnProfile");
 
-  expect(profileResponse.status()).toBe(expectedProfileStatus);
+  expect(nativeRpcStatus(profileAnswer)).toBe(expectedProfileStatus);
 
   if (expectedProfileStatus === 200) {
     const profile = z
-      .object({ personId: z.string() })
+      .object({ profile: z.object({ personId: z.string() }).passthrough() })
       .passthrough()
-      .parse(await profileResponse.json());
+      .parse(nativeRpcValue(profileAnswer));
 
-    expect(profile.personId).toBe(persona.personId);
+    expect(profile.profile.personId).toBe(persona.personId);
   } else {
-    await expectProblemCode(profileResponse, 403, "authority.denied");
+    const outcome = nativeRpcOutcome(profileAnswer);
+
+    expect(Predicate.isTagged(outcome, "Problem") && outcome.problem.code).toBe(
+      "authority.denied",
+    );
   }
 
   return {

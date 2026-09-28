@@ -1,8 +1,13 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { expect, test } from "@playwright/test";
 import { dashboardMount } from "../dashboard-base";
-import { Schema } from "effect";
 import { journeyClock } from "../../../tools/e2e/journey-clock.js";
+import {
+  isNativeRpcRequest,
+  nativeRpcProblem,
+  nativeRpcSuccess,
+  readNativeRpcCall,
+} from "../test/native-rpc.js";
 
 
 const FIXTURE_PORT = 8791;
@@ -16,59 +21,52 @@ const SESSION_COOKIE = `better-auth.session_token=${SESSION_TOKEN}`;
 // The fixture session's instants. No clock compares them, so they derive from one pinned instant.
 const sessionClock = journeyClock("2031-09-15T12:00:00.000Z");
 
-const PRIVATE_READ_HEADERS = {
-  "Cache-Control": "private, no-store",
-  Vary: "Origin",
-} as const;
-
-const PROFILE_READ_HEADERS = {
-  ...PRIVATE_READ_HEADERS,
-  ETag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"',
-} as const;
+const FIXTURE_ETAG = '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"';
 
 const apiRequests: Array<{
   readonly method: string;
   readonly path: string;
-  readonly cookie: string | undefined;
+  readonly tag: string | undefined;
+  readonly cookie: string | null;
 }> = [];
 
 let fixtureServer: Server | undefined;
 
-function respondJson(
-  response: ServerResponse,
-  status: number,
-  body: Schema.Json,
-  headers: Readonly<Record<string, string>> = {},
-): void {
-  response.writeHead(status, { "Content-Type": "application/json", ...headers });
-  response.end(JSON.stringify(body));
+/** Writes a web response through the fixture's Node response. */
+async function writeResponse(response: ServerResponse, answer: Response): Promise<void> {
+  response.writeHead(answer.status, Object.fromEntries(answer.headers));
+  response.end(Buffer.from(await answer.arrayBuffer()));
 }
 
-function handleFixtureRequest(request: IncomingMessage, response: ServerResponse): void {
-  const path = new URL(request.url ?? "/", FIXTURE_URL).pathname;
-  apiRequests.push({
-    method: request.method ?? "GET",
-    path,
-    cookie: request.headers.cookie,
-  });
+/** The fixture backend: the session and the profile RPCs, for the one fixture session. */
+async function answerFixtureRequest(request: IncomingMessage): Promise<Response> {
+  const url = new URL(request.url ?? "/", FIXTURE_URL);
+  const chunks: Buffer[] = [];
 
-  if (request.headers.cookie !== SESSION_COOKIE) {
-    respondJson(response, 401, {
-      type: "urn:vektorprogrammet:problem:v0.2:credential.missing",
-      title: "Credential required",
-      status: 401,
-      code: "credential.missing",
-      detail: "A credential is required for this operation.",
-    });
+  for await (const chunk of request) chunks.push(Buffer.from(chunk));
 
-    return;
+  const body = Buffer.concat(chunks);
+
+  if (request.method !== "POST" || !isNativeRpcRequest(url)) {
+    apiRequests.push({ method: request.method ?? "GET", path: url.pathname, tag: undefined, cookie: null });
+
+    return new Response(null, { status: 404 });
   }
 
-  if (path === "/api/profile" && request.method === "GET") {
-    respondJson(
-      response,
-      200,
-      {
+  const call = await readNativeRpcCall(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body,
+  });
+
+  const cookie = call.headers.get("cookie");
+  apiRequests.push({ method: "POST", path: url.pathname, tag: call.tag, cookie });
+
+  if (cookie !== SESSION_COOKIE) return nativeRpcProblem(call, "credential.missing");
+
+  if (call.tag === "profile.readOwnProfile") {
+    return nativeRpcSuccess(call, {
+      profile: {
         personId: "2500",
         firstName: "Operator",
         lastName: "0025",
@@ -78,39 +76,31 @@ function handleFixtureRequest(request: IncomingMessage, response: ServerResponse
         nameRevision: 0,
         contactRevision: 0,
       },
-      PROFILE_READ_HEADERS,
-    );
-
-    return;
+      etag: FIXTURE_ETAG,
+    });
   }
 
-  if (path === "/api/session" && request.method === "GET") {
-    respondJson(
-      response,
-      200,
-      {
-        sessionId: "fixture-session-0025",
-        personId: "2500",
-        createdAt: sessionClock.now,
-        updatedAt: sessionClock.now,
-        expiresAt: sessionClock.fromNow(1),
-        ipAddress: null,
-        userAgent: null,
-        current: true,
-      },
-      PRIVATE_READ_HEADERS,
-    );
-
-    return;
+  if (call.tag === "system.readSession") {
+    return nativeRpcSuccess(call, {
+      sessionId: "fixture-session-0025",
+      personId: "2500",
+      createdAt: sessionClock.now,
+      updatedAt: sessionClock.now,
+      expiresAt: sessionClock.fromNow(1),
+      ipAddress: null,
+      userAgent: null,
+      current: true,
+    });
   }
 
-  respondJson(response, 404, {
-    type: "urn:vektorprogrammet:problem:v0.2:route.not-found",
-    title: "Route not found",
-    status: 404,
-    code: "route.not-found",
-    detail: "The requested route does not exist.",
-  });
+  return nativeRpcProblem(call, "resource.not-found");
+}
+
+function handleFixtureRequest(request: IncomingMessage, response: ServerResponse): void {
+  void answerFixtureRequest(request).then(
+    (answer) => writeResponse(response, answer),
+    () => writeResponse(response, new Response(null, { status: 500 })),
+  );
 }
 
 // /dashboard/assistenter is the native volunteer affiliation and school placement page, not an
@@ -185,9 +175,11 @@ test.describe("dashboard unavailable native projections", () => {
       await expect(page.getByText(unavailable.body, { exact: true })).toBeVisible();
     }
 
-    expect(apiRequests.some(({ path }) => path === "/api/profile")).toBe(true);
+    expect(apiRequests.some(({ tag }) => tag === "profile.readOwnProfile")).toBe(true);
     expect(
-      apiRequests.filter(({ path }) => !["/api/profile", "/api/session"].includes(path)),
+      apiRequests.filter(
+        ({ tag }) => tag !== "profile.readOwnProfile" && tag !== "system.readSession",
+      ),
     ).toEqual([]);
     expect(apiRequests.every(({ cookie }) => cookie === SESSION_COOKIE)).toBe(true);
 

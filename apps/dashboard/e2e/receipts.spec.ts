@@ -18,8 +18,10 @@ import {
   ReceiptLifecycleEvidenceResponse,
   ReceiptListResponse,
   ReceiptResource,
-  UserProfileResponse,
+  nativeRpcPath,
+  OwnProfileResource,
 } from "@vektorprogrammet/rpc";
+import { nativeRpcRequestBody, nativeRpcStatus, nativeRpcValue } from "./native-operations.js";
 import { dashboardBaseUrl, dashboardMount } from "../dashboard-base";
 
 type JourneyOutcome = Data.TaggedEnum<{
@@ -83,7 +85,7 @@ const decodeReceiptPage = Schema.decodeUnknownSync(ReceiptListResponse);
 
 const decodeLifecycleEvidence = Schema.decodeUnknownSync(ReceiptLifecycleEvidenceResponse);
 
-const decodeProfile = Schema.decodeUnknownSync(UserProfileResponse);
+const decodeProfile = Schema.decodeUnknownSync(OwnProfileResource);
 
 /** Settings of the operator drain, which the runner owns. */
 const decodeOperatorEnvironment = Schema.decodeUnknownSync(
@@ -198,13 +200,16 @@ async function authenticate(
   if (sessionCookie === undefined) throw new Error("Better Auth session cookie is missing");
   const cookie = `${sessionCookie.name}=${sessionCookie.value}`;
 
-  const profileResponse = await request.get(`${BACKEND_ORIGIN}/api/profile`, {
-    headers: sessionHeaders(cookie),
-  });
+  const profileAnswer = await (
+    await request.post(`${BACKEND_ORIGIN}${nativeRpcPath}`, {
+      headers: { ...sessionHeaders(cookie), "content-type": "application/json" },
+      data: nativeRpcRequestBody("profile.readOwnProfile"),
+    })
+  ).text();
 
-  expect(profileResponse.status()).toBe(200);
-  expect(decodeProfile(await profileResponse.json(), exactDecoding)).toMatchObject({
-    personId: persona.personId,
+  expect(nativeRpcStatus(profileAnswer)).toBe(200);
+  expect(decodeProfile(nativeRpcValue(profileAnswer), exactDecoding)).toMatchObject({
+    profile: { personId: persona.personId },
   });
 
   return cookie;

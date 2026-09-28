@@ -5,7 +5,8 @@ import { writeFile } from "node:fs/promises";
 import { chromium, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { Predicate } from "effect";
-import { RECEIPT_FILE_MAX_BYTES, receiptTransferMaxBytes } from "@vektorprogrammet/rpc";
+import { nativeRpcPath, RECEIPT_FILE_MAX_BYTES, receiptTransferMaxBytes } from "@vektorprogrammet/rpc";
+import { nativeRpcRequestBody, nativeRpcStatus, nativeRpcValue } from "./native-operations.ts";
 import { fixture, receiptBytes } from "../../../tools/e2e/golden-reimbursement-evidence.mjs";
 import { sha256 } from "../../../tools/e2e/golden-school-service-evidence.mjs";
 
@@ -73,7 +74,17 @@ export const runReimbursementBrowser = async ({
 
     assert.equal(cookies.length, 1);
     const cookie = cookies.map(({ name, value }) => `${name}=${value}`).join("; ");
-    const session = await json(await request(cookie, "/api/session"), 200);
+
+    const sessionAnswer = await (
+      await request(cookie, nativeRpcPath, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: nativeRpcRequestBody("system.readSession"),
+      })
+    ).text();
+
+    assert.equal(nativeRpcStatus(sessionAnswer), 200, `session read ${sessionAnswer}`);
+    const session = nativeRpcValue(sessionAnswer);
     assert.equal(session.personId, person.personId);
     checks.push({ kind: "session", role, personId: session.personId });
 

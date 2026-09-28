@@ -2,7 +2,8 @@ import { Schema } from "effect";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { IdempotencyKey } from "@vektorprogrammet/rpc";
+import { IdempotencyKey, nativeRpcPath } from "@vektorprogrammet/rpc";
+import { nativeRpcRequestBody, nativeRpcStatus, nativeRpcValue } from "./native-operations.js";
 import { createPromiseClient } from "@vektorprogrammet/sdk";
 import {
   expect,
@@ -82,20 +83,25 @@ const authenticate = async (
 
   const cookie = sessionCookies.map(({ name, value }) => `${name}=${value}`).join("; ");
 
-  const sessionResponse = await request.get(`${API_ORIGIN}/api/session`, {
-    headers: { Cookie: cookie },
-  });
+  // One RPC as a browser sends it, with the session cookie and the dashboard origin.
+  const readNative = async (tag: string) =>
+    (
+      await request.post(`${API_ORIGIN}${nativeRpcPath}`, {
+        headers: { Cookie: cookie, Origin: DASHBOARD_ORIGIN, "content-type": "application/json" },
+        data: nativeRpcRequestBody(tag),
+      })
+    ).text();
 
-  expect(sessionResponse.status()).toBe(200);
-  expect(await responseBody(sessionResponse)).toMatchObject({ current: true });
+  const session = await readNative("system.readSession");
 
-  const profileResponse = await request.get(`${API_ORIGIN}/api/profile`, {
-    headers: { Cookie: cookie },
-  });
+  expect(nativeRpcStatus(session)).toBe(200);
+  expect(nativeRpcValue(session)).toMatchObject({ current: true });
 
-  expect(profileResponse.status()).toBe(200);
+  const profile = await readNative("profile.readOwnProfile");
+
+  expect(nativeRpcStatus(profile)).toBe(200);
   const expectedPersonId = requiredEnvironment(personIdEnvironment);
-  expect(await responseBody(profileResponse)).toMatchObject({ personId: expectedPersonId });
+  expect(nativeRpcValue(profile)).toMatchObject({ profile: { personId: expectedPersonId } });
 
   return {
     cookie,
