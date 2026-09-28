@@ -3,20 +3,29 @@
  * no sentinel. Each case starts a real cluster in a separate Bun owner, ends that owner as the named
  * killer does, and waits for the sentinel's teardown.
  */
-import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
-import { Schema } from "effect";
-import { describe, expect, test } from "vitest";
+import { expect, layer } from "@effect/vitest";
+import {
+  Clock,
+  Data,
+  Effect,
+  FileSystem,
+  Option,
+  Path,
+  type PlatformError,
+  Predicate,
+  Schema,
+  Stream,
+} from "effect";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { PostgresPlatformLive } from "./index";
+
+/** The owner ended, or ran out of time, before it reported its cluster. */
+class OwnerReportMissing extends Data.TaggedError("OwnerReportMissing")<{
+  readonly message: string;
+}> {}
 
 const construct = JSON.stringify(new URL("./index.ts", import.meta.url).href);
-
-const measureJob = fileURLToPath(new URL("../scripts/measure-job.ts", import.meta.url));
 
 const StartedCluster = Schema.fromJsonString(
   Schema.Struct({ socketDirectory: Schema.String, port: Schema.Int, pid: Schema.Int }),
@@ -38,145 +47,155 @@ const owner = (then: "fail" | "wait") => [
   ].join("\n"),
 ];
 
-const signal = (target: number, name: NodeJS.Signals) => {
-  try {
-    process.kill(target, name);
-  } catch {
-    // The target is already gone.
-  }
-};
+const signal = (target: number, name: NodeJS.Signals) =>
+  // The target may already be gone.
+  Effect.ignore(Effect.try(() => process.kill(target, name)));
+
+/** The process ids under /proc. */
+const processIds = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+
+  return (yield* fs.readDirectory("/proc")).map(Number).filter((pid) => Number.isInteger(pid));
+});
+
+/** The text of a /proc file, or none when its process exited while the table was read. */
+const procText = (file: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+
+    return yield* fs.readFileString(file).pipe(Effect.option);
+  });
 
 /** The process ids of `root` and its descendants, from the parent links in /proc. */
-const treeOf = (root: number) => {
-  const children = new Map<number, Array<number>>();
+const treeOf = (root: number) =>
+  Effect.gen(function* () {
+    const children = new Map<number, Array<number>>();
 
-  for (const entry of readdirSync("/proc")) {
-    const pid = Number(entry);
+    for (const pid of yield* processIds) {
+      const stat = yield* procText(`/proc/${pid}/stat`);
 
-    if (!Number.isInteger(pid)) continue;
+      if (Option.isNone(stat)) continue;
 
-    try {
-      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
       // The command name may hold spaces and parentheses; the state and the parent follow it.
-      const parent = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
+      const parent = Number(stat.value.slice(stat.value.lastIndexOf(")") + 2).split(" ")[1]);
       const siblings = children.get(parent);
 
       if (siblings === undefined) children.set(parent, [pid]);
       else siblings.push(pid);
-    } catch {
-      // The process exited while the table was read.
     }
-  }
 
-  const tree: Array<number> = [];
-  const pending = [root];
+    const tree: Array<number> = [];
+    const pending = [root];
 
-  for (let pid = pending.pop(); pid !== undefined; pid = pending.pop()) {
-    tree.push(pid);
-    pending.push(...(children.get(pid) ?? []));
-  }
+    for (let pid = pending.pop(); pid !== undefined; pid = pending.pop()) {
+      tree.push(pid);
+      pending.push(...(children.get(pid) ?? []));
+    }
 
-  return tree;
-};
+    return tree;
+  });
 
 /** Live processes whose command line names `root`: the server and the sentinel of a cluster. */
 const processesNaming = (root: string) =>
-  readdirSync("/proc").flatMap((entry) => {
-    const pid = Number(entry);
+  Effect.gen(function* () {
+    const naming: Array<number> = [];
 
-    if (!Number.isInteger(pid)) return [];
+    for (const pid of yield* processIds) {
+      const commandLine = yield* procText(`/proc/${pid}/cmdline`);
 
-    try {
-      return readFileSync(`/proc/${pid}/cmdline`, "utf8").includes(root) ? [pid] : [];
-    } catch {
-      return [];
+      if (Option.isSome(commandLine) && commandLine.value.includes(root)) naming.push(pid);
     }
+
+    return naming;
   });
 
-const refusesConnections = (port: number) => {
-  const { promise, resolve } = Promise.withResolvers<boolean>();
-  const socket = createConnection({ host: "127.0.0.1", port });
+const refusesConnections = (port: number) =>
+  Effect.callback<boolean>((resume) => {
+    const socket = createConnection({ host: "127.0.0.1", port });
 
-  socket.once("connect", () => {
-    socket.destroy();
-    resolve(false);
+    socket.once("connect", () => {
+      socket.destroy();
+      resume(Effect.succeed(false));
+    });
+    socket.once("error", () => resume(Effect.succeed(true)));
   });
-  socket.once("error", () => resolve(true));
 
-  return promise;
-};
-
-const running = (pid: number) => {
-  try {
-    process.kill(pid, 0);
-
-    return true;
-  } catch {
-    return false;
-  }
-};
+const running = (pid: number) =>
+  Effect.try(() => process.kill(pid, 0)).pipe(
+    Effect.as(true),
+    Effect.orElseSucceed(() => false),
+  );
 
 /**
- * Resolves with the cluster that the owner reports. Rejects once the owner ends without one, or
- * after `within` milliseconds, so the case's `finally` still runs before the test times out.
+ * The cluster that the owner reports on its output. Fails once the owner ends without one, or
+ * after `within` milliseconds, so the case's cleanup still runs before the test times out.
  */
-const reported = (launched: ChildProcess, within: number) => {
-  const { promise, resolve, reject } = Promise.withResolvers<StartedCluster>();
-  let output = "";
+const reported = (launched: ChildProcessSpawner.ChildProcessHandle, within: number) =>
+  Effect.gen(function* () {
+    let output = "";
 
-  const fail = (reason: string) => {
-    clearTimeout(deadline);
-    reject(new Error(`the owner ${reason}:\n${output}`));
-  };
+    const line = yield* Stream.decodeText(launched.all).pipe(
+      Stream.map((chunk) => {
+        output += chunk;
 
-  const deadline = setTimeout(() => fail(`reported no cluster within ${within} ms`), within);
+        return /^\{.*\}$/mu.exec(output)?.[0];
+      }),
+      Stream.filter(Predicate.isNotUndefined),
+      Stream.runHead,
+      Effect.timeoutOption(within),
+    );
 
-  const collect = (chunk: Buffer) => {
-    output += chunk.toString("utf8");
+    if (Option.isNone(line))
+      return yield* new OwnerReportMissing({
+        message: `the owner reported no cluster within ${within} ms:\n${output}`,
+      });
 
-    const line = /^\{.*\}$/mu.exec(output)?.[0];
+    if (Option.isNone(line.value))
+      return yield* new OwnerReportMissing({
+        message: `the owner ended without starting a cluster:\n${output}`,
+      });
 
-    if (line === undefined) return;
+    return yield* Schema.decodeEffect(StartedCluster)(line.value.value);
+  });
 
-    clearTimeout(deadline);
-    resolve(Schema.decodeSync(StartedCluster)(line));
-  };
+const remains = (cluster: StartedCluster, root: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
 
-  launched.stdout?.on("data", collect);
-  launched.stderr?.on("data", collect);
-  launched.once("close", () => fail("ended without starting a cluster"));
+    return {
+      directory: yield* fs.exists(root),
+      server: yield* running(cluster.pid),
+      listener: !(yield* refusesConnections(cluster.port)),
+      processes: yield* processesNaming(root),
+    };
+  });
 
-  return promise;
-};
-
-const remains = async (cluster: StartedCluster, root: string) => ({
-  directory: existsSync(root),
-  server: running(cluster.pid),
-  listener: !(await refusesConnections(cluster.port)),
-  processes: processesNaming(root),
-});
+const lingers = (left: Effect.Success<ReturnType<typeof remains>>) =>
+  left.directory || left.server || left.listener || left.processes.length > 0;
 
 interface OwnerDeath {
   readonly name: string;
   /** The command that runs the owner, in its own process group. */
-  readonly command: (ledger: string) => ReadonlyArray<string>;
+  readonly command: (paths: { readonly ledger: string; readonly measureJob: string }) => ReadonlyArray<string>;
   /** Ends the owner after it reported its cluster. `pid` leads the owner's process group. */
-  readonly end: (pid: number) => Promise<void>;
+  readonly end: (
+    pid: number,
+  ) => Effect.Effect<void, PlatformError.PlatformError, FileSystem.FileSystem>;
 }
 
 const ownerDeaths: ReadonlyArray<OwnerDeath> = [
   // Bun exits on an uncaught failure without an `exit` event, so no handler of the owner runs.
-  { name: "an uncaught failure", command: () => owner("fail"), end: async () => undefined },
-  { name: "SIGKILL of the owner", command: () => owner("wait"), end: async (pid) => signal(pid, "SIGKILL") },
+  { name: "an uncaught failure", command: () => owner("fail"), end: () => Effect.void },
+  { name: "SIGKILL of the owner", command: () => owner("wait"), end: (pid) => signal(pid, "SIGKILL") },
   {
     name: "SIGKILL of the owner's process group",
     command: () => owner("wait"),
-    end: async (pid) => signal(-pid, "SIGKILL"),
+    end: (pid) => signal(-pid, "SIGKILL"),
   },
   {
     // `just measure` forwards SIGINT and SIGTERM to the command that it runs.
     name: "SIGTERM to `just measure`, which forwards it to the owner",
-    command: (ledger) => [
+    command: ({ ledger, measureJob }) => [
       "bun",
       "--no-env-file",
       measureJob,
@@ -187,66 +206,74 @@ const ownerDeaths: ReadonlyArray<OwnerDeath> = [
       "--",
       ...owner("wait"),
     ],
-    end: async (pid) => signal(pid, "SIGTERM"),
+    end: (pid) => signal(pid, "SIGTERM"),
   },
   {
     // A bash tool timeout and `hub stop` send SIGTERM to every descendant, also to those in other
     // sessions, and then SIGKILL to the process group.
     name: "a tool timeout: SIGTERM to every descendant, then SIGKILL to the process group",
     command: () => owner("wait"),
-    end: async (pid) => {
-      for (const member of treeOf(pid)) signal(member, "SIGTERM");
+    end: (pid) =>
+      Effect.gen(function* () {
+        for (const member of yield* treeOf(pid)) yield* signal(member, "SIGTERM");
 
-      await sleep(1_000);
-      signal(-pid, "SIGKILL");
-    },
+        yield* Effect.sleep(1_000);
+        yield* signal(-pid, "SIGKILL");
+      }),
   },
 ];
 
-describe("startDisposablePostgres teardown", () => {
-  test.each(ownerDeaths)(
+layer(PostgresPlatformLive, { excludeTestServices: true })("startDisposablePostgres teardown", (it) => {
+  it.effect.each(ownerDeaths)(
     "removes the cluster when its owner ends by $name",
-    async ({ command, end }) => {
-      const scratch = await mkdtemp(join(tmpdir(), "vektor-teardown-probe-"));
-      const [program = "bun", ...args] = command(join(scratch, "ledger.jsonl"));
-      const launched = spawn(program, args, { detached: true, stdio: ["ignore", "pipe", "pipe"] });
-      const leader = launched.pid;
-      let root: string | undefined;
+    ({ command, end }) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const scratch = yield* fs.makeTempDirectoryScoped({ prefix: "vektor-teardown-probe-" });
+        const measureJob = yield* path.fromFileUrl(new URL("../scripts/measure-job.ts", import.meta.url));
+        const [program = "bun", ...args] = command({ ledger: path.join(scratch, "ledger.jsonl"), measureJob });
 
-      try {
-        if (leader === undefined) throw new Error(`${program} did not start`);
+        // The owner leads its own process group, as the killers of the cases expect.
+        const launched = yield* spawner.spawn(
+          ChildProcess.make(program, args, { detached: true, stdin: "ignore" }),
+        );
 
-        const cluster = await reported(launched, 30_000);
-        root = dirname(cluster.socketDirectory);
-        await end(leader);
+        let root: string | undefined;
 
-        const deadline = Date.now() + 20_000;
-        let left = await remains(cluster, root);
+        yield* Effect.gen(function* () {
+          const cluster = yield* reported(launched, 30_000);
+          root = path.dirname(cluster.socketDirectory);
+          yield* end(Number(launched.pid));
 
-        // The sentinel tears the cluster down in its own process after the owner is gone, so the
-        // test polls for the result instead of awaiting an event of this process.
-        while (
-          Date.now() < deadline &&
-          (left.directory || left.server || left.listener || left.processes.length > 0)
-        ) {
-          await sleep(100);
-          left = await remains(cluster, root);
-        }
+          const deadline = (yield* Clock.currentTimeMillis) + 20_000;
+          let left = yield* remains(cluster, root);
 
-        expect(left).toEqual({ directory: false, server: false, listener: false, processes: [] });
-      } finally {
-        // A failing case must not leak what the owner left: stop it and remove its files.
-        if (leader !== undefined) signal(-leader, "SIGKILL");
+          // The sentinel tears the cluster down in its own process after the owner is gone, so the
+          // test polls for the result instead of awaiting an event of this process.
+          while ((yield* Clock.currentTimeMillis) < deadline && lingers(left)) {
+            yield* Effect.sleep(100);
+            left = yield* remains(cluster, root);
+          }
 
-        if (root !== undefined) {
-          for (const pid of processesNaming(root)) signal(pid, "SIGKILL");
+          expect(left).toEqual({ directory: false, server: false, listener: false, processes: [] });
+        }).pipe(
+          // A failing case must not leak what the owner left: stop it and remove its files.
+          Effect.ensuring(
+            Effect.gen(function* () {
+              yield* signal(-Number(launched.pid), "SIGKILL");
 
-          await rm(root, { recursive: true, force: true });
-        }
+              if (root === undefined) return;
 
-        await rm(scratch, { recursive: true, force: true });
-      }
-    },
+              for (const pid of yield* Effect.orDie(processesNaming(root)))
+                yield* signal(pid, "SIGKILL");
+
+              yield* Effect.ignore(fs.remove(root, { recursive: true, force: true }));
+            }),
+          ),
+        );
+      }),
     60_000,
   );
 });

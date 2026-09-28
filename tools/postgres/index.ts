@@ -20,17 +20,43 @@
  * `reserveLoopbackPorts` is the one way to choose the loopback port of a server that a journey
  * starts, a cluster included. It reserves below the kernel's ephemeral range and never returns a
  * port twice in one process, so no other bind takes the port before its server binds it.
+ *
+ * The work is Effect programs over `FileSystem`, `Path`, and `ChildProcessSpawner`. Bun programs
+ * and Node Vitest suites both import this module, so it keeps a Promise API and runs each program
+ * in one module runtime of the shared Node implementations of those services. The postmaster and
+ * the synchronous resolution of the manifest and the installation use Node directly (EX-0017).
  */
-import { type ChildProcess, execFile, spawn, spawnSync } from "node:child_process";
-import { randomInt } from "node:crypto";
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0017: the postmaster logs to a descriptor and gets signals alone, and the installation resolves synchronously
+import { type ChildProcess as NodeChildProcess, spawn, spawnSync } from "node:child_process";
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0017: the postmaster's log is a descriptor, and the manifest and the installation resolve synchronously
 import { accessSync, closeSync, constants, openSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
-import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
-import { promisify } from "node:util";
-import { Redacted, Schema } from "effect";
+import * as BunChildProcessSpawner from "@effect/platform-bun/BunChildProcessSpawner";
+import * as BunFileSystem from "@effect/platform-bun/BunFileSystem";
+import * as BunPath from "@effect/platform-bun/BunPath";
+import {
+  Cause,
+  Clock,
+  Config,
+  Data,
+  Deferred,
+  Effect,
+  Exit,
+  FileSystem,
+  Layer,
+  ManagedRuntime,
+  Option,
+  Path,
+  Predicate,
+  Random,
+  Redacted,
+  Schedule,
+  Schema,
+  Scope,
+  Stream,
+} from "effect";
+import { dual } from "effect/Function";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 const separator = " || ";
 
@@ -49,6 +75,48 @@ const RootManifest = Schema.fromJsonString(
   Schema.Struct({ engines: Schema.Struct({ postgresql: PostgresMajorSet }) }),
 );
 
+/** A cluster, a pooler, or one of their programs that did not start or stop as it must. */
+class DisposablePostgresFailure extends Data.TaggedError("DisposablePostgresFailure")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
+/**
+ * A rejection of a caller's callback or the reason of an abandoned wait. The Promise API rejects
+ * with it unchanged, so a caller sees the value that its own code rejected with.
+ */
+class CallerRejection extends Data.TaggedError("CallerRejection")<{
+  readonly rejection: unknown;
+}> {}
+
+const callerPromise = <A>(evaluate: () => Promise<A>) =>
+  Effect.tryPromise({ try: evaluate, catch: (rejection) => new CallerRejection({ rejection }) });
+
+/**
+ * The services that the programs of this module run on: the shared Node implementations of
+ * `ChildProcessSpawner`, `FileSystem`, and `Path`, which Bun and Node both run. Its test suites
+ * take the same layer.
+ */
+export const PostgresPlatformLive = BunChildProcessSpawner.layer.pipe(
+  Layer.provideMerge(Layer.mergeAll(BunFileSystem.layer, BunPath.layer)),
+);
+
+// The Promise API runs its programs here: the construct serves Bun programs and Node suites alike.
+const runtime = ManagedRuntime.make(PostgresPlatformLive);
+
+type PostgresPlatform = Layer.Success<typeof PostgresPlatformLive>;
+
+/** Runs `program` for the Promise API, which rejects with a caller's rejection unchanged. */
+const settle = <A, E>(program: Effect.Effect<A, E, PostgresPlatform>): Promise<A> =>
+  runtime.runPromise(
+    program.pipe(
+      Effect.catchIf(
+        (error): error is Extract<E, CallerRejection> => error instanceof CallerRejection,
+        (error) => Effect.die(error.rejection),
+      ),
+    ),
+  );
+
 /** Decodes an `engines.postgresql` value into its majors, ascending. Throws on a malformed value. */
 export const decodePostgresMajors = (declared: string): ReadonlyArray<number> =>
   Schema.decodeSync(PostgresMajorSet)(declared)
@@ -60,10 +128,10 @@ export const decodePostgresMajors = (declared: string): ReadonlyArray<number> =>
  * The major that `requested` (the value of `VEKTOR_POSTGRES_MAJOR`) selects from `supported`.
  * No value, or an empty one, selects the highest. Throws on a major outside `supported`.
  */
-export const selectPostgresMajor = (
-  supported: ReadonlyArray<number>,
-  requested: string | undefined,
-): number => {
+export const selectPostgresMajor: {
+  (requested: string | undefined): (supported: ReadonlyArray<number>) => number;
+  (supported: ReadonlyArray<number>, requested: string | undefined): number;
+} = dual(2, (supported: ReadonlyArray<number>, requested: string | undefined): number => {
   if (requested === undefined || requested === "") return Math.max(...supported);
 
   const major = supported.find((candidate) => String(candidate) === requested);
@@ -74,7 +142,7 @@ export const selectPostgresMajor = (
     `VEKTOR_POSTGRES_MAJOR=${requested} is not a supported PostgreSQL major. ` +
       `package.json engines.postgresql supports ${supported.join(separator)}.`,
   );
-};
+});
 
 /** The PostgreSQL majors that the root manifest supports, ascending. */
 export const supportedPostgresMajors = decodePostgresMajors(
@@ -86,12 +154,15 @@ export const supportedPostgresMajors = decodePostgresMajors(
 /** The highest supported major, which runs when `VEKTOR_POSTGRES_MAJOR` is unset. */
 export const defaultPostgresMajor = selectPostgresMajor(supportedPostgresMajors, undefined);
 
+const environmentValue = (name: string): string | undefined =>
+  Option.getOrUndefined(runtime.runSync(Config.option(Config.String(name))));
+
 /**
  * The major that `VEKTOR_POSTGRES_MAJOR` selects, or the default.
  */
 export const selectedPostgresMajor = selectPostgresMajor(
   supportedPostgresMajors,
-  process.env.VEKTOR_POSTGRES_MAJOR,
+  environmentValue("VEKTOR_POSTGRES_MAJOR"),
 );
 
 /**
@@ -109,9 +180,9 @@ interface Installation {
   readonly version: string;
 }
 
-const executable = (path: string) => {
+const executable = (file: string) => {
   try {
-    accessSync(path, constants.X_OK);
+    accessSync(file, constants.X_OK);
 
     return true;
   } catch {
@@ -127,20 +198,29 @@ const versionOf = (postgres: string) => {
   return major === undefined ? undefined : { line, major: Number(major) };
 };
 
-const resolveInstallation = (): Installation => {
-  const directory = (process.env.PATH ?? "")
+/** The directory of the first `program` on `PATH`, if any. */
+const onPath = (program: string) => {
+  const path = runtime.runSync(Path.Path);
+  const delimiter = path.sep === "\\" ? ";" : ":";
+
+  const directory = (environmentValue("PATH") ?? "")
     .split(delimiter)
-    .find((entry) => entry !== "" && executable(join(entry, "postgres")));
+    .find((entry) => entry !== "" && executable(path.join(entry, program)));
 
-  const version = directory === undefined ? undefined : versionOf(join(directory, "postgres"));
+  return directory === undefined ? undefined : { directory, file: path.join(directory, program) };
+};
 
-  if (directory !== undefined && version?.major === selectedPostgresMajor)
-    return { directory, version: version.line };
+const resolveInstallation = (): Installation => {
+  const found = onPath("postgres");
+  const version = found === undefined ? undefined : versionOf(found.file);
+
+  if (found !== undefined && version?.major === selectedPostgresMajor)
+    return { directory: found.directory, version: version.line };
 
   throw new Error(
     `PostgreSQL ${selectedPostgresMajor} (selected by VEKTOR_POSTGRES_MAJOR from package.json ` +
       `engines.postgresql ${supportedPostgresMajors.join(separator)}) is required on PATH, which provides ` +
-      `${directory === undefined ? "no postgres" : `${directory}/postgres (${version?.major ?? "unknown version"})`}. ` +
+      `${found === undefined ? "no postgres" : `${found.file} (${version?.major ?? "unknown version"})`}. ` +
       "Run the command inside `devenv shell` with the same VEKTOR_POSTGRES_MAJOR, which provides it.",
   );
 };
@@ -148,7 +228,7 @@ const resolveInstallation = (): Installation => {
 let installation: Installation | undefined;
 
 const programPath = (program: PostgresProgram | ClusterProgram) =>
-  join((installation ??= resolveInstallation()).directory, program);
+  runtime.runSync(Path.Path).join((installation ??= resolveInstallation()).directory, program);
 
 /**
  * Absolute path of a client program of the selected PostgreSQL major.
@@ -202,8 +282,6 @@ export const postgresProgram = (program: PostgresProgram): string => programPath
  */
 export const postgresVersion = (): string => (installation ??= resolveInstallation()).version;
 
-const execute = promisify(execFile);
-
 const loopback = "127.0.0.1";
 
 // A cluster that does not accept connections within this time does not start.
@@ -214,16 +292,52 @@ const fastShutdownMs = 30_000;
 
 const immediateShutdownMs = 10_000;
 
+// initdb that has not finished within this time fails the start.
+const initdbTimeoutMs = 120_000;
+
+type Environment = Readonly<Record<string, string | undefined>>;
+
 /**
  * The environment of the cluster programs: `base` in the C locale, without the libpq and server
  * variables (`PGHOST`, `PGPORT`, `PGDATA`, ...) that `devenv shell` sets for its own server.
  */
-const programEnvironment = (
-  base: Readonly<Record<string, string | undefined>>,
-): NodeJS.ProcessEnv => ({
+const programEnvironment = (base: Environment) => ({
   ...Object.fromEntries(Object.entries(base).filter(([name]) => !name.startsWith("PG"))),
   LC_ALL: "C",
 });
+
+const failure = (message: string, cause?: unknown) =>
+  new DisposablePostgresFailure({ message, cause });
+
+const text = <E>(stream: Stream.Stream<Uint8Array, E>) => Stream.mkString(Stream.decodeText(stream));
+
+/** Runs `program` in this process group and fails with its standard error on a nonzero exit. */
+const execute = (program: string, args: ReadonlyArray<string>, environment: Environment) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+
+      const handle = yield* spawner.spawn(
+        ChildProcess.make(program, args, {
+          env: { ...environment },
+          detached: false,
+          stdin: "ignore",
+        }),
+      );
+
+      const [, stderr, code] = yield* Effect.all(
+        [text(handle.stdout), text(handle.stderr), handle.exitCode],
+        { concurrency: "unbounded" },
+      );
+
+      if (code !== 0)
+        return yield* failure(`Command failed: ${[program, ...args].join(" ")}\n${stderr}`);
+    }),
+  ).pipe(
+    Effect.catchTag("PlatformError", (error) =>
+      Effect.fail(failure(`Command failed: ${program}: ${error.message}`, error)),
+    ),
+  );
 
 // The kernel hands out port 0 binds and outgoing connections from its ephemeral range (Linux:
 // 32768-60999; other systems use the IANA dynamic range, 49152-65535). A port below both is taken
@@ -235,6 +349,15 @@ const reservableEnd = 32_768;
 // A reserved port is free until its server binds it, so no second reservation of this process may
 // return it.
 const reservedPorts = new Set<number>();
+
+const portFree = (port: number): Effect.Effect<boolean> =>
+  Effect.callback<boolean>((resume) => {
+    const server = createServer();
+    server.once("error", () => resume(Effect.succeed(false)));
+    server.listen({ host: loopback, port, exclusive: true }, () =>
+      server.close(() => resume(Effect.succeed(true))),
+    );
+  });
 
 /**
  * Whether a listener can bind `port` on loopback now.
@@ -257,28 +380,21 @@ const reservedPorts = new Set<number>();
  *
  * @construct test-harness
  */
-export const loopbackPortFree = (port: number): Promise<boolean> =>
-  new Promise<boolean>((resolve) => {
-    const server = createServer();
-    server.once("error", () => resolve(false));
-    server.listen({ host: loopback, port, exclusive: true }, () =>
-      server.close(() => resolve(true)),
-    );
-  });
+export const loopbackPortFree = (port: number): Promise<boolean> => settle(portFree(port));
 
-const reserveLoopbackPort = async (): Promise<number> => {
+const reserveLoopbackPort = Effect.gen(function* () {
   for (let attempt = 0; attempt < reservableEnd - reservableFirst; attempt++) {
-    const port = randomInt(reservableFirst, reservableEnd);
+    const port = yield* Random.nextIntBetween(reservableFirst, reservableEnd, { halfOpen: true });
 
-    if (!reservedPorts.has(port) && (await loopbackPortFree(port))) {
+    if (!reservedPorts.has(port) && (yield* portFree(port))) {
       reservedPorts.add(port);
 
       return port;
     }
   }
 
-  throw new Error(`no free loopback port in ${reservableFirst}-${reservableEnd - 1}`);
-};
+  return yield* failure(`no free loopback port in ${reservableFirst}-${reservableEnd - 1}`);
+});
 
 /**
  * Reserves `count` distinct loopback ports for the servers that a journey starts: its backend,
@@ -306,13 +422,8 @@ const reserveLoopbackPort = async (): Promise<number> => {
  *
  * @construct test-harness
  */
-export const reserveLoopbackPorts = async (count: number): Promise<ReadonlyArray<number>> => {
-  const ports: Array<number> = [];
-
-  while (ports.length < count) ports.push(await reserveLoopbackPort());
-
-  return ports;
-};
+export const reserveLoopbackPorts = (count: number): Promise<ReadonlyArray<number>> =>
+  settle(Effect.replicateEffect(reserveLoopbackPort, count));
 
 /** Where a client reaches a server: an address or a Unix socket directory, a port, and a role. */
 export interface PostgresAddress {
@@ -323,76 +434,94 @@ export interface PostgresAddress {
 
 // pg_isready exits 0 when the server accepts connections, 1 when it rejects them (it starts up,
 // shuts down, or recovers: SQLSTATE 57P03), 2 without a response, and 3 on invalid parameters.
-const probe = (address: PostgresAddress, environment: NodeJS.ProcessEnv) => {
-  const { promise, resolve } = Promise.withResolvers<{
-    readonly code: number | null;
-    readonly report: string;
-  }>();
+const probe = (address: PostgresAddress, environment: Environment) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
-  const child = spawn(
-    postgresProgram("pg_isready"),
-    [
-      "--host",
-      address.host,
-      "--port",
-      String(address.port),
-      "--username",
-      address.user,
-      "--dbname",
-      "postgres",
-      "--timeout",
-      "2",
-    ],
-    { env: environment, stdio: ["ignore", "pipe", "pipe"] },
+      const handle = yield* spawner.spawn(
+        ChildProcess.make(
+          postgresProgram("pg_isready"),
+          [
+            "--host",
+            address.host,
+            "--port",
+            String(address.port),
+            "--username",
+            address.user,
+            "--dbname",
+            "postgres",
+            "--timeout",
+            "2",
+          ],
+          { env: { ...environment }, detached: false, stdin: "ignore" },
+        ),
+      );
+
+      const [report, code] = yield* Effect.all([text(handle.all), handle.exitCode], {
+        concurrency: "unbounded",
+      });
+
+      return { code: Number(code), report: report.trim() };
+    }),
+  ).pipe(
+    Effect.catchTag("PlatformError", (error) =>
+      Effect.succeed({ code: undefined, report: error.message }),
+    ),
   );
 
-  let report = "";
+/** Succeeds once the server at `address` accepts connections, as `pg_isready` reports. */
+const awaitReady = (address: PostgresAddress, timeoutMs: number) =>
+  Effect.gen(function* () {
+    const deadline = (yield* Clock.currentTimeMillis) + timeoutMs;
+    const environment = programEnvironment(process.env);
 
-  const collect = (chunk: Buffer) => {
-    report += chunk.toString("utf8");
-  };
+    for (;;) {
+      const { code, report } = yield* probe(address, environment);
 
-  child.stdout.on("data", collect);
-  child.stderr.on("data", collect);
-  child.once("error", (cause) => resolve({ code: null, report: cause.message }));
-  child.once("close", (code) => resolve({ code, report: report.trim() }));
+      if (code === 0) return;
 
-  return promise;
-};
+      if (code === 3) return yield* failure(`pg_isready rejected its parameters: ${report}`);
+
+      if ((yield* Clock.currentTimeMillis) >= deadline)
+        return yield* failure(
+          `PostgreSQL at ${address.host}:${address.port} did not accept connections within ` +
+            `${timeoutMs} ms. pg_isready last reported: ${report === "" ? `exit ${code ?? "without a code"}` : report}`,
+        );
+
+      yield* Effect.sleep(100);
+    }
+  });
+
+/** Fails with the reason of `signal` once it aborts. */
+const abandonment = (signal: AbortSignal): Effect.Effect<never, CallerRejection> =>
+  Effect.callback<never, CallerRejection>((resume) => {
+    const abandoned = () => resume(Effect.fail(new CallerRejection({ rejection: signal.reason })));
+
+    if (signal.aborted) return abandoned();
+
+    signal.addEventListener("abort", abandoned, { once: true });
+
+    return Effect.sync(() => signal.removeEventListener("abort", abandoned));
+  });
 
 /**
  * Resolves once the server at `address` accepts connections, as `pg_isready` reports. An open
  * port is not enough: a server that starts up, shuts down, or recovers answers on its port and
  * rejects every session. Rejects after `timeoutMs`, or with the reason of `abandon` once it aborts.
  */
-export const waitForPostgres = async (
-  address: PostgresAddress,
-  timeoutMs: number,
-  abandon?: AbortSignal,
-): Promise<void> => {
-  const deadline = Date.now() + timeoutMs;
-  const environment = programEnvironment(process.env);
-
-  for (;;) {
-    abandon?.throwIfAborted();
-
-    const { code, report } = await probe(address, environment);
-
-    if (code === 0) return;
-
-    if (code === 3) throw new Error(`pg_isready rejected its parameters: ${report}`);
-
-    abandon?.throwIfAborted();
-
-    if (Date.now() >= deadline)
-      throw new Error(
-        `PostgreSQL at ${address.host}:${address.port} did not accept connections within ` +
-          `${timeoutMs} ms. pg_isready last reported: ${report === "" ? `exit ${code}` : report}`,
-      );
-
-    await sleep(100, undefined, { signal: abandon }).catch(() => undefined);
-  }
-};
+export const waitForPostgres: {
+  (timeoutMs: number, abandon?: AbortSignal): (address: PostgresAddress) => Promise<void>;
+  (address: PostgresAddress, timeoutMs: number, abandon?: AbortSignal): Promise<void>;
+} = dual(
+  (args) => Predicate.isObject(args[0]),
+  (address: PostgresAddress, timeoutMs: number, abandon?: AbortSignal): Promise<void> =>
+    settle(
+      abandon === undefined
+        ? awaitReady(address, timeoutMs)
+        : Effect.raceFirst(awaitReady(address, timeoutMs), abandonment(abandon)),
+    ),
+);
 
 // The owner holds the sentinel's standard input, so the sentinel reads end of file when the owner
 // exits, however it exits. `stop` writes `released` instead, after it removed the cluster itself.
@@ -405,29 +534,84 @@ const sentinelScript = [
   'rm -rf -- "$3"',
 ].join("\n");
 
-const watch = (root: string, data: string, environment: NodeJS.ProcessEnv) => {
-  const sentinel = spawn(
-    "/bin/sh",
-    ["-c", sentinelScript, "vektor-postgres-sentinel", programPath("pg_ctl"), data, root],
-    { env: environment, stdio: ["pipe", "ignore", "ignore"], detached: true },
-  );
+// The owner holds this sentinel's standard input too. When the owner exits without `stop`, the
+// sentinel ends the pooler that its pid file names and removes the pooler's directory.
+const poolerSentinelScript = [
+  "trap '' HUP INT QUIT TERM",
+  'if read -r line && [ "$line" = released ]; then exit 0; fi',
+  'if [ -f "$1/pgbouncer.pid" ]; then kill -KILL "$(cat "$1/pgbouncer.pid")" 2>/dev/null; fi',
+  'rm -rf -- "$1"',
+].join("\n");
 
-  const exited = Promise.withResolvers<void>();
-  sentinel.once("exit", () => exited.resolve());
-  sentinel.once("error", () => exited.resolve());
+/**
+ * Starts a sentinel shell in its own session whose standard input this process holds, and answers
+ * the release, which tells the sentinel that `stop` removed what it watches and waits for its exit.
+ * The sentinel's handle lives in a scope of its own that only the release closes, and it does not
+ * keep this process alive: a pipe without pending writes holds no event loop.
+ */
+const sentinel = (
+  script: string,
+  name: string,
+  args: ReadonlyArray<string>,
+  environment: Environment | undefined,
+) =>
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const scope = yield* Scope.make();
 
-  sentinel.stdin.on("error", () => undefined);
-  sentinel.unref();
+    const handle = yield* spawner
+      .spawn(
+        ChildProcess.make("/bin/sh", ["-c", script, name, ...args], {
+          env: environment === undefined ? undefined : { ...environment },
+          stdin: "pipe",
+          stdout: "ignore",
+          stderr: "ignore",
+        }),
+      )
+      .pipe(Scope.provide(scope));
 
-  return async () => {
-    sentinel.ref();
-    sentinel.stdin.end("released\n");
-    await exited.promise;
-  };
+    const reref = yield* handle.unref;
+
+    const release = Effect.gen(function* () {
+      yield* Effect.ignore(reref);
+      yield* Effect.ignore(Stream.run(Stream.encodeText(Stream.make("released\n")), handle.stdin));
+      yield* Effect.ignore(handle.exitCode);
+      yield* Scope.close(scope, Exit.void);
+    });
+
+    return { release };
+  });
+
+/** Removes a directory tree, retrying as `rm` with `maxRetries: 3` did. */
+const removeTree = (root: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+
+    yield* fs
+      .remove(root, { recursive: true, force: true })
+      .pipe(Effect.retry({ times: 3, schedule: Schedule.spaced(100) }));
+  });
+
+/** The last 4000 characters of a log, or `absent` when it cannot be read. */
+const logTail = (file: string, absent: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+
+    return yield* fs.readFileString(file).pipe(
+      Effect.map((log) => log.slice(-4_000).trim()),
+      Effect.orElseSucceed(() => absent),
+    );
+  });
+
+/** The message of a failure cause, as an `Error` of it reads. */
+const detailOf = (cause: Cause.Cause<unknown>) => {
+  const error = Cause.squash(cause);
+
+  return { error, detail: error instanceof Error ? error.message : String(error) };
 };
 
-const settlesWithin = (settled: Promise<void>, milliseconds: number) =>
-  Promise.race([settled.then(() => true), sleep(milliseconds, false)]);
+const waitsWithin = (exited: Deferred.Deferred<void>, milliseconds: number) =>
+  Deferred.await(exited).pipe(Effect.timeoutOption(milliseconds), Effect.map(Option.isSome));
 
 /** How `startDisposablePostgres` sets up a cluster. Every field is optional. */
 export interface DisposablePostgresOptions {
@@ -485,12 +669,288 @@ export interface DisposablePostgres {
 }
 
 interface Incarnation {
-  readonly child: ChildProcess;
+  readonly child: NodeChildProcess;
   readonly pid: number;
-  readonly exited: Promise<void>;
-  readonly abandon: AbortController;
-  expected: boolean;
+  /** Completes once the server exits. */
+  readonly exited: Deferred.Deferred<void>;
+  /** Fails once the server exits while nobody stops it. */
+  readonly abandoned: Deferred.Deferred<never, DisposablePostgresFailure>;
+  /** Whether `stop` or `outage` ends the server, so that its exit is no failure. */
+  readonly state: { expected: boolean };
 }
+
+interface PostmasterSetup {
+  readonly data: string;
+  readonly port: number;
+  readonly socketDirectory: string;
+  readonly listen: "tcp" | "socket";
+  readonly maxConnections: number | undefined;
+  readonly logFile: string;
+  readonly environment: Environment;
+}
+
+/**
+ * Starts the postmaster in its own process group with the log file as its standard output and
+ * error, and completes `ended` at its exit or failed start. The server must outlive a crash of
+ * this process and get its signals alone, and its log must not pass through a pipe of this
+ * process, which ChildProcess cannot express (EX-0017).
+ */
+const spawnPostmaster = (
+  setup: PostmasterSetup,
+  state: { expected: boolean },
+  ended: Deferred.Deferred<{ readonly detail: string; readonly expected: boolean }>,
+) =>
+  Effect.try({
+    try: () => {
+      const log = openSync(setup.logFile, "a");
+      let child: NodeChildProcess;
+
+      try {
+        child = spawn(
+          programPath("postgres"),
+          [
+            "-D",
+            setup.data,
+            "-p",
+            String(setup.port),
+            "-k",
+            setup.socketDirectory,
+            "-c",
+            `listen_addresses=${setup.listen === "tcp" ? loopback : ""}`,
+            "-F",
+            ...(setup.maxConnections === undefined
+              ? []
+              : ["-c", `max_connections=${setup.maxConnections}`]),
+          ],
+          { env: { ...setup.environment }, stdio: ["ignore", log, log], detached: true },
+        );
+      } finally {
+        closeSync(log);
+      }
+
+      const end = (detail: string) =>
+        Deferred.doneUnsafe(ended, Exit.succeed({ detail, expected: state.expected }));
+
+      child.once("error", (cause) => end(`did not start: ${cause.message}`));
+      child.once("exit", (code, signal) =>
+        end(`exited with ${signal === null ? `code ${code}` : signal}`),
+      );
+      child.unref();
+
+      return child;
+    },
+    catch: (cause) =>
+      failure(`PostgreSQL did not start: ${cause instanceof Error ? cause.message : String(cause)}`, cause),
+  });
+
+/** Sends `signal` to the postmaster alone, which relays the shutdown to its backends. */
+const signalServer = (incarnation: Incarnation, signal: NodeJS.Signals) =>
+  Effect.sync(() => {
+    incarnation.child.kill(signal);
+  });
+
+const startCluster = Effect.fnUntraced(function* (options: DisposablePostgresOptions) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const user = options.user ?? "postgres";
+  const listen = options.listen ?? "tcp";
+  const environment = programEnvironment(options.environment ?? process.env);
+  const version = postgresVersion();
+  const port = options.port ?? (yield* reserveLoopbackPort);
+  const root = options.directory ?? (yield* fs.makeTempDirectory({ prefix: "vektor-postgres-" }));
+
+  if (options.directory !== undefined) yield* fs.makeDirectory(root, { mode: 0o700 });
+
+  const data = path.join(root, "data");
+
+  const { release } = yield* sentinel(
+    sentinelScript,
+    "vektor-postgres-sentinel",
+    [programPath("pg_ctl"), data, root],
+    environment,
+  );
+
+  const socketDirectory = path.join(root, "socket");
+  const logFile = path.join(root, "postgres.log");
+  const host = listen === "tcp" ? loopback : socketDirectory;
+  const address = { host, port, user };
+  const unexpected = Promise.withResolvers<Error>();
+  let server: Incarnation | undefined;
+  let stopping: Promise<void> | undefined;
+
+  const urlOf = (database: string) => {
+    if (listen === "tcp")
+      return `postgres://${encodeURIComponent(user)}@${loopback}:${port}/${encodeURIComponent(database)}`;
+
+    const url = new URL(
+      `postgresql://${encodeURIComponent(user)}@localhost/${encodeURIComponent(database)}`,
+    );
+
+    url.searchParams.set("host", socketDirectory);
+    url.searchParams.set("port", String(port));
+
+    return url.toString();
+  };
+
+  const launch = Effect.gen(function* () {
+    const state = { expected: false };
+    const ended = yield* Deferred.make<{ readonly detail: string; readonly expected: boolean }>();
+    const exited = yield* Deferred.make<void>();
+    const abandoned = yield* Deferred.make<never, DisposablePostgresFailure>();
+
+    const child = yield* spawnPostmaster(
+      {
+        data,
+        port,
+        socketDirectory,
+        listen,
+        maxConnections: options.maxConnections,
+        logFile,
+        environment,
+      },
+      state,
+      ended,
+    );
+
+    // The server's exit completes `exited`; an exit that nobody asked for also fails the start
+    // that waits for it and settles `unexpectedExit`.
+    yield* Effect.forkDetach(
+      Effect.gen(function* () {
+        const { detail, expected } = yield* Deferred.await(ended);
+
+        yield* Deferred.succeed(exited, undefined);
+
+        if (expected) return;
+
+        const exit = failure(
+          `PostgreSQL ${detail}. Server log:\n${yield* logTail(logFile, "(no server log)")}`,
+        );
+
+        yield* Deferred.fail(abandoned, exit);
+        unexpected.resolve(exit);
+      }),
+    );
+
+    return { child, pid: child.pid ?? 0, exited, abandoned, state } satisfies Incarnation;
+  });
+
+  const run = Effect.gen(function* () {
+    const incarnation = yield* launch;
+    server = incarnation;
+
+    yield* Effect.raceFirst(
+      awaitReady(address, readinessTimeoutMs),
+      Deferred.await(incarnation.abandoned),
+    );
+  });
+
+  const halt = Effect.fnUntraced(function* (incarnation: Incarnation) {
+    incarnation.state.expected = true;
+    incarnation.child.ref();
+
+    if (incarnation.child.exitCode !== null || incarnation.child.signalCode !== null) return;
+
+    yield* signalServer(incarnation, "SIGINT");
+
+    if (yield* waitsWithin(incarnation.exited, fastShutdownMs)) return;
+
+    yield* signalServer(incarnation, "SIGQUIT");
+
+    if (yield* waitsWithin(incarnation.exited, immediateShutdownMs)) return;
+
+    yield* signalServer(incarnation, "SIGKILL");
+    yield* Deferred.await(incarnation.exited);
+  });
+
+  const teardown = Effect.gen(function* () {
+    if (server !== undefined) yield* halt(server);
+
+    yield* removeTree(root);
+  }).pipe(Effect.ensuring(release));
+
+  const stop = () => (stopping ??= settle(teardown));
+
+  const createDatabase = (database: string) =>
+    execute(
+      programPath("createdb"),
+      ["--host", host, "--port", String(port), "--username", user, database],
+      environment,
+    ).pipe(Effect.as(urlOf(database)));
+
+  yield* Effect.gen(function* () {
+    yield* fs.makeDirectory(socketDirectory, { mode: 0o700 });
+    yield* execute(
+      programPath("initdb"),
+      [
+        "--pgdata",
+        data,
+        "--username",
+        user,
+        "--auth=trust",
+        "--no-locale",
+        "--encoding=UTF8",
+        "--no-sync",
+        "--no-instructions",
+      ],
+      environment,
+    ).pipe(
+      Effect.timeoutOrElse({
+        duration: initdbTimeoutMs,
+        orElse: () => Effect.fail(failure(`initdb did not finish within ${initdbTimeoutMs} ms`)),
+      }),
+    );
+    yield* run;
+
+    if (options.database !== undefined) yield* createDatabase(options.database);
+  }).pipe(
+    Effect.catchCause((cause) =>
+      Effect.gen(function* () {
+        const { error, detail } = detailOf(cause);
+
+        yield* Effect.exit(teardown);
+
+        return yield* failure(`Disposable PostgreSQL did not start: ${detail}`, error);
+      }),
+    ),
+  );
+
+  const database = options.database ?? "postgres";
+
+  const cluster: DisposablePostgres = {
+    host,
+    port,
+    user,
+    database,
+    socketDirectory,
+    url: urlOf(database),
+    version,
+    get pid() {
+      return server?.pid ?? 0;
+    },
+    logFile,
+    unexpectedExit: unexpected.promise,
+    urlOf,
+    createDatabase: (name) => settle(createDatabase(name)),
+    outage: (during) =>
+      settle(
+        Effect.gen(function* () {
+          if (stopping !== undefined || server === undefined)
+            return yield* failure("Disposable PostgreSQL is stopped");
+
+          yield* halt(server);
+
+          const result = yield* Effect.exit(callerPromise(during));
+
+          yield* run;
+
+          return yield* result;
+        }),
+      ),
+    stop,
+  };
+
+  return cluster;
+});
 
 /**
  * Starts a fresh cluster of the selected major on a private port and socket directory with trust
@@ -522,211 +982,9 @@ interface Incarnation {
  *
  * @construct test-harness
  */
-export const startDisposablePostgres = async (
+export const startDisposablePostgres = (
   options: DisposablePostgresOptions = {},
-): Promise<DisposablePostgres> => {
-  const user = options.user ?? "postgres";
-  const listen = options.listen ?? "tcp";
-  const environment = programEnvironment(options.environment ?? process.env);
-  const version = postgresVersion();
-  const port = options.port ?? (await reserveLoopbackPort());
-  const root = options.directory ?? (await mkdtemp(join(tmpdir(), "vektor-postgres-")));
-
-  if (options.directory !== undefined) await mkdir(root, { mode: 0o700 });
-
-  const data = join(root, "data");
-  const release = watch(root, data, environment);
-  const socketDirectory = join(root, "socket");
-  const logFile = join(root, "postgres.log");
-  const host = listen === "tcp" ? loopback : socketDirectory;
-  const address = { host, port, user };
-  const unexpected = Promise.withResolvers<Error>();
-  let server: Incarnation | undefined;
-  let stopping: Promise<void> | undefined;
-
-  const logTail = () => {
-    try {
-      return readFileSync(logFile, "utf8").slice(-4_000).trim();
-    } catch {
-      return "(no server log)";
-    }
-  };
-
-  const urlOf = (database: string) => {
-    if (listen === "tcp")
-      return `postgres://${encodeURIComponent(user)}@${loopback}:${port}/${encodeURIComponent(database)}`;
-
-    const url = new URL(
-      `postgresql://${encodeURIComponent(user)}@localhost/${encodeURIComponent(database)}`,
-    );
-
-    url.searchParams.set("host", socketDirectory);
-    url.searchParams.set("port", String(port));
-
-    return url.toString();
-  };
-
-  const launch = (): Incarnation => {
-    const log = openSync(logFile, "a");
-    let child: ChildProcess;
-
-    try {
-      child = spawn(
-        programPath("postgres"),
-        [
-          "-D",
-          data,
-          "-p",
-          String(port),
-          "-k",
-          socketDirectory,
-          "-c",
-          `listen_addresses=${listen === "tcp" ? loopback : ""}`,
-          "-F",
-          ...(options.maxConnections === undefined
-            ? []
-            : ["-c", `max_connections=${options.maxConnections}`]),
-        ],
-        { env: environment, stdio: ["ignore", log, log], detached: true },
-      );
-    } finally {
-      closeSync(log);
-    }
-
-    const abandon = new AbortController();
-    const exited = Promise.withResolvers<void>();
-
-    const incarnation: Incarnation = {
-      child,
-      pid: child.pid ?? 0,
-      exited: exited.promise,
-      abandon,
-      expected: false,
-    };
-
-    const ended = (detail: string) => {
-      exited.resolve();
-
-      if (incarnation.expected) return;
-
-      const failure = new Error(`PostgreSQL ${detail}. Server log:\n${logTail()}`);
-      abandon.abort(failure);
-      unexpected.resolve(failure);
-    };
-
-    child.once("error", (cause) => ended(`did not start: ${cause.message}`));
-    child.once("exit", (code, signal) =>
-      ended(`exited with ${signal === null ? `code ${code}` : signal}`),
-    );
-    child.unref();
-
-    return incarnation;
-  };
-
-  const run = async () => {
-    server = launch();
-    await waitForPostgres(address, readinessTimeoutMs, server.abandon.signal);
-  };
-
-  const halt = async (incarnation: Incarnation) => {
-    incarnation.expected = true;
-    incarnation.child.ref();
-
-    if (incarnation.child.exitCode !== null || incarnation.child.signalCode !== null) return;
-
-    incarnation.child.kill("SIGINT");
-
-    if (await settlesWithin(incarnation.exited, fastShutdownMs)) return;
-
-    incarnation.child.kill("SIGQUIT");
-
-    if (await settlesWithin(incarnation.exited, immediateShutdownMs)) return;
-
-    incarnation.child.kill("SIGKILL");
-    await incarnation.exited;
-  };
-
-  const stop = () =>
-    (stopping ??= (async () => {
-      try {
-        if (server !== undefined) await halt(server);
-
-        await rm(root, { recursive: true, force: true, maxRetries: 3 });
-      } finally {
-        await release();
-      }
-    })());
-
-  const createDatabase = async (database: string) => {
-    await execute(
-      programPath("createdb"),
-      ["--host", host, "--port", String(port), "--username", user, database],
-      { env: environment },
-    );
-
-    return urlOf(database);
-  };
-
-  try {
-    await mkdir(socketDirectory, { mode: 0o700 });
-    await execute(
-      programPath("initdb"),
-      [
-        "--pgdata",
-        data,
-        "--username",
-        user,
-        "--auth=trust",
-        "--no-locale",
-        "--encoding=UTF8",
-        "--no-sync",
-        "--no-instructions",
-      ],
-      { env: environment, timeout: 120_000 },
-    );
-    await run();
-
-    if (options.database !== undefined) await createDatabase(options.database);
-  } catch (cause) {
-    const detail = cause instanceof Error ? cause.message : String(cause);
-    const failure = new Error(`Disposable PostgreSQL did not start: ${detail}`, { cause });
-    await stop().catch(() => undefined);
-
-    throw failure;
-  }
-
-  const database = options.database ?? "postgres";
-
-  return {
-    host,
-    port,
-    user,
-    database,
-    socketDirectory,
-    url: urlOf(database),
-    version,
-    get pid() {
-      return server?.pid ?? 0;
-    },
-    logFile,
-    unexpectedExit: unexpected.promise,
-    urlOf,
-    createDatabase,
-    outage: async (during) => {
-      if (stopping !== undefined || server === undefined)
-        throw new Error("Disposable PostgreSQL is stopped");
-
-      await halt(server);
-
-      try {
-        return await during();
-      } finally {
-        await run();
-      }
-    },
-    stop,
-  };
-};
+): Promise<DisposablePostgres> => settle(startCluster(options));
 
 /**
  * Runs `use` against the database `database` of a fresh cluster, which `startDisposablePostgres`
@@ -734,7 +992,7 @@ export const startDisposablePostgres = async (
  *
  * @remarks
  * `use` receives the connection URL of `database` as a `Redacted` value, so a log of it shows no
- * URL. The cluster stops in a `finally`, so the promise settles as `use` settled, after the
+ * URL. The cluster stops after `use` settles, so the promise settles as `use` settled, after the
  * cluster is gone.
  *
  * @throws Rejects when the cluster does not start, as `startDisposablePostgres` rejects, and
@@ -752,59 +1010,34 @@ export const startDisposablePostgres = async (
  *
  * @construct test-harness
  */
-export const withDisposablePostgres = async <A>(
-  database: string,
-  use: (databaseUrl: Redacted.Redacted<string>) => Promise<A>,
-): Promise<A> => {
-  const cluster = await startDisposablePostgres({ database });
+export const withDisposablePostgres: {
+  <A>(
+    use: (databaseUrl: Redacted.Redacted<string>) => Promise<A>,
+  ): (database: string) => Promise<A>;
+  <A>(database: string, use: (databaseUrl: Redacted.Redacted<string>) => Promise<A>): Promise<A>;
+} = dual(
+  2,
+  <A>(database: string, use: (databaseUrl: Redacted.Redacted<string>) => Promise<A>): Promise<A> =>
+    settle(
+      Effect.gen(function* () {
+        const cluster = yield* startCluster({ database });
+        const result = yield* Effect.exit(callerPromise(() => use(Redacted.make(cluster.url))));
 
-  try {
-    return await use(Redacted.make(cluster.url));
-  } finally {
-    await cluster.stop();
-  }
-};
+        yield* callerPromise(cluster.stop);
 
-// The owner holds this sentinel's standard input too. When the owner exits without `stop`, the
-// sentinel ends the pooler that its pid file names and removes the pooler's directory.
-const poolerSentinelScript = [
-  "trap '' HUP INT QUIT TERM",
-  'if read -r line && [ "$line" = released ]; then exit 0; fi',
-  'if [ -f "$1/pgbouncer.pid" ]; then kill -KILL "$(cat "$1/pgbouncer.pid")" 2>/dev/null; fi',
-  'rm -rf -- "$1"',
-].join("\n");
-
-const watchPooler = (root: string) => {
-  const sentinel = spawn("/bin/sh", ["-c", poolerSentinelScript, "vektor-pgbouncer-sentinel", root], {
-    stdio: ["pipe", "ignore", "ignore"],
-    detached: true,
-  });
-
-  const exited = Promise.withResolvers<void>();
-  sentinel.once("exit", () => exited.resolve());
-  sentinel.once("error", () => exited.resolve());
-
-  sentinel.stdin.on("error", () => undefined);
-  sentinel.unref();
-
-  return async () => {
-    sentinel.ref();
-    sentinel.stdin.end("released\n");
-    await exited.promise;
-  };
-};
+        return yield* result;
+      }),
+    ),
+);
 
 /** The PgBouncer program on `PATH`, which `devenv shell` provides. */
-const pgbouncerProgram = () => {
-  const directory = (process.env.PATH ?? "")
-    .split(delimiter)
-    .find((entry) => entry !== "" && executable(join(entry, "pgbouncer")));
+const pgbouncerProgram = Effect.suspend(() => {
+  const found = onPath("pgbouncer");
 
-  if (directory === undefined)
-    throw new Error("PgBouncer is required on PATH. Run the command inside `devenv shell`.");
-
-  return join(directory, "pgbouncer");
-};
+  return found === undefined
+    ? Effect.fail(failure("PgBouncer is required on PATH. Run the command inside `devenv shell`."))
+    : Effect.succeed(found.file);
+});
 
 /** How `startDisposablePgBouncer` pools a cluster. Every field is optional. */
 export interface DisposablePgBouncerOptions {
@@ -832,6 +1065,135 @@ export interface DisposablePgBouncer {
   readonly stop: () => Promise<void>;
 }
 
+/** The pooler's process and the effect that lets it keep this process alive again. */
+interface RunningPooler {
+  readonly handle: ChildProcessSpawner.ChildProcessHandle;
+  readonly reref: ChildProcessSpawner.Reref;
+}
+
+const startPooler = Effect.fnUntraced(function* (
+  upstream: DisposablePostgres,
+  options: DisposablePgBouncerOptions,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const poolMode = options.poolMode ?? "transaction";
+  const port = options.port ?? (yield* reserveLoopbackPort);
+  const root = yield* fs.makeTempDirectory({ prefix: "vektor-pgbouncer-" });
+
+  const { release } = yield* sentinel(
+    poolerSentinelScript,
+    "vektor-pgbouncer-sentinel",
+    [root],
+    undefined,
+  );
+
+  const logFile = path.join(root, "pgbouncer.log");
+  const configFile = path.join(root, "pgbouncer.ini");
+  // The pooler outlives this program: its process lives in this scope until `stop` closes it.
+  const scope = yield* Scope.make();
+  let pooler: RunningPooler | undefined;
+  let stopping: Promise<void> | undefined;
+
+  const teardown = Effect.gen(function* () {
+    if (pooler !== undefined && (yield* pooler.handle.isRunning)) {
+      yield* pooler.reref;
+      yield* Effect.ignore(
+        pooler.handle.kill({ killSignal: "SIGQUIT", forceKillAfter: immediateShutdownMs }),
+      );
+    }
+
+    yield* Scope.close(scope, Exit.void);
+    yield* removeTree(root);
+  }).pipe(Effect.ensuring(release));
+
+  const stop = () => (stopping ??= settle(teardown));
+
+  yield* Effect.gen(function* () {
+    yield* fs.writeFileString(path.join(root, "users.txt"), `"${upstream.user}" ""\n`, {
+      mode: 0o600,
+    });
+    yield* fs.writeFileString(
+      configFile,
+      [
+        "[databases]",
+        `* = host=${upstream.socketDirectory} port=${upstream.port} user=${upstream.user}`,
+        "[pgbouncer]",
+        `listen_addr = ${loopback}`,
+        `listen_port = ${port}`,
+        "unix_socket_dir =",
+        "auth_type = trust",
+        `auth_file = ${path.join(root, "users.txt")}`,
+        `admin_users = ${upstream.user}`,
+        `pool_mode = ${poolMode}`,
+        `default_pool_size = ${options.poolSize ?? 4}`,
+        "max_client_conn = 200",
+        "track_extra_parameters = IntervalStyle, search_path",
+        `logfile = ${logFile}`,
+        `pidfile = ${path.join(root, "pgbouncer.pid")}`,
+        "",
+      ].join("\n"),
+      { mode: 0o600 },
+    );
+
+    const handle = yield* spawner
+      .spawn(
+        ChildProcess.make(yield* pgbouncerProgram, [configFile], {
+          env: programEnvironment(process.env),
+          stdin: "ignore",
+          stdout: "ignore",
+          stderr: "ignore",
+        }),
+      )
+      .pipe(
+        Scope.provide(scope),
+        Effect.mapError((error) => failure(`PgBouncer did not start: ${error.message}`, error)),
+      );
+
+    pooler = { handle, reref: yield* handle.unref };
+
+    const exited = handle.exitCode.pipe(
+      Effect.matchEffect({
+        onSuccess: (code) => Effect.fail(failure(`PgBouncer exited with code ${code}`)),
+        onFailure: (error) => Effect.fail(failure(`PgBouncer exited: ${error.message}`, error)),
+      }),
+    );
+
+    yield* Effect.raceFirst(
+      awaitReady({ host: loopback, port, user: upstream.user }, readinessTimeoutMs),
+      exited,
+    );
+  }).pipe(
+    Effect.catchCause((cause) =>
+      Effect.gen(function* () {
+        const { error, detail } = detailOf(cause);
+        const log = yield* logTail(logFile, "(no pooler log)");
+
+        yield* Effect.exit(teardown);
+
+        return yield* failure(
+          `Disposable PgBouncer did not start: ${detail}. Pooler log:\n${log}`,
+          error,
+        );
+      }),
+    ),
+  );
+
+  const started: DisposablePgBouncer = {
+    host: loopback,
+    port,
+    user: upstream.user,
+    poolMode,
+    logFile,
+    urlOf: (database) =>
+      `postgres://${encodeURIComponent(upstream.user)}@${loopback}:${port}/${encodeURIComponent(database)}`,
+    stop,
+  };
+
+  return started;
+});
+
 /**
  * Starts PgBouncer on a private loopback port in front of `upstream`, with trust authentication
  * and every database of the cluster, in transaction pool mode unless `options` names another.
@@ -849,105 +1211,11 @@ export interface DisposablePgBouncer {
  * await pooler.stop();
  * @avoid Spawning `pgbouncer` elsewhere, and judging readiness by an open port.
  */
-export const startDisposablePgBouncer = async (
-  upstream: DisposablePostgres,
-  options: DisposablePgBouncerOptions = {},
-): Promise<DisposablePgBouncer> => {
-  const poolMode = options.poolMode ?? "transaction";
-  const port = options.port ?? (await reserveLoopbackPort());
-  const root = await mkdtemp(join(tmpdir(), "vektor-pgbouncer-"));
-  const release = watchPooler(root);
-  const logFile = join(root, "pgbouncer.log");
-  const configFile = join(root, "pgbouncer.ini");
-  const exited = Promise.withResolvers<void>();
-  const abandon = new AbortController();
-  let child: ChildProcess | undefined;
-  let stopping: Promise<void> | undefined;
-
-  const stop = () =>
-    (stopping ??= (async () => {
-      try {
-        if (child !== undefined && child.exitCode === null && child.signalCode === null) {
-          child.ref();
-          child.kill("SIGQUIT");
-
-          if (!(await settlesWithin(exited.promise, immediateShutdownMs))) {
-            child.kill("SIGKILL");
-            await exited.promise;
-          }
-        }
-
-        await rm(root, { recursive: true, force: true, maxRetries: 3 });
-      } finally {
-        await release();
-      }
-    })());
-
-  try {
-    await writeFile(join(root, "users.txt"), `"${upstream.user}" ""\n`, { mode: 0o600 });
-    await writeFile(
-      configFile,
-      [
-        "[databases]",
-        `* = host=${upstream.socketDirectory} port=${upstream.port} user=${upstream.user}`,
-        "[pgbouncer]",
-        `listen_addr = ${loopback}`,
-        `listen_port = ${port}`,
-        "unix_socket_dir =",
-        "auth_type = trust",
-        `auth_file = ${join(root, "users.txt")}`,
-        `admin_users = ${upstream.user}`,
-        `pool_mode = ${poolMode}`,
-        `default_pool_size = ${options.poolSize ?? 4}`,
-        "max_client_conn = 200",
-        "track_extra_parameters = IntervalStyle, search_path",
-        `logfile = ${logFile}`,
-        `pidfile = ${join(root, "pgbouncer.pid")}`,
-        "",
-      ].join("\n"),
-      { mode: 0o600 },
-    );
-
-    child = spawn(pgbouncerProgram(), [configFile], {
-      env: programEnvironment(process.env),
-      stdio: "ignore",
-      detached: true,
-    });
-    child.once("error", (cause) => {
-      exited.resolve();
-      abandon.abort(new Error(`PgBouncer did not start: ${cause.message}`));
-    });
-    child.once("exit", (code, signal) => {
-      exited.resolve();
-      abandon.abort(new Error(`PgBouncer exited with ${signal ?? `code ${code}`}`));
-    });
-    child.unref();
-
-    await waitForPostgres({ host: loopback, port, user: upstream.user }, readinessTimeoutMs, abandon.signal);
-  } catch (cause) {
-    const detail = cause instanceof Error ? cause.message : String(cause);
-
-    const log = (() => {
-      try {
-        return readFileSync(logFile, "utf8").slice(-4_000).trim();
-      } catch {
-        return "(no pooler log)";
-      }
-    })();
-
-    await stop().catch(() => undefined);
-
-    throw new Error(`Disposable PgBouncer did not start: ${detail}. Pooler log:\n${log}`, { cause });
-  }
-
-  return {
-    host: loopback,
-    port,
-    user: upstream.user,
-    poolMode,
-    logFile,
-    urlOf: (database) =>
-      `postgres://${encodeURIComponent(upstream.user)}@${loopback}:${port}/${encodeURIComponent(database)}`,
-    stop,
-  };
-};
+export const startDisposablePgBouncer: {
+  (options?: DisposablePgBouncerOptions): (upstream: DisposablePostgres) => Promise<DisposablePgBouncer>;
+  (upstream: DisposablePostgres, options?: DisposablePgBouncerOptions): Promise<DisposablePgBouncer>;
+} = dual(
+  (args) => Predicate.hasProperty(args[0], "socketDirectory"),
+  (upstream: DisposablePostgres, options: DisposablePgBouncerOptions = {}): Promise<DisposablePgBouncer> =>
+    settle(startPooler(upstream, options)),
+);
