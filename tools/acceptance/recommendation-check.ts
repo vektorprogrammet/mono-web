@@ -64,6 +64,8 @@ import {
 import { deliverJson } from "../../apps/backend/src/delivery/http.js";
 import { NotificationGateway } from "../../packages/domain/src/notification/service.js";
 import { Array as Arr, Predicate, Schema } from "effect";
+import { PublicApplicationIdSchema } from "../../packages/domain/src/application/schema.js";
+import { makeScriptClient } from "../../packages/rpc/src/script-client.js";
 import { FetchHttpClient } from "effect/unstable/http";
 
 const root = new URL("../../", import.meta.url).pathname;
@@ -2361,12 +2363,18 @@ try {
   assertNoRecommendation(JSON.parse(applicantObservation));
   assert.ok(!applicantObservation.includes("Kanskje"));
 
-  const applicationProjection = await fetch(
-    `${api}/api/applications/application-recommendation-maybe`,
+  // The public application confirmation is an anonymous RPC.
+  const confirmations = makeScriptClient(api);
+
+  const applicationProjection = await confirmations.call({}, (client) =>
+    client["admissions.readApplicationConfirmation"]({
+      applicationId: PublicApplicationIdSchema.make("application-recommendation-maybe"),
+    }),
   );
 
+  await confirmations.dispose();
   assert.equal(applicationProjection.status, 200);
-  const applicationBody = await applicationProjection.text();
+  const applicationBody = JSON.stringify(applicationProjection);
   assertNoRecommendation(JSON.parse(applicationBody));
   assert.ok(!applicationBody.includes("Kanskje"));
   recordGate(

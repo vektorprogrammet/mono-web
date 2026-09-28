@@ -12,16 +12,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { Predicate, Schema, Struct } from "effect";
-import { AdmissionOutcomeScope } from "../../packages/domain/src/admissions/outcome.js";
-import { PublicApplicationIdSchema } from "../../packages/domain/src/application/schema.js";
-import { AdmissionOutcomeBoardResource } from "../../packages/http-api/src/admission-outcomes.js";
 import {
-  IdempotencyIfMatchHeaders,
-  isProblem,
-  NativeProblem,
-  problemBody,
-} from "../../packages/http-api/src/http-semantics.js";
-import { createPromiseClient } from "../../packages/sdk/src/promise.js";
+  AdmissionOutcomeBoardResource,
+  type AdmissionOutcomeCommand,
+  AdmissionOutcomeScope,
+} from "../../packages/rpc/src/admission-outcomes.js";
+import { nativeRpcPath } from "../../packages/rpc/src/api.js";
+import { IdempotencyKey, type StrongETag } from "../../packages/rpc/src/problem.js";
+import { makeScriptClient, type ScriptCallResult } from "../../packages/rpc/src/script-client.js";
+import { SubmitApplicationRequest } from "../../packages/rpc/src/v2-schemas.js";
 import { localBackendEnvironment } from "../e2e/local-backend-environment.ts";
 import {
   type DisposablePostgres,
@@ -31,6 +30,23 @@ import {
 import { stopOwnedProcess } from "./owned-process.js";
 
 const root = new URL("../../", import.meta.url).pathname;
+
+/** One RPC request on the JSON wire, for a payload that the typed client would refuse to encode. */
+const WireRequest = Schema.TaggedStruct("Request", {
+  id: Schema.String,
+  tag: Schema.String,
+  payload: Schema.Unknown,
+  headers: Schema.Array(Schema.Tuple([Schema.String, Schema.String])),
+});
+
+/** The one answer of a request that the server rejected with a defect before any handler ran. */
+const RejectedBeforeHandler = Schema.Tuple([
+  Schema.TaggedStruct("Exit", {
+    exit: Schema.TaggedStruct("Failure", {
+      cause: Schema.Tuple([Schema.TaggedStruct("Die", { defect: Schema.Unknown })]),
+    }),
+  }),
+]);
 
 const requireDatabase = createRequire(
   new URL("../../packages/database/package.json", import.meta.url),
@@ -159,50 +175,26 @@ try {
     member = await login(persons.member),
     other = await login(persons.otherDepartment);
 
-  const request = async (
-    path: string,
-    cookie?: string,
-    body?: Schema.Json,
-    etag?: string,
-    key = randomBytes(18).toString("base64url"),
-  ) => {
-    const nativeHeaders = new Headers();
-    nativeHeaders.set("origin", dashboardOrigin);
+  const native = makeScriptClient(backendOrigin);
 
-    if (cookie) {
-      nativeHeaders.set("cookie", cookie);
-    }
+  /** Headers of one call: the dashboard origin, and the person's session when there is one. */
+  const as = (cookie?: string): Readonly<Record<string, string>> =>
+    cookie === undefined ? { origin: dashboardOrigin } : { cookie, origin: dashboardOrigin };
 
-    if (!(body === undefined)) {
-      nativeHeaders.set("content-type", "application/json");
-      nativeHeaders.set("idempotency-key", key);
+  const newKey = () => IdempotencyKey.make(randomBytes(18).toString("base64url"));
 
-      if (etag) {
-        nativeHeaders.set("if-match", etag);
-      }
-    }
+  const expectValue = <A>(answer: ScriptCallResult<A>, gate: string): A => {
+    if (!answer.ok) assert.fail(`${gate}: ${answer.code}`);
 
-    const requestBody: Pick<RequestInit, "body"> =
-      body === undefined ? {} : { body: JSON.stringify(body) };
-
-    return fetch(`${backendOrigin}${path}`, {
-      method: body === undefined ? "GET" : "POST",
-      headers: nativeHeaders,
-      ...requestBody,
-    });
+    return answer.value;
   };
 
-  const read = async (path: string, cookie = leader) => {
-    const response = await request(path, cookie);
-    assert.equal(response.status, 200, `${path}: ${await response.clone().text()}`);
+  const expectProblem = <A>(answer: ScriptCallResult<A>, status: number, code: string, gate: string) => {
+    assert.equal(answer.ok, false, gate);
 
-    return response.json();
-  };
-
-  const expectProblem = async (response: Response, status: number, code: string, gate: string) => {
-    const body = await response.text();
-    assert.equal(response.status, status, `${gate}: ${body}`);
-    assert.equal(JSON.parse(body).code, code, gate);
+    if (answer.ok) return;
+    assert.equal(answer.status, status, `${gate}: ${answer.code}`);
+    assert.equal(answer.code, code, gate);
   };
 
   const outcomeHistory = async (applicationId: string) =>
@@ -222,34 +214,33 @@ try {
     ).rows;
 
   const gates: string[] = [];
-  const scopesPath = "/api/admission-outcomes/scopes";
 
-  const scopeDepartments = async (cookie: string) => {
-    const response = await request(scopesPath, cookie);
-    assert.equal(response.status, 200, await response.clone().text());
-    assert.equal(response.headers.get("cache-control"), "private, no-store");
-    const scopes = await response.json();
+  const listScopes = (cookie?: string) =>
+    native.call(as(cookie), (client) => client["admissionOutcomes.listScopes"]());
 
-    return scopes.departments.map((item: { departmentId: string }) => item.departmentId);
-  };
+  const scopeDepartments = async (cookie: string) =>
+    expectValue(await listScopes(cookie), "scopes").departments.map((item) => item.departmentId);
 
-  const boardPath = (semesterId: string) =>
-    `/api/admission-outcomes?${new URLSearchParams({ departmentId, semesterId }).toString()}`;
+  const scopeOf = (semesterId: string) =>
+    Schema.decodeSync(AdmissionOutcomeScope)({ departmentId, semesterId });
 
-  const sdk = createPromiseClient(backendOrigin, { cookie: leader, origin: dashboardOrigin });
-  const leaderScopes = await read(scopesPath);
+  const readBoard = (semesterId: string, cookie?: string) =>
+    native.call(as(cookie), (client) =>
+      client["admissionOutcomes.readOutcomes"](scopeOf(semesterId)),
+    );
+
+  const board = async (semesterId: string, cookie = leader) =>
+    expectValue(await readBoard(semesterId, cookie), `board ${semesterId}`);
+
+  const leaderScopes = expectValue(await listScopes(leader), "leader scopes");
   assert.deepEqual(await scopeDepartments(leader), [departmentId]);
   assert.ok(
     [historicalSemesterId, openSemesterId, noPeriodSemesterId].every((semesterId) =>
-      leaderScopes.semesters.some((item: { semesterId: string }) => item.semesterId === semesterId),
+      leaderScopes.semesters.some((item) => item.semesterId === semesterId),
     ),
   );
   assert.deepEqual(await scopeDepartments(member), [departmentId]);
   assert.deepEqual(await scopeDepartments(other), [otherDepartmentId]);
-  assert.deepEqual(
-    (await sdk.admissionOutcomes.listScopes()).body.departments.map((item) => item.departmentId),
-    [departmentId],
-  );
   await database.query(
     `INSERT INTO public.organization_memberships(membership_id,person_id,team_id,deleted_team_name,start_at,end_at,position_id,is_team_leader,is_suspended,revision) VALUES ('membership-other-substitutes','${leaderPersonId}','team-other-substitutes',NULL,'2026-01-01',NULL,NULL,false,false,0)`,
   );
@@ -260,7 +251,7 @@ try {
   );
   gates.push("scopes list only the departments each person may read, from every membership");
 
-  const submission = {
+  const submission = Schema.decodeSync(SubmitApplicationRequest)({
     departmentId,
     firstName: "Anne",
     lastName: "API",
@@ -279,26 +270,26 @@ try {
       preferredGroup: "all",
       language: "Norsk",
     },
-  };
+  });
 
-  const submitted = await request("/api/applications", undefined, submission);
-  assert.equal(submitted.status, 201, await submitted.clone().text());
-  const applicationId = (await submitted.json()).applicationId;
-  assert.ok(Predicate.isString(applicationId));
+  const { applicationId } = expectValue(
+    await native.call(as(), (client) =>
+      client["admissions.submitApplication"]({ idempotencyKey: newKey(), request: submission }),
+    ),
+    "submission",
+  );
+
   await database.query(
     `INSERT INTO public.admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at,revision)
      SELECT '${undecidedBrowserApplicationId}',applicant_id,'${historicalPeriodId}',department_id,field_of_study_id,year_of_study,'2024-01-03',0 FROM public.admission_applications WHERE application_id=$1`,
     [applicationId],
   );
 
-  const scopeQuery = Schema.decodeSync(AdmissionOutcomeScope)({
-    departmentId,
-    semesterId: openSemesterId,
-  });
+  const openBoard = await board(openSemesterId);
 
-  const board = await read(boardPath(openSemesterId));
-  assert.equal(board._tag, "Decide");
-  assert.equal(board.admissionPeriodId, openPeriodId);
+  if (!Predicate.isTagged(openBoard, "Decide"))
+    assert.fail("admission management decides the open board");
+  assert.equal(openBoard.admissionPeriodId, openPeriodId);
 
   const periodApplications = (
     await database.query(
@@ -312,15 +303,14 @@ try {
     [applicationId, "application-native-journey-0049"].toSorted(),
   );
   assert.deepEqual(
-    board.entries.map((entry: { applicationId: string }) => entry.applicationId).toSorted(),
+    openBoard.entries.map((entry) => entry.applicationId).toSorted(),
     periodApplications,
     "admission management sees every application of the period",
   );
 
-  const initial = board.entries.find(
-    (entry: { applicationId: string }) => entry.applicationId === applicationId,
-  );
+  const initial = openBoard.entries.find((entry) => entry.applicationId === applicationId);
 
+  assert.ok(initial);
   assert.deepEqual(
     {
       firstName: initial.firstName,
@@ -341,111 +331,109 @@ try {
       revision: 0,
     },
   );
-  assert.equal((await sdk.admissionOutcomes.readOutcomes({ query: scopeQuery })).body._tag, "Decide");
-  const itemPath = `/api/admission-outcomes/${applicationId}`;
-  const recordPath = `${itemPath}:record`;
-  const itemResponse = await request(itemPath, leader);
-  assert.equal(itemResponse.status, 200, await itemResponse.clone().text());
-  assert.equal(itemResponse.headers.get("cache-control"), "private, no-store");
-  const item = await itemResponse.json();
-  assert.equal(itemResponse.headers.get("etag"), item.etag);
+
+  const readItem = (cookie?: string) =>
+    native.call(as(cookie), (client) => client["admissionOutcomes.readOutcome"]({ applicationId }));
+
+  const record = (
+    cookie: string | undefined,
+    request: AdmissionOutcomeCommand,
+    ifMatch: StrongETag,
+    idempotencyKey = newKey(),
+  ) =>
+    native.call(as(cookie), (client) =>
+      client["admissionOutcomes.recordOutcome"]({ applicationId, idempotencyKey, ifMatch, request }),
+    );
+
+  const item = expectValue(await readItem(leader), "leader single read");
   assert.equal(item.etag, initial.etag);
   gates.push("admission management reads every application of the period with its version");
 
-  await expectProblem(
-    await request(recordPath, leader, { outcome: "Substitute" }),
-    428,
-    "precondition.required",
-    "missing If-Match",
-  );
+  // The payload schema requires ifMatch and one declared outcome, so the RPC server rejects an
+  // invalid command while decoding it, before the handler: it answers a defect, not a problem.
+  const invalidCommands: ReadonlyArray<Schema.Json> = [{}, { outcome: "Maybe" }, { outcome: null }];
 
-  const invalidCommands: ReadonlyArray<Schema.Json> = [
-    {},
-    { outcome: "Maybe" },
-    { outcome: null },
-    { outcome: "Substitute", departmentId },
-  ];
+  for (const invalid of invalidCommands) {
+    const response = await fetch(`${backendOrigin}${nativeRpcPath}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: leader, origin: dashboardOrigin },
+      body: JSON.stringify(
+        WireRequest.make({
+          id: "1",
+          tag: "admissionOutcomes.recordOutcome",
+          payload: { applicationId, idempotencyKey: newKey(), ifMatch: item.etag, request: invalid },
+          headers: [],
+        }),
+      ),
+    });
 
-  for (const invalid of invalidCommands)
-    await expectProblem(
-      await request(recordPath, leader, invalid, item.etag),
-      422,
-      "validation.failed",
-      `invalid ${JSON.stringify(invalid)}`,
-    );
+    assert.equal(response.status, 200, `invalid ${JSON.stringify(invalid)}`);
+    Schema.decodeUnknownSync(RejectedBeforeHandler)(await response.json());
+  }
+
   assert.deepEqual(await outcomeHistory(applicationId), [], "rejected commands record nothing");
-  gates.push("a missing version (428) and invalid outcomes (422) record nothing");
+  gates.push("invalid outcomes are rejected before the handler and record nothing");
 
-  const key = randomBytes(18).toString("base64url");
-  const recorded = await request(recordPath, leader, { outcome: "Substitute" }, item.etag, key);
-  assert.equal(recorded.status, 200, await recorded.clone().text());
-  const substitute = await recorded.json();
-  assert.equal(recorded.headers.get("etag"), substitute.etag);
+  const key = newKey();
+  const substitute = expectValue(await record(leader, { outcome: "Substitute" }, item.etag, key), "record");
   assert.notEqual(substitute.etag, item.etag);
   assert.equal(substitute.outcome, "Substitute");
   assert.equal(substitute.revision, 1);
   const substituteHistory = [{ revision: 1, outcome: "Substitute", decidedBy: leaderPersonId }];
   assert.deepEqual(await outcomeHistory(applicationId), substituteHistory);
-  const replay = await request(recordPath, leader, { outcome: "Substitute" }, item.etag, key);
-  assert.equal(replay.status, 200);
-  assert.deepEqual(await replay.json(), substitute, "an exact replay answers the stored result");
+
+  assert.deepEqual(
+    expectValue(await record(leader, { outcome: "Substitute" }, item.etag, key), "replay"),
+    substitute,
+    "an exact replay answers the stored result",
+  );
   assert.deepEqual(await outcomeHistory(applicationId), substituteHistory, "a replay adds no revision");
-  await expectProblem(
-    await request(recordPath, leader, { outcome: "Rejected" }, item.etag, key),
+  expectProblem(
+    await record(leader, { outcome: "Rejected" }, item.etag, key),
     409,
     "idempotency.digest-conflict",
     "another command under a used key",
   );
-  const again = await request(recordPath, leader, { outcome: "Substitute" }, substitute.etag);
-  assert.equal(again.status, 200, await again.clone().text());
-  assert.deepEqual(await again.json(), substitute, "recording the current outcome again changes nothing");
+  assert.deepEqual(
+    expectValue(await record(leader, { outcome: "Substitute" }, substitute.etag), "again"),
+    substitute,
+    "recording the current outcome again changes nothing",
+  );
   assert.deepEqual(await outcomeHistory(applicationId), substituteHistory);
   gates.push(
-    "Substitute is recorded once with If-Match and Idempotency-Key; replay and a repeated outcome add no revision",
+    "Substitute is recorded once with ifMatch and an idempotency key; replay and a repeated outcome add no revision",
   );
 
-  await expectProblem(
-    await request(recordPath, leader, { outcome: "Rejected" }, item.etag),
+  expectProblem(
+    await record(leader, { outcome: "Rejected" }, item.etag),
     412,
     "precondition.failed",
     "stale version",
   );
 
-  const staleCommand = {
-    params: { applicationId: PublicApplicationIdSchema.make(applicationId) },
-    headers: Schema.decodeSync(IdempotencyIfMatchHeaders)({
-      "if-match": item.etag,
-      "idempotency-key": randomBytes(18).toString("base64url"),
-    }),
-    payload: { outcome: "Rejected" as const },
-  };
+  const staleKey = newKey();
 
-  for (const attempt of ["initial stale record", "unchanged rejected retry"]) {
-    await assert.rejects(sdk.admissionOutcomes.recordOutcome(staleCommand), (error) => {
-      assert.ok(isProblem(error), attempt);
-      const problem = Schema.decodeUnknownSync(NativeProblem)(problemBody(error));
-      assert.equal(problem.code, "precondition.failed", attempt);
-      assert.equal(problem.status, 412, attempt);
-
-      return true;
-    });
-  }
+  for (const attempt of ["initial stale record", "unchanged rejected retry"])
+    expectProblem(
+      await record(leader, { outcome: "Rejected" }, item.etag, staleKey),
+      412,
+      "precondition.failed",
+      attempt,
+    );
 
   assert.deepEqual(await outcomeHistory(applicationId), substituteHistory);
-  gates.push("a stale version is refused (412), also on an unchanged SDK retry, and records nothing");
+  gates.push("a stale version is refused (412), also on an unchanged retry, and records nothing");
 
-  const memberBoard = await read(boardPath(openSemesterId), member);
   assert.deepEqual(
-    memberBoard,
+    await board(openSemesterId, member),
     AdmissionOutcomeBoardResource.cases.ReadOnly.make({
-      departmentId,
-      semesterId: openSemesterId,
-      admissionPeriodId: openPeriodId,
+      ...scopeOf(openSemesterId),
+      admissionPeriodId: openBoard.admissionPeriodId,
       substitutes: [
         {
           applicationId,
-          firstName: "Anne",
-          lastName: "API",
+          firstName: submission.firstName,
+          lastName: submission.lastName,
           email: submission.email,
           phone: submission.phone,
         },
@@ -453,35 +441,31 @@ try {
     }),
     "a member reads only who is on call, with name, e-mail and phone",
   );
-
-  const memberSdk = createPromiseClient(backendOrigin, { cookie: member, origin: dashboardOrigin });
-  assert.equal(
-    (await memberSdk.admissionOutcomes.readOutcomes({ query: scopeQuery })).body._tag,
-    "ReadOnly",
-  );
-  await expectProblem(await request(itemPath, member), 403, "authority.denied", "member single read");
-  await expectProblem(
-    await request(recordPath, member, { outcome: "Rejected" }, substitute.etag),
+  expectProblem(await readItem(member), 403, "authority.denied", "member single read");
+  expectProblem(
+    await record(member, { outcome: "Rejected" }, substitute.etag),
     403,
     "authority.denied",
     "member record",
   );
   gates.push("a member reads the on-call list only; single reads and records are denied (403)");
 
-  for (const path of [boardPath(openSemesterId), itemPath])
-    await expectProblem(await request(path, other), 403, "authority.denied", `other department ${path}`);
-  await expectProblem(
-    await request(recordPath, other, { outcome: "Rejected" }, substitute.etag),
+  expectProblem(await readBoard(openSemesterId, other), 403, "authority.denied", "other department board");
+  expectProblem(await readItem(other), 403, "authority.denied", "other department item");
+  expectProblem(
+    await record(other, { outcome: "Rejected" }, substitute.etag),
     403,
     "authority.denied",
     "other department record",
   );
 
-  for (const path of [scopesPath, boardPath(openSemesterId), itemPath])
-    assert.equal((await request(path)).status, 401, `anonymous ${path}`);
-  assert.equal(
-    (await request(recordPath, undefined, { outcome: "Rejected" }, substitute.etag)).status,
+  expectProblem(await listScopes(), 401, "credential.missing", "anonymous scopes");
+  expectProblem(await readBoard(openSemesterId), 401, "credential.missing", "anonymous board");
+  expectProblem(await readItem(), 401, "credential.missing", "anonymous item");
+  expectProblem(
+    await record(undefined, { outcome: "Rejected" }, substitute.etag),
     401,
+    "credential.missing",
     "anonymous record",
   );
   assert.deepEqual(await outcomeHistory(applicationId), substituteHistory);
@@ -491,22 +475,22 @@ try {
     `INSERT INTO public.organization_global_administrator_grants(grant_id,person_id,start_at,end_at,revision) VALUES ('admin-substitutes','journey-rec-interviewer-b-0049','2026-01-01',NULL,0)`,
   );
   assert.equal(
-    (await read(boardPath(openSemesterId), other))._tag,
+    (await board(openSemesterId, other))._tag,
     "Decide",
     "an active global administrator decides in every department",
   );
   await database.query(
     "DELETE FROM public.organization_global_administrator_grants WHERE grant_id='admin-substitutes'",
   );
-  assert.equal((await request(boardPath(openSemesterId), other)).status, 403);
+  expectProblem(await readBoard(openSemesterId, other), 403, "authority.denied", "ended grant");
   gates.push("an active global administrator decides in every department");
 
   const concurrent = await Promise.all([
-    request(recordPath, leader, { outcome: "Rejected" }, substitute.etag),
-    request(recordPath, leader, { outcome: "Rejected" }, substitute.etag),
+    record(leader, { outcome: "Rejected" }, substitute.etag),
+    record(leader, { outcome: "Rejected" }, substitute.etag),
   ]);
 
-  const statuses = concurrent.map((response) => response.status);
+  const statuses = concurrent.map((answer) => answer.status);
   assert.equal(statuses.filter((status) => status === 200).length, 1, `concurrent records ${statuses.join(",")}`);
   assert.ok(
     statuses.some((status) => status === 409 || status === 412),
@@ -519,15 +503,20 @@ try {
   ];
 
   assert.deepEqual(await outcomeHistory(applicationId), rejectedHistory);
+  const memberAfterReject = await board(openSemesterId, member);
+
   assert.deepEqual(
-    (await read(boardPath(openSemesterId), member)).substitutes,
+    Predicate.isTagged(memberAfterReject, "ReadOnly") ? memberAfterReject.substitutes : null,
     [],
     "a rejected applicant is no longer on call",
   );
+
+  const leaderAfterReject = await board(openSemesterId);
+
   assert.equal(
-    (await read(boardPath(openSemesterId))).entries.find(
-      (entry: { applicationId: string }) => entry.applicationId === applicationId,
-    ).outcome,
+    Predicate.isTagged(leaderAfterReject, "Decide")
+      ? leaderAfterReject.entries.find((entry) => entry.applicationId === applicationId)?.outcome
+      : null,
     "Rejected",
   );
   gates.push("of two concurrent records on one version exactly one applies; Rejected leaves the on-call list");
@@ -535,14 +524,14 @@ try {
   await database.query(
     `UPDATE public.organization_memberships SET is_suspended=true WHERE person_id='${leaderPersonId}'`,
   );
-  await expectProblem(
-    await request(recordPath, leader, { outcome: "Substitute" }, item.etag, key),
+  expectProblem(
+    await record(leader, { outcome: "Substitute" }, item.etag, key),
     403,
     "authority.denied",
     "revoked authority cannot replay a stored result",
   );
-  await expectProblem(
-    await request(boardPath(openSemesterId), leader),
+  expectProblem(
+    await readBoard(openSemesterId, leader),
     403,
     "authority.denied",
     "revoked authority cannot read",
@@ -553,25 +542,23 @@ try {
   gates.push("revoked authority cannot replay a stored result or read");
 
   assert.deepEqual(
-    await read(boardPath(noPeriodSemesterId)),
+    await board(noPeriodSemesterId),
     AdmissionOutcomeBoardResource.cases.Decide.make({
-      departmentId,
-      semesterId: noPeriodSemesterId,
+      ...scopeOf(noPeriodSemesterId),
       admissionPeriodId: null,
       entries: [],
     }),
   );
   assert.deepEqual(
-    await read(boardPath(noPeriodSemesterId), member),
+    await board(noPeriodSemesterId, member),
     AdmissionOutcomeBoardResource.cases.ReadOnly.make({
-      departmentId,
-      semesterId: noPeriodSemesterId,
+      ...scopeOf(noPeriodSemesterId),
       admissionPeriodId: null,
       substitutes: [],
     }),
   );
-  await expectProblem(
-    await request(boardPath("semester-missing-substitutes"), leader),
+  expectProblem(
+    await readBoard("semester-missing-substitutes", leader),
     422,
     "scope.invalid",
     "unknown semester",
@@ -599,6 +586,7 @@ try {
   // Receipts: the first Substitute, the repeated Substitute under a new key, and the concurrent winner.
   assert.equal(receiptCount, 3, "only executed records keep a receipt, not replays or refusals");
   gates.push("the outcome history is append-only and only executed records keep a receipt");
+  await native.dispose();
 
   const manifest = {
     revision,

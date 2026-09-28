@@ -8,6 +8,9 @@ import type {
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type BrowserContext, type Page, type Locator } from "@playwright/test";
+import { PublicApplicationIdSchema } from "@vektorprogrammet/rpc";
+import { IdempotencyKey, StrongETag } from "@vektorprogrammet/rpc/problem";
+import { makeScriptClient } from "@vektorprogrammet/rpc/script";
 import { Order } from "effect";
 
 const manifestPath = process.env.PLACEMENT_JOURNEY_MANIFEST;
@@ -117,17 +120,39 @@ const readOwnCoverage = async (page: Page) => {
   return response.json();
 };
 
+let outcomeClient: ReturnType<typeof makeScriptClient> | undefined;
+
+/** The native RPC client of the admission-outcome calls, made once the manifest names the backend. */
+const outcomes = () => {
+  outcomeClient ??= makeScriptClient(manifest.backendOrigin);
+
+  return outcomeClient;
+};
+
+/** The session of one browser context, sent from the dashboard origin as its server sends it. */
+const sessionOf = async (page: Page) => ({
+  cookie: (await page.context().cookies(manifest.dashboardOrigin))
+    .map(({ name, value }) => `${name}=${value}`)
+    .join("; "),
+  origin: manifest.dashboardOrigin,
+});
+
 /** Admission management reads one application's outcome entry with its version. */
 const readOutcome = async (page: Page, applicationId: string) => {
-  const response = await page.request.get(
-    `${manifest.backendOrigin}/api/admission-outcomes/${applicationId}`,
-    { headers: { origin: manifest.dashboardOrigin } },
+  const answer = await outcomes().call(await sessionOf(page), (client) =>
+    client["admissionOutcomes.readOutcome"]({
+      applicationId: PublicApplicationIdSchema.make(applicationId),
+    }),
   );
 
-  expect(response.status()).toBe(200);
+  if (!answer.ok) throw new Error(`Reading the outcome answered ${answer.code}`);
 
-  return response.json();
+  return answer.value;
 };
+
+test.afterAll(async () => {
+  await outcomeClient?.dispose();
+});
 
 test("0096 placement, 0110 school-service, and 0111 coverage journeys persist with explicit authority", async ({
   browser,
@@ -1005,6 +1030,32 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     http.push({ check, status: response.status(), boundary: "authenticated-http" });
   };
 
+  /** An admission-outcome record the backend refuses, with its registry status and code. */
+  const rejectedOutcome = async (
+    actor: Page,
+    etag: string,
+    payload: AdmissionOutcomeCommand,
+    check: string,
+    expected: number,
+    expectedCode: string,
+  ) => {
+    const answer = await outcomes().call(await sessionOf(actor), (client) =>
+      client["admissionOutcomes.recordOutcome"]({
+        applicationId: PublicApplicationIdSchema.make(manifest.applicationId),
+        idempotencyKey: IdempotencyKey.make(crypto.randomUUID()),
+        ifMatch: StrongETag.make(etag),
+        request: payload,
+      }),
+    );
+
+    expect(answer, JSON.stringify(answer)).toMatchObject({
+      ok: false,
+      status: expected,
+      code: expectedCode,
+    });
+    http.push({ check, status: answer.status, boundary: "authenticated-rpc" });
+  };
+
   let passed = false;
 
   try {
@@ -1348,9 +1399,8 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     ).toHaveText(onCall);
     await checkpoint("outcome-recorded");
 
-    await rejected(
+    await rejectedOutcome(
       page,
-      `/api/admission-outcomes/${manifest.applicationId}:record`,
       unrecordedOutcome.etag,
       { outcome: "Rejected" },
       "a stale admission outcome version cannot overwrite",
@@ -1378,9 +1428,8 @@ test("golden school-service continuous functional journey", async ({ browser }) 
       0,
     );
     await expect(member.getByRole("form", { name: /^Opptaksutfall:/ })).toHaveCount(0);
-    await rejected(
+    await rejectedOutcome(
       member,
-      `/api/admission-outcomes/${manifest.applicationId}:record`,
       (await readOutcome(page, manifest.applicationId)).etag,
       { outcome: "Rejected" },
       "a department member records no admission outcome",

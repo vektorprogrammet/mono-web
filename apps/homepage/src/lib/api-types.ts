@@ -1,13 +1,16 @@
 import {
   ListNewsEndpoint,
   ListTeamApplicationIntakesEndpoint,
-  ReadApplicationCatalogEndpoint,
   ReadNewsArticleEndpoint,
   ReadTeamApplicationIntakeEndpoint,
   SubmitContactMessageEndpoint,
   SubmitTeamApplicationEndpoint,
 } from "@vektorprogrammet/rpc";
-import type { DepartmentJson, TeamJson } from "@vektorprogrammet/rpc";
+import type {
+  DepartmentJson,
+  PublicApplicationCatalogSchema,
+  TeamJson,
+} from "@vektorprogrammet/rpc";
 import type { HttpApiEndpoint, HttpApiSchema } from "effect/unstable/httpapi";
 
 type EndpointResponseBody<Response> =
@@ -26,7 +29,7 @@ export type PublishedNewsSummary = PublishedNewsListing["articles"][number];
 
 export type PublishedNewsArticle = EndpointBody<typeof ReadNewsArticleEndpoint>;
 
-export type PublicApplicationCatalog = EndpointBody<typeof ReadApplicationCatalogEndpoint>;
+export type PublicApplicationCatalog = typeof PublicApplicationCatalogSchema.Type;
 
 export type ContactMessagePayload = HttpApiEndpoint.Payload<
   typeof SubmitContactMessageEndpoint

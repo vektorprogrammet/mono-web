@@ -1,11 +1,11 @@
-import { ReturningAssistantRegistrationInputSchema } from "@vektorprogrammet/rpc"
-import { PersonId } from "@vektorprogrammet/rpc"
-import { IdempotencyHeaders } from "@vektorprogrammet/rpc";
+import { PersonId } from "@vektorprogrammet/domain/organization";
+import { ReturningAssistantRegistrationInputSchema } from "@vektorprogrammet/rpc";
+import { IdempotencyKey } from "@vektorprogrammet/rpc/problem";
 import { Record, Option, Predicate, Schema } from "effect";
 import { data, useFetcher, useLoaderData, useNavigation, useRouteError, useSearchParams } from "react-router";
 import { useState, useSyncExternalStore, type FormEvent } from "react";
 import { Button } from "../components/ui/button";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import { nativeProblemFrom } from "../lib/native-problem";
 import { formText } from "../lib/form-text";
@@ -16,7 +16,6 @@ const privateData = <T,>(value: T, status = 200) =>
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
   const search = new URL(request.url).searchParams;
   const periodIds = search.getAll("admissionPeriodId");
 
@@ -28,18 +27,20 @@ export async function loader({ request }: Route.LoaderArgs) {
   const requestedPeriodId = periodIds[0];
 
   try {
-    const result = await client.admissions.readReturningAssistantOptions();
+    const options = await callNative(cookie, request, (client) =>
+      client["admissions.readReturningAssistantOptions"](),
+    );
 
     if (
       requestedPeriodId !== undefined &&
-      !result.body.periods.some(({ period }) => period.id === requestedPeriodId)
+      !options.periods.some(({ period }) => period.id === requestedPeriodId)
     )
       return privateData(
         { options: null, error: "Opptaksperioden er ikke tilgjengelig." },
         400,
       );
 
-    return privateData({ options: result.body, error: null });
+    return privateData({ options, error: null });
   } catch (cause) {
     const problem = nativeProblemFrom(cause);
 
@@ -63,7 +64,6 @@ const boolField = (form: FormData, name: string) => form.get(name) === "true";
 
 export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
   const form = await request.formData();
   const commandId = formText(form, "commandId") || crypto.randomUUID();
 
@@ -86,17 +86,18 @@ export async function action({ request }: Route.ActionArgs) {
       teamIds: form.getAll("teamIds"),
     });
 
-    const result = await client.admissions.registerReturningAssistant({
-      headers: Schema.decodeSync(IdempotencyHeaders)({ "idempotency-key": commandId }),
-      payload,
-    });
+    const idempotencyKey = Schema.decodeSync(IdempotencyKey)(commandId);
+
+    const result = await callNative(cookie, request, (client) =>
+      client["admissions.registerReturningAssistant"]({ idempotencyKey, request: payload }),
+    );
 
     return privateData({
       success: true as const,
       message: "Registreringen er lagret.",
       commandId,
       admissionPeriodId: payload.admissionPeriodId,
-      revision: result.body.observation.revision,
+      revision: result.observation.revision,
     });
   } catch (cause) {
     const problem = nativeProblemFrom(cause);

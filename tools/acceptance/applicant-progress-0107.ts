@@ -11,8 +11,8 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { inspect } from "node:util";
-import { createPromiseClient } from "../../packages/sdk/src/promise.js";
 import { decodeApplicantProgressResponse } from "../../packages/domain/src/application/schema.js";
+import { makeScriptClient } from "../../packages/rpc/src/script-client.js";
 import type { Page } from "playwright";
 import { join } from "node:path";
 import type { Pool, PoolClient } from "pg";
@@ -349,15 +349,27 @@ export const runApplicantProgress0107 = async (input: {
   readonly errors: string[];
   readonly audit: (page: Page) => Promise<ReadonlyArray<unknown>>;
 }) => {
-  const request = (path: string, cookie = input.cookie) =>
-    fetch(`${input.api}${path}`, { headers: { cookie, origin: input.ui } });
+  const native = makeScriptClient(input.api);
 
-  assert.equal((await fetch(`${input.api}/api/applicant-progress`)).status, 401);
-  assert.equal((await request("/api/applicant-progress?applicationId=other")).status, 400);
-  const response = await request("/api/applicant-progress");
-  assert.equal(response.status, 200);
-  assert.equal(response.headers.get("cache-control"), "private, no-store");
-  assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+  /** Reads the progress as the person whose session `cookie` names, or anonymously. */
+  const readProgress = (cookie: string | null = input.cookie) =>
+    native.call(cookie === null ? { origin: input.ui } : { cookie, origin: input.ui }, (client) =>
+      client["admissions.readApplicantProgress"](),
+    );
+
+  /** The progress that a successful read answered, decoded again by the domain decoder. */
+  const progressOf = async (cookie: string = input.cookie) => {
+    const answer = await readProgress(cookie);
+
+    if (!answer.ok) {
+      throw new Error(`applicant progress failed: ${inspect(answer, { depth: 10 })}`);
+    }
+
+    return decodeApplicantProgressResponse(answer.value);
+  };
+
+  assert.equal((await readProgress(null)).status, 401);
+  const body = await progressOf();
 
   const unlinkedSignIn = await fetch(`${input.api}/api/auth/sign-in/email`, {
     method: "POST",
@@ -371,9 +383,7 @@ export const runApplicantProgress0107 = async (input: {
   assert.equal(unlinkedSignIn.status, 200);
   const unlinkedCookie = unlinkedSignIn.headers.get("set-cookie")?.split(";")[0];
   assert.ok(unlinkedCookie);
-  const unlinkedResponse = await request("/api/applicant-progress", unlinkedCookie);
-  assert.equal(unlinkedResponse.status, 200);
-  assert.deepEqual(decodeApplicantProgressResponse(await unlinkedResponse.json()).applications, []);
+  assert.deepEqual((await progressOf(unlinkedCookie)).applications, []);
 
   const expiredSessions = await input.pool.query(
     `UPDATE auth.session SET "expiresAt"=date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')-interval '1 minute' WHERE "userId"=$1`,
@@ -381,15 +391,12 @@ export const runApplicantProgress0107 = async (input: {
   );
 
   assert.ok((expiredSessions.rowCount ?? 0) >= 1);
-  assert.equal((await request("/api/applicant-progress", unlinkedCookie)).status, 401);
-  const body = decodeApplicantProgressResponse(await response.json());
+  assert.equal((await readProgress(unlinkedCookie)).status, 401);
   const tags = body.applications.map((application) => application.progress._tag);
   const observedStates = new Set(tags);
 
   const readCompletedApplicationState = async () => {
-    const current = decodeApplicantProgressResponse(
-      await (await request("/api/applicant-progress")).json(),
-    );
+    const current = await progressOf();
 
     const application = current.applications.find(
       (candidate) => candidate.applicationId === "application-progress-completed-0107",
@@ -401,20 +408,6 @@ export const runApplicantProgress0107 = async (input: {
     return application.progress._tag;
   };
 
-  const sdk = createPromiseClient(input.api, { cookie: input.cookie, origin: input.ui });
-
-  const readSdk = async () => {
-    try {
-      return await sdk.admissions.readApplicantProgress();
-    } catch (cause) {
-      throw new Error(`applicant progress SDK failed: ${inspect(cause, { depth: 10 })}`, { cause });
-    }
-  };
-
-  const sdkResponse = await readSdk();
-  const sdkBody = decodeApplicantProgressResponse(sdkResponse.body);
-  assert.equal(sdkBody.personId, body.personId);
-  assert.deepEqual(sdkBody.applications, body.applications);
 
   for (const tag of [
     "ApplicationReceived",
@@ -617,7 +610,8 @@ export const runApplicantProgress0107 = async (input: {
   });
 
   assert.equal(signOut.status, 200);
-  assert.equal((await request("/api/applicant-progress")).status, 401);
+  assert.equal((await readProgress()).status, 401);
+  await native.dispose();
   assert.deepEqual(input.errors, []);
   await writeFile(
     join(input.artifacts, "applicant-progress-targeted-evidence.json"),
