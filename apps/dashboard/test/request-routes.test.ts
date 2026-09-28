@@ -1,6 +1,16 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { isNativeOperation, isNativeRequest, nativeRpcTag } from "../e2e/native-operations.ts";
+import { PersonId } from "@vektorprogrammet/domain/organization";
+import { Problem, ReadSession, SessionResponse } from "@vektorprogrammet/rpc";
+import { Exit, Predicate } from "effect";
+import { Rpc } from "effect/unstable/rpc";
+import {
+  isNativeOperation,
+  isNativeRequest,
+  nativeRpcOutcome,
+  nativeRpcStatus,
+  nativeRpcTag,
+} from "../e2e/native-operations.ts";
 import { addressesRoute } from "../e2e/request-routes.ts";
 
 /** The RPC request message that the client posts for one RPC. */
@@ -12,6 +22,27 @@ const RpcRequest = Schema.TaggedStruct("Request", {
 });
 
 const Ack = Schema.TaggedStruct("Ack", { requestId: Schema.Finite });
+
+const RpcExitMessage = Schema.TaggedStruct("Exit", { requestId: Schema.Finite, exit: Schema.Json });
+
+const encodeReadSessionExit = Schema.encodeSync(Schema.toCodecJson(Rpc.exitSchema(ReadSession)));
+
+/** The response body that the RPC server writes for one `system.readSession` exit. */
+const readSessionAnswer = (exit: Rpc.Exit<typeof ReadSession>) =>
+  Schema.encodeSync(Schema.fromJsonString(Schema.Array(RpcExitMessage)))([
+    RpcExitMessage.make({ requestId: 0, exit: encodeReadSessionExit(exit) }),
+  ]);
+
+const session = SessionResponse.make({
+  sessionId: "session-1",
+  personId: PersonId.make("person-1"),
+  createdAt: "2030-01-01T00:00:00Z",
+  updatedAt: "2030-01-01T00:00:00Z",
+  expiresAt: "2030-01-02T00:00:00Z",
+  ipAddress: null,
+  userAgent: null,
+  current: true,
+});
 
 const rpcBody = (tag: string, payload: Schema.Json = {}) =>
   Schema.encodeSync(Schema.fromJsonString(RpcRequest))(
@@ -46,6 +77,21 @@ describe("journey request route classification", () => {
     const ack = Schema.encodeSync(Schema.fromJsonString(Ack))(Ack.make({ requestId: 0 }));
 
     expect(nativeRpcTag(ack)).toBeUndefined();
+  });
+
+  it("reads the outcome and the status of an RPC response", () => {
+    const success = readSessionAnswer(Exit.succeed(session));
+    const denied = readSessionAnswer(Exit.fail(Problem.fromWire({ code: "credential.invalid" }, {})));
+
+    const read = nativeRpcOutcome(success);
+    const rejected = nativeRpcOutcome(denied);
+
+    expect(Predicate.isTagged(read, "Success") && read.value).toMatchObject({ sessionId: "session-1" });
+    expect(nativeRpcStatus(success)).toBe(200);
+    expect(Predicate.isTagged(rejected, "Problem") && rejected.problem.code).toBe("credential.invalid");
+    expect(nativeRpcStatus(denied)).toBe(401);
+    expect(nativeRpcStatus(readSessionAnswer(Exit.die("boom")))).toBe(500);
+    expect(nativeRpcStatus("[]")).toBeUndefined();
   });
 
   it("keeps the email sign-in and leaves the native surface for every other identity route", () => {

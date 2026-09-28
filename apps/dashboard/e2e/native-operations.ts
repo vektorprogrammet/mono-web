@@ -7,8 +7,8 @@
  * prove that a journey sends no legacy, provider, recovery, or token request, rather than listing
  * such routes by name.
  */
-import { NativeRpcs, nativeRpcPath } from "@vektorprogrammet/rpc";
-import { Option, Schema } from "effect";
+import { NativeProblem, NativeRpcs, nativeRpcPath } from "@vektorprogrammet/rpc";
+import { Array as Arr, Match, Option, Schema } from "effect";
 
 /** One RPC request message, as the JSON serialization of the RPC client sends it over HTTP. */
 const RpcRequestMessage = Schema.fromJsonString(
@@ -23,6 +23,73 @@ const decodeRpcRequest = Schema.decodeUnknownOption(RpcRequestMessage);
  */
 export const nativeRpcTag = (body: string): string | undefined =>
   Option.getOrUndefined(Option.map(decodeRpcRequest(body), (message) => message.tag));
+
+const RequestId = Schema.Union([Schema.String, Schema.Finite]);
+
+/** The terminal message of one RPC response, as the JSON serialization writes it over HTTP. */
+const RpcExitMessage = Schema.TaggedStruct("Exit", {
+  requestId: RequestId,
+  exit: Schema.Union([
+    Schema.TaggedStruct("Success", { value: Schema.Json }),
+    Schema.TaggedStruct("Failure", { cause: Schema.Array(Schema.Json) }),
+  ]),
+});
+
+const decodeRpcResponse = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Array(Schema.Json)),
+);
+
+const isRpcExitMessage = Schema.is(RpcExitMessage);
+
+const FailReason = Schema.TaggedStruct("Fail", { error: NativeProblem });
+
+const isFailReason = Schema.is(FailReason);
+
+/** What one RPC answered: its value, a declared problem, or a defect. */
+export const NativeRpcOutcome = Schema.Union([
+  Schema.TaggedStruct("Success", { value: Schema.Json }),
+  Schema.TaggedStruct("Problem", { status: Schema.Finite, problem: NativeProblem }),
+  Schema.TaggedStruct("Defect", {}),
+]);
+
+export type NativeRpcOutcome = typeof NativeRpcOutcome.Type;
+
+/**
+ * The outcome that one RPC response body carries, or `undefined` when the body is no RPC response.
+ * Every RPC answers HTTP 200; a declared problem carries the status that the problem registry gives
+ * its code, so a recorder can keep comparing statuses.
+ */
+export const nativeRpcOutcome = (body: string): NativeRpcOutcome | undefined => {
+  const exit = Option.flatMap(decodeRpcResponse(body), Arr.findFirst(isRpcExitMessage));
+
+  if (Option.isNone(exit)) return undefined;
+
+  return Match.value(exit.value.exit).pipe(
+    Match.tag("Success", ({ value }) => NativeRpcOutcome.members[0].make({ value })),
+    Match.tag("Failure", ({ cause }) =>
+      Option.match(Arr.findFirst(cause, isFailReason), {
+        onNone: () => NativeRpcOutcome.members[2].make({}),
+        onSome: ({ error }) =>
+          NativeRpcOutcome.members[1].make({ status: error.status, problem: error }),
+      }),
+    ),
+    Match.exhaustive,
+  );
+};
+
+/** The status that one RPC response answered under the HTTP contract: 200, or its problem's. */
+export const nativeRpcStatus = (body: string): number | undefined => {
+  const outcome = nativeRpcOutcome(body);
+
+  return outcome === undefined
+    ? undefined
+    : Match.value(outcome).pipe(
+        Match.tag("Success", () => 200),
+        Match.tag("Problem", ({ status }) => status),
+        Match.tag("Defect", () => 500),
+        Match.exhaustive,
+      );
+};
 
 /** The RPC client posts to the endpoint URL, which its HTTP client may end with one slash. */
 const isRpcPath = (pathname: string): boolean =>

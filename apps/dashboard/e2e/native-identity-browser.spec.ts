@@ -1,5 +1,6 @@
-import { SessionListResponse } from "@vektorprogrammet/rpc";
-import { Schema, Predicate } from "effect";
+import { IdempotencyKey, nativeRpcPath, type NativeRpcClient, type SessionListResponse } from "@vektorprogrammet/rpc";
+import { makeScriptClient } from "@vektorprogrammet/rpc/script";
+import { Effect, Predicate, Schema } from "effect";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import AxeBuilder from "@axe-core/playwright";
@@ -277,52 +278,81 @@ const signInContext = async (
   expect(response.status()).toBe(200);
 };
 
-/** Reads owned sessions; the contract's owner-only projection rejects any extra field. */
+const nativeScript = makeScriptClient(apiOrigin === "" ? "http://native.invalid" : apiOrigin);
+
+type NativeClient = NativeRpcClient["Service"];
+
+/** The Better Auth cookie that a browser context holds for the backend, as one Cookie header. */
+const cookieHeaderOf = async (context: BrowserContext): Promise<string> =>
+  (await context.cookies(apiOrigin)).map(({ name, value }) => `${name}=${value}`).join("; ");
+
+/** Calls one RPC with the session that `context` holds, from the dashboard origin. */
+const callAs = async <A, E>(
+  context: BrowserContext,
+  rpc: (client: NativeClient) => Effect.Effect<A, E>,
+) => nativeScript.call({ cookie: await cookieHeaderOf(context), origin: dashboardOrigin }, rpc);
+
+/** Reads owned sessions; exactly one of them is the caller's current session. */
 const readSessions = async (context: BrowserContext): Promise<typeof SessionListResponse.Type> => {
-  const response = await context.request.get(`${apiOrigin}/api/sessions`, {
-    headers: originHeaders(),
-  });
+  const response = await callAs(context, (client) => client["system.listSessions"]());
 
-  expect(response.status()).toBe(200);
+  if (!response.ok) throw new Error(`system.listSessions answered ${response.code}`);
 
-  const body = Schema.decodeUnknownSync(SessionListResponse, { onExcessProperty: "error" })(
-    await response.json(),
-  );
+  expect(response.value.length).toBeGreaterThan(0);
+  expect(response.value.filter((session) => session.current)).toHaveLength(1);
 
-  expect(body.length).toBeGreaterThan(0);
-  expect(body.filter((session) => session.current)).toHaveLength(1);
-
-  return body;
+  return response.value;
 };
 
-/** Session mutations are idempotent commands; each call is a new command with its own key. */
-const commandHeaders = (method: "DELETE" | "GET" | "POST"): Record<string, string> =>
-  method === "GET" ? {} : { "Idempotency-Key": randomBytes(18).toString("base64url") };
+/** Session commands are idempotent; each call is a new command with its own key. */
+const commandKey = () => IdempotencyKey.make(randomBytes(18).toString("base64url"));
 
-const nativeMutation = (
-  context: BrowserContext,
-  method: "DELETE" | "POST",
-  path: string,
-  origin = dashboardOrigin,
-) =>
-  context.request.fetch(`${apiOrigin}${path}`, {
-    method,
-    headers: { ...originHeaders(origin), ...commandHeaders(method) },
-  });
+/** The session operations, each one command or read of `system`. */
+const sessionOperations = {
+  readSession: (client: NativeClient) => client["system.readSession"](),
+  deleteSession: (client: NativeClient) =>
+    client["system.deleteSession"]({ idempotencyKey: commandKey() }),
+  revokeOtherSessions: (client: NativeClient) =>
+    client["system.revokeOtherSessions"]({ idempotencyKey: commandKey() }),
+  revokeAllSessions: (client: NativeClient) =>
+    client["system.revokeAllSessions"]({ idempotencyKey: commandKey() }),
+  deleteOwnedSession: (sessionId: string) => (client: NativeClient) =>
+    client["system.deleteOwnedSession"]({ idempotencyKey: commandKey(), sessionId }),
+};
 
-const replayWithCookie = (
-  method: "DELETE" | "GET" | "POST",
-  path: string,
+const RpcRequest = Schema.TaggedStruct("Request", {
+  id: Schema.String,
+  tag: Schema.String,
+  payload: Schema.Json,
+  headers: Schema.Array(Schema.Tuple([Schema.String, Schema.String])),
+});
+
+/**
+ * Posts one session command as a browser in `context` would, with its cookie and `origin` as HTTP
+ * headers, so the ingress decides the origin before any RPC runs.
+ */
+const browserRpcStatus = async (context: BrowserContext, origin: string) =>
+  (
+    await context.request.post(`${apiOrigin}${nativeRpcPath}`, {
+      headers: { ...originHeaders(origin), "content-type": "application/json" },
+      data: Schema.encodeSync(Schema.fromJsonString(RpcRequest))(
+        RpcRequest.make({
+          id: "0",
+          tag: "system.revokeOtherSessions",
+          payload: { idempotencyKey: commandKey() },
+          headers: [],
+        }),
+      ),
+    })
+  ).status();
+
+/** Replays one RPC with a cookie that the browser no longer holds. */
+const replayWithCookie = <A, E>(
   cookie: { readonly name: string; readonly value: string },
-) =>
-  fetch(`${apiOrigin}${path}`, {
-    method,
-    headers: {
-      Cookie: `${cookie.name}=${cookie.value}`,
-      Origin: dashboardOrigin,
-      ...commandHeaders(method),
-    },
-  });
+  rpc: (client: NativeClient) => Effect.Effect<A, E>,
+) => nativeScript.call({ cookie: `${cookie.name}=${cookie.value}`, origin: dashboardOrigin }, rpc);
+
+test.afterAll(() => nativeScript.dispose());
 
 test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)", () => {
   test.skip(!realRun, "run through the bounded native Identity PostgreSQL runner");
@@ -348,28 +378,15 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
         throw new Error("current session projection omitted its opaque identifier");
       }
 
-      const rejectedOrigin = await nativeMutation(
-        primary,
-        "POST",
-        "/api/sessions:revoke-others",
-        "https://untrusted.example.invalid",
-      );
-
-      expect(rejectedOrigin.status()).toBe(403);
+      expect(await browserRpcStatus(primary, "https://untrusted.example.invalid")).toBe(403);
       expect(await readSessions(primary)).toHaveLength(2);
 
-      expect((await nativeMutation(primary, "POST", "/api/sessions:revoke-others")).status()).toBe(
-        204,
-      );
-      expect((await nativeMutation(primary, "POST", "/api/sessions:revoke-others")).status()).toBe(
-        204,
-      );
+      expect((await callAs(primary, sessionOperations.revokeOtherSessions)).status).toBe(200);
+      expect((await callAs(primary, sessionOperations.revokeOtherSessions)).status).toBe(200);
 
-      const secondaryAfterRevocation = await secondary.request.get(`${apiOrigin}/api/session`, {
-        headers: originHeaders(),
-      });
+      const secondaryAfterRevocation = await callAs(secondary, sessionOperations.readSession);
 
-      expect(secondaryAfterRevocation.status()).toBe(401);
+      expect(secondaryAfterRevocation.status).toBe(401);
 
       await signInContext(third, email, password);
       const afterThirdSignIn = await readSessions(primary);
@@ -384,37 +401,23 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
       }
 
       expect(
-        (
-          await nativeMutation(
-            primary,
-            "DELETE",
-            `/api/sessions/${encodeURIComponent(thirdSessionId)}`,
-          )
-        ).status(),
-      ).toBe(204);
+        (await callAs(primary, sessionOperations.deleteOwnedSession(thirdSessionId))).status,
+      ).toBe(200);
 
-      const repeatedDeleted = await nativeMutation(
+      const repeatedDeleted = await callAs(
         primary,
-        "DELETE",
-        `/api/sessions/${encodeURIComponent(thirdSessionId)}`,
+        sessionOperations.deleteOwnedSession(thirdSessionId),
       );
 
-      const missing = await nativeMutation(
+      const missing = await callAs(
         primary,
-        "DELETE",
-        "/api/sessions/missing-session-0054-1",
+        sessionOperations.deleteOwnedSession("missing-session-0054-1"),
       );
 
-      expect(repeatedDeleted.status()).toBe(404);
-      expect(missing.status()).toBe(404);
-      expect(await repeatedDeleted.json()).toEqual(await missing.json());
-      expect(
-        (
-          await third.request.get(`${apiOrigin}/api/session`, {
-            headers: originHeaders(),
-          })
-        ).status(),
-      ).toBe(401);
+      expect(repeatedDeleted.status).toBe(404);
+      expect(missing.status).toBe(404);
+      expect(repeatedDeleted).toEqual(missing);
+      expect((await callAs(third, sessionOperations.readSession)).status).toBe(401);
 
       await delay(betterAuthSignInWindowResetMs);
       await signInContext(member, memberEmail, memberPassword);
@@ -426,21 +429,19 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
         throw new Error("member session projection omitted its opaque identifier");
       }
 
-      const memberCrossPerson = await nativeMutation(
+      const memberCrossPerson = await callAs(
         member,
-        "DELETE",
-        `/api/sessions/${encodeURIComponent(currentSessionId)}`,
+        sessionOperations.deleteOwnedSession(currentSessionId),
       );
 
-      const administratorCrossPerson = await nativeMutation(
+      const administratorCrossPerson = await callAs(
         primary,
-        "DELETE",
-        `/api/sessions/${encodeURIComponent(memberSessionId)}`,
+        sessionOperations.deleteOwnedSession(memberSessionId),
       );
 
-      expect(memberCrossPerson.status()).toBe(404);
-      expect(administratorCrossPerson.status()).toBe(404);
-      expect(await memberCrossPerson.json()).toEqual(await administratorCrossPerson.json());
+      expect(memberCrossPerson.status).toBe(404);
+      expect(administratorCrossPerson.status).toBe(404);
+      expect(memberCrossPerson).toEqual(administratorCrossPerson);
 
       const signupResponse = await signup.request.post(`${apiOrigin}/api/auth/sign-up/email`, {
         headers: originHeaders(),
@@ -459,12 +460,12 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
       );
 
       assert.ok(primaryCookie);
-      expect((await nativeMutation(primary, "POST", "/api/sessions:revoke-all")).status()).toBe(
-        204,
+      expect((await callAs(primary, sessionOperations.revokeAllSessions)).status).toBe(200);
+      expect((await replayWithCookie(primaryCookie, sessionOperations.readSession)).status).toBe(
+        401,
       );
-      expect((await replayWithCookie("GET", "/api/session", primaryCookie)).status).toBe(401);
       expect(
-        (await replayWithCookie("POST", "/api/sessions:revoke-all", primaryCookie)).status,
+        (await replayWithCookie(primaryCookie, sessionOperations.revokeAllSessions)).status,
       ).toBe(401);
 
       await signInContext(primary, email, password);
@@ -474,18 +475,20 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
       );
 
       assert.ok(replacementCookie);
-      expect((await nativeMutation(primary, "DELETE", "/api/session")).status()).toBe(204);
+      expect((await callAs(primary, sessionOperations.deleteSession)).status).toBe(200);
 
       const immediateReplay = await Promise.all(
-        Array.from({ length: 4 }, () => replayWithCookie("GET", "/api/session", replacementCookie)),
+        Array.from({ length: 4 }, () =>
+          replayWithCookie(replacementCookie, sessionOperations.readSession),
+        ),
       );
 
       expect(immediateReplay.map((response) => response.status)).toEqual([401, 401, 401, 401]);
-      expect((await replayWithCookie("DELETE", "/api/session", replacementCookie)).status).toBe(
-        401,
-      );
+      expect(
+        (await replayWithCookie(replacementCookie, sessionOperations.deleteSession)).status,
+      ).toBe(401);
 
-      expect((await nativeMutation(member, "DELETE", "/api/session")).status()).toBe(204);
+      expect((await callAs(member, sessionOperations.deleteSession)).status).toBe(200);
       await writeFile(
         hardeningEvidencePath,
         `${JSON.stringify(
@@ -500,13 +503,13 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
             },
             originRejection: { status: 403, mutationObserved: false },
             revocation: {
-              revokeOthers: [204, 204],
+              revokeOthers: [200, 200],
               otherContextNextRequest: 401,
-              revokeOne: 204,
+              revokeOne: 200,
               repeatedAndMissing: [404, 404],
-              revokeAll: 204,
+              revokeAll: 200,
               revokeAllReplay: 401,
-              current: 204,
+              current: 200,
               immediateReplay: immediateReplay.map((response) => response.status),
               currentReplay: 401,
             },
@@ -702,7 +705,7 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
         false,
       );
       await expect(page.getByRole("heading", { level: 1, name: "Vektorprogrammet" })).toBeVisible();
-      observations.logout = { nativeStatus: 204, redirect: "/login", browserCookieRemoved: true };
+      observations.logout = { nativeStatus: 200, redirect: "/login", browserCookieRemoved: true };
       browserAuthorityChecks.push(
         await observeBrowserAuthorityIsolation(context, page, "logout-login"),
       );
