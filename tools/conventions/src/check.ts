@@ -2,7 +2,8 @@
  * The layout rules. Each finding names a path and what to change; the declarations in `layout.ts`
  * and `journeys.ts` are the only places to allow an exception.
  */
-import { posix } from "node:path";
+import { dual } from "effect/Function";
+import { repositoryPath } from "./repository-path.js";
 import { Schema } from "effect";
 import { boundedContextNames, contextFolderName } from "./cml.js";
 import { checkJourneys, readWorkflow, testsWorkflow, type Workflow } from "./journeys.js";
@@ -242,7 +243,9 @@ const toolImportFindings = (repository: Repository): ReadonlyArray<Finding> => {
       const imported = match[1] ?? match[2] ?? "";
 
       const tool = imported.startsWith(".")
-        ? /^(tools\/[^/]+)(?:\/|$)/u.exec(posix.join(posix.dirname(path), imported))?.[1]
+        ? /^(tools\/[^/]+)(?:\/|$)/u.exec(
+            repositoryPath.join(repositoryPath.dirname(path), imported),
+          )?.[1]
         : toolByPackage.get(
             imported
               .split("/")
@@ -324,11 +327,12 @@ const vitestConfigFindings = (repository: Repository): ReadonlyArray<Finding> =>
 
     if (!Object.values(scripts).some((script) => vitestScript.test(script))) return [];
 
-    const directory = posix.dirname(path);
+    const directory = repositoryPath.dirname(path);
 
     const configs = repository.paths.filter(
       (candidate) =>
-        posix.dirname(candidate) === directory && vitestConfigName.test(posix.basename(candidate)),
+        repositoryPath.dirname(candidate) === directory &&
+        vitestConfigName.test(repositoryPath.basename(candidate)),
     );
 
     if (configs.length === 0)
@@ -349,7 +353,7 @@ const vitestConfigFindings = (repository: Repository): ReadonlyArray<Finding> =>
 
         return (
           target.startsWith(".") &&
-          posix.join(directory, target).replace(sourceExtension, "") === base
+          repositoryPath.join(directory, target).replace(sourceExtension, "") === base
         );
       });
 
@@ -430,7 +434,10 @@ const sectionFindings = (
   ]);
 
 /** Every layout finding of the repository, sorted by path. */
-export const checkLayout = (repository: Repository, justfile: Justfile): ReadonlyArray<Finding> => {
+export const checkLayout: {
+  (justfile: Justfile): (repository: Repository) => ReadonlyArray<Finding>;
+  (repository: Repository, justfile: Justfile): ReadonlyArray<Finding>;
+} = dual(2, (repository: Repository, justfile: Justfile): ReadonlyArray<Finding> => {
   const workflow = readWorkflow(repository.read(testsWorkflow));
 
   return [
@@ -444,4 +451,4 @@ export const checkLayout = (repository: Repository, justfile: Justfile): Readonl
     ...checkJourneys(repository, justfile, workflow),
     ...sectionFindings(repository, justfile, workflow),
   ].sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
-};
+});

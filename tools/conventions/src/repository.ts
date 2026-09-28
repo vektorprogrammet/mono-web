@@ -3,6 +3,7 @@
  * that Git does not ignore. The staged view lists the Git index, which is the tree that a commit
  * records; the hook runner sets unstaged changes aside, so the files on disk hold the staged content.
  */
+import { dual } from "effect/Function";
 import { spawnSync } from "node:child_process";
 import { lstatSync, readFileSync, readlinkSync, type Stats } from "node:fs";
 import { join } from "node:path";
@@ -36,7 +37,10 @@ export const repositoryRoot = (directory: string): string =>
   git(directory, ["rev-parse", "--show-toplevel"]).trim();
 
 /** The staged view with `staged`, the working tree view otherwise. */
-export const readRepository = (root: string, staged: boolean): Repository => {
+export const readRepository: {
+  (staged: boolean): (root: string) => Repository;
+  (root: string, staged: boolean): Repository;
+} = dual(2, (root: string, staged: boolean): Repository => {
   const listed = git(root, [
     "ls-files",
     "-z",
@@ -73,4 +77,4 @@ export const readRepository = (root: string, staged: boolean): Repository => {
     read: (path) => readFileSync(join(root, path), "utf8"),
     readLink: (path) => readlinkSync(join(root, path)),
   };
-};
+});

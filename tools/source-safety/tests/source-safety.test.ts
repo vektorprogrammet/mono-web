@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { scanIndex } from "../src/check.js";
+import { Effect, FileSystem, Path, Predicate } from "effect";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { scanIndex, SourceSafetyPlatform } from "../src/check.js";
 import {
   sourcePathSafetyReason,
   sourceTextSafetyReason,
@@ -10,28 +9,89 @@ import {
   unsafeSqlSourceTextReason,
 } from "../src/source-safety.js";
 
-const repoRoot = join(import.meta.dir, "../../..");
+const run = <A, E>(effect: Effect.Effect<A, E, SourceSafetyPlatform>): Promise<A> =>
+  Effect.runPromise(effect.pipe(Effect.provide(SourceSafetyPlatform)));
 
-const withGitFixture = (run: (root: string) => void): void => {
-  const root = mkdtempSync("/tmp/source-safety-git-");
+const git = (root: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
-  try {
-    execFileSync("git", ["-C", root, "init", "-q"]);
-    run(root);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+    const status = yield* spawner.exitCode(
+      ChildProcess.make("git", ["-C", root, ...args], {
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "inherit",
+      }),
+    );
+
+    if (status !== 0) return yield* Effect.die(`git ${args.join(" ")} exited with ${status}`);
+  });
+
+// The repository files that the rules must admit, read once before the tests.
+const repositoryPaths = [
+  "packages/database/migrations/0027-native-oauth-provider.sql",
+  "packages/database/migrations/0029-native-http-semantics.sql",
+  "packages/database/migrations/0059-school-service-person-intervals.sql",
+  "packages/database/migrations/0012-native-recruitment-invitation-response.sql",
+  "apps/dashboard/e2e/native-team-interest-mailing-list-seed.sql",
+  "packages/database/migrations/tutor/0001-tutor-event-store.sql",
+] as const;
+
+const repositoryFiles = new Map<string, Uint8Array>(
+  await run(
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const repoRoot = path.join(import.meta.dir, "../../..");
+
+      return yield* Effect.forEach(repositoryPaths, (file) =>
+        Effect.map(
+          fileSystem.readFile(path.join(repoRoot, file)),
+          (bytes) => [file, bytes] as const,
+        ),
+      );
+    }),
+  ),
+);
+
+const repositoryFile = (file: string): Uint8Array => {
+  const bytes = repositoryFiles.get(file);
+
+  expect(bytes).toBeInstanceOf(Uint8Array);
+
+  return bytes ?? new Uint8Array();
 };
 
-const put = (root: string, path: string, contents: string | Uint8Array): void => {
-  const target = join(root, path);
-  mkdirSync(dirname(target), { recursive: true });
-  writeFileSync(target, contents);
-};
+const withGitFixture = <A, E, R>(use: (root: string) => Effect.Effect<A, E, R>) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
 
-const stage = (root: string): void => {
-  execFileSync("git", ["-C", root, "add", "--all"]);
-};
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        directory: "/tmp",
+        prefix: "source-safety-git-",
+      });
+
+      yield* git(root, ["init", "-q"]);
+
+      return yield* use(root);
+    }),
+  );
+
+const put = (root: string, file: string, contents: string | Uint8Array) =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const target = path.join(root, file);
+
+    yield* fileSystem.makeDirectory(path.dirname(target), { recursive: true });
+    yield* fileSystem.writeFile(
+      target,
+      Predicate.isString(contents) ? new TextEncoder().encode(contents) : contents,
+    );
+  });
+
+const stage = (root: string) => git(root, ["add", "--all"]);
 
 describe("paths", () => {
   test("blocks credential, backup, and database path classes", () => {
@@ -138,7 +198,7 @@ describe("SQL", () => {
       "packages/database/migrations/0029-native-http-semantics.sql",
       "packages/database/migrations/0059-school-service-person-intervals.sql",
     ]) {
-      const migration = readFileSync(join(repoRoot, migrationPath));
+      const migration = repositoryFile(migrationPath);
       const migrationText = new TextDecoder().decode(migration);
       expect(unsafeSqlSourceTextReason(migrationText)).toBe("UNSAFE_SOURCE");
       expect(sourceTextSafetyReason(migrationPath, migration)).toBeNull();
@@ -155,7 +215,7 @@ describe("SQL", () => {
     const migrationPath =
       "packages/database/migrations/0012-native-recruitment-invitation-response.sql";
 
-    const migration = readFileSync(join(repoRoot, migrationPath));
+    const migration = repositoryFile(migrationPath);
 
     expect(sourceTextSafetyReason(migrationPath, migration)).toBeNull();
     expect(
@@ -220,7 +280,7 @@ describe("SQL", () => {
       `),
     ).toBeNull();
     const seedPath = "apps/dashboard/e2e/native-team-interest-mailing-list-seed.sql";
-    expect(sourceTextSafetyReason(seedPath, readFileSync(join(repoRoot, seedPath)))).toBeNull();
+    expect(sourceTextSafetyReason(seedPath, repositoryFile(seedPath))).toBeNull();
   });
 
   test("rejects literal, VALUES, stacked, and malformed recordset INSERTs", () => {
@@ -262,9 +322,7 @@ describe("SQL", () => {
 
   test("allows real migration DDL and placeholders but rejects literal secrets and personal data", () => {
     const migrationPath = "packages/database/migrations/tutor/0001-tutor-event-store.sql";
-    expect(
-      sourceTextSafetyReason(migrationPath, readFileSync(join(repoRoot, migrationPath))),
-    ).toBeNull();
+    expect(sourceTextSafetyReason(migrationPath, repositoryFile(migrationPath))).toBeNull();
     expect(unsafeSqlSourceTextReason("UPDATE users SET password = '${PASSWORD}';")).toBeNull();
     expect(
       unsafeSqlSourceTextReason("UPDATE users SET password = '${PASSWORD}'; # password = 'secret'"),
@@ -290,74 +348,84 @@ describe("SQL", () => {
 });
 
 describe("index scan", () => {
-  test("rejects unsafe staged paths, dotenv, SQL, and invalid UTF-8", () => {
-    for (const [path, contents] of [
-      ["apps/example/.env.test", "DATABASE_URL=mysql://vektor:concrete-secret@db/app\n"],
-      ["apps/example/.env.production", "APP_SECRET=@correct-horse-battery-staple@\n"],
-      [
-        "packages/database/migrations/0100-malicious.sql",
-        "INSERT INTO users (email) VALUES ('alice@university.no');\n",
-      ],
-      ["var/backups/latest.dump", "binary"],
-      ["apps/example/.env.test", new Uint8Array([0x41, 0xff, 0xfe])],
-    ] as const) {
-      withGitFixture((root) => {
-        put(root, "README.md", "safe\n");
-        put(root, path, contents);
-        stage(root);
-        expect(scanIndex(root)).toEqual({
-          files: 2,
-          findings: [
-            {
-              path,
-              reason: contents instanceof Uint8Array ? "INVALID_UTF8" : "UNSAFE_SOURCE",
-            },
+  test("rejects unsafe staged paths, dotenv, SQL, and invalid UTF-8", () =>
+    run(
+      Effect.forEach(
+        [
+          ["apps/example/.env.test", "DATABASE_URL=mysql://vektor:concrete-secret@db/app\n"],
+          ["apps/example/.env.production", "APP_SECRET=@correct-horse-battery-staple@\n"],
+          [
+            "packages/database/migrations/0100-malicious.sql",
+            "INSERT INTO users (email) VALUES ('alice@university.no');\n",
           ],
-        });
-      });
-    }
-  });
+          ["var/backups/latest.dump", "binary"],
+          ["apps/example/.env.test", new Uint8Array([0x41, 0xff, 0xfe])],
+        ] as const,
+        ([path, contents]) =>
+          withGitFixture((root) =>
+            Effect.gen(function* () {
+              yield* put(root, "README.md", "safe\n");
+              yield* put(root, path, contents);
+              yield* stage(root);
+              expect(yield* scanIndex(root)).toEqual({
+                files: 2,
+                findings: [
+                  {
+                    path,
+                    reason: contents instanceof Uint8Array ? "INVALID_UTF8" : "UNSAFE_SOURCE",
+                  },
+                ],
+              });
+            }),
+          ),
+        { discard: true },
+      ),
+    ));
 
-  test("checks the staged bytes, not the working tree", () => {
-    withGitFixture((root) => {
-      const path = "apps/example/.env.production";
+  test("checks the staged bytes, not the working tree", () =>
+    run(
+      withGitFixture((root) =>
+        Effect.gen(function* () {
+          const path = "apps/example/.env.production";
 
-      put(root, path, "APP_SECRET=\n");
-      stage(root);
-      put(root, path, "APP_SECRET=concrete-unstaged-secret\n");
-      expect(scanIndex(root).findings).toEqual([]);
+          yield* put(root, path, "APP_SECRET=\n");
+          yield* stage(root);
+          yield* put(root, path, "APP_SECRET=concrete-unstaged-secret\n");
+          expect((yield* scanIndex(root)).findings).toEqual([]);
 
-      stage(root);
-      put(root, path, "APP_SECRET=\n");
-      expect(scanIndex(root).findings).toEqual([{ path, reason: "UNSAFE_SOURCE" }]);
-    });
-  });
-  test("scans only changed staged blobs and ignores unstaged edits", () => {
-    withGitFixture((root) => {
-      const staged = "apps/example/.env.production";
-      const unstaged = "apps/example/.env.test";
-      put(root, staged, "APP_SECRET=" + String.fromCharCode(10));
-      put(root, unstaged, "APP_SECRET=" + String.fromCharCode(10));
-      stage(root);
-      execFileSync("git", [
-        "-C",
-        root,
-        "-c",
-        "user.name=Safety Test",
-        "-c",
-        "user.email=test@example.invalid",
-        "commit",
-        "-qm",
-        "base",
-      ]);
-      put(root, staged, "APP_SECRET=staged-unsafe" + String.fromCharCode(10));
-      stage(root);
-      put(root, staged, "APP_SECRET=" + String.fromCharCode(10));
-      put(root, unstaged, "APP_SECRET=unstaged-unsafe" + String.fromCharCode(10));
-      expect(scanIndex(root, "changed")).toEqual({
-        files: 1,
-        findings: [{ path: staged, reason: "UNSAFE_SOURCE" }],
-      });
-    });
-  });
+          yield* stage(root);
+          yield* put(root, path, "APP_SECRET=\n");
+          expect((yield* scanIndex(root)).findings).toEqual([{ path, reason: "UNSAFE_SOURCE" }]);
+        }),
+      ),
+    ));
+  test("scans only changed staged blobs and ignores unstaged edits", () =>
+    run(
+      withGitFixture((root) =>
+        Effect.gen(function* () {
+          const staged = "apps/example/.env.production";
+          const unstaged = "apps/example/.env.test";
+          yield* put(root, staged, "APP_SECRET=" + String.fromCharCode(10));
+          yield* put(root, unstaged, "APP_SECRET=" + String.fromCharCode(10));
+          yield* stage(root);
+          yield* git(root, [
+            "-c",
+            "user.name=Safety Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-qm",
+            "base",
+          ]);
+          yield* put(root, staged, "APP_SECRET=staged-unsafe" + String.fromCharCode(10));
+          yield* stage(root);
+          yield* put(root, staged, "APP_SECRET=" + String.fromCharCode(10));
+          yield* put(root, unstaged, "APP_SECRET=unstaged-unsafe" + String.fromCharCode(10));
+          expect(yield* scanIndex(root, "changed")).toEqual({
+            files: 1,
+            findings: [{ path: staged, reason: "UNSAFE_SOURCE" }],
+          });
+        }),
+      ),
+    ));
 });

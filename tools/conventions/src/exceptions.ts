@@ -14,6 +14,7 @@
  * does not list for its file, and on an entry whose rules, files, symbols, owner, or examined
  * versions no longer match the tree. An upgrade of an examined package reopens its entries.
  */
+import { dual } from "effect/Function";
 import { Result, Schema } from "effect";
 import { parseSync } from "rolldown/utils";
 import type { Finding } from "./check.js";
@@ -246,7 +247,10 @@ const diagnosticsSuppressions = (comment: Comment, line: number): ReadonlyArray<
   });
 
 /** The suppressions of Effect rules and the exception references in the comments of one file. */
-export const readSites = (path: string, text: string): Sites => {
+export const readSites: {
+  (text: string): (path: string) => Sites;
+  (path: string, text: string): Sites;
+} = dual(2, (path: string, text: string): Sites => {
   const { comments } = parseSync(path, text);
   const lineStarts = [0, ...[...text.matchAll(/\n/gu)].map((match) => match.index + 1)];
   const lineOf = (offset: number) => lineStarts.findLastIndex((start) => start <= offset) + 1;
@@ -272,7 +276,7 @@ export const readSites = (path: string, text: string): Sites => {
   );
 
   return { suppressions, references };
-};
+});
 
 const sourceFile = /\.(?:[cm]?[jt]sx?)$/u;
 
