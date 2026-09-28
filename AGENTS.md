@@ -39,7 +39,7 @@ Keep one authoritative contract and derive its transport interfaces.
 Enforce boundaries with types first, then compiler or lint checks, rather than prose alone.
 Report violations with their source location, preserved behavior, proposed deletion, and enforcing check.
 
-Keep the product boundaries below, including Bun, Foldkit, and generated HTTP clients.
+Keep the product boundaries below, including Bun, Foldkit, and the Effect RPC contract as the only native API.
 Check peer compatibility before adopting reference dependencies, including XState and its Effect integration.
 Reference examples do not authorize production actions or replace the active journey contract.
 
@@ -76,8 +76,8 @@ Fix a finding at its site with the rule's own fix. Where that fix would change b
 A suppression of an Effect rule, or a non-native substitute, names its entry in [docs/effect-exceptions.json](docs/effect-exceptions.json). `just exceptions` rejects one that does not.
 
 When the Effect skill tier of `/srv/share/projects` is installed, delegate Effect work to its profiles.
-Use `effect-backend-engineering` for `apps/backend` and the domain, database, and HTTP packages, and `effect-ui-development` for the Foldkit code of `apps/dashboard`.
-Use `effect-library-development` for `packages/sdk` and shared constructs, and `effect-engineering` for other work.
+Use `effect-backend-engineering` for `apps/backend` and the domain, database, and RPC packages, and `effect-ui-development` for the Foldkit code of `apps/dashboard`.
+Use `effect-library-development` for `packages/rpc` and shared constructs, and `effect-engineering` for other work.
 Each profile reads the overlay above by its path, also when its session starts outside this repository.
 
 ## Commands
@@ -127,8 +127,7 @@ For focused Vitest checks, invoke Vitest directly through the package:
 
 ```bash
 bun run --cwd packages/domain vitest run src/receipt/update.property.test.ts --no-file-parallelism --maxWorkers=1
-bun run --cwd apps/backend vitest run src/http-api/receipt-transaction.test.ts --no-file-parallelism --maxWorkers=1
-bun run --cwd packages/http-api generate
+bun run --cwd apps/backend vitest run src/rpc/receipt-transaction.test.ts --no-file-parallelism --maxWorkers=1
 ```
 
 The domain aggregate `test` script also runs fixture programs and D1 proofs.
@@ -185,19 +184,19 @@ Product packages must not import application source.
 - Use Schema at external, persistence, and transport boundaries.
 - Infer types from schemas. Do not duplicate interfaces.
 - Use Oxfmt and Oxlint. Do not add another formatter or linter.
-- Use generated SDK operations for frontend-to-backend communication.
+- Call the backend through the RPC groups of `packages/rpc`: `RpcClient` in Effect code, `callNative` in the dashboard server, `nativeScriptClient` in scripts.
 - Model stateful dashboard workflows with one Foldkit Model.
 - Treat UI roles and navigation as projections, not authority.
 
 ## Change rule
 
-Implement one complete operational journey at a time. A route, schema, unit
-test, or generated SDK method is not migration completion.
+Implement one complete operational journey at a time. An RPC, schema, or unit
+test is not migration completion.
 
 For a permanent behavior change:
 
 1. Define the observable outcome and authority boundary.
-2. Update domain, persistence, HTTP, SDK, and UI callers as one cutover.
+2. Update domain, persistence, RPC contract and handlers, and UI callers as one cutover.
 3. Exercise the real UI, API, and PostgreSQL path.
 4. Observe denial, concurrency, replay, and recovery where applicable.
 5. Remove temporary scripts and the completed specification.
@@ -232,12 +231,12 @@ legacy shutdown require explicit operator authority.
 - Expose complete business commands through the existing domain service. Avoid generic CRUD and additional repository layers.
 - Resolve authority inside the committing transaction. Never reuse an authorization result across transactions or retries.
 - Preserve state, revision, command receipts, audit, and outbox writes in one transaction. Keep provider I/O after commit.
-- Keep HTTP response receipts and preconditions in the transport layer. A revision preflight grants no write authority.
+- Keep command receipts and preconditions in the transport layer. A revision preflight grants no write authority.
 - Reuse domain field schemas with `SqlSchema`. Keep SQL projections, joins, ordering, scope, and storage codecs in database adapters.
 - Use Model variants for useful representations, not automatic business commands or partial PATCH schemas.
 - Encode through the explicit public schema. Raw `JSON.stringify(model)` does not enforce private-field omission.
 - Make absence explicit in schemas. For canonical command encoding, use absent keys rather than present `undefined` values.
-- Generate HTTP, OpenAPI, and SDK artifacts from the existing contract. Never maintain parallel operation lists.
+- Derive every client, handler, and test harness from the one RPC contract. Never maintain parallel operation lists.
 - Keep lifecycle rules in the owning domain and UI workflow state in one Foldkit Model.
 
 The Economy query and settlement command in [architecture.md](docs/architecture.md#domain-services) are the current boundary precedent.
@@ -254,7 +253,7 @@ Record instances you cannot fix in `STATE.md` with their location. Remove the re
 
 | Trusted by convention                                                   | Construction                                                 | Precedent on `main`                                                                                                                                                                                                                                                                                                                                      |
 | ----------------------------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A string names a closed set, and a second value repeats a fact about it | Derive the type and every related fact from one registry     | `NativeProblemRegistry` in `packages/http-api/src/http-semantics.ts` owns code, status, and body; `Problem.make(code)` takes no status. Counter-example: `PlacementFailure` carries a `status` beside its registry `code`.                                                                                                                               |
+| A string names a closed set, and a second value repeats a fact about it | Derive the type and every related fact from one registry     | `NativeProblemRegistry` in `packages/rpc/src/problem.ts` owns code, status, and body; `Problem.make(code)` takes no status. Counter-example: `PlacementFailure` carries a `status` beside its registry `code`.                                                                                                                                           |
 | A value is validated at the edge but travels as a plain string          | Decode once to the domain type at the boundary               | Instants belong in `DateTime.Utc`. Counter-example: `compareRfc3339Instants` parses both strings at each call.                                                                                                                                                                                                                                           |
 | A copy of a derived value is kept in sync by hand                       | Generate it, or check it against its source                  | `devenv.nix` reads tool versions from `package.json` and `bun.lock`. It and `.oxfmtrc.json` hold the only hook and formatter definitions.                                                                                                                                                                                                                |
 | A test pins the observed output                                         | Decode the response with the contract schema                 | `apps/dashboard/e2e/receipt-approval.spec.ts` decodes with the exported receipt schemas. Counter-example: suites that re-pinned `credential.invalid` after 042e808d.                                                                                                                                                                                     |
@@ -276,7 +275,7 @@ Record instances you cannot fix in `STATE.md` with their location. Remove the re
 ## Verification and resources
 
 Use the configured rules in `oxlint.config.ts`. Do not copy their rule inventory into prose or suppress a failure.
-Use existing typed test Layers or disposable infrastructure. Do not substitute module mocks or SDK echoes for a real boundary.
+Use existing typed test Layers or disposable infrastructure. Do not substitute module mocks or client echoes for a real boundary.
 Keep regression tests for plausible behavior failures, not field forwarding, source text, or incidental wording.
 Use disposable probes for other implementation observations.
 
