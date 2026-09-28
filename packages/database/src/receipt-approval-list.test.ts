@@ -277,7 +277,7 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
             noRuleFailure: noRuleFailure._tag,
           };
 
-          const { pagination, ...authorityEvidence } = evidence;
+          const { pagination: _pagination, ...authorityEvidence } = evidence;
           expect(authorityEvidence).toEqual({
             directGlobal: ["approval-query-receipt-b", "approval-query-receipt-a"],
             directDepartment: ["approval-query-receipt-a"],

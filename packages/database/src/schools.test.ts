@@ -245,8 +245,6 @@ layer(schoolsLayer, { excludeTestServices: true, timeout: "15 seconds" })(
           WHERE department.department_id = ${departmentId}
         `;
 
-          const directory = directory;
-
           expect(directory).toEqual({
             activeSchools: [
               {
