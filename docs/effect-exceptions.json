@@ -410,6 +410,31 @@
         "effect": "4.0.0-rc.116"
       },
       "retirementTrigger": "Every caller of admissionJourneyClock is an Effect program. Then read ADMISSION_FIXED_NOW through Config in an Effect form and remove the synchronous one."
+    },
+    {
+      "id": "EX-0020",
+      "rules": ["FX002", "effecttsgo/node-builtin-import"],
+      "scope": {
+        "files": ["tools/postgres/index.ts"],
+        "symbols": ["spawnPostmaster", "executable", "versionOf", "supportedPostgresMajors"]
+      },
+      "reason": "The disposable cluster must outlive a crash of its owner and still be removed by its sentinel. The postmaster writes its log to a file descriptor, runs in its own process group without holding the owner alive, and gets each shutdown signal alone, so that it relays a fast or immediate shutdown to its backends. The exported values supportedPostgresMajors, postgresProgram, and postgresVersion are synchronous, so the manifest and the installation on PATH resolve synchronously.",
+      "missingCapability": "Effect's ChildProcess accepts only \"pipe\", \"inherit\", \"ignore\", \"overlapped\", or a Stream or Sink as standard output and error, never a descriptor of a file, and its kill and scoped release signal the whole process group of a detached child. FileSystem and ChildProcessSpawner have no synchronous operations in the examined version.",
+      "nativeAlternatives": [
+        "ChildProcess with a Sink that appends the server log to a FileSystem file: the log passes through a pipe of the owner, so the server loses its log, and meets a broken pipe, when the owner dies before the sentinel stops it.",
+        "ChildProcess kill with SIGINT, SIGQUIT, and SIGKILL: the node-shared spawner signals the process group of the detached postmaster, so every backend gets the postmaster's shutdown signal directly instead of the postmaster's orderly relay.",
+        "FileSystem.access, FileSystem.readFileString, and ChildProcessSpawner.string for the installation and the manifest: each is asynchronous, so the synchronous exported values would have to become Effects or Promises, which changes the construct's contract for every journey that reads them."
+      ],
+      "verification": [
+        "`bun run --cwd tools/postgres test` runs teardown.test.ts, which ends a real owner by an uncaught failure, SIGKILL of the owner and of its process group, SIGTERM through `just measure`, and a tool timeout, and asserts that no directory, server, listener, or sentinel remains; readiness.test.ts and index.test.ts cover readiness and the major selection.",
+        "Every journey, proof, and rehearsal that starts PostgreSQL runs through startDisposablePostgres, for example `just golden team-application` and `just proof delivery-recovery`, and the database suite starts clusters through it and through startDisposablePgBouncer."
+      ],
+      "owner": "tools/postgres",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "@effect/platform-bun": "4.0.0-rc.116"
+      },
+      "retirementTrigger": "ChildProcess accepts a file descriptor as standard output and error and signals a detached child alone, and the synchronous exports become Effects. Then spawn the postmaster through ChildProcess, resolve the manifest and the installation through FileSystem and ChildProcessSpawner, and remove the node imports."
     }
   ]
 }

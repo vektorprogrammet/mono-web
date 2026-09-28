@@ -202,7 +202,7 @@ const journey = Effect.gen(function* () {
                 return new Response(null, { status: 503 });
               }
 
-              const json = Schema.decodeUnknownSync(JsonBody)(body);
+              const json = Schema.decodeSync(JsonBody)(body);
               const text = Schema.encodeSync(JsonBody)(json);
               const message = Schema.decodeUnknownSync(MailMessage)(json);
               const old = mail.get(message.deliveryId);
