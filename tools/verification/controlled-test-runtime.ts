@@ -22,10 +22,11 @@ export const makeControlledTestRuntime = <R, ER>(
 
       return runtime.runPromise(effect, options);
     },
-    dispose: async () => {
-      if (disposed) return;
+    dispose: () => {
+      if (disposed) return Promise.resolve();
       disposed = true;
-      await runtime.dispose();
+
+      return runtime.dispose();
     },
   };
 };

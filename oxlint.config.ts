@@ -179,6 +179,7 @@ const effectConfig = {
         "tools/e2e/run-legacy-*.ts",
         "tools/verification/completion-receipt-postgres-proof-main.ts",
         "tools/verification/current-assignment-cohort-cli.ts",
+        "tools/verification/current-assignment-cohort-main.ts",
         "tools/verification/current-assignment-cohort-rehearsal.ts",
         "tools/verification/identity-cohort-rehearsal.ts",
         "tools/verification/organization-import-rehearsal-main.ts",
