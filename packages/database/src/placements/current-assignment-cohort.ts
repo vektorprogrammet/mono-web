@@ -544,10 +544,12 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
           : undefined;
 
       if (previousDigest === undefined) continue;
+
       const mappings =
         sourceAssignmentId !== undefined && sourceAssignmentId !== ""
           ? (mappingsBySource.get(sourceAssignmentId) ?? [])
           : [];
+
       const mapping = mappings.length === 1 ? mappings[0] : undefined;
 
       if (
@@ -596,8 +598,10 @@ const importAssignmentCohort = Effect.fnUntraced(function* (
 
     for (const occurrence of decoded) {
       const row = occurrence.value;
+
       const mappings =
         row !== undefined ? (mappingsBySource.get(row.sourceAssignmentId) ?? []) : [];
+
       const mapping = mappings.length === 1 ? mappings[0] : undefined;
       let reason: CurrentAssignmentReason;
       let sourceDigest: string | undefined;

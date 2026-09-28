@@ -1192,6 +1192,7 @@ export const finalizeInterview: {
         FinalizeInterviewCommandSchema,
         "finalization command",
       )(command);
+
       const sql = yield* Database;
       const organization = yield* Organization;
 
