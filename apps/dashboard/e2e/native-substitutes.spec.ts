@@ -2,6 +2,9 @@ import AxeBuilder from "@axe-core/playwright";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import { PublicApplicationIdSchema } from "@vektorprogrammet/rpc";
+import { IdempotencyKey } from "@vektorprogrammet/rpc/problem";
+import { makeScriptClient } from "@vektorprogrammet/rpc/script";
 
 const manifestPath = process.env.SUBSTITUTE_JOURNEY_MANIFEST;
 
@@ -43,16 +46,42 @@ const outcomeForm = (page: Page, name: string) =>
 const onCallItems = (page: Page) =>
   page.getByRole("list", { name: "Vikarer på vakt", exact: true }).getByRole("listitem");
 
-const readOutcome = async (page: Page) => {
-  const response = await page.request.get(
-    `${manifest.backendOrigin}/api/admission-outcomes/${manifest.applicationId}`,
-    { headers: { Origin: manifest.dashboardOrigin } },
+let native: ReturnType<typeof makeScriptClient> | undefined;
+
+/** The backend's native RPC client, made on first use once the manifest names the backend. */
+const nativeClient = () => {
+  native ??= makeScriptClient(manifest.backendOrigin);
+
+  return native;
+};
+
+/** The session of one browser context, sent from the dashboard origin as its server sends it. */
+const sessionOf = async (page: Page) => ({
+  cookie: (await page.context().cookies(manifest.dashboardOrigin))
+    .map(({ name, value }) => `${name}=${value}`)
+    .join("; "),
+  origin: manifest.dashboardOrigin,
+});
+
+const applicationId = () => PublicApplicationIdSchema.make(manifest.applicationId);
+
+/** Reads the application's outcome as the person signed in to `page`. */
+const callReadOutcome = async (page: Page) =>
+  nativeClient().call(await sessionOf(page), (client) =>
+    client["admissionOutcomes.readOutcome"]({ applicationId: applicationId() }),
   );
 
-  expect(response.status()).toBe(200);
+const readOutcome = async (page: Page) => {
+  const answer = await callReadOutcome(page);
 
-  return response.json();
+  if (!answer.ok) throw new Error(`Reading the outcome answered ${answer.code}`);
+
+  return answer.value;
 };
+
+test.afterAll(async () => {
+  await native?.dispose();
+});
 
 test("admission management records substitutes; members see who is on call", async ({
   browser,
@@ -246,26 +275,22 @@ test("admission management records substitutes; members see who is on call", asy
     await expect(readOnly.getByText("Anne API")).toHaveCount(0);
     const current = await readOutcome(page);
 
-    const memberRead = await readOnly.request.get(
-      `${manifest.backendOrigin}/api/admission-outcomes/${manifest.applicationId}`,
-      { headers: { Origin: manifest.dashboardOrigin } },
+    expect(await callReadOutcome(readOnly)).toMatchObject({
+      ok: false,
+      status: 403,
+      code: "authority.denied",
+    });
+
+    const memberRecord = await nativeClient().call(await sessionOf(readOnly), (client) =>
+      client["admissionOutcomes.recordOutcome"]({
+        applicationId: applicationId(),
+        idempotencyKey: IdempotencyKey.make("browser-member-denied-substitutes"),
+        ifMatch: current.etag,
+        request: { outcome: "Rejected" },
+      }),
     );
 
-    expect(memberRead.status()).toBe(403);
-
-    const memberRecord = await readOnly.request.post(
-      `${manifest.backendOrigin}/api/admission-outcomes/${manifest.applicationId}:record`,
-      {
-        headers: {
-          Origin: manifest.dashboardOrigin,
-          "Idempotency-Key": "browser-member-denied-substitutes",
-          "If-Match": current.etag,
-        },
-        data: { outcome: "Rejected" },
-      },
-    );
-
-    expect(memberRecord.status()).toBe(403);
+    expect(memberRecord).toMatchObject({ ok: false, status: 403, code: "authority.denied" });
     await axe(readOnly, "member on-call list");
     await readOnly.setViewportSize({ width: 390, height: 844 });
     await expect(onCallItems(readOnly)).toHaveText([manifest.onCall]);

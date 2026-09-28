@@ -185,7 +185,7 @@ function revealCommandFeedback(element: HTMLElement | null): void {
 const selectClass =
   "h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring";
 
-type Entry = typeof AdmissionOutcomeResource.Type;
+type Entry = AdmissionOutcomeResource;
 
 type Outcome = (AdmissionOutcomeCommand)["outcome"];
 

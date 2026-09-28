@@ -1,11 +1,7 @@
 import { Predicate } from "effect";
 import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { deriveHttpIdentity, encodePathIdentity } from "@vektorprogrammet/backend/http-semantics";
-import {
-  AdmissionsApi,
-  CreateAdmissionPeriodEndpoint,
-  ReviseAdmissionPeriodEndpoint,
-} from "@vektorprogrammet/rpc";
+import { nativeRpcPath } from "@vektorprogrammet/rpc";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
@@ -365,13 +361,68 @@ const parseJsonBody = (bytes) => {
   }
 };
 
-const admissionPeriodPath = /^\/api\/admission-periods(?:\/|$)/u;
+/** The admission-period commands whose requests the ledger keeps. */
+const admissionPeriodCommands = new Set([
+  "admissions.createAdmissionPeriod",
+  "admissions.reviseAdmissionPeriod",
+]);
+
+/**
+ * One RPC request of the JSON wire, as the ledger names it: the RPC tag as its path, and the
+ * idempotency key, precondition, and request of its payload.
+ */
+const rpcRequestEntry = (bytes) => {
+  const message = parseJsonBody(bytes);
+
+  if (!Predicate.hasProperty(message, "tag") || !Predicate.isString(message.tag)) {
+    return { path: nativeRpcPath, idempotencyKey: null, ifMatch: null, body: null };
+  }
+
+  const payload = Predicate.hasProperty(message, "payload") ? message.payload : null;
+
+  const member = (name) =>
+    Predicate.hasProperty(payload, name) && Predicate.isString(payload[name]) ? payload[name] : null;
+
+  return {
+    path: message.tag,
+    idempotencyKey: member("idempotencyKey"),
+    ifMatch: member("ifMatch"),
+    body:
+      admissionPeriodCommands.has(message.tag) && Predicate.hasProperty(payload, "request")
+        ? payload.request
+        : null,
+  };
+};
+
+/**
+ * The outcome of one RPC answer: 200 for a success, the registry status and code of a declared
+ * problem, and 500 for a defect.
+ */
+const rpcAnswerOutcome = (bytes) => {
+  const answers = parseJsonBody(bytes);
+  const answer = Array.isArray(answers) ? answers[0] : null;
+  const exit = Predicate.hasProperty(answer, "exit") ? answer.exit : null;
+
+  if (Predicate.isTagged(exit, "Success")) return { status: 200, problemCode: null };
+
+  const cause = Predicate.hasProperty(exit, "cause") && Array.isArray(exit.cause) ? exit.cause : [];
+  const failure = cause.find((reason) => Predicate.isTagged(reason, "Fail"));
+  const problem = Predicate.hasProperty(failure, "error") ? failure.error : null;
+
+  return Predicate.hasProperty(problem, "code") &&
+    Predicate.isString(problem.code) &&
+    Predicate.hasProperty(problem, "status") &&
+    Predicate.isNumber(problem.status)
+    ? { status: problem.status, problemCode: problem.code }
+    : { status: 500, problemCode: "defect" };
+};
 
 /**
  * The dashboard server calls the backend from its loaders and actions, so the browser's
  * commands are observable only between the two. Each forwarded request is appended to a
- * JSON Lines ledger before its response is released, and the spec reads that ledger.
- * Only admission-period bodies are kept: sign-in bodies carry passwords.
+ * JSON Lines ledger before its response is released, and the spec reads that ledger. An RPC
+ * request is recorded by its tag, and only admission-period requests keep their request:
+ * sign-in bodies carry passwords.
  */
 async function startRecordingProxy(ledgerPath) {
   const records = [];
@@ -388,15 +439,13 @@ async function startRecordingProxy(ledgerPath) {
 
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const requestBytes = Buffer.concat(chunks);
-    const idempotencyKey = request.headers["idempotency-key"];
-    const ifMatch = request.headers["if-match"];
+    const isRpc = method === "POST" && url.pathname === nativeRpcPath;
 
     const entry = {
-      method,
-      path: url.pathname,
-      idempotencyKey: Predicate.isString(idempotencyKey) ? idempotencyKey : null,
-      ifMatch: Predicate.isString(ifMatch) ? ifMatch : null,
-      body: admissionPeriodPath.test(url.pathname) ? parseJsonBody(requestBytes) : null,
+      method: isRpc ? "RPC" : method,
+      ...(isRpc
+        ? rpcRequestEntry(requestBytes)
+        : { path: url.pathname, idempotencyKey: null, ifMatch: null, body: null }),
       status: 502,
       problemCode: null,
     };
@@ -429,7 +478,11 @@ async function startRecordingProxy(ledgerPath) {
       const responseBytes = Buffer.from(await upstream.arrayBuffer());
       entry.status = upstream.status;
 
-      if (upstream.headers.get("content-type")?.startsWith("application/problem+json") === true) {
+      if (isRpc && upstream.status === 200) {
+        Object.assign(entry, rpcAnswerOutcome(responseBytes));
+      } else if (
+        upstream.headers.get("content-type")?.startsWith("application/problem+json") === true
+      ) {
         const problem = parseJsonBody(responseBytes);
 
         entry.problemCode =
@@ -563,10 +616,10 @@ async function readPostgresEvidence(environment) {
  * target, and Idempotency-Key, never the raw key. The leader issued every accepted
  * command: the browser's create and close, and the concurrent API revision that won.
  */
-const leaderCommandId = (endpoint, normalizedTarget, idempotencyKey) =>
+const leaderCommandId = (qualifiedOperationId, normalizedTarget, idempotencyKey) =>
   deriveHttpIdentity({
     credentialSubject: `Person:${personas.leader.personId}`,
-    qualifiedOperationId: `${AdmissionsApi.identifier}.${endpoint.identifier}`,
+    qualifiedOperationId,
     normalizedTarget,
     idempotencyKey,
   }).commandId;
@@ -575,25 +628,23 @@ function assertDurableEvidence(postgres, lifecycle) {
   const audits = Array.isArray(postgres.audits) ? postgres.audits : [];
   const outbox = Array.isArray(postgres.outbox) ? postgres.outbox : [];
 
-  const periodTarget = ReviseAdmissionPeriodEndpoint.path.replace(
-    ":admissionPeriodId",
-    encodePathIdentity(lifecycle.period.id),
-  );
+  // The RPCs keep the HTTP route of each command as its normalized target.
+  const periodTarget = `/api/admission-periods/${encodePathIdentity(lifecycle.period.id)}`;
 
   const createCommandId = leaderCommandId(
-    CreateAdmissionPeriodEndpoint,
-    CreateAdmissionPeriodEndpoint.path,
+    "admissions.createAdmissionPeriod",
+    "/api/admission-periods",
     lifecycle.period.createIdempotencyKey,
   );
 
   const concurrentWinnerCommandId = leaderCommandId(
-    ReviseAdmissionPeriodEndpoint,
+    "admissions.reviseAdmissionPeriod",
     periodTarget,
     lifecycle.period.concurrentWinnerIdempotencyKey,
   );
 
   const closeCommandId = leaderCommandId(
-    ReviseAdmissionPeriodEndpoint,
+    "admissions.reviseAdmissionPeriod",
     periodTarget,
     lifecycle.period.closeIdempotencyKey,
   );
