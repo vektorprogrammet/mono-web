@@ -7,7 +7,8 @@
  * resolves to the module that declares the binding, through any chain of re-exports, so a barrel
  * never counts as the owner of what it forwards. Dynamic imports and `require` calls do not count.
  */
-import { posix } from "node:path";
+import { dual } from "effect/Function";
+import { repositoryPath } from "./repository-path.js";
 import { Predicate, Schema } from "effect";
 import { parseSync } from "rolldown/utils";
 import { packageDirectories } from "./layout.js";
@@ -62,7 +63,10 @@ export const packageOf = (path: string): string | undefined => {
 };
 
 /** The imports, exports, and re-exports of one module. */
-export const parseModule = (path: string, text: string): Module => {
+export const parseModule: {
+  (text: string): (path: string) => Module;
+  (path: string, text: string): Module;
+} = dual(2, (path: string, text: string): Module => {
   const parsed = parseSync(path, text);
   const imports: Array<Import> = [];
   const namespaces = new Map<string, string>();
@@ -149,7 +153,7 @@ export const parseModule = (path: string, text: string): Module => {
     imports,
     errors: parsed.errors.map((error) => error.message),
   };
-};
+});
 
 // ---------------------------------------------------------------------------------------------
 // Resolution
@@ -165,13 +169,14 @@ const Manifest = Schema.fromJsonString(
 export type PackageManifest = typeof Manifest.Type;
 
 /** The `package.json` of an app, package, or tool directory, if it has one. */
-export const readManifest = (
-  repository: Repository,
-  directory: string,
-): PackageManifest | undefined =>
+export const readManifest: {
+  (directory: string): (repository: Repository) => PackageManifest | undefined;
+  (repository: Repository, directory: string): PackageManifest | undefined;
+} = dual(2, (repository: Repository, directory: string): PackageManifest | undefined =>
   repository.paths.includes(`${directory}/package.json`)
     ? Schema.decodeSync(Manifest)(repository.read(`${directory}/package.json`))
-    : undefined;
+    : undefined,
+);
 
 const TsConfig = Schema.fromJsonString(
   Schema.Struct({
@@ -259,7 +264,7 @@ export const entryPoints = (exports: Schema.Json): ReadonlyArray<EntryPoint> =>
   Object.entries(subpaths(exports)).flatMap(([subpath, value]) => {
     const target = exportTarget(value);
 
-    return target === undefined ? [] : [{ subpath, target: posix.normalize(target) }];
+    return target === undefined ? [] : [{ subpath, target: repositoryPath.normalize(target) }];
   });
 
 const subpathTarget = (exports: Schema.Json, subpath: string): string | undefined => {
@@ -343,13 +348,13 @@ const readResolver = (
           .replaceAll(jsonWithComments, (match) => (match.startsWith('"') ? match : "")),
       ).compilerOptions;
 
-      const base = posix.join(directory, options?.baseUrl ?? ".");
+      const base = repositoryPath.join(directory, options?.baseUrl ?? ".");
 
       aliases.set(
         directory,
         Object.entries(options?.paths ?? {}).map(([pattern, targets]) => ({
           pattern,
-          targets: targets.map((target) => posix.join(base, target)),
+          targets: targets.map((target) => repositoryPath.join(base, target)),
         })),
       );
     }
@@ -368,11 +373,13 @@ const readResolver = (
     const rest = segments.slice(length).join("/");
 
     if (workspace.exports === undefined)
-      return file(posix.join(workspace.directory, rest === "" ? "index" : rest));
+      return file(repositoryPath.join(workspace.directory, rest === "" ? "index" : rest));
 
     const target = subpathTarget(workspace.exports, rest === "" ? "." : `./${rest}`);
 
-    return target === undefined ? undefined : file(posix.join(workspace.directory, target));
+    return target === undefined
+      ? undefined
+      : file(repositoryPath.join(workspace.directory, target));
   };
 
   const aliasTarget = (importer: string, specifier: string): string | undefined => {
@@ -397,7 +404,9 @@ const readResolver = (
 
   return (importer, specifier) => {
     const relative = specifier.startsWith("./") || specifier.startsWith("../");
-    const key = relative ? posix.join(posix.dirname(importer), specifier) : specifier;
+    const key = relative
+      ? repositoryPath.join(repositoryPath.dirname(importer), specifier)
+      : specifier;
 
     if (cache.has(key) && relative) return cache.get(key);
 

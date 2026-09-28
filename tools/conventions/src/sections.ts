@@ -5,6 +5,7 @@
  * hosted journeys of the Tests workflow and of its document, and `guides.ts` renders the module
  * guides. The tables use the column alignment that Oxfmt writes, so formatting never changes them.
  */
+import { dual } from "effect/Function";
 import { constructPages } from "./constructs.js";
 import {
   exclusionOf,
@@ -50,10 +51,10 @@ const generatedFiles = {
 } satisfies Readonly<Record<string, ReadonlyArray<SectionId>>>;
 
 /** A Markdown table with the column alignment that Oxfmt writes. */
-export const table = (
-  header: ReadonlyArray<string>,
-  rows: ReadonlyArray<ReadonlyArray<string>>,
-): string => {
+export const table: {
+  (rows: ReadonlyArray<ReadonlyArray<string>>): (header: ReadonlyArray<string>) => string;
+  (header: ReadonlyArray<string>, rows: ReadonlyArray<ReadonlyArray<string>>): string;
+} = dual(2, (header: ReadonlyArray<string>, rows: ReadonlyArray<ReadonlyArray<string>>): string => {
   const cells = [header, ...rows].map((row) => row.map((cell) => cell.replaceAll("|", "\\|")));
 
   const widths = header.map((_, column) =>
@@ -66,7 +67,7 @@ export const table = (
   const [head = [], ...body] = cells;
 
   return [line(head), line(widths.map((width) => "-".repeat(width))), ...body.map(line)].join("\n");
-};
+});
 
 const code = (text: string) => `\`${text}\``;
 
@@ -213,53 +214,55 @@ export interface Spliced {
  * Replaces each section of `text` with its rendered body, between its begin and end markers. The
  * markers and the body take the indentation of the begin marker, which a YAML block needs.
  */
-export const spliceSections = (
-  text: string,
-  sections: ReadonlyArray<Section>,
-  comment: Comment = markdown,
-): Spliced => {
-  const lines = text.split("\n");
-  const missing: Array<string> = [];
+export const spliceSections: {
+  (sections: ReadonlyArray<Section>, comment?: Comment): (text: string) => Spliced;
+  (text: string, sections: ReadonlyArray<Section>, comment?: Comment): Spliced;
+} = dual(
+  (args) => typeof args[0] === "string",
+  (text: string, sections: ReadonlyArray<Section>, comment: Comment = markdown): Spliced => {
+    const lines = text.split("\n");
+    const missing: Array<string> = [];
 
-  for (const section of sections) {
-    const starts = lines.flatMap((line, index) =>
-      line.trimStart().startsWith(`${comment.open}${section.id}: generated `) ? [index] : [],
-    );
+    for (const section of sections) {
+      const starts = lines.flatMap((line, index) =>
+        line.trimStart().startsWith(`${comment.open}${section.id}: generated `) ? [index] : [],
+      );
 
-    const ends = lines.flatMap((line, index) =>
-      line.trim() === end(comment, section.id) ? [index] : [],
-    );
+      const ends = lines.flatMap((line, index) =>
+        line.trim() === end(comment, section.id) ? [index] : [],
+      );
 
-    const [start] = starts;
-    const [stop] = ends;
+      const [start] = starts;
+      const [stop] = ends;
 
-    if (
-      start === undefined ||
-      stop === undefined ||
-      starts.length > 1 ||
-      ends.length > 1 ||
-      stop < start
-    ) {
-      missing.push(section.id);
+      if (
+        start === undefined ||
+        stop === undefined ||
+        starts.length > 1 ||
+        ends.length > 1 ||
+        stop < start
+      ) {
+        missing.push(section.id);
 
-      continue;
+        continue;
+      }
+
+      const indent = /^\s*/u.exec(lines[start] ?? "")?.[0] ?? "";
+
+      lines.splice(
+        start,
+        stop - start + 1,
+        indent + begin(comment, section),
+        ...comment.padding,
+        ...section.body.split("\n").map((line) => (line === "" ? line : indent + line)),
+        ...comment.padding,
+        indent + end(comment, section.id),
+      );
     }
 
-    const indent = /^\s*/u.exec(lines[start] ?? "")?.[0] ?? "";
-
-    lines.splice(
-      start,
-      stop - start + 1,
-      indent + begin(comment, section),
-      ...comment.padding,
-      ...section.body.split("\n").map((line) => (line === "" ? line : indent + line)),
-      ...comment.padding,
-      indent + end(comment, section.id),
-    );
-  }
-
-  return { text: lines.join("\n"), missing };
-};
+    return { text: lines.join("\n"), missing };
+  },
+);
 
 /** The markers of `section` with nothing between them, for a Markdown file that has none yet. */
 export const emptySection = (section: Section): string =>
@@ -272,24 +275,37 @@ export interface SplicedFile extends Spliced {
 }
 
 /** Each file with generated sections, spliced with the sections that its sources render. */
-export const spliceFiles = (
-  read: (path: string) => string,
-  justfile: Justfile,
-  workflow: Workflow,
-): ReadonlyArray<SplicedFile> => {
-  const sections = renderSections(justfile, workflow);
+export const spliceFiles: {
+  (
+    justfile: Justfile,
+    workflow: Workflow,
+  ): (read: (path: string) => string) => ReadonlyArray<SplicedFile>;
+  (
+    read: (path: string) => string,
+    justfile: Justfile,
+    workflow: Workflow,
+  ): ReadonlyArray<SplicedFile>;
+} = dual(
+  3,
+  (
+    read: (path: string) => string,
+    justfile: Justfile,
+    workflow: Workflow,
+  ): ReadonlyArray<SplicedFile> => {
+    const sections = renderSections(justfile, workflow);
 
-  return Object.entries(generatedFiles).map(([path, ids]) => {
-    const current = read(path);
+    return Object.entries(generatedFiles).map(([path, ids]) => {
+      const current = read(path);
 
-    return {
-      path,
-      current,
-      ...spliceSections(
+      return {
+        path,
         current,
-        ids.map((id) => sections[id]),
-        /\.ya?ml$/u.test(path) ? yaml : markdown,
-      ),
-    };
-  });
-};
+        ...spliceSections(
+          current,
+          ids.map((id) => sections[id]),
+          /\.ya?ml$/u.test(path) ? yaml : markdown,
+        ),
+      };
+    });
+  },
+);

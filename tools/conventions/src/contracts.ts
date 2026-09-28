@@ -13,6 +13,7 @@
  * Every function here takes any top-level declaration. What is particular to a shared construct,
  * its category and its consumers, lives in `constructs.ts`.
  */
+import { dual } from "effect/Function";
 import { parseSync, type ESTree, type ParseResult } from "rolldown/utils";
 
 // Rolldown exports the parse result but not its comment type.
@@ -574,7 +575,10 @@ const declared = (
 };
 
 /** The top-level declarations of a module, with the line, JSDoc, and signature of each. */
-export const readDeclarations = (path: string, text: string): ModuleDeclarations => {
+export const readDeclarations: {
+  (text: string): (path: string) => ModuleDeclarations;
+  (path: string, text: string): ModuleDeclarations;
+} = dual(2, (path: string, text: string): ModuleDeclarations => {
   const parsed = parseSync(path, text);
   const lineStarts = [0, ...[...text.matchAll(/\n/gu)].map((match) => match.index + 1)];
   const lineOf = (offset: number) => lineStarts.findLastIndex((start) => start <= offset) + 1;
@@ -613,7 +617,7 @@ export const readDeclarations = (path: string, text: string): ModuleDeclarations
         : [],
     ),
   };
-};
+});
 
 // ---------------------------------------------------------------------------------------------
 // Documentation
@@ -683,13 +687,16 @@ export const readDocumentation = (doc: ReadonlyArray<string>): Documentation => 
 };
 
 /** The text of the tags named `name`, joined as paragraphs; `undefined` when none has text. */
-export const tagText = (documentation: Documentation, name: string): string | undefined => {
+export const tagText: {
+  (name: string): (documentation: Documentation) => string | undefined;
+  (documentation: Documentation, name: string): string | undefined;
+} = dual(2, (documentation: Documentation, name: string): string | undefined => {
   const texts = documentation.tags.flatMap((tag) =>
     tag.name === name && tag.text !== "" ? [tag.text] : [],
   );
 
   return texts.length === 0 ? undefined : texts.join("\n\n");
-};
+});
 
 /** The block tags that a contract requires, with what each holds. */
 export const contractTags = {
