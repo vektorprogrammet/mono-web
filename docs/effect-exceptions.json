@@ -245,6 +245,30 @@
         "effect": "4.0.0-rc.116"
       },
       "retirementTrigger": "Vocs awaits an asynchronous configuration in every branch and remark plugins may run Effect programs through a runtime bridge, or Effect gains a synchronous FileSystem. Then read through FileSystem and remove the suppressions."
+    },
+    {
+      "id": "EX-0012",
+      "rules": ["FX002", "effecttsgo/node-builtin-import"],
+      "scope": {
+        "files": ["tools/e2e/golden-harness.ts"],
+        "symbols": ["respond", "startProvider"]
+      },
+      "reason": "The loopback notification provider of the golden harness is an HTTP listener on a reserved loopback port. It records every attempt, counts active requests until each response closes, and closes every connection on release, so that cleanup verification finds the port free.",
+      "missingCapability": "Effect's HttpServer needs a platform server. The Bun one, BunHttpServer of @effect/platform-bun, brings Bun's global types into the Node-typed e2e program (tools/e2e/tsconfig.json), where they change the global Request and fetch types and fail the type check of packages/database/src/oauth-live.ts. No Node platform package is a dependency of tools/e2e.",
+      "nativeAlternatives": [
+        "BunHttpServer.make with HttpServer.serve: fails `tsc -p tools/e2e/tsconfig.json` through the Bun global types, and its release stops the server gracefully instead of closing idle connections.",
+        "NodeHttpServer of @effect/platform-node: not a dependency, and the Bun composition-root group admits no Node platform layer."
+      ],
+      "verification": [
+        "`bun --no-env-file tools/e2e/golden-harness-self-test.ts` asserts the accepted, failed, and unauthorized attempts, and that every port rebinds after release, in six probe runners.",
+        "`bun --no-env-file tools/e2e/golden-team-application.ts` delivers its notifications through the provider."
+      ],
+      "owner": "tools/e2e",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "@effect/platform-bun": "4.0.0-rc.116"
+      },
+      "retirementTrigger": "The e2e program type-checks with Bun's global types, or a Node platform server becomes a dependency. Then serve the provider through HttpServer and remove the node:http import."
     }
   ]
 }

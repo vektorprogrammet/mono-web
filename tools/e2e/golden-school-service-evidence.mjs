@@ -48,9 +48,9 @@ export const dashboardBuildInventory = async (root) => {
   const visit = async (relative) => {
     const path = join(root, "apps/dashboard/build", relative);
     const info = await lstat(path);
-    assert.ok(!info.isSymbolicLink(), "build must not contain symlinks");
+    assert.ok(info.isSymbolicLink() !== true, "build must not contain symlinks");
 
-    if (info.isDirectory()) {
+    if (info.isDirectory() === true) {
       for (const name of (await readdir(path)).sort()) await visit(join(relative, name));
     } else {
       assert.ok(info.isFile(), "build contains a non-file");
@@ -74,7 +74,7 @@ export const dashboardBuildInventory = async (root) => {
 
 const safeBytes = (bytes) => {
   const text = bytes.toString("utf8");
-  assert.ok(!text.includes("\u0000"), "binary diagnostic rejected");
+  assert.ok(text.includes("\u0000") !== true, "binary diagnostic rejected");
   assert.ok(
     !/journey-secret-0123456789abcdef|synthetic-school-service-token/.test(text),
     "synthetic secret rejected",
@@ -116,16 +116,22 @@ const safeJson = (value) => {
 // Errors deliberately omit artifact contents and supplied values.
 export const inspectGoldenEvidence = async ({ directory, root, revision, sourceTree }) => {
   assert.ok((await lstat(directory)).isDirectory(), "evidence directory absent");
-  assert.ok(!(await lstat(directory)).isSymbolicLink(), "evidence directory symlink rejected");
+  assert.ok(
+    (await lstat(directory)).isSymbolicLink() !== true,
+    "evidence directory symlink rejected",
+  );
 
   const read = async (name) => {
     const info = await lstat(join(directory, name));
-    assert.ok(info.isFile() && !info.isSymbolicLink(), "diagnostic must be a regular file");
+    assert.ok(
+      info.isFile() === true && info.isSymbolicLink() !== true,
+      "diagnostic must be a regular file",
+    );
     assert.ok(info.size <= 16 * 1024 * 1024, "diagnostic exceeds size limit");
     const bytes = await readFile(join(directory, name));
     safeBytes(bytes);
 
-    if (name.endsWith(".json")) safeJson(JSON.parse(bytes));
+    if (name.endsWith(".json") === true) safeJson(JSON.parse(bytes));
 
     return bytes;
   };
@@ -185,7 +191,7 @@ export const inspectGoldenEvidence = async ({ directory, root, revision, sourceT
     );
     files.set(item.path, bytes);
 
-    if (item.path.endsWith(".json")) documents.set(item.path, JSON.parse(bytes));
+    if (item.path.endsWith(".json") === true) documents.set(item.path, JSON.parse(bytes));
   }
 
   assert.deepEqual(
@@ -195,7 +201,7 @@ export const inspectGoldenEvidence = async ({ directory, root, revision, sourceT
   );
   const build = documents.get("browser-build.json");
 
-  if (build) {
+  if (Predicate.isTruthy(build)) {
     assert.ok(build.revision === revision && build.sourceTree === sourceTree, "wrong build source");
     assert.ok(
       build.digest === "sha256:" + sha256(JSON.stringify(build.files)),

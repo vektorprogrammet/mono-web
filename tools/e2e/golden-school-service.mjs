@@ -94,7 +94,7 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
     assert.deepEqual(facts[name], baseline[name], `${step} must not change ${name}`);
 
   // The candidate needs no affiliation or placement: the admission outcome alone puts them on call.
-  assert.ok(!facts.affiliations.some((row) => row.person_id === candidateId));
+  assert.ok(facts.affiliations.some((row) => row.person_id === candidateId) !== true);
   const [scheduled] = baseline.commitments;
   assert.equal(facts.commitments.length, 2);
   assert.deepEqual(facts.commitments[0], scheduled);
@@ -143,7 +143,7 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
   assert.equal(facts.absences.length, reached("substitute-absence") ? 1 : 0);
   const [absence] = facts.absences;
 
-  if (absence)
+  if (absence !== undefined)
     assert.deepEqual(
       [
         absence.commitment_id,
@@ -212,10 +212,10 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
     );
   };
 
-  if (recorded)
+  if (recorded !== undefined)
     assertRecord(recorded, candidateId, volunteerId, reached("coverage-replaced") ? leaderId : null);
 
-  if (replaced) {
+  if (replaced !== undefined) {
     assertRecord(
       replaced,
       secondSubstituteId,
@@ -229,7 +229,7 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
     );
   }
 
-  if (rerecorded) assertRecord(rerecorded, candidateId, volunteerId, null);
+  if (rerecorded !== undefined) assertRecord(rerecorded, candidateId, volunteerId, null);
   const current = facts.coverage.filter((row) => row.withdrawn_at === null);
   assertReservations(step, facts, [
     reservation(scheduled.commitment_id, volunteerId),
@@ -395,7 +395,7 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
   if (writes.length === 0) assert.deepEqual(facts, previous, step + " must not change persisted facts");
 
   const added = facts.receipts.filter(
-    (row) => !previous.receipts.some((old) => old.identity_sha256 === row.identity_sha256),
+    (row) => previous.receipts.some((old) => old.identity_sha256 === row.identity_sha256) !== true,
   );
 
   assert.deepEqual(
@@ -799,7 +799,7 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
         );
       } else {
         const added = facts.receipts.filter(
-          (row) => !previous.receipts.some((old) => old.identity_sha256 === row.identity_sha256),
+          (row) => previous.receipts.some((old) => old.identity_sha256 === row.identity_sha256) !== true,
         );
 
         assert.equal(
@@ -873,7 +873,7 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
               ]),
             );
 
-            if (facts.proposals.length) {
+            if (facts.proposals.length > 0) {
               assert.equal(body.proposal.proposalId, facts.proposals[0].proposal_id);
               assert.equal(body.proposal.status, facts.proposals[0].status);
               assert.deepEqual(body.proposal.assignments, facts.proposals[0].assignment_snapshot);
@@ -883,7 +883,7 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
 
           assert.equal(body.commitments.length, facts.commitments.length);
 
-          if (facts.commitments.length) {
+          if (facts.commitments.length > 0) {
             const returned = body.commitments[0];
             assert.deepEqual(
               [
