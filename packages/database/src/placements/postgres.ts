@@ -1,4 +1,5 @@
 import { Effect, Schema } from "effect";
+import { dual } from "effect/Function";
 import { readSchoolServiceCommitments } from "./coverage.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import type { OrganizationPersonAuthority } from "@vektorprogrammet/domain/organization";
@@ -94,7 +95,7 @@ export const lockPlacementDepartment = (departmentId: DepartmentId) =>
     }),
   );
 
-export const readOwnAffiliation = (personId: PersonId, departmentId: DepartmentId) =>
+const readOwnAffiliationImpl = (personId: PersonId, departmentId: DepartmentId) =>
   Database.use((sql) =>
     Effect.gen(function* () {
       const departments =
@@ -113,7 +114,12 @@ export const readOwnAffiliation = (personId: PersonId, departmentId: DepartmentI
     }),
   );
 
-export const mutateAffiliation = (
+export const readOwnAffiliation: {
+  (departmentId: DepartmentId): (personId: PersonId) => ReturnType<typeof readOwnAffiliationImpl>;
+  (personId: PersonId, departmentId: DepartmentId): ReturnType<typeof readOwnAffiliationImpl>;
+} = dual(2, readOwnAffiliationImpl);
+
+const mutateAffiliationImpl = (
   current: Affiliation,
   action: OwnAffiliationCommand["action"] | "Establish" | "Reject" | "Revoke",
   actor: PersonId,
@@ -131,6 +137,20 @@ export const mutateAffiliation = (
       return yield* readOwnAffiliation(current.personId, current.departmentId);
     }),
   );
+
+export const mutateAffiliation: {
+  (
+    action: OwnAffiliationCommand["action"] | "Establish" | "Reject" | "Revoke",
+    actor: PersonId,
+    now: string,
+  ): (current: Affiliation) => ReturnType<typeof mutateAffiliationImpl>;
+  (
+    current: Affiliation,
+    action: OwnAffiliationCommand["action"] | "Establish" | "Reject" | "Revoke",
+    actor: PersonId,
+    now: string,
+  ): ReturnType<typeof mutateAffiliationImpl>;
+} = dual(4, mutateAffiliationImpl);
 
 export const readPlacementBoard = (scope: PlacementScope) =>
   Database.use((sql) =>
@@ -184,8 +204,7 @@ export const readPlacementBoard = (scope: PlacementScope) =>
     }),
   );
 
-/** Caller holds the department lock and HTTP receipt transaction. */
-export const mutatePlacementBoard = (
+const mutatePlacementBoardImpl = (
   scope: PlacementScope,
   command: PlacementCommand,
   actor: PersonId,
@@ -411,3 +430,20 @@ export const mutatePlacementBoard = (
       return yield* readPlacementBoard(scope);
     }),
   );
+
+/** Caller holds the department lock and HTTP receipt transaction. */
+export const mutatePlacementBoard: {
+  (
+    command: PlacementCommand,
+    actor: PersonId,
+    now: string,
+    newId: string,
+  ): (scope: PlacementScope) => ReturnType<typeof mutatePlacementBoardImpl>;
+  (
+    scope: PlacementScope,
+    command: PlacementCommand,
+    actor: PersonId,
+    now: string,
+    newId: string,
+  ): ReturnType<typeof mutatePlacementBoardImpl>;
+} = dual(5, mutatePlacementBoardImpl);

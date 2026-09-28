@@ -20,6 +20,7 @@ import {
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
 import { flow, Data, Predicate, Effect, Schema } from "effect";
+import { dual } from "effect/Function";
 import { RecruitmentPersistenceError } from "@vektorprogrammet/domain/recruitment";
 import {
   RecruitmentInvitationOutboxRequestSchema,
@@ -581,54 +582,101 @@ export const sealInterviewInvitationEnvelopes = (interviewId: string) =>
     ),
   );
 
-export const claimNextRecruitmentInvitation = (
-  claimId: string,
-  claimedAt: string,
-): Effect.Effect<
-  ClaimedRecruitmentInvitation | undefined,
-  RecruitmentPersistenceError | OutboxClaimLost,
-  Admissions | Database | Profile
-> =>
-  Effect.gen(function* () {
-    const admissions = yield* Admissions;
-    const sql = yield* Database;
-    const profile = yield* Profile;
+export const claimNextRecruitmentInvitation: {
+  (
+    claimedAt: string,
+  ): (
+    claimId: string,
+  ) => Effect.Effect<
+    ClaimedRecruitmentInvitation | undefined,
+    RecruitmentPersistenceError | OutboxClaimLost,
+    Admissions | Database | Profile
+  >;
+  (
+    claimId: string,
+    claimedAt: string,
+  ): Effect.Effect<
+    ClaimedRecruitmentInvitation | undefined,
+    RecruitmentPersistenceError | OutboxClaimLost,
+    Admissions | Database | Profile
+  >;
+} = dual(
+  2,
+  (
+    claimId: string,
+    claimedAt: string,
+  ): Effect.Effect<
+    ClaimedRecruitmentInvitation | undefined,
+    RecruitmentPersistenceError | OutboxClaimLost,
+    Admissions | Database | Profile
+  > =>
+    Effect.gen(function* () {
+      const admissions = yield* Admissions;
+      const sql = yield* Database;
+      const profile = yield* Profile;
 
-    return yield* sql
-      .withTransaction(claimInTransaction(sql, admissions, profile, claimId, claimedAt))
-      .pipe(
+      return yield* sql
+        .withTransaction(claimInTransaction(sql, admissions, profile, claimId, claimedAt))
+        .pipe(
+          Effect.catchTag("SqlError", (cause) =>
+            Effect.fail(persistenceError("invitation outbox claim transaction", cause)),
+          ),
+        );
+    }),
+);
+
+export const completeRecruitmentInvitation: {
+  (
+    evidence: RecruitmentNotificationEvidence,
+  ): (
+    claim: ClaimedRecruitmentInvitation,
+  ) => Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database>;
+  (
+    claim: ClaimedRecruitmentInvitation,
+    evidence: RecruitmentNotificationEvidence,
+  ): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database>;
+} = dual(
+  2,
+  (
+    claim: ClaimedRecruitmentInvitation,
+    evidence: RecruitmentNotificationEvidence,
+  ): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database> =>
+    Effect.gen(function* () {
+      if (evidence.effectId !== claim.effectId)
+        return yield* persistenceError("invitation delivery evidence effect mismatch");
+
+      yield* Database.use((sql) =>
+        markOutboxDelivered(sql, invitationOutbox, claim, { deliveredAt: evidence.deliveredAt }),
+      ).pipe(
         Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(persistenceError("invitation outbox claim transaction", cause)),
+          Effect.fail(persistenceError("complete invitation outbox claim", cause)),
         ),
       );
-  });
+    }),
+);
 
-export const completeRecruitmentInvitation = (
-  claim: ClaimedRecruitmentInvitation,
-  evidence: RecruitmentNotificationEvidence,
-): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database> =>
-  Effect.gen(function* () {
-    if (evidence.effectId !== claim.effectId)
-      return yield* persistenceError("invitation delivery evidence effect mismatch");
-
-    yield* Database.use((sql) =>
-      markOutboxDelivered(sql, invitationOutbox, claim, { deliveredAt: evidence.deliveredAt }),
-    ).pipe(
+export const failRecruitmentInvitation: {
+  (
+    failureTag: string,
+  ): (
+    claim: ClaimedRecruitmentInvitation,
+  ) => Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database>;
+  (
+    claim: ClaimedRecruitmentInvitation,
+    failureTag: string,
+  ): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database>;
+} = dual(
+  2,
+  (
+    claim: ClaimedRecruitmentInvitation,
+    failureTag: string,
+  ): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database> =>
+    Database.use((sql) => markOutboxFailed(sql, invitationOutbox, claim, failureTag)).pipe(
       Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("complete invitation outbox claim", cause)),
+        Effect.fail(persistenceError("fail invitation outbox claim", cause)),
       ),
-    );
-  });
-
-export const failRecruitmentInvitation = (
-  claim: ClaimedRecruitmentInvitation,
-  failureTag: string,
-): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database> =>
-  Database.use((sql) => markOutboxFailed(sql, invitationOutbox, claim, failureTag)).pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("fail invitation outbox claim", cause)),
     ),
-  );
+);
 
 export const releaseRecruitmentInvitation = (
   claim: ClaimedRecruitmentInvitation,
@@ -655,50 +703,71 @@ export const recoverStaleRecruitmentInvitations = (
     ),
   );
 
-export const deliverNextRecruitmentInvitation = (
-  claimId: string,
-  claimedAt: string,
-): Effect.Effect<
-  RecruitmentInvitationDeliveryResult,
-  RecruitmentPersistenceError,
-  Admissions | Database | NotificationGateway | Profile
-> =>
-  Effect.acquireUseRelease(
-    claimNextRecruitmentInvitation(claimId, claimedAt),
-    (
-      claim,
-    ): Effect.Effect<
-      RecruitmentInvitationDeliveryResult,
-      RecruitmentPersistenceError | OutboxClaimLost,
-      Admissions | Database | NotificationGateway | Profile
-    > => {
-      if (claim === undefined) return Effect.succeed(RecruitmentInvitationDeliveryResult.Idle());
+export const deliverNextRecruitmentInvitation: {
+  (
+    claimedAt: string,
+  ): (
+    claimId: string,
+  ) => Effect.Effect<
+    RecruitmentInvitationDeliveryResult,
+    RecruitmentPersistenceError,
+    Admissions | Database | NotificationGateway | Profile
+  >;
+  (
+    claimId: string,
+    claimedAt: string,
+  ): Effect.Effect<
+    RecruitmentInvitationDeliveryResult,
+    RecruitmentPersistenceError,
+    Admissions | Database | NotificationGateway | Profile
+  >;
+} = dual(
+  2,
+  (
+    claimId: string,
+    claimedAt: string,
+  ): Effect.Effect<
+    RecruitmentInvitationDeliveryResult,
+    RecruitmentPersistenceError,
+    Admissions | Database | NotificationGateway | Profile
+  > =>
+    Effect.acquireUseRelease(
+      claimNextRecruitmentInvitation(claimId, claimedAt),
+      (
+        claim,
+      ): Effect.Effect<
+        RecruitmentInvitationDeliveryResult,
+        RecruitmentPersistenceError | OutboxClaimLost,
+        Admissions | Database | NotificationGateway | Profile
+      > => {
+        if (claim === undefined) return Effect.succeed(RecruitmentInvitationDeliveryResult.Idle());
 
-      return Effect.gen(function* () {
-        const gateway = yield* NotificationGateway;
+        return Effect.gen(function* () {
+          const gateway = yield* NotificationGateway;
 
-        return yield* gateway.deliverInterviewInvitation(claim.request).pipe(
-          Effect.matchEffect({
-            onFailure: (failure) =>
-              failRecruitmentInvitation(claim, failure._tag).pipe(
-                Effect.as(
-                  RecruitmentInvitationDeliveryResult.Failed({ claim, failureTag: failure._tag }),
+          return yield* gateway.deliverInterviewInvitation(claim.request).pipe(
+            Effect.matchEffect({
+              onFailure: (failure) =>
+                failRecruitmentInvitation(claim, failure._tag).pipe(
+                  Effect.as(
+                    RecruitmentInvitationDeliveryResult.Failed({ claim, failureTag: failure._tag }),
+                  ),
                 ),
-              ),
-            onSuccess: (evidence) =>
-              completeRecruitmentInvitation(claim, evidence).pipe(
-                Effect.as(RecruitmentInvitationDeliveryResult.Delivered({ claim, evidence })),
-              ),
-          }),
-        );
-      });
-    },
-    (claim) => (claim === undefined ? Effect.void : releaseRecruitmentInvitation(claim)),
-  ).pipe(
-    Effect.catchTag("OutboxClaimLost", ({ effectId }) =>
-      Effect.succeed(RecruitmentInvitationDeliveryResult.ClaimLost({ effectId })),
+              onSuccess: (evidence) =>
+                completeRecruitmentInvitation(claim, evidence).pipe(
+                  Effect.as(RecruitmentInvitationDeliveryResult.Delivered({ claim, evidence })),
+                ),
+            }),
+          );
+        });
+      },
+      (claim) => (claim === undefined ? Effect.void : releaseRecruitmentInvitation(claim)),
+    ).pipe(
+      Effect.catchTag("OutboxClaimLost", ({ effectId }) =>
+        Effect.succeed(RecruitmentInvitationDeliveryResult.ClaimLost({ effectId })),
+      ),
     ),
-  );
+);
 
 export const invitationPayloadForEvidence = (request: RecruitmentInvitationOutboxRequest): string =>
   canonicalJson({

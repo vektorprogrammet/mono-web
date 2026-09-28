@@ -22,6 +22,7 @@ import {
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
 import { flow, Predicate, Effect, Schema } from "effect";
+import { dual } from "effect/Function";
 import {
   RecruitmentScheduleObservationSchema,
   RecruitmentInvitationOutboxRequestSchema,
@@ -901,57 +902,78 @@ export const readSchedulingBoard = (
     );
   });
 
-export const scheduleInterview = (
-  command: RecruitmentScheduleCommand,
-  context: RecruitmentScheduleContext,
-): Effect.Effect<
-  RecruitmentScheduleResult,
-  RecruitmentFailure,
-  Database | Admissions | Organization | Profile
-> =>
-  Effect.gen(function* () {
-    const decodedCommand = yield* decode(
-      RecruitmentScheduleCommandSchema,
-      "schedule command",
-    )(command);
+export const scheduleInterview: {
+  (
+    context: RecruitmentScheduleContext,
+  ): (
+    command: RecruitmentScheduleCommand,
+  ) => Effect.Effect<
+    RecruitmentScheduleResult,
+    RecruitmentFailure,
+    Database | Admissions | Organization | Profile
+  >;
+  (
+    command: RecruitmentScheduleCommand,
+    context: RecruitmentScheduleContext,
+  ): Effect.Effect<
+    RecruitmentScheduleResult,
+    RecruitmentFailure,
+    Database | Admissions | Organization | Profile
+  >;
+} = dual(
+  2,
+  (
+    command: RecruitmentScheduleCommand,
+    context: RecruitmentScheduleContext,
+  ): Effect.Effect<
+    RecruitmentScheduleResult,
+    RecruitmentFailure,
+    Database | Admissions | Organization | Profile
+  > =>
+    Effect.gen(function* () {
+      const decodedCommand = yield* decode(
+        RecruitmentScheduleCommandSchema,
+        "schedule command",
+      )(command);
 
-    const actor = yield* decode(RecruitmentActorSchema, "recruitment actor")(context.actor);
+      const actor = yield* decode(RecruitmentActorSchema, "recruitment actor")(context.actor);
 
-    const invitationId = yield* decode(
-      RecruitmentInvitationId,
-      "invitation identity",
-    )(context.invitationId);
+      const invitationId = yield* decode(
+        RecruitmentInvitationId,
+        "invitation identity",
+      )(context.invitationId);
 
-    if (!capabilityIsValid(context.responseCapability)) {
-      return yield* RecruitmentInvalidContext.make({ message: "invalid response capability" });
-    }
+      if (!capabilityIsValid(context.responseCapability)) {
+        return yield* RecruitmentInvalidContext.make({ message: "invalid response capability" });
+      }
 
-    const sql = yield* Database;
-    const admissions = yield* Admissions;
-    const organization = yield* Organization;
-    const profile = yield* Profile;
-    const digest = sha256Hex(canonicalJsonBytes(decodedCommand));
+      const sql = yield* Database;
+      const admissions = yield* Admissions;
+      const organization = yield* Organization;
+      const profile = yield* Profile;
+      const digest = sha256Hex(canonicalJsonBytes(decodedCommand));
 
-    return yield* sql
-      .withTransaction(
-        scheduleInTransaction(
-          decodedCommand,
-          {
-            actor,
-            now: context.now,
-            invitationId,
-            responseCapability: context.responseCapability,
-          },
-          sql,
-          admissions,
-          organization,
-          profile,
-          digest,
-        ),
-      )
-      .pipe(
-        Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(persistenceError("schedule transaction", cause)),
-        ),
-      );
-  });
+      return yield* sql
+        .withTransaction(
+          scheduleInTransaction(
+            decodedCommand,
+            {
+              actor,
+              now: context.now,
+              invitationId,
+              responseCapability: context.responseCapability,
+            },
+            sql,
+            admissions,
+            organization,
+            profile,
+            digest,
+          ),
+        )
+        .pipe(
+          Effect.catchTag("SqlError", (cause) =>
+            Effect.fail(persistenceError("schedule transaction", cause)),
+          ),
+        );
+    }),
+);

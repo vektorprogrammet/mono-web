@@ -2,7 +2,8 @@ import { canonicalJsonValue } from "@vektorprogrammet/domain/shared-kernel";
 import { Database, type DatabaseOperations } from "../service.js";
 import { lockPersonAuthorization } from "./authority-postgres.js";
 import * as Statement from "effect/unstable/sql/Statement";
-import { flow, Effect, Schema } from "effect";
+import { flow, Effect, Schema, Predicate } from "effect";
+import { dual } from "effect/Function";
 import {
   DepartmentNotFound,
   MembershipNotFound,
@@ -618,20 +619,40 @@ const teamInterestPredicate = (
   return Statement.and(clauses);
 };
 
-export const listOrganizationTeamInterestRegistrations = (
-  scope: TeamInterestReadScope,
-  semesterId?: SemesterId,
-): Effect.Effect<
-  ReadonlyArray<TeamInterestRegistration>,
-  OrganizationDecodeError | OrganizationPersistenceError,
-  Database
-> => {
-  if (scope.departmentIds.length === 0 && scope.teams.length === 0) return Effect.succeed([]);
+export const listOrganizationTeamInterestRegistrations: {
+  (
+    semesterId?: SemesterId,
+  ): (
+    scope: TeamInterestReadScope,
+  ) => Effect.Effect<
+    ReadonlyArray<TeamInterestRegistration>,
+    OrganizationDecodeError | OrganizationPersistenceError,
+    Database
+  >;
+  (
+    scope: TeamInterestReadScope,
+    semesterId?: SemesterId,
+  ): Effect.Effect<
+    ReadonlyArray<TeamInterestRegistration>,
+    OrganizationDecodeError | OrganizationPersistenceError,
+    Database
+  >;
+} = dual(
+  (args) => Predicate.isObject(args[0]),
+  (
+    scope: TeamInterestReadScope,
+    semesterId?: SemesterId,
+  ): Effect.Effect<
+    ReadonlyArray<TeamInterestRegistration>,
+    OrganizationDecodeError | OrganizationPersistenceError,
+    Database
+  > => {
+    if (scope.departmentIds.length === 0 && scope.teams.length === 0) return Effect.succeed([]);
 
-  return Effect.gen(function* () {
-    const database = yield* Database;
+    return Effect.gen(function* () {
+      const database = yield* Database;
 
-    const rows = yield* database<TeamInterestRegistrationSelect>`
+      const rows = yield* database<TeamInterestRegistrationSelect>`
       SELECT
         registration.registration_id::text AS "registrationId",
         registration.submitter_name AS "submitterName",
@@ -649,11 +670,12 @@ export const listOrganizationTeamInterestRegistrations = (
       WHERE ${teamInterestPredicate(database, scope, semesterId)}
       ORDER BY registration.registration_id ASC
     `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("list organization team interest registrations", cause)),
-      ),
-    );
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("list organization team interest registrations", cause)),
+        ),
+      );
 
-    return yield* Effect.forEach(rows, (row) => decodeTeamInterestRegistration(row));
-  });
-};
+      return yield* Effect.forEach(rows, (row) => decodeTeamInterestRegistration(row));
+    });
+  },
+);

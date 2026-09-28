@@ -10,6 +10,7 @@ import {
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
 import { Match, flow, Predicate, Effect, Schema, SchemaIssue } from "effect";
+import { dual } from "effect/Function";
 import {
   RecruitmentInvitationResponseStateSchema,
   RecruitmentInvitationResponseMessageSchema,
@@ -529,57 +530,124 @@ export const readInvitationResponse = (
     return yield* observationFromRow(row);
   });
 
-export const confirmInvitation = (
-  capability: RecruitmentInvitationCapability,
-  context: RecruitmentInvitationResponseContext,
-): Effect.Effect<
-  RecruitmentInvitationResponseResult,
-  RecruitmentFailure,
-  Admissions | Database | Profile
-> => transitionInvitation(capability, "Accepted", null, context);
+export const confirmInvitation: {
+  (
+    context: RecruitmentInvitationResponseContext,
+  ): (
+    capability: RecruitmentInvitationCapability,
+  ) => Effect.Effect<
+    RecruitmentInvitationResponseResult,
+    RecruitmentFailure,
+    Admissions | Database | Profile
+  >;
+  (
+    capability: RecruitmentInvitationCapability,
+    context: RecruitmentInvitationResponseContext,
+  ): Effect.Effect<
+    RecruitmentInvitationResponseResult,
+    RecruitmentFailure,
+    Admissions | Database | Profile
+  >;
+} = dual(
+  2,
+  (
+    capability: RecruitmentInvitationCapability,
+    context: RecruitmentInvitationResponseContext,
+  ): Effect.Effect<
+    RecruitmentInvitationResponseResult,
+    RecruitmentFailure,
+    Admissions | Database | Profile
+  > => transitionInvitation(capability, "Accepted", null, context),
+);
 
-export const rejectInvitation = (
-  capability: RecruitmentInvitationCapability,
-  input: RecruitmentInvitationRejectInput,
-  context: RecruitmentInvitationResponseContext,
-): Effect.Effect<
-  RecruitmentInvitationResponseResult,
-  RecruitmentFailure,
-  Admissions | Database | Profile
-> =>
-  Effect.gen(function* () {
-    const decodedInput = yield* decode(
-      RecruitmentInvitationRejectInputSchema,
-      "invitation rejection",
-    )(input);
+export const rejectInvitation: {
+  (
+    input: RecruitmentInvitationRejectInput,
+    context: RecruitmentInvitationResponseContext,
+  ): (
+    capability: RecruitmentInvitationCapability,
+  ) => Effect.Effect<
+    RecruitmentInvitationResponseResult,
+    RecruitmentFailure,
+    Admissions | Database | Profile
+  >;
+  (
+    capability: RecruitmentInvitationCapability,
+    input: RecruitmentInvitationRejectInput,
+    context: RecruitmentInvitationResponseContext,
+  ): Effect.Effect<
+    RecruitmentInvitationResponseResult,
+    RecruitmentFailure,
+    Admissions | Database | Profile
+  >;
+} = dual(
+  3,
+  (
+    capability: RecruitmentInvitationCapability,
+    input: RecruitmentInvitationRejectInput,
+    context: RecruitmentInvitationResponseContext,
+  ): Effect.Effect<
+    RecruitmentInvitationResponseResult,
+    RecruitmentFailure,
+    Admissions | Database | Profile
+  > =>
+    Effect.gen(function* () {
+      const decodedInput = yield* decode(
+        RecruitmentInvitationRejectInputSchema,
+        "invitation rejection",
+      )(input);
 
-    return yield* transitionInvitation(
-      capability,
-      "Rejected",
-      decodedInput.message ?? null,
-      context,
-    );
-  });
+      return yield* transitionInvitation(
+        capability,
+        "Rejected",
+        decodedInput.message ?? null,
+        context,
+      );
+    }),
+);
 
-export const requestNewInvitationTime = (
-  capability: RecruitmentInvitationCapability,
-  input: RecruitmentInvitationRequestNewTimeInput,
-  context: RecruitmentInvitationResponseContext,
-): Effect.Effect<
-  RecruitmentInvitationResponseResult,
-  RecruitmentFailure,
-  Admissions | Database | Profile
-> =>
-  Effect.gen(function* () {
-    const decodedInput = yield* decode(
-      RecruitmentInvitationRequestNewTimeInputSchema,
-      "invitation new-time request",
-    )(input);
+export const requestNewInvitationTime: {
+  (
+    input: RecruitmentInvitationRequestNewTimeInput,
+    context: RecruitmentInvitationResponseContext,
+  ): (
+    capability: RecruitmentInvitationCapability,
+  ) => Effect.Effect<
+    RecruitmentInvitationResponseResult,
+    RecruitmentFailure,
+    Admissions | Database | Profile
+  >;
+  (
+    capability: RecruitmentInvitationCapability,
+    input: RecruitmentInvitationRequestNewTimeInput,
+    context: RecruitmentInvitationResponseContext,
+  ): Effect.Effect<
+    RecruitmentInvitationResponseResult,
+    RecruitmentFailure,
+    Admissions | Database | Profile
+  >;
+} = dual(
+  3,
+  (
+    capability: RecruitmentInvitationCapability,
+    input: RecruitmentInvitationRequestNewTimeInput,
+    context: RecruitmentInvitationResponseContext,
+  ): Effect.Effect<
+    RecruitmentInvitationResponseResult,
+    RecruitmentFailure,
+    Admissions | Database | Profile
+  > =>
+    Effect.gen(function* () {
+      const decodedInput = yield* decode(
+        RecruitmentInvitationRequestNewTimeInputSchema,
+        "invitation new-time request",
+      )(input);
 
-    return yield* transitionInvitation(
-      capability,
-      "RequestedNewTime",
-      decodedInput.message,
-      context,
-    );
-  });
+      return yield* transitionInvitation(
+        capability,
+        "RequestedNewTime",
+        decodedInput.message,
+        context,
+      );
+    }),
+);

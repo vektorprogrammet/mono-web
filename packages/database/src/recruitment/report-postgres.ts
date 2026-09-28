@@ -1,4 +1,5 @@
 import { Predicate, Effect, Schema } from "effect";
+import { dual } from "effect/Function";
 import { Database } from "../service.js";
 import { listAdmissionPeriodsForManagement } from "../admission-period/postgres.js";
 import { Organization } from "@vektorprogrammet/domain/organization";
@@ -19,8 +20,7 @@ import {
   orderInterviewReport,
 } from "@vektorprogrammet/domain/recruitment";
 
-/** Same single-department recruitment policy, reconstructed from current Organization authority. */
-export const resolveInterviewReportLeader = (personId: PersonId, now: string) =>
+const resolveInterviewReportLeaderImpl = (personId: PersonId, now: string) =>
   Effect.gen(function* () {
     const organization = yield* Organization;
     const authority = yield* organization.resolvePersonAuthority(personId, now);
@@ -51,8 +51,13 @@ export const resolveInterviewReportLeader = (personId: PersonId, now: string) =>
     return decision.value;
   });
 
-/** No writes: fixed candidate set, deterministic applicant custody, then fresh identity observation. */
-export const readCompletedInterviewReport = (
+/** Same single-department recruitment policy, reconstructed from current Organization authority. */
+export const resolveInterviewReportLeader: {
+  (now: string): (personId: PersonId) => ReturnType<typeof resolveInterviewReportLeaderImpl>;
+  (personId: PersonId, now: string): ReturnType<typeof resolveInterviewReportLeaderImpl>;
+} = dual(2, resolveInterviewReportLeaderImpl);
+
+const readCompletedInterviewReportImpl = (
   personId: PersonId,
   now: string,
   input: InterviewReportQuery,
@@ -167,3 +172,16 @@ export const readCompletedInterviewReport = (
         ),
       );
   });
+
+/** No writes: fixed candidate set, deterministic applicant custody, then fresh identity observation. */
+export const readCompletedInterviewReport: {
+  (
+    now: string,
+    input: InterviewReportQuery,
+  ): (personId: PersonId) => ReturnType<typeof readCompletedInterviewReportImpl>;
+  (
+    personId: PersonId,
+    now: string,
+    input: InterviewReportQuery,
+  ): ReturnType<typeof readCompletedInterviewReportImpl>;
+} = dual(3, readCompletedInterviewReportImpl);

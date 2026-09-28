@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { dual } from "effect/Function";
 import { Database } from "../service.js";
 import { lockOnboardingApplicant } from "../onboarding/postgres.js";
 import type { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
@@ -25,8 +26,7 @@ export const readInterviewApplicantIdentity = (interviewId: RecruitmentInterview
     }),
   );
 
-/** Caller holds a transaction. Applicant custody precedes interview/receipt locks. */
-export const guardInterviewApplicantIdentity = (
+const guardInterviewApplicantIdentityImpl = (
   interviewId: RecruitmentInterviewId,
   personId: PersonId,
 ) =>
@@ -40,3 +40,16 @@ export const guardInterviewApplicantIdentity = (
 
     return current;
   });
+
+/** Caller holds a transaction. Applicant custody precedes interview/receipt locks. */
+export const guardInterviewApplicantIdentity: {
+  (
+    personId: PersonId,
+  ): (
+    interviewId: RecruitmentInterviewId,
+  ) => ReturnType<typeof guardInterviewApplicantIdentityImpl>;
+  (
+    interviewId: RecruitmentInterviewId,
+    personId: PersonId,
+  ): ReturnType<typeof guardInterviewApplicantIdentityImpl>;
+} = dual(2, guardInterviewApplicantIdentityImpl);

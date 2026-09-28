@@ -14,6 +14,7 @@ import {
 import { resolveOrganizationPersonAuthorityWithSql } from "../organization/authority-postgres.js";
 import { sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { Match, Effect, Predicate, Schema } from "effect";
+import { dual } from "effect/Function";
 import {
   RecruitmentApplicationNotFound,
   RecruitmentDecodeError,
@@ -322,17 +323,37 @@ export const readRecruitmentPersonAuthorityHttpSourcesPostgres = (
 > => Database.use((database) => readRecruitmentPersonAuthorityHttpSources(database, personId));
 
 /** Interview identity, revision, relationship, and ordered authority sources for HTTP ETags. */
-export const readRecruitmentInterviewHttpSourcePostgres = (
-  interviewId: RecruitmentInterviewId,
-  personId: PersonId,
-): Effect.Effect<
-  RecruitmentInterviewHttpSource,
-  RecruitmentInterviewNotFound | RecruitmentDecodeError | RecruitmentPersistenceError,
-  Database
-> =>
-  Database.use((database) =>
-    Effect.gen(function* () {
-      const interviewRows = yield* database`
+export const readRecruitmentInterviewHttpSourcePostgres: {
+  (
+    personId: PersonId,
+  ): (
+    interviewId: RecruitmentInterviewId,
+  ) => Effect.Effect<
+    RecruitmentInterviewHttpSource,
+    RecruitmentInterviewNotFound | RecruitmentDecodeError | RecruitmentPersistenceError,
+    Database
+  >;
+  (
+    interviewId: RecruitmentInterviewId,
+    personId: PersonId,
+  ): Effect.Effect<
+    RecruitmentInterviewHttpSource,
+    RecruitmentInterviewNotFound | RecruitmentDecodeError | RecruitmentPersistenceError,
+    Database
+  >;
+} = dual(
+  2,
+  (
+    interviewId: RecruitmentInterviewId,
+    personId: PersonId,
+  ): Effect.Effect<
+    RecruitmentInterviewHttpSource,
+    RecruitmentInterviewNotFound | RecruitmentDecodeError | RecruitmentPersistenceError,
+    Database
+  > =>
+    Database.use((database) =>
+      Effect.gen(function* () {
+        const interviewRows = yield* database`
         SELECT
           interview_id AS "interviewId",
           department_id AS "departmentId",
@@ -342,35 +363,39 @@ export const readRecruitmentInterviewHttpSourcePostgres = (
         FROM public.recruitment_interviews
         WHERE interview_id = ${interviewId}
       `.pipe(
-        Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(persistenceError("read recruitment interview HTTP source", cause)),
-        ),
-      );
+          Effect.catchTag("SqlError", (cause) =>
+            Effect.fail(persistenceError("read recruitment interview HTTP source", cause)),
+          ),
+        );
 
-      const interview = interviewRows[0];
+        const interview = interviewRows[0];
 
-      if (interview === undefined) return yield* RecruitmentInterviewNotFound.make({ interviewId });
+        if (interview === undefined)
+          return yield* RecruitmentInterviewNotFound.make({ interviewId });
 
-      const identity = yield* readInterviewApplicantIdentity(interviewId).pipe(
-        Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(persistenceError("read interview applicant identity", cause)),
-        ),
-      );
+        const identity = yield* readInterviewApplicantIdentity(interviewId).pipe(
+          Effect.catchTag("SqlError", (cause) =>
+            Effect.fail(persistenceError("read interview applicant identity", cause)),
+          ),
+        );
 
-      const authority = yield* readRecruitmentPersonAuthorityHttpSources(database, personId);
+        const authority = yield* readRecruitmentPersonAuthorityHttpSources(database, personId);
 
-      return yield* Schema.decodeUnknownEffect(RecruitmentInterviewHttpSourceSchema)(
-        {
-          ...interview,
-          linkedApplicantPersonId: identity.linkedApplicantPersonId,
-          authority,
-        },
-        { onExcessProperty: "error" },
-      ).pipe(
-        Effect.mapError((cause) => decodeError("decode recruitment interview HTTP source", cause)),
-      );
-    }),
-  );
+        return yield* Schema.decodeUnknownEffect(RecruitmentInterviewHttpSourceSchema)(
+          {
+            ...interview,
+            linkedApplicantPersonId: identity.linkedApplicantPersonId,
+            authority,
+          },
+          { onExcessProperty: "error" },
+        ).pipe(
+          Effect.mapError((cause) =>
+            decodeError("decode recruitment interview HTTP source", cause),
+          ),
+        );
+      }),
+    ),
+);
 
 /** Target selection and business identity custody belong to Recruitment, not its transport. */
 export const prepareRecruitmentAssignment = (input: {

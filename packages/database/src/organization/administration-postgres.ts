@@ -1,6 +1,7 @@
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import { Equal, flow, Effect, Schema } from "effect";
+import { dual } from "effect/Function";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import {
   DepartmentCreatedObservationSchema,
@@ -541,175 +542,216 @@ const insertFieldOfStudy = (
   );
 };
 
-export const createOrganizationDepartment = (
-  commandInput: CreateDepartmentCommand,
-  administrator: OrganizationAdministratorEvidence,
-): Effect.Effect<CreateDepartmentResult, OrganizationCommandFailure, Database> =>
-  Effect.gen(function* () {
-    const command = yield* decodeCreateDepartmentCommand(commandInput);
-    const sql = yield* Database;
-    const digest = organizationCommandDigest(command);
+export const createOrganizationDepartment: {
+  (
+    administrator: OrganizationAdministratorEvidence,
+  ): (
+    commandInput: CreateDepartmentCommand,
+  ) => Effect.Effect<CreateDepartmentResult, OrganizationCommandFailure, Database>;
+  (
+    commandInput: CreateDepartmentCommand,
+    administrator: OrganizationAdministratorEvidence,
+  ): Effect.Effect<CreateDepartmentResult, OrganizationCommandFailure, Database>;
+} = dual(
+  2,
+  (
+    commandInput: CreateDepartmentCommand,
+    administrator: OrganizationAdministratorEvidence,
+  ): Effect.Effect<CreateDepartmentResult, OrganizationCommandFailure, Database> =>
+    Effect.gen(function* () {
+      const command = yield* decodeCreateDepartmentCommand(commandInput);
+      const sql = yield* Database;
+      const digest = organizationCommandDigest(command);
 
-    return yield* sql
-      .withTransaction(
-        Effect.gen(function* () {
-          yield* lockAdvisory(sql, AdvisoryLockKey.organizationCommand(command.commandId));
+      return yield* sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* lockAdvisory(sql, AdvisoryLockKey.organizationCommand(command.commandId));
 
-          const receipt = yield* readReceipt(sql, command.commandId).pipe(
-            Effect.flatMap((stored) => receiptOrConflict(stored, digest, command.commandId)),
-          );
+            const receipt = yield* readReceipt(sql, command.commandId).pipe(
+              Effect.flatMap((stored) => receiptOrConflict(stored, digest, command.commandId)),
+            );
 
-          if (receipt !== undefined)
-            return yield* decodeDepartmentReplay(command.commandId, receipt);
-          const inserted = yield* insertDepartment(sql, command);
+            if (receipt !== undefined)
+              return yield* decodeDepartmentReplay(command.commandId, receipt);
+            const inserted = yield* insertDepartment(sql, command);
 
-          const observation: DepartmentCreatedObservation = DepartmentCreatedObservationSchema.make(
-            { commandId: command.commandId, department: inserted },
-          );
+            const observation: DepartmentCreatedObservation =
+              DepartmentCreatedObservationSchema.make({
+                commandId: command.commandId,
+                department: inserted,
+              });
 
-          yield* storeReceiptAndAudit(
-            sql,
-            command,
-            digest,
-            "Department",
-            inserted.departmentId,
-            administrator.actor,
-            observation,
-          );
-          const selected = yield* readDepartment(sql, inserted.departmentId);
+            yield* storeReceiptAndAudit(
+              sql,
+              command,
+              digest,
+              "Department",
+              inserted.departmentId,
+              administrator.actor,
+              observation,
+            );
+            const selected = yield* readDepartment(sql, inserted.departmentId);
 
-          const department = yield* ensureCanonical(
-            inserted,
-            selected,
-            "validate created Department projection",
-          );
+            const department = yield* ensureCanonical(
+              inserted,
+              selected,
+              "validate created Department projection",
+            );
 
-          return {
-            committed: true as const,
-            observation: { ...observation, department },
-          };
-        }),
-      )
-      .pipe(
-        Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(persistenceError("create Organization Department transaction", cause)),
-        ),
-      );
-  });
+            return {
+              committed: true as const,
+              observation: { ...observation, department },
+            };
+          }),
+        )
+        .pipe(
+          Effect.catchTag("SqlError", (cause) =>
+            Effect.fail(persistenceError("create Organization Department transaction", cause)),
+          ),
+        );
+    }),
+);
 
-export const createOrganizationTeam = (
-  commandInput: CreateTeamCommand,
-  administrator: OrganizationAdministratorEvidence,
-): Effect.Effect<CreateTeamResult, OrganizationCommandFailure, Database> =>
-  Effect.gen(function* () {
-    const command = yield* decodeCreateTeamCommand(commandInput);
-    const sql = yield* Database;
-    const digest = organizationCommandDigest(command);
+export const createOrganizationTeam: {
+  (
+    administrator: OrganizationAdministratorEvidence,
+  ): (
+    commandInput: CreateTeamCommand,
+  ) => Effect.Effect<CreateTeamResult, OrganizationCommandFailure, Database>;
+  (
+    commandInput: CreateTeamCommand,
+    administrator: OrganizationAdministratorEvidence,
+  ): Effect.Effect<CreateTeamResult, OrganizationCommandFailure, Database>;
+} = dual(
+  2,
+  (
+    commandInput: CreateTeamCommand,
+    administrator: OrganizationAdministratorEvidence,
+  ): Effect.Effect<CreateTeamResult, OrganizationCommandFailure, Database> =>
+    Effect.gen(function* () {
+      const command = yield* decodeCreateTeamCommand(commandInput);
+      const sql = yield* Database;
+      const digest = organizationCommandDigest(command);
 
-    return yield* sql
-      .withTransaction(
-        Effect.gen(function* () {
-          yield* lockAdvisory(sql, AdvisoryLockKey.organizationCommand(command.commandId));
+      return yield* sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* lockAdvisory(sql, AdvisoryLockKey.organizationCommand(command.commandId));
 
-          const receipt = yield* readReceipt(sql, command.commandId).pipe(
-            Effect.flatMap((stored) => receiptOrConflict(stored, digest, command.commandId)),
-          );
+            const receipt = yield* readReceipt(sql, command.commandId).pipe(
+              Effect.flatMap((stored) => receiptOrConflict(stored, digest, command.commandId)),
+            );
 
-          if (receipt !== undefined) return yield* decodeTeamReplay(command.commandId, receipt);
-          yield* requireDepartment(sql, command.departmentId);
-          const inserted = yield* insertTeam(sql, command);
+            if (receipt !== undefined) return yield* decodeTeamReplay(command.commandId, receipt);
+            yield* requireDepartment(sql, command.departmentId);
+            const inserted = yield* insertTeam(sql, command);
 
-          const observation: TeamCreatedObservation = TeamCreatedObservationSchema.make({
-            commandId: command.commandId,
-            team: inserted,
-          });
-
-          yield* storeReceiptAndAudit(
-            sql,
-            command,
-            digest,
-            "Team",
-            inserted.teamId,
-            administrator.actor,
-            observation,
-          );
-          const selected = yield* readTeam(sql, inserted.teamId);
-
-          const team = yield* ensureCanonical(
-            inserted,
-            selected,
-            "validate created Team projection",
-          );
-
-          return {
-            committed: true as const,
-            observation: { ...observation, team },
-          };
-        }),
-      )
-      .pipe(
-        Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(persistenceError("create Organization Team transaction", cause)),
-        ),
-      );
-  });
-
-export const createOrganizationFieldOfStudy = (
-  commandInput: CreateFieldOfStudyCommand,
-  administrator: OrganizationAdministratorEvidence,
-): Effect.Effect<CreateFieldOfStudyResult, OrganizationCommandFailure, Database> =>
-  Effect.gen(function* () {
-    const command = yield* decodeCreateFieldOfStudyCommand(commandInput);
-    const sql = yield* Database;
-    const digest = organizationCommandDigest(command);
-
-    return yield* sql
-      .withTransaction(
-        Effect.gen(function* () {
-          yield* lockAdvisory(sql, AdvisoryLockKey.organizationCommand(command.commandId));
-
-          const receipt = yield* readReceipt(sql, command.commandId).pipe(
-            Effect.flatMap((stored) => receiptOrConflict(stored, digest, command.commandId)),
-          );
-
-          if (receipt !== undefined)
-            return yield* decodeFieldOfStudyReplay(command.commandId, receipt);
-
-          if (command.departmentId !== null) yield* requireDepartment(sql, command.departmentId);
-          const inserted = yield* insertFieldOfStudy(sql, command);
-
-          const observation: FieldOfStudyCreatedObservation =
-            FieldOfStudyCreatedObservationSchema.make({
+            const observation: TeamCreatedObservation = TeamCreatedObservationSchema.make({
               commandId: command.commandId,
-              fieldOfStudy: inserted,
+              team: inserted,
             });
 
-          yield* storeReceiptAndAudit(
-            sql,
-            command,
-            digest,
-            "FieldOfStudy",
-            inserted.fieldOfStudyId,
-            administrator.actor,
-            observation,
-          );
-          const selected = yield* readFieldOfStudy(sql, inserted.fieldOfStudyId);
+            yield* storeReceiptAndAudit(
+              sql,
+              command,
+              digest,
+              "Team",
+              inserted.teamId,
+              administrator.actor,
+              observation,
+            );
+            const selected = yield* readTeam(sql, inserted.teamId);
 
-          const fieldOfStudy = yield* ensureCanonical(
-            inserted,
-            selected,
-            "validate created FieldOfStudy projection",
-          );
+            const team = yield* ensureCanonical(
+              inserted,
+              selected,
+              "validate created Team projection",
+            );
 
-          return {
-            committed: true as const,
-            observation: { ...observation, fieldOfStudy },
-          };
-        }),
-      )
-      .pipe(
-        Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(persistenceError("create Organization FieldOfStudy transaction", cause)),
-        ),
-      );
-  });
+            return {
+              committed: true as const,
+              observation: { ...observation, team },
+            };
+          }),
+        )
+        .pipe(
+          Effect.catchTag("SqlError", (cause) =>
+            Effect.fail(persistenceError("create Organization Team transaction", cause)),
+          ),
+        );
+    }),
+);
+
+export const createOrganizationFieldOfStudy: {
+  (
+    administrator: OrganizationAdministratorEvidence,
+  ): (
+    commandInput: CreateFieldOfStudyCommand,
+  ) => Effect.Effect<CreateFieldOfStudyResult, OrganizationCommandFailure, Database>;
+  (
+    commandInput: CreateFieldOfStudyCommand,
+    administrator: OrganizationAdministratorEvidence,
+  ): Effect.Effect<CreateFieldOfStudyResult, OrganizationCommandFailure, Database>;
+} = dual(
+  2,
+  (
+    commandInput: CreateFieldOfStudyCommand,
+    administrator: OrganizationAdministratorEvidence,
+  ): Effect.Effect<CreateFieldOfStudyResult, OrganizationCommandFailure, Database> =>
+    Effect.gen(function* () {
+      const command = yield* decodeCreateFieldOfStudyCommand(commandInput);
+      const sql = yield* Database;
+      const digest = organizationCommandDigest(command);
+
+      return yield* sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* lockAdvisory(sql, AdvisoryLockKey.organizationCommand(command.commandId));
+
+            const receipt = yield* readReceipt(sql, command.commandId).pipe(
+              Effect.flatMap((stored) => receiptOrConflict(stored, digest, command.commandId)),
+            );
+
+            if (receipt !== undefined)
+              return yield* decodeFieldOfStudyReplay(command.commandId, receipt);
+
+            if (command.departmentId !== null) yield* requireDepartment(sql, command.departmentId);
+            const inserted = yield* insertFieldOfStudy(sql, command);
+
+            const observation: FieldOfStudyCreatedObservation =
+              FieldOfStudyCreatedObservationSchema.make({
+                commandId: command.commandId,
+                fieldOfStudy: inserted,
+              });
+
+            yield* storeReceiptAndAudit(
+              sql,
+              command,
+              digest,
+              "FieldOfStudy",
+              inserted.fieldOfStudyId,
+              administrator.actor,
+              observation,
+            );
+            const selected = yield* readFieldOfStudy(sql, inserted.fieldOfStudyId);
+
+            const fieldOfStudy = yield* ensureCanonical(
+              inserted,
+              selected,
+              "validate created FieldOfStudy projection",
+            );
+
+            return {
+              committed: true as const,
+              observation: { ...observation, fieldOfStudy },
+            };
+          }),
+        )
+        .pipe(
+          Effect.catchTag("SqlError", (cause) =>
+            Effect.fail(persistenceError("create Organization FieldOfStudy transaction", cause)),
+          ),
+        );
+    }),
+);

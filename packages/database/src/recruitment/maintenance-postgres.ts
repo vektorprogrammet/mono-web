@@ -1,4 +1,5 @@
 import { DateTime, Effect, Predicate, Schema } from "effect";
+import { dual } from "effect/Function";
 import { SqlSchema } from "effect/unstable/sql";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
@@ -235,7 +236,7 @@ const authorizeWithSql = Effect.fn("Recruitment.authorizeMaintenance")(function*
   yield* lockAdvisory(sql, AdvisoryLockKey.recruitmentInterview(command.interviewId));
 });
 
-export const authorizeMaintenance = (command: RecruitmentMaintenanceCommand, personId: PersonId) =>
+const authorizeMaintenanceImpl = (command: RecruitmentMaintenanceCommand, personId: PersonId) =>
   Effect.gen(function* () {
     const sql = yield* Database;
     const decoded = yield* decodeCommand(command).pipe(Effect.mapError(() => fail("Invalid")));
@@ -244,6 +245,16 @@ export const authorizeMaintenance = (command: RecruitmentMaintenanceCommand, per
     // SAFETY: the one constructor of the evidence brand; authorizeWithSql above is what it proves.
     return { personId, command: decoded } as RecruitmentMaintenanceAuthorization;
   }).pipe(mapFailure);
+
+export const authorizeMaintenance: {
+  (
+    personId: PersonId,
+  ): (command: RecruitmentMaintenanceCommand) => ReturnType<typeof authorizeMaintenanceImpl>;
+  (
+    command: RecruitmentMaintenanceCommand,
+    personId: PersonId,
+  ): ReturnType<typeof authorizeMaintenanceImpl>;
+} = dual(2, authorizeMaintenanceImpl);
 
 export const maintainRecruitment = (authorization: RecruitmentMaintenanceAuthorization) =>
   Effect.gen(function* () {

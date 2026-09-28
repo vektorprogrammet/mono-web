@@ -13,6 +13,7 @@ import {
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
 import { flow, Predicate, Effect, Schema } from "effect";
+import { dual } from "effect/Function";
 import {
   RecruitmentAssignmentObservationSchema,
   RecruitmentAdmissionPeriodNotFound,
@@ -996,73 +997,115 @@ const assignmentInTransaction = (
     )({ observation, replayed: false });
   });
 
-export const readAssignmentBoard = (
-  query: RecruitmentAssignmentBoardQuery,
-  context: RecruitmentReadAssignmentBoardContext,
-): Effect.Effect<
-  RecruitmentAssignmentBoard,
-  RecruitmentFailure,
-  Database | Admissions | Organization | Profile
-> =>
-  Effect.gen(function* () {
-    const decodedContext = yield* decode(
-      RecruitmentActorSchema,
-      "recruitment actor",
-    )(context.actor);
+export const readAssignmentBoard: {
+  (
+    context: RecruitmentReadAssignmentBoardContext,
+  ): (
+    query: RecruitmentAssignmentBoardQuery,
+  ) => Effect.Effect<
+    RecruitmentAssignmentBoard,
+    RecruitmentFailure,
+    Database | Admissions | Organization | Profile
+  >;
+  (
+    query: RecruitmentAssignmentBoardQuery,
+    context: RecruitmentReadAssignmentBoardContext,
+  ): Effect.Effect<
+    RecruitmentAssignmentBoard,
+    RecruitmentFailure,
+    Database | Admissions | Organization | Profile
+  >;
+} = dual(
+  2,
+  (
+    query: RecruitmentAssignmentBoardQuery,
+    context: RecruitmentReadAssignmentBoardContext,
+  ): Effect.Effect<
+    RecruitmentAssignmentBoard,
+    RecruitmentFailure,
+    Database | Admissions | Organization | Profile
+  > =>
+    Effect.gen(function* () {
+      const decodedContext = yield* decode(
+        RecruitmentActorSchema,
+        "recruitment actor",
+      )(context.actor);
 
-    const sql = yield* Database;
-    const admissions = yield* Admissions;
-    const organization = yield* Organization;
-    const profile = yield* Profile;
+      const sql = yield* Database;
+      const admissions = yield* Admissions;
+      const organization = yield* Organization;
+      const profile = yield* Profile;
 
-    return yield* assignmentBoard(
-      query,
-      { actor: decodedContext, now: context.now },
-      sql,
-      admissions,
-      organization,
-      profile,
-    );
-  });
-
-export const assignApplicant = (
-  command: RecruitmentAssignmentCommand,
-  context: RecruitmentAssignmentContext,
-): Effect.Effect<
-  RecruitmentAssignmentResult,
-  RecruitmentFailure,
-  Database | Admissions | Organization | Profile
-> =>
-  Effect.gen(function* () {
-    const decodedCommand = yield* decodeCommand(command);
-
-    const decodedContext = yield* decode(
-      RecruitmentActorSchema,
-      "recruitment actor",
-    )(context.actor);
-
-    const actor = yield* checkContext(decodedContext, context.now, context.interviewId);
-    const sql = yield* Database;
-    const admissions = yield* Admissions;
-    const organization = yield* Organization;
-    const profile = yield* Profile;
-    const digest = sha256Hex(canonicalJsonBytes(decodedCommand));
-
-    return yield* sql
-      .withTransaction(
-        assignmentInTransaction(
-          decodedCommand,
-          { actor, now: context.now, interviewId: context.interviewId },
-          sql,
-          admissions,
-          organization,
-          profile,
-          digest,
-        ),
-      )
-      .pipe(
-        Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(persistenceError("assignment transaction", cause)),
-        ),
+      return yield* assignmentBoard(
+        query,
+        { actor: decodedContext, now: context.now },
+        sql,
+        admissions,
+        organization,
+        profile,
       );
-  });
+    }),
+);
+
+export const assignApplicant: {
+  (
+    context: RecruitmentAssignmentContext,
+  ): (
+    command: RecruitmentAssignmentCommand,
+  ) => Effect.Effect<
+    RecruitmentAssignmentResult,
+    RecruitmentFailure,
+    Database | Admissions | Organization | Profile
+  >;
+  (
+    command: RecruitmentAssignmentCommand,
+    context: RecruitmentAssignmentContext,
+  ): Effect.Effect<
+    RecruitmentAssignmentResult,
+    RecruitmentFailure,
+    Database | Admissions | Organization | Profile
+  >;
+} = dual(
+  2,
+  (
+    command: RecruitmentAssignmentCommand,
+    context: RecruitmentAssignmentContext,
+  ): Effect.Effect<
+    RecruitmentAssignmentResult,
+    RecruitmentFailure,
+    Database | Admissions | Organization | Profile
+  > =>
+    Effect.gen(function* () {
+      const decodedCommand = yield* decodeCommand(command);
+
+      const decodedContext = yield* decode(
+        RecruitmentActorSchema,
+        "recruitment actor",
+      )(context.actor);
+
+      const actor = yield* checkContext(decodedContext, context.now, context.interviewId);
+      const sql = yield* Database;
+      const admissions = yield* Admissions;
+      const organization = yield* Organization;
+      const profile = yield* Profile;
+      const digest = sha256Hex(canonicalJsonBytes(decodedCommand));
+
+      return yield* sql
+        .withTransaction(
+          assignmentInTransaction(
+            decodedCommand,
+            { actor, now: context.now, interviewId: context.interviewId },
+            sql,
+            admissions,
+            organization,
+            profile,
+            digest,
+          ),
+        )
+        .pipe(
+          Effect.catchTag("SqlError", (cause) =>
+            Effect.fail(persistenceError("assignment transaction", cause)),
+          ),
+        );
+    }),
+);

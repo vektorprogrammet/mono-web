@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Data, Effect, FileSystem, flow, Option, Path, Schema } from "effect";
+import { dual } from "effect/Function";
 import type { Pool, PoolClient } from "pg";
 import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { DepartmentId, SemesterId } from "@vektorprogrammet/domain/organization";
@@ -126,11 +127,14 @@ const declaredSnapshotDigest = (snapshot: AssignmentSnapshot): string => {
   return digest(unsignedSnapshot);
 };
 
-export const currentAssignmentPlacementId = (
-  sourceRepository: string,
-  sourceAssignmentId: string,
-): string =>
-  `placement-${digest(["current-assignment-placement", sourceRepository, sourceAssignmentId])}`;
+export const currentAssignmentPlacementId: {
+  (sourceAssignmentId: string): (sourceRepository: string) => string;
+  (sourceRepository: string, sourceAssignmentId: string): string;
+} = dual(
+  2,
+  (sourceRepository: string, sourceAssignmentId: string): string =>
+    `placement-${digest(["current-assignment-placement", sourceRepository, sourceAssignmentId])}`,
+);
 
 const sourceIdOf = flow(
   Schema.decodeUnknownOption(Schema.Struct({ sourceAssignmentId: Schema.String })),

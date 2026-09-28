@@ -1,4 +1,5 @@
 import { Effect, Schema } from "effect";
+import { dual } from "effect/Function";
 import { Database } from "../service.js";
 import type { OrganizationAuthorityInstant } from "@vektorprogrammet/domain/organization";
 import {
@@ -42,24 +43,46 @@ type DirectoryGrantRow = typeof DirectoryGrantRowSchema.Type;
  * an Inactive row rather than an exclusion: the person stays in the result
  * with isActive false.
  */
-export const deriveOrganizationDirectoryFacts = (
-  personIds: ReadonlyArray<PersonId>,
-  authorizationInstant: OrganizationAuthorityInstant,
-): Effect.Effect<
-  OrganizationDirectoryFacts,
-  OrganizationDecodeError | OrganizationPersistenceError,
-  Database
-> =>
-  Effect.gen(function* () {
-    if (personIds.length === 0) return new Map();
+export const deriveOrganizationDirectoryFacts: {
+  (
+    authorizationInstant: OrganizationAuthorityInstant,
+  ): (
+    personIds: ReadonlyArray<PersonId>,
+  ) => Effect.Effect<
+    OrganizationDirectoryFacts,
+    OrganizationDecodeError | OrganizationPersistenceError,
+    Database
+  >;
+  (
+    personIds: ReadonlyArray<PersonId>,
+    authorizationInstant: OrganizationAuthorityInstant,
+  ): Effect.Effect<
+    OrganizationDirectoryFacts,
+    OrganizationDecodeError | OrganizationPersistenceError,
+    Database
+  >;
+} = dual(
+  2,
+  (
+    personIds: ReadonlyArray<PersonId>,
+    authorizationInstant: OrganizationAuthorityInstant,
+  ): Effect.Effect<
+    OrganizationDirectoryFacts,
+    OrganizationDecodeError | OrganizationPersistenceError,
+    Database
+  > =>
+    Effect.gen(function* () {
+      if (personIds.length === 0) return new Map();
 
-    const evaluatedAt = yield* Schema.decodeEffect(OrganizationAuthorityInstantSchema)(
-      authorizationInstant,
-    ).pipe(Effect.mapError((cause) => decodeError("decode Organization directory instant", cause)));
+      const evaluatedAt = yield* Schema.decodeEffect(OrganizationAuthorityInstantSchema)(
+        authorizationInstant,
+      ).pipe(
+        Effect.mapError((cause) => decodeError("decode Organization directory instant", cause)),
+      );
 
-    const sql = yield* Database;
+      const sql = yield* Database;
 
-    const membershipRows = yield* sql<DirectoryMembershipRow>`
+      const membershipRows = yield* sql<DirectoryMembershipRow>`
       SELECT DISTINCT
         membership.person_id AS "personId",
         department.department_id AS "departmentId",
@@ -81,23 +104,23 @@ export const deriveOrganizationDirectoryFacts = (
         ON department.department_id = team.department_id
       WHERE ${sql.in("membership.person_id", personIds)}
     `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(
-          OrganizationPersistenceError.make({
-            operation: "derive Organization directory memberships",
-            message: String(cause),
-          }),
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(
+            OrganizationPersistenceError.make({
+              operation: "derive Organization directory memberships",
+              message: String(cause),
+            }),
+          ),
         ),
-      ),
-    );
+      );
 
-    const decodedMemberships = yield* Schema.decodeEffect(
-      Schema.Array(DirectoryMembershipRowSchema),
-    )(membershipRows, { onExcessProperty: "error" }).pipe(
-      Effect.mapError((cause) => decodeError("decode Organization directory memberships", cause)),
-    );
+      const decodedMemberships = yield* Schema.decodeEffect(
+        Schema.Array(DirectoryMembershipRowSchema),
+      )(membershipRows, { onExcessProperty: "error" }).pipe(
+        Effect.mapError((cause) => decodeError("decode Organization directory memberships", cause)),
+      );
 
-    const grantRows = yield* sql<DirectoryGrantRow>`
+      const grantRows = yield* sql<DirectoryGrantRow>`
       SELECT
         g.person_id AS "personId",
         CASE
@@ -115,28 +138,31 @@ export const deriveOrganizationDirectoryFacts = (
       WHERE ${sql.in("g.person_id", personIds)}
       GROUP BY g.person_id
     `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(
-          OrganizationPersistenceError.make({
-            operation: "derive Organization directory grants",
-            message: String(cause),
-          }),
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(
+            OrganizationPersistenceError.make({
+              operation: "derive Organization directory grants",
+              message: String(cause),
+            }),
+          ),
         ),
-      ),
-    );
+      );
 
-    const decodedGrants = yield* Schema.decodeEffect(Schema.Array(DirectoryGrantRowSchema))(
-      grantRows,
-      { onExcessProperty: "error" },
-    ).pipe(Effect.mapError((cause) => decodeError("decode Organization directory grants", cause)));
+      const decodedGrants = yield* Schema.decodeEffect(Schema.Array(DirectoryGrantRowSchema))(
+        grantRows,
+        { onExcessProperty: "error" },
+      ).pipe(
+        Effect.mapError((cause) => decodeError("decode Organization directory grants", cause)),
+      );
 
-    return accumulateOrganizationDirectoryFacts({
-      personIds,
-      instant: evaluatedAt,
-      memberships: decodedMemberships,
-      grants: decodedGrants,
-    });
-  });
+      return accumulateOrganizationDirectoryFacts({
+        personIds,
+        instant: evaluatedAt,
+        memberships: decodedMemberships,
+        grants: decodedGrants,
+      });
+    }),
+);
 
 const decodeError = (operation: string, cause: unknown) =>
   OrganizationDecodeError.make({ operation, message: String(cause) });

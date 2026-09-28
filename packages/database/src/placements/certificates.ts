@@ -4,6 +4,7 @@
  * placement, a commitment, a decision, an occurrence, or legacy history.
  */
 import { Effect, Option, Predicate, Schema } from "effect";
+import { dual } from "effect/Function";
 import { SqlSchema } from "effect/unstable/sql";
 import { isSqlError } from "effect/unstable/sql/SqlError";
 import { certificateIssuerBasis, reaches, ReachTarget } from "@vektorprogrammet/domain/authz";
@@ -631,8 +632,7 @@ export const readCertificateScopes = (principal: CertificatePrincipal) =>
     }).pipe(Effect.mapError(persistenceFailure("build certificate scopes")));
   });
 
-/** One page of the assistants of a department and semester with their days served. */
-export const readDaysServed = (
+const readDaysServedImpl = (
   principal: CertificatePrincipal,
   scope: PlacementScope,
   cursor?: string,
@@ -672,6 +672,19 @@ export const readDaysServed = (
     };
   });
 
+/** One page of the assistants of a department and semester with their days served. */
+export const readDaysServed: {
+  (
+    scope: PlacementScope,
+    cursor?: string,
+  ): (principal: CertificatePrincipal) => ReturnType<typeof readDaysServedImpl>;
+  (
+    principal: CertificatePrincipal,
+    scope: PlacementScope,
+    cursor?: string,
+  ): ReturnType<typeof readDaysServedImpl>;
+} = dual((args) => Predicate.isObject(args[1]), readDaysServedImpl);
+
 /** Current days-served authority in the department, under the department lock of every command. */
 const authorizeConfirmation = (
   sql: DatabaseOperations,
@@ -705,11 +718,7 @@ const authorizeIssue = (
     return { department, issuer };
   });
 
-/**
- * Resolves the principal's current days-served authority in the scope on the caller's transaction,
- * under the department lock, so a stored response replays only to a current holder.
- */
-export const authorizeDaysServedConfirmation = (
+const authorizeDaysServedConfirmationImpl = (
   principal: CertificatePrincipal,
   scope: PlacementScope,
 ) =>
@@ -726,11 +735,20 @@ export const authorizeDaysServedConfirmation = (
   });
 
 /**
- * Resolves whether the principal currently issues the department's certificates for another
- * person, on the caller's transaction and under the department lock, so a stored response replays
- * only to a current issuer.
+ * Resolves the principal's current days-served authority in the scope on the caller's transaction,
+ * under the department lock, so a stored response replays only to a current holder.
  */
-export const authorizeCertificateIssue = (
+export const authorizeDaysServedConfirmation: {
+  (
+    scope: PlacementScope,
+  ): (principal: CertificatePrincipal) => ReturnType<typeof authorizeDaysServedConfirmationImpl>;
+  (
+    principal: CertificatePrincipal,
+    scope: PlacementScope,
+  ): ReturnType<typeof authorizeDaysServedConfirmationImpl>;
+} = dual(2, authorizeDaysServedConfirmationImpl);
+
+const authorizeCertificateIssueImpl = (
   principal: CertificatePrincipal,
   departmentId: DepartmentId,
   personId: PersonId,
@@ -744,10 +762,23 @@ export const authorizeCertificateIssue = (
   });
 
 /**
- * Appends the next confirmation of one assistant's total under the department lock. The
- * precondition sees the fresh entry; the earlier confirmations and the service facts stay.
+ * Resolves whether the principal currently issues the department's certificates for another
+ * person, on the caller's transaction and under the department lock, so a stored response replays
+ * only to a current issuer.
  */
-export const confirmDaysServed = <E, R>(
+export const authorizeCertificateIssue: {
+  (
+    departmentId: DepartmentId,
+    personId: PersonId,
+  ): (principal: CertificatePrincipal) => ReturnType<typeof authorizeCertificateIssueImpl>;
+  (
+    principal: CertificatePrincipal,
+    departmentId: DepartmentId,
+    personId: PersonId,
+  ): ReturnType<typeof authorizeCertificateIssueImpl>;
+} = dual(3, authorizeCertificateIssueImpl);
+
+const confirmDaysServedImpl = <E, R>(
   authorization: DaysServedConfirmationAuthorization,
   input: Omit<ConfirmDaysServedCommand, "departmentId" | "semesterId">,
   checkPrecondition: (current: DaysServedEntry) => Effect.Effect<void, E, R>,
@@ -790,8 +821,25 @@ export const confirmDaysServed = <E, R>(
     return confirmed.value;
   });
 
-/** One page of the assistants with service facts in a department, for its issuers. */
-export const listCertificates = (
+/**
+ * Appends the next confirmation of one assistant's total under the department lock. The
+ * precondition sees the fresh entry; the earlier confirmations and the service facts stay.
+ */
+export const confirmDaysServed: {
+  <E, R>(
+    input: Omit<ConfirmDaysServedCommand, "departmentId" | "semesterId">,
+    checkPrecondition: (current: DaysServedEntry) => Effect.Effect<void, E, R>,
+  ): (
+    authorization: DaysServedConfirmationAuthorization,
+  ) => ReturnType<typeof confirmDaysServedImpl<E, R>>;
+  <E, R>(
+    authorization: DaysServedConfirmationAuthorization,
+    input: Omit<ConfirmDaysServedCommand, "departmentId" | "semesterId">,
+    checkPrecondition: (current: DaysServedEntry) => Effect.Effect<void, E, R>,
+  ): ReturnType<typeof confirmDaysServedImpl<E, R>>;
+} = dual(3, confirmDaysServedImpl);
+
+const listCertificatesImpl = (
   principal: CertificatePrincipal,
   departmentId: DepartmentId,
   cursor?: string,
@@ -844,8 +892,20 @@ export const listCertificates = (
     return { ...page, items, departmentName: department.name };
   });
 
-/** The certificate that the principal would issue now, and the semesters it leaves out. */
-export const readCertificate = (
+/** One page of the assistants with service facts in a department, for its issuers. */
+export const listCertificates: {
+  (
+    departmentId: DepartmentId,
+    cursor?: string,
+  ): (principal: CertificatePrincipal) => ReturnType<typeof listCertificatesImpl>;
+  (
+    principal: CertificatePrincipal,
+    departmentId: DepartmentId,
+    cursor?: string,
+  ): ReturnType<typeof listCertificatesImpl>;
+} = dual((args) => Predicate.isObject(args[0]), listCertificatesImpl);
+
+const readCertificateImpl = (
   principal: CertificatePrincipal,
   departmentId: DepartmentId,
   personId: PersonId,
@@ -862,11 +922,20 @@ export const readCertificate = (
     return yield* buildPreview(department, personId, issuer);
   });
 
-/**
- * Records one issue of the current certificate under the department lock: who issued it, when,
- * under which seat, and the hash of the content. The precondition sees the fresh preview.
- */
-export const issueCertificate = <E, R>(
+/** The certificate that the principal would issue now, and the semesters it leaves out. */
+export const readCertificate: {
+  (
+    departmentId: DepartmentId,
+    personId: PersonId,
+  ): (principal: CertificatePrincipal) => ReturnType<typeof readCertificateImpl>;
+  (
+    principal: CertificatePrincipal,
+    departmentId: DepartmentId,
+    personId: PersonId,
+  ): ReturnType<typeof readCertificateImpl>;
+} = dual(3, readCertificateImpl);
+
+const issueCertificateImpl = <E, R>(
   authorization: CertificateIssueAuthorization,
   input: Pick<IssueCertificateCommand, "commandId">,
   checkPrecondition: (current: CertificatePreview) => Effect.Effect<void, E, R>,
@@ -911,3 +980,21 @@ export const issueCertificate = <E, R>(
       issuer,
     }).pipe(Effect.mapError(persistenceFailure("decode certificate issue")));
   });
+
+/**
+ * Records one issue of the current certificate under the department lock: who issued it, when,
+ * under which seat, and the hash of the content. The precondition sees the fresh preview.
+ */
+export const issueCertificate: {
+  <E, R>(
+    input: Pick<IssueCertificateCommand, "commandId">,
+    checkPrecondition: (current: CertificatePreview) => Effect.Effect<void, E, R>,
+  ): (
+    authorization: CertificateIssueAuthorization,
+  ) => ReturnType<typeof issueCertificateImpl<E, R>>;
+  <E, R>(
+    authorization: CertificateIssueAuthorization,
+    input: Pick<IssueCertificateCommand, "commandId">,
+    checkPrecondition: (current: CertificatePreview) => Effect.Effect<void, E, R>,
+  ): ReturnType<typeof issueCertificateImpl<E, R>>;
+} = dual(3, issueCertificateImpl);
