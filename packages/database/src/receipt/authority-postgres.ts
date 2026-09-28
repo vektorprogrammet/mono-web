@@ -1,3 +1,4 @@
+import { dual } from "effect/Function";
 import { Match, Predicate, Effect, Schema } from "effect";
 import { Database, type DatabaseOperations } from "../service.js";
 import type {
@@ -233,37 +234,51 @@ const lockAuthorityPerson = (
     Effect.mapError((cause) => persistenceError(cause.operation, cause.message)),
   );
 
-export const lockReceiptPaymentAuthorityForWrite = (
-  sql: DatabaseOperations,
-  paymentAuthorityId: ReceiptPaymentAuthority["paymentAuthorityId"],
-  expectedRevision: number,
-): Effect.Effect<ReceiptPaymentAuthority, ReceiptAuthorityWriteFailure> =>
-  Effect.gen(function* () {
-    const observedRows = yield* sql<ReceiptAuthorityPersonRow>`
+export const lockReceiptPaymentAuthorityForWrite: {
+  (
+    paymentAuthorityId: ReceiptPaymentAuthority["paymentAuthorityId"],
+    expectedRevision: number,
+  ): (
+    sql: DatabaseOperations,
+  ) => Effect.Effect<ReceiptPaymentAuthority, ReceiptAuthorityWriteFailure>;
+  (
+    sql: DatabaseOperations,
+    paymentAuthorityId: ReceiptPaymentAuthority["paymentAuthorityId"],
+    expectedRevision: number,
+  ): Effect.Effect<ReceiptPaymentAuthority, ReceiptAuthorityWriteFailure>;
+} = dual(
+  3,
+  (
+    sql: DatabaseOperations,
+    paymentAuthorityId: ReceiptPaymentAuthority["paymentAuthorityId"],
+    expectedRevision: number,
+  ): Effect.Effect<ReceiptPaymentAuthority, ReceiptAuthorityWriteFailure> =>
+    Effect.gen(function* () {
+      const observedRows = yield* sql<ReceiptAuthorityPersonRow>`
       SELECT person_id AS "personId"
       FROM public.economy_payment_authorities
       WHERE payment_authority_id = ${paymentAuthorityId}
     `;
 
-    const observed = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityPersonRowSchema))(
-      observedRows,
-      { onExcessProperty: "error" },
-    ).pipe(
-      Effect.mapError((cause) => decodeError("decode Receipt payment authority person", cause)),
-    );
+      const observed = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityPersonRowSchema))(
+        observedRows,
+        { onExcessProperty: "error" },
+      ).pipe(
+        Effect.mapError((cause) => decodeError("decode Receipt payment authority person", cause)),
+      );
 
-    const observedPerson = observed[0]?.personId;
+      const observedPerson = observed[0]?.personId;
 
-    if (observedPerson === undefined) {
-      return yield* ReceiptAuthorityRecordNotFound.make({
-        entity: "PaymentAuthority",
-        id: paymentAuthorityId,
-      });
-    }
+      if (observedPerson === undefined) {
+        return yield* ReceiptAuthorityRecordNotFound.make({
+          entity: "PaymentAuthority",
+          id: paymentAuthorityId,
+        });
+      }
 
-    yield* lockAuthorityPerson(sql, observedPerson);
+      yield* lockAuthorityPerson(sql, observedPerson);
 
-    const lockedRows = yield* sql<ReceiptAuthorityDatabaseRow>`
+      const lockedRows = yield* sql<ReceiptAuthorityDatabaseRow>`
       SELECT
         'Payment'::text AS "authorityKind",
         payment_authority_id AS "authorityId",
@@ -283,59 +298,78 @@ export const lockReceiptPaymentAuthorityForWrite = (
       FOR UPDATE
     `;
 
-    const locked = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityDatabaseRowSchema))(
-      lockedRows,
-      { onExcessProperty: "error" },
-    ).pipe(
-      Effect.mapError((cause) => decodeError("decode locked Receipt payment authority", cause)),
-    );
+      const locked = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityDatabaseRowSchema))(
+        lockedRows,
+        { onExcessProperty: "error" },
+      ).pipe(
+        Effect.mapError((cause) => decodeError("decode locked Receipt payment authority", cause)),
+      );
 
-    const row = locked[0];
+      const row = locked[0];
 
-    if (row === undefined || row.personId !== observedPerson || row.revision !== expectedRevision) {
-      return yield* ReceiptAuthorityWriteConflict.make({
-        entity: "PaymentAuthority",
-        id: paymentAuthorityId,
-        expectedRevision,
-      });
-    }
+      if (
+        row === undefined ||
+        row.personId !== observedPerson ||
+        row.revision !== expectedRevision
+      ) {
+        return yield* ReceiptAuthorityWriteConflict.make({
+          entity: "PaymentAuthority",
+          id: paymentAuthorityId,
+          expectedRevision,
+        });
+      }
 
-    return yield* paymentRecord(row);
-  }).pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("lock Receipt payment authority", cause)),
+      return yield* paymentRecord(row);
+    }).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("lock Receipt payment authority", cause)),
+      ),
     ),
-  );
+);
 
-export const lockReceiptApprovalGrantForWrite = (
-  sql: DatabaseOperations,
-  approvalGrantId: ReceiptApprovalGrant["approvalGrantId"],
-  expectedRevision: number,
-): Effect.Effect<ReceiptApprovalGrant, ReceiptAuthorityWriteFailure> =>
-  Effect.gen(function* () {
-    const observedRows = yield* sql<ReceiptAuthorityPersonRow>`
+export const lockReceiptApprovalGrantForWrite: {
+  (
+    approvalGrantId: ReceiptApprovalGrant["approvalGrantId"],
+    expectedRevision: number,
+  ): (sql: DatabaseOperations) => Effect.Effect<ReceiptApprovalGrant, ReceiptAuthorityWriteFailure>;
+  (
+    sql: DatabaseOperations,
+    approvalGrantId: ReceiptApprovalGrant["approvalGrantId"],
+    expectedRevision: number,
+  ): Effect.Effect<ReceiptApprovalGrant, ReceiptAuthorityWriteFailure>;
+} = dual(
+  3,
+  (
+    sql: DatabaseOperations,
+    approvalGrantId: ReceiptApprovalGrant["approvalGrantId"],
+    expectedRevision: number,
+  ): Effect.Effect<ReceiptApprovalGrant, ReceiptAuthorityWriteFailure> =>
+    Effect.gen(function* () {
+      const observedRows = yield* sql<ReceiptAuthorityPersonRow>`
       SELECT person_id AS "personId"
       FROM public.economy_receipt_approval_grants
       WHERE approval_grant_id = ${approvalGrantId}
     `;
 
-    const observed = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityPersonRowSchema))(
-      observedRows,
-      { onExcessProperty: "error" },
-    ).pipe(Effect.mapError((cause) => decodeError("decode Receipt approval grant person", cause)));
+      const observed = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityPersonRowSchema))(
+        observedRows,
+        { onExcessProperty: "error" },
+      ).pipe(
+        Effect.mapError((cause) => decodeError("decode Receipt approval grant person", cause)),
+      );
 
-    const observedPerson = observed[0]?.personId;
+      const observedPerson = observed[0]?.personId;
 
-    if (observedPerson === undefined) {
-      return yield* ReceiptAuthorityRecordNotFound.make({
-        entity: "ApprovalGrant",
-        id: approvalGrantId,
-      });
-    }
+      if (observedPerson === undefined) {
+        return yield* ReceiptAuthorityRecordNotFound.make({
+          entity: "ApprovalGrant",
+          id: approvalGrantId,
+        });
+      }
 
-    yield* lockAuthorityPerson(sql, observedPerson);
+      yield* lockAuthorityPerson(sql, observedPerson);
 
-    const lockedRows = yield* sql<ReceiptAuthorityDatabaseRow>`
+      const lockedRows = yield* sql<ReceiptAuthorityDatabaseRow>`
       SELECT
         'Approval'::text AS "authorityKind",
         approval_grant_id AS "authorityId",
@@ -355,59 +389,80 @@ export const lockReceiptApprovalGrantForWrite = (
       FOR UPDATE
     `;
 
-    const locked = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityDatabaseRowSchema))(
-      lockedRows,
-      { onExcessProperty: "error" },
-    ).pipe(Effect.mapError((cause) => decodeError("decode locked Receipt approval grant", cause)));
+      const locked = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityDatabaseRowSchema))(
+        lockedRows,
+        { onExcessProperty: "error" },
+      ).pipe(
+        Effect.mapError((cause) => decodeError("decode locked Receipt approval grant", cause)),
+      );
 
-    const row = locked[0];
+      const row = locked[0];
 
-    if (row === undefined || row.personId !== observedPerson || row.revision !== expectedRevision) {
-      return yield* ReceiptAuthorityWriteConflict.make({
-        entity: "ApprovalGrant",
-        id: approvalGrantId,
-        expectedRevision,
-      });
-    }
+      if (
+        row === undefined ||
+        row.personId !== observedPerson ||
+        row.revision !== expectedRevision
+      ) {
+        return yield* ReceiptAuthorityWriteConflict.make({
+          entity: "ApprovalGrant",
+          id: approvalGrantId,
+          expectedRevision,
+        });
+      }
 
-    return yield* approvalGrantRecord(row);
-  }).pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("lock Receipt approval grant", cause)),
+      return yield* approvalGrantRecord(row);
+    }).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("lock Receipt approval grant", cause)),
+      ),
     ),
-  );
+);
 
-export const lockReceiptSettlementGrantForWrite = (
-  sql: DatabaseOperations,
-  settlementGrantId: ReceiptSettlementGrant["settlementGrantId"],
-  expectedRevision: number,
-): Effect.Effect<ReceiptSettlementGrant, ReceiptAuthorityWriteFailure> =>
-  Effect.gen(function* () {
-    const observedRows = yield* sql<ReceiptAuthorityPersonRow>`
+export const lockReceiptSettlementGrantForWrite: {
+  (
+    settlementGrantId: ReceiptSettlementGrant["settlementGrantId"],
+    expectedRevision: number,
+  ): (
+    sql: DatabaseOperations,
+  ) => Effect.Effect<ReceiptSettlementGrant, ReceiptAuthorityWriteFailure>;
+  (
+    sql: DatabaseOperations,
+    settlementGrantId: ReceiptSettlementGrant["settlementGrantId"],
+    expectedRevision: number,
+  ): Effect.Effect<ReceiptSettlementGrant, ReceiptAuthorityWriteFailure>;
+} = dual(
+  3,
+  (
+    sql: DatabaseOperations,
+    settlementGrantId: ReceiptSettlementGrant["settlementGrantId"],
+    expectedRevision: number,
+  ): Effect.Effect<ReceiptSettlementGrant, ReceiptAuthorityWriteFailure> =>
+    Effect.gen(function* () {
+      const observedRows = yield* sql<ReceiptAuthorityPersonRow>`
       SELECT person_id AS "personId"
       FROM public.economy_receipt_settlement_grants
       WHERE settlement_grant_id = ${settlementGrantId}
     `;
 
-    const observed = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityPersonRowSchema))(
-      observedRows,
-      { onExcessProperty: "error" },
-    ).pipe(
-      Effect.mapError((cause) => decodeError("decode Receipt settlement grant person", cause)),
-    );
+      const observed = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityPersonRowSchema))(
+        observedRows,
+        { onExcessProperty: "error" },
+      ).pipe(
+        Effect.mapError((cause) => decodeError("decode Receipt settlement grant person", cause)),
+      );
 
-    const observedPerson = observed[0]?.personId;
+      const observedPerson = observed[0]?.personId;
 
-    if (observedPerson === undefined) {
-      return yield* ReceiptAuthorityRecordNotFound.make({
-        entity: "SettlementGrant",
-        id: settlementGrantId,
-      });
-    }
+      if (observedPerson === undefined) {
+        return yield* ReceiptAuthorityRecordNotFound.make({
+          entity: "SettlementGrant",
+          id: settlementGrantId,
+        });
+      }
 
-    yield* lockAuthorityPerson(sql, observedPerson);
+      yield* lockAuthorityPerson(sql, observedPerson);
 
-    const lockedRows = yield* sql<ReceiptAuthorityDatabaseRow>`
+      const lockedRows = yield* sql<ReceiptAuthorityDatabaseRow>`
       SELECT
         'Settlement'::text AS "authorityKind",
         settlement_grant_id AS "authorityId",
@@ -427,29 +482,34 @@ export const lockReceiptSettlementGrantForWrite = (
       FOR UPDATE
     `;
 
-    const locked = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityDatabaseRowSchema))(
-      lockedRows,
-      { onExcessProperty: "error" },
-    ).pipe(
-      Effect.mapError((cause) => decodeError("decode locked Receipt settlement grant", cause)),
-    );
+      const locked = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityDatabaseRowSchema))(
+        lockedRows,
+        { onExcessProperty: "error" },
+      ).pipe(
+        Effect.mapError((cause) => decodeError("decode locked Receipt settlement grant", cause)),
+      );
 
-    const row = locked[0];
+      const row = locked[0];
 
-    if (row === undefined || row.personId !== observedPerson || row.revision !== expectedRevision) {
-      return yield* ReceiptAuthorityWriteConflict.make({
-        entity: "SettlementGrant",
-        id: settlementGrantId,
-        expectedRevision,
-      });
-    }
+      if (
+        row === undefined ||
+        row.personId !== observedPerson ||
+        row.revision !== expectedRevision
+      ) {
+        return yield* ReceiptAuthorityWriteConflict.make({
+          entity: "SettlementGrant",
+          id: settlementGrantId,
+          expectedRevision,
+        });
+      }
 
-    return yield* settlementGrantRecord(row);
-  }).pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("lock Receipt settlement grant", cause)),
+      return yield* settlementGrantRecord(row);
+    }).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("lock Receipt settlement grant", cause)),
+      ),
     ),
-  );
+);
 
 export const createReceiptPaymentAuthority = (
   input: typeof CreateReceiptPaymentAuthorityInputSchema.Encoded,
@@ -937,33 +997,49 @@ export type ReceiptAuthorityRowLockMode = "None" | "ForShare";
  * state-transition SQL client and keep every selected authority row locked
  * until that transaction commits or rolls back.
  */
-export const resolveReceiptAuthorityWithSql = (
-  sql: DatabaseOperations,
-  personId: PersonId,
-  authorizationInstant: OrganizationAuthorityInstant,
-  organizationProjection: OrganizationPersonAuthority,
-  lockMode: ReceiptAuthorityRowLockMode,
-): Effect.Effect<ReceiptAuthority, ReceiptAuthorityResolutionError> =>
-  Effect.gen(function* () {
-    const evaluatedAt = yield* Schema.decodeEffect(ReceiptAuthorityInstantSchema)(
-      authorizationInstant,
-    ).pipe(Effect.mapError((cause) => decodeError("decode Receipt authority instant", cause)));
+export const resolveReceiptAuthorityWithSql: {
+  (
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+    organizationProjection: OrganizationPersonAuthority,
+    lockMode: ReceiptAuthorityRowLockMode,
+  ): (sql: DatabaseOperations) => Effect.Effect<ReceiptAuthority, ReceiptAuthorityResolutionError>;
+  (
+    sql: DatabaseOperations,
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+    organizationProjection: OrganizationPersonAuthority,
+    lockMode: ReceiptAuthorityRowLockMode,
+  ): Effect.Effect<ReceiptAuthority, ReceiptAuthorityResolutionError>;
+} = dual(
+  5,
+  (
+    sql: DatabaseOperations,
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+    organizationProjection: OrganizationPersonAuthority,
+    lockMode: ReceiptAuthorityRowLockMode,
+  ): Effect.Effect<ReceiptAuthority, ReceiptAuthorityResolutionError> =>
+    Effect.gen(function* () {
+      const evaluatedAt = yield* Schema.decodeEffect(ReceiptAuthorityInstantSchema)(
+        authorizationInstant,
+      ).pipe(Effect.mapError((cause) => decodeError("decode Receipt authority instant", cause)));
 
-    if (
-      organizationProjection.personId !== personId ||
-      organizationProjection.evaluatedAt !== evaluatedAt
-    ) {
-      return yield* ReceiptAuthorityProjectionMismatch.make({
-        personId,
-        authorizationInstant: evaluatedAt,
-        organizationPersonId: organizationProjection.personId,
-        organizationEvaluatedAt: organizationProjection.evaluatedAt,
-      });
-    }
+      if (
+        organizationProjection.personId !== personId ||
+        organizationProjection.evaluatedAt !== evaluatedAt
+      ) {
+        return yield* ReceiptAuthorityProjectionMismatch.make({
+          personId,
+          authorizationInstant: evaluatedAt,
+          organizationPersonId: organizationProjection.personId,
+          organizationEvaluatedAt: organizationProjection.evaluatedAt,
+        });
+      }
 
-    const authorityLock = lockMode === "ForShare" ? sql`FOR SHARE` : sql``;
+      const authorityLock = lockMode === "ForShare" ? sql`FOR SHARE` : sql``;
 
-    const selected = yield* sql<ReceiptAuthorityDatabaseRow>`
+      const selected = yield* sql<ReceiptAuthorityDatabaseRow>`
       WITH locked_payment_authorities AS MATERIALIZED (
         SELECT
           payment_authority_id,
@@ -1075,59 +1151,75 @@ export const resolveReceiptAuthorityWithSql = (
         start_at ASC,
         authority_id ASC
     `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("resolve Receipt authority", cause)),
-      ),
-    );
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("resolve Receipt authority", cause)),
+        ),
+      );
 
-    const rows = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityDatabaseRowSchema))(
-      selected,
-      { onExcessProperty: "error" },
-    ).pipe(Effect.mapError((cause) => decodeError("decode Receipt authority rows", cause)));
+      const rows = yield* Schema.decodeEffect(Schema.Array(ReceiptAuthorityDatabaseRowSchema))(
+        selected,
+        { onExcessProperty: "error" },
+      ).pipe(Effect.mapError((cause) => decodeError("decode Receipt authority rows", cause)));
 
-    const paymentAuthorities: Array<ReceiptPaymentAuthority> = [];
-    const approvalGrants: Array<ReceiptApprovalGrant> = [];
-    const settlementGrants: Array<ReceiptSettlementGrant> = [];
+      const paymentAuthorities: Array<ReceiptPaymentAuthority> = [];
+      const approvalGrants: Array<ReceiptApprovalGrant> = [];
+      const settlementGrants: Array<ReceiptSettlementGrant> = [];
 
-    for (const row of rows) {
-      if (row.personId !== personId) {
-        return yield* decodeError(
-          "decode Receipt authority rows",
-          "query returned an authority for another person",
-        );
+      for (const row of rows) {
+        if (row.personId !== personId) {
+          return yield* decodeError(
+            "decode Receipt authority rows",
+            "query returned an authority for another person",
+          );
+        }
+
+        if (row.authorityKind === "Payment") {
+          paymentAuthorities.push(yield* paymentRecord(row));
+        } else if (row.authorityKind === "Approval") {
+          approvalGrants.push(yield* approvalGrantRecord(row));
+        } else {
+          settlementGrants.push(yield* settlementGrantRecord(row));
+        }
       }
 
-      if (row.authorityKind === "Payment") {
-        paymentAuthorities.push(yield* paymentRecord(row));
-      } else if (row.authorityKind === "Approval") {
-        approvalGrants.push(yield* approvalGrantRecord(row));
-      } else {
-        settlementGrants.push(yield* settlementGrantRecord(row));
-      }
-    }
-
-    return projectReceiptAuthority(
-      organizationProjection,
-      paymentAuthorities,
-      approvalGrants,
-      settlementGrants,
-    );
-  });
+      return projectReceiptAuthority(
+        organizationProjection,
+        paymentAuthorities,
+        approvalGrants,
+        settlementGrants,
+      );
+    }),
+);
 
 /** Read projection for a caller-owned repeatable-read, read-only snapshot. */
-export const resolveReceiptAuthorityForRead = (
-  personId: PersonId,
-  authorizationInstant: OrganizationAuthorityInstant,
-  organizationProjection: OrganizationPersonAuthority,
-): Effect.Effect<ReceiptAuthority, ReceiptAuthorityResolutionError, Database> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
+export const resolveReceiptAuthorityForRead: {
+  (
+    authorizationInstant: OrganizationAuthorityInstant,
+    organizationProjection: OrganizationPersonAuthority,
+  ): (
+    personId: PersonId,
+  ) => Effect.Effect<ReceiptAuthority, ReceiptAuthorityResolutionError, Database>;
+  (
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+    organizationProjection: OrganizationPersonAuthority,
+  ): Effect.Effect<ReceiptAuthority, ReceiptAuthorityResolutionError, Database>;
+} = dual(
+  3,
+  (
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+    organizationProjection: OrganizationPersonAuthority,
+  ): Effect.Effect<ReceiptAuthority, ReceiptAuthorityResolutionError, Database> =>
+    Effect.gen(function* () {
+      const sql = yield* Database;
 
-    return yield* resolveReceiptAuthorityWithSql(
-      sql,
-      personId,
-      authorizationInstant,
-      organizationProjection,
-      "None",
-    );
-  });
+      return yield* resolveReceiptAuthorityWithSql(
+        sql,
+        personId,
+        authorizationInstant,
+        organizationProjection,
+        "None",
+      );
+    }),
+);

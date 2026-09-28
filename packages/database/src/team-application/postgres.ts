@@ -1,3 +1,4 @@
+import { dual } from "effect/Function";
 import { randomUUID } from "node:crypto";
 import { DateTime, Effect, flow, Match, Option, Predicate, Schema } from "effect";
 import { SqlSchema } from "effect/unstable/sql";
@@ -419,11 +420,7 @@ const resolveActionActor = (principal: TeamApplicationPrincipal, action: TeamApp
       ),
   });
 
-/**
- * Resolves current authority for one staff action on the caller's transaction, with the row locks
- * a change takes, before a transport replay.
- */
-export const authorizeTeamApplicationAction = <A extends TeamApplicationAction>(
+const authorizeTeamApplicationActionImpl = <A extends TeamApplicationAction>(
   principal: TeamApplicationPrincipal,
   action: A,
 ) =>
@@ -434,6 +431,22 @@ export const authorizeTeamApplicationAction = <A extends TeamApplicationAction>(
         ({ principal, action, actor }) as TeamApplicationAuthorization<A>,
     ),
   );
+
+/**
+ * Resolves current authority for one staff action on the caller's transaction, with the row locks
+ * a change takes, before a transport replay.
+ */
+export const authorizeTeamApplicationAction: {
+  <A extends TeamApplicationAction>(
+    action: A,
+  ): (
+    principal: TeamApplicationPrincipal,
+  ) => ReturnType<typeof authorizeTeamApplicationActionImpl<A>>;
+  <A extends TeamApplicationAction>(
+    principal: TeamApplicationPrincipal,
+    action: A,
+  ): ReturnType<typeof authorizeTeamApplicationActionImpl<A>>;
+} = dual(2, authorizeTeamApplicationActionImpl);
 
 export const readPublicTeamApplicationIntake = (teamId: TeamId) =>
   Effect.gen(function* () {
@@ -538,7 +551,7 @@ export const submitTeamApplication = (command: SubmitTeamApplicationCommand) =>
     return { confirmation, replayed: false };
   });
 
-export const listTeamApplications = (
+const listTeamApplicationsImpl = (
   principal: TeamApplicationPrincipal,
   teamId: TeamId,
   cursor?: string,
@@ -575,7 +588,19 @@ export const listTeamApplications = (
     };
   });
 
-export const readTeamApplication = (
+export const listTeamApplications: {
+  (
+    teamId: TeamId,
+    cursor?: string,
+  ): (principal: TeamApplicationPrincipal) => ReturnType<typeof listTeamApplicationsImpl>;
+  (
+    principal: TeamApplicationPrincipal,
+    teamId: TeamId,
+    cursor?: string,
+  ): ReturnType<typeof listTeamApplicationsImpl>;
+} = dual((args) => Predicate.isObject(args[0]), listTeamApplicationsImpl);
+
+const readTeamApplicationImpl = (
   principal: TeamApplicationPrincipal,
   applicationId: TeamApplicationId,
 ) =>
@@ -594,7 +619,17 @@ export const readTeamApplication = (
     return { application, teamName, actor };
   });
 
-export const deleteTeamApplication = (
+export const readTeamApplication: {
+  (
+    applicationId: TeamApplicationId,
+  ): (principal: TeamApplicationPrincipal) => ReturnType<typeof readTeamApplicationImpl>;
+  (
+    principal: TeamApplicationPrincipal,
+    applicationId: TeamApplicationId,
+  ): ReturnType<typeof readTeamApplicationImpl>;
+} = dual(2, readTeamApplicationImpl);
+
+const deleteTeamApplicationImpl = (
   authorization: TeamApplicationAuthorization<
     Extract<TeamApplicationAction, { readonly _tag: "DeleteTeamApplication" }>
   >,
@@ -657,7 +692,23 @@ export const deleteTeamApplication = (
     });
   });
 
-export const reviseTeamApplicationIntake = <E, R>(
+export const deleteTeamApplication: {
+  (
+    input: Pick<DeleteTeamApplicationCommand, "commandId">,
+  ): (
+    authorization: TeamApplicationAuthorization<
+      Extract<TeamApplicationAction, { readonly _tag: "DeleteTeamApplication" }>
+    >,
+  ) => ReturnType<typeof deleteTeamApplicationImpl>;
+  (
+    authorization: TeamApplicationAuthorization<
+      Extract<TeamApplicationAction, { readonly _tag: "DeleteTeamApplication" }>
+    >,
+    input: Pick<DeleteTeamApplicationCommand, "commandId">,
+  ): ReturnType<typeof deleteTeamApplicationImpl>;
+} = dual(2, deleteTeamApplicationImpl);
+
+const reviseTeamApplicationIntakeImpl = <E, R>(
   authorization: TeamApplicationAuthorization<
     Extract<TeamApplicationAction, { readonly _tag: "ReviseTeamApplicationIntake" }>
   >,
@@ -758,3 +809,21 @@ export const reviseTeamApplicationIntake = <E, R>(
 
     return { teamId: command.teamId, intake, replayed: false };
   });
+
+export const reviseTeamApplicationIntake: {
+  <E, R>(
+    input: Omit<ReviseTeamApplicationIntakeCommand, "teamId">,
+    checkPrecondition: (current: TeamApplicationIntake) => Effect.Effect<void, E, R>,
+  ): (
+    authorization: TeamApplicationAuthorization<
+      Extract<TeamApplicationAction, { readonly _tag: "ReviseTeamApplicationIntake" }>
+    >,
+  ) => ReturnType<typeof reviseTeamApplicationIntakeImpl<E, R>>;
+  <E, R>(
+    authorization: TeamApplicationAuthorization<
+      Extract<TeamApplicationAction, { readonly _tag: "ReviseTeamApplicationIntake" }>
+    >,
+    input: Omit<ReviseTeamApplicationIntakeCommand, "teamId">,
+    checkPrecondition: (current: TeamApplicationIntake) => Effect.Effect<void, E, R>,
+  ): ReturnType<typeof reviseTeamApplicationIntakeImpl<E, R>>;
+} = dual(3, reviseTeamApplicationIntakeImpl);

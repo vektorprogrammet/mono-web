@@ -1,3 +1,4 @@
+import { dual } from "effect/Function";
 import { flow, Predicate, Effect, Schema } from "effect";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
@@ -335,10 +336,22 @@ export const readReturningAssistantOptions = (context: RegistrationContext) =>
     ),
   );
 
-export const preflightReturningAssistantRegistration = (
+const preflightReturningAssistantRegistrationImpl = (
   input: Pick<ReturningAssistantRegistrationInput, "admissionPeriodId" | "teamIds">,
   context: RegistrationContext,
 ) => Database.use((sql) => validateRegistrationEligibility(sql, input, context));
+
+export const preflightReturningAssistantRegistration: {
+  (
+    context: RegistrationContext,
+  ): (
+    input: Pick<ReturningAssistantRegistrationInput, "admissionPeriodId" | "teamIds">,
+  ) => ReturnType<typeof preflightReturningAssistantRegistrationImpl>;
+  (
+    input: Pick<ReturningAssistantRegistrationInput, "admissionPeriodId" | "teamIds">,
+    context: RegistrationContext,
+  ): ReturnType<typeof preflightReturningAssistantRegistrationImpl>;
+} = dual(2, preflightReturningAssistantRegistrationImpl);
 
 const findReceipt = (sql: DatabaseOperations, commandId: string) =>
   sql<ReceiptRow>`SELECT command_sha256, observation_json FROM public.admission_returning_command_receipts WHERE command_id=${commandId} FOR UPDATE`;
@@ -522,7 +535,7 @@ const registerInTransaction = (
     ),
   );
 
-export const registerReturningAssistant = (
+const registerReturningAssistantImpl = (
   input: ReturningAssistantRegistrationInput,
   context: RegistrationContext,
 ) =>
@@ -539,3 +552,15 @@ export const registerReturningAssistant = (
       Effect.fail(fail("returning registration transaction", cause)),
     ),
   );
+
+export const registerReturningAssistant: {
+  (
+    context: RegistrationContext,
+  ): (
+    input: ReturningAssistantRegistrationInput,
+  ) => ReturnType<typeof registerReturningAssistantImpl>;
+  (
+    input: ReturningAssistantRegistrationInput,
+    context: RegistrationContext,
+  ): ReturnType<typeof registerReturningAssistantImpl>;
+} = dual(2, registerReturningAssistantImpl);

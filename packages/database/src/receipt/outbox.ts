@@ -1,3 +1,4 @@
+import { dual } from "effect/Function";
 import { Database } from "../service.js";
 import {
   markOutboxDelivered,
@@ -157,15 +158,28 @@ export const completeReceiptOutbox = (
     ),
   );
 
-export const failReceiptOutbox = (
-  claim: ClaimedReceiptOutbox,
-  failureTag: string,
-): Effect.Effect<void, ReceiptPersistenceError | OutboxClaimLost, Database> =>
-  Database.use((sql) => markOutboxFailed(sql, receiptOutbox, claim, failureTag)).pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("fail Receipt outbox", cause)),
+export const failReceiptOutbox: {
+  (
+    failureTag: string,
+  ): (
+    claim: ClaimedReceiptOutbox,
+  ) => Effect.Effect<void, ReceiptPersistenceError | OutboxClaimLost, Database>;
+  (
+    claim: ClaimedReceiptOutbox,
+    failureTag: string,
+  ): Effect.Effect<void, ReceiptPersistenceError | OutboxClaimLost, Database>;
+} = dual(
+  2,
+  (
+    claim: ClaimedReceiptOutbox,
+    failureTag: string,
+  ): Effect.Effect<void, ReceiptPersistenceError | OutboxClaimLost, Database> =>
+    Database.use((sql) => markOutboxFailed(sql, receiptOutbox, claim, failureTag)).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("fail Receipt outbox", cause)),
+      ),
     ),
-  );
+);
 
 export const listStaleReceiptOutboxClaimIds = (
   claimedBefore: string,
@@ -198,20 +212,31 @@ export const listStaleReceiptOutboxClaimIds = (
     return rows.map((row) => row.claim_id);
   });
 
-export const recoverStaleReceiptOutbox = (
-  claimId: string,
-  claimedBefore: string,
-): Effect.Effect<number, ReceiptPersistenceError, Database> =>
-  Database.use((sql) =>
-    recoverStaleOutboxClaim(sql, receiptOutbox, claimId, claimedBefore, {
-      status: "Failed",
-      failureTag: "StaleReceiptOutboxClaim",
-    }),
-  ).pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("recover stale Receipt outbox", cause)),
+export const recoverStaleReceiptOutbox: {
+  (
+    claimedBefore: string,
+  ): (claimId: string) => Effect.Effect<number, ReceiptPersistenceError, Database>;
+  (
+    claimId: string,
+    claimedBefore: string,
+  ): Effect.Effect<number, ReceiptPersistenceError, Database>;
+} = dual(
+  2,
+  (
+    claimId: string,
+    claimedBefore: string,
+  ): Effect.Effect<number, ReceiptPersistenceError, Database> =>
+    Database.use((sql) =>
+      recoverStaleOutboxClaim(sql, receiptOutbox, claimId, claimedBefore, {
+        status: "Failed",
+        failureTag: "StaleReceiptOutboxClaim",
+      }),
+    ).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("recover stale Receipt outbox", cause)),
+      ),
     ),
-  );
+);
 
 const interpretReceiptOutbox = (
   request: ReceiptOutboxRequest,

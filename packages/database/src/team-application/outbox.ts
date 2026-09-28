@@ -1,3 +1,4 @@
+import { dual } from "effect/Function";
 import {
   Context,
   Data,
@@ -110,8 +111,7 @@ export const TeamApplicationDeliveryQueueLive = (
     }),
   );
 
-/** Stores the envelope and enqueues its effect in the caller's transaction. */
-export const insertTeamApplicationOutbox = (
+const insertTeamApplicationOutboxImpl = (
   notification: TeamApplicationNotification,
   ordinal: number,
   committedAt: string,
@@ -140,6 +140,21 @@ export const insertTeamApplicationOutbox = (
       .offer({ effectId }, { id: effectId })
       .pipe(Effect.mapError(persistenceFailure("enqueue team application notification")));
   });
+
+/** Stores the envelope and enqueues its effect in the caller's transaction. */
+export const insertTeamApplicationOutbox: {
+  (
+    ordinal: number,
+    committedAt: string,
+  ): (
+    notification: TeamApplicationNotification,
+  ) => ReturnType<typeof insertTeamApplicationOutboxImpl>;
+  (
+    notification: TeamApplicationNotification,
+    ordinal: number,
+    committedAt: string,
+  ): ReturnType<typeof insertTeamApplicationOutboxImpl>;
+} = dual(3, insertTeamApplicationOutboxImpl);
 
 /** Deletion stops every undelivered notification of the application and clears its envelope. */
 export const cancelTeamApplicationOutbox = (applicationId: string) =>
@@ -313,14 +328,7 @@ const deliver = (lease: Lease, sender: string, maxAttempts: number) =>
     );
   });
 
-/**
- * Takes the next due notification and attempts it, or returns Idle when none is taken
- * within `idle`. The queue blocks while it is empty, so the first of the attempt and the
- * idle wait to complete `window` decides: an item taken after the wait closed it is
- * released uncounted, as an interruption. Interruption during the provider call also
- * releases the item without counting the attempt.
- */
-export const deliverNextTeamApplicationOutbox = (sender: string, idle: Duration.Duration) =>
+const deliverNextTeamApplicationOutboxImpl = (sender: string, idle: Duration.Duration) =>
   Effect.gen(function* () {
     const { queue, maxAttempts } = yield* TeamApplicationDeliveryQueue;
     const window = yield* Deferred.make<void>();
@@ -353,6 +361,23 @@ export const deliverNextTeamApplicationOutbox = (sender: string, idle: Duration.
 
     return yield* Effect.raceFirst(attempt, idleWait);
   });
+
+/**
+ * Takes the next due notification and attempts it, or returns Idle when none is taken
+ * within `idle`. The queue blocks while it is empty, so the first of the attempt and the
+ * idle wait to complete `window` decides: an item taken after the wait closed it is
+ * released uncounted, as an interruption. Interruption during the provider call also
+ * releases the item without counting the attempt.
+ */
+export const deliverNextTeamApplicationOutbox: {
+  (
+    idle: Duration.Duration,
+  ): (sender: string) => ReturnType<typeof deliverNextTeamApplicationOutboxImpl>;
+  (
+    sender: string,
+    idle: Duration.Duration,
+  ): ReturnType<typeof deliverNextTeamApplicationOutboxImpl>;
+} = dual(2, deliverNextTeamApplicationOutboxImpl);
 
 /** Removes queue items that completed before the retention; their outbox rows stay. */
 export const cleanUpTeamApplicationDeliveryQueue = Effect.gen(function* () {

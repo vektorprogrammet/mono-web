@@ -6,6 +6,7 @@
  * `receiptCursorPage`. The cursor keeps the microsecond precision of PostgreSQL timestamps, which a
  * JavaScript `Date` would lose.
  */
+import { dual } from "effect/Function";
 import {
   receiptPage,
   type ReceiptCursorPosition,
@@ -59,11 +60,14 @@ export type CursorPositioned<A> = A & { readonly cursorTimestamp: string };
  *
  * @construct pagination
  */
-export const receiptCursorTimestamp = (
-  sql: DatabaseOperations,
-  column: Statement.Fragment,
-): Statement.Fragment =>
-  sql`to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorTimestamp"`;
+export const receiptCursorTimestamp: {
+  (column: Statement.Fragment): (sql: DatabaseOperations) => Statement.Fragment;
+  (sql: DatabaseOperations, column: Statement.Fragment): Statement.Fragment;
+} = dual(
+  2,
+  (sql: DatabaseOperations, column: Statement.Fragment): Statement.Fragment =>
+    sql`to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorTimestamp"`,
+);
 
 /**
  * Drops the ordering text from a row before the row leaves the adapter.

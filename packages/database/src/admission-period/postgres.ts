@@ -1,3 +1,4 @@
+import { dual } from "effect/Function";
 import { canonicalJsonValue } from "@vektorprogrammet/domain/shared-kernel";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
@@ -378,134 +379,150 @@ export const decodeAdmissionPeriodCommand = flow(
   Effect.mapError((cause) => AdmissionPeriodDecodeError.make({ message: String(cause) })),
 );
 
-export const executeAdmissionPeriodCommand = (
-  input: AdmissionPeriodCommand,
-  context: AdmissionPeriodCommandContext,
-): Effect.Effect<AdmissionPeriodTransactionResult, AdmissionPeriodFailure, Database> =>
-  Effect.gen(function* () {
-    const command = yield* decodeAdmissionPeriodCommand(input);
-    yield* checkActor(context.actor);
-    yield* checkNow(context.now);
-    const sql = yield* Database;
-    const commandDigest = admissionPeriodCommandDigest(command);
+export const executeAdmissionPeriodCommand: {
+  (
+    context: AdmissionPeriodCommandContext,
+  ): (
+    input: AdmissionPeriodCommand,
+  ) => Effect.Effect<AdmissionPeriodTransactionResult, AdmissionPeriodFailure, Database>;
+  (
+    input: AdmissionPeriodCommand,
+    context: AdmissionPeriodCommandContext,
+  ): Effect.Effect<AdmissionPeriodTransactionResult, AdmissionPeriodFailure, Database>;
+} = dual(
+  2,
+  (
+    input: AdmissionPeriodCommand,
+    context: AdmissionPeriodCommandContext,
+  ): Effect.Effect<AdmissionPeriodTransactionResult, AdmissionPeriodFailure, Database> =>
+    Effect.gen(function* () {
+      const command = yield* decodeAdmissionPeriodCommand(input);
+      yield* checkActor(context.actor);
+      yield* checkNow(context.now);
+      const sql = yield* Database;
+      const commandDigest = admissionPeriodCommandDigest(command);
 
-    return yield* sql
-      .withTransaction(
-        Effect.gen(function* () {
-          yield* lockAdvisory(sql, AdvisoryLockKey.admissionPeriodCommand(command.commandId)).pipe(
-            Effect.catchTag("SqlError", (cause) =>
-              Effect.fail(periodPersistenceError("lock admission command receipt", cause)),
-            ),
-          );
-          const stored = yield* findPeriodCommandReceipt(sql, command.commandId);
-
-          if (stored !== undefined) {
-            if (stored.command_sha256 !== commandDigest) {
-              return yield* DuplicateAdmissionPeriodCommandConflict.make({
-                commandId: command.commandId,
-              });
-            }
-
-            const original = yield* observationFromStored(stored.observation_json);
-
-            if (!actorCanAccessDepartment(context.actor, original.period.departmentId)) {
-              return yield* AdmissionScopeDenied.make({
-                personId: context.actor.personId,
-                departmentId: original.period.departmentId,
-                admissionPeriodId: original.period.id,
-              });
-            }
-
-            return replayPeriodResult(command.commandId, original);
-          }
-
-          let previous: AdmissionPeriod | undefined;
-          let semester: AdmissionSemesterValue | undefined;
-
-          if (Predicate.isTagged(command, "CreateAdmissionPeriod")) {
-            const departmentId = yield* effectiveCreateDepartment(command, context.actor);
+      return yield* sql
+        .withTransaction(
+          Effect.gen(function* () {
             yield* lockAdvisory(
               sql,
-              AdvisoryLockKey.admissionPeriodSemester(departmentId, command.semesterId),
+              AdvisoryLockKey.admissionPeriodCommand(command.commandId),
             ).pipe(
               Effect.catchTag("SqlError", (cause) =>
-                Effect.fail(periodPersistenceError("lock admission department semester", cause)),
+                Effect.fail(periodPersistenceError("lock admission command receipt", cause)),
               ),
             );
+            const stored = yield* findPeriodCommandReceipt(sql, command.commandId);
 
-            if (!(yield* departmentExists(sql, departmentId))) {
-              return yield* DepartmentNotFound.make({ departmentId });
+            if (stored !== undefined) {
+              if (stored.command_sha256 !== commandDigest) {
+                return yield* DuplicateAdmissionPeriodCommandConflict.make({
+                  commandId: command.commandId,
+                });
+              }
+
+              const original = yield* observationFromStored(stored.observation_json);
+
+              if (!actorCanAccessDepartment(context.actor, original.period.departmentId)) {
+                return yield* AdmissionScopeDenied.make({
+                  personId: context.actor.personId,
+                  departmentId: original.period.departmentId,
+                  admissionPeriodId: original.period.id,
+                });
+              }
+
+              return replayPeriodResult(command.commandId, original);
             }
 
-            previous = yield* findPeriodByPairForUpdate(sql, departmentId, command.semesterId);
-            semester = yield* findSemester(sql, command.semesterId);
+            let previous: AdmissionPeriod | undefined;
+            let semester: AdmissionSemesterValue | undefined;
 
-            if (semester === undefined) {
-              return yield* SemesterNotFound.make({ semesterId: command.semesterId });
+            if (Predicate.isTagged(command, "CreateAdmissionPeriod")) {
+              const departmentId = yield* effectiveCreateDepartment(command, context.actor);
+              yield* lockAdvisory(
+                sql,
+                AdvisoryLockKey.admissionPeriodSemester(departmentId, command.semesterId),
+              ).pipe(
+                Effect.catchTag("SqlError", (cause) =>
+                  Effect.fail(periodPersistenceError("lock admission department semester", cause)),
+                ),
+              );
+
+              if (!(yield* departmentExists(sql, departmentId))) {
+                return yield* DepartmentNotFound.make({ departmentId });
+              }
+
+              previous = yield* findPeriodByPairForUpdate(sql, departmentId, command.semesterId);
+              semester = yield* findSemester(sql, command.semesterId);
+
+              if (semester === undefined) {
+                return yield* SemesterNotFound.make({ semesterId: command.semesterId });
+              }
+            } else {
+              previous = yield* findPeriodForUpdate(sql, command.admissionPeriodId);
+
+              if (previous === undefined) {
+                return yield* AdmissionPeriodNotFound.make({
+                  admissionPeriodId: command.admissionPeriodId,
+                });
+              }
+
+              if (!actorCanAccessDepartment(context.actor, previous.departmentId)) {
+                return yield* AdmissionScopeDenied.make({
+                  personId: context.actor.personId,
+                  departmentId: previous.departmentId,
+                  admissionPeriodId: previous.id,
+                });
+              }
+
+              semester = yield* findSemester(sql, previous.semesterId);
+
+              if (semester === undefined) {
+                return yield* SemesterNotFound.make({ semesterId: previous.semesterId });
+              }
             }
-          } else {
-            previous = yield* findPeriodForUpdate(sql, command.admissionPeriodId);
 
-            if (previous === undefined) {
-              return yield* AdmissionPeriodNotFound.make({
-                admissionPeriodId: command.admissionPeriodId,
-              });
-            }
+            const decision = yield* decideAdmissionPeriod(
+              previous,
+              command,
+              contextForActor(context, semester),
+            );
 
-            if (!actorCanAccessDepartment(context.actor, previous.departmentId)) {
-              return yield* AdmissionScopeDenied.make({
-                personId: context.actor.personId,
-                departmentId: previous.departmentId,
-                admissionPeriodId: previous.id,
-              });
-            }
+            yield* writePeriod(sql, decision.period, previous);
+            yield* writePeriodCommandReceipt(
+              sql,
+              command,
+              commandDigest,
+              decision.observation,
+              decision.period,
+              context.now,
+            );
+            yield* writeOutbox(sql, decision.outbox);
+            yield* writeAudit(
+              sql,
+              command,
+              decision.period,
+              context.actor.personId,
+              decision.auditAction,
+              context.now,
+            );
 
-            semester = yield* findSemester(sql, previous.semesterId);
-
-            if (semester === undefined) {
-              return yield* SemesterNotFound.make({ semesterId: previous.semesterId });
-            }
-          }
-
-          const decision = yield* decideAdmissionPeriod(
-            previous,
-            command,
-            contextForActor(context, semester),
-          );
-
-          yield* writePeriod(sql, decision.period, previous);
-          yield* writePeriodCommandReceipt(
-            sql,
-            command,
-            commandDigest,
-            decision.observation,
-            decision.period,
-            context.now,
-          );
-          yield* writeOutbox(sql, decision.outbox);
-          yield* writeAudit(
-            sql,
-            command,
-            decision.period,
-            context.actor.personId,
-            decision.auditAction,
-            context.now,
-          );
-
-          return {
-            period: decision.period,
-            observation: decision.observation,
-            replayed: false,
-            outboxCount: decision.outbox.length,
-          };
-        }),
-      )
-      .pipe(
-        Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(periodPersistenceError("admission period transaction", cause)),
-        ),
-      );
-  });
+            return {
+              period: decision.period,
+              observation: decision.observation,
+              replayed: false,
+              outboxCount: decision.outbox.length,
+            };
+          }),
+        )
+        .pipe(
+          Effect.catchTag("SqlError", (cause) =>
+            Effect.fail(periodPersistenceError("admission period transaction", cause)),
+          ),
+        );
+    }),
+);
 
 const projectionRows = (
   sql: DatabaseOperations,
@@ -580,15 +597,28 @@ export const listOpenAdmissionPeriods = (
     return rows.filter((row) => row.eligible);
   });
 
-export const admissionPeriodProjectionFor = (
-  period: AdmissionPeriod,
-  semester: AdmissionSemesterValue,
-  now: string,
-): AdmissionPeriodProjection =>
-  Struct.assign(period, {
-    eligible:
-      compareRfc3339Instants(semester.startAt, now) <= 0 &&
-      compareRfc3339Instants(now, semester.endAt) < 0 &&
-      compareRfc3339Instants(period.startAt, now) <= 0 &&
-      compareRfc3339Instants(now, period.endAt) < 0,
-  });
+export const admissionPeriodProjectionFor: {
+  (
+    semester: AdmissionSemesterValue,
+    now: string,
+  ): (period: AdmissionPeriod) => AdmissionPeriodProjection;
+  (
+    period: AdmissionPeriod,
+    semester: AdmissionSemesterValue,
+    now: string,
+  ): AdmissionPeriodProjection;
+} = dual(
+  3,
+  (
+    period: AdmissionPeriod,
+    semester: AdmissionSemesterValue,
+    now: string,
+  ): AdmissionPeriodProjection =>
+    Struct.assign(period, {
+      eligible:
+        compareRfc3339Instants(semester.startAt, now) <= 0 &&
+        compareRfc3339Instants(now, semester.endAt) < 0 &&
+        compareRfc3339Instants(period.startAt, now) <= 0 &&
+        compareRfc3339Instants(now, period.endAt) < 0,
+    }),
+);

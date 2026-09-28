@@ -1,3 +1,4 @@
+import { dual } from "effect/Function";
 import { flow, Predicate, Data, Effect, Schema } from "effect";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
@@ -346,42 +347,62 @@ export type ApplicableAuthorizationRules = {
  * transaction, so its advisory and ordered row locks live through commit or
  * rollback.
  */
-export const readApplicableAuthorizationRules = (
-  sql: DatabaseOperations,
-  principalInput: Principal,
-  capabilityIdInput: AuthzCapabilityId,
-  authorizationInstantInput: string,
-  context: CanonicalResourceContext,
-  lockModeInput: AuthzLockMode,
-): Effect.Effect<ApplicableAuthorizationRules, AuthzValidationError | AuthzPersistenceError> =>
-  Effect.gen(function* () {
-    const principal = yield* Schema.decodeEffect(PrincipalSchema)(principalInput, {
-      onExcessProperty: "error",
-    }).pipe(Effect.mapError((cause) => validationError("Principal", cause)));
+export const readApplicableAuthorizationRules: {
+  (
+    principalInput: Principal,
+    capabilityIdInput: AuthzCapabilityId,
+    authorizationInstantInput: string,
+    context: CanonicalResourceContext,
+    lockModeInput: AuthzLockMode,
+  ): (
+    sql: DatabaseOperations,
+  ) => Effect.Effect<ApplicableAuthorizationRules, AuthzValidationError | AuthzPersistenceError>;
+  (
+    sql: DatabaseOperations,
+    principalInput: Principal,
+    capabilityIdInput: AuthzCapabilityId,
+    authorizationInstantInput: string,
+    context: CanonicalResourceContext,
+    lockModeInput: AuthzLockMode,
+  ): Effect.Effect<ApplicableAuthorizationRules, AuthzValidationError | AuthzPersistenceError>;
+} = dual(
+  6,
+  (
+    sql: DatabaseOperations,
+    principalInput: Principal,
+    capabilityIdInput: AuthzCapabilityId,
+    authorizationInstantInput: string,
+    context: CanonicalResourceContext,
+    lockModeInput: AuthzLockMode,
+  ): Effect.Effect<ApplicableAuthorizationRules, AuthzValidationError | AuthzPersistenceError> =>
+    Effect.gen(function* () {
+      const principal = yield* Schema.decodeEffect(PrincipalSchema)(principalInput, {
+        onExcessProperty: "error",
+      }).pipe(Effect.mapError((cause) => validationError("Principal", cause)));
 
-    const personId = Predicate.isTagged(principal, "Person") ? principal.personId : null;
+      const personId = Predicate.isTagged(principal, "Person") ? principal.personId : null;
 
-    const servicePrincipalId = Predicate.isTagged(principal, "ServicePrincipal")
-      ? principal.servicePrincipalId
-      : null;
+      const servicePrincipalId = Predicate.isTagged(principal, "ServicePrincipal")
+        ? principal.servicePrincipalId
+        : null;
 
-    const capabilityId = yield* Schema.decodeEffect(AuthzCapabilityIdSchema)(capabilityIdInput, {
-      onExcessProperty: "error",
-    }).pipe(Effect.mapError((cause) => validationError("AuthzCapabilityId", cause)));
+      const capabilityId = yield* Schema.decodeEffect(AuthzCapabilityIdSchema)(capabilityIdInput, {
+        onExcessProperty: "error",
+      }).pipe(Effect.mapError((cause) => validationError("AuthzCapabilityId", cause)));
 
-    const authorizationInstant = yield* Schema.decodeEffect(Rfc3339InstantSchema)(
-      authorizationInstantInput,
-      { onExcessProperty: "error" },
-    ).pipe(Effect.mapError((cause) => validationError("AuthorizationInstant", cause)));
+      const authorizationInstant = yield* Schema.decodeEffect(Rfc3339InstantSchema)(
+        authorizationInstantInput,
+        { onExcessProperty: "error" },
+      ).pipe(Effect.mapError((cause) => validationError("AuthorizationInstant", cause)));
 
-    const lockMode = yield* Schema.decodeEffect(AuthzLockModeSchema)(lockModeInput, {
-      onExcessProperty: "error",
-    }).pipe(Effect.mapError((cause) => validationError("AuthzLockMode", cause)));
+      const lockMode = yield* Schema.decodeEffect(AuthzLockModeSchema)(lockModeInput, {
+        onExcessProperty: "error",
+      }).pipe(Effect.mapError((cause) => validationError("AuthzLockMode", cause)));
 
-    if (lockMode === "ForShare") yield* acquireAuthorizationLock(sql, "Shared");
-    const assignmentLock = lockMode === "ForShare" ? sql`FOR SHARE` : sql``;
+      if (lockMode === "ForShare") yield* acquireAuthorizationLock(sql, "Shared");
+      const assignmentLock = lockMode === "ForShare" ? sql`FOR SHARE` : sql``;
 
-    const selectedAssignments = yield* sql<AuthzTagAssignment>`
+      const selectedAssignments = yield* sql<AuthzTagAssignment>`
       SELECT
         assignment_id AS "assignmentId",
         tag_id AS "tagId",
@@ -406,20 +427,20 @@ export const readApplicableAuthorizationRules = (
       ORDER BY tag_id ASC, assignment_id ASC
       ${assignmentLock}
     `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("read applicable authorization tag assignments", cause)),
-      ),
-    );
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("read applicable authorization tag assignments", cause)),
+        ),
+      );
 
-    const tagAssignments = yield* Schema.decodeEffect(Schema.Array(AuthzTagAssignmentSchema))(
-      selectedAssignments,
-      { onExcessProperty: "error" },
-    ).pipe(Effect.mapError((cause) => validationError("AuthzTagAssignment", cause)));
+      const tagAssignments = yield* Schema.decodeEffect(Schema.Array(AuthzTagAssignmentSchema))(
+        selectedAssignments,
+        { onExcessProperty: "error" },
+      ).pipe(Effect.mapError((cause) => validationError("AuthzTagAssignment", cause)));
 
-    const ruleLock = lockMode === "ForShare" ? sql`FOR SHARE OF rule` : sql``;
-    const requestedDepartmentId = context.departmentId;
+      const ruleLock = lockMode === "ForShare" ? sql`FOR SHARE OF rule` : sql``;
+      const requestedDepartmentId = context.departmentId;
 
-    const selectedRules = yield* sql<AuthzRuleDatabaseRow>`
+      const selectedRules = yield* sql<AuthzRuleDatabaseRow>`
       SELECT
         rule.rule_id AS "ruleId",
         rule.capability_id AS "capabilityId",
@@ -490,66 +511,94 @@ export const readApplicableAuthorizationRules = (
       ORDER BY rule.rule_id ASC
       ${ruleLock}
     `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("read applicable authorization rules", cause)),
-      ),
-    );
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("read applicable authorization rules", cause)),
+        ),
+      );
 
-    const ruleRows = yield* Schema.decodeEffect(Schema.Array(AuthzRuleDatabaseRowSchema))(
-      selectedRules,
-      { onExcessProperty: "error" },
-    ).pipe(Effect.mapError((cause) => validationError("AuthzRule", cause)));
+      const ruleRows = yield* Schema.decodeEffect(Schema.Array(AuthzRuleDatabaseRowSchema))(
+        selectedRules,
+        { onExcessProperty: "error" },
+      ).pipe(Effect.mapError((cause) => validationError("AuthzRule", cause)));
 
-    const decodedRules: Array<AuthzRule> = [];
+      const decodedRules: Array<AuthzRule> = [];
 
-    for (const row of ruleRows) decodedRules.push(yield* decodeRuleDatabaseRow(row));
+      for (const row of ruleRows) decodedRules.push(yield* decodeRuleDatabaseRow(row));
 
-    const rules = applicableAuthzRules(decodedRules, {
-      principal,
-      authorizationInstant,
-      context,
-      tagAssignments,
-    });
+      const rules = applicableAuthzRules(decodedRules, {
+        principal,
+        authorizationInstant,
+        context,
+        tagAssignments,
+      });
 
-    const referencedTagIds = new Set(
-      rules.flatMap((rule) =>
-        Predicate.isTagged(rule.subject, "Tag") ? [rule.subject.tagId] : [],
-      ),
-    );
+      const referencedTagIds = new Set(
+        rules.flatMap((rule) =>
+          Predicate.isTagged(rule.subject, "Tag") ? [rule.subject.tagId] : [],
+        ),
+      );
 
-    return {
-      rules,
-      tagAssignments: tagAssignments.filter((assignment) => referencedTagIds.has(assignment.tagId)),
-    };
-  });
+      return {
+        rules,
+        tagAssignments: tagAssignments.filter((assignment) =>
+          referencedTagIds.has(assignment.tagId),
+        ),
+      };
+    }),
+);
 
 /**
  * Lock-free ambient snapshot for query paths. This loader always uses `None`;
  * command paths must call `readApplicableAuthorizationRules` with their own
  * transaction-bound SQL and the explicit `ForShare` mode.
  */
-export const loadApplicableAuthorizationRules = (
-  principal: Principal,
-  capabilityId: AuthzCapabilityId,
-  authorizationInstant: string,
-  context: CanonicalResourceContext,
-): Effect.Effect<
-  ApplicableAuthorizationRules,
-  AuthzValidationError | AuthzPersistenceError,
-  Database
-> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
+export const loadApplicableAuthorizationRules: {
+  (
+    capabilityId: AuthzCapabilityId,
+    authorizationInstant: string,
+    context: CanonicalResourceContext,
+  ): (
+    principal: Principal,
+  ) => Effect.Effect<
+    ApplicableAuthorizationRules,
+    AuthzValidationError | AuthzPersistenceError,
+    Database
+  >;
+  (
+    principal: Principal,
+    capabilityId: AuthzCapabilityId,
+    authorizationInstant: string,
+    context: CanonicalResourceContext,
+  ): Effect.Effect<
+    ApplicableAuthorizationRules,
+    AuthzValidationError | AuthzPersistenceError,
+    Database
+  >;
+} = dual(
+  4,
+  (
+    principal: Principal,
+    capabilityId: AuthzCapabilityId,
+    authorizationInstant: string,
+    context: CanonicalResourceContext,
+  ): Effect.Effect<
+    ApplicableAuthorizationRules,
+    AuthzValidationError | AuthzPersistenceError,
+    Database
+  > =>
+    Effect.gen(function* () {
+      const sql = yield* Database;
 
-    return yield* readApplicableAuthorizationRules(
-      sql,
-      principal,
-      capabilityId,
-      authorizationInstant,
-      context,
-      "None",
-    );
-  });
+      return yield* readApplicableAuthorizationRules(
+        sql,
+        principal,
+        capabilityId,
+        authorizationInstant,
+        context,
+        "None",
+      );
+    }),
+);
 
 export const createAuthzRule = flow(
   decodeAuthzRule,

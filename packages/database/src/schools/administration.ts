@@ -1,3 +1,4 @@
+import { dual } from "effect/Function";
 import { DateTime, Effect, Predicate, Schema } from "effect";
 import { SqlSchema } from "effect/unstable/sql";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
@@ -151,7 +152,7 @@ const mapFailure = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     }),
   );
 
-export const authorizeSchoolCommand = (command: SchoolCommand, personId: PersonId) =>
+const authorizeSchoolCommandImpl = (command: SchoolCommand, personId: PersonId) =>
   Effect.gen(function* () {
     const sql = yield* Database;
     const decoded = yield* decodeCommand(command).pipe(Effect.mapError(() => fail("Invalid")));
@@ -160,6 +161,11 @@ export const authorizeSchoolCommand = (command: SchoolCommand, personId: PersonI
     // SAFETY: the one constructor of the evidence brand; authorizeWithSql above is what it proves.
     return { personId, command: decoded, school, departments } as SchoolCommandAuthorization;
   }).pipe(mapFailure);
+
+export const authorizeSchoolCommand: {
+  (personId: PersonId): (command: SchoolCommand) => ReturnType<typeof authorizeSchoolCommandImpl>;
+  (command: SchoolCommand, personId: PersonId): ReturnType<typeof authorizeSchoolCommandImpl>;
+} = dual(2, authorizeSchoolCommandImpl);
 
 export const readSchoolManagement = (personId: PersonId) =>
   Effect.gen(function* () {

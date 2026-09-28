@@ -1,3 +1,4 @@
+import { dual } from "effect/Function";
 import { DateTime, Effect } from "effect";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database } from "../service.js";
@@ -12,7 +13,7 @@ import {
 const fail = (code: OnboardingFailure["code"], status: OnboardingFailure["status"] = 409) =>
   Effect.fail(new OnboardingFailure({ code, status }));
 
-export const onboardingApplication = (applicationId: string, departmentId: DepartmentId) =>
+const onboardingApplicationImpl = (applicationId: string, departmentId: DepartmentId) =>
   Database.use((sql) =>
     Effect.gen(function* () {
       const rows = yield* sql<{
@@ -24,6 +25,13 @@ export const onboardingApplication = (applicationId: string, departmentId: Depar
       return rows[0];
     }),
   );
+
+export const onboardingApplication: {
+  (
+    departmentId: DepartmentId,
+  ): (applicationId: string) => ReturnType<typeof onboardingApplicationImpl>;
+  (applicationId: string, departmentId: DepartmentId): ReturnType<typeof onboardingApplicationImpl>;
+} = dual(2, onboardingApplicationImpl);
 
 export const lockOnboardingApplicant = (applicantId: string) =>
   Database.use(
@@ -137,7 +145,7 @@ export const claimOnboarding = <E, R>(input: {
     ),
   );
 
-export const checkOnboardingClaim = (digest: string, now: string) =>
+const checkOnboardingClaimImpl = (digest: string, now: string) =>
   Database.use((sql) =>
     Effect.gen(function* () {
       const rows =
@@ -146,3 +154,8 @@ export const checkOnboardingClaim = (digest: string, now: string) =>
       if (rows.length === 0) return yield* fail("onboarding.claim-invalid", 400);
     }),
   );
+
+export const checkOnboardingClaim: {
+  (now: string): (digest: string) => ReturnType<typeof checkOnboardingClaimImpl>;
+  (digest: string, now: string): ReturnType<typeof checkOnboardingClaimImpl>;
+} = dual(2, checkOnboardingClaimImpl);

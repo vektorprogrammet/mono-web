@@ -1,3 +1,4 @@
+import { dual } from "effect/Function";
 import { flow, Predicate, Effect, Schema } from "effect";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
@@ -1393,17 +1394,37 @@ const PublishedNewsArticleHttpSourceSchema = Schema.Struct({
 export type PublishedNewsArticleHttpSource = typeof PublishedNewsArticleHttpSourceSchema.Type;
 
 /** Authoritative current-pointer and immutable-version source for news detail. */
-export const readPublishedNewsArticleHttpSourcePostgres = (
-  slug: string,
-  versionNumber?: number,
-): Effect.Effect<
-  PublishedNewsArticleHttpSource,
-  ContentArticleNotFound | ContentDecodeError | ContentPersistenceError,
-  Database
-> =>
-  Database.use((database) =>
-    Effect.gen(function* () {
-      const rows = yield* database`
+export const readPublishedNewsArticleHttpSourcePostgres: {
+  (
+    versionNumber?: number,
+  ): (
+    slug: string,
+  ) => Effect.Effect<
+    PublishedNewsArticleHttpSource,
+    ContentArticleNotFound | ContentDecodeError | ContentPersistenceError,
+    Database
+  >;
+  (
+    slug: string,
+    versionNumber?: number,
+  ): Effect.Effect<
+    PublishedNewsArticleHttpSource,
+    ContentArticleNotFound | ContentDecodeError | ContentPersistenceError,
+    Database
+  >;
+} = dual(
+  (args) => Predicate.isString(args[0]),
+  (
+    slug: string,
+    versionNumber?: number,
+  ): Effect.Effect<
+    PublishedNewsArticleHttpSource,
+    ContentArticleNotFound | ContentDecodeError | ContentPersistenceError,
+    Database
+  > =>
+    Database.use((database) =>
+      Effect.gen(function* () {
+        const rows = yield* database`
         SELECT
           article.article_id::integer AS "articleId",
           article.current_version_number AS "currentVersionNumber",
@@ -1427,19 +1448,20 @@ export const readPublishedNewsArticleHttpSourcePostgres = (
         ORDER BY version.version_number DESC
         LIMIT 1
       `.pipe(
-        Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(persistenceError("read public news HTTP article source", cause)),
-        ),
-      );
+          Effect.catchTag("SqlError", (cause) =>
+            Effect.fail(persistenceError("read public news HTTP article source", cause)),
+          ),
+        );
 
-      const row = rows[0];
+        const row = rows[0];
 
-      if (row === undefined) return yield* ContentArticleNotFound.make({});
+        if (row === undefined) return yield* ContentArticleNotFound.make({});
 
-      return yield* Schema.decodeUnknownEffect(PublishedNewsArticleHttpSourceSchema)(row, {
-        onExcessProperty: "error",
-      }).pipe(
-        Effect.mapError((cause) => decodeError("decode public news HTTP article source", cause)),
-      );
-    }),
-  );
+        return yield* Schema.decodeUnknownEffect(PublishedNewsArticleHttpSourceSchema)(row, {
+          onExcessProperty: "error",
+        }).pipe(
+          Effect.mapError((cause) => decodeError("decode public news HTTP article source", cause)),
+        );
+      }),
+    ),
+);
