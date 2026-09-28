@@ -1,21 +1,23 @@
 import { DataTable } from "@/components/data-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { TeamInterestResponse } from "@vektorprogrammet/rpc";
+import type { TeamInterestResponse } from "@vektorprogrammet/rpc";
 import { useLoaderData } from "react-router";
 import { requireAuth } from "../lib/auth.server";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import type { Route } from "./+types/dashboard.teaminteresse._index";
 
-type TeamInterest = (typeof TeamInterestResponse.Type)["hydra:member"][number];
+type TeamInterest = TeamInterestResponse["hydra:member"][number];
 
 type TeamInterestRow = Pick<TeamInterest, "id" | "userName" | "teamName">;
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
-  const result = await client.organization.listTeamInterest({ query: {} });
 
-  const teamInterest = result.body["hydra:member"].map(({ id, userName, teamName }) => ({
+  const result = await callNative(cookie, request, (client) =>
+    client["organization.listTeamInterest"]({}),
+  );
+
+  const teamInterest = result["hydra:member"].map(({ id, userName, teamName }) => ({
     id,
     userName,
     teamName,

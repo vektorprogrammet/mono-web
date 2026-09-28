@@ -5,9 +5,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useLoaderData } from "react-router";
-import { PeopleDirectoryEntry } from "@vektorprogrammet/rpc";
+import type { PeopleDirectoryEntry } from "@vektorprogrammet/rpc";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import type { Route } from "./+types/dashboard.brukere._index";
 
 export interface BrukerRow {
@@ -21,7 +21,7 @@ export interface BrukerRow {
   readonly departments: string[];
 }
 
-function toRow(entry: typeof PeopleDirectoryEntry.Type): BrukerRow {
+function toRow(entry: PeopleDirectoryEntry): BrukerRow {
   return {
     personId: entry.personId,
     firstName: entry.firstName,
@@ -35,15 +35,14 @@ function toRow(entry: typeof PeopleDirectoryEntry.Type): BrukerRow {
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
 
   try {
-    const result = await client.directory.listPeople({});
+    const result = await callNative(cookie, request, (client) => client["directory.listPeople"]());
 
     return {
       users: {
-        activeUsers: result.body.activePeople.map(toRow),
-        inactiveUsers: result.body.inactivePeople.map(toRow),
+        activeUsers: result.activePeople.map(toRow),
+        inactiveUsers: result.inactivePeople.map(toRow),
       },
     };
   } catch (error) {

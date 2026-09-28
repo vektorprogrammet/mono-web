@@ -2,7 +2,7 @@ import { ContactMessage, isProblem } from "@vektorprogrammet/rpc";
 import { createEffectClient } from "@vektorprogrammet/sdk/effect";
 import { Match, Predicate, Effect, Schema } from "effect";
 import type { ContactMessagePayload, HomepageDepartment } from "./api-types";
-import { createHomepageApiClient } from "./api.server";
+import { callHomepageNative } from "./api.server";
 import {
   CONTACT_BACKEND_HEADER,
   CONTACT_IP_HEADER,
@@ -18,15 +18,11 @@ import {
 
 async function activeDepartments(backendOrigin?: string): Promise<readonly HomepageDepartment[]> {
   try {
-    const result = await createHomepageApiClient(backendOrigin).organization.listDepartments({
-      headers: {},
+    const listed = await callHomepageNative((client) => client["organization.listDepartments"](), {
+      explicitOrigin: backendOrigin,
     });
 
-    if (result.body === undefined) {
-      throw new Error("The conditional department response has no body.");
-    }
-
-    const departments = result.body.filter((department) => department.active);
+    const departments = listed.filter((department) => department.active);
     const slugs = new Set<string>();
 
     for (const department of departments) {

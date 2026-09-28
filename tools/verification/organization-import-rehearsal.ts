@@ -38,13 +38,44 @@ export const SPEC_0067 = {
 } as const;
 
 // The pages that the Chromium journey reads: the team-application chooser and the people directory.
+// Each read is one native RPC; `path` is the HTTP route that the RPC replaced, which the evidence
+// keeps as the name of the read.
 export const NATIVE_BROWSER_JOURNEY_REQUIREMENTS = [
-  { path: "/api/departments", access: "Public", requestSource: "DashboardSsr" },
-  { path: "/api/people", access: "BoundedSession", requestSource: "DashboardSsr" },
-  { path: "/api/profile", access: "BoundedSession", requestSource: "DashboardSsr" },
-  { path: "/api/session", access: "BoundedSession", requestSource: "DashboardSsr" },
-  { path: "/api/teams", access: "Public", requestSource: "DashboardSsr" },
+  {
+    path: "/api/departments",
+    rpc: "organization.listDepartments",
+    access: "Public",
+    requestSource: "DashboardSsr",
+  },
+  {
+    path: "/api/people",
+    rpc: "directory.listPeople",
+    access: "BoundedSession",
+    requestSource: "DashboardSsr",
+  },
+  {
+    path: "/api/profile",
+    rpc: "profile.readOwnProfile",
+    access: "BoundedSession",
+    requestSource: "DashboardSsr",
+  },
+  {
+    path: "/api/session",
+    rpc: "system.readSession",
+    access: "BoundedSession",
+    requestSource: "DashboardSsr",
+  },
+  {
+    path: "/api/teams",
+    rpc: "organization.listTeams",
+    access: "Public",
+    requestSource: "DashboardSsr",
+  },
 ] as const;
+
+/** The journey read that one native RPC tag names, if the journey reads it. */
+export const nativeBrowserJourneyRequirementOfRpc = (tag: string | undefined) =>
+  NATIVE_BROWSER_JOURNEY_REQUIREMENTS.find((requirement) => requirement.rpc === tag);
 
 export const SPEC_0067_PREREQUISITES = {
   persons: [

@@ -20,6 +20,7 @@ import {
 import { makeControlledTestRuntime } from "./controlled-test-runtime.js";
 import {
   NATIVE_BROWSER_JOURNEY_REQUIREMENTS,
+  nativeBrowserJourneyRequirementOfRpc,
   SPEC_0067,
   decodeFrozenOrganizationSnapshot,
   decodeOrganizationImportRehearsalArtifact,
@@ -190,6 +191,11 @@ describe("spec 0067 runtime capability contracts", () => {
     expect(isNativeBrowserJourneyRequestAllowed("GET", "/api/profile/extra")).toBe(false);
     expect(isNativeBrowserJourneyRequestAllowed("POST", "/api/teams")).toBe(false);
     expect(isNativeBrowserJourneyRequestAllowed("GET", "/api/unexpected")).toBe(false);
+    // Each journey read is one native RPC, recorded as the route that it replaced.
+    expect(nativeBrowserJourneyRequirementOfRpc("organization.listTeams")?.path).toBe("/api/teams");
+    expect(nativeBrowserJourneyRequirementOfRpc("directory.listPeople")?.path).toBe("/api/people");
+    expect(nativeBrowserJourneyRequirementOfRpc("organization.createTeam")).toBeUndefined();
+    expect(nativeBrowserJourneyRequirementOfRpc(undefined)).toBeUndefined();
     expect(
       boundedCookieCapabilityFailure({
         cookieName: SPEC_0067.sessionCookieName,
@@ -734,11 +740,15 @@ describe("spec 0067 artifact boundary", () => {
   });
 
   it("enforces exact production evidence and native authority paths", async () => {
-    const nativePathObservations = NATIVE_BROWSER_JOURNEY_REQUIREMENTS.map((requirement) => ({
-      ...requirement,
-      status: 200,
-      sessionCookieAuth: true,
-    }));
+    const nativePathObservations = NATIVE_BROWSER_JOURNEY_REQUIREMENTS.map(
+      ({ path, access, requestSource }) => ({
+        path,
+        access,
+        requestSource,
+        status: 200,
+        sessionCookieAuth: true,
+      }),
+    );
 
     const backendProxyRequests = nativePathObservations.map(
       ({ path, status, sessionCookieAuth, requestSource }) => ({

@@ -1,6 +1,6 @@
 import { ArticleSlug, isProblem } from "@vektorprogrammet/rpc";
 import type { PublishedNewsArticle, PublishedNewsListing } from "./api-types";
-import { createHomepageApiClient } from "./api.server";
+import { callHomepageNative, createHomepageApiClient } from "./api.server";
 import {
   applyDepartmentFilter,
   NEWS_TEASER_COUNT,
@@ -41,18 +41,9 @@ const readListing = async (): Promise<PublishedNewsListing> => {
 };
 
 export const loadNewsListing = async (departmentSlugOrId?: string): Promise<NewsListingData> => {
-  const client = createHomepageApiClient();
-
-  const departments = await client.organization
-    .listDepartments({ headers: {} })
-    .then((result) => {
-      if (result.body === undefined) {
-        throw new Error("The conditional department response has no body.");
-      }
-
-      return result.body;
-    })
-    .catch((): readonly never[] => []);
+  const departments = await callHomepageNative((client) =>
+    client["organization.listDepartments"](),
+  ).catch((): readonly never[] => []);
 
   const { departmentId, degraded } = resolveDepartmentFilter(departments, departmentSlugOrId);
   // One fresh listing read per render; the filter is applied client-side on

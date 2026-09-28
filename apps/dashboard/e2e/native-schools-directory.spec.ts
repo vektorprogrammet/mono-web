@@ -1,8 +1,10 @@
 import AxeBuilder from "@axe-core/playwright";
 import { writeFile } from "node:fs/promises";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
-import { Schema } from "effect";
-import { NativeProblem } from "@vektorprogrammet/rpc";
+import { Option, Schema } from "effect";
+import { DepartmentId } from "@vektorprogrammet/domain";
+import { NativeProblem, nativeRpcPath } from "@vektorprogrammet/rpc";
+import { makeScriptClient } from "@vektorprogrammet/rpc/script";
 import { addressesAnyRoute, legacyRoutes } from "./request-routes.js";
 
 const realNativeIdentity = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
@@ -10,10 +12,44 @@ const realNativeIdentity = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
 const evidencePath = process.env.SCHOOLS_E2E_BROWSER_EVIDENCE_PATH;
 
 const departments = {
-  alpha: "schools-e2e-0061-department-alpha",
-  beta: "schools-e2e-0061-department-beta",
-  empty: "schools-e2e-0061-department-empty",
+  alpha: DepartmentId.make("schools-e2e-0061-department-alpha"),
+  beta: DepartmentId.make("schools-e2e-0061-department-beta"),
+  empty: DepartmentId.make("schools-e2e-0061-department-empty"),
 } as const;
+
+const apiOrigin = process.env.API_URL ?? "http://127.0.0.1:8790";
+
+/** The RPC that the browser read the school directory with. */
+const listSchoolsTag = "directory.listSchools";
+
+/** The native RPC request that one browser request body carries. */
+const RpcRequestBody = Schema.fromJsonString(Schema.Struct({ tag: Schema.String }));
+
+/** The tag of the native RPC that one browser request body carries, if any. */
+const rpcTagOf = (body: string | null): string | undefined =>
+  body === null ? undefined : Option.getOrUndefined(Schema.decodeOption(RpcRequestBody)(body))?.tag;
+
+/** An RPC answer that ends its request with one declared problem. */
+const RpcProblemAnswer = Schema.fromJsonString(
+  Schema.Tuple([
+    Schema.Struct({
+      exit: Schema.Struct({ cause: Schema.Tuple([Schema.Struct({ error: NativeProblem })]) }),
+    }),
+  ]),
+);
+
+/** The problem that one RPC answer failed with, decoded with the contract schema. */
+const rpcProblemOf = (answer: string) => {
+  const [
+    {
+      exit: {
+        cause: [{ error }],
+      },
+    },
+  ] = Schema.decodeSync(RpcProblemAnswer)(answer);
+
+  return error;
+};
 
 const persons = {
   administrator: {
@@ -42,6 +78,7 @@ type BrowserRequest = {
   readonly method: string;
   readonly pathname: string;
   readonly search: string;
+  readonly rpcTag?: string | undefined;
 };
 
 type BrowserResponse = BrowserRequest & { readonly status: number };
@@ -55,7 +92,12 @@ const openContext = async (
   const context = await browser.newContext();
   context.on("request", (request) => {
     const url = new URL(request.url());
-    browserRequests.push({ method: request.method(), pathname: url.pathname, search: url.search });
+    browserRequests.push({
+      method: request.method(),
+      pathname: url.pathname,
+      search: url.search,
+      rpcTag: rpcTagOf(request.postData()),
+    });
   });
   context.on("response", (response) => {
     const url = new URL(response.url());
@@ -63,6 +105,7 @@ const openContext = async (
       method: response.request().method(),
       pathname: url.pathname,
       search: url.search,
+      rpcTag: rpcTagOf(response.request().postData()),
       status: response.status(),
     });
   });
@@ -112,6 +155,7 @@ test.describe("Native Schools directory (spec 0061)", () => {
 
   test("proves the authority matrix, Foldkit interactions, retry, and request confinement", async ({
     browser,
+    baseURL,
   }) => {
     const browserRequests: BrowserRequest[] = [];
     const browserResponses: BrowserResponse[] = [];
@@ -188,17 +232,20 @@ test.describe("Native Schools directory (spec 0061)", () => {
         administrator.page.getByRole("rowheader", { name: "Historisk Internasjonal" }),
       ).toBeVisible();
 
-      const emptyDepartment = await administrator.page.evaluate(async (departmentId) => {
-        const response = await fetch(
-          `/api/schools?department=${encodeURIComponent(departmentId)}`,
-          {
-            credentials: "same-origin",
-            headers: { accept: "application/json" },
-          },
-        );
+      const native = makeScriptClient(apiOrigin);
 
-        return { status: response.status, body: await response.json() };
-      }, departments.empty);
+      const emptyDepartment = await native
+        .call(
+          {
+            cookie: (await administrator.context.cookies())
+              .map(({ name, value }) => `${name}=${value}`)
+              .join("; "),
+            origin: new URL(baseURL ?? administrator.page.url()).origin,
+          },
+          (client) => client[listSchoolsTag]({ departmentId: departments.empty }),
+        )
+        .finally(() => native.dispose())
+        .then((result) => ({ status: result.status, body: result.ok ? result.value : result.code }));
 
       expect(emptyDepartment).toEqual({
         status: 200,
@@ -261,13 +308,15 @@ test.describe("Native Schools directory (spec 0061)", () => {
         contexts.push(denied.context);
 
         const rejection = denied.page.waitForResponse(
-          (response) => new URL(response.url()).pathname === "/api/schools",
+          (response) =>
+            new URL(response.url()).pathname === nativeRpcPath &&
+            rpcTagOf(response.request().postData()) === listSchoolsTag,
         );
 
         await signIn(denied.page, person, "/dashboard/skoler");
         const response = await rejection;
-        expect(response.status()).toBe(403);
-        const failure = Schema.decodeUnknownSync(NativeProblem)(await response.json());
+        const failure = rpcProblemOf(await response.text());
+        expect(failure.status).toBe(403);
         expect(failure.code).toBe("authority.denied");
         await expect(denied.page).toHaveURL(/\/dashboard\/skoler$/);
         await assertDirectoryShell(denied.page);
@@ -277,14 +326,17 @@ test.describe("Native Schools directory (spec 0061)", () => {
           denied.page.getByRole("alert").getByText(person.email, { exact: true }),
         ).toHaveCount(0);
         observations[name] = {
-          status: response.status(),
+          status: failure.status,
           tag: failure.code,
           renderedAt: "/dashboard/skoler",
         };
       }
 
       const directoryRequests = browserRequests.filter(
-        (request) => request.method === "GET" && request.pathname === "/api/schools",
+        (request) =>
+          request.method === "POST" &&
+          request.pathname === nativeRpcPath &&
+          request.rpcTag === listSchoolsTag,
       );
 
       expect(
@@ -300,10 +352,11 @@ test.describe("Native Schools directory (spec 0061)", () => {
         passed: true,
         browser: "Chromium",
         realSessionCookie: true,
-        browserPath: "/api/schools",
+        browserPath: nativeRpcPath,
+        rpcTag: listSchoolsTag,
         directoryRequests,
         directoryResponses: browserResponses.filter(
-          (response) => response.pathname === "/api/schools",
+          (response) => response.pathname === nativeRpcPath && response.rpcTag === listSchoolsTag,
         ),
         observations,
         pageErrors,

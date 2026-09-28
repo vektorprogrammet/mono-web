@@ -1,3 +1,4 @@
+import { makeScriptClient } from "@vektorprogrammet/rpc/script";
 import { expect, test, type Page } from "@playwright/test";
 
 const nativeIdentityMode = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
@@ -69,17 +70,25 @@ test.describe("Native team-interest journey (spec 0059)", () => {
     await expect(page.getByRole("cell", { name: "Sondre Soker", exact: true })).toHaveCount(0);
   });
 
-  test("native endpoint orders rows by registration id and gates anonymous callers", async ({
-    request,
-  }) => {
+  test("native RPC gates anonymous callers", async ({ baseURL }) => {
     test.skip(!nativeIdentityMode, "requires the real native identity topology");
 
-    const anonymous = await request.get(`${apiOrigin}/api/team-interest-registrations`);
-    expect(anonymous.status()).toBe(401);
-    expect(await anonymous.json()).toMatchObject({
-      status: 401,
-      code: "credential.missing",
-      type: "urn:vektorprogrammet:problem:v0.2:credential.missing",
-    });
+    const native = makeScriptClient(apiOrigin);
+
+    try {
+      const anonymous = await native.call(
+        { origin: new URL(baseURL ?? apiOrigin).origin },
+        (client) => client["organization.listTeamInterest"]({}),
+      );
+
+      expect(anonymous.status).toBe(401);
+      expect(!anonymous.ok && "problem" in anonymous ? anonymous.problem : undefined).toMatchObject({
+        status: 401,
+        code: "credential.missing",
+        type: "urn:vektorprogrammet:problem:v0.2:credential.missing",
+      });
+    } finally {
+      await native.dispose();
+    }
   });
 });
