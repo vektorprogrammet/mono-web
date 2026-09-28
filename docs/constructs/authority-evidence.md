@@ -63,7 +63,7 @@ requireOrganizationAdministrator(
 - Errors: `OrganizationRoleDenied`
 - Requirements: none
 - Side effects: none
-- Source: [packages/domain/src/organization/authority.ts:263](../../packages/domain/src/organization/authority.ts#L263)
+- Source: [packages/domain/src/organization/authority.ts:271](../../packages/domain/src/organization/authority.ts#L271)
 
 **How it works**
 
@@ -84,3 +84,44 @@ yield* organization.createDepartment(command, administrator);
 Passing an `OrganizationActor` to a create command, or checking its tag at the call site:
 any module can build an actor, so the command could not trust it. Resolve the authority and
 require the evidence here.
+
+## `requireTeamInterestScope`
+
+Checks what team interest a resolved authority may read, narrowed to one requested department, and returns the scope that the listing requires.
+
+```ts
+requireTeamInterestScope(
+  authority: OrganizationPersonAuthority,
+  input: { readonly requested: DepartmentId | undefined; readonly departments: ReadonlyArray<DepartmentId> }
+): Result.Result<TeamInterestReadScope, TeamInterestScopeDenied>
+```
+
+- Inputs:
+  - `authority: OrganizationPersonAuthority`
+  - `input: { readonly requested: DepartmentId | undefined; readonly departments: ReadonlyArray<DepartmentId> }`
+- Output: `Result.Result<TeamInterestReadScope, TeamInterestScopeDenied>`
+- Errors: `TeamInterestScopeDenied`
+- Requirements: none
+- Side effects: none
+- Source: [packages/domain/src/organization/authority.ts:366](../../packages/domain/src/organization/authority.ts#L366)
+
+**How it works**
+
+It is the only constructor of `TeamInterestReadScope`. A reach over the organization
+reads every department in `departments`, also while there is none; a department reach reads
+that department; a team leader's reach reads the team where no department reach covers it. A
+person with no reach, or with none in the requested department or its teams, is denied.
+
+**Use**
+
+```ts
+const scope = yield* Effect.fromResult(
+  requireTeamInterestScope(authority, { requested, departments }),
+);
+yield* organization.listTeamInterestRegistrations(scope, semesterId);
+```
+
+**Avoid**
+
+Computing the departments and teams in a handler and passing them to the listing as a
+filter: the listing then reads whatever scope a caller names. Require the scope here.

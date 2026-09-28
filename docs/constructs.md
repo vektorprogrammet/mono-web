@@ -20,6 +20,7 @@ Tag a construct only when at least 2 modules outside its own module and the test
 - [authority-evidence](constructs/authority-evidence.md): Checks a resolved authority and returns the evidence that a command which needs that authority takes; nothing else constructs it.
   - [`requireDepartmentReach`](constructs/authority-evidence.md#requiredepartmentreach): Checks that a resolved authority reaches one department with a capability, and returns the evidence that a department-scoped command requires.
   - [`requireOrganizationAdministrator`](constructs/authority-evidence.md#requireorganizationadministrator): Checks that a resolved authority holds active global administration, and returns the evidence that the Organization administration commands require.
+  - [`requireTeamInterestScope`](constructs/authority-evidence.md#requireteaminterestscope): Checks what team interest a resolved authority may read, narrowed to one requested department, and returns the scope that the listing requires.
 - [http-problem](constructs/http-problem.md): Answers a native HTTP request with a declared problem: failure mapping, credential classification, authorization, and decoding.
   - [`authorizeAdmissionPerson`](constructs/http-problem.md#authorizeadmissionperson): Evaluates one admission person AccessSpec.
   - [`returningAuthorization`](constructs/http-problem.md#returningauthorization): Resolves the current person and authorizes one returning-assistant operation on that person's own profile.

@@ -42,7 +42,9 @@ import {
   OrganizationCommandId,
   OrganizationPersonAuthoritySchema,
   requireOrganizationAdministrator,
+  requireTeamInterestScope,
 } from "@vektorprogrammet/domain/organization";
+import { activeAdministratorAuthority } from "@vektorprogrammet/domain/organization/authority-fixtures";
 import {
   RecruitmentAssignmentObservationSchema,
   RecruitmentScheduleObservationSchema,
@@ -93,7 +95,7 @@ import {
   listStaleReceiptOutboxClaimIds,
   recoverStaleReceiptOutbox,
 } from "./receipt/outbox.js";
-import { Context, Match, Predicate, Effect, FileSystem, Layer, Path } from "effect";
+import { Context, Match, Predicate, Effect, FileSystem, Layer, Path, Result } from "effect";
 import { DatabaseTestLive, TestPlatform } from "./test-support/platform.js";
 import {
   databaseMigrationDefinitions,
@@ -4084,17 +4086,27 @@ describe("DatabaseTest", () => {
             )
         `;
 
-            const authorizedRows = yield* listOrganizationTeamInterestRegistrations({
-              authorizedDepartmentIds: [departmentA, departmentB],
-              authorizedTeamIds: [],
-            });
+            // An organization-wide reader, narrowed to one department for the filtered read.
+            const reader = activeAdministratorAuthority("team-interest-scope-reader");
 
-            const filteredRows = yield* listOrganizationTeamInterestRegistrations({
-              authorizedDepartmentIds: [departmentA, departmentB],
-              authorizedTeamIds: [],
-              departmentId: departmentB,
-              semesterId: SemesterId.make("semester-scope"),
-            });
+            const authorizedRows = yield* listOrganizationTeamInterestRegistrations(
+              Result.getOrThrow(
+                requireTeamInterestScope(reader, {
+                  requested: undefined,
+                  departments: [departmentA, departmentB],
+                }),
+              ),
+            );
+
+            const filteredRows = yield* listOrganizationTeamInterestRegistrations(
+              Result.getOrThrow(
+                requireTeamInterestScope(reader, {
+                  requested: departmentB,
+                  departments: [departmentA, departmentB],
+                }),
+              ),
+              SemesterId.make("semester-scope"),
+            );
 
             return { authorizedRows, filteredRows };
           });

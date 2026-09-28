@@ -26,6 +26,7 @@ import type {
 } from "./administration-schema.js";
 import type {
   OrganizationAdministratorEvidence,
+  TeamInterestReadScope,
   OrganizationAuthorityInstant,
   OrganizationPersonAuthority,
 } from "./authority.js";
@@ -64,13 +65,6 @@ import type { Profile } from "../profile/service.js";
  * Spec 0059 read filter: the authorized scope is explicit input (0055). A registration is in
  * scope when its department or its team is authorized.
  */
-export interface TeamInterestFilter {
-  readonly authorizedDepartmentIds: ReadonlyArray<DepartmentId>;
-  readonly authorizedTeamIds: ReadonlyArray<TeamId>;
-  readonly departmentId?: DepartmentId;
-  readonly semesterId?: SemesterId;
-}
-
 export type OrganizationListFailure = OrganizationDecodeError | OrganizationPersistenceError;
 
 export type OrganizationReadError =
@@ -129,8 +123,10 @@ export interface OrganizationOperations {
    * registration_id ASC. No authorization happens here; no narrowing may
    * exceed the authorized set.
    */
+  /** The registrations inside the reader's scope, optionally of one semester. */
   readonly listTeamInterestRegistrations: (
-    filter: TeamInterestFilter,
+    scope: TeamInterestReadScope,
+    semesterId?: SemesterId,
   ) => Effect.Effect<
     ReadonlyArray<TeamInterestRegistration>,
     OrganizationDecodeError | OrganizationPersistenceError

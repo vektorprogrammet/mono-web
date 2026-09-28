@@ -4,6 +4,8 @@ import { Arbitrary } from "effect/unstable/arbitrary";
 import { admissionOutcomePermission } from "../admissions/outcome.js";
 import {
   mapOrganizationAuthorityToDepartmentActor,
+  requireTeamInterestScope,
+  type TeamInterestReadScope,
   OrganizationAuthorityBoardSeatSchema,
   OrganizationAuthorityMembershipSchema,
   OrganizationGlobalAdministratorStatusSchema,
@@ -12,6 +14,7 @@ import {
 import { spec0055OrganizationAuthorityFixtures } from "../organization/authority-fixtures.test-support.js";
 import { DepartmentId, TeamId } from "../organization/schema.js";
 import { canManagePlacements } from "../placements/policy.js";
+import type { OrganizationOperations } from "../organization/service.js";
 import type { PlacementExecution } from "../placements/service.js";
 import type { AdmissionsOperations } from "../admissions/service.js";
 import {
@@ -25,6 +28,9 @@ import {
 import {
   type DepartmentReach,
   DepartmentReachDenied,
+  ReachedDepartments,
+  reachedDepartments,
+  reachedTeams,
   reaches,
   ReachTarget,
   requireDepartmentReach,
@@ -200,6 +206,62 @@ it.prop(
   propertyOptions,
 );
 
+const requested = Arbitrary.map(
+  Arbitrary.schema(Schema.Literals(["none", ...departments])),
+  (id) => (id === "none" ? undefined : DepartmentId.make(id)),
+);
+
+it.prop(
+  "requireTeamInterestScope reads only what team-interest.read reaches, inside the requested department",
+  { authority, requested },
+  ({ authority, requested }) => {
+    const known = departments.map((id) => DepartmentId.make(id));
+    const result = requireTeamInterestScope(authority, { requested, departments: known });
+    const reached = reachedDepartments(authority, "team-interest.read");
+    const readable = ReachedDepartments.$is("All")(reached) ? known : reached.departmentIds;
+    const teams = reachedTeams(authority, "team-interest.read");
+
+    // A reached team is read in the department of the person's appointment to it.
+    const teamDepartments = teams.flatMap((teamId) => {
+      const membership = authority.memberships.find((entry) => entry.teamId === teamId);
+
+      return membership === undefined ? [] : [membership.departmentId];
+    });
+
+    const organizationWide = ReachedDepartments.$is("All")(reached);
+
+    const readableHere =
+      requested === undefined
+        ? organizationWide || readable.length > 0 || teamDepartments.length > 0
+        : readable.includes(requested) || teamDepartments.includes(requested);
+
+    expect(Result.isSuccess(result)).toBe(readableHere);
+
+    if (Result.isFailure(result)) {
+      expect(result.failure.personId).toBe(authority.personId);
+
+      return;
+    }
+
+    const scope = result.success;
+    expect(scope.personId).toBe(authority.personId);
+
+    for (const departmentId of scope.departmentIds) {
+      expect(readable).toContain(departmentId);
+
+      if (requested !== undefined) expect(departmentId).toBe(requested);
+    }
+
+    for (const team of scope.teams) {
+      expect(teams).toContain(team.teamId);
+      expect(scope.departmentIds).not.toContain(team.departmentId);
+
+      if (requested !== undefined) expect(team.departmentId).toBe(requested);
+    }
+  },
+  propertyOptions,
+);
+
 it("requireDepartmentReach evidence is the only way to satisfy a department-scoped command", () => {
   type OutcomeDecider = Parameters<AdmissionsOperations["recordAdmissionOutcome"]>[0]["decider"];
 
@@ -217,6 +279,16 @@ it("requireDepartmentReach evidence is the only way to satisfy a department-scop
   }>().not.toExtend<OutcomeDecider>();
   expectTypeOf<DepartmentReach<"placements.coordinate">>().not.toExtend<OutcomeDecider>();
   expectTypeOf<DepartmentReach<"admissions.outcomes">>().not.toExtend<Coordinator>();
+
+  // A handler-built filter is not a team-interest scope.
+  expectTypeOf<{
+    readonly personId: TeamInterestReadScope["personId"];
+    readonly departmentIds: TeamInterestReadScope["departmentIds"];
+    readonly teams: TeamInterestReadScope["teams"];
+  }>().not.toExtend<TeamInterestReadScope>();
+  expectTypeOf<
+    Parameters<OrganizationOperations["listTeamInterestRegistrations"]>[0]
+  >().toEqualTypeOf<TeamInterestReadScope>();
 
   // A board or coverage-board change cannot run on a person's own actor id.
   expectTypeOf<{

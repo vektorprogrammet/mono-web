@@ -85,6 +85,7 @@ Responsibilities:
 The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../../../docs/constructs.md) indexes them all.
 
 - [`requireOrganizationAdministrator`](../../../../docs/constructs/authority-evidence.md#requireorganizationadministrator) (authority-evidence): Checks that a resolved authority holds active global administration, and returns the evidence that the Organization administration commands require.
+- [`requireTeamInterestScope`](../../../../docs/constructs/authority-evidence.md#requireteaminterestscope) (authority-evidence): Checks what team interest a resolved authority may read, narrowed to one requested department, and returns the scope that the listing requires.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

@@ -1,4 +1,4 @@
-import { Result, Schema } from "effect";
+import { Data, Result, Schema } from "effect";
 import {
   type AdmissionPeriodActor,
   AdmissionPeriodActorSchema,
@@ -10,7 +10,15 @@ import {
   TeamScope,
   UnitKind,
 } from "../authz/delegation.js";
-import { holdsDepartmentReach, leadsAnyTeam, reaches, ReachTarget } from "../authz/reach.js";
+import {
+  holdsDepartmentReach,
+  leadsAnyTeam,
+  ReachedDepartments,
+  reachedDepartments,
+  reachedTeams,
+  reaches,
+  ReachTarget,
+} from "../authz/reach.js";
 import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
 import {
   OrganizationMemberSchema,
@@ -308,4 +316,101 @@ export const mapOrganizationAuthorityToProfileRole = (
       ? "NotInScope"
       : "AuthorityInactive",
   );
+};
+
+/** Type-only brand. Only {@link requireTeamInterestScope} builds this evidence. */
+declare const TeamInterestReadScopeBrand: unique symbol;
+
+/**
+ * The registrations that a person may read now: whole departments that `team-interest.read`
+ * reaches, and the teams that it reaches outside them. The listing reads nothing else.
+ */
+export interface TeamInterestReadScope {
+  readonly [TeamInterestReadScopeBrand]: "TeamInterestReadScope";
+  readonly personId: PersonId;
+  readonly departmentIds: ReadonlyArray<DepartmentId>;
+  readonly teams: ReadonlyArray<{ readonly teamId: TeamId; readonly departmentId: DepartmentId }>;
+}
+
+/** The person reads no team interest, or none in the requested department. */
+export class TeamInterestScopeDenied extends Data.TaggedError("TeamInterestScopeDenied")<{
+  readonly personId: PersonId;
+  readonly departmentId: DepartmentId | undefined;
+}> {}
+
+/**
+ * Checks what team interest a resolved authority may read, narrowed to one requested department,
+ * and returns the scope that the listing requires.
+ *
+ * @remarks
+ * It is the only constructor of {@link TeamInterestReadScope}. A reach over the organization
+ * reads every department in `departments`, also while there is none; a department reach reads
+ * that department; a team leader's reach reads the team where no department reach covers it. A
+ * person with no reach, or with none in the requested department or its teams, is denied.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * const scope = yield* Effect.fromResult(
+ *   requireTeamInterestScope(authority, { requested, departments }),
+ * );
+ * yield* organization.listTeamInterestRegistrations(scope, semesterId);
+ * ```
+ *
+ * @avoid Computing the departments and teams in a handler and passing them to the listing as a
+ * filter: the listing then reads whatever scope a caller names. Require the scope here.
+ *
+ * @construct authority-evidence
+ */
+export const requireTeamInterestScope = (
+  /** The person's authority, resolved from current facts at the request's instant. */
+  authority: OrganizationPersonAuthority,
+  input: {
+    /** The department the request names, if any. */
+    readonly requested: DepartmentId | undefined;
+    /** Every current department, which an organization-wide reach reads. */
+    readonly departments: ReadonlyArray<DepartmentId>;
+  },
+): /** The readable scope, or the typed denial. */
+Result.Result<TeamInterestReadScope, TeamInterestScopeDenied> => {
+  const reached = reachedDepartments(authority, "team-interest.read");
+  const organizationWide = ReachedDepartments.$is("All")(reached);
+  const departmentScope = organizationWide ? input.departments : reached.departmentIds;
+
+  const teamScope = reachedTeams(authority, "team-interest.read").flatMap((teamId) => {
+    const membership = authority.memberships.find((entry) => entry.teamId === teamId);
+
+    return membership === undefined ? [] : [{ teamId, departmentId: membership.departmentId }];
+  });
+
+  const denied = new TeamInterestScopeDenied({
+    personId: authority.personId,
+    departmentId: input.requested,
+  });
+
+  if (!organizationWide && departmentScope.length === 0 && teamScope.length === 0)
+    return Result.fail(denied);
+
+  const teams: TeamInterestReadScope["teams"] = teamScope.filter(
+    (team) =>
+      (input.requested === undefined || team.departmentId === input.requested) &&
+      !departmentScope.includes(team.departmentId),
+  );
+
+  const departmentIds =
+    input.requested === undefined
+      ? departmentScope
+      : departmentScope.includes(input.requested)
+        ? [input.requested]
+        : teams.length > 0
+          ? []
+          : undefined;
+
+  return departmentIds === undefined
+    ? Result.fail(denied)
+    : Result.succeed(
+        // SAFETY: the one constructor of the evidence brand; the scope above is what it proves.
+        { personId: authority.personId, departmentIds, teams } as TeamInterestReadScope,
+      );
 };

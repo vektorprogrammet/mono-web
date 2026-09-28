@@ -2,7 +2,6 @@ import type { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-pe
 import {
   reachedDepartments,
   ReachedDepartments,
-  reachedTeams,
   ResourceId,
   ResourceKind,
   Scope,
@@ -21,6 +20,7 @@ import {
   OrganizationCommandId,
   OrganizationLifecycleCommand,
   mapOrganizationAuthorityToOrganizationActor,
+  requireTeamInterestScope,
   requireOrganizationAdministrator,
   SemesterId,
   type TeamId,
@@ -28,7 +28,6 @@ import {
   type OrganizationCommandFailure,
   type OrganizationLifecycleFailure,
   type OrganizationPersonAuthority,
-  type TeamInterestFilter,
 } from "@vektorprogrammet/domain/organization";
 import type { Identity, IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import type { ProfileFailure } from "@vektorprogrammet/domain/profile";
@@ -796,57 +795,34 @@ const listTeamInterest = (request: Request, input: OrganizationApiHttpOptions) =
   return Effect.gen(function* () {
     const authority = yield* input.resolveAuthority(request);
     const requested = yield* optionalQueryIdentity(request, "department", DepartmentId);
+    const departments = yield* Organization.use(({ listDepartments }) => listDepartments);
+
     // An authenticated caller without team-interest reach receives a typed denial, never an
     // empty success (spec 0059 authorization boundary). A team's current leader reads the
     // registrations of that team; department reach reads the whole department.
-    const scope = yield* authorizedDepartmentScope(authority, "team-interest.read");
-    const departmentScope = scope.departmentIds;
-
-    const teamScope = reachedTeams(authority, "team-interest.read").flatMap((teamId) => {
-      const membership = authority.memberships.find((entry) => entry.teamId === teamId);
-
-      return membership === undefined ? [] : [{ teamId, departmentId: membership.departmentId }];
-    });
-
-    if (!scope.organizationWide && departmentScope.length === 0 && teamScope.length === 0) {
-      return yield* Problem.make("authority.denied");
-    }
-
-    const authorizedTeams = teamScope.filter(
-      (team) =>
-        (requested === undefined || team.departmentId === requested) &&
-        !departmentScope.includes(team.departmentId),
-    );
-
-    const authorized =
-      requested === undefined
-        ? departmentScope
-        : departmentScope.includes(requested)
-          ? [requested]
-          : authorizedTeams.length > 0
-            ? []
-            : yield* Problem.make("authority.denied");
+    const scope = yield* Effect.fromResult(
+      requireTeamInterestScope(authority, {
+        requested,
+        departments: departments.map((department) => department.departmentId),
+      }),
+    ).pipe(Effect.mapError(() => Problem.make("authority.denied")));
 
     yield* authorizeOrganizationCollection({
       request,
       authority,
       endpoint: ListTeamInterestEndpoint,
-      departmentIds: authorized,
-      teams: authorizedTeams,
+      departmentIds: scope.departmentIds,
+      teams: scope.teams,
       presentation,
     });
 
     // Unknown department reference denies with 422 before any data leaves the store.
     if (requested !== undefined) yield* assertDepartmentsExist([requested]);
 
-    const filter: TeamInterestFilter = {
-      authorizedDepartmentIds: authorized,
-      authorizedTeamIds: authorizedTeams.map(({ teamId }) => teamId),
-      semesterId: yield* optionalQueryIdentity(request, "semester", SemesterId),
-    };
+    const semesterId = yield* optionalQueryIdentity(request, "semester", SemesterId);
 
     const rows = yield* Organization.use(({ listTeamInterestRegistrations }) =>
-      listTeamInterestRegistrations(filter),
+      listTeamInterestRegistrations(scope, semesterId),
     );
 
     return yield* privateReadJson(TeamInterestResponse)({

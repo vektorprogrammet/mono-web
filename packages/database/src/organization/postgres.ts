@@ -25,7 +25,7 @@ import {
   type DepartmentId,
   type TeamId,
 } from "@vektorprogrammet/domain/organization";
-import type { TeamInterestFilter } from "@vektorprogrammet/domain/organization";
+import type { SemesterId, TeamInterestReadScope } from "@vektorprogrammet/domain/organization";
 import {
   importLegacyOrganizationEffect,
   type LegacyOrganizationSnapshot,
@@ -600,40 +600,37 @@ const decodeTeamInterestRegistration = flow(
   ),
 );
 
-const teamInterestScopeClause = (database: DatabaseOperations, filter: TeamInterestFilter) =>
+const teamInterestScopeClause = (database: DatabaseOperations, scope: TeamInterestReadScope) =>
   Statement.or([
-    ...filter.authorizedDepartmentIds.map(
+    ...scope.departmentIds.map(
       (departmentId) => database`registration.department_id = ${departmentId}`,
     ),
-    ...filter.authorizedTeamIds.map((teamId) => database`registration.team_id = ${teamId}`),
+    ...scope.teams.map(({ teamId }) => database`registration.team_id = ${teamId}`),
   ]);
 
 const teamInterestPredicate = (
   database: DatabaseOperations,
-  filter: TeamInterestFilter,
+  scope: TeamInterestReadScope,
+  semesterId: SemesterId | undefined,
 ): Statement.Fragment => {
-  const clauses: Array<Statement.Fragment> = [teamInterestScopeClause(database, filter)];
+  const clauses: Array<Statement.Fragment> = [teamInterestScopeClause(database, scope)];
 
-  if (filter.semesterId !== undefined) {
-    clauses.push(database`registration.semester_id = ${filter.semesterId}`);
-  }
-
-  if (filter.departmentId !== undefined) {
-    clauses.push(database`registration.department_id = ${filter.departmentId}`);
+  if (semesterId !== undefined) {
+    clauses.push(database`registration.semester_id = ${semesterId}`);
   }
 
   return Statement.and(clauses);
 };
 
 export const listOrganizationTeamInterestRegistrations = (
-  filter: TeamInterestFilter,
+  scope: TeamInterestReadScope,
+  semesterId?: SemesterId,
 ): Effect.Effect<
   ReadonlyArray<TeamInterestRegistration>,
   OrganizationDecodeError | OrganizationPersistenceError,
   Database
 > => {
-  if (filter.authorizedDepartmentIds.length === 0 && filter.authorizedTeamIds.length === 0)
-    return Effect.succeed([]);
+  if (scope.departmentIds.length === 0 && scope.teams.length === 0) return Effect.succeed([]);
 
   return Effect.gen(function* () {
     const database = yield* Database;
@@ -653,7 +650,7 @@ export const listOrganizationTeamInterestRegistrations = (
       FROM public.organization_team_interest_registrations AS registration
       INNER JOIN organization_teams AS team
         ON team.team_id = registration.team_id
-      WHERE ${teamInterestPredicate(database, filter)}
+      WHERE ${teamInterestPredicate(database, scope, semesterId)}
       ORDER BY registration.registration_id ASC
     `.pipe(
       Effect.catchTag("SqlError", (cause) =>
