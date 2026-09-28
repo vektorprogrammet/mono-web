@@ -584,7 +584,10 @@ try {
               client["receipts.listReceipts"]({}),
             );
 
-            assert.ok(list.ok, `listReceipts answered ${list.status}`);
+            assert.ok(
+              list.ok,
+              `listReceipts answered ${list.status}: ${list.ok ? "" : "defect" in list ? list.defect : list.code}`,
+            );
             const item = list.value.items.find((i) => i.receiptId === result.receipt.receiptId);
             assert.ok(item);
             assert.equal(item.amountOre, result.receipt.amountOre);
