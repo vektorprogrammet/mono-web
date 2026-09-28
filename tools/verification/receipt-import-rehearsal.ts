@@ -699,7 +699,6 @@ try {
   );
 
   assert.equal(invalidBearer.status, 401);
-  await native.dispose();
   const stable = await snapshot();
 
   const fileDigest = async () => {
@@ -744,6 +743,9 @@ try {
     tamper.receipt.receiptId,
   ]);
   assert.equal(await reconcile(tamper), true);
+  // Every reconciliation reads the owner projection through the script client, so it lives until
+  // the last one; a disposed client fails each read, which a tamper check would count as detection.
+  await native.dispose();
   await observeNoEffects();
   const authorityTables = ["economy_payment_authorities", "economy_receipt_approval_grants"];
   const current = await snapshot();
