@@ -2,6 +2,7 @@ import { BlockList, isIP } from "node:net";
 import { databaseHealth, type AuthEngineService } from "@vektorprogrammet/database";
 import { CONTACT_BACKEND_HEADER, CONTACT_IP_HEADER } from "@vektorprogrammet/domain/contact";
 import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
+import { RECEIPT_FILE_MAX_BYTES } from "@vektorprogrammet/domain/receipt";
 import {
   InternalNativeRpcs,
   internalNativeRpcPath,
@@ -30,6 +31,7 @@ import { RecruitmentRpcHandlers } from "./recruitment/rpc.js";
 import { nativeRpcCredentialLayer } from "./rpc/credential.js";
 import type { NativeRpcOptions } from "./rpc/options.js";
 import { ProblemBoundaryLive } from "./rpc/problem.js";
+import { readBoundedJson } from "./rpc/read-json.js";
 import { SystemRpcHandlers } from "./rpc/system.js";
 import {
   allowsNativePreflightHeaders,
@@ -44,7 +46,8 @@ import { TeamApplicationsRpcHandlers } from "./team-application/rpc.js";
 
 /**
  * Renders one problem at the HTTP ingress, outside any RPC: an origin denial, a method outside a
- * path's methods, an unknown path, and an unavailable health check.
+ * path's methods, an unknown path, an unavailable health check, and an RPC body that is too large
+ * or not JSON.
  */
 const problemWebResponse = (problem: Problem): Response =>
   new Response(JSON.stringify(problemBody(problem)), {
@@ -100,18 +103,12 @@ const RpcRequestMessage = Schema.StructWithRest(
 
 const decodeRpcRequestMessage = Schema.decodeUnknownOption(RpcRequestMessage);
 
-const RpcJsonBody = Schema.fromJsonString(Schema.Json);
-
 /**
- * Keeps only the caller message headers of every RPC request message in a JSON body, so the
- * handlers see every other header from the HTTP request alone. A body that is not JSON passes
+ * Keeps only the caller message headers of every RPC request message, so the handlers see every
+ * other header from the HTTP request alone. A value that is not a request message passes
  * unchanged: the RPC server rejects it.
  */
-export const restrictRpcMessageHeaders = (body: string): string => {
-  const decoded = Schema.decodeOption(RpcJsonBody)(body);
-
-  if (Option.isNone(decoded)) return body;
-
+const restrictRpcMessageHeaders = (body: Schema.Json): Schema.Json => {
   const restrict = (message: Schema.Json): Schema.Json =>
     Option.match(decodeRpcRequestMessage(message), {
       onNone: () => message,
@@ -121,19 +118,28 @@ export const restrictRpcMessageHeaders = (body: string): string => {
       }),
     });
 
-  const value = decoded.value;
-
-  return JSON.stringify(Array.isArray(value) ? value.map(restrict) : restrict(value));
+  return Array.isArray(body) ? body.map(restrict) : restrict(body);
 };
+
+/**
+ * The largest RPC request body the ingress reads: a receipt file at its size bound, as the base64
+ * text that JSON serialization carries, plus 1 MiB for the rest of the message.
+ */
+export const nativeRpcMaxBodyBytes = Math.ceil((RECEIPT_FILE_MAX_BYTES * 4) / 3) + 1024 * 1024;
 
 const isInternalRpcPath = (pathname: string): boolean =>
   pathname === internalNativeRpcPath || pathname === `${internalNativeRpcPath}/`;
 
-/** The RPC request with its message headers restricted; any other request unchanged. */
+/**
+ * The RPC request, read within `nativeRpcMaxBodyBytes`, parsed without duplicate members, and with
+ * its message headers restricted; any other request unchanged. A body over the bound is
+ * request.too-large and one that is not JSON, or repeats a member, request.malformed: two parsers
+ * could disagree on which of two members wins, so the ingress admits neither reading.
+ */
 const restrictedNativeRequest = (request: Request, pathname: string) =>
   request.method !== "POST" || !(isNativeRpcPath(pathname) || isInternalRpcPath(pathname))
     ? Effect.succeed(request)
-    : Effect.promise(() => request.text()).pipe(
+    : readBoundedJson(request, nativeRpcMaxBodyBytes).pipe(
         Effect.map((body) => {
           const headers = new Headers(request.headers);
 
@@ -142,10 +148,32 @@ const restrictedNativeRequest = (request: Request, pathname: string) =>
           return new Request(request.url, {
             method: request.method,
             headers,
-            body: restrictRpcMessageHeaders(body),
+            body: JSON.stringify(restrictRpcMessageHeaders(body)),
           });
         }),
       );
+
+/**
+ * Serves one native request: the RPC endpoint, the health probe, or a not-found answer. No answer
+ * is stored by a cache, because an RPC answer is private to its caller, and an ingress problem is
+ * rendered before any handler runs.
+ */
+const serveNative = (nativeHandler: BackendHttpHandler, request: Request, pathname: string) =>
+  restrictedNativeRequest(request, pathname).pipe(
+    Effect.flatMap(nativeHandler),
+    Effect.catch((problem) => Effect.succeed(problemWebResponse(problem))),
+    Effect.map((response) => {
+      const headers = new Headers(response.headers);
+
+      headers.set("cache-control", "private, no-store");
+
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
+    }),
+  );
 
 /**
  * Answers one web request. A failure is either rendered as a response or dies, and the server
@@ -497,7 +525,7 @@ export const backendHttpHandler: {
         const response =
           pathname === "/api/auth/" || pathname.startsWith("/api/auth/")
             ? yield* authHandler.handler(prepared.request, prepared.context)
-            : yield* nativeHandler(yield* restrictedNativeRequest(prepared.request, pathname));
+            : yield* serveNative(nativeHandler, prepared.request, pathname);
 
         return withTrustedOriginCors(response, acceptedOrigin);
       }).pipe(Effect.orDie),
@@ -551,7 +579,7 @@ export const internalBackendHttpHandler: {
           return yield* authHandler.oauthIntrospectionHandler(prepared.request, prepared.context);
         }
 
-        return yield* nativeHandler(yield* restrictedNativeRequest(prepared.request, pathname));
+        return yield* serveNative(nativeHandler, prepared.request, pathname);
       }).pipe(Effect.orDie);
   },
 );

@@ -6,7 +6,7 @@ import { SemesterId } from "@vektorprogrammet/domain";
 import { Effect, Layer, Schema } from "effect";
 import { RpcClient } from "effect/unstable/rpc";
 import { backendTestConfig } from "../../test/config.js";
-import { backendHttpHandler } from "../router.js";
+import { backendHttpHandler, nativeRpcMaxBodyBytes } from "../router.js";
 import { makeBackendTestRpc, testAuthHandler } from "../test/native-rpc.js";
 
 // The identity engine rejects every session, as it does a forged or expired one.
@@ -80,6 +80,71 @@ it.effect("an RPC from an untrusted origin answers origin.denied before any hand
 
     expect(response.status).toBe(403);
     expect(yield* Effect.promise(() => response.json())).toMatchObject({ code: "origin.denied" });
+  }),
+);
+
+// Node requires `duplex` for a stream body.
+const streamingInit = { duplex: "half" } as const;
+
+const rpcPost = (body: string | ReadableStream<Uint8Array>) =>
+  new Request("http://native-rpc.test/api/rpc", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body,
+    ...streamingInit,
+  });
+
+it.effect("an RPC answer is never stored by a cache", () =>
+  Effect.gen(function* () {
+    const response = yield* backend.fetch(
+      rpcPost(
+        '[{"_tag":"Request","id":"1","tag":"social-events.readScope","payload":null,"headers":[]}]',
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("vary")).toContain("Origin");
+  }),
+);
+
+it.effect("the ingress refuses an RPC body over its bound while reading it", () =>
+  Effect.gen(function* () {
+    const chunk = new Uint8Array(1024 * 1024).fill(0x20);
+    let sent = 0;
+
+    // A stream without Content-Length that would never end: the bound, not the stream, stops it.
+    const endless = new ReadableStream<Uint8Array>({
+      pull: (controller) => {
+        sent += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+    });
+
+    const response = yield* backend.fetch(rpcPost(endless));
+
+    expect(response.status).toBe(413);
+    expect(yield* Effect.promise(() => response.json())).toMatchObject({
+      code: "request.too-large",
+    });
+    expect(sent).toBeLessThanOrEqual(nativeRpcMaxBodyBytes + 2 * chunk.byteLength);
+  }),
+);
+
+it.effect("the ingress refuses an RPC body with a duplicate JSON member", () =>
+  Effect.gen(function* () {
+    // Two parsers could disagree on which `tag` wins; the ingress admits neither reading.
+    const response = yield* backend.fetch(
+      rpcPost(
+        '[{"_tag":"Request","id":"1","tag":"social-events.readScope",' +
+          '"tag":"social-events.create","payload":null,"headers":[]}]',
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    expect(yield* Effect.promise(() => response.json())).toMatchObject({
+      code: "request.malformed",
+    });
   }),
 );
 
