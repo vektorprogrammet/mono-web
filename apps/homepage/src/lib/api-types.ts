@@ -1,8 +1,5 @@
 import {
-  ListTeamApplicationIntakesEndpoint,
-  ReadTeamApplicationIntakeEndpoint,
   SubmitContactMessageEndpoint,
-  SubmitTeamApplicationEndpoint,
 } from "@vektorprogrammet/rpc";
 import type {
   DepartmentJson,
@@ -11,8 +8,12 @@ import type {
 } from "@vektorprogrammet/rpc";
 import type {
   NewsArticleQuery,
+  PublicTeamApplicationIntake,
   PublishedNewsArticle as PublishedNewsArticleType,
   PublishedNewsListing as PublishedNewsListingType,
+  TeamApplicationConfirmation,
+  TeamApplicationInput,
+  TeamApplicationIntakeListItem,
 } from "@vektorprogrammet/rpc";
 import type { HttpApiEndpoint, HttpApiSchema } from "effect/unstable/httpapi";
 
@@ -46,12 +47,10 @@ export type NewsArticleSlug = NewsArticleQuery["slug"];
 
 export type HomepageTeam = TeamJson;
 
-export type HomepageTeamIntake = EndpointBody<typeof ListTeamApplicationIntakesEndpoint>[number];
+export type HomepageTeamIntake = TeamApplicationIntakeListItem;
 
-export type HomepageTeamApplicationIntake = EndpointBody<typeof ReadTeamApplicationIntakeEndpoint>;
+export type HomepageTeamApplicationIntake = PublicTeamApplicationIntake;
 
-export type TeamApplicationPayload = HttpApiEndpoint.Payload<
-  typeof SubmitTeamApplicationEndpoint
->["Type"];
+export type TeamApplicationPayload = TeamApplicationInput;
 
-export type SubmittedTeamApplication = EndpointBody<typeof SubmitTeamApplicationEndpoint>;
+export type SubmittedTeamApplication = TeamApplicationConfirmation;

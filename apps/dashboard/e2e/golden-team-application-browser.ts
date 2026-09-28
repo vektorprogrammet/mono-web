@@ -15,8 +15,14 @@ import { setTimeout as sleep } from "node:timers/promises";
 import AxeBuilder from "@axe-core/playwright";
 import { chromium, expect as baseExpect, type BrowserContext, type Page } from "@playwright/test";
 import { nativeRpcPath, OrganizationLifecycleCommand } from "@vektorprogrammet/rpc";
-import { Schema } from "effect";
-import { nativeRpcRequestBody, nativeRpcStatus, nativeRpcValue } from "./native-operations.js";
+import { Match, Schema } from "effect";
+import {
+  nativeRpcOutcome,
+  nativeRpcRequestBody,
+  nativeRpcStatus,
+  nativeRpcTag,
+  nativeRpcValue,
+} from "./native-operations.js";
 
 // Production bundles load their workflow before rendering server facts; five seconds is too tight.
 const expect = baseExpect.configure({ timeout: 15_000 });
@@ -196,6 +202,14 @@ const ApplicationDetail = Schema.Struct({
 
 const LifecycleResult = Schema.Struct({ subjectId: Schema.String, revision: Schema.Int });
 
+/** The RPC request message of the dashboard's deletion, with the key that it minted. */
+const DeletePayload = Schema.fromJsonString(
+  Schema.Struct({
+    tag: Schema.Literal("team-applications.deleteTeamApplication"),
+    payload: Schema.Struct({ applicationId: Schema.String, idempotencyKey: Schema.String }),
+  }),
+);
+
 const Replays = Schema.Array(Schema.Struct({ status: Schema.Int, text: Schema.String }));
 
 const uuidV4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -306,6 +320,38 @@ export const runTeamApplicationBrowser = async (
     });
   };
 
+  /**
+   * Posts one RPC as a browser or a server would, and answers it as the HTTP route that it replaced
+   * answered: a success is 200 with the value, a declared problem carries the status that the
+   * problem registry gives its code, and a defect is 500 marked `x-rpc-defect`.
+   */
+  const rpc = async (cookie: string | null, tag: string, payload: Schema.Json = null) => {
+    const response = await api(cookie, nativeRpcPath, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: nativeRpcRequestBody(tag, payload),
+    });
+
+    const text = await response.text();
+    const outcome = nativeRpcOutcome(text);
+
+    if (outcome === undefined) return new Response(text, { status: response.status });
+
+    return Match.value(outcome).pipe(
+      Match.tag("Success", ({ value }) => Response.json(value, { status: 200 })),
+      Match.tag("Problem", ({ problem, status }) => Response.json(problem, { status })),
+      Match.tag("Defect", () => new Response(text, { status: 500, headers: { "x-rpc-defect": tag } })),
+      Match.exhaustive,
+    );
+  };
+
+  /** The RPC server refused a payload that its schema does not decode, before any handler ran. */
+  const undecodable = (response: Response, label: string) => {
+    assert.equal(response.status, 500, `${label} answered ${response.status}`);
+    assert.ok(response.headers.has("x-rpc-defect"), `${label} is refused as an undecodable payload`);
+    checks.push({ kind: "undecodable", detail: label });
+  };
+
   const body = async <A>(response: Response, status: number, decoder: Schema.Decoder<A>) => {
     const text = await response.text();
 
@@ -389,12 +435,17 @@ export const runTeamApplicationBrowser = async (
     return { role, person, context, page, cookie };
   };
 
+  const listApplicationsRpc = (cookie: string | null, teamId: string) =>
+    rpc(cookie, "team-applications.listTeamApplications", { teamId });
+
+  const readApplicationRpc = (cookie: string | null, applicationId: string) =>
+    rpc(cookie, "team-applications.readTeamApplication", { applicationId });
+
+  const deleteApplicationRpc = (cookie: string, applicationId: string, idempotencyKey: string) =>
+    rpc(cookie, "team-applications.deleteTeamApplication", { applicationId, idempotencyKey });
+
   const listApplications = async (actor: Actor, team: FixtureTeam) =>
-    body(
-      await api(actor.cookie, `/api/teams/${encodeURIComponent(team.teamId)}/applications`),
-      200,
-      ApplicationList,
-    );
+    body(await listApplicationsRpc(actor.cookie, team.teamId), 200, ApplicationList);
 
   const awaitRevision = (actor: Actor, team: FixtureTeam, revision: number) =>
     poll(`${team.name} intake revision ${revision}`, async () => {
@@ -424,20 +475,13 @@ export const runTeamApplicationBrowser = async (
     await expect(actor.page.locator('[data-team-application-notice="intake-saved"]')).toBeVisible();
   };
 
-  const reviseIntake = (actor: Actor, team: FixtureTeam, etag: string | null, patch: IntakePatch) => {
-    const headers = new Headers({
-      "content-type": "application/merge-patch+json",
-      "idempotency-key": randomUUID(),
+  const reviseIntake = (actor: Actor, team: FixtureTeam, etag: string, patch: IntakePatch) =>
+    rpc(actor.cookie, "team-applications.reviseTeamApplicationIntake", {
+      teamId: team.teamId,
+      idempotencyKey: randomUUID(),
+      ifMatch: etag,
+      request: patch,
     });
-
-    if (etag !== null) headers.set("if-match", etag);
-
-    return api(actor.cookie, `/api/teams/${encodeURIComponent(team.teamId)}/application-intake`, {
-      method: "PATCH",
-      headers,
-      body: JSON.stringify(patch),
-    });
-  };
 
   const expectApplyLinks = async (
     page: Page,
@@ -541,10 +585,10 @@ export const runTeamApplicationBrowser = async (
   };
 
   const submitThroughApi = (team: string, key: string, payload: Partial<ApplicantInput>) =>
-    api(null, `/api/teams/${encodeURIComponent(team)}/applications`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "idempotency-key": key },
-      body: JSON.stringify(payload),
+    rpc(null, "team-applications.submitTeamApplication", {
+      teamId: team,
+      idempotencyKey: key,
+      request: payload,
     });
 
   try {
@@ -628,7 +672,7 @@ export const runTeamApplicationBrowser = async (
 
     const direct = await body(
       await submitThroughApi(fixture.alfa.teamId, first.submission.key, fixture.first),
-      201,
+      200,
       Confirmation,
     );
 
@@ -663,21 +707,19 @@ export const runTeamApplicationBrowser = async (
       "resource.not-found",
     ]);
 
-    for (const invalid of [
-      { ...fixture.first, email: "not-an-email" },
-      { ...fixture.first, fieldOfStudy: "x".repeat(46) },
-      { ...fixture.first, name: "" },
-      { ...fixture.first, motivation: " padded" },
-    ])
-      await problem(await submitThroughApi(fixture.alfa.teamId, randomUUID(), invalid), 422, [
-        "validation.failed",
-      ]);
+    // Structural validation is the RPC server's: an application that the contract schema does not
+    // decode is refused before the handler, so nothing is counted or stored.
+    for (const [label, invalid] of [
+      ["invalid e-mail", { ...fixture.first, email: "not-an-email" }],
+      ["long field of study", { ...fixture.first, fieldOfStudy: "x".repeat(46) }],
+      ["empty name", { ...fixture.first, name: "" }],
+      ["padded motivation", { ...fixture.first, motivation: " padded" }],
+    ] as const)
+      undecodable(await submitThroughApi(fixture.alfa.teamId, randomUUID(), invalid), label);
 
     const { motivation: _omitted, ...missing } = fixture.first;
 
-    await problem(await submitThroughApi(fixture.alfa.teamId, randomUUID(), missing), 422, [
-      "validation.failed",
-    ]);
+    undecodable(await submitThroughApi(fixture.alfa.teamId, randomUUID(), missing), "missing motivation");
     await visitor.goto(`${origins.homepage}/team/${encodeURIComponent(fixture.gamma.teamId)}/soknad`);
     await expect(visitor.getByRole("heading", { name: "Teamet tar ikke imot søknader nå" })).toBeVisible();
     await expect(visitor.locator('[data-team-application-intake="closed"]')).toBeVisible();
@@ -739,7 +781,7 @@ export const runTeamApplicationBrowser = async (
     );
 
     const memberDetail = await body(
-      await api(memberAlfa.cookie, `/api/team-applications/${first.submission.applicationId}`),
+      await readApplicationRpc(memberAlfa.cookie, first.submission.applicationId),
       200,
       ApplicationDetail,
     );
@@ -769,30 +811,23 @@ export const runTeamApplicationBrowser = async (
     for (const role of ["memberBeta", "leaderBeta", "formerAlfa", "suspendedAlfa"] as const) {
       const actor = role === "leaderBeta" ? leaderBeta : await login(role);
 
-      await problem(
-        await api(actor.cookie, `/api/teams/${fixture.alfa.teamId}/applications`),
-        403,
-        ["authority.denied"],
-      );
-      await problem(
-        await api(actor.cookie, `/api/team-applications/${first.submission.applicationId}`),
-        403,
-        ["authority.denied"],
-      );
+      await problem(await listApplicationsRpc(actor.cookie, fixture.alfa.teamId), 403, [
+        "authority.denied",
+      ]);
+      await problem(await readApplicationRpc(actor.cookie, first.submission.applicationId), 403, [
+        "authority.denied",
+      ]);
       await actor.page.goto(`${origins.dashboard}/dashboard/teamsoknader/${fixture.alfa.teamId}`);
       await expect(actor.page.locator('[data-team-application-state="denied"]')).toBeVisible();
       await expect(actor.page.locator("[data-application-id]")).toHaveCount(0);
     }
 
-    for (const path of [
-      `/api/teams/${fixture.alfa.teamId}/applications`,
-      `/api/team-applications/${first.submission.applicationId}`,
-    ]) {
-      const anonymous = await api(null, path);
-
-      assert.ok(anonymous.headers.has("www-authenticate"), "anonymous denial challenges");
+    // An RPC answer carries no WWW-Authenticate challenge; the problem code still tells.
+    for (const anonymous of [
+      await listApplicationsRpc(null, fixture.alfa.teamId),
+      await readApplicationRpc(null, first.submission.applicationId),
+    ])
       await problem(anonymous, 401, ["credential.missing", "credential.invalid"]);
-    }
 
     const anonymousPage = await (await newContext()).newPage();
 
@@ -803,7 +838,7 @@ export const runTeamApplicationBrowser = async (
         .or(anonymousPage.locator('[data-team-application-state="session-expired"]')),
     ).toBeVisible();
     await expect(anonymousPage.locator("[data-application-id]")).toHaveCount(0);
-    await problem(await api(memberAlfa.cookie, `/api/team-applications/${randomUUID()}`), 404, [
+    await problem(await readApplicationRpc(memberAlfa.cookie, randomUUID()), 404, [
       "resource.not-found",
     ]);
     checks.push({ kind: "staff-denial", detail: "other team, other leader, former, suspended, anonymous" });
@@ -812,18 +847,15 @@ export const runTeamApplicationBrowser = async (
     const suspensionKey = randomUUID();
 
     const suspension = await body(
-      await api(leaderAlfa.cookie, "/api/organization/appointments/commands", {
-        method: "POST",
-        headers: { "content-type": "application/json", "idempotency-key": suspensionKey },
-        body: JSON.stringify(
-          Schema.encodeSync(OrganizationLifecycleCommand)(
-            OrganizationLifecycleCommand.cases.SuspendAppointment.make({
-              commandId: suspensionKey,
-              reason: "Golden journey: membership suspended during an open session",
-              appointmentId: fixture.persons.sessionAlfa.membershipId,
-              expectedRevision: 0,
-            }),
-          ),
+      await rpc(leaderAlfa.cookie, "organization.executeLifecycle", {
+        idempotencyKey: suspensionKey,
+        request: Schema.encodeSync(Schema.toCodecJson(OrganizationLifecycleCommand))(
+          OrganizationLifecycleCommand.cases.SuspendAppointment.make({
+            commandId: suspensionKey,
+            reason: "Golden journey: membership suspended during an open session",
+            appointmentId: fixture.persons.sessionAlfa.membershipId,
+            expectedRevision: 0,
+          }),
         ),
       }),
       200,
@@ -835,16 +867,12 @@ export const runTeamApplicationBrowser = async (
     suspendedMembershipId = suspension.subjectId;
 
     // The same session cookie that read the list a moment ago is now refused.
-    await problem(
-      await api(sessionAlfa.cookie, `/api/teams/${fixture.alfa.teamId}/applications`),
-      403,
-      ["authority.denied"],
-    );
-    await problem(
-      await api(sessionAlfa.cookie, `/api/team-applications/${first.submission.applicationId}`),
-      403,
-      ["authority.denied"],
-    );
+    await problem(await listApplicationsRpc(sessionAlfa.cookie, fixture.alfa.teamId), 403, [
+      "authority.denied",
+    ]);
+    await problem(await readApplicationRpc(sessionAlfa.cookie, first.submission.applicationId), 403, [
+      "authority.denied",
+    ]);
     await sessionAlfa.page.reload();
     await expect(sessionAlfa.page.locator('[data-team-application-state="denied"]')).toBeVisible();
     checks.push({ kind: "session-revocation", detail: "existing session lost access after suspension" });
@@ -852,10 +880,7 @@ export const runTeamApplicationBrowser = async (
 
     for (const actor of [memberAlfa, leaderBeta])
       await problem(
-        await api(actor.cookie, `/api/team-applications/${first.submission.applicationId}`, {
-          method: "DELETE",
-          headers: { "idempotency-key": randomUUID() },
-        }),
+        await deleteApplicationRpc(actor.cookie, first.submission.applicationId, randomUUID()),
         403,
         ["authority.denied"],
       );
@@ -887,11 +912,11 @@ export const runTeamApplicationBrowser = async (
       deadline: secondDeadlineAt.toISOString(),
     });
 
-    const concurrentEtag = concurrent.headers.get("etag");
+    // The RPC answer carries the new entity tag in the resource; there is no ETag header.
     const revised = await body(concurrent, 200, Intake);
 
     assert.equal(revised.revision, 4);
-    assert.equal(concurrentEtag, revised.etag);
+    assert.notEqual(revised.etag, observed.intake.etag);
     secondDeadline = revised.deadline;
 
     // The page still holds revision 3; its save must fail as stale and reload.
@@ -909,9 +934,7 @@ export const runTeamApplicationBrowser = async (
       412,
       ["precondition.failed"],
     );
-    await problem(await reviseIntake(leaderAlfa, fixture.alfa, null, { acceptApplication: false }), 428, [
-      "precondition.required",
-    ]);
+    // precondition.required is gone: the RPC payload cannot omit ifMatch.
     assert.equal((await listApplications(leaderAlfa, fixture.alfa)).intake.revision, 4);
     checks.push({ kind: "stale-intake", detail: "stale UI save and stale If-Match refused without change" });
     await checkpoint("intake-stale");
@@ -997,33 +1020,36 @@ export const runTeamApplicationBrowser = async (
 
     const deleteRequest = leaderAlfa.page.waitForRequest(
       (request) =>
-        request.method() === "DELETE" &&
-        new URL(request.url()).pathname === `/api/team-applications/${second.submission.applicationId}`,
+        request.method() === "POST" &&
+        /^\/api\/rpc\/?$/u.test(new URL(request.url()).pathname) &&
+        nativeRpcTag(request.postData() ?? "") === "team-applications.deleteTeamApplication",
     );
 
     await dialog.getByRole("button", { name: "Slett søknaden", exact: true }).click();
 
-    const deleteKey = (await (await deleteRequest).allHeaders())["idempotency-key"] ?? "";
+    const deletePayload = Schema.decodeSync(DeletePayload)(
+      (await deleteRequest).postData() ?? "",
+    );
+
+    assert.equal(deletePayload.payload.applicationId, second.submission.applicationId);
+
+    const deleteKey = deletePayload.payload.idempotencyKey;
 
     assert.ok(deleteKey.length > 0, "delete sends an idempotency key");
     await expect(leaderAlfa.page.locator('[data-team-application-notice="deleted"]')).toBeVisible();
     await expect(leaderAlfa.page.locator("[data-application-id]")).toHaveCount(1);
     deletions.push({ applicationId: second.submission.applicationId, key: deleteKey });
 
-    const deletePath = `/api/team-applications/${second.submission.applicationId}`;
+    const deletedId = second.submission.applicationId;
 
-    const replayedDelete = await api(leaderAlfa.cookie, deletePath, {
-      method: "DELETE",
-      headers: { "idempotency-key": deleteKey },
-    });
+    const replayedDelete = await deleteApplicationRpc(leaderAlfa.cookie, deletedId, deleteKey);
 
-    assert.equal(replayedDelete.status, 204, "same-key delete replays");
-    await problem(
-      await api(leaderAlfa.cookie, deletePath, { method: "DELETE", headers: { "idempotency-key": randomUUID() } }),
-      404,
-      ["resource.not-found"],
-    );
-    await problem(await api(memberAlfa.cookie, deletePath), 404, ["resource.not-found"]);
+    // The RPC answers the stored no-content receipt as a success with no value.
+    assert.equal(replayedDelete.status, 200, "same-key delete replays");
+    await problem(await deleteApplicationRpc(leaderAlfa.cookie, deletedId, randomUUID()), 404, [
+      "resource.not-found",
+    ]);
+    await problem(await readApplicationRpc(memberAlfa.cookie, deletedId), 404, ["resource.not-found"]);
     checks.push({ kind: "deleted", detail: `${second.submission.applicationId} by the current leader` });
     await checkpoint("deleted");
 

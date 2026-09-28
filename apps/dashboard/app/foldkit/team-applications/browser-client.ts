@@ -1,5 +1,6 @@
 import type {
   IdempotencyKey,
+  NativeRpcClient,
   StrongETag,
   TeamApplicationId,
   TeamApplicationIntakeMergePatch,
@@ -7,13 +8,12 @@ import type {
   TeamApplicationListResponse,
   TeamApplicationResource,
 } from "@vektorprogrammet/rpc";
-import { createEffectClient, type EffectSdk } from "@vektorprogrammet/sdk/effect";
 import { Effect } from "effect";
-import { resolveBrowserApiUrl } from "../../lib/browser-api";
+import { callBrowserNative, type NativeAnswerInvalid } from "../../lib/browser-native";
 import { nativeProblemFrom, type NativeProblemSummary } from "../../lib/native-problem";
 import type { TeamId } from "./model";
 
-/** A decoded native problem code, or `Transport` when no problem body could be decoded. */
+/** A decoded native problem code, or `Transport` when the call ended without a problem. */
 export type TeamApplicationsFailure = NativeProblemSummary["code"] | "Transport";
 
 export interface TeamApplicationsOperations {
@@ -36,50 +36,47 @@ export interface TeamApplicationsOperations {
   }) => Effect.Effect<typeof TeamApplicationIntakeResource.Type, TeamApplicationsFailure>;
 }
 
+type NativeClient = NativeRpcClient["Service"];
+
+/** Calls one native RPC: `callBrowserNative` in the browser, a recording client in tests. */
+export type NativeCall = <A, E>(
+  call: (client: NativeClient) => Effect.Effect<A, E>,
+) => Effect.Effect<A, E | NativeAnswerInvalid>;
+
 const withFailureCode = <A, E, R>(
   effect: Effect.Effect<A, E, R>,
 ): Effect.Effect<A, TeamApplicationsFailure, R> =>
   Effect.mapError(effect, (cause) => nativeProblemFrom(cause)?.code ?? "Transport");
 
-/** Adapts the generated SDK group; the browser entry supplies the same-origin client. */
-export const teamApplicationsOperations = (
-  client: EffectSdk["team-applications"],
-): TeamApplicationsOperations => ({
+/** Adapts the team-application RPCs to the operations that the Foldkit commands run. */
+export const teamApplicationsOperations = (call: NativeCall): TeamApplicationsOperations => ({
   listApplications: ({ teamId, cursor }) =>
-    client
-      .listTeamApplications({ params: { teamId }, query: cursor === null ? {} : { cursor } })
-      .pipe(
-        Effect.map(({ body }) => body),
-        withFailureCode,
+    call((client) =>
+      client["team-applications.listTeamApplications"](
+        cursor === null ? { teamId } : { teamId, cursor },
       ),
+    ).pipe(withFailureCode),
   readApplication: ({ applicationId }) =>
-    client.readTeamApplication({ params: { applicationId } }).pipe(
-      Effect.map(({ body }) => body),
+    call((client) => client["team-applications.readTeamApplication"]({ applicationId })).pipe(
       withFailureCode,
     ),
   deleteApplication: ({ applicationId, commandId }) =>
-    client
-      .deleteTeamApplication({
-        params: { applicationId },
-        headers: { "idempotency-key": commandId },
-      })
-      .pipe(Effect.asVoid, withFailureCode),
+    call((client) =>
+      client["team-applications.deleteTeamApplication"]({
+        applicationId,
+        idempotencyKey: commandId,
+      }),
+    ).pipe(withFailureCode),
   reviseIntake: ({ teamId, etag, patch, commandId }) =>
-    client
-      .reviseTeamApplicationIntake({
-        params: { teamId },
-        headers: { "idempotency-key": commandId, "if-match": etag },
-        payload: patch,
-      })
-      .pipe(
-        Effect.map(({ body }) => body),
-        withFailureCode,
-      ),
+    call((client) =>
+      client["team-applications.reviseTeamApplicationIntake"]({
+        teamId,
+        idempotencyKey: commandId,
+        ifMatch: etag,
+        request: patch,
+      }),
+    ).pipe(withFailureCode),
 });
 
 export const createBrowserTeamApplicationsClient = (): TeamApplicationsOperations =>
-  teamApplicationsOperations(
-    createEffectClient(
-      resolveBrowserApiUrl(import.meta.env.VITE_API_URL, globalThis.location.origin),
-    )["team-applications"],
-  );
+  teamApplicationsOperations(callBrowserNative);

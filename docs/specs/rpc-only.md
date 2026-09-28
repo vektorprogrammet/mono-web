@@ -683,10 +683,53 @@ Notes (system):
 
 | RPC tag | Replaces | Transport facts | Credentials | Status |
 | --- | --- | --- | --- | --- |
-| `team-applications.deleteTeamApplication` | DELETE `/api/team-applications/{applicationId}` | idempotencyKey | cookieHeader, oauthUserBearer | todo |
-| `team-applications.listTeamApplicationIntakes` | GET `/api/team-application-intakes` | - | none | todo |
-| `team-applications.listTeamApplications` | GET `/api/teams/{teamId}/applications` | query: cursor | cookieHeader, oauthUserBearer | todo |
-| `team-applications.readTeamApplication` | GET `/api/team-applications/{applicationId}` | - | cookieHeader, oauthUserBearer | todo |
-| `team-applications.readTeamApplicationIntake` | GET `/api/teams/{teamId}/application-intake` | - | none | todo |
-| `team-applications.reviseTeamApplicationIntake` | PATCH `/api/teams/{teamId}/application-intake` | idempotencyKey; ifMatch; merge patch | cookieHeader, oauthUserBearer | todo |
-| `team-applications.submitTeamApplication` | POST `/api/teams/{teamId}/applications` | idempotencyKey | none | todo |
+| `team-applications.deleteTeamApplication` | DELETE `/api/team-applications/{applicationId}` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `team-applications.listTeamApplicationIntakes` | GET `/api/team-application-intakes` | - | none | ported |
+| `team-applications.listTeamApplications` | GET `/api/teams/{teamId}/applications` | query: cursor | cookieHeader, oauthUserBearer | ported |
+| `team-applications.readTeamApplication` | GET `/api/team-applications/{applicationId}` | - | cookieHeader, oauthUserBearer | ported |
+| `team-applications.readTeamApplicationIntake` | GET `/api/teams/{teamId}/application-intake` | - | none | ported |
+| `team-applications.reviseTeamApplicationIntake` | PATCH `/api/teams/{teamId}/application-intake` | idempotencyKey; ifMatch; merge patch | cookieHeader, oauthUserBearer | ported |
+| `team-applications.submitTeamApplication` | POST `/api/teams/{teamId}/applications` | idempotencyKey | none | ported |
+
+Notes (team-applications):
+
+- The seven RPCs keep the old operation IDs as tags and the old routes as `normalizedTarget`
+  (`/api/teams/{teamId}/applications`, `/api/team-applications/{applicationId}`,
+  `/api/teams/{teamId}/application-intake`). Each command's receipt keeps the HTTP capsule byte for
+  byte: 201 with `Location` and `ETag` for a submission, 204 for a deletion, and 200 with the
+  intake and its `etag` header for a revision, so a retry that straddles the cutover replays, and
+  the golden journey's receipt evidence is unchanged. A deletion answers no value.
+- Evidence is unchanged: deletion and intake revision take `TeamApplicationAuthorization<A>` from
+  `TeamApplications.authorize` (`authorizeTeamApplicationAction`) inside the committing
+  transaction, before the receipt lookup; the staff reads resolve the actor in the domain adapter
+  within one repeatable-read snapshot; the public intake reads and the submission evaluate their
+  anonymous AccessSpecs with `authorizeAnonymous`. The per-process public rate limit and the
+  outbox delivery are kept (`apps/backend/src/team-application/rpc.test.ts`).
+- The rate limit now counts a submission after its payload decodes: a payload that fails
+  `TeamApplicationInput` (or has no idempotency key) fails in the RPC server as a defect and
+  consumes no quota. Before, every request counted before its body was read.
+- Dropped as HTTP parsing: `request.malformed` (except the cursor below), `header.malformed`,
+  `idempotency-key.invalid`, `origin.denied`, `request.too-large` (the 128 KiB submission and 4 KiB
+  patch bounds), `media-type.unsupported`, `precondition.required`, `precondition.invalid`, and the
+  submission's `validation.failed` with a pointer per field. The homepage form decodes every
+  field with the contract schema before it submits and shows its own field messages, so it loses
+  no field error; a third-party client does. An unknown member is stripped instead of refused.
+- Kept: `request.malformed` on `listTeamApplications` for a cursor that passes
+  `TeamApplicationCursor` but names no position (`TeamApplicationInvalidCursor`), and on revision
+  `validation.no-change`, `validation.field-not-deletable` (`/acceptApplication`), and
+  `validation.failed` should the command not decode.
+- The staff RPCs take `PersonCredential` and re-resolve the credential in their transaction, so
+  each declares credential.missing and credential.invalid; an anonymous denial carries no
+  `WWW-Authenticate` challenge over RPC. The staff reads lose `Cache-Control: private, no-store`
+  and `Vary: Origin`, the public reads `Cache-Control: no-store`.
+- Dropped: 201, `Location`, and the `ETag` header on the submission (the confirmation had no body
+  tag, and no RPC took it), 204 on deletion, and the revision's `ETag` header (the resource keeps
+  `etag`).
+- Callers migrated: the dashboard Foldkit `team-applications` client (`callBrowserNative`; its test
+  records the RPC wire), the homepage team form route and `team-directory.server.ts`
+  (`callHomepageNative`), `apps/homepage/src/lib/api-types.ts`, and the golden team-application
+  journey (not run). The journey's direct probes post RPCs and read them as the replaced routes'
+  statuses; undecodable submissions now expect a defect instead of 422, the missing-If-Match probe
+  is gone, and the suspension goes through `organization.executeLifecycle`. The runner no longer
+  builds the deleted `packages/sdk`. `apps/homepage/vite-digests.ts` still names the old routes as
+  its digest source labels.
