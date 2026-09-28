@@ -43,6 +43,13 @@
       "fast-check": "4.9.0",
       "foldkit": "0.163.0",
       "vitest": "5.0.0"
+    },
+    "react": {
+      "@types/react": "19.2.14",
+      "@types/react-dom": "19.2.3",
+      "react": "19.2.8",
+      "react-dom": "19.2.8",
+      "vite": "8.2.2"
     }
   }
 }
