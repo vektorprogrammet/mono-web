@@ -99,7 +99,7 @@ const receiptFileIdentity = (
   });
 
 const notStaged = (effectId: string, fileRef: string): ReceiptFileNotStaged =>
-  new ReceiptFileNotStaged({ effectId, fileRef });
+  ReceiptFileNotStaged.make({ effectId, fileRef });
 
 const readMatching = (bucket: R2Bucket, key: string, file: ReceiptFile) =>
   Effect.gen(function* () {
@@ -138,7 +138,7 @@ const claimEffect = (bucket: R2Bucket, markerKey: string, request: ReceiptFileRe
 
     if (existing !== null) {
       if (existing !== requestJson)
-        return yield* new ReceiptFileEffectConflict({ effectId: request.effectId });
+        return yield* ReceiptFileEffectConflict.make({ effectId: request.effectId });
 
       return;
     }
@@ -154,14 +154,14 @@ const claimEffect = (bucket: R2Bucket, markerKey: string, request: ReceiptFileRe
     const winner = yield* markerRequest(bucket, markerKey);
 
     if (winner !== requestJson)
-      return yield* new ReceiptFileEffectConflict({ effectId: request.effectId });
+      return yield* ReceiptFileEffectConflict.make({ effectId: request.effectId });
   });
 
 const ensureFileIdentity = (file: ReceiptFile) =>
   keyIsSafe(file.fileRef) && keyIsSafe(file.objectKey)
     ? Effect.void
     : Effect.fail(
-        new ReceiptFileIdentityConflict({ effectId: "identity", objectKey: file.objectKey }),
+        ReceiptFileIdentityConflict.make({ effectId: "identity", objectKey: file.objectKey }),
       );
 
 export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): ReceiptFileStore => {
@@ -192,7 +192,7 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
       const bytes = new Uint8Array(yield* call(() => file.arrayBuffer()));
 
       if (bytes.byteLength > maxFileBytes) {
-        return yield* new ReceiptDecodeError({ message: "receipt file exceeds configured limit" });
+        return yield* ReceiptDecodeError.make({ message: "receipt file exceeds configured limit" });
       }
 
       const identity = yield* receiptFileIdentity(
@@ -255,7 +255,7 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
         if (staged === "matching") return;
 
         if (staged === "different") {
-          return yield* new ReceiptFileIdentityConflict({
+          return yield* ReceiptFileIdentityConflict.make({
             effectId: "stage",
             objectKey: file.objectKey,
           });
@@ -266,7 +266,7 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
         if (committed === "matching") return;
 
         if (committed === "different") {
-          return yield* new ReceiptFileIdentityConflict({
+          return yield* ReceiptFileIdentityConflict.make({
             effectId: "stage",
             objectKey: file.objectKey,
           });
@@ -291,7 +291,7 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
           const committed = yield* readMatching(bucket, request.file.objectKey, request.file);
 
           if (committed === "different") {
-            return yield* new ReceiptFileIdentityConflict({
+            return yield* ReceiptFileIdentityConflict.make({
               effectId: request.effectId,
               objectKey: request.file.objectKey,
             });
@@ -314,7 +314,7 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
         const committed = yield* readMatching(bucket, request.file.objectKey, request.file);
 
         if (committed === "different") {
-          return yield* new ReceiptFileIdentityConflict({
+          return yield* ReceiptFileIdentityConflict.make({
             effectId: request.effectId,
             objectKey: request.file.objectKey,
           });

@@ -41,7 +41,11 @@ const startCluster = Effect.gen(function* () {
         Database.use((sql) => sql`CREATE DATABASE ${sql(name)}`),
         primary,
       );
-      yield* Effect.provide(health, connection(name), { local: true });
+      yield* Effect.scoped(
+        Effect.flatMap(buildIsolated(connection(name)), (context) =>
+          Effect.provide(health, context),
+        ),
+      );
 
       return name;
     }),
@@ -72,7 +76,7 @@ const startCluster = Effect.gen(function* () {
 class BackendCluster extends Context.Service<
   BackendCluster,
   Effect.Success<typeof startCluster>
->()("apps/backend/test/BackendCluster") {}
+>()("@vektorprogrammet/backend/test/postgres/BackendCluster") {}
 
 /**
  * Independent PostgreSQL sessions on a private Unix socket, with no TCP listener. The cluster

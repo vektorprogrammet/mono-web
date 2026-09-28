@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { RECEIPT_FILE_MAX_BYTES } from "@vektorprogrammet/domain/receipt";
 import { Predicate } from "effect";
 import type { IdentityDeployment } from "../session-security.js";
+import { dual } from "effect/Function";
 
 /**
  * Test-only receipt authority: internal lifecycle evidence, the approval concurrency barrier,
@@ -60,11 +61,7 @@ export const decodeReceiptApiConfig = (
   nextVisualId: () => `visual_${randomUUID()}`,
 });
 
-/**
- * Decodes the receipt E2E composition. Any receipt E2E variable outside a local deployment,
- * or without `RECEIPT_E2E_TEST_MODE=1`, fails startup.
- */
-export const decodeReceiptE2EComposition = (
+const decodeReceiptE2ECompositionFrom = (
   env: Readonly<Record<string, string | undefined>>,
   deployment: IdentityDeployment,
 ): ReceiptE2EComposition | undefined => {
@@ -85,3 +82,17 @@ export const decodeReceiptE2EComposition = (
     ? {}
     : { failNextPromotionEffectId };
 };
+
+/**
+ * Decodes the receipt E2E composition. Any receipt E2E variable outside a local deployment,
+ * or without `RECEIPT_E2E_TEST_MODE=1`, fails startup.
+ */
+export const decodeReceiptE2EComposition: {
+  (
+    deployment: IdentityDeployment,
+  ): (env: Readonly<Record<string, string | undefined>>) => ReceiptE2EComposition | undefined;
+  (
+    env: Readonly<Record<string, string | undefined>>,
+    deployment: IdentityDeployment,
+  ): ReceiptE2EComposition | undefined;
+} = dual(2, decodeReceiptE2ECompositionFrom);

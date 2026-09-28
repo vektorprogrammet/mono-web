@@ -10,7 +10,7 @@ import {
   CorrectInterviewAssessmentInputSchema,
   ScheduleInterviewInputSchema,
   schedulingFailureMessage,
-  SchedulingBoard,
+  type SchedulingBoard,
 } from "../recruitment/bridge";
 
 import type { SchedulingCommands } from "./command";
@@ -168,7 +168,7 @@ const successFeedback = (
   }
 };
 
-const reconcileCommittedSchedule = (model: ReadyModel, board: typeof SchedulingBoard.Type): Update.Return<Model, Message> => {
+const reconcileCommittedSchedule = (model: ReadyModel, board: SchedulingBoard): Update.Return<Model, Message> => {
   const scheduledInterview = board.interviews.find(
     (interview) => interview.interviewId === model.selectedInterviewId,
   );

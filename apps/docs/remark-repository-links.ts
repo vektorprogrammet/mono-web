@@ -14,9 +14,12 @@ const external = /^(?:[a-z][a-z\d+.-]*:|#|\/)/i;
 export function remarkRepositoryLinks() {
   return (tree: Root, file: VFile) => {
     // The search index compiles sources without a path; its links need no rewriting.
-    if (!file.path) return;
+    // The getter is typed `string` but returns `undefined` for a file without a path.
+    const filePath: string | undefined = file.path;
 
-    const page = relative(pagesDirectory, file.path).split(sep).join("/");
+    if (filePath === undefined || filePath === "") return;
+
+    const page = relative(pagesDirectory, filePath).split(sep).join("/");
 
     if (page.startsWith("..")) return;
 

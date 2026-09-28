@@ -55,7 +55,7 @@ interface RecruitmentOperations {
     input: CreateApplicationInterviewInput,
   ) => Effect.Effect<RecruitmentInterviewResource, RecruitmentBridgeFailure>;
   readonly readSchedulingBoard: () => Effect.Effect<
-    typeof SchedulingBoard.Type,
+    SchedulingBoard,
     RecruitmentBridgeFailure
   >;
   readonly scheduleInterview: (
