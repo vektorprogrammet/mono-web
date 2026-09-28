@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { journeyClock } from "../../../tools/e2e/journey-clock.ts";
 import { replacedAnswer, replacedRequest } from "./native-rpc-ledger.ts";
+import { isNativeRpcPath } from "./native-operations.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -621,7 +622,7 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const requestBytes = Buffer.concat(chunks);
     const rawRequestJson = parseJsonBody(requestBytes);
-    const rpc = path === "/api/rpc" ? replacedRequest(rawRequestJson) : undefined;
+    const rpc = isNativeRpcPath(path) ? replacedRequest(rawRequestJson) : undefined;
 
     // A native RPC is recorded as the HTTP route it replaced; its body is the command it carries.
     const requestJson = rpc === undefined ? rawRequestJson : rpc.requestJson;

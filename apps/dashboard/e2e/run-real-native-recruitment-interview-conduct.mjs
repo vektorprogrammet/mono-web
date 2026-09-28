@@ -1,5 +1,6 @@
 import { Predicate } from "effect";
 import { replacedAnswer, replacedRequest } from "./native-rpc-ledger.ts";
+import { isNativeRpcPath } from "./native-operations.ts";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
@@ -251,7 +252,7 @@ const startProxy = async (targetOrigin) => {
       responseHasCapability: false,
     };
 
-    const rpc = path === "/api/rpc" ? replacedRequest(parseJson(requestBytes)) : undefined;
+    const rpc = isNativeRpcPath(path) ? replacedRequest(parseJson(requestBytes)) : undefined;
 
     // A native RPC is recorded as the HTTP route it replaced.
     if (rpc !== undefined) {

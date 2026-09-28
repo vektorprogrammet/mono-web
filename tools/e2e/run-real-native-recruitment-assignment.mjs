@@ -13,6 +13,7 @@ import {
 } from "@vektorprogrammet/database/migrations";
 import { Predicate } from "effect";
 import { replacedAnswer, replacedRequest } from "../../apps/dashboard/e2e/native-rpc-ledger.ts";
+import { isNativeRpcPath } from "../../apps/dashboard/e2e/native-operations.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -408,7 +409,7 @@ const startRecordingProxy = async (targetOrigin) => {
       responseEtag: null,
     };
 
-    const rpc = path === "/api/rpc" ? replacedRequest(requestJson) : undefined;
+    const rpc = isNativeRpcPath(path) ? replacedRequest(requestJson) : undefined;
 
     // A native RPC is recorded as the HTTP route it replaced, with the facts of its message.
     if (rpc !== undefined) {

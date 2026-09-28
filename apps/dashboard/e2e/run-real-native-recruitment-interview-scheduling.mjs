@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { journeyClock } from "../../../tools/e2e/journey-clock.ts";
 import { replacedAnswer, replacedRequest } from "./native-rpc-ledger.ts";
+import { isNativeRpcPath } from "./native-operations.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -475,7 +476,7 @@ async function startRecordingProxy(targetOrigin) {
       status: 0,
     };
 
-    const rpc = path === "/api/rpc" ? replacedRequest(requestJson) : undefined;
+    const rpc = isNativeRpcPath(path) ? replacedRequest(requestJson) : undefined;
 
     // A native RPC is recorded as the HTTP route it replaced, with the facts of its message.
     if (rpc !== undefined) {
