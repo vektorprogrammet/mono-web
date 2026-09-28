@@ -17,6 +17,23 @@ const RpcRequestMessage = Schema.fromJsonString(
 
 const decodeRpcRequest = Schema.decodeUnknownOption(RpcRequestMessage);
 
+/** The full request message, as the RPC client sends it with no forwarded headers. */
+const RpcRequest = Schema.TaggedStruct("Request", {
+  id: Schema.String,
+  tag: Schema.String,
+  payload: Schema.Json,
+  headers: Schema.Array(Schema.Tuple([Schema.String, Schema.String])),
+});
+
+const encodeRpcRequest = Schema.encodeSync(Schema.fromJsonString(RpcRequest));
+
+/**
+ * The body of one RPC request that a probe posts to the RPC endpoint as a browser would, with its
+ * cookie and origin as HTTP headers: the ingress then decides the origin before any RPC runs.
+ */
+export const nativeRpcRequestBody = (tag: string, payload: Schema.Json = null): string =>
+  encodeRpcRequest(RpcRequest.make({ id: "0", tag, payload, headers: [] }));
+
 /**
  * The RPC tag that one request body to the RPC endpoint names, such as `system.readSession`, or
  * `undefined` when the body is no RPC request message.

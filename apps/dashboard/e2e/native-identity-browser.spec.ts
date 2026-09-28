@@ -7,6 +7,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { writeFile } from "node:fs/promises";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { readBrowserStorage } from "../browser/interview-response-state.js";
+import { nativeRpcRequestBody } from "./native-operations.js";
 import { addressesAnyRoute, legacyRoutes } from "./request-routes.js";
 
 const realRun = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
@@ -320,13 +321,6 @@ const sessionOperations = {
     client["system.deleteOwnedSession"]({ idempotencyKey: commandKey(), sessionId }),
 };
 
-const RpcRequest = Schema.TaggedStruct("Request", {
-  id: Schema.String,
-  tag: Schema.String,
-  payload: Schema.Json,
-  headers: Schema.Array(Schema.Tuple([Schema.String, Schema.String])),
-});
-
 /**
  * Posts one session command as a browser in `context` would, with its cookie and `origin` as HTTP
  * headers, so the ingress decides the origin before any RPC runs.
@@ -335,14 +329,7 @@ const browserRpcStatus = async (context: BrowserContext, origin: string) =>
   (
     await context.request.post(`${apiOrigin}${nativeRpcPath}`, {
       headers: { ...originHeaders(origin), "content-type": "application/json" },
-      data: Schema.encodeSync(Schema.fromJsonString(RpcRequest))(
-        RpcRequest.make({
-          id: "0",
-          tag: "system.revokeOtherSessions",
-          payload: { idempotencyKey: commandKey() },
-          headers: [],
-        }),
-      ),
+      data: nativeRpcRequestBody("system.revokeOtherSessions", { idempotencyKey: commandKey() }),
     })
   ).status();
 
