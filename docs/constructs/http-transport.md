@@ -44,11 +44,14 @@ identity with this.
 Fills a route template with its encoded identities; a missing identity is a malformed request.
 
 ```ts
-const normalizeTarget: { (identities: Readonly<Record<string, string>>): (routeTemplate: string) => string; (routeTemplate: string, identities: Readonly<Record<string, string>>): string }
+normalizeTarget(identities: Readonly<Record<string, string>>): (routeTemplate: string) => string
+normalizeTarget(routeTemplate: string, identities: Readonly<Record<string, string>>): string
 ```
 
-- Inputs: none
-- Output: `{ (identities: Readonly<Record<string, string>>): (routeTemplate: string) => string; (routeTemplate: string, identities: Readonly<Record<string, string>>): string }`
+- Inputs:
+  - `routeTemplate: string`
+  - `identities: Readonly<Record<string, string>>`
+- Output: `string`
 - Errors: none
 - Throws: The `Problem` request.malformed when `identities` lacks a name of the template, or an identity is not a string of Unicode scalar values.
 - Requirements: none

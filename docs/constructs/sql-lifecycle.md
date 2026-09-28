@@ -9,12 +9,23 @@ Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account acc
 Whether the native account of `personId` exists and is not disabled.
 
 ```ts
-const accountAccessEnabled: { (personId: PersonId, lock: "None" | "ForShare"): (sql: DatabaseOperations) => Effect.Effect<boolean, SqlError>; (sql: DatabaseOperations, personId: PersonId, lock: "None" | "ForShare"): Effect.Effect<boolean, SqlError> }
+accountAccessEnabled(
+  personId: PersonId,
+  lock: "None" | "ForShare"
+): (sql: DatabaseOperations) => Effect.Effect<boolean, SqlError>
+accountAccessEnabled(
+  sql: DatabaseOperations,
+  personId: PersonId,
+  lock: "None" | "ForShare"
+): Effect.Effect<boolean, SqlError>
 ```
 
-- Inputs: none
-- Output: `{ (personId: PersonId, lock: "None" | "ForShare"): (sql: DatabaseOperations) => Effect.Effect<boolean, SqlError>; (sql: DatabaseOperations, personId: PersonId, lock: "None" | "ForShare"): Effect.Effect<boolean, SqlError> }`
-- Errors: none
+- Inputs:
+  - `sql: DatabaseOperations`
+  - `personId: PersonId`
+  - `lock: "None" | "ForShare"`
+- Output: `Effect.Effect<boolean, SqlError>`
+- Errors: `SqlError`
 - Requirements: none
 - Side effects: Reads `auth."user"`; with `ForShare` it holds a share lock on the row until the transaction ends.
 - Source: [packages/database/src/identity-access.ts:35](../../packages/database/src/identity-access.ts#L35)
@@ -43,11 +54,25 @@ inside the transaction that writes.
 SET list for the aggregate's claim UPDATE; `targetAlias` names the updated outbox row.
 
 ```ts
-const outboxClaimAssignments: { (targetAlias: string, claimId: string, claimedAt: string): (sql: DatabaseOperations) => Statement.Fragment; (sql: DatabaseOperations, targetAlias: string, claimId: string, claimedAt: string): Statement.Fragment }
+outboxClaimAssignments(
+  targetAlias: string,
+  claimId: string,
+  claimedAt: string
+): (sql: DatabaseOperations) => Statement.Fragment
+outboxClaimAssignments(
+  sql: DatabaseOperations,
+  targetAlias: string,
+  claimId: string,
+  claimedAt: string
+): Statement.Fragment
 ```
 
-- Inputs: none
-- Output: `{ (targetAlias: string, claimId: string, claimedAt: string): (sql: DatabaseOperations) => Statement.Fragment; (sql: DatabaseOperations, targetAlias: string, claimId: string, claimedAt: string): Statement.Fragment }`
+- Inputs:
+  - `sql: DatabaseOperations`
+  - `targetAlias: string`
+  - `claimId: string`
+  - `claimedAt: string`
+- Output: `Statement.Fragment`
 - Errors: none
 - Requirements: none
 - Side effects: none: it builds a fragment, and the aggregate's UPDATE writes the row.
@@ -77,12 +102,26 @@ list in every claim UPDATE.
 Settles the claimed row as Delivered, with delivery evidence when the table records it.
 
 ```ts
-const markOutboxDelivered: { (table: OutboxTable, claim: OutboxClaim, evidence?: OutboxDeliveryEvidence): (sql: DatabaseOperations) => Effect.Effect<void, OutboxClaimLost | SqlError>; (sql: DatabaseOperations, table: OutboxTable, claim: OutboxClaim, evidence?: OutboxDeliveryEvidence): Effect.Effect<void, OutboxClaimLost | SqlError> }
+markOutboxDelivered(
+  table: OutboxTable,
+  claim: OutboxClaim,
+  evidence?: OutboxDeliveryEvidence
+): (sql: DatabaseOperations) => Effect.Effect<void, OutboxClaimLost | SqlError>
+markOutboxDelivered(
+  sql: DatabaseOperations,
+  table: OutboxTable,
+  claim: OutboxClaim,
+  evidence?: OutboxDeliveryEvidence
+): Effect.Effect<void, OutboxClaimLost | SqlError>
 ```
 
-- Inputs: none
-- Output: `{ (table: OutboxTable, claim: OutboxClaim, evidence?: OutboxDeliveryEvidence): (sql: DatabaseOperations) => Effect.Effect<void, OutboxClaimLost | SqlError>; (sql: DatabaseOperations, table: OutboxTable, claim: OutboxClaim, evidence?: OutboxDeliveryEvidence): Effect.Effect<void, OutboxClaimLost | SqlError> }`
-- Errors: none
+- Inputs:
+  - `sql: DatabaseOperations`
+  - `table: OutboxTable`
+  - `claim: OutboxClaim`
+  - `evidence?: OutboxDeliveryEvidence`
+- Output: `Effect.Effect<void, OutboxClaimLost | SqlError>`
+- Errors: `OutboxClaimLost | SqlError`
 - Requirements: none
 - Side effects: Writes the outbox row that the claim still owns.
 - Source: [packages/database/src/outbox-lifecycle.ts:188](../../packages/database/src/outbox-lifecycle.ts#L188)
@@ -112,12 +151,26 @@ Updating the status by `effect_id` alone, or reporting a delivery after
 Settles the claimed row as Failed with its failure tag, so a later claim retries it.
 
 ```ts
-const markOutboxFailed: { (table: OutboxTable, claim: OutboxClaim, failureTag: string): (sql: DatabaseOperations) => Effect.Effect<void, OutboxClaimLost | SqlError>; (sql: DatabaseOperations, table: OutboxTable, claim: OutboxClaim, failureTag: string): Effect.Effect<void, OutboxClaimLost | SqlError> }
+markOutboxFailed(
+  table: OutboxTable,
+  claim: OutboxClaim,
+  failureTag: string
+): (sql: DatabaseOperations) => Effect.Effect<void, OutboxClaimLost | SqlError>
+markOutboxFailed(
+  sql: DatabaseOperations,
+  table: OutboxTable,
+  claim: OutboxClaim,
+  failureTag: string
+): Effect.Effect<void, OutboxClaimLost | SqlError>
 ```
 
-- Inputs: none
-- Output: `{ (table: OutboxTable, claim: OutboxClaim, failureTag: string): (sql: DatabaseOperations) => Effect.Effect<void, OutboxClaimLost | SqlError>; (sql: DatabaseOperations, table: OutboxTable, claim: OutboxClaim, failureTag: string): Effect.Effect<void, OutboxClaimLost | SqlError> }`
-- Errors: none
+- Inputs:
+  - `sql: DatabaseOperations`
+  - `table: OutboxTable`
+  - `claim: OutboxClaim`
+  - `failureTag: string`
+- Output: `Effect.Effect<void, OutboxClaimLost | SqlError>`
+- Errors: `OutboxClaimLost | SqlError`
 - Requirements: none
 - Side effects: Writes the outbox row that the claim still owns.
 - Source: [packages/database/src/outbox-lifecycle.ts:247](../../packages/database/src/outbox-lifecycle.ts#L247)
@@ -144,12 +197,26 @@ later claim takes it again. Quarantine it with `quarantineOutboxClaim`.
 Settles the claimed row as Quarantined, a terminal status, with its failure tag.
 
 ```ts
-const quarantineOutboxClaim: { (table: OutboxTable, claim: OutboxClaim, failureTag: string): (sql: DatabaseOperations) => Effect.Effect<void, OutboxClaimLost | SqlError>; (sql: DatabaseOperations, table: OutboxTable, claim: OutboxClaim, failureTag: string): Effect.Effect<void, OutboxClaimLost | SqlError> }
+quarantineOutboxClaim(
+  table: OutboxTable,
+  claim: OutboxClaim,
+  failureTag: string
+): (sql: DatabaseOperations) => Effect.Effect<void, OutboxClaimLost | SqlError>
+quarantineOutboxClaim(
+  sql: DatabaseOperations,
+  table: OutboxTable,
+  claim: OutboxClaim,
+  failureTag: string
+): Effect.Effect<void, OutboxClaimLost | SqlError>
 ```
 
-- Inputs: none
-- Output: `{ (table: OutboxTable, claim: OutboxClaim, failureTag: string): (sql: DatabaseOperations) => Effect.Effect<void, OutboxClaimLost | SqlError>; (sql: DatabaseOperations, table: OutboxTable, claim: OutboxClaim, failureTag: string): Effect.Effect<void, OutboxClaimLost | SqlError> }`
-- Errors: none
+- Inputs:
+  - `sql: DatabaseOperations`
+  - `table: OutboxTable`
+  - `claim: OutboxClaim`
+  - `failureTag: string`
+- Output: `Effect.Effect<void, OutboxClaimLost | SqlError>`
+- Errors: `OutboxClaimLost | SqlError`
 - Requirements: none
 - Side effects: Writes the outbox row that the claim still owns.
 - Source: [packages/database/src/outbox-lifecycle.ts:291](../../packages/database/src/outbox-lifecycle.ts#L291)
@@ -177,12 +244,26 @@ is then never delivered. Mark it failed with `markOutboxFailed`.
 Returns an interrupted claim to Pending without a provider outcome; a lost claim needs none.
 
 ```ts
-const releaseOutboxClaim: { (table: OutboxTable, claim: OutboxClaim, failureTag: string): (sql: DatabaseOperations) => Effect.Effect<void, SqlError>; (sql: DatabaseOperations, table: OutboxTable, claim: OutboxClaim, failureTag: string): Effect.Effect<void, SqlError> }
+releaseOutboxClaim(
+  table: OutboxTable,
+  claim: OutboxClaim,
+  failureTag: string
+): (sql: DatabaseOperations) => Effect.Effect<void, SqlError>
+releaseOutboxClaim(
+  sql: DatabaseOperations,
+  table: OutboxTable,
+  claim: OutboxClaim,
+  failureTag: string
+): Effect.Effect<void, SqlError>
 ```
 
-- Inputs: none
-- Output: `{ (table: OutboxTable, claim: OutboxClaim, failureTag: string): (sql: DatabaseOperations) => Effect.Effect<void, SqlError>; (sql: DatabaseOperations, table: OutboxTable, claim: OutboxClaim, failureTag: string): Effect.Effect<void, SqlError> }`
-- Errors: none
+- Inputs:
+  - `sql: DatabaseOperations`
+  - `table: OutboxTable`
+  - `claim: OutboxClaim`
+  - `failureTag: string`
+- Output: `Effect.Effect<void, SqlError>`
+- Errors: `SqlError`
 - Requirements: none
 - Side effects: Writes the outbox row when the claim still owns it.
 - Source: [packages/database/src/outbox-lifecycle.ts:343](../../packages/database/src/outbox-lifecycle.ts#L343)
@@ -210,12 +291,26 @@ Settle an answered delivery with `markOutboxDelivered` or `markOutboxFailed`.
 Recovers every Processing row claimed before `claimedBefore`.
 
 ```ts
-const recoverStaleOutboxClaims: { (table: OutboxTable, claimedBefore: string, recovery: OutboxStaleRecovery): (sql: DatabaseOperations) => Effect.Effect<number, SqlError>; (sql: DatabaseOperations, table: OutboxTable, claimedBefore: string, recovery: OutboxStaleRecovery): Effect.Effect<number, SqlError> }
+recoverStaleOutboxClaims(
+  table: OutboxTable,
+  claimedBefore: string,
+  recovery: OutboxStaleRecovery
+): (sql: DatabaseOperations) => Effect.Effect<number, SqlError>
+recoverStaleOutboxClaims(
+  sql: DatabaseOperations,
+  table: OutboxTable,
+  claimedBefore: string,
+  recovery: OutboxStaleRecovery
+): Effect.Effect<number, SqlError>
 ```
 
-- Inputs: none
-- Output: `{ (table: OutboxTable, claimedBefore: string, recovery: OutboxStaleRecovery): (sql: DatabaseOperations) => Effect.Effect<number, SqlError>; (sql: DatabaseOperations, table: OutboxTable, claimedBefore: string, recovery: OutboxStaleRecovery): Effect.Effect<number, SqlError> }`
-- Errors: none
+- Inputs:
+  - `sql: DatabaseOperations`
+  - `table: OutboxTable`
+  - `claimedBefore: string`
+  - `recovery: OutboxStaleRecovery`
+- Output: `Effect.Effect<number, SqlError>`
+- Errors: `SqlError`
 - Requirements: none
 - Side effects: Writes every stale Processing row of the table.
 - Source: [packages/database/src/outbox-lifecycle.ts:393](../../packages/database/src/outbox-lifecycle.ts#L393)

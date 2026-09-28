@@ -9,13 +9,21 @@ Runs background workers on the Effect clock. The [index](../constructs.md) lists
 Runs `tick` at once, then again after each success.
 
 ```ts
-const pollForever: { <A>(options: PollOptions<A>): <E, R>(tick: Effect.Effect<A, E, R>) => Effect.Effect<never, E, R>; <A, E, R>(tick: Effect.Effect<A, E, R>, options: PollOptions<A>): Effect.Effect<never, E, R> }
+pollForever<A>(
+  options: PollOptions<A>
+): <E, R>(tick: Effect.Effect<A, E, R>) => Effect.Effect<never, E, R>
+pollForever<A, E, R>(
+  tick: Effect.Effect<A, E, R>,
+  options: PollOptions<A>
+): Effect.Effect<never, E, R>
 ```
 
-- Inputs: none
-- Output: `{ <A>(options: PollOptions<A>): <E, R>(tick: Effect.Effect<A, E, R>) => Effect.Effect<never, E, R>; <A, E, R>(tick: Effect.Effect<A, E, R>, options: PollOptions<A>): Effect.Effect<never, E, R> }`
-- Errors: none
-- Requirements: none
+- Inputs:
+  - `tick: Effect.Effect<A, E, R>`
+  - `options: PollOptions<A>`
+- Output: `Effect.Effect<never, E, R>`
+- Errors: `E`
+- Requirements: `R`
 - Side effects: Waits on the Effect clock between ticks; every write is the tick's own.
 - Source: [apps/backend/src/worker-support.ts:45](../../apps/backend/src/worker-support.ts#L45)
 

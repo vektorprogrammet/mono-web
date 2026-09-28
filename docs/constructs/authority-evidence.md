@@ -9,12 +9,23 @@ Checks a resolved authority and returns the evidence that a command which needs 
 Checks that a resolved authority reaches one department with a capability, and returns the evidence that a department-scoped command requires.
 
 ```ts
-const requireDepartmentReach: { <C extends OrganizationCapability>(capability: C, departmentId: DepartmentId): (authority: OrganizationPersonAuthority) => Result.Result<DepartmentReach<C>, DepartmentReachDenied>; <C extends OrganizationCapability>(authority: OrganizationPersonAuthority, capability: C, departmentId: DepartmentId): Result.Result<DepartmentReach<C>, DepartmentReachDenied> }
+requireDepartmentReach<C extends OrganizationCapability>(
+  capability: C,
+  departmentId: DepartmentId
+): (authority: OrganizationPersonAuthority) => Result.Result<DepartmentReach<C>, DepartmentReachDenied>
+requireDepartmentReach<C extends OrganizationCapability>(
+  authority: OrganizationPersonAuthority,
+  capability: C,
+  departmentId: DepartmentId
+): Result.Result<DepartmentReach<C>, DepartmentReachDenied>
 ```
 
-- Inputs: none
-- Output: `{ <C extends OrganizationCapability>(capability: C, departmentId: DepartmentId): (authority: OrganizationPersonAuthority) => Result.Result<DepartmentReach<C>, DepartmentReachDenied>; <C extends OrganizationCapability>(authority: OrganizationPersonAuthority, capability: C, departmentId: DepartmentId): Result.Result<DepartmentReach<C>, DepartmentReachDenied> }`
-- Errors: none
+- Inputs:
+  - `authority: OrganizationPersonAuthority`
+  - `capability: C`
+  - `departmentId: DepartmentId`
+- Output: `Result.Result<DepartmentReach<C>, DepartmentReachDenied>`
+- Errors: `DepartmentReachDenied`
 - Requirements: none
 - Side effects: none
 - Source: [packages/domain/src/authz/reach.ts:234](../../packages/domain/src/authz/reach.ts#L234)
@@ -83,12 +94,20 @@ require the evidence here.
 Checks what team interest a resolved authority may read, narrowed to one requested department, and returns the scope that the listing requires.
 
 ```ts
-const requireTeamInterestScope: { (input: { readonly requested: DepartmentId | undefined; readonly departments: ReadonlyArray<DepartmentId> }): (authority: OrganizationPersonAuthority) => Result.Result<TeamInterestReadScope, TeamInterestScopeDenied>; (authority: OrganizationPersonAuthority, input: { readonly requested: DepartmentId | undefined; readonly departments: ReadonlyArray<DepartmentId> }): Result.Result<TeamInterestReadScope, TeamInterestScopeDenied> }
+requireTeamInterestScope(
+  input: { readonly requested: DepartmentId | undefined; readonly departments: ReadonlyArray<DepartmentId> }
+): (authority: OrganizationPersonAuthority) => Result.Result<TeamInterestReadScope, TeamInterestScopeDenied>
+requireTeamInterestScope(
+  authority: OrganizationPersonAuthority,
+  input: { readonly requested: DepartmentId | undefined; readonly departments: ReadonlyArray<DepartmentId> }
+): Result.Result<TeamInterestReadScope, TeamInterestScopeDenied>
 ```
 
-- Inputs: none
-- Output: `{ (input: { readonly requested: DepartmentId | undefined; readonly departments: ReadonlyArray<DepartmentId> }): (authority: OrganizationPersonAuthority) => Result.Result<TeamInterestReadScope, TeamInterestScopeDenied>; (authority: OrganizationPersonAuthority, input: { readonly requested: DepartmentId | undefined; readonly departments: ReadonlyArray<DepartmentId> }): Result.Result<TeamInterestReadScope, TeamInterestScopeDenied> }`
-- Errors: none
+- Inputs:
+  - `authority: OrganizationPersonAuthority`
+  - `input: { readonly requested: DepartmentId | undefined; readonly departments: ReadonlyArray<DepartmentId> }`
+- Output: `Result.Result<TeamInterestReadScope, TeamInterestScopeDenied>`
+- Errors: `TeamInterestScopeDenied`
 - Requirements: none
 - Side effects: none
 - Source: [packages/domain/src/organization/authority.ts:380](../../packages/domain/src/organization/authority.ts#L380)
