@@ -19,7 +19,7 @@ export const onboardingApplication = (applicationId: string, departmentId: Depar
         applicantId: string;
       }>`SELECT applicant_id AS "applicantId" FROM public.admission_applications WHERE application_id=${applicationId} AND department_id=${departmentId}`;
 
-      if (!rows[0]) return yield* fail("resource.not-found", 404);
+      if (rows[0] === undefined) return yield* fail("resource.not-found", 404);
 
       return rows[0];
     }),
@@ -68,7 +68,7 @@ export const commandOnboarding = (input: {
       const linked =
         yield* sql`SELECT applicant_id FROM public.applicant_account_links WHERE applicant_id=${applicantId}`;
 
-      if (linked.length) return yield* fail("onboarding.already-linked");
+      if (linked.length > 0) return yield* fail("onboarding.already-linked");
 
       const old = yield* sql<{
         invitationId: string;
@@ -106,7 +106,7 @@ export const claimOnboarding = <E, R>(input: {
           applicantId: string;
         }>`SELECT applicant_id AS "applicantId" FROM public.applicant_account_invitations WHERE token_digest=${input.digest}`;
 
-        if (!found[0]) return yield* fail("onboarding.claim-invalid", 400);
+        if (found[0] === undefined) return yield* fail("onboarding.claim-invalid", 400);
         yield* lockAdvisory(sql, AdvisoryLockKey.personAuthorization(input.identity.personId));
         yield* lockOnboardingApplicant(found[0].applicantId);
 
@@ -123,7 +123,7 @@ export const claimOnboarding = <E, R>(input: {
 
         const row = rows[0];
 
-        if (!row) return yield* fail("onboarding.claim-invalid", 400);
+        if (row === undefined) return yield* fail("onboarding.claim-invalid", 400);
 
         if (input.identity.mode === "NewAccount")
           yield* input.provision({ ...row, ...input.identity, now: row.observedAt });
@@ -143,6 +143,6 @@ export const checkOnboardingClaim = (digest: string, now: string) =>
       const rows =
         yield* sql`SELECT invitation_id FROM public.applicant_account_invitations i WHERE token_digest=${digest} AND state='Open' AND expires_at>${now}::timestamptz AND NOT EXISTS(SELECT 1 FROM public.applicant_account_links l WHERE l.applicant_id=i.applicant_id)`;
 
-      if (!rows.length) return yield* fail("onboarding.claim-invalid", 400);
+      if (rows.length === 0) return yield* fail("onboarding.claim-invalid", 400);
     }),
   );

@@ -208,7 +208,7 @@ export const executeDelegation = Effect.fn("executeDelegation")(function* (
         }>`SELECT command_digest AS digest, result_json AS result
           FROM organization_delegation_history WHERE command_id = ${command.commandId}`)[0];
 
-        if (receipt) {
+        if (receipt !== undefined) {
           if (receipt.digest !== digest) return yield* fail("Conflict");
 
           return yield* decode(DelegationResult)(receipt.result);

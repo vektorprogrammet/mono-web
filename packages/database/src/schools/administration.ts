@@ -116,7 +116,7 @@ const authorizeWithSql = Effect.fn("Schools.authorizeCommand")(function* (
     yield* sql`SELECT department_id FROM organization_departments WHERE department_id=${command.departmentId} FOR SHARE`;
   const school = (yield* schoolRows(sql, command.schoolId, true))[0];
 
-  if (!school) return yield* fail("NotFound");
+  if (school === undefined) return yield* fail("NotFound");
   const departments = yield* departmentsFor(sql, school.schoolId);
 
   if (
@@ -242,7 +242,7 @@ export const executeSchoolCommand = (authorized: SchoolCommandAuthorization) =>
           result: unknown;
         }>`SELECT command_digest AS digest,result_json AS result FROM schools_command_receipts WHERE actor_person_id=${personId} AND command_id=${command.commandId}`;
 
-        if (receipts[0]) {
+        if (receipts[0] !== undefined) {
           if (receipts[0].digest !== digest) return yield* fail("Conflict");
 
           return yield* Schema.decodeUnknownEffect(SchoolCommandResult)(receipts[0].result);
@@ -357,7 +357,7 @@ export const executeSchoolCommand = (authorized: SchoolCommandAuthorization) =>
             before = existing ?? null;
 
             if (Predicate.isTagged(command, "CreateCapacity")) {
-              if (existing) return yield* fail("CapacityExists");
+              if (existing !== undefined) return yield* fail("CapacityExists");
 
               const rows = yield* sql<{
                 capacityId: number;
@@ -369,7 +369,7 @@ export const executeSchoolCommand = (authorized: SchoolCommandAuthorization) =>
               );
               revision = 0;
             } else {
-              if (!existing) return yield* fail("NotFound");
+              if (existing === undefined) return yield* fail("NotFound");
 
               if (existing.revision !== command.expectedRevision) return yield* fail("Stale");
               capacityId = existing.capacityId;

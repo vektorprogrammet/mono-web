@@ -529,7 +529,7 @@ export const registerReturningAssistant = (
   Effect.gen(function* () {
     const command = yield* decodeInput(input);
 
-    if (!context.personId) return yield* new ReturningAssistantIdentityMissing();
+    if (context.personId === "") return yield* new ReturningAssistantIdentityMissing();
 
     return yield* Database.use((sql) =>
       sql.withTransaction(registerInTransaction(command, context, sql)),

@@ -166,7 +166,7 @@ const readLedger = Effect.fnUntraced(function* (
 
   if (
     ledger.length !== 1 ||
-    !stored ||
+    stored === undefined ||
     stored.source_digest !== p.sourceDigest ||
     stored.destination_identity !== p.destinationIdentity ||
     stored.target_semantic_identity !== result.targetSemanticIdentity ||
@@ -261,7 +261,7 @@ const resolveEvidence = Effect.fnUntraced(function* (
   const reference = references[0];
 
   if (
-    !reference ||
+    reference === undefined ||
     reference.source_revision !== r.sourceRevision ||
     reference.reference_digest !== r.referenceDigest
   )
@@ -367,7 +367,7 @@ const validatePrepared = (
       const result = bySource.get(item.row.sourcePrimaryKey);
 
       if (
-        !result ||
+        result === undefined ||
         result.sourceOccurrence !== 0 ||
         canonicalJson(result.provenance) !== canonicalJson(item.provenance)
       )
@@ -488,7 +488,7 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
       SELECT snapshot_digest FROM public.receipt_cohort_snapshots WHERE snapshot_key = ${snapshotKey}
     `;
 
-        if (prior[0]) {
+        if (prior[0] !== undefined) {
           if (prior[0].snapshot_digest !== snapshotDigest)
             return yield* invalid("SnapshotConflict");
 
@@ -518,7 +518,7 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
         for (const entry of r.entries) {
           const binding = boundSources.get(entry.sourcePrimaryKey);
 
-          if (!binding) continue;
+          if (binding === undefined) continue;
 
           if (
             binding.source_digest !== entry.sourceRowDigest ||
@@ -535,7 +535,7 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
           const current = resolvedBySource.get(entry.sourcePrimaryKey);
 
           if (
-            !current ||
+            current === undefined ||
             current.ownerPersonId !== accepted.receipt.ownerPersonId ||
             current.departmentId !== accepted.receipt.departmentId ||
             current.receiptId !== accepted.receipt.receiptId ||
@@ -571,7 +571,7 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
           const accepted = reused.get(owner.source_primary_key);
 
           if (
-            !accepted ||
+            accepted === undefined ||
             ownedSources.has(owner.source_primary_key) ||
             owner.destination_identity !== accepted.provenance.destinationIdentity ||
             owner.source_revision !== accepted.provenance.sourceRevision ||
