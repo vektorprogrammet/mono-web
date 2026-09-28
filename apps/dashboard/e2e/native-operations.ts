@@ -115,8 +115,12 @@ export const nativeRpcStatus = (body: string): number | undefined => {
       );
 };
 
-/** The RPC client posts to the endpoint URL, which its HTTP client may end with one slash. */
-const isRpcPath = (pathname: string): boolean =>
+/**
+ * Whether a request path addresses the RPC endpoint. The RPC client posts to the endpoint URL, and
+ * its HTTP client ends that URL with one slash (`/api/rpc/`), so a recorder that compares the path
+ * with `nativeRpcPath` alone misses every RPC.
+ */
+export const isNativeRpcPath = (pathname: string): boolean =>
   pathname === nativeRpcPath || pathname === `${nativeRpcPath}/`;
 
 /**
@@ -127,7 +131,7 @@ const isRpcPath = (pathname: string): boolean =>
 export const isNativeOperation = (method: string, pathname: string, body?: string): boolean => {
   if (method === "GET" && pathname === "/health") return true;
 
-  if (method !== "POST" || !isRpcPath(pathname)) return false;
+  if (method !== "POST" || !isNativeRpcPath(pathname)) return false;
 
   if (body === undefined) return true;
 
