@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
+import { isNativeRpcPath } from "./native-operations.ts";
 import { addressesAnyRoute, legacyRoutes } from "./request-routes.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -316,7 +317,7 @@ const startRecordingUpstream = async (ledger) => {
 
     try {
       const body = await requestBody(request);
-      const rpcRequest = url.pathname === "/api/rpc" ? parseRpcRequest(body) : null;
+      const rpcRequest = isNativeRpcPath(url.pathname) ? parseRpcRequest(body) : null;
 
       if (rpcRequest !== null) {
         entry.rpcTag = rpcRequest.tag;
@@ -619,7 +620,7 @@ try {
   assert.deepEqual(
     ledger.filter(
       (entry) =>
-        entry.pathname === "/api/rpc" && entry.method !== "OPTIONS" && entry.rpcTag === null,
+        isNativeRpcPath(entry.pathname) && entry.method !== "OPTIONS" && entry.rpcTag === null,
     ),
     [],
     "every request to the RPC endpoint must carry one RPC request",

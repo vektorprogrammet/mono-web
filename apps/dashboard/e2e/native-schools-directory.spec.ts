@@ -4,7 +4,12 @@ import { expect, test, type Browser, type BrowserContext, type Page } from "@pla
 import { Option, Schema } from "effect";
 import { DepartmentId } from "@vektorprogrammet/domain";
 import { NativeProblem, nativeRpcPath } from "@vektorprogrammet/rpc";
-import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
+import {
+  isNativeRpcPath,
+  nativeRpcRequestBody,
+  nativeRpcStatus,
+  nativeRpcValue,
+} from "./native-operations.js";
 import { addressesAnyRoute, legacyRoutes } from "./request-routes.js";
 
 const realNativeIdentity = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
@@ -16,8 +21,6 @@ const departments = {
   beta: DepartmentId.make("schools-e2e-0061-department-beta"),
   empty: DepartmentId.make("schools-e2e-0061-department-empty"),
 } as const;
-
-const apiOrigin = process.env.API_URL ?? "http://127.0.0.1:8790";
 
 /** The RPC that the browser read the school directory with. */
 const listSchoolsTag = "directory.listSchools";
@@ -155,7 +158,6 @@ test.describe("Native Schools directory (spec 0061)", () => {
 
   test("proves the authority matrix, Foldkit interactions, retry, and request confinement", async ({
     browser,
-    baseURL,
   }) => {
     const browserRequests: BrowserRequest[] = [];
     const browserResponses: BrowserResponse[] = [];
@@ -232,20 +234,28 @@ test.describe("Native Schools directory (spec 0061)", () => {
         administrator.page.getByRole("rowheader", { name: "Historisk Internasjonal" }),
       ).toBeVisible();
 
-      const native = nativeScriptClient(apiOrigin);
+      // The browser posts the RPC itself, same-origin, so its own session cookie authenticates it.
+      const emptyDepartmentText = await administrator.page.evaluate(
+        async ({ path, body }) => {
+          const response = await fetch(path, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "content-type": "application/json" },
+            body,
+          });
 
-      const emptyDepartment = await native
-        .call(
-          {
-            cookie: (await administrator.context.cookies())
-              .map(({ name, value }) => `${name}=${value}`)
-              .join("; "),
-            origin: new URL(baseURL ?? administrator.page.url()).origin,
-          },
-          (client) => client[listSchoolsTag]({ departmentId: departments.empty }),
-        )
-        .finally(() => native.dispose())
-        .then((result) => ({ status: result.status, body: result.ok ? result.value : result.code }));
+          return response.text();
+        },
+        {
+          path: nativeRpcPath,
+          body: nativeRpcRequestBody(listSchoolsTag, { departmentId: departments.empty }),
+        },
+      );
+
+      const emptyDepartment = {
+        status: nativeRpcStatus(emptyDepartmentText),
+        body: nativeRpcValue(emptyDepartmentText),
+      };
 
       expect(emptyDepartment).toEqual({
         status: 200,
@@ -309,7 +319,7 @@ test.describe("Native Schools directory (spec 0061)", () => {
 
         const rejection = denied.page.waitForResponse(
           (response) =>
-            new URL(response.url()).pathname === nativeRpcPath &&
+            isNativeRpcPath(new URL(response.url()).pathname) &&
             rpcTagOf(response.request().postData()) === listSchoolsTag,
         );
 
@@ -335,7 +345,7 @@ test.describe("Native Schools directory (spec 0061)", () => {
       const directoryRequests = browserRequests.filter(
         (request) =>
           request.method === "POST" &&
-          request.pathname === nativeRpcPath &&
+          isNativeRpcPath(request.pathname) &&
           request.rpcTag === listSchoolsTag,
       );
 
@@ -356,7 +366,7 @@ test.describe("Native Schools directory (spec 0061)", () => {
         rpcTag: listSchoolsTag,
         directoryRequests,
         directoryResponses: browserResponses.filter(
-          (response) => response.pathname === nativeRpcPath && response.rpcTag === listSchoolsTag,
+          (response) => isNativeRpcPath(response.pathname) && response.rpcTag === listSchoolsTag,
         ),
         observations,
         pageErrors,

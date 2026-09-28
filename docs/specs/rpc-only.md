@@ -655,6 +655,17 @@ Notes (recruitment):
 | `social-events.list` | GET `/api/social-events` | query: departmentId, semesterId | cookieHeader, oauthUserBearer | ported |
 | `social-events.readScope` | GET `/api/social-events/scope` | - | cookieHeader, oauthUserBearer | ported |
 
+Notes (social-events):
+
+- Dropped on `create`: 201 (it answers 200), the `Location` and `ETag` headers (no RPC takes that
+  ETag as `ifMatch`), `Cache-Control: no-store` and `Vary: Origin`, and the `Retry-After: 1` of
+  `idempotency.in-flight`. A replay still answers the first value from its receipt.
+- A create whose end precedes its start fails the payload schema, so the RPC server answers it as
+  a defect before the handler instead of `validation.failed`, and writes nothing.
+- `apps/dashboard/e2e/run-real-native-social-events.mjs` calls each RPC through the script client,
+  posts the invalid-time payload as raw JSON, and records each RPC by tag, payload, credential
+  facts (the message headers merged over the HTTP headers), and exit.
+
 ### system (`packages/rpc/src/system.ts`)
 
 | RPC tag | Replaces | Transport facts | Credentials | Status |

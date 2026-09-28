@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startDisposablePostgres } from "@monoweb/postgres";
+import { isNativeRpcPath } from "./native-operations.ts";
 import { addressesAnyRoute, legacyRoutes } from "./request-routes.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -362,7 +363,7 @@ const startRecordingUpstream = async (ledger) => {
 
     try {
       const body = await requestBody(request);
-      const rpcRequest = pathname === "/api/rpc" ? parseRpcRequest(body) : null;
+      const rpcRequest = isNativeRpcPath(pathname) ? parseRpcRequest(body) : null;
       entry.rpcTag = rpcRequest?.tag ?? null;
       entry.rpcPayload = rpcRequest?.payload ?? null;
 
