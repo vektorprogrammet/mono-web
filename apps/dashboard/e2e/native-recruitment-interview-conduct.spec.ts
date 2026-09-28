@@ -3,7 +3,7 @@ import { RecruitmentBridgeFailure } from "../app/foldkit/recruitment/bridge";
 import { ApplicantProgressResponseSchema } from "@vektorprogrammet/rpc";
 import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
 import { Schema, Predicate } from "effect";
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { expect, test, type BrowserContext, type Page, type Request } from "@playwright/test";
@@ -254,11 +254,11 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
         "Jeg liker å bygge gode løsninger sammen med andre.",
       );
 
-      const detailAxe = await new AxeBuilder({ page })
-        .include('section[aria-labelledby="fs-page-title"]')
-        .analyze();
+      const detailAxe = await auditSettledPage(page, {
+        include: ['section[aria-labelledby="fs-page-title"]'],
+      });
 
-      accessibilityViolations += detailAxe.violations.length;
+      accessibilityViolations += detailAxe.length;
 
       // A real reload starts from the native session and reads the persisted terminal detail again.
       await page.reload();
@@ -284,11 +284,11 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
           await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"),
         ).toBe(true);
 
-        const mobileAxe = await new AxeBuilder({ page })
-          .include('section[aria-labelledby="fs-page-title"]')
-          .analyze();
+        const mobileAxe = await auditSettledPage(page, {
+          include: ['section[aria-labelledby="fs-page-title"]'],
+        });
 
-        accessibilityViolations += mobileAxe.violations.length;
+        accessibilityViolations += mobileAxe.length;
         await page.screenshot({
           path: join(screenshotDirectory, "interview-completion-mobile.png"),
           fullPage: true,
@@ -343,8 +343,8 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
       await expect(
         applicantPage.getByRole("heading", { name: "Intervjuet er fullført", exact: true }),
       ).toBeVisible();
-      const applicantAxe = await new AxeBuilder({ page: applicantPage }).analyze();
-      accessibilityViolations += applicantAxe.violations.length;
+      const applicantAxe = await auditSettledPage(applicantPage);
+      accessibilityViolations += applicantAxe.length;
       applicantProgressObserved = true;
 
       // The independent revision-1 submit loses to the committed finalization.
@@ -368,11 +368,11 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
       await expect(stalePage.locator(".fs-conduct")).toHaveCount(1);
       await expect(stalePage.locator("#interviewer-recommendation")).toHaveValue("Ja");
 
-      const pageAxe = await new AxeBuilder({ page })
-        .include('section[aria-labelledby="fs-page-title"]')
-        .analyze();
+      const pageAxe = await auditSettledPage(page, {
+        include: ['section[aria-labelledby="fs-page-title"]'],
+      });
 
-      accessibilityViolations += pageAxe.violations.length;
+      accessibilityViolations += pageAxe.length;
     } finally {
       await staleContext?.close();
       await applicantContext?.close();
@@ -466,11 +466,11 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
       );
       await expect(independentPage.locator("body")).not.toContainText("90000064");
 
-      const independentAxe = await new AxeBuilder({ page: independentPage })
-        .include('section[aria-labelledby="fs-page-title"]')
-        .analyze();
+      const independentAxe = await auditSettledPage(independentPage, {
+        include: ['section[aria-labelledby="fs-page-title"]'],
+      });
 
-      accessibilityViolations += independentAxe.violations.length;
+      accessibilityViolations += independentAxe.length;
     } finally {
       await independentContext.close();
     }

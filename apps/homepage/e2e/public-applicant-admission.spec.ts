@@ -1,4 +1,4 @@
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "../../dashboard/e2e/settled-axe.js";
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import {
@@ -218,14 +218,14 @@ async function submitUntyped(
 
 /** Asserts that the application section has no serious or critical axe violation. */
 async function expectNoSeriousViolations(page: Page): Promise<number> {
-  const result = await new AxeBuilder({ page }).include('section[id="sok"]').analyze();
+  const result = await auditSettledPage(page, { include: ['section[id="sok"]'] });
 
   // Rule IDs and selectors name each violation without the values that fields hold.
-  const serious = result.violations
+  const serious = result
     .filter((violation) => violation.impact === "serious" || violation.impact === "critical")
     .map((violation) => ({
       id: violation.id,
-      targets: violation.nodes.map((node) => String(node.target)),
+      targets: violation.targets.map(({ target }) => target),
     }));
 
   expect(serious).toEqual([]);

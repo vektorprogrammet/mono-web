@@ -34,6 +34,7 @@ The shared constructs defined here. Each name links to its contract; [docs/const
 
 - [`isNativeRequest`](../../docs/constructs/request-ledger.md#isnativerequest) (request-ledger): Whether a dashboard-to-backend request stays on the native surface: an operation of the native RPC contract or an email-password route of the identity engine.
 - [`addressesAnyRoute`](../../docs/constructs/request-ledger.md#addressesanyroute) (request-ledger): Whether a request path addresses any of the routes, each matched by whole path segments.
+- [`auditSettledPage`](../../docs/constructs/browser-audit.md#auditsettledpage) (browser-audit): Audits a page with axe once every finite animation on it has finished.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

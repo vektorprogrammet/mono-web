@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { writeFile } from "node:fs/promises";
 import { chromium, expect } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.ts";
 import { Predicate } from "effect";
 import { nativeRpcPath } from "@vektorprogrammet/rpc";
 import {
@@ -138,14 +138,9 @@ export const runReimbursementBrowser = async ({
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
         `${surface} page overflow`,
       );
-      // Axe reads computed colours, so a colour transition still running (such as the focus and
-      // state styles of the button that just submitted) reads as its midpoint: audit the settled page.
-      await page.evaluate(() =>
-        Promise.all(document.getAnimations().map((animation) => animation.finished)),
-      );
-      const audit = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+      const audit = await auditSettledPage(page, { tags: ["wcag2a", "wcag2aa"] });
 
-      const serious = audit.violations.filter(
+      const serious = audit.filter(
         ({ impact }) => impact === "serious" || impact === "critical",
       );
 
@@ -153,9 +148,9 @@ export const runReimbursementBrowser = async ({
         serious.map(({ id }) => id),
         [],
         `${surface} accessibility: ${JSON.stringify(
-          serious.map(({ id, nodes }) => ({
+          serious.map(({ id, targets }) => ({
             id,
-            nodes: nodes.map(({ target, failureSummary }) => ({ target, failureSummary })),
+            targets: targets.map(({ target, failureSummary }) => ({ target, failureSummary })),
           })),
         )}`,
       );

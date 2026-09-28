@@ -1,4 +1,4 @@
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
@@ -29,15 +29,7 @@ const signIn = async (page: Page, person: { email: string; password: string }) =
 };
 
 const axe = async (page: Page, state: string) => {
-  const result = await new AxeBuilder({ page }).analyze();
-  expect(
-    result.violations.map(({ id, impact, nodes }) => ({
-      id,
-      impact,
-      nodes: nodes.map(({ target, failureSummary }) => ({ target, failureSummary })),
-    })),
-    state,
-  ).toEqual([]);
+  expect(await auditSettledPage(page), state).toEqual([]);
 };
 
 const outcomeForm = (page: Page, name: string) =>

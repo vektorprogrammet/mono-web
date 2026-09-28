@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Page, type Locator, type BrowserContext } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.js";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { PlacementScope } from "@vektorprogrammet/domain/placements";
@@ -389,7 +389,7 @@ test("continuous recruitment to first placement", async ({ browser }) => {
     await other.goto(m.dashboardOrigin + placements);
     await expect(other.locator("[data-own-placement-id]")).toHaveCount(0);
     expect(await other.locator("body").innerText()).not.toContain("Ada Rekrutt");
-    expect((await new AxeBuilder({ page: volunteer }).analyze()).violations).toEqual([]);
+    expect(await auditSettledPage(volunteer)).toEqual([]);
     await volunteer.screenshot({
       path: join(m.artifacts, "recruitment-first-placement.png"),
       fullPage: true,

@@ -1,5 +1,5 @@
 import { Option, Schema } from "effect";
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { DepartmentId } from "@vektorprogrammet/domain";
@@ -390,10 +390,10 @@ test.describe("Native Organization administration", () => {
       await teamChoice.selectOption(teamValue);
       await expect(teamChoice).toHaveValue(teamValue);
 
-      const teamAccessibility = await new AxeBuilder({ page: adminPage }).analyze();
+      const teamAccessibility = await auditSettledPage(adminPage);
 
-      teamAccessibilityViolations = teamAccessibility.violations.length;
-      expect(teamAccessibility.violations).toEqual([]);
+      teamAccessibilityViolations = teamAccessibility.length;
+      expect(teamAccessibility).toEqual([]);
 
       const fieldPage = await adminContext.newPage();
       observePage(fieldPage, nativePublicRequests, legacyBrowserRequests, pageErrors);
@@ -405,12 +405,12 @@ test.describe("Native Organization administration", () => {
 
       await expect(fieldTable.getByRole("rowheader", { name: fieldPayload.name })).toBeVisible();
 
-      const fieldAccessibility = await new AxeBuilder({ page: fieldPage })
-        .include('section[aria-labelledby="organization-catalog-title"]')
-        .analyze();
+      const fieldAccessibility = await auditSettledPage(fieldPage, {
+        include: ['section[aria-labelledby="organization-catalog-title"]'],
+      });
 
-      fieldAccessibilityViolations = fieldAccessibility.violations.length;
-      expect(fieldAccessibility.violations).toEqual([]);
+      fieldAccessibilityViolations = fieldAccessibility.length;
+      expect(fieldAccessibility).toEqual([]);
 
       expect(legacyBrowserRequests).toEqual([]);
       expect(pageErrors).toEqual([]);

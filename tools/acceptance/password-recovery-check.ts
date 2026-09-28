@@ -29,6 +29,7 @@ import { loopbackPortFree, reserveLoopbackPorts, startDisposablePostgres } from 
 import { drainPasswordResetMail } from "../../packages/database/src/password-recovery.js";
 import { HttpMailLive } from "../../apps/backend/src/mail/http.js";
 import { nativeRpcRequestBody, nativeRpcStatus } from "../../apps/dashboard/e2e/native-operations.js";
+import { auditSettledPage } from "../../apps/dashboard/e2e/settled-axe.js";
 import { jsonText } from "../../apps/backend/src/rpc/problem.js";
 import {
   answersOk,
@@ -564,9 +565,8 @@ const journey = Effect.gen(function* () {
     yield* browserStep(() =>
       page.screenshot({ path: path.join(artifacts, "invalid-link-mobile.png") }),
     );
-    const AxeBuilder = requireDashboard("@axe-core/playwright").default;
-    const axe = yield* browserStep(() => new AxeBuilder({ page }).analyze());
-    assert.deepEqual(axe.violations, []);
+    const axe = yield* browserStep(() => auditSettledPage(page));
+    assert.deepEqual(axe, []);
     gates.push("actual expired token callback, mobile invalid-link view, Axe");
 
     for (const [id, identifier, value] of [

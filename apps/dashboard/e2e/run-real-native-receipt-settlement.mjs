@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.ts";
 import { startDisposablePostgres } from "@monoweb/postgres";
 import { chromium } from "@playwright/test";
 import { nativeRpcPath } from "@vektorprogrammet/rpc";
@@ -1401,12 +1401,12 @@ async function main() {
     assert.match(confirmationText, new RegExp(submittedReceipt.visualId, "u"));
     assert.match(confirmationText, /browser-settlement-reference-0114/u);
 
-    const axe = await new AxeBuilder({ page: settler.page })
-      .include("[data-receipt-settlement-dialog]")
-      .analyze();
+    const axe = await auditSettledPage(settler.page, {
+      include: ["[data-receipt-settlement-dialog]"],
+    });
 
     assert.deepEqual(
-      axe.violations.map(({ id }) => id),
+      axe.map(({ id }) => id),
       [],
       "Settlement confirmation has no blocking accessibility violations",
     );
@@ -2094,7 +2094,7 @@ async function main() {
         route: settlementRoute,
         mobileWidth: 390,
         keyboard: "open-and-confirm",
-        accessibilityViolations: axe.violations.length,
+        accessibilityViolations: axe.length,
         ownerReloaded: true,
         financeReloaded: true,
       },

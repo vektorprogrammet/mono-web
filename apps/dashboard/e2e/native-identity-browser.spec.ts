@@ -3,7 +3,7 @@ import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
 import { Effect, Predicate, Schema } from "effect";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.js";
 import { writeFile } from "node:fs/promises";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { readBrowserStorage } from "../browser/interview-response-state.js";
@@ -106,9 +106,9 @@ type BrowserAuthorityCheck = {
 };
 
 const blockingViolations = async (page: Page) => {
-  const result = await new AxeBuilder({ page }).analyze();
+  const result = await auditSettledPage(page);
 
-  return result.violations.filter(
+  return result.filter(
     (violation) => violation.impact === "serious" || violation.impact === "critical",
   );
 };

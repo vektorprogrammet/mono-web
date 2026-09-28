@@ -1,4 +1,4 @@
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { expect, test, type Locator } from "@playwright/test";
 import {
@@ -296,11 +296,11 @@ test.describe("Native admission-period management", () => {
 
     if (admissionPeriodId === null) throw new Error("created admission-period ID was absent");
 
-    const accessibility = await new AxeBuilder({ page })
-      .include('section[aria-labelledby="admission-period-page-title"]')
-      .analyze();
+    const accessibility = await auditSettledPage(page, {
+      include: ['section[aria-labelledby="admission-period-page-title"]'],
+    });
 
-    expect(accessibility.violations).toEqual([]);
+    expect(accessibility).toEqual([]);
 
     // The form's own window check rejected the first attempt before any command left the
     // dashboard; the corrected attempt reuses that attempt's key and sends it only as a header.

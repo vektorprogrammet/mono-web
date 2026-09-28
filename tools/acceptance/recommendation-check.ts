@@ -70,6 +70,7 @@ import { type JourneyStepFailed, surfaceStepFailure } from "./journey-step.ts";
 import { PublicApplicationIdSchema } from "../../packages/domain/src/application/schema.js";
 import { nativeScriptClient } from "../../packages/rpc/src/script-client.js";
 import { replacedFetch } from "../../apps/dashboard/e2e/native-rpc-ledger.ts";
+import { auditSettledPage } from "../../apps/dashboard/e2e/settled-axe.ts";
 import { FetchHttpClient, type HttpClient } from "effect/unstable/http";
 
 const root = new URL("../../", import.meta.url).pathname;
@@ -155,8 +156,6 @@ if (process.argv.includes("--validate-fixture")) {
 
 const { chromium } = uiRequire("@playwright/test");
 
-const AxeBuilder = uiRequire("@axe-core/playwright").default;
-
 const run = (cmd: string, args: string[], env = process.env, cwd = root): string => {
   try {
     return execFileSync(cmd, args, {
@@ -240,16 +239,7 @@ const secrets: string[] = [];
 const accessibility: Array<{ state: string; violations: ReadonlyArray<unknown> }> = [];
 
 const auditPage = async (page: any, state: string) => {
-  const violations = (await new AxeBuilder({ page }).analyze()).violations.map(
-    (violation: any) => ({
-      id: violation.id,
-      impact: violation.impact,
-      nodes: violation.nodes.map((node: any) => ({
-        target: node.target,
-        checks: node.any.map((check: any) => ({ id: check.id, data: check.data })),
-      })),
-    }),
-  );
+  const violations = await auditSettledPage(page);
 
   accessibility.push({ state, violations });
   let evidence = JSON.stringify(accessibility, null, 2);

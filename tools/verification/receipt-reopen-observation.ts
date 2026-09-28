@@ -10,6 +10,7 @@ import { Match } from "effect";
 import { ReceiptId } from "@vektorprogrammet/rpc";
 import { StrongETag, IdempotencyKey } from "@vektorprogrammet/rpc/problem";
 import { nativeScriptClient, type ScriptCallResult } from "@vektorprogrammet/rpc/script";
+import { auditSettledPage } from "../../apps/dashboard/e2e/settled-axe.js";
 
 type ReceiptAction = "approve" | "reject" | "reopen" | "withdraw";
 
@@ -258,17 +259,9 @@ export async function observeReceiptReopening(options: {
   const browserBefore = await snapshot(browserTarget.id);
   const requireDashboard = createRequire(join(options.root, "apps/dashboard/package.json"));
   const { chromium, expect } = requireDashboard("@playwright/test");
-  const { default: AxeBuilder } = requireDashboard("@axe-core/playwright");
 
   const checkAxe = async (page: any, gate: string) => {
-    await page.evaluate(
-      "Promise.all(document.getAnimations().map(animation => animation.finished.catch(() => {})))",
-    );
-
-    const violations = (await new AxeBuilder({ page }).analyze()).violations.map((v: any) => ({
-      id: v.id,
-      nodes: v.nodes.map((node: any) => ({ target: node.target, summary: node.failureSummary })),
-    }));
+    const violations = await auditSettledPage(page);
 
     if (violations.length > 0) {
       await page.screenshot({

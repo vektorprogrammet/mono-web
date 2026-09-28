@@ -91,6 +91,8 @@ Tag a construct only when at least 2 modules outside its own module and the test
   - [`reserveLoopbackPorts`](constructs/test-harness.md#reserveloopbackports): Reserves `count` distinct loopback ports for the servers that a journey starts: its backend, dashboard, receivers, and clusters.
   - [`startDisposablePostgres`](constructs/test-harness.md#startdisposablepostgres): Starts a fresh cluster of the selected major on a private port and socket directory with trust authentication.
   - [`withDisposablePostgres`](constructs/test-harness.md#withdisposablepostgres): Runs `use` against the database `database` of a fresh cluster, which `startDisposablePostgres` starts, and removes the cluster when `use` settles, also when it fails.
+- [browser-audit](constructs/browser-audit.md): Audits the pages that browser journeys render once they have settled: accessibility with axe.
+  - [`auditSettledPage`](constructs/browser-audit.md#auditsettledpage): Audits a page with axe once every finite animation on it has finished.
 - [request-ledger](constructs/request-ledger.md): Classifies the requests that journey recorders observe by whole path segments: native contract operations and legacy routes.
   - [`isNativeRequest`](constructs/request-ledger.md#isnativerequest): Whether a dashboard-to-backend request stays on the native surface: an operation of the native RPC contract or an email-password route of the identity engine.
   - [`addressesAnyRoute`](constructs/request-ledger.md#addressesanyroute): Whether a request path addresses any of the routes, each matched by whole path segments.

@@ -1,5 +1,5 @@
 import { Predicate } from "effect";
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { expect, test, type Request } from "@playwright/test";
@@ -227,11 +227,11 @@ test.describe("Native recruitment assignment journey (spec 0049.3)", () => {
     await expect(assignedRow).toContainText(interviewerName);
     await expect(assignedRow).not.toContainText("Ikke tildelt");
 
-    const accessibility = await new AxeBuilder({ page })
-      .include('section[aria-labelledby="fr-page-title"]')
-      .analyze();
+    const accessibility = await auditSettledPage(page, {
+      include: ['section[aria-labelledby="fr-page-title"]'],
+    });
 
-    expect(accessibility.violations).toEqual([]);
+    expect(accessibility).toEqual([]);
     expect(bridgeRequests.map(({ operation }) => operation)).toEqual([
       "readAssignmentBoard",
       "createApplicationInterview",
@@ -270,7 +270,7 @@ test.describe("Native recruitment assignment journey (spec 0049.3)", () => {
           interviewers: interviewerOptions.slice(1),
           schemas: schemaOptions.slice(1),
         },
-        accessibilityViolations: accessibility.violations.length,
+        accessibilityViolations: accessibility.length,
         legacyBrowserRequests,
         externalBrowserRequests,
         pageErrors,

@@ -1,4 +1,4 @@
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.js";
 import type { AdmissionOutcomeCommand } from "@vektorprogrammet/domain/admissions";
 import {
   CoverageCommand,
@@ -45,7 +45,7 @@ const selectScope = async (page: Page) => {
 };
 
 const axe = async (page: Page, state: string) => {
-  const result = await new AxeBuilder({ page }).analyze();
+  const violations = await auditSettledPage(page);
 
   const landmarks = await page.locator("form[aria-label]").evaluateAll((forms) =>
     forms.map((form) => ({
@@ -54,14 +54,7 @@ const axe = async (page: Page, state: string) => {
     })),
   );
 
-  expect(
-    result.violations.map(({ id, impact, nodes }) => ({
-      id,
-      impact,
-      nodes: nodes.map(({ target, failureSummary }) => ({ target, failureSummary })),
-    })),
-    `${state}; form landmarks: ${JSON.stringify(landmarks)}`,
-  ).toEqual([]);
+  expect(violations, `${state}; form landmarks: ${JSON.stringify(landmarks)}`).toEqual([]);
 };
 
 const fillPlacement = async (form: Locator, block: string, day = "Monday", workdays = "4") => {

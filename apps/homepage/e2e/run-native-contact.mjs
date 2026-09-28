@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { chromium, expect } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "../../dashboard/e2e/settled-axe.ts";
 import { Option, Predicate, Schema } from "effect";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
@@ -564,12 +564,11 @@ const response = await mf.dispatchFetch(`http://p000.vektor.phibkro.org${req.url
   };
 
   const axe = async (label) => {
-    const result = await new AxeBuilder({ page })
-      .include('nav[aria-label="Velg avdeling"]')
-      .include("main")
-      .analyze();
+    const result = await auditSettledPage(page, {
+      include: ['nav[aria-label="Velg avdeling"]', "main"],
+    });
 
-    assert.deepEqual(result.violations, [], `axe ${label}`);
+    assert.deepEqual(result, [], `axe ${label}`);
   };
 
   await axe("initial");

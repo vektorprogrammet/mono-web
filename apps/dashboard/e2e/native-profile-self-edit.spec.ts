@@ -1,7 +1,7 @@
 import { IdempotencyKey, type NativeRpcClient, StrongETag } from "@vektorprogrammet/rpc";
 import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
 import { type Effect, Predicate, Schema } from "effect";
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.js";
 import { writeFile } from "node:fs/promises";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { addressesAnyRoute, legacyRoutes } from "./request-routes.js";
@@ -121,9 +121,9 @@ const profileValues = (page: Page) =>
   ]);
 
 const assertAxe = async (page: Page, results: Record<string, number>, state: string) => {
-  const accessibility = await new AxeBuilder({ page }).analyze();
+  const accessibility = await auditSettledPage(page);
 
-  const blockingViolations = accessibility.violations.filter(
+  const blockingViolations = accessibility.filter(
     (violation) => violation.impact === "serious" || violation.impact === "critical",
   );
 

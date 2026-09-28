@@ -1,4 +1,4 @@
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.js";
 import { writeFile } from "node:fs/promises";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { Option, Predicate, Schema } from "effect";
@@ -265,8 +265,8 @@ test.describe("Native Content publication (spec 0062)", () => {
         published: true,
       };
 
-      const accessibility = await new AxeBuilder({ page: administrator.page }).analyze();
-      expect(accessibility.violations).toEqual([]);
+      const accessibility = await auditSettledPage(administrator.page);
+      expect(accessibility).toEqual([]);
 
       // --- Leader: revise + republish one immutable version -----------
       const leader = await openContext(browser, browserRequests, browserResponses, pageErrors);
@@ -476,8 +476,8 @@ test.describe("Native Content publication (spec 0062)", () => {
         type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
       });
       observations.authorDenial = { publishButtonAbsent: true, nativeStatus: 403 };
-      const authorAccessibility = await new AxeBuilder({ page: author.page }).analyze();
-      expect(authorAccessibility.violations).toEqual([]);
+      const authorAccessibility = await auditSettledPage(author.page);
+      expect(authorAccessibility).toEqual([]);
 
       // --- Ended-only and no-authority personas: safely indistinguishable denials ---
       for (const [name, person] of [
@@ -542,11 +542,11 @@ test.describe("Native Content publication (spec 0062)", () => {
         teaserVisible: true,
       };
 
-      const anonAccessibility = await new AxeBuilder({ page: anonPage })
-        .include('section[aria-labelledby="news-teaser-heading"]')
-        .analyze();
+      const anonAccessibility = await auditSettledPage(anonPage, {
+        include: ['section[aria-labelledby="news-teaser-heading"]'],
+      });
 
-      expect(anonAccessibility.violations).toEqual([]);
+      expect(anonAccessibility).toEqual([]);
 
       // --- Request confinement -----------------------------------------
       const bridgeRequests = browserRequests.filter(
@@ -604,7 +604,7 @@ test.describe("Native Content publication (spec 0062)", () => {
         nativeContentRequests,
         observations,
         pageErrors,
-        accessibilityViolations: accessibility.violations,
+        accessibilityViolations: accessibility,
       };
 
       if (evidencePath !== undefined) {

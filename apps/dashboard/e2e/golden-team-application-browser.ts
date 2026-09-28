@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.js";
 import { chromium, expect as baseExpect, type BrowserContext, type Page } from "@playwright/test";
 import { nativeRpcPath, OrganizationLifecycleCommand } from "@vektorprogrammet/rpc";
 import { Match, Schema } from "effect";
@@ -383,11 +383,11 @@ export const runTeamApplicationBrowser = async (
 
       assert.equal(overflowing, "", `${surface} overflows at ${width}px`);
 
-      const audit = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+      const audit = await auditSettledPage(page, { tags: ["wcag2a", "wcag2aa"] });
 
-      const serious = audit.violations.flatMap(({ id, impact, nodes }) =>
+      const serious = audit.flatMap(({ id, impact, targets }) =>
         impact === "serious" || impact === "critical"
-          ? [`${id}: ${nodes.map(({ target, html }) => `${target.join(" ")} ${html.slice(0, 160)}`).join(" | ")}`]
+          ? [`${id}: ${targets.map(({ target }) => target).join(" | ")}`]
           : [],
       );
 

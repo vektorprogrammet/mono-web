@@ -1,4 +1,4 @@
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.js";
 import { writeFile } from "node:fs/promises";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { Option, Schema } from "effect";
@@ -269,8 +269,8 @@ test.describe("Native Schools directory (spec 0061)", () => {
         emptyDepartment,
       };
 
-      const accessibility = await new AxeBuilder({ page: administrator.page }).analyze();
-      expect(accessibility.violations).toEqual([]);
+      const accessibility = await auditSettledPage(administrator.page);
+      expect(accessibility).toEqual([]);
 
       const twoDepartment = await openContext(
         browser,
@@ -371,7 +371,7 @@ test.describe("Native Schools directory (spec 0061)", () => {
         ),
         observations,
         pageErrors,
-        accessibilityViolations: accessibility.violations,
+        accessibilityViolations: accessibility,
       };
 
       if (evidencePath !== undefined) {
