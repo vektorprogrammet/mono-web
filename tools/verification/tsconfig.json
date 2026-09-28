@@ -5,6 +5,6 @@
     "types": ["node"]
   },
   "include": ["*.ts"],
-  // The loopback receiver of this proof is a Bun HTTP server, whose types tsconfig.bun.json adds.
-  "exclude": ["completion-receipt-postgres-proof-main.ts"]
+  // These entries serve loopback receivers on a Bun HTTP server, whose types tsconfig.bun.json adds.
+  "exclude": ["completion-receipt-postgres-proof-main.ts", "receipt-import-rehearsal.ts"]
 }
