@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { conditionalReadHeaders, nativeProblemResponse, routeArgs } from "../../test/native-http";
+import { routeArgs } from "../../test/native-http";
+import { nativeRpcProblem, nativeRpcSuccess, readNativeRpcCall, type NativeRpcCall } from "../../test/native-rpc";
 
 vi.hoisted(() => vi.stubEnv("API_URL", "http://api.test"));
 
@@ -7,8 +8,26 @@ import { loader } from "../routes/interview-response.$capability";
 
 const transport = vi.fn<typeof fetch>();
 
+const pending = { scheduledAt: "2031-09-20T13:30:00.000Z", room: "K-101", campus: "Gløshaugen", responseState: "Pending", responseMessage: null };
+
+const etag = `"vkr2.${"A".repeat(43)}"`;
+
+/** Every RPC call of the exchange, in order. */
+const calls: NativeRpcCall[] = [];
+
+/** Answers each later call with `answer`, and records it. */
+const answerWith = (answer: (call: NativeRpcCall) => Response) =>
+  transport.mockImplementation(async (input, init) => {
+    const call = await readNativeRpcCall(input, init);
+    calls.push(call);
+
+    return answer(call);
+  });
+
 beforeEach(() => {
-  transport.mockReset().mockImplementation(async () => Response.json({ scheduledAt: "2031-09-20T13:30:00.000Z", room: "K-101", campus: "Gløshaugen", responseState: "Pending", responseMessage: null }, { headers: conditionalReadHeaders }));
+  calls.length = 0;
+  transport.mockReset();
+  answerWith((call) => nativeRpcSuccess(call, { observation: pending, etag }));
   vi.stubGlobal("fetch", transport);
 });
 
@@ -46,7 +65,8 @@ describe("recruitment invitation capability exchange", () => {
     }
 
     expect(bindings[0]).not.toBe(bindings[1]);
-    expect(transport.mock.calls.map(([input, init]) => new Request(input, init).headers.get("X-Recruitment-Invitation-Capability"))).toEqual([firstCapability, secondCapability]);
+    expect(calls.map((call) => call.payload)).toEqual([{ capability: firstCapability }, { capability: secondCapability }]);
+    expect(calls.map((call) => call.headers.get("cookie"))).toEqual([null, null]);
   });
   it("keeps the capability cookie inside the configured dashboard mount", async () => {
     const response = await thrownRedirect("C".repeat(43), "/dashboard/", true);
@@ -54,7 +74,7 @@ describe("recruitment invitation capability exchange", () => {
     expect(response.headers.get("set-cookie")).toContain("Path=/dashboard/interview");
   });
   it("does not mint or clear bindings when the real native response denies the capability", async () => {
-    transport.mockResolvedValueOnce(nativeProblemResponse("resource.not-found"));
+    answerWith((call) => nativeRpcProblem(call, "resource.not-found"));
     const response = await thrownRedirect("D".repeat(43));
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe("/interview-response/redacted");
@@ -62,7 +82,7 @@ describe("recruitment invitation capability exchange", () => {
     expect(transport).toHaveBeenCalledOnce();
   });
   it("does not mint a binding from a malformed native observation", async () => {
-    transport.mockResolvedValueOnce(Response.json({ responseState: "Invented" }, { headers: conditionalReadHeaders }));
+    answerWith((call) => nativeRpcSuccess(call, { observation: { responseState: "Invented" }, etag }));
     const response = await thrownRedirect("E".repeat(43));
     expect(response.headers.get("location")).toBe("/interview-response/redacted");
     expect(response.headers.get("set-cookie")).toBeNull();

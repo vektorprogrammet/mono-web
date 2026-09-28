@@ -8,7 +8,21 @@ RecruitmentAssignmentBoardQuerySchema,
 RecruitmentAssignmentBoardSchema,
 RecruitmentInterviewConductObservationSchema,
 RecruitmentInterviewId, } from "@vektorprogrammet/rpc"
-import { CancelInterviewRequest, CancelInterviewResponse, ConditionalReadHeaders, CreateApplicationInterviewRequest, FinalizeInterviewRequest, CorrectInterviewAssessmentRequest, CorrectInterviewAssessmentResponse, FinalizeInterviewResponse, IdempotencyHeaders, IdempotencyIfMatchHeaders, RecruitmentInterviewResource, SchedulingBoard, ScheduleInterviewRequest, ScheduleInterviewResponse, StrongETag } from "@vektorprogrammet/rpc";
+import { CancelInterviewRequest, CancelInterviewResponse, CreateApplicationInterviewRequest, FinalizeInterviewRequest, CorrectInterviewAssessmentRequest, CorrectInterviewAssessmentResponse, FinalizeInterviewResponse, IdempotencyKey, RecruitmentInterviewResource, SchedulingBoard, ScheduleInterviewRequest, ScheduleInterviewResponse, StrongETag } from "@vektorprogrammet/rpc";
+
+/**
+ * The browser names a command's idempotency key and entity tag as the HTTP contract spelled them;
+ * the bridge route passes them to the RPC as `idempotencyKey` and `ifMatch`.
+ */
+const IdempotencyHeaders = S.Struct({ "idempotency-key": IdempotencyKey });
+
+const IdempotencyIfMatchHeaders = S.Struct({
+  "idempotency-key": IdempotencyKey,
+  "if-match": StrongETag,
+});
+
+/** A conduct read carries no condition: the RPC answers the full resource every time. */
+const ConditionalReadHeaders = S.Struct({});
 
 
 export const RecruitmentBoardStatus = RecruitmentAssignmentBoardQuerySchema.fields.status;
