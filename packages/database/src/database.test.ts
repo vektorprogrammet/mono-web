@@ -799,11 +799,11 @@ describe("DatabaseTest", () => {
 
         {
           const actual = yield* Effect.flip(
-            executeReceiptCommand(
+            executeReceiptCommand({
               command,
-              { ...principal, authorizationInstant: "2026-08-23 12:00:00" },
+              principal: { ...principal, authorizationInstant: "2026-08-23 12:00:00" },
               allocation,
-            ),
+            }),
           );
 
           expect(actual).toHaveProperty("_tag", "ReceiptDecodeError");
@@ -5186,8 +5186,8 @@ describe("claim-fenced outbox delivery", () => {
   });
 
   const submitReceipt = (index: number) =>
-    executeReceiptCommand(
-      {
+    executeReceiptCommand({
+      command: {
         _tag: "SubmitReceipt" as const,
         commandId: `fence-submit-${index}`,
         departmentId: DepartmentId.make("fence-department"),
@@ -5202,15 +5202,15 @@ describe("claim-fenced outbox delivery", () => {
           sha256: String(index).repeat(64),
         },
       },
-      {
+      principal: {
         personId: PersonId.make("fence-owner"),
         authorizationInstant: `2026-08-23T12:0${index}:00.000Z`,
       },
-      {
+      allocation: {
         receiptId: ReceiptId.make(`fence-receipt-${index}`),
         visualId: ReceiptVisualId.make(`FENCE-000${index}`),
       },
-    );
+    });
 
   it.live(
     "reports lost applicant effect claims as ClaimLost without recording an outcome",
@@ -5407,7 +5407,9 @@ describe("claim-fenced outbox delivery", () => {
             yield* submitReceipt(1);
 
             const loseClaim = Effect.gen(function* () {
-              for (const claimId of yield* listStaleReceiptOutboxClaimIds(staleCutoff))
+              for (const claimId of yield* listStaleReceiptOutboxClaimIds({
+                claimedBefore: staleCutoff,
+              }))
                 yield* recoverStaleReceiptOutbox(claimId, staleCutoff);
             }).pipe(Effect.provideService(Database, database), Effect.orDie);
 
@@ -5424,10 +5426,10 @@ describe("claim-fenced outbox delivery", () => {
           WHERE command_id = 'fence-submit-1' AND ordinal = 0
         `;
 
-            const lost = yield* deliverNextReceiptOutbox(
-              "fence-receipt-claim-1",
-              "2026-08-23T12:10:00.000Z",
-            ).pipe(
+            const lost = yield* deliverNextReceiptOutbox({
+              claimId: "fence-receipt-claim-1",
+              claimedAt: "2026-08-23T12:10:00.000Z",
+            }).pipe(
               Effect.provideService(ReceiptFileService, {
                 stage: () => Effect.void,
                 apply: () => loseClaim,
@@ -5437,10 +5439,10 @@ describe("claim-fenced outbox delivery", () => {
 
             const afterLoss = yield* firstEffect;
 
-            const delivered = yield* deliverNextReceiptOutbox(
-              "fence-receipt-claim-2",
-              "2026-08-23T12:11:00.000Z",
-            ).pipe(
+            const delivered = yield* deliverNextReceiptOutbox({
+              claimId: "fence-receipt-claim-2",
+              claimedAt: "2026-08-23T12:11:00.000Z",
+            }).pipe(
               Effect.provideService(ReceiptFileService, {
                 stage: () => Effect.void,
                 apply: () => Effect.void,
@@ -5502,10 +5504,10 @@ describe("claim-fenced outbox delivery", () => {
             const results: Array<string> = [];
 
             for (let index = 0; index < 8; index++) {
-              const result = yield* deliverNextReceiptOutbox(
-                `fence-quarantine-claim-${index}`,
-                "2026-08-23T12:20:00.000Z",
-              ).pipe(
+              const result = yield* deliverNextReceiptOutbox({
+                claimId: `fence-quarantine-claim-${index}`,
+                claimedAt: "2026-08-23T12:20:00.000Z",
+              }).pipe(
                 Effect.provideService(ReceiptFileService, {
                   stage: () => Effect.void,
                   apply: () => Effect.void,

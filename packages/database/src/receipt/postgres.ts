@@ -613,16 +613,28 @@ export const reconcileReceiptImport: {
     }),
 );
 
+/** The person, the authorization instant, the status filter, and the cursor of an approval queue read. */
+export interface ReceiptApprovalQueueInput {
+  readonly personId: PersonId;
+  readonly authorizationInstant: OrganizationAuthorityInstant;
+  readonly status?: ReceiptStatus | undefined;
+  readonly after?: string | undefined;
+}
+
 /**
  * Rule-aware approval projection. Session identity and the instant are explicit
  * query inputs; every authority source is read without locks in one snapshot.
  */
-export const listReceiptsForApproval = (
-  personId: PersonId,
-  authorizationInstant: OrganizationAuthorityInstant,
-  status?: ReceiptStatus,
-  after?: string,
-): Effect.Effect<ReceiptPage<ReceiptListItem>, ReceiptApprovalListFailure, Database> =>
+export const listReceiptsForApproval = ({
+  personId,
+  authorizationInstant,
+  status,
+  after,
+}: ReceiptApprovalQueueInput): Effect.Effect<
+  ReceiptPage<ReceiptListItem>,
+  ReceiptApprovalListFailure,
+  Database
+> =>
   Effect.gen(function* () {
     const sql = yield* Database;
 
@@ -679,7 +691,7 @@ export const listReceiptsForApproval = (
             visible.length <= RECEIPT_PAGE_SIZE &&
             directAuthority.organizationAuthority === "Active"
           ) {
-            const candidates = yield* listApproverReceipts(status, position);
+            const candidates = yield* listApproverReceipts({ status, after: position });
 
             const applicable = yield* Effect.forEach(candidates, (candidate) =>
               readApplicableAuthorizationRules(
@@ -1424,11 +1436,22 @@ const executeAuthorizedReceiptCommandWithSql = (
  * connection. Native HTTP replay invokes authority resolution before deciding
  * whether this effect runs.
  */
-export const executeAuthorizedReceiptCommand = (
-  input: typeof ReceiptCommandRequestSchema.Encoded,
-  authorization: ReceiptMutationAuthorization,
-  allocationInput?: ReceiptSubmissionAllocation,
-): Effect.Effect<ReceiptTransactionResult, ReceiptFailure, Database> =>
+/** An encoded receipt command, decoded inside the transaction, and the authority already resolved for it. */
+export interface AuthorizedReceiptCommandInput {
+  readonly command: typeof ReceiptCommandRequestSchema.Encoded;
+  readonly authorization: ReceiptMutationAuthorization;
+  readonly allocation?: ReceiptSubmissionAllocation | undefined;
+}
+
+export const executeAuthorizedReceiptCommand = ({
+  command: input,
+  authorization,
+  allocation: allocationInput,
+}: AuthorizedReceiptCommandInput): Effect.Effect<
+  ReceiptTransactionResult,
+  ReceiptFailure,
+  Database
+> =>
   Effect.gen(function* () {
     const sql = yield* Database;
     const command = yield* decodeReceiptCommand(input);
@@ -1441,11 +1464,18 @@ export const executeAuthorizedReceiptCommand = (
     );
   });
 
-export const executeReceiptCommand = (
-  input: typeof ReceiptCommandRequestSchema.Encoded,
-  principalInput: typeof ReceiptCommandPrincipalSchema.Encoded,
-  allocationInput?: ReceiptSubmissionAllocation,
-): Effect.Effect<ReceiptTransactionResult, ReceiptFailure, Database> =>
+/** An encoded receipt command and its encoded principal, both decoded inside the transaction. */
+export interface ReceiptCommandInput {
+  readonly command: typeof ReceiptCommandRequestSchema.Encoded;
+  readonly principal: typeof ReceiptCommandPrincipalSchema.Encoded;
+  readonly allocation?: ReceiptSubmissionAllocation | undefined;
+}
+
+export const executeReceiptCommand = ({
+  command: input,
+  principal: principalInput,
+  allocation: allocationInput,
+}: ReceiptCommandInput): Effect.Effect<ReceiptTransactionResult, ReceiptFailure, Database> =>
   Effect.gen(function* () {
     const sql = yield* Database;
 

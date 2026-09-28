@@ -474,7 +474,7 @@ try {
 
   const observeNoEffects = async () => {
     const result = await run(
-      deliverNextReceiptOutbox("0095-guard", new Date().toISOString()).pipe(
+      deliverNextReceiptOutbox({ claimId: "0095-guard", claimedAt: new Date().toISOString() }).pipe(
         Effect.provideService(ReceiptAuxiliaryEffects, guard),
         Effect.provideService(ReceiptFileService, files.service),
       ),

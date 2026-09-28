@@ -41,17 +41,30 @@ interface ClaimIdRow {
 const persistenceError = (operation: string, cause: unknown) =>
   ReceiptPersistenceError.make({ operation, message: String(cause) });
 
+/** The claim that a worker takes on the next deliverable effect, optionally scoped to one receipt. */
+export interface ReceiptOutboxClaimInput {
+  readonly claimId: string;
+  readonly claimedAt: string;
+  readonly receiptId?: string | undefined;
+}
+
+/** The instant before which a held claim is stale, optionally scoped to one receipt. */
+export interface StaleReceiptOutboxClaimsInput {
+  readonly claimedBefore: string;
+  readonly receiptId?: string | undefined;
+}
+
 const receiptOutbox: OutboxTable = { name: "economy_receipt_outbox", terminalPayload: "Retain" };
 
 /**
  * Claims the next deliverable effect. An envelope that does not decode, or that names another
  * effect or command, is quarantined in the claim transaction and yields `undefined`.
  */
-export const claimNextReceiptOutbox = (
-  claimId: string,
-  claimedAt: string,
-  receiptId?: string,
-): Effect.Effect<
+export const claimNextReceiptOutbox = ({
+  claimId,
+  claimedAt,
+  receiptId,
+}: ReceiptOutboxClaimInput): Effect.Effect<
   ClaimedReceiptOutbox | undefined,
   ReceiptPersistenceError | OutboxClaimLost,
   Database
@@ -181,10 +194,14 @@ export const failReceiptOutbox: {
     ),
 );
 
-export const listStaleReceiptOutboxClaimIds = (
-  claimedBefore: string,
-  receiptId?: string,
-): Effect.Effect<ReadonlyArray<string>, ReceiptPersistenceError, Database> =>
+export const listStaleReceiptOutboxClaimIds = ({
+  claimedBefore,
+  receiptId,
+}: StaleReceiptOutboxClaimsInput): Effect.Effect<
+  ReadonlyArray<string>,
+  ReceiptPersistenceError,
+  Database
+> =>
   Effect.gen(function* () {
     const sql = yield* Database;
     const receiptScope = receiptId ?? null;
@@ -261,11 +278,11 @@ const interpretReceiptOutbox = (
     Match.exhaustive,
   );
 
-export const deliverNextReceiptOutbox = (
-  claimId: string,
-  claimedAt: string,
-  receiptId?: string,
-): Effect.Effect<
+export const deliverNextReceiptOutbox = ({
+  claimId,
+  claimedAt,
+  receiptId,
+}: ReceiptOutboxClaimInput): Effect.Effect<
   ReceiptOutboxDeliveryResult,
   ReceiptPersistenceError,
   Database | ReceiptFileService | ReceiptAuxiliaryEffects
@@ -281,7 +298,7 @@ export const deliverNextReceiptOutbox = (
           }),
         );
 
-        const claim = yield* claimNextReceiptOutbox(claimId, acquiredAt, receiptId);
+        const claim = yield* claimNextReceiptOutbox({ claimId, claimedAt: acquiredAt, receiptId });
 
         if (claim === undefined) return ReceiptOutboxDeliveryResult.Idle();
 

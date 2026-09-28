@@ -2159,11 +2159,11 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
     assert.deepEqual(composition.contributingRuleIds, []);
     assert.equal(composition.mapped._tag, "Success");
 
-    const result = yield* executeReceiptCommand(
-      submitCommand(ids.commands.directSubmit, ids.departments.alpha, "direct"),
-      principal(ids.persons.direct, justBeforeExactEnd),
-      allocation(generatedReceiptIds.direct, generatedVisualIds.direct),
-    );
+    const result = yield* executeReceiptCommand({
+      command: submitCommand(ids.commands.directSubmit, ids.departments.alpha, "direct"),
+      principal: principal(ids.persons.direct, justBeforeExactEnd),
+      allocation: allocation(generatedReceiptIds.direct, generatedVisualIds.direct),
+    });
 
     const durable = yield* readDurableCommandFacts(sql, ids.commands.directSubmit);
 
@@ -2224,18 +2224,18 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
     assert.equal(rejectedComposition.mapped._tag, "Success");
 
     const rejectedResult = yield* Effect.result(
-      executeReceiptCommand(
-        submitCommand(
+      executeReceiptCommand({
+        command: submitCommand(
           ids.commands.matrixReceiptRejected,
           ids.departments.alpha,
           "matrix-receipt-rejected",
         ),
-        principal(ids.persons.endedDirect, exactEnd),
-        allocation(
+        principal: principal(ids.persons.endedDirect, exactEnd),
+        allocation: allocation(
           generatedReceiptIds.matrixReceiptRejected,
           generatedVisualIds.matrixReceiptRejected,
         ),
-      ),
+      }),
     );
 
     const rejectedDurable = yield* readDurableCommandFacts(sql, ids.commands.matrixReceiptRejected);
@@ -2416,14 +2416,14 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
     );
 
     const endedRuleCommand = yield* Effect.result(
-      executeReceiptCommand(
-        ReceiptCommandRequestSchema.cases.RejectReceipt.make({
+      executeReceiptCommand({
+        command: ReceiptCommandRequestSchema.cases.RejectReceipt.make({
           commandId: ids.commands.endedRuleApprove,
           receiptId: ReceiptId.make(ids.receipts.endedRule),
           expectedRevision: 0,
         }),
-        principal(ids.persons.endedRule, exactEnd),
-      ),
+        principal: principal(ids.persons.endedRule, exactEnd),
+      }),
     );
 
     const endedRuleDurable = yield* readDurableCommandFacts(sql, ids.commands.endedRuleApprove);
@@ -2441,11 +2441,15 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
     );
 
     const endedDirectCommand = yield* Effect.result(
-      executeReceiptCommand(
-        submitCommand(ids.commands.endedDirectSubmit, ids.departments.alpha, "ended-direct"),
-        principal(ids.persons.endedDirect, exactEnd),
-        allocation(generatedReceiptIds.endedDirect, generatedVisualIds.endedDirect),
-      ),
+      executeReceiptCommand({
+        command: submitCommand(
+          ids.commands.endedDirectSubmit,
+          ids.departments.alpha,
+          "ended-direct",
+        ),
+        principal: principal(ids.persons.endedDirect, exactEnd),
+        allocation: allocation(generatedReceiptIds.endedDirect, generatedVisualIds.endedDirect),
+      }),
     );
 
     const endedDirectDurable = yield* readDurableCommandFacts(sql, ids.commands.endedDirectSubmit);
@@ -2465,11 +2469,18 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
     );
 
     const crossDepartmentCommand = yield* Effect.result(
-      executeReceiptCommand(
-        submitCommand(ids.commands.crossDepartmentSubmit, ids.departments.beta, "cross-department"),
-        principal(ids.persons.crossDepartment, exactEnd),
-        allocation(generatedReceiptIds.crossDepartment, generatedVisualIds.crossDepartment),
-      ),
+      executeReceiptCommand({
+        command: submitCommand(
+          ids.commands.crossDepartmentSubmit,
+          ids.departments.beta,
+          "cross-department",
+        ),
+        principal: principal(ids.persons.crossDepartment, exactEnd),
+        allocation: allocation(
+          generatedReceiptIds.crossDepartment,
+          generatedVisualIds.crossDepartment,
+        ),
+      }),
     );
 
     const crossDepartmentDurable = yield* readDurableCommandFacts(
@@ -2553,776 +2564,780 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
     };
   }).pipe(Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-boundaries`)));
 
+const provePhantomEconomyInsertFirst = (databaseUrl: Redacted.Redacted<string>) =>
+  Effect.gen(function* () {
+    const writerPaused = yield* Deferred.make<void>();
+    const resumeWriter = yield* Deferred.make<void>();
+    const commandAttempted = yield* Deferred.make<void>();
+    const writerStarted = yield* Deferred.make<ConnectionStamp>();
+    const commandStarted = yield* Deferred.make<ConnectionStamp>();
+    const writerTrace = makeSqlTrace();
+    const commandTrace = makeSqlTrace();
+
+    const before = yield* submissionCompositionFacts(
+      ids.persons.phantomEconomy,
+      exactEnd,
+      ids.departments.alpha,
+    ).pipe(
+      Effect.provide(
+        makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-economy-before`),
+      ),
+    );
+
+    assert.deepEqual(before.applicableRuleIds, []);
+    assert.equal(before.directPaymentAuthorities.length, 0);
+    assert.deepEqual(
+      before.mapped,
+      ReceiptActorMappingEvidence.Failure({ failureTag: "ReceiptAuthorityDenied" }),
+    );
+
+    const writerFiber = yield* Effect.forkScoped(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        const started = yield* connectionStamp(sql);
+        yield* Deferred.succeed(writerStarted, started);
+
+        const observed = observeSql(sql, writerTrace, {
+          pauseAfter: {
+            phase: "direct-payment-insert",
+            ready: writerPaused,
+            resume: resumeWriter,
+          },
+        });
+
+        const created = yield* createReceiptPaymentAuthority({
+          paymentAuthorityId: ReceiptPaymentAuthorityId.make(
+            ids.directAuthorities.phantomEconomyPayment,
+          ),
+          personId: personId(ids.persons.phantomEconomy),
+          departmentId: departmentId(ids.departments.alpha),
+          paymentAccountCiphertext: "ciphertext:proof:phantom-economy",
+          startAt: activeStart,
+          endAt: null,
+        }).pipe(Effect.provideService(Database, observed));
+
+        const completed = yield* connectionStamp(sql);
+
+        return { started, completed, created };
+      }).pipe(
+        Effect.provide(
+          makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-economy-writer`),
+        ),
+      ),
+    );
+
+    yield* Deferred.await(writerPaused);
+
+    const commandFiber = yield* Effect.forkScoped(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        const started = yield* connectionStamp(sql);
+        yield* Deferred.succeed(commandStarted, started);
+
+        const observed = observeSql(sql, commandTrace, {
+          signalBefore: {
+            phase: "person-authorization-lock",
+            deferred: commandAttempted,
+          },
+        });
+
+        const value = yield* executeReceiptCommand({
+          command: submitCommand(
+            ids.commands.phantomEconomyInsert,
+            ids.departments.alpha,
+            "phantom-economy-insert",
+          ),
+          principal: principal(ids.persons.phantomEconomy, exactEnd),
+          allocation: allocation(
+            generatedReceiptIds.phantomEconomyInsert,
+            generatedVisualIds.phantomEconomyInsert,
+          ),
+        }).pipe(Effect.provideService(Database, observed));
+
+        const completed = yield* connectionStamp(sql);
+
+        return { started, completed, value };
+      }).pipe(
+        Effect.provide(
+          makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-economy-command`),
+        ),
+      ),
+    );
+
+    yield* Deferred.await(commandAttempted);
+    const writerStamp = yield* Deferred.await(writerStarted);
+    const commandStamp = yield* Deferred.await(commandStarted);
+    assert.notEqual(writerStamp.pid, commandStamp.pid);
+
+    const writerAtBlock = {
+      attempted: [...writerTrace.attempted],
+      completed: [...writerTrace.completed],
+    };
+
+    const commandAtBlock = {
+      attempted: [...commandTrace.attempted],
+      completed: [...commandTrace.completed],
+    };
+
+    const locks = yield* observeBlockingAndLocks({
+      databaseUrl,
+      blockedPid: commandStamp.pid,
+      blockerPid: writerStamp.pid,
+      personId: ids.persons.phantomEconomy,
+      commandId: ids.commands.phantomEconomyInsert,
+      applicationName: `${proofApplicationPrefix}-phantom-economy-observer`,
+    });
+
+    assert.equal(locks.blocked.waitEventType, "Lock");
+    assert.ok(locks.blocked.blockingPids.includes(writerStamp.pid));
+    assert.ok(
+      hasAdvisoryLock(
+        locks.advisoryLocks,
+        writerStamp.pid,
+        "person-authorization",
+        "ExclusiveLock",
+        true,
+      ),
+    );
+    assert.ok(
+      hasAdvisoryLock(
+        locks.advisoryLocks,
+        commandStamp.pid,
+        "person-authorization",
+        "ExclusiveLock",
+        false,
+      ),
+    );
+    assert.ok(
+      hasRelationLock(
+        locks.relationLocks,
+        writerStamp.pid,
+        "public.economy_payment_authorities",
+        "RowExclusiveLock",
+      ),
+    );
+    assert.equal(commandAtBlock.attempted.at(-1), "person-authorization-lock");
+    yield* Deferred.succeed(resumeWriter, undefined);
+    const writer = yield* Fiber.join(writerFiber);
+    const command = yield* Fiber.join(commandFiber);
+    assert.equal(writer.created.revision, 0);
+    assertSubsequence(writerTrace.completed, [
+      "person-authorization-lock",
+      "direct-payment-insert",
+    ]);
+    assertSubsequence(commandTrace.completed, [
+      "person-authorization-lock",
+      "organization-authority-projection",
+      "direct-receipt-authority-projection",
+      "authz-shared-lock",
+      "authz-tag-assignment-projection",
+      "authz-rule-projection",
+      "durable-audit-insert",
+    ]);
+
+    const afterInsert = yield* submissionCompositionFacts(
+      ids.persons.phantomEconomy,
+      exactEnd,
+      ids.departments.alpha,
+    ).pipe(
+      Effect.provide(
+        makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-economy-after`),
+      ),
+    );
+
+    assert.deepEqual(afterInsert.applicableRuleIds, []);
+    assert.deepEqual(afterInsert.composedPaymentAuthorityIds, [
+      ids.directAuthorities.phantomEconomyPayment,
+    ]);
+    assert.equal(afterInsert.mapped._tag, "Success");
+
+    const cleanup = yield* Effect.gen(function* () {
+      const sql = yield* Database;
+      const durable = yield* readDurableCommandFacts(sql, ids.commands.phantomEconomyInsert);
+
+      const removed = yield* removeReceiptPaymentAuthority({
+        paymentAuthorityId: ReceiptPaymentAuthorityId.make(
+          ids.directAuthorities.phantomEconomyPayment,
+        ),
+        expectedRevision: 0,
+      });
+
+      const [remaining] = yield* sql<{ readonly count: number }>`
+        SELECT count(*)::integer AS count
+        FROM public.economy_payment_authorities
+        WHERE payment_authority_id = ${ids.directAuthorities.phantomEconomyPayment}
+      `;
+
+      assert(remaining);
+
+      return {
+        durable,
+        removed: {
+          paymentAuthorityId: removed.paymentAuthorityId,
+          revision: removed.revision,
+        },
+        remainingRows: remaining.count,
+      };
+    }).pipe(
+      Effect.provide(
+        makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-economy-cleanup`),
+      ),
+    );
+
+    assert.deepEqual(cleanup.durable, {
+      commandReceiptRows: 1,
+      auditRows: 1,
+      outboxRows: 3,
+      outboxCommandRows: 1,
+    });
+    assert.equal(cleanup.remainingRows, 0);
+
+    return {
+      order: "WriterInsertFirst" as const,
+      before,
+      participants: {
+        writer: writer.started,
+        writerCompleted: writer.completed,
+        command: command.started,
+        commandCompleted: command.completed,
+        independentBackendPids: writer.started.pid !== command.started.pid,
+      },
+      blocked: locks.blocked,
+      relationLocks: locks.relationLocks,
+      advisoryLocks: locks.advisoryLocks,
+      sqlOrderAtBlock: { writer: writerAtBlock, command: commandAtBlock },
+      sqlOrderAfterCommit: { writer: writerTrace, command: commandTrace },
+      createdAuthority: {
+        paymentAuthorityId: writer.created.paymentAuthorityId,
+        personId: writer.created.personId,
+        departmentId: writer.created.departmentId,
+        startAt: writer.created.startAt,
+        endAt: writer.created.endAt,
+        revision: writer.created.revision,
+      },
+      visibleComposition: afterInsert,
+      commandObservation: command.value.observation,
+      cleanup,
+    };
+  });
+
+const provePhantomOrganizationLifecycle = (databaseUrl: Redacted.Redacted<string>) =>
+  Effect.gen(function* () {
+    const approvalGrant = yield* createReceiptApprovalGrant({
+      approvalGrantId: ReceiptApprovalGrantId.make(
+        ids.directAuthorities.phantomOrganizationApproval,
+      ),
+      personId: personId(ids.persons.phantomOrganization),
+      scope: AuthzRuleScopeSchema.cases.Global.make({}),
+      startAt: activeStart,
+      endAt: null,
+    }).pipe(
+      Effect.provide(
+        makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-approval-setup`),
+      ),
+    );
+
+    const before = yield* approvalCompositionFacts(
+      ids.persons.phantomOrganization,
+      exactEnd,
+      ids.departments.alpha,
+    ).pipe(
+      Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-before`)),
+    );
+
+    assert.deepEqual(before.applicableRuleIds, []);
+    assert.equal(before.directApprovalGrants[0]?.active, false);
+    assert.equal(before.mapped._tag, "Success");
+
+    if (Predicate.isTagged(before.mapped, "Success"))
+      assert.equal(before.mapped.actor.active, false);
+
+    const writerPaused = yield* Deferred.make<void>();
+    const resumeWriter = yield* Deferred.make<void>();
+    const commandAttempted = yield* Deferred.make<void>();
+    const writerStarted = yield* Deferred.make<ConnectionStamp>();
+    const commandStarted = yield* Deferred.make<ConnectionStamp>();
+    const insertWriterTrace = makeSqlTrace();
+    const insertCommandTrace = makeSqlTrace();
+
+    const insertWriterFiber = yield* Effect.forkScoped(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        const started = yield* connectionStamp(sql);
+        yield* Deferred.succeed(writerStarted, started);
+
+        const observed = observeSql(sql, insertWriterTrace, {
+          pauseAfter: {
+            phase: "organization-administrator-insert",
+            ready: writerPaused,
+            resume: resumeWriter,
+          },
+        });
+
+        const created = yield* createOrganizationGlobalAdministratorGrant({
+          grantId: OrganizationGlobalAdministratorGrantId.make(
+            ids.directAuthorities.phantomOrganizationAdministrator,
+          ),
+          personId: personId(ids.persons.phantomOrganization),
+          startAt: activeStart,
+          endAt: null,
+        }).pipe(Effect.provideService(Database, observed));
+
+        const completed = yield* connectionStamp(sql);
+
+        return { started, completed, created };
+      }).pipe(
+        Effect.provide(
+          makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-insert-writer`),
+        ),
+      ),
+    );
+
+    yield* Deferred.await(writerPaused);
+
+    const insertCommandFiber = yield* Effect.forkScoped(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        const started = yield* connectionStamp(sql);
+        yield* Deferred.succeed(commandStarted, started);
+
+        const observed = observeSql(sql, insertCommandTrace, {
+          signalBefore: {
+            phase: "person-authorization-lock",
+            deferred: commandAttempted,
+          },
+        });
+
+        const value = yield* executeReceiptCommand({
+          command: ReceiptCommandRequestSchema.cases.RejectReceipt.make({
+            commandId: ids.commands.phantomOrganizationInsert,
+            receiptId: ReceiptId.make(ids.receipts.phantomOrganizationInsert),
+            expectedRevision: 0,
+          }),
+          principal: principal(ids.persons.phantomOrganization, exactEnd),
+        }).pipe(Effect.provideService(Database, observed));
+
+        const completed = yield* connectionStamp(sql);
+
+        return { started, completed, value };
+      }).pipe(
+        Effect.provide(
+          makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-insert-command`),
+        ),
+      ),
+    );
+
+    yield* Deferred.await(commandAttempted);
+    const insertWriterStamp = yield* Deferred.await(writerStarted);
+    const insertCommandStamp = yield* Deferred.await(commandStarted);
+    assert.notEqual(insertWriterStamp.pid, insertCommandStamp.pid);
+
+    const insertWriterAtBlock = {
+      attempted: [...insertWriterTrace.attempted],
+      completed: [...insertWriterTrace.completed],
+    };
+
+    const insertCommandAtBlock = {
+      attempted: [...insertCommandTrace.attempted],
+      completed: [...insertCommandTrace.completed],
+    };
+
+    const insertLocks = yield* observeBlockingAndLocks({
+      databaseUrl,
+      blockedPid: insertCommandStamp.pid,
+      blockerPid: insertWriterStamp.pid,
+      personId: ids.persons.phantomOrganization,
+      commandId: ids.commands.phantomOrganizationInsert,
+      applicationName: `${proofApplicationPrefix}-phantom-org-insert-observer`,
+    });
+
+    assert.equal(insertLocks.blocked.waitEventType, "Lock");
+    assert.ok(insertLocks.blocked.blockingPids.includes(insertWriterStamp.pid));
+    assert.ok(
+      hasAdvisoryLock(
+        insertLocks.advisoryLocks,
+        insertWriterStamp.pid,
+        "person-authorization",
+        "ExclusiveLock",
+        true,
+      ),
+    );
+    assert.ok(
+      hasAdvisoryLock(
+        insertLocks.advisoryLocks,
+        insertCommandStamp.pid,
+        "person-authorization",
+        "ExclusiveLock",
+        false,
+      ),
+    );
+    assert.ok(
+      hasRelationLock(
+        insertLocks.relationLocks,
+        insertWriterStamp.pid,
+        "public.organization_global_administrator_grants",
+        "RowExclusiveLock",
+      ),
+    );
+    yield* Deferred.succeed(resumeWriter, undefined);
+    const insertWriter = yield* Fiber.join(insertWriterFiber);
+    const insertCommand = yield* Fiber.join(insertCommandFiber);
+    assertSubsequence(insertWriterTrace.completed, [
+      "person-authorization-lock",
+      "organization-administrator-insert",
+    ]);
+    assertSubsequence(insertCommandTrace.completed, [
+      "person-authorization-lock",
+      "organization-authority-projection",
+      "direct-receipt-authority-projection",
+      "authz-shared-lock",
+      "authz-tag-assignment-projection",
+      "authz-rule-projection",
+      "durable-audit-insert",
+    ]);
+
+    const afterInsert = yield* approvalCompositionFacts(
+      ids.persons.phantomOrganization,
+      exactEnd,
+      ids.departments.alpha,
+    ).pipe(
+      Effect.provide(
+        makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-after-insert`),
+      ),
+    );
+
+    assert.equal(afterInsert.directApprovalGrants[0]?.active, true);
+    assert.equal(afterInsert.mapped._tag, "Success");
+
+    if (Predicate.isTagged(afterInsert.mapped, "Success"))
+      assert.equal(afterInsert.mapped.actor.active, true);
+
+    const commandReady = yield* Deferred.make<void>();
+    const resumeCommand = yield* Deferred.make<void>();
+    const endWriterAttempted = yield* Deferred.make<void>();
+    const endCommandStarted = yield* Deferred.make<ConnectionStamp>();
+    const endWriterStarted = yield* Deferred.make<ConnectionStamp>();
+    const endCommandTrace = makeSqlTrace();
+    const endWriterTrace = makeSqlTrace();
+
+    const endCommandFiber = yield* Effect.forkScoped(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        const started = yield* connectionStamp(sql);
+        yield* Deferred.succeed(endCommandStarted, started);
+
+        const observed = observeSql(sql, endCommandTrace, {
+          pauseAfter: {
+            phase: "durable-audit-insert",
+            ready: commandReady,
+            resume: resumeCommand,
+          },
+        });
+
+        const value = yield* executeReceiptCommand({
+          command: ReceiptCommandRequestSchema.cases.RejectReceipt.make({
+            commandId: ids.commands.phantomOrganizationRemove,
+            receiptId: ReceiptId.make(ids.receipts.phantomOrganizationRemove),
+            expectedRevision: 0,
+          }),
+          principal: principal(ids.persons.phantomOrganization, exactEnd),
+        }).pipe(Effect.provideService(Database, observed));
+
+        const completed = yield* connectionStamp(sql);
+
+        return { started, completed, value };
+      }).pipe(
+        Effect.provide(
+          makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-end-command`),
+        ),
+      ),
+    );
+
+    yield* Deferred.await(commandReady);
+
+    const endWriterFiber = yield* Effect.forkScoped(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        const started = yield* connectionStamp(sql);
+        yield* Deferred.succeed(endWriterStarted, started);
+
+        const observed = observeSql(sql, endWriterTrace, {
+          signalBefore: {
+            phase: "person-authorization-lock",
+            deferred: endWriterAttempted,
+          },
+        });
+
+        const ended = yield* endOrganizationGlobalAdministratorGrant({
+          grantId: OrganizationGlobalAdministratorGrantId.make(
+            ids.directAuthorities.phantomOrganizationAdministrator,
+          ),
+          endAt: exactEnd,
+          expectedRevision: 0,
+        }).pipe(Effect.provideService(Database, observed));
+
+        const completed = yield* connectionStamp(sql);
+
+        return { started, completed, ended };
+      }).pipe(
+        Effect.provide(
+          makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-end-writer`),
+        ),
+      ),
+    );
+
+    yield* Deferred.await(endWriterAttempted);
+    const endCommandStamp = yield* Deferred.await(endCommandStarted);
+    const endWriterStamp = yield* Deferred.await(endWriterStarted);
+    assert.notEqual(endCommandStamp.pid, endWriterStamp.pid);
+
+    const endCommandAtBlock = {
+      attempted: [...endCommandTrace.attempted],
+      completed: [...endCommandTrace.completed],
+    };
+
+    const endWriterAtBlock = {
+      attempted: [...endWriterTrace.attempted],
+      completed: [...endWriterTrace.completed],
+    };
+
+    const endLocks = yield* observeBlockingAndLocks({
+      databaseUrl,
+      blockedPid: endWriterStamp.pid,
+      blockerPid: endCommandStamp.pid,
+      personId: ids.persons.phantomOrganization,
+      commandId: ids.commands.phantomOrganizationRemove,
+      applicationName: `${proofApplicationPrefix}-phantom-org-end-observer`,
+    });
+
+    assert.equal(endLocks.blocked.waitEventType, "Lock");
+    assert.ok(endLocks.blocked.blockingPids.includes(endCommandStamp.pid));
+    assert.ok(
+      hasAdvisoryLock(
+        endLocks.advisoryLocks,
+        endCommandStamp.pid,
+        "person-authorization",
+        "ExclusiveLock",
+        true,
+      ),
+    );
+    assert.ok(
+      hasAdvisoryLock(
+        endLocks.advisoryLocks,
+        endWriterStamp.pid,
+        "person-authorization",
+        "ExclusiveLock",
+        false,
+      ),
+    );
+    assert.equal(endWriterAtBlock.attempted.at(-1), "person-authorization-lock");
+    yield* Deferred.succeed(resumeCommand, undefined);
+    const endCommand = yield* Fiber.join(endCommandFiber);
+    const endWriter = yield* Fiber.join(endWriterFiber);
+    assert.equal(endWriter.ended.endAt, exactEnd);
+    assert.equal(endWriter.ended.revision, 1);
+    assertSubsequence(endWriterTrace.completed, [
+      "person-authorization-lock",
+      "organization-administrator-end",
+    ]);
+
+    const afterEnd = yield* Effect.gen(function* () {
+      const sql = yield* Database;
+
+      const beforeExact = yield* resolveOrganizationPersonAuthorityForRead(
+        personId(ids.persons.phantomOrganization),
+        justBeforeExactEnd,
+      );
+
+      const atExact = yield* resolveOrganizationPersonAuthorityForRead(
+        personId(ids.persons.phantomOrganization),
+        exactEnd,
+      );
+
+      const insertDurable = yield* readDurableCommandFacts(
+        sql,
+        ids.commands.phantomOrganizationInsert,
+      );
+
+      const endDurable = yield* readDurableCommandFacts(
+        sql,
+        ids.commands.phantomOrganizationRemove,
+      );
+
+      const fresh = yield* Effect.result(
+        executeReceiptCommand({
+          command: ReceiptCommandRequestSchema.cases.RejectReceipt.make({
+            commandId: ids.commands.phantomOrganizationFresh,
+            receiptId: ReceiptId.make(ids.receipts.phantomOrganizationFresh),
+            expectedRevision: 0,
+          }),
+          principal: principal(ids.persons.phantomOrganization, exactEnd),
+        }),
+      );
+
+      const freshDurable = yield* readDurableCommandFacts(
+        sql,
+        ids.commands.phantomOrganizationFresh,
+      );
+
+      const removedAdministrator = yield* removeOrganizationGlobalAdministratorGrant({
+        grantId: OrganizationGlobalAdministratorGrantId.make(
+          ids.directAuthorities.phantomOrganizationAdministrator,
+        ),
+        expectedRevision: 1,
+      });
+
+      const removedApproval = yield* removeReceiptApprovalGrant({
+        approvalGrantId: ReceiptApprovalGrantId.make(
+          ids.directAuthorities.phantomOrganizationApproval,
+        ),
+        expectedRevision: 0,
+      });
+
+      const [remaining] = yield* sql<{
+        readonly administrators: number;
+        readonly approvals: number;
+      }>`
+        SELECT
+          (
+            SELECT count(*)::integer
+            FROM public.organization_global_administrator_grants
+            WHERE grant_id = ${ids.directAuthorities.phantomOrganizationAdministrator}
+          ) AS administrators,
+          (
+            SELECT count(*)::integer
+            FROM public.economy_receipt_approval_grants
+            WHERE approval_grant_id = ${ids.directAuthorities.phantomOrganizationApproval}
+          ) AS approvals
+      `;
+
+      assert(remaining);
+
+      return {
+        beforeExactGlobalAdministrator: beforeExact.globalAdministrator,
+        exactGlobalAdministrator: atExact.globalAdministrator,
+        insertDurable,
+        endDurable,
+        freshFailureTag: resultFailureTag(fresh),
+        freshDurable,
+        removedAdministrator: {
+          grantId: removedAdministrator.grantId,
+          endAt: removedAdministrator.endAt,
+          revision: removedAdministrator.revision,
+        },
+        removedApproval: {
+          approvalGrantId: removedApproval.approvalGrantId,
+          revision: removedApproval.revision,
+        },
+        remaining,
+      };
+    }).pipe(
+      Effect.provide(
+        makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-after-end`),
+      ),
+    );
+
+    assert.equal(afterEnd.beforeExactGlobalAdministrator, "Active");
+    assert.equal(afterEnd.exactGlobalAdministrator, "Inactive");
+    assert.deepEqual(afterEnd.insertDurable, {
+      commandReceiptRows: 1,
+      auditRows: 1,
+      outboxRows: 2,
+      outboxCommandRows: 1,
+    });
+    assert.deepEqual(afterEnd.endDurable, {
+      commandReceiptRows: 1,
+      auditRows: 1,
+      outboxRows: 2,
+      outboxCommandRows: 1,
+    });
+    assert.equal(afterEnd.freshFailureTag, "InactiveActor");
+    assert.deepEqual(afterEnd.freshDurable, {
+      commandReceiptRows: 0,
+      auditRows: 0,
+      outboxRows: 0,
+      outboxCommandRows: 0,
+    });
+    assert.deepEqual(afterEnd.remaining, { administrators: 0, approvals: 0 });
+
+    return {
+      setupApprovalGrant: {
+        approvalGrantId: approvalGrant.approvalGrantId,
+        personId: approvalGrant.personId,
+        scope: approvalGrant.scope,
+        startAt: approvalGrant.startAt,
+        endAt: approvalGrant.endAt,
+        revision: approvalGrant.revision,
+      },
+      before,
+      insertFirst: {
+        order: "WriterInsertFirst" as const,
+        participants: {
+          writer: insertWriter.started,
+          writerCompleted: insertWriter.completed,
+          command: insertCommand.started,
+          commandCompleted: insertCommand.completed,
+          independentBackendPids: insertWriter.started.pid !== insertCommand.started.pid,
+        },
+        blocked: insertLocks.blocked,
+        relationLocks: insertLocks.relationLocks,
+        advisoryLocks: insertLocks.advisoryLocks,
+        sqlOrderAtBlock: {
+          writer: insertWriterAtBlock,
+          command: insertCommandAtBlock,
+        },
+        sqlOrderAfterCommit: {
+          writer: insertWriterTrace,
+          command: insertCommandTrace,
+        },
+        createdAdministrator: {
+          grantId: insertWriter.created.grantId,
+          personId: insertWriter.created.personId,
+          startAt: insertWriter.created.startAt,
+          endAt: insertWriter.created.endAt,
+          revision: insertWriter.created.revision,
+        },
+        visibleComposition: afterInsert,
+        commandObservation: insertCommand.value.observation,
+      },
+      commandFirstEnd: {
+        order: "CommandFirst" as const,
+        instant: exactEnd,
+        participants: {
+          command: endCommand.started,
+          commandCompleted: endCommand.completed,
+          writer: endWriter.started,
+          writerCompleted: endWriter.completed,
+          independentBackendPids: endCommand.started.pid !== endWriter.started.pid,
+        },
+        blocked: endLocks.blocked,
+        relationLocks: endLocks.relationLocks,
+        advisoryLocks: endLocks.advisoryLocks,
+        sqlOrderAtBlock: {
+          command: endCommandAtBlock,
+          writer: endWriterAtBlock,
+        },
+        sqlOrderAfterCommit: {
+          command: endCommandTrace,
+          writer: endWriterTrace,
+        },
+        commandObservation: endCommand.value.observation,
+        endedAdministrator: {
+          grantId: endWriter.ended.grantId,
+          endAt: endWriter.ended.endAt,
+          revision: endWriter.ended.revision,
+        },
+      },
+      afterEndAndRemoval: afterEnd,
+    };
+  });
+
 const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<string>) =>
   Effect.scoped(
     Effect.gen(function* () {
-      const economyInsertFirst = yield* Effect.gen(function* () {
-        const writerPaused = yield* Deferred.make<void>();
-        const resumeWriter = yield* Deferred.make<void>();
-        const commandAttempted = yield* Deferred.make<void>();
-        const writerStarted = yield* Deferred.make<ConnectionStamp>();
-        const commandStarted = yield* Deferred.make<ConnectionStamp>();
-        const writerTrace = makeSqlTrace();
-        const commandTrace = makeSqlTrace();
+      const economyInsertFirst = yield* provePhantomEconomyInsertFirst(databaseUrl);
 
-        const before = yield* submissionCompositionFacts(
-          ids.persons.phantomEconomy,
-          exactEnd,
-          ids.departments.alpha,
-        ).pipe(
-          Effect.provide(
-            makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-economy-before`),
-          ),
-        );
-
-        assert.deepEqual(before.applicableRuleIds, []);
-        assert.equal(before.directPaymentAuthorities.length, 0);
-        assert.deepEqual(
-          before.mapped,
-          ReceiptActorMappingEvidence.Failure({ failureTag: "ReceiptAuthorityDenied" }),
-        );
-
-        const writerFiber = yield* Effect.forkScoped(
-          Effect.gen(function* () {
-            const sql = yield* Database;
-            const started = yield* connectionStamp(sql);
-            yield* Deferred.succeed(writerStarted, started);
-
-            const observed = observeSql(sql, writerTrace, {
-              pauseAfter: {
-                phase: "direct-payment-insert",
-                ready: writerPaused,
-                resume: resumeWriter,
-              },
-            });
-
-            const created = yield* createReceiptPaymentAuthority({
-              paymentAuthorityId: ReceiptPaymentAuthorityId.make(
-                ids.directAuthorities.phantomEconomyPayment,
-              ),
-              personId: personId(ids.persons.phantomEconomy),
-              departmentId: departmentId(ids.departments.alpha),
-              paymentAccountCiphertext: "ciphertext:proof:phantom-economy",
-              startAt: activeStart,
-              endAt: null,
-            }).pipe(Effect.provideService(Database, observed));
-
-            const completed = yield* connectionStamp(sql);
-
-            return { started, completed, created };
-          }).pipe(
-            Effect.provide(
-              makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-economy-writer`),
-            ),
-          ),
-        );
-
-        yield* Deferred.await(writerPaused);
-
-        const commandFiber = yield* Effect.forkScoped(
-          Effect.gen(function* () {
-            const sql = yield* Database;
-            const started = yield* connectionStamp(sql);
-            yield* Deferred.succeed(commandStarted, started);
-
-            const observed = observeSql(sql, commandTrace, {
-              signalBefore: {
-                phase: "person-authorization-lock",
-                deferred: commandAttempted,
-              },
-            });
-
-            const value = yield* executeReceiptCommand(
-              submitCommand(
-                ids.commands.phantomEconomyInsert,
-                ids.departments.alpha,
-                "phantom-economy-insert",
-              ),
-              principal(ids.persons.phantomEconomy, exactEnd),
-              allocation(
-                generatedReceiptIds.phantomEconomyInsert,
-                generatedVisualIds.phantomEconomyInsert,
-              ),
-            ).pipe(Effect.provideService(Database, observed));
-
-            const completed = yield* connectionStamp(sql);
-
-            return { started, completed, value };
-          }).pipe(
-            Effect.provide(
-              makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-economy-command`),
-            ),
-          ),
-        );
-
-        yield* Deferred.await(commandAttempted);
-        const writerStamp = yield* Deferred.await(writerStarted);
-        const commandStamp = yield* Deferred.await(commandStarted);
-        assert.notEqual(writerStamp.pid, commandStamp.pid);
-
-        const writerAtBlock = {
-          attempted: [...writerTrace.attempted],
-          completed: [...writerTrace.completed],
-        };
-
-        const commandAtBlock = {
-          attempted: [...commandTrace.attempted],
-          completed: [...commandTrace.completed],
-        };
-
-        const locks = yield* observeBlockingAndLocks({
-          databaseUrl,
-          blockedPid: commandStamp.pid,
-          blockerPid: writerStamp.pid,
-          personId: ids.persons.phantomEconomy,
-          commandId: ids.commands.phantomEconomyInsert,
-          applicationName: `${proofApplicationPrefix}-phantom-economy-observer`,
-        });
-
-        assert.equal(locks.blocked.waitEventType, "Lock");
-        assert.ok(locks.blocked.blockingPids.includes(writerStamp.pid));
-        assert.ok(
-          hasAdvisoryLock(
-            locks.advisoryLocks,
-            writerStamp.pid,
-            "person-authorization",
-            "ExclusiveLock",
-            true,
-          ),
-        );
-        assert.ok(
-          hasAdvisoryLock(
-            locks.advisoryLocks,
-            commandStamp.pid,
-            "person-authorization",
-            "ExclusiveLock",
-            false,
-          ),
-        );
-        assert.ok(
-          hasRelationLock(
-            locks.relationLocks,
-            writerStamp.pid,
-            "public.economy_payment_authorities",
-            "RowExclusiveLock",
-          ),
-        );
-        assert.equal(commandAtBlock.attempted.at(-1), "person-authorization-lock");
-        yield* Deferred.succeed(resumeWriter, undefined);
-        const writer = yield* Fiber.join(writerFiber);
-        const command = yield* Fiber.join(commandFiber);
-        assert.equal(writer.created.revision, 0);
-        assertSubsequence(writerTrace.completed, [
-          "person-authorization-lock",
-          "direct-payment-insert",
-        ]);
-        assertSubsequence(commandTrace.completed, [
-          "person-authorization-lock",
-          "organization-authority-projection",
-          "direct-receipt-authority-projection",
-          "authz-shared-lock",
-          "authz-tag-assignment-projection",
-          "authz-rule-projection",
-          "durable-audit-insert",
-        ]);
-
-        const afterInsert = yield* submissionCompositionFacts(
-          ids.persons.phantomEconomy,
-          exactEnd,
-          ids.departments.alpha,
-        ).pipe(
-          Effect.provide(
-            makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-economy-after`),
-          ),
-        );
-
-        assert.deepEqual(afterInsert.applicableRuleIds, []);
-        assert.deepEqual(afterInsert.composedPaymentAuthorityIds, [
-          ids.directAuthorities.phantomEconomyPayment,
-        ]);
-        assert.equal(afterInsert.mapped._tag, "Success");
-
-        const cleanup = yield* Effect.gen(function* () {
-          const sql = yield* Database;
-          const durable = yield* readDurableCommandFacts(sql, ids.commands.phantomEconomyInsert);
-
-          const removed = yield* removeReceiptPaymentAuthority({
-            paymentAuthorityId: ReceiptPaymentAuthorityId.make(
-              ids.directAuthorities.phantomEconomyPayment,
-            ),
-            expectedRevision: 0,
-          });
-
-          const [remaining] = yield* sql<{ readonly count: number }>`
-            SELECT count(*)::integer AS count
-            FROM public.economy_payment_authorities
-            WHERE payment_authority_id = ${ids.directAuthorities.phantomEconomyPayment}
-          `;
-
-          assert(remaining);
-
-          return {
-            durable,
-            removed: {
-              paymentAuthorityId: removed.paymentAuthorityId,
-              revision: removed.revision,
-            },
-            remainingRows: remaining.count,
-          };
-        }).pipe(
-          Effect.provide(
-            makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-economy-cleanup`),
-          ),
-        );
-
-        assert.deepEqual(cleanup.durable, {
-          commandReceiptRows: 1,
-          auditRows: 1,
-          outboxRows: 3,
-          outboxCommandRows: 1,
-        });
-        assert.equal(cleanup.remainingRows, 0);
-
-        return {
-          order: "WriterInsertFirst" as const,
-          before,
-          participants: {
-            writer: writer.started,
-            writerCompleted: writer.completed,
-            command: command.started,
-            commandCompleted: command.completed,
-            independentBackendPids: writer.started.pid !== command.started.pid,
-          },
-          blocked: locks.blocked,
-          relationLocks: locks.relationLocks,
-          advisoryLocks: locks.advisoryLocks,
-          sqlOrderAtBlock: { writer: writerAtBlock, command: commandAtBlock },
-          sqlOrderAfterCommit: { writer: writerTrace, command: commandTrace },
-          createdAuthority: {
-            paymentAuthorityId: writer.created.paymentAuthorityId,
-            personId: writer.created.personId,
-            departmentId: writer.created.departmentId,
-            startAt: writer.created.startAt,
-            endAt: writer.created.endAt,
-            revision: writer.created.revision,
-          },
-          visibleComposition: afterInsert,
-          commandObservation: command.value.observation,
-          cleanup,
-        };
-      });
-
-      const organizationLifecycle = yield* Effect.gen(function* () {
-        const approvalGrant = yield* createReceiptApprovalGrant({
-          approvalGrantId: ReceiptApprovalGrantId.make(
-            ids.directAuthorities.phantomOrganizationApproval,
-          ),
-          personId: personId(ids.persons.phantomOrganization),
-          scope: AuthzRuleScopeSchema.cases.Global.make({}),
-          startAt: activeStart,
-          endAt: null,
-        }).pipe(
-          Effect.provide(
-            makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-approval-setup`),
-          ),
-        );
-
-        const before = yield* approvalCompositionFacts(
-          ids.persons.phantomOrganization,
-          exactEnd,
-          ids.departments.alpha,
-        ).pipe(
-          Effect.provide(
-            makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-before`),
-          ),
-        );
-
-        assert.deepEqual(before.applicableRuleIds, []);
-        assert.equal(before.directApprovalGrants[0]?.active, false);
-        assert.equal(before.mapped._tag, "Success");
-
-        if (Predicate.isTagged(before.mapped, "Success"))
-          assert.equal(before.mapped.actor.active, false);
-
-        const writerPaused = yield* Deferred.make<void>();
-        const resumeWriter = yield* Deferred.make<void>();
-        const commandAttempted = yield* Deferred.make<void>();
-        const writerStarted = yield* Deferred.make<ConnectionStamp>();
-        const commandStarted = yield* Deferred.make<ConnectionStamp>();
-        const insertWriterTrace = makeSqlTrace();
-        const insertCommandTrace = makeSqlTrace();
-
-        const insertWriterFiber = yield* Effect.forkScoped(
-          Effect.gen(function* () {
-            const sql = yield* Database;
-            const started = yield* connectionStamp(sql);
-            yield* Deferred.succeed(writerStarted, started);
-
-            const observed = observeSql(sql, insertWriterTrace, {
-              pauseAfter: {
-                phase: "organization-administrator-insert",
-                ready: writerPaused,
-                resume: resumeWriter,
-              },
-            });
-
-            const created = yield* createOrganizationGlobalAdministratorGrant({
-              grantId: OrganizationGlobalAdministratorGrantId.make(
-                ids.directAuthorities.phantomOrganizationAdministrator,
-              ),
-              personId: personId(ids.persons.phantomOrganization),
-              startAt: activeStart,
-              endAt: null,
-            }).pipe(Effect.provideService(Database, observed));
-
-            const completed = yield* connectionStamp(sql);
-
-            return { started, completed, created };
-          }).pipe(
-            Effect.provide(
-              makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-insert-writer`),
-            ),
-          ),
-        );
-
-        yield* Deferred.await(writerPaused);
-
-        const insertCommandFiber = yield* Effect.forkScoped(
-          Effect.gen(function* () {
-            const sql = yield* Database;
-            const started = yield* connectionStamp(sql);
-            yield* Deferred.succeed(commandStarted, started);
-
-            const observed = observeSql(sql, insertCommandTrace, {
-              signalBefore: {
-                phase: "person-authorization-lock",
-                deferred: commandAttempted,
-              },
-            });
-
-            const value = yield* executeReceiptCommand(
-              ReceiptCommandRequestSchema.cases.RejectReceipt.make({
-                commandId: ids.commands.phantomOrganizationInsert,
-                receiptId: ReceiptId.make(ids.receipts.phantomOrganizationInsert),
-                expectedRevision: 0,
-              }),
-              principal(ids.persons.phantomOrganization, exactEnd),
-            ).pipe(Effect.provideService(Database, observed));
-
-            const completed = yield* connectionStamp(sql);
-
-            return { started, completed, value };
-          }).pipe(
-            Effect.provide(
-              makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-insert-command`),
-            ),
-          ),
-        );
-
-        yield* Deferred.await(commandAttempted);
-        const insertWriterStamp = yield* Deferred.await(writerStarted);
-        const insertCommandStamp = yield* Deferred.await(commandStarted);
-        assert.notEqual(insertWriterStamp.pid, insertCommandStamp.pid);
-
-        const insertWriterAtBlock = {
-          attempted: [...insertWriterTrace.attempted],
-          completed: [...insertWriterTrace.completed],
-        };
-
-        const insertCommandAtBlock = {
-          attempted: [...insertCommandTrace.attempted],
-          completed: [...insertCommandTrace.completed],
-        };
-
-        const insertLocks = yield* observeBlockingAndLocks({
-          databaseUrl,
-          blockedPid: insertCommandStamp.pid,
-          blockerPid: insertWriterStamp.pid,
-          personId: ids.persons.phantomOrganization,
-          commandId: ids.commands.phantomOrganizationInsert,
-          applicationName: `${proofApplicationPrefix}-phantom-org-insert-observer`,
-        });
-
-        assert.equal(insertLocks.blocked.waitEventType, "Lock");
-        assert.ok(insertLocks.blocked.blockingPids.includes(insertWriterStamp.pid));
-        assert.ok(
-          hasAdvisoryLock(
-            insertLocks.advisoryLocks,
-            insertWriterStamp.pid,
-            "person-authorization",
-            "ExclusiveLock",
-            true,
-          ),
-        );
-        assert.ok(
-          hasAdvisoryLock(
-            insertLocks.advisoryLocks,
-            insertCommandStamp.pid,
-            "person-authorization",
-            "ExclusiveLock",
-            false,
-          ),
-        );
-        assert.ok(
-          hasRelationLock(
-            insertLocks.relationLocks,
-            insertWriterStamp.pid,
-            "public.organization_global_administrator_grants",
-            "RowExclusiveLock",
-          ),
-        );
-        yield* Deferred.succeed(resumeWriter, undefined);
-        const insertWriter = yield* Fiber.join(insertWriterFiber);
-        const insertCommand = yield* Fiber.join(insertCommandFiber);
-        assertSubsequence(insertWriterTrace.completed, [
-          "person-authorization-lock",
-          "organization-administrator-insert",
-        ]);
-        assertSubsequence(insertCommandTrace.completed, [
-          "person-authorization-lock",
-          "organization-authority-projection",
-          "direct-receipt-authority-projection",
-          "authz-shared-lock",
-          "authz-tag-assignment-projection",
-          "authz-rule-projection",
-          "durable-audit-insert",
-        ]);
-
-        const afterInsert = yield* approvalCompositionFacts(
-          ids.persons.phantomOrganization,
-          exactEnd,
-          ids.departments.alpha,
-        ).pipe(
-          Effect.provide(
-            makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-after-insert`),
-          ),
-        );
-
-        assert.equal(afterInsert.directApprovalGrants[0]?.active, true);
-        assert.equal(afterInsert.mapped._tag, "Success");
-
-        if (Predicate.isTagged(afterInsert.mapped, "Success"))
-          assert.equal(afterInsert.mapped.actor.active, true);
-
-        const commandReady = yield* Deferred.make<void>();
-        const resumeCommand = yield* Deferred.make<void>();
-        const endWriterAttempted = yield* Deferred.make<void>();
-        const endCommandStarted = yield* Deferred.make<ConnectionStamp>();
-        const endWriterStarted = yield* Deferred.make<ConnectionStamp>();
-        const endCommandTrace = makeSqlTrace();
-        const endWriterTrace = makeSqlTrace();
-
-        const endCommandFiber = yield* Effect.forkScoped(
-          Effect.gen(function* () {
-            const sql = yield* Database;
-            const started = yield* connectionStamp(sql);
-            yield* Deferred.succeed(endCommandStarted, started);
-
-            const observed = observeSql(sql, endCommandTrace, {
-              pauseAfter: {
-                phase: "durable-audit-insert",
-                ready: commandReady,
-                resume: resumeCommand,
-              },
-            });
-
-            const value = yield* executeReceiptCommand(
-              ReceiptCommandRequestSchema.cases.RejectReceipt.make({
-                commandId: ids.commands.phantomOrganizationRemove,
-                receiptId: ReceiptId.make(ids.receipts.phantomOrganizationRemove),
-                expectedRevision: 0,
-              }),
-              principal(ids.persons.phantomOrganization, exactEnd),
-            ).pipe(Effect.provideService(Database, observed));
-
-            const completed = yield* connectionStamp(sql);
-
-            return { started, completed, value };
-          }).pipe(
-            Effect.provide(
-              makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-end-command`),
-            ),
-          ),
-        );
-
-        yield* Deferred.await(commandReady);
-
-        const endWriterFiber = yield* Effect.forkScoped(
-          Effect.gen(function* () {
-            const sql = yield* Database;
-            const started = yield* connectionStamp(sql);
-            yield* Deferred.succeed(endWriterStarted, started);
-
-            const observed = observeSql(sql, endWriterTrace, {
-              signalBefore: {
-                phase: "person-authorization-lock",
-                deferred: endWriterAttempted,
-              },
-            });
-
-            const ended = yield* endOrganizationGlobalAdministratorGrant({
-              grantId: OrganizationGlobalAdministratorGrantId.make(
-                ids.directAuthorities.phantomOrganizationAdministrator,
-              ),
-              endAt: exactEnd,
-              expectedRevision: 0,
-            }).pipe(Effect.provideService(Database, observed));
-
-            const completed = yield* connectionStamp(sql);
-
-            return { started, completed, ended };
-          }).pipe(
-            Effect.provide(
-              makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-end-writer`),
-            ),
-          ),
-        );
-
-        yield* Deferred.await(endWriterAttempted);
-        const endCommandStamp = yield* Deferred.await(endCommandStarted);
-        const endWriterStamp = yield* Deferred.await(endWriterStarted);
-        assert.notEqual(endCommandStamp.pid, endWriterStamp.pid);
-
-        const endCommandAtBlock = {
-          attempted: [...endCommandTrace.attempted],
-          completed: [...endCommandTrace.completed],
-        };
-
-        const endWriterAtBlock = {
-          attempted: [...endWriterTrace.attempted],
-          completed: [...endWriterTrace.completed],
-        };
-
-        const endLocks = yield* observeBlockingAndLocks({
-          databaseUrl,
-          blockedPid: endWriterStamp.pid,
-          blockerPid: endCommandStamp.pid,
-          personId: ids.persons.phantomOrganization,
-          commandId: ids.commands.phantomOrganizationRemove,
-          applicationName: `${proofApplicationPrefix}-phantom-org-end-observer`,
-        });
-
-        assert.equal(endLocks.blocked.waitEventType, "Lock");
-        assert.ok(endLocks.blocked.blockingPids.includes(endCommandStamp.pid));
-        assert.ok(
-          hasAdvisoryLock(
-            endLocks.advisoryLocks,
-            endCommandStamp.pid,
-            "person-authorization",
-            "ExclusiveLock",
-            true,
-          ),
-        );
-        assert.ok(
-          hasAdvisoryLock(
-            endLocks.advisoryLocks,
-            endWriterStamp.pid,
-            "person-authorization",
-            "ExclusiveLock",
-            false,
-          ),
-        );
-        assert.equal(endWriterAtBlock.attempted.at(-1), "person-authorization-lock");
-        yield* Deferred.succeed(resumeCommand, undefined);
-        const endCommand = yield* Fiber.join(endCommandFiber);
-        const endWriter = yield* Fiber.join(endWriterFiber);
-        assert.equal(endWriter.ended.endAt, exactEnd);
-        assert.equal(endWriter.ended.revision, 1);
-        assertSubsequence(endWriterTrace.completed, [
-          "person-authorization-lock",
-          "organization-administrator-end",
-        ]);
-
-        const afterEnd = yield* Effect.gen(function* () {
-          const sql = yield* Database;
-
-          const beforeExact = yield* resolveOrganizationPersonAuthorityForRead(
-            personId(ids.persons.phantomOrganization),
-            justBeforeExactEnd,
-          );
-
-          const atExact = yield* resolveOrganizationPersonAuthorityForRead(
-            personId(ids.persons.phantomOrganization),
-            exactEnd,
-          );
-
-          const insertDurable = yield* readDurableCommandFacts(
-            sql,
-            ids.commands.phantomOrganizationInsert,
-          );
-
-          const endDurable = yield* readDurableCommandFacts(
-            sql,
-            ids.commands.phantomOrganizationRemove,
-          );
-
-          const fresh = yield* Effect.result(
-            executeReceiptCommand(
-              ReceiptCommandRequestSchema.cases.RejectReceipt.make({
-                commandId: ids.commands.phantomOrganizationFresh,
-                receiptId: ReceiptId.make(ids.receipts.phantomOrganizationFresh),
-                expectedRevision: 0,
-              }),
-              principal(ids.persons.phantomOrganization, exactEnd),
-            ),
-          );
-
-          const freshDurable = yield* readDurableCommandFacts(
-            sql,
-            ids.commands.phantomOrganizationFresh,
-          );
-
-          const removedAdministrator = yield* removeOrganizationGlobalAdministratorGrant({
-            grantId: OrganizationGlobalAdministratorGrantId.make(
-              ids.directAuthorities.phantomOrganizationAdministrator,
-            ),
-            expectedRevision: 1,
-          });
-
-          const removedApproval = yield* removeReceiptApprovalGrant({
-            approvalGrantId: ReceiptApprovalGrantId.make(
-              ids.directAuthorities.phantomOrganizationApproval,
-            ),
-            expectedRevision: 0,
-          });
-
-          const [remaining] = yield* sql<{
-            readonly administrators: number;
-            readonly approvals: number;
-          }>`
-            SELECT
-              (
-                SELECT count(*)::integer
-                FROM public.organization_global_administrator_grants
-                WHERE grant_id = ${ids.directAuthorities.phantomOrganizationAdministrator}
-              ) AS administrators,
-              (
-                SELECT count(*)::integer
-                FROM public.economy_receipt_approval_grants
-                WHERE approval_grant_id = ${ids.directAuthorities.phantomOrganizationApproval}
-              ) AS approvals
-          `;
-
-          assert(remaining);
-
-          return {
-            beforeExactGlobalAdministrator: beforeExact.globalAdministrator,
-            exactGlobalAdministrator: atExact.globalAdministrator,
-            insertDurable,
-            endDurable,
-            freshFailureTag: resultFailureTag(fresh),
-            freshDurable,
-            removedAdministrator: {
-              grantId: removedAdministrator.grantId,
-              endAt: removedAdministrator.endAt,
-              revision: removedAdministrator.revision,
-            },
-            removedApproval: {
-              approvalGrantId: removedApproval.approvalGrantId,
-              revision: removedApproval.revision,
-            },
-            remaining,
-          };
-        }).pipe(
-          Effect.provide(
-            makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-after-end`),
-          ),
-        );
-
-        assert.equal(afterEnd.beforeExactGlobalAdministrator, "Active");
-        assert.equal(afterEnd.exactGlobalAdministrator, "Inactive");
-        assert.deepEqual(afterEnd.insertDurable, {
-          commandReceiptRows: 1,
-          auditRows: 1,
-          outboxRows: 2,
-          outboxCommandRows: 1,
-        });
-        assert.deepEqual(afterEnd.endDurable, {
-          commandReceiptRows: 1,
-          auditRows: 1,
-          outboxRows: 2,
-          outboxCommandRows: 1,
-        });
-        assert.equal(afterEnd.freshFailureTag, "InactiveActor");
-        assert.deepEqual(afterEnd.freshDurable, {
-          commandReceiptRows: 0,
-          auditRows: 0,
-          outboxRows: 0,
-          outboxCommandRows: 0,
-        });
-        assert.deepEqual(afterEnd.remaining, { administrators: 0, approvals: 0 });
-
-        return {
-          setupApprovalGrant: {
-            approvalGrantId: approvalGrant.approvalGrantId,
-            personId: approvalGrant.personId,
-            scope: approvalGrant.scope,
-            startAt: approvalGrant.startAt,
-            endAt: approvalGrant.endAt,
-            revision: approvalGrant.revision,
-          },
-          before,
-          insertFirst: {
-            order: "WriterInsertFirst" as const,
-            participants: {
-              writer: insertWriter.started,
-              writerCompleted: insertWriter.completed,
-              command: insertCommand.started,
-              commandCompleted: insertCommand.completed,
-              independentBackendPids: insertWriter.started.pid !== insertCommand.started.pid,
-            },
-            blocked: insertLocks.blocked,
-            relationLocks: insertLocks.relationLocks,
-            advisoryLocks: insertLocks.advisoryLocks,
-            sqlOrderAtBlock: {
-              writer: insertWriterAtBlock,
-              command: insertCommandAtBlock,
-            },
-            sqlOrderAfterCommit: {
-              writer: insertWriterTrace,
-              command: insertCommandTrace,
-            },
-            createdAdministrator: {
-              grantId: insertWriter.created.grantId,
-              personId: insertWriter.created.personId,
-              startAt: insertWriter.created.startAt,
-              endAt: insertWriter.created.endAt,
-              revision: insertWriter.created.revision,
-            },
-            visibleComposition: afterInsert,
-            commandObservation: insertCommand.value.observation,
-          },
-          commandFirstEnd: {
-            order: "CommandFirst" as const,
-            instant: exactEnd,
-            participants: {
-              command: endCommand.started,
-              commandCompleted: endCommand.completed,
-              writer: endWriter.started,
-              writerCompleted: endWriter.completed,
-              independentBackendPids: endCommand.started.pid !== endWriter.started.pid,
-            },
-            blocked: endLocks.blocked,
-            relationLocks: endLocks.relationLocks,
-            advisoryLocks: endLocks.advisoryLocks,
-            sqlOrderAtBlock: {
-              command: endCommandAtBlock,
-              writer: endWriterAtBlock,
-            },
-            sqlOrderAfterCommit: {
-              command: endCommandTrace,
-              writer: endWriterTrace,
-            },
-            commandObservation: endCommand.value.observation,
-            endedAdministrator: {
-              grantId: endWriter.ended.grantId,
-              endAt: endWriter.ended.endAt,
-              revision: endWriter.ended.revision,
-            },
-          },
-          afterEndAndRemoval: afterEnd,
-        };
-      });
+      const organizationLifecycle = yield* provePhantomOrganizationLifecycle(databaseUrl);
 
       return { economyInsertFirst, organizationLifecycle };
     }),
@@ -3364,14 +3379,14 @@ const proveDirectAuthorityRowLock = (databaseUrl: Redacted.Redacted<string>) =>
             },
           });
 
-          const value = yield* executeReceiptCommand(
-            ReceiptCommandRequestSchema.cases.RejectReceipt.make({
+          const value = yield* executeReceiptCommand({
+            command: ReceiptCommandRequestSchema.cases.RejectReceipt.make({
               commandId: ids.commands.approveLock,
               receiptId: ReceiptId.make(ids.receipts.approveLock),
               expectedRevision: 0,
             }),
-            principal(ids.persons.ruleApprove, justBeforeExactEnd),
-          ).pipe(Effect.provideService(Database, observed));
+            principal: principal(ids.persons.ruleApprove, justBeforeExactEnd),
+          }).pipe(Effect.provideService(Database, observed));
 
           const completed = yield* connectionStamp(sql);
 
@@ -3588,11 +3603,11 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
             },
           });
 
-          const value = yield* executeReceiptCommand(
-            submitCommand(ids.commands.ruleSubmit, ids.departments.alpha, "rule-submit"),
-            principal(ids.persons.ruleSubmit, exactEnd),
-            allocation(generatedReceiptIds.ruleSubmit, generatedVisualIds.ruleSubmit),
-          ).pipe(Effect.provideService(Database, observed));
+          const value = yield* executeReceiptCommand({
+            command: submitCommand(ids.commands.ruleSubmit, ids.departments.alpha, "rule-submit"),
+            principal: principal(ids.persons.ruleSubmit, exactEnd),
+            allocation: allocation(generatedReceiptIds.ruleSubmit, generatedVisualIds.ruleSubmit),
+          }).pipe(Effect.provideService(Database, observed));
 
           const completed = yield* connectionStamp(sql);
 
@@ -3745,11 +3760,11 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
         assert(stored);
 
         const replay = yield* Effect.result(
-          executeReceiptCommand(
-            submitCommand(ids.commands.ruleSubmit, ids.departments.alpha, "rule-submit"),
-            principal(ids.persons.ruleSubmit, exactEnd),
-            allocation(generatedReceiptIds.ruleSubmit, generatedVisualIds.ruleSubmit),
-          ),
+          executeReceiptCommand({
+            command: submitCommand(ids.commands.ruleSubmit, ids.departments.alpha, "rule-submit"),
+            principal: principal(ids.persons.ruleSubmit, exactEnd),
+            allocation: allocation(generatedReceiptIds.ruleSubmit, generatedVisualIds.ruleSubmit),
+          }),
         );
 
         const afterReplay = yield* readDurableCommandFacts(sql, ids.commands.ruleSubmit);
@@ -3761,11 +3776,14 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
         );
 
         const fresh = yield* Effect.result(
-          executeReceiptCommand(
-            freshCommand,
-            principal(ids.persons.ruleSubmit, exactEnd),
-            allocation(generatedReceiptIds.ruleSubmitFresh, generatedVisualIds.ruleSubmitFresh),
-          ),
+          executeReceiptCommand({
+            command: freshCommand,
+            principal: principal(ids.persons.ruleSubmit, exactEnd),
+            allocation: allocation(
+              generatedReceiptIds.ruleSubmitFresh,
+              generatedVisualIds.ruleSubmitFresh,
+            ),
+          }),
         );
 
         const freshDurable = yield* readDurableCommandFacts(sql, ids.commands.ruleSubmitFresh);
@@ -3831,476 +3849,471 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
     }),
   );
 
+const proveRuleExpiryCommandFirst = (databaseUrl: Redacted.Redacted<string>) =>
+  Effect.gen(function* () {
+    const commandReady = yield* Deferred.make<void>();
+    const resumeCommand = yield* Deferred.make<void>();
+    const writerAttempted = yield* Deferred.make<void>();
+    const commandStarted = yield* Deferred.make<ConnectionStamp>();
+    const writerStarted = yield* Deferred.make<ConnectionStamp>();
+    const commandTrace = makeSqlTrace();
+    const writerTrace = makeSqlTrace();
+
+    const before = yield* submissionCompositionFacts(
+      ids.persons.expiryCommandFirst,
+      exactEnd,
+      ids.departments.alpha,
+    ).pipe(
+      Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-cf-before`)),
+    );
+
+    assert.deepEqual(before.applicableRuleIds, [ids.rules.expiryCommandFirst]);
+    assert.deepEqual(before.contributingRuleIds, [ids.rules.expiryCommandFirst]);
+    assert.equal(before.directPaymentAuthorities.length, 0);
+    assert.equal(before.mapped._tag, "Success");
+
+    const commandFiber = yield* Effect.forkScoped(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        const started = yield* connectionStamp(sql);
+        yield* Deferred.succeed(commandStarted, started);
+
+        const observed = observeSql(sql, commandTrace, {
+          pauseAfter: {
+            phase: "durable-audit-insert",
+            ready: commandReady,
+            resume: resumeCommand,
+          },
+        });
+
+        const value = yield* executeReceiptCommand({
+          command: submitCommand(
+            ids.commands.expiryCommandFirst,
+            ids.departments.alpha,
+            "expiry-command-first",
+          ),
+          principal: principal(ids.persons.expiryCommandFirst, exactEnd),
+          allocation: allocation(
+            generatedReceiptIds.expiryCommandFirst,
+            generatedVisualIds.expiryCommandFirst,
+          ),
+        }).pipe(Effect.provideService(Database, observed));
+
+        const completed = yield* connectionStamp(sql);
+
+        return { started, completed, value };
+      }).pipe(
+        Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-cf-command`)),
+      ),
+    );
+
+    yield* Deferred.await(commandReady);
+
+    const writerFiber = yield* Effect.forkScoped(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        const started = yield* connectionStamp(sql);
+        yield* Deferred.succeed(writerStarted, started);
+
+        const observed = observeSql(sql, writerTrace, {
+          signalBefore: { phase: "authz-exclusive-lock", deferred: writerAttempted },
+        });
+
+        const ended = yield* endAuthzRule({
+          ruleId: AuthzRuleId.make(ids.rules.expiryCommandFirst),
+          endAt: exactEnd,
+          expectedRevision: 0,
+        }).pipe(Effect.provideService(Database, observed));
+
+        const completed = yield* connectionStamp(sql);
+
+        return { started, completed, ended };
+      }).pipe(
+        Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-cf-writer`)),
+      ),
+    );
+
+    yield* Deferred.await(writerAttempted);
+    const commandStamp = yield* Deferred.await(commandStarted);
+    const writerStamp = yield* Deferred.await(writerStarted);
+    assert.notEqual(commandStamp.pid, writerStamp.pid);
+
+    const commandAtBlock = {
+      attempted: [...commandTrace.attempted],
+      completed: [...commandTrace.completed],
+    };
+
+    const writerAtBlock = {
+      attempted: [...writerTrace.attempted],
+      completed: [...writerTrace.completed],
+    };
+
+    const locks = yield* observeBlockingAndLocks({
+      databaseUrl,
+      blockedPid: writerStamp.pid,
+      blockerPid: commandStamp.pid,
+      personId: ids.persons.expiryCommandFirst,
+      commandId: ids.commands.expiryCommandFirst,
+      applicationName: `${proofApplicationPrefix}-expiry-cf-observer`,
+    });
+
+    assert.equal(locks.blocked.waitEventType, "Lock");
+    assert.ok(locks.blocked.blockingPids.includes(commandStamp.pid));
+    assert.ok(
+      hasAdvisoryLock(
+        locks.advisoryLocks,
+        commandStamp.pid,
+        "authorization-rules",
+        "ShareLock",
+        true,
+      ),
+    );
+    assert.ok(
+      hasAdvisoryLock(
+        locks.advisoryLocks,
+        writerStamp.pid,
+        "authorization-rules",
+        "ExclusiveLock",
+        false,
+      ),
+    );
+    yield* Deferred.succeed(resumeCommand, undefined);
+    const command = yield* Fiber.join(commandFiber);
+    const writer = yield* Fiber.join(writerFiber);
+    assert.equal(writer.ended.endAt, exactEnd);
+    assert.equal(writer.ended.revision, 1);
+    assertSubsequence(commandTrace.completed, [
+      "person-authorization-lock",
+      "organization-authority-projection",
+      "direct-receipt-authority-projection",
+      "authz-shared-lock",
+      "authz-tag-assignment-projection",
+      "authz-rule-projection",
+      "durable-audit-insert",
+    ]);
+    assertSubsequence(writerTrace.completed, ["authz-exclusive-lock", "end-rule"]);
+
+    const after = yield* Effect.gen(function* () {
+      const sql = yield* Database;
+
+      const beforeExact = yield* loadApplicableAuthorizationRules(
+        PrincipalSchema.cases.Person.make({
+          personId: personId(ids.persons.expiryCommandFirst),
+        }),
+        "submitReceipt",
+        justBeforeExactEnd,
+        proofReceiptContext(departmentId(ids.departments.alpha)),
+      );
+
+      const atExact = yield* loadApplicableAuthorizationRules(
+        PrincipalSchema.cases.Person.make({
+          personId: personId(ids.persons.expiryCommandFirst),
+        }),
+        "submitReceipt",
+        exactEnd,
+        proofReceiptContext(departmentId(ids.departments.alpha)),
+      );
+
+      const acceptedDurable = yield* readDurableCommandFacts(sql, ids.commands.expiryCommandFirst);
+
+      const fresh = yield* Effect.result(
+        executeReceiptCommand({
+          command: submitCommand(
+            ids.commands.expiryCommandFirstFresh,
+            ids.departments.alpha,
+            "expiry-command-first-fresh",
+          ),
+          principal: principal(ids.persons.expiryCommandFirst, exactEnd),
+          allocation: allocation(
+            generatedReceiptIds.expiryCommandFirstFresh,
+            generatedVisualIds.expiryCommandFirstFresh,
+          ),
+        }),
+      );
+
+      const freshDurable = yield* readDurableCommandFacts(
+        sql,
+        ids.commands.expiryCommandFirstFresh,
+      );
+
+      return {
+        beforeExactRuleIds: beforeExact.rules.map((rule) => rule.ruleId),
+        exactRuleIds: atExact.rules.map((rule) => rule.ruleId),
+        acceptedDurable,
+        freshFailureTag: resultFailureTag(fresh),
+        freshDurable,
+      };
+    }).pipe(
+      Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-cf-after`)),
+    );
+
+    assert.deepEqual(after.beforeExactRuleIds, [ids.rules.expiryCommandFirst]);
+    assert.deepEqual(after.exactRuleIds, []);
+    assert.deepEqual(after.acceptedDurable, {
+      commandReceiptRows: 1,
+      auditRows: 1,
+      outboxRows: 3,
+      outboxCommandRows: 1,
+    });
+    assert.equal(after.freshFailureTag, "ReceiptAuthorityDenied");
+    assert.deepEqual(after.freshDurable, {
+      commandReceiptRows: 0,
+      auditRows: 0,
+      outboxRows: 0,
+      outboxCommandRows: 0,
+    });
+
+    return {
+      order: "CommandFirst" as const,
+      instant: exactEnd,
+      compositionBefore: before,
+      participants: {
+        command: command.started,
+        commandCompleted: command.completed,
+        writer: writer.started,
+        writerCompleted: writer.completed,
+        independentBackendPids: command.started.pid !== writer.started.pid,
+      },
+      blocked: locks.blocked,
+      relationLocks: locks.relationLocks,
+      advisoryLocks: locks.advisoryLocks,
+      sqlOrderAtBlock: { command: commandAtBlock, writer: writerAtBlock },
+      sqlOrderAfterCommit: { command: commandTrace, writer: writerTrace },
+      commandObservation: command.value.observation,
+      endedRule: {
+        ruleId: writer.ended.ruleId,
+        endAt: writer.ended.endAt,
+        revision: writer.ended.revision,
+      },
+      ...after,
+    };
+  });
+
+const proveRuleExpiryWriterFirst = (databaseUrl: Redacted.Redacted<string>) =>
+  Effect.gen(function* () {
+    const writerPaused = yield* Deferred.make<void>();
+    const resumeWriter = yield* Deferred.make<void>();
+    const commandAttempted = yield* Deferred.make<void>();
+    const writerStarted = yield* Deferred.make<ConnectionStamp>();
+    const commandStarted = yield* Deferred.make<ConnectionStamp>();
+    const writerTrace = makeSqlTrace();
+    const commandTrace = makeSqlTrace();
+
+    const before = yield* submissionCompositionFacts(
+      ids.persons.expiryWriterFirst,
+      justBeforeExactEnd,
+      ids.departments.alpha,
+    ).pipe(
+      Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-wf-before`)),
+    );
+
+    assert.deepEqual(before.applicableRuleIds, [ids.rules.expiryWriterFirst]);
+    assert.deepEqual(before.contributingRuleIds, [ids.rules.expiryWriterFirst]);
+    assert.equal(before.directPaymentAuthorities.length, 0);
+    assert.equal(before.mapped._tag, "Success");
+
+    const writerFiber = yield* Effect.forkScoped(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        const started = yield* connectionStamp(sql);
+        yield* Deferred.succeed(writerStarted, started);
+
+        const observed = observeSql(sql, writerTrace, {
+          pauseAfter: {
+            phase: "end-rule",
+            ready: writerPaused,
+            resume: resumeWriter,
+          },
+        });
+
+        const ended = yield* endAuthzRule({
+          ruleId: AuthzRuleId.make(ids.rules.expiryWriterFirst),
+          endAt: exactEnd,
+          expectedRevision: 0,
+        }).pipe(Effect.provideService(Database, observed));
+
+        const completed = yield* connectionStamp(sql);
+
+        return { started, completed, ended };
+      }).pipe(
+        Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-wf-writer`)),
+      ),
+    );
+
+    yield* Deferred.await(writerPaused);
+
+    const commandFiber = yield* Effect.forkScoped(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        const started = yield* connectionStamp(sql);
+        yield* Deferred.succeed(commandStarted, started);
+
+        const observed = observeSql(sql, commandTrace, {
+          signalBefore: { phase: "authz-shared-lock", deferred: commandAttempted },
+        });
+
+        const result = yield* Effect.result(
+          executeReceiptCommand({
+            command: submitCommand(
+              ids.commands.expiryWriterFirst,
+              ids.departments.alpha,
+              "expiry-writer-first",
+            ),
+            principal: principal(ids.persons.expiryWriterFirst, exactEnd),
+            allocation: allocation(
+              generatedReceiptIds.expiryWriterFirst,
+              generatedVisualIds.expiryWriterFirst,
+            ),
+          }).pipe(Effect.provideService(Database, observed)),
+        );
+
+        const completed = yield* connectionStamp(sql);
+
+        return { started, completed, result };
+      }).pipe(
+        Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-wf-command`)),
+      ),
+    );
+
+    yield* Deferred.await(commandAttempted);
+    const writerStamp = yield* Deferred.await(writerStarted);
+    const commandStamp = yield* Deferred.await(commandStarted);
+    assert.notEqual(writerStamp.pid, commandStamp.pid);
+
+    const writerAtBlock = {
+      attempted: [...writerTrace.attempted],
+      completed: [...writerTrace.completed],
+    };
+
+    const commandAtBlock = {
+      attempted: [...commandTrace.attempted],
+      completed: [...commandTrace.completed],
+    };
+
+    const locks = yield* observeBlockingAndLocks({
+      databaseUrl,
+      blockedPid: commandStamp.pid,
+      blockerPid: writerStamp.pid,
+      personId: ids.persons.expiryWriterFirst,
+      commandId: ids.commands.expiryWriterFirst,
+      applicationName: `${proofApplicationPrefix}-expiry-wf-observer`,
+    });
+
+    assert.equal(locks.blocked.waitEventType, "Lock");
+    assert.ok(locks.blocked.blockingPids.includes(writerStamp.pid));
+    assert.ok(
+      hasAdvisoryLock(
+        locks.advisoryLocks,
+        writerStamp.pid,
+        "authorization-rules",
+        "ExclusiveLock",
+        true,
+      ),
+    );
+    assert.ok(
+      hasAdvisoryLock(
+        locks.advisoryLocks,
+        commandStamp.pid,
+        "authorization-rules",
+        "ShareLock",
+        false,
+      ),
+    );
+    assertSubsequence(commandAtBlock.completed, [
+      "person-authorization-lock",
+      "organization-authority-projection",
+      "direct-receipt-authority-projection",
+    ]);
+    assert.equal(commandAtBlock.attempted.at(-1), "authz-shared-lock");
+    yield* Deferred.succeed(resumeWriter, undefined);
+    const writer = yield* Fiber.join(writerFiber);
+    const command = yield* Fiber.join(commandFiber);
+    assert.equal(writer.ended.endAt, exactEnd);
+    assert.equal(writer.ended.revision, 1);
+    assert.equal(resultFailureTag(command.result), "ReceiptAuthorityDenied");
+    assertSubsequence(writerTrace.completed, ["authz-exclusive-lock", "end-rule"]);
+    assertSubsequence(commandTrace.completed, [
+      "person-authorization-lock",
+      "organization-authority-projection",
+      "direct-receipt-authority-projection",
+      "authz-shared-lock",
+      "authz-tag-assignment-projection",
+      "authz-rule-projection",
+    ]);
+
+    const after = yield* Effect.gen(function* () {
+      const sql = yield* Database;
+
+      const beforeExact = yield* loadApplicableAuthorizationRules(
+        PrincipalSchema.cases.Person.make({
+          personId: personId(ids.persons.expiryWriterFirst),
+        }),
+        "submitReceipt",
+        justBeforeExactEnd,
+        proofReceiptContext(departmentId(ids.departments.alpha)),
+      );
+
+      const atExact = yield* loadApplicableAuthorizationRules(
+        PrincipalSchema.cases.Person.make({
+          personId: personId(ids.persons.expiryWriterFirst),
+        }),
+        "submitReceipt",
+        exactEnd,
+        proofReceiptContext(departmentId(ids.departments.alpha)),
+      );
+
+      const durable = yield* readDurableCommandFacts(sql, ids.commands.expiryWriterFirst);
+
+      return {
+        beforeExactRuleIds: beforeExact.rules.map((rule) => rule.ruleId),
+        exactRuleIds: atExact.rules.map((rule) => rule.ruleId),
+        durable,
+      };
+    }).pipe(
+      Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-wf-after`)),
+    );
+
+    assert.deepEqual(after.beforeExactRuleIds, [ids.rules.expiryWriterFirst]);
+    assert.deepEqual(after.exactRuleIds, []);
+    assert.deepEqual(after.durable, {
+      commandReceiptRows: 0,
+      auditRows: 0,
+      outboxRows: 0,
+      outboxCommandRows: 0,
+    });
+
+    return {
+      order: "WriterFirst" as const,
+      instant: exactEnd,
+      compositionBefore: before,
+      participants: {
+        writer: writer.started,
+        writerCompleted: writer.completed,
+        command: command.started,
+        commandCompleted: command.completed,
+        independentBackendPids: writer.started.pid !== command.started.pid,
+      },
+      blocked: locks.blocked,
+      relationLocks: locks.relationLocks,
+      advisoryLocks: locks.advisoryLocks,
+      sqlOrderAtBlock: { writer: writerAtBlock, command: commandAtBlock },
+      sqlOrderAfterCommit: { writer: writerTrace, command: commandTrace },
+      endedRule: {
+        ruleId: writer.ended.ruleId,
+        endAt: writer.ended.endAt,
+        revision: writer.ended.revision,
+      },
+      commandFailureTag: resultFailureTag(command.result),
+      ...after,
+    };
+  });
+
 const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
   Effect.scoped(
     Effect.gen(function* () {
-      const commandFirst = yield* Effect.gen(function* () {
-        const commandReady = yield* Deferred.make<void>();
-        const resumeCommand = yield* Deferred.make<void>();
-        const writerAttempted = yield* Deferred.make<void>();
-        const commandStarted = yield* Deferred.make<ConnectionStamp>();
-        const writerStarted = yield* Deferred.make<ConnectionStamp>();
-        const commandTrace = makeSqlTrace();
-        const writerTrace = makeSqlTrace();
+      const commandFirst = yield* proveRuleExpiryCommandFirst(databaseUrl);
 
-        const before = yield* submissionCompositionFacts(
-          ids.persons.expiryCommandFirst,
-          exactEnd,
-          ids.departments.alpha,
-        ).pipe(
-          Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-cf-before`)),
-        );
-
-        assert.deepEqual(before.applicableRuleIds, [ids.rules.expiryCommandFirst]);
-        assert.deepEqual(before.contributingRuleIds, [ids.rules.expiryCommandFirst]);
-        assert.equal(before.directPaymentAuthorities.length, 0);
-        assert.equal(before.mapped._tag, "Success");
-
-        const commandFiber = yield* Effect.forkScoped(
-          Effect.gen(function* () {
-            const sql = yield* Database;
-            const started = yield* connectionStamp(sql);
-            yield* Deferred.succeed(commandStarted, started);
-
-            const observed = observeSql(sql, commandTrace, {
-              pauseAfter: {
-                phase: "durable-audit-insert",
-                ready: commandReady,
-                resume: resumeCommand,
-              },
-            });
-
-            const value = yield* executeReceiptCommand(
-              submitCommand(
-                ids.commands.expiryCommandFirst,
-                ids.departments.alpha,
-                "expiry-command-first",
-              ),
-              principal(ids.persons.expiryCommandFirst, exactEnd),
-              allocation(
-                generatedReceiptIds.expiryCommandFirst,
-                generatedVisualIds.expiryCommandFirst,
-              ),
-            ).pipe(Effect.provideService(Database, observed));
-
-            const completed = yield* connectionStamp(sql);
-
-            return { started, completed, value };
-          }).pipe(
-            Effect.provide(
-              makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-cf-command`),
-            ),
-          ),
-        );
-
-        yield* Deferred.await(commandReady);
-
-        const writerFiber = yield* Effect.forkScoped(
-          Effect.gen(function* () {
-            const sql = yield* Database;
-            const started = yield* connectionStamp(sql);
-            yield* Deferred.succeed(writerStarted, started);
-
-            const observed = observeSql(sql, writerTrace, {
-              signalBefore: { phase: "authz-exclusive-lock", deferred: writerAttempted },
-            });
-
-            const ended = yield* endAuthzRule({
-              ruleId: AuthzRuleId.make(ids.rules.expiryCommandFirst),
-              endAt: exactEnd,
-              expectedRevision: 0,
-            }).pipe(Effect.provideService(Database, observed));
-
-            const completed = yield* connectionStamp(sql);
-
-            return { started, completed, ended };
-          }).pipe(
-            Effect.provide(
-              makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-cf-writer`),
-            ),
-          ),
-        );
-
-        yield* Deferred.await(writerAttempted);
-        const commandStamp = yield* Deferred.await(commandStarted);
-        const writerStamp = yield* Deferred.await(writerStarted);
-        assert.notEqual(commandStamp.pid, writerStamp.pid);
-
-        const commandAtBlock = {
-          attempted: [...commandTrace.attempted],
-          completed: [...commandTrace.completed],
-        };
-
-        const writerAtBlock = {
-          attempted: [...writerTrace.attempted],
-          completed: [...writerTrace.completed],
-        };
-
-        const locks = yield* observeBlockingAndLocks({
-          databaseUrl,
-          blockedPid: writerStamp.pid,
-          blockerPid: commandStamp.pid,
-          personId: ids.persons.expiryCommandFirst,
-          commandId: ids.commands.expiryCommandFirst,
-          applicationName: `${proofApplicationPrefix}-expiry-cf-observer`,
-        });
-
-        assert.equal(locks.blocked.waitEventType, "Lock");
-        assert.ok(locks.blocked.blockingPids.includes(commandStamp.pid));
-        assert.ok(
-          hasAdvisoryLock(
-            locks.advisoryLocks,
-            commandStamp.pid,
-            "authorization-rules",
-            "ShareLock",
-            true,
-          ),
-        );
-        assert.ok(
-          hasAdvisoryLock(
-            locks.advisoryLocks,
-            writerStamp.pid,
-            "authorization-rules",
-            "ExclusiveLock",
-            false,
-          ),
-        );
-        yield* Deferred.succeed(resumeCommand, undefined);
-        const command = yield* Fiber.join(commandFiber);
-        const writer = yield* Fiber.join(writerFiber);
-        assert.equal(writer.ended.endAt, exactEnd);
-        assert.equal(writer.ended.revision, 1);
-        assertSubsequence(commandTrace.completed, [
-          "person-authorization-lock",
-          "organization-authority-projection",
-          "direct-receipt-authority-projection",
-          "authz-shared-lock",
-          "authz-tag-assignment-projection",
-          "authz-rule-projection",
-          "durable-audit-insert",
-        ]);
-        assertSubsequence(writerTrace.completed, ["authz-exclusive-lock", "end-rule"]);
-
-        const after = yield* Effect.gen(function* () {
-          const sql = yield* Database;
-
-          const beforeExact = yield* loadApplicableAuthorizationRules(
-            PrincipalSchema.cases.Person.make({
-              personId: personId(ids.persons.expiryCommandFirst),
-            }),
-            "submitReceipt",
-            justBeforeExactEnd,
-            proofReceiptContext(departmentId(ids.departments.alpha)),
-          );
-
-          const atExact = yield* loadApplicableAuthorizationRules(
-            PrincipalSchema.cases.Person.make({
-              personId: personId(ids.persons.expiryCommandFirst),
-            }),
-            "submitReceipt",
-            exactEnd,
-            proofReceiptContext(departmentId(ids.departments.alpha)),
-          );
-
-          const acceptedDurable = yield* readDurableCommandFacts(
-            sql,
-            ids.commands.expiryCommandFirst,
-          );
-
-          const fresh = yield* Effect.result(
-            executeReceiptCommand(
-              submitCommand(
-                ids.commands.expiryCommandFirstFresh,
-                ids.departments.alpha,
-                "expiry-command-first-fresh",
-              ),
-              principal(ids.persons.expiryCommandFirst, exactEnd),
-              allocation(
-                generatedReceiptIds.expiryCommandFirstFresh,
-                generatedVisualIds.expiryCommandFirstFresh,
-              ),
-            ),
-          );
-
-          const freshDurable = yield* readDurableCommandFacts(
-            sql,
-            ids.commands.expiryCommandFirstFresh,
-          );
-
-          return {
-            beforeExactRuleIds: beforeExact.rules.map((rule) => rule.ruleId),
-            exactRuleIds: atExact.rules.map((rule) => rule.ruleId),
-            acceptedDurable,
-            freshFailureTag: resultFailureTag(fresh),
-            freshDurable,
-          };
-        }).pipe(
-          Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-cf-after`)),
-        );
-
-        assert.deepEqual(after.beforeExactRuleIds, [ids.rules.expiryCommandFirst]);
-        assert.deepEqual(after.exactRuleIds, []);
-        assert.deepEqual(after.acceptedDurable, {
-          commandReceiptRows: 1,
-          auditRows: 1,
-          outboxRows: 3,
-          outboxCommandRows: 1,
-        });
-        assert.equal(after.freshFailureTag, "ReceiptAuthorityDenied");
-        assert.deepEqual(after.freshDurable, {
-          commandReceiptRows: 0,
-          auditRows: 0,
-          outboxRows: 0,
-          outboxCommandRows: 0,
-        });
-
-        return {
-          order: "CommandFirst" as const,
-          instant: exactEnd,
-          compositionBefore: before,
-          participants: {
-            command: command.started,
-            commandCompleted: command.completed,
-            writer: writer.started,
-            writerCompleted: writer.completed,
-            independentBackendPids: command.started.pid !== writer.started.pid,
-          },
-          blocked: locks.blocked,
-          relationLocks: locks.relationLocks,
-          advisoryLocks: locks.advisoryLocks,
-          sqlOrderAtBlock: { command: commandAtBlock, writer: writerAtBlock },
-          sqlOrderAfterCommit: { command: commandTrace, writer: writerTrace },
-          commandObservation: command.value.observation,
-          endedRule: {
-            ruleId: writer.ended.ruleId,
-            endAt: writer.ended.endAt,
-            revision: writer.ended.revision,
-          },
-          ...after,
-        };
-      });
-
-      const writerFirst = yield* Effect.gen(function* () {
-        const writerPaused = yield* Deferred.make<void>();
-        const resumeWriter = yield* Deferred.make<void>();
-        const commandAttempted = yield* Deferred.make<void>();
-        const writerStarted = yield* Deferred.make<ConnectionStamp>();
-        const commandStarted = yield* Deferred.make<ConnectionStamp>();
-        const writerTrace = makeSqlTrace();
-        const commandTrace = makeSqlTrace();
-
-        const before = yield* submissionCompositionFacts(
-          ids.persons.expiryWriterFirst,
-          justBeforeExactEnd,
-          ids.departments.alpha,
-        ).pipe(
-          Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-wf-before`)),
-        );
-
-        assert.deepEqual(before.applicableRuleIds, [ids.rules.expiryWriterFirst]);
-        assert.deepEqual(before.contributingRuleIds, [ids.rules.expiryWriterFirst]);
-        assert.equal(before.directPaymentAuthorities.length, 0);
-        assert.equal(before.mapped._tag, "Success");
-
-        const writerFiber = yield* Effect.forkScoped(
-          Effect.gen(function* () {
-            const sql = yield* Database;
-            const started = yield* connectionStamp(sql);
-            yield* Deferred.succeed(writerStarted, started);
-
-            const observed = observeSql(sql, writerTrace, {
-              pauseAfter: {
-                phase: "end-rule",
-                ready: writerPaused,
-                resume: resumeWriter,
-              },
-            });
-
-            const ended = yield* endAuthzRule({
-              ruleId: AuthzRuleId.make(ids.rules.expiryWriterFirst),
-              endAt: exactEnd,
-              expectedRevision: 0,
-            }).pipe(Effect.provideService(Database, observed));
-
-            const completed = yield* connectionStamp(sql);
-
-            return { started, completed, ended };
-          }).pipe(
-            Effect.provide(
-              makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-wf-writer`),
-            ),
-          ),
-        );
-
-        yield* Deferred.await(writerPaused);
-
-        const commandFiber = yield* Effect.forkScoped(
-          Effect.gen(function* () {
-            const sql = yield* Database;
-            const started = yield* connectionStamp(sql);
-            yield* Deferred.succeed(commandStarted, started);
-
-            const observed = observeSql(sql, commandTrace, {
-              signalBefore: { phase: "authz-shared-lock", deferred: commandAttempted },
-            });
-
-            const result = yield* Effect.result(
-              executeReceiptCommand(
-                submitCommand(
-                  ids.commands.expiryWriterFirst,
-                  ids.departments.alpha,
-                  "expiry-writer-first",
-                ),
-                principal(ids.persons.expiryWriterFirst, exactEnd),
-                allocation(
-                  generatedReceiptIds.expiryWriterFirst,
-                  generatedVisualIds.expiryWriterFirst,
-                ),
-              ).pipe(Effect.provideService(Database, observed)),
-            );
-
-            const completed = yield* connectionStamp(sql);
-
-            return { started, completed, result };
-          }).pipe(
-            Effect.provide(
-              makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-wf-command`),
-            ),
-          ),
-        );
-
-        yield* Deferred.await(commandAttempted);
-        const writerStamp = yield* Deferred.await(writerStarted);
-        const commandStamp = yield* Deferred.await(commandStarted);
-        assert.notEqual(writerStamp.pid, commandStamp.pid);
-
-        const writerAtBlock = {
-          attempted: [...writerTrace.attempted],
-          completed: [...writerTrace.completed],
-        };
-
-        const commandAtBlock = {
-          attempted: [...commandTrace.attempted],
-          completed: [...commandTrace.completed],
-        };
-
-        const locks = yield* observeBlockingAndLocks({
-          databaseUrl,
-          blockedPid: commandStamp.pid,
-          blockerPid: writerStamp.pid,
-          personId: ids.persons.expiryWriterFirst,
-          commandId: ids.commands.expiryWriterFirst,
-          applicationName: `${proofApplicationPrefix}-expiry-wf-observer`,
-        });
-
-        assert.equal(locks.blocked.waitEventType, "Lock");
-        assert.ok(locks.blocked.blockingPids.includes(writerStamp.pid));
-        assert.ok(
-          hasAdvisoryLock(
-            locks.advisoryLocks,
-            writerStamp.pid,
-            "authorization-rules",
-            "ExclusiveLock",
-            true,
-          ),
-        );
-        assert.ok(
-          hasAdvisoryLock(
-            locks.advisoryLocks,
-            commandStamp.pid,
-            "authorization-rules",
-            "ShareLock",
-            false,
-          ),
-        );
-        assertSubsequence(commandAtBlock.completed, [
-          "person-authorization-lock",
-          "organization-authority-projection",
-          "direct-receipt-authority-projection",
-        ]);
-        assert.equal(commandAtBlock.attempted.at(-1), "authz-shared-lock");
-        yield* Deferred.succeed(resumeWriter, undefined);
-        const writer = yield* Fiber.join(writerFiber);
-        const command = yield* Fiber.join(commandFiber);
-        assert.equal(writer.ended.endAt, exactEnd);
-        assert.equal(writer.ended.revision, 1);
-        assert.equal(resultFailureTag(command.result), "ReceiptAuthorityDenied");
-        assertSubsequence(writerTrace.completed, ["authz-exclusive-lock", "end-rule"]);
-        assertSubsequence(commandTrace.completed, [
-          "person-authorization-lock",
-          "organization-authority-projection",
-          "direct-receipt-authority-projection",
-          "authz-shared-lock",
-          "authz-tag-assignment-projection",
-          "authz-rule-projection",
-        ]);
-
-        const after = yield* Effect.gen(function* () {
-          const sql = yield* Database;
-
-          const beforeExact = yield* loadApplicableAuthorizationRules(
-            PrincipalSchema.cases.Person.make({
-              personId: personId(ids.persons.expiryWriterFirst),
-            }),
-            "submitReceipt",
-            justBeforeExactEnd,
-            proofReceiptContext(departmentId(ids.departments.alpha)),
-          );
-
-          const atExact = yield* loadApplicableAuthorizationRules(
-            PrincipalSchema.cases.Person.make({
-              personId: personId(ids.persons.expiryWriterFirst),
-            }),
-            "submitReceipt",
-            exactEnd,
-            proofReceiptContext(departmentId(ids.departments.alpha)),
-          );
-
-          const durable = yield* readDurableCommandFacts(sql, ids.commands.expiryWriterFirst);
-
-          return {
-            beforeExactRuleIds: beforeExact.rules.map((rule) => rule.ruleId),
-            exactRuleIds: atExact.rules.map((rule) => rule.ruleId),
-            durable,
-          };
-        }).pipe(
-          Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-wf-after`)),
-        );
-
-        assert.deepEqual(after.beforeExactRuleIds, [ids.rules.expiryWriterFirst]);
-        assert.deepEqual(after.exactRuleIds, []);
-        assert.deepEqual(after.durable, {
-          commandReceiptRows: 0,
-          auditRows: 0,
-          outboxRows: 0,
-          outboxCommandRows: 0,
-        });
-
-        return {
-          order: "WriterFirst" as const,
-          instant: exactEnd,
-          compositionBefore: before,
-          participants: {
-            writer: writer.started,
-            writerCompleted: writer.completed,
-            command: command.started,
-            commandCompleted: command.completed,
-            independentBackendPids: writer.started.pid !== command.started.pid,
-          },
-          blocked: locks.blocked,
-          relationLocks: locks.relationLocks,
-          advisoryLocks: locks.advisoryLocks,
-          sqlOrderAtBlock: { writer: writerAtBlock, command: commandAtBlock },
-          sqlOrderAfterCommit: { writer: writerTrace, command: commandTrace },
-          endedRule: {
-            ruleId: writer.ended.ruleId,
-            endAt: writer.ended.endAt,
-            revision: writer.ended.revision,
-          },
-          commandFailureTag: resultFailureTag(command.result),
-          ...after,
-        };
-      });
+      const writerFirst = yield* proveRuleExpiryWriterFirst(databaseUrl);
 
       return { commandFirst, writerFirst };
     }),
@@ -4327,14 +4340,14 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
       const accepted = yield* Effect.gen(function* () {
         const sql = yield* Database;
 
-        const value = yield* executeReceiptCommand(
-          ReceiptCommandRequestSchema.cases.RejectReceipt.make({
+        const value = yield* executeReceiptCommand({
+          command: ReceiptCommandRequestSchema.cases.RejectReceipt.make({
             commandId: ids.commands.tagAccepted,
             receiptId: ReceiptId.make(ids.receipts.tagAccepted),
             expectedRevision: 0,
           }),
-          principal(ids.persons.tagApprove, justBeforeExactEnd),
-        );
+          principal: principal(ids.persons.tagApprove, justBeforeExactEnd),
+        });
 
         const durable = yield* readDurableCommandFacts(sql, ids.commands.tagAccepted);
 
@@ -4400,14 +4413,14 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
           });
 
           const result = yield* Effect.result(
-            executeReceiptCommand(
-              ReceiptCommandRequestSchema.cases.RejectReceipt.make({
+            executeReceiptCommand({
+              command: ReceiptCommandRequestSchema.cases.RejectReceipt.make({
                 commandId: ids.commands.tagWriterFirst,
                 receiptId: ReceiptId.make(ids.receipts.tagWriterFirst),
                 expectedRevision: 0,
               }),
-              principal(ids.persons.tagApprove, exactEnd),
-            ).pipe(Effect.provideService(Database, observed)),
+              principal: principal(ids.persons.tagApprove, exactEnd),
+            }).pipe(Effect.provideService(Database, observed)),
           );
 
           const completed = yield* connectionStamp(sql);
@@ -4591,14 +4604,14 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
           proofReceiptContext(departmentId(ids.departments.alpha)),
         );
 
-        const value = yield* executeReceiptCommand(
-          ReceiptCommandRequestSchema.cases.RejectReceipt.make({
+        const value = yield* executeReceiptCommand({
+          command: ReceiptCommandRequestSchema.cases.RejectReceipt.make({
             commandId: ids.commands.tagWriterFirst,
             receiptId: ReceiptId.make(ids.receipts.tagWriterFirst),
             expectedRevision: 0,
           }),
-          principal(ids.persons.tagApprove, exactEnd),
-        );
+          principal: principal(ids.persons.tagApprove, exactEnd),
+        });
 
         const durable = yield* readDurableCommandFacts(sql, ids.commands.tagWriterFirst);
 

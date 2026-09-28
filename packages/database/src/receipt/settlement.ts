@@ -581,11 +581,22 @@ export const recordReceiptSettlement: {
     }),
 );
 
-export const listReceiptsForSettlement = (
-  personId: PersonId,
-  authorizationInstant: OrganizationAuthorityInstant,
-  after?: string,
-): Effect.Effect<ReceiptPage<ReceiptSettlementQueueItem>, ReceiptSettlementListFailure, Database> =>
+/** The person, the authorization instant, and the cursor of a settlement queue read. */
+export interface ReceiptSettlementQueueInput {
+  readonly personId: PersonId;
+  readonly authorizationInstant: OrganizationAuthorityInstant;
+  readonly after?: string | undefined;
+}
+
+export const listReceiptsForSettlement = ({
+  personId,
+  authorizationInstant,
+  after,
+}: ReceiptSettlementQueueInput): Effect.Effect<
+  ReceiptPage<ReceiptSettlementQueueItem>,
+  ReceiptSettlementListFailure,
+  Database
+> =>
   Effect.gen(function* () {
     const sql = yield* Database;
 

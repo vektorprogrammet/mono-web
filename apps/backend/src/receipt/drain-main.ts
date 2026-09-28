@@ -65,14 +65,18 @@ const result = await Effect.runPromise(
     if (exists.length !== 1) return "NotFound";
     const cutoff = DateTime.formatIso(DateTime.subtract(yield* DateTime.now, { minutes: 1 }));
 
-    for (const claim of yield* listStaleReceiptOutboxClaimIds(cutoff, receiptId))
+    for (const claim of yield* listStaleReceiptOutboxClaimIds({ claimedBefore: cutoff, receiptId }))
       yield* recoverStaleReceiptOutbox(claim, cutoff);
 
     const last = yield* repeatReceiptDelivery(
       Effect.gen(function* () {
         const now = DateTime.formatIso(yield* DateTime.now);
 
-        return yield* deliverNextReceiptOutbox(randomUUID(), now, receiptId);
+        return yield* deliverNextReceiptOutbox({
+          claimId: randomUUID(),
+          claimedAt: now,
+          receiptId,
+        });
       }),
     );
 

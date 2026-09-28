@@ -189,10 +189,9 @@ export const proveRuleReconciliationMigration = (databaseUrl: Redacted.Redacted<
 
     if (!Predicate.isTagged(failed, "Failure"))
       throw new Error("migration 26 unexpectedly succeeded");
-    const failureOption = Cause.findErrorOption(failed.cause);
-    assert(Option.isSome(failureOption));
-    assert(isSqlError(failureOption.value));
-    const databaseCause = failureOption.value.reason.cause;
+    const sqlFailure = Cause.findErrorOption(failed.cause).pipe(Option.filter(isSqlError));
+    assert(Option.isSome(sqlFailure));
+    const databaseCause = sqlFailure.value.reason.cause;
     const failure = databaseCause instanceof Error ? databaseCause.message : String(databaseCause);
     assert.deepEqual(parseReport(failure), expectedFailures);
     assert.equal(failure.includes("preflight-secret-ciphertext"), false);

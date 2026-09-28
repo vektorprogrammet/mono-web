@@ -68,10 +68,20 @@ export interface ReceiptCandidateRow extends ReceiptListItem {
   readonly cursorTimestamp: string;
 }
 
-export const listApproverReceipts = (
-  status?: ReceiptStatus,
-  after?: ReceiptCursorPosition,
-): Effect.Effect<ReadonlyArray<ReceiptCandidateRow>, ReceiptPersistenceError, Database> =>
+/** The status filter and the cursor position of an approver candidate read. */
+export interface ApproverReceiptsInput {
+  readonly status?: ReceiptStatus | undefined;
+  readonly after?: ReceiptCursorPosition | undefined;
+}
+
+export const listApproverReceipts = ({
+  status,
+  after,
+}: ApproverReceiptsInput): Effect.Effect<
+  ReadonlyArray<ReceiptCandidateRow>,
+  ReceiptPersistenceError,
+  Database
+> =>
   Effect.gen(function* () {
     const sql = yield* Database;
     const statusPredicate = status === undefined ? sql`TRUE` : sql`status = ${status}`;
@@ -196,11 +206,18 @@ const findOwnedReceiptProjection = SqlSchema.findAll({
     }),
 });
 
-export const listOwnedReceiptProjection = (
-  ownerPersonId: string,
-  status?: ReceiptListItem["status"],
-  after?: string,
-): Effect.Effect<
+/** The owner, status filter, and cursor of an owned receipt page. */
+export interface OwnedReceiptProjectionInput {
+  readonly ownerPersonId: string;
+  readonly status?: ReceiptListItem["status"] | undefined;
+  readonly after?: string | undefined;
+}
+
+export const listOwnedReceiptProjection = ({
+  ownerPersonId,
+  status,
+  after,
+}: OwnedReceiptProjectionInput): Effect.Effect<
   ReceiptPage<OwnedReceiptProjectionItem>,
   ReceiptPersistenceError | ReceiptDecodeError,
   Database
