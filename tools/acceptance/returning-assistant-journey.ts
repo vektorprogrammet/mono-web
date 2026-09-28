@@ -1,11 +1,12 @@
 import { type RecruitmentInvitationDeliveryResult } from "../../packages/database/src/recruitment/index.js";
-import { NativeProblem } from "../../packages/http-api/src/http-semantics.js";
-import { AdmissionsRegisterReturningAssistantProblem } from "../../packages/http-api/src/endpoint-problems.js";
+import { nativeRpcPath } from "../../packages/rpc/src/api.js";
+import { IdempotencyKey, NativeProblem } from "../../packages/rpc/src/problem.js";
+import { makeScriptClient } from "../../packages/rpc/src/script-client.js";
 import {
   RecruitmentInterviewResource,
   ScheduleInterviewResponse,
   FinalizeInterviewResponse,
-} from "../../packages/http-api/src/v2-schemas.js";
+} from "../../packages/rpc/src/v2-schemas.js";
 import {
   RecruitmentInterviewConductObservationSchema,
   RecruitmentInvitationResponseObservationSchema,
@@ -18,7 +19,7 @@ import type { Pool } from "pg";
 import type { Browser, Locator, Page } from "@playwright/test";
 import { AdmissionFieldOfStudyId } from "../../packages/domain/src/admission-period/schema.js";
 import { publicApplicationCommandDigest } from "../../packages/domain/src/application/digest.js";
-import { ReturningAssistantRegistrationResponseSchema } from "../../packages/domain/src/application/returning.js";
+import { ReturningAssistantRegistrationInputSchema } from "../../packages/domain/src/application/returning.js";
 import {
   SubmitPublicApplicationCommandSchema,
   PublicApplicationCommandIdSchema,
@@ -31,6 +32,19 @@ import {
 import { DepartmentId } from "../../packages/domain/src/organization/schema.js";
 import { Match, Predicate, Schema } from "effect";
 import { admissionJourneyClock } from "../e2e/journey-clock.ts";
+
+/** One RPC request on the JSON wire, as a browser sends it without the typed client. */
+const WireRequest = Schema.TaggedStruct("Request", {
+  id: Schema.String,
+  tag: Schema.String,
+  payload: Schema.Unknown,
+  headers: Schema.Array(Schema.Tuple([Schema.String, Schema.String])),
+});
+
+/** The one answer of a request that succeeded. */
+const WireSuccess = Schema.Tuple([
+  Schema.TaggedStruct("Exit", { exit: Schema.TaggedStruct("Success", { value: Schema.Unknown }) }),
+]);
 
 const person = {
   personId: "journey-returning-assistant-0104",
@@ -715,9 +729,33 @@ export const runReturningAssistantBrowserJourney = async ({
       .map((cookie) => `${cookie.name}=${cookie.value}`)
       .join("; ");
 
-    const optionsResponse = await context.request.get(`${api}/api/returning-assistant/options`, {
-      headers: { origin: ui, accept: "application/json", cookie: cookieHeader },
+    const native = makeScriptClient(api);
+
+    /** The browser context's current session, sent from the dashboard origin. */
+    const sessionHeaders = async () => ({
+      cookie: (await context.cookies()).map((cookie) => `${cookie.name}=${cookie.value}`).join("; "),
+      origin: ui,
     });
+
+    const readOptions = (headers: Readonly<Record<string, string>>) =>
+      native.call(headers, (client) => client["admissions.readReturningAssistantOptions"]());
+
+    /** Registers as the browser context's person; the request decodes through the contract. */
+    const register = async (
+      idempotencyKey: string,
+      data: typeof ReturningAssistantRegistrationInputSchema.Encoded,
+    ) => {
+      const request = Schema.decodeSync(ReturningAssistantRegistrationInputSchema)(data);
+
+      return native.call(await sessionHeaders(), (client) =>
+        client["admissions.registerReturningAssistant"]({
+          idempotencyKey: IdempotencyKey.make(idempotencyKey),
+          request,
+        }),
+      );
+    };
+
+    const optionsAnswer = await readOptions({ origin: ui, cookie: cookieHeader });
 
     const waitForDashboardAction = async (periodId: string, trigger: () => Promise<void>) => {
       const responsePromise = returning.waitForResponse(
@@ -766,7 +804,7 @@ export const runReturningAssistantBrowserJourney = async ({
       throw new Error("returning form did not become ready for action");
     };
 
-    responses.push(`context.request options ${optionsResponse.status()}`);
+    responses.push(`context.request options ${optionsAnswer.status}`);
 
     const negativeMutationSnapshot = async (personId: string) =>
       (
@@ -806,19 +844,16 @@ export const runReturningAssistantBrowserJourney = async ({
       assert.ok(cookie, `${gate} session cookie`);
       const before = await negativeMutationSnapshot(probePerson.personId);
 
-      const response = await fetch(`${api}/api/returning-assistant/options`, {
-        headers: { origin: ui, accept: "application/json", cookie },
-      });
-
-      const body = await response.text();
-      assert.equal(response.status, expectedStatus, `${gate} status body=${body}`);
+      const answer = await readOptions({ origin: ui, cookie });
+      const body = JSON.stringify(answer);
+      assert.equal(answer.status, expectedStatus, `${gate} status body=${body}`);
       const after = await negativeMutationSnapshot(probePerson.personId);
 
       if (JSON.stringify(after) !== JSON.stringify(before))
         throw new Error(
           `${gate} must not mutate before=${JSON.stringify(before)} after=${JSON.stringify(after)}`,
         );
-      trace.push({ phase: "negative-gate", gate, status: response.status, body });
+      trace.push({ phase: "negative-gate", gate, status: answer.status, body });
     };
 
     await probeNegativeOptions("no-placement-despite-affiliation", negativeProbePersons[0], 404);
@@ -859,16 +894,32 @@ export const runReturningAssistantBrowserJourney = async ({
       status: "proven",
     });
 
-    const browserOptions = await returning.evaluate(async (endpoint) => {
-      const response = await fetch(endpoint, {
-        credentials: "include",
-        headers: { accept: "application/json" },
-      });
+    // The browser calls the RPC with its own session cookie, across origins, as CORS admits it.
+    const browserOptions = await returning.evaluate(
+      async ({ endpoint, message }) => {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(message),
+        });
 
-      return { status: response.status };
-    }, `${api}/api/returning-assistant/options`);
+        return { status: response.status, answer: await response.json() };
+      },
+      {
+        endpoint: `${api}${nativeRpcPath}`,
+        message: WireRequest.make({
+          id: "1",
+          tag: "admissions.readReturningAssistantOptions",
+          payload: null,
+          headers: [],
+        }),
+      },
+    );
 
     assert.equal(browserOptions.status, 200);
+    // Decoding fails unless the answer is one successful exit.
+    Schema.decodeUnknownSync(WireSuccess)(browserOptions.answer);
     trace.push({ phase: "options-probe", status: browserOptions.status });
 
     const originalCustody = await pool.query(
@@ -958,9 +1009,7 @@ export const runReturningAssistantBrowserJourney = async ({
 
     const anonymousBefore = await negativeMutationSnapshot(person.personId);
 
-    const anonymous = await fetch(`${api}/api/returning-assistant/options`, {
-      headers: { origin: ui, accept: "application/json" },
-    });
+    const anonymous = await readOptions({ origin: ui });
 
     assert.equal(anonymous.status, 401);
     assert.deepEqual(await negativeMutationSnapshot(person.personId), anonymousBefore);
@@ -974,29 +1023,22 @@ export const runReturningAssistantBrowserJourney = async ({
     assert.equal(foreignTeam.rows.length, 1);
     const wrongTeamBefore = await negativeMutationSnapshot(person.personId);
 
-    const wrongTeam = await context.request.post(`${api}/api/returning-assistant/registrations`, {
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": "returning-wrong-team-0104",
-        origin: ui,
-      },
-      data: {
-        ...firstPayload,
-        commandId: "returning-wrong-team-0104",
-        teamInterest: true,
-        teamIds: [foreignTeam.rows[0].team_id],
-      },
+    const wrongTeam = await register("returning-wrong-team-0104", {
+      ...firstPayload,
+      commandId: "returning-wrong-team-0104",
+      teamInterest: true,
+      teamIds: [foreignTeam.rows[0].team_id],
     });
 
-    const wrongTeamBody = Schema.decodeUnknownSync(NativeProblem)(await wrongTeam.json());
-    assert.equal(wrongTeam.status(), 403);
-    assert.equal(wrongTeamBody.code, "returning.team-scope-denied");
+    assert.ok(!wrongTeam.ok);
+    assert.equal(wrongTeam.status, 403);
+    assert.equal(wrongTeam.code, "returning.team-scope-denied");
     assert.deepEqual(await negativeMutationSnapshot(person.personId), wrongTeamBefore);
     trace.push({
       phase: "negative-gate",
       gate: "cross-department-team",
-      status: wrongTeam.status(),
-      code: wrongTeamBody.code,
+      status: wrongTeam.status,
+      code: wrongTeam.code,
     });
     let resolveFirstAction!: () => void;
     let rejectFirstAction!: (cause: unknown) => void;
@@ -1651,45 +1693,28 @@ export const runReturningAssistantBrowserJourney = async ({
 
     const concurrentDetails = await Promise.all(
       concurrentRevisions.map(async ({ idempotencyKey, payload }) => {
-        const response = await context.request.post(
-          `${api}/api/returning-assistant/registrations`,
-          {
-            headers: {
-              "content-type": "application/json",
-              "idempotency-key": idempotencyKey,
-              origin: ui,
-            },
-            data: payload,
-          },
-        );
+        const answer = await register(idempotencyKey, payload);
 
-        return { idempotencyKey, payload, status: response.status(), body: await response.text() };
+        return { idempotencyKey, payload, status: answer.status, answer };
       }),
     );
 
     assert.deepEqual(
       concurrentDetails.map(({ status }) => status).sort((left, right) => left - right),
-      [201, 412],
+      [200, 412],
       JSON.stringify(concurrentDetails),
     );
 
-    const concurrentWinner = concurrentDetails.find(({ status }) => status === 201);
+    const concurrentWinner = concurrentDetails.find(({ status }) => status === 200);
     const concurrentLoser = concurrentDetails.find(({ status }) => status === 412);
-    assert.ok(concurrentWinner);
-    assert.ok(concurrentLoser);
+    assert.ok(concurrentWinner?.answer.ok);
+    assert.ok(concurrentLoser && !concurrentLoser.answer.ok);
 
-    const concurrentRegistration = Schema.decodeUnknownSync(
-      ReturningAssistantRegistrationResponseSchema,
-    )(JSON.parse(concurrentWinner.body));
+    const concurrentRegistration = concurrentWinner.answer.value;
 
     assert.equal(concurrentRegistration.observation.revision, 3);
     assert.equal(concurrentRegistration.replayed, false);
-
-    const concurrentConflict = Schema.decodeUnknownSync(
-      AdmissionsRegisterReturningAssistantProblem,
-    )(JSON.parse(concurrentLoser.body));
-
-    assert.equal(concurrentConflict.code, "returning.revision-conflict");
+    assert.equal(concurrentLoser.answer.code, "returning.revision-conflict");
     trace.push({
       phase: "concurrent-revision",
       winner: concurrentWinner.idempotencyKey,
@@ -2432,16 +2457,9 @@ export const runReturningAssistantBrowserJourney = async ({
       [person.personId, nextAdmissionPeriodId],
     );
 
-    const exactReplay = await context.request.post(`${api}/api/returning-assistant/registrations`, {
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": firstCommandKey,
-        origin: ui,
-      },
-      data: firstReplayPayload,
-    });
+    const exactReplay = await register(firstCommandKey, firstReplayPayload);
 
-    assert.equal(exactReplay.status(), 201);
+    assert.equal(exactReplay.status, 200);
 
     const nextRevisionAfterReplay = await pool.query(
       "SELECT count(*)::int AS count FROM public.admission_returning_registrations WHERE person_id=$1 AND admission_period_id=$2",
@@ -2456,21 +2474,11 @@ export const runReturningAssistantBrowserJourney = async ({
     ]);
 
     try {
-      const closedReplay = await context.request.post(
-        `${api}/api/returning-assistant/registrations`,
-        {
-          headers: {
-            "content-type": "application/json",
-            "idempotency-key": firstCommandKey,
-            origin: ui,
-          },
-          data: firstReplayPayload,
-        },
-      );
+      const closedReplay = await register(firstCommandKey, firstReplayPayload);
 
-      assert.equal(closedReplay.status(), 409);
+      assert.equal(closedReplay.status, 409);
       assert.deepEqual(await negativeMutationSnapshot(person.personId), closedBefore);
-      trace.push({ phase: "negative-gate", gate: "closed-period", status: closedReplay.status() });
+      trace.push({ phase: "negative-gate", gate: "closed-period", status: closedReplay.status });
     } finally {
       await pool.query(
         "UPDATE public.admission_periods SET end_at=$1 WHERE admission_period_id=$2",
@@ -2493,24 +2501,15 @@ export const runReturningAssistantBrowserJourney = async ({
     assert.equal(session.rows[0].count, 1);
     await pool.query('DELETE FROM auth.session WHERE "userId"=$1', [person.personId]);
 
-    const revokedReplay = await context.request.post(
-      `${api}/api/returning-assistant/registrations`,
-      {
-        headers: {
-          "content-type": "application/json",
-          "idempotency-key": firstCommandKey,
-          origin: ui,
-        },
-        data: firstReplayPayload,
-      },
-    );
+    const revokedReplay = await register(firstCommandKey, firstReplayPayload);
 
-    assert.equal(revokedReplay.status(), 401);
+    assert.equal(revokedReplay.status, 401);
+    await native.dispose();
     assert.deepEqual(await negativeMutationSnapshot(person.personId), revokedBefore);
     trace.push({
       phase: "negative-gate",
       gate: "stale-revoked-auth",
-      status: revokedReplay.status(),
+      status: revokedReplay.status,
     });
     stage?.("returning:report");
     const reportContext = await browser.newContext();
