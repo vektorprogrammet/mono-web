@@ -110,8 +110,9 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
 - `apps/homepage/src/lib/public-application.ts` lists its problem codes by hand and omits `header.malformed`.
   The homepage problem mappers (`mapPublicApplicationError`, `publicTeamApplicationPageFailure`, `failedPublicTeamApplication`) still accept a plain problem-shaped object besides the SDK's `Problem`; the dashboard reads problems only through `nativeProblemFrom`.
 - Instants: domain fields still use `Rfc3339InstantSchema`, not `Instant` (`packages/domain/src/time.ts`).
-- Authorization is trusted by convention: 13 authorize helpers return `void` or a value any module can construct, and a command runs whether or not its caller called one.
-  The Organization create commands take evidence that only `requireOrganizationAdministrator` constructs; the other contexts await the rollout in [authorization evidence](docs/specs/authz-evidence.md).
+- Authorization evidence ([specification](docs/specs/authz-evidence.md)): nine branded evidence types, each with one constructor, gate the commands of Organization, onboarding, admission outcomes, placements, schools, recruitment maintenance, certificates, team applications, and social events.
+  Receipts (`packages/database/src/receipt/postgres.ts`, `authorizeReceiptMutation`) still export a constructible `ReceiptMutationAuthorization`, and content (`apps/backend/src/content/http-access.ts`) keeps a handler gate in front of the adapter's own check.
+  `OrganizationPersonAuthority` is not branded at its reader, so a fabricated authority can still mint evidence.
   The authority instant (M2), per-slice cutovers (M3), and deletion of the string helpers such as `compareRfc3339Instants` (M4) remain.
 - Receipt keyset cursors carry microsecond text (`packages/database/src/receipt/cursor.ts`). They stay exact because storage is millisecond; M3 moves them to `Instant`.
 - `packages/database/runtime/schema-boundary-postgres-proof-main.ts` (`proof:schema-boundary-postgres`, run by no `just` set) failed at `65e98276`, before and after its move to an Effect program, with "New interview conduct requires an explicit recommendation": its seed inserts an interview conduct without the recommendation that migration 0037 requires of every new conduct.

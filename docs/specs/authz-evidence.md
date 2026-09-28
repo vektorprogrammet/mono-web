@@ -1,8 +1,10 @@
 # Authorization evidence
 
-Status: pilot (2026-09-28), on branch `refactor/authz-evidence-organization`. The operator asked for one
-context first. The pilot covers the three Organization administration create commands. The
-operator has not approved the rollout to the other contexts.
+Status: rollout (2026-09-28), on branch `refactor/authz-evidence-organization`. The operator
+approved the full refactor after the pilot. Nine evidence types cover Organization administration,
+team interest, onboarding, admission outcomes, placement boards, schools, recruitment maintenance,
+days served, certificates, team applications, and social-event creation. Receipts and content stay
+as they are, for the reasons under [Deliberately left](#deliberately-left).
 
 Remove this specification when every domain command that needs authority takes evidence that only
 its interpreter constructs, and `AGENTS.md#construction-over-trust` names the construction.
@@ -106,13 +108,62 @@ resolved to the repository's copy: a Vitest config that includes `src/organizati
 and a Stryker config with `testRunner: "vitest"`, `inPlace: true`, `concurrency: 1`,
 `coverageAnalysis: "off"`, and `mutate: ["src/organization/authority.ts:<range>"]`.
 
-## Rollout, after operator approval
+## Rollout results
 
-One context per branch, in order of call sites: the person and anonymous helpers of
-`apps/backend/src/http-api/problem.ts` (44), content, admission, recruitment, team applications,
-schools, placements certificates, receipts (seal the existing constructors). Each branch deletes the
-context's void helper and its runtime re-check in the adapter.
+Each evidence type is an interface with a type-only brand (`declare const …Brand: unique symbol`)
+and exactly one constructor, marked with a `// SAFETY:` comment. The command takes the evidence,
+not a person id.
 
-Stryker is not in the root catalog. The pilot runs it outside the catalog and reports the score. It
-joins the catalog, `just`, and hosted Checks only with the rollout, so that no check exists that
-nothing runs.
+| Evidence                                    | Minted by                                                        | Consumed by                                                          |
+| ------------------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `OrganizationAdministratorEvidence`         | `requireOrganizationAdministrator` (domain)                      | `createDepartment`, `createTeam`, `createFieldOfStudy`               |
+| `TeamInterestReadScope`                     | `requireTeamInterestScope` (domain)                              | `listTeamInterestRegistrations`                                      |
+| `DepartmentReach<C>`                        | `requireDepartmentReach` (domain)                                | onboarding commands, `recordAdmissionOutcome`, placement board and coverage mutations |
+| `SocialEventCreation`                       | `requireSocialEventCreation` (domain)                            | `SocialEvents.create`                                                |
+| `SchoolCommandAuthorization`                | `authorizeSchoolCommand` (database, in the transaction)          | `executeCommand`                                                     |
+| `RecruitmentMaintenanceAuthorization`       | `authorizeMaintenance` (database)                                | `maintainRecruitment`                                                |
+| `DaysServedConfirmationAuthorization`       | `authorizeDaysServedConfirmation` (database)                     | `confirmDaysServed`                                                  |
+| `CertificateIssueAuthorization`             | `authorizeCertificateIssue` (database)                           | `issueCertificate`                                                   |
+| `TeamApplicationAuthorization<A>`           | `authorizeTeamApplicationAction` (database)                      | `deleteApplication`, `reviseIntake`                                  |
+
+Deleted: `authorizeOrganizationActor`, `decodeOrganizationActor`, `organizationActorFrom`,
+`resolveActor`, `CertificateCommandTarget`, `authorizeCertificateCommand`, `TeamInterestFilter`,
+and the second authorization inside `executeSchoolCommand`. Commands whose evidence carries a
+department (`DepartmentReach`, `SocialEventCreation`) fail when the locked row belongs to another
+department: admission outcomes answer `authority.denied`, and placements and social events die,
+because the handler minted the evidence for the row's own department.
+
+Measured on `c2bb975`, with PostgreSQL 18:
+
+- Type checks pass for domain, database, backend, dashboard, `tools/e2e`, and `tools/verification`.
+- Focused Vitest suites pass: domain (organization, authz, placements, admissions: 165 tests),
+  database (onboarding, admissions, placements, recruitment, schools, team applications including
+  PgBouncer, organization, `database.test.ts`), backend (organization, onboarding, admission,
+  placements, recruitment, schools, directory, team applications), and the onboarding delivery
+  test of `tools/verification`.
+- Property tests in `packages/domain/src/authz/reach-evidence.test.ts`: `requireDepartmentReach`
+  agrees with `reaches`, with department administration for global-administrator capabilities,
+  with `canManagePlacements`, and with `admissionOutcomePermission === "Decide"`; the team interest
+  scope agrees with first-membership semantics; social-event creation agrees with its grant check.
+  Generated inputs reach both outcomes (127 grants and 173 denials in one measured run).
+- The authorization-rules proof output is unchanged apart from process ids and timestamps.
+- Browser journeys: see the table in the commit that records them.
+
+## Deliberately left
+
+- Receipts. `ReceiptMutationAuthorization` is minted in the committing transaction, and the pure
+  `decideCommand` re-checks access on the locked receipt. Sealing the constructor removes neither
+  check, so it adds a brand without deleting code.
+- Content. The database adapter resolves authority itself, in the transaction. The handler-side
+  `authorizeContentOperation` is a second gate in front of it, not the authority.
+- `authorizeAnonymous` and `authorizePerson` in `apps/backend/src/http-api/problem.ts`. They check
+  the credential, not authority. `authorizeAnonymous` has no production consumer; a test keeps it
+  consistent with the AccessSpec. The `authorizePerson` sites that run after a domain call only
+  shape the response.
+- `OrganizationPersonAuthority` is not branded at its reader. A caller that fabricates an authority
+  can still mint evidence. Branding it touches every reader of the fact port and is its own slice.
+
+Stryker is not in the root catalog. Stryker 10 with Vitest 5 runs no test nested in `describe` for a
+mutant (upstream stryker-js issue #6210; fix proposed in PR #6214). A locally patched runner kills
+18 of 18 mutants in `describe` as well. Stryker joins the catalog, `just`, and hosted Checks once a
+release contains the fix, so that no check exists that nothing runs.
