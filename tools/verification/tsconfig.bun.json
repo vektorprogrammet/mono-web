@@ -3,7 +3,11 @@
   "compilerOptions": {
     "types": ["node", "bun"]
   },
-  "files": ["completion-receipt-postgres-proof-main.ts", "receipt-import-rehearsal.ts"],
+  "files": [
+    "completion-receipt-postgres-proof-main.ts",
+    "receipt-import-rehearsal.ts",
+    "unattended-delivery-recovery.ts"
+  ],
   "include": [],
   "exclude": []
 }

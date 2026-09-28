@@ -6,5 +6,9 @@
   },
   "include": ["*.ts"],
   // These entries serve loopback receivers on a Bun HTTP server, whose types tsconfig.bun.json adds.
-  "exclude": ["completion-receipt-postgres-proof-main.ts", "receipt-import-rehearsal.ts"]
+  "exclude": [
+    "completion-receipt-postgres-proof-main.ts",
+    "receipt-import-rehearsal.ts",
+    "unattended-delivery-recovery.ts"
+  ]
 }
