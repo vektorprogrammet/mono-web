@@ -17,6 +17,20 @@ export class NativeRpcClient extends Context.Service<
   Effect.Success<typeof makeClient>
 >()("@vektorprogrammet/rpc/client/NativeRpcClient") {}
 
+const clientLayer = (origin: string, requestInit: globalThis.RequestInit) =>
+  Layer.effect(NativeRpcClient)(makeClient).pipe(
+    Layer.provide(
+      RpcClient.layerProtocolHttp({ url: new URL(nativeRpcPath, origin).href }).pipe(
+        Layer.provide(RpcSerialization.layerJson),
+        Layer.provide(
+          FetchHttpClient.layer.pipe(
+            Layer.provide(Layer.succeed(FetchHttpClient.RequestInit)(requestInit)),
+          ),
+        ),
+      ),
+    ),
+  );
+
 /**
  * The client of the backend at `origin`.
  *
@@ -27,18 +41,16 @@ export class NativeRpcClient extends Context.Service<
  * carries one person's credential into another person's call.
  */
 export const nativeRpcClientLayer = (origin: string): Layer.Layer<NativeRpcClient> =>
-  Layer.effect(NativeRpcClient)(makeClient).pipe(
-    Layer.provide(
-      RpcClient.layerProtocolHttp({ url: new URL(nativeRpcPath, origin).href }).pipe(
-        Layer.provide(RpcSerialization.layerJson),
-        Layer.provide(
-          FetchHttpClient.layer.pipe(
-            Layer.provide(Layer.succeed(FetchHttpClient.RequestInit)({ credentials: "include" })),
-          ),
-        ),
-      ),
-    ),
-  );
+  clientLayer(origin, { credentials: "include" });
+
+/**
+ * The client of the backend at `origin` for a server whose calls carry a secret, such as the
+ * homepage's contact form. It follows no redirect: the RPC endpoint never redirects, and a followed
+ * redirect would repeat the request message, with the headers of its RPC, to the redirect target.
+ * A redirect answer fails the call.
+ */
+export const nativeRpcServerClientLayer = (origin: string): Layer.Layer<NativeRpcClient> =>
+  clientLayer(origin, { redirect: "manual" });
 
 /** Runs `effect` with `headers` added to every RPC it sends. */
 export const withForwardedHeaders =
