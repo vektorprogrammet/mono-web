@@ -1,4 +1,5 @@
 import { Data, Result, Schema } from "effect";
+import { dual } from "effect/Function";
 import {
   type AdmissionPeriodActor,
   AdmissionPeriodActorSchema,
@@ -180,50 +181,63 @@ export type ProfileRole = typeof ProfileRoleSchema.Type;
  * independent: an ended global-administrator grant removes no role authority, and only names the
  * denial where nothing reaches the department.
  */
-export const mapOrganizationAuthorityToDepartmentActor = (
-  authority: OrganizationPersonAuthority,
-  capability: OrganizationCapability,
-  departmentId: DepartmentId,
-): Decision<AdmissionPeriodActor> => {
-  if (authority.globalAdministrator === "Active") {
-    return allow<AdmissionPeriodActor>(
-      AdmissionPeriodActorSchema.cases.GlobalAdmin.make({
-        personId: authority.personId,
-        active: true,
-      }),
+export const mapOrganizationAuthorityToDepartmentActor: {
+  (
+    capability: OrganizationCapability,
+    departmentId: DepartmentId,
+  ): (authority: OrganizationPersonAuthority) => Decision<AdmissionPeriodActor>;
+  (
+    authority: OrganizationPersonAuthority,
+    capability: OrganizationCapability,
+    departmentId: DepartmentId,
+  ): Decision<AdmissionPeriodActor>;
+} = dual(
+  3,
+  (
+    authority: OrganizationPersonAuthority,
+    capability: OrganizationCapability,
+    departmentId: DepartmentId,
+  ): Decision<AdmissionPeriodActor> => {
+    if (authority.globalAdministrator === "Active") {
+      return allow<AdmissionPeriodActor>(
+        AdmissionPeriodActorSchema.cases.GlobalAdmin.make({
+          personId: authority.personId,
+          active: true,
+        }),
+      );
+    }
+
+    if (reaches(authority, capability, ReachTarget.Department({ departmentId }))) {
+      return allow<AdmissionPeriodActor>(
+        AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
+          personId: authority.personId,
+          departmentId,
+          active: true,
+        }),
+      );
+    }
+
+    const memberships = authority.memberships.filter(
+      (membership) => membership.departmentId === departmentId,
     );
-  }
 
-  if (reaches(authority, capability, ReachTarget.Department({ departmentId }))) {
-    return allow<AdmissionPeriodActor>(
-      AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
-        personId: authority.personId,
-        departmentId,
-        active: true,
-      }),
+    if (memberships.some((membership) => membership.active)) {
+      return allow<AdmissionPeriodActor>(
+        AdmissionPeriodActorSchema.cases.Member.make({
+          personId: authority.personId,
+          departmentId,
+          active: true,
+        }),
+      );
+    }
+
+    return deny<AdmissionPeriodActor>(
+      memberships.length > 0 || authority.globalAdministrator === "Inactive"
+        ? "AuthorityInactive"
+        : "NotInScope",
     );
-  }
-
-  const memberships = authority.memberships.filter(
-    (membership) => membership.departmentId === departmentId,
-  );
-
-  if (memberships.some((membership) => membership.active)) {
-    return allow<AdmissionPeriodActor>(
-      AdmissionPeriodActorSchema.cases.Member.make({
-        personId: authority.personId,
-        departmentId,
-        active: true,
-      }),
-    );
-  }
-
-  return deny<AdmissionPeriodActor>(
-    memberships.length > 0 || authority.globalAdministrator === "Inactive"
-      ? "AuthorityInactive"
-      : "NotInScope",
-  );
-};
+  },
+);
 
 export const mapOrganizationAuthorityToOrganizationActor = (
   authority: OrganizationPersonAuthority,
@@ -281,7 +295,7 @@ Result.Result<OrganizationAdministratorEvidence, OrganizationRoleDenied> =>
         } as OrganizationAdministratorEvidence,
       )
     : Result.fail(
-        new OrganizationRoleDenied({
+        OrganizationRoleDenied.make({
           actorPersonId: authority.personId,
           requiredRole: "OrganizationAdministrator",
         }),
@@ -363,54 +377,79 @@ export class TeamInterestScopeDenied extends Data.TaggedError("TeamInterestScope
  *
  * @construct authority-evidence
  */
-export const requireTeamInterestScope = (
-  /** The person's authority, resolved from current facts at the request's instant. */
-  authority: OrganizationPersonAuthority,
-  input: {
+export const requireTeamInterestScope: {
+  (input: {
     /** The department the request names, if any. */
     readonly requested: DepartmentId | undefined;
     /** Every current department, which an organization-wide reach reads. */
     readonly departments: ReadonlyArray<DepartmentId>;
+  }): (
+    /** The person's authority, resolved from current facts at the request's instant. */
+    authority: OrganizationPersonAuthority,
+  ) => /** The readable scope, or the typed denial. */
+  Result.Result<TeamInterestReadScope, TeamInterestScopeDenied>;
+  (
+    /** The person's authority, resolved from current facts at the request's instant. */
+    authority: OrganizationPersonAuthority,
+    input: {
+      /** The department the request names, if any. */
+      readonly requested: DepartmentId | undefined;
+      /** Every current department, which an organization-wide reach reads. */
+      readonly departments: ReadonlyArray<DepartmentId>;
+    },
+  ): /** The readable scope, or the typed denial. */
+  Result.Result<TeamInterestReadScope, TeamInterestScopeDenied>;
+} = dual(
+  2,
+  (
+    /** The person's authority, resolved from current facts at the request's instant. */
+    authority: OrganizationPersonAuthority,
+    input: {
+      /** The department the request names, if any. */
+      readonly requested: DepartmentId | undefined;
+      /** Every current department, which an organization-wide reach reads. */
+      readonly departments: ReadonlyArray<DepartmentId>;
+    },
+  ): /** The readable scope, or the typed denial. */
+  Result.Result<TeamInterestReadScope, TeamInterestScopeDenied> => {
+    const reached = reachedDepartments(authority, "team-interest.read");
+    const organizationWide = ReachedDepartments.$is("All")(reached);
+    const departmentScope = organizationWide ? input.departments : reached.departmentIds;
+
+    const teamScope = reachedTeams(authority, "team-interest.read").flatMap((teamId) => {
+      const membership = authority.memberships.find((entry) => entry.teamId === teamId);
+
+      return membership === undefined ? [] : [{ teamId, departmentId: membership.departmentId }];
+    });
+
+    const denied = new TeamInterestScopeDenied({
+      personId: authority.personId,
+      departmentId: input.requested,
+    });
+
+    if (!organizationWide && departmentScope.length === 0 && teamScope.length === 0)
+      return Result.fail(denied);
+
+    const teams: TeamInterestReadScope["teams"] = teamScope.filter(
+      (team) =>
+        (input.requested === undefined || team.departmentId === input.requested) &&
+        !departmentScope.includes(team.departmentId),
+    );
+
+    const departmentIds =
+      input.requested === undefined
+        ? departmentScope
+        : departmentScope.includes(input.requested)
+          ? [input.requested]
+          : teams.length > 0
+            ? []
+            : undefined;
+
+    return departmentIds === undefined
+      ? Result.fail(denied)
+      : Result.succeed(
+          // SAFETY: the one constructor of the evidence brand; the scope above is what it proves.
+          { personId: authority.personId, departmentIds, teams } as TeamInterestReadScope,
+        );
   },
-): /** The readable scope, or the typed denial. */
-Result.Result<TeamInterestReadScope, TeamInterestScopeDenied> => {
-  const reached = reachedDepartments(authority, "team-interest.read");
-  const organizationWide = ReachedDepartments.$is("All")(reached);
-  const departmentScope = organizationWide ? input.departments : reached.departmentIds;
-
-  const teamScope = reachedTeams(authority, "team-interest.read").flatMap((teamId) => {
-    const membership = authority.memberships.find((entry) => entry.teamId === teamId);
-
-    return membership === undefined ? [] : [{ teamId, departmentId: membership.departmentId }];
-  });
-
-  const denied = new TeamInterestScopeDenied({
-    personId: authority.personId,
-    departmentId: input.requested,
-  });
-
-  if (!organizationWide && departmentScope.length === 0 && teamScope.length === 0)
-    return Result.fail(denied);
-
-  const teams: TeamInterestReadScope["teams"] = teamScope.filter(
-    (team) =>
-      (input.requested === undefined || team.departmentId === input.requested) &&
-      !departmentScope.includes(team.departmentId),
-  );
-
-  const departmentIds =
-    input.requested === undefined
-      ? departmentScope
-      : departmentScope.includes(input.requested)
-        ? [input.requested]
-        : teams.length > 0
-          ? []
-          : undefined;
-
-  return departmentIds === undefined
-    ? Result.fail(denied)
-    : Result.succeed(
-        // SAFETY: the one constructor of the evidence brand; the scope above is what it proves.
-        { personId: authority.personId, departmentIds, teams } as TeamInterestReadScope,
-      );
-};
+);

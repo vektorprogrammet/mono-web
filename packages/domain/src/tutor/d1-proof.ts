@@ -20,7 +20,7 @@ export interface TutorD1ProofOperations {
 }
 
 export class TutorD1Proof extends Context.Service<TutorD1Proof, TutorD1ProofOperations>()(
-  "@vektorprogrammet/domain/TutorD1Proof",
+  "@vektorprogrammet/domain/tutor/d1-proof/TutorD1Proof",
 ) {}
 
 const errorTag = Match.type<unknown>().pipe(

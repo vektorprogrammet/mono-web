@@ -8,6 +8,7 @@
  * legacy workday totals, which count as totals and never become dates.
  */
 import { Effect, Encoding, Order, Result, Schema } from "effect";
+import { dual } from "effect/Function";
 import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
 import { SchoolId } from "../schools/schema.js";
 import { canonicalJsonBytes, sha256Hex } from "../shared-kernel/canonical-json.js";
@@ -77,31 +78,42 @@ const uniqueSchools = (schools: Iterable<DaysServedSchool>): ReadonlyArray<DaysS
  * The evidence of one person, department, and semester. Attendance on one date counts once,
  * however many blocks or commitments it covers; the date keeps every school of that day.
  */
-export const daysServedEvidence = (
-  attendance: ReadonlyArray<CountedAttendance>,
-  legacyTotals: ReadonlyArray<LegacyWorkdayTotal>,
-): DaysServedEvidence => {
-  const byDate = new Map<string, Array<DaysServedSchool>>();
+export const daysServedEvidence: {
+  (
+    legacyTotals: ReadonlyArray<LegacyWorkdayTotal>,
+  ): (attendance: ReadonlyArray<CountedAttendance>) => DaysServedEvidence;
+  (
+    attendance: ReadonlyArray<CountedAttendance>,
+    legacyTotals: ReadonlyArray<LegacyWorkdayTotal>,
+  ): DaysServedEvidence;
+} = dual(
+  2,
+  (
+    attendance: ReadonlyArray<CountedAttendance>,
+    legacyTotals: ReadonlyArray<LegacyWorkdayTotal>,
+  ): DaysServedEvidence => {
+    const byDate = new Map<string, Array<DaysServedSchool>>();
 
-  for (const { serviceDate, school } of attendance) {
-    const schools = byDate.get(serviceDate);
+    for (const { serviceDate, school } of attendance) {
+      const schools = byDate.get(serviceDate);
 
-    if (schools === undefined) byDate.set(serviceDate, [school]);
-    else schools.push(school);
-  }
+      if (schools === undefined) byDate.set(serviceDate, [school]);
+      else schools.push(school);
+    }
 
-  return {
-    dates: [...byDate.entries()]
-      .map(([serviceDate, schools]) => ({ serviceDate, schools: uniqueSchools(schools) }))
-      .toSorted(Order.mapInput(Order.String, (date) => date.serviceDate)),
-    legacyTotals: legacyTotals.toSorted(
-      Order.combine(
-        Order.mapInput(bySchool, (total: LegacyWorkdayTotal) => total.school),
-        Order.mapInput(Order.Number, (total: LegacyWorkdayTotal) => total.workdays),
+    return {
+      dates: [...byDate.entries()]
+        .map(([serviceDate, schools]) => ({ serviceDate, schools: uniqueSchools(schools) }))
+        .toSorted(Order.mapInput(Order.String, (date) => date.serviceDate)),
+      legacyTotals: legacyTotals.toSorted(
+        Order.combine(
+          Order.mapInput(bySchool, (total: LegacyWorkdayTotal) => total.school),
+          Order.mapInput(Order.Number, (total: LegacyWorkdayTotal) => total.workdays),
+        ),
       ),
-    ),
-  };
-};
+    };
+  },
+);
 
 /** The calculated count: the distinct service dates plus the accepted legacy totals. */
 export const calculatedDaysServed = (evidence: DaysServedEvidence): number =>
@@ -216,7 +228,7 @@ export const decodeAssistantCursor = (
     const [, lastName, firstName, personId] = yield* Schema.decodeEffect(CursorTuple)(text);
 
     return { lastName, firstName, personId };
-  }).pipe(Effect.mapError(() => new CertificateInvalidCursor()));
+  }).pipe(Effect.mapError(() => CertificateInvalidCursor.make({})));
 
 export interface AssistantPage<A> {
   readonly items: ReadonlyArray<A>;
@@ -224,20 +236,23 @@ export interface AssistantPage<A> {
 }
 
 /** Keeps one page of rows read one past the page and names the continuation of the next. */
-export const assistantPage = <A>(
-  rows: ReadonlyArray<A>,
-  position: (row: A) => AssistantCursorPosition,
-): AssistantPage<A> => {
-  const last = rows[DAYS_SERVED_PAGE_SIZE - 1];
+export const assistantPage: {
+  <A>(position: (row: A) => AssistantCursorPosition): (rows: ReadonlyArray<A>) => AssistantPage<A>;
+  <A>(rows: ReadonlyArray<A>, position: (row: A) => AssistantCursorPosition): AssistantPage<A>;
+} = dual(
+  2,
+  <A>(rows: ReadonlyArray<A>, position: (row: A) => AssistantCursorPosition): AssistantPage<A> => {
+    const last = rows[DAYS_SERVED_PAGE_SIZE - 1];
 
-  if (rows.length <= DAYS_SERVED_PAGE_SIZE || last === undefined) return { items: rows };
+    if (rows.length <= DAYS_SERVED_PAGE_SIZE || last === undefined) return { items: rows };
 
-  const { lastName, firstName, personId } = position(last);
+    const { lastName, firstName, personId } = position(last);
 
-  return {
-    items: rows.slice(0, DAYS_SERVED_PAGE_SIZE),
-    nextCursor: Encoding.encodeBase64(
-      encodeCursorTuple(["assistant-v1", lastName, firstName, personId]),
-    ),
-  };
-};
+    return {
+      items: rows.slice(0, DAYS_SERVED_PAGE_SIZE),
+      nextCursor: Encoding.encodeBase64(
+        encodeCursorTuple(["assistant-v1", lastName, firstName, personId]),
+      ),
+    };
+  },
+);

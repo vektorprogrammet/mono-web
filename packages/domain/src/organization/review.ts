@@ -1,4 +1,5 @@
 import { Data, Result, Schema } from "effect";
+import { dual } from "effect/Function";
 import { canonicalJsonBytes, sha256Hex } from "../shared-kernel/index.js";
 import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
 import { appointmentStateAt } from "./lifecycle.js";
@@ -102,72 +103,96 @@ export const organizationSnapshotDigest = (snapshot: Schema.JsonObject): string 
     Object.fromEntries(Object.entries(snapshot).filter(([key]) => key !== "snapshotDigest")),
   );
 
-export const reviewedOrganizationTargetId = (
-  kind: "Team" | "Board" | "Position" | "TeamMembership" | "BoardMembership",
-  sourceRepository: string,
-  sourceId: string,
-): string => `org-${organizationEvidenceDigest([kind, sourceRepository, sourceId])}`;
+export const reviewedOrganizationTargetId: {
+  (
+    sourceRepository: string,
+    sourceId: string,
+  ): (kind: "Team" | "Board" | "Position" | "TeamMembership" | "BoardMembership") => string;
+  (
+    kind: "Team" | "Board" | "Position" | "TeamMembership" | "BoardMembership",
+    sourceRepository: string,
+    sourceId: string,
+  ): string;
+} = dual(
+  3,
+  (
+    kind: "Team" | "Board" | "Position" | "TeamMembership" | "BoardMembership",
+    sourceRepository: string,
+    sourceId: string,
+  ): string => `org-${organizationEvidenceDigest([kind, sourceRepository, sourceId])}`,
+);
 
 const invalidReview = () => new OrganizationCohortFailure({ code: "InvalidReview" });
 
 const invalidSnapshot = () => new OrganizationCohortFailure({ code: "InvalidSnapshot" });
 
-export const validateOrganizationReview = (
-  input: Schema.Json,
-  occurrences: ReadonlyArray<OrganizationSourceOccurrence>,
-): Result.Result<OrganizationReview, OrganizationCohortFailure> =>
-  Result.gen(function* () {
-    const review = yield* Schema.decodeUnknownResult(OrganizationReview)(input, {
-      onExcessProperty: "error",
-    }).pipe(Result.mapError(invalidReview));
+export const validateOrganizationReview: {
+  (
+    occurrences: ReadonlyArray<OrganizationSourceOccurrence>,
+  ): (input: Schema.Json) => Result.Result<OrganizationReview, OrganizationCohortFailure>;
+  (
+    input: Schema.Json,
+    occurrences: ReadonlyArray<OrganizationSourceOccurrence>,
+  ): Result.Result<OrganizationReview, OrganizationCohortFailure>;
+} = dual(
+  2,
+  (
+    input: Schema.Json,
+    occurrences: ReadonlyArray<OrganizationSourceOccurrence>,
+  ): Result.Result<OrganizationReview, OrganizationCohortFailure> =>
+    Result.gen(function* () {
+      const review = yield* Schema.decodeUnknownResult(OrganizationReview)(input, {
+        onExcessProperty: "error",
+      }).pipe(Result.mapError(invalidReview));
 
-    const keys = new Set<string>();
+      const keys = new Set<string>();
 
-    const entries = new Map(
-      review.memberships.map((entry) => [
-        JSON.stringify([entry.sourceKind, entry.sourceId]),
-        entry,
-      ]),
-    );
-
-    if (entries.size !== review.memberships.length || entries.size !== occurrences.length)
-      return yield* Result.fail(invalidReview());
-
-    for (const occurrence of occurrences) {
-      const key = JSON.stringify([occurrence.sourceKind, occurrence.sourceId]);
-      const entry = entries.get(key);
-
-      if (
-        keys.has(key) ||
-        !entry ||
-        entry.sourceRowDigest !== occurrence.sourceRowDigest ||
-        occurrence.sourceRowDigest !== organizationEvidenceDigest(occurrence.row)
-      )
-        return yield* Result.fail(invalidReview());
-      keys.add(key);
-
-      if (entry.decision === "Excluded") {
-        continue;
-      }
-
-      if (
-        entry.startAt === undefined ||
-        entry.endAt === undefined ||
-        (entry.endAt !== null && compareRfc3339Instants(entry.endAt, entry.startAt) <= 0)
-      )
-        return yield* Result.fail(invalidReview());
-
-      const state = appointmentStateAt(
-        { startAt: entry.startAt, endAt: entry.endAt, suspended: false },
-        review.asOf,
+      const entries = new Map(
+        review.memberships.map((entry) => [
+          JSON.stringify([entry.sourceKind, entry.sourceId]),
+          entry,
+        ]),
       );
 
-      if (state !== (entry.decision === "Historical" ? "Ended" : entry.decision))
+      if (entries.size !== review.memberships.length || entries.size !== occurrences.length)
         return yield* Result.fail(invalidReview());
-    }
 
-    return review;
-  });
+      for (const occurrence of occurrences) {
+        const key = JSON.stringify([occurrence.sourceKind, occurrence.sourceId]);
+        const entry = entries.get(key);
+
+        if (
+          keys.has(key) ||
+          entry === undefined ||
+          entry.sourceRowDigest !== occurrence.sourceRowDigest ||
+          occurrence.sourceRowDigest !== organizationEvidenceDigest(occurrence.row)
+        )
+          return yield* Result.fail(invalidReview());
+        keys.add(key);
+
+        if (entry.decision === "Excluded") {
+          continue;
+        }
+
+        if (
+          entry.startAt === undefined ||
+          entry.endAt === undefined ||
+          (entry.endAt !== null && compareRfc3339Instants(entry.endAt, entry.startAt) <= 0)
+        )
+          return yield* Result.fail(invalidReview());
+
+        const state = appointmentStateAt(
+          { startAt: entry.startAt, endAt: entry.endAt, suspended: false },
+          review.asOf,
+        );
+
+        if (state !== (entry.decision === "Historical" ? "Ended" : entry.decision))
+          return yield* Result.fail(invalidReview());
+      }
+
+      return review;
+    }),
+);
 
 export const decodeReviewedOrganizationSnapshot = (
   input: Schema.Json,

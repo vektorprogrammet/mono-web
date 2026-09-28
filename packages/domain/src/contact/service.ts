@@ -1,6 +1,7 @@
 import { Predicate, Context, Data, Effect, Schema } from "effect";
 import { Organization } from "../organization/service.js";
 import { ContactEmail, type ContactMessage, type ContactVisitorIp } from "./schema.js";
+import { dual } from "effect/Function";
 
 export class ContactFailure extends Data.TaggedError("ContactFailure")<{
   readonly reason: "InvalidRecipient" | "RateLimited" | "Unavailable";
@@ -19,43 +20,59 @@ export class ContactDelivery extends Context.Service<
   {
     readonly send: (envelope: ContactEnvelope) => Effect.Effect<void, ContactFailure>;
   }
->()("@vektorprogrammet/ContactDelivery") {}
+>()("@vektorprogrammet/domain/contact/service/ContactDelivery") {}
 
 export class ContactQuota extends Context.Service<
   ContactQuota,
   {
     readonly consume: (ip: ContactVisitorIp) => Effect.Effect<void, ContactFailure>;
   }
->()("@vektorprogrammet/ContactQuota") {}
+>()("@vektorprogrammet/domain/contact/service/ContactQuota") {}
 
 /** Quota commits before recipient lookup or delivery, so neither failure refunds an attempt. */
-export const submitContact = (message: ContactMessage, ip: ContactVisitorIp) =>
-  Effect.gen(function* () {
-    const quota = yield* ContactQuota;
-    yield* quota.consume(ip);
-    const organization = yield* Organization;
+export const submitContact: {
+  (
+    ip: ContactVisitorIp,
+  ): (
+    message: ContactMessage,
+  ) => Effect.Effect<undefined, ContactFailure, ContactDelivery | ContactQuota | Organization>;
+  (
+    message: ContactMessage,
+    ip: ContactVisitorIp,
+  ): Effect.Effect<undefined, ContactFailure, ContactDelivery | ContactQuota | Organization>;
+} = dual(
+  2,
+  (
+    message: ContactMessage,
+    ip: ContactVisitorIp,
+  ): Effect.Effect<undefined, ContactFailure, ContactDelivery | ContactQuota | Organization> =>
+    Effect.gen(function* () {
+      const quota = yield* ContactQuota;
+      yield* quota.consume(ip);
+      const organization = yield* Organization;
 
-    const department = yield* organization.readDepartment(message.departmentId).pipe(
-      Effect.mapError(
-        (error) =>
-          new ContactFailure({
-            reason: Predicate.isTagged(error, "DepartmentNotFound")
-              ? "InvalidRecipient"
-              : "Unavailable",
-          }),
-      ),
-    );
+      const department = yield* organization.readDepartment(message.departmentId).pipe(
+        Effect.mapError(
+          (error) =>
+            new ContactFailure({
+              reason: Predicate.isTagged(error, "DepartmentNotFound")
+                ? "InvalidRecipient"
+                : "Unavailable",
+            }),
+        ),
+      );
 
-    if (!department.active || !Schema.is(ContactEmail)(department.email)) {
-      return yield* new ContactFailure({ reason: "InvalidRecipient" });
-    }
+      if (!department.active || !Schema.is(ContactEmail)(department.email)) {
+        return yield* new ContactFailure({ reason: "InvalidRecipient" });
+      }
 
-    const delivery = yield* ContactDelivery;
-    yield* delivery.send({
-      to: department.email,
-      replyTo: message.email,
-      name: message.name,
-      subject: message.subject,
-      message: message.message,
-    });
-  });
+      const delivery = yield* ContactDelivery;
+      yield* delivery.send({
+        to: department.email,
+        replyTo: message.email,
+        name: message.name,
+        subject: message.subject,
+        message: message.message,
+      });
+    }),
+);

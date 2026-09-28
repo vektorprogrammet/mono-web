@@ -1,4 +1,5 @@
 import { flow, Effect, Schema } from "effect";
+import { dual } from "effect/Function";
 import { canonicalJsonBytes, sha256Hex } from "../shared-kernel/index.js";
 import { OrganizationDecodeError } from "./errors.js";
 import {
@@ -20,7 +21,7 @@ import {
 } from "./schema.js";
 
 const decodeError = (operation: string, cause: unknown) =>
-  new OrganizationDecodeError({ operation, message: String(cause) });
+  OrganizationDecodeError.make({ operation, message: String(cause) });
 
 export const decodeCreateDepartmentCommand = flow(
   Schema.decodeUnknownEffect(CreateDepartmentCommandSchema, {
@@ -56,10 +57,12 @@ export const organizationCommandBytes = (command: OrganizationCreateCommand): Ui
 export const organizationCommandDigest = (command: OrganizationCreateCommand): string =>
   sha256Hex(organizationCommandBytes(command));
 
-export const organizationEntityDigest = (
-  entityKind: OrganizationEntityKind,
-  commandId: OrganizationCommandId,
-): string => sha256Hex(canonicalJsonBytes({ entityKind, commandId }));
+export const organizationEntityDigest: {
+  (commandId: OrganizationCommandId): (entityKind: OrganizationEntityKind) => string;
+  (entityKind: OrganizationEntityKind, commandId: OrganizationCommandId): string;
+} = dual(2, (entityKind: OrganizationEntityKind, commandId: OrganizationCommandId): string =>
+  sha256Hex(canonicalJsonBytes({ entityKind, commandId })),
+);
 
 export function organizationEntityIdForCommand(
   entityKind: "Department",

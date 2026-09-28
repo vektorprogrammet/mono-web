@@ -141,7 +141,7 @@ export const decodeReviewedReceiptSnapshot = (
     for (const row of snapshot.rows) {
       const entry = entries.get(row.sourcePrimaryKey);
 
-      if (!entry || entry.sourceRowDigest !== receiptSourceRowDigest(row))
+      if (entry === undefined || entry.sourceRowDigest !== receiptSourceRowDigest(row))
         return yield* Result.fail(invalidReview());
 
       if (Predicate.isTagged(entry, "Excluded")) continue;

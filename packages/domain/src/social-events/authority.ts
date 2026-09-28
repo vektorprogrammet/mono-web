@@ -1,4 +1,5 @@
 import { Array, Data, Predicate, Result } from "effect";
+import { dual } from "effect/Function";
 import {
   PrincipalSchema,
   AuthorityRef,
@@ -32,16 +33,27 @@ export const socialEventScopeAccessContext = (
 });
 
 /** Canonical resolver context shared by `social-events.list` and `.create`. */
-export const socialEventDepartmentAccessContext = (
-  authority: OrganizationPersonAuthority,
-  departmentId: DepartmentId,
-): CanonicalResourceContext<Record<string, never>> => ({
-  domainId: SOCIAL_EVENTS_DOMAIN_ID,
-  departmentId,
-  resource: null,
-  facts: {},
-  authorityVersion: authorityVersion(authority),
-});
+export const socialEventDepartmentAccessContext: {
+  (
+    departmentId: DepartmentId,
+  ): (authority: OrganizationPersonAuthority) => CanonicalResourceContext<Record<string, never>>;
+  (
+    authority: OrganizationPersonAuthority,
+    departmentId: DepartmentId,
+  ): CanonicalResourceContext<Record<string, never>>;
+} = dual(
+  2,
+  (
+    authority: OrganizationPersonAuthority,
+    departmentId: DepartmentId,
+  ): CanonicalResourceContext<Record<string, never>> => ({
+    domainId: SOCIAL_EVENTS_DOMAIN_ID,
+    departmentId,
+    resource: null,
+    facts: {},
+    authorityVersion: authorityVersion(authority),
+  }),
+);
 
 const scopeIdentity = (scope: Scope): string => JSON.stringify(scope);
 
@@ -119,13 +131,16 @@ export const deriveSocialEventCandidateGrants = (
  * evaluator. Keeping capability selection here prevents a department fact
  * from becoming a grant for an unrelated social-event operation.
  */
-export const socialEventCandidateGrantScopes = (
-  authority: OrganizationPersonAuthority,
-  capability: CapabilityTypeId,
-): ReadonlyArray<Scope> =>
-  Array.filterMap(deriveSocialEventCandidateGrants(authority), (grant) =>
-    grant.capability.type === capability ? Result.succeed(grant.scope) : Result.failVoid,
-  );
+export const socialEventCandidateGrantScopes: {
+  (capability: CapabilityTypeId): (authority: OrganizationPersonAuthority) => ReadonlyArray<Scope>;
+  (authority: OrganizationPersonAuthority, capability: CapabilityTypeId): ReadonlyArray<Scope>;
+} = dual(
+  2,
+  (authority: OrganizationPersonAuthority, capability: CapabilityTypeId): ReadonlyArray<Scope> =>
+    Array.filterMap(deriveSocialEventCandidateGrants(authority), (grant) =>
+      grant.capability.type === capability ? Result.succeed(grant.scope) : Result.failVoid,
+    ),
+);
 
 /** Type-only brand. Only {@link requireSocialEventCreation} builds this evidence. */
 declare const SocialEventCreationBrand: unique symbol;
@@ -163,20 +178,39 @@ export class SocialEventCreationDenied extends Data.TaggedError("SocialEventCrea
  * @avoid Passing the creator's person id to `create`: the command then trusts that some caller
  * checked the department. Require the evidence, which names the department it covers.
  */
-export const requireSocialEventCreation = (
-  /** The person's authority, resolved from current facts inside the command transaction. */
-  authority: OrganizationPersonAuthority,
-  /** The department of the event. */
-  departmentId: DepartmentId,
-): /** Evidence for the department, or the typed denial. */
-Result.Result<SocialEventCreation, SocialEventCreationDenied> =>
-  socialEventCandidateGrantScopes(authority, SOCIAL_EVENTS_CREATE_CAPABILITY).some(
-    (scope) =>
-      Predicate.isTagged(scope, "Global") ||
-      (Predicate.isTagged(scope, "Department") && scope.departmentId === departmentId),
-  )
-    ? Result.succeed(
-        // SAFETY: the one constructor of the evidence brand; the grant check above is what it proves.
-        { personId: authority.personId, departmentId } as SocialEventCreation,
-      )
-    : Result.fail(new SocialEventCreationDenied({ personId: authority.personId, departmentId }));
+export const requireSocialEventCreation: {
+  (
+    /** The department of the event. */
+    departmentId: DepartmentId,
+  ): (
+    /** The person's authority, resolved from current facts inside the command transaction. */
+    authority: OrganizationPersonAuthority,
+  ) => /** Evidence for the department, or the typed denial. */
+  Result.Result<SocialEventCreation, SocialEventCreationDenied>;
+  (
+    /** The person's authority, resolved from current facts inside the command transaction. */
+    authority: OrganizationPersonAuthority,
+    /** The department of the event. */
+    departmentId: DepartmentId,
+  ): /** Evidence for the department, or the typed denial. */
+  Result.Result<SocialEventCreation, SocialEventCreationDenied>;
+} = dual(
+  2,
+  (
+    /** The person's authority, resolved from current facts inside the command transaction. */
+    authority: OrganizationPersonAuthority,
+    /** The department of the event. */
+    departmentId: DepartmentId,
+  ): /** Evidence for the department, or the typed denial. */
+  Result.Result<SocialEventCreation, SocialEventCreationDenied> =>
+    socialEventCandidateGrantScopes(authority, SOCIAL_EVENTS_CREATE_CAPABILITY).some(
+      (scope) =>
+        Predicate.isTagged(scope, "Global") ||
+        (Predicate.isTagged(scope, "Department") && scope.departmentId === departmentId),
+    )
+      ? Result.succeed(
+          // SAFETY: the one constructor of the evidence brand; the grant check above is what it proves.
+          { personId: authority.personId, departmentId } as SocialEventCreation,
+        )
+      : Result.fail(new SocialEventCreationDenied({ personId: authority.personId, departmentId })),
+);

@@ -1,4 +1,5 @@
 import { Predicate, Effect, Schema } from "effect";
+import { dual } from "effect/Function";
 import { publicApplicationCommandDigest } from "./digest.js";
 import {
   ApplicantIdSchema,
@@ -153,53 +154,73 @@ export interface PublicApplicationRecordingInterpreter extends PublicApplication
 const effectKindOf = (request: PublicApplicationOutboxRequest): PublicApplicationEffectKind =>
   request._tag;
 
-export const makePublicApplicationOutboxRequests = (
-  command: PublicApplicationSubmitInput | SubmitPublicApplicationCommand,
-  application: PublicApplication,
-  applicant: Applicant,
-  email: string,
-  activationToken?: string,
-): ReadonlyArray<PublicApplicationOutboxRequest> => {
-  const commandDigest = publicApplicationCommandDigest(command);
+export const makePublicApplicationOutboxRequests: {
+  (
+    application: PublicApplication,
+    applicant: Applicant,
+    email: string,
+    activationToken?: string,
+  ): (
+    command: PublicApplicationSubmitInput | SubmitPublicApplicationCommand,
+  ) => ReadonlyArray<PublicApplicationOutboxRequest>;
+  (
+    command: PublicApplicationSubmitInput | SubmitPublicApplicationCommand,
+    application: PublicApplication,
+    applicant: Applicant,
+    email: string,
+    activationToken?: string,
+  ): ReadonlyArray<PublicApplicationOutboxRequest>;
+} = dual(
+  // The applicant is the third argument of the data-first call; the data-last call has the email there.
+  (args) => Predicate.isObject(args[2]),
+  (
+    command: PublicApplicationSubmitInput | SubmitPublicApplicationCommand,
+    application: PublicApplication,
+    applicant: Applicant,
+    email: string,
+    activationToken?: string,
+  ): ReadonlyArray<PublicApplicationOutboxRequest> => {
+    const commandDigest = publicApplicationCommandDigest(command);
 
-  const shared = {
-    commandId: command.commandId,
-    applicationId: application.id,
-    applicantId: applicant.id,
-  } as const;
+    const shared = {
+      commandId: command.commandId,
+      applicationId: application.id,
+      applicantId: applicant.id,
+    } as const;
 
-  const activationFields = {
-    effectId: PublicApplicationEffectIdSchema.make(
-      `public-application:${commandDigest}:activation`,
-    ),
-    ...shared,
-    email,
-  };
-
-  const activation: PublicApplicationOutboxRequest =
-    PublicApplicationOutboxRequestSchemaInternal.cases.SendApplicantActivationOrConfirmation.make(
-      activationToken === undefined ? activationFields : { ...activationFields, activationToken },
-    );
-
-  const subscription: PublicApplicationOutboxRequest =
-    PublicApplicationOutboxRequestSchemaInternal.cases.CreateAdmissionSubscription.make({
+    const activationFields = {
       effectId: PublicApplicationEffectIdSchema.make(
-        `public-application:${commandDigest}:subscription`,
+        `public-application:${commandDigest}:activation`,
       ),
       ...shared,
       email,
-      departmentId: application.departmentId,
-    });
+    };
 
-  const audit: PublicApplicationOutboxRequest =
-    PublicApplicationOutboxRequestSchemaInternal.cases.WriteApplicationAudit.make({
-      effectId: PublicApplicationEffectIdSchema.make(`public-application:${commandDigest}:audit`),
-      ...shared,
-      action: "PublicApplicationSubmitted",
-    });
+    const activation: PublicApplicationOutboxRequest =
+      PublicApplicationOutboxRequestSchemaInternal.cases.SendApplicantActivationOrConfirmation.make(
+        activationToken === undefined ? activationFields : { ...activationFields, activationToken },
+      );
 
-  return [activation, subscription, audit];
-};
+    const subscription: PublicApplicationOutboxRequest =
+      PublicApplicationOutboxRequestSchemaInternal.cases.CreateAdmissionSubscription.make({
+        effectId: PublicApplicationEffectIdSchema.make(
+          `public-application:${commandDigest}:subscription`,
+        ),
+        ...shared,
+        email,
+        departmentId: application.departmentId,
+      });
+
+    const audit: PublicApplicationOutboxRequest =
+      PublicApplicationOutboxRequestSchemaInternal.cases.WriteApplicationAudit.make({
+        effectId: PublicApplicationEffectIdSchema.make(`public-application:${commandDigest}:audit`),
+        ...shared,
+        action: "PublicApplicationSubmitted",
+      });
+
+    return [activation, subscription, audit];
+  },
+);
 
 export interface ReturningAssistantOutboxInput {
   readonly commandId: PublicApplicationCommandId;
@@ -268,7 +289,7 @@ export const makeRecordingPublicApplicationEffectInterpreter =
           attempts.set(request.effectId, nextAttempts);
 
           if (failedOnce.delete(request.effectId)) {
-            return yield* new PublicApplicationEffectDeliveryError({ effectId: request.effectId });
+            return yield* PublicApplicationEffectDeliveryError.make({ effectId: request.effectId });
           }
 
           const previous = delivered.get(request.effectId);
@@ -294,13 +315,32 @@ export const makeRecordingPublicApplicationEffectInterpreter =
     };
   };
 
-export const recordPublicApplicationEffects = (
-  requests: ReadonlyArray<PublicApplicationOutboxRequest>,
-  interpreter = makeRecordingPublicApplicationEffectInterpreter(),
-): Effect.Effect<
-  ReadonlyArray<PublicApplicationEffectEvidence>,
-  PublicApplicationEffectDeliveryError
-> => Effect.forEach(requests, (request, ordinal) => interpreter.deliver(request, ordinal, 1));
+export const recordPublicApplicationEffects: {
+  (
+    interpreter?: PublicApplicationRecordingInterpreter,
+  ): (
+    requests: ReadonlyArray<PublicApplicationOutboxRequest>,
+  ) => Effect.Effect<
+    ReadonlyArray<PublicApplicationEffectEvidence>,
+    PublicApplicationEffectDeliveryError
+  >;
+  (
+    requests: ReadonlyArray<PublicApplicationOutboxRequest>,
+    interpreter?: PublicApplicationRecordingInterpreter,
+  ): Effect.Effect<
+    ReadonlyArray<PublicApplicationEffectEvidence>,
+    PublicApplicationEffectDeliveryError
+  >;
+} = dual(
+  (args) => Array.isArray(args[0]),
+  (
+    requests: ReadonlyArray<PublicApplicationOutboxRequest>,
+    interpreter: PublicApplicationRecordingInterpreter = makeRecordingPublicApplicationEffectInterpreter(),
+  ): Effect.Effect<
+    ReadonlyArray<PublicApplicationEffectEvidence>,
+    PublicApplicationEffectDeliveryError
+  > => Effect.forEach(requests, (request, ordinal) => interpreter.deliver(request, ordinal, 1)),
+);
 
 export interface PublicApplicationRecordingProof {
   readonly specId: "0039";

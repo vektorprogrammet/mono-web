@@ -27,7 +27,7 @@ export interface ReceiptAuxiliaryEffectsOperations {
 export class ReceiptAuxiliaryEffects extends Context.Service<
   ReceiptAuxiliaryEffects,
   ReceiptAuxiliaryEffectsOperations
->()("@vektorprogrammet/domain/ReceiptAuxiliaryEffects") {}
+>()("@vektorprogrammet/domain/receipt/auxiliary-service/ReceiptAuxiliaryEffects") {}
 
 export interface ReceiptAuxiliaryRecordingControl {
   readonly layer: Layer.Layer<ReceiptAuxiliaryEffects>;
@@ -44,7 +44,7 @@ export const makeReceiptAuxiliaryRecording = (): ReceiptAuxiliaryRecordingContro
         const previous = applied.get(request.effectId);
 
         if (previous !== undefined && previous !== digest) {
-          return Effect.fail(new ReceiptAuxiliaryEffectConflict({ effectId: request.effectId }));
+          return Effect.fail(ReceiptAuxiliaryEffectConflict.make({ effectId: request.effectId }));
         }
 
         return Effect.sync(() => void applied.set(request.effectId, digest));

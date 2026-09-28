@@ -181,5 +181,5 @@ export interface EconomyOperations {
 }
 
 export class Economy extends Context.Service<Economy, EconomyOperations>()(
-  "@vektorprogrammet/domain/Economy",
+  "@vektorprogrammet/domain/receipt/service/Economy",
 ) {}

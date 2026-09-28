@@ -45,5 +45,5 @@ export interface SocialEventsOperations {
 }
 
 export class SocialEvents extends Context.Service<SocialEvents, SocialEventsOperations>()(
-  "@vektorprogrammet/domain/SocialEvents",
+  "@vektorprogrammet/domain/social-events/service/SocialEvents",
 ) {}

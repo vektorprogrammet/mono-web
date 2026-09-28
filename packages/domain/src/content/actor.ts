@@ -1,4 +1,5 @@
 import { Match, Data, Predicate } from "effect";
+import { dual } from "effect/Function";
 import { allow, deny, type Decision } from "../authz/decision.js";
 import { reachedDepartments, ReachedDepartments } from "../authz/reach.js";
 import type { OrganizationPersonAuthority } from "../organization/authority.js";
@@ -81,27 +82,24 @@ export type ContentScope =
 
 export const ContentScope = Data.taggedEnum<ContentScope>();
 
-export const contentScopeFor = (actor: ContentActor): ContentScope => {
-  return Match.value(actor).pipe(
+export const contentScopeFor = (actor: ContentActor): ContentScope =>
+  Match.value(actor).pipe(
     Match.withReturnType<ContentScope>(),
-    Match.tag("ContentAdministrator", () => {
-      return ContentScope.All();
-    }),
-    Match.tag("ContentPublisher", (actor) => {
-      return ContentScope.DepartmentIds({ departmentIds: actor.departmentIds });
-    }),
-    Match.tag("ContentEditor", (actor) => {
-      return ContentScope.DepartmentIds({ departmentIds: actor.departmentIds });
-    }),
+    Match.tag("ContentAdministrator", () => ContentScope.All()),
+    Match.tag("ContentPublisher", (actor) =>
+      ContentScope.DepartmentIds({ departmentIds: actor.departmentIds }),
+    ),
+    Match.tag("ContentEditor", (actor) =>
+      ContentScope.DepartmentIds({ departmentIds: actor.departmentIds }),
+    ),
     Match.exhaustive,
   );
-};
 
 /** Whether the actor may set sticky or run publish/unpublish transitions. */
-export const canPublishContent = (
-  actor: ContentActor,
-  articleDepartmentIds: ReadonlyArray<DepartmentId>,
-): boolean => {
+export const canPublishContent: {
+  (articleDepartmentIds: ReadonlyArray<DepartmentId>): (actor: ContentActor) => boolean;
+  (actor: ContentActor, articleDepartmentIds: ReadonlyArray<DepartmentId>): boolean;
+} = dual(2, (actor: ContentActor, articleDepartmentIds: ReadonlyArray<DepartmentId>): boolean => {
   if (Predicate.isTagged(actor, "ContentAdministrator")) return true;
 
   if (!Predicate.isTagged(actor, "ContentPublisher")) return false;
@@ -110,41 +108,58 @@ export const canPublishContent = (
   if (articleDepartmentIds.length === 0) return false;
 
   return articleDepartmentIds.some((departmentId) => actor.departmentIds.includes(departmentId));
-};
+});
 
 /**
  * Draft ownership boundary (spec 0062): editors revise only their own drafts
  * carrying at least one department within their active memberships; leaders
  * revise any draft scoped to their departments; administrators span all.
  */
-export const canReviseDraft = (
-  actor: ContentActor,
-  draft: {
+export const canReviseDraft: {
+  (draft: {
     readonly createdByPersonId: PersonId;
     readonly currentVersionNumber: number | null;
     readonly departmentIds: ReadonlyArray<DepartmentId>;
+  }): (actor: ContentActor) => boolean;
+  (
+    actor: ContentActor,
+    draft: {
+      readonly createdByPersonId: PersonId;
+      readonly currentVersionNumber: number | null;
+      readonly departmentIds: ReadonlyArray<DepartmentId>;
+    },
+  ): boolean;
+} = dual(
+  2,
+  (
+    actor: ContentActor,
+    draft: {
+      readonly createdByPersonId: PersonId;
+      readonly currentVersionNumber: number | null;
+      readonly departmentIds: ReadonlyArray<DepartmentId>;
+    },
+  ): boolean => {
+    if (Predicate.isTagged(actor, "ContentAdministrator")) return true;
+
+    if (Predicate.isTagged(actor, "ContentEditor")) {
+      const editor = actor;
+
+      return (
+        draft.currentVersionNumber === null &&
+        draft.createdByPersonId === editor.personId &&
+        draft.departmentIds.length > 0 &&
+        draft.departmentIds.every((departmentId) =>
+          authorityDepartmentIds(actor).includes(departmentId),
+        )
+      );
+    }
+
+    // Publisher: any non-org-wide draft intersecting the leader's departments.
+    if (draft.departmentIds.length === 0) return false;
+
+    return draft.departmentIds.some((departmentId) => actor.departmentIds.includes(departmentId));
   },
-): boolean => {
-  if (Predicate.isTagged(actor, "ContentAdministrator")) return true;
-
-  if (Predicate.isTagged(actor, "ContentEditor")) {
-    const editor = actor;
-
-    return (
-      draft.currentVersionNumber === null &&
-      draft.createdByPersonId === editor.personId &&
-      draft.departmentIds.length > 0 &&
-      draft.departmentIds.every((departmentId) =>
-        authorityDepartmentIds(actor).includes(departmentId),
-      )
-    );
-  }
-
-  // Publisher: any non-org-wide draft intersecting the leader's departments.
-  if (draft.departmentIds.length === 0) return false;
-
-  return draft.departmentIds.some((departmentId) => actor.departmentIds.includes(departmentId));
-};
+);
 
 const authorityDepartmentIds = (actor: ContentActor): ReadonlyArray<DepartmentId> =>
   Predicate.isTagged(actor, "ContentAdministrator") ? [] : actor.departmentIds;

@@ -46,7 +46,8 @@ export type ContactMessage = typeof ContactMessage.Type;
 
 /** Normalize address identity; networks, zones, lists and ports are not visitor addresses. */
 export const canonicalContactIp = (raw: string): Option.Option<string> => {
-  if (!raw || /[\s,/%]/u.test(raw) || raw.includes("[") || raw.includes("]")) return Option.none();
+  if (raw === "" || /[\s,/%]/u.test(raw) || raw.includes("[") || raw.includes("]"))
+    return Option.none();
 
   if (Address4.isValid(raw)) return Option.some(new Address4(raw).correctForm());
 

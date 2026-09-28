@@ -1,5 +1,6 @@
 import { isKnownSelfInterview } from "../recruitment/applicant-identity.js";
 import { Record, flow, Result, Array, Match, Data, Effect, Predicate, Schema } from "effect";
+import { dual } from "effect/Function";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import {
   RecruitmentInterviewId,
@@ -966,24 +967,15 @@ export const AccessSpecSchema = Schema.Struct({
 
 export type AccessSpec = typeof AccessSpecSchema.Type;
 
-const mechanismPrincipalKind = (mechanism: CredentialMechanism): PrincipalKind => {
-  return Match.value(mechanism).pipe(
+const mechanismPrincipalKind = (mechanism: CredentialMechanism): PrincipalKind =>
+  Match.value(mechanism).pipe(
     Match.withReturnType<PrincipalKind>(),
-    Match.tag("None", () => {
-      return "Anonymous";
-    }),
-    Match.tag("BetterAuthCookie", "OAuthUserBearer", () => {
-      return "Person";
-    }),
-    Match.tag("OAuthServiceBearer", () => {
-      return "ServicePrincipal";
-    }),
-    Match.tag("ObjectCapability", () => {
-      return "CapabilityHolder";
-    }),
+    Match.tag("None", () => "Anonymous"),
+    Match.tag("BetterAuthCookie", "OAuthUserBearer", () => "Person"),
+    Match.tag("OAuthServiceBearer", () => "ServicePrincipal"),
+    Match.tag("ObjectCapability", () => "CapabilityHolder"),
     Match.exhaustive,
   );
-};
 
 const sameCredentialMechanism = (left: CredentialMechanism, right: CredentialMechanism): boolean =>
   Predicate.isTagged(left, right._tag) &&
@@ -996,30 +988,36 @@ const sameCredentialMechanism = (left: CredentialMechanism, right: CredentialMec
  * credential names the principal kind that mechanism resolves. This is the credential stage of
  * every access evaluation; a handler that authorizes in parts uses it for the same answer.
  */
-export const credentialMatchesAccessSpec = (
-  spec: AccessSpec,
-  credential: Extract<CredentialOutcome, { readonly _tag: "Accepted" }>,
-): boolean =>
-  mechanismPrincipalKind(credential.mechanism) === credential.principal._tag &&
-  spec.acceptedCredentials.some((accepted) =>
-    sameCredentialMechanism(accepted, credential.mechanism),
-  );
+export const credentialMatchesAccessSpec: {
+  (
+    credential: Extract<CredentialOutcome, { readonly _tag: "Accepted" }>,
+  ): (spec: AccessSpec) => boolean;
+  (
+    spec: AccessSpec,
+    credential: Extract<CredentialOutcome, { readonly _tag: "Accepted" }>,
+  ): boolean;
+} = dual(
+  2,
+  (
+    spec: AccessSpec,
+    credential: Extract<CredentialOutcome, { readonly _tag: "Accepted" }>,
+  ): boolean =>
+    mechanismPrincipalKind(credential.mechanism) === credential.principal._tag &&
+    spec.acceptedCredentials.some((accepted) =>
+      sameCredentialMechanism(accepted, credential.mechanism),
+    ),
+);
 
-const capabilityTypesIn = (expression: CapabilityExpression): ReadonlyArray<CapabilityTypeId> => {
-  return Match.value(expression).pipe(
+const capabilityTypesIn = (expression: CapabilityExpression): ReadonlyArray<CapabilityTypeId> =>
+  Match.value(expression).pipe(
     Match.withReturnType<ReadonlyArray<CapabilityTypeId>>(),
-    Match.tag("None", () => {
-      return [];
-    }),
-    Match.tag("One", (expression) => {
-      return [expression.capability.type];
-    }),
-    Match.tag("All", "Any", (expression) => {
-      return expression.capabilities.map((capability) => capability.type);
-    }),
+    Match.tag("None", () => []),
+    Match.tag("One", (expression) => [expression.capability.type]),
+    Match.tag("All", "Any", (expression) =>
+      expression.capabilities.map((capability) => capability.type),
+    ),
     Match.exhaustive,
   );
-};
 
 export const scopeResolverDeclaration = (resolverId: ScopeResolverId): ScopeResolverRegistration =>
   SCOPE_RESOLVERS[scopeResolverRegistryKey(resolverId)];
@@ -1158,64 +1156,71 @@ export const normalizeScope = (scope: Scope): Scope => {
 
 export const decodeGrant = flow(
   Schema.decodeUnknownSync(GrantSchema, { onExcessProperty: "error" }),
-  (grant): Grant => {
-    return { ...grant, scope: normalizeScope(grant.scope) };
-  },
+  (grant): Grant => ({ ...grant, scope: normalizeScope(grant.scope) }),
 );
 
-export const expandAuthorityMacros = (
-  directGrants: ReadonlyArray<Grant>,
-  roles: ReadonlyArray<RoleMacro>,
-): ReadonlyArray<Grant> => [...directGrants, ...roles.flatMap((role) => role.grants)];
+export const expandAuthorityMacros: {
+  (roles: ReadonlyArray<RoleMacro>): (directGrants: ReadonlyArray<Grant>) => ReadonlyArray<Grant>;
+  (directGrants: ReadonlyArray<Grant>, roles: ReadonlyArray<RoleMacro>): ReadonlyArray<Grant>;
+} = dual(
+  2,
+  (directGrants: ReadonlyArray<Grant>, roles: ReadonlyArray<RoleMacro>): ReadonlyArray<Grant> => [
+    ...directGrants,
+    ...roles.flatMap((role) => role.grants),
+  ],
+);
 
-export const scopeMatches = (scope: Scope, context: CanonicalResourceContext): boolean => {
-  return Match.value(scope).pipe(
+export const scopeMatches: {
+  (context: CanonicalResourceContext): (scope: Scope) => boolean;
+  (scope: Scope, context: CanonicalResourceContext): boolean;
+} = dual(2, (scope: Scope, context: CanonicalResourceContext): boolean =>
+  Match.value(scope).pipe(
     Match.withReturnType<boolean>(),
-    Match.tag("Global", () => {
-      return true;
-    }),
-    Match.tag("Domain", (scope) => {
-      return scope.domainId === context.domainId;
-    }),
-    Match.tag("Department", (scope) => {
-      return context.departmentId !== null && scope.departmentId === context.departmentId;
-    }),
-    Match.tag("Resource", (scope) => {
-      return (
+    Match.tag("Global", () => true),
+    Match.tag("Domain", (scope) => scope.domainId === context.domainId),
+    Match.tag(
+      "Department",
+      (scope) => context.departmentId !== null && scope.departmentId === context.departmentId,
+    ),
+    Match.tag(
+      "Resource",
+      (scope) =>
         context.resource !== null &&
         scope.resource.kind === context.resource.kind &&
-        scope.resource.id === context.resource.id
-      );
-    }),
-    Match.tag("And", (scope) => {
-      return scopeMatches(scope.left, context) && scopeMatches(scope.right, context);
-    }),
-    Match.tag("Or", (scope) => {
-      return scopeMatches(scope.left, context) || scopeMatches(scope.right, context);
-    }),
+        scope.resource.id === context.resource.id,
+    ),
+    Match.tag(
+      "And",
+      (scope) => scopeMatches(scope.left, context) && scopeMatches(scope.right, context),
+    ),
+    Match.tag(
+      "Or",
+      (scope) => scopeMatches(scope.left, context) || scopeMatches(scope.right, context),
+    ),
     Match.exhaustive,
-  );
-};
+  ),
+);
 
 const samePrincipal = (left: NonAnonymousPrincipal, right: Principal): boolean => {
   if (!Predicate.isTagged(left, right._tag)) return false;
 
   return Match.value(left).pipe(
     Match.withReturnType<boolean>(),
-    Match.tag("Person", (left) => {
-      return Predicate.isTagged(right, "Person") && left.personId === right.personId;
-    }),
-    Match.tag("ServicePrincipal", (left) => {
-      return (
+    Match.tag(
+      "Person",
+      (left) => Predicate.isTagged(right, "Person") && left.personId === right.personId,
+    ),
+    Match.tag(
+      "ServicePrincipal",
+      (left) =>
         Predicate.isTagged(right, "ServicePrincipal") &&
-        left.servicePrincipalId === right.servicePrincipalId
-      );
-    }),
-    Match.tag("CapabilityHolder", (left) => {
-      return (
-        Predicate.isTagged(right, "CapabilityHolder") && left.capabilityId === right.capabilityId
-      );
-    }),
+        left.servicePrincipalId === right.servicePrincipalId,
+    ),
+    Match.tag(
+      "CapabilityHolder",
+      (left) =>
+        Predicate.isTagged(right, "CapabilityHolder") && left.capabilityId === right.capabilityId,
+    ),
     Match.exhaustive,
   );
 };
@@ -1224,23 +1229,36 @@ const activeAt = (grant: Grant, instant: AuthorizationInstant): boolean =>
   compareRfc3339Instants(grant.startAt, instant) <= 0 &&
   (grant.endAt === null || compareRfc3339Instants(instant, grant.endAt) < 0);
 
-export const evaluateRequirement = (
-  requirement: TypedRequirement,
-  principal: Principal,
-  context: CanonicalResourceContext,
-): RequirementResult => {
-  const registration = REQUIREMENT_TYPES[requirementRegistryKey(requirement.id)];
+export const evaluateRequirement: {
+  (
+    principal: Principal,
+    context: CanonicalResourceContext,
+  ): (requirement: TypedRequirement) => RequirementResult;
+  (
+    requirement: TypedRequirement,
+    principal: Principal,
+    context: CanonicalResourceContext,
+  ): RequirementResult;
+} = dual(
+  3,
+  (
+    requirement: TypedRequirement,
+    principal: Principal,
+    context: CanonicalResourceContext,
+  ): RequirementResult => {
+    const registration = REQUIREMENT_TYPES[requirementRegistryKey(requirement.id)];
 
-  if (!Schema.is(registration.parameterSchema)(requirement.parameters)) {
-    return RequirementResult.Failed({ id: requirement.id, reason: "InvalidParameters" });
-  }
+    if (!Schema.is(registration.parameterSchema)(requirement.parameters)) {
+      return RequirementResult.Failed({ id: requirement.id, reason: "InvalidParameters" });
+    }
 
-  const parameters = Schema.decodeSync(registration.parameterSchema)(requirement.parameters);
+    const parameters = Schema.decodeSync(registration.parameterSchema)(requirement.parameters);
 
-  const evaluation = registration.evaluate(parameters, principal, context);
+    const evaluation = registration.evaluate(parameters, principal, context);
 
-  return { id: requirement.id, ...evaluation };
-};
+    return { id: requirement.id, ...evaluation };
+  },
+);
 
 export type AccessDenialStage = "PrincipalKind" | "Capability" | "Scope" | "Requirement";
 
@@ -1327,15 +1345,13 @@ const expressionForContext = (
   context: CanonicalResourceContext,
   grants: ReadonlyArray<Grant>,
   instant: AuthorizationInstant,
-): ContextCapabilityResult => {
-  return Match.value(expression).pipe(
+): ContextCapabilityResult =>
+  Match.value(expression).pipe(
     Match.withReturnType<ContextCapabilityResult>(),
-    Match.tag("None", () => {
-      return { allowed: true };
-    }),
-    Match.tag("One", (expression) => {
-      return capabilityForContext(expression.capability, principal, context, grants, instant);
-    }),
+    Match.tag("None", () => ({ allowed: true })),
+    Match.tag("One", (expression) =>
+      capabilityForContext(expression.capability, principal, context, grants, instant),
+    ),
     Match.tag("All", (expression) => {
       for (const capability of expression.capabilities) {
         const result = capabilityForContext(capability, principal, context, grants, instant);
@@ -1368,7 +1384,6 @@ const expressionForContext = (
     }),
     Match.exhaustive,
   );
-};
 
 export const evaluateAccess = <C>(input: {
   readonly spec: AccessSpec;
@@ -1452,49 +1467,62 @@ export interface AccessJourneyServices<I, C, E, R> {
   ) => Effect.Effect<ReadonlyArray<Grant>, E, R>;
 }
 
-export const evaluateAccessJourney = <I, C, E, R>(
-  spec: AccessSpec,
-  input: I,
-  services: AccessJourneyServices<I, C, E, R>,
-): Effect.Effect<AccessEvaluation<C>, E, R> =>
-  Effect.gen(function* () {
-    const authorizationInstant = yield* services.now;
-    const credential = yield* services.resolveCredential(authorizationInstant);
+export const evaluateAccessJourney: {
+  <I, C, E, R>(
+    input: I,
+    services: AccessJourneyServices<I, C, E, R>,
+  ): (spec: AccessSpec) => Effect.Effect<AccessEvaluation<C>, E, R>;
+  <I, C, E, R>(
+    spec: AccessSpec,
+    input: I,
+    services: AccessJourneyServices<I, C, E, R>,
+  ): Effect.Effect<AccessEvaluation<C>, E, R>;
+} = dual(
+  3,
+  <I, C, E, R>(
+    spec: AccessSpec,
+    input: I,
+    services: AccessJourneyServices<I, C, E, R>,
+  ): Effect.Effect<AccessEvaluation<C>, E, R> =>
+    Effect.gen(function* () {
+      const authorizationInstant = yield* services.now;
+      const credential = yield* services.resolveCredential(authorizationInstant);
 
-    if (Predicate.isTagged(credential, "Rejected")) {
-      return AccessEvaluation.CredentialRejected({ reason: credential.reason });
-    }
+      if (Predicate.isTagged(credential, "Rejected")) {
+        return AccessEvaluation.CredentialRejected({ reason: credential.reason });
+      }
 
-    if (!credentialMatchesAccessSpec(spec, credential)) {
-      return AccessEvaluation.CredentialRejected({ reason: "WrongMechanism" });
-    }
+      if (!credentialMatchesAccessSpec(spec, credential)) {
+        return AccessEvaluation.CredentialRejected({ reason: "WrongMechanism" });
+      }
 
-    const resolution = yield* services.resolveScope(
-      input,
-      credential.principal,
-      authorizationInstant,
-      spec.decisionTime,
-    );
+      const resolution = yield* services.resolveScope(
+        input,
+        credential.principal,
+        authorizationInstant,
+        spec.decisionTime,
+      );
 
-    const grants = yield* services.resolveGrants(
-      credential.principal,
-      resolution,
-      authorizationInstant,
-      spec.decisionTime,
-    );
+      const grants = yield* services.resolveGrants(
+        credential.principal,
+        resolution,
+        authorizationInstant,
+        spec.decisionTime,
+      );
 
-    return evaluateAccess({ spec, credential, resolution, grants, authorizationInstant });
-  });
+      return evaluateAccess({ spec, credential, resolution, grants, authorizationInstant });
+    }),
+);
 
 const concealed = (
   policy: ConcealmentPolicy,
   stage: AccessDenialStage | "CredentialFailure",
 ): boolean => Predicate.isTagged(policy, "NotFound") && policy.conceal.includes(stage);
 
-export const accessHttpStatus = (
-  evaluation: AccessEvaluation,
-  policy: ConcealmentPolicy,
-): 200 | 401 | 403 | 404 => {
+export const accessHttpStatus: {
+  (policy: ConcealmentPolicy): (evaluation: AccessEvaluation) => 200 | 401 | 403 | 404;
+  (evaluation: AccessEvaluation, policy: ConcealmentPolicy): 200 | 401 | 403 | 404;
+} = dual(2, (evaluation: AccessEvaluation, policy: ConcealmentPolicy): 200 | 401 | 403 | 404 => {
   if (Predicate.isTagged(evaluation, "Allow")) return 200;
 
   if (Predicate.isTagged(evaluation, "CredentialRejected")) {
@@ -1502,7 +1530,7 @@ export const accessHttpStatus = (
   }
 
   return concealed(policy, evaluation.stage) ? 404 : 403;
-};
+});
 
 export interface AccessTrace {
   readonly declarationId: string;

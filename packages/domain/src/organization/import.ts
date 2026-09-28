@@ -377,16 +377,22 @@ const teamFromLegacy = (
   return decoded.ok ? { team: decoded.value } : { reason: "MISSING_TEAM_FIELD" as const };
 };
 
+/** A missing or empty identity leaves its source row unresolved. */
+const isUnresolved = (identity: string | undefined): boolean =>
+  identity === undefined || identity === "";
+
 const membershipFromLegacy = (
   row: LegacyMembershipRow,
   teams: ReadonlySet<number>,
   identities: OrganizationImportIdentities,
 ) => {
-  if (!identities.persons[sourceId(row.userId)]) return { reason: "PERSON_UNRESOLVED" as const };
+  if (isUnresolved(identities.persons[sourceId(row.userId)]))
+    return { reason: "PERSON_UNRESOLVED" as const };
 
-  if (!identities.memberships[sourceId(row.id)]) return { reason: "IDENTITY_UNRESOLVED" as const };
+  if (isUnresolved(identities.memberships[sourceId(row.id)]))
+    return { reason: "IDENTITY_UNRESOLVED" as const };
 
-  if (row.positionId != null && !identities.positions[sourceId(row.positionId)])
+  if (row.positionId != null && isUnresolved(identities.positions[sourceId(row.positionId)]))
     return { reason: "POSITION_UNRESOLVED" as const };
 
   if (
@@ -410,7 +416,7 @@ const membershipFromLegacy = (
   const legacyTeamId = row.teamId;
   const teamId = legacyTeamId === null ? null : (identities.teams[sourceId(legacyTeamId)] ?? null);
 
-  if (legacyTeamId !== null && (!teams.has(legacyTeamId) || !teamId))
+  if (legacyTeamId !== null && (!teams.has(legacyTeamId) || teamId === null || teamId === ""))
     return { reason: "TEAM_UNRESOLVED" as const };
   const deletedTeamName = row.deletedTeamName ?? null;
 
@@ -509,7 +515,7 @@ export const importLegacyOrganization = (
       continue;
     }
 
-    if (!snapshot.identities.departments[sourcePrimaryKey]) {
+    if (isUnresolved(snapshot.identities.departments[sourcePrimaryKey])) {
       quarantine(
         output,
         snapshot,
@@ -611,7 +617,7 @@ export const importLegacyOrganization = (
       continue;
     }
 
-    if (!snapshot.identities.teams[sourcePrimaryKey]) {
+    if (isUnresolved(snapshot.identities.teams[sourcePrimaryKey])) {
       quarantine(output, snapshot, "team", sourcePrimaryKey, target, "IDENTITY_UNRESOLVED", raw);
       continue;
     }
@@ -766,7 +772,7 @@ export const importLegacyOrganizationEffect = (
   Effect.try({
     try: () => importLegacyOrganization(snapshot),
     catch: (cause) =>
-      new OrganizationImportError({
+      OrganizationImportError.make({
         operation: "import legacy organization",
         message: String(cause),
       }),

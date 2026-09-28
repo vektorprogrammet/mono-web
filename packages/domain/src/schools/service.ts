@@ -29,5 +29,5 @@ export interface SchoolsOperations {
 }
 
 export class Schools extends Context.Service<Schools, SchoolsOperations>()(
-  "@vektorprogrammet/domain/Schools",
+  "@vektorprogrammet/domain/schools/service/Schools",
 ) {}

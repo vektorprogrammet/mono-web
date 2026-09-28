@@ -1,4 +1,5 @@
 import { Data, Predicate, Schema } from "effect";
+import { dual } from "effect/Function";
 import { AdmissionPeriodId } from "../admission-period/schema.js";
 import {
   PublicApplicationEmailSchema,
@@ -100,22 +101,33 @@ export type AdmissionOutcomeOperationFailure =
  * read only the substitutes on call. Uses the canonical department mapping, so multi-membership
  * and ended-grant semantics match admission management.
  */
-export const admissionOutcomePermission = (
-  authority: OrganizationPersonAuthority,
-  departmentId: DepartmentId,
-): "Denied" | "ReadOnly" | "Decide" => {
-  const decision = mapOrganizationAuthorityToDepartmentActor(
-    authority,
-    "admissions.outcomes",
-    departmentId,
-  );
+export const admissionOutcomePermission: {
+  (
+    departmentId: DepartmentId,
+  ): (authority: OrganizationPersonAuthority) => "Denied" | "ReadOnly" | "Decide";
+  (
+    authority: OrganizationPersonAuthority,
+    departmentId: DepartmentId,
+  ): "Denied" | "ReadOnly" | "Decide";
+} = dual(
+  2,
+  (
+    authority: OrganizationPersonAuthority,
+    departmentId: DepartmentId,
+  ): "Denied" | "ReadOnly" | "Decide" => {
+    const decision = mapOrganizationAuthorityToDepartmentActor(
+      authority,
+      "admissions.outcomes",
+      departmentId,
+    );
 
-  return Predicate.isTagged(decision, "Deny")
-    ? "Denied"
-    : Predicate.isTagged(decision.value, "Member")
-      ? "ReadOnly"
-      : "Decide";
-};
+    return Predicate.isTagged(decision, "Deny")
+      ? "Denied"
+      : Predicate.isTagged(decision.value, "Member")
+        ? "ReadOnly"
+        : "Decide";
+  },
+);
 
 /** A department member sees only the name and contact of a substitute on call. */
 export const onCallSubstitutes = (

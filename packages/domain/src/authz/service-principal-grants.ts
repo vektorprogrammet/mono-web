@@ -1,4 +1,5 @@
 import { Result, Array, Predicate, Context, Data, Effect, Schema } from "effect";
+import { dual } from "effect/Function";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import {
   ReceiptId,
@@ -29,7 +30,7 @@ import {
   ResourceId,
   ServicePrincipalId,
 } from "./access.js";
-import { composeCapabilityEvidence } from "./rules.js";
+import { composeCapabilityEvidence, type ComposedCapabilityEvidence } from "./rules.js";
 import type { AuthzRule } from "./schema.js";
 
 const TrimmedNonEmpty = Schema.String.pipe(
@@ -182,7 +183,7 @@ export interface ServicePrincipalGrantAuthorityOperations {
 export class ServicePrincipalGrantAuthority extends Context.Service<
   ServicePrincipalGrantAuthority,
   ServicePrincipalGrantAuthorityOperations
->()("@vektorprogrammet/domain/ServicePrincipalGrantAuthority") {}
+>()("@vektorprogrammet/domain/authz/service-principal-grants/ServicePrincipalGrantAuthority") {}
 
 export const makeServicePrincipalReceiptGrant = Schema.decodeUnknownSync(
   ServicePrincipalReceiptGrantSchema,
@@ -191,140 +192,169 @@ export const makeServicePrincipalReceiptGrant = Schema.decodeUnknownSync(
   },
 );
 
-export const composeServicePrincipalReceiptRuleRequirements = (
-  authority: ServicePrincipalReceiptGrantAuthority,
-  context: CanonicalResourceContext<ReceiptAccessFacts>,
-  authorizationInstant: AuthorizationInstant,
-) =>
-  composeCapabilityEvidence("approveReceipt", {}, authority.rules, {
-    principal: PrincipalSchema.cases.ServicePrincipal.make({
-      servicePrincipalId: authority.servicePrincipalId,
-    }),
-    authorizationInstant,
-    context,
-    tagAssignments: [],
-  });
-
-export const evaluateServicePrincipalReceiptApprovalAccess = (
-  credential: AcceptedOAuthServiceCredential,
-  authority: ServicePrincipalReceiptGrantAuthority,
-  authorizationInstant: AuthorizationInstant,
-): AccessEvaluation<ReceiptAccessFacts> => {
-  if (
-    credential.principal.servicePrincipalId !== authority.servicePrincipalId ||
-    authority.protectedResource !== NATIVE_API_PROTECTED_RESOURCE
-  ) {
-    return AccessEvaluation.Deny({ stage: "PrincipalKind", reason: "PrincipalKindNotAccepted" });
-  }
-
-  const candidateByReceipt = new Map<string, ServicePrincipalReceiptGrantCandidate>();
-  const activeGrants: Array<ServicePrincipalReceiptGrant> = [];
-
-  for (const candidate of authority.candidates) {
-    const grant = candidate.grant;
-
-    if (
-      grant.servicePrincipalId !== authority.servicePrincipalId ||
-      grant.clientId !== authority.clientId ||
-      grant.protectedResource !== authority.protectedResource ||
-      grant.operationId !== RECEIPT_APPROVAL_QUEUE_OPERATION ||
-      grant.capabilityId !== "approveReceipt" ||
-      grant.resourceKind !== RECEIPT_RESOURCE_KIND ||
-      grant.receiptId !== candidate.receipt.receiptId ||
-      !servicePrincipalReceiptGrantActiveAt(grant, authorizationInstant)
-    ) {
-      continue;
-    }
-
-    activeGrants.push(grant);
-
-    if (!candidateByReceipt.has(candidate.receipt.receiptId)) {
-      candidateByReceipt.set(candidate.receipt.receiptId, candidate);
-    }
-  }
-
-  if (activeGrants.length === 0) {
-    return AccessEvaluation.Deny({ stage: "Capability", reason: "CapabilityMissing" });
-  }
-
-  const contexts = [...candidateByReceipt.values()]
-    .sort((left, right) => compareText(left.receipt.receiptId, right.receipt.receiptId))
-    .map(({ receipt }) => ({
-      domainId: RECEIPT_DOMAIN_ID,
-      departmentId: receipt.departmentId,
-      resource: {
-        kind: RECEIPT_RESOURCE_KIND,
-        id: ResourceId.make(receipt.receiptId),
-      },
-      facts: {
-        ownerPersonId: receipt.ownerPersonId,
-        state: receipt.status,
-        approverPersonIds: [],
-        approverServicePrincipalIds: [authority.servicePrincipalId],
-        internalEvidenceEnabled: false,
-      },
-      authorityVersion: AuthorityVersion.make(
-        [
-          `service-principal:${authority.servicePrincipalId}`,
-          `client:${authority.clientId}`,
-          `receipt:${receipt.receiptId}:${receipt.revision}`,
-          ...Array.filterMap(activeGrants, (grant) =>
-            grant.receiptId === receipt.receiptId
-              ? Result.succeed(`grant:${grant.grantId}:${grant.revision}`)
-              : Result.failVoid,
-          ).sort(compareText),
-          ...authority.rules
-            .map((rule) => `rule:${rule.ruleId}:${rule.revision}`)
-            .sort(compareText),
-        ].join("|"),
-      ),
-    }));
-
-  const baseEvaluation = evaluateAccess({
-    spec: RECEIPT_APPROVAL_QUEUE_ACCESS,
-    credential,
-    resolution: {
-      selection: "AllMatching",
-      contexts,
-    },
-    grants: activeGrants
-      .sort((left, right) => compareText(left.grantId, right.grantId))
-      .map(servicePrincipalReceiptGrantToAccessGrant),
-    authorizationInstant,
-  });
-
-  if (!Predicate.isTagged(baseEvaluation, "Allow")) return baseEvaluation;
-
-  const allowedContexts = baseEvaluation.resolution.contexts.filter((context) => {
-    const composition = composeServicePrincipalReceiptRuleRequirements(
-      authority,
-      context,
+export const composeServicePrincipalReceiptRuleRequirements: {
+  (
+    context: CanonicalResourceContext<ReceiptAccessFacts>,
+    authorizationInstant: AuthorizationInstant,
+  ): (authority: ServicePrincipalReceiptGrantAuthority) => ComposedCapabilityEvidence;
+  (
+    authority: ServicePrincipalReceiptGrantAuthority,
+    context: CanonicalResourceContext<ReceiptAccessFacts>,
+    authorizationInstant: AuthorizationInstant,
+  ): ComposedCapabilityEvidence;
+} = dual(
+  3,
+  (
+    authority: ServicePrincipalReceiptGrantAuthority,
+    context: CanonicalResourceContext<ReceiptAccessFacts>,
+    authorizationInstant: AuthorizationInstant,
+  ): ComposedCapabilityEvidence =>
+    composeCapabilityEvidence("approveReceipt", {}, authority.rules, {
+      principal: PrincipalSchema.cases.ServicePrincipal.make({
+        servicePrincipalId: authority.servicePrincipalId,
+      }),
       authorizationInstant,
-    );
+      context,
+      tagAssignments: [],
+    }),
+);
 
-    return Predicate.isTagged(composition.decision, "Allow");
-  });
+export const evaluateServicePrincipalReceiptApprovalAccess: {
+  (
+    authority: ServicePrincipalReceiptGrantAuthority,
+    authorizationInstant: AuthorizationInstant,
+  ): (credential: AcceptedOAuthServiceCredential) => AccessEvaluation<ReceiptAccessFacts>;
+  (
+    credential: AcceptedOAuthServiceCredential,
+    authority: ServicePrincipalReceiptGrantAuthority,
+    authorizationInstant: AuthorizationInstant,
+  ): AccessEvaluation<ReceiptAccessFacts>;
+} = dual(
+  3,
+  (
+    credential: AcceptedOAuthServiceCredential,
+    authority: ServicePrincipalReceiptGrantAuthority,
+    authorizationInstant: AuthorizationInstant,
+  ): AccessEvaluation<ReceiptAccessFacts> => {
+    if (
+      credential.principal.servicePrincipalId !== authority.servicePrincipalId ||
+      authority.protectedResource !== NATIVE_API_PROTECTED_RESOURCE
+    ) {
+      return AccessEvaluation.Deny({ stage: "PrincipalKind", reason: "PrincipalKindNotAccepted" });
+    }
 
-  if (allowedContexts.length === 0) {
-    return AccessEvaluation.Deny({ stage: "Requirement", reason: "RequirementFailed" });
-  }
+    const candidateByReceipt = new Map<string, ServicePrincipalReceiptGrantCandidate>();
+    const activeGrants: Array<ServicePrincipalReceiptGrant> = [];
 
-  return {
-    ...baseEvaluation,
-    resolution: {
-      ...baseEvaluation.resolution,
-      contexts: allowedContexts,
-    },
-  };
-};
+    for (const candidate of authority.candidates) {
+      const grant = candidate.grant;
 
-export const servicePrincipalReceiptGrantActiveAt = (
-  grant: ServicePrincipalReceiptGrant,
-  authorizationInstant: AuthorizationInstant,
-): boolean =>
-  grant.revokedAt === null &&
-  compareRfc3339Instants(grant.startAt, authorizationInstant) <= 0 &&
-  (grant.endAt === null || compareRfc3339Instants(authorizationInstant, grant.endAt) < 0);
+      if (
+        grant.servicePrincipalId !== authority.servicePrincipalId ||
+        grant.clientId !== authority.clientId ||
+        grant.protectedResource !== authority.protectedResource ||
+        grant.operationId !== RECEIPT_APPROVAL_QUEUE_OPERATION ||
+        grant.capabilityId !== "approveReceipt" ||
+        grant.resourceKind !== RECEIPT_RESOURCE_KIND ||
+        grant.receiptId !== candidate.receipt.receiptId ||
+        !servicePrincipalReceiptGrantActiveAt(grant, authorizationInstant)
+      ) {
+        continue;
+      }
+
+      activeGrants.push(grant);
+
+      if (!candidateByReceipt.has(candidate.receipt.receiptId)) {
+        candidateByReceipt.set(candidate.receipt.receiptId, candidate);
+      }
+    }
+
+    if (activeGrants.length === 0) {
+      return AccessEvaluation.Deny({ stage: "Capability", reason: "CapabilityMissing" });
+    }
+
+    const contexts = [...candidateByReceipt.values()]
+      .sort((left, right) => compareText(left.receipt.receiptId, right.receipt.receiptId))
+      .map(({ receipt }) => ({
+        domainId: RECEIPT_DOMAIN_ID,
+        departmentId: receipt.departmentId,
+        resource: {
+          kind: RECEIPT_RESOURCE_KIND,
+          id: ResourceId.make(receipt.receiptId),
+        },
+        facts: {
+          ownerPersonId: receipt.ownerPersonId,
+          state: receipt.status,
+          approverPersonIds: [],
+          approverServicePrincipalIds: [authority.servicePrincipalId],
+          internalEvidenceEnabled: false,
+        },
+        authorityVersion: AuthorityVersion.make(
+          [
+            `service-principal:${authority.servicePrincipalId}`,
+            `client:${authority.clientId}`,
+            `receipt:${receipt.receiptId}:${receipt.revision}`,
+            ...Array.filterMap(activeGrants, (grant) =>
+              grant.receiptId === receipt.receiptId
+                ? Result.succeed(`grant:${grant.grantId}:${grant.revision}`)
+                : Result.failVoid,
+            ).sort(compareText),
+            ...authority.rules
+              .map((rule) => `rule:${rule.ruleId}:${rule.revision}`)
+              .sort(compareText),
+          ].join("|"),
+        ),
+      }));
+
+    const baseEvaluation = evaluateAccess({
+      spec: RECEIPT_APPROVAL_QUEUE_ACCESS,
+      credential,
+      resolution: {
+        selection: "AllMatching",
+        contexts,
+      },
+      grants: activeGrants
+        .sort((left, right) => compareText(left.grantId, right.grantId))
+        .map(servicePrincipalReceiptGrantToAccessGrant),
+      authorizationInstant,
+    });
+
+    if (!Predicate.isTagged(baseEvaluation, "Allow")) return baseEvaluation;
+
+    const allowedContexts = baseEvaluation.resolution.contexts.filter((context) => {
+      const composition = composeServicePrincipalReceiptRuleRequirements(
+        authority,
+        context,
+        authorizationInstant,
+      );
+
+      return Predicate.isTagged(composition.decision, "Allow");
+    });
+
+    if (allowedContexts.length === 0) {
+      return AccessEvaluation.Deny({ stage: "Requirement", reason: "RequirementFailed" });
+    }
+
+    return {
+      ...baseEvaluation,
+      resolution: {
+        ...baseEvaluation.resolution,
+        contexts: allowedContexts,
+      },
+    };
+  },
+);
+
+export const servicePrincipalReceiptGrantActiveAt: {
+  (authorizationInstant: AuthorizationInstant): (grant: ServicePrincipalReceiptGrant) => boolean;
+  (grant: ServicePrincipalReceiptGrant, authorizationInstant: AuthorizationInstant): boolean;
+} = dual(
+  2,
+  (grant: ServicePrincipalReceiptGrant, authorizationInstant: AuthorizationInstant): boolean =>
+    grant.revokedAt === null &&
+    compareRfc3339Instants(grant.startAt, authorizationInstant) <= 0 &&
+    (grant.endAt === null || compareRfc3339Instants(authorizationInstant, grant.endAt) < 0),
+);
 
 export const servicePrincipalReceiptGrantToAccessGrant = (
   grant: ServicePrincipalReceiptGrant,
@@ -351,37 +381,65 @@ export const servicePrincipalReceiptGrantToAccessGrant = (
 const compareText = (left: string, right: string): -1 | 0 | 1 =>
   left < right ? -1 : left > right ? 1 : 0;
 
-export const activeServicePrincipalReceiptGrants = (
-  grants: ReadonlyArray<ServicePrincipalReceiptGrant>,
-  servicePrincipalId: ServicePrincipalId,
-  authorizationInstant: AuthorizationInstant,
-): ReadonlyArray<ServicePrincipalReceiptGrant> =>
-  [
-    ...new Map(
-      Array.filterMap(grants, (grant) =>
-        grant.servicePrincipalId === servicePrincipalId &&
-        servicePrincipalReceiptGrantActiveAt(grant, authorizationInstant)
-          ? Result.succeed([grant.grantId, grant] as const)
-          : Result.failVoid,
-      ),
-    ).values(),
-  ].sort((left, right) => compareText(left.grantId, right.grantId));
+export const activeServicePrincipalReceiptGrants: {
+  (
+    servicePrincipalId: ServicePrincipalId,
+    authorizationInstant: AuthorizationInstant,
+  ): (
+    grants: ReadonlyArray<ServicePrincipalReceiptGrant>,
+  ) => ReadonlyArray<ServicePrincipalReceiptGrant>;
+  (
+    grants: ReadonlyArray<ServicePrincipalReceiptGrant>,
+    servicePrincipalId: ServicePrincipalId,
+    authorizationInstant: AuthorizationInstant,
+  ): ReadonlyArray<ServicePrincipalReceiptGrant>;
+} = dual(
+  3,
+  (
+    grants: ReadonlyArray<ServicePrincipalReceiptGrant>,
+    servicePrincipalId: ServicePrincipalId,
+    authorizationInstant: AuthorizationInstant,
+  ): ReadonlyArray<ServicePrincipalReceiptGrant> =>
+    [
+      ...new Map(
+        Array.filterMap(grants, (grant) =>
+          grant.servicePrincipalId === servicePrincipalId &&
+          servicePrincipalReceiptGrantActiveAt(grant, authorizationInstant)
+            ? Result.succeed([grant.grantId, grant] as const)
+            : Result.failVoid,
+        ),
+      ).values(),
+    ].sort((left, right) => compareText(left.grantId, right.grantId)),
+);
 
-export const servicePrincipalApproverIdsForContext = (
-  grants: ReadonlyArray<ServicePrincipalReceiptGrant>,
-  context: CanonicalResourceContext,
-  authorizationInstant: AuthorizationInstant,
-): ReadonlyArray<ServicePrincipalId> => {
-  if (context.resource === null || context.resource.kind !== RECEIPT_RESOURCE_KIND) return [];
+export const servicePrincipalApproverIdsForContext: {
+  (
+    context: CanonicalResourceContext,
+    authorizationInstant: AuthorizationInstant,
+  ): (grants: ReadonlyArray<ServicePrincipalReceiptGrant>) => ReadonlyArray<ServicePrincipalId>;
+  (
+    grants: ReadonlyArray<ServicePrincipalReceiptGrant>,
+    context: CanonicalResourceContext,
+    authorizationInstant: AuthorizationInstant,
+  ): ReadonlyArray<ServicePrincipalId>;
+} = dual(
+  3,
+  (
+    grants: ReadonlyArray<ServicePrincipalReceiptGrant>,
+    context: CanonicalResourceContext,
+    authorizationInstant: AuthorizationInstant,
+  ): ReadonlyArray<ServicePrincipalId> => {
+    if (context.resource === null || context.resource.kind !== RECEIPT_RESOURCE_KIND) return [];
 
-  return [
-    ...new Set(
-      Array.filterMap(grants, (grant) =>
-        servicePrincipalReceiptGrantActiveAt(grant, authorizationInstant) &&
-        ResourceId.make(grant.receiptId) === context.resource?.id
-          ? Result.succeed(grant.servicePrincipalId)
-          : Result.failVoid,
+    return [
+      ...new Set(
+        Array.filterMap(grants, (grant) =>
+          servicePrincipalReceiptGrantActiveAt(grant, authorizationInstant) &&
+          ResourceId.make(grant.receiptId) === context.resource?.id
+            ? Result.succeed(grant.servicePrincipalId)
+            : Result.failVoid,
+        ),
       ),
-    ),
-  ].sort(compareText);
-};
+    ].sort(compareText);
+  },
+);

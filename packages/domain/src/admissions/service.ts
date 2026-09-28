@@ -95,5 +95,5 @@ export interface AdmissionsOperations {
 }
 
 export class Admissions extends Context.Service<Admissions, AdmissionsOperations>()(
-  "@vektorprogrammet/domain/Admissions",
+  "@vektorprogrammet/domain/admissions/service/Admissions",
 ) {}

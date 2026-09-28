@@ -22,4 +22,4 @@ export interface NotificationGatewayOperations {
 export class NotificationGateway extends Context.Service<
   NotificationGateway,
   NotificationGatewayOperations
->()("@vektorprogrammet/domain/NotificationGateway") {}
+>()("@vektorprogrammet/domain/notification/service/NotificationGateway") {}

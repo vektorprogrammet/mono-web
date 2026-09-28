@@ -68,4 +68,4 @@ export interface ContentManagementOperations {
 export class ContentManagement extends Context.Service<
   ContentManagement,
   ContentManagementOperations
->()("@vektorprogrammet/domain/ContentManagement") {}
+>()("@vektorprogrammet/domain/content/service/ContentManagement") {}

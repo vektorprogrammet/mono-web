@@ -1,4 +1,5 @@
 import { Data } from "effect";
+import { dual } from "effect/Function";
 import type { OrganizationAuthorityInstant } from "./authority.js";
 import {
   type OrganizationGlobalAdministratorStatus,
@@ -152,11 +153,11 @@ export const resolveDirectoryGateScope = (
  * Whether one row's derived departments intersect the authorized scope. An
  * empty intersection is a legitimate empty view, never a denial.
  */
-export const directoryRowInScope = (
-  scope: DirectoryGateScope,
-  departments: ReadonlyArray<DepartmentId>,
-): boolean => {
+export const directoryRowInScope: {
+  (departments: ReadonlyArray<DepartmentId>): (scope: DirectoryGateScope) => boolean;
+  (scope: DirectoryGateScope, departments: ReadonlyArray<DepartmentId>): boolean;
+} = dual(2, (scope: DirectoryGateScope, departments: ReadonlyArray<DepartmentId>): boolean => {
   if (DirectoryGateScope.$is("AllDepartments")(scope)) return true;
 
   return departments.some((departmentId) => scope.departmentIds.includes(departmentId));
-};
+});

@@ -1,6 +1,8 @@
 import { SqlError } from "effect/unstable/sql/SqlError";
 import * as D1Client from "@effect/sql-d1/D1Client";
 import { Data, Record, flow, Result, Predicate, Effect, Schema } from "effect";
+import type { ConfigError } from "effect/Config";
+import { dual } from "effect/Function";
 import { canonicalJsonBytes, canonicalJson, sha256Hex } from "../src/shared-kernel/index.js";
 import {
   ConductInterviewV1Schema,
@@ -547,11 +549,13 @@ const decodeReplayEvent = (
     return event;
   });
 
-export const validateReplayRows = (
-  requestedStream: StreamKey,
-  rows: ReadonlyArray<ReplayEventRow>,
-): Effect.Effect<ReplayResult, TutorD1Failure> =>
-  Effect.gen(function* () {
+export const validateReplayRows: {
+  (rows: ReadonlyArray<ReplayEventRow>): (requestedStream: StreamKey) => Effect.Effect<ReplayResult, TutorD1Failure>;
+  (requestedStream: StreamKey, rows: ReadonlyArray<ReplayEventRow>): Effect.Effect<ReplayResult, TutorD1Failure>;
+} = dual(
+  2,
+  (requestedStream: StreamKey, rows: ReadonlyArray<ReplayEventRow>): Effect.Effect<ReplayResult, TutorD1Failure> =>
+    Effect.gen(function* () {
     const events: Array<EventEnvelopeV1> = [];
 
     for (const [index, row] of rows.entries()) {
@@ -576,7 +580,8 @@ export const validateReplayRows = (
     );
 
     return { rows, events, folded };
-  });
+  }),
+);
 
 const readStream = (
   d1: D1Client.D1Client,
@@ -644,13 +649,13 @@ const readReceipt = (
     };
   });
 
-export const buildBatchPlan = (
-  command: ConductInterviewV1,
-  event: EventEnvelopeV1,
-  resultBytes: Uint8Array,
-  descriptorBytes: Uint8Array,
-  expectedLastCommandId: string,
-): BatchPlan => {
+export const buildBatchPlan: {
+  (event: EventEnvelopeV1, resultBytes: Uint8Array, descriptorBytes: Uint8Array, expectedLastCommandId: string): (command: ConductInterviewV1) => BatchPlan;
+  (command: ConductInterviewV1, event: EventEnvelopeV1, resultBytes: Uint8Array, descriptorBytes: Uint8Array, expectedLastCommandId: string): BatchPlan;
+} = dual(
+  5,
+  (command: ConductInterviewV1, event: EventEnvelopeV1, resultBytes: Uint8Array, descriptorBytes: Uint8Array, expectedLastCommandId: string): BatchPlan =>
+    {
   const stream = command.stream;
   const commandBytes = canonicalJsonBytes(command);
   const streamValues = streamBinds(stream);
@@ -694,7 +699,8 @@ export const buildBatchPlan = (
       },
     ],
   };
-};
+},
+);
 
 const classifyBatchFailure = (
   d1: D1Client.D1Client,
@@ -890,10 +896,22 @@ export const tutorD1Store = Effect.gen(function* () {
 
 export type TutorD1Store = Effect.Success<typeof tutorD1Store>;
 
-export const runWithTutorD1 = <A, E>(
-  db: D1Binding,
-  effect: Effect.Effect<A, E, D1Client.D1Client>,
-) => Effect.scoped(effect.pipe(Effect.provide(D1Client.layer({ db }))));
+export const runWithTutorD1: {
+  <A, E>(
+    effect: Effect.Effect<A, E, D1Client.D1Client>,
+  ): (db: D1Binding) => Effect.Effect<A, E | ConfigError>;
+  <A, E>(
+    db: D1Binding,
+    effect: Effect.Effect<A, E, D1Client.D1Client>,
+  ): Effect.Effect<A, E | ConfigError>;
+} = dual(
+  2,
+  <A, E>(
+    db: D1Binding,
+    effect: Effect.Effect<A, E, D1Client.D1Client>,
+  ): Effect.Effect<A, E | ConfigError> =>
+    Effect.scoped(effect.pipe(Effect.provide(D1Client.layer({ db })))),
+);
 
 export const decodePersistedResult = flow(normalizeBlobBytes, (bytes): Schema.Json => {
   const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -915,4 +933,7 @@ export const canonicalCommand = canonicalJson;
 
 export const streamKeyBinds = streamBinds;
 
-export const streamKeysEqual = streamEqual;
+export const streamKeysEqual: {
+  (right: StreamKey): (left: StreamKey) => boolean;
+  (left: StreamKey, right: StreamKey): boolean;
+} = dual(2, streamEqual);

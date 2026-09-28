@@ -13,6 +13,7 @@ import {
   type PublishedNewsListing,
   type PublishedNewsSummary,
 } from "./schema.js";
+import { dual } from "effect/Function";
 
 /** Pure pagination slice over the fully loaded listing (page size 10). */
 export const NEWS_PAGE_SIZE = 10;
@@ -68,15 +69,18 @@ export const projectContentWorkspace = (input: {
 };
 
 /** Narrows the authorized set; it can never create authority. */
-export const filterWorkspaceByDepartment = (
-  workspace: ContentWorkspace,
-  departmentId: DepartmentId | undefined,
-): ContentWorkspace =>
-  departmentId === undefined
-    ? workspace
-    : {
-        entries: workspace.entries.filter((entry) => entry.departmentIds.includes(departmentId)),
-      };
+export const filterWorkspaceByDepartment: {
+  (departmentId: DepartmentId | undefined): (workspace: ContentWorkspace) => ContentWorkspace;
+  (workspace: ContentWorkspace, departmentId: DepartmentId | undefined): ContentWorkspace;
+} = dual(
+  2,
+  (workspace: ContentWorkspace, departmentId: DepartmentId | undefined): ContentWorkspace =>
+    departmentId === undefined
+      ? workspace
+      : {
+          entries: workspace.entries.filter((entry) => entry.departmentIds.includes(departmentId)),
+        },
+);
 
 export const projectNewsSummaries = (input: {
   readonly versions: ReadonlyArray<{
@@ -123,47 +127,74 @@ export const orderNewsSummaries = (
   return { articles: ordered } satisfies typeof PublishedNewsListingSchema.Type;
 };
 
-export const paginateNewsListing = (
-  listing: PublishedNewsListing,
-  page: number,
-): PublishedNewsListing => ({
-  articles: listing.articles.slice((page - 1) * NEWS_PAGE_SIZE, page * NEWS_PAGE_SIZE),
-});
+export const paginateNewsListing: {
+  (page: number): (listing: PublishedNewsListing) => PublishedNewsListing;
+  (listing: PublishedNewsListing, page: number): PublishedNewsListing;
+} = dual(
+  2,
+  (listing: PublishedNewsListing, page: number): PublishedNewsListing => ({
+    articles: listing.articles.slice((page - 1) * NEWS_PAGE_SIZE, page * NEWS_PAGE_SIZE),
+  }),
+);
 
 /** Filters by department without disturbing the frozen ordering. */
-export const filterNewsListingByDepartment = (
-  listing: PublishedNewsListing,
-  departmentId: DepartmentId | undefined,
-): PublishedNewsListing =>
-  departmentId === undefined
-    ? listing
-    : {
-        articles: listing.articles.filter(
-          (article) =>
-            article.departmentIds.length === 0 || article.departmentIds.includes(departmentId),
-        ),
-      };
+export const filterNewsListingByDepartment: {
+  (departmentId: DepartmentId | undefined): (listing: PublishedNewsListing) => PublishedNewsListing;
+  (listing: PublishedNewsListing, departmentId: DepartmentId | undefined): PublishedNewsListing;
+} = dual(
+  2,
+  (listing: PublishedNewsListing, departmentId: DepartmentId | undefined): PublishedNewsListing =>
+    departmentId === undefined
+      ? listing
+      : {
+          articles: listing.articles.filter(
+            (article) =>
+              article.departmentIds.length === 0 || article.departmentIds.includes(departmentId),
+          ),
+        },
+);
 
 /** Builds the detail projection with descending previous-version references. */
-export const projectPublishedNewsArticle = (
-  summary: PublishedNewsSummary,
-  bodyHtml: string,
-  previousVersions: ReadonlyArray<{
-    readonly versionNumber: number;
-    readonly publishedAt: string;
-    readonly slug: string;
-  }>,
-): PublishedNewsArticle => ({
-  ...summary,
-  bodyHtml,
-  previousVersions: [...previousVersions]
-    .sort((left, right) => right.versionNumber - left.versionNumber)
-    .map((version): PublishedNewsArticle["previousVersions"][number] => ({
-      versionNumber: ArticleVersionNumber.make(version.versionNumber),
-      publishedAt: version.publishedAt,
-      urlPath: `/nyhet/${version.slug}?versjon=${version.versionNumber}`,
-    })),
-});
+export const projectPublishedNewsArticle: {
+  (
+    bodyHtml: string,
+    previousVersions: ReadonlyArray<{
+      readonly versionNumber: number;
+      readonly publishedAt: string;
+      readonly slug: string;
+    }>,
+  ): (summary: PublishedNewsSummary) => PublishedNewsArticle;
+  (
+    summary: PublishedNewsSummary,
+    bodyHtml: string,
+    previousVersions: ReadonlyArray<{
+      readonly versionNumber: number;
+      readonly publishedAt: string;
+      readonly slug: string;
+    }>,
+  ): PublishedNewsArticle;
+} = dual(
+  3,
+  (
+    summary: PublishedNewsSummary,
+    bodyHtml: string,
+    previousVersions: ReadonlyArray<{
+      readonly versionNumber: number;
+      readonly publishedAt: string;
+      readonly slug: string;
+    }>,
+  ): PublishedNewsArticle => ({
+    ...summary,
+    bodyHtml,
+    previousVersions: [...previousVersions]
+      .sort((left, right) => right.versionNumber - left.versionNumber)
+      .map((version): PublishedNewsArticle["previousVersions"][number] => ({
+        versionNumber: ArticleVersionNumber.make(version.versionNumber),
+        publishedAt: version.publishedAt,
+        urlPath: `/nyhet/${version.slug}?versjon=${version.versionNumber}`,
+      })),
+  }),
+);
 
 // --- Slug generation (legacy transliteration law) ---
 
@@ -185,11 +216,14 @@ export const slugifyTitle = (title: string): string =>
  * Deterministic deduplication against every existing slug: append `-2`,
  * `-3`, … until free. Pure over the taken-slug set.
  */
-export const dedupeSlug = (base: string, takenSlugs: ReadonlySet<string>): string => {
+export const dedupeSlug: {
+  (takenSlugs: ReadonlySet<string>): (base: string) => string;
+  (base: string, takenSlugs: ReadonlySet<string>): string;
+} = dual(2, (base: string, takenSlugs: ReadonlySet<string>): string => {
   if (!takenSlugs.has(base)) return base;
   let counter = 2;
 
   while (takenSlugs.has(`${base}-${counter}`)) counter += 1;
 
   return `${base}-${counter}`;
-};
+});

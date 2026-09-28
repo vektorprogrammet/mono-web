@@ -37,5 +37,5 @@ export interface ContentOperations {
 }
 
 export class Content extends Context.Service<Content, ContentOperations>()(
-  "@vektorprogrammet/domain/Content",
+  "@vektorprogrammet/domain/content/content-service/Content",
 ) {}

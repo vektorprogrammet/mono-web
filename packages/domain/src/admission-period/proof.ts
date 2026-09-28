@@ -1,4 +1,5 @@
 import { Predicate, Effect } from "effect";
+import { dual } from "effect/Function";
 import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
 import { admissionPeriodCommandDigest } from "./digest.js";
 import { decideAdmissionPeriod } from "./update.js";
@@ -31,21 +32,31 @@ export interface AdmissionPeriodProofEvidence {
   };
 }
 
-export const admissionPeriodIsEligible = (
-  period: AdmissionPeriod,
-  semesterStartAt: string,
-  semesterEndAt: string,
-  now: string,
-): boolean => {
-  const instant = Date.parse(now);
+export const admissionPeriodIsEligible: {
+  (
+    semesterStartAt: string,
+    semesterEndAt: string,
+    now: string,
+  ): (period: AdmissionPeriod) => boolean;
+  (period: AdmissionPeriod, semesterStartAt: string, semesterEndAt: string, now: string): boolean;
+} = dual(
+  4,
+  (
+    period: AdmissionPeriod,
+    semesterStartAt: string,
+    semesterEndAt: string,
+    now: string,
+  ): boolean => {
+    const instant = Date.parse(now);
 
-  return (
-    Date.parse(semesterStartAt) <= instant &&
-    instant < Date.parse(semesterEndAt) &&
-    Date.parse(period.startAt) <= instant &&
-    instant < Date.parse(period.endAt)
-  );
-};
+    return (
+      Date.parse(semesterStartAt) <= instant &&
+      instant < Date.parse(semesterEndAt) &&
+      Date.parse(period.startAt) <= instant &&
+      instant < Date.parse(period.endAt)
+    );
+  },
+);
 
 const proofActor: AdmissionPeriodActor =
   AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({

@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { dual } from "effect/Function";
 import { defaultTreeAdapter, parseFragment, serialize, type DefaultTreeAdapterTypes } from "parse5";
 import { ContentDecodeError } from "./errors.js";
 
@@ -139,37 +140,40 @@ const sanitize = (bodyHtml: string) => {
 };
 
 /** Sanitizes and validates one editorial body write before persistence. */
-export const sanitizeArticleBodyHtml = (
-  operation: string,
-  bodyHtml: string,
-): Effect.Effect<string, ContentDecodeError> =>
-  Effect.try({
-    try: () => sanitize(bodyHtml),
-    catch: () => new ContentDecodeError({ operation, message: "sanitizer failure" }),
-  }).pipe(
-    Effect.flatMap((result) => {
-      if (result.rejection !== undefined) {
-        return Effect.fail(new ContentDecodeError({ operation, message: result.rejection }));
-      }
+export const sanitizeArticleBodyHtml: {
+  (bodyHtml: string): (operation: string) => Effect.Effect<string, ContentDecodeError>;
+  (operation: string, bodyHtml: string): Effect.Effect<string, ContentDecodeError>;
+} = dual(
+  2,
+  (operation: string, bodyHtml: string): Effect.Effect<string, ContentDecodeError> =>
+    Effect.try({
+      try: () => sanitize(bodyHtml),
+      catch: () => ContentDecodeError.make({ operation, message: "sanitizer failure" }),
+    }).pipe(
+      Effect.flatMap((result) => {
+        if (result.rejection !== undefined) {
+          return Effect.fail(ContentDecodeError.make({ operation, message: result.rejection }));
+        }
 
-      if (result.html.trim().length === 0) {
-        return Effect.fail(
-          new ContentDecodeError({
-            operation,
-            message: "sanitized article body must contain non-empty content",
-          }),
-        );
-      }
+        if (result.html.trim().length === 0) {
+          return Effect.fail(
+            ContentDecodeError.make({
+              operation,
+              message: "sanitized article body must contain non-empty content",
+            }),
+          );
+        }
 
-      if (new TextEncoder().encode(result.html).byteLength > 100000) {
-        return Effect.fail(
-          new ContentDecodeError({
-            operation,
-            message: "sanitized article body exceeds the 100000-byte limit",
-          }),
-        );
-      }
+        if (new TextEncoder().encode(result.html).byteLength > 100000) {
+          return Effect.fail(
+            ContentDecodeError.make({
+              operation,
+              message: "sanitized article body exceeds the 100000-byte limit",
+            }),
+          );
+        }
 
-      return Effect.succeed(result.html);
-    }),
-  );
+        return Effect.succeed(result.html);
+      }),
+    ),
+);
