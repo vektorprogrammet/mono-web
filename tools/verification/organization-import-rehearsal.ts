@@ -12,6 +12,7 @@ import {
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
 import { flow, Predicate, Data, Effect, Schema } from "effect";
+import { dual } from "effect/Function";
 import type { DatabaseOperations } from "@vektorprogrammet/database";
 import { journeyClock } from "../e2e/journey-clock.js";
 
@@ -614,13 +615,16 @@ const observeStatement = <A, E, R>(
 };
 
 /** Evidence-only proxy: results, failures, and transaction ownership stay with DatabaseLive. */
-export const observeOrganizationImportSql = (
-  sql: DatabaseOperations,
-  state: OrganizationImportSqlObserverState,
-): DatabaseOperations =>
-  observePostgresStatements(sql, (statement, text, values) => {
-    return observeStatement(statement, text, state, values);
-  });
+export const observeOrganizationImportSql: {
+  (state: OrganizationImportSqlObserverState): (sql: DatabaseOperations) => DatabaseOperations;
+  (sql: DatabaseOperations, state: OrganizationImportSqlObserverState): DatabaseOperations;
+} = dual(
+  2,
+  (sql: DatabaseOperations, state: OrganizationImportSqlObserverState): DatabaseOperations =>
+    observePostgresStatements(sql, (statement, text, values) =>
+      observeStatement(statement, text, state, values),
+    ),
+);
 
 const NotObservedSectionSchema = Schema.Struct({
   status: Schema.Literal("NotObservedDueToFailure"),
