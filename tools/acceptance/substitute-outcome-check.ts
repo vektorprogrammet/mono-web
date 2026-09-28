@@ -38,11 +38,11 @@ import { nativeScriptClient, type ScriptCallResult } from "../../packages/rpc/sr
 import { SubmitApplicationRequest } from "../../packages/rpc/src/v2-schemas.js";
 import { localBackendEnvironment } from "../e2e/local-backend-environment.ts";
 import { reserveLoopbackPorts, startDisposablePostgres } from "../postgres/index.ts";
+import { jsonText } from "../../apps/backend/src/rpc/problem.js";
 import {
   answersOk,
   commandOutput,
   indentedJsonText,
-  jsonText,
   ProbeFailure,
   startOwnedProcess,
   withheldVariables,

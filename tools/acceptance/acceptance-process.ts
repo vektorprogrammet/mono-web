@@ -181,15 +181,12 @@ export const answersOk = (url: string): Effect.Effect<boolean, never, HttpClient
     Effect.orElseSucceed(() => false),
   );
 
-const JsonText = Schema.fromJsonString(Schema.Unknown);
-
 const IndentedJsonText = Schema.fromJsonString(Schema.Unknown, { space: 2 });
 
-/** The JSON text of a value, byte for byte what `JSON.stringify` writes. */
-export const jsonText = <A>(value: A): Effect.Effect<string> =>
-  Schema.encodeEffect(JsonText)(value).pipe(Effect.orDie);
-
-/** The JSON text of a value indented by two spaces, as `JSON.stringify(value, null, 2)` writes it. */
+/**
+ * The JSON text of evidence indented by two spaces, as `JSON.stringify(value, null, 2)` writes it;
+ * `jsonText` writes the compact form.
+ */
 export const indentedJsonText = <A>(value: A): Effect.Effect<string> =>
   Schema.encodeEffect(IndentedJsonText)(value).pipe(Effect.orDie);
 

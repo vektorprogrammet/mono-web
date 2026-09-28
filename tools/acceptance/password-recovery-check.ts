@@ -29,11 +29,11 @@ import { loopbackPortFree, reserveLoopbackPorts, startDisposablePostgres } from 
 import { drainPasswordResetMail } from "../../packages/database/src/password-recovery.js";
 import { HttpMailLive } from "../../apps/backend/src/mail/http.js";
 import { nativeRpcRequestBody, nativeRpcStatus } from "../../apps/dashboard/e2e/native-operations.js";
+import { jsonText } from "../../apps/backend/src/rpc/problem.js";
 import {
   answersOk,
   commandOutput,
   indentedJsonText,
-  jsonText,
   ProbeFailure,
   startOwnedProcess,
 } from "./acceptance-process.ts";
