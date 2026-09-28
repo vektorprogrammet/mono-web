@@ -133,7 +133,7 @@ describe("makeR2ReceiptFileStore", () => {
       expect(results.filter(Result.isSuccess)).toHaveLength(1);
 
       expect(results.find(Result.isFailure)).toMatchObject({
-        failure: new ReceiptFileEffectConflict({ effectId: "contended-effect" }),
+        failure: ReceiptFileEffectConflict.make({ effectId: "contended-effect" }),
       });
 
       expect(yield* store.readCommitted(staged.file, 64)).toEqual(new Uint8Array([5, 6, 7]));

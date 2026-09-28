@@ -28,17 +28,22 @@ const environment = Effect.runSync(
 
 const receiptId = process.argv[2];
 
-if (!receiptId || process.argv.length !== 3 || !environment.postgresUrl)
+if (
+  receiptId === undefined ||
+  receiptId === "" ||
+  process.argv.length !== 3 ||
+  environment.postgresUrl === ""
+)
   throw new TypeError("Usage: BACKEND_PG_URL=... bun run src/receipt/drain-main.ts <receipt-id>");
 
 Schema.decodeSync(ReceiptId)(receiptId);
 
-if (!environment.stagingRoot || !environment.committedRoot)
+if (environment.stagingRoot === "" || environment.committedRoot === "")
   throw new TypeError("Explicit receipt staging and committed roots required");
 
 const config = receiptDeliveryConfig(process.env);
 
-if (!config) throw new TypeError("Receipt delivery is not configured");
+if (config === undefined) throw new TypeError("Receipt delivery is not configured");
 
 const database = DatabaseLive({
   url: Redacted.make(environment.postgresUrl),

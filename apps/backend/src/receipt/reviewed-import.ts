@@ -24,6 +24,7 @@ import {
 import { readSnapshotFile } from "./import-snapshot.js";
 import { PaymentAccountCustodyError, type PaymentAccountCipher } from "./payment-account.js";
 import type { ReceiptFileStore } from "./filesystem.js";
+import { dual } from "effect/Function";
 
 const maxFileBytes = 10 * 1024 * 1024;
 
@@ -67,7 +68,7 @@ const encryptAccount = (cipher: PaymentAccountCipher, account: string, receiptId
     ),
   );
 
-export const runReviewedReceiptImport = (
+const runReviewedReceiptImportWith = (
   input: ReviewedReceiptSnapshot,
   accounts: ReadonlyMap<string, string | null>,
   archiveRoot: string,
@@ -269,12 +270,11 @@ export const runReviewedReceiptImport = (
           ? Effect.succeed(false)
           : files.readCommitted(receipt.file, maxFileBytes).pipe(
               Effect.as(true),
-              Effect.mapError(
-                () =>
-                  new ReceiptPersistenceError({
-                    operation: "observe reviewed receipt bytes",
-                    message: "Private bytes unavailable",
-                  }),
+              Effect.mapError(() =>
+                ReceiptPersistenceError.make({
+                  operation: "observe reviewed receipt bytes",
+                  message: "Private bytes unavailable",
+                }),
               ),
             ),
       ).pipe(Effect.mapError(() => new ReceiptCohortFailure({ code: "ReceiptObservationFailed" })));
@@ -286,3 +286,21 @@ export const runReviewedReceiptImport = (
 
     return { ...report, reconciled, pending, complete: pending === 0 };
   });
+
+type ReviewedReceiptImport = ReturnType<typeof runReviewedReceiptImportWith>;
+
+export const runReviewedReceiptImport: {
+  (
+    accounts: ReadonlyMap<string, string | null>,
+    archiveRoot: string,
+    files: ReceiptFileStore,
+    cipher: PaymentAccountCipher,
+  ): (input: ReviewedReceiptSnapshot) => ReviewedReceiptImport;
+  (
+    input: ReviewedReceiptSnapshot,
+    accounts: ReadonlyMap<string, string | null>,
+    archiveRoot: string,
+    files: ReceiptFileStore,
+    cipher: PaymentAccountCipher,
+  ): ReviewedReceiptImport;
+} = dual(5, runReviewedReceiptImportWith);

@@ -15,7 +15,7 @@ type Attempt = "Delivered" | "Idle" | "Failed" | "TransportFailure";
 
 const receiptId = "receipt-drain";
 
-const persistenceFailure = new ReceiptPersistenceError({
+const persistenceFailure = ReceiptPersistenceError.make({
   operation: "drain fixture",
   message: "unavailable",
 });
