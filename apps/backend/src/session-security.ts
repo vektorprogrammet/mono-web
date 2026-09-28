@@ -194,14 +194,7 @@ export const decideTrustedOrigin: {
  * Cookie and CORS-safelisted headers are intentionally absent because browsers
  * do not include them in Access-Control-Request-Headers.
  */
-export const NativeBrowserRequestHeaders = [
-  "Authorization",
-  "Content-Type",
-  "Idempotency-Key",
-  "If-Match",
-  "If-None-Match",
-  "X-Recruitment-Invitation-Capability",
-] as const;
+export const NativeBrowserRequestHeaders = ["Authorization", "Content-Type"] as const;
 
 const nativeBrowserRequestHeaderSet = new Set(
   NativeBrowserRequestHeaders.map((header) => header.toLowerCase()),
