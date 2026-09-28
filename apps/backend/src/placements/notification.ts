@@ -11,6 +11,7 @@ import { DateTime, Predicate, Duration, Effect } from "effect";
 import { HttpClient } from "effect/unstable/http";
 import { deliverJson } from "../delivery/http.js";
 import { pollForever } from "../worker-support.js";
+import { dual } from "effect/Function";
 
 export interface SchoolServiceNotificationConfig {
   readonly endpoint: URL;
@@ -104,13 +105,15 @@ export const schoolServiceNotificationDelivery = (
       ),
   );
 
-export const runSchoolServiceNotificationWorker = (
+interface SchoolServiceNotificationWorkerOptions {
+  readonly workerId: string;
+  readonly pollIntervalMilliseconds: number;
+  readonly staleClaimMilliseconds: number;
+}
+
+const runSchoolServiceNotificationWorkerWith = (
   interpreter: SchoolServiceNotificationInterpreter,
-  options: {
-    readonly workerId: string;
-    readonly pollIntervalMilliseconds: number;
-    readonly staleClaimMilliseconds: number;
-  },
+  options: SchoolServiceNotificationWorkerOptions,
 ) => {
   if (options.workerId.length === 0) throw new Error("worker ID must not be empty");
   let sequence = 0;
@@ -136,3 +139,15 @@ export const runSchoolServiceNotificationWorker = (
     skipDelay: Predicate.isTagged("Delivered"),
   });
 };
+
+type SchoolServiceNotificationWorker = ReturnType<typeof runSchoolServiceNotificationWorkerWith>;
+
+export const runSchoolServiceNotificationWorker: {
+  (
+    options: SchoolServiceNotificationWorkerOptions,
+  ): (interpreter: SchoolServiceNotificationInterpreter) => SchoolServiceNotificationWorker;
+  (
+    interpreter: SchoolServiceNotificationInterpreter,
+    options: SchoolServiceNotificationWorkerOptions,
+  ): SchoolServiceNotificationWorker;
+} = dual(2, runSchoolServiceNotificationWorkerWith);
