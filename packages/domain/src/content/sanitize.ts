@@ -145,16 +145,16 @@ export const sanitizeArticleBodyHtml = (
 ): Effect.Effect<string, ContentDecodeError> =>
   Effect.try({
     try: () => sanitize(bodyHtml),
-    catch: () => new ContentDecodeError({ operation, message: "sanitizer failure" }),
+    catch: () => ContentDecodeError.make({ operation, message: "sanitizer failure" }),
   }).pipe(
     Effect.flatMap((result) => {
       if (result.rejection !== undefined) {
-        return Effect.fail(new ContentDecodeError({ operation, message: result.rejection }));
+        return Effect.fail(ContentDecodeError.make({ operation, message: result.rejection }));
       }
 
       if (result.html.trim().length === 0) {
         return Effect.fail(
-          new ContentDecodeError({
+          ContentDecodeError.make({
             operation,
             message: "sanitized article body must contain non-empty content",
           }),
@@ -163,7 +163,7 @@ export const sanitizeArticleBodyHtml = (
 
       if (new TextEncoder().encode(result.html).byteLength > 100000) {
         return Effect.fail(
-          new ContentDecodeError({
+          ContentDecodeError.make({
             operation,
             message: "sanitized article body exceeds the 100000-byte limit",
           }),

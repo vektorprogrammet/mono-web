@@ -57,18 +57,10 @@ export const runPublicationTransition = (
     const context = { personId, authorizationInstant };
 
     return yield* Match.value(input).pipe(
-      Match.tag("CreateDraft", (input) => {
-        return content.createDraft(input.command, context);
-      }),
-      Match.tag("ReviseDraft", (input) => {
-        return content.reviseDraft(input.command, context);
-      }),
-      Match.tag("Publish", (input) => {
-        return content.publish(input.command, context);
-      }),
-      Match.tag("Unpublish", (input) => {
-        return content.unpublish(input.command, context);
-      }),
+      Match.tag("CreateDraft", (input) => content.createDraft(input.command, context)),
+      Match.tag("ReviseDraft", (input) => content.reviseDraft(input.command, context)),
+      Match.tag("Publish", (input) => content.publish(input.command, context)),
+      Match.tag("Unpublish", (input) => content.unpublish(input.command, context)),
       Match.exhaustive,
     );
   });

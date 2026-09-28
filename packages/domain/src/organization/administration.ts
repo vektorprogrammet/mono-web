@@ -20,7 +20,7 @@ import {
 } from "./schema.js";
 
 const decodeError = (operation: string, cause: unknown) =>
-  new OrganizationDecodeError({ operation, message: String(cause) });
+  OrganizationDecodeError.make({ operation, message: String(cause) });
 
 export const decodeCreateDepartmentCommand = flow(
   Schema.decodeUnknownEffect(CreateDepartmentCommandSchema, {

@@ -219,8 +219,8 @@ export const transitionAppointment = (
   Match.value(command).pipe(
     Match.withReturnType<Result.Result<Appointment, AppointmentTransitionFailure>>(),
     Match.tag("Appoint", (command) =>
-      current
-        ? Result.fail(new AppointmentTransitionFailure({ code: "Invalid" }))
+      current !== undefined
+        ? Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }))
         : Result.succeed({
             appointmentId,
             personId: command.personId,
@@ -235,10 +235,11 @@ export const transitionAppointment = (
           }),
     ),
     Match.orElse((command) => {
-      if (!current) return Result.fail(new AppointmentTransitionFailure({ code: "NotFound" }));
+      if (current === undefined)
+        return Result.fail(AppointmentTransitionFailure.make({ code: "NotFound" }));
 
       if (current.revision !== command.expectedRevision)
-        return Result.fail(new AppointmentTransitionFailure({ code: "Stale" }));
+        return Result.fail(AppointmentTransitionFailure.make({ code: "Stale" }));
 
       return Match.value(command).pipe(
         Match.withReturnType<Result.Result<Appointment, AppointmentTransitionFailure>>(),
@@ -254,17 +255,17 @@ export const transitionAppointment = (
         ),
         Match.tag("EndAppointment", (command) =>
           current.endAt !== null && compareRfc3339Instants(current.endAt, now) <= 0
-            ? Result.fail(new AppointmentTransitionFailure({ code: "Invalid" }))
+            ? Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }))
             : Result.succeed({ ...current, endAt: command.endAt, revision: current.revision + 1 }),
         ),
         Match.tag("SuspendAppointment", () =>
           current.suspended
-            ? Result.fail(new AppointmentTransitionFailure({ code: "Invalid" }))
+            ? Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }))
             : Result.succeed({ ...current, suspended: true, revision: current.revision + 1 }),
         ),
         Match.tag("ReinstateAppointment", () =>
           !current.suspended
-            ? Result.fail(new AppointmentTransitionFailure({ code: "Invalid" }))
+            ? Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }))
             : Result.succeed({ ...current, suspended: false, revision: current.revision + 1 }),
         ),
         Match.exhaustive,
@@ -272,7 +273,7 @@ export const transitionAppointment = (
     }),
     Result.flatMap((next) =>
       next.endAt !== null && compareRfc3339Instants(next.endAt, next.startAt) <= 0
-        ? Result.fail(new AppointmentTransitionFailure({ code: "Invalid" }))
+        ? Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }))
         : Result.succeed({ ...next, state: appointmentStateAt(next, now) }),
     ),
   );
@@ -294,14 +295,14 @@ export const transitionTeamClassification = (
   anotherBoardInDepartment: boolean,
 ): Result.Result<TeamClassification, AppointmentTransitionFailure> => {
   if (current.revision !== command.expectedRevision)
-    return Result.fail(new AppointmentTransitionFailure({ code: "Stale" }));
+    return Result.fail(AppointmentTransitionFailure.make({ code: "Stale" }));
 
   if (
     (command.unitKind === "DepartmentBoard" &&
       (command.teamScope === "National" || anotherBoardInDepartment)) ||
     (command.unitKind === current.unitKind && command.teamScope === current.teamScope)
   )
-    return Result.fail(new AppointmentTransitionFailure({ code: "Invalid" }));
+    return Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }));
 
   return Result.succeed({
     ...current,
@@ -317,10 +318,10 @@ export const transitionDepartmentRecognition = (
   command: RecogniseDepartmentCommand,
 ): Result.Result<DepartmentRecognition, AppointmentTransitionFailure> => {
   if (current.revision !== command.expectedRevision)
-    return Result.fail(new AppointmentTransitionFailure({ code: "Stale" }));
+    return Result.fail(AppointmentTransitionFailure.make({ code: "Stale" }));
 
   if (command.independent === current.independent)
-    return Result.fail(new AppointmentTransitionFailure({ code: "Invalid" }));
+    return Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }));
 
   return Result.succeed({
     ...current,

@@ -359,7 +359,7 @@ export class DelegationTransitionFailure extends Schema.TaggedError<DelegationTr
   { code: Schema.Literals(["NotFound", "Stale", "Invalid"]) },
 ) {}
 
-const invalid = () => Result.fail(new DelegationTransitionFailure({ code: "Invalid" }));
+const invalid = () => Result.fail(DelegationTransitionFailure.make({ code: "Invalid" }));
 
 /**
  * One exhaustive machine owns every delegation transition. Issuing needs an active ordinary team
@@ -381,7 +381,7 @@ export const transitionDelegation = (
       if (current !== undefined) return invalid();
 
       if (input.team === undefined)
-        return Result.fail(new DelegationTransitionFailure({ code: "NotFound" }));
+        return Result.fail(DelegationTransitionFailure.make({ code: "NotFound" }));
 
       if (
         !input.team.active ||
@@ -404,10 +404,10 @@ export const transitionDelegation = (
     }),
     Match.tag("EndDelegation", (command) => {
       if (current === undefined)
-        return Result.fail(new DelegationTransitionFailure({ code: "NotFound" }));
+        return Result.fail(DelegationTransitionFailure.make({ code: "NotFound" }));
 
       if (current.revision !== command.expectedRevision)
-        return Result.fail(new DelegationTransitionFailure({ code: "Stale" }));
+        return Result.fail(DelegationTransitionFailure.make({ code: "Stale" }));
 
       if (
         delegationStateAt(current, input.now) === "Ended" ||

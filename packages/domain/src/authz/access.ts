@@ -966,24 +966,15 @@ export const AccessSpecSchema = Schema.Struct({
 
 export type AccessSpec = typeof AccessSpecSchema.Type;
 
-const mechanismPrincipalKind = (mechanism: CredentialMechanism): PrincipalKind => {
-  return Match.value(mechanism).pipe(
+const mechanismPrincipalKind = (mechanism: CredentialMechanism): PrincipalKind =>
+  Match.value(mechanism).pipe(
     Match.withReturnType<PrincipalKind>(),
-    Match.tag("None", () => {
-      return "Anonymous";
-    }),
-    Match.tag("BetterAuthCookie", "OAuthUserBearer", () => {
-      return "Person";
-    }),
-    Match.tag("OAuthServiceBearer", () => {
-      return "ServicePrincipal";
-    }),
-    Match.tag("ObjectCapability", () => {
-      return "CapabilityHolder";
-    }),
+    Match.tag("None", () => "Anonymous"),
+    Match.tag("BetterAuthCookie", "OAuthUserBearer", () => "Person"),
+    Match.tag("OAuthServiceBearer", () => "ServicePrincipal"),
+    Match.tag("ObjectCapability", () => "CapabilityHolder"),
     Match.exhaustive,
   );
-};
 
 const sameCredentialMechanism = (left: CredentialMechanism, right: CredentialMechanism): boolean =>
   Predicate.isTagged(left, right._tag) &&
@@ -1005,21 +996,16 @@ export const credentialMatchesAccessSpec = (
     sameCredentialMechanism(accepted, credential.mechanism),
   );
 
-const capabilityTypesIn = (expression: CapabilityExpression): ReadonlyArray<CapabilityTypeId> => {
-  return Match.value(expression).pipe(
+const capabilityTypesIn = (expression: CapabilityExpression): ReadonlyArray<CapabilityTypeId> =>
+  Match.value(expression).pipe(
     Match.withReturnType<ReadonlyArray<CapabilityTypeId>>(),
-    Match.tag("None", () => {
-      return [];
-    }),
-    Match.tag("One", (expression) => {
-      return [expression.capability.type];
-    }),
-    Match.tag("All", "Any", (expression) => {
-      return expression.capabilities.map((capability) => capability.type);
-    }),
+    Match.tag("None", () => []),
+    Match.tag("One", (expression) => [expression.capability.type]),
+    Match.tag("All", "Any", (expression) =>
+      expression.capabilities.map((capability) => capability.type),
+    ),
     Match.exhaustive,
   );
-};
 
 export const scopeResolverDeclaration = (resolverId: ScopeResolverId): ScopeResolverRegistration =>
   SCOPE_RESOLVERS[scopeResolverRegistryKey(resolverId)];
@@ -1158,9 +1144,7 @@ export const normalizeScope = (scope: Scope): Scope => {
 
 export const decodeGrant = flow(
   Schema.decodeUnknownSync(GrantSchema, { onExcessProperty: "error" }),
-  (grant): Grant => {
-    return { ...grant, scope: normalizeScope(grant.scope) };
-  },
+  (grant): Grant => ({ ...grant, scope: normalizeScope(grant.scope) }),
 );
 
 export const expandAuthorityMacros = (
@@ -1168,54 +1152,53 @@ export const expandAuthorityMacros = (
   roles: ReadonlyArray<RoleMacro>,
 ): ReadonlyArray<Grant> => [...directGrants, ...roles.flatMap((role) => role.grants)];
 
-export const scopeMatches = (scope: Scope, context: CanonicalResourceContext): boolean => {
-  return Match.value(scope).pipe(
+export const scopeMatches = (scope: Scope, context: CanonicalResourceContext): boolean =>
+  Match.value(scope).pipe(
     Match.withReturnType<boolean>(),
-    Match.tag("Global", () => {
-      return true;
-    }),
-    Match.tag("Domain", (scope) => {
-      return scope.domainId === context.domainId;
-    }),
-    Match.tag("Department", (scope) => {
-      return context.departmentId !== null && scope.departmentId === context.departmentId;
-    }),
-    Match.tag("Resource", (scope) => {
-      return (
+    Match.tag("Global", () => true),
+    Match.tag("Domain", (scope) => scope.domainId === context.domainId),
+    Match.tag(
+      "Department",
+      (scope) => context.departmentId !== null && scope.departmentId === context.departmentId,
+    ),
+    Match.tag(
+      "Resource",
+      (scope) =>
         context.resource !== null &&
         scope.resource.kind === context.resource.kind &&
-        scope.resource.id === context.resource.id
-      );
-    }),
-    Match.tag("And", (scope) => {
-      return scopeMatches(scope.left, context) && scopeMatches(scope.right, context);
-    }),
-    Match.tag("Or", (scope) => {
-      return scopeMatches(scope.left, context) || scopeMatches(scope.right, context);
-    }),
+        scope.resource.id === context.resource.id,
+    ),
+    Match.tag(
+      "And",
+      (scope) => scopeMatches(scope.left, context) && scopeMatches(scope.right, context),
+    ),
+    Match.tag(
+      "Or",
+      (scope) => scopeMatches(scope.left, context) || scopeMatches(scope.right, context),
+    ),
     Match.exhaustive,
   );
-};
 
 const samePrincipal = (left: NonAnonymousPrincipal, right: Principal): boolean => {
   if (!Predicate.isTagged(left, right._tag)) return false;
 
   return Match.value(left).pipe(
     Match.withReturnType<boolean>(),
-    Match.tag("Person", (left) => {
-      return Predicate.isTagged(right, "Person") && left.personId === right.personId;
-    }),
-    Match.tag("ServicePrincipal", (left) => {
-      return (
+    Match.tag(
+      "Person",
+      (left) => Predicate.isTagged(right, "Person") && left.personId === right.personId,
+    ),
+    Match.tag(
+      "ServicePrincipal",
+      (left) =>
         Predicate.isTagged(right, "ServicePrincipal") &&
-        left.servicePrincipalId === right.servicePrincipalId
-      );
-    }),
-    Match.tag("CapabilityHolder", (left) => {
-      return (
-        Predicate.isTagged(right, "CapabilityHolder") && left.capabilityId === right.capabilityId
-      );
-    }),
+        left.servicePrincipalId === right.servicePrincipalId,
+    ),
+    Match.tag(
+      "CapabilityHolder",
+      (left) =>
+        Predicate.isTagged(right, "CapabilityHolder") && left.capabilityId === right.capabilityId,
+    ),
     Match.exhaustive,
   );
 };
@@ -1327,15 +1310,13 @@ const expressionForContext = (
   context: CanonicalResourceContext,
   grants: ReadonlyArray<Grant>,
   instant: AuthorizationInstant,
-): ContextCapabilityResult => {
-  return Match.value(expression).pipe(
+): ContextCapabilityResult =>
+  Match.value(expression).pipe(
     Match.withReturnType<ContextCapabilityResult>(),
-    Match.tag("None", () => {
-      return { allowed: true };
-    }),
-    Match.tag("One", (expression) => {
-      return capabilityForContext(expression.capability, principal, context, grants, instant);
-    }),
+    Match.tag("None", () => ({ allowed: true })),
+    Match.tag("One", (expression) =>
+      capabilityForContext(expression.capability, principal, context, grants, instant),
+    ),
     Match.tag("All", (expression) => {
       for (const capability of expression.capabilities) {
         const result = capabilityForContext(capability, principal, context, grants, instant);
@@ -1368,7 +1349,6 @@ const expressionForContext = (
     }),
     Match.exhaustive,
   );
-};
 
 export const evaluateAccess = <C>(input: {
   readonly spec: AccessSpec;

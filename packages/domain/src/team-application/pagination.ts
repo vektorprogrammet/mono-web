@@ -56,7 +56,7 @@ export const decodeTeamApplicationCursor = (
     const [, timestamp, applicationId] = yield* Schema.decodeEffect(CursorTuple)(text);
 
     return { timestamp, applicationId };
-  }).pipe(Effect.mapError(() => new TeamApplicationInvalidCursor()));
+  }).pipe(Effect.mapError(() => TeamApplicationInvalidCursor.make({})));
 
 /** Keeps one page and encodes the last kept row when a further row was read. */
 export const teamApplicationPage = <A>(

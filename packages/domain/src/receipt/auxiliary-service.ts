@@ -44,7 +44,7 @@ export const makeReceiptAuxiliaryRecording = (): ReceiptAuxiliaryRecordingContro
         const previous = applied.get(request.effectId);
 
         if (previous !== undefined && previous !== digest) {
-          return Effect.fail(new ReceiptAuxiliaryEffectConflict({ effectId: request.effectId }));
+          return Effect.fail(ReceiptAuxiliaryEffectConflict.make({ effectId: request.effectId }));
         }
 
         return Effect.sync(() => void applied.set(request.effectId, digest));

@@ -120,10 +120,9 @@ export const receiptCompositionFailure = (
   capabilityId: ReceiptComposedCapability,
 ): AmbiguousParameterFill | FailedComposedRequirement | undefined =>
   Match.value(reason).pipe(
-    Match.when("Ambiguous", () => new AmbiguousParameterFill({ personId, capabilityId })),
-    Match.when(
-      "RequirementFailed",
-      () => new FailedComposedRequirement({ personId, capabilityId }),
+    Match.when("Ambiguous", () => AmbiguousParameterFill.make({ personId, capabilityId })),
+    Match.when("RequirementFailed", () =>
+      FailedComposedRequirement.make({ personId, capabilityId }),
     ),
     Match.orElse(() => undefined),
   );

@@ -56,7 +56,7 @@ export const decodeReceiptCursor = (
     const [, timestamp, receiptId] = yield* Schema.decodeEffect(CursorTuple)(text);
 
     return { timestamp, receiptId };
-  }).pipe(Effect.mapError(() => new ReceiptDecodeError({ message: "invalid receipt cursor" })));
+  }).pipe(Effect.mapError(() => ReceiptDecodeError.make({ message: "invalid receipt cursor" })));
 
 export const receiptPage = <A>(
   rows: ReadonlyArray<A>,

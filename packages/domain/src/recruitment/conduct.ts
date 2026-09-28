@@ -55,7 +55,7 @@ type ConductFailure =
 
 const invalid = (state: RecruitmentConductState, message: string) =>
   Effect.fail(
-    new RecruitmentConductValidationError({
+    RecruitmentConductValidationError.make({
       interviewId: state.interview.interviewId,
       message,
     }),
@@ -66,7 +66,7 @@ const checkActor = (
   actor: RecruitmentConductActor,
 ): Effect.Effect<void, ConductFailure> => {
   if (!actor.active || !actor.membershipActive || !actor.teamActive || !actor.departmentActive) {
-    return Effect.fail(new RecruitmentInactiveActor({ personId: actor.personId }));
+    return Effect.fail(RecruitmentInactiveActor.make({ personId: actor.personId }));
   }
 
   if (
@@ -74,7 +74,7 @@ const checkActor = (
     actor.departmentId !== state.interview.departmentId
   ) {
     return Effect.fail(
-      new RecruitmentScopeDenied({
+      RecruitmentScopeDenied.make({
         personId: actor.personId,
         departmentId: state.interview.departmentId,
       }),
@@ -91,13 +91,13 @@ const checkBase = (
 ): Effect.Effect<void, ConductFailure> => {
   if (state.schedule === null) {
     return Effect.fail(
-      new RecruitmentInterviewNotScheduled({ interviewId: state.interview.interviewId }),
+      RecruitmentInterviewNotScheduled.make({ interviewId: state.interview.interviewId }),
     );
   }
 
   if (state.revision !== expectedRevision) {
     return Effect.fail(
-      new RecruitmentInterviewStaleRevision({
+      RecruitmentInterviewStaleRevision.make({
         interviewId: state.interview.interviewId,
         expectedRevision,
         actualRevision: state.revision,
@@ -225,12 +225,11 @@ const validateScore = (
     onExcessProperty: "error",
   }).pipe(
     Effect.asVoid,
-    Effect.mapError(
-      () =>
-        new RecruitmentConductValidationError({
-          interviewId: state.interview.interviewId,
-          message: "score values must be integers from 0 to 10",
-        }),
+    Effect.mapError(() =>
+      RecruitmentConductValidationError.make({
+        interviewId: state.interview.interviewId,
+        message: "score values must be integers from 0 to 10",
+      }),
     ),
   );
 
@@ -245,19 +244,19 @@ export const finalizeInterview = (
     yield* checkBase(state, actor, command.expectedRevision);
 
     if (state.invitationResponse !== "Accepted") {
-      return yield* new RecruitmentInvitationNotAccepted({
+      return yield* RecruitmentInvitationNotAccepted.make({
         interviewId: state.interview.interviewId,
         responseState: state.invitationResponse ?? "Absent",
       });
     }
 
     if (state.conduct !== null)
-      return yield* new RecruitmentInterviewAlreadyFinalized({
+      return yield* RecruitmentInterviewAlreadyFinalized.make({
         interviewId: state.interview.interviewId,
       });
 
     if (state.cancellation !== null)
-      return yield* new RecruitmentInterviewAlreadyCancelled({
+      return yield* RecruitmentInterviewAlreadyCancelled.make({
         interviewId: state.interview.interviewId,
       });
     const answers = yield* validateAnswers(state, command.answers);
@@ -267,7 +266,7 @@ export const finalizeInterview = (
       return yield* invalid(state, "an explicit interviewer recommendation is required");
     const revision = state.revision + 1;
 
-    const conduct = new RecruitmentInterviewConduct({
+    const conduct = RecruitmentInterviewConduct.make({
       interviewId: state.interview.interviewId,
       answers,
       score: command.score,
@@ -289,12 +288,11 @@ export const finalizeInterview = (
       }),
       { onExcessProperty: "error" },
     ).pipe(
-      Effect.mapError(
-        (cause) =>
-          new RecruitmentConductValidationError({
-            interviewId: state.interview.interviewId,
-            message: String(cause),
-          }),
+      Effect.mapError((cause) =>
+        RecruitmentConductValidationError.make({
+          interviewId: state.interview.interviewId,
+          message: String(cause),
+        }),
       ),
     );
 
@@ -312,17 +310,17 @@ export const cancelInterview = (
     yield* checkBase(state, actor, command.expectedRevision);
 
     if (state.conduct !== null)
-      return yield* new RecruitmentInterviewAlreadyFinalized({
+      return yield* RecruitmentInterviewAlreadyFinalized.make({
         interviewId: state.interview.interviewId,
       });
 
     if (state.cancellation !== null)
-      return yield* new RecruitmentInterviewAlreadyCancelled({
+      return yield* RecruitmentInterviewAlreadyCancelled.make({
         interviewId: state.interview.interviewId,
       });
     const revision = state.revision + 1;
 
-    const cancellation = new RecruitmentInterviewCancellation({
+    const cancellation = RecruitmentInterviewCancellation.make({
       interviewId: state.interview.interviewId,
       cancelledByPersonId: actor.personId,
       cancelledAt: now,
@@ -340,12 +338,11 @@ export const cancelInterview = (
       }),
       { onExcessProperty: "error" },
     ).pipe(
-      Effect.mapError(
-        (cause) =>
-          new RecruitmentConductValidationError({
-            interviewId: state.interview.interviewId,
-            message: String(cause),
-          }),
+      Effect.mapError((cause) =>
+        RecruitmentConductValidationError.make({
+          interviewId: state.interview.interviewId,
+          message: String(cause),
+        }),
       ),
     );
 
@@ -369,12 +366,12 @@ export const correctInterviewAssessment = (
     yield* checkBase(state, actor, command.expectedRevision);
 
     if (state.cancellation !== null)
-      return yield* new RecruitmentInterviewAlreadyCancelled({
+      return yield* RecruitmentInterviewAlreadyCancelled.make({
         interviewId: state.interview.interviewId,
       });
 
     if (state.conduct === null)
-      return yield* new RecruitmentConductValidationError({
+      return yield* RecruitmentConductValidationError.make({
         interviewId: state.interview.interviewId,
         message: "the interview is not completed",
       });
@@ -399,12 +396,11 @@ export const correctInterviewAssessment = (
       },
       { onExcessProperty: "error" },
     ).pipe(
-      Effect.mapError(
-        (cause) =>
-          new RecruitmentConductValidationError({
-            interviewId: state.interview.interviewId,
-            message: String(cause),
-          }),
+      Effect.mapError((cause) =>
+        RecruitmentConductValidationError.make({
+          interviewId: state.interview.interviewId,
+          message: String(cause),
+        }),
       ),
     );
 
@@ -417,12 +413,11 @@ export const correctInterviewAssessment = (
       }),
       { onExcessProperty: "error" },
     ).pipe(
-      Effect.mapError(
-        (cause) =>
-          new RecruitmentConductValidationError({
-            interviewId: state.interview.interviewId,
-            message: String(cause),
-          }),
+      Effect.mapError((cause) =>
+        RecruitmentConductValidationError.make({
+          interviewId: state.interview.interviewId,
+          message: String(cause),
+        }),
       ),
     );
 

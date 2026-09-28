@@ -44,7 +44,7 @@ export interface AdmissionPeriodDecision {
 }
 
 const activeActor = (actor: AdmissionPeriodActor): Effect.Effect<void, InactiveActor> =>
-  actor.active ? Effect.void : Effect.fail(new InactiveActor({ personId: actor.personId }));
+  actor.active ? Effect.void : Effect.fail(InactiveActor.make({ personId: actor.personId }));
 
 const managementActor = (
   actor: AdmissionPeriodActor,
@@ -56,7 +56,7 @@ const managementActor = (
       !Predicate.isTagged(actor, "DepartmentAdministrator") &&
       !Predicate.isTagged(actor, "GlobalAdmin")
     ) {
-      return yield* new AdmissionRoleDenied({ personId: actor.personId });
+      return yield* AdmissionRoleDenied.make({ personId: actor.personId });
     }
   });
 
@@ -67,7 +67,7 @@ const departmentForCreate = (
   if (Predicate.isTagged(actor, "DepartmentAdministrator")) {
     if (command.departmentId !== undefined && command.departmentId !== actor.departmentId) {
       return Effect.fail(
-        new AdmissionScopeDenied({
+        AdmissionScopeDenied.make({
           personId: actor.personId,
           departmentId: command.departmentId,
         }),
@@ -77,7 +77,7 @@ const departmentForCreate = (
     return Effect.succeed(actor.departmentId);
   }
 
-  if (command.departmentId === undefined) return Effect.fail(new DepartmentRequired());
+  if (command.departmentId === undefined) return Effect.fail(DepartmentRequired.make({}));
 
   return Effect.succeed(command.departmentId);
 };
@@ -90,12 +90,14 @@ const checkWindow = (
   const ordering = compareRfc3339Instants(startAt, endAt);
 
   if (ordering === 0) {
-    return Effect.fail(new InvalidAdmissionPeriodWindow({ startAt, endAt, reason: "EqualBounds" }));
+    return Effect.fail(
+      InvalidAdmissionPeriodWindow.make({ startAt, endAt, reason: "EqualBounds" }),
+    );
   }
 
   if (ordering > 0) {
     return Effect.fail(
-      new InvalidAdmissionPeriodWindow({ startAt, endAt, reason: "ReversedBounds" }),
+      InvalidAdmissionPeriodWindow.make({ startAt, endAt, reason: "ReversedBounds" }),
     );
   }
 
@@ -104,7 +106,7 @@ const checkWindow = (
     compareRfc3339Instants(endAt, semester.endAt) > 0
   ) {
     return Effect.fail(
-      new AdmissionWindowOutsideSemester({
+      AdmissionWindowOutsideSemester.make({
         semesterId: semester.semesterId,
         startAt,
         endAt,
@@ -147,7 +149,7 @@ export const decideAdmissionPeriod = (
     yield* managementActor(context.actor);
 
     if (!isRfc3339Instant(context.now)) {
-      return yield* new InvalidAdmissionPeriodWindow({
+      return yield* InvalidAdmissionPeriodWindow.make({
         startAt: context.now,
         endAt: context.now,
         reason: "EqualBounds",
@@ -159,7 +161,7 @@ export const decideAdmissionPeriod = (
       yield* checkWindow(command.startAt, command.endAt, context.semester);
 
       if (existing !== undefined) {
-        return yield* new AdmissionPeriodAlreadyExists({
+        return yield* AdmissionPeriodAlreadyExists.make({
           departmentId,
           semesterId: command.semesterId,
         });
@@ -186,7 +188,7 @@ export const decideAdmissionPeriod = (
     const current = existing;
 
     if (current === undefined) {
-      return yield* new AdmissionPeriodNotFound({ admissionPeriodId: command.admissionPeriodId });
+      return yield* AdmissionPeriodNotFound.make({ admissionPeriodId: command.admissionPeriodId });
     }
 
     const actorDepartment = Predicate.isTagged(context.actor, "DepartmentAdministrator")
@@ -194,7 +196,7 @@ export const decideAdmissionPeriod = (
       : current.departmentId;
 
     if (actorDepartment !== current.departmentId) {
-      return yield* new AdmissionScopeDenied({
+      return yield* AdmissionScopeDenied.make({
         personId: context.actor.personId,
         departmentId: current.departmentId,
         admissionPeriodId: current.id,
@@ -202,7 +204,7 @@ export const decideAdmissionPeriod = (
     }
 
     if (current.revision !== command.expectedRevision) {
-      return yield* new StaleAdmissionPeriodRevision({
+      return yield* StaleAdmissionPeriodRevision.make({
         admissionPeriodId: current.id,
         expected: command.expectedRevision,
         actual: current.revision,

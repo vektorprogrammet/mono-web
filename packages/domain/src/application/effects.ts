@@ -268,7 +268,7 @@ export const makeRecordingPublicApplicationEffectInterpreter =
           attempts.set(request.effectId, nextAttempts);
 
           if (failedOnce.delete(request.effectId)) {
-            return yield* new PublicApplicationEffectDeliveryError({ effectId: request.effectId });
+            return yield* PublicApplicationEffectDeliveryError.make({ effectId: request.effectId });
           }
 
           const previous = delivered.get(request.effectId);

@@ -57,25 +57,27 @@ export const authzRuleSubjectApplies = (
 
   return Match.value(subject).pipe(
     Match.withReturnType<boolean>(),
-    Match.tag("Person", (subject) => {
-      return Predicate.isTagged(principal, "Person") && subject.personId === principal.personId;
-    }),
-    Match.tag("ServicePrincipal", (subject) => {
-      return (
+    Match.tag(
+      "Person",
+      (subject) =>
+        Predicate.isTagged(principal, "Person") && subject.personId === principal.personId,
+    ),
+    Match.tag(
+      "ServicePrincipal",
+      (subject) =>
         Predicate.isTagged(principal, "ServicePrincipal") &&
-        subject.servicePrincipalId === principal.servicePrincipalId
-      );
-    }),
-    Match.tag("Tag", (subject) => {
-      return (
+        subject.servicePrincipalId === principal.servicePrincipalId,
+    ),
+    Match.tag(
+      "Tag",
+      (subject) =>
         Predicate.isTagged(principal, "Person") &&
         tagAssignments.some(
           (assignment) =>
             assignment.tagId === subject.tagId &&
             isAuthzTagAssignmentActive(assignment, principal.personId, authorizationInstant),
-        )
-      );
-    }),
+        ),
+    ),
     Match.exhaustive,
   );
 };
@@ -83,28 +85,21 @@ export const authzRuleSubjectApplies = (
 export const authzRuleScopeApplies = (
   rule: AuthzRule,
   context: CanonicalResourceContext,
-): boolean => {
-  return Match.value(rule.scope).pipe(
+): boolean =>
+  Match.value(rule.scope).pipe(
     Match.withReturnType<boolean>(),
-    Match.tag("Global", () => {
-      return true;
-    }),
-    Match.tag("Domain", (matchedValue) => {
-      return context.domainId === matchedValue.domainId;
-    }),
-    Match.tag("Department", (matchedValue) => {
-      return context.departmentId === matchedValue.departmentId;
-    }),
-    Match.tag("Resource", (matchedValue) => {
-      return (
+    Match.tag("Global", () => true),
+    Match.tag("Domain", (matchedValue) => context.domainId === matchedValue.domainId),
+    Match.tag("Department", (matchedValue) => context.departmentId === matchedValue.departmentId),
+    Match.tag(
+      "Resource",
+      (matchedValue) =>
         context.resource !== null &&
         context.resource.kind === matchedValue.resource.kind &&
-        context.resource.id === matchedValue.resource.id
-      );
-    }),
+        context.resource.id === matchedValue.resource.id,
+    ),
     Match.exhaustive,
   );
-};
 
 export const isAuthzRuleApplicable = (rule: AuthzRule, facts: AuthzApplicabilityFacts): boolean =>
   isAuthzIntervalActive(rule, facts.authorizationInstant) &&

@@ -216,7 +216,7 @@ export const decodeAssistantCursor = (
     const [, lastName, firstName, personId] = yield* Schema.decodeEffect(CursorTuple)(text);
 
     return { lastName, firstName, personId };
-  }).pipe(Effect.mapError(() => new CertificateInvalidCursor()));
+  }).pipe(Effect.mapError(() => CertificateInvalidCursor.make({})));
 
 export interface AssistantPage<A> {
   readonly items: ReadonlyArray<A>;

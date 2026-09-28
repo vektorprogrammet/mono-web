@@ -466,13 +466,13 @@ const deny = (
   operation: "Submission" | "DepartmentApproval" | "GlobalApproval" | "Owner",
   departmentId: DepartmentId | null,
 ): ReceiptAuthorityDenied =>
-  new ReceiptAuthorityDenied({ personId: authority.personId, operation, departmentId });
+  ReceiptAuthorityDenied.make({ personId: authority.personId, operation, departmentId });
 
 const ambiguousPayment = (
   authority: ReceiptAuthority,
   payments: ReadonlyArray<ResolvedReceiptPaymentAuthority>,
 ): AmbiguousReceiptPaymentAuthority =>
-  new AmbiguousReceiptPaymentAuthority({
+  AmbiguousReceiptPaymentAuthority.make({
     personId: authority.personId,
     departmentIds: payments
       .map((payment) => payment.departmentId)
@@ -651,12 +651,11 @@ export const mapExistingReceiptApprovalActor = (
   receiptDepartmentId: DepartmentId,
 ): Effect.Effect<ReceiptActor, ReceiptScopeDenied> =>
   mapReceiptApprovalActor(authority, receiptDepartmentId).pipe(
-    Effect.mapError(
-      () =>
-        new ReceiptScopeDenied({
-          receiptId,
-          departmentId: receiptDepartmentId,
-        }),
+    Effect.mapError(() =>
+      ReceiptScopeDenied.make({
+        receiptId,
+        departmentId: receiptDepartmentId,
+      }),
     ),
   );
 
@@ -694,7 +693,7 @@ export const mapExistingReceiptSettlementActor = (
 ): Effect.Effect<ReceiptSettlementActor, ReceiptNotFound> => {
   const selected = selectReceiptSettlementGrant(authority, receiptDepartmentId);
 
-  if (selected?.active !== true) return Effect.fail(new ReceiptNotFound({ receiptId }));
+  if (selected?.active !== true) return Effect.fail(ReceiptNotFound.make({ receiptId }));
 
   return Effect.succeed({
     personId: authority.personId,

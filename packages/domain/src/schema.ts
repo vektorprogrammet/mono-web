@@ -75,8 +75,8 @@ type IssueNode = {
 const astForIssue = (
   issue: SchemaIssue.Issue,
   fallback: SchemaAST.AST | undefined,
-): SchemaAST.AST | undefined => {
-  return Match.value(issue).pipe(
+): SchemaAST.AST | undefined =>
+  Match.value(issue).pipe(
     Match.withReturnType<SchemaAST.AST | undefined>(),
     Match.tag(
       "Composite",
@@ -85,15 +85,10 @@ const astForIssue = (
       "InvalidType",
       "UnexpectedKey",
       "OneOf",
-      (issue) => {
-        return issue.ast;
-      },
+      (issue) => issue.ast,
     ),
-    Match.orElse(() => {
-      return fallback;
-    }),
+    Match.orElse(() => fallback),
   );
-};
 
 const collectIssueNodes = (
   issue: SchemaIssue.Issue,
@@ -137,7 +132,7 @@ const inspectAstPrimitives = (
 
   Match.value(ast).pipe(
     Match.tag("Number", (ast) => {
-      if (ast.checks?.some((check) => Predicate.isTagged(check, "Filter")))
+      if (ast.checks?.some((check) => Predicate.isTagged(check, "Filter")) === true)
         primitives.hasIntegerNumber = true;
     }),
     Match.tag("Null", () => {
@@ -303,21 +298,22 @@ const decodeWith = <A>(schema: Schema.ConstraintDecoder<A, never>) =>
 
 export const decodeDepartment = flow(
   decodeWith(DepartmentRowSchema),
-  (decoded): DecodeResult<DepartmentRow> => {
-    return decoded.ok ? { ok: true, value: { id: decoded.value.id } } : decoded;
-  },
+  (decoded): DecodeResult<DepartmentRow> =>
+    decoded.ok ? { ok: true, value: { id: decoded.value.id } } : decoded,
 );
 
-export const decodeTeam = flow(decodeWith(TeamRowSchema), (decoded): DecodeResult<TeamRow> => {
-  return decoded.ok
-    ? { ok: true, value: { id: decoded.value.id, departmentId: decoded.value.departmentId } }
-    : decoded;
-});
+export const decodeTeam = flow(
+  decodeWith(TeamRowSchema),
+  (decoded): DecodeResult<TeamRow> =>
+    decoded.ok
+      ? { ok: true, value: { id: decoded.value.id, departmentId: decoded.value.departmentId } }
+      : decoded,
+);
 
 export const decodeTeamMembership = flow(
   decodeWith(TeamMembershipRowSchema),
-  (decoded): DecodeResult<TeamMembershipRow> => {
-    return decoded.ok
+  (decoded): DecodeResult<TeamMembershipRow> =>
+    decoded.ok
       ? {
           ok: true,
           value: {
@@ -326,21 +322,19 @@ export const decodeTeamMembership = flow(
             teamId: decoded.value.teamId,
           },
         }
-      : decoded;
-  },
+      : decoded,
 );
 
 export const decodeGlobalContainer = flow(
   decodeWith(GlobalContainerRowSchema),
-  (decoded): DecodeResult<GlobalContainerRow> => {
-    return decoded.ok ? { ok: true, value: { id: decoded.value.id } } : decoded;
-  },
+  (decoded): DecodeResult<GlobalContainerRow> =>
+    decoded.ok ? { ok: true, value: { id: decoded.value.id } } : decoded,
 );
 
 export const decodeGlobalMembership = flow(
   decodeWith(GlobalMembershipRowSchema),
-  (decoded): DecodeResult<GlobalMembershipRow> => {
-    return decoded.ok
+  (decoded): DecodeResult<GlobalMembershipRow> =>
+    decoded.ok
       ? {
           ok: true,
           value: {
@@ -349,8 +343,7 @@ export const decodeGlobalMembership = flow(
             boardId: decoded.value.boardId,
           },
         }
-      : decoded;
-  },
+      : decoded,
 );
 
 export const decodeRows = <A>(

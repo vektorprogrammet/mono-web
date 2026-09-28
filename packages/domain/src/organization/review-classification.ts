@@ -285,7 +285,9 @@ export const classifyReviewedOrganization = (
       continue;
     }
 
-    if (!acceptedPersons[String(row.userId)]) {
+    const acceptedPerson = acceptedPersons[String(row.userId)];
+
+    if (acceptedPerson === undefined || acceptedPerson === "") {
       reject("PersonReconciliationMissing");
       continue;
     }
@@ -297,7 +299,7 @@ export const classifyReviewedOrganization = (
     if (occurrence.sourceKind === "TeamMembership") {
       membership = memberships.get(targetId);
 
-      if (!membership) {
+      if (membership === undefined) {
         const reason = classified.ledger.find(
           (entry) =>
             entry.sourceKind === "membership" && entry.sourcePrimaryKey === occurrence.sourceId,
@@ -349,7 +351,7 @@ export const classifyReviewedOrganization = (
 
       const board = boards.find((board) => board.id === decoded.value.boardId);
 
-      if (!board) {
+      if (board === undefined) {
         reject("ReferenceMissing");
         continue;
       }

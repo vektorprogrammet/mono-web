@@ -20,12 +20,12 @@ export const validateInterviewScheduling = (
     (current.scheduled && current.responseState !== "RequestedNewTime")
   ) {
     return Effect.fail(
-      new RecruitmentInterviewAlreadyScheduled({ interviewId: command.interviewId }),
+      RecruitmentInterviewAlreadyScheduled.make({ interviewId: command.interviewId }),
     );
   }
 
   if (compareRfc3339Instants(command.scheduledAt, now) <= 0) {
-    return Effect.fail(new RecruitmentScheduleInPast({ interviewId: command.interviewId }));
+    return Effect.fail(RecruitmentScheduleInPast.make({ interviewId: command.interviewId }));
   }
 
   return Effect.void;

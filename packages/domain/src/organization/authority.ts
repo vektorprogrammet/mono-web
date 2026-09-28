@@ -281,7 +281,7 @@ Result.Result<OrganizationAdministratorEvidence, OrganizationRoleDenied> =>
         } as OrganizationAdministratorEvidence,
       )
     : Result.fail(
-        new OrganizationRoleDenied({
+        OrganizationRoleDenied.make({
           actorPersonId: authority.personId,
           requiredRole: "OrganizationAdministrator",
         }),

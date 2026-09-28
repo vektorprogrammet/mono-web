@@ -81,21 +81,18 @@ export type ContentScope =
 
 export const ContentScope = Data.taggedEnum<ContentScope>();
 
-export const contentScopeFor = (actor: ContentActor): ContentScope => {
-  return Match.value(actor).pipe(
+export const contentScopeFor = (actor: ContentActor): ContentScope =>
+  Match.value(actor).pipe(
     Match.withReturnType<ContentScope>(),
-    Match.tag("ContentAdministrator", () => {
-      return ContentScope.All();
-    }),
-    Match.tag("ContentPublisher", (actor) => {
-      return ContentScope.DepartmentIds({ departmentIds: actor.departmentIds });
-    }),
-    Match.tag("ContentEditor", (actor) => {
-      return ContentScope.DepartmentIds({ departmentIds: actor.departmentIds });
-    }),
+    Match.tag("ContentAdministrator", () => ContentScope.All()),
+    Match.tag("ContentPublisher", (actor) =>
+      ContentScope.DepartmentIds({ departmentIds: actor.departmentIds }),
+    ),
+    Match.tag("ContentEditor", (actor) =>
+      ContentScope.DepartmentIds({ departmentIds: actor.departmentIds }),
+    ),
     Match.exhaustive,
   );
-};
 
 /** Whether the actor may set sticky or run publish/unpublish transitions. */
 export const canPublishContent = (

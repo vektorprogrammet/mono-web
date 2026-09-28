@@ -23,16 +23,16 @@ export const transitionAccountAccess = (
   context: { readonly actorPersonId: PersonId; readonly anotherUsableAdministrator: boolean },
 ): Result.Result<AccountAccess, AccountAccessFailure> => {
   if (current.revision !== input.expectedRevision)
-    return Result.fail(new AccountAccessFailure({ code: "Stale" }));
+    return Result.fail(AccountAccessFailure.make({ code: "Stale" }));
 
   if (input.disabled && current.personId === context.actorPersonId)
-    return Result.fail(new AccountAccessFailure({ code: "SelfDisable" }));
+    return Result.fail(AccountAccessFailure.make({ code: "SelfDisable" }));
 
   if (input.disabled && !context.anotherUsableAdministrator)
-    return Result.fail(new AccountAccessFailure({ code: "LastAdministrator" }));
+    return Result.fail(AccountAccessFailure.make({ code: "LastAdministrator" }));
 
   if (input.disabled === current.disabled)
-    return Result.fail(new AccountAccessFailure({ code: "Invalid" }));
+    return Result.fail(AccountAccessFailure.make({ code: "Invalid" }));
 
   return Result.succeed({ ...current, disabled: input.disabled, revision: current.revision + 1 });
 };

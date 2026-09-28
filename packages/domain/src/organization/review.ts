@@ -139,7 +139,7 @@ export const validateOrganizationReview = (
 
       if (
         keys.has(key) ||
-        !entry ||
+        entry === undefined ||
         entry.sourceRowDigest !== occurrence.sourceRowDigest ||
         occurrence.sourceRowDigest !== organizationEvidenceDigest(occurrence.row)
       )
