@@ -50,10 +50,10 @@ journeyClock(reference: string): JourneyClock
 - Inputs: `reference: string`
 - Output: `JourneyClock`
 - Errors: none
-- Throws: An `Error` when `reference` is not an instant that `Date.parse` reads.
+- Throws: An `Error` when `reference` is not an instant that `DateTime.make` reads.
 - Requirements: none
 - Side effects: none
-- Source: [tools/e2e/journey-clock.ts:50](../../tools/e2e/journey-clock.ts#L50)
+- Source: [tools/e2e/journey-clock.ts:51](../../tools/e2e/journey-clock.ts#L51)
 
 **How it works**
 
@@ -84,10 +84,10 @@ admissionJourneyClock(): JourneyClock
 - Inputs: none
 - Output: `JourneyClock`
 - Errors: none
-- Throws: An `Error` when `ADMISSION_FIXED_NOW` is set to text that `Date.parse` does not read.
+- Throws: An `Error` when `ADMISSION_FIXED_NOW` is set to text that `DateTime.make` does not read.
 - Requirements: none
 - Side effects: Reads `ADMISSION_FIXED_NOW` from the environment, and the current time when it is unset.
-- Source: [tools/e2e/journey-clock.ts:89](../../tools/e2e/journey-clock.ts#L89)
+- Source: [tools/e2e/journey-clock.ts:92](../../tools/e2e/journey-clock.ts#L92)
 
 **How it works**
 

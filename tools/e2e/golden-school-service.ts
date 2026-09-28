@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { Clock, Effect, Schema } from "effect";
+import type { Pool, PoolClient } from "pg";
+import { step as journeyStep } from "../acceptance/journey-step";
 
 export const goldenSteps = [
   "initial",
@@ -33,11 +36,19 @@ export const goldenSteps = [
 /** Test-driver faults. Each must make the journey fail; none changes product behavior. */
 export const goldenFaults = ["omit-coverage", "absent-browser-evidence"];
 
-const bySource = (left, right) =>
+// The observer reads untyped pg rows and compares them with the rows that each checkpoint expects.
+// oxlint-disable-next-line typescript/no-explicit-any -- pg types an untyped row as any, as the calls did
+type Row = any;
+
+type Facts = Row;
+
+const UnknownJson = Schema.fromJsonString(Schema.Unknown);
+
+const bySource = (left: Row, right: Row) =>
   left.source_id < right.source_id ? -1 : left.source_id > right.source_id ? 1 : 0;
 
 /** A rostered person holds a Scheduled reservation; a current coverage record holds a Coverage one. */
-const reservation = (commitmentId, personId, coverageId = null) => ({
+const reservation = (commitmentId: string, personId: string, coverageId: string | null = null) => ({
   source_id: coverageId ?? commitmentId + ":" + personId,
   source_kind: coverageId === null ? "Scheduled" : "Coverage",
   commitment_id: commitmentId,
@@ -45,7 +56,7 @@ const reservation = (commitmentId, personId, coverageId = null) => ({
   person_id: personId,
 });
 
-const assertReservations = (step, facts, expected) =>
+const assertReservations = (step: string, facts: Facts, expected: ReadonlyArray<Row>) =>
   assert.deepEqual(
     [...facts.reservations].sort(bySource),
     [...expected].sort(bySource),
@@ -53,20 +64,26 @@ const assertReservations = (step, facts, expected) =>
   );
 
 // Receipts that the executed writes of each checkpoint commit. Rejections and reads commit none.
-const substituteWrites = {
-  "substitute-commitment": ["placements.commandBoard"],
-  "substitute-absence": ["placements.commandOwnCoverage"],
-  "outcome-recorded": ["admissionOutcomes.recordOutcome", "admissionOutcomes.recordOutcome"],
-  "coverage-recorded": ["placements.commandOwnCoverage"],
-  "coverage-replaced": ["placements.commandCoverageBoard"],
-  "coverage-withdrawn": ["placements.commandCoverageBoard"],
-  "coverage-rerecorded": ["placements.commandOwnCoverage"],
-  "substitute-completed": ["placements.commandCoverageBoard"],
-};
+const substituteWrites = new Map<string, ReadonlyArray<string>>([
+  ["substitute-commitment", ["placements.commandBoard"]],
+  ["substitute-absence", ["placements.commandOwnCoverage"]],
+  ["outcome-recorded", ["admissionOutcomes.recordOutcome", "admissionOutcomes.recordOutcome"]],
+  ["coverage-recorded", ["placements.commandOwnCoverage"]],
+  ["coverage-replaced", ["placements.commandCoverageBoard"]],
+  ["coverage-withdrawn", ["placements.commandCoverageBoard"]],
+  ["coverage-rerecorded", ["placements.commandOwnCoverage"]],
+  ["substitute-completed", ["placements.commandCoverageBoard"]],
+]);
 
 // A substitute is an admission outcome. The system records the absence and who covered it;
 // the people involved agree on cover outside the system.
-const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
+const assertSubstituteFacts = (
+  step: string,
+  facts: Facts,
+  previous: Facts,
+  baseline: Facts,
+  fixture: GoldenFixture,
+) => {
   const {
     volunteerId,
     leaderId,
@@ -80,7 +97,7 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
     substituteServiceDate,
   } = fixture;
 
-  const reached = (name) => goldenSteps.indexOf(step) >= goldenSteps.indexOf(name);
+  const reached = (name: string) => goldenSteps.indexOf(step) >= goldenSteps.indexOf(name);
 
   for (const name of [
     "affiliations",
@@ -94,7 +111,7 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
     assert.deepEqual(facts[name], baseline[name], `${step} must not change ${name}`);
 
   // The candidate needs no affiliation or placement: the admission outcome alone puts them on call.
-  assert.ok(facts.affiliations.some((row) => row.person_id === candidateId) !== true);
+  assert.ok(facts.affiliations.some((row: Row) => row.person_id === candidateId) !== true);
   const [scheduled] = baseline.commitments;
   assert.equal(facts.commitments.length, 2);
   assert.deepEqual(facts.commitments[0], scheduled);
@@ -169,12 +186,14 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
 
   // Admission management records the outcome; the highest revision of each application rules.
   assert.deepEqual(
-    facts.admissionOutcomes.map(({ application_id, revision, outcome, decided_by_person_id }) => [
-      application_id,
-      revision,
-      outcome,
-      decided_by_person_id,
-    ]),
+    facts.admissionOutcomes.map(
+      ({ application_id, revision, outcome, decided_by_person_id }: Row) => [
+        application_id,
+        revision,
+        outcome,
+        decided_by_person_id,
+      ],
+    ),
     reached("outcome-recorded")
       ? [
           [applicationId, 1, "Substitute", leaderId],
@@ -197,7 +216,12 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
   );
   const [recorded, replaced, rerecorded] = facts.coverage;
 
-  const assertRecord = (row, coveringPersonId, recordedBy, withdrawnBy) => {
+  const assertRecord = (
+    row: Row,
+    coveringPersonId: string,
+    recordedBy: string,
+    withdrawnBy: string | null,
+  ) => {
     assert.match(row.coverage_id, /^school-service-coverage-[a-f0-9]{64}$/);
     assert.deepEqual(
       [
@@ -208,12 +232,24 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
         row.withdrawn_by_person_id,
         row.withdrawn_at === null,
       ],
-      [absence.absence_id, coveringPersonId, "Substitute", recordedBy, withdrawnBy, withdrawnBy === null],
+      [
+        absence.absence_id,
+        coveringPersonId,
+        "Substitute",
+        recordedBy,
+        withdrawnBy,
+        withdrawnBy === null,
+      ],
     );
   };
 
   if (recorded !== undefined)
-    assertRecord(recorded, candidateId, volunteerId, reached("coverage-replaced") ? leaderId : null);
+    assertRecord(
+      recorded,
+      candidateId,
+      volunteerId,
+      reached("coverage-replaced") ? leaderId : null,
+    );
 
   if (replaced !== undefined) {
     assertRecord(
@@ -230,11 +266,11 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
   }
 
   if (rerecorded !== undefined) assertRecord(rerecorded, candidateId, volunteerId, null);
-  const current = facts.coverage.filter((row) => row.withdrawn_at === null);
+  const current = facts.coverage.filter((row: Row) => row.withdrawn_at === null);
   assertReservations(step, facts, [
     reservation(scheduled.commitment_id, volunteerId),
     reservation(commitment.commitment_id, volunteerId),
-    ...current.map((row) =>
+    ...current.map((row: Row) =>
       reservation(commitment.commitment_id, row.covering_person_id, row.coverage_id),
     ),
   ]);
@@ -379,8 +415,8 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
   assert.deepEqual(
     facts.coverageHistory
       .slice(baseline.coverageHistory.length)
-      .map(({ action, actor_person_id, snapshot }) => [action, actor_person_id, snapshot]),
-    coverageAudit.flatMap(([checkpoint, action, actor, snapshot]) =>
+      .map(({ action, actor_person_id, snapshot }: Row) => [action, actor_person_id, snapshot]),
+    coverageAudit.flatMap(([checkpoint, action, actor, snapshot]: Row) =>
       reached(checkpoint) ? [[action, actor, snapshot()]] : [],
     ),
   );
@@ -390,17 +426,19 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
     assert.equal(entry.semester_id, semesterId);
   }
 
-  const writes = substituteWrites[step] ?? [];
+  const writes = substituteWrites.get(step) ?? [];
 
-  if (writes.length === 0) assert.deepEqual(facts, previous, step + " must not change persisted facts");
+  if (writes.length === 0)
+    assert.deepEqual(facts, previous, step + " must not change persisted facts");
 
   const added = facts.receipts.filter(
-    (row) => previous.receipts.some((old) => old.identity_sha256 === row.identity_sha256) !== true,
+    (row: Row) =>
+      previous.receipts.some((old: Row) => old.identity_sha256 === row.identity_sha256) !== true,
   );
 
   assert.deepEqual(
-    added.map((row) => row.operation_id).sort(),
-    [...writes].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+    added.map((row: Row) => row.operation_id).sort(),
+    [...writes].sort((a: Row, b: Row) => (a < b ? -1 : a > b ? 1 : 0)),
     step + " must commit one successful receipt per executed write",
   );
 
@@ -413,93 +451,146 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
     if (receipt.operation_id === "admissionOutcomes.recordOutcome")
       assert.deepEqual([body.outcome, body.revision], ["Substitute", 1]);
     else if (receipt.operation_id === "placements.commandBoard")
-      assert.ok(body.commitments.some((row) => row.commitmentId === commitment.commitment_id));
+      assert.ok(body.commitments.some((row: Row) => row.commitmentId === commitment.commitment_id));
     else
       assert.deepEqual(
-        body.coverage.map(({ coverageId, coveringPersonId }) => [coverageId, coveringPersonId]),
-        current.map((row) => [row.coverage_id, row.covering_person_id]),
+        body.coverage.map(({ coverageId, coveringPersonId }: Row) => [
+          coverageId,
+          coveringPersonId,
+        ]),
+        current.map((row: Row) => [row.coverage_id, row.covering_person_id]),
       );
   }
 
   if (step === "outcome-recorded")
     assert.deepEqual(
-      added.map((row) => JSON.parse(row.body).applicationId).sort(),
-      [applicationId, secondApplicationId].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+      added.map((row: Row) => JSON.parse(row.body).applicationId).sort(),
+      [applicationId, secondApplicationId].sort((a: Row, b: Row) => (a < b ? -1 : a > b ? 1 : 0)),
     );
 };
 
-export const createGoldenObserver = (pool, fixture, deliveries) => {
-  const observations = [];
-  let previous;
-  let baseline;
+/**
+ * Runs the reads of one checkpoint in a read-only REPEATABLE READ transaction of the connection,
+ * so that they see one snapshot; the transaction commits after the reads and rolls back when one
+ * fails, which then fails with its original cause.
+ */
+const readOnlySnapshot = <A, E>(connection: PoolClient, reads: Effect.Effect<A, E>) =>
+  journeyStep(() => connection.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")).pipe(
+    Effect.andThen(
+      reads.pipe(
+        Effect.tap(() => journeyStep(() => connection.query("COMMIT"))),
+        Effect.onError(() => journeyStep(() => connection.query("ROLLBACK")).pipe(Effect.ignore)),
+      ),
+    ),
+  );
+
+/** The manifest facts of the golden journey that the observer checks rows against. */
+export interface GoldenFixture {
+  readonly volunteerId: string;
+  readonly leaderId: string;
+  readonly candidateId: string;
+  readonly applicationId: string;
+  readonly secondSubstituteId: string;
+  readonly secondApplicationId: string;
+  readonly departmentId: string;
+  readonly semesterId: string;
+  readonly schoolId: number;
+  readonly serviceDate: string;
+  readonly substituteServiceDate: string;
+}
+
+/** One request that the loopback receiver captured from the school-service notification sender. */
+export interface NotificationDelivery {
+  readonly authorization?: string;
+  readonly idempotencyKey?: string;
+  readonly body: Row;
+}
+
+export interface GoldenObserverOptions {
+  readonly pool: Pool;
+  readonly fixture: GoldenFixture;
+  /** The receiver's captures, which the observer reads when the journey finishes. */
+  readonly deliveries: ReadonlyArray<NotificationDelivery>;
+}
+
+/**
+ * The independent observer of the golden school-service journey: each checkpoint reads one
+ * read-only snapshot and asserts the facts of its step, and `finish` asserts the delivered
+ * notification.
+ */
+export const createGoldenObserver = ({ pool, fixture, deliveries }: GoldenObserverOptions) => {
+  const observations: Array<Row> = [];
+  let previous: Row = undefined;
+  let baseline: Row = undefined;
   const { volunteerId, leaderId, departmentId, semesterId, schoolId, serviceDate } = fixture;
 
-  const observe = async (step) => {
+  const observe = Effect.fnUntraced(function* (step: string) {
     assert.equal(
       step,
       goldenSteps[observations.length],
       "every required checkpoint must run in order",
     );
-    let facts;
-    const connection = await pool.connect();
 
-    try {
-      await connection.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
-      const rows = async (sql) => (await connection.query(sql)).rows;
-      facts = {
-        affiliations: await rows(
-          "SELECT * FROM organization_volunteer_affiliations ORDER BY person_id",
-        ),
-        affiliationHistory: await rows(
-          "SELECT * FROM organization_volunteer_affiliation_audit ORDER BY revision",
-        ),
-        placements: await rows("SELECT * FROM assistant_placements ORDER BY placement_id"),
-        placementHistory: await rows("SELECT * FROM assistant_placement_audit ORDER BY revision"),
-        demands: await rows("SELECT * FROM school_service_demand ORDER BY school_id,day,block"),
-        proposals: await rows("SELECT * FROM school_service_proposals ORDER BY created_at"),
-        commitments: await rows(
-          "SELECT *,service_date::text AS service_date,start_time::text AS start_time,end_time::text AS end_time FROM school_service_commitments ORDER BY created_at,commitment_id",
-        ),
-        decisions: await rows(
-          "SELECT * FROM school_service_decisions ORDER BY decided_at,commitment_id",
-        ),
-        occurrences: await rows(
-          "SELECT *,occurred_on::text AS occurred_on FROM school_service_occurrences ORDER BY recorded_at,occurrence_id",
-        ),
-        serviceHistory: await rows("SELECT * FROM school_service_audit ORDER BY audit_id"),
-        coverageHistory: await rows(
-          "SELECT * FROM school_service_coverage_audit ORDER BY audit_id",
-        ),
-        notifications: await rows(
-          "SELECT effect_id,proposal_id,person_id,payload_json FROM school_service_notification_outbox ORDER BY effect_id",
-        ),
-        absences: await rows(
-          "SELECT *,service_date::text AS service_date FROM school_service_absences ORDER BY absence_id",
-        ),
-        coverage: await rows(
-          "SELECT * FROM school_service_coverage_records ORDER BY recorded_at,coverage_id",
-        ),
-        reservations: await rows(
-          "SELECT source_id,source_kind,commitment_id,coverage_id,person_id FROM school_service_person_reservations ORDER BY source_id",
-        ),
-        closures: await rows("SELECT * FROM school_service_closures ORDER BY closure_id"),
-        admissionOutcomes: await rows(
-          "SELECT * FROM admission_application_outcomes ORDER BY application_id,revision",
-        ),
-        receipts: await rows(
-          "SELECT identity_sha256,operation_id,state,status,convert_from(body_bytes,'UTF8') AS body FROM native_http_idempotency_receipts WHERE status BETWEEN 200 AND 299 ORDER BY identity_sha256",
-        ),
-        volunteerAuthority: await rows(
-          `SELECT person_id FROM organization_memberships WHERE person_id='${volunteerId}' UNION ALL SELECT person_id FROM organization_global_administrator_grants WHERE person_id='${volunteerId}'`,
-        ),
-      };
-      await connection.query("COMMIT");
-    } catch (error) {
-      await connection.query("ROLLBACK");
-      throw error;
-    } finally {
-      connection.release();
-    }
+    const facts: Facts = yield* Effect.acquireUseRelease(
+      journeyStep(() => pool.connect()),
+      (connection) => {
+        const rows = (sql: string) =>
+          Effect.map(
+            journeyStep(() => connection.query(sql)),
+            ({ rows }: Row) => rows,
+          );
+
+        return readOnlySnapshot(
+          connection,
+          Effect.all({
+            affiliations: rows(
+              "SELECT * FROM organization_volunteer_affiliations ORDER BY person_id",
+            ),
+            affiliationHistory: rows(
+              "SELECT * FROM organization_volunteer_affiliation_audit ORDER BY revision",
+            ),
+            placements: rows("SELECT * FROM assistant_placements ORDER BY placement_id"),
+            placementHistory: rows("SELECT * FROM assistant_placement_audit ORDER BY revision"),
+            demands: rows("SELECT * FROM school_service_demand ORDER BY school_id,day,block"),
+            proposals: rows("SELECT * FROM school_service_proposals ORDER BY created_at"),
+            commitments: rows(
+              "SELECT *,service_date::text AS service_date,start_time::text AS start_time,end_time::text AS end_time FROM school_service_commitments ORDER BY created_at,commitment_id",
+            ),
+            decisions: rows(
+              "SELECT * FROM school_service_decisions ORDER BY decided_at,commitment_id",
+            ),
+            occurrences: rows(
+              "SELECT *,occurred_on::text AS occurred_on FROM school_service_occurrences ORDER BY recorded_at,occurrence_id",
+            ),
+            serviceHistory: rows("SELECT * FROM school_service_audit ORDER BY audit_id"),
+            coverageHistory: rows("SELECT * FROM school_service_coverage_audit ORDER BY audit_id"),
+            notifications: rows(
+              "SELECT effect_id,proposal_id,person_id,payload_json FROM school_service_notification_outbox ORDER BY effect_id",
+            ),
+            absences: rows(
+              "SELECT *,service_date::text AS service_date FROM school_service_absences ORDER BY absence_id",
+            ),
+            coverage: rows(
+              "SELECT * FROM school_service_coverage_records ORDER BY recorded_at,coverage_id",
+            ),
+            reservations: rows(
+              "SELECT source_id,source_kind,commitment_id,coverage_id,person_id FROM school_service_person_reservations ORDER BY source_id",
+            ),
+            closures: rows("SELECT * FROM school_service_closures ORDER BY closure_id"),
+            admissionOutcomes: rows(
+              "SELECT * FROM admission_application_outcomes ORDER BY application_id,revision",
+            ),
+            receipts: rows(
+              "SELECT identity_sha256,operation_id,state,status,convert_from(body_bytes,'UTF8') AS body FROM native_http_idempotency_receipts WHERE status BETWEEN 200 AND 299 ORDER BY identity_sha256",
+            ),
+            volunteerAuthority: rows(
+              `SELECT person_id FROM organization_memberships WHERE person_id='${volunteerId}' UNION ALL SELECT person_id FROM organization_global_administrator_grants WHERE person_id='${volunteerId}'`,
+            ),
+          }),
+        );
+      },
+      (connection) => Effect.sync(() => connection.release()),
+    );
 
     assert.deepEqual(
       facts.volunteerAuthority,
@@ -531,7 +622,10 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
       }
 
       assert.deepEqual(
-        facts.affiliationHistory.map(({ action, actor_person_id }) => [action, actor_person_id]),
+        facts.affiliationHistory.map(({ action, actor_person_id }: Row) => [
+          action,
+          actor_person_id,
+        ]),
         index >= 2
           ? [
               ["Request", volunteerId],
@@ -557,7 +651,7 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
           [volunteerId, departmentId, semesterId, schoolId, "Monday", "2", 4, true],
         );
         assert.deepEqual(
-          facts.placementHistory.map(({ action, actor_person_id, placement_id }) => [
+          facts.placementHistory.map(({ action, actor_person_id, placement_id }: Row) => [
             action,
             actor_person_id,
             placement_id,
@@ -601,7 +695,7 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
         assert.equal(proposal.demand_snapshot.length, 1);
         assert.equal(proposal.assignment_snapshot.length, 1);
         assert.deepEqual(
-          proposal.demand_snapshot.map(({ schoolId, day, block, requiredVolunteers }) => [
+          proposal.demand_snapshot.map(({ schoolId, day, block, requiredVolunteers }: Row) => [
             schoolId,
             day,
             block,
@@ -610,13 +704,15 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
           [[schoolId, "Monday", "2", 1]],
         );
         assert.deepEqual(
-          proposal.assignment_snapshot.map(({ personId, placementId, schoolId, day, block }) => [
-            personId,
-            placementId,
-            schoolId,
-            day,
-            block,
-          ]),
+          proposal.assignment_snapshot.map(
+            ({ personId, placementId, schoolId, day, block }: Row) => [
+              personId,
+              placementId,
+              schoolId,
+              day,
+              block,
+            ],
+          ),
           [[volunteerId, facts.placements[0].placement_id, schoolId, "Monday", "2"]],
         );
 
@@ -724,13 +820,13 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
       }
 
       assert.deepEqual(
-        facts.serviceHistory.map(({ action, actor_person_id }) => [action, actor_person_id]),
+        facts.serviceHistory.map(({ action, actor_person_id }: Row) => [action, actor_person_id]),
         ["SetDemand", "GenerateProposal", "ConfirmProposal", "ScheduleService"]
           .slice(0, Math.max(0, Math.min(4, index - 4)))
-          .map((action) => [action, leaderId]),
+          .map((action: Row) => [action, leaderId]),
       );
       assert.deepEqual(
-        facts.coverageHistory.map(({ action, actor_person_id }) => [action, actor_person_id]),
+        facts.coverageHistory.map(({ action, actor_person_id }: Row) => [action, actor_person_id]),
         index >= 10 ? [["CompleteService", leaderId]] : [],
       );
 
@@ -740,7 +836,7 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
         assert.ok(entry.occurred_at);
       }
 
-      const snapshots = facts.serviceHistory.map((entry) => entry.snapshot);
+      const snapshots = facts.serviceHistory.map((entry: Row) => entry.snapshot);
 
       if (index >= 5)
         assert.deepEqual(snapshots[0], {
@@ -799,7 +895,9 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
         );
       } else {
         const added = facts.receipts.filter(
-          (row) => previous.receipts.some((old) => old.identity_sha256 === row.identity_sha256) !== true,
+          (row: Row) =>
+            previous.receipts.some((old: Row) => old.identity_sha256 === row.identity_sha256) !==
+            true,
         );
 
         assert.equal(
@@ -808,7 +906,7 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
           `${step} must commit one successful command receipt with its decision`,
         );
         assert.equal(added[0].state, "Complete");
-        const body = JSON.parse(added[0].body);
+        const body: Row = yield* Schema.decodeEffect(UnknownJson)(added[0].body);
         assert.equal(
           added[0].operation_id,
           {
@@ -829,7 +927,7 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
 
           if (step !== "completed") {
             assert.deepEqual(
-              body.affiliations.map(({ personId, status, revision }) => [
+              body.affiliations.map(({ personId, status, revision }: Row) => [
                 personId,
                 status,
                 revision,
@@ -838,7 +936,7 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
             );
             assert.deepEqual(
               body.placements.map(
-                ({ placementId, personId, schoolId, day, block, workdays, active }) => [
+                ({ placementId, personId, schoolId, day, block, workdays, active }: Row) => [
                   placementId,
                   personId,
                   schoolId,
@@ -848,7 +946,7 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
                   active,
                 ],
               ),
-              facts.placements.map((p) => [
+              facts.placements.map((p: Row) => [
                 p.placement_id,
                 p.person_id,
                 Number(p.school_id),
@@ -859,13 +957,13 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
               ]),
             );
             assert.deepEqual(
-              body.demands.map(({ schoolId, day, block, requiredVolunteers }) => [
+              body.demands.map(({ schoolId, day, block, requiredVolunteers }: Row) => [
                 schoolId,
                 day,
                 block,
                 requiredVolunteers,
               ]),
-              facts.demands.map((d) => [
+              facts.demands.map((d: Row) => [
                 Number(d.school_id),
                 d.day,
                 d.block,
@@ -931,7 +1029,11 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
     }
 
     if (step === "independent-read") baseline = facts;
-    const digest = createHash("sha256").update(JSON.stringify(facts)).digest("hex");
+
+    const digest = createHash("sha256")
+      .update(yield* Schema.encodeEffect(UnknownJson)(facts))
+      .digest("hex");
+
     observations.push({
       step,
       boundary: "independent-postgresql",
@@ -946,8 +1048,8 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
         ...facts.placementHistory,
         ...facts.serviceHistory,
         ...facts.coverageHistory,
-      ].map((row) => ({ action: row.action, actor: row.actor_person_id })),
-      successfulReceipts: facts.receipts.map(({ identity_sha256, operation_id, status }) => ({
+      ].map((row: Row) => ({ action: row.action, actor: row.actor_person_id })),
+      successfulReceipts: facts.receipts.map(({ identity_sha256, operation_id, status }: Row) => ({
         identity: identity_sha256,
         operation: operation_id,
         status,
@@ -961,7 +1063,7 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
         occurrences: facts.occurrences,
         closures: facts.closures,
       },
-      effects: facts.notifications.map(({ effect_id, person_id }) => ({
+      effects: facts.notifications.map(({ effect_id, person_id }: Row) => ({
         effectId: effect_id,
         personId: person_id,
       })),
@@ -969,32 +1071,32 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
     previous = facts;
 
     return observations.at(-1);
-  };
+  });
 
-  const finish = async () => {
+  const finish = Effect.fnUntraced(function* () {
     assert.deepEqual(
-      observations.map(({ step }) => step),
+      observations.map(({ step }: Row) => step),
       goldenSteps,
     );
-    const deadline = Date.now() + 15000;
+    const deadline = (yield* Clock.currentTimeMillis) + 15000;
     let notification;
 
     do {
-      notification = (
-        await pool.query(
+      notification = (yield* journeyStep(() =>
+        pool.query(
           "SELECT effect_id,proposal_id,person_id,status,attempts,payload_json FROM school_service_notification_outbox",
-        )
-      ).rows[0];
+        ),
+      )).rows[0];
 
       if (notification?.status === "Delivered") break;
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    } while (Date.now() < deadline);
+      yield* Effect.sleep("50 millis");
+    } while ((yield* Clock.currentTimeMillis) < deadline);
 
     assert.equal(notification?.status, "Delivered");
     const captures = deliveries;
     assert.ok(
       captures.every(
-        (item) =>
+        (item: Row) =>
           item.idempotencyKey === notification.effect_id &&
           item.body.effectId === notification.effect_id,
       ),
@@ -1022,7 +1124,7 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
         realProviderAcceptance: false,
       },
     };
-  };
+  });
 
   return { observe, observations, finish };
 };

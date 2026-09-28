@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { Effect, Schema } from "effect";
+import type { Pool } from "pg";
+import { step as journeyStep } from "../acceptance/journey-step";
 
 export const recruitmentSteps = [
   "initial",
@@ -25,10 +28,10 @@ export const recruitmentSteps = [
 
 export const recruitmentRunnerPaths = [
   "tools/e2e/placement-check.ts",
-  "tools/e2e/golden-recruitment.mjs",
+  "tools/e2e/golden-recruitment.ts",
   "apps/dashboard/e2e/run-real-native-placement.mjs",
   "apps/dashboard/e2e/native-recruitment-first-placement.spec.ts",
-  "tools/e2e/golden-school-service-evidence.mjs",
+  "tools/e2e/golden-school-service-evidence.ts",
 ];
 
 export const recruitmentPeople = {
@@ -70,8 +73,9 @@ export const recruitmentFixture = {
   persons: recruitmentPeople,
 };
 
-export const seedRecruitment = async (pool) => {
-  await pool.query(`
+export const seedRecruitment = (pool: Pool) =>
+  journeyStep(() =>
+    pool.query(`
     INSERT INTO admission_period_departments(department_id,name) VALUES ('recruitment-department','Trondheim'),('recruitment-wrong-department','Annen');
     INSERT INTO admission_period_semesters(semester_id,start_at,end_at) VALUES ('recruitment-semester',date_trunc('milliseconds',now(),'UTC')-interval '720 hours',date_trunc('milliseconds',now(),'UTC')+interval '2160 hours');
     INSERT INTO organization_departments(department_id,name,short_name,email,city,active,independent,revision) VALUES
@@ -91,12 +95,26 @@ export const seedRecruitment = async (pool) => {
     INSERT INTO admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,last_command_id) VALUES('recruitment-period','recruitment-department','recruitment-semester',date_trunc('milliseconds',now(),'UTC')-interval '24 hours',date_trunc('milliseconds',now(),'UTC')+interval '720 hours','prerequisite');
     INSERT INTO recruitment_interview_schemas(interview_schema_id,name,question_count,active,revision) VALUES('recruitment-schema','Rekruttintervju',1,true,0);
     INSERT INTO recruitment_interview_schema_questions(interview_schema_id,question_id,ordinal,prompt,help_text,kind,alternatives) VALUES('recruitment-schema','recruitment-motivation',0,'Hvorfor vil du bidra?',NULL,'text','[]');
-  `);
-};
+  `),
+  ).pipe(Effect.asVoid);
 
 // Private provider bodies stay in memory. Only their digest and delivery status enter evidence.
+// The mailbox and the observer read untyped JSON bodies and pg rows.
+// oxlint-disable-next-line typescript/no-explicit-any -- pg types an untyped row as any, as the calls did
+type Row = any;
+
+/** One delivery attempt that the loopback provider answered. */
+interface MailDelivery {
+  readonly body: Row;
+  readonly status: number;
+  readonly key: string | undefined;
+  readonly digest: string;
+}
+
+const UnknownJson = Schema.fromJsonString(Schema.Unknown);
+
 export const createRecruitmentMailbox = () => {
-  const deliveries = [];
+  const deliveries: Array<MailDelivery> = [];
   let fails = true;
 
   return {
@@ -104,38 +122,47 @@ export const createRecruitmentMailbox = () => {
     recover: () => {
       fails = false;
     },
-    handle: async (request, response) => {
-      if (request.url === "/mail" && request.method === "GET") {
-        response.setHeader("content-type", "application/json");
-        response.end(
-          JSON.stringify(deliveries.flatMap((item) => (item.status === 204 ? [item.body] : []))),
+    // Answers one request of the loopback provider: the delivered mail on GET /mail, and a
+    // recorded delivery attempt on any other path.
+    handle: Effect.fnUntraced(function* (request: Request) {
+      const url = new URL(request.url);
+      const target = url.pathname + url.search;
+
+      if (target === "/mail" && request.method === "GET")
+        return new Response(
+          yield* Schema.encodeEffect(UnknownJson)(
+            deliveries.flatMap((item: Row) => (item.status === 204 ? [item.body] : [])),
+          ),
+          { headers: { "content-type": "application/json" } },
         );
 
-        return;
-      }
-
-      const chunks = [];
-
-      for await (const chunk of request) chunks.push(Buffer.from(chunk));
-      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const text = yield* journeyStep(() => request.text());
+      const body: Row = yield* Schema.decodeEffect(UnknownJson)(text);
 
       const status =
-        request.url === "/onboarding" && body.to === recruitmentPeople.applicant.email && fails
+        target === "/onboarding" && body.to === recruitmentPeople.applicant.email && fails
           ? 503
           : 204;
 
-      assert.equal(request.headers.authorization, "Bearer " + "synthetic-recruitment-provider");
+      assert.equal(
+        request.headers.get("authorization"),
+        "Bearer " + "synthetic-recruitment-provider",
+      );
       deliveries.push({
         body,
         status,
-        key: request.headers["idempotency-key"],
-        digest: createHash("sha256").update(JSON.stringify(body)).digest("hex"),
+        key: request.headers.get("idempotency-key") ?? undefined,
+        digest: createHash("sha256")
+          .update(yield* Schema.encodeEffect(UnknownJson)(body))
+          .digest("hex"),
       });
-      response.statusCode = status;
-      response.end();
-    },
+
+      return new Response(null, { status });
+    }),
   };
 };
+
+export type RecruitmentMailbox = ReturnType<typeof createRecruitmentMailbox>;
 
 const tables = [
   "admission_applications",
@@ -162,15 +189,25 @@ const tables = [
   "assistant_placement_audit",
 ];
 
-export const createRecruitmentObserver = (pool, mailbox) => {
-  const observations = [];
-  let previous;
+export interface RecruitmentObserverOptions {
+  readonly pool: Pool;
+  readonly mailbox: RecruitmentMailbox;
+}
 
-  const observe = async (step) => {
+/**
+ * The independent observer of the golden recruitment journey: each checkpoint reads one snapshot
+ * of the recruitment facts and asserts the facts of its step.
+ */
+export const createRecruitmentObserver = ({ pool, mailbox }: RecruitmentObserverOptions) => {
+  const observations: Array<Row> = [];
+  let previous: Row = undefined;
+
+  const observe = Effect.fnUntraced(function* (step: string) {
     assert.equal(step, recruitmentSteps[observations.length], "checkpoint order");
 
-    const result = await pool.query(`SELECT json_build_object(
-      'counts', json_build_object(${tables.map((table) => `'${table}',(SELECT count(*)::int FROM public.${table})`).join(",")}),
+    const result = yield* journeyStep(() =>
+      pool.query(`SELECT json_build_object(
+      'counts', json_build_object(${tables.map((table: Row) => `'${table}',(SELECT count(*)::int FROM public.${table})`).join(",")}),
       'applications',(SELECT coalesce(json_agg(row_to_json(a) ORDER BY a.email),'[]') FROM (SELECT p.email,a.application_id,a.applicant_id FROM admission_applications a JOIN admission_applicants p USING(applicant_id)) a),
       'interviews',(SELECT coalesce(json_agg(row_to_json(i)),'[]') FROM (SELECT interview_id,application_id,interviewer_person_id,revision FROM recruitment_interviews) i),
       'responses',(SELECT coalesce(json_agg(response_state),'[]') FROM recruitment_invitations),
@@ -186,15 +223,19 @@ export const createRecruitmentObserver = (pool, mailbox) => {
       'applicationOutbox',(SELECT coalesce(json_agg(status ORDER BY effect_id),'[]') FROM admission_application_outbox),
       'interviewDelivery',(SELECT coalesce(json_agg(status),'[]') FROM recruitment_invitation_outbox),
       'completionDelivery',(SELECT coalesce(json_agg(status),'[]') FROM recruitment_interview_completion_outbox)
-    ) AS facts`);
+    ) AS facts`),
+    );
 
     const facts = result.rows[0].facts;
-    const at = (name) => recruitmentSteps.indexOf(step) >= recruitmentSteps.indexOf(name);
-    const n = (table, expected) => assert.equal(facts.counts[table], expected, `${step}: ${table}`);
+    const at = (name: string) => recruitmentSteps.indexOf(step) >= recruitmentSteps.indexOf(name);
+
+    const n = (table: string, expected: number) =>
+      assert.equal(facts.counts[table], expected, `${step}: ${table}`);
+
     n("admission_applications", at("applications") ? 2 : 0);
     n("admission_application_command_receipts", at("applications") ? 2 : 0);
     n("admission_application_outbox", at("applications") ? 6 : 0);
-    assert.ok(facts.applicationOutbox.every((status) => status === "Pending"));
+    assert.ok(facts.applicationOutbox.every((status: Row) => status === "Pending"));
     assert.deepEqual(
       facts.history.assignment,
       at("assigned") ? [recruitmentPeople.leader.personId] : [],
@@ -249,7 +290,7 @@ export const createRecruitmentObserver = (pool, mailbox) => {
 
     if (at("assigned")) {
       const application = facts.applications.find(
-        (a) => a.email === recruitmentPeople.applicant.email,
+        (a: Row) => a.email === recruitmentPeople.applicant.email,
       );
 
       assert.equal(facts.interviews[0].application_id, application.application_id);
@@ -263,7 +304,7 @@ export const createRecruitmentObserver = (pool, mailbox) => {
 
     if (at("recommended"))
       assert.deepEqual(
-        facts.conducts.map((c) => [
+        facts.conducts.map((c: Row) => [
           c.recommendation,
           c.explanatory_power,
           c.role_model,
@@ -275,7 +316,7 @@ export const createRecruitmentObserver = (pool, mailbox) => {
 
     if (step === "invitation-failed") {
       assert.deepEqual(
-        facts.delivery.map((d) => [d.state, d.attempts, d.secret_cleared]),
+        facts.delivery.map((d: Row) => [d.state, d.attempts, d.secret_cleared]),
         [["Pending", 1, false]],
       );
       mailbox.recover();
@@ -283,20 +324,20 @@ export const createRecruitmentObserver = (pool, mailbox) => {
 
     if (step === "invitation-delivered") {
       assert.deepEqual(
-        facts.delivery.map((d) => [d.state, d.attempts, d.secret_cleared, d.envelope_cleared]),
+        facts.delivery.map((d: Row) => [d.state, d.attempts, d.secret_cleared, d.envelope_cleared]),
         [["Delivered", 2, true, true]],
       );
 
       const attempts = mailbox.deliveries.filter(
-        (d) => d.body.to === recruitmentPeople.applicant.email,
+        (d: Row) => d.body.to === recruitmentPeople.applicant.email,
       );
 
       assert.deepEqual(
-        attempts.map((d) => d.status),
+        attempts.map((d: Row) => d.status),
         [503, 204],
       );
-      assert.equal(attempts[0].key, attempts[1].key);
-      assert.equal(attempts[0].digest, attempts[1].digest);
+      assert.equal(attempts[0]?.key, attempts[1]?.key);
+      assert.equal(attempts[0]?.digest, attempts[1]?.digest);
     }
 
     if (
@@ -314,20 +355,23 @@ export const createRecruitmentObserver = (pool, mailbox) => {
         interviewDelivery: _interviewDelivery,
         completionDelivery: _completionDelivery,
         ...rest
-      }) => rest;
+      }: Row) => rest;
 
       assert.deepEqual(stable(facts), stable(previous), `${step}: business facts must not change`);
     }
 
     if (at("affiliation-requested")) {
-      const main = facts.applications.find((a) => a.email === recruitmentPeople.applicant.email);
-      const link = facts.links.find((l) => l.applicant_id === main.applicant_id);
+      const main = facts.applications.find(
+        (a: Row) => a.email === recruitmentPeople.applicant.email,
+      );
+
+      const link = facts.links.find((l: Row) => l.applicant_id === main.applicant_id);
       assert.equal(facts.affiliations[0].person_id, link.person_id);
       assert.equal(facts.affiliations[0].status, at("affiliation-approved") ? "Active" : "Pending");
 
       if (at("placed"))
         assert.deepEqual(
-          facts.placements.map((p) => [
+          facts.placements.map((p: Row) => [
             p.person_id,
             p.school_id,
             p.day,
@@ -343,21 +387,25 @@ export const createRecruitmentObserver = (pool, mailbox) => {
     observations.push({ step, ...facts });
 
     return facts;
-  };
+  });
 
   return {
     observations,
     observe,
     finish: () => {
       assert.deepEqual(
-        observations.map((o) => o.step),
+        observations.map((o: Row) => o.step),
         recruitmentSteps,
       );
       assert.deepEqual(previous.interviewDelivery, ["Delivered"]);
       assert.deepEqual(previous.completionDelivery, ["Delivered"]);
 
       return {
-        deliveries: mailbox.deliveries.map(({ status, key, digest }) => ({ status, key, digest })),
+        deliveries: mailbox.deliveries.map(({ status, key, digest }: Row) => ({
+          status,
+          key,
+          digest,
+        })),
       };
     },
   };

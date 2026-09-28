@@ -330,6 +330,86 @@
         "effect": "4.0.0-rc.116"
       },
       "retirementTrigger": "The effecttsgo rules recognize Playwright page callbacks, or the callback moves to a module whose platform is the browser. Then remove the suppression."
+    },
+    {
+      "id": "EX-0017",
+      "rules": ["FX003"],
+      "scope": {
+        "files": ["tools/e2e/golden-school-service-evidence.ts", "tools/e2e/safe-file-io.ts"],
+        "symbols": [
+          "runForPromiseCaller",
+          "dashboardBuildInventory",
+          "inspectGoldenEvidence",
+          "stageGoldenEvidence",
+          "withProjectionFileLock"
+        ]
+      },
+      "reason": "The evidence reader of the golden school-service journey and the projection file lock are Effect programs, and callers that are no Effect programs yet import them: the CI wrapper `golden-school-service-ci.mjs` awaits the evidence inspection and staging, the browser driver `apps/dashboard/e2e/run-real-native-placement.mjs` awaits the dashboard build inventory, and the conduct driver `apps/dashboard/e2e/run-real-native-recruitment-interview-conduct.mjs` awaits the file lock. Each Promise form runs its Effect form once, the evidence forms with the Bun platform, and rejects with the error that the Effect form failed or died with, so the callers keep their behaviour.",
+      "missingCapability": "None in Effect: Effect.runPromise is the bridge. The requirement stays until the callers become Effect programs.",
+      "nativeAlternatives": [
+        "Rewriting the three callers as Effect programs: they belong to other slices of the rewrite of tools and apps/dashboard/e2e.",
+        "Keeping async functions in the modules: effecttsgo/async-function rejects them."
+      ],
+      "verification": [
+        "`bun test tools/e2e/golden-school-service-evidence.test.ts` runs the Effect forms of the evidence reader and staging and the CI wrapper's early failure.",
+        "`just golden school-service` runs the browser driver, which awaits dashboardBuildInventory.",
+        "`just e2e conduct` runs the conduct driver, which awaits withProjectionFileLock."
+      ],
+      "owner": "tools/e2e",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "@effect/platform-bun": "4.0.0-rc.116"
+      },
+      "retirementTrigger": "The CI wrapper, the placement browser driver, and the conduct driver become Effect programs. Then they use readGoldenEvidence, stageEvidence, readDashboardBuild, and projectionFileLock, and the Promise forms go."
+    },
+    {
+      "id": "EX-0018",
+      "rules": ["FX002", "effecttsgo/node-builtin-import"],
+      "scope": {
+        "files": ["tools/e2e/safe-file-io.ts"],
+        "symbols": [
+          "acquireFileLock",
+          "openDirectoryPathNoFollow",
+          "writeFilePathNoFollow",
+          "projectionLockPath"
+        ]
+      },
+      "reason": "Journey drivers write parity evidence into a shared projection directory. The writer must refuse a symbolic link in any path component and a hard-linked target, so it walks the path one component at a time through /proc/self/fd with O_NOFOLLOW and O_DIRECTORY, checks the link count with fstat, and serializes writers across processes with flock(2) on the descriptor of a lock file.",
+      "missingCapability": "FileSystem.open takes a flag string without O_NOFOLLOW, O_DIRECTORY, or O_NONBLOCK, opens no path relative to a directory descriptor, and FileSystem.File exposes no descriptor for flock(2) in the examined version. The descriptor walk resolves its paths synchronously, where the Path service answers through an Effect.",
+      "nativeAlternatives": [
+        "FileSystem.open and File.stat: no O_NOFOLLOW, no descriptor-relative open, and no descriptor for flock(2).",
+        "FileSystem.stat before each write: it follows links, and a check before the open leaves a race that O_NOFOLLOW closes."
+      ],
+      "verification": [
+        "`just e2e conduct` writes its screenshots and runtime evidence through writeFilePathNoFollow under projectionFileLock."
+      ],
+      "owner": "tools/e2e",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116"
+      },
+      "retirementTrigger": "FileSystem opens with O_NOFOLLOW relative to a directory handle and exposes a descriptor or an advisory lock. Then write through FileSystem and remove the node:fs and node:path imports."
+    },
+    {
+      "id": "EX-0019",
+      "rules": ["FX002", "effecttsgo/process-env"],
+      "scope": {
+        "files": ["tools/e2e/journey-clock.ts"],
+        "symbols": ["admissionJourneyClock"]
+      },
+      "reason": "admissionJourneyClock is a synchronous construct: seeds, Playwright specs, and drivers that are no Effect programs call it at module load or inside Promise code, and it must read ADMISSION_FIXED_NOW at each call, the variable that the backend's admission clock reads, so that fixture instants lie where the backend sees them.",
+      "missingCapability": "None in Effect: Config reads the variable through an Effect, which a synchronous caller outside an Effect runtime cannot run without a runtime bridge of its own.",
+      "nativeAlternatives": [
+        "Config.option(Config.String(\"ADMISSION_FIXED_NOW\")): an Effect, which the synchronous callers cannot yield.",
+        "A parameter for the instant: every caller would read the environment itself instead."
+      ],
+      "verification": [
+        "`just golden school-service` and `just e2e interview-response` derive fixture instants from the clock."
+      ],
+      "owner": "tools/e2e",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116"
+      },
+      "retirementTrigger": "Every caller of admissionJourneyClock is an Effect program. Then read ADMISSION_FIXED_NOW through Config in an Effect form and remove the synchronous one."
     }
   ]
 }

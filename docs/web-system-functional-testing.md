@@ -287,7 +287,7 @@ Screenshots do not create pixel-baseline obligations for the golden suite.
 ### Continuous substitute coverage
 
 The existing golden command continues through [substitute coverage](system.md#substitute-coverage).
-The [source-owned checkpoints](../tools/e2e/golden-school-service.mjs) keep the original journey and add the absence-to-coverage sequence.
+The [source-owned checkpoints](../tools/e2e/golden-school-service.ts) keep the original journey and add the absence-to-coverage sequence.
 A substitute is an admission outcome. People agree on cover outside the system. The system records the absence and the person who covered it.
 The fixture adds two applicants without an outcome and one department member. It creates no outcome, absence, or coverage record.
 
@@ -304,7 +304,7 @@ These synthetic local observations do not establish real-provider delivery or cu
 
 ### Recruitment to first placement
 
-The separate [recruitment observer](../tools/e2e/golden-recruitment.mjs) owns the ordered checkpoints for this continuous native journey.
+The separate [recruitment observer](../tools/e2e/golden-recruitment.ts) owns the ordered checkpoints for this continuous native journey.
 The [browser scenario](../apps/dashboard/e2e/native-recruitment-first-placement.spec.ts) drives the public application, interview, onboarding, affiliation, and first placement.
 Fixtures create prerequisites, not the outcomes under test. Independent PostgreSQL reads bind the same application and Person through the final placement.
 
@@ -358,7 +358,7 @@ See [STATE.md](../STATE.md) for the exercised source revision and remaining gate
 ### Golden CI implementation
 
 The [CI workflow](../.github/workflows/tests.yml) runs the existing journey through the [CI wrapper](../tools/e2e/golden-school-service-ci.mjs).
-The [evidence inspector](../tools/e2e/golden-school-service-evidence.mjs) owns source, build, receipt, and artifact checks.
+The [evidence inspector](../tools/e2e/golden-school-service-evidence.ts) owns source, build, receipt, and artifact checks.
 The wrapper derives upload paths from the checked files after staging. The workflow does not maintain another file inventory.
 Credential checks cover decoded JSON fields and raw diagnostics. Unsupported files cannot enter staging.
 

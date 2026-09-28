@@ -1,17 +1,12 @@
 import { dlopen, FFIType } from "bun:ffi";
 import { createHash } from "node:crypto";
-import {
-  closeSync,
-  constants,
-  fstatSync,
-  ftruncateSync,
-  mkdirSync,
-  openSync,
-  writeFileSync,
-} from "node:fs";
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0018: O_NOFOLLOW opens, /proc/self/fd walks, fstat link counts, and flock need raw descriptors, which a FileSystem File does not expose
+import * as fs from "node:fs";
 import { tmpdir } from "node:os";
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0018: the descriptor walk resolves paths synchronously, where the Path service answers through an Effect
 import { basename, dirname, join, resolve } from "node:path";
-import { Predicate } from "effect";
+import { Effect, Predicate, Semaphore } from "effect";
+import { dual } from "effect/Function";
 
 const lockLibrary = dlopen("libc.so.6", {
   flock: {
@@ -26,25 +21,38 @@ const LOCK_EXCLUSIVE = 2;
 
 const LOCK_RELEASE = 8;
 
-const projectionLockQueues = new Map<string, Promise<void>>();
+/** One in-process queue per lock file: callers of this process take the lock in turn. */
+const projectionLockQueues = new Map<string, Semaphore.Semaphore>();
+
+const projectionLockQueue = (path: string): Semaphore.Semaphore => {
+  const known = projectionLockQueues.get(path);
+
+  if (known !== undefined) return known;
+
+  const created = Semaphore.makeUnsafe(1);
+
+  projectionLockQueues.set(path, created);
+
+  return created;
+};
 
 const acquireFileLock = (path: string, mode: "shared" | "exclusive"): (() => void) => {
-  const descriptor = openSync(
+  const descriptor = fs.openSync(
     path,
-    constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW,
+    fs.constants.O_RDWR | fs.constants.O_CREAT | fs.constants.O_NOFOLLOW,
     0o600,
   );
 
   if (
     lockLibrary.symbols.flock(descriptor, mode === "shared" ? LOCK_SHARED : LOCK_EXCLUSIVE) !== 0
   ) {
-    closeSync(descriptor);
+    fs.closeSync(descriptor);
     throw new Error(`cannot acquire projection lock: ${path}`);
   }
 
   return () => {
     const releaseFailed = lockLibrary.symbols.flock(descriptor, LOCK_RELEASE) !== 0;
-    closeSync(descriptor);
+    fs.closeSync(descriptor);
 
     if (releaseFailed) throw new Error(`cannot release projection lock: ${path}`);
   };
@@ -60,36 +68,65 @@ const projectionLockPath = (projectionDirectory: string): string =>
  * Runs `operation` while holding an advisory `flock` on a per-directory lock file.
  * Callers in one process queue in order; other processes serialize through the kernel lock.
  */
-export const withProjectionFileLock = async <A>(
-  projectionDirectory: string,
-  mode: "shared" | "exclusive",
-  operation: () => Promise<A>,
-): Promise<A> => {
-  const path = projectionLockPath(projectionDirectory);
-  const previous = projectionLockQueues.get(path) ?? Promise.resolve();
-  const { promise: turn, resolve: advanceQueue } = Promise.withResolvers<void>();
+export const projectionFileLock: {
+  <A, E, R>(
+    mode: "shared" | "exclusive",
+    operation: Effect.Effect<A, E, R>,
+  ): (projectionDirectory: string) => Effect.Effect<A, E, R>;
+  <A, E, R>(
+    projectionDirectory: string,
+    mode: "shared" | "exclusive",
+    operation: Effect.Effect<A, E, R>,
+  ): Effect.Effect<A, E, R>;
+} = dual(
+  3,
+  <A, E, R>(
+    projectionDirectory: string,
+    mode: "shared" | "exclusive",
+    operation: Effect.Effect<A, E, R>,
+  ): Effect.Effect<A, E, R> => {
+    const path = projectionLockPath(projectionDirectory);
 
-  const queued = previous.then(() => turn);
-  projectionLockQueues.set(path, queued);
-  await previous;
-  let release: (() => void) | null = null;
+    return Effect.acquireUseRelease(
+      Effect.sync(() => acquireFileLock(path, mode)),
+      () => operation,
+      (release) => Effect.sync(release),
+    ).pipe(projectionLockQueue(path).withPermits(1));
+  },
+);
 
-  try {
-    release = acquireFileLock(path, mode);
+/**
+ * The Promise form of `projectionFileLock`, for the browser drivers that are no Effect programs
+ * yet (EX-0017).
+ */
+export const withProjectionFileLock: {
+  <A>(
+    mode: "shared" | "exclusive",
+    operation: () => Promise<A>,
+  ): (projectionDirectory: string) => Promise<A>;
+  <A>(
+    projectionDirectory: string,
+    mode: "shared" | "exclusive",
+    operation: () => Promise<A>,
+  ): Promise<A>;
+} = dual(
+  3,
+  <A>(
+    projectionDirectory: string,
+    mode: "shared" | "exclusive",
+    operation: () => Promise<A>,
+  ): Promise<A> =>
+    Effect.runPromise(
+      projectionFileLock(
+        projectionDirectory,
+        mode,
+        // A rejection of the operation dies with its original error, which the Promise rejects with.
+        Effect.promise(operation),
+      ),
+    ),
+);
 
-    return await operation();
-  } finally {
-    try {
-      release?.();
-    } finally {
-      advanceQueue();
-
-      if (projectionLockQueues.get(path) === queued) projectionLockQueues.delete(path);
-    }
-  }
-};
-
-const noFollowReadFlags = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
+const noFollowReadFlags = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
 
 const isErrorWithCode = (cause: unknown, code: string): boolean =>
   cause !== null && Predicate.isObjectOrArray(cause) && "code" in cause && cause.code === code;
@@ -99,7 +136,7 @@ const isErrorWithCode = (cause: unknown, code: string): boolean =>
  * With `create`, missing components become directories; a racing creator is tolerated.
  */
 const openDirectoryPathNoFollow = (path: string, create = false): number => {
-  let descriptor = openSync("/", noFollowReadFlags | constants.O_DIRECTORY);
+  let descriptor = fs.openSync("/", noFollowReadFlags | fs.constants.O_DIRECTORY);
 
   const components = resolve(path)
     .split("/")
@@ -111,26 +148,26 @@ const openDirectoryPathNoFollow = (path: string, create = false): number => {
       let next: number;
 
       try {
-        next = openSync(childPath, noFollowReadFlags | constants.O_DIRECTORY);
+        next = fs.openSync(childPath, noFollowReadFlags | fs.constants.O_DIRECTORY);
       } catch (cause) {
         if (!create || !isErrorWithCode(cause, "ENOENT")) throw cause;
 
         try {
-          mkdirSync(childPath);
+          fs.mkdirSync(childPath);
         } catch (mkdirCause) {
           if (!isErrorWithCode(mkdirCause, "EEXIST")) throw mkdirCause;
         }
 
-        next = openSync(childPath, noFollowReadFlags | constants.O_DIRECTORY);
+        next = fs.openSync(childPath, noFollowReadFlags | fs.constants.O_DIRECTORY);
       }
 
-      closeSync(descriptor);
+      fs.closeSync(descriptor);
       descriptor = next;
     }
 
     return descriptor;
   } catch (cause) {
-    closeSync(descriptor);
+    fs.closeSync(descriptor);
     throw new Error(
       `cannot open projection directory without following links: ${path}: ${
         cause instanceof Error ? cause.message : "unknown filesystem error"
@@ -144,27 +181,33 @@ const openDirectoryPathNoFollow = (path: string, create = false): number => {
  * Replaces the contents of `path` without following symlinks in any path component or the
  * final entry. Missing parent directories are created; hard-linked targets are refused.
  */
-export const writeFilePathNoFollow = (path: string, contents: string | Uint8Array): void => {
+export const writeFilePathNoFollow: {
+  (contents: string | Uint8Array): (path: string) => void;
+  (path: string, contents: string | Uint8Array): void;
+} = dual(2, (path: string, contents: string | Uint8Array): void => {
   const parent = openDirectoryPathNoFollow(dirname(path), true);
 
   try {
-    const descriptor = openSync(
+    const descriptor = fs.openSync(
       `/proc/self/fd/${parent}/${basename(path)}`,
-      constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      fs.constants.O_WRONLY |
+        fs.constants.O_CREAT |
+        fs.constants.O_NOFOLLOW |
+        fs.constants.O_NONBLOCK,
       0o600,
     );
 
     try {
-      const metadata = fstatSync(descriptor);
+      const metadata = fs.fstatSync(descriptor);
 
       if (!metadata.isFile() || metadata.nlink !== 1)
         throw new Error(`unsupported or aliased projection evidence entry: ${path}`);
-      ftruncateSync(descriptor, 0);
-      writeFileSync(descriptor, contents);
+      fs.ftruncateSync(descriptor, 0);
+      fs.writeFileSync(descriptor, contents);
     } finally {
-      closeSync(descriptor);
+      fs.closeSync(descriptor);
     }
   } finally {
-    closeSync(parent);
+    fs.closeSync(parent);
   }
-};
+});

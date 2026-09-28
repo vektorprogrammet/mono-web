@@ -1,3 +1,28 @@
+/**
+ * Placement journeys with an owned process lifecycle (0096/0110/0111): the broad placement API
+ * (`--api-only`) and its browser acceptance (`--browser`), the golden school-service journey
+ * (`--golden-school-service`), and the golden recruitment journey (`--golden-recruitment`).
+ *
+ * Boots a private PostgreSQL cluster, a loopback notification receiver and checkpoint observer,
+ * and the native Bun backend on reserved loopback ports, drives the journey, and writes the
+ * evidence and the `native-functional-journey/v1` receipt. It exits 0 when the journey passed,
+ * 130 after SIGINT, 143 after SIGTERM, and 1 otherwise, also when cleanup fails.
+ *
+ * Usage: bun --no-env-file tools/e2e/placement-check.ts --browser | --api-only | --golden-school-service | --golden-recruitment
+ * Faults: GOLDEN_SCHOOL_SERVICE_FAULT, which the browser driver of the golden journey reads.
+ */
+import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
+import * as BunServices from "@effect/platform-bun/BunServices";
+import {
+  type DisposablePostgres,
+  loopbackPortFree,
+  postgresVersion,
+  reserveLoopbackPorts,
+  startDisposablePostgres,
+} from "@monoweb/postgres";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import {
   AffiliationScope,
@@ -10,232 +35,358 @@ import {
 } from "@vektorprogrammet/domain/placements";
 import { IdempotencyKey, StrongETag } from "@vektorprogrammet/rpc/problem";
 import { nativeScriptClient, type ScriptCallResult } from "@vektorprogrammet/rpc/script";
-/** 0096/0110/0111 real local API + browser acceptance with an owned process lifecycle. */
-import assert from "node:assert/strict";
-import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
-import { randomBytes, createHash } from "node:crypto";
-import { mkdtemp, writeFile, readFile, readdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { createRequire } from "node:module";
 import {
-  loopbackPortFree,
-  postgresVersion,
-  reserveLoopbackPorts,
-  startDisposablePostgres,
-  type DisposablePostgres,
-} from "@monoweb/postgres";
-import { Option, Schema, Record as Rec, Struct } from "effect";
-import { createGoldenObserver, goldenFaults, goldenSteps } from "./golden-school-service.mjs";
+  Config,
+  Data,
+  Deferred,
+  Effect,
+  Exit,
+  FiberSet,
+  FileSystem,
+  Layer,
+  Option,
+  Path,
+  Record as Rec,
+  Schema,
+  Scope,
+  Stream,
+  Struct,
+} from "effect";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { ChildProcess } from "effect/unstable/process";
+import { Pool } from "pg";
+import { answersOk, indentedJsonText } from "../acceptance/acceptance-process";
+import {
+  committed,
+  firstSetCookie,
+  jsonText,
+  type JourneyStepFailed,
+  step,
+  thrownBy,
+} from "../acceptance/journey-step";
+import { createGoldenObserver, goldenFaults, goldenSteps } from "./golden-school-service";
 import {
   goldenArtifactName,
   goldenRunnerPaths,
   redactDiagnostic,
   redactedEvidenceJson,
-} from "./golden-school-service-evidence.mjs";
+  sha256,
+} from "./golden-school-service-evidence";
 import {
-  recruitmentSteps,
-  recruitmentRunnerPaths,
-  recruitmentFixture,
-  recruitmentPeople,
-  seedRecruitment,
   createRecruitmentMailbox,
   createRecruitmentObserver,
-} from "./golden-recruitment.mjs";
-import { admissionJourneyClock } from "./journey-clock.ts";
+  recruitmentFixture,
+  recruitmentPeople,
+  recruitmentRunnerPaths,
+  recruitmentSteps,
+  seedRecruitment,
+} from "./golden-recruitment";
+import { admissionJourneyClock } from "./journey-clock";
 
-const root = new URL("../../", import.meta.url).pathname;
+const modes = ["--browser", "--api-only", "--golden-school-service", "--golden-recruitment"];
 
-// Claimed invitations expire after the run. Nothing reads the expiry of a claimed invitation,
-// but it must follow the issue instant.
-const claimExpiresAt = admissionJourneyClock().fromNow(120);
-
-const requireDatabase = createRequire(
-  new URL("../../packages/database/package.json", import.meta.url),
-);
-
-const { Pool } = requireDatabase("pg");
-
-const run = (command: string, args: string[], env = process.env, timeout = 60_000) =>
-  execFileSync(command, args, { cwd: root, env, encoding: "utf8", timeout });
-
-const runAsync = async (command: string, args: string[], env = process.env, timeout = 60_000) => {
-  const child = start(command, args, env);
-  let output = "";
-  child.stdout?.on("data", (chunk) => {
-    output += String(chunk);
-  });
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      void stopChild(child).then(() => reject(Error(command + " timed out")), reject);
-    }, timeout);
-
-    child.once("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timer);
-
-      if (code === 0) resolve();
-      else reject(Error(command + " exited " + code));
-    });
-  });
-
-  return output;
-};
-
-const mode = process.argv[2];
-
-assert.ok(
-  process.argv.length === 3 &&
-    ["--browser", "--api-only", "--golden-school-service", "--golden-recruitment"].includes(
-      mode ?? "",
-    ),
-  "Usage: bun run tools/e2e/placement-check.ts --browser | --api-only | --golden-school-service | --golden-recruitment",
-);
-
-const recruitment = mode === "--golden-recruitment";
-
-const recruitmentMailbox = createRecruitmentMailbox();
-
-const revision = run("git", ["rev-parse", "HEAD"]).trim();
-
-const sourceTree = run("git", ["rev-parse", "HEAD^{tree}"]).trim();
-
-assert.equal(run("git", ["status", "--porcelain"]).trim(), "", "requires committed clean artifact");
-
-const artifacts = await mkdtemp(join(tmpdir(), "vektor-placements-0096-"));
-
-process.stdout.write("artifacts: " + artifacts + "\nrunner-pid: " + process.pid + "\n");
-
-const safeEnvironment: NodeJS.ProcessEnv = Object.fromEntries(
-  [
-    "PATH",
-    "HOME",
-    "TMPDIR",
-    "LANG",
-    "LC_ALL",
-    "TZ",
-    "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH",
-    "PLAYWRIGHT_NODE_EXECUTABLE",
-    "PLAYWRIGHT_BROWSERS_PATH",
-    "GOLDEN_PROCESS_GROUPS_PATH",
-  ].flatMap((key) => (process.env[key] === undefined ? [] : [[key, process.env[key]!]])),
-);
-
-const fault = process.env.GOLDEN_SCHOOL_SERVICE_FAULT;
-
-assert.ok(fault === undefined || goldenFaults.includes(fault), "unknown test-driver fault");
-
-const secrets = [
-  "synthetic-recruitment-provider",
-  "journey-secret-0123456789abcdef",
-  "synthetic-school-service-token",
+/** The variables that the journey passes from the operator shell to its children. */
+const safeEnvironmentKeys = [
+  "PATH",
+  "HOME",
+  "TMPDIR",
+  "LANG",
+  "LC_ALL",
+  "TZ",
+  "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH",
+  "PLAYWRIGHT_NODE_EXECUTABLE",
+  "PLAYWRIGHT_BROWSERS_PATH",
+  "GOLDEN_PROCESS_GROUPS_PATH",
 ];
 
-const sanitize = (value: string) => redactDiagnostic(secrets, value);
+type Environment = Record<string, string>;
 
-const children: ChildProcess[] = [];
-
-let postgres: DisposablePostgres | undefined;
-
-const outputs: string[] = [];
-
-const start = (command: string, args: string[], env = process.env) => {
-  const child = spawn(command, args, { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
-  children.push(child);
-  child.stdout?.on("data", (chunk) => outputs.push(String(chunk)));
-  child.stderr?.on("data", (chunk) => outputs.push(String(chunk)));
-
-  return child;
+type NotificationCapture<Payload> = {
+  authorization?: string;
+  idempotencyKey?: string;
+  readonly body: Payload;
 };
 
-/** Sends SIGTERM, escalates to SIGKILL after five seconds, and resolves on the observed exit. */
-const stopChild = async (child: ChildProcess): Promise<void> => {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(() => child.kill("SIGKILL"), 5_000);
-    child.once("exit", () => {
-      clearTimeout(timer);
-      resolve();
-    });
-    child.kill("SIGTERM");
-  });
-};
+/** A step of the journey that failed: a command, a child, or a readiness wait. */
+class PlacementCheckFailure extends Data.TaggedError("PlacementCheckFailure")<{
+  readonly message: string;
+}> {}
 
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** One child process that the journey owns: its release stops it, escalating to SIGKILL. */
+interface OwnedChild {
+  readonly pid: number;
+  readonly scope: Scope.Closeable;
+  /** The exit code, or null when a signal ended the process. */
+  readonly exit: Deferred.Deferred<number | null>;
+}
 
-let pool: InstanceType<typeof Pool>;
+const DiagnosticLine = Schema.fromJsonString(Schema.Record(Schema.String, Schema.Json));
 
-let evidence: Schema.JsonObject | undefined;
+const BrowserEvidenceJson = Schema.fromJsonString(Schema.JsonObject);
 
-let notificationServer: HttpServer | undefined;
+/** The JSON text of a document; decoding it gives the plain JSON value that the text writes. */
+const JsonDocument = Schema.fromJsonString(Schema.Json);
 
-let checkpoint: ((step: string) => Promise<object>) | undefined;
+const NotificationRequestJson = Schema.fromJsonString(SchoolServiceNotificationRequest);
 
-let observations: Array<{ step: string }> = [];
+const program = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const root = fileURLToPath(new URL("../../", import.meta.url));
 
-let ownedPorts: number[] = [];
+  // Claimed invitations expire after the run. Nothing reads the expiry of a claimed invitation,
+  // but it must follow the issue instant.
+  const claimExpiresAt = admissionJourneyClock().fromNow(120);
 
-let failure: string | undefined;
+  const mode = process.argv[2] ?? "";
 
-let interruptedSignal: "SIGINT" | "SIGTERM" | undefined;
+  assert.ok(
+    process.argv.length === 3 && modes.includes(mode),
+    "Usage: bun run tools/e2e/placement-check.ts --browser | --api-only | --golden-school-service | --golden-recruitment",
+  );
 
-let cleanupPromise: Promise<void> | undefined;
+  const recruitment = mode === "--golden-recruitment";
 
-const cleanup = () =>
-  (cleanupPromise ??= (async () => {
-    const errors: string[] = [];
+  const recruitmentMailbox = createRecruitmentMailbox();
 
-    for (const child of [...children].reverse()) {
-      try {
-        await stopChild(child);
-      } catch (error) {
-        errors.push(sanitize(String(error)));
-      }
-    }
+  const children: Array<OwnedChild> = [];
 
-    try {
-      if (pool !== undefined) await pool.end();
-    } catch (error) {
-      errors.push(sanitize(String(error)));
-    }
+  const outputs: Array<string> = [];
 
-    try {
-      await postgres?.stop();
-    } catch (error) {
-      errors.push(sanitize(String(error)));
-    }
+  /**
+   * Runs one command to its end in the checkout and answers its standard output. Without `env`
+   * the command inherits the environment of the runner.
+   */
+  const run = (
+    command: string,
+    args: ReadonlyArray<string>,
+    env?: Environment,
+    timeout: `${number} seconds` = "60 seconds",
+  ) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const handle = yield* env === undefined
+          ? ChildProcess.make(command, args, { cwd: root, stdin: "ignore" })
+          : ChildProcess.make(command, args, { cwd: root, env, extendEnv: false, stdin: "ignore" });
 
-    try {
-      if (notificationServer?.listening === true)
-        await new Promise<void>((resolve, reject) =>
-          notificationServer!.close((error) => (error !== undefined ? reject(error) : resolve())),
+        const [stdout, stderr, code] = yield* Effect.all(
+          [
+            Stream.mkString(Stream.decodeText(handle.stdout)),
+            Stream.mkString(Stream.decodeText(handle.stderr)),
+            handle.exitCode,
+          ],
+          { concurrency: "unbounded" },
         );
-    } catch (error) {
-      errors.push(sanitize(String(error)));
-    }
 
-    const removed: string[] = [];
+        if (code !== 0)
+          return yield* new PlacementCheckFailure({
+            message: `Command failed: ${[command, ...args].join(" ")}\n${stderr}`,
+          });
 
-    for (const name of ["postgres", "manifest.json"]) {
-      try {
-        await rm(join(artifacts, name), { recursive: true, force: true });
-        removed.push(name);
-      } catch (error) {
-        errors.push(sanitize(String(error)));
-      }
-    }
+        return stdout;
+      }),
+    ).pipe(
+      Effect.timeoutOrElse({
+        duration: timeout,
+        orElse: () => Effect.fail(new PlacementCheckFailure({ message: `${command} timed out` })),
+      }),
+    );
+
+  /** Starts one owned child in the checkout; its output joins the diagnostic outputs. */
+  const start = Effect.fnUntraced(function* (
+    command: string,
+    args: ReadonlyArray<string>,
+    env: Environment,
+  ) {
+    const scope = yield* Scope.make();
+
+    const handle = yield* ChildProcess.make(command, args, {
+      cwd: root,
+      env,
+      extendEnv: false,
+      detached: false,
+      stdin: "ignore",
+      killSignal: "SIGTERM",
+      forceKillAfter: "5 seconds",
+    }).pipe(Scope.provide(scope));
+
+    const exit = yield* Deferred.make<number | null>();
+    const child: OwnedChild = { pid: handle.pid, scope, exit };
+
+    children.push(child);
+
+    for (const stream of [handle.stdout, handle.stderr])
+      yield* stream.pipe(
+        Stream.decodeText(),
+        Stream.runForEach((chunk) => Effect.sync(() => outputs.push(chunk))),
+        Effect.ignore,
+        Effect.forkDetach,
+      );
+
+    yield* handle.exitCode.pipe(
+      Effect.exit,
+      Effect.flatMap((result) =>
+        Deferred.succeed(exit, Exit.isSuccess(result) ? result.value : null),
+      ),
+      Effect.forkDetach,
+    );
+
+    return child;
+  });
+
+  /** Sends SIGTERM, escalates to SIGKILL after five seconds, and ends on the observed exit. */
+  const stopChild = (child: OwnedChild) => Scope.close(child.scope, Exit.void);
+
+  const childExited = (child: OwnedChild) => Deferred.isDone(child.exit);
+
+  /**
+   * Runs one owned child to its end within `timeout`. It fails when the child exits with another
+   * code than 0, and stops the child when the timeout passes.
+   */
+  const runChild = Effect.fnUntraced(function* (
+    command: string,
+    args: ReadonlyArray<string>,
+    env: Environment,
+    timeout: `${number} seconds`,
+  ) {
+    const child = yield* start(command, args, env);
+
+    const code = yield* Deferred.await(child.exit).pipe(
+      Effect.timeoutOrElse({
+        duration: timeout,
+        orElse: () =>
+          stopChild(child).pipe(
+            Effect.andThen(
+              Effect.fail(new PlacementCheckFailure({ message: command + " timed out" })),
+            ),
+          ),
+      }),
+    );
+
+    if (code !== 0)
+      return yield* new PlacementCheckFailure({ message: command + " exited " + String(code) });
+  });
+
+  const revision = (yield* run("git", ["rev-parse", "HEAD"])).trim();
+
+  const sourceTree = (yield* run("git", ["rev-parse", "HEAD^{tree}"])).trim();
+
+  assert.equal(
+    (yield* run("git", ["status", "--porcelain"])).trim(),
+    "",
+    "requires committed clean artifact",
+  );
+
+  const artifacts = yield* fs.makeTempDirectory({ prefix: "vektor-placements-0096-" });
+
+  yield* Effect.sync(() =>
+    process.stdout.write("artifacts: " + artifacts + "\nrunner-pid: " + process.pid + "\n"),
+  );
+
+  const safeEnvironment: Environment = Object.fromEntries(
+    yield* Effect.forEach(safeEnvironmentKeys, (key) =>
+      Effect.map(Config.option(Config.String(key)), (value) =>
+        Option.match(value, { onNone: () => [], onSome: (text) => [[key, text] as const] }),
+      ),
+    ).pipe(Effect.map((entries) => entries.flat())),
+  );
+
+  const fault = Option.getOrUndefined(
+    yield* Config.option(Config.String("GOLDEN_SCHOOL_SERVICE_FAULT")),
+  );
+
+  assert.ok(fault === undefined || goldenFaults.includes(fault), "unknown test-driver fault");
+
+  const secrets = [
+    "synthetic-recruitment-provider",
+    "journey-secret-0123456789abcdef",
+    "synthetic-school-service-token",
+  ];
+
+  const sanitize = (value: string) => redactDiagnostic(secrets, value);
+
+  let postgres: DisposablePostgres | undefined;
+
+  let pool: Pool | undefined;
+
+  /** What the journey recorded; each journey sets it only when it passed. */
+  let evidence: object | undefined;
+
+  let journeyPassed = false;
+
+  let notificationServer: Bun.Server<undefined> | undefined;
+
+  let receiverOpen = false;
+
+  let checkpoint:
+    | ((step: string) => Effect.Effect<unknown, JourneyStepFailed | Schema.SchemaError>)
+    | undefined;
+
+  let observations: Array<{ step: string }> = [];
+
+  let ownedPorts: Array<number> = [];
+
+  let failure: string | undefined;
+
+  let interruptedSignal: "SIGINT" | "SIGTERM" | undefined;
+
+  const interrupted = yield* Deferred.make<void>();
+
+  /** Stops every owned resource, then writes the evidence and the receipt; answers the errors. */
+  const cleanup = Effect.gen(function* () {
+    const errors: Array<string> = [];
+
+    const attempt = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      effect.pipe(
+        Effect.catchCause((cause) =>
+          Effect.sync(() => {
+            errors.push(sanitize(String(thrownBy(cause))));
+          }),
+        ),
+      );
+
+    for (const child of [...children].reverse()) yield* attempt(stopChild(child));
+
+    const observerPool = pool;
+
+    if (observerPool !== undefined) yield* attempt(step(() => observerPool.end()));
+
+    const cluster = postgres;
+
+    if (cluster !== undefined) yield* attempt(step(() => cluster.stop()));
+
+    const server = notificationServer;
+
+    if (server !== undefined && receiverOpen)
+      yield* attempt(
+        step(() => server.stop(true)).pipe(
+          Effect.andThen(
+            Effect.sync(() => {
+              receiverOpen = false;
+            }),
+          ),
+        ),
+      );
+
+    const removed: Array<string> = [];
+
+    for (const name of ["postgres", "manifest.json"])
+      yield* attempt(
+        fs
+          .remove(path.join(artifacts, name), { recursive: true, force: true })
+          .pipe(Effect.andThen(Effect.sync(() => removed.push(name)))),
+      );
 
     for (const number of ownedPorts)
-      if (!(await loopbackPortFree(number))) errors.push("owned port remains occupied: " + number);
+      if (!(yield* Effect.promise(() => loopbackPortFree(number))))
+        errors.push("owned port remains occupied: " + number);
 
     if (errors.length > 0 && failure === undefined) failure = "Resource cleanup failed";
 
+    const exited = yield* Effect.forEach(children, childExited);
+
     const result = Struct.assign(evidence ?? {}, {
-      passed: (evidence?.passed === true || evidence?.apiPassed === true) && failure === undefined,
+      passed: journeyPassed && failure === undefined,
       revision,
       sourceTree,
       cleanSource: true,
@@ -249,60 +400,60 @@ const cleanup = () =>
         .flatMap((line) => {
           if (!line.startsWith('{"diagnostic":"golden-http"')) return [];
 
-          try {
-            const { pid, sequence, method, path, event, elapsed_ms, status } = JSON.parse(line);
-
-            return status === undefined
-              ? [{ pid, sequence, method, path, event, elapsed_ms }]
-              : [{ pid, sequence, method, path, event, elapsed_ms, status }];
-          } catch {
-            return [];
-          }
+          return Option.match(Schema.decodeOption(DiagnosticLine)(line), {
+            onNone: () => [],
+            onSome: ({ pid, sequence, method, path, event, elapsed_ms, status }) =>
+              status === undefined
+                ? [{ pid, sequence, method, path, event, elapsed_ms }]
+                : [{ pid, sequence, method, path, event, elapsed_ms, status }],
+          });
         }),
       cleanup: {
-        processes: children.map((child) => ({
+        processes: children.map((child, index) => ({
           pid: child.pid,
-          exited: child.exitCode !== null || child.signalCode !== null,
+          exited: exited[index] === true,
         })),
-        processesExited: children.every(
-          (child) => child.exitCode !== null || child.signalCode !== null,
-        ),
+        processesExited: exited.every((done) => done),
         ports: ownedPorts,
         portsReleased: errors.length === 0,
         postgresRemoved: removed.includes("postgres"),
         credentialManifestRemoved: removed.includes("manifest.json"),
-        receiverClosed: notificationServer?.listening !== true,
+        receiverClosed: !receiverOpen,
         errors,
       },
     });
 
-    await writeFile(join(artifacts, "evidence.json"), redactedEvidenceJson(secrets, result), {
-      mode: 0o600,
-    });
+    yield* fs.writeFileString(
+      path.join(artifacts, "evidence.json"),
+      redactedEvidenceJson(
+        secrets,
+        yield* Schema.decodeEffect(JsonDocument)(yield* jsonText(result)),
+      ),
+      { mode: 0o600 },
+    );
 
     if (failure !== undefined)
-      await writeFile(join(artifacts, "failure.log"), sanitize(outputs.join("").slice(-24000)), {
-        mode: 0o600,
-      });
+      yield* fs.writeFileString(
+        path.join(artifacts, "failure.log"),
+        sanitize(outputs.join("").slice(-24000)),
+        { mode: 0o600 },
+      );
     const retained = [];
 
-    for (const name of (await readdir(artifacts)).sort()) {
+    for (const name of (yield* fs.readDirectory(artifacts)).sort()) {
       if (goldenArtifactName.test(name) !== true) continue;
-      const bytes = await readFile(join(artifacts, name));
-      retained.push({
-        path: name,
-        sha256: createHash("sha256").update(bytes).digest("hex"),
-        bytes: bytes.length,
-      });
+      const bytes = yield* fs.readFile(path.join(artifacts, name));
+      retained.push({ path: name, sha256: sha256(bytes), bytes: bytes.length });
     }
 
-    const runnerSources = await Promise.all(
-      (recruitment ? recruitmentRunnerPaths : goldenRunnerPaths).map(async (path) => ({
-        path,
-        sha256: createHash("sha256")
-          .update(await readFile(join(root, path)))
-          .digest("hex"),
-      })),
+    const runnerSources = yield* Effect.forEach(
+      recruitment ? recruitmentRunnerPaths : goldenRunnerPaths,
+      (source) =>
+        Effect.map(fs.readFile(path.join(root, source)), (bytes) => ({
+          path: source,
+          sha256: sha256(bytes),
+        })),
+      { concurrency: "unbounded" },
     );
 
     const receipt = {
@@ -331,8 +482,7 @@ const cleanup = () =>
       step_ids: observations.map((item) => item.step),
       runner_sources: runnerSources,
       fixture_digest: "sha256:" + runnerSources[0]!.sha256,
-      artifact_digest:
-        "sha256:" + createHash("sha256").update(JSON.stringify(retained)).digest("hex"),
+      artifact_digest: "sha256:" + sha256(yield* jsonText(retained)),
       artifacts: retained,
       runtime: {
         bun: process.versions.bun,
@@ -340,96 +490,85 @@ const cleanup = () =>
       },
     };
 
-    await writeFile(join(artifacts, "receipt.json"), JSON.stringify(receipt, null, 2), {
-      mode: 0o600,
-    });
-    process.stdout.write(artifacts + "/receipt.json\n");
-
-    if (errors.length > 0) throw Error(errors.join("; "));
-  })());
-
-for (const signal of ["SIGTERM", "SIGINT"] as const)
-  process.once(signal, () => {
-    interruptedSignal = signal;
-    process.exitCode = signal === "SIGINT" ? 130 : 143;
-    failure ??= "Interrupted by " + signal;
-    void cleanup().then(
-      () => process.exit(signal === "SIGINT" ? 130 : 143),
-      () => process.exit(1),
+    yield* fs.writeFileString(
+      path.join(artifacts, "receipt.json"),
+      yield* indentedJsonText(receipt),
+      { mode: 0o600 },
     );
+    yield* Effect.sync(() => process.stdout.write(artifacts + "/receipt.json\n"));
+
+    return errors;
   });
 
-type NotificationCapture<Payload> = {
-  authorization?: string;
-  idempotencyKey?: string;
-  readonly body: Payload;
-};
+  const notificationRequests: Array<NotificationCapture<SchoolServiceNotificationRequest>> = [];
 
-const notificationRequests: Array<NotificationCapture<SchoolServiceNotificationRequest>> = [];
+  /** Answers one request of the loopback receiver: an observer checkpoint or a provider call. */
+  const receive = (request: Request) =>
+    Effect.gen(function* () {
+      const url = new URL(request.url);
+      const target = url.pathname + url.search;
 
-try {
-  journey: {
-    ownedPorts = [...(await reserveLoopbackPorts(recruitment ? 5 : 4))];
-    const [pgPort, backendPort, dashboardPort, notificationPort, homepagePort] = ownedPorts;
-
-    const server = createHttpServer(async (request, response) => {
-      if (request.method === "POST" && request.url?.startsWith("/observe/") === true) {
-        try {
+      if (request.method === "POST" && target.startsWith("/observe/")) {
+        return yield* Effect.gen(function* () {
           assert.ok(checkpoint, "observer not ready");
-          const step = request.url.slice("/observe/".length);
-          const result = await checkpoint(step);
+          const result = yield* checkpoint(target.slice("/observe/".length));
 
-          response.setHeader("content-type", "application/json");
-          response.end(JSON.stringify(result));
-        } catch (error) {
-          response.statusCode = 500;
-          response.end(sanitize(String(error)));
-        }
-
-        return;
+          return new Response(yield* jsonText(result), {
+            headers: { "content-type": "application/json" },
+          });
+        }).pipe(
+          Effect.catchCause((cause) =>
+            Effect.succeed(new Response(sanitize(String(thrownBy(cause))), { status: 500 })),
+          ),
+        );
       }
 
-      if (recruitment) {
-        await recruitmentMailbox.handle(request, response);
+      if (recruitment) return yield* recruitmentMailbox.handle(request);
 
-        return;
-      }
-
-      const chunks: Buffer[] = [];
-
-      for await (const chunk of request) chunks.push(Buffer.from(chunk));
-      const idempotencyKeyHeader = request.headers["idempotency-key"];
-
-      const idempotencyKey = Array.isArray(idempotencyKeyHeader)
-        ? idempotencyKeyHeader[0]
-        : idempotencyKeyHeader;
-
-      const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const idempotencyKey = request.headers.get("idempotency-key");
+      const authorization = request.headers.get("authorization");
 
       const observed: NotificationCapture<SchoolServiceNotificationRequest> = {
-        body: Schema.decodeUnknownSync(SchoolServiceNotificationRequest)(payload),
+        body: yield* Schema.decodeEffect(NotificationRequestJson)(
+          yield* step(() => request.text()),
+        ),
       };
 
-      if (request.headers.authorization !== undefined)
-        observed.authorization = request.headers.authorization;
+      if (authorization !== null) observed.authorization = authorization;
 
-      if (idempotencyKey !== undefined) observed.idempotencyKey = idempotencyKey;
+      if (idempotencyKey !== null) observed.idempotencyKey = idempotencyKey;
       notificationRequests.push(observed);
-      response.statusCode = 204;
-      response.end();
-    });
 
-    notificationServer = server;
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(notificationPort, "127.0.0.1", resolve);
-    });
-    postgres = await startDisposablePostgres({
-      port: pgPort,
-      directory: join(artifacts, "postgres"),
-    });
+      return new Response(null, { status: 204 });
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.succeed(new Response(sanitize(String(thrownBy(cause))), { status: 500 })),
+      ),
+    );
+
+  const serveReceiver = yield* FiberSet.makeRuntimePromise();
+
+  const journey = Effect.gen(function* () {
+    ownedPorts = [...(yield* step(() => reserveLoopbackPorts(recruitment ? 5 : 4)))];
+    const [pgPort, backendPort, dashboardPort, notificationPort, homepagePort] = ownedPorts;
+
+    notificationServer = yield* Effect.try(() =>
+      Bun.serve({
+        hostname: "127.0.0.1",
+        port: notificationPort,
+        fetch: (request) => serveReceiver(receive(request)),
+      }),
+    );
+    receiverOpen = true;
+    postgres = yield* step(() =>
+      startDisposablePostgres({
+        port: pgPort!,
+        directory: path.join(artifacts, "postgres"),
+      }),
+    );
     const postgresUrl = `postgres://postgres@127.0.0.1:${pgPort}/postgres`;
-    pool = new Pool({ connectionString: postgresUrl });
+    const journeyPool = new Pool({ connectionString: postgresUrl });
+    pool = journeyPool;
 
     const backendOrigin = `http://127.0.0.1:${backendPort}`;
     const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
@@ -441,7 +580,7 @@ try {
       BACKEND_PG_URL: postgresUrl,
       BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
       NATIVE_IDENTITY_DEPLOYMENT: "local",
-      NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
+      NATIVE_IDENTITY_TRUSTED_ORIGINS: yield* jsonText([dashboardOrigin]),
       OAUTH_CANONICAL_ORIGIN: backendOrigin,
       OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
       OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
@@ -515,20 +654,20 @@ try {
     const wrongId = "journey-rec-interviewer-b-0049";
 
     if (recruitment) {
-      run("bun", ["--no-env-file", "packages/database/runtime/identity-seed-main.ts"], {
+      yield* run("bun", ["--no-env-file", "packages/database/runtime/identity-seed-main.ts"], {
         ...environment,
         IDENTITY_SEED_PG_URL: postgresUrl,
-        IDENTITY_SEED_PERSONS: JSON.stringify([
+        IDENTITY_SEED_PERSONS: yield* jsonText([
           recruitmentPeople.leader,
           recruitmentPeople.wrongDepartment,
         ]),
       });
-      await seedRecruitment(pool);
+      yield* seedRecruitment(journeyPool);
     } else if (mode === "--golden-school-service") {
-      run("bun", ["--no-env-file", "packages/database/runtime/identity-seed-main.ts"], {
+      yield* run("bun", ["--no-env-file", "packages/database/runtime/identity-seed-main.ts"], {
         ...environment,
         IDENTITY_SEED_PG_URL: postgresUrl,
-        IDENTITY_SEED_PERSONS: JSON.stringify([
+        IDENTITY_SEED_PERSONS: yield* jsonText([
           substitute,
           secondSubstitute,
           member,
@@ -555,7 +694,8 @@ try {
           },
         ]),
       });
-      await pool.query(`
+      yield* step(() =>
+        journeyPool.query(`
       INSERT INTO admission_period_departments(department_id,name) VALUES ('${departmentId}','Trondheim'),('${wrongDepartmentId}','Annen');
       INSERT INTO admission_period_semesters(semester_id,start_at,end_at) VALUES ('${semesterId}','2024-01-01','2024-07-01');
       INSERT INTO organization_departments(department_id,name,short_name,email,city,active,independent,revision) VALUES
@@ -594,15 +734,17 @@ try {
       INSERT INTO person_contact_profiles(person_id,email,phone) VALUES
         ('${substitute.personId}','${substitute.email}','90000111'),
         ('${secondSubstitute.personId}','${secondSubstitute.email}','90000222');
-    `);
+    `),
+      );
     } else {
-      run("bun", ["apps/dashboard/e2e/native-recruitment-journey-seed.mjs"], environment);
-      run("bun", ["run", "--cwd", "packages/database", "identity:seed"], {
+      yield* run("bun", ["apps/dashboard/e2e/native-recruitment-journey-seed.mjs"], environment);
+      yield* run("bun", ["run", "--cwd", "packages/database", "identity:seed"], {
         ...environment,
         IDENTITY_SEED_PG_URL: postgresUrl,
-        IDENTITY_SEED_PERSONS: JSON.stringify([substitute]),
+        IDENTITY_SEED_PERSONS: yield* jsonText([substitute]),
       });
-      await pool.query(`
+      yield* step(() =>
+        journeyPool.query(`
     INSERT INTO admission_period_semesters(semester_id,start_at,end_at) VALUES ('${semesterId}','2024-01-01','2024-07-01');
     INSERT INTO admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,revision,last_command_id) VALUES
       ('admission-period-coverage-0111','${departmentId}','${semesterId}','2024-01-01','2024-07-01',0,'coverage-seed-0111');
@@ -627,28 +769,24 @@ try {
       (963,'Skole Feil avdeling','Kontakt','wrong@example.invalid','synthetic','Norwegian',true,0),
       (964,'Skole Inaktiv','Kontakt','inactive@example.invalid','synthetic','Norwegian',false,0);
     INSERT INTO schools_directory_departments(school_id,department_id,revision) VALUES (961,'${departmentId}',0),(962,'${departmentId}',0),(963,'${wrongDepartmentId}',0),(964,'${departmentId}',0);
-  `);
+  `),
+      );
     }
 
-    const credentialSnapshot = async () =>
-      createHash("sha256")
-        .update(
-          JSON.stringify(
-            (
-              await pool.query(
-                'SELECT id,"userId","providerId",password FROM auth.account ORDER BY id',
-              )
-            ).rows,
-          ),
-        )
-        .digest("hex");
+    const credentialSnapshot = Effect.map(
+      step(() =>
+        journeyPool.query('SELECT id,"userId","providerId",password FROM auth.account ORDER BY id'),
+      ),
+      ({ rows }) => sha256(JSON.stringify(rows)),
+    );
 
-    const credentialsBefore = await credentialSnapshot();
+    const credentialsBefore = yield* credentialSnapshot;
 
-    const peopleBefore = (await pool.query("SELECT * FROM person_profiles ORDER BY person_id"))
-      .rows;
+    const peopleBefore = (yield* step(() =>
+      journeyPool.query("SELECT * FROM person_profiles ORDER BY person_id"),
+    )).rows;
 
-    start(
+    yield* start(
       "bun",
       [
         "--no-env-file",
@@ -661,12 +799,10 @@ try {
     );
 
     for (let n = 0; ; n++) {
-      try {
-        if ((await fetch(`${backendOrigin}/health`)).ok) break;
-      } catch {}
+      if (yield* answersOk(`${backendOrigin}/health`)) break;
 
-      if (n > 150) throw Error("backend startup failed");
-      await delay(200);
+      if (n > 150) return yield* new PlacementCheckFailure({ message: "backend startup failed" });
+      yield* Effect.sleep("200 millis");
     }
 
     const persons = {
@@ -694,34 +830,40 @@ try {
         observerOrigin: `http://127.0.0.1:${notificationPort}`,
       };
 
-      const observer = createRecruitmentObserver(pool, recruitmentMailbox);
+      const observer = createRecruitmentObserver({
+        pool: journeyPool,
+        mailbox: recruitmentMailbox,
+      });
+
       observations = observer.observations;
       checkpoint = observer.observe;
-      await checkpoint("initial");
-      const manifestPath = join(artifacts, "manifest.json");
-      await writeFile(manifestPath, JSON.stringify(manifest), { mode: 0o600 });
-      await runAsync(
+      yield* observer.observe("initial");
+      const manifestPath = path.join(artifacts, "manifest.json");
+      yield* fs.writeFileString(manifestPath, yield* jsonText(manifest), { mode: 0o600 });
+      yield* runChild(
         "bun",
         ["--no-env-file", "apps/dashboard/e2e/run-real-native-placement.mjs"],
         { ...safeEnvironment, PLACEMENT_JOURNEY_MANIFEST: manifestPath },
-        300_000,
+        "300 seconds",
       );
 
-      const browserEvidence = JSON.parse(
-        await readFile(join(artifacts, "browser-evidence.json"), "utf8"),
+      const browserEvidence = yield* Schema.decodeEffect(BrowserEvidenceJson)(
+        yield* fs.readFileString(path.join(artifacts, "browser-evidence.json")),
       );
 
       assert.equal(browserEvidence.passed, true);
       assert.equal(browserEvidence.revision, revision);
       assert.deepEqual(browserEvidence.steps, recruitmentSteps.slice(1));
-      assert.equal(run("git", ["rev-parse", "HEAD"]).trim(), revision);
+      assert.equal((yield* run("git", ["rev-parse", "HEAD"])).trim(), revision);
       assert.equal(
-        run("git", ["status", "--porcelain"]).trim(),
+        (yield* run("git", ["status", "--porcelain"])).trim(),
         "",
         "source changed during acceptance",
       );
       evidence = { passed: true, browser: browserEvidence, ...observer.finish() };
-      break journey;
+      journeyPassed = true;
+
+      return;
     }
 
     if (mode === "--golden-school-service") {
@@ -748,71 +890,76 @@ try {
         observerOrigin: "http://127.0.0.1:" + notificationPort,
       };
 
-      const observer = createGoldenObserver(pool, manifest, notificationRequests);
+      const observer = createGoldenObserver({
+        pool: journeyPool,
+        fixture: manifest,
+        deliveries: notificationRequests,
+      });
 
       observations = observer.observations;
       checkpoint = observer.observe;
-      await checkpoint("initial");
-      const manifestPath = join(artifacts, "manifest.json");
-      await writeFile(manifestPath, JSON.stringify(manifest), { mode: 0o600 });
+      yield* observer.observe("initial");
+      const manifestPath = path.join(artifacts, "manifest.json");
+      yield* fs.writeFileString(manifestPath, yield* jsonText(manifest), { mode: 0o600 });
 
-      const child = start(
+      const child = yield* start(
         "bun",
         ["--no-env-file", "apps/dashboard/e2e/run-real-native-placement.mjs"],
         { ...safeEnvironment, PLACEMENT_JOURNEY_MANIFEST: manifestPath },
       );
 
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          child.kill("SIGTERM");
-          reject(Error("browser acceptance timed out"));
-        }, 300_000);
+      const code = yield* Deferred.await(child.exit).pipe(
+        Effect.timeoutOrElse({
+          duration: "300 seconds",
+          orElse: () =>
+            Effect.fail(new PlacementCheckFailure({ message: "browser acceptance timed out" })),
+        }),
+      );
 
-        child.once("error", reject);
-        child.once("exit", (code) => {
-          clearTimeout(timer);
-
-          if (code === 0) resolve();
-          else reject(Error("browser child exited " + code));
+      if (code !== 0)
+        return yield* new PlacementCheckFailure({
+          message: "browser child exited " + String(code),
         });
-      });
 
-      const browserEvidence = JSON.parse(
-        await readFile(join(artifacts, "browser-evidence.json"), "utf8"),
+      const browserEvidence = yield* Schema.decodeEffect(BrowserEvidenceJson)(
+        yield* fs.readFileString(path.join(artifacts, "browser-evidence.json")),
       );
 
       assert.equal(browserEvidence.passed, true, "required browser evidence absent or failed");
       assert.equal(browserEvidence.revision, revision);
       assert.deepEqual(browserEvidence.steps, goldenSteps.slice(1));
-      const facts = await observer.finish();
-      assert.equal(run("git", ["rev-parse", "HEAD"]).trim(), revision);
+      const facts = yield* observer.finish();
+      assert.equal((yield* run("git", ["rev-parse", "HEAD"])).trim(), revision);
       assert.equal(
-        run("git", ["status", "--porcelain"]).trim(),
+        (yield* run("git", ["status", "--porcelain"])).trim(),
         "",
         "source changed during acceptance",
       );
       evidence = { passed: true, browser: browserEvidence, ...facts };
-      break journey;
+      journeyPassed = true;
+
+      return;
     }
 
-    const login = async (person: { email: string; password: string }) => {
-      const response = await fetch(`${backendOrigin}/api/auth/sign-in/email`, {
-        method: "POST",
-        headers: { "content-type": "application/json", origin: dashboardOrigin },
-        body: JSON.stringify(person),
-      });
+    const login = Effect.fnUntraced(function* (person: { email: string; password: string }) {
+      const response = yield* HttpClient.execute(
+        HttpClientRequest.post(`${backendOrigin}/api/auth/sign-in/email`).pipe(
+          HttpClientRequest.setHeader("origin", dashboardOrigin),
+          HttpClientRequest.bodyJsonUnsafe(person),
+        ),
+      );
 
       assert.equal(response.status, 200);
-      const cookie = response.headers.get("set-cookie")?.split(";")[0];
-      assert.ok(cookie);
+      const cookie = firstSetCookie(response);
+      assert.ok(cookie !== undefined);
 
       return cookie;
-    };
+    });
 
-    const leader = await login(persons.leader),
-      volunteer = await login(persons.volunteer),
-      wrong = await login(persons.wrongDepartment),
-      candidate = await login(persons.candidate);
+    const leader = yield* login(persons.leader),
+      volunteer = yield* login(persons.volunteer),
+      wrong = yield* login(persons.wrongDepartment),
+      candidate = yield* login(persons.candidate);
 
     // Placements are served as RPCs. Each call names the person whose session it forwards.
     const native = nativeScriptClient(backendOrigin);
@@ -821,7 +968,7 @@ try {
     const valueOf = <A>(result: ScriptCallResult<A>): A =>
       result.ok ? result.value : assert.fail(JSON.stringify(result));
 
-    const query = Schema.decodeSync(PlacementScope)({ departmentId, semesterId });
+    const query = yield* Schema.decodeEffect(PlacementScope)({ departmentId, semesterId });
     // Each path names the RPC and scope of the HTTP route it replaced; `request` dispatches on it.
     const boardPath = `/api/placements?${new URLSearchParams(query).toString()}`;
     const ownPath = `/api/placements/affiliation?departmentId=${departmentId}`;
@@ -843,69 +990,70 @@ try {
       body?: Schema.Json,
       etag?: string,
       key = randomBytes(18).toString("base64url"),
-    ): Promise<ScriptCallResult<unknown>> => {
-      const url = new URL(path, backendOrigin);
-      const parameters = Object.fromEntries(url.searchParams);
-      const headers = cookie === undefined ? { origin: dashboardOrigin } : session(cookie);
+    ): Effect.Effect<ScriptCallResult<unknown>, JourneyStepFailed> =>
+      step((): Promise<ScriptCallResult<unknown>> => {
+        const url = new URL(path, backendOrigin);
+        const parameters = Object.fromEntries(url.searchParams);
+        const headers = cookie === undefined ? { origin: dashboardOrigin } : session(cookie);
 
-      if (url.pathname === "/api/placements/affiliation") {
-        const scope = Schema.decodeUnknownSync(AffiliationScope)(parameters);
+        if (url.pathname === "/api/placements/affiliation") {
+          const scope = Schema.decodeUnknownSync(AffiliationScope)(parameters);
 
-        return body === undefined
-          ? native.call(headers, (client) => client["placements.readOwnAffiliation"](scope))
-          : native.call(headers, (client) =>
-              client["placements.commandOwnAffiliation"]({
-                ...scope,
-                ...commandKeys(etag, key),
-                request: Schema.decodeUnknownSync(OwnAffiliationCommand)(body),
-              }),
-            );
-      }
-
-      const scope = Schema.decodeUnknownSync(PlacementScope)(parameters);
-
-      switch (url.pathname) {
-        case "/api/placements":
           return body === undefined
-            ? native.call(headers, (client) => client["placements.readBoard"](scope))
+            ? native.call(headers, (client) => client["placements.readOwnAffiliation"](scope))
             : native.call(headers, (client) =>
-                client["placements.commandBoard"]({
+                client["placements.commandOwnAffiliation"]({
                   ...scope,
                   ...commandKeys(etag, key),
-                  request: Schema.decodeUnknownSync(PlacementCommand)(body),
+                  request: Schema.decodeUnknownSync(OwnAffiliationCommand)(body),
                 }),
               );
-        case "/api/placements/coverage":
-          return body === undefined
-            ? native.call(headers, (client) => client["placements.readCoverageBoard"](scope))
-            : native.call(headers, (client) =>
-                client["placements.commandCoverageBoard"]({
-                  ...scope,
-                  ...commandKeys(etag, key),
-                  request: Schema.decodeUnknownSync(CoverageCommand)(body),
-                }),
-              );
-        case "/api/placements/coverage/own":
-          return body === undefined
-            ? native.call(headers, (client) => client["placements.readOwnCoverage"](scope))
-            : native.call(headers, (client) =>
-                client["placements.commandOwnCoverage"]({
-                  ...scope,
-                  ...commandKeys(etag, key),
-                  request: Schema.decodeUnknownSync(OwnCoverageCommand)(body),
-                }),
-              );
-        default:
-          return assert.fail(`no placement RPC replaces ${url.pathname}`);
-      }
-    };
+        }
+
+        const scope = Schema.decodeUnknownSync(PlacementScope)(parameters);
+
+        switch (url.pathname) {
+          case "/api/placements":
+            return body === undefined
+              ? native.call(headers, (client) => client["placements.readBoard"](scope))
+              : native.call(headers, (client) =>
+                  client["placements.commandBoard"]({
+                    ...scope,
+                    ...commandKeys(etag, key),
+                    request: Schema.decodeUnknownSync(PlacementCommand)(body),
+                  }),
+                );
+          case "/api/placements/coverage":
+            return body === undefined
+              ? native.call(headers, (client) => client["placements.readCoverageBoard"](scope))
+              : native.call(headers, (client) =>
+                  client["placements.commandCoverageBoard"]({
+                    ...scope,
+                    ...commandKeys(etag, key),
+                    request: Schema.decodeUnknownSync(CoverageCommand)(body),
+                  }),
+                );
+          case "/api/placements/coverage/own":
+            return body === undefined
+              ? native.call(headers, (client) => client["placements.readOwnCoverage"](scope))
+              : native.call(headers, (client) =>
+                  client["placements.commandOwnCoverage"]({
+                    ...scope,
+                    ...commandKeys(etag, key),
+                    request: Schema.decodeUnknownSync(OwnCoverageCommand)(body),
+                  }),
+                );
+          default:
+            return assert.fail(`no placement RPC replaces ${url.pathname}`);
+        }
+      });
 
     // The journey reads answers as the untyped JSON bodies it read over HTTP.
-    const expectStatus = async (
+    const expectStatus = (
       response: ScriptCallResult<unknown>,
       status: number,
       code?: string,
-    ): Promise<any> => {
+    ): any => {
       assert.equal(response.status, status, JSON.stringify(response));
 
       if (code !== undefined) assert.equal(response.ok ? undefined : response.code, code);
@@ -913,146 +1061,167 @@ try {
       return response.ok ? response.value : "problem" in response ? response.problem : response;
     };
 
-    const readBoard = async () =>
-      valueOf(
-        await native.call(session(leader), (client) => client["placements.readBoard"](query)),
+    const readBoard = Effect.fnUntraced(function* () {
+      return valueOf(
+        yield* step(() =>
+          native.call(session(leader), (client) => client["placements.readBoard"](query)),
+        ),
       );
+    });
 
-    const command = async (payload: Schema.Json) => {
-      const board = await readBoard();
+    const command = Effect.fnUntraced(function* (payload: Schema.Json) {
+      const board = yield* readBoard();
 
       return valueOf(
-        await native.call(session(leader), (client) =>
-          client["placements.commandBoard"]({
-            ...query,
-            ...commandKeys(board.etag, randomBytes(18).toString("base64url")),
-            request: Schema.decodeUnknownSync(PlacementCommand)(payload),
-          }),
+        yield* step(() =>
+          native.call(session(leader), (client) =>
+            client["placements.commandBoard"]({
+              ...query,
+              ...commandKeys(board.etag, randomBytes(18).toString("base64url")),
+              request: Schema.decodeUnknownSync(PlacementCommand)(payload),
+            }),
+          ),
         ),
       );
-    };
+    });
 
-    const readOwnCoverage = async (cookie: string) =>
-      valueOf(
-        await native.call(session(cookie), (client) => client["placements.readOwnCoverage"](query)),
-      );
-
-    const readCoverageBoard = async () =>
-      valueOf(
-        await native.call(session(leader), (client) =>
-          client["placements.readCoverageBoard"](query),
+    const readOwnCoverage = Effect.fnUntraced(function* (cookie: string) {
+      return valueOf(
+        yield* step(() =>
+          native.call(session(cookie), (client) => client["placements.readOwnCoverage"](query)),
         ),
       );
+    });
 
-    const commandOwnCoverage = async (
+    const readCoverageBoard = Effect.fnUntraced(function* () {
+      return valueOf(
+        yield* step(() =>
+          native.call(session(leader), (client) => client["placements.readCoverageBoard"](query)),
+        ),
+      );
+    });
+
+    const commandOwnCoverage = Effect.fnUntraced(function* (
       cookie: string,
       payload: Schema.Json,
       etag?: string,
       key = randomBytes(18).toString("base64url"),
-    ) => {
-      const current = etag ?? (await readOwnCoverage(cookie)).etag;
+    ) {
+      const current = etag ?? (yield* readOwnCoverage(cookie)).etag;
 
       return valueOf(
-        await native.call(session(cookie), (client) =>
-          client["placements.commandOwnCoverage"]({
-            ...query,
-            ...commandKeys(current, key),
-            request: Schema.decodeUnknownSync(OwnCoverageCommand)(payload),
-          }),
+        yield* step(() =>
+          native.call(session(cookie), (client) =>
+            client["placements.commandOwnCoverage"]({
+              ...query,
+              ...commandKeys(current, key),
+              request: Schema.decodeUnknownSync(OwnCoverageCommand)(payload),
+            }),
+          ),
         ),
       );
-    };
+    });
 
-    const commandCoverage = async (
+    const commandCoverage = Effect.fnUntraced(function* (
       payload: Schema.Json,
       etag?: string,
       key = randomBytes(18).toString("base64url"),
-    ) => {
-      const current = etag ?? (await readCoverageBoard()).etag;
+    ) {
+      const current = etag ?? (yield* readCoverageBoard()).etag;
 
       return valueOf(
-        await native.call(session(leader), (client) =>
-          client["placements.commandCoverageBoard"]({
-            ...query,
-            ...commandKeys(current, key),
-            request: Schema.decodeUnknownSync(CoverageCommand)(payload),
-          }),
+        yield* step(() =>
+          native.call(session(leader), (client) =>
+            client["placements.commandCoverageBoard"]({
+              ...query,
+              ...commandKeys(current, key),
+              request: Schema.decodeUnknownSync(CoverageCommand)(payload),
+            }),
+          ),
         ),
       );
-    };
+    });
 
     // An RPC answer carries no Cache-Control; the backend answers every RPC uncached.
-    await expectStatus(await request(boardPath, leader), 200);
+    expectStatus(yield* request(boardPath, leader), 200);
     assert.deepEqual(
-      (await readBoard()).schools.map((school) => school.schoolId),
+      (yield* readBoard()).schools.map((school) => school.schoolId),
       [961, 962],
     );
     assert.ok(
       valueOf(
-        await native.call(session(leader), (client) => client["placements.listScopes"]()),
+        yield* step(() =>
+          native.call(session(leader), (client) => client["placements.listScopes"]()),
+        ),
       ).semesters.some((semester) => semester.semesterId === semesterId),
     );
-    await expectStatus(await request(boardPath), 401);
-    await expectStatus(await request(boardPath, volunteer), 403, "authority.denied");
-    await expectStatus(await request(boardPath, wrong), 403, "authority.denied");
-    assert.equal(
-      (await expectStatus(await request(ownPath, volunteer), 200)).personId,
-      volunteerId,
-    );
+    expectStatus(yield* request(boardPath), 401);
+    expectStatus(yield* request(boardPath, volunteer), 403, "authority.denied");
+    expectStatus(yield* request(boardPath, wrong), 403, "authority.denied");
+    assert.equal(expectStatus(yield* request(ownPath, volunteer), 200).personId, volunteerId);
     assert.ok(
-      !JSON.stringify(await expectStatus(await request(ownPath, volunteer), 200)).includes(
-        leaderId,
-      ),
+      !(yield* jsonText(expectStatus(yield* request(ownPath, volunteer), 200))).includes(leaderId),
     );
     // A real member still has no coordinator authority; the browser cohort has no team at all.
-    await pool.query(
-      "INSERT INTO organization_memberships(membership_id,person_id,team_id,start_at,end_at,is_team_leader,is_suspended,revision) VALUES ('member-0096',$1,'team-native-journey-0049','2026-01-01',NULL,false,false,0)",
-      [volunteerId],
+    yield* step(() =>
+      journeyPool.query(
+        "INSERT INTO organization_memberships(membership_id,person_id,team_id,start_at,end_at,is_team_leader,is_suspended,revision) VALUES ('member-0096',$1,'team-native-journey-0049','2026-01-01',NULL,false,false,0)",
+        [volunteerId],
+      ),
     );
-    await expectStatus(await request(boardPath, volunteer), 403, "authority.denied");
-    await pool.query("DELETE FROM organization_memberships WHERE membership_id='member-0096'");
-    await pool.query("UPDATE organization_memberships SET is_suspended=true WHERE person_id=$1", [
-      leaderId,
-    ]);
-    await expectStatus(await request(boardPath, leader), 403, "authority.denied");
-    await pool.query("UPDATE organization_memberships SET is_suspended=false WHERE person_id=$1", [
-      leaderId,
-    ]);
-    await pool.query(
-      "INSERT INTO organization_global_administrator_grants(grant_id,person_id,start_at,end_at,revision) VALUES ('admin-0096',$1,'2026-01-01',NULL,0)",
-      [wrongId],
+    expectStatus(yield* request(boardPath, volunteer), 403, "authority.denied");
+    yield* step(() =>
+      journeyPool.query("DELETE FROM organization_memberships WHERE membership_id='member-0096'"),
     );
-    await expectStatus(await request(boardPath, wrong), 200);
-    await pool.query(
-      "DELETE FROM organization_global_administrator_grants WHERE grant_id='admin-0096'",
+    yield* step(() =>
+      journeyPool.query(
+        "UPDATE organization_memberships SET is_suspended=true WHERE person_id=$1",
+        [leaderId],
+      ),
+    );
+    expectStatus(yield* request(boardPath, leader), 403, "authority.denied");
+    yield* step(() =>
+      journeyPool.query(
+        "UPDATE organization_memberships SET is_suspended=false WHERE person_id=$1",
+        [leaderId],
+      ),
+    );
+    yield* step(() =>
+      journeyPool.query(
+        "INSERT INTO organization_global_administrator_grants(grant_id,person_id,start_at,end_at,revision) VALUES ('admin-0096',$1,'2026-01-01',NULL,0)",
+        [wrongId],
+      ),
+    );
+    expectStatus(yield* request(boardPath, wrong), 200);
+    yield* step(() =>
+      journeyPool.query(
+        "DELETE FROM organization_global_administrator_grants WHERE grant_id='admin-0096'",
+      ),
     );
 
     // API cohort uses the coordinator's own Person; browser starts with an untouched no-team volunteer.
-    let own = await expectStatus(await request(ownPath, leader), 200);
+    let own = expectStatus(yield* request(ownPath, leader), 200);
     const ownKey = randomBytes(18).toString("base64url");
 
-    const pending = await expectStatus(
-      await request(ownPath, leader, { action: "Request" }, own.etag, ownKey),
+    const pending = expectStatus(
+      yield* request(ownPath, leader, { action: "Request" }, own.etag, ownKey),
       200,
     );
 
     assert.equal(pending.status, "Pending");
     assert.deepEqual(
-      await expectStatus(
-        await request(ownPath, leader, { action: "Request" }, own.etag, ownKey),
-        200,
-      ),
+      expectStatus(yield* request(ownPath, leader, { action: "Request" }, own.etag, ownKey), 200),
       pending,
     );
-    await expectStatus(
-      await request(ownPath, leader, { action: "Withdraw" }, own.etag, ownKey),
+    expectStatus(
+      yield* request(ownPath, leader, { action: "Withdraw" }, own.etag, ownKey),
       409,
       "idempotency.digest-conflict",
     );
-    await expectStatus(await request(ownPath, leader, { action: "Withdraw" }, pending.etag), 200);
-    own = await expectStatus(await request(ownPath, leader), 200);
-    await expectStatus(await request(ownPath, leader, { action: "Request" }, own.etag), 200);
-    await command({ action: "Affiliation", personId: leaderId, transition: "Establish" });
+    expectStatus(yield* request(ownPath, leader, { action: "Withdraw" }, pending.etag), 200);
+    own = expectStatus(yield* request(ownPath, leader), 200);
+    expectStatus(yield* request(ownPath, leader, { action: "Request" }, own.etag), 200);
+    yield* command({ action: "Affiliation", personId: leaderId, transition: "Establish" });
 
     const create = {
       action: "Create",
@@ -1063,7 +1232,7 @@ try {
       block: "1",
     };
 
-    let board = await readBoard();
+    let board = yield* readBoard();
 
     // The payload requires `ifMatch`, and the command schema rejects these before any call; the
     // RPC server decodes with the same schema and fails such a payload before the handler.
@@ -1076,21 +1245,21 @@ try {
       assert.ok(Option.isNone(Schema.decodeUnknownOption(PlacementCommand)(invalid)));
 
     for (const schoolId of [963, 964])
-      await expectStatus(
-        await request(boardPath, leader, { ...create, schoolId }, board.etag),
+      expectStatus(
+        yield* request(boardPath, leader, { ...create, schoolId }, board.etag),
         422,
         "scope.invalid",
       );
-    await expectStatus(
-      await request(boardPath, leader, { ...create, personId: volunteerId }, board.etag),
+    expectStatus(
+      yield* request(boardPath, leader, { ...create, personId: volunteerId }, board.etag),
       422,
       "affiliation.inactive",
     );
     const createKey = randomBytes(18).toString("base64url");
     const createEtag = board.etag;
 
-    const created = await expectStatus(
-      await request(boardPath, leader, create, board.etag, createKey),
+    const created = expectStatus(
+      yield* request(boardPath, leader, create, board.etag, createKey),
       200,
     );
 
@@ -1099,38 +1268,34 @@ try {
     ).placementId;
 
     assert.deepEqual(
-      await expectStatus(await request(boardPath, leader, create, board.etag, createKey), 200),
+      expectStatus(yield* request(boardPath, leader, create, board.etag, createKey), 200),
       created,
     );
-    await expectStatus(
-      await request(boardPath, leader, { ...create, workdays: 5 }, board.etag, createKey),
+    expectStatus(
+      yield* request(boardPath, leader, { ...create, workdays: 5 }, board.etag, createKey),
       409,
       "idempotency.digest-conflict",
     );
-    await expectStatus(
-      await request(boardPath, leader, { ...create, block: "2" }, board.etag),
+    expectStatus(
+      yield* request(boardPath, leader, { ...create, block: "2" }, board.etag),
       412,
       "precondition.failed",
     );
-    board = await readBoard();
-    await expectStatus(
-      await request(boardPath, leader, create, board.etag),
-      409,
-      "placement.overlap",
-    );
-    await command({ ...create, block: "2" });
-    await command({ ...create, block: "Both" });
+    board = yield* readBoard();
+    expectStatus(yield* request(boardPath, leader, create, board.etag), 409, "placement.overlap");
+    yield* command({ ...create, block: "2" });
+    yield* command({ ...create, block: "Both" });
     // Forging board scope never changes the persisted item's canonical semester.
     const otherPath = `/api/placements?${new URLSearchParams({ departmentId, semesterId: secondSemesterId }).toString()}`;
-    const other = await expectStatus(await request(otherPath, leader), 200);
-    await expectStatus(
-      await request(otherPath, leader, { action: "Remove", placementId }, other.etag),
+    const other = expectStatus(yield* request(otherPath, leader), 200);
+    expectStatus(
+      yield* request(otherPath, leader, { action: "Remove", placementId }, other.etag),
       404,
       "resource.not-found",
     );
-    board = await readBoard();
+    board = yield* readBoard();
 
-    const edits = await Promise.all(
+    const edits = yield* Effect.all(
       [6, 7].map((workdays) =>
         request(
           boardPath,
@@ -1139,235 +1304,247 @@ try {
           board.etag,
         ),
       ),
+      { concurrency: "unbounded" },
     );
 
     assert.equal(edits.filter((r) => r.status === 200).length, 1);
 
     for (const response of edits.filter((r) => r.status !== 200))
-      await expectStatus(
+      expectStatus(
         response,
         response.status === 409 ? 409 : 412,
         response.status === 409 ? "transaction.conflict" : "precondition.failed",
       );
-    await command({ action: "Remove", placementId });
+    yield* command({ action: "Remove", placementId });
 
-    const retained = await pool.query(
-      "SELECT active,revision FROM assistant_placements WHERE placement_id=$1",
-      [placementId],
+    const retained = yield* step(() =>
+      journeyPool.query("SELECT active,revision FROM assistant_placements WHERE placement_id=$1", [
+        placementId,
+      ]),
     );
 
     assert.deepEqual(retained.rows, [{ active: false, revision: 3 }]);
     assert.deepEqual(
-      (
-        await pool.query(
+      (yield* step(() =>
+        journeyPool.query(
           "SELECT action FROM assistant_placement_audit WHERE placement_id=$1 ORDER BY revision",
           [placementId],
-        )
-      ).rows.map((r: { action: string }) => r.action),
+        ),
+      )).rows.map((r: { action: string }) => r.action),
       ["Create", "Edit", "Remove"],
     );
-    board = await readBoard();
+    board = yield* readBoard();
 
-    const concurrentCreates = await Promise.all(
+    const concurrentCreates = yield* Effect.all(
       [0, 1].map(() => request(boardPath, leader, create, board.etag)),
+      { concurrency: "unbounded" },
     );
 
     assert.equal(concurrentCreates.filter((r) => r.status === 200).length, 1);
 
     for (const response of concurrentCreates.filter((r) => r.status !== 200))
-      await expectStatus(
+      expectStatus(
         response,
         response.status === 409 ? 409 : 412,
         response.status === 409 ? "transaction.conflict" : "precondition.failed",
       );
 
-    const replacement = (await readBoard()).placements.find(
+    const replacement = (yield* readBoard()).placements.find(
       (p) => p.personId === leaderId && p.block === "1" && p.active,
     );
 
     assert.ok(replacement);
-    await command({ action: "Remove", placementId: replacement.placementId });
-    await command({ action: "Affiliation", personId: leaderId, transition: "Revoke" });
-    board = await readBoard();
+    yield* command({ action: "Remove", placementId: replacement.placementId });
+    yield* command({ action: "Affiliation", personId: leaderId, transition: "Revoke" });
+    board = yield* readBoard();
     assert.equal(
       board.placements.filter((p) => p.active).length,
       2,
       "affiliation revocation preserves historical placements",
     );
-    await expectStatus(
-      await request(boardPath, leader, create, board.etag),
+    expectStatus(
+      yield* request(boardPath, leader, create, board.etag),
       422,
       "affiliation.inactive",
     );
-    await pool.query("UPDATE organization_memberships SET is_suspended=true WHERE person_id=$1", [
-      leaderId,
-    ]);
-    await expectStatus(
-      await request(boardPath, leader, create, createEtag, createKey),
+    yield* step(() =>
+      journeyPool.query(
+        "UPDATE organization_memberships SET is_suspended=true WHERE person_id=$1",
+        [leaderId],
+      ),
+    );
+    expectStatus(
+      yield* request(boardPath, leader, create, createEtag, createKey),
       403,
       "authority.denied",
     );
-    await pool.query("UPDATE organization_memberships SET is_suspended=false WHERE person_id=$1", [
-      leaderId,
-    ]);
+    yield* step(() =>
+      journeyPool.query(
+        "UPDATE organization_memberships SET is_suspended=false WHERE person_id=$1",
+        [leaderId],
+      ),
+    );
 
-    for (const placement of (await readBoard()).placements.filter(
+    for (const placement of (yield* readBoard()).placements.filter(
       (candidate) => candidate.personId === leaderId && candidate.active,
     ))
-      await command({ action: "Remove", placementId: placement.placementId });
-    assert.equal((await expectStatus(await request(otherPath, leader), 200)).placements.length, 0);
+      yield* command({ action: "Remove", placementId: placement.placementId });
+    assert.equal(expectStatus(yield* request(otherPath, leader), 200).placements.length, 0);
     // The API cohort begins from a confirmed roster; the browser independently
     // confirms a two-person roster through the placement/service journey.
     // The substitute requests no affiliation: her admission outcome alone puts her on call.
-    const wrongAffiliation = await expectStatus(await request(ownPath, wrong), 200);
+    const wrongAffiliation = expectStatus(yield* request(ownPath, wrong), 200);
     assert.equal(wrongAffiliation.status, "Absent");
     assert.equal(
-      (
-        await expectStatus(
-          await request(ownPath, wrong, { action: "Request" }, wrongAffiliation.etag),
-          200,
-        )
+      expectStatus(
+        yield* request(ownPath, wrong, { action: "Request" }, wrongAffiliation.etag),
+        200,
       ).status,
       "Pending",
     );
-    const leaderAffiliation = await expectStatus(await request(ownPath, leader), 200);
+    const leaderAffiliation = expectStatus(yield* request(ownPath, leader), 200);
     assert.equal(leaderAffiliation.status, "Inactive");
     assert.equal(
-      (
-        await expectStatus(
-          await request(ownPath, leader, { action: "Request" }, leaderAffiliation.etag),
-          200,
-        )
+      expectStatus(
+        yield* request(ownPath, leader, { action: "Request" }, leaderAffiliation.etag),
+        200,
       ).status,
       "Pending",
     );
-    await command({ action: "Affiliation", personId: wrongId, transition: "Establish" });
-    await command({ action: "Affiliation", personId: leaderId, transition: "Establish" });
+    yield* command({ action: "Affiliation", personId: wrongId, transition: "Establish" });
+    yield* command({ action: "Affiliation", personId: leaderId, transition: "Establish" });
     const apiCoverageProposalId = `school-service-proposal-${"a".repeat(64)}`;
-    await pool.query(
-      `INSERT INTO school_service_proposals(
+    yield* step(() =>
+      journeyPool.query(
+        `INSERT INTO school_service_proposals(
        proposal_id,department_id,semester_id,status,revision,created_at,created_by_person_id,
        confirmed_at,confirmed_by_person_id,demand_snapshot,assignment_snapshot,exception_snapshot,
        reviewed_exception_ids
      ) VALUES($1,$2,$3,'Confirmed',2,'2024-02-01T10:00:00.000Z',$4,
        '2024-02-01T10:00:00.000Z',$4,$5::jsonb,$6::jsonb,'[]'::jsonb,'[]'::jsonb)`,
-      [
-        apiCoverageProposalId,
-        departmentId,
-        semesterId,
-        leaderId,
-        JSON.stringify([
-          { schoolId: 961, day: "Monday", block: "1", requiredVolunteers: 1, revision: 1 },
-          { schoolId: 961, day: "Monday", block: "2", requiredVolunteers: 1, revision: 1 },
-          { schoolId: 961, day: "Tuesday", block: "1", requiredVolunteers: 1, revision: 1 },
-          { schoolId: 961, day: "Wednesday", block: "1", requiredVolunteers: 2, revision: 1 },
-          { schoolId: 961, day: "Thursday", block: "1", requiredVolunteers: 1, revision: 1 },
-          { schoolId: 961, day: "Friday", block: "1", requiredVolunteers: 1, revision: 1 },
-        ]),
-        JSON.stringify([
-          {
-            placementId: `placement-${"b".repeat(64)}`,
-            personId: volunteerId,
-            firstName: "Irene",
-            lastName: "Intervjuer",
-            schoolId: 961,
-            schoolName: "Skole Alfa",
-            day: "Monday",
-            block: "1",
-          },
-          {
-            placementId: `placement-${"4".repeat(64)}`,
-            personId: volunteerId,
-            firstName: "Irene",
-            lastName: "Intervjuer",
-            schoolId: 961,
-            schoolName: "Skole Alfa",
-            day: "Monday",
-            block: "2",
-          },
-          {
-            placementId: `placement-${"d".repeat(64)}`,
-            personId: leaderId,
-            firstName: "Lina",
-            lastName: "Lagleder",
-            schoolId: 961,
-            schoolName: "Skole Alfa",
-            day: "Tuesday",
-            block: "1",
-          },
-          ...[
-            {
-              day: "Wednesday",
-              personId: leaderId,
-              firstName: "Lina",
-              lastName: "Lagleder",
-              suffix: "e",
-            },
-            {
-              day: "Wednesday",
-              personId: volunteerId,
-              firstName: "Irene",
-              lastName: "Intervjuer",
-              suffix: "f",
-            },
-            {
-              day: "Thursday",
-              personId: leaderId,
-              firstName: "Lina",
-              lastName: "Lagleder",
-              suffix: "1",
-            },
-            {
-              day: "Friday",
-              personId: leaderId,
-              firstName: "Lina",
-              lastName: "Lagleder",
-              suffix: "2",
-            },
-          ].map(({ day, personId, firstName, lastName, suffix }) => ({
-            placementId: `placement-${suffix.repeat(64)}`,
-            personId,
-            firstName,
-            lastName,
-            schoolId: 961,
-            schoolName: "Skole Alfa",
-            day,
-            block: "1",
-          })),
-        ]),
-      ],
-    );
-    const historicalOccurrenceId = `school-service-occurrence-${"3".repeat(64)}`;
-    // Simulate a pre-migration row in the disposable database. Product writes cannot bypass this guard.
-    const fixtureClient = await pool.connect();
-
-    try {
-      await fixtureClient.query("BEGIN");
-      await fixtureClient.query(
-        "ALTER TABLE school_service_occurrences DISABLE TRIGGER school_service_occurrence_insert_guard",
-      );
-      await fixtureClient.query(
-        `INSERT INTO school_service_occurrences(occurrence_id,proposal_id,department_id,semester_id,school_id,day,block,occurred_on,attended_person_ids,recorded_at,recorded_by_person_id)
-        VALUES($1,$2,$3,$4,961,'Friday','1','2024-03-08',$5::jsonb,'2024-03-08T11:30:00.000Z',$6)`,
         [
-          historicalOccurrenceId,
           apiCoverageProposalId,
           departmentId,
           semesterId,
-          JSON.stringify([leaderId]),
           leaderId,
+          JSON.stringify([
+            { schoolId: 961, day: "Monday", block: "1", requiredVolunteers: 1, revision: 1 },
+            { schoolId: 961, day: "Monday", block: "2", requiredVolunteers: 1, revision: 1 },
+            { schoolId: 961, day: "Tuesday", block: "1", requiredVolunteers: 1, revision: 1 },
+            { schoolId: 961, day: "Wednesday", block: "1", requiredVolunteers: 2, revision: 1 },
+            { schoolId: 961, day: "Thursday", block: "1", requiredVolunteers: 1, revision: 1 },
+            { schoolId: 961, day: "Friday", block: "1", requiredVolunteers: 1, revision: 1 },
+          ]),
+          JSON.stringify([
+            {
+              placementId: `placement-${"b".repeat(64)}`,
+              personId: volunteerId,
+              firstName: "Irene",
+              lastName: "Intervjuer",
+              schoolId: 961,
+              schoolName: "Skole Alfa",
+              day: "Monday",
+              block: "1",
+            },
+            {
+              placementId: `placement-${"4".repeat(64)}`,
+              personId: volunteerId,
+              firstName: "Irene",
+              lastName: "Intervjuer",
+              schoolId: 961,
+              schoolName: "Skole Alfa",
+              day: "Monday",
+              block: "2",
+            },
+            {
+              placementId: `placement-${"d".repeat(64)}`,
+              personId: leaderId,
+              firstName: "Lina",
+              lastName: "Lagleder",
+              schoolId: 961,
+              schoolName: "Skole Alfa",
+              day: "Tuesday",
+              block: "1",
+            },
+            ...[
+              {
+                day: "Wednesday",
+                personId: leaderId,
+                firstName: "Lina",
+                lastName: "Lagleder",
+                suffix: "e",
+              },
+              {
+                day: "Wednesday",
+                personId: volunteerId,
+                firstName: "Irene",
+                lastName: "Intervjuer",
+                suffix: "f",
+              },
+              {
+                day: "Thursday",
+                personId: leaderId,
+                firstName: "Lina",
+                lastName: "Lagleder",
+                suffix: "1",
+              },
+              {
+                day: "Friday",
+                personId: leaderId,
+                firstName: "Lina",
+                lastName: "Lagleder",
+                suffix: "2",
+              },
+            ].map(({ day, personId, firstName, lastName, suffix }) => ({
+              placementId: `placement-${suffix.repeat(64)}`,
+              personId,
+              firstName,
+              lastName,
+              schoolId: 961,
+              schoolName: "Skole Alfa",
+              day,
+              block: "1",
+            })),
+          ]),
         ],
-      );
-      await fixtureClient.query(
-        "ALTER TABLE school_service_occurrences ENABLE TRIGGER school_service_occurrence_insert_guard",
-      );
-      await fixtureClient.query("COMMIT");
-    } catch (error) {
-      await fixtureClient.query("ROLLBACK");
-      throw error;
-    } finally {
-      fixtureClient.release();
-    }
+      ),
+    );
+    const historicalOccurrenceId = `school-service-occurrence-${"3".repeat(64)}`;
+    // Simulate a pre-migration row in the disposable database. Product writes cannot bypass this guard.
+    yield* Effect.acquireUseRelease(
+      step(() => journeyPool.connect()),
+      (fixtureClient) =>
+        committed(
+          fixtureClient,
+          Effect.gen(function* () {
+            yield* step(() =>
+              fixtureClient.query(
+                "ALTER TABLE school_service_occurrences DISABLE TRIGGER school_service_occurrence_insert_guard",
+              ),
+            );
+            yield* step(() =>
+              fixtureClient.query(
+                `INSERT INTO school_service_occurrences(occurrence_id,proposal_id,department_id,semester_id,school_id,day,block,occurred_on,attended_person_ids,recorded_at,recorded_by_person_id)
+        VALUES($1,$2,$3,$4,961,'Friday','1','2024-03-08',$5::jsonb,'2024-03-08T11:30:00.000Z',$6)`,
+                [
+                  historicalOccurrenceId,
+                  apiCoverageProposalId,
+                  departmentId,
+                  semesterId,
+                  JSON.stringify([leaderId]),
+                  leaderId,
+                ],
+              ),
+            );
+            yield* step(() =>
+              fixtureClient.query(
+                "ALTER TABLE school_service_occurrences ENABLE TRIGGER school_service_occurrence_insert_guard",
+              ),
+            );
+          }),
+        ),
+      (fixtureClient) => Effect.sync(() => fixtureClient.release()),
+    );
 
     const schedule = (
       day: "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday",
@@ -1394,8 +1571,8 @@ try {
 
     for (const day of Rec.keys(serviceDates)) {
       const serviceDate = serviceDates[day];
-      const before = await readBoard();
-      const result = await command(schedule(day, serviceDate));
+      const before = yield* readBoard();
+      const result = yield* command(schedule(day, serviceDate));
 
       const commitment = result.commitments.find(
         (item) => item.schoolId === 961 && item.serviceDate === serviceDate && item.block === "1",
@@ -1407,77 +1584,82 @@ try {
       commitmentIds.set(day, commitment.commitmentId);
 
       if (day === "Monday") {
-        await expectStatus(
-          await request(boardPath, leader, schedule(day, serviceDate), before.etag),
+        expectStatus(
+          yield* request(boardPath, leader, schedule(day, serviceDate), before.etag),
           412,
           "precondition.failed",
         );
-        await expectStatus(
-          await request(boardPath, leader, schedule(day, serviceDate), result.etag),
+        expectStatus(
+          yield* request(boardPath, leader, schedule(day, serviceDate), result.etag),
           409,
         );
       }
     }
 
-    const commitments = Schema.decodeUnknownSync(
+    const commitments = yield* Schema.decodeUnknownEffect(
       Schema.Struct(Rec.map(serviceDates, () => Schema.String)),
     )(Object.fromEntries(commitmentIds));
 
     assert.equal(
-      (await readCoverageBoard()).commitments.filter(
+      (yield* readCoverageBoard()).commitments.filter(
         (item) => item.proposalId === apiCoverageProposalId,
       ).length,
       4,
     );
     assert.equal(
-      (await readBoard()).commitments.filter((item) => item.proposalId === apiCoverageProposalId)
+      (yield* readBoard()).commitments.filter((item) => item.proposalId === apiCoverageProposalId)
         .length,
       4,
     );
-    await expectStatus(
-      await request(
+    expectStatus(
+      yield* request(
         boardPath,
         volunteer,
         schedule("Monday", serviceDates.Monday),
-        (await readBoard()).etag,
+        (yield* readBoard()).etag,
       ),
       403,
       "authority.denied",
     );
-    await expectStatus(
-      await request(
+    expectStatus(
+      yield* request(
         boardPath,
         leader,
         { ...schedule("Monday", serviceDates.Monday), serviceDate: "2024-03-05" },
-        (await readBoard()).etag,
+        (yield* readBoard()).etag,
       ),
       422,
     );
-    await expectStatus(
-      await request(
+    expectStatus(
+      yield* request(
         boardPath,
         leader,
         { ...schedule("Monday", serviceDates.Monday), startTime: "11:00", endTime: "09:00" },
-        (await readBoard()).etag,
+        (yield* readBoard()).etag,
       ),
       422,
     );
-    await expectStatus(
-      await request(boardPath, leader, schedule("Friday", "2024-03-08"), (await readBoard()).etag),
+    expectStatus(
+      yield* request(
+        boardPath,
+        leader,
+        schedule("Friday", "2024-03-08"),
+        (yield* readBoard()).etag,
+      ),
       409,
     );
     assert.equal(
-      (
-        await pool.query(
+      (yield* step(() =>
+        journeyPool.query(
           "SELECT commitment_id FROM school_service_occurrences WHERE occurrence_id=$1",
           [historicalOccurrenceId],
-        )
-      ).rows[0].commitment_id,
+        ),
+      )).rows[0].commitment_id,
       null,
     );
-    const beforeOverlap = await readBoard();
-    await expectStatus(
-      await request(
+    const beforeOverlap = yield* readBoard();
+    expectStatus(
+      yield* request(
         boardPath,
         leader,
         {
@@ -1492,16 +1674,16 @@ try {
       "commitment.duplicate",
     );
     assert.equal(
-      (await readBoard()).etag,
+      (yield* readBoard()).etag,
       beforeOverlap.etag,
       "overlapping person appointment has no write",
     );
-    assert.equal((await request(ownCoveragePath)).status, 401);
-    assert.equal((await request(coverageBoardPath)).status, 401);
-    await expectStatus(await request(coverageBoardPath, volunteer), 403, "authority.denied");
-    await expectStatus(await request(coverageBoardPath, wrong), 403, "authority.denied");
-    await expectStatus(
-      await request(
+    assert.equal((yield* request(ownCoveragePath)).status, 401);
+    assert.equal((yield* request(coverageBoardPath)).status, 401);
+    expectStatus(yield* request(coverageBoardPath, volunteer), 403, "authority.denied");
+    expectStatus(yield* request(coverageBoardPath, wrong), 403, "authority.denied");
+    expectStatus(
+      yield* request(
         `/api/placements/coverage?${new URLSearchParams({
           departmentId: wrongDepartmentId,
           semesterId,
@@ -1511,8 +1693,8 @@ try {
       403,
       "authority.denied",
     );
-    await expectStatus(await request(ownCoveragePath, volunteer), 200);
-    const initialOwnCoverage = await readOwnCoverage(volunteer);
+    expectStatus(yield* request(ownCoveragePath, volunteer), 200);
+    const initialOwnCoverage = yield* readOwnCoverage(volunteer);
     assert.deepEqual(
       initialOwnCoverage.commitments
         .filter((item) => item.proposalId === apiCoverageProposalId)
@@ -1521,19 +1703,19 @@ try {
       [commitments.Monday, commitments.Wednesday].sort(),
     );
     assert.deepEqual(
-      (await readOwnCoverage(wrong)).commitments.filter(
+      (yield* readOwnCoverage(wrong)).commitments.filter(
         (item) => item.proposalId === apiCoverageProposalId,
       ),
       [],
     );
     assert.deepEqual(
-      (await readOwnCoverage(candidate)).commitments.filter(
+      (yield* readOwnCoverage(candidate)).commitments.filter(
         (item) => item.proposalId === apiCoverageProposalId,
       ),
       [],
     );
-    await expectStatus(
-      await request(
+    expectStatus(
+      yield* request(
         ownCoveragePath,
         volunteer,
         { action: "ReportAbsence", commitmentId: commitments.Tuesday },
@@ -1544,7 +1726,7 @@ try {
     const coveredAbsenceCommand = { action: "ReportAbsence", commitmentId: commitments.Monday };
     const reportAbsenceKey = randomBytes(18).toString("base64url");
 
-    const reportedOwnCoverage = await commandOwnCoverage(
+    const reportedOwnCoverage = yield* commandOwnCoverage(
       volunteer,
       coveredAbsenceCommand,
       initialOwnCoverage.etag,
@@ -1560,8 +1742,8 @@ try {
 
     assert.ok(coveredAbsence);
     assert.deepEqual(
-      await expectStatus(
-        await request(
+      expectStatus(
+        yield* request(
           ownCoveragePath,
           volunteer,
           coveredAbsenceCommand,
@@ -1572,8 +1754,8 @@ try {
       ),
       reportedOwnCoverage,
     );
-    await expectStatus(
-      await request(
+    expectStatus(
+      yield* request(
         ownCoveragePath,
         volunteer,
         { ...coveredAbsenceCommand, commitmentId: commitments.Wednesday },
@@ -1585,9 +1767,9 @@ try {
     );
 
     // A rejected coverage command keeps the board version and every coverage fact.
-    const coverageFacts = async () =>
-      (
-        await pool.query(
+    const coverageFacts = Effect.fnUntraced(function* () {
+      return (yield* step(() =>
+        journeyPool.query(
           `SELECT
            (SELECT count(*)::integer FROM school_service_absences) AS absences,
            (SELECT count(*)::integer FROM school_service_coverage_records) AS records,
@@ -1597,25 +1779,26 @@ try {
            (SELECT count(*)::integer FROM school_service_decisions) AS decisions,
            (SELECT count(*)::integer FROM school_service_closures) AS closures,
            (SELECT count(*)::integer FROM school_service_coverage_audit) AS audit`,
-        )
-      ).rows[0];
+        ),
+      )).rows[0];
+    });
 
-    const rejectedCoverage = async (
+    const rejectedCoverage = Effect.fnUntraced(function* (
       path: string,
       cookie: string,
       payload: Schema.Json,
       etag: string,
       status: number,
       code: string,
-    ) => {
-      const before = { board: (await readCoverageBoard()).etag, facts: await coverageFacts() };
-      await expectStatus(await request(path, cookie, payload, etag), status, code);
+    ) {
+      const before = { board: (yield* readCoverageBoard()).etag, facts: yield* coverageFacts() };
+      expectStatus(yield* request(path, cookie, payload, etag), status, code);
       assert.deepEqual(
-        { board: (await readCoverageBoard()).etag, facts: await coverageFacts() },
+        { board: (yield* readCoverageBoard()).etag, facts: yield* coverageFacts() },
         before,
         `${code} must leave coverage unchanged`,
       );
-    };
+    });
 
     const recordCoverage = (absenceId: string, coveringPersonId: string) => ({
       action: "RecordCoverage",
@@ -1625,25 +1808,26 @@ try {
 
     const withdrawCoverage = (absenceId: string) => ({ action: "WithdrawCoverage", absenceId });
 
-    const reservationsOf = async (commitmentId: string) =>
-      (
-        await pool.query(
+    const reservationsOf = Effect.fnUntraced(function* (commitmentId: string) {
+      return (yield* step(() =>
+        journeyPool.query(
           `SELECT source_kind AS "sourceKind",person_id AS "personId",coverage_id AS "coverageId"
          FROM school_service_person_reservations WHERE commitment_id=$1 ORDER BY source_kind,person_id`,
           [commitmentId],
-        )
-      ).rows;
+        ),
+      )).rows;
+    });
 
     const audit = (action: string, actorPersonId: string) => ({ action, actorPersonId });
 
     // Before an admission outcome nobody can cover: not the applicant, not the absent volunteer,
     // and not a person with an active affiliation but no placement.
-    let coverageBoard = await readCoverageBoard();
+    let coverageBoard = yield* readCoverageBoard();
     assert.deepEqual(coverageBoard.coverers, []);
-    assert.deepEqual((await readOwnCoverage(volunteer)).coverers, []);
+    assert.deepEqual((yield* readOwnCoverage(volunteer)).coverers, []);
 
     for (const personId of [substitute.personId, volunteerId, wrongId])
-      await rejectedCoverage(
+      yield* rejectedCoverage(
         coverageBoardPath,
         leader,
         recordCoverage(coveredAbsence.absenceId, personId),
@@ -1660,26 +1844,30 @@ try {
     const leaderSession = { cookie: leader, origin: dashboardOrigin };
     const outcomeApplicationId = PublicApplicationIdSchema.make(coverageApplicationId);
 
-    const outcomeAnswer = await outcomeClient.call(leaderSession, (client) =>
-      client["admissionOutcomes.readOutcome"]({ applicationId: outcomeApplicationId }),
+    const outcomeAnswer = yield* step(() =>
+      outcomeClient.call(leaderSession, (client) =>
+        client["admissionOutcomes.readOutcome"]({ applicationId: outcomeApplicationId }),
+      ),
     );
 
-    assert.ok(outcomeAnswer.ok, JSON.stringify(outcomeAnswer));
+    assert.ok(outcomeAnswer.ok, yield* jsonText(outcomeAnswer));
     const outcomeEntry = outcomeAnswer.value;
 
     assert.deepEqual([outcomeEntry.outcome, outcomeEntry.revision], [null, 0]);
 
-    const onCallAnswer = await outcomeClient.call(leaderSession, (client) =>
-      client["admissionOutcomes.recordOutcome"]({
-        applicationId: outcomeApplicationId,
-        idempotencyKey: IdempotencyKey.make(randomBytes(18).toString("base64url")),
-        ifMatch: outcomeEntry.etag,
-        request: { outcome: "Substitute" },
-      }),
+    const onCallAnswer = yield* step(() =>
+      outcomeClient.call(leaderSession, (client) =>
+        client["admissionOutcomes.recordOutcome"]({
+          applicationId: outcomeApplicationId,
+          idempotencyKey: IdempotencyKey.make(randomBytes(18).toString("base64url")),
+          ifMatch: outcomeEntry.etag,
+          request: { outcome: "Substitute" },
+        }),
+      ),
     );
 
-    await outcomeClient.dispose();
-    assert.ok(onCallAnswer.ok, JSON.stringify(onCallAnswer));
+    yield* step(() => outcomeClient.dispose());
+    assert.ok(onCallAnswer.ok, yield* jsonText(onCallAnswer));
     const onCall = onCallAnswer.value;
 
     assert.deepEqual([onCall.outcome, onCall.revision], ["Substitute", 1]);
@@ -1691,11 +1879,11 @@ try {
       kind: "Substitute",
     };
 
-    coverageBoard = await readCoverageBoard();
+    coverageBoard = yield* readCoverageBoard();
     assert.deepEqual(coverageBoard.coverers, [onCallCoverer]);
-    assert.deepEqual((await readOwnCoverage(volunteer)).coverers, [onCallCoverer]);
+    assert.deepEqual((yield* readOwnCoverage(volunteer)).coverers, [onCallCoverer]);
     assert.deepEqual(
-      (await readOwnCoverage(candidate)).coverers,
+      (yield* readOwnCoverage(candidate)).coverers,
       [],
       "only a person with an open absence sees the names of possible coverers",
     );
@@ -1706,20 +1894,20 @@ try {
         recordCoverage(coveredAbsence.absenceId, substitute.personId),
         withdrawCoverage(coveredAbsence.absenceId),
       ])
-        await rejectedCoverage(
+        yield* rejectedCoverage(
           ownCoveragePath,
           cookie,
           payload,
-          (await readOwnCoverage(cookie)).etag,
+          (yield* readOwnCoverage(cookie)).etag,
           403,
           "coverage.owner-invalid",
         );
 
     // The absent volunteer records who agreed to cover; the record reserves that person.
-    const ownBeforeRecord = await readOwnCoverage(volunteer);
+    const ownBeforeRecord = yield* readOwnCoverage(volunteer);
     const recordKey = randomBytes(18).toString("base64url");
 
-    const recordedOwn = await commandOwnCoverage(
+    const recordedOwn = yield* commandOwnCoverage(
       volunteer,
       recordCoverage(coveredAbsence.absenceId, substitute.personId),
       ownBeforeRecord.etag,
@@ -1741,8 +1929,8 @@ try {
       [substitute.personId, substitute.firstName, "Substitute", volunteerId],
     );
     assert.deepEqual(
-      await expectStatus(
-        await request(
+      expectStatus(
+        yield* request(
           ownCoveragePath,
           volunteer,
           recordCoverage(coveredAbsence.absenceId, substitute.personId),
@@ -1753,8 +1941,8 @@ try {
       ),
       recordedOwn,
     );
-    await expectStatus(
-      await request(
+    expectStatus(
+      yield* request(
         ownCoveragePath,
         volunteer,
         withdrawCoverage(coveredAbsence.absenceId),
@@ -1764,8 +1952,8 @@ try {
       409,
       "idempotency.digest-conflict",
     );
-    await expectStatus(
-      await request(
+    expectStatus(
+      yield* request(
         ownCoveragePath,
         volunteer,
         withdrawCoverage(coveredAbsence.absenceId),
@@ -1774,14 +1962,14 @@ try {
       412,
       "precondition.failed",
     );
-    assert.deepEqual(await reservationsOf(commitments.Monday), [
+    assert.deepEqual(yield* reservationsOf(commitments.Monday), [
       { sourceKind: "Coverage", personId: substitute.personId, coverageId: firstRecord.coverageId },
       { sourceKind: "Scheduled", personId: volunteerId, coverageId: null },
     ]);
 
     // An active placement makes the coordinator an assistant who can cover. Recording her
     // replaces the current record: withdrawal and new record share one transaction.
-    const assistantBoard = await command({
+    const assistantBoard = yield* command({
       action: "Create",
       personId: leaderId,
       schoolId: 961,
@@ -1800,14 +1988,16 @@ try {
 
     assert.ok(assistantPlacement);
     assert.deepEqual(
-      (await readCoverageBoard()).coverers.map((coverer) => [coverer.personId, coverer.kind]),
+      (yield* readCoverageBoard()).coverers.map((coverer) => [coverer.personId, coverer.kind]),
       [
         [substitute.personId, "Substitute"],
         [leaderId, "Assistant"],
       ],
     );
 
-    const replacedBoard = await commandCoverage(recordCoverage(coveredAbsence.absenceId, leaderId));
+    const replacedBoard = yield* commandCoverage(
+      recordCoverage(coveredAbsence.absenceId, leaderId),
+    );
 
     const replacingRecord = replacedBoard.coverage.find(
       (item) => item.absenceId === coveredAbsence.absenceId,
@@ -1823,32 +2013,32 @@ try {
       [leaderId, "Assistant", leaderId],
     );
     assert.deepEqual(
-      (
-        await pool.query(
+      (yield* step(() =>
+        journeyPool.query(
           `SELECT withdrawn_by_person_id AS "withdrawnBy",
            withdrawn_at=(SELECT recorded_at FROM school_service_coverage_records
              WHERE coverage_id=$2) AS "sameTransaction"
          FROM school_service_coverage_records WHERE coverage_id=$1`,
           [firstRecord.coverageId, replacingRecord.coverageId],
-        )
-      ).rows,
+        ),
+      )).rows,
       [{ withdrawnBy: leaderId, sameTransaction: true }],
     );
-    assert.deepEqual(await reservationsOf(commitments.Monday), [
+    assert.deepEqual(yield* reservationsOf(commitments.Monday), [
       { sourceKind: "Coverage", personId: leaderId, coverageId: replacingRecord.coverageId },
       { sourceKind: "Scheduled", personId: volunteerId, coverageId: null },
     ]);
 
     // Withdrawal leaves the absence uncovered and releases the covering person.
-    const withdrawnBoard = await commandCoverage(withdrawCoverage(coveredAbsence.absenceId));
+    const withdrawnBoard = yield* commandCoverage(withdrawCoverage(coveredAbsence.absenceId));
     assert.deepEqual(
       withdrawnBoard.coverage.filter((item) => item.absenceId === coveredAbsence.absenceId),
       [],
     );
-    assert.deepEqual(await reservationsOf(commitments.Monday), [
+    assert.deepEqual(yield* reservationsOf(commitments.Monday), [
       { sourceKind: "Scheduled", personId: volunteerId, coverageId: null },
     ]);
-    await rejectedCoverage(
+    yield* rejectedCoverage(
       coverageBoardPath,
       leader,
       withdrawCoverage(coveredAbsence.absenceId),
@@ -1865,7 +2055,7 @@ try {
       evidenceSource: "Skole Alfa kontakt, telefon 2024-03-04",
     };
 
-    await rejectedCoverage(
+    yield* rejectedCoverage(
       coverageBoardPath,
       leader,
       completeCovered,
@@ -1874,7 +2064,7 @@ try {
       "commitment.outcome-invalid",
     );
 
-    let closeCoverageBoard = await commandCoverage(
+    let closeCoverageBoard = yield* commandCoverage(
       recordCoverage(coveredAbsence.absenceId, substitute.personId),
       withdrawnBoard.etag,
     );
@@ -1889,13 +2079,13 @@ try {
       [substitute.personId, leaderId],
     );
     assert.deepEqual(
-      (await readOwnCoverage(candidate)).commitments
+      (yield* readOwnCoverage(candidate)).commitments
         .filter((item) => item.proposalId === apiCoverageProposalId)
         .map((item) => item.commitmentId),
       [commitments.Monday],
       "the covering person reads the service she covers",
     );
-    await rejectedCoverage(
+    yield* rejectedCoverage(
       coverageBoardPath,
       leader,
       {
@@ -1910,7 +2100,7 @@ try {
     );
     const completeKey = randomBytes(18).toString("base64url");
 
-    const coveredClosure = await commandCoverage(
+    const coveredClosure = yield* commandCoverage(
       completeCovered,
       closeCoverageBoard.etag,
       completeKey,
@@ -1943,8 +2133,8 @@ try {
       ],
     );
     assert.deepEqual(
-      await expectStatus(
-        await request(
+      expectStatus(
+        yield* request(
           coverageBoardPath,
           leader,
           completeCovered,
@@ -1955,7 +2145,7 @@ try {
       ),
       coveredClosure,
     );
-    closeCoverageBoard = await readCoverageBoard();
+    closeCoverageBoard = yield* readCoverageBoard();
 
     // A decided service accepts no second decision, absence or coverage change.
     for (const [path, cookie, payload, etag] of [
@@ -1983,17 +2173,17 @@ try {
         recordCoverage(coveredAbsence.absenceId, leaderId),
         closeCoverageBoard.etag,
       ],
-      [ownCoveragePath, volunteer, coveredAbsenceCommand, (await readOwnCoverage(volunteer)).etag],
+      [ownCoveragePath, volunteer, coveredAbsenceCommand, (yield* readOwnCoverage(volunteer)).etag],
     ] as const)
-      await expectStatus(await request(path, cookie, payload, etag), 409, "commitment.closed");
+      expectStatus(yield* request(path, cookie, payload, etag), 409, "commitment.closed");
     assert.equal(
-      (await readCoverageBoard()).etag,
+      (yield* readCoverageBoard()).etag,
       closeCoverageBoard.etag,
       "post-terminal commands write no second fact",
     );
 
     // Tuesday: the coordinator reports an absence nobody covers; zero attendance is Unfulfilled.
-    const coordinatorAbsenceBoard = await commandCoverage(
+    const coordinatorAbsenceBoard = yield* commandCoverage(
       {
         action: "ReportAbsenceForVolunteer",
         personId: leaderId,
@@ -2018,7 +2208,7 @@ try {
       evidenceSource: "Skole Alfa kontakt, telefon 2024-03-05",
     };
 
-    await rejectedCoverage(
+    yield* rejectedCoverage(
       coverageBoardPath,
       leader,
       {
@@ -2030,7 +2220,7 @@ try {
       422,
       "commitment.outcome-invalid",
     );
-    const uncoveredClosure = await commandCoverage(zeroUnfulfilled, coordinatorAbsenceBoard.etag);
+    const uncoveredClosure = yield* commandCoverage(zeroUnfulfilled, coordinatorAbsenceBoard.etag);
 
     const tuesdayDecision = uncoveredClosure.commitments.find(
       (item) => item.commitmentId === commitments.Tuesday,
@@ -2046,8 +2236,8 @@ try {
         .map((closure) => [closure.outcome, closure.occurrenceId, closure.coverageId]),
       [["Uncovered", null, null]],
     );
-    await expectStatus(
-      await request(
+    expectStatus(
+      yield* request(
         coverageBoardPath,
         leader,
         recordCoverage(uncoveredAbsence.absenceId, substitute.personId),
@@ -2059,7 +2249,7 @@ try {
 
     // Wednesday needs two. A person scheduled on the service, or already covering another absence
     // in the same interval, is unavailable.
-    const wednesdayOwn = await commandOwnCoverage(volunteer, {
+    const wednesdayOwn = yield* commandOwnCoverage(volunteer, {
       action: "ReportAbsence",
       commitmentId: commitments.Wednesday,
     });
@@ -2069,16 +2259,16 @@ try {
     );
 
     assert.ok(volunteerWednesday);
-    await rejectedCoverage(
+    yield* rejectedCoverage(
       coverageBoardPath,
       leader,
       recordCoverage(volunteerWednesday.absenceId, leaderId),
-      (await readCoverageBoard()).etag,
+      (yield* readCoverageBoard()).etag,
       409,
       "coverage.coverer-unavailable",
     );
 
-    const wednesdayCovered = await commandCoverage(
+    const wednesdayCovered = yield* commandCoverage(
       recordCoverage(volunteerWednesday.absenceId, substitute.personId),
     );
 
@@ -2088,7 +2278,7 @@ try {
 
     assert.ok(wednesdayRecord);
 
-    const bothAbsent = await commandCoverage(
+    const bothAbsent = yield* commandCoverage(
       {
         action: "ReportAbsenceForVolunteer",
         personId: leaderId,
@@ -2102,7 +2292,7 @@ try {
     );
 
     assert.ok(leaderWednesday);
-    await rejectedCoverage(
+    yield* rejectedCoverage(
       coverageBoardPath,
       leader,
       recordCoverage(leaderWednesday.absenceId, substitute.personId),
@@ -2118,7 +2308,7 @@ try {
       evidenceSource: "Skole Alfa kontakt, telefon 2024-03-06",
     };
 
-    await rejectedCoverage(
+    yield* rejectedCoverage(
       coverageBoardPath,
       leader,
       {
@@ -2131,8 +2321,9 @@ try {
       "commitment.outcome-invalid",
     );
 
-    const competingPartial = await Promise.all(
+    const competingPartial = yield* Effect.all(
       [0, 1].map(() => request(coverageBoardPath, leader, partialUnfulfilled, bothAbsent.etag)),
+      { concurrency: "unbounded" },
     );
 
     assert.equal(competingPartial.filter((response) => response.status === 200).length, 1);
@@ -2140,7 +2331,7 @@ try {
     for (const response of competingPartial.filter((result) => result.status !== 200))
       assert.ok([409, 412].includes(response.status));
 
-    const partialDecision = (await readCoverageBoard()).commitments.find(
+    const partialDecision = (yield* readCoverageBoard()).commitments.find(
       (item) => item.commitmentId === commitments.Wednesday,
     )?.decision;
 
@@ -2149,7 +2340,7 @@ try {
     assert.ok(partialDecision?.occurrenceId);
 
     // Thursday: cancellation records no attendance or closure and releases every reservation.
-    const thursdayAbsenceBoard = await commandCoverage({
+    const thursdayAbsenceBoard = yield* commandCoverage({
       action: "ReportAbsenceForVolunteer",
       personId: leaderId,
       commitmentId: commitments.Thursday,
@@ -2161,7 +2352,7 @@ try {
 
     assert.ok(cancelledAbsenceId);
 
-    const thursdayCovered = await commandCoverage(
+    const thursdayCovered = yield* commandCoverage(
       recordCoverage(cancelledAbsenceId, substitute.personId),
       thursdayAbsenceBoard.etag,
     );
@@ -2171,7 +2362,7 @@ try {
     );
 
     assert.ok(thursdayRecord);
-    assert.deepEqual(await reservationsOf(commitments.Thursday), [
+    assert.deepEqual(yield* reservationsOf(commitments.Thursday), [
       {
         sourceKind: "Coverage",
         personId: substitute.personId,
@@ -2187,7 +2378,7 @@ try {
       evidenceSource: "Skole Alfa kontakt, telefon 2024-03-07",
     };
 
-    const cancelled = await commandCoverage(cancel, thursdayCovered.etag);
+    const cancelled = yield* commandCoverage(cancel, thursdayCovered.etag);
     assert.equal(
       cancelled.commitments.find((item) => item.commitmentId === commitments.Thursday)?.decision
         ?.outcome,
@@ -2206,20 +2397,20 @@ try {
       cancelled.closures.filter((item) => item.absenceId === cancelledAbsenceId).length,
       0,
     );
-    assert.deepEqual(await reservationsOf(commitments.Thursday), []);
+    assert.deepEqual(yield* reservationsOf(commitments.Thursday), []);
 
     for (const payload of [
       { ...partialUnfulfilled, commitmentId: commitments.Thursday },
       withdrawCoverage(cancelledAbsenceId),
     ])
-      await expectStatus(
-        await request(coverageBoardPath, leader, payload, cancelled.etag),
+      expectStatus(
+        yield* request(coverageBoardPath, leader, payload, cancelled.etag),
         409,
         "commitment.closed",
       );
     // The assistant placement served only as a coverer; the browser roster must not include it.
-    await command({ action: "Remove", placementId: assistantPlacement.placementId });
-    const finalApiCoverage = await readCoverageBoard();
+    yield* command({ action: "Remove", placementId: assistantPlacement.placementId });
+    const finalApiCoverage = yield* readCoverageBoard();
     assert.deepEqual(
       finalApiCoverage.commitments
         .filter((item) => item.proposalId === apiCoverageProposalId)
@@ -2246,8 +2437,8 @@ try {
       attendedPersonIds: string[];
       occurrenceId: string | null;
       decidedBy: string;
-    }> = (
-      await pool.query(
+    }> = (yield* step(() =>
+      journeyPool.query(
         `SELECT commitment.commitment_id AS "commitmentId",commitment.service_date::text AS "serviceDate",
        commitment.required_volunteers AS "requiredVolunteers",commitment.start_time::text AS "startTime",
        commitment.end_time::text AS "endTime",decision.outcome,decision.evidence_source AS "evidenceSource",
@@ -2257,8 +2448,8 @@ try {
      JOIN school_service_decisions AS decision USING(commitment_id)
      WHERE commitment.proposal_id=$1 ORDER BY commitment.service_date`,
         [apiCoverageProposalId],
-      )
-    ).rows;
+      ),
+    )).rows;
 
     assert.deepEqual(
       durableDecisions.map((item) => [
@@ -2319,13 +2510,13 @@ try {
     assert.ok(durableDecisions[2]?.occurrenceId);
     assert.equal(durableDecisions[3]?.occurrenceId, null);
     assert.deepEqual(
-      (
-        await pool.query(
+      (yield* step(() =>
+        journeyPool.query(
           `SELECT commitment_id AS "commitmentId",attended_person_ids AS "attendedPersonIds"
     FROM school_service_occurrences WHERE commitment_id=ANY($1) ORDER BY occurred_on`,
           [Object.values(commitments)],
-        )
-      ).rows,
+        ),
+      )).rows,
       [
         { commitmentId: commitments.Monday, attendedPersonIds: [substitute.personId] },
         { commitmentId: commitments.Wednesday, attendedPersonIds: [substitute.personId] },
@@ -2335,8 +2526,8 @@ try {
     // Each absence of a decided, noncancelled service closes Covered by its current record or
     // Uncovered; the cancelled service closes none.
     assert.deepEqual(
-      (
-        await pool.query(
+      (yield* step(() =>
+        journeyPool.query(
           `SELECT closure.absence_id AS "absenceId",closure.outcome,closure.coverage_id AS "coverageId",
            closure.covering_person_id AS "coveringPersonId",
            closure.scheduled_person_id AS "scheduledPersonId",closure.occurrence_id AS "occurrenceId"
@@ -2344,8 +2535,8 @@ try {
          JOIN school_service_absences AS absence USING(absence_id)
          WHERE absence.proposal_id=$1 ORDER BY absence.service_date,absence.person_id`,
           [apiCoverageProposalId],
-        )
-      ).rows,
+        ),
+      )).rows,
       [
         {
           absenceId: coveredAbsence.absenceId,
@@ -2382,8 +2573,8 @@ try {
       ],
     );
     assert.deepEqual(
-      (
-        await pool.query(
+      (yield* step(() =>
+        journeyPool.query(
           `SELECT coverage.absence_id AS "absenceId",coverage.covering_person_id AS "coveringPersonId",
            coverage.coverer_kind AS "covererKind",coverage.recorded_by_person_id AS "recordedBy",
            coverage.withdrawn_by_person_id AS "withdrawnBy"
@@ -2391,8 +2582,8 @@ try {
          JOIN school_service_absences AS absence USING(absence_id)
          WHERE absence.proposal_id=$1 ORDER BY coverage.recorded_at,coverage.coverage_id`,
           [apiCoverageProposalId],
-        )
-      ).rows,
+        ),
+      )).rows,
       [
         [coveredAbsence.absenceId, substitute.personId, "Substitute", volunteerId, leaderId],
         [coveredAbsence.absenceId, leaderId, "Assistant", leaderId, leaderId],
@@ -2435,14 +2626,14 @@ try {
       ],
       ["Thursday", []],
     ] as const)
-      assert.deepEqual(await reservationsOf(commitments[day]), expected, `${day} reservations`);
+      assert.deepEqual(yield* reservationsOf(commitments[day]), expected, `${day} reservations`);
 
-    const apiCoverageAudit = (
-      await pool.query(
+    const apiCoverageAudit = (yield* step(() =>
+      journeyPool.query(
         `SELECT action,actor_person_id AS "actorPersonId"
        FROM school_service_coverage_audit ORDER BY audit_id`,
-      )
-    ).rows;
+      ),
+    )).rows;
 
     assert.deepEqual(apiCoverageAudit, [
       audit("ReportAbsence", volunteerId),
@@ -2473,7 +2664,7 @@ try {
       auditActions: apiCoverageAudit.map((entry) => entry.action),
     };
 
-    const browserLeaderBoard = await command({
+    const browserLeaderBoard = yield* command({
       action: "Create",
       personId: leaderId,
       schoolId: 962,
@@ -2493,12 +2684,12 @@ try {
       ),
     );
 
-    const apiHistoryBeforeBrowser = (
-      await pool.query(
+    const apiHistoryBeforeBrowser = (yield* step(() =>
+      journeyPool.query(
         "SELECT * FROM assistant_placements WHERE person_id=$1 ORDER BY placement_id",
         [leaderId],
-      )
-    ).rows;
+      ),
+    )).rows;
 
     const manifest = {
       revision,
@@ -2524,24 +2715,24 @@ try {
       },
     };
 
-    const manifestPath = join(artifacts, "manifest.json");
-    await writeFile(manifestPath, JSON.stringify(manifest), { mode: 0o600 });
+    const manifestPath = path.join(artifacts, "manifest.json");
+    yield* fs.writeFileString(manifestPath, yield* jsonText(manifest), { mode: 0o600 });
     let browserEvidence: Schema.JsonObject | null = null;
 
     if (mode === "--browser") {
-      await runAsync(
+      yield* runChild(
         "bun",
         ["apps/dashboard/e2e/run-real-native-placement.mjs"],
         { ...environment, PLACEMENT_JOURNEY_MANIFEST: manifestPath },
-        300_000,
+        "300 seconds",
       );
-      browserEvidence = Schema.decodeSync(Schema.fromJsonString(Schema.JsonObject))(
-        await readFile(join(artifacts, "browser-evidence.json"), "utf8"),
+      browserEvidence = yield* Schema.decodeEffect(BrowserEvidenceJson)(
+        yield* fs.readFileString(path.join(artifacts, "browser-evidence.json")),
       );
       assert.equal(browserEvidence?.passed, true);
       assert.equal(browserEvidence?.revision, revision);
 
-      const browserCoverageExpected = Schema.decodeUnknownSync(
+      const browserCoverageExpected = yield* Schema.decodeUnknownEffect(
         Schema.Struct({
           absencePosts: Schema.Int,
           proposalId: Schema.String,
@@ -2560,12 +2751,12 @@ try {
       assert.ok(browserCoverageExpected);
       assert.equal(browserCoverageExpected.absencePosts, 1);
 
-      const actual = (
-        await pool.query(
+      const actual = (yield* step(() =>
+        journeyPool.query(
           'SELECT placement_id AS "placementId",person_id AS "personId",school_id::integer AS "schoolId",semester_id AS "semesterId",day,workdays,block,active,revision FROM assistant_placements WHERE person_id=$1 ORDER BY block,placement_id',
           [volunteerId],
-        )
-      ).rows;
+        ),
+      )).rows;
 
       assert.deepEqual(
         actual,
@@ -2573,21 +2764,21 @@ try {
         "browser expectations independently read from PostgreSQL",
       );
       assert.deepEqual(
-        (
-          await pool.query(
+        (yield* step(() =>
+          journeyPool.query(
             "SELECT * FROM assistant_placements WHERE person_id=$1 ORDER BY placement_id",
             [leaderId],
-          )
-        ).rows,
+          ),
+        )).rows,
         apiHistoryBeforeBrowser,
       );
       assert.deepEqual(
-        (
-          await pool.query(
+        (yield* step(() =>
+          journeyPool.query(
             "SELECT action,actor_person_id FROM organization_volunteer_affiliation_audit WHERE person_id=$1 ORDER BY revision",
             [volunteerId],
-          )
-        ).rows,
+          ),
+        )).rows,
         [
           { action: "Request", actor_person_id: volunteerId },
           { action: "Establish", actor_person_id: leaderId },
@@ -2595,8 +2786,8 @@ try {
         ],
       );
 
-      const serviceProposal = (
-        await pool.query(
+      const serviceProposal = (yield* step(() =>
+        journeyPool.query(
           `SELECT proposal_id AS "proposalId",status,revision,
            jsonb_array_length(exception_snapshot) AS "exceptionCount",
            jsonb_array_length(assignment_snapshot) AS "assignmentCount"
@@ -2604,8 +2795,8 @@ try {
          WHERE department_id=$1 AND semester_id=$2
          ORDER BY created_at DESC LIMIT 1`,
           [departmentId, semesterId],
-        )
-      ).rows[0];
+        ),
+      )).rows[0];
 
       assert.deepEqual(serviceProposal, {
         proposalId: browserEvidence?.serviceProposalId,
@@ -2616,26 +2807,26 @@ try {
       });
       assert.equal(browserCoverageExpected.proposalId, serviceProposal.proposalId);
       assert.deepEqual(
-        (
-          await pool.query(
+        (yield* step(() =>
+          journeyPool.query(
             `SELECT required_volunteers AS "requiredVolunteers"
            FROM school_service_demand
            WHERE department_id=$1 AND semester_id=$2 AND school_id=$3
              AND day='Monday' AND block='2'`,
             [departmentId, semesterId, 962],
-          )
-        ).rows,
+          ),
+        )).rows,
         [{ requiredVolunteers: 2 }],
       );
       assert.deepEqual(
-        (
-          await pool.query(
+        (yield* step(() =>
+          journeyPool.query(
             `SELECT person_id AS "personId",status,attempts
            FROM school_service_notification_outbox
            WHERE proposal_id=$1 ORDER BY person_id`,
             [serviceProposal.proposalId],
-          )
-        ).rows,
+          ),
+        )).rows,
         [
           { personId: volunteerId, status: "Delivered", attempts: 1 },
           { personId: leaderId, status: "Delivered", attempts: 1 },
@@ -2651,8 +2842,8 @@ try {
         reason: string | null;
         evidenceSource: string;
         occurrenceId: string | null;
-      }> = (
-        await pool.query(
+      }> = (yield* step(() =>
+        journeyPool.query(
           `SELECT commitment.commitment_id AS "commitmentId",commitment.required_volunteers AS "requiredVolunteers",
          commitment.service_date::text AS "serviceDate",decision.outcome,
          decision.attended_person_ids AS "attendedPersonIds",decision.reason,
@@ -2660,8 +2851,8 @@ try {
        FROM school_service_commitments AS commitment JOIN school_service_decisions AS decision USING(commitment_id)
        WHERE commitment.proposal_id=$1 ORDER BY commitment.service_date`,
           [browserCoverageExpected.proposalId],
-        )
-      ).rows;
+        ),
+      )).rows;
 
       assert.deepEqual(
         browserDecisions.map((item) => [
@@ -2711,15 +2902,15 @@ try {
       assert.ok(browserDecisions[1]?.occurrenceId);
       assert.equal(browserDecisions[2]?.occurrenceId, null);
 
-      const browserAbsences = (
-        await pool.query(
+      const browserAbsences = (yield* step(() =>
+        journeyPool.query(
           `SELECT absence_id AS "absenceId",person_id AS "personId",
            reporter_person_id AS "reporterPersonId",service_date::text AS "serviceDate"
          FROM school_service_absences
          WHERE proposal_id=$1 ORDER BY service_date,absence_id`,
           [browserCoverageExpected.proposalId],
-        )
-      ).rows;
+        ),
+      )).rows;
 
       assert.deepEqual(browserAbsences, [
         {
@@ -2739,8 +2930,8 @@ try {
       // The volunteer's record covers the first service; the coordinator's record on the second
       // absence was withdrawn before the decision.
       assert.deepEqual(
-        (
-          await pool.query(
+        (yield* step(() =>
+          journeyPool.query(
             `SELECT coverage.coverage_id AS "coverageId",coverage.absence_id AS "absenceId",
              coverage.covering_person_id AS "coveringPersonId",coverage.coverer_kind AS "covererKind",
              coverage.recorded_by_person_id AS "recordedBy",
@@ -2749,8 +2940,8 @@ try {
            JOIN school_service_absences AS absence USING(absence_id)
            WHERE absence.proposal_id=$1 ORDER BY coverage.recorded_at,coverage.coverage_id`,
             [browserCoverageExpected.proposalId],
-          )
-        ).rows,
+          ),
+        )).rows,
         [
           {
             coverageId: browserCoverageExpected.coverageId,
@@ -2793,17 +2984,17 @@ try {
         ],
         [browserCoverageExpected.cancelledCommitmentId, []],
       ] as const)
-        assert.deepEqual(await reservationsOf(commitmentId), expected);
+        assert.deepEqual(yield* reservationsOf(commitmentId), expected);
 
-      const browserOccurrences = (
-        await pool.query(
+      const browserOccurrences = (yield* step(() =>
+        journeyPool.query(
           `SELECT occurrence_id AS "occurrenceId",occurred_on::text AS "occurredOn",
            attended_person_ids AS "attendedPersonIds",recorded_by_person_id AS "recordedByPersonId"
          FROM school_service_occurrences
          WHERE proposal_id=$1 ORDER BY occurred_on,occurrence_id`,
           [browserCoverageExpected.proposalId],
-        )
-      ).rows;
+        ),
+      )).rows;
 
       assert.deepEqual(
         browserOccurrences.map(
@@ -2833,8 +3024,8 @@ try {
         ],
       );
       assert.deepEqual(
-        (
-          await pool.query(
+        (yield* step(() =>
+          journeyPool.query(
             `SELECT closure.absence_id AS "absenceId",closure.outcome,
              closure.coverage_id AS "coverageId",
              closure.covering_person_id AS "coveringPersonId",
@@ -2844,8 +3035,8 @@ try {
            JOIN school_service_absences AS absence USING(absence_id)
            WHERE absence.proposal_id=$1 ORDER BY absence.service_date,closure.closure_id`,
             [browserCoverageExpected.proposalId],
-          )
-        ).rows,
+          ),
+        )).rows,
         [
           {
             absenceId: browserCoverageExpected.coveredAbsenceId,
@@ -2866,14 +3057,14 @@ try {
         ],
       );
       assert.deepEqual(
-        (
-          await pool.query(
+        (yield* step(() =>
+          journeyPool.query(
             `SELECT action,actor_person_id AS "actorPersonId"
            FROM school_service_coverage_audit
            ORDER BY audit_id OFFSET $1`,
             [apiCoverageAuditCount],
-          )
-        ).rows,
+          ),
+        )).rows,
         [
           audit("ReportAbsence", volunteerId),
           audit("RecordCoverage", volunteerId),
@@ -2894,20 +3085,21 @@ try {
     }
 
     assert.deepEqual(
-      await credentialSnapshot(),
+      yield* credentialSnapshot,
       credentialsBefore,
       "placement does not mutate account credentials",
     );
     assert.deepEqual(
-      (await pool.query("SELECT * FROM person_profiles ORDER BY person_id")).rows,
+      (yield* step(() => journeyPool.query("SELECT * FROM person_profiles ORDER BY person_id")))
+        .rows,
       peopleBefore,
       "canonical Person unchanged",
     );
-    await native.dispose();
+    yield* step(() => native.dispose());
     const bunVersion = process.versions.bun;
 
-    const postgresVersion = Schema.decodeUnknownSync(Schema.String)(
-      (await pool.query("SELECT version() AS version")).rows[0].version,
+    const postgresVersion = yield* Schema.decodeUnknownEffect(Schema.String)(
+      (yield* step(() => journeyPool.query("SELECT version() AS version"))).rows[0].version,
     );
 
     const runtime: { readonly postgres: string; readonly bun?: string } =
@@ -2962,14 +3154,70 @@ try {
         "canonical Person and account credentials unchanged",
       ],
     };
-  }
-} catch (error) {
-  if (interruptedSignal === undefined) {
-    failure = sanitize(String(error));
-    process.exitCode = 1;
+
+    journeyPassed = true;
+  });
+
+  // The listeners stay until the runner has written its receipt, so that a signal during cleanup
+  // is recorded, not fatal.
+  yield* Effect.acquireRelease(
+    Effect.sync(() =>
+      (["SIGTERM", "SIGINT"] as const).map((signal) => {
+        const listener = () => {
+          interruptedSignal ??= signal;
+          failure ??= "Interrupted by " + signal;
+          Deferred.doneUnsafe(interrupted, Exit.void);
+        };
+
+        process.once(signal, listener);
+
+        return [signal, listener] as const;
+      }),
+    ),
+    (listeners) =>
+      Effect.sync(() => {
+        for (const [signal, listener] of listeners) process.removeListener(signal, listener);
+      }),
+  );
+
+  const outcome = yield* journey.pipe(Effect.raceFirst(Deferred.await(interrupted)), Effect.exit);
+
+  if (Exit.isFailure(outcome)) {
+    const error = sanitize(String(thrownBy(outcome.cause)));
+
+    if (interruptedSignal === undefined) failure = error;
+
+    yield* Effect.sync(() => process.stderr.write(error + "\n"));
   }
 
-  process.stderr.write(sanitize(String(error)) + "\n");
-} finally {
-  await cleanup();
-}
+  const errors = yield* cleanup;
+
+  if (errors.length > 0) {
+    yield* Effect.sync(() => process.stderr.write(errors.join("; ") + "\n"));
+
+    return 1;
+  }
+
+  return interruptedSignal === "SIGINT"
+    ? 130
+    : interruptedSignal === "SIGTERM"
+      ? 143
+      : failure === undefined
+        ? 0
+        : 1;
+});
+
+Effect.runPromise(
+  program.pipe(
+    Effect.scoped,
+    Effect.provide(Layer.mergeAll(BunServices.layer, FetchHttpClient.layer)),
+  ),
+).then(
+  (code) => {
+    process.exitCode = code;
+  },
+  (cause: unknown) => {
+    process.stderr.write(String(cause) + "\n");
+    process.exitCode = 1;
+  },
+);
