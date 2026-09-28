@@ -1,17 +1,27 @@
 import { Dialog } from "@foldkit/ui";
 import {
   IdempotencyKey,
-  makeNativeProblem,
   TeamApplicationIntakeResource,
   TeamApplicationListResponse,
   TeamApplicationResource,
-  type NativeProblemCode,
 } from "@vektorprogrammet/rpc";
-import { createEffectClient, type FetchCapability } from "@vektorprogrammet/sdk/effect";
+import { NativeRpcClient, nativeRpcClientLayer } from "@vektorprogrammet/rpc/client";
 import { Effect, Option, Predicate, Schema as S } from "effect";
+import { FetchHttpClient } from "effect/unstable/http";
 import { AsyncData, type Update } from "foldkit";
 import { describe, expect, it } from "vitest";
-import { teamApplicationsOperations, type TeamApplicationsOperations } from "./browser-client";
+import {
+  type NativeRpcCall,
+  nativeRpcProblem,
+  nativeRpcSuccess,
+  readNativeRpcCall,
+} from "../../../test/native-rpc";
+import { NativeAnswerInvalid } from "../../lib/browser-native";
+import {
+  type NativeCall,
+  teamApplicationsOperations,
+  type TeamApplicationsOperations,
+} from "./browser-client";
 import { commandsFor } from "./command";
 import {
   ChangedDeadline,
@@ -89,49 +99,32 @@ const inert: TeamApplicationsOperations = {
   reviseIntake: () => Effect.die("not executed by transition tests"),
 };
 
-interface SentRequest {
-  readonly method: string;
-  readonly url: string;
-  readonly headers: Headers;
-  readonly body: string;
-}
+/**
+ * The operations over the real RPC client, whose fetch records each RPC call and answers it, so
+ * tests observe the exact wire request.
+ */
+const wire = (respond: (call: NativeRpcCall) => Response) => {
+  const sent: NativeRpcCall[] = [];
 
-/** The generated SDK over a recording fetch, so tests observe the exact wire request. */
-const wire = (respond: () => Response) => {
-  const sent: SentRequest[] = [];
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    const call = await readNativeRpcCall(input, init);
+    sent.push(call);
 
-  const fetch: FetchCapability = async (input, init) => {
-    const request = new Request(input, init);
-    sent.push({
-      method: request.method,
-      url: request.url,
-      headers: request.headers,
-      body: await request.text(),
-    });
-
-    return respond();
+    return respond(call);
   };
 
-  return {
-    sent,
-    operations: teamApplicationsOperations(
-      createEffectClient("https://dashboard.test", { fetch })["team-applications"],
-    ),
-  };
+  const call: NativeCall = (use) =>
+    NativeRpcClient.use(use).pipe(
+      Effect.provide(nativeRpcClientLayer("https://dashboard.test")),
+      Effect.provideService(FetchHttpClient.Fetch, fetch),
+      Effect.catchDefect((defect) => Effect.fail(new NativeAnswerInvalid({ defect }))),
+    );
+
+  return { sent, operations: teamApplicationsOperations(call) };
 };
 
-const problem = (code: NativeProblemCode): Response => {
-  const body = makeNativeProblem(code);
-
-  return new Response(JSON.stringify(body), {
-    status: body.status,
-    headers: {
-      "Content-Type": "application/problem+json",
-      "Cache-Control": "no-store",
-      Vary: "Origin",
-    },
-  });
-};
+/** The key and the patch of a recorded intake revision. */
+const revisePayload = S.decodeUnknownSync(S.Struct({ idempotencyKey: S.String, request: S.Json }));
 
 const loaded = (
   update: (model: Model, message: Message) => Update.Return<Model, Message>,
@@ -171,7 +164,7 @@ describe("team application workflow", () => {
   });
 
   it("sends only the changed setting with the observed entity tag and reloads after a stale revision", async () => {
-    const { sent, operations } = wire(() => problem("precondition.failed"));
+    const { sent, operations } = wire((call) => nativeRpcProblem(call, "precondition.failed"));
     const update = updateFor(commandsFor(operations));
     const edited = update(loaded(update), ChangedDeadline({ value: "2026-10-25T03:00" })).model;
     const submitted = update(edited, SubmittedIntake());
@@ -179,12 +172,14 @@ describe("team application workflow", () => {
 
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({
-      method: "PATCH",
-      url: "https://dashboard.test/api/teams/team-it/application-intake",
+      tag: "team-applications.reviseTeamApplicationIntake",
+      payload: {
+        teamId: "team-it",
+        idempotencyKey: `${seed}-0`,
+        ifMatch: etag("A"),
+        request: { deadline: "2026-10-25T02:00:00.000Z" },
+      },
     });
-    expect(sent[0]!.headers.get("if-match")).toBe(etag("A"));
-    expect(sent[0]!.headers.get("idempotency-key")).toBe(`${seed}-0`);
-    expect(JSON.parse(sent[0]!.body)).toEqual({ deadline: "2026-10-25T02:00:00.000Z" });
 
     const stale = update(submitted.model, outcome);
 
@@ -236,12 +231,12 @@ describe("team application workflow", () => {
     const retried = await attempt(unknown);
     await attempt(update(retried, ChangedDeadline({ value: "2026-11-01T12:00" })).model);
 
-    expect(sent.map((request) => request.headers.get("idempotency-key"))).toEqual([
+    expect(sent.map(({ payload }) => revisePayload(payload).idempotencyKey)).toEqual([
       `${seed}-0`,
       `${seed}-0`,
       `${seed}-1`,
     ]);
-    expect(sent.map((request) => JSON.parse(request.body))).toEqual([
+    expect(sent.map(({ payload }) => revisePayload(payload).request)).toEqual([
       { acceptApplication: false },
       { acceptApplication: false },
       { acceptApplication: false, deadline: "2026-11-01T11:00:00.000Z" },
@@ -260,13 +255,8 @@ describe("team application workflow", () => {
   });
 
   it("deletes once while the confirmation stays open, then drops the detail and reloads", async () => {
-    const { sent, operations } = wire(
-      () =>
-        new Response(null, {
-          status: 204,
-          headers: { "Cache-Control": "no-store", Vary: "Origin" },
-        }),
-    );
+    // A deletion succeeds with no value.
+    const { sent, operations } = wire((call) => nativeRpcSuccess(call, null));
 
     const update = updateFor(commandsFor(operations));
 
@@ -292,10 +282,9 @@ describe("team application workflow", () => {
 
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({
-      method: "DELETE",
-      url: `https://dashboard.test/api/team-applications/${application.applicationId}`,
+      tag: "team-applications.deleteTeamApplication",
+      payload: { applicationId: application.applicationId, idempotencyKey: `${seed}-0` },
     });
-    expect(sent[0]!.headers.get("idempotency-key")).toBe(`${seed}-0`);
 
     const deleted = update(confirming.model, outcome);
 
