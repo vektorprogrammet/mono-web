@@ -1,14 +1,13 @@
 import { decodePostgresObservations, type PostgresObservation } from "./postgres-observation.js";
 import { NativeProblem } from "../../packages/rpc/src/problem.js";
-import {
-  replacedFetch,
-  replacedHttpResponse,
-} from "../../apps/dashboard/e2e/native-rpc-ledger.js";
+import { replacedFetch, replacedHttpResponse } from "../../apps/dashboard/e2e/native-rpc-ledger.js";
 import { RecruitmentInterviewConductObservationSchema } from "../../packages/domain/src/recruitment/schema.js";
-import { Option, Schema } from "effect";
+import { Effect, Fiber, Option, Schema } from "effect";
+import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
+import { jsonText, type JourneyStepFailed, step } from "./journey-step.ts";
 
 type CorrectionRequestHeaders = {
   origin: string;
@@ -54,15 +53,39 @@ type Detail = typeof RecruitmentInterviewConductObservationSchema.Type;
 
 type OwnedSnapshot = Readonly<Record<string, ReadonlyArray<PostgresObservation>>>;
 
-type Mutation<T> = (client: PoolClient) => Promise<T>;
+type Mutation = (client: PoolClient) => Effect.Effect<void, JourneyStepFailed>;
 
-const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+/** Runs one statement of a setup or restore mutation on the connection. */
+const execute = (
+  client: PoolClient,
+  text: string,
+  values?: ReadonlyArray<unknown>,
+): Effect.Effect<void, JourneyStepFailed> =>
+  step(() => client.query(text, values === undefined ? undefined : [...values])).pipe(
+    Effect.asVoid,
+  );
+
+/**
+ * Runs the cleanup after the body however the body ends. A failed cleanup fails the whole, as a
+ * `finally` block that throws does; otherwise the outcome of the body stands.
+ */
+const withCleanup = <A, E, R, E2, R2>(
+  body: Effect.Effect<A, E, R>,
+  cleanup: Effect.Effect<void, E2, R2>,
+): Effect.Effect<A, E | E2, R | R2> =>
+  Effect.gen(function* () {
+    const outcome = yield* Effect.exit(body);
+
+    yield* cleanup;
+
+    return yield* outcome;
+  });
 
 const freshId = (prefix: string) => `${prefix}-${randomBytes(8).toString("hex")}`;
 
-export async function assertInterviewCorrectionBoundaries(
+export const assertInterviewCorrectionBoundaries = Effect.fnUntraced(function* (
   context: InterviewCorrectionBoundaryContext,
-): Promise<InterviewCorrectionBoundaryResult> {
+) {
   const {
     pool,
     api,
@@ -93,8 +116,9 @@ export async function assertInterviewCorrectionBoundaries(
 
   assert.notEqual(actorPersonId, otherPersonId, "authority fixture needs two distinct persons");
 
-  const identityRows = await pool.query(
-    `SELECT i.interview_id AS "interviewId", i.interviewer_person_id AS "interviewerPersonId",
+  const identityRows = yield* step(() =>
+    pool.query(
+      `SELECT i.interview_id AS "interviewId", i.interviewer_person_id AS "interviewerPersonId",
             i.co_interviewer_person_id AS "coInterviewerPersonId",
             a.applicant_id AS "applicantId", a.application_id AS "applicationId",
             i.department_id AS "departmentId",
@@ -104,7 +128,8 @@ export async function assertInterviewCorrectionBoundaries(
        LEFT JOIN public.applicant_account_links l USING(applicant_id)
       WHERE i.interview_id = ANY($1::text[])
       ORDER BY i.interview_id`,
-    [[interviewId, selfLinkRaceInterviewId]],
+      [[interviewId, selfLinkRaceInterviewId]],
+    ),
   );
 
   assert.equal(
@@ -113,7 +138,7 @@ export async function assertInterviewCorrectionBoundaries(
     "correction fixtures must expose primary and race interviews",
   );
 
-  const identities = Schema.decodeUnknownSync(
+  const identities = yield* Schema.decodeUnknownEffect(
     Schema.Array(
       Schema.Struct({
         interviewId: Schema.String,
@@ -152,16 +177,18 @@ export async function assertInterviewCorrectionBoundaries(
     `self-link race fixture must designate the ${participantRole} actor`,
   );
 
-  const departments = await pool.query(
-    `SELECT department_id AS "departmentId"
+  const departments = yield* step(() =>
+    pool.query(
+      `SELECT department_id AS "departmentId"
        FROM public.admission_period_departments
       WHERE department_id <> $1
       ORDER BY department_id
       LIMIT 1`,
-    [identity.departmentId],
+      [identity.departmentId],
+    ),
   );
 
-  const differentDepartment = Schema.decodeUnknownSync(Schema.String)(
+  const differentDepartment = yield* Schema.decodeUnknownEffect(Schema.String)(
     departments.rows[0]?.departmentId,
   );
 
@@ -210,106 +237,128 @@ export async function assertInterviewCorrectionBoundaries(
     _key: string,
     requestCookie: string | null = cookie,
   ) =>
-    fetch(`${api}/api/rpc`, {
-      method: "POST",
-      headers: { ...headers(requestCookie), "content-type": "application/json" },
-      body,
-    }).then(replacedHttpResponse);
+    Effect.gen(function* () {
+      const answer = yield* HttpClient.execute(
+        HttpClientRequest.post(`${api}/api/rpc`).pipe(
+          HttpClientRequest.setHeaders(headers(requestCookie)),
+          HttpClientRequest.bodyText(body, "application/json"),
+        ),
+      );
+
+      const text = yield* answer.text;
+
+      return yield* step(() => replacedHttpResponse(new Response(text, { status: answer.status })));
+    });
 
   const interviewIds = [interviewId, selfLinkRaceInterviewId];
   const applicantIds = [identity.applicantId, raceIdentity.applicantId];
   const departmentIds = [identity.departmentId, differentDepartment];
 
-  const readRows = async (query: string, values: readonly unknown[] = []) =>
-    decodePostgresObservations((await pool.query(query, [...values])).rows);
+  const readRows = Effect.fnUntraced(function* (query: string, values: readonly unknown[] = []) {
+    return decodePostgresObservations((yield* step(() => pool.query(query, [...values]))).rows);
+  });
+
+  /**
+   * Borrows a pool connection for the use, rolls back whatever transaction the use left open,
+   * and returns the connection however the use ends.
+   */
+  const withConnection = <A, E, R>(use: (client: PoolClient) => Effect.Effect<A, E, R>) =>
+    Effect.acquireUseRelease(
+      step(() => pool.connect()),
+      (client) =>
+        use(client).pipe(Effect.ensuring(step(() => client.query("ROLLBACK")).pipe(Effect.ignore))),
+      (client) => Effect.sync(() => client.release()),
+    );
 
   /** Exact rows, not counts: failed requests must not create a receipt or alter any owned state. */
-  const snapshot = async (): Promise<OwnedSnapshot> => ({
-    interviews: await readRows(
-      `SELECT interview_id, application_id, department_id, interviewer_person_id,
+  const snapshot = Effect.fnUntraced(function* () {
+    return {
+      interviews: yield* readRows(
+        `SELECT interview_id, application_id, department_id, interviewer_person_id,
               co_interviewer_person_id, interview_schema_id, assigned_by_person_id, assigned_at, revision
          FROM public.recruitment_interviews
         WHERE interview_id = ANY($1::text[])
         ORDER BY interview_id`,
-      [interviewIds],
-    ),
-    corrections: await readRows(
-      `SELECT interview_id, predecessor_revision, resulting_revision, answers,
+        [interviewIds],
+      ),
+      corrections: yield* readRows(
+        `SELECT interview_id, predecessor_revision, resulting_revision, answers,
               explanatory_power, role_model, suitability, recommendation,
               corrected_by_person_id, corrected_at, command_id
          FROM public.recruitment_interview_correction_assessments
         WHERE interview_id = ANY($1::text[])
         ORDER BY interview_id, resulting_revision`,
-      [interviewIds],
-    ),
-    correctionReceipts: await readRows(
-      `SELECT command_id, command_sha256, command_json, observation_json, interview_id,
+        [interviewIds],
+      ),
+      correctionReceipts: yield* readRows(
+        `SELECT command_id, command_sha256, command_json, observation_json, interview_id,
               predecessor_revision, resulting_revision, committed_at
          FROM public.recruitment_interview_correction_command_receipts
         WHERE interview_id = ANY($1::text[])
         ORDER BY interview_id, resulting_revision, command_id`,
-      [interviewIds],
-    ),
-    correctionAudit: await readRows(
-      `SELECT command_id, interview_id, actor_person_id, predecessor_revision,
+        [interviewIds],
+      ),
+      correctionAudit: yield* readRows(
+        `SELECT command_id, interview_id, actor_person_id, predecessor_revision,
               resulting_revision, occurred_at
          FROM public.recruitment_interview_correction_audit
         WHERE interview_id = ANY($1::text[])
         ORDER BY interview_id, resulting_revision, command_id`,
-      [interviewIds],
-    ),
-    nativeHttpReceipts: await readRows(
-      `SELECT identity_sha256, request_sha256, operation_id, state, status, media_type,
+        [interviewIds],
+      ),
+      nativeHttpReceipts: yield* readRows(
+        `SELECT identity_sha256, request_sha256, operation_id, state, status, media_type,
               encode(body_bytes, 'hex') AS body_hex, headers_json, committed_at,
               full_expires_at, tombstoned_at
          FROM public.native_http_idempotency_receipts
         WHERE operation_id = 'recruitment.correctInterviewAssessment'
         ORDER BY identity_sha256`,
-    ),
-    applicantLinks: await readRows(
-      `SELECT applicant_id, person_id, linked_at, invitation_id
+      ),
+      applicantLinks: yield* readRows(
+        `SELECT applicant_id, person_id, linked_at, invitation_id
          FROM public.applicant_account_links
         WHERE applicant_id = ANY($1::text[])
         ORDER BY applicant_id`,
-      [applicantIds],
-    ),
-    applicantInvitations: await readRows(
-      `SELECT invitation_id, application_id, applicant_id, token_digest, expires_at,
+        [applicantIds],
+      ),
+      applicantInvitations: yield* readRows(
+        `SELECT invitation_id, application_id, applicant_id, token_digest, expires_at,
               state, issued_by, issued_at
          FROM public.applicant_account_invitations
         WHERE applicant_id = ANY($1::text[])
         ORDER BY applicant_id, invitation_id`,
-      [applicantIds],
-    ),
-    memberships: await readRows(
-      `SELECT membership_id, person_id, team_id, deleted_team_name, start_at, end_at,
+        [applicantIds],
+      ),
+      memberships: yield* readRows(
+        `SELECT membership_id, person_id, team_id, deleted_team_name, start_at, end_at,
               position_id, is_team_leader, is_suspended, revision
          FROM public.organization_memberships
         WHERE membership_id = $1`,
-      [membershipId],
-    ),
-    departments: await readRows(
-      `SELECT department_id, name, short_name, email, address, city, latitude,
+        [membershipId],
+      ),
+      departments: yield* readRows(
+        `SELECT department_id, name, short_name, email, address, city, latitude,
               longitude, slack_channel, logo_path, active, revision
          FROM public.organization_departments
         WHERE department_id = ANY($1::text[])
         ORDER BY department_id`,
-      [departmentIds],
-    ),
-    sessions: await readRows(
-      `SELECT id, "expiresAt", md5(token) AS token_digest, "createdAt", "updatedAt",
+        [departmentIds],
+      ),
+      sessions: yield* readRows(
+        `SELECT id, "expiresAt", md5(token) AS token_digest, "createdAt", "updatedAt",
               "ipAddress", "userAgent", "userId"
          FROM auth."session"
         WHERE "userId" = $1
         ORDER BY id`,
-      [actorPersonId],
-    ),
+        [actorPersonId],
+      ),
+    };
   });
 
-  const assertSnapshot = async (before: OwnedSnapshot, label: string) => {
-    const after = await snapshot();
+  const assertSnapshot = Effect.fnUntraced(function* (before: OwnedSnapshot, label: string) {
+    const after = yield* snapshot();
     assert.deepEqual(after, before, `${label} changed owned state`);
-  };
+  });
 
   const assertCorrectionRowsUnchanged = (
     before: OwnedSnapshot,
@@ -331,56 +380,47 @@ export async function assertInterviewCorrectionBoundaries(
    * restored before this function returns, and every connection is rolled
    * back in finally even after an assertion or restoration error.
    */
-  const withMutation = async <T>(
-    mutate: Mutation<void>,
-    restore: Mutation<void>,
-    action: () => Promise<T>,
-  ): Promise<T> => {
-    const before = await snapshot();
-    const client = await pool.connect();
-    let result!: T;
-    let actionError: unknown;
+  const withMutation = <A, E, R>(
+    mutate: Mutation,
+    restore: Mutation,
+    action: () => Effect.Effect<A, E, R>,
+  ) =>
+    Effect.gen(function* () {
+      const before = yield* snapshot();
 
-    try {
-      await client.query("BEGIN");
-      await mutate(client);
-      await client.query("COMMIT");
+      return yield* withConnection((client) =>
+        Effect.gen(function* () {
+          yield* step(() => client.query("BEGIN"));
+          yield* mutate(client);
+          yield* step(() => client.query("COMMIT"));
 
-      try {
-        result = await action();
-      } catch (cause) {
-        actionError = cause;
-      }
+          const outcome = yield* Effect.exit(action());
 
-      await client.query("BEGIN");
-      await restore(client);
-      await client.query("COMMIT");
-      await assertSnapshot(before, "mutation restoration");
+          yield* step(() => client.query("BEGIN"));
+          yield* restore(client);
+          yield* step(() => client.query("COMMIT"));
+          yield* assertSnapshot(before, "mutation restoration");
 
-      if (actionError !== undefined) throw actionError;
+          return yield* outcome;
+        }),
+      );
+    });
 
-      return result;
-    } finally {
-      await client.query("ROLLBACK").catch(() => undefined);
-      client.release();
-    }
-  };
-
-  const detail = async (): Promise<{ body: Detail; etag: string }> => {
-    const response = await get(interviewId);
+  const detail = Effect.fnUntraced(function* () {
+    const response = yield* step(() => get(interviewId));
     status("detail", response.status);
-    assert.equal(response.status, 200, await response.clone().text());
+    assert.equal(response.status, 200, yield* step(() => response.clone().text()));
     const etag = response.headers.get("etag");
 
     if (etag === null) throw new Error("detail response did not include an ETag");
 
     return {
-      body: Schema.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)(
-        await response.json(),
+      body: yield* Schema.decodeUnknownEffect(RecruitmentInterviewConductObservationSchema)(
+        yield* step(() => response.json()),
       ),
       etag,
     };
-  };
+  });
 
   const validPayload = (body: Detail) => ({
     expectedRevision: body.revision,
@@ -389,128 +429,124 @@ export async function assertInterviewCorrectionBoundaries(
     recommendation: body.recommendation ?? "Ja",
   });
 
-  const denied = async (
+  const denied = Effect.fnUntraced(function* (
     name: string,
     expected: 401 | 403,
     requestCookie: string | null,
     body: Detail,
     etag: string,
-  ) => {
-    const before = await snapshot();
-    const read = await get(interviewId, requestCookie);
+  ) {
+    const before = yield* snapshot();
+    const read = yield* step(() => get(interviewId, requestCookie));
     status(`${name}:read`, read.status);
-    assert.equal(read.status, expected, `${name} read: ${await read.text()}`);
+    assert.equal(read.status, expected, `${name} read: ${yield* step(() => read.text())}`);
 
-    const write = await post(
-      interviewId,
-      validPayload(body),
-      etag,
-      freshId(`correction-boundary-${name}`),
-      requestCookie,
+    const write = yield* step(() =>
+      post(
+        interviewId,
+        validPayload(body),
+        etag,
+        freshId(`correction-boundary-${name}`),
+        requestCookie,
+      ),
     );
 
     status(`${name}:write`, write.status);
-    assert.equal(write.status, expected, `${name} write: ${await write.text()}`);
+    assert.equal(write.status, expected, `${name} write: ${yield* step(() => write.text())}`);
 
-    const replay = await post(
-      interviewId,
-      acceptedReplay.payload,
-      acceptedReplay.etag,
-      acceptedReplay.key,
-      requestCookie,
+    const replay = yield* step(() =>
+      post(
+        interviewId,
+        acceptedReplay.payload,
+        acceptedReplay.etag,
+        acceptedReplay.key,
+        requestCookie,
+      ),
     );
 
     status(`${name}:replay`, replay.status);
-    assert.equal(replay.status, expected, `${name} replay: ${await replay.text()}`);
-    await assertSnapshot(before, name);
-  };
+    assert.equal(replay.status, expected, `${name} replay: ${yield* step(() => replay.text())}`);
+    yield* assertSnapshot(before, name);
+  });
 
-  const initial = await detail();
-  await denied("missing-credential", 401, null, initial.body, initial.etag);
+  const initial = yield* detail();
+  yield* denied("missing-credential", 401, null, initial.body, initial.etag);
   record("anonymous detail and correction deny with no native receipt or domain writes");
   const originalInterview = identity;
   assert.equal(originalInterview.interviewId, interviewId);
-  await withMutation(
+  yield* withMutation(
     (client) =>
-      client
-        .query(
-          `UPDATE public.recruitment_interviews
+      execute(
+        client,
+        `UPDATE public.recruitment_interviews
               SET ${participantColumn}=$1
             WHERE interview_id=$2`,
-          [otherPersonId, interviewId],
-        )
-        .then(() => undefined),
+        [otherPersonId, interviewId],
+      ),
     (client) =>
-      client
-        .query(
-          `UPDATE public.recruitment_interviews
+      execute(
+        client,
+        `UPDATE public.recruitment_interviews
               SET ${participantColumn}=$1
             WHERE interview_id=$2`,
-          [originalInterview[participantField], interviewId],
-        )
-        .then(() => undefined),
+        [originalInterview[participantField], interviewId],
+      ),
     () => denied(`wrong-${participantRole}-participant`, 403, cookie, initial.body, initial.etag),
   );
   record(`removed ${participantRole} participant designation denies detail and correction`);
 
-  const originalMembership = (
-    await readRows(
-      `SELECT membership_id, person_id, team_id, deleted_team_name, start_at, end_at,
+  const originalMembership = (yield* readRows(
+    `SELECT membership_id, person_id, team_id, deleted_team_name, start_at, end_at,
             position_id, is_team_leader, is_suspended, revision
        FROM public.organization_memberships
       WHERE membership_id=$1`,
-      [membershipId],
-    )
-  )[0];
+    [membershipId],
+  ))[0];
 
   assert.ok(originalMembership);
-  await withMutation(
+  yield* withMutation(
     (client) =>
-      client
-        .query(
-          `UPDATE public.organization_memberships
+      execute(
+        client,
+        `UPDATE public.organization_memberships
               SET end_at = start_at + interval '1 second'
             WHERE membership_id=$1`,
-          [membershipId],
-        )
-        .then(() => undefined),
+        [membershipId],
+      ),
     (client) =>
-      client
-        .query(
-          `UPDATE public.organization_memberships
+      execute(
+        client,
+        `UPDATE public.organization_memberships
               SET end_at=$1
             WHERE membership_id=$2`,
-          [originalMembership.end_at, membershipId],
-        )
-        .then(() => undefined),
+        [originalMembership.end_at, membershipId],
+      ),
     () => denied("ended-membership", 403, cookie, initial.body, initial.etag),
   );
   record("ended membership denies detail and correction");
 
-  await withMutation(
+  yield* withMutation(
     (client) =>
-      client
-        .query(
-          `UPDATE public.organization_memberships
+      execute(
+        client,
+        `UPDATE public.organization_memberships
               SET is_suspended=true
             WHERE membership_id=$1`,
-          [membershipId],
-        )
-        .then(() => undefined),
+        [membershipId],
+      ),
     (client) =>
-      client
-        .query(
-          `UPDATE public.organization_memberships
+      execute(
+        client,
+        `UPDATE public.organization_memberships
               SET is_suspended=$1
             WHERE membership_id=$2`,
-          [originalMembership.is_suspended, membershipId],
-        )
-        .then(() => undefined),
+        [originalMembership.is_suspended, membershipId],
+      ),
     () => denied("suspended-membership", 403, cookie, initial.body, initial.etag),
   );
   record("suspended membership denies detail and correction");
 
-  const actorSessions = await readRows(
+  const actorSessions = yield* readRows(
     `SELECT id, "expiresAt", token, "createdAt", "updatedAt", "ipAddress", "userAgent", "userId"
        FROM auth."session"
       WHERE "userId" = $1
@@ -519,90 +555,86 @@ export async function assertInterviewCorrectionBoundaries(
   );
 
   assert.ok(actorSessions.length > 0, "authority fixture must provide an actor session");
-  await withMutation(
+  yield* withMutation(
+    (client) => execute(client, `DELETE FROM auth."session" WHERE "userId"=$1`, [actorPersonId]),
     (client) =>
-      client
-        .query(`DELETE FROM auth."session" WHERE "userId"=$1`, [actorPersonId])
-        .then(() => undefined),
-    async (client) => {
-      for (const session of actorSessions) {
-        await client.query(
-          `INSERT INTO auth."session"
+      Effect.forEach(
+        actorSessions,
+        (session) =>
+          execute(
+            client,
+            `INSERT INTO auth."session"
              (id, "expiresAt", token, "createdAt", "updatedAt", "ipAddress", "userAgent", "userId")
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [
-            session.id,
-            session["expiresAt"],
-            session.token,
-            session["createdAt"],
-            session["updatedAt"],
-            session["ipAddress"],
-            session["userAgent"],
-            session["userId"],
-          ],
-        );
-      }
-    },
+            [
+              session.id,
+              session["expiresAt"],
+              session.token,
+              session["createdAt"],
+              session["updatedAt"],
+              session["ipAddress"],
+              session["userAgent"],
+              session["userId"],
+            ],
+          ),
+        { discard: true },
+      ),
     () => denied("revoked-credential", 401, cookie, initial.body, initial.etag),
   );
   record(
     "actual actor-session deletion denies detail and correction, then restores exact session rows",
   );
 
-  const originalDepartment = (
-    await readRows(
-      `SELECT department_id, name, short_name, email, address, city, latitude,
+  const originalDepartment = (yield* readRows(
+    `SELECT department_id, name, short_name, email, address, city, latitude,
             longitude, slack_channel, logo_path, active, revision
        FROM public.organization_departments
       WHERE department_id=$1`,
-      [identity.departmentId],
-    )
-  )[0];
+    [identity.departmentId],
+  ))[0];
 
   assert.ok(originalDepartment);
-  await withMutation(
+  yield* withMutation(
     (client) =>
-      client
-        .query(`UPDATE public.organization_departments SET active=false WHERE department_id=$1`, [
-          identity.departmentId,
-        ])
-        .then(() => undefined),
+      execute(
+        client,
+        `UPDATE public.organization_departments SET active=false WHERE department_id=$1`,
+        [identity.departmentId],
+      ),
     (client) =>
-      client
-        .query(`UPDATE public.organization_departments SET active=$1 WHERE department_id=$2`, [
-          originalDepartment.active,
-          identity.departmentId,
-        ])
-        .then(() => undefined),
+      execute(
+        client,
+        `UPDATE public.organization_departments SET active=$1 WHERE department_id=$2`,
+        [originalDepartment.active, identity.departmentId],
+      ),
     () => denied("inactive-department", 403, cookie, initial.body, initial.etag),
   );
   record("inactive department denies detail and correction");
 
-  await withMutation(
+  yield* withMutation(
     (client) =>
-      client
-        .query(`UPDATE public.recruitment_interviews SET department_id=$1 WHERE interview_id=$2`, [
-          differentDepartment,
-          interviewId,
-        ])
-        .then(() => undefined),
+      execute(
+        client,
+        `UPDATE public.recruitment_interviews SET department_id=$1 WHERE interview_id=$2`,
+        [differentDepartment, interviewId],
+      ),
     (client) =>
-      client
-        .query(`UPDATE public.recruitment_interviews SET department_id=$1 WHERE interview_id=$2`, [
-          originalInterview.departmentId,
-          interviewId,
-        ])
-        .then(() => undefined),
+      execute(
+        client,
+        `UPDATE public.recruitment_interviews SET department_id=$1 WHERE interview_id=$2`,
+        [originalInterview.departmentId, interviewId],
+      ),
     () => denied("wrong-department", 403, cookie, initial.body, initial.etag),
   );
   record("wrong department denies detail and correction");
 
-  const detailFor = async (id: string): Promise<{ body: Detail; etag: string }> => {
-    const response = await get(id);
+  const detailFor = Effect.fnUntraced(function* (id: string) {
+    const response = yield* step(() => get(id));
 
     if (response.status !== 200) {
-      const diagnostic = await pool.query(
-        `SELECT i.interview_id, i.department_id, i.interviewer_person_id,
+      const diagnostic = yield* step(() =>
+        pool.query(
+          `SELECT i.interview_id, i.department_id, i.interviewer_person_id,
                 i.co_interviewer_person_id, link.person_id AS linked_applicant_person_id,
                 EXISTS (
                   SELECT 1 FROM public.recruitment_interview_conducts AS conduct
@@ -624,12 +656,14 @@ export async function assertInterviewCorrectionBoundaries(
            JOIN public.admission_applications AS application USING(application_id)
            LEFT JOIN public.applicant_account_links AS link USING(applicant_id)
           WHERE i.interview_id=$1`,
-        [id, actorPersonId],
+          [id, actorPersonId],
+        ),
       );
 
-      assert.fail(
-        `detail ${id} returned ${response.status}: ${await response.text()}; source=${JSON.stringify(diagnostic.rows)}`,
-      );
+      const refusal = yield* step(() => response.text());
+      const source = yield* jsonText(diagnostic.rows);
+
+      assert.fail(`detail ${id} returned ${response.status}: ${refusal}; source=${source}`);
     }
 
     const etag = response.headers.get("etag");
@@ -637,14 +671,14 @@ export async function assertInterviewCorrectionBoundaries(
     if (etag === null) throw new Error("detail response did not include an ETag");
 
     return {
-      body: Schema.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)(
-        await response.json(),
+      body: yield* Schema.decodeUnknownEffect(RecruitmentInterviewConductObservationSchema)(
+        yield* step(() => response.json()),
       ),
       etag,
     };
-  };
+  });
 
-  const raceSeed = await detailFor(selfLinkRaceInterviewId);
+  const raceSeed = yield* detailFor(selfLinkRaceInterviewId);
 
   const raceSeedPayload = {
     ...acceptedReplay.payload,
@@ -653,125 +687,147 @@ export async function assertInterviewCorrectionBoundaries(
 
   const raceSeedKey = freshId("correction-boundary-self-link-seed");
 
-  const raceSeedResponse = await post(
-    selfLinkRaceInterviewId,
-    raceSeedPayload,
-    raceSeed.etag,
-    raceSeedKey,
+  const raceSeedResponse = yield* step(() =>
+    post(selfLinkRaceInterviewId, raceSeedPayload, raceSeed.etag, raceSeedKey),
   );
 
   status("self-link-seed:write", raceSeedResponse.status);
-  assert.equal(raceSeedResponse.status, 200, await raceSeedResponse.text());
+  assert.equal(raceSeedResponse.status, 200, yield* step(() => raceSeedResponse.text()));
   const acceptedRaceReplay = { key: raceSeedKey, etag: raceSeed.etag, payload: raceSeedPayload };
-  const raceFresh = await detailFor(selfLinkRaceInterviewId);
+  const raceFresh = yield* detailFor(selfLinkRaceInterviewId);
   const racePayload = validPayload(raceFresh.body);
-  const raceBefore = await snapshot();
-  const locker = await pool.connect();
-  let waiting: Promise<Response> | undefined;
-  let exactReplayWaiting: Promise<Response> | undefined;
+  const raceBefore = yield* snapshot();
   const raceInvitation = freshId("correction-boundary-self-link-race");
 
-  try {
-    await locker.query("BEGIN");
-    await locker.query(
-      `SELECT applicant_id FROM public.admission_applicants WHERE applicant_id=$1 FOR UPDATE`,
-      [raceIdentity.applicantId],
-    );
-    exactReplayWaiting = post(
-      selfLinkRaceInterviewId,
-      acceptedRaceReplay.payload,
-      acceptedRaceReplay.etag,
-      acceptedRaceReplay.key,
-    );
-    const lockerPid = Number((await locker.query("SELECT pg_backend_pid() AS pid")).rows[0].pid);
-    let exactReplayBlocked = false;
-
-    for (let attempt = 0; attempt < 100; attempt++) {
-      const blockingRows = await pool.query(
-        `SELECT pid FROM pg_stat_activity WHERE pid <> $1 AND $1 = ANY(pg_blocking_pids(pid))`,
-        [lockerPid],
+  yield* withConnection((locker) =>
+    Effect.gen(function* () {
+      yield* step(() => locker.query("BEGIN"));
+      yield* step(() =>
+        locker.query(
+          `SELECT applicant_id FROM public.admission_applicants WHERE applicant_id=$1 FOR UPDATE`,
+          [raceIdentity.applicantId],
+        ),
       );
 
-      if (blockingRows.rows.length > 0) {
-        exactReplayBlocked = true;
-        break;
+      const exactReplayWaiting = yield* Effect.forkChild(
+        step(() =>
+          post(
+            selfLinkRaceInterviewId,
+            acceptedRaceReplay.payload,
+            acceptedRaceReplay.etag,
+            acceptedRaceReplay.key,
+          ),
+        ),
+      );
+
+      const lockerPid = Number(
+        (yield* step(() => locker.query("SELECT pg_backend_pid() AS pid"))).rows[0].pid,
+      );
+
+      let exactReplayBlocked = false;
+
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const blockingRows = yield* step(() =>
+          pool.query(
+            `SELECT pid FROM pg_stat_activity WHERE pid <> $1 AND $1 = ANY(pg_blocking_pids(pid))`,
+            [lockerPid],
+          ),
+        );
+
+        if (blockingRows.rows.length > 0) {
+          exactReplayBlocked = true;
+          break;
+        }
+
+        yield* Effect.sleep("10 millis");
       }
 
-      await sleep(10);
-    }
+      assert.ok(
+        exactReplayBlocked,
+        `exact replay was not blocked by canonical applicant lock lockerPid=${lockerPid}`,
+      );
 
-    assert.ok(
-      exactReplayBlocked,
-      `exact replay was not blocked by canonical applicant lock lockerPid=${lockerPid}`,
-    );
-    waiting = post(
-      selfLinkRaceInterviewId,
-      racePayload,
-      raceFresh.etag,
-      freshId("correction-boundary-self-link-race-request"),
-    );
-    await locker.query(
-      `INSERT INTO public.applicant_account_invitations
+      const waiting = yield* Effect.forkChild(
+        step(() =>
+          post(
+            selfLinkRaceInterviewId,
+            racePayload,
+            raceFresh.etag,
+            freshId("correction-boundary-self-link-race-request"),
+          ),
+        ),
+      );
+
+      yield* step(() =>
+        locker.query(
+          `INSERT INTO public.applicant_account_invitations
          (invitation_id, application_id, applicant_id, token_digest, expires_at, state, issued_by, issued_at)
        VALUES ($1,$2,$3,$4,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')+interval '24 hours','Claimed',$5,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))`,
-      [
-        raceInvitation,
-        raceIdentity.applicationId,
-        raceIdentity.applicantId,
-        createHash("sha256").update(raceInvitation).digest("hex"),
-        actorPersonId,
-      ],
-    );
-    await locker.query(
-      `INSERT INTO public.applicant_account_links (applicant_id, person_id, linked_at, invitation_id)
+          [
+            raceInvitation,
+            raceIdentity.applicationId,
+            raceIdentity.applicantId,
+            createHash("sha256").update(raceInvitation).digest("hex"),
+            actorPersonId,
+          ],
+        ),
+      );
+      yield* step(() =>
+        locker.query(
+          `INSERT INTO public.applicant_account_links (applicant_id, person_id, linked_at, invitation_id)
        VALUES ($1,$2,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'),$3)`,
-      [raceIdentity.applicantId, actorPersonId, raceInvitation],
-    );
-    await locker.query("COMMIT");
-    const exactReplayResponse = await exactReplayWaiting;
-    status("self-link-race:exact-replay-while-committing", exactReplayResponse.status);
+          [raceIdentity.applicantId, actorPersonId, raceInvitation],
+        ),
+      );
+      yield* step(() => locker.query("COMMIT"));
+      const exactReplayResponse = yield* Fiber.join(exactReplayWaiting);
+      status("self-link-race:exact-replay-while-committing", exactReplayResponse.status);
 
-    const exactReplayBody = Schema.decodeUnknownSync(NativeProblem)(
-      await exactReplayResponse.json(),
-    );
+      const exactReplayBody = yield* Schema.decodeUnknownEffect(NativeProblem)(
+        yield* step(() => exactReplayResponse.json()),
+      );
 
-    assert.ok([403, 409].includes(exactReplayResponse.status), JSON.stringify(exactReplayBody));
+      assert.ok([403, 409].includes(exactReplayResponse.status), yield* jsonText(exactReplayBody));
 
-    if (exactReplayResponse.status === 409) {
-      assert.equal(exactReplayBody.code, "transaction.conflict");
-    }
+      if (exactReplayResponse.status === 409) {
+        assert.equal(exactReplayBody.code, "transaction.conflict");
+      }
 
-    const raceResponse = await waiting;
-    status("self-link-race:write", raceResponse.status);
-    const raceBody = Schema.decodeUnknownSync(NativeProblem)(await raceResponse.json());
-    assert.ok([403, 409].includes(raceResponse.status), JSON.stringify(raceBody));
+      const raceResponse = yield* Fiber.join(waiting);
+      status("self-link-race:write", raceResponse.status);
 
-    if (raceResponse.status === 409) assert.equal(raceBody.code, "transaction.conflict");
-    const deniedRead = await get(selfLinkRaceInterviewId);
-    status("self-link-race:read-after-commit", deniedRead.status);
-    assert.equal(deniedRead.status, 403, await deniedRead.text());
+      const raceBody = yield* Schema.decodeUnknownEffect(NativeProblem)(
+        yield* step(() => raceResponse.json()),
+      );
 
-    const replay = await post(
-      selfLinkRaceInterviewId,
-      acceptedRaceReplay.payload,
-      acceptedRaceReplay.etag,
-      acceptedRaceReplay.key,
-    );
+      assert.ok([403, 409].includes(raceResponse.status), yield* jsonText(raceBody));
 
-    status("self-link-race:replay", replay.status);
-    assert.equal(replay.status, 403, await replay.text());
-    const raceAfterResponse = await snapshot();
-    assertCorrectionRowsUnchanged(raceBefore, raceAfterResponse, "self-link race response");
-  } finally {
-    await locker.query("ROLLBACK").catch(() => undefined);
-    locker.release();
-  }
+      if (raceResponse.status === 409) assert.equal(raceBody.code, "transaction.conflict");
+      const deniedRead = yield* step(() => get(selfLinkRaceInterviewId));
+      status("self-link-race:read-after-commit", deniedRead.status);
+      assert.equal(deniedRead.status, 403, yield* step(() => deniedRead.text()));
+
+      const replay = yield* step(() =>
+        post(
+          selfLinkRaceInterviewId,
+          acceptedRaceReplay.payload,
+          acceptedRaceReplay.etag,
+          acceptedRaceReplay.key,
+        ),
+      );
+
+      status("self-link-race:replay", replay.status);
+      assert.equal(replay.status, 403, yield* step(() => replay.text()));
+      const raceAfterResponse = yield* snapshot();
+      assertCorrectionRowsUnchanged(raceBefore, raceAfterResponse, "self-link race response");
+    }),
+  );
 
   record(
     "genuine accepted self-link fixture correction is denied or transaction-conflicted after committed self-link; fresh read and exact replay deny",
   );
 
-  const current = await detail();
+  const current = yield* detail();
   const currentPayload = validPayload(current.body);
   const currentAnswers = currentPayload.answers;
   assert.ok(
@@ -832,21 +888,23 @@ export async function assertInterviewCorrectionBoundaries(
   );
 
   for (const [name, invalid] of invalidCases) {
-    const before = await snapshot();
+    const before = yield* snapshot();
 
     const response =
       name === "malformed-json"
-        ? await postRaw(
+        ? yield* postRaw(
             interviewId,
-            Schema.decodeUnknownSync(Schema.String)(invalid),
+            yield* Schema.decodeUnknownEffect(Schema.String)(invalid),
             current.etag,
             freshId(`correction-boundary-invalid-${name}`),
           )
-        : await post(
-            interviewId,
-            invalid,
-            current.etag,
-            freshId(`correction-boundary-invalid-${name}`),
+        : yield* step(() =>
+            post(
+              interviewId,
+              invalid,
+              current.etag,
+              freshId(`correction-boundary-invalid-${name}`),
+            ),
           );
 
     status(`invalid:${name}`, response.status);
@@ -855,7 +913,7 @@ export async function assertInterviewCorrectionBoundaries(
     // outside its schema fails in the RPC server before the handler, as a defect (500). A body that
     // is not JSON is refused by the ingress before any RPC runs, as request.malformed (400).
     if (name === "malformed-json") {
-      const refusal = await response.text();
+      const refusal = yield* step(() => response.text());
 
       assert.equal(response.status, 400, refusal);
 
@@ -864,33 +922,30 @@ export async function assertInterviewCorrectionBoundaries(
       assert.equal(
         response.status,
         semanticInvalidCases.has(name) ? 422 : 500,
-        await response.text(),
+        yield* step(() => response.text()),
       );
     }
 
-    await assertSnapshot(before, `invalid ${name}`);
+    yield* assertSnapshot(before, `invalid ${name}`);
   }
 
   record(
     "malformed RPC bodies and schema failures are refused before the handler, and answer mismatches map to 422; each leaves exact state unchanged",
   );
-  const sameKeyBefore = await snapshot();
+  const sameKeyBefore = yield* snapshot();
 
   const conflictingPayload = {
     ...currentPayload,
     recommendation: currentPayload.recommendation === "Nei" ? "Ja" : "Nei",
   };
 
-  const sameKeyResponse = await post(
-    interviewId,
-    conflictingPayload,
-    current.etag,
-    acceptedReplay.key,
+  const sameKeyResponse = yield* step(() =>
+    post(interviewId, conflictingPayload, current.etag, acceptedReplay.key),
   );
 
   status("same-key-different-payload", sameKeyResponse.status);
-  assert.equal(sameKeyResponse.status, 409, await sameKeyResponse.text());
-  await assertSnapshot(sameKeyBefore, "same-key different payload");
+  assert.equal(sameKeyResponse.status, 409, yield* step(() => sameKeyResponse.text()));
+  yield* assertSnapshot(sameKeyBefore, "same-key different payload");
   record(
     "same idempotency key with a different payload returns digest conflict without any owned write",
   );
@@ -907,16 +962,20 @@ export async function assertInterviewCorrectionBoundaries(
   ] as const;
 
   const quote = (identifier: string) => `"${identifier}"`;
-  const rollbackClient = await pool.connect();
-
-  try {
-    await rollbackClient.query("BEGIN");
-    await rollbackClient.query(`CREATE SEQUENCE public.${quote(rollbackSequence)}`);
-    await rollbackClient.query(
-      `CREATE TABLE public.${quote(rollbackControl)} (stage integer NOT NULL CHECK (stage BETWEEN 1 AND 4))`,
-    );
-    await rollbackClient.query(`INSERT INTO public.${quote(rollbackControl)} (stage) VALUES (1)`);
-    await rollbackClient.query(`
+  yield* withConnection((rollbackClient) =>
+    Effect.gen(function* () {
+      yield* step(() => rollbackClient.query("BEGIN"));
+      yield* step(() => rollbackClient.query(`CREATE SEQUENCE public.${quote(rollbackSequence)}`));
+      yield* step(() =>
+        rollbackClient.query(
+          `CREATE TABLE public.${quote(rollbackControl)} (stage integer NOT NULL CHECK (stage BETWEEN 1 AND 4))`,
+        ),
+      );
+      yield* step(() =>
+        rollbackClient.query(`INSERT INTO public.${quote(rollbackControl)} (stage) VALUES (1)`),
+      );
+      yield* step(() =>
+        rollbackClient.query(`
       CREATE FUNCTION public.${quote(rollbackFunction)}() RETURNS trigger LANGUAGE plpgsql AS $$
       DECLARE configured integer;
       BEGIN
@@ -927,123 +986,134 @@ export async function assertInterviewCorrectionBoundaries(
         END IF;
         RETURN NEW;
       END $$;
-    `);
+    `),
+      );
 
-    for (const [, table, stage, event] of rollbackTriggers) {
-      await rollbackClient.query(
-        `CREATE TRIGGER ${quote(`${rollbackFunction}_${stage}`)} AFTER ${event} ON public.${table}
+      for (const [, table, stage, event] of rollbackTriggers) {
+        yield* step(() =>
+          rollbackClient.query(
+            `CREATE TRIGGER ${quote(`${rollbackFunction}_${stage}`)} AFTER ${event} ON public.${table}
          FOR EACH ROW EXECUTE FUNCTION public.${quote(rollbackFunction)}('${stage}')`,
-      );
-    }
-
-    await rollbackClient.query("COMMIT");
-  } finally {
-    await rollbackClient.query("ROLLBACK").catch(() => undefined);
-    rollbackClient.release();
-  }
-
-  try {
-    for (const [name, , stage] of rollbackTriggers) {
-      const setup = await pool.connect();
-
-      try {
-        await setup.query("BEGIN");
-        await setup.query(`UPDATE public.${quote(rollbackControl)} SET stage=$1`, [Number(stage)]);
-        await setup.query(`ALTER SEQUENCE public.${quote(rollbackSequence)} RESTART WITH 1`);
-        await setup.query("COMMIT");
-      } finally {
-        await setup.query("ROLLBACK").catch(() => undefined);
-        setup.release();
-      }
-
-      const before = await snapshot();
-
-      const response = await post(
-        interviewId,
-        currentPayload,
-        current.etag,
-        freshId(`correction-boundary-rollback-${name}`),
-      );
-
-      status(`rollback:${name}`, response.status);
-
-      const failureBody = Schema.decodeUnknownSync(NativeProblem)(await response.json());
-
-      assert.equal(response.status, 503, JSON.stringify(failureBody));
-      assert.equal(failureBody.code, "dependency.unavailable", JSON.stringify(failureBody));
-
-      const marker = await pool.query(
-        `SELECT last_value, is_called FROM public.${quote(rollbackSequence)}`,
-      );
-
-      assert.equal(marker.rows[0]?.is_called, true, `${name} rollback marker did not fire`);
-      assert.equal(
-        Number(marker.rows[0]?.last_value),
-        Number(stage),
-        `${name} rollback probe stopped before injected stage`,
-      );
-      await assertSnapshot(before, `rollback after ${name}`);
-    }
-
-    record(
-      "each aggregate, assessment, domain-receipt, and audit failure trigger fired and rolled back all domain and native HTTP receipt rows",
-    );
-  } finally {
-    const cleanup = await pool.connect();
-
-    try {
-      await cleanup.query("BEGIN");
-
-      for (const [, table, stage] of rollbackTriggers) {
-        await cleanup.query(
-          `DROP TRIGGER IF EXISTS ${quote(`${rollbackFunction}_${stage}`)} ON public.${table}`,
+          ),
         );
       }
 
-      await cleanup.query(`DROP FUNCTION IF EXISTS public.${quote(rollbackFunction)}()`);
-      await cleanup.query(`DROP TABLE IF EXISTS public.${quote(rollbackControl)}`);
-      await cleanup.query(`DROP SEQUENCE IF EXISTS public.${quote(rollbackSequence)}`);
-      await cleanup.query("COMMIT");
-    } finally {
-      await cleanup.query("ROLLBACK").catch(() => undefined);
-      cleanup.release();
-    }
-  }
+      yield* step(() => rollbackClient.query("COMMIT"));
+    }),
+  );
+
+  yield* withCleanup(
+    Effect.gen(function* () {
+      for (const [name, , stage] of rollbackTriggers) {
+        yield* withConnection((setup) =>
+          Effect.gen(function* () {
+            yield* step(() => setup.query("BEGIN"));
+            yield* step(() =>
+              setup.query(`UPDATE public.${quote(rollbackControl)} SET stage=$1`, [Number(stage)]),
+            );
+            yield* step(() =>
+              setup.query(`ALTER SEQUENCE public.${quote(rollbackSequence)} RESTART WITH 1`),
+            );
+            yield* step(() => setup.query("COMMIT"));
+          }),
+        );
+
+        const before = yield* snapshot();
+
+        const response = yield* step(() =>
+          post(
+            interviewId,
+            currentPayload,
+            current.etag,
+            freshId(`correction-boundary-rollback-${name}`),
+          ),
+        );
+
+        status(`rollback:${name}`, response.status);
+
+        const failureBody = yield* Schema.decodeUnknownEffect(NativeProblem)(
+          yield* step(() => response.json()),
+        );
+
+        assert.equal(response.status, 503, yield* jsonText(failureBody));
+        assert.equal(failureBody.code, "dependency.unavailable", yield* jsonText(failureBody));
+
+        const marker = yield* step(() =>
+          pool.query(`SELECT last_value, is_called FROM public.${quote(rollbackSequence)}`),
+        );
+
+        assert.equal(marker.rows[0]?.is_called, true, `${name} rollback marker did not fire`);
+        assert.equal(
+          Number(marker.rows[0]?.last_value),
+          Number(stage),
+          `${name} rollback probe stopped before injected stage`,
+        );
+        yield* assertSnapshot(before, `rollback after ${name}`);
+      }
+
+      record(
+        "each aggregate, assessment, domain-receipt, and audit failure trigger fired and rolled back all domain and native HTTP receipt rows",
+      );
+    }),
+    withConnection((cleanup) =>
+      Effect.gen(function* () {
+        yield* step(() => cleanup.query("BEGIN"));
+
+        for (const [, table, stage] of rollbackTriggers) {
+          yield* step(() =>
+            cleanup.query(
+              `DROP TRIGGER IF EXISTS ${quote(`${rollbackFunction}_${stage}`)} ON public.${table}`,
+            ),
+          );
+        }
+
+        yield* step(() =>
+          cleanup.query(`DROP FUNCTION IF EXISTS public.${quote(rollbackFunction)}()`),
+        );
+        yield* step(() => cleanup.query(`DROP TABLE IF EXISTS public.${quote(rollbackControl)}`));
+        yield* step(() =>
+          cleanup.query(`DROP SEQUENCE IF EXISTS public.${quote(rollbackSequence)}`),
+        );
+        yield* step(() => cleanup.query("COMMIT"));
+      }),
+    ),
+  );
 
   const differentLinkInvitation = freshId("correction-boundary-different-link");
-  const differentLinkClient = await pool.connect();
-
-  try {
-    await differentLinkClient.query("BEGIN");
-    await differentLinkClient.query(
-      `INSERT INTO public.applicant_account_invitations
+  yield* withConnection((differentLinkClient) =>
+    Effect.gen(function* () {
+      yield* step(() => differentLinkClient.query("BEGIN"));
+      yield* step(() =>
+        differentLinkClient.query(
+          `INSERT INTO public.applicant_account_invitations
          (invitation_id, application_id, applicant_id, token_digest, expires_at, state, issued_by, issued_at)
        VALUES ($1,$2,$3,$4,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')+interval '24 hours','Claimed',$5,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))`,
-      [
-        differentLinkInvitation,
-        identity.applicationId,
-        identity.applicantId,
-        createHash("sha256").update(differentLinkInvitation).digest("hex"),
-        actorPersonId,
-      ],
-    );
-    await differentLinkClient.query(
-      `INSERT INTO public.applicant_account_links (applicant_id, person_id, linked_at, invitation_id)
+          [
+            differentLinkInvitation,
+            identity.applicationId,
+            identity.applicantId,
+            createHash("sha256").update(differentLinkInvitation).digest("hex"),
+            actorPersonId,
+          ],
+        ),
+      );
+      yield* step(() =>
+        differentLinkClient.query(
+          `INSERT INTO public.applicant_account_links (applicant_id, person_id, linked_at, invitation_id)
        VALUES ($1,$2,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'),$3)`,
-      [identity.applicantId, otherPersonId, differentLinkInvitation],
-    );
-    await differentLinkClient.query("COMMIT");
-  } finally {
-    await differentLinkClient.query("ROLLBACK").catch(() => undefined);
-    differentLinkClient.release();
-  }
+          [identity.applicantId, otherPersonId, differentLinkInvitation],
+        ),
+      );
+      yield* step(() => differentLinkClient.query("COMMIT"));
+    }),
+  );
 
-  const differentRead = await get(interviewId);
+  const differentRead = yield* step(() => get(interviewId));
   status("different-linked-person:read", differentRead.status);
-  assert.equal(differentRead.status, 200, await differentRead.text());
+  assert.equal(differentRead.status, 200, yield* step(() => differentRead.text()));
   record(
     "different-person applicant link is a committed teardown-owned fixture and remains readable without correction writes",
   );
 
   return { gates, statuses };
-}
+});

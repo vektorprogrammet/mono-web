@@ -2,9 +2,6 @@ import { decodePostgresObservations, type PostgresObservation } from "./postgres
 import { RecruitmentInterviewConductObservationSchema } from "../../packages/domain/src/recruitment/schema.js";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { writeFile } from "node:fs/promises";
-
-import { join } from "node:path";
 import type { Browser, Page } from "@playwright/test";
 import type { Pool } from "pg";
 import {
@@ -13,8 +10,10 @@ import {
 } from "./interview-correction-boundaries.ts";
 import { assertInterviewCorrectionIntegrity } from "./interview-correction-integrity.ts";
 import type { CoInterviewerCorrection0106Fixture } from "./recommendation-preupgrade-fixture.ts";
-import { Effect, Predicate, Schema } from "effect";
-import { surfaceStepFailure } from "./journey-step.ts";
+import { Effect, Exit, FileSystem, Path, type PlatformError, Predicate, Schema } from "effect";
+import { HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/unstable/http";
+import { firstSetCookie, jsonText, type JourneyStepFailed, step } from "./journey-step.ts";
+import { indentedJsonText, ProbeFailure } from "./acceptance-process.ts";
 import { replacedFetch } from "../../apps/dashboard/e2e/native-rpc-ledger.ts";
 import { admissionJourneyClock } from "../e2e/journey-clock.ts";
 
@@ -32,8 +31,6 @@ type Score = Readonly<{
 }>;
 
 type Detail = typeof RecruitmentInterviewConductObservationSchema.Type;
-
-type DetailResponse = Readonly<{ body: Detail; etag: string }>;
 
 type BoardItem = Readonly<{
   interviewId: string;
@@ -77,13 +74,20 @@ export type CoInterviewerCorrectionJourneyContext = Readonly<{
     readonly table: string;
     readonly rows: ReadonlyArray<{ readonly value: Schema.Json }>;
   }>;
-  effectSnapshot: () => Promise<
+  effectSnapshot: () => Effect.Effect<
     ReadonlyArray<{
       readonly table: string;
       readonly rows: ReadonlyArray<{ readonly value: Schema.Json }>;
-    }>
+    }>,
+    JourneyStepFailed
   >;
-  auditPage: (page: Page, state: string) => Promise<ReadonlyArray<unknown>>;
+  auditPage: (
+    page: Page,
+    state: string,
+  ) => Effect.Effect<
+    ReadonlyArray<unknown>,
+    JourneyStepFailed | PlatformError.PlatformError | Schema.SchemaError
+  >;
   recordGate: (...observations: string[]) => void;
 }>;
 
@@ -108,9 +112,9 @@ const sharedAssessment = (detail: Detail) => ({
   finalizedAt: detail.finalizedAt,
 });
 
-export async function runCoInterviewerCorrectionJourney(
+export const runCoInterviewerCorrectionJourney = Effect.fnUntraced(function* (
   context: CoInterviewerCorrectionJourneyContext,
-): Promise<CoInterviewerCorrectionJourneyResult> {
+) {
   const {
     pool,
     browser,
@@ -128,6 +132,8 @@ export async function runCoInterviewerCorrectionJourney(
     recordGate,
   } = context;
 
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   const stages: string[] = [];
   const statuses: Record<string, number> = {};
 
@@ -165,28 +171,34 @@ export async function runCoInterviewerCorrectionJourney(
       cookie,
     );
 
-  const getDetail = async (cookie: string): Promise<DetailResponse> => {
-    const response = await readConduct(cookie);
+  const getDetail = Effect.fnUntraced(function* (cookie: string) {
+    const response = yield* step(() => readConduct(cookie));
 
     const responseEtag = response.headers.get("etag");
-    assert.equal(response.status, 200, await response.clone().text());
+    assert.equal(response.status, 200, yield* step(() => response.clone().text()));
     assert.ok(responseEtag, "detail response must carry a strong ETag");
-    const body: unknown = await response.json();
+    const body: unknown = yield* step(() => response.json());
 
-    try {
-      return { body: Schema.decodeUnknownSync(DetailSchema)(body), etag: responseEtag };
-    } catch (cause) {
-      throw new Error(`invalid interview detail response: ${JSON.stringify(body)}`, { cause });
-    }
-  };
+    const decoded = yield* Effect.exit(Schema.decodeUnknownEffect(DetailSchema)(body));
 
-  const getBoard = async (cookie: string): Promise<Board> => {
-    const response = await recruitment("recruitment.readSchedulingBoard", null, cookie);
-    assert.equal(response.status, 200, await response.clone().text());
-    const body: unknown = await response.json();
+    if (Exit.isFailure(decoded))
+      return yield* new ProbeFailure({
+        message: `invalid interview detail response: ${yield* jsonText(body)}`,
+      });
 
-    return Schema.decodeUnknownSync(BoardSchema)(body);
-  };
+    return { body: decoded.value, etag: responseEtag };
+  });
+
+  const getBoard = Effect.fnUntraced(function* (cookie: string) {
+    const response = yield* step(() =>
+      recruitment("recruitment.readSchedulingBoard", null, cookie),
+    );
+
+    assert.equal(response.status, 200, yield* step(() => response.clone().text()));
+    const body: unknown = yield* step(() => response.json());
+
+    return yield* Schema.decodeUnknownEffect(BoardSchema)(body);
+  });
 
   const boardItem = (board: Board): BoardItem => {
     const item = board.interviews.find(
@@ -211,101 +223,104 @@ export async function runCoInterviewerCorrectionJourney(
       cookie,
     );
 
-  const snapshot = async (): Promise<PersistedSnapshot> => ({
-    interview: decodePostgresObservations(
-      (
-        await pool.query(
-          `SELECT interview_id, interviewer_person_id, co_interviewer_person_id, revision
+  const snapshot = Effect.fnUntraced(function* () {
+    return {
+      interview: decodePostgresObservations(
+        (yield* step(() =>
+          pool.query(
+            `SELECT interview_id, interviewer_person_id, co_interviewer_person_id, revision
            FROM public.recruitment_interviews
           WHERE interview_id=$1`,
-          [fixture.targetInterviewId],
-        )
-      ).rows,
-    ),
-    conduct: decodePostgresObservations(
-      (
-        await pool.query(
-          `SELECT to_jsonb(conduct) AS value
+            [fixture.targetInterviewId],
+          ),
+        )).rows,
+      ),
+      conduct: decodePostgresObservations(
+        (yield* step(() =>
+          pool.query(
+            `SELECT to_jsonb(conduct) AS value
            FROM public.recruitment_interview_conducts AS conduct
           WHERE interview_id=$1`,
-          [fixture.targetInterviewId],
-        )
-      ).rows,
-    ),
-    corrections: decodePostgresObservations(
-      (
-        await pool.query(
-          `SELECT interview_id, predecessor_revision, resulting_revision, answers,
+            [fixture.targetInterviewId],
+          ),
+        )).rows,
+      ),
+      corrections: decodePostgresObservations(
+        (yield* step(() =>
+          pool.query(
+            `SELECT interview_id, predecessor_revision, resulting_revision, answers,
                 explanatory_power, role_model, suitability, recommendation,
                 corrected_by_person_id, corrected_at, command_id
            FROM public.recruitment_interview_correction_assessments
           WHERE interview_id=$1
           ORDER BY resulting_revision`,
-          [fixture.targetInterviewId],
-        )
-      ).rows,
-    ),
-    receipts: decodePostgresObservations(
-      (
-        await pool.query(
-          `SELECT command_id, command_sha256, command_json, observation_json,
+            [fixture.targetInterviewId],
+          ),
+        )).rows,
+      ),
+      receipts: decodePostgresObservations(
+        (yield* step(() =>
+          pool.query(
+            `SELECT command_id, command_sha256, command_json, observation_json,
                 interview_id, predecessor_revision, resulting_revision, committed_at
            FROM public.recruitment_interview_correction_command_receipts
           WHERE interview_id=$1
           ORDER BY resulting_revision, command_id`,
-          [fixture.targetInterviewId],
-        )
-      ).rows,
-    ),
-    audit: decodePostgresObservations(
-      (
-        await pool.query(
-          `SELECT command_id, interview_id, actor_person_id, predecessor_revision,
+            [fixture.targetInterviewId],
+          ),
+        )).rows,
+      ),
+      audit: decodePostgresObservations(
+        (yield* step(() =>
+          pool.query(
+            `SELECT command_id, interview_id, actor_person_id, predecessor_revision,
                 resulting_revision, occurred_at
            FROM public.recruitment_interview_correction_audit
           WHERE interview_id=$1
           ORDER BY resulting_revision, command_id`,
-          [fixture.targetInterviewId],
-        )
-      ).rows,
-    ),
-    nativeHttpReceipts: decodePostgresObservations(
-      (
-        await pool.query(
-          `SELECT identity_sha256, request_sha256, operation_id, state, status, media_type,
+            [fixture.targetInterviewId],
+          ),
+        )).rows,
+      ),
+      nativeHttpReceipts: decodePostgresObservations(
+        (yield* step(() =>
+          pool.query(
+            `SELECT identity_sha256, request_sha256, operation_id, state, status, media_type,
                 encode(body_bytes, 'hex') AS body_hex, headers_json, committed_at,
                 full_expires_at, tombstoned_at
            FROM public.native_http_idempotency_receipts
           ORDER BY identity_sha256, request_sha256`,
-        )
-      ).rows,
-    ),
+          ),
+        )).rows,
+      ),
+    };
   });
 
-  const assertUnchanged = async (before: PersistedSnapshot, label: string) =>
-    assert.deepEqual(await snapshot(), before, `${label} changed correction state`);
+  const assertUnchanged = Effect.fnUntraced(function* (before: PersistedSnapshot, label: string) {
+    return assert.deepEqual(yield* snapshot(), before, `${label} changed correction state`);
+  });
 
-  const countWrites = async (): Promise<
-    Readonly<{ assessments: number; receipts: number; audit: number; revision: number }>
-  > => {
-    const result = await pool.query<{
-      assessments: number;
-      receipts: number;
-      audit: number;
-      revision: number;
-    }>(
-      `SELECT
+  const countWrites = Effect.fnUntraced(function* () {
+    const result = yield* step(() =>
+      pool.query<{
+        assessments: number;
+        receipts: number;
+        audit: number;
+        revision: number;
+      }>(
+        `SELECT
          (SELECT count(*)::int FROM public.recruitment_interview_correction_assessments WHERE interview_id=$1) AS assessments,
          (SELECT count(*)::int FROM public.recruitment_interview_correction_command_receipts WHERE interview_id=$1) AS receipts,
          (SELECT count(*)::int FROM public.recruitment_interview_correction_audit WHERE interview_id=$1) AS audit,
          (SELECT revision FROM public.recruitment_interviews WHERE interview_id=$1) AS revision`,
-      [fixture.targetInterviewId],
+        [fixture.targetInterviewId],
+      ),
     );
 
     assert.equal(result.rows.length, 1, "correction aggregate count must be present");
 
     return result.rows[0]!;
-  };
+  });
 
   const correctionPayload = (
     detail: Detail,
@@ -324,30 +339,38 @@ export async function runCoInterviewerCorrectionJourney(
     recommendation,
   });
 
-  const openInterview = async (page: Page) => {
-    await page
-      .getByRole("article")
-      .filter({ hasText: "history Recommendation" })
-      .getByRole("button", { name: "Åpne intervju", exact: true })
-      .click();
-    await page.getByRole("heading", { name: "Intervju med history Recommendation" }).waitFor();
-  };
+  const openInterview = Effect.fnUntraced(function* (page: Page) {
+    yield* step(() =>
+      page
+        .getByRole("article")
+        .filter({ hasText: "history Recommendation" })
+        .getByRole("button", { name: "Åpne intervju", exact: true })
+        .click(),
+    );
+    yield* step(() =>
+      page.getByRole("heading", { name: "Intervju med history Recommendation" }).waitFor(),
+    );
+  });
 
-  const fillCorrection = async (
+  const fillCorrection = Effect.fnUntraced(function* (
     page: Page,
     answer: string,
     recommendation: "Ja" | "Kanskje" | "Nei",
     score: Score,
-  ) => {
-    await page.locator("#question-interview-schema-native-conduct-0063-q0").fill(answer);
-    await page.locator("#question-interview-schema-native-conduct-0063-q1-1").check();
-    await page.locator("#question-interview-schema-native-conduct-0063-q2-0").check();
-    await page.locator("#question-interview-schema-native-conduct-0063-q3-0").check();
-    await page.locator("#interviewer-recommendation").selectOption(recommendation);
-    await page.locator("#score-explanatoryPower").selectOption(String(score.explanatoryPower));
-    await page.locator("#score-roleModel").selectOption(String(score.roleModel));
-    await page.locator("#score-suitability").selectOption(String(score.suitability));
-  };
+  ) {
+    yield* step(() =>
+      page.locator("#question-interview-schema-native-conduct-0063-q0").fill(answer),
+    );
+    yield* step(() => page.locator("#question-interview-schema-native-conduct-0063-q1-1").check());
+    yield* step(() => page.locator("#question-interview-schema-native-conduct-0063-q2-0").check());
+    yield* step(() => page.locator("#question-interview-schema-native-conduct-0063-q3-0").check());
+    yield* step(() => page.locator("#interviewer-recommendation").selectOption(recommendation));
+    yield* step(() =>
+      page.locator("#score-explanatoryPower").selectOption(String(score.explanatoryPower)),
+    );
+    yield* step(() => page.locator("#score-roleModel").selectOption(String(score.roleModel)));
+    yield* step(() => page.locator("#score-suitability").selectOption(String(score.suitability)));
+  });
 
   const waitForCorrection = (page: Page) =>
     page.waitForResponse((response) => {
@@ -371,30 +394,32 @@ export async function runCoInterviewerCorrectionJourney(
       }
     });
 
-  const submitBrowserCorrection = async (page: Page) => {
-    await page.getByRole("button", { name: "Rett intervju", exact: true }).click();
-    await page.getByRole("dialog").waitFor({ state: "visible" });
+  const submitBrowserCorrection = Effect.fnUntraced(function* (page: Page) {
+    yield* step(() => page.getByRole("button", { name: "Rett intervju", exact: true }).click());
+    yield* step(() => page.getByRole("dialog").waitFor({ state: "visible" }));
     const responsePromise = waitForCorrection(page);
-    await page
-      .getByRole("dialog")
-      .getByRole("button", { name: "Rett intervju", exact: true })
-      .press("Enter");
-    const response = await responsePromise;
-    assert.equal(response.status(), 200, await response.text());
-  };
+    yield* step(() =>
+      page
+        .getByRole("dialog")
+        .getByRole("button", { name: "Rett intervju", exact: true })
+        .press("Enter"),
+    );
+    const response = yield* step(() => responsePromise);
+    assert.equal(response.status(), 200, yield* step(() => response.text()));
+  });
 
-  const login = async (identity: NativeLogin, label: string) => {
-    const browserContext = await browser.newContext();
-    const page = await browserContext.newPage();
+  const login = Effect.fnUntraced(function* (identity: NativeLogin, label: string) {
+    const browserContext = yield* step(() => browser.newContext());
+    const page = yield* step(() => browserContext.newPage());
     page.on("pageerror", () => errors.push(`${label}-pageerror`));
     secrets.push(identity.email, identity.password);
-    await page.goto(`${ui}/login`);
-    await page.getByLabel("E-post", { exact: true }).fill(identity.email);
-    await page.getByLabel("Passord", { exact: true }).fill(identity.password);
-    await page.getByRole("button", { name: "Logg inn", exact: true }).click();
-    await page.waitForURL(/\/dashboard\/?$/);
-    await page.goto(`${ui}/dashboard/intervjuer`);
-    const cookies = await browserContext.cookies();
+    yield* step(() => page.goto(`${ui}/login`));
+    yield* step(() => page.getByLabel("E-post", { exact: true }).fill(identity.email));
+    yield* step(() => page.getByLabel("Passord", { exact: true }).fill(identity.password));
+    yield* step(() => page.getByRole("button", { name: "Logg inn", exact: true }).click());
+    yield* step(() => page.waitForURL(/\/dashboard\/?$/));
+    yield* step(() => page.goto(`${ui}/dashboard/intervjuer`));
+    const cookies = yield* step(() => browserContext.cookies());
     assert.ok(cookies.length > 0, "native login did not establish a browser session");
     secrets.push(...cookies.map((cookie) => cookie.value));
 
@@ -403,42 +428,42 @@ export async function runCoInterviewerCorrectionJourney(
       page,
       cookie: cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; "),
     };
-  };
+  });
 
-  const signInCookie = async (identity: NativeLogin, label: string): Promise<string> => {
+  const signInCookie = Effect.fnUntraced(function* (identity: NativeLogin, label: string) {
     secrets.push(identity.email, identity.password);
-    let response: Response | undefined;
+    const body = yield* jsonText(identity);
+    let response: HttpClientResponse.HttpClientResponse | undefined;
 
     for (let retry = 0; retry <= 30; retry += 1) {
-      response = await fetch(`${api}/api/auth/sign-in/email`, {
-        method: "POST",
-        headers: { origin: ui, "content-type": "application/json" },
-        body: JSON.stringify(identity),
-      });
+      response = yield* HttpClient.execute(
+        HttpClientRequest.post(`${api}/api/auth/sign-in/email`).pipe(
+          HttpClientRequest.setHeaders({ origin: ui }),
+          HttpClientRequest.bodyText(body, "application/json"),
+        ),
+      );
 
       if (response.status !== 429) break;
-      const cooldown = Promise.withResolvers<void>();
-      setTimeout(cooldown.resolve, 1_000);
-      await cooldown.promise;
+      yield* Effect.sleep("1 second");
     }
 
     assert.ok(response, `${label} native login did not return a response`);
-    assert.equal(response.status, 200, `${label} native login failed: ${await response.text()}`);
-    const cookie = response.headers.get("set-cookie")?.match(/^([^=;]+=[^;]+)/u)?.[1];
+    assert.equal(response.status, 200, `${label} native login failed: ${yield* response.text}`);
+    const cookie = firstSetCookie(response);
     assert.ok(cookie, `${label} native login did not return a session cookie`);
     secrets.push(cookie);
 
     return cookie;
-  };
+  });
 
-  const primaryInitial = await getDetail(primaryCookie);
-  const primaryBoardInitial = await getBoard(primaryCookie);
+  const primaryInitial = yield* getDetail(primaryCookie);
+  const primaryBoardInitial = yield* getBoard(primaryCookie);
   const primaryBoardItemInitial = boardItem(primaryBoardInitial);
-  const co = await login(fixture.coInterviewer, "co-interviewer");
+  const co = yield* login(fixture.coInterviewer, "co-interviewer");
 
-  try {
-    const coInitial = await getDetail(co.cookie);
-    const coBoardInitial = await getBoard(co.cookie);
+  return yield* Effect.gen(function* () {
+    const coInitial = yield* getDetail(co.cookie);
+    const coBoardInitial = yield* getBoard(co.cookie);
     const coBoardItemInitial = boardItem(coBoardInitial);
     assert.deepEqual(sharedAssessment(coInitial.body), sharedAssessment(primaryInitial.body));
     assert.deepEqual(coBoardItemInitial.coInterviewer, {
@@ -456,120 +481,130 @@ export async function runCoInterviewerCorrectionJourney(
       "ordinary primary and co-interviewer receive one shared completed assessment without co contact data",
     );
 
-    const unassignedCookie = await signInCookie(fixture.unassignedMember, "unassigned-member");
-    const unassignedBoard = await getBoard(unassignedCookie);
+    const unassignedCookie = yield* signInCookie(fixture.unassignedMember, "unassigned-member");
+    const unassignedBoard = yield* getBoard(unassignedCookie);
     assert.equal(
       unassignedBoard.interviews.some(
         (candidate) => candidate.interviewId === fixture.targetInterviewId,
       ),
       false,
     );
-    const deniedBefore = await snapshot();
+    const deniedBefore = yield* snapshot();
 
-    const unassignedRead = await readConduct(unassignedCookie);
+    const unassignedRead = yield* step(() => readConduct(unassignedCookie));
 
     status("unassigned:read", unassignedRead.status);
-    assert.equal(unassignedRead.status, 403, await unassignedRead.text());
+    assert.equal(unassignedRead.status, 403, yield* step(() => unassignedRead.text()));
 
-    const unassignedCorrect = await postCorrection(
-      unassignedCookie,
-      correctionPayload(coInitial.body, "Unassigned correction.", "Nei", {
-        explanatoryPower: 1,
-        roleModel: 1,
-        suitability: 1,
-      }),
-      coInitial.etag,
-      freshId("co-interviewer-unassigned"),
+    const unassignedCorrect = yield* step(() =>
+      postCorrection(
+        unassignedCookie,
+        correctionPayload(coInitial.body, "Unassigned correction.", "Nei", {
+          explanatoryPower: 1,
+          roleModel: 1,
+          suitability: 1,
+        }),
+        coInitial.etag,
+        freshId("co-interviewer-unassigned"),
+      ),
     );
 
     status("unassigned:correct", unassignedCorrect.status);
-    assert.equal(unassignedCorrect.status, 403, await unassignedCorrect.text());
-    await assertUnchanged(deniedBefore, "unassigned member denial");
+    assert.equal(unassignedCorrect.status, 403, yield* step(() => unassignedCorrect.text()));
+    yield* assertUnchanged(deniedBefore, "unassigned member denial");
     stage(
       "same-department ordinary unassigned member has neither board, detail, nor correction access",
     );
 
-    await co.page.goto(`${ui}/dashboard/intervjuer`);
+    yield* step(() => co.page.goto(`${ui}/dashboard/intervjuer`));
     const coCard = co.page.getByRole("article").filter({ hasText: "history Recommendation" });
-    await coCard.waitFor();
-    const cardText = await coCard.innerText();
+    yield* step(() => coCard.waitFor());
+    const cardText = yield* step(() => coCard.innerText());
     assert.match(cardText, /Medintervjuer/u);
     assert.match(cardText, new RegExp(fixture.coInterviewer.displayName, "u"));
-    await openInterview(co.page);
+    yield* openInterview(co.page);
     stage(
       "real active co-interviewer signs in and opens the designated completed interview from the board",
     );
 
     const sourceChangedTo = fixture.unassignedMember.personId;
-    await pool.query(
-      `UPDATE public.recruitment_interviews
+    yield* step(() =>
+      pool.query(
+        `UPDATE public.recruitment_interviews
           SET co_interviewer_person_id=$1
         WHERE interview_id=$2`,
-      [sourceChangedTo, fixture.targetInterviewId],
+        [sourceChangedTo, fixture.targetInterviewId],
+      ),
     );
 
-    try {
-      const changedPrimary = await getDetail(primaryCookie);
-      const changedBoardItem = boardItem(await getBoard(primaryCookie));
+    yield* Effect.gen(function* () {
+      const changedPrimary = yield* getDetail(primaryCookie);
+      const changedBoardItem = boardItem(yield* getBoard(primaryCookie));
       assert.notEqual(changedPrimary.etag, primaryInitial.etag);
       assert.notEqual(changedBoardItem.etag, primaryBoardItemInitial.etag);
 
-      const changedCo = await readConduct(co.cookie);
+      const changedCo = yield* step(() => readConduct(co.cookie));
 
       status("designation-changed:co-read", changedCo.status);
-      assert.equal(changedCo.status, 403, await changedCo.text());
-      const staleAuthorityBefore = await snapshot();
+      assert.equal(changedCo.status, 403, yield* step(() => changedCo.text()));
+      const staleAuthorityBefore = yield* snapshot();
 
-      const oldAuthorityWrite = await postCorrection(
-        primaryCookie,
-        correctionPayload(primaryInitial.body, "Stale authority ETag.", "Nei", {
-          explanatoryPower: 2,
-          roleModel: 2,
-          suitability: 2,
-        }),
-        primaryInitial.etag,
-        freshId("co-interviewer-source-etag"),
+      const oldAuthorityWrite = yield* step(() =>
+        postCorrection(
+          primaryCookie,
+          correctionPayload(primaryInitial.body, "Stale authority ETag.", "Nei", {
+            explanatoryPower: 2,
+            roleModel: 2,
+            suitability: 2,
+          }),
+          primaryInitial.etag,
+          freshId("co-interviewer-source-etag"),
+        ),
       );
 
       status("designation-changed:old-etag", oldAuthorityWrite.status);
-      assert.equal(oldAuthorityWrite.status, 412, await oldAuthorityWrite.text());
-      await assertUnchanged(staleAuthorityBefore, "old authority ETag");
-    } finally {
-      await pool.query(
-        `UPDATE public.recruitment_interviews
+      assert.equal(oldAuthorityWrite.status, 412, yield* step(() => oldAuthorityWrite.text()));
+      yield* assertUnchanged(staleAuthorityBefore, "old authority ETag");
+    }).pipe(
+      Effect.ensuring(
+        step(() =>
+          pool.query(
+            `UPDATE public.recruitment_interviews
             SET co_interviewer_person_id=$1
           WHERE interview_id=$2`,
-        [fixture.coInterviewer.personId, fixture.targetInterviewId],
-      );
-    }
+            [fixture.coInterviewer.personId, fixture.targetInterviewId],
+          ),
+        ).pipe(Effect.orDie),
+      ),
+    );
 
-    assert.equal((await getDetail(co.cookie)).body.revision, coInitial.body.revision);
+    assert.equal((yield* getDetail(co.cookie)).body.revision, coInitial.body.revision);
     stage(
       "controlled nullable co-interviewer source change invalidates primary representation ETags and co authority",
     );
 
-    const firstBrowserDetail = await getDetail(co.cookie);
+    const firstBrowserDetail = yield* getDetail(co.cookie);
 
-    const originalConduct = (
-      await pool.query(
+    const originalConduct = (yield* step(() =>
+      pool.query(
         `SELECT to_jsonb(conduct) AS value
            FROM public.recruitment_interview_conducts AS conduct
           WHERE interview_id=$1`,
         [fixture.targetInterviewId],
-      )
-    ).rows[0]?.value;
+      ),
+    )).rows[0]?.value;
 
     assert.ok(
       originalConduct,
       "completed co-interviewer fixture requires immutable original conduct",
     );
-    await fillCorrection(co.page, "Co-interviewer browser correction.", "Ja", {
+    yield* fillCorrection(co.page, "Co-interviewer browser correction.", "Ja", {
       explanatoryPower: 4,
       roleModel: 5,
       suitability: 6,
     });
-    await submitBrowserCorrection(co.page);
-    const afterBrowserCorrection = await getDetail(co.cookie);
+    yield* submitBrowserCorrection(co.page);
+    const afterBrowserCorrection = yield* getDetail(co.cookie);
     assert.equal(afterBrowserCorrection.body.revision, firstBrowserDetail.body.revision + 1);
     assert.equal(afterBrowserCorrection.body.recommendation, "Ja");
     assert.equal(
@@ -577,30 +612,32 @@ export async function runCoInterviewerCorrectionJourney(
       firstBrowserDetail.body.history.length + 1,
     );
 
-    const correctionActor = await pool.query(
-      `SELECT corrected_by_person_id AS "correctedByPersonId"
+    const correctionActor = yield* step(() =>
+      pool.query(
+        `SELECT corrected_by_person_id AS "correctedByPersonId"
          FROM public.recruitment_interview_correction_assessments
         WHERE interview_id=$1
         ORDER BY resulting_revision DESC
         LIMIT 1`,
-      [fixture.targetInterviewId],
+        [fixture.targetInterviewId],
+      ),
     );
 
     assert.deepEqual(correctionActor.rows, [
       { correctedByPersonId: fixture.coInterviewer.personId },
     ]);
     assert.deepEqual(
-      (
-        await pool.query(
+      (yield* step(() =>
+        pool.query(
           `SELECT to_jsonb(conduct) AS value
              FROM public.recruitment_interview_conducts AS conduct
             WHERE interview_id=$1`,
           [fixture.targetInterviewId],
-        )
-      ).rows[0]?.value,
+        ),
+      )).rows[0]?.value,
       originalConduct,
     );
-    const primaryAfterBrowserCorrection = await getDetail(primaryCookie);
+    const primaryAfterBrowserCorrection = yield* getDetail(primaryCookie);
     assert.deepEqual(
       sharedAssessment(primaryAfterBrowserCorrection.body),
       sharedAssessment(afterBrowserCorrection.body),
@@ -609,115 +646,136 @@ export async function runCoInterviewerCorrectionJourney(
       "keyboard browser correction appends one co-attributed assessment while primary fresh-read sees the identical shared history",
     );
 
-    const authorityBefore = await snapshot();
+    const authorityBefore = yield* snapshot();
 
-    const finalization = await recruitment(
-      "recruitment.finalizeInterview",
-      {
-        interviewId: fixture.targetInterviewId,
-        idempotencyKey: freshId("co-interviewer-finalize"),
-        ifMatch: afterBrowserCorrection.etag,
-        request: Schema.encodeSync(Schema.Json)({
-          answers: afterBrowserCorrection.body.answers,
-          score: afterBrowserCorrection.body.score,
-          recommendation: afterBrowserCorrection.body.recommendation,
-        }),
-      },
-      co.cookie,
+    const finalization = yield* step(() =>
+      recruitment(
+        "recruitment.finalizeInterview",
+        {
+          interviewId: fixture.targetInterviewId,
+          idempotencyKey: freshId("co-interviewer-finalize"),
+          ifMatch: afterBrowserCorrection.etag,
+          request: Schema.encodeSync(Schema.Json)({
+            answers: afterBrowserCorrection.body.answers,
+            score: afterBrowserCorrection.body.score,
+            recommendation: afterBrowserCorrection.body.recommendation,
+          }),
+        },
+        co.cookie,
+      ),
     );
 
     status("co-interviewer:finalize", finalization.status);
-    assert.equal(finalization.status, 403, await finalization.text());
+    assert.equal(finalization.status, 403, yield* step(() => finalization.text()));
 
-    const cancellation = await recruitment(
-      "recruitment.cancelInterview",
-      {
-        interviewId: fixture.targetInterviewId,
-        idempotencyKey: freshId("co-interviewer-cancel"),
-        ifMatch: afterBrowserCorrection.etag,
-      },
-      co.cookie,
+    const cancellation = yield* step(() =>
+      recruitment(
+        "recruitment.cancelInterview",
+        {
+          interviewId: fixture.targetInterviewId,
+          idempotencyKey: freshId("co-interviewer-cancel"),
+          ifMatch: afterBrowserCorrection.etag,
+        },
+        co.cookie,
+      ),
     );
 
     status("co-interviewer:cancel", cancellation.status);
-    assert.equal(cancellation.status, 403, await cancellation.text());
+    assert.equal(cancellation.status, 403, yield* step(() => cancellation.text()));
 
-    const schedule = await recruitment(
-      "recruitment.scheduleInterview",
-      {
-        interviewId: fixture.targetInterviewId,
-        idempotencyKey: freshId("co-interviewer-schedule"),
-        ifMatch: boardItem(await getBoard(co.cookie)).etag,
-        request: {
-          // A schedule ahead of the backend's clock, so that only authority denies the command.
-          scheduledAt: admissionJourneyClock().fromNow(7),
-          room: "Denied co-interviewer room",
-          campus: "Gløshaugen",
-          mapLink: "https://maps.example.invalid/co-interviewer-denied-0106",
-          message: "This command must remain denied.",
+    const scheduleBoardItem = boardItem(yield* getBoard(co.cookie));
+
+    const schedule = yield* step(() =>
+      recruitment(
+        "recruitment.scheduleInterview",
+        {
+          interviewId: fixture.targetInterviewId,
+          idempotencyKey: freshId("co-interviewer-schedule"),
+          ifMatch: scheduleBoardItem.etag,
+          request: {
+            // A schedule ahead of the backend's clock, so that only authority denies the command.
+            scheduledAt: admissionJourneyClock().fromNow(7),
+            room: "Denied co-interviewer room",
+            campus: "Gløshaugen",
+            mapLink: "https://maps.example.invalid/co-interviewer-denied-0106",
+            message: "This command must remain denied.",
+          },
         },
-      },
-      co.cookie,
+        co.cookie,
+      ),
     );
 
     status("co-interviewer:schedule", schedule.status);
-    assert.equal(schedule.status, 403, await schedule.text());
-    await assertUnchanged(authorityBefore, "co-interviewer lifecycle and schedule denial");
+    assert.equal(schedule.status, 403, yield* step(() => schedule.text()));
+    yield* assertUnchanged(authorityBefore, "co-interviewer lifecycle and schedule denial");
     stage(
       "co-interviewer designation alone grants neither finalization, cancellation, nor scheduling authority",
     );
 
-    const staleContext = await browser.newContext({
-      storageState: await co.browserContext.storageState(),
-    });
+    const staleStorageState = yield* step(() => co.browserContext.storageState());
 
-    const stalePage = await staleContext.newPage();
+    const staleContext = yield* step(() =>
+      browser.newContext({
+        storageState: staleStorageState,
+      }),
+    );
+
+    const stalePage = yield* step(() => staleContext.newPage());
     stalePage.on("pageerror", () => errors.push("co-interviewer-stale-pageerror"));
 
-    try {
-      await stalePage.goto(`${ui}/dashboard/intervjuer`);
-      await openInterview(stalePage);
-      await fillCorrection(stalePage, "Co-interviewer stale draft.", "Kanskje", {
+    yield* Effect.gen(function* () {
+      yield* step(() => stalePage.goto(`${ui}/dashboard/intervjuer`));
+      yield* openInterview(stalePage);
+      yield* fillCorrection(stalePage, "Co-interviewer stale draft.", "Kanskje", {
         explanatoryPower: 7,
         roleModel: 7,
         suitability: 7,
       });
-      await fillCorrection(co.page, "Co-interviewer newer correction.", "Nei", {
+      yield* fillCorrection(co.page, "Co-interviewer newer correction.", "Nei", {
         explanatoryPower: 8,
         roleModel: 8,
         suitability: 8,
       });
-      await submitBrowserCorrection(co.page);
-      const staleBefore = await snapshot();
+      yield* submitBrowserCorrection(co.page);
+      const staleBefore = yield* snapshot();
       const staleResponsePromise = waitForCorrection(stalePage);
-      await stalePage.getByRole("button", { name: "Rett intervju", exact: true }).click();
-      await stalePage.getByRole("dialog").waitFor({ state: "visible" });
-      await stalePage
-        .getByRole("dialog")
-        .getByRole("button", { name: "Rett intervju", exact: true })
-        .press("Enter");
-      const staleResponse = await staleResponsePromise;
+      yield* step(() =>
+        stalePage.getByRole("button", { name: "Rett intervju", exact: true }).click(),
+      );
+      yield* step(() => stalePage.getByRole("dialog").waitFor({ state: "visible" }));
+      yield* step(() =>
+        stalePage
+          .getByRole("dialog")
+          .getByRole("button", { name: "Rett intervju", exact: true })
+          .press("Enter"),
+      );
+      const staleResponse = yield* step(() => staleResponsePromise);
       status("co-interviewer:stale", staleResponse.status());
-      assert.equal(staleResponse.status(), 409, await staleResponse.text());
-      await stalePage
-        .getByText(
-          "Intervjuet er endret. Utkastet er beholdt; åpne intervjuet på nytt for å hente gjeldende versjon.",
-          { exact: true },
-        )
-        .waitFor();
+      assert.equal(staleResponse.status(), 409, yield* step(() => staleResponse.text()));
+      yield* step(() =>
+        stalePage
+          .getByText(
+            "Intervjuet er endret. Utkastet er beholdt; åpne intervjuet på nytt for å hente gjeldende versjon.",
+            { exact: true },
+          )
+          .waitFor(),
+      );
       assert.equal(
-        await stalePage.locator("#question-interview-schema-native-conduct-0063-q0").inputValue(),
+        yield* step(() =>
+          stalePage.locator("#question-interview-schema-native-conduct-0063-q0").inputValue(),
+        ),
         "Co-interviewer stale draft.",
       );
-      assert.equal(await stalePage.locator("#interviewer-recommendation").inputValue(), "Kanskje");
-      await assertUnchanged(staleBefore, "co-interviewer stale correction");
-    } finally {
-      await staleContext.close();
-    }
+      assert.equal(
+        yield* step(() => stalePage.locator("#interviewer-recommendation").inputValue()),
+        "Kanskje",
+      );
+      yield* assertUnchanged(staleBefore, "co-interviewer stale correction");
+    }).pipe(Effect.ensuring(step(() => staleContext.close()).pipe(Effect.orDie)));
 
     stage("co-interviewer stale browser command retains the visible draft and writes nothing");
 
-    const replayBase = await getDetail(co.cookie);
+    const replayBase = yield* getDetail(co.cookie);
 
     const replayPayload = correctionPayload(
       replayBase.body,
@@ -736,47 +794,44 @@ export async function runCoInterviewerCorrectionJourney(
       payload: replayPayload,
     };
 
-    const firstReplay = await postCorrection(
-      co.cookie,
-      acceptedReplay.payload,
-      acceptedReplay.etag,
-      acceptedReplay.key,
+    const firstReplay = yield* step(() =>
+      postCorrection(co.cookie, acceptedReplay.payload, acceptedReplay.etag, acceptedReplay.key),
     );
 
     status("co-interviewer:replay-first", firstReplay.status);
     assert.equal(firstReplay.status, 200);
-    const firstReplayBytes = await firstReplay.text();
+    const firstReplayBytes = yield* step(() => firstReplay.text());
 
-    const exactReplay = await postCorrection(
-      co.cookie,
-      acceptedReplay.payload,
-      acceptedReplay.etag,
-      acceptedReplay.key,
+    const exactReplay = yield* step(() =>
+      postCorrection(co.cookie, acceptedReplay.payload, acceptedReplay.etag, acceptedReplay.key),
     );
 
     status("co-interviewer:replay-exact", exactReplay.status);
     assert.equal(exactReplay.status, 200);
-    assert.equal(await exactReplay.text(), firstReplayBytes);
+    assert.equal(yield* step(() => exactReplay.text()), firstReplayBytes);
     stage("co-interviewer exact correction replay remains byte-stable");
 
-    const concurrentBase = await getDetail(co.cookie);
-    const writesBeforeConcurrent = await countWrites();
+    const concurrentBase = yield* getDetail(co.cookie);
+    const writesBeforeConcurrent = yield* countWrites();
     const concurrentRecommendations: ReadonlyArray<"Ja" | "Nei"> = ["Ja", "Nei"];
 
-    const concurrent = await Promise.all(
+    const concurrent = yield* Effect.all(
       concurrentRecommendations.map((recommendation, index) =>
-        postCorrection(
-          co.cookie,
-          correctionPayload(
-            concurrentBase.body,
-            `Co-interviewer concurrent ${index}.`,
-            recommendation,
-            { explanatoryPower: 3 + index, roleModel: 4 + index, suitability: 5 + index },
+        step(() =>
+          postCorrection(
+            co.cookie,
+            correctionPayload(
+              concurrentBase.body,
+              `Co-interviewer concurrent ${index}.`,
+              recommendation,
+              { explanatoryPower: 3 + index, roleModel: 4 + index, suitability: 5 + index },
+            ),
+            concurrentBase.etag,
+            freshId(`co-interviewer-concurrent-${index}`),
           ),
-          concurrentBase.etag,
-          freshId(`co-interviewer-concurrent-${index}`),
         ),
       ),
+      { concurrency: "unbounded" },
     );
 
     for (const [index, response] of concurrent.entries()) {
@@ -790,7 +845,7 @@ export async function runCoInterviewerCorrectionJourney(
         (response) => response.status === 200 || [409, 412].includes(response.status),
       ),
     );
-    const writesAfterConcurrent = await countWrites();
+    const writesAfterConcurrent = yield* countWrites();
     assert.deepEqual(writesAfterConcurrent, {
       assessments: writesBeforeConcurrent.assessments + 1,
       receipts: writesBeforeConcurrent.receipts + 1,
@@ -801,7 +856,7 @@ export async function runCoInterviewerCorrectionJourney(
       "same-revision co-interviewer corrections produce one winner and one no-write stale loser",
     );
 
-    const boundaryResult = await assertInterviewCorrectionBoundaries({
+    const boundaryResult = yield* assertInterviewCorrectionBoundaries({
       pool,
       api,
       origin: ui,
@@ -816,40 +871,41 @@ export async function runCoInterviewerCorrectionJourney(
       recordGate,
     });
 
-    await Effect.runPromise(
-      surfaceStepFailure(
-        assertInterviewCorrectionIntegrity({
-          pool,
-          interviewId: fixture.targetInterviewId,
-          expectedCorrectedByPersonId: fixture.coInterviewer.personId,
-          expectedCoInterviewerPersonId: fixture.coInterviewer.personId,
-        }),
-      ),
-    );
-    assert.deepEqual(await effectSnapshot(), effectsBefore);
-    const primaryFinal = await getDetail(primaryCookie);
-    const coFinal = await getDetail(co.cookie);
+    yield* assertInterviewCorrectionIntegrity({
+      pool,
+      interviewId: fixture.targetInterviewId,
+      expectedCorrectedByPersonId: fixture.coInterviewer.personId,
+      expectedCoInterviewerPersonId: fixture.coInterviewer.personId,
+    });
+    assert.deepEqual(yield* effectSnapshot(), effectsBefore);
+    const primaryFinal = yield* getDetail(primaryCookie);
+    const coFinal = yield* getDetail(co.cookie);
     assert.deepEqual(sharedAssessment(primaryFinal.body), sharedAssessment(coFinal.body));
     stage(
       "denial, revocation, exact replay, rollback, native receipt, and SQL correction integrity gates preserve one shared aggregate with no effects",
     );
 
-    await co.page.setViewportSize({ width: 1280, height: 900 });
-    await co.page
-      .locator(".fs-conduct")
-      .screenshot({ path: join(artifacts, "co-interviewer-correction-desktop.png") });
-    assert.deepEqual(await auditPage(co.page, "co-interviewer-correction-desktop"), []);
-    await co.page.setViewportSize({ width: 390, height: 844 });
+    yield* step(() => co.page.setViewportSize({ width: 1280, height: 900 }));
+    yield* step(() =>
+      co.page
+        .locator(".fs-conduct")
+        .screenshot({ path: path.join(artifacts, "co-interviewer-correction-desktop.png") }),
+    );
+    assert.deepEqual(yield* auditPage(co.page, "co-interviewer-correction-desktop"), []);
+    yield* step(() => co.page.setViewportSize({ width: 390, height: 844 }));
     assert.ok(
-      (await co.page.locator("html").evaluate((element: HTMLElement) => element.scrollWidth)) <=
-        390,
+      (yield* step(() =>
+        co.page.locator("html").evaluate((element: HTMLElement) => element.scrollWidth),
+      )) <= 390,
       "co-interviewer correction must fit the mobile viewport",
     );
-    await co.page
-      .locator(".fs-conduct")
-      .screenshot({ path: join(artifacts, "co-interviewer-correction-mobile.png") });
-    assert.deepEqual(await auditPage(co.page, "co-interviewer-correction-mobile"), []);
-    await co.page.setViewportSize({ width: 1280, height: 900 });
+    yield* step(() =>
+      co.page
+        .locator(".fs-conduct")
+        .screenshot({ path: path.join(artifacts, "co-interviewer-correction-mobile.png") }),
+    );
+    assert.deepEqual(yield* auditPage(co.page, "co-interviewer-correction-mobile"), []);
+    yield* step(() => co.page.setViewportSize({ width: 1280, height: 900 }));
     assert.deepEqual(errors, []);
     stage("co-interviewer desktop and mobile correction surfaces pass Axe without page errors");
 
@@ -861,28 +917,22 @@ export async function runCoInterviewerCorrectionJourney(
       coInterviewerPersonId: fixture.coInterviewer.personId,
     };
 
-    await writeFile(
-      join(artifacts, "co-interviewer-targeted-evidence.json"),
-      JSON.stringify(
-        {
-          revision,
-          fixture: {
-            interviewId: fixture.targetInterviewId,
-            primaryPersonId: fixture.primaryPersonId,
-            coInterviewer: {
-              personId: fixture.coInterviewer.personId,
-              displayName: fixture.coInterviewer.displayName,
-            },
+    yield* fs.writeFileString(
+      path.join(artifacts, "co-interviewer-targeted-evidence.json"),
+      yield* indentedJsonText({
+        revision,
+        fixture: {
+          interviewId: fixture.targetInterviewId,
+          primaryPersonId: fixture.primaryPersonId,
+          coInterviewer: {
+            personId: fixture.coInterviewer.personId,
+            displayName: fixture.coInterviewer.displayName,
           },
-          result,
         },
-        null,
-        2,
-      ),
+        result,
+      }),
     );
 
     return result;
-  } finally {
-    await co.browserContext.close();
-  }
-}
+  }).pipe(Effect.ensuring(step(() => co.browserContext.close()).pipe(Effect.orDie)));
+});
