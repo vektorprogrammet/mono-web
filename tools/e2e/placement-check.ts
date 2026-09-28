@@ -1,14 +1,15 @@
-import { createPromiseClient } from "../../packages/sdk/src/promise.js";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import {
+  AffiliationScope,
   CoverageCommand,
+  OwnAffiliationCommand,
   OwnCoverageCommand,
   PlacementCommand,
   PlacementScope,
   SchoolServiceNotificationRequest,
 } from "@vektorprogrammet/domain/placements";
-import { IdempotencyIfMatchHeaders, IdempotencyKey } from "@vektorprogrammet/rpc/problem";
-import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
+import { IdempotencyKey, StrongETag } from "@vektorprogrammet/rpc/problem";
+import { nativeScriptClient, type ScriptCallResult } from "@vektorprogrammet/rpc/script";
 /** 0096/0110/0111 real local API + browser acceptance with an owned process lifecycle. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
@@ -25,7 +26,7 @@ import {
   startDisposablePostgres,
   type DisposablePostgres,
 } from "@monoweb/postgres";
-import { Schema, Record as Rec, Struct } from "effect";
+import { Option, Schema, Record as Rec, Struct } from "effect";
 import { createGoldenObserver, goldenFaults, goldenSteps } from "./golden-school-service.mjs";
 import {
   goldenArtifactName,
@@ -813,131 +814,181 @@ try {
       wrong = await login(persons.wrongDepartment),
       candidate = await login(persons.candidate);
 
-    const sdk = createPromiseClient(backendOrigin, { cookie: leader, origin: dashboardOrigin });
+    // Placements are served as RPCs. Each call names the person whose session it forwards.
+    const native = nativeScriptClient(backendOrigin);
+    const session = (cookie: string) => ({ cookie, origin: dashboardOrigin });
 
-    const volunteerSdk = createPromiseClient(backendOrigin, {
-      cookie: volunteer,
-      origin: dashboardOrigin,
-    });
-
-    const wrongSdk = createPromiseClient(backendOrigin, { cookie: wrong, origin: dashboardOrigin });
-
-    const candidateSdk = createPromiseClient(backendOrigin, {
-      cookie: candidate,
-      origin: dashboardOrigin,
-    });
+    const valueOf = <A>(result: ScriptCallResult<A>): A =>
+      result.ok ? result.value : assert.fail(JSON.stringify(result));
 
     const query = Schema.decodeSync(PlacementScope)({ departmentId, semesterId });
+    // Each path names the RPC and scope of the HTTP route it replaced; `request` dispatches on it.
     const boardPath = `/api/placements?${new URLSearchParams(query).toString()}`;
     const ownPath = `/api/placements/affiliation?departmentId=${departmentId}`;
     const coverageBoardPath = `/api/placements/coverage?${new URLSearchParams(query).toString()}`;
     const ownCoveragePath = `/api/placements/coverage/own?${new URLSearchParams(query).toString()}`;
 
-    const request = async (
+    const commandKeys = (etag: string | undefined, key: string) => ({
+      idempotencyKey: Schema.decodeSync(IdempotencyKey)(key),
+      ifMatch: Schema.decodeUnknownSync(StrongETag)(etag),
+    });
+
+    /**
+     * Calls the placement RPC that replaced the route of `path`: its read without a body, its
+     * command with one. The answer keeps the registry status of a problem.
+     */
+    const request = (
       path: string,
       cookie?: string,
       body?: Schema.Json,
       etag?: string,
       key = randomBytes(18).toString("base64url"),
-    ) => {
-      const nativeHeaders = new Headers();
-      nativeHeaders.set("origin", dashboardOrigin);
+    ): Promise<ScriptCallResult<unknown>> => {
+      const url = new URL(path, backendOrigin);
+      const parameters = Object.fromEntries(url.searchParams);
+      const headers = cookie === undefined ? { origin: dashboardOrigin } : session(cookie);
 
-      if (cookie) {
-        nativeHeaders.set("cookie", cookie);
+      if (url.pathname === "/api/placements/affiliation") {
+        const scope = Schema.decodeUnknownSync(AffiliationScope)(parameters);
+
+        return body === undefined
+          ? native.call(headers, (client) => client["placements.readOwnAffiliation"](scope))
+          : native.call(headers, (client) =>
+              client["placements.commandOwnAffiliation"]({
+                ...scope,
+                ...commandKeys(etag, key),
+                request: Schema.decodeUnknownSync(OwnAffiliationCommand)(body),
+              }),
+            );
       }
 
-      if (!(body === undefined)) {
-        nativeHeaders.set("content-type", "application/json");
-        nativeHeaders.set("idempotency-key", key);
+      const scope = Schema.decodeUnknownSync(PlacementScope)(parameters);
 
-        if (etag) {
-          nativeHeaders.set("if-match", etag);
-        }
+      switch (url.pathname) {
+        case "/api/placements":
+          return body === undefined
+            ? native.call(headers, (client) => client["placements.readBoard"](scope))
+            : native.call(headers, (client) =>
+                client["placements.commandBoard"]({
+                  ...scope,
+                  ...commandKeys(etag, key),
+                  request: Schema.decodeUnknownSync(PlacementCommand)(body),
+                }),
+              );
+        case "/api/placements/coverage":
+          return body === undefined
+            ? native.call(headers, (client) => client["placements.readCoverageBoard"](scope))
+            : native.call(headers, (client) =>
+                client["placements.commandCoverageBoard"]({
+                  ...scope,
+                  ...commandKeys(etag, key),
+                  request: Schema.decodeUnknownSync(CoverageCommand)(body),
+                }),
+              );
+        case "/api/placements/coverage/own":
+          return body === undefined
+            ? native.call(headers, (client) => client["placements.readOwnCoverage"](scope))
+            : native.call(headers, (client) =>
+                client["placements.commandOwnCoverage"]({
+                  ...scope,
+                  ...commandKeys(etag, key),
+                  request: Schema.decodeUnknownSync(OwnCoverageCommand)(body),
+                }),
+              );
+        default:
+          return assert.fail(`no placement RPC replaces ${url.pathname}`);
       }
-
-      const requestBody: Pick<RequestInit, "body"> =
-        body === undefined ? {} : { body: JSON.stringify(body) };
-
-      return fetch(`${backendOrigin}${path}`, {
-        method: body === undefined ? "GET" : "POST",
-        headers: nativeHeaders,
-        ...requestBody,
-      });
     };
 
-    const expectStatus = async (response: Response, status: number, code?: string) => {
-      const body = await response.json();
-      assert.equal(response.status, status, JSON.stringify(body));
+    // The journey reads answers as the untyped JSON bodies it read over HTTP.
+    const expectStatus = async (
+      response: ScriptCallResult<unknown>,
+      status: number,
+      code?: string,
+    ): Promise<any> => {
+      assert.equal(response.status, status, JSON.stringify(response));
 
-      if (code) assert.equal(body.code, code);
+      if (code !== undefined) assert.equal(response.ok ? undefined : response.code, code);
 
-      return body;
+      return response.ok ? response.value : "problem" in response ? response.problem : response;
     };
 
-    const idempotencyHeaders = (etag: string, key = randomBytes(18).toString("base64url")) =>
-      Schema.decodeSync(IdempotencyIfMatchHeaders)({
-        "if-match": etag,
-        "idempotency-key": key,
-      });
-
-    const readBoard = async () => (await sdk.placements.readBoard({ query })).body;
+    const readBoard = async () =>
+      valueOf(await native.call(session(leader), (client) => client["placements.readBoard"](query)));
 
     const command = async (payload: Schema.Json) => {
       const board = await readBoard();
 
-      return (
-        await sdk.placements.commandBoard({
-          query,
-          headers: idempotencyHeaders(board.etag),
-          payload: Schema.decodeUnknownSync(PlacementCommand)(payload),
-        })
-      ).body;
+      return valueOf(
+        await native.call(session(leader), (client) =>
+          client["placements.commandBoard"]({
+            ...query,
+            ...commandKeys(board.etag, randomBytes(18).toString("base64url")),
+            request: Schema.decodeUnknownSync(PlacementCommand)(payload),
+          }),
+        ),
+      );
     };
 
-    const readOwnCoverage = async (client: typeof sdk) =>
-      (await client.placements.readOwnCoverage({ query })).body;
+    const readOwnCoverage = async (cookie: string) =>
+      valueOf(
+        await native.call(session(cookie), (client) => client["placements.readOwnCoverage"](query)),
+      );
 
-    const readCoverageBoard = async () => (await sdk.placements.readCoverageBoard({ query })).body;
+    const readCoverageBoard = async () =>
+      valueOf(
+        await native.call(session(leader), (client) =>
+          client["placements.readCoverageBoard"](query),
+        ),
+      );
 
     const commandOwnCoverage = async (
-      client: typeof sdk,
+      cookie: string,
       payload: Schema.Json,
       etag?: string,
-      key?: string,
+      key = randomBytes(18).toString("base64url"),
     ) => {
-      const resource = etag === undefined ? await readOwnCoverage(client) : undefined;
+      const current = etag ?? (await readOwnCoverage(cookie)).etag;
 
-      return (
-        await client.placements.commandOwnCoverage({
-          query,
-          headers: idempotencyHeaders(etag ?? resource!.etag, key),
-          payload: Schema.decodeUnknownSync(OwnCoverageCommand)(payload),
-        })
-      ).body;
+      return valueOf(
+        await native.call(session(cookie), (client) =>
+          client["placements.commandOwnCoverage"]({
+            ...query,
+            ...commandKeys(current, key),
+            request: Schema.decodeUnknownSync(OwnCoverageCommand)(payload),
+          }),
+        ),
+      );
     };
 
-    const commandCoverage = async (payload: Schema.Json, etag?: string, key?: string) => {
-      const resource = etag === undefined ? await readCoverageBoard() : undefined;
+    const commandCoverage = async (
+      payload: Schema.Json,
+      etag?: string,
+      key = randomBytes(18).toString("base64url"),
+    ) => {
+      const current = etag ?? (await readCoverageBoard()).etag;
 
-      return (
-        await sdk.placements.commandCoverageBoard({
-          query,
-          headers: idempotencyHeaders(etag ?? resource!.etag, key),
-          payload: Schema.decodeUnknownSync(CoverageCommand)(payload),
-        })
-      ).body;
+      return valueOf(
+        await native.call(session(leader), (client) =>
+          client["placements.commandCoverageBoard"]({
+            ...query,
+            ...commandKeys(current, key),
+            request: Schema.decodeUnknownSync(CoverageCommand)(payload),
+          }),
+        ),
+      );
     };
 
-    const boardResponse = await request(boardPath, leader);
-    assert.equal(boardResponse.headers.get("cache-control"), "private, no-store");
-    await expectStatus(boardResponse, 200);
+    // An RPC answer carries no Cache-Control; the backend answers every RPC uncached.
+    await expectStatus(await request(boardPath, leader), 200);
     assert.deepEqual(
       (await readBoard()).schools.map((school) => school.schoolId),
       [961, 962],
     );
     assert.ok(
-      (await sdk.placements.listScopes()).body.semesters.some(
+      valueOf(
+        await native.call(session(leader), (client) => client["placements.listScopes"]()),
+      ).semesters.some(
         (semester) => semester.semesterId === semesterId,
       ),
     );
@@ -1013,15 +1064,16 @@ try {
     };
 
     let board = await readBoard();
-    await expectStatus(await request(boardPath, leader, create), 428, "precondition.required");
 
+    // The payload requires `ifMatch`, and the command schema rejects these before any call; the
+    // RPC server decodes with the same schema and fails such a payload before the handler.
     for (const invalid of [
       { ...create, workdays: 0 },
       { ...create, workdays: 9 },
       { ...create, day: "Sunday" },
       { ...create, block: "3" },
     ])
-      await expectStatus(await request(boardPath, leader, invalid, board.etag), 422);
+      assert.ok(Option.isNone(Schema.decodeUnknownOption(PlacementCommand)(invalid)));
 
     for (const schoolId of [963, 964])
       await expectStatus(
@@ -1459,10 +1511,8 @@ try {
       403,
       "authority.denied",
     );
-    const ownCoverageResponse = await request(ownCoveragePath, volunteer);
-    assert.equal(ownCoverageResponse.headers.get("cache-control"), "private, no-store");
-    await expectStatus(ownCoverageResponse, 200);
-    const initialOwnCoverage = await readOwnCoverage(volunteerSdk);
+    await expectStatus(await request(ownCoveragePath, volunteer), 200);
+    const initialOwnCoverage = await readOwnCoverage(volunteer);
     assert.deepEqual(
       initialOwnCoverage.commitments
         .filter((item) => item.proposalId === apiCoverageProposalId)
@@ -1471,13 +1521,13 @@ try {
       [commitments.Monday, commitments.Wednesday].sort(),
     );
     assert.deepEqual(
-      (await readOwnCoverage(wrongSdk)).commitments.filter(
+      (await readOwnCoverage(wrong)).commitments.filter(
         (item) => item.proposalId === apiCoverageProposalId,
       ),
       [],
     );
     assert.deepEqual(
-      (await readOwnCoverage(candidateSdk)).commitments.filter(
+      (await readOwnCoverage(candidate)).commitments.filter(
         (item) => item.proposalId === apiCoverageProposalId,
       ),
       [],
@@ -1495,7 +1545,7 @@ try {
     const reportAbsenceKey = randomBytes(18).toString("base64url");
 
     const reportedOwnCoverage = await commandOwnCoverage(
-      volunteerSdk,
+      volunteer,
       coveredAbsenceCommand,
       initialOwnCoverage.etag,
       reportAbsenceKey,
@@ -1590,7 +1640,7 @@ try {
     // and not a person with an active affiliation but no placement.
     let coverageBoard = await readCoverageBoard();
     assert.deepEqual(coverageBoard.coverers, []);
-    assert.deepEqual((await readOwnCoverage(volunteerSdk)).coverers, []);
+    assert.deepEqual((await readOwnCoverage(volunteer)).coverers, []);
 
     for (const personId of [substitute.personId, volunteerId, wrongId])
       await rejectedCoverage(
@@ -1643,18 +1693,15 @@ try {
 
     coverageBoard = await readCoverageBoard();
     assert.deepEqual(coverageBoard.coverers, [onCallCoverer]);
-    assert.deepEqual((await readOwnCoverage(volunteerSdk)).coverers, [onCallCoverer]);
+    assert.deepEqual((await readOwnCoverage(volunteer)).coverers, [onCallCoverer]);
     assert.deepEqual(
-      (await readOwnCoverage(candidateSdk)).coverers,
+      (await readOwnCoverage(candidate)).coverers,
       [],
       "only a person with an open absence sees the names of possible coverers",
     );
 
     // The own endpoint serves only the absent volunteer.
-    for (const [client, cookie] of [
-      [candidateSdk, candidate],
-      [wrongSdk, wrong],
-    ] as const)
+    for (const cookie of [candidate, wrong])
       for (const payload of [
         recordCoverage(coveredAbsence.absenceId, substitute.personId),
         withdrawCoverage(coveredAbsence.absenceId),
@@ -1663,17 +1710,17 @@ try {
           ownCoveragePath,
           cookie,
           payload,
-          (await readOwnCoverage(client)).etag,
+          (await readOwnCoverage(cookie)).etag,
           403,
           "coverage.owner-invalid",
         );
 
     // The absent volunteer records who agreed to cover; the record reserves that person.
-    const ownBeforeRecord = await readOwnCoverage(volunteerSdk);
+    const ownBeforeRecord = await readOwnCoverage(volunteer);
     const recordKey = randomBytes(18).toString("base64url");
 
     const recordedOwn = await commandOwnCoverage(
-      volunteerSdk,
+      volunteer,
       recordCoverage(coveredAbsence.absenceId, substitute.personId),
       ownBeforeRecord.etag,
       recordKey,
@@ -1842,7 +1889,7 @@ try {
       [substitute.personId, leaderId],
     );
     assert.deepEqual(
-      (await readOwnCoverage(candidateSdk)).commitments
+      (await readOwnCoverage(candidate)).commitments
         .filter((item) => item.proposalId === apiCoverageProposalId)
         .map((item) => item.commitmentId),
       [commitments.Monday],
@@ -1940,7 +1987,7 @@ try {
         ownCoveragePath,
         volunteer,
         coveredAbsenceCommand,
-        (await readOwnCoverage(volunteerSdk)).etag,
+        (await readOwnCoverage(volunteer)).etag,
       ],
     ] as const)
       await expectStatus(await request(path, cookie, payload, etag), 409, "commitment.closed");
@@ -2017,7 +2064,7 @@ try {
 
     // Wednesday needs two. A person scheduled on the service, or already covering another absence
     // in the same interval, is unavailable.
-    const wednesdayOwn = await commandOwnCoverage(volunteerSdk, {
+    const wednesdayOwn = await commandOwnCoverage(volunteer, {
       action: "ReportAbsence",
       commitmentId: commitments.Wednesday,
     });
@@ -2095,10 +2142,8 @@ try {
 
     assert.equal(competingPartial.filter((response) => response.status === 200).length, 1);
 
-    for (const response of competingPartial.filter((result) => result.status !== 200)) {
+    for (const response of competingPartial.filter((result) => result.status !== 200))
       assert.ok([409, 412].includes(response.status));
-      await response.json();
-    }
 
     const partialDecision = (await readCoverageBoard()).commitments.find(
       (item) => item.commitmentId === commitments.Wednesday,
@@ -2863,6 +2908,7 @@ try {
       peopleBefore,
       "canonical Person unchanged",
     );
+    await native.dispose();
     const bunVersion = process.versions.bun;
 
     const postgresVersion = Schema.decodeUnknownSync(Schema.String)(

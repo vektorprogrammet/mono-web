@@ -2,7 +2,11 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Page, type Locator, type BrowserContext } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { Predicate } from "effect";
+import { PersonId } from "@vektorprogrammet/domain/organization";
+import { PlacementScope } from "@vektorprogrammet/domain/placements";
+import { IdempotencyKey, StrongETag } from "@vektorprogrammet/rpc/problem";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
+import { Predicate, Schema } from "effect";
 
 const manifestPath = process.env.PLACEMENT_JOURNEY_MANIFEST;
 
@@ -308,22 +312,33 @@ test("continuous recruitment to first placement", async ({ browser }) => {
 
     await signIn(wrong, m.persons.wrongDepartment, "/dashboard");
 
-    const wrongResult = await wrong.request.post(
-      m.backendOrigin +
-        "/api/placements?" +
-        new URLSearchParams({ departmentId: m.departmentId, semesterId: m.semesterId }),
-      {
-        headers: {
-          origin: m.dashboardOrigin,
-          "if-match": fields.etag,
-          "idempotency-key": crypto.randomUUID(),
-        },
-        data: { action: "Affiliation", personId: fields.personId, transition: "Establish" },
-      },
+    // The out-of-scope board command goes to the placement RPC that replaced its HTTP route.
+    const placementClient = nativeScriptClient(m.backendOrigin);
+
+    const wrongCookie = (await wrong.context().cookies(m.dashboardOrigin))
+      .map(({ name, value }) => `${name}=${value}`)
+      .join("; ");
+
+    const wrongResult = await placementClient.call(
+      { cookie: wrongCookie, origin: m.dashboardOrigin },
+      (client) =>
+        client["placements.commandBoard"]({
+          ...Schema.decodeSync(PlacementScope)({
+            departmentId: m.departmentId,
+            semesterId: m.semesterId,
+          }),
+          idempotencyKey: IdempotencyKey.make(crypto.randomUUID()),
+          ifMatch: StrongETag.make(fields.etag ?? ""),
+          request: {
+            action: "Affiliation",
+            personId: PersonId.make(fields.personId ?? ""),
+            transition: "Establish",
+          },
+        }),
     );
 
-    expect(wrongResult.status()).toBe(403);
-    expect((await wrongResult.json()).code).toBe("authority.denied");
+    await placementClient.dispose();
+    expect(wrongResult).toMatchObject({ ok: false, status: 403, code: "authority.denied" });
     await checkpoint("wrong-scope-denied");
     await card(staff, "Ada Rekrutt").getByRole("button", { name: "Godkjenn tilknytning" }).click();
     await saved(card(staff, "Ada Rekrutt").locator("form"));

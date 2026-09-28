@@ -233,6 +233,52 @@ export const observeLegacyCandidateNativeJourney = async (
       checks.push(name);
     };
 
+    /** Calls one RPC as a browser would, and answers its status under the HTTP contract. */
+    const callRpc = (name: string, tag: string, payload: Schema.Json, cookie?: string) => {
+      phase = name;
+      const headers = new Headers({ origin: dashboardOrigin, "content-type": "application/json" });
+
+      if (cookie !== undefined) headers.set("cookie", cookie);
+
+      return runtime
+        .runPromise(
+          api(
+            new Request(backendOrigin + nativeRpcPath, {
+              method: "POST",
+              headers,
+              body: nativeRpcRequestBody(tag, payload),
+            }),
+          ),
+        )
+        .then((response) => response.text())
+        .then((answer) => ({ status: nativeRpcStatus(answer), value: nativeRpcValue(answer) }));
+    };
+
+    const rpcJson = <S extends Schema.ConstraintDecoder<unknown, never>>(
+      name: string,
+      tag: string,
+      payload: Schema.Json,
+      schema: S,
+      cookie: string,
+    ) =>
+      callRpc(name, tag, payload, cookie).then((answer) => {
+        assert.equal(answer.status, 200);
+
+        return Schema.decodeSync(schema)(answer.value);
+      });
+
+    const rpcStatus = (
+      name: string,
+      tag: string,
+      payload: Schema.Json,
+      expected: number,
+      cookie?: string,
+    ) =>
+      callRpc(name, tag, payload, cookie).then((answer) => {
+        assert.equal(answer.status, expected);
+        checks.push(name);
+      });
+
     const signIn = async (label: string, identity: CandidateNativeIdentity) => {
       phase = `${label}-native-sign-in`;
 
@@ -284,9 +330,10 @@ export const observeLegacyCandidateNativeJourney = async (
     await ownProfileStatus("anonymous-profile-denied", 401);
 
     for (const label of ["leader", "member", "historicalLeader", "otherDepartment"] as const) {
-      const scopes = await json(
+      const scopes = await rpcJson(
         `${label}-native-scope`,
-        "/api/placements/scopes",
+        "placements.listScopes",
+        null,
         PlacementScopes,
         cookies[label],
       );
@@ -329,11 +376,12 @@ export const observeLegacyCandidateNativeJourney = async (
       );
     }
 
-    const affiliationPath = `/api/placements/affiliation?${new URLSearchParams({ departmentId: input.scope.departmentId }).toString()}`;
+    const affiliationScope = { departmentId: input.scope.departmentId };
 
-    const ownAffiliation = await json(
+    const ownAffiliation = await rpcJson(
       "member-imported-affiliation",
-      affiliationPath,
+      "placements.readOwnAffiliation",
+      affiliationScope,
       OwnAffiliationResource,
       cookies.member,
     );
@@ -342,9 +390,10 @@ export const observeLegacyCandidateNativeJourney = async (
     assert.equal(ownAffiliation.status, "Active");
     checks.push(phase);
 
-    const foreignAffiliation = await json(
+    const foreignAffiliation = await rpcJson(
       "other-affiliation-isolation",
-      affiliationPath,
+      "placements.readOwnAffiliation",
+      affiliationScope,
       OwnAffiliationResource,
       cookies.otherDepartment,
     );
@@ -352,19 +401,29 @@ export const observeLegacyCandidateNativeJourney = async (
     assert.equal(foreignAffiliation.personId, input.identities.otherDepartment.personId);
     assert.equal(foreignAffiliation.status, "Absent");
     checks.push(phase);
-    await status(
-      "affiliation-person-override-rejected",
-      `${affiliationPath}&personId=${encodeURIComponent(input.identities.member.personId)}`,
-      400,
+
+    // The RPC payload has no person selector: a forged one is dropped, and the caller still reads
+    // only their own affiliation.
+    const overridden = await rpcJson(
+      "affiliation-person-override-ignored",
+      "placements.readOwnAffiliation",
+      { ...affiliationScope, personId: input.identities.member.personId },
+      OwnAffiliationResource,
       cookies.otherDepartment,
     );
 
-    const boardPath = (departmentId: string) =>
-      `/api/placements?${new URLSearchParams({ departmentId, semesterId: input.scope.semesterId }).toString()}`;
+    assert.equal(overridden.personId, input.identities.otherDepartment.personId);
+    checks.push(phase);
 
-    const board = await json(
+    const boardScope = (departmentId: string) => ({
+      departmentId,
+      semesterId: input.scope.semesterId,
+    });
+
+    const board = await rpcJson(
       "leader-imported-placement",
-      boardPath(input.scope.departmentId),
+      "placements.readBoard",
+      boardScope(input.scope.departmentId),
       PlacementBoardResource,
       cookies.leader,
     );
@@ -377,23 +436,30 @@ export const observeLegacyCandidateNativeJourney = async (
       ),
     );
     checks.push(phase);
-    await status(
+    await rpcStatus(
       "leader-other-placement-scope-denied",
-      boardPath(input.scope.otherDepartmentId),
+      "placements.readBoard",
+      boardScope(input.scope.otherDepartmentId),
       403,
       cookies.leader,
     );
 
     for (const label of ["member", "historicalLeader", "otherDepartment"] as const) {
-      await status(
+      await rpcStatus(
         `${label}-placement-board-denied`,
-        boardPath(input.scope.departmentId),
+        "placements.readBoard",
+        boardScope(input.scope.departmentId),
         403,
         cookies[label],
       );
     }
 
-    await status("anonymous-placement-denied", boardPath(input.scope.departmentId), 401);
+    await rpcStatus(
+      "anonymous-placement-denied",
+      "placements.readBoard",
+      boardScope(input.scope.departmentId),
+      401,
+    );
 
     assert.equal(input.receipt.ownerPersonId, input.identities.member.personId);
 

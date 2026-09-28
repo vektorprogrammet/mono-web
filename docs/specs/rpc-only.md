@@ -186,12 +186,38 @@ Notes:
 
 | RPC tag | Replaces | Transport facts | Credentials | Status |
 | --- | --- | --- | --- | --- |
-| `certificates.confirmDaysServed` | POST `/api/departments/{departmentId}/semesters/{semesterId}/days-served/{personId}` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | todo |
-| `certificates.issueCertificate` | POST `/api/departments/{departmentId}/certificates/{personId}/issues` | idempotencyKey; ifMatch; binary application/pdf | cookieHeader, oauthUserBearer | todo |
-| `certificates.listCertificates` | GET `/api/departments/{departmentId}/certificates` | query: cursor | cookieHeader, oauthUserBearer | todo |
-| `certificates.listDaysServed` | GET `/api/departments/{departmentId}/semesters/{semesterId}/days-served` | query: cursor | cookieHeader, oauthUserBearer | todo |
-| `certificates.readCertificate` | GET `/api/departments/{departmentId}/certificates/{personId}` | - | cookieHeader, oauthUserBearer | todo |
-| `certificates.readCertificateScopes` | GET `/api/certificate-scopes` | - | cookieHeader, oauthUserBearer | todo |
+| `certificates.confirmDaysServed` | POST `/api/departments/{departmentId}/semesters/{semesterId}/days-served/{personId}` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+| `certificates.issueCertificate` | POST `/api/departments/{departmentId}/certificates/{personId}/issues` | idempotencyKey; ifMatch; binary application/pdf | cookieHeader, oauthUserBearer | ported |
+| `certificates.listCertificates` | GET `/api/departments/{departmentId}/certificates` | query: cursor | cookieHeader, oauthUserBearer | ported |
+| `certificates.listDaysServed` | GET `/api/departments/{departmentId}/semesters/{semesterId}/days-served` | query: cursor | cookieHeader, oauthUserBearer | ported |
+| `certificates.readCertificate` | GET `/api/departments/{departmentId}/certificates/{personId}` | - | cookieHeader, oauthUserBearer | ported |
+| `certificates.readCertificateScopes` | GET `/api/certificate-scopes` | - | cookieHeader, oauthUserBearer | ported |
+
+Notes (certificates):
+
+- The six RPCs keep the old operation IDs as tags. Each command's `normalizedTarget` is the old
+  route template filled with its path members, and its domain command ID is still the receipt
+  identity digest, so receipts and commands that straddle the cutover stay stable.
+- Evidence is unchanged: `confirmDaysServed` takes `DaysServedConfirmationAuthorization` and
+  `issueCertificate` takes `CertificateIssueAuthorization`, each resolved in the committing
+  transaction before the receipt lookup; a seat that ended cannot replay a stored issue
+  (`apps/backend/src/placements/certificates-rpc.test.ts`). The handlers provide
+  `CertificateFontsLive` themselves, so the fonts still load once, when the handlers are built.
+- `issueCertificate` answers the PDF as `CertificatePdf` (`Schema.Uint8Array`) in the success. On
+  the JSON serialization the bytes travel as base64 inside the RPC response, about 4/3 of the PDF
+  plus the envelope, buffered whole on both sides; the answer has no `application/pdf` media type,
+  no `ETag` (it equaled the `ifMatch` the client sent), and no URL a browser can download. A
+  client that shows the PDF must relay the bytes itself. No dashboard route, journey, or probe
+  called any certificate operation at the base commit, so no relay route exists yet. The receipt
+  still stores the PDF bytes with `application/pdf` and the certificate tag, and a replay answers
+  the same bytes.
+- `listDaysServed` and `listCertificates` keep `request.malformed` for a cursor that passes
+  `AssistantCursor` but names no position (`CertificateInvalidCursor`, the domain's own answer).
+  An unknown or repeated query member answered `request.malformed` before; the typed payload
+  cannot carry one.
+- A `confirmDaysServed` total that fails `DaysServedTotal` answered validation.failed at `/total`;
+  the RPC server now fails that payload as a defect, and the 1 KiB body bound is gone. Reads lose
+  `Cache-Control: private, no-store` and `Vary: Origin`.
 
 ### contact (`packages/rpc/src/contact.ts`)
 
@@ -319,16 +345,51 @@ Notes (organization):
 
 | RPC tag | Replaces | Transport facts | Credentials | Status |
 | --- | --- | --- | --- | --- |
-| `placements.commandBoard` | POST `/api/placements` | idempotencyKey; ifMatch; query: departmentId, semesterId | cookieHeader, oauthUserBearer | todo |
-| `placements.commandCoverageBoard` | POST `/api/placements/coverage` | idempotencyKey; ifMatch; query: departmentId, semesterId | cookieHeader, oauthUserBearer | todo |
-| `placements.commandOwnAffiliation` | POST `/api/placements/affiliation` | idempotencyKey; ifMatch; query: departmentId | cookieHeader, oauthUserBearer | todo |
-| `placements.commandOwnCoverage` | POST `/api/placements/coverage/own` | idempotencyKey; ifMatch; query: departmentId, semesterId | cookieHeader, oauthUserBearer | todo |
-| `placements.listScopes` | GET `/api/placements/scopes` | - | cookieHeader, oauthUserBearer | todo |
-| `placements.readBoard` | GET `/api/placements` | query: departmentId, semesterId | cookieHeader, oauthUserBearer | todo |
-| `placements.readCoverageBoard` | GET `/api/placements/coverage` | query: departmentId, semesterId | cookieHeader, oauthUserBearer | todo |
-| `placements.readDraft` | GET `/api/placements/draft` | query: departmentId, semesterId | cookieHeader, oauthUserBearer | todo |
-| `placements.readOwnAffiliation` | GET `/api/placements/affiliation` | query: departmentId | cookieHeader, oauthUserBearer | todo |
-| `placements.readOwnCoverage` | GET `/api/placements/coverage/own` | query: departmentId, semesterId | cookieHeader, oauthUserBearer | todo |
+| `placements.commandBoard` | POST `/api/placements` | idempotencyKey; ifMatch; query: departmentId, semesterId | cookieHeader, oauthUserBearer | ported |
+| `placements.commandCoverageBoard` | POST `/api/placements/coverage` | idempotencyKey; ifMatch; query: departmentId, semesterId | cookieHeader, oauthUserBearer | ported |
+| `placements.commandOwnAffiliation` | POST `/api/placements/affiliation` | idempotencyKey; ifMatch; query: departmentId | cookieHeader, oauthUserBearer | ported |
+| `placements.commandOwnCoverage` | POST `/api/placements/coverage/own` | idempotencyKey; ifMatch; query: departmentId, semesterId | cookieHeader, oauthUserBearer | ported |
+| `placements.listScopes` | GET `/api/placements/scopes` | - | cookieHeader, oauthUserBearer | ported |
+| `placements.readBoard` | GET `/api/placements` | query: departmentId, semesterId | cookieHeader, oauthUserBearer | ported |
+| `placements.readCoverageBoard` | GET `/api/placements/coverage` | query: departmentId, semesterId | cookieHeader, oauthUserBearer | ported |
+| `placements.readDraft` | GET `/api/placements/draft` | query: departmentId, semesterId | cookieHeader, oauthUserBearer | ported |
+| `placements.readOwnAffiliation` | GET `/api/placements/affiliation` | query: departmentId | cookieHeader, oauthUserBearer | ported |
+| `placements.readOwnCoverage` | GET `/api/placements/coverage/own` | query: departmentId, semesterId | cookieHeader, oauthUserBearer | ported |
+
+Notes (placements):
+
+- The ten RPCs keep the old operation IDs as tags. Each command's `normalizedTarget` is the target
+  the HTTP handler filled from its query scope (`/api/placements/{departmentId}/{semesterId}`,
+  `/api/placements/affiliation/{departmentId}`, `/api/placements/coverage/{departmentId}/{semesterId}`,
+  and `/api/placements/coverage/own/{departmentId}/{semesterId}`), and the domain command ID is
+  still the receipt identity digest.
+- Evidence is unchanged: `commandBoard` and `commandCoverageBoard` take
+  `DepartmentReach<"placements.coordinate">` in `PlacementExecution`, and `commandOwnAffiliation`
+  and `commandOwnCoverage` run as the resolved person, all inside the committing transaction
+  (`apps/backend/src/placements/rpc.test.ts`). Each snapshot keeps its `etag`, derived from the
+  whole snapshot as before; the draft keeps `boardEtag`.
+- One problem union per kind replaces `PlacementProblem`: `PlacementsReadProblem` and
+  `PlacementsCommandProblem`. Dropped: `precondition.required` (the payload requires `ifMatch`),
+  `request.malformed` for an unknown or repeated query member, `request.too-large` (the 8 KiB body
+  bound), `media-type.unsupported`, `precondition.invalid`, `idempotency-key.invalid`,
+  `header.malformed`, and `validation.failed`, which only body and query decoding produced: such a
+  payload now fails in the RPC server as a defect. `dashboard.assistenter` decodes every command
+  with the same schemas before it calls, so it loses no field error.
+- The request digest covers the command encoded by its schema rather than the parsed body, which
+  is the same JSON for any body the schema accepts without excess members. New receipts store the
+  snapshot with its media type only; old receipts, whose body also carries `etag`, still replay.
+- Reads and commands lose `Cache-Control: private, no-store`, `Vary: Origin`, and the command's
+  `ETag` header; the snapshot's `etag` field carries the tag.
+- Callers ported: `dashboard.assistenter` (through `callNative`), and the journeys
+  `tools/e2e/placement-check.ts`, `apps/dashboard/e2e/native-placement.spec.ts`, and the placement
+  calls of `native-recruitment-first-placement.spec.ts` and
+  `tools/e2e/legacy-candidate-native-journey.ts`. `placement-check.ts` asserted 428 and 422 for a
+  command without `If-Match` and for invalid bodies; it now asserts that the command schema
+  rejects those bodies. The legacy candidate journey asserted 400 for a forged `personId` query
+  member; the payload drops it, and the journey asserts the caller still reads only their own
+  affiliation. `run-real-native-placement.mjs` no longer builds the deleted `packages/sdk`.
+- Left for the onboarding slice: `apps/dashboard/app/routes/dashboard.onboarding.tsx` still calls
+  `client.placements.listScopes()` through the deleted `createAuthenticatedClient`.
 
 ### profile (`packages/rpc/src/profile.ts`)
 

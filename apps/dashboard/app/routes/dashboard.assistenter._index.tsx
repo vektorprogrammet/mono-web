@@ -1,7 +1,6 @@
 import {
   AffiliationScope,
   CoverageCommand,
-  IdempotencyIfMatchHeaders,
   OwnAffiliationCommand,
   OwnCoverageCommand,
   PlacementCommand,
@@ -12,12 +11,13 @@ import {
   type PlacementBoardResource,
   type PlacementDraftResource,
 } from "@vektorprogrammet/rpc";
+import { IdempotencyKey, StrongETag } from "@vektorprogrammet/rpc/problem";
 import { Record, Option, Schema, Match } from "effect";
 import { createElement, type ReactNode, useState } from "react";
 import { Form, data, useActionData, useFetcher, useLoaderData, useLocation } from "react-router";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import { nativeProblemFrom } from "../lib/native-problem";
 import { semesterLabel } from "../lib/semester-label";
@@ -31,15 +31,18 @@ const privateData = <T,>(value: T, status = 200) =>
 /** One chosen draft placement: the JSON of the Create command that applies it. */
 const DraftPlacementChoice = Schema.fromJsonString(PlacementCommand);
 
+/** The replay key and the observed entity tag that every placement command carries. */
+const CommandKeys = Schema.Struct({ idempotencyKey: IdempotencyKey, ifMatch: StrongETag });
+
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
   const q = new URL(request.url).searchParams;
   const departmentId = q.get("departmentId") ?? "";
   const semesterId = q.get("semesterId") ?? "";
 
   try {
-    const scopes = (await client.placements.listScopes()).body;
+    const scopes = await callNative(cookie, request, (client) => client["placements.listScopes"]());
+
     let own: typeof OwnAffiliationResource.Type | null = null;
     let board: typeof PlacementBoardResource.Type | null = null;
     let ownCoverage: typeof OwnCoverageResource.Type | null = null;
@@ -48,28 +51,31 @@ export async function loader({ request }: Route.LoaderArgs) {
 
     if (departmentId) {
       const scope = Schema.decodeSync(AffiliationScope)({ departmentId });
-      own = (await client.placements.readOwnAffiliation({ query: scope })).body;
+      own = await callNative(cookie, request, (client) =>
+        client["placements.readOwnAffiliation"](scope),
+      );
     }
 
     if (departmentId && semesterId) {
       const scope = Schema.decodeSync(PlacementScope)({ departmentId, semesterId });
-      ownCoverage = (await client.placements.readOwnCoverage({ query: scope })).body;
+      ownCoverage = await callNative(cookie, request, (client) =>
+        client["placements.readOwnCoverage"](scope),
+      );
 
       if (
         scopes.departments.some(
           (department) => department.departmentId === departmentId && department.canManage,
         )
       ) {
-        const [placement, coverageBoard] = await Promise.all([
-          client.placements.readBoard({ query: scope }),
-          client.placements.readCoverageBoard({ query: scope }),
+        [board, coverage] = await Promise.all([
+          callNative(cookie, request, (client) => client["placements.readBoard"](scope)),
+          callNative(cookie, request, (client) => client["placements.readCoverageBoard"](scope)),
         ]);
 
-        board = placement.body;
-        coverage = coverageBoard.body;
-
         if (q.get("draft") === "1") {
-          draft = (await client.placements.readDraft({ query: scope })).body;
+          draft = await callNative(cookie, request, (client) =>
+            client["placements.readDraft"](scope),
+          );
         }
       }
     }
@@ -102,13 +108,12 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
   const form: FormData = await request.formData();
 
   try {
-    const headers = Schema.decodeUnknownSync(IdempotencyIfMatchHeaders)({
-      "if-match": form.get("etag"),
-      "idempotency-key": form.get("commandId"),
+    const keys = Schema.decodeUnknownSync(CommandKeys)({
+      ifMatch: form.get("etag"),
+      idempotencyKey: form.get("commandId"),
     });
 
     const departmentId = form.get("departmentId");
@@ -117,14 +122,16 @@ export async function action({ request }: Route.ActionArgs) {
     const mode = form.get("mode");
 
     if (action === "Request" || action === "Withdraw") {
-      await client.placements.commandOwnAffiliation({
-        query: Schema.decodeUnknownSync(AffiliationScope)({ departmentId }),
-        headers,
-        payload: Schema.decodeSync(OwnAffiliationCommand)(
-          { action },
-          { onExcessProperty: "error" },
-        ),
-      });
+      const scope = Schema.decodeUnknownSync(AffiliationScope)({ departmentId });
+
+      const payload = Schema.decodeSync(OwnAffiliationCommand)(
+        { action },
+        { onExcessProperty: "error" },
+      );
+
+      await callNative(cookie, request, (client) =>
+        client["placements.commandOwnAffiliation"]({ ...scope, ...keys, request: payload }),
+      );
     } else if (mode === "ownCoverage") {
       const query = Schema.decodeUnknownSync(PlacementScope)({
         departmentId,
@@ -147,7 +154,9 @@ export async function action({ request }: Route.ActionArgs) {
         { onExcessProperty: "error" },
       );
 
-      await client.placements.commandOwnCoverage({ query, headers, payload });
+      await callNative(cookie, request, (client) =>
+        client["placements.commandOwnCoverage"]({ ...query, ...keys, request: payload }),
+      );
     } else if (mode === "coverage") {
       const query = Schema.decodeUnknownSync(PlacementScope)({
         departmentId,
@@ -185,7 +194,9 @@ export async function action({ request }: Route.ActionArgs) {
         { onExcessProperty: "error" },
       );
 
-      await client.placements.commandCoverageBoard({ query, headers, payload });
+      await callNative(cookie, request, (client) =>
+        client["placements.commandCoverageBoard"]({ ...query, ...keys, request: payload }),
+      );
     } else {
       const query = Schema.decodeUnknownSync(PlacementScope)({
         departmentId,
@@ -194,7 +205,7 @@ export async function action({ request }: Route.ActionArgs) {
 
       if (action === "ApplyDraft") {
         const choices = form.getAll("draftPlacement");
-        let etag = headers["if-match"];
+        let ifMatch = keys.ifMatch;
 
         // Each chosen placement is one Create command against the board version the last one left.
         for (const [index, choice] of choices.entries()) {
@@ -204,16 +215,20 @@ export async function action({ request }: Route.ActionArgs) {
 
           if (payload.action !== "Create") throw new Error("A draft choice creates a placement");
 
-          const response = await client.placements.commandBoard({
-            query,
-            headers: Schema.decodeSync(IdempotencyIfMatchHeaders)({
-              "if-match": etag,
-              "idempotency-key": `${headers["idempotency-key"]}-${index}`,
-            }),
-            payload,
-          });
+          const idempotencyKey = Schema.decodeSync(IdempotencyKey)(
+            `${keys.idempotencyKey}-${index}`,
+          );
 
-          etag = response.body.etag;
+          const board = await callNative(cookie, request, (client) =>
+            client["placements.commandBoard"]({
+              ...query,
+              idempotencyKey,
+              ifMatch,
+              request: payload,
+            }),
+          );
+
+          ifMatch = board.etag;
         }
 
         return privateData({
@@ -274,32 +289,9 @@ export async function action({ request }: Route.ActionArgs) {
         onExcessProperty: "error",
       });
 
-      switch (payload.action) {
-        case "Affiliation":
-          await client.placements.commandBoard({ query, headers, payload });
-          break;
-        case "Create":
-          await client.placements.commandBoard({ query, headers, payload });
-          break;
-        case "Edit":
-          await client.placements.commandBoard({ query, headers, payload });
-          break;
-        case "Remove":
-          await client.placements.commandBoard({ query, headers, payload });
-          break;
-        case "SetDemand":
-          await client.placements.commandBoard({ query, headers, payload });
-          break;
-        case "GenerateProposal":
-          await client.placements.commandBoard({ query, headers, payload });
-          break;
-        case "ConfirmProposal":
-          await client.placements.commandBoard({ query, headers, payload });
-          break;
-        case "ScheduleService":
-          await client.placements.commandBoard({ query, headers, payload });
-          break;
-      }
+      await callNative(cookie, request, (client) =>
+        client["placements.commandBoard"]({ ...query, ...keys, request: payload }),
+      );
     }
 
     return privateData({
