@@ -5,7 +5,7 @@ import {
   replacedHttpResponse,
 } from "../../apps/dashboard/e2e/native-rpc-ledger.js";
 import { RecruitmentInterviewConductObservationSchema } from "../../packages/domain/src/recruitment/schema.js";
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
@@ -827,6 +827,10 @@ export async function assertInterviewCorrectionBoundaries(
     "missing-question-entry",
   ]);
 
+  const decodeProtocolDefect = Schema.decodeOption(
+    Schema.fromJsonString(Schema.Tuple([Schema.TaggedStruct("Defect", {})])),
+  );
+
   for (const [name, invalid] of invalidCases) {
     const before = await snapshot();
 
@@ -848,12 +852,21 @@ export async function assertInterviewCorrectionBoundaries(
     status(`invalid:${name}`, response.status);
 
     // Domain validation of the answers still answers recruitment.conduct-invalid (422). A payload
-    // outside its schema fails in the RPC server before the handler, as a defect (500), and a body
-    // that is no RPC message is refused by the server's transport.
-    const expected = semanticInvalidCases.has(name) ? 422 : name === "malformed-json" ? -1 : 500;
+    // outside its schema fails in the RPC server before the handler, as a defect (500). A body that
+    // is no RPC message is refused by the server's transport: the RPC protocol answers one Defect
+    // message and no RPC exit, where the HTTP route answered request.malformed (400).
+    if (name === "malformed-json") {
+      const refusal = await response.text();
 
-    if (expected === -1) assert.ok(response.status >= 400, await response.text());
-    else assert.equal(response.status, expected, await response.text());
+      assert.ok(Option.isSome(decodeProtocolDefect(refusal)), refusal);
+    } else {
+      assert.equal(
+        response.status,
+        semanticInvalidCases.has(name) ? 422 : 500,
+        await response.text(),
+      );
+    }
+
     await assertSnapshot(before, `invalid ${name}`);
   }
 

@@ -63,7 +63,7 @@ import {
 } from "../../packages/domain/src/recruitment/index.js";
 import { deliverJson } from "../../apps/backend/src/delivery/http.js";
 import { NotificationGateway } from "../../packages/domain/src/notification/service.js";
-import { Array as Arr, Predicate, Schema } from "effect";
+import { Array as Arr, Option, Predicate, Schema } from "effect";
 import { PublicApplicationIdSchema } from "../../packages/domain/src/application/schema.js";
 import { nativeScriptClient } from "../../packages/rpc/src/script-client.js";
 import { replacedFetch } from "../../apps/dashboard/e2e/native-rpc-ledger.ts";
@@ -2176,21 +2176,27 @@ try {
 
   const before = await lifecycleSnapshot();
 
+  const decodeDieCause = Schema.decodeOption(
+    Schema.fromJsonString(Schema.Tuple([Schema.TaggedStruct("Die", {})])),
+  );
+
+  // A recommendation outside its schema fails in the RPC server before the handler, as a defect
+  // (500) whose cause is a Die, where the HTTP route answered validation.failed (422).
   for (const [i, value] of [undefined, null, "invalid", 9].entries()) {
     const body = value === undefined ? payload : { ...payload, recommendation: value };
-    assert.equal(
-      (
-        await post(
-          id,
-          body,
-          [fixtureKeys.invalid0, fixtureKeys.invalid1, fixtureKeys.invalid2, fixtureKeys.invalid3][
-            i
-          ]!,
-          etag,
-        )
-      ).status,
-      422,
+
+    const refused = await post(
+      id,
+      body,
+      [fixtureKeys.invalid0, fixtureKeys.invalid1, fixtureKeys.invalid2, fixtureKeys.invalid3][i]!,
+      etag,
     );
+
+    const refusal = await refused.text();
+
+    assert.equal(refused.status, 500, refusal);
+
+    assert.ok(Option.isSome(decodeDieCause(refusal)), refusal);
   }
 
   assert.equal(await lifecycleSnapshot(), before);
