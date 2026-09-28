@@ -1,16 +1,15 @@
 import { nativeProblemFrom } from "../../lib/native-problem";
-import { createAuthenticatedClient } from "../../lib/api.server";
+import { callNative } from "../../lib/api.server";
 import { expiredSessionRedirect, loadSessionIdentity, requireAuth } from "../../lib/auth.server";
 import type { DashboardShellData } from "./shell";
 
 export async function loadDashboardShell(request: Request): Promise<DashboardShellData> {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
 
   try {
-    const { body: profile } = await client.profile.readOwnProfile({ headers: {} });
-
-    if (profile === undefined) throw new Error("Profile response did not include a body");
+    const { profile } = await callNative(cookie, request, (client) =>
+      client["profile.readOwnProfile"](),
+    );
 
     return {
       user: {

@@ -10,7 +10,7 @@ import {
   recruitmentFailureFromSdk,
 } from "../foldkit/recruitment/bridge";
 import { type RecruitmentInput, LoadedRecruitmentInput, FailedRecruitmentInput } from "../foldkit/recruitment/model";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative, createAuthenticatedClient } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/dashboard.sokere._index";
 
@@ -26,10 +26,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   let profile;
 
   try {
-    const result = await client.profile.readOwnProfile({ headers: {} });
-
-    if (result.body === undefined) throw new Error("Profile response did not include a body");
-    profile = result.body;
+    ({ profile } = await callNative(cookie, request, (native) =>
+      native["profile.readOwnProfile"](),
+    ));
   } catch {
     throw await expiredSessionRedirect(request);
   }

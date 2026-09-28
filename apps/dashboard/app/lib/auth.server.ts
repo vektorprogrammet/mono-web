@@ -3,7 +3,7 @@ import { nativeDashboardRecoveryMode } from "../server/native-account-mode.serve
 import { IdempotencyKey } from "@vektorprogrammet/rpc";
 
 import { redirect } from "react-router";
-import { createAuthenticatedClient, serverApiEndpoint } from "./api.server";
+import { callNative, serverApiEndpoint } from "./api.server";
 import { nativeProblemFrom } from "./native-problem";
 
 const SESSION_COOKIE_NAMES = [
@@ -70,7 +70,7 @@ async function inspectSession(request: Request): Promise<SessionInspection> {
   if (cookie === null || !hasSessionCookie(cookie)) return SessionInspection.Missing();
 
   try {
-    await createAuthenticatedClient(cookie, request).system.readSession();
+    await callNative(cookie, request, (client) => client["system.readSession"]());
 
     return SessionInspection.Authenticated({cookie});
   } catch (error) {
@@ -210,11 +210,11 @@ export async function signOut(request: Request): Promise<Headers> {
   if (cookie === null || !hasSessionCookie(cookie)) return expiredSessionCookieHeaders(request);
 
   try {
-    await createAuthenticatedClient(cookie, request).system.deleteSession({
-      headers: {
-        "idempotency-key": IdempotencyKey.make(crypto.randomUUID()),
-      },
-    });
+    await callNative(cookie, request, (client) =>
+      client["system.deleteSession"]({
+        idempotencyKey: IdempotencyKey.make(crypto.randomUUID()),
+      }),
+    );
   } catch (error) {
     const code = nativeProblemFrom(error)?.code;
 

@@ -14,8 +14,9 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import AxeBuilder from "@axe-core/playwright";
 import { chromium, expect as baseExpect, type BrowserContext, type Page } from "@playwright/test";
-import { OrganizationLifecycleCommand } from "@vektorprogrammet/rpc";
+import { nativeRpcPath, OrganizationLifecycleCommand } from "@vektorprogrammet/rpc";
 import { Schema } from "effect";
+import { nativeRpcRequestBody, nativeRpcStatus, nativeRpcValue } from "./native-operations.js";
 
 // Production bundles load their workflow before rendering server facts; five seconds is too tight.
 const expect = baseExpect.configure({ timeout: 15_000 });
@@ -370,7 +371,17 @@ export const runTeamApplicationBrowser = async (
     assert.equal(cookies.length, 1, `${role} session cookie`);
 
     const cookie = cookies.map(({ name, value }) => `${name}=${value}`).join("; ");
-    const session = await body(await api(cookie, "/api/session"), 200, Session);
+
+    const sessionAnswer = await (
+      await api(cookie, nativeRpcPath, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: nativeRpcRequestBody("system.readSession"),
+      })
+    ).text();
+
+    assert.equal(nativeRpcStatus(sessionAnswer), 200, `${role} session read: ${sessionAnswer}`);
+    const session = Schema.decodeUnknownSync(Session)(nativeRpcValue(sessionAnswer));
 
     assert.equal(session.personId, person.personId);
     checks.push({ kind: "session", detail: role });

@@ -20,6 +20,7 @@ import {
 } from "../postgres/index.ts";
 import { drainPasswordResetMail } from "../../packages/database/src/password-recovery.js";
 import { HttpMailLive } from "../../apps/backend/src/mail/http.js";
+import { nativeRpcRequestBody, nativeRpcStatus } from "../../apps/dashboard/e2e/native-operations.js";
 
 const root = new URL("../../", import.meta.url).pathname;
 
@@ -103,6 +104,18 @@ try {
 
   const canonicalOrigin = `http://127.0.0.1:${apiPort}`,
     dashboardOrigin = `http://127.0.0.1:${uiPort}`;
+
+  /** The status that `system.readSession` answers for a cookie, sent as the browser sends it. */
+  const readSessionStatus = async (cookie: string) =>
+    nativeRpcStatus(
+      await (
+        await fetch(`${canonicalOrigin}/api/rpc`, {
+          method: "POST",
+          headers: { cookie, origin: dashboardOrigin, "content-type": "application/json" },
+          body: nativeRpcRequestBody("system.readSession"),
+        })
+      ).text(),
+    );
 
   const env = {
     ...process.env,
@@ -313,11 +326,7 @@ try {
   gates.push("browser policy rejection then corrected reset reaches login");
 
   for (const cookie of [cookie1, cookie2]) {
-    const r = await fetch(`${canonicalOrigin}/api/session`, {
-      headers: { cookie, origin: dashboardOrigin },
-    });
-
-    assert.equal(r.status, 401);
+    assert.equal(await readSessionStatus(cookie), 401);
   }
 
   gates.push("both old sessions denied");
@@ -461,11 +470,7 @@ try {
     `DROP TRIGGER reject_recovery_session_delete ON auth.session; DROP FUNCTION auth.reject_recovery_session_delete()`,
   );
 
-  const stillLive = await fetch(`${canonicalOrigin}/api/session`, {
-    headers: { cookie: partialCookie, origin: dashboardOrigin },
-  });
-
-  assert.equal(stillLive.status, 200);
+  assert.equal(await readSessionStatus(partialCookie), 200);
   await login(oldPassword);
   gates.push("session deletion failure returns5xx; password changed with old session still live");
   const expiredToken = await nextToken();

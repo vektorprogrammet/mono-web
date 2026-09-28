@@ -1,4 +1,4 @@
-import { NativeProblem, SessionResponse } from "@vektorprogrammet/rpc";
+import { SessionResponse } from "@vektorprogrammet/rpc";
 import { Order, Predicate, Schema } from "effect";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
-import { isNativeRequest } from "./native-operations.ts";
+import { isNativeRequest, nativeRpcOutcome, nativeRpcStatus, nativeRpcTag } from "./native-operations.ts";
 
 /** The owner-only session metadata fields that the API contract defines. */
 const sessionFields = Object.keys(SessionResponse.fields).sort();
@@ -300,7 +300,7 @@ const startRecordingBoundary = async (targetOrigin) => {
         request: findAuthorityData(requestBytes.toString("utf8")),
         response: [],
       },
-      legacyOrProvider: !isNativeRequest(method, target.pathname),
+      legacyOrProvider: !isNativeRequest(method, target.pathname, requestBytes.toString("utf8")),
       status: 0,
       durationMs: 0,
       responseByteLength: 0,
@@ -335,30 +335,36 @@ const startRecordingBoundary = async (targetOrigin) => {
       record.authorityDataMatches.response = findAuthorityData(bodyText);
       response.statusCode = upstream.status;
 
-      if (target.pathname === "/api/session") {
-        if (upstream.status === 200) {
+      record.rpcTag = nativeRpcTag(requestBytes.toString("utf8"));
+
+      if (record.rpcTag !== undefined) {
+        const outcome = nativeRpcOutcome(bodyText);
+        record.rpcStatus = nativeRpcStatus(bodyText);
+
+        if (record.rpcTag === "system.readSession" && Predicate.isTagged(outcome, "Success")) {
           const projection = Schema.decodeUnknownSync(SessionResponse, {
             onExcessProperty: "error",
-          })(JSON.parse(bodyText));
+          })(outcome.value);
 
           assert.equal(projection.current, true);
           assert.ok(Date.parse(projection.expiresAt) > Date.now());
-          assert.equal(bodyText, JSON.stringify(JSON.parse(bodyText)));
           record.sessionProjection = {
-            keys: Object.keys(projection),
+            keys: Object.keys(outcome.value),
             sessionId: projection.sessionId,
             expiresAt: projection.expiresAt,
             current: projection.current,
             bodyByteLength: bytes.byteLength,
             exactJsonBytes: true,
           };
-        } else if (upstream.status === 401) {
-          const problem = Schema.decodeUnknownSync(NativeProblem, { onExcessProperty: "error" })(
-            JSON.parse(bodyText),
-          );
+        } else if (
+          record.rpcTag === "system.readSession" &&
+          Predicate.isTagged(outcome, "Problem") &&
+          outcome.status === 401
+        ) {
+          // The outcome reader decoded the problem with the closed `NativeProblem` schema.
+          const problem = outcome.problem;
 
           assert.ok(credentialProblemCodes.includes(problem.code), `unexpected ${problem.code}`);
-          assert.equal(bodyText, JSON.stringify(JSON.parse(bodyText)));
           record.unauthenticatedProjection = {
             keys: ["code"],
             code: problem.code,
@@ -554,7 +560,7 @@ const main = async () => {
     assert.deepEqual(hardeningEvidence.sessionProjection.fields, sessionFields);
     assert.deepEqual(hardeningEvidence.sessionProjection.credentialFieldsObserved, []);
     assert.equal(hardeningEvidence.sessionProjection.oneCurrent, 1);
-    assert.deepEqual(hardeningEvidence.revocation.revokeOthers, [204, 204]);
+    assert.deepEqual(hardeningEvidence.revocation.revokeOthers, [200, 200]);
     assert.deepEqual(hardeningEvidence.revocation.repeatedAndMissing, [404, 404]);
     assert.deepEqual(hardeningEvidence.revocation.immediateReplay, [401, 401, 401, 401]);
     assert.deepEqual(hardeningEvidence.ownership, {
@@ -603,7 +609,9 @@ const main = async () => {
     assert.deepEqual(browserEvidence.requestLedger.forbidden, []);
     assert.deepEqual(browserEvidence.requestLedger.unexpectedDestinations, []);
     assert.ok(
-      boundary.records.some((entry) => entry.path === "/api/profile" && entry.status === 403),
+      boundary.records.some(
+        (entry) => entry.rpcTag === "profile.readOwnProfile" && entry.rpcStatus === 403,
+      ),
       "no-scope member profile denial must reach the native backend",
     );
     assert.ok(
@@ -628,11 +636,11 @@ const main = async () => {
     assert.deepEqual(wrongStatuses, [401, 401, 401, 429, 429, 429, 429, 429, 429, 429]);
 
     const nativeSignOut = boundary.records.filter(
-      (entry) => entry.path === "/api/session" && entry.method === "DELETE",
+      (entry) => entry.rpcTag === "system.deleteSession",
     );
 
-    const explicitSignOut = nativeSignOut.filter(({ status }) => status === 204);
-    const revokedReplaySignOut = nativeSignOut.filter(({ status }) => status === 401);
+    const explicitSignOut = nativeSignOut.filter(({ rpcStatus }) => rpcStatus === 200);
+    const revokedReplaySignOut = nativeSignOut.filter(({ rpcStatus }) => rpcStatus === 401);
     assert.ok(
       explicitSignOut.length >= 4,
       "hardening and dashboard journeys must persist every first sign-out",
@@ -643,18 +651,18 @@ const main = async () => {
     );
 
     const sessionRequests = boundary.records.filter(
-      (entry) => entry.path === "/api/session" && entry.method === "GET",
+      (entry) => entry.rpcTag === "system.readSession",
     );
 
-    assert.ok(sessionRequests.some((entry) => entry.status === 200));
-    assert.ok(sessionRequests.some((entry) => entry.status === 401));
+    assert.ok(sessionRequests.some((entry) => entry.rpcStatus === 200));
+    assert.ok(sessionRequests.some((entry) => entry.rpcStatus === 401));
 
     const successfulSessionProjections = sessionRequests
-      .filter((entry) => entry.status === 200)
+      .filter((entry) => entry.rpcStatus === 200)
       .map((entry) => entry.sessionProjection);
 
     const unauthenticatedSessionProjections = sessionRequests
-      .filter((entry) => entry.status === 401)
+      .filter((entry) => entry.rpcStatus === 401)
       .map((entry) => entry.unauthenticatedProjection);
 
     assert.ok(
@@ -773,7 +781,7 @@ const main = async () => {
       },
       reload: browserEvidence.observations.reload,
       logout: {
-        nativeStatuses: explicitSignOut.map(({ status }) => status),
+        nativeStatuses: explicitSignOut.map(({ rpcStatus }) => rpcStatus),
         browser: browserEvidence.observations.logout,
       },
       revokedCookieReplay: {

@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { postgresProgram, startDisposablePostgres } from "@monoweb/postgres";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
+import { nativeRpcStatus, nativeRpcTag } from "./native-operations.ts";
 import { addressesAnyRoute, legacyRoutes } from "./request-routes.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -158,7 +159,18 @@ const startProxy = async (targetOrigin) => {
 
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const body = Buffer.concat(chunks);
-    const record = { method, path, status: 0, durationMs: 0, direction: "proxy-to-native" };
+    const rpcTag = nativeRpcTag(body.toString("utf8"));
+
+    const record = {
+      method,
+      path,
+      rpcTag,
+      status: 0,
+      rpcStatus: undefined,
+      durationMs: 0,
+      direction: "proxy-to-native",
+    };
+
     records.push(record);
 
     try {
@@ -173,7 +185,7 @@ const startProxy = async (targetOrigin) => {
         headers.set(name, Array.isArray(value) ? value.join(", ") : value);
       }
 
-      if (method === "PATCH" && path === "/api/profile") await sleep(200);
+      if (rpcTag === "profile.updateOwnProfile") await sleep(200);
 
       const upstream = await fetch(new URL(request.url ?? "/", targetOrigin), {
         method,
@@ -184,6 +196,7 @@ const startProxy = async (targetOrigin) => {
 
       const bytes = Buffer.from(await upstream.arrayBuffer());
       record.status = upstream.status;
+      record.rpcStatus = rpcTag === undefined ? undefined : nativeRpcStatus(bytes.toString("utf8"));
       record.durationMs = Date.now() - started;
       response.statusCode = upstream.status;
 
@@ -369,43 +382,29 @@ const main = async () => {
     assert.equal(postgresEvidence.replay.byteEqualResult, true);
     assert.equal(postgresEvidence.changedPayloadConflict.tag, "ProfileCommandConflict");
 
-    const ledger = proxy.records.map(({ method, path, status, durationMs, direction }) => ({
-      method,
-      path,
-      status,
-      durationMs,
-      direction,
-    }));
+    const ledger = proxy.records.map(
+      ({ method, path, rpcTag, status, rpcStatus, durationMs, direction }) => ({
+        method,
+        path,
+        rpcTag,
+        status,
+        rpcStatus,
+        durationMs,
+        direction,
+      }),
+    );
 
-    assert.equal(
-      ledger.some(
-        (entry) => entry.path === "/api/profile" && entry.method === "GET" && entry.status === 200,
-      ),
-      true,
-    );
-    assert.equal(
-      ledger.some(
-        (entry) =>
-          entry.path === "/api/profile" && entry.method === "PATCH" && entry.status === 200,
-      ),
-      true,
-    );
-    assert.equal(
-      ledger.some((entry) => entry.path === "/api/profile" && entry.status === 401),
-      true,
-    );
-    assert.equal(
-      ledger.some((entry) => entry.path === "/api/profile" && entry.status === 422),
-      true,
-    );
-    assert.equal(
-      ledger.some((entry) => entry.path === "/api/profile" && entry.status === 409),
-      true,
-    );
-    assert.equal(
-      ledger.some((entry) => entry.path === "/api/profile" && entry.status === 412),
-      true,
-    );
+    const profileTags = ["profile.readOwnProfile", "profile.updateOwnProfile"];
+
+    const answered = (tags, status) =>
+      ledger.some((entry) => tags.includes(entry.rpcTag) && entry.rpcStatus === status);
+
+    assert.equal(answered(["profile.readOwnProfile"], 200), true);
+    assert.equal(answered(["profile.updateOwnProfile"], 200), true);
+    assert.equal(answered(profileTags, 401), true);
+    assert.equal(answered(profileTags, 422), true);
+    assert.equal(answered(profileTags, 409), true);
+    assert.equal(answered(profileTags, 412), true);
     assert.equal(
       ledger.some((entry) => addressesAnyRoute(entry.path, legacyRoutes)),
       false,

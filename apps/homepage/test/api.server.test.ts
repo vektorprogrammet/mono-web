@@ -1,31 +1,36 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createHomepageApiClient } from "../src/lib/api.server";
+import { callHomepageNative } from "../src/lib/api.server";
+import { nativeRpcProblem, stubNativeBackend } from "./native-rpc";
+
+const backend = stubNativeBackend();
 
 afterEach(() => {
   vi.unstubAllEnvs();
-  vi.unstubAllGlobals();
 });
 
 describe("homepage server API origin", () => {
-  it("sends each request to the current runtime API_URL", async () => {
-    const urls: string[] = [];
+  it("sends each call to the current runtime API_URL, with its own headers only", async () => {
+    backend.answer((call) => nativeRpcProblem(call, "credential.missing"));
 
-    const fetch: typeof globalThis.fetch = async (input) => {
-      urls.push(input instanceof Request ? input.url : String(input));
+    const readSession = (headers?: Readonly<Record<string, string>>) =>
+      callHomepageNative((client) => client["system.readSession"](), { headers }).catch(
+        () => undefined,
+      );
 
-      return Response.json({ status: "ok" }, {
-        headers: { "cache-control": "no-store", vary: "Origin" },
-      });
-    };
-
-    vi.stubGlobal("fetch", fetch);
     vi.stubEnv("API_URL", "https://api.example.invalid");
-    await createHomepageApiClient().system.health();
+    await readSession({ "x-vektor-contact-backend": "one-call-only" });
     vi.stubEnv("API_URL", "https://changed.example.invalid");
-    await createHomepageApiClient().system.health();
-    expect(urls).toEqual([
-      "https://api.example.invalid/health",
-      "https://changed.example.invalid/health",
+    await readSession();
+
+    expect(
+      backend.calls.map(({ url, tag, headers }) => [
+        url,
+        tag,
+        headers.get("x-vektor-contact-backend"),
+      ]),
+    ).toEqual([
+      ["https://api.example.invalid/api/rpc/", "system.readSession", "one-call-only"],
+      ["https://changed.example.invalid/api/rpc/", "system.readSession", null],
     ]);
   });
 });
