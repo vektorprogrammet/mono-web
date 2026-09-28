@@ -138,6 +138,11 @@ export const runReimbursementBrowser = async ({
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
         `${surface} page overflow`,
       );
+      // Axe reads computed colours, so a colour transition still running (such as the focus and
+      // state styles of the button that just submitted) reads as its midpoint: audit the settled page.
+      await page.evaluate(() =>
+        Promise.all(document.getAnimations().map((animation) => animation.finished)),
+      );
       const audit = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
 
       const serious = audit.violations.filter(
@@ -147,7 +152,12 @@ export const runReimbursementBrowser = async ({
       assert.deepEqual(
         serious.map(({ id }) => id),
         [],
-        `${surface} accessibility`,
+        `${surface} accessibility: ${JSON.stringify(
+          serious.map(({ id, nodes }) => ({
+            id,
+            nodes: nodes.map(({ target, failureSummary }) => ({ target, failureSummary })),
+          })),
+        )}`,
       );
       checks.push({ kind: "surface", surface, layout, width, seriousViolations: 0 });
     }
