@@ -13,7 +13,7 @@ export const provisionOnboardingAccount = (input: AccountProvisionInput) =>
       const collision =
         yield* sql`SELECT id FROM auth."user" WHERE lower(email)=lower(${input.email})`;
 
-      if (collision.length)
+      if (collision.length > 0)
         return yield* new OnboardingFailure({ code: "onboarding.sign-in-required", status: 409 });
       yield* sql`INSERT INTO public.person_profiles(person_id,first_name,last_name) VALUES(${input.personId},${input.firstName},${input.lastName})`;
       yield* sql`INSERT INTO public.person_contact_profiles(person_id,email,phone) VALUES(${input.personId},${input.email},${input.phone})`;

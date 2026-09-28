@@ -59,7 +59,7 @@ export const changeNativeAccountAccess = Effect.fn("changeNativeAccountAccess")(
 
   const current = rows[0];
 
-  if (!current) return yield* new AccountAccessFailure({ code: "NotFound" });
+  if (current === undefined) return yield* new AccountAccessFailure({ code: "NotFound" });
   let anotherUsableAdministrator = true;
 
   if (input.disabled) {

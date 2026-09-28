@@ -188,9 +188,10 @@ export const importIdentityCohort = Effect.fn("importIdentityCohort")(function* 
   for (const occurrence of decoded) {
     const sourceId = sourceIdOf(occurrence.row);
 
-    if (sourceId) sourceCounts.set(sourceId, (sourceCounts.get(sourceId) ?? 0) + 1);
+    if (sourceId !== undefined && sourceId !== "")
+      sourceCounts.set(sourceId, (sourceCounts.get(sourceId) ?? 0) + 1);
 
-    if (occurrence.value) {
+    if (occurrence.value !== undefined) {
       const email = occurrence.value.email.toLowerCase();
       emailCounts.set(email, (emailCounts.get(email) ?? 0) + 1);
     }
@@ -209,7 +210,7 @@ export const importIdentityCohort = Effect.fn("importIdentityCohort")(function* 
       [key],
     );
 
-    if (prior.rows[0]) {
+    if (prior.rows[0] !== undefined) {
       if (prior.rows[0].snapshot_digest !== snapshotDigest)
         return yield* new IdentityCohortFailure({ code: "SnapshotConflict" });
 
@@ -234,11 +235,11 @@ export const importIdentityCohort = Effect.fn("importIdentityCohort")(function* 
     for (const occurrence of decoded) {
       const row = occurrence.value;
       let reason: CohortReason | undefined;
-      const mappings = row ? (mappingsBySource.get(row.sourceUserId) ?? []) : [];
+      const mappings = row !== undefined ? (mappingsBySource.get(row.sourceUserId) ?? []) : [];
       const mapping = mappings.length === 1 ? mappings[0] : undefined;
       const sourceId = sourceIdOf(occurrence.row);
 
-      if (sourceId) {
+      if (sourceId !== undefined && sourceId !== "") {
         const previousSource = yield* pgQuery<{ source_digest: string }>(
           tx,
           "SELECT source_digest FROM auth.account_cohort_imports WHERE source_repository=$1 AND source_user_id=$2",
@@ -246,13 +247,15 @@ export const importIdentityCohort = Effect.fn("importIdentityCohort")(function* 
         );
 
         if (
-          previousSource.rows[0] &&
-          (!row || !mapping || previousSource.rows[0].source_digest !== digest({ row, mapping }))
+          previousSource.rows[0] !== undefined &&
+          (row === undefined ||
+            mapping === undefined ||
+            previousSource.rows[0].source_digest !== digest({ row, mapping }))
         )
           return yield* new IdentityCohortFailure({ code: "SourceIdentityConflict" });
       }
 
-      if (!row) reason = "InvalidRow";
+      if (row === undefined) reason = "InvalidRow";
       else if ((sourceCounts.get(row.sourceUserId) ?? 0) > 1) reason = "DuplicateSource";
       else if ((emailCounts.get(row.email.toLowerCase()) ?? 0) > 1) reason = "DuplicateEmail";
       else if (!row.active) reason = "Inactive";
@@ -267,7 +270,7 @@ export const importIdentityCohort = Effect.fn("importIdentityCohort")(function* 
         !isSupportedLegacyPasswordHash(row.passwordHash)
       )
         reason = "UnsupportedHash";
-      else if (!mappings.length) reason = "MappingMissing";
+      else if (mappings.length === 0) reason = "MappingMissing";
       else if (mappings.length > 1) reason = "MappingAmbiguous";
       else if (mapping!.emailOwnership.email.toLowerCase() !== row.email.toLowerCase())
         reason = "EmailUnattested";
@@ -281,7 +284,7 @@ export const importIdentityCohort = Effect.fn("importIdentityCohort")(function* 
         | { first_name: string; last_name: string; contact_email: string | null }
         | undefined;
 
-      if (!reason && row && mapping) {
+      if (reason === undefined && row !== undefined && mapping !== undefined) {
         sourceDigest = digest({ row, mapping });
         accountId = passwordless
           ? null
@@ -298,7 +301,7 @@ export const importIdentityCohort = Effect.fn("importIdentityCohort")(function* 
           [snapshot.sourceRepository, row.sourceUserId],
         );
 
-        if (imported.rows[0]) {
+        if (imported.rows[0] !== undefined) {
           if (
             imported.rows[0].source_digest !== sourceDigest ||
             imported.rows[0].person_id !== mapping.personId ||
@@ -325,25 +328,26 @@ export const importIdentityCohort = Effect.fn("importIdentityCohort")(function* 
             [snapshot.sourceRepository, row.sourceUserId, mapping.personId],
           )).rows[0];
 
-          if (!person) reason = "PersonReconciliationMissing";
+          if (person === undefined) reason = "PersonReconciliationMissing";
           else if (person.contact_email?.toLowerCase() !== row.email.toLowerCase())
             reason = "EmailConflict";
           else if (
-            (yield* pgQuery(tx, 'SELECT 1 FROM auth."user" WHERE id=$1', [mapping.personId]))
-              .rowCount
+            ((yield* pgQuery(tx, 'SELECT 1 FROM auth."user" WHERE id=$1', [mapping.personId]))
+              .rowCount ?? 0) !== 0
           )
             reason = "TargetConflict";
           else if (
-            (yield* pgQuery(tx, 'SELECT 1 FROM auth."user" WHERE lower(email)=$1', [
+            ((yield* pgQuery(tx, 'SELECT 1 FROM auth."user" WHERE lower(email)=$1', [
               row.email.toLowerCase(),
-            ])).rowCount
+            ])).rowCount ?? 0) !== 0
           )
             reason = "EmailConflict";
           else reason = passwordless ? "RecoveryPending" : "Imported";
         }
       }
 
-      if (!reason) return yield* new IdentityCohortFailure({ code: "PersistenceFailure" });
+      if (reason === undefined)
+        return yield* new IdentityCohortFailure({ code: "PersistenceFailure" });
 
       const accepted =
         reason === "Imported" || reason === "RecoveryPending" || reason === "ExactReplay";
@@ -356,11 +360,12 @@ export const importIdentityCohort = Effect.fn("importIdentityCohort")(function* 
 
       if (
         (reason === "Imported" || reason === "RecoveryPending") &&
-        row &&
-        mapping &&
-        person &&
+        row !== undefined &&
+        mapping !== undefined &&
+        person !== undefined &&
         accountId !== undefined &&
-        sourceDigest
+        sourceDigest !== undefined &&
+        sourceDigest !== ""
       ) {
         yield* pgQuery(
           tx,

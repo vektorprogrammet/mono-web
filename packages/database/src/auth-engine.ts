@@ -110,7 +110,7 @@ const makeCredentialLifecycleHooks = (database: Pool, run: BetterAuthCallbackRun
               ["reset-password:" + (ctx.body?.token ?? "")],
             )).rows[0];
 
-            if (!access) {
+            if (access === undefined) {
               return yield* Effect.fail(
                 new APIError("BAD_REQUEST", { code: "INVALID_TOKEN", message: "Invalid token" }),
               );
@@ -122,7 +122,7 @@ const makeCredentialLifecycleHooks = (database: Pool, run: BetterAuthCallbackRun
               [ctx.body?.email ?? ""],
             )).rows[0];
 
-            if (!access) {
+            if (access === undefined) {
               return yield* Effect.fail(
                 new APIError("UNAUTHORIZED", {
                   code: "INVALID_EMAIL_OR_PASSWORD",
@@ -142,7 +142,11 @@ const makeCredentialLifecycleHooks = (database: Pool, run: BetterAuthCallbackRun
               )).rows[0];
 
               // Sign-out must clear the cookies of a revoked or expired session, never refuse them.
-              if (!access && ctx.path !== "/request-password-reset" && ctx.path !== "/sign-out") {
+              if (
+                access === undefined &&
+                ctx.path !== "/request-password-reset" &&
+                ctx.path !== "/sign-out"
+              ) {
                 // better-call's `json` answers synchronously, although its type is a Promise.
                 if (ctx.path === "/get-session") {
                   return yield* Effect.promise(() => Promise.resolve(ctx.json(null)));
@@ -193,11 +197,9 @@ const makeCredentialLifecycleHooks = (database: Pool, run: BetterAuthCallbackRun
             const result = ctx.context.returned;
 
             if (
-              result &&
-              (result === null || Predicate.isObjectOrArray(result)) &&
+              Predicate.isObjectOrArray(result) &&
               "session" in result &&
-              result.session &&
-              (result.session === null || Predicate.isObjectOrArray(result.session)) &&
+              Predicate.isObjectOrArray(result.session) &&
               "id" in result.session
             ) {
               const usable = yield* pgQuery(
@@ -222,16 +224,15 @@ const makeCredentialLifecycleHooks = (database: Pool, run: BetterAuthCallbackRun
           const returned = ctx.context.returned;
 
           if (
-            !evidence?.hash ||
-            !session ||
+            evidence?.hash === undefined ||
+            evidence.hash === "" ||
+            session === null ||
             returned instanceof APIError ||
-            !returned ||
-            !(returned === null || Predicate.isObjectOrArray(returned)) ||
+            !Predicate.isObjectOrArray(returned) ||
             !("token" in returned) ||
             returned.token !== session.session.token ||
             !("user" in returned) ||
-            !returned.user ||
-            !(returned.user === null || Predicate.isObjectOrArray(returned.user)) ||
+            !Predicate.isObjectOrArray(returned.user) ||
             !("id" in returned.user) ||
             returned.user.id !== session.user.id
           )
@@ -289,7 +290,7 @@ const makeCredentialLifecycleHooks = (database: Pool, run: BetterAuthCallbackRun
                   ],
             );
 
-            if (!result.rows[0]?.accepted) {
+            if (result.rows[0]?.accepted !== true) {
               return yield* Effect.fail(
                 new APIError("UNAUTHORIZED", {
                   code: "INVALID_EMAIL_OR_PASSWORD",
@@ -338,7 +339,7 @@ const makeAccessDatabaseHooks = (
     Effect.gen(function* () {
       const evidence = Option.getOrUndefined(decodeNativeAccessEvidence(context?.context));
 
-      if (evidence && (personId === undefined || personId === evidence.personId))
+      if (evidence !== undefined && (personId === undefined || personId === evidence.personId))
         return evidence.revision;
 
       // Internal adapter provisioning has no endpoint context. HTTP and direct API
@@ -350,7 +351,7 @@ const makeAccessDatabaseHooks = (
           [personId],
         )).rows[0];
 
-        if (row) return row.revision;
+        if (row !== undefined) return row.revision;
       }
 
       return yield* Effect.fail(

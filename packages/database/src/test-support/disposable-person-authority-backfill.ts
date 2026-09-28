@@ -280,7 +280,7 @@ const isDeterministicJsonValue = (
 
       if (
         descriptor === undefined ||
-        !descriptor.enumerable ||
+        descriptor.enumerable !== true ||
         !("value" in descriptor) ||
         !isDeterministicJsonValue(descriptor.value, ancestors)
       ) {

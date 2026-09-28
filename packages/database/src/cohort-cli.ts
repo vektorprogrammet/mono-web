@@ -13,10 +13,10 @@ export const parseDisposableCohortDatabaseUrl = (
     if (
       !["postgres:", "postgresql:"].includes(url.protocol) ||
       !["127.0.0.1", "[::1]"].includes(url.hostname) ||
-      !url.port ||
+      url.port === "" ||
       !pathnamePattern.test(url.pathname) ||
-      url.search ||
-      url.hash
+      url.search !== "" ||
+      url.hash !== ""
     )
       throw invalid();
 
@@ -40,7 +40,7 @@ export const readPrivateCohortJson = <E>(
 ): Effect.Effect<Schema.Json, E> => {
   const attempt = <A>(run: () => Promise<A>) => Effect.tryPromise({ try: run, catch: invalid });
 
-  if (!path) return Effect.fail(invalid());
+  if (path === undefined || path === "") return Effect.fail(invalid());
 
   return Effect.acquireUseRelease(
     attempt(() => open(path, constants.O_RDONLY | constants.O_NOFOLLOW)),

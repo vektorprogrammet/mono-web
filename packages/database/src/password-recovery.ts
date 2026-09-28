@@ -186,7 +186,7 @@ export const makePasswordRecovery = (
     }) => {
       const state = local.getStore();
 
-      if (!state) {
+      if (state === undefined) {
         return Effect.fail(
           new IdentityEngineError({
             operation: "sendResetPassword",
@@ -223,7 +223,7 @@ export const makePasswordRecovery = (
       const state = local.getStore();
 
       return Effect.sync(() => {
-        if (state) state.subject = user.id;
+        if (state !== undefined) state.subject = user.id;
       });
     },
     handler: (
@@ -290,7 +290,7 @@ export const makePasswordRecovery = (
             return yield* reject("redirect-not-allowed");
         }
 
-        if (resetting && url.search) return yield* reject("redirect-not-allowed");
+        if (resetting && url.search !== "") return yield* reject("redirect-not-allowed");
 
         // Better Auth calls sendResetPassword and onPasswordReset inside this request scope.
         const response = yield* Effect.tryPromise({
@@ -409,7 +409,7 @@ export const drainPasswordResetMail = (
         }),
       ).pipe(Effect.orDie);
 
-      if (!row) return "Empty";
+      if (row === undefined) return "Empty";
 
       const verification = (yield* pgQuery<{
         identifier: string;
@@ -435,9 +435,16 @@ export const drainPasswordResetMail = (
       let interruptedCause: Cause.Cause<never> | undefined;
       let quarantined = false;
 
-      if (!verification || !/^reset-password:[A-Za-z0-9_-]+$/.test(verification.identifier)) {
+      if (
+        verification === undefined ||
+        !/^reset-password:[A-Za-z0-9_-]+$/.test(verification.identifier)
+      ) {
         failure = "verification-invalid";
-      } else if (verification.value !== row.subject_person_id || !verification.email) {
+      } else if (
+        verification.value !== row.subject_person_id ||
+        verification.email === null ||
+        verification.email === ""
+      ) {
         failure = "authority-mismatch";
       } else if (verification.expiresAt.getTime() <= (yield* Clock.currentTimeMillis)) {
         failure = "verification-expired";
@@ -445,7 +452,7 @@ export const drainPasswordResetMail = (
 
       quarantined = failure !== null;
 
-      if (!failure && verification) {
+      if (failure === null && verification !== undefined) {
         const token = verification.identifier.slice("reset-password:".length);
 
         const request = {
@@ -533,7 +540,7 @@ export const drainPasswordResetMail = (
         }),
       ).pipe(Effect.orDie);
 
-      if (interruptedCause) return yield* Effect.failCause(interruptedCause);
+      if (interruptedCause !== undefined) return yield* Effect.failCause(interruptedCause);
 
       return outcome;
     }),
