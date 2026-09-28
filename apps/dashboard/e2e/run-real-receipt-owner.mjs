@@ -709,13 +709,10 @@ async function main() {
     });
     await waitForHttp(dashboardLoginUrl, dashboardProcess, "Dashboard");
 
+    // Node comes from the devenv toolchain, whose major the root manifest's engines field pins.
     await runCommand(
-      "nix",
+      "node",
       [
-        "shell",
-        "nixpkgs#nodejs_24",
-        "--command",
-        "node",
         "./node_modules/@playwright/test/cli.js",
         "test",
         "e2e/receipts.spec.ts",
