@@ -2,14 +2,11 @@ import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import {
   CreateDepartmentCommandSchema,
-  OrganizationMemberSchema,
-  OrganizationAdministratorSchema,
   CreateFieldOfStudyCommandSchema,
   CreateTeamCommandSchema,
   OrganizationCommandId,
 } from "./administration-schema.js";
 import {
-  authorizeOrganizationActor,
   decodeCreateDepartmentCommand,
   departmentIdForCommand,
   fieldOfStudyIdForCommand,
@@ -17,7 +14,7 @@ import {
   organizationEntityDigest,
   teamIdForCommand,
 } from "./administration.js";
-import { DepartmentId, PersonId } from "./schema.js";
+import { DepartmentId } from "./schema.js";
 
 const departmentCommand = CreateDepartmentCommandSchema.make({
   commandId: OrganizationCommandId.make("organization-domain-department-command"),
@@ -121,18 +118,3 @@ it("derives stable, kind-separated IDs from the complete SHA-256 digest", () => 
     organizationCommandDigest(departmentCommand),
   );
 });
-
-it.effect("allows administrators and returns a typed denial for members", () =>
-  Effect.gen(function* () {
-    const personId = PersonId.make("organization-domain-actor");
-    yield* authorizeOrganizationActor(OrganizationAdministratorSchema.make({ personId }));
-
-    const denied = yield* Effect.flip(
-      authorizeOrganizationActor(OrganizationMemberSchema.make({ personId })),
-    );
-
-    expect(denied._tag).toBe("OrganizationRoleDenied");
-    expect(denied.actorPersonId).toBe(personId);
-    expect(denied.requiredRole).toBe("OrganizationAdministrator");
-  }),
-);

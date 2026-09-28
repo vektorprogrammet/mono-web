@@ -6,11 +6,9 @@ import {
   DepartmentCreatedObservationSchema,
   TeamCreatedObservationSchema,
   FieldOfStudyCreatedObservationSchema,
-  authorizeOrganizationActor,
   decodeCreateDepartmentCommand,
   decodeCreateFieldOfStudyCommand,
   decodeCreateTeamCommand,
-  decodeOrganizationActor,
   departmentIdForCommand,
   fieldOfStudyIdForCommand,
   organizationCommandDigest,
@@ -26,6 +24,7 @@ import {
   type DepartmentCreatedObservation,
   type FieldOfStudyCreatedObservation,
   type OrganizationActor,
+  type OrganizationAdministratorEvidence,
   type OrganizationCommandId,
   type OrganizationCreateCommand,
   type OrganizationCreatedObservation,
@@ -544,11 +543,10 @@ const insertFieldOfStudy = (
 
 export const createOrganizationDepartment = (
   commandInput: CreateDepartmentCommand,
-  actorInput: OrganizationActor,
+  administrator: OrganizationAdministratorEvidence,
 ): Effect.Effect<CreateDepartmentResult, OrganizationCommandFailure, Database> =>
   Effect.gen(function* () {
     const command = yield* decodeCreateDepartmentCommand(commandInput);
-    const actor = yield* decodeOrganizationActor(actorInput);
     const sql = yield* Database;
     const digest = organizationCommandDigest(command);
 
@@ -563,7 +561,6 @@ export const createOrganizationDepartment = (
 
           if (receipt !== undefined)
             return yield* decodeDepartmentReplay(command.commandId, receipt);
-          yield* authorizeOrganizationActor(actor);
           const inserted = yield* insertDepartment(sql, command);
 
           const observation: DepartmentCreatedObservation = DepartmentCreatedObservationSchema.make(
@@ -576,7 +573,7 @@ export const createOrganizationDepartment = (
             digest,
             "Department",
             inserted.departmentId,
-            actor,
+            administrator.actor,
             observation,
           );
           const selected = yield* readDepartment(sql, inserted.departmentId);
@@ -602,11 +599,10 @@ export const createOrganizationDepartment = (
 
 export const createOrganizationTeam = (
   commandInput: CreateTeamCommand,
-  actorInput: OrganizationActor,
+  administrator: OrganizationAdministratorEvidence,
 ): Effect.Effect<CreateTeamResult, OrganizationCommandFailure, Database> =>
   Effect.gen(function* () {
     const command = yield* decodeCreateTeamCommand(commandInput);
-    const actor = yield* decodeOrganizationActor(actorInput);
     const sql = yield* Database;
     const digest = organizationCommandDigest(command);
 
@@ -620,7 +616,6 @@ export const createOrganizationTeam = (
           );
 
           if (receipt !== undefined) return yield* decodeTeamReplay(command.commandId, receipt);
-          yield* authorizeOrganizationActor(actor);
           yield* requireDepartment(sql, command.departmentId);
           const inserted = yield* insertTeam(sql, command);
 
@@ -635,7 +630,7 @@ export const createOrganizationTeam = (
             digest,
             "Team",
             inserted.teamId,
-            actor,
+            administrator.actor,
             observation,
           );
           const selected = yield* readTeam(sql, inserted.teamId);
@@ -661,11 +656,10 @@ export const createOrganizationTeam = (
 
 export const createOrganizationFieldOfStudy = (
   commandInput: CreateFieldOfStudyCommand,
-  actorInput: OrganizationActor,
+  administrator: OrganizationAdministratorEvidence,
 ): Effect.Effect<CreateFieldOfStudyResult, OrganizationCommandFailure, Database> =>
   Effect.gen(function* () {
     const command = yield* decodeCreateFieldOfStudyCommand(commandInput);
-    const actor = yield* decodeOrganizationActor(actorInput);
     const sql = yield* Database;
     const digest = organizationCommandDigest(command);
 
@@ -680,7 +674,6 @@ export const createOrganizationFieldOfStudy = (
 
           if (receipt !== undefined)
             return yield* decodeFieldOfStudyReplay(command.commandId, receipt);
-          yield* authorizeOrganizationActor(actor);
 
           if (command.departmentId !== null) yield* requireDepartment(sql, command.departmentId);
           const inserted = yield* insertFieldOfStudy(sql, command);
@@ -697,7 +690,7 @@ export const createOrganizationFieldOfStudy = (
             digest,
             "FieldOfStudy",
             inserted.fieldOfStudyId,
-            actor,
+            administrator.actor,
             observation,
           );
           const selected = yield* readFieldOfStudy(sql, inserted.fieldOfStudyId);

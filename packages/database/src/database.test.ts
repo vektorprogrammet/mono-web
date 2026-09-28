@@ -40,6 +40,8 @@ import {
   departmentIdForCommand,
   Organization,
   OrganizationCommandId,
+  OrganizationPersonAuthoritySchema,
+  requireOrganizationAdministrator,
 } from "@vektorprogrammet/domain/organization";
 import {
   RecruitmentAssignmentObservationSchema,
@@ -4119,40 +4121,18 @@ describe("DatabaseTest", () => {
           yield* database.migrate;
           yield* database.migrate;
 
-          const administrator = {
-            _tag: "OrganizationAdministrator" as const,
-            personId: PersonId.make("organization-pglite-administrator"),
-          };
-
-          const member = {
-            _tag: "OrganizationMember" as const,
-            personId: PersonId.make("organization-pglite-member"),
-          };
-
-          const deniedCommand = {
-            _tag: "CreateDepartment" as const,
-            commandId: OrganizationCommandId.make("organization-pglite-denied-department"),
-            name: "Denied Department",
-            shortName: "DENY",
-            email: "denied@example.invalid",
-            address: null,
-            city: "Bergen",
-            latitude: null,
-            longitude: null,
-          };
-
-          const denied = yield* Effect.flip(organization.createDepartment(deniedCommand, member));
-
-          const deniedRows = yield* database<{ readonly count: string }>`
-          SELECT (
-            (SELECT count(*) FROM organization_departments
-              WHERE native_creation_command_id = ${deniedCommand.commandId})
-            + (SELECT count(*) FROM organization_command_receipts
-              WHERE command_id = ${deniedCommand.commandId})
-            + (SELECT count(*) FROM organization_creation_audit
-              WHERE command_id = ${deniedCommand.commandId})
-          )::text AS count
-        `;
+          const administrator = yield* Effect.fromResult(
+            requireOrganizationAdministrator(
+              OrganizationPersonAuthoritySchema.make({
+                personId: PersonId.make("organization-pglite-administrator"),
+                evaluatedAt: "2026-09-28T12:00:00.000Z",
+                globalAdministrator: "Active",
+                memberships: [],
+                nationalBoardSeats: [],
+                delegations: [],
+              }),
+            ),
+          );
 
           const departmentCommand = {
             _tag: "CreateDepartment" as const,
@@ -4424,10 +4404,26 @@ describe("DatabaseTest", () => {
           const teams = yield* organization.listTeams();
           const fields = yield* organization.listFieldOfStudies;
 
+          const actors = yield* database<{
+            readonly tag: string;
+            readonly personId: string;
+            readonly keyCount: string;
+          }>`
+          SELECT DISTINCT
+            actor_json::jsonb ->> '_tag' AS tag,
+            actor_json::jsonb ->> 'personId' AS "personId",
+            (SELECT count(*) FROM jsonb_object_keys(actor_json::jsonb))::text AS "keyCount"
+          FROM organization_command_receipts
+          WHERE command_id IN (
+            ${departmentCommand.commandId},
+            ${teamCommand.commandId},
+            ${fieldCommand.commandId}
+          )
+        `;
+
           return {
             schemaRevision: database.schemaRevision,
-            denied,
-            deniedRows: Number(deniedRows[0]?.count ?? "-1"),
+            actors,
             departmentCreated,
             departmentReplayed,
             departmentConflict,
@@ -4467,8 +4463,14 @@ describe("DatabaseTest", () => {
         });
 
         expect(evidence.schemaRevision).toBe(databaseSchemaRevision);
-        expect(evidence.denied._tag).toBe("OrganizationRoleDenied");
-        expect(evidence.deniedRows).toBe(0);
+        // The audit identity keeps its stored shape: evidence records the administrator actor.
+        expect(evidence.actors).toEqual([
+          {
+            tag: "OrganizationAdministrator",
+            personId: "organization-pglite-administrator",
+            keyCount: "2",
+          },
+        ]);
         expect(evidence.departmentCreated.committed).toBe(true);
         expect(evidence.departmentReplayed.committed).toBe(false);
         expect(evidence.departmentReplayed.observation._tag).toBe("Replayed");

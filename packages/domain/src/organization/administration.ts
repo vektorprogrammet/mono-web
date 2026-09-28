@@ -1,13 +1,11 @@
-import { flow, Predicate, Effect, Schema } from "effect";
+import { flow, Effect, Schema } from "effect";
 import { canonicalJsonBytes, sha256Hex } from "../shared-kernel/index.js";
-import { OrganizationDecodeError, OrganizationRoleDenied } from "./errors.js";
+import { OrganizationDecodeError } from "./errors.js";
 import {
   CreateDepartmentCommandSchema,
   CreateFieldOfStudyCommandSchema,
   CreateTeamCommandSchema,
-  OrganizationActorSchema,
   OrganizationCreateCommandSchema,
-  type OrganizationActor,
   type OrganizationCommandId,
   type OrganizationCreateCommand,
   type OrganizationEntityKind,
@@ -23,13 +21,6 @@ import {
 
 const decodeError = (operation: string, cause: unknown) =>
   new OrganizationDecodeError({ operation, message: String(cause) });
-
-export const decodeOrganizationActor = flow(
-  Schema.decodeUnknownEffect(OrganizationActorSchema, {
-    onExcessProperty: "error",
-  }),
-  Effect.mapError((cause) => decodeError("decode organization actor", cause)),
-);
 
 export const decodeCreateDepartmentCommand = flow(
   Schema.decodeUnknownEffect(CreateDepartmentCommandSchema, {
@@ -106,15 +97,3 @@ export const teamIdForCommand = (commandId: OrganizationCommandId): TeamIdType =
 
 export const fieldOfStudyIdForCommand = (commandId: OrganizationCommandId): FieldOfStudyIdType =>
   organizationEntityIdForCommand("FieldOfStudy", commandId);
-
-export const authorizeOrganizationActor = (
-  actor: OrganizationActor,
-): Effect.Effect<void, OrganizationRoleDenied> =>
-  Predicate.isTagged(actor, "OrganizationAdministrator")
-    ? Effect.void
-    : Effect.fail(
-        new OrganizationRoleDenied({
-          actorPersonId: actor.personId,
-          requiredRole: "OrganizationAdministrator",
-        }),
-      );

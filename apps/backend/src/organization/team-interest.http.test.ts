@@ -11,7 +11,6 @@ import {
   TeamId,
   SemesterId,
   MembershipId,
-  OrganizationActorSchema,
   DepartmentJsonSchema,
   Organization,
   PersonId,
@@ -280,10 +279,6 @@ const services = Layer.mergeAll(
 const http = makeOrganizationApiHttp(
   {
     config,
-    resolveActor: () =>
-      Effect.succeed(
-        OrganizationActorSchema.members[1].make({ personId: PersonId.make("person-member") }),
-      ),
     resolveAuthority: (request) => {
       const cookie = request.headers.get("cookie");
 

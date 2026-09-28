@@ -15,7 +15,6 @@ import {
 } from "@vektorprogrammet/domain/identity";
 import type {
   DepartmentId,
-  OrganizationActor,
   OrganizationAuthorityInstant,
   OrganizationPersonAuthority,
   PersonId,
@@ -23,7 +22,6 @@ import type {
 } from "@vektorprogrammet/domain/organization";
 import {
   mapOrganizationAuthorityToDepartmentActor,
-  mapOrganizationAuthorityToOrganizationActor,
   mapOrganizationAuthorityToProfileRole,
   Organization,
   OrganizationAuthorityInstantSchema,
@@ -434,10 +432,6 @@ export const admissionActorForDepartment = (
   authority: OrganizationPersonAuthority,
   departmentId: DepartmentId,
 ): AdmissionPeriodActor => departmentActorFor(authority, "admissions.periods", departmentId);
-
-/** Active global administrator maps to OrganizationAdministrator; everyone else Member. */
-export const organizationActorFrom = (authority: OrganizationPersonAuthority): OrganizationActor =>
-  mapOrganizationAuthorityToOrganizationActor(authority);
 
 /** Coarse dashboard role from the full projection (spec 0055 §Profile).
  *  Returns the raw Decision so the adapter can translate Deny(reason) into its

@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Result, Schema } from "effect";
 import {
   type AdmissionPeriodActor,
   AdmissionPeriodActorSchema,
@@ -15,8 +15,10 @@ import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
 import {
   OrganizationMemberSchema,
   type OrganizationActor,
+  type OrganizationAdministrator,
   OrganizationAdministratorSchema,
 } from "./administration-schema.js";
+import { OrganizationRoleDenied } from "./errors.js";
 import { DepartmentId, MembershipId, PersonId, TeamId } from "./schema.js";
 
 const NonEmpty = Schema.String.pipe(
@@ -221,6 +223,61 @@ export const mapOrganizationAuthorityToOrganizationActor = (
   authority.globalAdministrator === "Active"
     ? OrganizationAdministratorSchema.make({ personId: authority.personId })
     : OrganizationMemberSchema.make({ personId: authority.personId });
+
+/** Type-only brand. No module exports a value of it, so no module outside this one can build evidence. */
+declare const OrganizationAdministratorEvidenceBrand: unique symbol;
+
+/**
+ * Proof that a person held active global administration when their authority was resolved.
+ * `actor` is the audit identity that the command records.
+ */
+export interface OrganizationAdministratorEvidence {
+  readonly [OrganizationAdministratorEvidenceBrand]: "OrganizationAdministratorEvidence";
+  readonly actor: OrganizationAdministrator;
+}
+
+/**
+ * Checks that a resolved authority holds active global administration, and returns the evidence
+ * that the Organization administration commands require.
+ *
+ * @remarks
+ * It is the only constructor of {@link OrganizationAdministratorEvidence}. An active global
+ * administrator yields evidence whose actor names the same person; an inactive or absent grant
+ * yields `OrganizationRoleDenied` for that person. It reads only `globalAdministrator` and
+ * `personId`: memberships, board seats, and delegations confer no organization administration.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * const administrator = yield* Effect.fromResult(requireOrganizationAdministrator(authority));
+ * yield* organization.createDepartment(command, administrator);
+ * ```
+ *
+ * @avoid Passing an `OrganizationActor` to a create command, or checking its tag at the call site:
+ * any module can build an actor, so the command could not trust it. Resolve the authority and
+ * require the evidence here.
+ *
+ * @construct authority-evidence
+ */
+export const requireOrganizationAdministrator = (
+  /** The person's authority, resolved from current facts inside the command transaction. */
+  authority: OrganizationPersonAuthority,
+): /** Evidence for an active global administrator, or the typed denial. */
+Result.Result<OrganizationAdministratorEvidence, OrganizationRoleDenied> =>
+  authority.globalAdministrator === "Active"
+    ? Result.succeed(
+        // SAFETY: the one constructor of the evidence brand; the branch above is the check it proves.
+        {
+          actor: OrganizationAdministratorSchema.make({ personId: authority.personId }),
+        } as OrganizationAdministratorEvidence,
+      )
+    : Result.fail(
+        new OrganizationRoleDenied({
+          actorPersonId: authority.personId,
+          requiredRole: "OrganizationAdministrator",
+        }),
+      );
 
 export const mapOrganizationAuthorityToProfileRole = (
   authority: OrganizationPersonAuthority,

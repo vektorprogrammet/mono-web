@@ -9,7 +9,9 @@ import {
   CreateDepartmentCommandSchema,
   Organization,
   OrganizationCommandId,
+  OrganizationPersonAuthoritySchema,
   PersonId,
+  requireOrganizationAdministrator,
   type CreateDepartmentCommand,
 } from "@vektorprogrammet/domain/organization";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
@@ -30,10 +32,14 @@ const headMigrationId = Number(databaseSchemaRevision.slice(0, headSeparator));
 
 const headMigrationName = databaseSchemaRevision.slice(headSeparator + 1);
 
-const administrator = {
-  _tag: "OrganizationAdministrator" as const,
+const administratorAuthority = OrganizationPersonAuthoritySchema.make({
   personId: PersonId.make("organization-postgres-proof-administrator"),
-};
+  evaluatedAt: "2026-09-28T12:00:00.000Z",
+  globalAdministrator: "Active",
+  memberships: [],
+  nationalBoardSeats: [],
+  delegations: [],
+});
 
 const replayCommand: CreateDepartmentCommand = CreateDepartmentCommandSchema.make({
   commandId: OrganizationCommandId.make(proofCohort.replayCommandId),
@@ -109,6 +115,10 @@ const contender = (
     const [connection] = yield* sql<{ readonly pid: number }>`
       SELECT pg_backend_pid() AS pid
     `;
+
+    const administrator = yield* Effect.fromResult(
+      requireOrganizationAdministrator(administratorAuthority),
+    );
 
     yield* Deferred.succeed(ready, undefined);
     yield* Deferred.await(start);

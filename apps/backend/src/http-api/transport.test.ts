@@ -116,7 +116,6 @@ describe("native request schema error transport", () => {
       const response = yield* makeOrganizationTestHttp(
         {
           config: backendTestConfig.organization,
-          resolveActor: unreachable,
           resolveAuthority: unreachable,
         },
         securityServices,

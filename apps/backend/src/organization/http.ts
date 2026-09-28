@@ -20,10 +20,11 @@ import {
   Organization,
   OrganizationCommandId,
   OrganizationLifecycleCommand,
+  mapOrganizationAuthorityToOrganizationActor,
+  requireOrganizationAdministrator,
   SemesterId,
   type TeamId,
   TeamJsonSchema,
-  type OrganizationActor,
   type OrganizationCommandFailure,
   type OrganizationLifecycleFailure,
   type OrganizationPersonAuthority,
@@ -61,10 +62,9 @@ import {
   Problem,
   type StrongETag,
 } from "@vektorprogrammet/http-api/http-semantics";
-import { DateTime, Effect, flow, Match, Option, Predicate, Schema } from "effect";
+import { DateTime, Effect, flow, Match, Option, Predicate, Result, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
-  organizationActorFrom,
   resolveRequestCredentialInTransaction,
   resolveRequestPersonAuthorityInTransaction,
   type OrganizationResolutionError,
@@ -102,14 +102,6 @@ import type { OrganizationApiConfig } from "./config.js";
 
 export interface OrganizationApiHttpOptions {
   readonly config: OrganizationApiConfig;
-  /** Cookie -> Organization projection -> OrganizationAdministrator|Member. */
-  readonly resolveActor: (
-    request: Request,
-  ) => Effect.Effect<
-    OrganizationActor,
-    IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
-    Identity | OAuthCredentialAuthority | Organization
-  >;
   /**
    * Cookie -> full 0055 authority projection for leader-scoped admin reads
    * (specs 0059/0060). One captured authorizationInstant per request.
@@ -414,36 +406,40 @@ const authorizeCreate = (input: {
 }) =>
   Effect.gen(function* () {
     const resolved = yield* resolveRequestPersonAuthorityInTransaction(input.request, {});
-    const actor = organizationActorFrom(resolved.authority);
+    const personId = resolved.authority.personId;
+    const administrator = requireOrganizationAdministrator(resolved.authority);
 
+    // The AccessSpec answers a denial, with its concealment; the evidence is what the command takes.
     yield* authorizePerson(
       {
         spec: Option.getOrThrow(reflectAccessSpec(input.endpoint)),
         credential: resolved.credential,
-        personId: actor.personId,
+        personId,
         resolution: {
           selection: "ExactlyOne",
           contexts: [
             genericContext({
               domainId: "organization",
-              authorityVersion: `organization:${actor._tag}`,
+              authorityVersion: `organization:${mapOrganizationAuthorityToOrganizationActor(resolved.authority)._tag}`,
             }),
           ],
         },
-        grantScopes: Predicate.isTagged(actor, "OrganizationAdministrator") ? [Scope.Global()] : [],
+        grantScopes: Result.isSuccess(administrator) ? [Scope.Global()] : [],
         now: resolved.authorizationInstant,
       },
       input.presentation,
     );
 
+    const evidence = yield* Effect.fromResult(administrator);
+
     const identity = yield* httpIdentity({
-      credentialSubject: `Person:${actor.personId}`,
+      credentialSubject: `Person:${personId}`,
       qualifiedOperationId: input.operationId,
       normalizedTarget: input.target,
       idempotencyKey: input.idempotencyKey,
     });
 
-    return { actor, identity };
+    return { administrator: evidence, identity };
   });
 
 const createDepartment = (request: Request, input: OrganizationApiHttpOptions) =>
@@ -461,7 +457,7 @@ const createDepartment = (request: Request, input: OrganizationApiHttpOptions) =
     // Domain and credential failures are mapped after the executor, with its receipt failures.
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
-        const { actor, identity } = yield* authorizeCreate({
+        const { administrator, identity } = yield* authorizeCreate({
           request,
           endpoint: CreateDepartmentEndpoint,
           operationId,
@@ -482,7 +478,7 @@ const createDepartment = (request: Request, input: OrganizationApiHttpOptions) =
                 commandId: OrganizationCommandId.make(identity.commandId),
                 ...payload,
               }),
-              actor,
+              administrator,
             ),
           ).pipe(
             Effect.flatMap(({ observation }) =>
@@ -532,7 +528,7 @@ const createTeam = (request: Request, input: OrganizationApiHttpOptions) =>
     // Domain and credential failures are mapped after the executor, with its receipt failures.
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
-        const { actor, identity } = yield* authorizeCreate({
+        const { administrator, identity } = yield* authorizeCreate({
           request,
           endpoint: CreateTeamEndpoint,
           operationId,
@@ -553,7 +549,7 @@ const createTeam = (request: Request, input: OrganizationApiHttpOptions) =>
                 commandId: OrganizationCommandId.make(identity.commandId),
                 ...payload,
               }),
-              actor,
+              administrator,
             ),
           ).pipe(
             Effect.flatMap(({ observation }) =>
@@ -603,7 +599,7 @@ const createFieldOfStudy = (request: Request, input: OrganizationApiHttpOptions)
     // Domain and credential failures are mapped after the executor, with its receipt failures.
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
-        const { actor, identity } = yield* authorizeCreate({
+        const { administrator, identity } = yield* authorizeCreate({
           request,
           endpoint: CreateFieldOfStudyEndpoint,
           operationId,
@@ -624,7 +620,7 @@ const createFieldOfStudy = (request: Request, input: OrganizationApiHttpOptions)
                 commandId: OrganizationCommandId.make(identity.commandId),
                 ...payload,
               }),
-              actor,
+              administrator,
             ),
           ).pipe(
             Effect.flatMap(({ observation }) =>

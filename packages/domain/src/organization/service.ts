@@ -23,9 +23,12 @@ import type {
   CreateFieldOfStudyResult,
   CreateTeamCommand,
   CreateTeamResult,
-  OrganizationActor,
 } from "./administration-schema.js";
-import type { OrganizationAuthorityInstant, OrganizationPersonAuthority } from "./authority.js";
+import type {
+  OrganizationAdministratorEvidence,
+  OrganizationAuthorityInstant,
+  OrganizationPersonAuthority,
+} from "./authority.js";
 import type { OrganizationDirectoryFacts } from "./directory.js";
 import type { SemesterId, TeamInterestRegistration } from "./schema.js";
 import type {
@@ -152,15 +155,15 @@ export interface OrganizationOperations {
 
   readonly createDepartment: (
     command: CreateDepartmentCommand,
-    actor: OrganizationActor,
+    administrator: OrganizationAdministratorEvidence,
   ) => Effect.Effect<CreateDepartmentResult, OrganizationCommandFailure>;
   readonly createTeam: (
     command: CreateTeamCommand,
-    actor: OrganizationActor,
+    administrator: OrganizationAdministratorEvidence,
   ) => Effect.Effect<CreateTeamResult, OrganizationCommandFailure>;
   readonly createFieldOfStudy: (
     command: CreateFieldOfStudyCommand,
-    actor: OrganizationActor,
+    administrator: OrganizationAdministratorEvidence,
   ) => Effect.Effect<CreateFieldOfStudyResult, OrganizationCommandFailure>;
   readonly readMembership: (
     membershipId: MembershipId,
