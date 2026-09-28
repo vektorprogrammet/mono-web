@@ -624,7 +624,7 @@ export const runReturningAssistantBrowserJourney = async ({
 
       if (
         url.pathname.includes("/dashboard/tidligere-assistenter") ||
-        url.pathname.includes("/api/returning-assistant/") ||
+        url.pathname === nativeRpcPath ||
         url.pathname.includes("/api/auth/")
       ) {
         responses.push(`request ${request.method()} ${url.pathname}`);
@@ -639,7 +639,7 @@ export const runReturningAssistantBrowserJourney = async ({
 
       if (
         !url.pathname.includes("/dashboard/tidligere-assistenter") &&
-        !url.pathname.includes("/api/returning-assistant/") &&
+        url.pathname !== nativeRpcPath &&
         !url.pathname.includes("/api/auth/")
       )
         return;

@@ -1,5 +1,7 @@
 import { CancelInterviewResponse, ConductObservation } from "@vektorprogrammet/rpc";
 import { RecruitmentBridgeFailure } from "../app/foldkit/recruitment/bridge";
+import { ApplicantProgressResponseSchema } from "@vektorprogrammet/rpc";
+import { makeScriptClient } from "@vektorprogrammet/rpc/script";
 import { Schema, Predicate } from "effect";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -302,16 +304,26 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
       const applicantPage = await applicantContext.newPage();
       await signIn(applicantPage, applicantEmail, applicantPassword);
 
-      const applicantProgress = await applicantContext.request.get(
-        `${apiOrigin}/api/applicant-progress`,
-        { headers: { origin: dashboardOrigin } },
+      // The applicant reads the progress RPC with the session that the dashboard sign-in set.
+      const applicantCookie = (await applicantContext.cookies(dashboardOrigin))
+        .map(({ name, value }) => `${name}=${value}`)
+        .join("; ");
+
+      const progressClient = makeScriptClient(apiOrigin);
+
+      const applicantProgress = await progressClient.call(
+        { cookie: applicantCookie, origin: dashboardOrigin },
+        (client) => client["admissions.readApplicantProgress"](),
       );
 
+      await progressClient.dispose();
       await applicantPage.goto("/dashboard/soknad");
-      expect(applicantProgress.status()).toBe(200);
+      expect(applicantProgress.status).toBe(200);
 
-      const applicantProgressBody = Schema.decodeUnknownSync(Schema.Json)(
-        await applicantProgress.json(),
+      if (!applicantProgress.ok) throw new Error(`applicant progress: ${applicantProgress.code}`);
+
+      const applicantProgressBody = Schema.decodeSync(Schema.Json)(
+        Schema.encodeSync(ApplicantProgressResponseSchema)(applicantProgress.value),
       );
 
       assertNoApplicantPrivateFields(applicantProgressBody);

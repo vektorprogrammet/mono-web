@@ -15,6 +15,9 @@ import {
   startDisposablePostgres,
 } from "../postgres/index.ts";
 import { Predicate, Schema, Struct } from "effect";
+import { SubmitApplicationRequest } from "../../packages/rpc/src/v2-schemas.js";
+import { IdempotencyKey } from "../../packages/rpc/src/problem.js";
+import { makeScriptClient } from "../../packages/rpc/src/script-client.js";
 
 const root = new URL("../../", import.meta.url).pathname;
 
@@ -290,30 +293,42 @@ try {
   const boardPath = "/api/onboarding?departmentId=" + departmentId;
   const board = async () => expectStatus(await request(boardPath, leader), 200);
 
-  const submit = async (email: string, firstName: string) =>
-    expectStatus(
-      await request("/api/applications", undefined, {
-        departmentId,
-        firstName,
-        lastName: "Applicant",
-        phone: "12345678",
-        email,
-        gender: 0,
-        fieldOfStudyId: "field-native-journey-0049",
-        yearOfStudy: 2,
-        availability: {
-          mondayUnavailable: false,
-          tuesdayUnavailable: true,
-          wednesdayUnavailable: false,
-          thursdayUnavailable: false,
-          fridayUnavailable: false,
-          positionWeeks: 4,
-          preferredGroup: "all",
-          language: "Norsk",
-        },
+  // Public applications are served as an RPC; an applicant submits anonymously.
+  const applications = makeScriptClient(backendOrigin);
+
+  const submit = async (email: string, firstName: string) => {
+    const request = Schema.decodeSync(SubmitApplicationRequest)({
+      departmentId,
+      firstName,
+      lastName: "Applicant",
+      phone: "12345678",
+      email,
+      gender: 0,
+      fieldOfStudyId: "field-native-journey-0049",
+      yearOfStudy: 2,
+      availability: {
+        mondayUnavailable: false,
+        tuesdayUnavailable: true,
+        wednesdayUnavailable: false,
+        thursdayUnavailable: false,
+        fridayUnavailable: false,
+        positionWeeks: 4,
+        preferredGroup: "all",
+        language: "Norsk",
+      },
+    });
+
+    const answer = await applications.call({}, (client) =>
+      client["admissions.submitApplication"]({
+        idempotencyKey: IdempotencyKey.make(randomBytes(18).toString("base64url")),
+        request,
       }),
-      201,
     );
+
+    assert.ok(answer.ok, JSON.stringify(answer));
+
+    return answer.value;
+  };
 
   const browserApplication = await submit(persons.applicant.email, "Onboarding");
   let revokedReplayObserved = false;
@@ -697,6 +712,8 @@ try {
     ).rows[0].count,
     0,
   );
+  await applications.dispose();
+
   evidence = {
     revision,
     passed: true,

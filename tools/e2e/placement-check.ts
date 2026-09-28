@@ -7,7 +7,8 @@ import {
   PlacementScope,
   SchoolServiceNotificationRequest,
 } from "@vektorprogrammet/domain/placements";
-import { IdempotencyIfMatchHeaders } from "@vektorprogrammet/rpc/problem";
+import { IdempotencyIfMatchHeaders, IdempotencyKey } from "@vektorprogrammet/rpc/problem";
+import { makeScriptClient } from "@vektorprogrammet/rpc/script";
 /** 0096/0110/0111 real local API + browser acceptance with an owned process lifecycle. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
@@ -1604,28 +1605,32 @@ try {
     // Admission management records the Substitute outcome; the applicant is then on call.
     const coverageApplicationId = "application-coverage-0111";
 
-    const outcomeEntry = Schema.decodeUnknownSync(
-      Schema.Struct({
-        outcome: Schema.NullOr(Schema.String),
-        revision: Schema.Int,
-        etag: Schema.String,
-      }),
-    )(
-      await expectStatus(
-        await request(`/api/admission-outcomes/${coverageApplicationId}`, leader),
-        200,
-      ),
+    // Admission outcomes are served as RPCs; the leader calls them with the leader's session.
+    const outcomeClient = makeScriptClient(backendOrigin);
+    const leaderSession = { cookie: leader, origin: dashboardOrigin };
+    const outcomeApplicationId = PublicApplicationIdSchema.make(coverageApplicationId);
+
+    const outcomeAnswer = await outcomeClient.call(leaderSession, (client) =>
+      client["admissionOutcomes.readOutcome"]({ applicationId: outcomeApplicationId }),
     );
+
+    assert.ok(outcomeAnswer.ok, JSON.stringify(outcomeAnswer));
+    const outcomeEntry = outcomeAnswer.value;
 
     assert.deepEqual([outcomeEntry.outcome, outcomeEntry.revision], [null, 0]);
 
-    const onCall = (
-      await sdk.admissionOutcomes.recordOutcome({
-        params: { applicationId: PublicApplicationIdSchema.make(coverageApplicationId) },
-        headers: idempotencyHeaders(outcomeEntry.etag),
-        payload: { outcome: "Substitute" },
-      })
-    ).body;
+    const onCallAnswer = await outcomeClient.call(leaderSession, (client) =>
+      client["admissionOutcomes.recordOutcome"]({
+        applicationId: outcomeApplicationId,
+        idempotencyKey: IdempotencyKey.make(randomBytes(18).toString("base64url")),
+        ifMatch: outcomeEntry.etag,
+        request: { outcome: "Substitute" },
+      }),
+    );
+
+    await outcomeClient.dispose();
+    assert.ok(onCallAnswer.ok, JSON.stringify(onCallAnswer));
+    const onCall = onCallAnswer.value;
 
     assert.deepEqual([onCall.outcome, onCall.revision], ["Substitute", 1]);
 
