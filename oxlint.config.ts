@@ -183,6 +183,7 @@ const effectConfig = {
         "tools/e2e/record-native-recruitment-invitation.ts",
         "tools/e2e/run-legacy-*.ts",
         "tools/conventions/src/cli.ts",
+        "tools/placements-docs/placements.ts",
         "tools/scripts/changelog.ts",
         "tools/scripts/deploy-preview.ts",
         "tools/scripts/dev.ts",
@@ -212,6 +213,7 @@ const effectConfig = {
       files: [
         "tools/conventions/tests/*.test.ts",
         "tools/e2e/safe-file-io.ts",
+        "tools/placements-docs/placements-artifact.test.ts",
         "tools/scripts/tests/*.test.ts",
         "tools/source-safety/tests/source-safety.test.ts",
       ],
