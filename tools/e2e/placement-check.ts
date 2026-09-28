@@ -198,7 +198,7 @@ const cleanup = () =>
     }
 
     try {
-      if (pool) await pool.end();
+      if (pool !== undefined) await pool.end();
     } catch (error) {
       errors.push(sanitize(String(error)));
     }
@@ -210,9 +210,9 @@ const cleanup = () =>
     }
 
     try {
-      if (notificationServer?.listening)
+      if (notificationServer?.listening === true)
         await new Promise<void>((resolve, reject) =>
-          notificationServer!.close((error) => (error ? reject(error) : resolve())),
+          notificationServer!.close((error) => (error !== undefined ? reject(error) : resolve())),
         );
     } catch (error) {
       errors.push(sanitize(String(error)));
@@ -232,7 +232,7 @@ const cleanup = () =>
     for (const number of ownedPorts)
       if (!(await loopbackPortFree(number))) errors.push("owned port remains occupied: " + number);
 
-    if (errors.length && failure === undefined) failure = "Resource cleanup failed";
+    if (errors.length > 0 && failure === undefined) failure = "Resource cleanup failed";
 
     const result = Struct.assign(evidence ?? {}, {
       passed: (evidence?.passed === true || evidence?.apiPassed === true) && failure === undefined,
@@ -271,7 +271,7 @@ const cleanup = () =>
         portsReleased: errors.length === 0,
         postgresRemoved: removed.includes("postgres"),
         credentialManifestRemoved: removed.includes("manifest.json"),
-        receiverClosed: !notificationServer?.listening,
+        receiverClosed: notificationServer?.listening !== true,
         errors,
       },
     });
@@ -287,7 +287,7 @@ const cleanup = () =>
     const retained = [];
 
     for (const name of (await readdir(artifacts)).sort()) {
-      if (!goldenArtifactName.test(name)) continue;
+      if (goldenArtifactName.test(name) !== true) continue;
       const bytes = await readFile(join(artifacts, name));
       retained.push({
         path: name,
@@ -319,7 +319,7 @@ const cleanup = () =>
       result: result.passed ? "passed" : "failed",
       exit_code: result.passed
         ? 0
-        : errors.length
+        : errors.length > 0
           ? 1
           : interruptedSignal === "SIGINT"
             ? 130
@@ -345,7 +345,7 @@ const cleanup = () =>
     });
     process.stdout.write(artifacts + "/receipt.json\n");
 
-    if (errors.length) throw Error(errors.join("; "));
+    if (errors.length > 0) throw Error(errors.join("; "));
   })());
 
 for (const signal of ["SIGTERM", "SIGINT"] as const)
@@ -373,7 +373,7 @@ try {
     const [pgPort, backendPort, dashboardPort, notificationPort, homepagePort] = ownedPorts;
 
     const server = createHttpServer(async (request, response) => {
-      if (request.method === "POST" && request.url?.startsWith("/observe/")) {
+      if (request.method === "POST" && request.url?.startsWith("/observe/") === true) {
         try {
           assert.ok(checkpoint, "observer not ready");
           const step = request.url.slice("/observe/".length);

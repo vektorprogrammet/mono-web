@@ -1,4 +1,9 @@
 // Golden-only preload. Record transport metadata, never headers, query strings, or bodies.
+import { Console, Data, Effect } from "effect";
+
+// The wrapped handler failed; Bun receives its original error.
+class HandlerFailure extends Data.TaggedError("HandlerFailure") {}
+
 const serve = Bun.serve.bind(Bun);
 
 let sequence = 0;
@@ -8,7 +13,8 @@ Bun.serve = (options) => {
 
   return serve({
     ...options,
-    fetch: async (request, server) => {
+    // Bun calls the handler for a Response; each request runs its record program to completion.
+    fetch: (request, server) => {
       const started = performance.now();
 
       const identity = {
@@ -20,7 +26,7 @@ Bun.serve = (options) => {
       };
 
       const record = (event, fields = {}) =>
-        console.log(
+        Console.log(
           JSON.stringify({
             ...identity,
             event,
@@ -29,21 +35,23 @@ Bun.serve = (options) => {
           }),
         );
 
-      const abort = () => record("aborted");
+      const abort = () => Effect.runSync(record("aborted"));
       request.signal.addEventListener("abort", abort, { once: true });
-      record("started");
 
-      try {
-        const response = await fetch(request, server);
-        record("response", { status: response.status });
-
-        return response;
-      } catch (error) {
-        record("failed");
-        throw error;
-      } finally {
-        request.signal.removeEventListener("abort", abort);
-      }
+      return Effect.runPromise(
+        record("started").pipe(
+          Effect.andThen(
+            Effect.tryPromise({
+              try: () => Promise.resolve(fetch(request, server)),
+              catch: (cause) => new HandlerFailure({ cause }),
+            }),
+          ),
+          Effect.tap((response) => record("response", { status: response.status })),
+          Effect.tapError(() => record("failed")),
+          Effect.catchTag("HandlerFailure", (failure) => Effect.die(failure.cause)),
+          Effect.ensuring(Effect.sync(() => request.signal.removeEventListener("abort", abort))),
+        ),
+      );
     },
   });
 };
