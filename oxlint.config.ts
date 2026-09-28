@@ -182,6 +182,7 @@ const effectConfig = {
         "tools/e2e/record-native-recruitment-invitation-response.ts",
         "tools/e2e/record-native-recruitment-invitation.ts",
         "tools/e2e/run-legacy-*.ts",
+        "tools/conventions/src/cli.ts",
         "tools/scripts/changelog.ts",
         "tools/scripts/land.ts",
         "tools/scripts/require-legacy-data-profile.ts",

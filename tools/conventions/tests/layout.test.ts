@@ -1,17 +1,21 @@
 // Negative controls run against the real repository with one change each, so they exercise the
 // real declaration, context map, and justfile.
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
+import { Effect } from "effect";
+import { ConventionsPlatform } from "../src/cli.js";
 import { checkLayout, type Finding } from "../src/check.js";
 import { boundedContextNames, contextFolderName, readContextModel } from "../src/cml.js";
 import { readJustfile } from "../src/justfile.js";
 import { readRepository, repositoryRoot, type Repository } from "../src/repository.js";
 
-const root = repositoryRoot(import.meta.dir);
+const run = <A, E>(effect: Effect.Effect<A, E, ConventionsPlatform>): Promise<A> =>
+  Effect.runPromise(effect.pipe(Effect.provide(ConventionsPlatform)));
 
-const base = readRepository(root, false);
+const root = await run(repositoryRoot(import.meta.dir));
 
-const justfile = readJustfile(join(root, "justfile"));
+const base = await run(readRepository(root, false));
+
+const justfile = await run(readJustfile(`${root}/justfile`));
 
 const withFiles = (
   files: Readonly<Record<string, string>>,

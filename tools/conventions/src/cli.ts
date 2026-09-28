@@ -6,8 +6,11 @@
  * files do not count. `just constructs consumers [name]` prints the modules that import a
  * construct, which no generated page lists.
  */
-import { lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import * as BunRuntime from "@effect/platform-bun/BunRuntime";
+import * as BunServices from "@effect/platform-bun/BunServices";
+import process from "node:process";
+import { Console, Effect, Exit, FileSystem, Option, Path, Predicate } from "effect";
+import * as Runtime from "effect/Runtime";
 import { checkLayout, type Finding } from "./check.js";
 import { readContextModel } from "./cml.js";
 import {
@@ -53,190 +56,208 @@ const staged = options.includes("--staged");
 
 const [command = "check", ...rest] = options.filter((option) => option !== "--staged");
 
-const root = repositoryRoot(process.cwd());
+const program = Effect.gen(function* () {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const root = yield* repositoryRoot(process.cwd());
 
-const rewrite = (path: string, text: string) => {
-  const file = join(root, path);
-  let current: string | undefined;
+  const readText = (file: string) => Effect.option(fileSystem.readFileString(file));
 
-  try {
-    current = readFileSync(file, "utf8");
-  } catch {
-    current = undefined;
-  }
+  const rewrite = Effect.fnUntraced(function* (relative: string, text: string) {
+    const file = path.join(root, relative);
+    const current = yield* readText(file);
 
-  if (current === text) return;
+    if (Option.isSome(current) && current.value === text) return;
 
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, text);
-  process.stdout.write(`${topic}: rewrote ${path}\n`);
-};
+    yield* fileSystem.makeDirectory(path.dirname(file), { recursive: true });
+    yield* fileSystem.writeFileString(file, text);
+    yield* Console.log(`${topic}: rewrote ${relative}`);
+  });
 
-const layout = (): Outcome => {
-  const justfile = readJustfile(join(root, "justfile"));
+  const layout = Effect.gen(function* () {
+    const justfile = yield* readJustfile(path.join(root, "justfile"));
 
-  if (command === "write") {
-    const read = (path: string) => readFileSync(join(root, path), "utf8");
+    if (command === "write") {
+      const tree = yield* readRepository(root, false);
 
-    for (const { path, text } of spliceFiles(read, justfile, readWorkflow(read(testsWorkflow))))
-      rewrite(path, text);
-  }
+      for (const { path: relative, text } of spliceFiles(
+        tree.read,
+        justfile,
+        readWorkflow(tree.read(testsWorkflow)),
+      ))
+        yield* rewrite(relative, text);
+    }
 
-  const repository = readRepository(root, staged);
+    const repository = yield* readRepository(root, staged);
 
-  return {
-    findings: checkLayout(repository, justfile),
-    warnings: [],
-    summary: `${repository.paths.length} ${staged ? "staged" : "working tree"} files`,
+    return {
+      findings: checkLayout(repository, justfile),
+      warnings: [],
+      summary: `${repository.paths.length} ${staged ? "staged" : "working tree"} files`,
+    } satisfies Outcome;
+  });
+
+  const constructs = Effect.gen(function* () {
+    if (command === "write") {
+      const tree = yield* readRepository(root, false);
+      const pages = renderPages(readConstructs(tree).constructs);
+
+      for (const [relative, text] of pages) yield* rewrite(relative, text);
+
+      for (const relative of tree.paths)
+        if (relative.startsWith(`${constructPages.contracts}/`) && !pages.has(relative)) {
+          yield* fileSystem.remove(path.join(root, relative));
+          yield* Console.log(`${topic}: removed ${relative}`);
+        }
+    }
+
+    const check = checkConstructs(yield* readRepository(root, staged));
+
+    return {
+      findings: check.findings,
+      warnings: check.candidates.map(
+        (candidate) =>
+          `${candidate.path}:${candidate.line}: ${candidate.name} has no @construct tag, and ${candidate.importers.length} modules outside ${packageOf(candidate.path) ?? "its package"} import it, in ${[...new Set(candidate.importers.map((importer) => packageOf(importer) ?? importer))].join(", ")}`,
+      ),
+      summary: `${check.modules} modules, ${check.constructs.length} constructs, ${check.consumers.reduce((sum, { importers }) => sum + importers.length, 0)} consumers, ${check.candidates.length} untagged candidates`,
+    } satisfies Outcome;
+  });
+
+  /** Prints the consumers of each construct called `name`, or the count of every construct. */
+  const printConsumers = Effect.fnUntraced(function* (name: string | undefined) {
+    const repository = yield* readRepository(root, false);
+    const all = readConstructs(repository).constructs;
+    const selected = name === undefined ? all : all.filter((construct) => construct.name === name);
+
+    if (selected.length === 0) {
+      yield* Console.error(`constructs: no construct is called ${name ?? ""}`);
+
+      return 1;
+    }
+
+    for (const { construct, importers, counted } of readConsumers(
+      selected,
+      readModuleGraph(repository),
+    )) {
+      yield* Console.log(
+        `${construct.path}:${construct.line} ${construct.name}: ${importers.length} ${importers.length === 1 ? "consumer" : "consumers"}, ${counted.length} outside the tests of ${packageOf(construct.path) ?? "its app or package"}`,
+      );
+
+      if (name !== undefined) for (const importer of importers) yield* Console.log(`  ${importer}`);
+    }
+
+    return 0;
+  });
+
+  const guideSet = (repository: Repository) => {
+    const model = readContextModel(repository.read(contextMap));
+    const { constructs: found } = readConstructs(repository);
+
+    return { model, set: renderGuides(repository, model, found) };
   };
-};
 
-const constructs = (): Outcome => {
-  if (command === "write") {
-    const tree = readRepository(root, false);
-    const pages = renderPages(readConstructs(tree).constructs);
+  const guides = Effect.gen(function* () {
+    if (command === "write") {
+      const repository = yield* readRepository(root, false);
+      const { set } = guideSet(repository);
 
-    for (const [path, text] of pages) rewrite(path, text);
+      for (const guide of set.guides) {
+        const agents = `${guide.directory}/${guideFile}`;
+        const section = set.sections.get(guide.directory);
 
-    for (const path of tree.paths)
-      if (path.startsWith(`${constructPages.contracts}/`) && !pages.has(path)) {
-        rmSync(join(root, path));
-        process.stdout.write(`${topic}: removed ${path}\n`);
-      }
-  }
+        if (section !== undefined)
+          yield* rewrite(
+            agents,
+            guideText(
+              repository.paths.includes(agents) ? repository.read(agents) : undefined,
+              section,
+            ),
+          );
 
-  const check = checkConstructs(readRepository(root, staged));
+        const link = path.join(root, guide.directory, linkFile);
 
-  return {
-    findings: check.findings,
-    warnings: check.candidates.map(
-      (candidate) =>
-        `${candidate.path}:${candidate.line}: ${candidate.name} has no @construct tag, and ${candidate.importers.length} modules outside ${packageOf(candidate.path) ?? "its package"} import it, in ${[...new Set(candidate.importers.map((importer) => packageOf(importer) ?? importer))].join(", ")}`,
-    ),
-    summary: `${check.modules} modules, ${check.constructs.length} constructs, ${check.consumers.reduce((sum, { importers }) => sum + importers.length, 0)} consumers, ${check.candidates.length} untagged candidates`,
-  };
-};
+        // A symbolic link does not count as the link file, whatever its target holds.
+        const current = Option.isSome(yield* Effect.option(fileSystem.readLink(link)))
+          ? Option.none<string>()
+          : yield* readText(link);
 
-/** Prints the consumers of each construct called `name`, or the count of every construct. */
-const printConsumers = (name: string | undefined): number => {
-  const repository = readRepository(root, false);
-  const all = readConstructs(repository).constructs;
-  const selected = name === undefined ? all : all.filter((construct) => construct.name === name);
-
-  if (selected.length === 0) {
-    process.stderr.write(`constructs: no construct is called ${name ?? ""}\n`);
-
-    return 1;
-  }
-
-  for (const { construct, importers, counted } of readConsumers(
-    selected,
-    readModuleGraph(repository),
-  )) {
-    process.stdout.write(
-      `${construct.path}:${construct.line} ${construct.name}: ${importers.length} ${importers.length === 1 ? "consumer" : "consumers"}, ${counted.length} outside the tests of ${packageOf(construct.path) ?? "its app or package"}\n`,
-    );
-
-    if (name !== undefined)
-      for (const importer of importers) process.stdout.write(`  ${importer}\n`);
-  }
-
-  return 0;
-};
-
-const guideSet = (repository: Repository) => {
-  const model = readContextModel(repository.read(contextMap));
-  const { constructs } = readConstructs(repository);
-
-  return { model, set: renderGuides(repository, model, constructs) };
-};
-
-const guides = (): Outcome => {
-  if (command === "write") {
-    const repository = readRepository(root, false);
-    const { set } = guideSet(repository);
-
-    for (const guide of set.guides) {
-      const agents = `${guide.directory}/${guideFile}`;
-      const section = set.sections.get(guide.directory);
-
-      if (section !== undefined)
-        rewrite(
-          agents,
-          guideText(
-            repository.paths.includes(agents) ? repository.read(agents) : undefined,
-            section,
-          ),
-        );
-
-      const link = join(root, guide.directory, linkFile);
-      let current: string | undefined;
-
-      try {
-        current = lstatSync(link).isSymbolicLink() ? undefined : readFileSync(link, "utf8");
-      } catch {
-        current = undefined;
-      }
-
-      if (current !== linkText) {
-        rmSync(link, { force: true });
-        writeFileSync(link, linkText);
-        process.stdout.write(
-          `guides: wrote ${guide.directory}/${linkFile}, which imports ${guideFile}\n`,
-        );
+        if (Option.isNone(current) || current.value !== linkText) {
+          yield* fileSystem.remove(link, { force: true });
+          yield* fileSystem.writeFileString(link, linkText);
+          yield* Console.log(
+            `guides: wrote ${guide.directory}/${linkFile}, which imports ${guideFile}`,
+          );
+        }
       }
     }
+
+    const repository = yield* readRepository(root, staged);
+    const { model, set } = guideSet(repository);
+
+    return {
+      findings: [
+        ...model.errors.map((message) => ({ path: contextMap, message })),
+        ...checkGuides(repository, set),
+      ],
+      warnings: [],
+      summary: `${set.guides.length} guides`,
+    } satisfies Outcome;
+  });
+
+  const exceptions = Effect.gen(function* () {
+    const report = checkExceptions(yield* readRepository(root, staged));
+
+    return {
+      findings: report.findings,
+      warnings: [],
+      summary: `${report.exceptions.length} exceptions, ${report.suppressions.length} suppressions, ${report.references.length} references`,
+    } satisfies Outcome;
+  });
+
+  const run = Object.entries({ layout, constructs, guides, exceptions }).find(
+    ([name]) => name === topic,
+  )?.[1];
+
+  const consumersOf =
+    topic === "constructs" && command === "consumers" && !staged && rest.length <= 1;
+
+  if (
+    run === undefined ||
+    !(command === "check" || command === "write" || consumersOf) ||
+    (rest.length > 0 && !consumersOf) ||
+    (staged && command === "write") ||
+    (topic === "exceptions" && command === "write")
+  ) {
+    yield* Console.error(usage.trimEnd());
+
+    return 2;
   }
 
-  const repository = readRepository(root, staged);
-  const { model, set } = guideSet(repository);
+  if (consumersOf) return yield* printConsumers(rest[0]);
 
-  return {
-    findings: [
-      ...model.errors.map((message) => ({ path: contextMap, message })),
-      ...checkGuides(repository, set),
-    ],
-    warnings: [],
-    summary: `${set.guides.length} guides`,
-  };
+  const outcome: Outcome = yield* run;
+
+  for (const { path: file, message } of outcome.findings)
+    yield* Console.error(`${file}: ${message}`);
+
+  for (const warning of outcome.warnings) yield* Console.error(`warning: ${warning}`);
+
+  yield* Console.log(`${topic}: ${outcome.summary}, ${outcome.findings.length} findings`);
+
+  return outcome.findings.length === 0 ? 0 : 1;
+});
+
+/** The platform of the checks, which their tests take too. */
+export const ConventionsPlatform = BunServices.layer;
+
+/** The services of `ConventionsPlatform`. */
+export type ConventionsPlatform = BunServices.BunServices;
+
+// A program that succeeds with a number exits with that code.
+const teardown: Runtime.Teardown = (exit, onExit) => {
+  if (Exit.isSuccess(exit) && Predicate.isNumber(exit.value)) onExit(exit.value);
+  else Runtime.defaultTeardown(exit, onExit);
 };
 
-const exceptions = (): Outcome => {
-  const report = checkExceptions(readRepository(root, staged));
-
-  return {
-    findings: report.findings,
-    warnings: [],
-    summary: `${report.exceptions.length} exceptions, ${report.suppressions.length} suppressions, ${report.references.length} references`,
-  };
-};
-
-const run = Object.entries({ layout, constructs, guides, exceptions }).find(
-  ([name]) => name === topic,
-)?.[1];
-
-const consumersOf =
-  topic === "constructs" && command === "consumers" && !staged && rest.length <= 1;
-
-if (
-  run === undefined ||
-  !(command === "check" || command === "write" || consumersOf) ||
-  (rest.length > 0 && !consumersOf) ||
-  (staged && command === "write") ||
-  (topic === "exceptions" && command === "write")
-) {
-  process.stderr.write(usage);
-  process.exit(2);
-}
-
-if (consumersOf) process.exit(printConsumers(rest[0]));
-
-const outcome = run();
-
-for (const { path, message } of outcome.findings) process.stderr.write(`${path}: ${message}\n`);
-
-for (const warning of outcome.warnings) process.stderr.write(`warning: ${warning}\n`);
-
-process.stdout.write(`${topic}: ${outcome.summary}, ${outcome.findings.length} findings\n`);
-
-process.exitCode = outcome.findings.length === 0 ? 0 : 1;
+if (import.meta.main)
+  BunRuntime.runMain(program.pipe(Effect.provide(ConventionsPlatform)), { teardown });

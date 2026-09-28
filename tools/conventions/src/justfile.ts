@@ -2,8 +2,8 @@
  * Reads the recipes of the root justfile through `just --dump`, so the command table, the command
  * mentions, and the journey sets follow the parser that runs the recipes.
  */
-import { spawnSync } from "node:child_process";
-import { Predicate, Schema } from "effect";
+import { Data, Effect, Predicate, Schema, Stream } from "effect";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 // A body line is text and `{{…}}` interpolations; the dump gives an interpolation as an array.
 const Fragment = Schema.Union([Schema.String, Schema.Array(Schema.Unknown)]);
@@ -114,19 +114,49 @@ export interface Justfile {
 const byCodeUnits = (left: string, right: string): number =>
   left < right ? -1 : left > right ? 1 : 0;
 
+/** `just` could not run, or could not dump the justfile. */
+export class JustfileDumpFailure extends Data.TaggedError("JustfileDumpFailure")<{
+  readonly message: string;
+}> {}
+
 /** The JSON dump of the justfile at `path`, as `just --dump --dump-format json` prints it. */
-export const dumpJustfile = (path: string): string => {
-  const result = spawnSync("just", ["--justfile", path, "--dump", "--dump-format", "json"], {
-    encoding: "utf8",
+export const dumpJustfile = (
+  path: string,
+): Effect.Effect<string, JustfileDumpFailure, ChildProcessSpawner.ChildProcessSpawner> =>
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+
+    const [stdout, stderr, status] = yield* Effect.scoped(
+      Effect.gen(function* () {
+        const handle = yield* spawner.spawn(
+          ChildProcess.make("just", ["--justfile", path, "--dump", "--dump-format", "json"], {
+            stdin: "ignore",
+          }),
+        );
+
+        return yield* Effect.all(
+          [
+            Stream.mkString(Stream.decodeText(handle.stdout)),
+            Stream.mkString(Stream.decodeText(handle.stderr)),
+            handle.exitCode,
+          ],
+          { concurrency: "unbounded" },
+        );
+      }),
+    ).pipe(
+      Effect.mapError(
+        (error) =>
+          new JustfileDumpFailure({
+            message: `just could not run (${error.message}); run inside devenv shell`,
+          }),
+      ),
+    );
+
+    if (status !== 0)
+      return yield* new JustfileDumpFailure({ message: `just --dump failed: ${stderr.trim()}` });
+
+    return stdout;
   });
-
-  if (result.error !== undefined)
-    throw new Error(`just could not run (${result.error.message}); run inside devenv shell`);
-
-  if (result.status !== 0) throw new Error(`just --dump failed: ${result.stderr.trim()}`);
-
-  return result.stdout;
-};
 
 /** The recipes of a justfile dump. */
 export const decodeJustfile = (text: string): Justfile => {
@@ -179,4 +209,7 @@ export const decodeJustfile = (text: string): Justfile => {
   };
 };
 
-export const readJustfile = (path: string): Justfile => decodeJustfile(dumpJustfile(path));
+export const readJustfile = (
+  path: string,
+): Effect.Effect<Justfile, JustfileDumpFailure, ChildProcessSpawner.ChildProcessSpawner> =>
+  Effect.map(dumpJustfile(path), decodeJustfile);
