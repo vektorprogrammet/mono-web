@@ -1,10 +1,8 @@
+import * as BunHttpServer from "@effect/platform-bun/BunHttpServer";
+import * as BunRuntime from "@effect/platform-bun/BunRuntime";
 import * as BunServices from "@effect/platform-bun/BunServices";
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { Buffer } from "node:buffer";
-import process from "node:process";
 import { deliverJson } from "@vektorprogrammet/backend/delivery/http";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
-import { Database } from "@vektorprogrammet/database";
 import { NotificationGateway } from "@vektorprogrammet/domain/notification";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
@@ -17,9 +15,17 @@ import {
   deliverNextRecruitmentInterviewCompletion,
   releaseRecruitmentInterviewCompletion,
 } from "@vektorprogrammet/database/recruitment";
-import { Schema, Predicate, Effect, Layer, Redacted } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { Config, Console, Data, Effect, Layer, Option, Predicate, Redacted, Schema } from "effect";
+import {
+  FetchHttpClient,
+  HttpServer,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "effect/unstable/http";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { indentedJsonText } from "../acceptance/acceptance-process.js";
+import { jsonText } from "../acceptance/journey-step.js";
 
 interface CapturedRequest {
   readonly idempotencyKey: string;
@@ -27,179 +33,166 @@ interface CapturedRequest {
   readonly status: number;
 }
 
-const readBody = async (request: IncomingMessage): Promise<string> => {
-  const chunks: Buffer[] = [];
+/** A gate of the proof that its observations did not meet. */
+class CompletionReceiptProofFailed extends Data.TaggedError("CompletionReceiptProofFailed")<{
+  readonly message: string;
+}> {}
 
-  for await (const chunk of request) chunks.push(Buffer.from(chunk));
+const decodeJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Json));
 
-  return Buffer.concat(chunks).toString("utf8");
-};
-
-const listen = (server: Server): Promise<number> =>
-  new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-
-      if (address === null || Predicate.isString(address)) {
-        reject(new Error("loopback receiver did not expose a TCP port"));
-
-        return;
-      }
-
-      resolve(address.port);
-    });
-  });
-
-const close = (server: Server): Promise<void> =>
-  new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
-
-const main = async (): Promise<void> => {
-  const pgUrl = process.env.COMPLETION_RECEIPT_PG_URL;
+const proof = Effect.gen(function* () {
+  const pgUrl = Option.getOrUndefined(
+    yield* Config.option(Config.String("COMPLETION_RECEIPT_PG_URL")),
+  );
 
   if (pgUrl === undefined || pgUrl.trim() === "")
-    throw new Error("COMPLETION_RECEIPT_PG_URL is required");
+    return yield* new CompletionReceiptProofFailed({
+      message: "COMPLETION_RECEIPT_PG_URL is required",
+    });
 
   const captured: CapturedRequest[] = [];
   let rejectNext = true;
   const token = "completion-receipt-0108-loopback-token";
 
-  const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
+  const receive = Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+
     if (
       request.method !== "POST" ||
       request.url !== "/effects" ||
-      request.headers.authorization !== `Bearer ${token}`
-    ) {
-      response.statusCode = 404;
-      response.end();
+      request.headers["authorization"] !== `Bearer ${token}`
+    )
+      return HttpServerResponse.empty({ status: 404 });
 
-      return;
-    }
-
-    const body = Schema.decodeSync(Schema.fromJsonString(Schema.Json))(await readBody(request));
+    const body = yield* request.text.pipe(Effect.flatMap(decodeJson));
 
     const status = rejectNext ? 503 : 204;
     rejectNext = false;
     captured.push({
-      idempotencyKey: Predicate.isString(request.headers["idempotency-key"])
-        ? request.headers["idempotency-key"]
-        : "",
+      idempotencyKey: request.headers["idempotency-key"] ?? "",
       body,
       status,
     });
-    response.statusCode = status;
-    response.end();
+
+    return HttpServerResponse.empty({ status });
   });
 
-  const port = await listen(server);
+  yield* HttpServer.serveEffect(receive);
 
-  try {
-    const databaseLayer = DatabaseLive({
-      url: Redacted.make(pgUrl),
-      applicationName: "interview-completion-receipt-0108",
-      maxConnections: 1,
-    }).pipe(Layer.provide(BunServices.layer));
+  const { address } = yield* HttpServer.HttpServer;
 
-    const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
-    const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
+  if (Predicate.isTagged(address, "UnixPathAddress"))
+    return yield* new CompletionReceiptProofFailed({
+      message: "loopback receiver did not expose a TCP port",
+    });
 
-    const profileLayer = ProfileLive.pipe(
-      Layer.provide(Layer.merge(databaseLayer, organizationLayer)),
-    );
+  const port = address.port;
 
-    const authorityLayers = Layer.mergeAll(
-      databaseLayer,
-      admissionsLayer,
-      organizationLayer,
-      profileLayer,
-    );
+  const databaseLayer = DatabaseLive({
+    url: Redacted.make(pgUrl),
+    applicationName: "interview-completion-receipt-0108",
+    maxConnections: 1,
+  });
 
-    const transport = {
-      endpoint: new URL(`http://127.0.0.1:${port}/effects`),
-      token,
-      deliveryTimeoutMilliseconds: 2_000,
-    };
+  const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
+  const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
 
-    const gateway = Layer.succeed(
-      NotificationGateway,
-      NotificationGateway.of({
-        deliverInterviewCompletionReceipt: (request) =>
-          deliverJson(request, transport, {
-            "idempotency-key": request.effectId,
-          }).pipe(
-            Effect.provide(FetchHttpClient.layer),
-            Effect.map(() =>
-              RecruitmentNotificationEvidenceSchema.make({
-                effectId: request.effectId,
-                deliveredAt: "2026-09-20T12:10:00.000Z",
-                providerReference: `loopback:${request.effectId}`,
-              }),
-            ),
-            Effect.mapError(
-              () =>
-                new RecruitmentNotificationDeliveryError({
-                  effectId: request.effectId,
-                  message: "loopback interview completion receipt delivery unavailable",
-                }),
-            ),
-          ),
-        deliverInterviewInvitation: (request) =>
-          Effect.fail(
-            new RecruitmentNotificationDeliveryError({
+  const profileLayer = ProfileLive.pipe(
+    Layer.provide(Layer.merge(databaseLayer, organizationLayer)),
+  );
+
+  const authorityLayers = Layer.mergeAll(
+    databaseLayer,
+    admissionsLayer,
+    organizationLayer,
+    profileLayer,
+  );
+
+  const transport = {
+    endpoint: new URL(`http://127.0.0.1:${port}/effects`),
+    token,
+    deliveryTimeoutMilliseconds: 2_000,
+  };
+
+  const gateway = Layer.succeed(
+    NotificationGateway,
+    NotificationGateway.of({
+      deliverInterviewCompletionReceipt: (request) =>
+        deliverJson(request, transport, {
+          "idempotency-key": request.effectId,
+        }).pipe(
+          Effect.provide(FetchHttpClient.layer),
+          Effect.map(() =>
+            RecruitmentNotificationEvidenceSchema.make({
               effectId: request.effectId,
-              message: "invitation delivery is outside completion receipt proof",
+              deliveredAt: "2026-09-20T12:10:00.000Z",
+              providerReference: `loopback:${request.effectId}`,
             }),
           ),
-        deliverInterviewInvitationResponse: (request) =>
-          Effect.fail(
-            new RecruitmentNotificationDeliveryError({
+          Effect.mapError(() =>
+            RecruitmentNotificationDeliveryError.make({
               effectId: request.effectId,
-              message: "invitation response delivery is outside completion receipt proof",
+              message: "loopback interview completion receipt delivery unavailable",
             }),
           ),
-      }),
+        ),
+      deliverInterviewInvitation: (request) =>
+        Effect.fail(
+          RecruitmentNotificationDeliveryError.make({
+            effectId: request.effectId,
+            message: "invitation delivery is outside completion receipt proof",
+          }),
+        ),
+      deliverInterviewInvitationResponse: (request) =>
+        Effect.fail(
+          RecruitmentNotificationDeliveryError.make({
+            effectId: request.effectId,
+            message: "invitation response delivery is outside completion receipt proof",
+          }),
+        ),
+    }),
+  );
+
+  const program = Effect.gen(function* () {
+    const database = yield* SqlClient.SqlClient;
+
+    const winningClaim = yield* claimNextRecruitmentInterviewCompletion(
+      "completion-0108-winning-claim",
+      "2026-09-20T12:07:00.000Z",
     );
 
-    const program = Effect.gen(function* () {
-      const database = yield* Database;
+    if (winningClaim === undefined)
+      return yield* Effect.die(new Error("completion concurrency proof found no winning claim"));
 
-      const winningClaim = yield* claimNextRecruitmentInterviewCompletion(
-        "completion-0108-winning-claim",
-        "2026-09-20T12:07:00.000Z",
-      );
+    const losingClaim = yield* claimNextRecruitmentInterviewCompletion(
+      "completion-0108-losing-claim",
+      "2026-09-20T12:07:00.000Z",
+    );
 
-      if (winningClaim === undefined)
-        return yield* Effect.die(new Error("completion concurrency proof found no winning claim"));
+    yield* releaseRecruitmentInterviewCompletion(winningClaim);
 
-      const losingClaim = yield* claimNextRecruitmentInterviewCompletion(
-        "completion-0108-losing-claim",
-        "2026-09-20T12:07:00.000Z",
-      );
+    const first = yield* deliverNextRecruitmentInterviewCompletion(
+      "completion-0108-failed-claim",
+      "2026-09-20T12:08:00.000Z",
+    );
 
-      yield* releaseRecruitmentInterviewCompletion(winningClaim);
-
-      const first = yield* deliverNextRecruitmentInterviewCompletion(
-        "completion-0108-failed-claim",
-        "2026-09-20T12:08:00.000Z",
-      );
-
-      const [afterFailure] = yield* database<{
-        readonly status: string;
-        readonly attempts: number;
-        readonly payloadRetained: boolean;
-        readonly envelope: unknown;
-      }>`
+    const [afterFailure] = yield* database<{
+      readonly status: string;
+      readonly attempts: number;
+      readonly payloadRetained: boolean;
+      readonly envelope: unknown;
+    }>`
         SELECT status, attempts, payload_json <> '{}'::jsonb AS "payloadRetained",
           delivery_envelope AS envelope
         FROM public.recruitment_interview_completion_outbox
       `;
 
-      const second = yield* deliverNextRecruitmentInterviewCompletion(
-        "completion-0108-retry-claim",
-        "2026-09-20T12:09:00.000Z",
-      );
+    const second = yield* deliverNextRecruitmentInterviewCompletion(
+      "completion-0108-retry-claim",
+      "2026-09-20T12:09:00.000Z",
+    );
 
-      yield* database`
+    yield* database`
         INSERT INTO public.recruitment_interview_completion_outbox (
           effect_id, effect_type, command_id, interview_id, application_id,
           interview_revision, payload_json
@@ -215,34 +208,34 @@ const main = async (): Promise<void> => {
         LIMIT 1
       `;
 
-      const quarantined = yield* deliverNextRecruitmentInterviewCompletion(
-        "completion-0108-quarantine-claim",
-        "2026-09-20T12:11:00.000Z",
-      );
+    const quarantined = yield* deliverNextRecruitmentInterviewCompletion(
+      "completion-0108-quarantine-claim",
+      "2026-09-20T12:11:00.000Z",
+    );
 
-      const [afterQuarantine] = yield* database<{
-        readonly status: string;
-        readonly failureTag: string | null;
-      }>`
+    const [afterQuarantine] = yield* database<{
+      readonly status: string;
+      readonly failureTag: string | null;
+    }>`
         SELECT status, last_failure_tag AS "failureTag"
         FROM public.recruitment_interview_completion_outbox
         WHERE effect_id = 'tampered-completion-0108'
       `;
 
-      const idle = yield* deliverNextRecruitmentInterviewCompletion(
-        "completion-0108-idle-claim",
-        "2026-09-20T12:12:00.000Z",
-      );
+    const idle = yield* deliverNextRecruitmentInterviewCompletion(
+      "completion-0108-idle-claim",
+      "2026-09-20T12:12:00.000Z",
+    );
 
-      const [afterSuccess] = yield* database<{
-        readonly effectId: string;
-        readonly status: string;
-        readonly attempts: number;
-        readonly payloadCleared: boolean;
-        readonly envelope: unknown;
-        readonly providerReference: string | null;
-        readonly deliveredAt: string | null;
-      }>`
+    const [afterSuccess] = yield* database<{
+      readonly effectId: string;
+      readonly status: string;
+      readonly attempts: number;
+      readonly payloadCleared: boolean;
+      readonly envelope: unknown;
+      readonly providerReference: string | null;
+      readonly deliveredAt: string | null;
+    }>`
         SELECT effect_id AS "effectId", status, attempts,
           payload_json = '{}'::jsonb AS "payloadCleared", delivery_envelope AS envelope,
           provider_reference AS "providerReference",
@@ -251,70 +244,79 @@ const main = async (): Promise<void> => {
         WHERE status = 'Delivered'
       `;
 
-      return {
-        winningClaim,
-        losingClaim,
-        first,
-        afterFailure,
-        second,
-        quarantined,
-        afterQuarantine,
-        idle,
-        afterSuccess,
-      };
-    }).pipe(Effect.provide([gateway, authorityLayers]), Effect.scoped);
+    return {
+      winningClaim,
+      losingClaim,
+      first,
+      afterFailure,
+      second,
+      quarantined,
+      afterQuarantine,
+      idle,
+      afterSuccess,
+    };
+  }).pipe(Effect.provide([gateway, authorityLayers]), Effect.scoped);
 
-    const observed = await Effect.runPromise(program);
+  const observed = yield* program;
 
-    if (
-      observed.winningClaim.claimId !== "completion-0108-winning-claim" ||
-      observed.losingClaim !== undefined ||
-      !Predicate.isTagged(observed.first, "Failed") ||
-      observed.afterFailure?.status !== "Failed" ||
-      observed.afterFailure.attempts !== 2 ||
-      observed.afterFailure.payloadRetained !== true ||
-      !Predicate.isTagged(observed.second, "Delivered") ||
-      !Predicate.isTagged(observed.quarantined, "Idle") ||
-      observed.afterQuarantine?.status !== "Quarantined" ||
-      observed.afterQuarantine.failureTag !== "AuthorityEnvelopeMismatch" ||
-      !Predicate.isTagged(observed.idle, "Idle") ||
-      observed.afterSuccess?.status !== "Delivered" ||
-      observed.afterSuccess.attempts !== 3 ||
-      observed.afterSuccess.payloadCleared !== true ||
-      observed.afterSuccess.providerReference !== `loopback:${observed.afterSuccess.effectId}` ||
-      captured.length !== 2 ||
-      captured[0]?.idempotencyKey !== observed.afterSuccess.effectId ||
-      captured[1]?.idempotencyKey !== observed.afterSuccess.effectId ||
-      JSON.stringify(captured[0]?.body) !== JSON.stringify(captured[1]?.body) ||
-      JSON.stringify(observed.afterFailure.envelope) !==
-        JSON.stringify(observed.afterSuccess.envelope)
-    )
-      throw new Error(`completion receipt proof failed: ${JSON.stringify({ observed, captured })}`);
-    const body = captured[0]?.body;
+  // The texts compare only after the gates before them hold, as the short-circuit of `||` did.
+  const sameJsonText = <A>(left: A, right: A) =>
+    Effect.all([jsonText(left), jsonText(right)]).pipe(
+      Effect.map(([leftText, rightText]) => leftText === rightText),
+    );
 
-    if (body === null || !(body === null || Predicate.isObjectOrArray(body)))
-      throw new Error("completion body is not an object");
-    const keys = Object.keys(body).sort();
+  if (
+    observed.winningClaim.claimId !== "completion-0108-winning-claim" ||
+    observed.losingClaim !== undefined ||
+    !Predicate.isTagged(observed.first, "Failed") ||
+    observed.afterFailure?.status !== "Failed" ||
+    observed.afterFailure.attempts !== 2 ||
+    observed.afterFailure.payloadRetained !== true ||
+    !Predicate.isTagged(observed.second, "Delivered") ||
+    !Predicate.isTagged(observed.quarantined, "Idle") ||
+    observed.afterQuarantine?.status !== "Quarantined" ||
+    observed.afterQuarantine.failureTag !== "AuthorityEnvelopeMismatch" ||
+    !Predicate.isTagged(observed.idle, "Idle") ||
+    observed.afterSuccess?.status !== "Delivered" ||
+    observed.afterSuccess.attempts !== 3 ||
+    observed.afterSuccess.payloadCleared !== true ||
+    observed.afterSuccess.providerReference !== `loopback:${observed.afterSuccess.effectId}` ||
+    captured.length !== 2 ||
+    captured[0]?.idempotencyKey !== observed.afterSuccess.effectId ||
+    captured[1]?.idempotencyKey !== observed.afterSuccess.effectId ||
+    !(yield* sameJsonText(captured[0]?.body, captured[1]?.body)) ||
+    !(yield* sameJsonText(observed.afterFailure.envelope, observed.afterSuccess.envelope))
+  )
+    return yield* new CompletionReceiptProofFailed({
+      message: `completion receipt proof failed: ${yield* jsonText({ observed, captured })}`,
+    });
+  const body = captured[0]?.body;
 
-    const expectedKeys = [
-      "_tag",
-      "applicantDisplayName",
-      "applicantEmail",
-      "applicationId",
-      "commandId",
-      "effectId",
-      "interviewId",
-      "interviewRevision",
-      "interviewerDisplayName",
-      "interviewerEmail",
-    ].sort();
+  if (body === null || !(body === null || Predicate.isObjectOrArray(body)))
+    return yield* new CompletionReceiptProofFailed({
+      message: "completion body is not an object",
+    });
+  const keys = Object.keys(body).sort();
 
-    if (JSON.stringify(keys) !== JSON.stringify(expectedKeys))
-      throw new Error(`completion envelope fields changed: ${JSON.stringify(keys)}`);
-    process.stdout.write(`${JSON.stringify({ result: "Passed", observed, captured }, null, 2)}\n`);
-  } finally {
-    await close(server);
-  }
-};
+  const expectedKeys = [
+    "_tag",
+    "applicantDisplayName",
+    "applicantEmail",
+    "applicationId",
+    "commandId",
+    "effectId",
+    "interviewId",
+    "interviewRevision",
+    "interviewerDisplayName",
+    "interviewerEmail",
+  ].sort();
 
-await main();
+  if (!(yield* sameJsonText(keys, expectedKeys)))
+    return yield* new CompletionReceiptProofFailed({
+      message: `completion envelope fields changed: ${yield* jsonText(keys)}`,
+    });
+
+  yield* Console.log(yield* indentedJsonText({ result: "Passed", observed, captured }));
+}).pipe(Effect.scoped, Effect.provide(BunHttpServer.layer({ port: 0, hostname: "127.0.0.1" })));
+
+BunRuntime.runMain(proof.pipe(Effect.provide(BunServices.layer)));

@@ -4,5 +4,7 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["*.ts"]
+  "include": ["*.ts"],
+  // The loopback receiver of this proof is a Bun HTTP server, whose types tsconfig.bun.json adds.
+  "exclude": ["completion-receipt-postgres-proof-main.ts"]
 }
