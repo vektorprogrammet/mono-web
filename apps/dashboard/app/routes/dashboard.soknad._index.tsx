@@ -1,7 +1,7 @@
 import { Predicate } from "effect";
 import type { ApplicantProgressItem, ApplicantProgressState } from "@vektorprogrammet/rpc";
 import { data, Link, useLoaderData } from "react-router";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import { nativeProblemFrom } from "../lib/native-problem";
 import type { Route } from "./+types/dashboard.soknad._index";
@@ -13,13 +13,14 @@ const responseHeaders = {
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
 
   try {
-    const response = await client.admissions.readApplicantProgress();
+    const progress = await callNative(cookie, request, (client) =>
+      client["admissions.readApplicantProgress"](),
+    );
 
     return data(
-      { progress: response.body, unavailable: false as const },
+      { progress, unavailable: false as const },
       { headers: responseHeaders },
     );
   } catch (cause) {

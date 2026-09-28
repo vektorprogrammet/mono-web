@@ -1,10 +1,10 @@
 import {
   AdmissionOutcomeCommand,
   AdmissionOutcomeScope,
-  IdempotencyIfMatchHeaders,
   PublicApplicationIdSchema,
   type AdmissionOutcomeResource,
 } from "@vektorprogrammet/rpc";
+import { IdempotencyKey, StrongETag } from "@vektorprogrammet/rpc/problem";
 import { Option, Predicate, Schema } from "effect";
 import { useState } from "react";
 import {
@@ -18,7 +18,7 @@ import {
   useNavigation,
 } from "react-router";
 import { Button } from "../components/ui/button";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import { nativeProblemFrom } from "../lib/native-problem";
 import { semesterLabel } from "../lib/semester-label";
@@ -30,7 +30,6 @@ const privateData = <T,>(value: T, status = 200) =>
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
   const query = new URL(request.url).searchParams;
 
   const selection = {
@@ -39,7 +38,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   };
 
   try {
-    const scopes = (await client.admissionOutcomes.listScopes()).body;
+    const scopes = await callNative(cookie, request, (client) =>
+      client["admissionOutcomes.listScopes"](),
+    );
 
     if (!selection.departmentId && !selection.semesterId)
       return privateData({ ...selection, scopes, board: null, error: null });
@@ -56,11 +57,11 @@ export async function loader({ request }: Route.LoaderArgs) {
       });
 
     try {
-      const board = (
-        await client.admissionOutcomes.readOutcomes({
-          query: Schema.decodeSync(AdmissionOutcomeScope)(selection),
-        })
-      ).body;
+      const scope = Schema.decodeSync(AdmissionOutcomeScope)(selection);
+
+      const board = await callNative(cookie, request, (client) =>
+        client["admissionOutcomes.readOutcomes"](scope),
+      );
 
       return privateData({ ...selection, scopes, board, error: null });
     } catch (cause) {
@@ -87,11 +88,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 }
 
-/** The fields of one outcome form, decoded as the SDK's record request. */
+/** The fields of one outcome form, decoded as the payload of `admissionOutcomes.recordOutcome`. */
 const RecordOutcomeRequest = Schema.Struct({
-  params: Schema.Struct({ applicationId: PublicApplicationIdSchema }),
-  headers: IdempotencyIfMatchHeaders,
-  payload: AdmissionOutcomeCommand,
+  applicationId: PublicApplicationIdSchema,
+  idempotencyKey: IdempotencyKey,
+  ifMatch: StrongETag,
+  request: AdmissionOutcomeCommand,
 });
 
 const failureMessage = (code: string | undefined) => {
@@ -111,15 +113,15 @@ const failureMessage = (code: string | undefined) => {
 
 export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
   const form: FormData = await request.formData();
   const applicationId = formText(form, "applicationId");
   const commandId = formText(form, "commandId");
 
   const command = Schema.decodeUnknownOption(RecordOutcomeRequest)({
-    params: { applicationId: form.get("applicationId") },
-    headers: { "if-match": form.get("etag"), "idempotency-key": form.get("commandId") },
-    payload: { outcome: form.get("outcome") },
+    applicationId: form.get("applicationId"),
+    idempotencyKey: form.get("commandId"),
+    ifMatch: form.get("etag"),
+    request: { outcome: form.get("outcome") },
   });
 
   if (Option.isNone(command))
@@ -135,7 +137,11 @@ export async function action({ request }: Route.ActionArgs) {
     );
 
   try {
-    await client.admissionOutcomes.recordOutcome(command.value);
+    const recorded = command.value;
+
+    await callNative(cookie, request, (client) =>
+      client["admissionOutcomes.recordOutcome"](recorded),
+    );
 
     return privateData({
       success: true as const,

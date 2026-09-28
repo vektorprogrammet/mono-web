@@ -3,23 +3,20 @@ import { AdmissionPeriodCreateForm } from "@/components/admission-periods/Admiss
 import { AdmissionPeriodList } from "@/components/admission-periods/AdmissionPeriodList";
 import { isAdmissionPeriodUnauthorizedError, mapAdmissionPeriodError, mapAdmissionPeriodView, parseAdmissionPeriodForm, type AdmissionPeriodCreateFailure, type AdmissionPeriodRevisionFailure } from "@/lib/admission-period-view";
 import { useActionData, useLoaderData, useNavigation } from "react-router";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/dashboard.opptaksperioder._index";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
 
   try {
-    const result = await client.admissions.listAdmissionPeriods({ headers: {} });
-
-    if (result.body === undefined) {
-      throw new Error("Admission-period response did not include a body");
-    }
+    const result = await callNative(cookie, request, (client) =>
+      client["admissions.listAdmissionPeriods"](),
+    );
 
     return {
-      periods: result.body.items.map(mapAdmissionPeriodView),
+      periods: result.items.map(mapAdmissionPeriodView),
       error: undefined,
     };
   } catch (error) {
@@ -36,7 +33,6 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
   const form = await request.formData();
   const parsed = parseAdmissionPeriodForm(form, crypto.randomUUID());
 
@@ -48,38 +44,40 @@ export async function action({ request }: Route.ActionArgs) {
 
   try {
     if (Predicate.isTagged(command, "CreateAdmissionPeriod")) {
-      const result = await client.admissions.createAdmissionPeriod({
-        headers: { "idempotency-key": command.commandId },
-        payload: command.payload,
-      });
+      const created = await callNative(cookie, request, (client) =>
+        client["admissions.createAdmissionPeriod"]({
+          idempotencyKey: command.commandId,
+          request: command.payload,
+        }),
+      );
 
       return {
         success: true as const,
         notice: {
           intent: "create" as const,
           commandId: command.commandId,
-          admissionPeriodId: result.body.id,
-          etag: result.body.etag,
+          admissionPeriodId: created.id,
+          etag: created.etag,
         },
       };
     }
 
-    const result = await client.admissions.reviseAdmissionPeriod({
-      params: { admissionPeriodId: command.admissionPeriodId },
-      headers: {
-        "idempotency-key": command.commandId,
-        "if-match": command.etag,
-      },
-      payload: command.payload,
-    });
+    const revised = await callNative(cookie, request, (client) =>
+      client["admissions.reviseAdmissionPeriod"]({
+        admissionPeriodId: command.admissionPeriodId,
+        idempotencyKey: command.commandId,
+        ifMatch: command.etag,
+        request: command.payload,
+      }),
+    );
 
     return {
       success: true as const,
       notice: {
         intent: "revise" as const,
         commandId: command.commandId,
-        admissionPeriodId: result.body.id,
-        etag: result.body.etag,
+        admissionPeriodId: revised.id,
+        etag: revised.etag,
       },
     };
   } catch (error) {
