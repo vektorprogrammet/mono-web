@@ -175,6 +175,7 @@ const effectConfig = {
         "tools/acceptance/recommendation-check.ts",
         "tools/e2e/golden-harness.ts",
         "tools/e2e/golden-harness-self-test.ts",
+        "tools/e2e/golden-reimbursement.ts",
         "tools/e2e/legacy-candidate-native-journey.ts",
         "tools/e2e/legacy-organization-rehearsal-runtime.ts",
         "tools/e2e/public-application-outbox-driver.ts",

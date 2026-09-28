@@ -16,7 +16,7 @@ import {
   nativeRpcStatus,
   nativeRpcValue,
 } from "./native-operations.ts";
-import { fixture, receiptBytes } from "../../../tools/e2e/golden-reimbursement-evidence.mjs";
+import { fixture, receiptBytes } from "../../../tools/e2e/golden-reimbursement-evidence.ts";
 import { sha256 } from "../../../tools/e2e/golden-school-service-evidence.mjs";
 
 export const runReimbursementBrowser = async ({

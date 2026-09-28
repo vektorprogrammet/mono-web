@@ -125,7 +125,7 @@ golden journey:
     set -euo pipefail
     case "$1" in
       school-service | recruitment) exec bun --no-env-file tools/e2e/placement-check.ts "--golden-$1" ;;
-      reimbursement) exec bun --no-env-file tools/e2e/golden-reimbursement.mjs ;;
+      reimbursement) exec bun --no-env-file tools/e2e/golden-reimbursement.ts ;;
       team-application) exec bun --no-env-file tools/e2e/golden-team-application.ts ;;
       *) echo "Unknown journey '$1'. Use school-service, recruitment, reimbursement, or team-application." >&2; exit 2 ;;
     esac
