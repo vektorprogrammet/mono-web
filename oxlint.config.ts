@@ -180,6 +180,7 @@ const effectConfig = {
         "tools/scripts/changelog.ts",
         "tools/scripts/land.ts",
         "tools/scripts/require-legacy-data-profile.ts",
+        "tools/source-safety/src/check.ts",
         "tools/verification/completion-receipt-postgres-proof-main.ts",
         "tools/verification/current-assignment-cohort-cli.ts",
         "tools/verification/current-assignment-cohort-rehearsal.ts",
