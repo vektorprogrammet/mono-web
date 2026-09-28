@@ -41,7 +41,11 @@ const validAmountOre = (amountOre: number) => Number.isSafeInteger(amountOre) &&
 /** The web `File` of uploaded bytes, which the staging store reads as it read a multipart part. */
 const uploadedFile = (bytes: Uint8Array, contentType: ReceiptFileMediaType): File =>
   new File(
-    [bytes.buffer instanceof ArrayBuffer ? new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength) : Uint8Array.from(bytes)],
+    [
+      bytes.buffer instanceof ArrayBuffer
+        ? new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+        : Uint8Array.from(bytes),
+    ],
     "receipt",
     { type: contentType },
   );
@@ -132,4 +136,6 @@ export const validateSubmitDepartment = (departmentId: string | undefined) =>
  * cursor whose text decodes to no position was not issued by a list: a defect.
  */
 export const requireReceiptCursor = (cursor: string | undefined) =>
-  cursor === undefined ? Effect.void : decodeReceiptCursor(cursor).pipe(Effect.orDie, Effect.asVoid);
+  cursor === undefined
+    ? Effect.void
+    : decodeReceiptCursor(cursor).pipe(Effect.orDie, Effect.asVoid);

@@ -137,19 +137,21 @@ export const receiptMutationCapsule = ({
   readonly response: ReceiptMutationStatus;
 }): Effect.Effect<NativeHttpResponseCapsule, ReceiptPersistenceError> =>
   projected(() => receiptResource(receipt)).pipe(
-    Effect.map((resource): NativeHttpResponseCapsule => ({
-      status: response.status,
-      mediaType: "application/json",
-      bodyBytes: jsonBodyBytes(resource),
-      headers:
-        response.status === 201
-          ? {
-              "content-type": "application/json",
-              etag: resource.etag,
-              location: response.location,
-            }
-          : { "content-type": "application/json", etag: resource.etag },
-    })),
+    Effect.map(
+      (resource): NativeHttpResponseCapsule => ({
+        status: response.status,
+        mediaType: "application/json",
+        bodyBytes: jsonBodyBytes(resource),
+        headers:
+          response.status === 201
+            ? {
+                "content-type": "application/json",
+                etag: resource.etag,
+                location: response.location,
+              }
+            : { "content-type": "application/json", etag: resource.etag },
+      }),
+    ),
   );
 
 /** The replayable receipt of a settlement: the evidence, under the settled receipt's tag. */

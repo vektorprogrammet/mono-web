@@ -130,12 +130,7 @@ export const observeLegacyCandidateNativeJourney = async (
     AuthLive(config.auth).pipe(Layer.provide(database)),
   );
 
-  const http = Layer.mergeAll(
-    platform,
-    BunHttpPlatform.layer,
-    Etag.layer,
-    HttpRouter.layer,
-  );
+  const http = Layer.mergeAll(platform, BunHttpPlatform.layer, Etag.layer, HttpRouter.layer);
 
   const nativeApi = ExternalNativeRpcRouterLive(config, { now: () => input.asOf }).pipe(
     HttpRouter.provideRequest(Layer.merge(services, platform)),
@@ -226,7 +221,7 @@ export const observeLegacyCandidateNativeJourney = async (
      * One receipt RPC as a browser posts it, with its credential and origin as HTTP headers,
      * answered with its status under the HTTP contract and its value.
      */
-    const receiptRpc = async (
+    const receiptRpc = (
       name: string,
       tag: "receipts.listReceipts" | "receipts.readReceiptFile",
       payload: Schema.Json,
@@ -240,19 +235,16 @@ export const observeLegacyCandidateNativeJourney = async (
 
       if (authorization !== undefined) headers.set("authorization", authorization);
 
-      const response = await runtime.runPromise(
-        api(
-          new Request(backendOrigin + nativeRpcPath, {
-            method: "POST",
-            headers,
-            body: nativeRpcRequestBody(tag, payload),
-          }),
-        ),
-      );
+      const request = new Request(backendOrigin + nativeRpcPath, {
+        method: "POST",
+        headers,
+        body: nativeRpcRequestBody(tag, payload),
+      });
 
-      const answer = await response.text();
-
-      return { status: nativeRpcStatus(answer), value: nativeRpcValue(answer) };
+      return runtime
+        .runPromise(api(request))
+        .then((response) => response.text())
+        .then((answer) => ({ status: nativeRpcStatus(answer), value: nativeRpcValue(answer) }));
     };
 
     const ownProfile = async (name: string, cookie: string) => {

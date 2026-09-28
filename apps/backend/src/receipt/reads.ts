@@ -45,11 +45,7 @@ import { personPresentation } from "../rpc/problem.js";
 import { approvalCredential, authorizationPrincipal, type ReceiptCaller } from "./context.js";
 import type { ReceiptE2ETransactionBarrier } from "./e2e-support.js";
 import type { ReceiptFileStore } from "./filesystem.js";
-import {
-  receiptCredentialProblems,
-  receiptProblems,
-  storedReceiptProblems,
-} from "./problem.js";
+import { receiptCredentialProblems, receiptProblems, storedReceiptProblems } from "./problem.js";
 import {
   ownedReceiptResource,
   projected,
@@ -153,12 +149,11 @@ export const listReceiptsForApproval = ({
         ({ readReceiptApprovalCandidates }) =>
           readReceiptApprovalCandidates(credential, resolved.authorizationInstant, status, cursor),
       ).pipe(
-        Effect.mapError(
-          () =>
-            ReceiptPersistenceError.make({
-              operation: "read service receipt approval authority",
-              message: "service receipt approval authority is unavailable",
-            }),
+        Effect.mapError(() =>
+          ReceiptPersistenceError.make({
+            operation: "read service receipt approval authority",
+            message: "service receipt approval authority is unavailable",
+          }),
         ),
       );
 
@@ -469,7 +464,9 @@ export const readReceiptLifecycleEvidence = ({
           resolveSession(headers.cookie, authorizationInstant),
         ).pipe(
           Effect.catchTag("IdentitySessionNotFound", () =>
-            Effect.fail(Problem.unauthenticated(personPresentation(headers, nativeCookieChallenge))),
+            Effect.fail(
+              Problem.unauthenticated(personPresentation(headers, nativeCookieChallenge)),
+            ),
           ),
         );
 
