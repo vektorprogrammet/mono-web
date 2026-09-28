@@ -131,7 +131,7 @@ const persistenceError = (
   operation: string,
   cause?: SqlError,
 ): PublicApplicationPersistenceError => {
-  const error = new PublicApplicationPersistenceError({
+  const error = PublicApplicationPersistenceError.make({
     operation,
     message: "public application persistence failed",
   });
@@ -225,7 +225,7 @@ const findEligiblePeriod = (
       > => {
         if (rows.length > 1) {
           return Effect.fail(
-            new AmbiguousAdmissionPeriod({ departmentId: DepartmentId.make(departmentId) }),
+            AmbiguousAdmissionPeriod.make({ departmentId: DepartmentId.make(departmentId) }),
           );
         }
 
@@ -492,7 +492,7 @@ const executeCommandInTransaction = (
 
     if (stored !== undefined) {
       if (stored.command_sha256 !== commandDigest) {
-        return yield* new DuplicatePublicApplicationCommandConflict({
+        return yield* DuplicatePublicApplicationCommandConflict.make({
           commandId: command.commandId,
         });
       }
@@ -510,30 +510,30 @@ const executeCommandInTransaction = (
     );
 
     if (!(yield* departmentExists(sql, command.departmentId))) {
-      return yield* new PublicApplicationDepartmentNotFound({ departmentId: command.departmentId });
+      return yield* PublicApplicationDepartmentNotFound.make({ departmentId: command.departmentId });
     }
 
     const period = yield* findEligiblePeriod(sql, command.departmentId, now);
 
     if (period === undefined) {
-      return yield* new NoEligibleAdmissionPeriod({ departmentId: command.departmentId });
+      return yield* NoEligibleAdmissionPeriod.make({ departmentId: command.departmentId });
     }
 
     const field = yield* findFieldOfStudy(sql, command.fieldOfStudyId);
 
     if (field === undefined) {
-      return yield* new FieldOfStudyNotFound({ fieldOfStudyId: command.fieldOfStudyId });
+      return yield* FieldOfStudyNotFound.make({ fieldOfStudyId: command.fieldOfStudyId });
     }
 
     if (field.departmentId !== command.departmentId) {
-      return yield* new FieldOfStudyDepartmentMismatch({
+      return yield* FieldOfStudyDepartmentMismatch.make({
         fieldOfStudyId: command.fieldOfStudyId,
         departmentId: command.departmentId,
       });
     }
 
     if (!field.active) {
-      return yield* new FieldOfStudyInactive({ fieldOfStudyId: command.fieldOfStudyId });
+      return yield* FieldOfStudyInactive.make({ fieldOfStudyId: command.fieldOfStudyId });
     }
 
     const existingApplicant = yield* findApplicantForUpdate(sql, normalizedEmail);
@@ -549,7 +549,7 @@ const executeCommandInTransaction = (
           context.activationToken,
         ).pipe(
           Effect.mapError(
-            () => new PublicApplicationDecodeError({ message: "invalid activation token" }),
+            () => PublicApplicationDecodeError.make({ message: "invalid activation token" }),
           ),
         )
       : undefined;
@@ -576,7 +576,7 @@ const executeCommandInTransaction = (
       "read duplicate application",
     );
 
-    if (duplicate !== undefined) return yield* new DuplicatePublicApplication();
+    if (duplicate !== undefined) return yield* DuplicatePublicApplication.make();
 
     const applicationId = context.applicationId ?? publicApplicationIdForCommand(command);
 
@@ -586,7 +586,7 @@ const executeCommandInTransaction = (
       "read application identity",
     );
 
-    if (collidingApplication !== undefined) return yield* new DuplicatePublicApplication();
+    if (collidingApplication !== undefined) return yield* DuplicatePublicApplication.make();
 
     if (existingApplicant === undefined) yield* writeApplicant(sql, applicant);
     else yield* updateApplicant(sql, applicant);
@@ -795,7 +795,7 @@ export const findPublicApplicationConfirmation = (
       applicationId.trim(),
     ).pipe(
       Effect.mapError(
-        () => new PublicApplicationDecodeError({ message: "invalid application identifier" }),
+        () => PublicApplicationDecodeError.make({ message: "invalid application identifier" }),
       ),
     );
 
@@ -812,7 +812,7 @@ export const findPublicApplicationConfirmation = (
     );
 
     if (rows[0] === undefined) {
-      return yield* new PublicApplicationNotFound({ applicationId: normalizedId });
+      return yield* PublicApplicationNotFound.make({ applicationId: normalizedId });
     }
 
     // The row only proves that the application exists; its identity is the decoded one.
@@ -832,7 +832,7 @@ export const readApplicantContacts = (
 > =>
   Effect.gen(function* () {
     if (applicationIds.length > ADMISSIONS_APPLICANT_CONTACT_READ_LIMIT) {
-      return yield* new PublicApplicationQueryLimitExceeded({
+      return yield* PublicApplicationQueryLimitExceeded.make({
         limit: ADMISSIONS_APPLICANT_CONTACT_READ_LIMIT,
       });
     }
@@ -842,7 +842,7 @@ export const readApplicantContacts = (
       { onExcessProperty: "error" },
     ).pipe(
       Effect.mapError(
-        () => new PublicApplicationDecodeError({ message: "invalid application identifier batch" }),
+        () => PublicApplicationDecodeError.make({ message: "invalid application identifier batch" }),
       ),
     );
 
@@ -884,14 +884,14 @@ export const readApplicantContacts = (
       }).pipe(
         Effect.mapError(
           () =>
-            new PublicApplicationDecodeError({
+            PublicApplicationDecodeError.make({
               message: "invalid persisted applicant contact projection",
             }),
         ),
       );
 
       if (byApplicationId.has(contact.applicationId)) {
-        return yield* new PublicApplicationDecodeError({
+        return yield* PublicApplicationDecodeError.make({
           message: "duplicate persisted applicant contact projection",
         });
       }
@@ -905,7 +905,7 @@ export const readApplicantContacts = (
       const contact = byApplicationId.get(applicationId);
 
       if (contact === undefined) {
-        return yield* new PublicApplicationNotFound({ applicationId });
+        return yield* PublicApplicationNotFound.make({ applicationId });
       }
 
       contacts.push(contact);

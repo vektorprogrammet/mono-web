@@ -26,7 +26,7 @@ import type {
 } from "@vektorprogrammet/domain/receipt";
 
 const projectionError = (operation: string, cause: unknown) =>
-  new ReceiptPersistenceError({ operation, message: String(cause) });
+  ReceiptPersistenceError.make({ operation, message: String(cause) });
 
 const decodeSettlementEvidence = flow(
   Schema.decodeUnknownEffect(ReceiptSettlementEvidenceSelectSchema, {
@@ -262,7 +262,7 @@ export const readReceiptLifecycleEvidence = (
 
     const receipt = receipts[0];
 
-    if (receipt === undefined) return yield* new ReceiptNotFound({ receiptId });
+    if (receipt === undefined) return yield* ReceiptNotFound.make({ receiptId });
     const settlement = yield* selectSettlementEvidence(sql, receiptId);
 
     const outbox = yield* sql<ReceiptLifecycleOutboxProjection>`

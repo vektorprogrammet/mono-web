@@ -20,7 +20,7 @@ import {
 } from "@vektorprogrammet/domain/content";
 
 const integrityError = (operation: string, cause: unknown): ContentIntegrityError =>
-  new ContentIntegrityError({ operation, message: String(cause) });
+  ContentIntegrityError.make({ operation, message: String(cause) });
 
 const CurrentVersionRowSchema = Schema.Struct({
   articleId: Schema.Int,
@@ -108,7 +108,7 @@ export const readNewsListingPostgres = (
               .pipe(
                 Effect.mapError((cause) =>
                   Predicate.isTagged(cause, "DepartmentNotFound")
-                    ? new ContentDepartmentNotFound({ departmentId })
+                    ? ContentDepartmentNotFound.make({ departmentId })
                     : integrityError("validate news department", cause),
                 ),
               );
@@ -158,7 +158,7 @@ export const readNewsListingPostgres = (
 
           for (const personId of authorPersonIds) {
             if (!namesByPerson.has(personId)) {
-              return yield* new ContentIntegrityError({
+              return yield* ContentIntegrityError.make({
                 operation: "resolve news authors",
                 message: `no profile resolved for author ${personId}`,
               });
@@ -249,7 +249,7 @@ export const readPublishedArticlePostgres = (
           const current = versions[0];
 
           if (current === undefined) {
-            return yield* new ContentArticleNotFound({});
+            return yield* ContentArticleNotFound.make({});
           }
 
           const selected =
@@ -258,7 +258,7 @@ export const readPublishedArticlePostgres = (
               : versions.find((version) => version.versionNumber === versionNumber);
 
           if (selected === undefined) {
-            return yield* new ContentArticleNotFound({});
+            return yield* ContentArticleNotFound.make({});
           }
 
           const departments = yield* readDepartments(database, [selected.articleId]);
@@ -270,7 +270,7 @@ export const readPublishedArticlePostgres = (
           const author = profiles.find((entry) => entry.personId === selected.createdByPersonId);
 
           if (author === undefined) {
-            return yield* new ContentIntegrityError({
+            return yield* ContentIntegrityError.make({
               operation: "resolve news author",
               message: `no profile resolved for author ${selected.createdByPersonId}`,
             });

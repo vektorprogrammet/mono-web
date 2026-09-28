@@ -21,10 +21,10 @@ import {
 import { Schools } from "@vektorprogrammet/domain/schools";
 
 const decodeError = (operation: string, cause: unknown): SchoolsDecodeError =>
-  new SchoolsDecodeError({ operation, message: String(cause) });
+  SchoolsDecodeError.make({ operation, message: String(cause) });
 
 const persistenceError = (operation: string, cause: unknown): SchoolsPersistenceError =>
-  new SchoolsPersistenceError({ operation, message: String(cause) });
+  SchoolsPersistenceError.make({ operation, message: String(cause) });
 
 /**
  * Authenticates no session and captures no clock: both values are explicit
@@ -75,8 +75,8 @@ export const readSchoolsDirectory = (
 
           if (Predicate.isTagged(decision, "Deny")) {
             return yield* decision.reason === "AuthorityInactive"
-              ? new SchoolsAuthorityInactive({})
-              : new SchoolsNotInScope({});
+              ? SchoolsAuthorityInactive.make({})
+              : SchoolsNotInScope.make({});
           }
 
           const scope = decision.value;
@@ -88,7 +88,7 @@ export const readSchoolsDirectory = (
               Effect.mapError((cause) => {
                 return Match.value(cause).pipe(
                   Match.tag("DepartmentNotFound", () => {
-                    return new SchoolsDepartmentNotFound({ departmentId });
+                    return SchoolsDepartmentNotFound.make({ departmentId });
                   }),
                   Match.tag("OrganizationPersistenceError", (cause) => {
                     return persistenceError("read Schools directory department", cause);
@@ -104,7 +104,7 @@ export const readSchoolsDirectory = (
               Predicate.isTagged(scope, "DepartmentIds") &&
               !scope.departmentIds.includes(departmentId)
             ) {
-              return yield* new SchoolsDepartmentOutOfScope({ departmentId });
+              return yield* SchoolsDepartmentOutOfScope.make({ departmentId });
             }
           }
 

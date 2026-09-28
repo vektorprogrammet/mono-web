@@ -104,10 +104,10 @@ const ReceiptAuthorityDatabaseRowSchema = Schema.Struct({
 type ReceiptAuthorityDatabaseRow = typeof ReceiptAuthorityDatabaseRowSchema.Type;
 
 const decodeError = (operation: string, cause: unknown) =>
-  new ReceiptDecodeError({ message: `${operation}: ${String(cause)}` });
+  ReceiptDecodeError.make({ message: `${operation}: ${String(cause)}` });
 
 const persistenceError = (operation: string, cause: unknown) =>
-  new ReceiptPersistenceError({ operation, message: String(cause) });
+  ReceiptPersistenceError.make({ operation, message: String(cause) });
 
 const paymentRecord = (
   row: ReceiptAuthorityDatabaseRow,
@@ -255,7 +255,7 @@ export const lockReceiptPaymentAuthorityForWrite = (
     const observedPerson = observed[0]?.personId;
 
     if (observedPerson === undefined) {
-      return yield* new ReceiptAuthorityRecordNotFound({
+      return yield* ReceiptAuthorityRecordNotFound.make({
         entity: "PaymentAuthority",
         id: paymentAuthorityId,
       });
@@ -293,7 +293,7 @@ export const lockReceiptPaymentAuthorityForWrite = (
     const row = locked[0];
 
     if (row === undefined || row.personId !== observedPerson || row.revision !== expectedRevision) {
-      return yield* new ReceiptAuthorityWriteConflict({
+      return yield* ReceiptAuthorityWriteConflict.make({
         entity: "PaymentAuthority",
         id: paymentAuthorityId,
         expectedRevision,
@@ -327,7 +327,7 @@ export const lockReceiptApprovalGrantForWrite = (
     const observedPerson = observed[0]?.personId;
 
     if (observedPerson === undefined) {
-      return yield* new ReceiptAuthorityRecordNotFound({
+      return yield* ReceiptAuthorityRecordNotFound.make({
         entity: "ApprovalGrant",
         id: approvalGrantId,
       });
@@ -363,7 +363,7 @@ export const lockReceiptApprovalGrantForWrite = (
     const row = locked[0];
 
     if (row === undefined || row.personId !== observedPerson || row.revision !== expectedRevision) {
-      return yield* new ReceiptAuthorityWriteConflict({
+      return yield* ReceiptAuthorityWriteConflict.make({
         entity: "ApprovalGrant",
         id: approvalGrantId,
         expectedRevision,
@@ -399,7 +399,7 @@ export const lockReceiptSettlementGrantForWrite = (
     const observedPerson = observed[0]?.personId;
 
     if (observedPerson === undefined) {
-      return yield* new ReceiptAuthorityRecordNotFound({
+      return yield* ReceiptAuthorityRecordNotFound.make({
         entity: "SettlementGrant",
         id: settlementGrantId,
       });
@@ -437,7 +437,7 @@ export const lockReceiptSettlementGrantForWrite = (
     const row = locked[0];
 
     if (row === undefined || row.personId !== observedPerson || row.revision !== expectedRevision) {
-      return yield* new ReceiptAuthorityWriteConflict({
+      return yield* ReceiptAuthorityWriteConflict.make({
         entity: "SettlementGrant",
         id: settlementGrantId,
         expectedRevision,
@@ -547,7 +547,7 @@ export const endReceiptPaymentAuthority = (
           `;
 
           if (updated.length !== 1) {
-            return yield* new ReceiptAuthorityWriteConflict({
+            return yield* ReceiptAuthorityWriteConflict.make({
               entity: "PaymentAuthority",
               id: command.paymentAuthorityId,
               expectedRevision: command.expectedRevision,
@@ -593,7 +593,7 @@ export const removeReceiptPaymentAuthority = (
           `;
 
           if (removed.length !== 1) {
-            return yield* new ReceiptAuthorityWriteConflict({
+            return yield* ReceiptAuthorityWriteConflict.make({
               entity: "PaymentAuthority",
               id: command.paymentAuthorityId,
               expectedRevision: command.expectedRevision,
@@ -705,7 +705,7 @@ export const endReceiptApprovalGrant = (
           `;
 
           if (updated.length !== 1) {
-            return yield* new ReceiptAuthorityWriteConflict({
+            return yield* ReceiptAuthorityWriteConflict.make({
               entity: "ApprovalGrant",
               id: command.approvalGrantId,
               expectedRevision: command.expectedRevision,
@@ -751,7 +751,7 @@ export const removeReceiptApprovalGrant = (
           `;
 
           if (removed.length !== 1) {
-            return yield* new ReceiptAuthorityWriteConflict({
+            return yield* ReceiptAuthorityWriteConflict.make({
               entity: "ApprovalGrant",
               id: command.approvalGrantId,
               expectedRevision: command.expectedRevision,
@@ -867,7 +867,7 @@ export const endReceiptSettlementGrant = (
           `;
 
           if (updated.length !== 1) {
-            return yield* new ReceiptAuthorityWriteConflict({
+            return yield* ReceiptAuthorityWriteConflict.make({
               entity: "SettlementGrant",
               id: command.settlementGrantId,
               expectedRevision: command.expectedRevision,
@@ -913,7 +913,7 @@ export const removeReceiptSettlementGrant = (
           `;
 
           if (removed.length !== 1) {
-            return yield* new ReceiptAuthorityWriteConflict({
+            return yield* ReceiptAuthorityWriteConflict.make({
               entity: "SettlementGrant",
               id: command.settlementGrantId,
               expectedRevision: command.expectedRevision,
@@ -953,7 +953,7 @@ export const resolveReceiptAuthorityWithSql = (
       organizationProjection.personId !== personId ||
       organizationProjection.evaluatedAt !== evaluatedAt
     ) {
-      return yield* new ReceiptAuthorityProjectionMismatch({
+      return yield* ReceiptAuthorityProjectionMismatch.make({
         personId,
         authorizationInstant: evaluatedAt,
         organizationPersonId: organizationProjection.personId,

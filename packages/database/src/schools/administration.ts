@@ -25,10 +25,10 @@ import {
   resolveOrganizationPersonAuthorityWithSql,
 } from "../organization/authority-postgres.js";
 
-const fail = (code: SchoolCommandFailure["code"]) => new SchoolCommandFailure({ code });
+const fail = (code: SchoolCommandFailure["code"]) => SchoolCommandFailure.make({ code });
 
 const persistence = (cause: unknown) =>
-  new SchoolsPersistenceError({
+  SchoolsPersistenceError.make({
     operation: "school administration",
     message: String(cause),
     cause,

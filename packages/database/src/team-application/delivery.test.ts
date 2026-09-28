@@ -166,7 +166,7 @@ const failingMail = (kind: MailDeliveryFailureKind, deliveries: Array<MailDelive
     Mail.of({
       deliver: (request) =>
         Effect.sync(() => deliveries.push(request)).pipe(
-          Effect.andThen(Effect.fail(new MailDeliveryError({ kind }))),
+          Effect.andThen(Effect.fail(MailDeliveryError.make({ kind }))),
         ),
     }),
   );

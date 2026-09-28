@@ -38,7 +38,7 @@ interface ClaimIdRow {
 }
 
 const persistenceError = (operation: string, cause: unknown) =>
-  new ReceiptPersistenceError({ operation, message: String(cause) });
+  ReceiptPersistenceError.make({ operation, message: String(cause) });
 
 const receiptOutbox: OutboxTable = { name: "economy_receipt_outbox", terminalPayload: "Retain" };
 

@@ -279,7 +279,7 @@ const committedObservation = <S extends Schema.ConstraintDecoder<unknown, never>
     if (Option.isNone(stored)) return Option.none<S["Type"]>();
 
     if (stored.value.operation !== operation || stored.value.commandSha256 !== digest) {
-      return yield* new TeamApplicationCommandConflict({ commandId });
+      return yield* TeamApplicationCommandConflict.make({ commandId });
     }
 
     return Option.some(
@@ -372,13 +372,13 @@ const resolveTeamActor = (principal: TeamApplicationPrincipal, teamId: TeamId, c
     const decision = mapOrganizationAuthorityToTeamApplicationActor(authority, teamId);
 
     if (Predicate.isTagged(decision, "Deny")) {
-      return yield* new TeamApplicationAccessDenied({
+      return yield* TeamApplicationAccessDenied.make({
         reason: decision.reason === "AuthorityInactive" ? "AuthorityInactive" : "NotInScope",
       });
     }
 
     if (changes && !Predicate.isTagged(decision.value, "TeamLeader")) {
-      return yield* new TeamApplicationAccessDenied({ reason: "NotLeader" });
+      return yield* TeamApplicationAccessDenied.make({ reason: "NotLeader" });
     }
 
     return decision.value;
@@ -399,7 +399,7 @@ const applicationTeam = (applicationId: TeamApplicationId, forDeletion: boolean)
     ),
     Effect.flatMap(
       Option.match({
-        onNone: () => Effect.fail(new TeamApplicationNotFound({ applicationId })),
+        onNone: () => Effect.fail(TeamApplicationNotFound.make({ applicationId })),
         onSome: (row) => Effect.succeed(row.teamId),
       }),
     ),
@@ -440,7 +440,7 @@ export const readPublicTeamApplicationIntake = (teamId: TeamId) =>
     const team = yield* findTeamIntake({ teamId, lock: "None" });
 
     if (Option.isNone(team) || !team.value.teamActive || !team.value.departmentActive) {
-      return yield* new TeamApplicationTeamNotFound({ teamId });
+      return yield* TeamApplicationTeamNotFound.make({ teamId });
     }
 
     const now = yield* DateTime.now;
@@ -487,14 +487,14 @@ export const submitTeamApplication = (command: SubmitTeamApplicationCommand) =>
     const team = yield* findTeamIntake({ teamId: command.teamId, lock: "Share" });
 
     if (Option.isNone(team) || !team.value.teamActive || !team.value.departmentActive) {
-      return yield* new TeamApplicationTeamNotFound({ teamId: command.teamId });
+      return yield* TeamApplicationTeamNotFound.make({ teamId: command.teamId });
     }
 
     const now = yield* DateTime.now;
     const intake = evaluateTeamApplicationIntake(team.value, now);
 
     if (!Predicate.isTagged(intake, "Open")) {
-      return yield* new TeamApplicationIntakeClosed({ teamId: command.teamId });
+      return yield* TeamApplicationIntakeClosed.make({ teamId: command.teamId });
     }
 
     const submittedAt = DateTime.formatIso(now);
@@ -550,7 +550,7 @@ export const listTeamApplications = (
     const team = yield* findTeamIntake({ teamId, lock: "None" });
 
     if (Option.isNone(team))
-      return yield* new TeamApplicationAccessDenied({ reason: "NotInScope" });
+      return yield* TeamApplicationAccessDenied.make({ reason: "NotInScope" });
 
     const now = yield* DateTime.now;
 
@@ -587,7 +587,7 @@ export const readTeamApplication = (
 
     const row = yield* findApplication(applicationId);
 
-    if (Option.isNone(row)) return yield* new TeamApplicationNotFound({ applicationId });
+    if (Option.isNone(row)) return yield* TeamApplicationNotFound.make({ applicationId });
 
     const { teamName, ...application } = row.value;
 
@@ -628,7 +628,7 @@ export const deleteTeamApplication = (
     ).pipe(Effect.mapError(persistenceFailure("delete team application")));
 
     if (deleted.length !== 1) {
-      return yield* new TeamApplicationNotFound({ applicationId: command.applicationId });
+      return yield* TeamApplicationNotFound.make({ applicationId: command.applicationId });
     }
 
     yield* cancelTeamApplicationOutbox(command.applicationId);
@@ -690,7 +690,7 @@ export const reviseTeamApplicationIntake = <E, R>(
     const team = yield* findTeamIntake({ teamId: command.teamId, lock: "Update" });
 
     if (Option.isNone(team))
-      return yield* new TeamApplicationAccessDenied({ reason: "NotInScope" });
+      return yield* TeamApplicationAccessDenied.make({ reason: "NotInScope" });
 
     const now = yield* DateTime.now;
 

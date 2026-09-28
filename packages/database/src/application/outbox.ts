@@ -70,7 +70,7 @@ export const PublicApplicationOutboxDeliveryResult =
   Data.taggedEnum<PublicApplicationOutboxDeliveryResult>();
 
 const persistenceError = (operation: string): PublicApplicationPersistenceError =>
-  new PublicApplicationPersistenceError({
+  PublicApplicationPersistenceError.make({
     operation,
     message: "public application persistence failed",
   });

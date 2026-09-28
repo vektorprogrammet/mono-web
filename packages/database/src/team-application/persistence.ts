@@ -13,7 +13,7 @@ const serializationConflict = (cause: unknown, depth: number): boolean =>
 export const persistenceFailure =
   (operation: string) =>
   (cause: unknown): TeamApplicationPersistenceError =>
-    new TeamApplicationPersistenceError({
+    TeamApplicationPersistenceError.make({
       operation,
       conflict: serializationConflict(cause, 0),
       cause,

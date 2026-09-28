@@ -308,7 +308,7 @@ layer(teamApplicationsLayer, { excludeTestServices: true, timeout: "30 seconds" 
               ["ta-suspended", "AuthorityInactive"],
               ["ta-admin", "NotInScope"],
             ] as const) {
-              const denied = new TeamApplicationAccessDenied({ reason });
+              const denied = TeamApplicationAccessDenied.make({ reason });
 
               expect(yield* Effect.flip(list(person))).toEqual(denied);
               expect(yield* Effect.flip(read(person))).toEqual(denied);
@@ -344,7 +344,7 @@ layer(teamApplicationsLayer, { excludeTestServices: true, timeout: "30 seconds" 
               .toReversed(),
           );
           expect(yield* Effect.flip(page("not-a-cursor!"))).toEqual(
-            new TeamApplicationInvalidCursor(),
+            TeamApplicationInvalidCursor.make(),
           );
         }),
       );
@@ -377,7 +377,7 @@ layer(teamApplicationsLayer, { excludeTestServices: true, timeout: "30 seconds" 
             );
 
           expect(yield* Effect.flip(remove("ta-member", "delete-by-member"))).toEqual(
-            new TeamApplicationAccessDenied({ reason: "NotLeader" }),
+            TeamApplicationAccessDenied.make({ reason: "NotLeader" }),
           );
           expect(
             yield* count(`FROM team_applications WHERE application_id = '${applicationId}'`),
@@ -464,7 +464,7 @@ layer(teamApplicationsLayer, { excludeTestServices: true, timeout: "30 seconds" 
           ).toBe("stale");
           expect(
             yield* Effect.flip(revise("ta-member", "revise-member", () => Effect.void)),
-          ).toEqual(new TeamApplicationAccessDenied({ reason: "NotLeader" }));
+          ).toEqual(TeamApplicationAccessDenied.make({ reason: "NotLeader" }));
           expect(yield* intake()).toEqual(before);
           expect(yield* count(`FROM team_application_audit WHERE team_id = 'ta-revise'`)).toBe(0);
         }),

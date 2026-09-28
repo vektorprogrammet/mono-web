@@ -29,10 +29,10 @@ const DirectoryRowSchema = Schema.Struct({
 type DirectoryRow = typeof DirectoryRowSchema.Type;
 
 const decodeError = (operation: string, cause: unknown): SchoolsDecodeError =>
-  new SchoolsDecodeError({ operation, message: String(cause) });
+  SchoolsDecodeError.make({ operation, message: String(cause) });
 
 const persistenceError = (operation: string, cause: unknown): SchoolsPersistenceError =>
-  new SchoolsPersistenceError({ operation, message: String(cause) });
+  SchoolsPersistenceError.make({ operation, message: String(cause) });
 
 const decodeRows = flow(
   flow(

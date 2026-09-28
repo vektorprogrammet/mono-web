@@ -56,7 +56,7 @@ interface PeriodCommandReceiptRow {
  * recognize a lost serialization race and restart the transaction on a fresh snapshot.
  */
 const periodPersistenceError = (operation: string, cause: unknown) => {
-  const error = new AdmissionPeriodPersistenceError({ operation, message: String(cause) });
+  const error = AdmissionPeriodPersistenceError.make({ operation, message: String(cause) });
 
   error.cause = cause;
 
@@ -197,20 +197,20 @@ const checkActor = (
   actor: AdmissionPeriodActor,
 ): Effect.Effect<void, InactiveActor | AdmissionRoleDenied> =>
   Effect.gen(function* () {
-    if (!actor.active) return yield* new InactiveActor({ personId: actor.personId });
+    if (!actor.active) return yield* InactiveActor.make({ personId: actor.personId });
 
     if (
       !Predicate.isTagged(actor, "DepartmentAdministrator") &&
       !Predicate.isTagged(actor, "GlobalAdmin")
     ) {
-      return yield* new AdmissionRoleDenied({ personId: actor.personId });
+      return yield* AdmissionRoleDenied.make({ personId: actor.personId });
     }
   });
 
 const checkNow = (now: string): Effect.Effect<void, AdmissionPeriodDecodeError> =>
   isRfc3339Instant(now)
     ? Effect.void
-    : Effect.fail(new AdmissionPeriodDecodeError({ message: "now must be an RFC 3339 instant" }));
+    : Effect.fail(AdmissionPeriodDecodeError.make({ message: "now must be an RFC 3339 instant" }));
 
 const actorCanAccessDepartment = (actor: AdmissionPeriodActor, departmentId: string): boolean =>
   Predicate.isTagged(actor, "GlobalAdmin") || actor.departmentId === departmentId;
@@ -251,7 +251,7 @@ const writePeriod = (
       rows.length === 1
         ? Effect.void
         : Effect.fail(
-            new StaleAdmissionPeriodRevision({
+            StaleAdmissionPeriodRevision.make({
               admissionPeriodId: period.id,
               expected: previous.revision,
               actual: previous.revision,
@@ -356,7 +356,7 @@ const effectiveCreateDepartment = (
   if (Predicate.isTagged(actor, "DepartmentAdministrator")) {
     if (command.departmentId !== undefined && command.departmentId !== actor.departmentId) {
       return Effect.fail(
-        new AdmissionScopeDenied({
+        AdmissionScopeDenied.make({
           personId: actor.personId,
           departmentId: command.departmentId,
         }),
@@ -366,7 +366,7 @@ const effectiveCreateDepartment = (
     return Effect.succeed(actor.departmentId);
   }
 
-  if (command.departmentId === undefined) return Effect.fail(new DepartmentRequired());
+  if (command.departmentId === undefined) return Effect.fail(DepartmentRequired.make());
 
   return Effect.succeed(command.departmentId);
 };
@@ -375,7 +375,7 @@ export const decodeAdmissionPeriodCommand = flow(
   Schema.decodeUnknownEffect(AdmissionPeriodCommandSchema, {
     onExcessProperty: "error",
   }),
-  Effect.mapError((cause) => new AdmissionPeriodDecodeError({ message: String(cause) })),
+  Effect.mapError((cause) => AdmissionPeriodDecodeError.make({ message: String(cause) })),
 );
 
 export const executeAdmissionPeriodCommand = (
@@ -401,7 +401,7 @@ export const executeAdmissionPeriodCommand = (
 
           if (stored !== undefined) {
             if (stored.command_sha256 !== commandDigest) {
-              return yield* new DuplicateAdmissionPeriodCommandConflict({
+              return yield* DuplicateAdmissionPeriodCommandConflict.make({
                 commandId: command.commandId,
               });
             }
@@ -409,7 +409,7 @@ export const executeAdmissionPeriodCommand = (
             const original = yield* observationFromStored(stored.observation_json);
 
             if (!actorCanAccessDepartment(context.actor, original.period.departmentId)) {
-              return yield* new AdmissionScopeDenied({
+              return yield* AdmissionScopeDenied.make({
                 personId: context.actor.personId,
                 departmentId: original.period.departmentId,
                 admissionPeriodId: original.period.id,
@@ -434,26 +434,26 @@ export const executeAdmissionPeriodCommand = (
             );
 
             if (!(yield* departmentExists(sql, departmentId))) {
-              return yield* new DepartmentNotFound({ departmentId });
+              return yield* DepartmentNotFound.make({ departmentId });
             }
 
             previous = yield* findPeriodByPairForUpdate(sql, departmentId, command.semesterId);
             semester = yield* findSemester(sql, command.semesterId);
 
             if (semester === undefined) {
-              return yield* new SemesterNotFound({ semesterId: command.semesterId });
+              return yield* SemesterNotFound.make({ semesterId: command.semesterId });
             }
           } else {
             previous = yield* findPeriodForUpdate(sql, command.admissionPeriodId);
 
             if (previous === undefined) {
-              return yield* new AdmissionPeriodNotFound({
+              return yield* AdmissionPeriodNotFound.make({
                 admissionPeriodId: command.admissionPeriodId,
               });
             }
 
             if (!actorCanAccessDepartment(context.actor, previous.departmentId)) {
-              return yield* new AdmissionScopeDenied({
+              return yield* AdmissionScopeDenied.make({
                 personId: context.actor.personId,
                 departmentId: previous.departmentId,
                 admissionPeriodId: previous.id,
@@ -463,7 +463,7 @@ export const executeAdmissionPeriodCommand = (
             semester = yield* findSemester(sql, previous.semesterId);
 
             if (semester === undefined) {
-              return yield* new SemesterNotFound({ semesterId: previous.semesterId });
+              return yield* SemesterNotFound.make({ semesterId: previous.semesterId });
             }
           }
 
