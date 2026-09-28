@@ -178,6 +178,7 @@ const effectConfig = {
         "tools/e2e/legacy-candidate-native-journey.ts",
         "tools/e2e/legacy-organization-rehearsal-runtime.ts",
         "tools/e2e/public-application-outbox-driver.ts",
+        "tools/e2e/receipt-delivery-sink.ts",
         "tools/e2e/record-native-recruitment-invitation-response.ts",
         "tools/e2e/record-native-recruitment-invitation.ts",
         "tools/e2e/run-legacy-*.ts",

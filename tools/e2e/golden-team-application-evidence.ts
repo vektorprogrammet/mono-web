@@ -10,6 +10,7 @@
 import assert from "node:assert/strict";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { Effect, Option, Schema } from "effect";
+import { dual } from "effect/Function";
 import type { Pool, PoolClient } from "pg";
 import type {
   ApplicantInput,
@@ -21,7 +22,13 @@ import type {
   TeamApplicationFixture,
   TeamApplicationStep,
 } from "../../apps/dashboard/e2e/golden-team-application-browser";
-import { failure, type ProviderAttempt, readOnlySnapshot, selectRows } from "./golden-harness";
+import {
+  failure,
+  type HarnessFailure,
+  type ProviderAttempt,
+  readOnlySnapshot,
+  selectRows,
+} from "./golden-harness";
 
 export const mailSender = "noreply.syntetisk@example.invalid";
 
@@ -126,37 +133,43 @@ const memberships = (fixture: TeamApplicationFixture): ReadonlyArray<Membership>
 ];
 
 /** Prerequisites only: no application, intake setting, deletion, or delivery outcome. */
-export const seedTeamApplicationFixture = (pool: Pool, fixture: TeamApplicationFixture) =>
-  Effect.forEach(
-    [
-      {
-        text: "INSERT INTO organization_departments(department_id,name,short_name,email,city,active,revision) VALUES($1,'Vektorprogrammet Syntetisk','Syntetisk',$2,'Trondheim',true,0)",
-        values: [departmentId, fixture.departmentEmail],
-      },
-      ...[fixture.alfa, fixture.beta, fixture.gamma, fixture.inactive].map((team) => ({
-        text: "INSERT INTO organization_teams(team_id,department_id,name,email,active,revision) VALUES($1,$2,$3,$4,$5,0)",
-        values: [team.teamId, departmentId, team.name, team.email, team !== fixture.inactive],
-      })),
-      ...Object.values(fixture.persons).map((staff) => ({
-        text: "INSERT INTO person_contact_profiles(person_id,email,phone,revision) VALUES($1,$2,'90000000',0)",
-        values: [staff.personId, staff.email],
-      })),
-      ...memberships(fixture).map((membership) => ({
-        text: "INSERT INTO organization_memberships(membership_id,person_id,team_id,start_at,end_at,is_team_leader,is_suspended,revision) VALUES($1,$2,$3,'2020-01-01T00:00:00Z',$4,$5,$6,0)",
-        values: [
-          fixture.persons[membership.role].membershipId,
-          fixture.persons[membership.role].personId,
-          membership.team.teamId,
-          membership.endAt,
-          membership.leader,
-          membership.suspended,
-        ],
-      })),
-    ],
-    ({ text, values }) =>
-      Effect.tryPromise({ try: () => pool.query(text, values), catch: failure("fixture") }),
-    { discard: true },
-  );
+export const seedTeamApplicationFixture: {
+  (fixture: TeamApplicationFixture): (pool: Pool) => Effect.Effect<void, HarnessFailure>;
+  (pool: Pool, fixture: TeamApplicationFixture): Effect.Effect<void, HarnessFailure>;
+} = dual(
+  2,
+  (pool: Pool, fixture: TeamApplicationFixture): Effect.Effect<void, HarnessFailure> =>
+    Effect.forEach(
+      [
+        {
+          text: "INSERT INTO organization_departments(department_id,name,short_name,email,city,active,revision) VALUES($1,'Vektorprogrammet Syntetisk','Syntetisk',$2,'Trondheim',true,0)",
+          values: [departmentId, fixture.departmentEmail],
+        },
+        ...[fixture.alfa, fixture.beta, fixture.gamma, fixture.inactive].map((team) => ({
+          text: "INSERT INTO organization_teams(team_id,department_id,name,email,active,revision) VALUES($1,$2,$3,$4,$5,0)",
+          values: [team.teamId, departmentId, team.name, team.email, team !== fixture.inactive],
+        })),
+        ...Object.values(fixture.persons).map((staff) => ({
+          text: "INSERT INTO person_contact_profiles(person_id,email,phone,revision) VALUES($1,$2,'90000000',0)",
+          values: [staff.personId, staff.email],
+        })),
+        ...memberships(fixture).map((membership) => ({
+          text: "INSERT INTO organization_memberships(membership_id,person_id,team_id,start_at,end_at,is_team_leader,is_suspended,revision) VALUES($1,$2,$3,'2020-01-01T00:00:00Z',$4,$5,$6,0)",
+          values: [
+            fixture.persons[membership.role].membershipId,
+            fixture.persons[membership.role].personId,
+            membership.team.teamId,
+            membership.endAt,
+            membership.leader,
+            membership.suspended,
+          ],
+        })),
+      ],
+      ({ text, values }) =>
+        Effect.tryPromise({ try: () => pool.query(text, values), catch: failure("fixture") }),
+      { discard: true },
+    ),
+);
 
 const utc = (column: string) =>
   `to_char((${column}) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
@@ -328,16 +341,32 @@ const readFacts = (client: PoolClient) =>
 export const snapshotFacts = (pool: Pool) => readOnlySnapshot(pool, readFacts);
 
 /** Delivery states of one application's notifications, for delivery waits. */
-export const notificationStates = (pool: Pool, applicationId: string) =>
-  readOnlySnapshot(pool, (client) =>
-    selectRows(
-      client,
-      "notification states",
-      "SELECT status, attempts FROM team_application_delivery_state WHERE application_id=$1 ORDER BY ordinal",
-      [applicationId],
-      Schema.Struct({ status: Schema.String, attempts: Schema.Int }),
+type NotificationState = { readonly status: string; readonly attempts: number };
+
+export const notificationStates: {
+  (
+    applicationId: string,
+  ): (pool: Pool) => Effect.Effect<ReadonlyArray<NotificationState>, HarnessFailure>;
+  (
+    pool: Pool,
+    applicationId: string,
+  ): Effect.Effect<ReadonlyArray<NotificationState>, HarnessFailure>;
+} = dual(
+  2,
+  (
+    pool: Pool,
+    applicationId: string,
+  ): Effect.Effect<ReadonlyArray<NotificationState>, HarnessFailure> =>
+    readOnlySnapshot(pool, (client) =>
+      selectRows(
+        client,
+        "notification states",
+        "SELECT status, attempts FROM team_application_delivery_state WHERE application_id=$1 ORDER BY ordinal",
+        [applicationId],
+        Schema.Struct({ status: Schema.String, attempts: Schema.Int }),
+      ),
     ),
-  );
+);
 
 /** Total delivery attempts of undelivered notifications; a restarted worker must raise it. */
 export const retainedAttempts = (pool: Pool) =>
