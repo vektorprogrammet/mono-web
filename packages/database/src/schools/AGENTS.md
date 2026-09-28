@@ -7,7 +7,6 @@ The persistence layer holds PostgreSQL adapters and service Layers. They keep st
 
 The Schools context in other folders:
 
-- [apps/backend/src/schools](../../../../apps/backend/src/schools/AGENTS.md)
 - [apps/dashboard/app/foldkit/schools](../../../../apps/dashboard/app/foldkit/schools/AGENTS.md)
 - [packages/domain/src/schools](../../../domain/src/schools/AGENTS.md)
 

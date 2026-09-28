@@ -914,7 +914,9 @@ try {
     };
 
     const readBoard = async () =>
-      valueOf(await native.call(session(leader), (client) => client["placements.readBoard"](query)));
+      valueOf(
+        await native.call(session(leader), (client) => client["placements.readBoard"](query)),
+      );
 
     const command = async (payload: Schema.Json) => {
       const board = await readBoard();
@@ -988,9 +990,7 @@ try {
     assert.ok(
       valueOf(
         await native.call(session(leader), (client) => client["placements.listScopes"]()),
-      ).semesters.some(
-        (semester) => semester.semesterId === semesterId,
-      ),
+      ).semesters.some((semester) => semester.semesterId === semesterId),
     );
     await expectStatus(await request(boardPath), 401);
     await expectStatus(await request(boardPath, volunteer), 403, "authority.denied");
@@ -1983,12 +1983,7 @@ try {
         recordCoverage(coveredAbsence.absenceId, leaderId),
         closeCoverageBoard.etag,
       ],
-      [
-        ownCoveragePath,
-        volunteer,
-        coveredAbsenceCommand,
-        (await readOwnCoverage(volunteer)).etag,
-      ],
+      [ownCoveragePath, volunteer, coveredAbsenceCommand, (await readOwnCoverage(volunteer)).etag],
     ] as const)
       await expectStatus(await request(path, cookie, payload, etag), 409, "commitment.closed");
     assert.equal(

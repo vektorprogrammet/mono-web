@@ -7,7 +7,6 @@ The dashboard layer holds authenticated journeys: one Foldkit Model per workflow
 
 The Schools context in other folders:
 
-- [apps/backend/src/schools](../../../../backend/src/schools/AGENTS.md)
 - [packages/database/src/schools](../../../../../packages/database/src/schools/AGENTS.md)
 - [packages/domain/src/schools](../../../../../packages/domain/src/schools/AGENTS.md)
 

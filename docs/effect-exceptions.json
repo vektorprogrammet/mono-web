@@ -19,14 +19,16 @@
         "`just rehearsal organization-import` serves its native API through this handler."
       ],
       "owner": "apps/backend",
-      "examinedWith": { "effect": "4.0.0-rc.116" },
+      "examinedWith": {
+        "effect": "4.0.0-rc.116"
+      },
       "retirementTrigger": "HttpRouter.asHttpEffect() types its failure, or the callers build their handler with HttpRouter.toHttpEffect. Then remove the suppression."
     },
     {
       "id": "EX-0002",
       "rules": ["FX008", "effecttsgo/unsafe-effect-type-assertion"],
       "scope": {
-        "files": ["apps/backend/src/http-api/problem.ts"],
+        "files": ["apps/backend/src/rpc/problem.ts"],
         "symbols": ["problemMapper"]
       },
       "reason": "Each failure tag maps to the problem type that its case returns, and other failures pass through unchanged, so the type check of an endpoint still sees an unmapped failure.",
@@ -37,11 +39,14 @@
         "Effect.catchIf with a type guard, as unreachable in the same file does, narrows one known failure, not a record of cases."
       ],
       "verification": [
-        "`just check-types` checks every endpoint whose problems a mapper produces.",
-        "The HTTP tests of the contexts decode the answered problems with the contract schemas, for example `apps/backend/src/content/http.test.ts`."
+        "`just check-types` checks every RPC whose problems a mapper produces.",
+        "The RPC tests of the contexts decode the answered problems through the contract's error schemas, for example `apps/backend/src/content/rpc.test.ts`."
       ],
-      "owner": "apps/backend/src/http-api",
-      "examinedWith": { "effect": "4.0.0-rc.116", "typescript": "7.0.2" },
+      "owner": "apps/backend/src/rpc",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "typescript": "7.0.2"
+      },
       "retirementTrigger": "TypeScript infers the mapped failure union from the generic cases record. Then remove the assertion and the suppression."
     },
     {
@@ -62,7 +67,10 @@
         "No test replaces a path between the check and the open; review verifies the O_NOFOLLOW open."
       ],
       "owner": "apps/backend/src/receipt",
-      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/platform-bun": "4.0.0-rc.116" },
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "@effect/platform-bun": "4.0.0-rc.116"
+      },
       "retirementTrigger": "Effect FileSystem.open can refuse a symbolic link, for example with a no-follow flag. Then open through FileSystem and remove the node:fs/promises import."
     },
     {
@@ -80,7 +88,9 @@
       ],
       "verification": ["`just e2e interview-response` runs the spec in the hosted journey matrix."],
       "owner": "apps/dashboard",
-      "examinedWith": { "@phibkro/oxlint-effect-plugin": "0.1.0" },
+      "examinedWith": {
+        "@phibkro/oxlint-effect-plugin": "0.1.0"
+      },
       "retirementTrigger": "The callback moves to a module that oxlint.config.ts declares platform browser, or effect/no-cross-runtime recognizes Playwright page callbacks. Then remove the suppressions."
     },
     {
@@ -100,7 +110,10 @@
         "`just e2e identity` signs in, reads, and revokes sessions through the backend."
       ],
       "owner": "packages/database",
-      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/tsgo": "0.36.4" },
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "@effect/tsgo": "0.36.4"
+      },
       "retirementTrigger": "No caller runs these operations inside its own transaction. Then resolve Database when the layer is built and remove the expectation."
     },
     {
@@ -120,29 +133,11 @@
         "`just e2e content-publication` publishes articles through the backend."
       ],
       "owner": "packages/domain/src/content",
-      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/tsgo": "0.36.4" },
-      "retirementTrigger": "The capability topology lets ContentManagement depend on Organization. Then provide Organization when the layer is built and remove the expectation."
-    },
-    {
-      "id": "EX-0007",
-      "rules": ["FX006", "effecttsgo/leaking-requirements"],
-      "scope": {
-        "files": ["packages/http-api/src/common.ts"],
-        "symbols": ["PersonSecurity", "PersonOrServiceSecurity"]
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "@effect/tsgo": "0.36.4"
       },
-      "reason": "HttpApiMiddleware security handlers run per request, so they require the request, its parsed search parameters, and its route context.",
-      "missingCapability": "Effect does not mark HttpServerRequest, ParsedSearchParams, or RouteContext with @effect-leakable-service, so effecttsgo/leaking-requirements reports the security services that require them.",
-      "nativeAlternatives": [
-        "Resolving the request services when the layer is built: they exist only per request.",
-        "Marking the services @effect-leakable-service: the effect package declares them, and this repository does not edit it."
-      ],
-      "verification": [
-        "`just check-types` checks the security middleware of every endpoint that declares it.",
-        "`apps/backend/src/receipt/http.test.ts` sends person and service bearers through both, because the receipt group declares them."
-      ],
-      "owner": "packages/http-api",
-      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/tsgo": "0.36.4" },
-      "retirementTrigger": "Effect marks these per-request services leakable, or @effect/tsgo stops reporting the requirements of HttpApiMiddleware services. Then remove the expectations."
+      "retirementTrigger": "The capability topology lets ContentManagement depend on Organization. Then provide Organization when the layer is built and remove the expectation."
     },
     {
       "id": "EX-0008",
@@ -162,7 +157,10 @@
         "No test replaces the path with a symbolic link or widens its mode; review verifies the O_NOFOLLOW open and the checks of the opened file."
       ],
       "owner": "packages/database",
-      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/platform-bun": "4.0.0-rc.116" },
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "@effect/platform-bun": "4.0.0-rc.116"
+      },
       "retirementTrigger": "Effect FileSystem.open can refuse a symbolic link, for example with a no-follow flag. Then open through FileSystem and remove the node:fs/promises import."
     },
     {
@@ -192,35 +190,11 @@
         "The plugin accepts a directive only when it names no-ambient-console alone with a nonempty `dev only:` reason, and it reports broad, unreasoned, and unused directives."
       ],
       "owner": "tools/acceptance",
-      "examinedWith": { "@phibkro/oxlint-effect-plugin": "0.1.0", "effect": "4.0.0-rc.116" },
-      "retirementTrigger": "The probe becomes an Effect program that its entry point runs, and it writes through Console of effect. Then remove the directives."
-    },
-    {
-      "id": "EX-0010",
-      "rules": ["FX001", "FX012"],
-      "scope": {
-        "files": [
-          "packages/sdk/src/effect-client.ts",
-          "packages/sdk/src/__tests__/generated-native-client.test.ts"
-        ],
-        "symbols": ["EffectSdk"]
+      "examinedWith": {
+        "@phibkro/oxlint-effect-plugin": "0.1.0",
+        "effect": "4.0.0-rc.116"
       },
-      "reason": "Command endpoints of the contract, such as placements.commandBoard, take a union of commands as their payload, and the dashboard sends a command that it has not narrowed to one member. patches/effect@4.0.0-rc.116.patch changes the declaration type HttpApiEndpoint.ClientRequest so that a generated client method takes the whole payload type. The client runtime is unchanged.",
-      "missingCapability": "HttpApiEndpoint.ClientRequest of effect 4.0.0-rc.116, unchanged in 4.0.0-rc.117 and on the main branch of effect-smol on 2026-09-27, distributes a union payload over its members: a method takes { payload: A } | { payload: B }, not { payload: A | B }, so a payload typed as the union fails with TS2345. Its conditional P extends Brand<…> names Payload[\"Type\"] in the false branch, and TypeScript narrows that to the member P inside the true branch of Payload[\"Type\"] extends infer P. A program with one union endpoint reproduces it with TypeScript 7.0.2 and 5.9.3.",
-      "nativeAlternatives": [
-        "Narrowing each command with Match and calling the method once per member: every caller of a union endpoint then repeats one identical call per command.",
-        "Asserting the request type at each call site: the assertion removes the check of the request against the contract.",
-        "One endpoint per command, or a struct that wraps the union: both change the HTTP contract and the wire format of every command endpoint.",
-        "Deriving the SDK client type again with a corrected request type: it copies HttpApiClient.Client.Method and its unexported MethodReturn from the Effect source, and the copy drifts with each release."
-      ],
-      "verification": [
-        "`bun run --cwd packages/sdk check-types` checks the type test \"accepts the complete command union through one Promise endpoint\" in packages/sdk/src/__tests__/generated-native-client.test.ts, which fails with TS2344 without the patch.",
-        "`just check-types` checks the dashboard callers that send an unnarrowed command union: apps/dashboard/app/foldkit/recruitment-maintenance/command.ts, apps/dashboard/app/foldkit/schools/browser-client.ts, and apps/dashboard/app/routes/dashboard.assistenter._index.tsx. Without the patch each fails with TS2345.",
-        "The patch changes only dist/unstable/httpapi/HttpApiEndpoint.d.ts and its source. The contract tests of the same test file run the unchanged client runtime."
-      ],
-      "owner": "packages/sdk",
-      "examinedWith": { "effect": "4.0.0-rc.116", "typescript": "7.0.2" },
-      "retirementTrigger": "An Effect release whose HttpApiEndpoint.ClientRequest takes the whole union as the payload of a union endpoint. Then remove the patch and its patchedDependencies entry, delete this entry and the comments that name it, and keep the type test, which then checks the release."
+      "retirementTrigger": "The probe becomes an Effect program that its entry point runs, and it writes through Console of effect. Then remove the directives."
     }
   ]
 }

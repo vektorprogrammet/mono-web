@@ -12,7 +12,8 @@ export const mailDeliveryConfig = (
 
   if (keys.every((key) => env[key] === undefined)) return undefined;
 
-  if (keys.some((key) => (env[key] ?? "").length === 0)) throw new Error("Incomplete mail delivery configuration");
+  if (keys.some((key) => (env[key] ?? "").length === 0))
+    throw new Error("Incomplete mail delivery configuration");
   const endpoint = new URL(env.MAIL_DELIVERY_URL!);
   const timeout = Number(env.MAIL_DELIVERY_TIMEOUT_MS);
 

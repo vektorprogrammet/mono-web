@@ -181,20 +181,6 @@ export const observeLegacyCandidateNativeJourney = async (
       checks.push(name);
     };
 
-    const json = async <S extends Schema.ConstraintDecoder<unknown, never>>(
-      name: string,
-      path: string,
-      schema: S,
-      cookie: string,
-    ) => {
-      phase = name;
-      const response = await request(path, cookie);
-      assert.equal(response.status, 200);
-      const result = Schema.decodeUnknownSync(schema)(await response.json());
-
-      return result;
-    };
-
     /** Reads the caller's own profile over RPC and answers its status under the HTTP contract. */
     const readOwnProfile = async (name: string, cookie?: string) => {
       phase = name;

@@ -135,7 +135,6 @@ for (const signal of ["SIGTERM", "SIGINT"])
   });
 
 try {
-  await run("bun", ["run", "build"], join(root, "packages/sdk"));
   await run("bun", ["run", "build"], dashboardRoot);
   dashboard = spawn(
     process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",

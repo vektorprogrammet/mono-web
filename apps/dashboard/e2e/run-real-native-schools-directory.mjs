@@ -18,7 +18,6 @@ const backendRoot = fileURLToPath(new URL("../../backend/", import.meta.url));
 
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
 
-const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 
 const postgresPort = 45160;
 
@@ -529,11 +528,6 @@ try {
     NODE_ENV: "production",
   };
 
-  run("bun", ["run", "build"], {
-    cwd: sdkRoot,
-    env: dashboardEnvironment,
-    label: "Schools SDK build",
-  });
   run("bun", ["run", "build"], {
     cwd: dashboardRoot,
     env: dashboardEnvironment,

@@ -495,11 +495,6 @@ const main = async () => {
     );
     await waitForHttp(`${backendOrigin}/health`, backend, "Identity backend");
     boundary = await startRecordingBoundary(backendOrigin);
-    await run("bun", ["run", "--cwd", "packages/sdk", "build"], {
-      cwd: repositoryRoot,
-      env: baseEnvironment,
-      label: "Identity SDK production build",
-    });
     await run("bun", ["run", "--cwd", "apps/dashboard", "build"], {
       cwd: repositoryRoot,
       env: {

@@ -335,9 +335,6 @@
       },
     },
   },
-  "patchedDependencies": {
-    "effect@4.0.0-rc.116": "patches/effect@4.0.0-rc.116.patch",
-  },
   "catalogs": {
     "effect-v4": {
       "@effect/platform-browser": "4.0.0-rc.116",
@@ -2953,8 +2950,6 @@
     "@mdx-js/rollup/source-map": ["source-map@0.7.6", "", {}, "sha512-i5uvt8C3ikiWeNZSVZNWcfZPItFQOsYTUAOkcUPGd8DqDy1uOUikjt5dG+uRlwyvR108Fb9DOd4GvXfT0N2/uQ=="],
 
     "@modelcontextprotocol/sdk/zod": ["zod@4.4.3", "", {}, "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ=="],
-
-    "@monoweb/placements-docs/@types/node": ["@types/node@22.19.14", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-a39m4Z/qy3oYWP8Fc5RO674p/ENAB88JbwnmNwu6+hlfDTbqwE649936RqKNAXAOUwfggSVg6y2KwQcYBYaTsA=="],
 
     "@monoweb/placements-docs/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 

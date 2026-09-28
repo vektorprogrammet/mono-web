@@ -48,8 +48,7 @@ The local development instructions below do not establish migration completion.
 | `apps/homepage`         | Public React application                                                        |
 | `packages/domain`       | Business values, transitions, failures, and authority                           |
 | `packages/database`     | PostgreSQL schema, persistence, locks, audit, and outbox                        |
-| `packages/http-api`     | HTTP contracts, middleware declarations, and OpenAPI                            |
-| `packages/sdk`          | Generated native API client                                                     |
+| `packages/rpc`          | The native RPC contract, its credential middlewares, problems, and client       |
 | `tools/acceptance`      | Local API and browser acceptance probes of single journeys                      |
 | `tools/conventions`     | Layout, guide, construct, and Effect exception checks and their generated files |
 | `tools/e2e`             | Golden journeys, local journey drivers, and legacy migration commands           |
@@ -61,7 +60,6 @@ The local development instructions below do not establish migration completion.
 | `tools/verification`    | Cross-application PostgreSQL proofs and migration rehearsals                    |
 | `infra`                 | Worker preview deployment configuration                                         |
 | `docs`                  | Intended system, architecture, operations, and active specifications            |
-| `patches`               | Dependency patches that `patchedDependencies` in package.json applies           |
 | `.github`               | Checks, Tests, Docs, and preview workflows and their actions                    |
 | `.claude`               | Claude Code settings and project rules                                          |
 | `.agents`               | Agent skills of the repository: the Effect house overlay                        |

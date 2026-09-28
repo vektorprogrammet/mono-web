@@ -48,7 +48,7 @@ Implementation: packages/domain/src/placements: portable contracts; packages/dat
 - `Person` and `Profile` of [People](../directory/AGENTS.md)
 - `SemesterCatalogue` of AcademicCalendar
 - `Department` of [Organization](../organization/AGENTS.md)
-- `School` and `CapacityPlan` of [Schools](../schools/AGENTS.md)
+- `School` and `CapacityPlan` of Schools
 - `AdmissionApplication` of [Admissions](../admission/AGENTS.md)
 - `OutboxEnvelope` of [Delivery](../delivery/AGENTS.md)
 
@@ -60,7 +60,7 @@ Implementation: packages/domain/src/placements: portable contracts; packages/dat
 | [People](../directory/AGENTS.md)          | open host service, published language, conformist |                                                                                                                                                                                         |
 | AcademicCalendar                          | open host service, published language, conformist |                                                                                                                                                                                         |
 | [Organization](../organization/AGENTS.md) | open host service, published language, conformist |                                                                                                                                                                                         |
-| [Schools](../schools/AGENTS.md)           | supplier, customer                                | Active school, department association and capacity, which bounds the scheduling function; Placements answers the dependent-records query Schools needs before an association is removed |
+| Schools                                   | supplier, customer                                | Active school, department association and capacity, which bounds the scheduling function; Placements answers the dependent-records query Schools needs before an association is removed |
 | [Admissions](../admission/AGENTS.md)      | open host service, published language, conformist | The scheduling function reads each accepted applicant's weekday availability, bolk and school wishes from the application; Placements never writes them                                 |
 | [Delivery](../delivery/AGENTS.md)         | open host service, published language, conformist |                                                                                                                                                                                         |
 | LegacySymfony                             | anticorruption layer                              | Reviewed current assignments and append-only historical service                                                                                                                         |

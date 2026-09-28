@@ -15,7 +15,6 @@ const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 
-const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
 
@@ -1027,12 +1026,6 @@ async function main() {
       ORGANIZATION_E2E_BROWSER_EVIDENCE_PATH: browserEvidencePath,
       BACKEND_PG_URL: postgresUrl,
     };
-
-    await runCommand("bun", ["run", "build"], {
-      cwd: sdkRoot,
-      env: journeyEnvironment,
-      label: "Native Organization SDK build",
-    });
 
     // The interactive preview keeps the dev server; the journey serves the production build,
     // whose bundles cannot be re-optimized and reloaded under a signing-in browser.

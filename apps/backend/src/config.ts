@@ -390,7 +390,8 @@ const passwordResetDeliveryConfig = (
 
     const transport = mailDeliveryConfig(env);
 
-    if (transport === undefined) throw new Error("Password reset delivery requires mail configuration");
+    if (transport === undefined)
+      throw new Error("Password reset delivery requires mail configuration");
 
     const sender = yield* Config.schema(Schema.Redacted(ContactEmail), "MAIL_SENDER").parse(
       provider,

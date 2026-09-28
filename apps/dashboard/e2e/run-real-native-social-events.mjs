@@ -22,7 +22,6 @@ const backendRoot = fileURLToPath(new URL("../../backend/", import.meta.url));
 
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
 
-const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 
 const runnerPath = fileURLToPath(import.meta.url);
 
@@ -1060,11 +1059,6 @@ try {
   };
 
   run("bun", ["run", "build"], {
-    cwd: sdkRoot,
-    env: dashboardEnvironment,
-    label: "0110 generated SDK build",
-  });
-  run("bun", ["run", "build"], {
     cwd: dashboardRoot,
     env: dashboardEnvironment,
     label: "0110 dashboard production build",
@@ -1121,15 +1115,14 @@ const manifest = {
   command: "bun --cwd apps/dashboard e2e/run-real-native-social-events.mjs",
   topology: {
     database: postgres.version,
-    backend: "native Effect HTTP API",
-    sdk: "generated @vektorprogrammet/sdk",
+    backend: "native Effect RPC",
     dashboard: "production React Router server",
     browser: "real headless Chromium",
   },
   gates: {
     seededAuthoritiesAndScopes: true,
     dashboardCreateReload: true,
-    exactHttpContract: true,
+    exactRpcContract: true,
     orderingAndHalfOpenLabels: true,
     idempotencyAndConcurrency: true,
     authorityAndUnknownScopeCounterexamples: true,
@@ -1140,7 +1133,6 @@ const manifest = {
   observedRuntime: journey,
   commands: [
     "bun run identity:seed",
-    "bun --cwd packages/sdk run build",
     "bun --cwd apps/dashboard run build",
     "Chromium social-event journey",
   ],

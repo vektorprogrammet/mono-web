@@ -1524,7 +1524,8 @@ const makeRehearsalRuntime = (
   const routerLayer = HttpRouter.layer;
   const httpLayer = Layer.merge(platformLayer, routerLayer);
 
-  const nativeApiLayer = ExternalNativeRpcRouterLive(config, {
+  const nativeApiLayer = ExternalNativeRpcRouterLive({
+    config,
     now: () => SPEC_0067.authorizationInstant,
   }).pipe(
     HttpRouter.provideRequest(Layer.merge(servicesLayer, requestPlatformLayer)),

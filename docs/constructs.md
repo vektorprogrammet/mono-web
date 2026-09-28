@@ -13,7 +13,7 @@ The JSDoc of a construct carries `@construct <category>`, a summary sentence, `@
 Tag a construct only when at least 2 modules outside its own module and the tests of its app or package import it.
 `just constructs` fails when these pages differ from the tags, when a construct lacks one of these tags or annotations, and when fewer modules import it. It lists untagged functions that 3 or more modules outside their app or package import.
 
-- [http-transport](constructs/http-transport.md): Reads native HTTP requests and writes their representations: bounded JSON, preconditions, idempotency keys, entity tags, and cache headers.
+- [http-transport](constructs/http-transport.md): Derives the transport facts that commands keep across the cutover from HTTP: command identities, request digests, preconditions, and entity tags.
   - [`encodePathIdentity`](constructs/http-transport.md#encodepathidentity): Encodes one decoded identity as an uppercase RFC 3986 path segment.
   - [`normalizeTarget`](constructs/http-transport.md#normalizetarget): Fills a route template with its encoded identities; a missing identity is a malformed request.
   - [`deriveHttpIdentity`](constructs/http-transport.md#derivehttpidentity): Derives the private storage digest and domain command ID from the identity tuple.
@@ -21,49 +21,38 @@ Tag a construct only when at least 2 modules outside its own module and the test
   - [`requireDepartmentReach`](constructs/authority-evidence.md#requiredepartmentreach): Checks that a resolved authority reaches one department with a capability, and returns the evidence that a department-scoped command requires.
   - [`requireOrganizationAdministrator`](constructs/authority-evidence.md#requireorganizationadministrator): Checks that a resolved authority holds active global administration, and returns the evidence that the Organization administration commands require.
   - [`requireTeamInterestScope`](constructs/authority-evidence.md#requireteaminterestscope): Checks what team interest a resolved authority may read, narrowed to one requested department, and returns the scope that the listing requires.
-- [http-problem](constructs/http-problem.md): Answers a native HTTP request with a declared problem: failure mapping, credential classification, authorization, and decoding.
-  - [`authorizeAdmissionPerson`](constructs/http-problem.md#authorizeadmissionperson): Evaluates one admission person AccessSpec.
-  - [`returningAuthorization`](constructs/http-problem.md#returningauthorization): Resolves the current person and authorizes one returning-assistant operation on that person's own profile.
-  - [`admissionActorForAuthority`](constructs/http-problem.md#admissionactorforauthority): The admission actor of one department scope.
-  - [`admissionProblems`](constructs/http-problem.md#admissionproblems): The one answer for every admission failure.
-  - [`authorizeContentOperation`](constructs/http-problem.md#authorizecontentoperation): Evaluates a content endpoint's AccessSpec for one person with the content grant scope.
-  - [`contentProblems`](constructs/http-problem.md#contentproblems): The one answer for every content domain failure.
-  - [`contentActorProblems`](constructs/http-problem.md#contentactorproblems): A staff person rejected after ingress is answered from the credential the request presented.
-  - [`problemWebResponse`](constructs/http-problem.md#problemwebresponse): Renders one problem outside HttpApi encoding, with the encoder's body and headers.
-  - [`jsonText`](constructs/http-problem.md#jsontext): The JSON text of a representation, byte for byte what `JSON.stringify` writes.
-  - [`webHandler`](constructs/http-problem.md#webhandler): Runs one Effect-native Web transport operation.
-  - [`semanticProblem`](constructs/http-problem.md#semanticproblem): Runs a throwing semantic parser.
-  - [`problemMapper`](constructs/http-problem.md#problemmapper): Builds the one failure-to-problem mapper of a domain.
-  - [`requireNoQuery`](constructs/http-problem.md#requirenoquery): An operation that accepts no query answers any query as malformed.
-  - [`readJsonBody`](constructs/http-problem.md#readjsonbody): Reads a bounded JSON body of the one media type `mediaType` accepts.
-  - [`idempotencyKeyOf`](constructs/http-problem.md#idempotencykeyof): Decodes the one Idempotency-Key a replayable mutation requires.
-  - [`requiredIfMatchOf`](constructs/http-problem.md#requiredifmatchof): Decodes the one strong If-Match an item mutation requires.
-  - [`httpIdentity`](constructs/http-problem.md#httpidentity): Derives a command's idempotency identity; a tuple outside the frozen grammar is a request problem.
-  - [`requireCurrentETag`](constructs/http-problem.md#requirecurrentetag): Fails a mutation whose If-Match no longer names the current representation.
-  - [`conditionalJson`](constructs/http-problem.md#conditionaljson): Answers a conditional JSON read after authority and concealment: the representation, a bodyless 304, or precondition.failed.
-  - [`personPresentation`](constructs/http-problem.md#personpresentation): The person credential a request presented, for a rejection answered after ingress.
-  - [`isSerializationConflict`](constructs/http-problem.md#isserializationconflict): Whether a failure, or one of its causes, is a lost serialization or deadlock race: a transaction.conflict the client may retry.
-  - [`requestInvalid`](constructs/http-problem.md#requestinvalid): The request as a whole fails validation; no single member is singled out.
-  - [`decodeRequest`](constructs/http-problem.md#decoderequest): Decodes one JSON request value strictly; any mismatch fails the whole request's validation.
-  - [`strictOutput`](constructs/http-problem.md#strictoutput): Decodes one response value strictly.
-  - [`commandReceiptProblems`](constructs/http-problem.md#commandreceiptproblems): HTTP command receipts: the transport's own persistence failures.
-  - [`commandOutcomeResponse`](constructs/http-problem.md#commandoutcomeresponse): Answers a command receipt outcome: committed and replayed results, or an idempotency problem.
-  - [`authorizeAnonymous`](constructs/http-problem.md#authorizeanonymous): An anonymous AccessSpec grants every caller and conceals nothing, so a denial means the spec and its scope resolution disagree: a defect.
-  - [`authorizePerson`](constructs/http-problem.md#authorizeperson): A rejected person credential is answered from the ingress evidence, never by string choice.
-  - [`unreachable`](constructs/http-problem.md#unreachable): Marks problems a shared mapper can produce but this operation cannot, such as a serialization conflict inside a read-only snapshot.
-  - [`ProblemBoundaryLive`](constructs/http-problem.md#problemboundarylive): The only Cause consumer.
-  - [`receiptProblems`](constructs/http-problem.md#receiptproblems): The one answer for every receipt failure other than a rejected credential, including an unavailable store, Identity, or E2E barrier.
-  - [`receiptCredentialProblems`](constructs/http-problem.md#receiptcredentialproblems): A credential rejected inside a receipt handler is answered from the request's own evidence.
-  - [`authorizeInvitationOperation`](constructs/http-problem.md#authorizeinvitationoperation): Authorizes the holder of an invitation's response capability.
-  - [`interviewAuthorizationInTransaction`](constructs/http-problem.md#interviewauthorizationintransaction): Resolves the current person and authorizes one interview inside the caller's transaction; a rejected credential is answered from the request's evidence.
-  - [`readRecruitmentBody`](constructs/http-problem.md#readrecruitmentbody): Every recruitment request body is one bounded `application/json` document.
-  - [`recruitmentProblems`](constructs/http-problem.md#recruitmentproblems): The one answer for every recruitment failure.
-  - [`raceProblems`](constructs/http-problem.md#raceproblems): A failure that lost a serialization or deadlock race answers transaction.conflict, whatever failure carried it.
-  - [`problemUnion`](constructs/http-problem.md#problemunion): Creates a closed endpoint-specific Problem Details union.
-  - [`Problem`](constructs/http-problem.md#problem): One RFC 9457 failure in an Effect error channel.
-  - [`isProblem`](constructs/http-problem.md#isproblem): Narrows a caught value to a `Problem`, also one that another copy of this module created.
-  - [`problemBody`](constructs/http-problem.md#problembody): The frozen RFC 9457 body: the registry entry, then code, instance, and validation.
-  - [`makeNativeProblem`](constructs/http-problem.md#makenativeproblem): Builds one safe fixed public problem value.
+- [rpc-problem](constructs/rpc-problem.md): Answers a native RPC with a declared problem: failure mapping, credential classification, authorization, command outcomes, and the defect boundary.
+  - [`authorizeAdmissionPerson`](constructs/rpc-problem.md#authorizeadmissionperson): Evaluates one admission person AccessSpec.
+  - [`returningAuthorization`](constructs/rpc-problem.md#returningauthorization): Resolves the current person and authorizes one returning-assistant operation on that person's own profile.
+  - [`admissionActorForAuthority`](constructs/rpc-problem.md#admissionactorforauthority): The admission actor of one department scope.
+  - [`admissionProblems`](constructs/rpc-problem.md#admissionproblems): The one answer for every admission failure.
+  - [`authorizeContentOperation`](constructs/rpc-problem.md#authorizecontentoperation): Evaluates a content RPC's AccessSpec for one person with the content grant scope.
+  - [`contentProblems`](constructs/rpc-problem.md#contentproblems): The one answer for every content domain failure.
+  - [`contentActorProblems`](constructs/rpc-problem.md#contentactorproblems): A staff person rejected after the credential middleware is answered from the credential the request presented.
+  - [`receiptProblems`](constructs/rpc-problem.md#receiptproblems): The one answer for every receipt failure other than a rejected credential, including an unavailable store, Identity, or E2E barrier.
+  - [`receiptCredentialProblems`](constructs/rpc-problem.md#receiptcredentialproblems): A credential rejected inside a receipt handler is answered from the request's own evidence.
+  - [`authorizeInvitationOperation`](constructs/rpc-problem.md#authorizeinvitationoperation): Authorizes the holder of an invitation's response capability.
+  - [`interviewAuthorizationInTransaction`](constructs/rpc-problem.md#interviewauthorizationintransaction): Resolves the current person and authorizes one interview inside the caller's transaction; a rejected credential is answered from the request's evidence.
+  - [`recruitmentProblems`](constructs/rpc-problem.md#recruitmentproblems): The one answer for every recruitment failure.
+  - [`raceProblems`](constructs/rpc-problem.md#raceproblems): A failure that lost a serialization or deadlock race answers transaction.conflict, whatever failure carried it.
+  - [`jsonText`](constructs/rpc-problem.md#jsontext): The JSON text of a representation, byte for byte what `JSON.stringify` writes.
+  - [`problemMapper`](constructs/rpc-problem.md#problemmapper): Builds the one failure-to-problem mapper of a domain.
+  - [`commandIdentity`](constructs/rpc-problem.md#commandidentity): Derives a command's idempotency identity: the receipt digest and the domain command ID.
+  - [`requireCurrentETag`](constructs/rpc-problem.md#requirecurrentetag): Fails a mutation whose If-Match no longer names the current representation.
+  - [`isSerializationConflict`](constructs/rpc-problem.md#isserializationconflict): Whether a failure, or one of its causes, is a lost serialization or deadlock race: a transaction.conflict the client may retry.
+  - [`requestInvalid`](constructs/rpc-problem.md#requestinvalid): The request as a whole fails validation; no single member is singled out.
+  - [`strictOutput`](constructs/rpc-problem.md#strictoutput): Decodes one response value strictly.
+  - [`commandReceiptProblems`](constructs/rpc-problem.md#commandreceiptproblems): HTTP command receipts: the transport's own persistence failures.
+  - [`personPresentation`](constructs/rpc-problem.md#personpresentation): The credential evidence of an RPC request: which credential headers it presented.
+  - [`commandOutcome`](constructs/rpc-problem.md#commandoutcome): The value of a command receipt outcome: the committed or replayed success, or an idempotency problem.
+  - [`authorizeAnonymous`](constructs/rpc-problem.md#authorizeanonymous): An anonymous AccessSpec grants every caller and conceals nothing, so a denial means the spec and its scope resolution disagree: a defect.
+  - [`authorizePerson`](constructs/rpc-problem.md#authorizeperson): A rejected person credential is answered from the ingress evidence, never by string choice.
+  - [`unreachable`](constructs/rpc-problem.md#unreachable): Marks problems a shared mapper can produce but this operation cannot, such as a serialization conflict inside a read-only snapshot.
+  - [`problemUnion`](constructs/rpc-problem.md#problemunion): Creates a closed endpoint-specific Problem Details union.
+  - [`Problem`](constructs/rpc-problem.md#problem): One RFC 9457 failure in an Effect error channel.
+  - [`isProblem`](constructs/rpc-problem.md#isproblem): Narrows a caught value to a `Problem`, also one that another copy of this module created.
+  - [`problemBody`](constructs/rpc-problem.md#problembody): The frozen RFC 9457 body: the registry entry, then code, instance, and validation.
+  - [`makeNativeProblem`](constructs/rpc-problem.md#makenativeproblem): Builds one safe fixed public problem value.
 - [sql-lock](constructs/sql-lock.md): Transaction-scoped PostgreSQL advisory locks under registered keys.
   - [`AdvisoryLockKey`](constructs/sql-lock.md#advisorylockkey): The registered advisory-lock keys, one constructor per namespace.
   - [`lockAdvisory`](constructs/sql-lock.md#lockadvisory): Waits for the advisory lock on `key` until the current transaction ends.
@@ -101,5 +90,5 @@ Tag a construct only when at least 2 modules outside its own module and the test
   - [`startDisposablePostgres`](constructs/test-harness.md#startdisposablepostgres): Starts a fresh cluster of the selected major on a private port and socket directory with trust authentication.
   - [`withDisposablePostgres`](constructs/test-harness.md#withdisposablepostgres): Runs `use` against the database `database` of a fresh cluster, which `startDisposablePostgres` starts, and removes the cluster when `use` settles, also when it fails.
 - [request-ledger](constructs/request-ledger.md): Classifies the requests that journey recorders observe by whole path segments: native contract operations and legacy routes.
-  - [`isNativeRequest`](constructs/request-ledger.md#isnativerequest): Whether a dashboard-to-backend request stays on the native surface: an operation of the native HTTP contract or an email-password route of the identity engine.
+  - [`isNativeRequest`](constructs/request-ledger.md#isnativerequest): Whether a dashboard-to-backend request stays on the native surface: an operation of the native RPC contract or an email-password route of the identity engine.
   - [`addressesAnyRoute`](constructs/request-ledger.md#addressesanyroute): Whether a request path addresses any of the routes, each matched by whole path segments.

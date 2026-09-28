@@ -44,8 +44,5 @@
       "foldkit": "0.163.0",
       "vitest": "5.0.0"
     }
-  },
-  "patchedDependencies": {
-    "effect@4.0.0-rc.116": "patches/effect@4.0.0-rc.116.patch"
   }
 }

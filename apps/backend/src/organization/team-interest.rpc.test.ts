@@ -267,9 +267,8 @@ const oauthCredentialAuthority = OAuthCredentialAuthority.of({
 const identity = Identity.of({
   signIn: () => Effect.die("unexpected sign-in"),
   resolveSession: (cookieHeader: string | undefined) => {
-    const token = cookieHeader?.startsWith(tokenPrefix) === true
-      ? cookieHeader.slice(tokenPrefix.length)
-      : "";
+    const token =
+      cookieHeader?.startsWith(tokenPrefix) === true ? cookieHeader.slice(tokenPrefix.length) : "";
 
     return token.length === 0
       ? Effect.fail(IdentitySessionNotFound.make())

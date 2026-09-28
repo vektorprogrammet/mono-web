@@ -1,26 +1,28 @@
 [//]: # "guide: generated from docs/model/contexts.cml, the @construct tags, and package.json exports by just guides write; do not edit"
 
-# packages/http-api
+# packages/rpc
 
-HTTP contracts, middleware declarations, and OpenAPI.
-Package `@vektorprogrammet/http-api`.
+The native RPC contract, its credential middlewares, problems, and client.
+Package `@vektorprogrammet/rpc`.
 
 ## Entry points
 
-| Import                                      | Module                                         |
-| ------------------------------------------- | ---------------------------------------------- |
-| `@vektorprogrammet/http-api`                | [src/index.ts](src/index.ts)                   |
-| `@vektorprogrammet/http-api/http-semantics` | [src/http-semantics.ts](src/http-semantics.ts) |
+| Import                          | Module                                       |
+| ------------------------------- | -------------------------------------------- |
+| `@vektorprogrammet/rpc`         | [src/index.ts](src/index.ts)                 |
+| `@vektorprogrammet/rpc/problem` | [src/problem.ts](src/problem.ts)             |
+| `@vektorprogrammet/rpc/client`  | [src/client.ts](src/client.ts)               |
+| `@vektorprogrammet/rpc/script`  | [src/script-client.ts](src/script-client.ts) |
 
 ## Constructs
 
 The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../docs/constructs.md) indexes them all.
 
-- [`problemUnion`](../../docs/constructs/http-problem.md#problemunion) (http-problem): Creates a closed endpoint-specific Problem Details union.
-- [`Problem`](../../docs/constructs/http-problem.md#problem) (http-problem): One RFC 9457 failure in an Effect error channel.
-- [`isProblem`](../../docs/constructs/http-problem.md#isproblem) (http-problem): Narrows a caught value to a `Problem`, also one that another copy of this module created.
-- [`problemBody`](../../docs/constructs/http-problem.md#problembody) (http-problem): The frozen RFC 9457 body: the registry entry, then code, instance, and validation.
-- [`makeNativeProblem`](../../docs/constructs/http-problem.md#makenativeproblem) (http-problem): Builds one safe fixed public problem value.
+- [`problemUnion`](../../docs/constructs/rpc-problem.md#problemunion) (rpc-problem): Creates a closed endpoint-specific Problem Details union.
+- [`Problem`](../../docs/constructs/rpc-problem.md#problem) (rpc-problem): One RFC 9457 failure in an Effect error channel.
+- [`isProblem`](../../docs/constructs/rpc-problem.md#isproblem) (rpc-problem): Narrows a caught value to a `Problem`, also one that another copy of this module created.
+- [`problemBody`](../../docs/constructs/rpc-problem.md#problembody) (rpc-problem): The frozen RFC 9457 body: the registry entry, then code, instance, and validation.
+- [`makeNativeProblem`](../../docs/constructs/rpc-problem.md#makenativeproblem) (rpc-problem): Builds one safe fixed public problem value.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

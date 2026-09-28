@@ -237,7 +237,6 @@ try {
 
   const drain = () => drainWith(delivery);
 
-  run("bun", ["run", "build"], env, join(root, "packages/sdk"));
   run("bun", ["run", "build"], env, join(root, "apps/dashboard"));
   start("bun", ["server.mjs"], env, join(root, "apps/dashboard"));
   await wait(async () => (await fetch(`${dashboardOrigin}/glemt-passord`)).ok);

@@ -109,8 +109,6 @@ export const classifyCredential: {
  *
  * @avoid `Effect.try` with a hand-written catch around a parser: an unexpected throw then becomes
  * a failure that the endpoint does not declare. List the codes that the endpoint declares here.
- *
- * @construct rpc-problem
  */
 export const semanticProblem: {
   <const Code extends PlainProblemCode>(
@@ -462,7 +460,16 @@ export const personPresentation: {
  * @construct rpc-problem
  */
 export const commandOutcome =
-  <S extends Schema.Codec<unknown, unknown, never, never>>(success: S) =>
+  <S extends Schema.Codec<unknown, unknown, never, never>>(
+    success: S,
+  ): ((
+    outcome: NativeHttpCommandOutcome,
+  ) => Effect.Effect<
+    S["Type"],
+    | Problem<"idempotency.in-flight">
+    | Problem<"idempotency.digest-conflict">
+    | Problem<"idempotency.response-expired">
+  >) =>
   (
     outcome: NativeHttpCommandOutcome,
   ): Effect.Effect<
@@ -495,10 +502,8 @@ export const commandOutcome =
  * ```
  *
  * @avoid Catching defects or rendering causes in a handler. Leave causes to this boundary.
- *
- * @construct rpc-problem
  */
-export const ProblemBoundaryLive = Layer.succeed(ProblemBoundary)(
+export const ProblemBoundaryLive: Layer.Layer<ProblemBoundary> = Layer.succeed(ProblemBoundary)(
   ProblemBoundary.of((effect) =>
     Effect.catchCause(effect, (cause) =>
       Cause.hasFails(cause) || Cause.hasInterruptsOnly(cause)

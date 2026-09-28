@@ -514,9 +514,8 @@ export const resolvePersonAuthority: {
     IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
     Organization | Identity
   > =>
-    Effect.flatMap(
-      Effect.map(currentInstant(options.now), decodeAuthorizationInstant),
-      (instant) => personAuthorityEffect(cookieHeader, instant),
+    Effect.flatMap(Effect.map(currentInstant(options.now), decodeAuthorizationInstant), (instant) =>
+      personAuthorityEffect(cookieHeader, instant),
     ),
 );
 

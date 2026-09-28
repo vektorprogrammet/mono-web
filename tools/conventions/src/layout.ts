@@ -11,7 +11,6 @@ export const topLevelDirectories = {
   tools: "Development, verification, and migration tools",
   infra: "Worker preview deployment configuration",
   docs: "Intended system, architecture, operations, and active specifications",
-  patches: "Dependency patches that `patchedDependencies` in package.json applies",
   ".github": "Checks, Tests, Docs, and preview workflows and their actions",
   ".claude": "Claude Code settings and project rules",
   ".agents": "Agent skills of the repository: the Effect house overlay",
