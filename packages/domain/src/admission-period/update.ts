@@ -1,4 +1,5 @@
 import { Predicate, Effect, Struct } from "effect";
+import { dual } from "effect/Function";
 import type { DepartmentId } from "../organization/schema.js";
 import { compareRfc3339Instants, normalizeRfc3339Instant } from "../time.js";
 import {
@@ -44,7 +45,7 @@ export interface AdmissionPeriodDecision {
 }
 
 const activeActor = (actor: AdmissionPeriodActor): Effect.Effect<void, InactiveActor> =>
-  actor.active ? Effect.void : Effect.fail(new InactiveActor({ personId: actor.personId }));
+  actor.active ? Effect.void : Effect.fail(InactiveActor.make({ personId: actor.personId }));
 
 const managementActor = (
   actor: AdmissionPeriodActor,
@@ -56,7 +57,7 @@ const managementActor = (
       !Predicate.isTagged(actor, "DepartmentAdministrator") &&
       !Predicate.isTagged(actor, "GlobalAdmin")
     ) {
-      return yield* new AdmissionRoleDenied({ personId: actor.personId });
+      return yield* AdmissionRoleDenied.make({ personId: actor.personId });
     }
   });
 
@@ -67,7 +68,7 @@ const departmentForCreate = (
   if (Predicate.isTagged(actor, "DepartmentAdministrator")) {
     if (command.departmentId !== undefined && command.departmentId !== actor.departmentId) {
       return Effect.fail(
-        new AdmissionScopeDenied({
+        AdmissionScopeDenied.make({
           personId: actor.personId,
           departmentId: command.departmentId,
         }),
@@ -77,7 +78,7 @@ const departmentForCreate = (
     return Effect.succeed(actor.departmentId);
   }
 
-  if (command.departmentId === undefined) return Effect.fail(new DepartmentRequired());
+  if (command.departmentId === undefined) return Effect.fail(DepartmentRequired.make({}));
 
   return Effect.succeed(command.departmentId);
 };
@@ -90,12 +91,14 @@ const checkWindow = (
   const ordering = compareRfc3339Instants(startAt, endAt);
 
   if (ordering === 0) {
-    return Effect.fail(new InvalidAdmissionPeriodWindow({ startAt, endAt, reason: "EqualBounds" }));
+    return Effect.fail(
+      InvalidAdmissionPeriodWindow.make({ startAt, endAt, reason: "EqualBounds" }),
+    );
   }
 
   if (ordering > 0) {
     return Effect.fail(
-      new InvalidAdmissionPeriodWindow({ startAt, endAt, reason: "ReversedBounds" }),
+      InvalidAdmissionPeriodWindow.make({ startAt, endAt, reason: "ReversedBounds" }),
     );
   }
 
@@ -104,7 +107,7 @@ const checkWindow = (
     compareRfc3339Instants(endAt, semester.endAt) > 0
   ) {
     return Effect.fail(
-      new AdmissionWindowOutsideSemester({
+      AdmissionWindowOutsideSemester.make({
         semesterId: semester.semesterId,
         startAt,
         endAt,
@@ -138,100 +141,128 @@ const revisedObservation = (
 ): AdmissionPeriodObservation =>
   AdmissionPeriodObservationSchema.cases.Revised.make({ commandId, period });
 
-export const decideAdmissionPeriod = (
-  existing: AdmissionPeriod | undefined,
-  command: AdmissionPeriodCommand,
-  context: AdmissionPeriodDecisionContext,
-): Effect.Effect<AdmissionPeriodDecision, AdmissionPeriodFailure> =>
-  Effect.gen(function* () {
-    yield* managementActor(context.actor);
+export const decideAdmissionPeriod: {
+  (
+    command: AdmissionPeriodCommand,
+    context: AdmissionPeriodDecisionContext,
+  ): (
+    existing: AdmissionPeriod | undefined,
+  ) => Effect.Effect<AdmissionPeriodDecision, AdmissionPeriodFailure>;
+  (
+    existing: AdmissionPeriod | undefined,
+    command: AdmissionPeriodCommand,
+    context: AdmissionPeriodDecisionContext,
+  ): Effect.Effect<AdmissionPeriodDecision, AdmissionPeriodFailure>;
+} = dual(
+  3,
+  (
+    existing: AdmissionPeriod | undefined,
+    command: AdmissionPeriodCommand,
+    context: AdmissionPeriodDecisionContext,
+  ): Effect.Effect<AdmissionPeriodDecision, AdmissionPeriodFailure> =>
+    Effect.gen(function* () {
+      yield* managementActor(context.actor);
 
-    if (!isRfc3339Instant(context.now)) {
-      return yield* new InvalidAdmissionPeriodWindow({
-        startAt: context.now,
-        endAt: context.now,
-        reason: "EqualBounds",
-      });
-    }
-
-    if (Predicate.isTagged(command, "CreateAdmissionPeriod")) {
-      const departmentId = yield* departmentForCreate(command, context.actor);
-      yield* checkWindow(command.startAt, command.endAt, context.semester);
-
-      if (existing !== undefined) {
-        return yield* new AdmissionPeriodAlreadyExists({
-          departmentId,
-          semesterId: command.semesterId,
+      if (!isRfc3339Instant(context.now)) {
+        return yield* InvalidAdmissionPeriodWindow.make({
+          startAt: context.now,
+          endAt: context.now,
+          reason: "EqualBounds",
         });
       }
 
-      const period: AdmissionPeriod = {
-        id: periodIdForCreate(command, context),
-        departmentId,
-        semesterId: command.semesterId,
+      if (Predicate.isTagged(command, "CreateAdmissionPeriod")) {
+        const departmentId = yield* departmentForCreate(command, context.actor);
+        yield* checkWindow(command.startAt, command.endAt, context.semester);
+
+        if (existing !== undefined) {
+          return yield* AdmissionPeriodAlreadyExists.make({
+            departmentId,
+            semesterId: command.semesterId,
+          });
+        }
+
+        const period: AdmissionPeriod = {
+          id: periodIdForCreate(command, context),
+          departmentId,
+          semesterId: command.semesterId,
+          startAt: normalizedInstant(command.startAt),
+          endAt: normalizedInstant(command.endAt),
+          revision: 0,
+          lastCommandId: command.commandId,
+        };
+
+        return {
+          period,
+          observation: createdObservation(command.commandId, period),
+          outbox: [admissionPeriodOutboxRequest(command.commandId, period)],
+          auditAction: "AdmissionPeriodCreated" as const,
+        };
+      }
+
+      const current = existing;
+
+      if (current === undefined) {
+        return yield* AdmissionPeriodNotFound.make({
+          admissionPeriodId: command.admissionPeriodId,
+        });
+      }
+
+      const actorDepartment = Predicate.isTagged(context.actor, "DepartmentAdministrator")
+        ? context.actor.departmentId
+        : current.departmentId;
+
+      if (actorDepartment !== current.departmentId) {
+        return yield* AdmissionScopeDenied.make({
+          personId: context.actor.personId,
+          departmentId: current.departmentId,
+          admissionPeriodId: current.id,
+        });
+      }
+
+      if (current.revision !== command.expectedRevision) {
+        return yield* StaleAdmissionPeriodRevision.make({
+          admissionPeriodId: current.id,
+          expected: command.expectedRevision,
+          actual: current.revision,
+        });
+      }
+
+      yield* checkWindow(command.startAt, command.endAt, context.semester);
+
+      const period: AdmissionPeriod = Struct.assign(current, {
         startAt: normalizedInstant(command.startAt),
         endAt: normalizedInstant(command.endAt),
-        revision: 0,
+        revision: current.revision + 1,
         lastCommandId: command.commandId,
-      };
+      });
 
       return {
         period,
-        observation: createdObservation(command.commandId, period),
+        observation: revisedObservation(command.commandId, period),
         outbox: [admissionPeriodOutboxRequest(command.commandId, period)],
-        auditAction: "AdmissionPeriodCreated" as const,
+        auditAction: "AdmissionPeriodRevised" as const,
       };
-    }
+    }),
+);
 
-    const current = existing;
-
-    if (current === undefined) {
-      return yield* new AdmissionPeriodNotFound({ admissionPeriodId: command.admissionPeriodId });
-    }
-
-    const actorDepartment = Predicate.isTagged(context.actor, "DepartmentAdministrator")
-      ? context.actor.departmentId
-      : current.departmentId;
-
-    if (actorDepartment !== current.departmentId) {
-      return yield* new AdmissionScopeDenied({
-        personId: context.actor.personId,
-        departmentId: current.departmentId,
-        admissionPeriodId: current.id,
-      });
-    }
-
-    if (current.revision !== command.expectedRevision) {
-      return yield* new StaleAdmissionPeriodRevision({
-        admissionPeriodId: current.id,
-        expected: command.expectedRevision,
-        actual: current.revision,
-      });
-    }
-
-    yield* checkWindow(command.startAt, command.endAt, context.semester);
-
-    const period: AdmissionPeriod = Struct.assign(current, {
-      startAt: normalizedInstant(command.startAt),
-      endAt: normalizedInstant(command.endAt),
-      revision: current.revision + 1,
-      lastCommandId: command.commandId,
-    });
-
-    return {
-      period,
-      observation: revisedObservation(command.commandId, period),
-      outbox: [admissionPeriodOutboxRequest(command.commandId, period)],
-      auditAction: "AdmissionPeriodRevised" as const,
-    };
-  });
-
-export const contextForActor = (
-  context: AdmissionPeriodCommandContext,
-  semester: AdmissionSemester,
-): AdmissionPeriodDecisionContext => ({
-  actor: context.actor,
-  now: context.now,
-  admissionPeriodId: context.admissionPeriodId,
-  semester,
-});
+export const contextForActor: {
+  (
+    semester: AdmissionSemester,
+  ): (context: AdmissionPeriodCommandContext) => AdmissionPeriodDecisionContext;
+  (
+    context: AdmissionPeriodCommandContext,
+    semester: AdmissionSemester,
+  ): AdmissionPeriodDecisionContext;
+} = dual(
+  2,
+  (
+    context: AdmissionPeriodCommandContext,
+    semester: AdmissionSemester,
+  ): AdmissionPeriodDecisionContext => ({
+    actor: context.actor,
+    now: context.now,
+    admissionPeriodId: context.admissionPeriodId,
+    semester,
+  }),
+);

@@ -5,6 +5,7 @@ import {
 } from "@vektorprogrammet/domain/team-application";
 import { Duration, Effect, Predicate, Schedule } from "effect";
 import type { TeamApplicationDeliveryConfig } from "../config.js";
+import { dual } from "effect/Function";
 
 /**
  * Queue settings of a delivering process. The lease refresh runs three times per stale
@@ -38,12 +39,7 @@ export const runTeamApplicationDeliveryWorker = (sender: string) =>
     ),
   );
 
-/**
- * Attempts at most `limit` notifications for a scheduler that starts delivery instead of
- * a resident worker, and stops early when no notification was taken within `idle`. Then
- * it removes completed queue items past their retention.
- */
-export const drainTeamApplicationOutbox = (
+const drainTeamApplicationOutboxEffect = (
   sender: string,
   options: { readonly limit: number; readonly idle: Duration.Duration },
 ) =>
@@ -63,3 +59,19 @@ export const drainTeamApplicationOutbox = (
 
     return outcomes;
   });
+
+/**
+ * Attempts at most `limit` notifications for a scheduler that starts delivery instead of
+ * a resident worker, and stops early when no notification was taken within `idle`. Then
+ * it removes completed queue items past their retention.
+ */
+export const drainTeamApplicationOutbox: {
+  (options: {
+    readonly limit: number;
+    readonly idle: Duration.Duration;
+  }): (sender: string) => ReturnType<typeof drainTeamApplicationOutboxEffect>;
+  (
+    sender: string,
+    options: { readonly limit: number; readonly idle: Duration.Duration },
+  ): ReturnType<typeof drainTeamApplicationOutboxEffect>;
+} = dual(2, drainTeamApplicationOutboxEffect);

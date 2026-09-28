@@ -199,14 +199,14 @@ const traceReceipt = (sql: DatabaseOperations, receiptId: string) =>
     );
 
     const command = yield* Effect.result(
-      executeReceiptCommand(
-        ReceiptCommandRequestSchema.cases.RejectReceipt.make({
+      executeReceiptCommand({
+        command: ReceiptCommandRequestSchema.cases.RejectReceipt.make({
           commandId: `rule-reconciliation-command-${receiptId}`,
           receiptId: ReceiptId.make(receiptId),
           expectedRevision: before.revision,
         }),
-        { personId: principalId, authorizationInstant },
-      ),
+        principal: { personId: principalId, authorizationInstant },
+      }),
     );
 
     const after = yield* readTraceRow(sql, receiptId);

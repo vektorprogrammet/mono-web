@@ -2,8 +2,8 @@
 
 # apps/backend/src/profile
 
-This folder holds People code under another name. Profile HTTP handlers under their older name.
-The backend layer holds HTTP handlers, delivery workers, and provider adapters that the native process composes. It keeps response receipts and preconditions in the transport, and provider I/O after commit.
+This folder holds People code under another name. Profile RPC handlers under their older name.
+The backend layer holds RPC handlers, delivery workers, and provider adapters that the native process composes. It keeps command receipts and preconditions in the transport, and provider I/O after commit.
 
 The People context in other folders:
 

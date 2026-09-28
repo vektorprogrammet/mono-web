@@ -1,4 +1,5 @@
 import { Predicate } from "effect";
+import { dual } from "effect/Function";
 import {
   PrincipalSchema,
   AuthorityVersion,
@@ -64,29 +65,44 @@ const receiptAuthorityVersion = (
     ].join("|"),
   );
 
-export const makeReceiptApprovalContext = (
-  receipt: ReceiptApprovalCandidate,
-  organization: OrganizationPersonAuthority,
-  directAuthority: ReceiptAuthority,
-  rules: ReadonlyArray<AuthzRule>,
-): CanonicalResourceContext<ReceiptAccessFacts> => ({
-  domainId: RECEIPT_DOMAIN_ID,
-  departmentId: receipt.departmentId,
-  resource: {
-    kind: RECEIPT_RESOURCE_KIND,
-    id: ResourceId.make(receipt.receiptId),
-  },
-  facts: {
-    ownerPersonId: receipt.ownerPersonId,
-    state: receipt.status,
-    approverPersonIds: isCanonicalApproverRelationship(organization, receipt.departmentId)
-      ? [directAuthority.personId]
-      : [],
-    approverServicePrincipalIds: [],
-    internalEvidenceEnabled: false,
-  },
-  authorityVersion: receiptAuthorityVersion(receipt, organization, directAuthority, rules),
-});
+export const makeReceiptApprovalContext: {
+  (
+    organization: OrganizationPersonAuthority,
+    directAuthority: ReceiptAuthority,
+    rules: ReadonlyArray<AuthzRule>,
+  ): (receipt: ReceiptApprovalCandidate) => CanonicalResourceContext<ReceiptAccessFacts>;
+  (
+    receipt: ReceiptApprovalCandidate,
+    organization: OrganizationPersonAuthority,
+    directAuthority: ReceiptAuthority,
+    rules: ReadonlyArray<AuthzRule>,
+  ): CanonicalResourceContext<ReceiptAccessFacts>;
+} = dual(
+  4,
+  (
+    receipt: ReceiptApprovalCandidate,
+    organization: OrganizationPersonAuthority,
+    directAuthority: ReceiptAuthority,
+    rules: ReadonlyArray<AuthzRule>,
+  ): CanonicalResourceContext<ReceiptAccessFacts> => ({
+    domainId: RECEIPT_DOMAIN_ID,
+    departmentId: receipt.departmentId,
+    resource: {
+      kind: RECEIPT_RESOURCE_KIND,
+      id: ResourceId.make(receipt.receiptId),
+    },
+    facts: {
+      ownerPersonId: receipt.ownerPersonId,
+      state: receipt.status,
+      approverPersonIds: isCanonicalApproverRelationship(organization, receipt.departmentId)
+        ? [directAuthority.personId]
+        : [],
+      approverServicePrincipalIds: [],
+      internalEvidenceEnabled: false,
+    },
+    authorityVersion: receiptAuthorityVersion(receipt, organization, directAuthority, rules),
+  }),
+);
 
 /**
  * Evaluates every collection row against its canonical receipt context. The
@@ -99,87 +115,132 @@ export interface ReceiptApprovalSelectionEvidence {
   readonly inactiveGrantSeen: boolean;
 }
 
-export const evaluateReceiptApprovalCandidates = (
-  organization: OrganizationPersonAuthority,
-  directAuthority: ReceiptAuthority,
-  candidates: ReadonlyArray<ReceiptApprovalCandidate>,
-  rules: ReadonlyArray<AuthzRule>,
-  tagAssignments: ReadonlyArray<AuthzTagAssignment>,
-): ReceiptApprovalSelectionEvidence => {
-  const directEvidence = { approvalGrants: directAuthority.approvalGrants };
-  const receiptIds: string[] = [];
-  let denialReason: DecisionReason | undefined;
-  let inactiveGrantSeen = directAuthority.approvalGrants.length > 0;
+export const evaluateReceiptApprovalCandidates: {
+  (
+    directAuthority: ReceiptAuthority,
+    candidates: ReadonlyArray<ReceiptApprovalCandidate>,
+    rules: ReadonlyArray<AuthzRule>,
+    tagAssignments: ReadonlyArray<AuthzTagAssignment>,
+  ): (organization: OrganizationPersonAuthority) => ReceiptApprovalSelectionEvidence;
+  (
+    organization: OrganizationPersonAuthority,
+    directAuthority: ReceiptAuthority,
+    candidates: ReadonlyArray<ReceiptApprovalCandidate>,
+    rules: ReadonlyArray<AuthzRule>,
+    tagAssignments: ReadonlyArray<AuthzTagAssignment>,
+  ): ReceiptApprovalSelectionEvidence;
+} = dual(
+  5,
+  (
+    organization: OrganizationPersonAuthority,
+    directAuthority: ReceiptAuthority,
+    candidates: ReadonlyArray<ReceiptApprovalCandidate>,
+    rules: ReadonlyArray<AuthzRule>,
+    tagAssignments: ReadonlyArray<AuthzTagAssignment>,
+  ): ReceiptApprovalSelectionEvidence => {
+    const directEvidence = { approvalGrants: directAuthority.approvalGrants };
+    const receiptIds: string[] = [];
+    let denialReason: DecisionReason | undefined;
+    let inactiveGrantSeen = directAuthority.approvalGrants.length > 0;
 
-  for (const receipt of candidates) {
-    const context = makeReceiptApprovalContext(receipt, organization, directAuthority, rules);
+    for (const receipt of candidates) {
+      const context = makeReceiptApprovalContext(receipt, organization, directAuthority, rules);
 
-    const composition = composeCapabilityEvidence("approveReceipt", directEvidence, rules, {
-      principal: PrincipalSchema.cases.Person.make({ personId: directAuthority.personId }),
-      authorizationInstant: directAuthority.evaluatedAt,
-      context,
-      tagAssignments,
-    });
+      const composition = composeCapabilityEvidence("approveReceipt", directEvidence, rules, {
+        principal: PrincipalSchema.cases.Person.make({ personId: directAuthority.personId }),
+        authorizationInstant: directAuthority.evaluatedAt,
+        context,
+        tagAssignments,
+      });
 
-    if (Predicate.isTagged(composition.decision, "Deny")) {
-      denialReason ??= composition.decision.reason;
-      continue;
+      if (Predicate.isTagged(composition.decision, "Deny")) {
+        denialReason ??= composition.decision.reason;
+        continue;
+      }
+
+      const authority = projectReceiptAuthority(
+        organization,
+        [],
+        composition.decision.value.approvalGrants ?? [],
+      );
+
+      const selected = selectReceiptApprovalGrant(authority, receipt.departmentId);
+
+      if (selected?.active === true) {
+        receiptIds.push(receipt.receiptId);
+      } else {
+        inactiveGrantSeen ||= selected !== undefined;
+      }
     }
 
-    const authority = projectReceiptAuthority(
-      organization,
-      [],
-      composition.decision.value.approvalGrants ?? [],
-    );
+    return { receiptIds, candidateSeen: candidates.length > 0, denialReason, inactiveGrantSeen };
+  },
+);
 
-    const selected = selectReceiptApprovalGrant(authority, receipt.departmentId);
+export const receiptApprovalSelectionDecision: {
+  (
+    evidence: ReceiptApprovalSelectionEvidence,
+  ): (directAuthority: ReceiptAuthority) => Decision<ReceiptApprovalSelection>;
+  (
+    directAuthority: ReceiptAuthority,
+    evidence: ReceiptApprovalSelectionEvidence,
+  ): Decision<ReceiptApprovalSelection>;
+} = dual(
+  2,
+  (
+    directAuthority: ReceiptAuthority,
+    evidence: ReceiptApprovalSelectionEvidence,
+  ): Decision<ReceiptApprovalSelection> => {
+    if (directAuthority.organizationAuthority !== "Active") return deny("AuthorityInactive");
 
-    if (selected?.active === true) {
-      receiptIds.push(receipt.receiptId);
-    } else {
-      inactiveGrantSeen ||= selected !== undefined;
+    if (!evidence.candidateSeen) {
+      return directAuthority.approvalGrants.some(({ active }) => active)
+        ? allow({ receiptIds: [] })
+        : deny(directAuthority.approvalGrants.length > 0 ? "AuthorityInactive" : "NotInScope");
     }
-  }
 
-  return { receiptIds, candidateSeen: candidates.length > 0, denialReason, inactiveGrantSeen };
-};
+    if (evidence.receiptIds.length > 0) return allow({ receiptIds: evidence.receiptIds });
 
-export const receiptApprovalSelectionDecision = (
-  directAuthority: ReceiptAuthority,
-  evidence: ReceiptApprovalSelectionEvidence,
-): Decision<ReceiptApprovalSelection> => {
-  if (directAuthority.organizationAuthority !== "Active") return deny("AuthorityInactive");
+    if (evidence.denialReason !== undefined) return deny(evidence.denialReason);
 
-  if (!evidence.candidateSeen) {
-    return directAuthority.approvalGrants.some(({ active }) => active)
-      ? allow({ receiptIds: [] })
-      : deny(directAuthority.approvalGrants.length > 0 ? "AuthorityInactive" : "NotInScope");
-  }
+    return deny(evidence.inactiveGrantSeen ? "AuthorityInactive" : "NotInScope");
+  },
+);
 
-  if (evidence.receiptIds.length > 0) return allow({ receiptIds: evidence.receiptIds });
-
-  if (evidence.denialReason !== undefined) return deny(evidence.denialReason);
-
-  return deny(evidence.inactiveGrantSeen ? "AuthorityInactive" : "NotInScope");
-};
-
-export const selectAuthorizedReceiptApprovals = (
-  organization: OrganizationPersonAuthority,
-  directAuthority: ReceiptAuthority,
-  candidates: ReadonlyArray<ReceiptApprovalCandidate>,
-  rules: ReadonlyArray<AuthzRule>,
-  tagAssignments: ReadonlyArray<AuthzTagAssignment>,
-): Decision<ReceiptApprovalSelection> =>
-  receiptApprovalSelectionDecision(
-    directAuthority,
-    evaluateReceiptApprovalCandidates(
-      organization,
+export const selectAuthorizedReceiptApprovals: {
+  (
+    directAuthority: ReceiptAuthority,
+    candidates: ReadonlyArray<ReceiptApprovalCandidate>,
+    rules: ReadonlyArray<AuthzRule>,
+    tagAssignments: ReadonlyArray<AuthzTagAssignment>,
+  ): (organization: OrganizationPersonAuthority) => Decision<ReceiptApprovalSelection>;
+  (
+    organization: OrganizationPersonAuthority,
+    directAuthority: ReceiptAuthority,
+    candidates: ReadonlyArray<ReceiptApprovalCandidate>,
+    rules: ReadonlyArray<AuthzRule>,
+    tagAssignments: ReadonlyArray<AuthzTagAssignment>,
+  ): Decision<ReceiptApprovalSelection>;
+} = dual(
+  5,
+  (
+    organization: OrganizationPersonAuthority,
+    directAuthority: ReceiptAuthority,
+    candidates: ReadonlyArray<ReceiptApprovalCandidate>,
+    rules: ReadonlyArray<AuthzRule>,
+    tagAssignments: ReadonlyArray<AuthzTagAssignment>,
+  ): Decision<ReceiptApprovalSelection> =>
+    receiptApprovalSelectionDecision(
       directAuthority,
-      candidates,
-      rules,
-      tagAssignments,
+      evaluateReceiptApprovalCandidates(
+        organization,
+        directAuthority,
+        candidates,
+        rules,
+        tagAssignments,
+      ),
     ),
-  );
+);
 
 const isPendingReceiptRequirement = (rule: AuthzRule): boolean =>
   rule.effectKind === "requirement" && rule.params.requirementId === "receipts.pending";
@@ -188,17 +249,34 @@ const isPendingReceiptRequirement = (rule: AuthzRule): boolean =>
  * Applies the queue's rule-aware approver relationship to one canonical
  * receipt while deliberately excluding the decision-only pending requirement.
  */
-export const selectAuthorizedReceiptFileForApproval = (
-  organization: OrganizationPersonAuthority,
-  directAuthority: ReceiptAuthority,
-  candidate: ReceiptApprovalCandidate,
-  rules: ReadonlyArray<AuthzRule>,
-  tagAssignments: ReadonlyArray<AuthzTagAssignment>,
-): Decision<ReceiptApprovalSelection> =>
-  selectAuthorizedReceiptApprovals(
-    organization,
-    directAuthority,
-    [candidate],
-    rules.filter((rule) => !isPendingReceiptRequirement(rule)),
-    tagAssignments,
-  );
+export const selectAuthorizedReceiptFileForApproval: {
+  (
+    directAuthority: ReceiptAuthority,
+    candidate: ReceiptApprovalCandidate,
+    rules: ReadonlyArray<AuthzRule>,
+    tagAssignments: ReadonlyArray<AuthzTagAssignment>,
+  ): (organization: OrganizationPersonAuthority) => Decision<ReceiptApprovalSelection>;
+  (
+    organization: OrganizationPersonAuthority,
+    directAuthority: ReceiptAuthority,
+    candidate: ReceiptApprovalCandidate,
+    rules: ReadonlyArray<AuthzRule>,
+    tagAssignments: ReadonlyArray<AuthzTagAssignment>,
+  ): Decision<ReceiptApprovalSelection>;
+} = dual(
+  5,
+  (
+    organization: OrganizationPersonAuthority,
+    directAuthority: ReceiptAuthority,
+    candidate: ReceiptApprovalCandidate,
+    rules: ReadonlyArray<AuthzRule>,
+    tagAssignments: ReadonlyArray<AuthzTagAssignment>,
+  ): Decision<ReceiptApprovalSelection> =>
+    selectAuthorizedReceiptApprovals(
+      organization,
+      directAuthority,
+      [candidate],
+      rules.filter((rule) => !isPendingReceiptRequirement(rule)),
+      tagAssignments,
+    ),
+);

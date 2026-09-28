@@ -11,7 +11,8 @@
  * assistants to schools. The injected `Random` is the only source of randomness, so the
  * same input and seed give the same draft.
  */
-import { Schema, type Random } from "effect";
+import { Schema, type Random, Predicate } from "effect";
+import { dual } from "effect/Function";
 import {
   AssistantLanguageSchema,
   ReturningAssistantPreferencesSchema,
@@ -624,47 +625,53 @@ const distribute = (
  * of one weekday at one school. Duplicate slots add up; a repeated person counts once.
  * The result depends on the input content and `random`, not on input order.
  */
-export const draftPlacements = (
-  input: PlacementDraftInput,
-  random: Random.Random,
-  search: DraftSearch = defaultDraftSearch,
-): PlacementDraftPlan => {
-  const schools = schoolDays(input.slots);
-  const capacity = capacityOf(schools);
-  const everyone = candidatesOf(input.assistants);
-  const empty = emptySchedule(0);
+export const draftPlacements: {
+  (random: Random.Random, search?: DraftSearch): (input: PlacementDraftInput) => PlacementDraftPlan;
+  (input: PlacementDraftInput, random: Random.Random, search?: DraftSearch): PlacementDraftPlan;
+} = dual(
+  (args) => Predicate.hasProperty(args[0], "slots"),
+  (
+    input: PlacementDraftInput,
+    random: Random.Random,
+    search: DraftSearch = defaultDraftSearch,
+  ): PlacementDraftPlan => {
+    const schools = schoolDays(input.slots);
+    const capacity = capacityOf(schools);
+    const everyone = candidatesOf(input.assistants);
+    const empty = emptySchedule(0);
 
-  // A candidate with no weekday that could ever take it stays out of the search.
-  const candidates = everyone.filter((candidate) =>
-    candidate.days.some((day) => firstFit(capacity, empty, candidate, day) !== none),
-  );
+    // A candidate with no weekday that could ever take it stays out of the search.
+    const candidates = everyone.filter((candidate) =>
+      candidate.days.some((day) => firstFit(capacity, empty, candidate, day) !== none),
+    );
 
-  const bound = upperBound(capacity, candidates);
-  let best: Schedule | undefined;
+    const bound = upperBound(capacity, candidates);
+    let best: Schedule | undefined;
 
-  for (let run = 0; run < Math.max(1, search.restarts); run += 1) {
-    const start = emptySchedule(candidates.length);
-    fill(capacity, candidates, start, run === 0 ? canonicalOrder : shuffledOrder(random));
-    const result = anneal(capacity, candidates, bound, start, random, search);
+    for (let run = 0; run < Math.max(1, search.restarts); run += 1) {
+      const start = emptySchedule(candidates.length);
+      fill(capacity, candidates, start, run === 0 ? canonicalOrder : shuffledOrder(random));
+      const result = anneal(capacity, candidates, bound, start, random, search);
 
-    if (best === undefined || result.filled > best.filled) best = result;
+      if (best === undefined || result.filled > best.filled) best = result;
 
-    if (best.filled >= bound) break;
-  }
+      if (best.filled >= bound) break;
+    }
 
-  const schedule = best ?? emptySchedule(candidates.length);
-  const assignments = distribute(schools, candidates, schedule);
-  const assigned = new Set(assignments.map((assignment) => assignment.personId));
+    const schedule = best ?? emptySchedule(candidates.length);
+    const assignments = distribute(schools, candidates, schedule);
+    const assigned = new Set(assignments.map((assignment) => assignment.personId));
 
-  return {
-    assignments,
-    unplaced: everyone.flatMap((candidate) =>
-      assigned.has(candidate.personId) ? [] : [candidate.personId],
-    ),
-    openPlaces: capacity.total,
-    filledPlaces: schedule.filled,
-  };
-};
+    return {
+      assignments,
+      unplaced: everyone.flatMap((candidate) =>
+        assigned.has(candidate.personId) ? [] : [candidate.personId],
+      ),
+      openPlaces: capacity.total,
+      filledPlaces: schedule.filled,
+    };
+  },
+);
 
 export interface PlacementDraftSource {
   readonly board: Pick<
@@ -689,25 +696,38 @@ const blockByGroup: Record<AssistantPreferredGroup, DraftBlock> = {
  * unavailable, and, as in the legacy scheduler, both blocks for an eight-week position,
  * whatever block a four-week position would take.
  */
-export const placementSupplyOf = (
-  personId: PersonId,
-  availability: AssistantAvailability,
-  preferredSchool: SchoolWishes["preferredSchool"],
-): PlacementSupply => ({
-  personId,
-  days: days.filter(
-    (day) =>
-      !{
-        Monday: availability.mondayUnavailable,
-        Tuesday: availability.tuesdayUnavailable,
-        Wednesday: availability.wednesdayUnavailable,
-        Thursday: availability.thursdayUnavailable,
-        Friday: availability.fridayUnavailable,
-      }[day],
-  ),
-  block: availability.positionWeeks === 8 ? "Both" : blockByGroup[availability.preferredGroup],
-  wishes: { language: availability.language, preferredSchool },
-});
+export const placementSupplyOf: {
+  (
+    availability: AssistantAvailability,
+    preferredSchool: SchoolWishes["preferredSchool"],
+  ): (personId: PersonId) => PlacementSupply;
+  (
+    personId: PersonId,
+    availability: AssistantAvailability,
+    preferredSchool: SchoolWishes["preferredSchool"],
+  ): PlacementSupply;
+} = dual(
+  3,
+  (
+    personId: PersonId,
+    availability: AssistantAvailability,
+    preferredSchool: SchoolWishes["preferredSchool"],
+  ): PlacementSupply => ({
+    personId,
+    days: days.filter(
+      (day) =>
+        !{
+          Monday: availability.mondayUnavailable,
+          Tuesday: availability.tuesdayUnavailable,
+          Wednesday: availability.wednesdayUnavailable,
+          Thursday: availability.thursdayUnavailable,
+          Friday: availability.fridayUnavailable,
+        }[day],
+    ),
+    block: availability.positionWeeks === 8 ? "Both" : blockByGroup[availability.preferredGroup],
+    wishes: { language: availability.language, preferredSchool },
+  }),
+);
 
 const workdaysPerBlock = 4;
 
@@ -727,114 +747,125 @@ const halves = (block: DraftAssignment["block"]): ReadonlyArray<typeof TeachingB
  * active affiliations without an active placement in the semester; those without an
  * available weekday are reported, not drafted. A drafted placement serves 4 workdays per block.
  */
-export const buildPlacementDraft = (
-  source: PlacementDraftSource,
-  random: Random.Random,
-  search: DraftSearch = defaultDraftSearch,
-): PlacementDraft => {
-  const { board } = source;
-  const occupied = new Map<string, number>();
-  const placed = new Set<PersonId>();
+export const buildPlacementDraft: {
+  (random: Random.Random, search?: DraftSearch): (source: PlacementDraftSource) => PlacementDraft;
+  (source: PlacementDraftSource, random: Random.Random, search?: DraftSearch): PlacementDraft;
+} = dual(
+  (args) => Predicate.hasProperty(args[0], "board"),
+  (
+    source: PlacementDraftSource,
+    random: Random.Random,
+    search: DraftSearch = defaultDraftSearch,
+  ): PlacementDraft => {
+    const { board } = source;
+    const occupied = new Map<string, number>();
+    const placed = new Set<PersonId>();
 
-  for (const placement of board.placements) {
-    if (!placement.active) continue;
-    placed.add(placement.personId);
+    for (const placement of board.placements) {
+      if (!placement.active) continue;
+      placed.add(placement.personId);
 
-    for (const block of halves(placement.block)) {
-      const key = slotKey(placement.schoolId, placement.day, block);
-      occupied.set(key, (occupied.get(key) ?? 0) + 1);
+      for (const block of halves(placement.block)) {
+        const key = slotKey(placement.schoolId, placement.day, block);
+        occupied.set(key, (occupied.get(key) ?? 0) + 1);
+      }
     }
-  }
 
-  const bounds = new Map(
-    source.capacities.map((capacity) => [`${capacity.schoolId}:${capacity.day}`, capacity.places]),
-  );
-
-  const schoolNames = new Map(board.schools.map((school) => [school.schoolId, school.name]));
-
-  const slots = board.demands.flatMap((demand): ReadonlyArray<DraftSlot> => {
-    if (!schoolNames.has(demand.schoolId)) return [];
-
-    const bound = Math.min(
-      demand.requiredVolunteers,
-      bounds.get(`${demand.schoolId}:${demand.day}`) ?? demand.requiredVolunteers,
+    const bounds = new Map(
+      source.capacities.map((capacity) => [
+        `${capacity.schoolId}:${capacity.day}`,
+        capacity.places,
+      ]),
     );
 
-    const places = bound - (occupied.get(slotKey(demand.schoolId, demand.day, demand.block)) ?? 0);
+    const schoolNames = new Map(board.schools.map((school) => [school.schoolId, school.name]));
 
-    return places > 0
-      ? [{ schoolId: demand.schoolId, day: demand.day, block: demand.block, places }]
-      : [];
-  });
+    const slots = board.demands.flatMap((demand): ReadonlyArray<DraftSlot> => {
+      if (!schoolNames.has(demand.schoolId)) return [];
 
-  const people = board.affiliations.filter(
-    (affiliation) => affiliation.status === "Active" && !placed.has(affiliation.personId),
-  );
+      const bound = Math.min(
+        demand.requiredVolunteers,
+        bounds.get(`${demand.schoolId}:${demand.day}`) ?? demand.requiredVolunteers,
+      );
 
-  const supply = new Map(source.availability.map((entry) => [entry.personId, entry]));
-
-  const assistants = people.flatMap((person) => {
-    const entry = supply.get(person.personId);
-
-    return entry === undefined || entry.days.length === 0 ? [] : [entry];
-  });
-
-  const plan = draftPlacements({ slots, assistants }, random, search);
-  const byPerson = new Map(people.map((person) => [person.personId, person]));
-  const withoutPlace = new Set(plan.unplaced);
-  const drafted = new Set(plan.assignments.map((assignment) => assignment.personId));
-  const filled = new Map<string, number>();
-
-  for (const assignment of plan.assignments) {
-    for (const block of halves(assignment.block)) {
-      const key = slotKey(assignment.schoolId, assignment.day, block);
-      filled.set(key, (filled.get(key) ?? 0) + 1);
-    }
-  }
-
-  return {
-    departmentId: board.departmentId,
-    semesterId: board.semesterId,
-    placements: plan.assignments.flatMap((assignment) => {
-      const entry = supply.get(assignment.personId);
-
-      // The scheduler places only the assistants that the supply lists.
-      if (entry === undefined) return [];
-
-      return [
-        {
-          ...assignment,
-          firstName: byPerson.get(assignment.personId)?.firstName ?? "",
-          lastName: byPerson.get(assignment.personId)?.lastName ?? "",
-          schoolName: schoolNames.get(assignment.schoolId) ?? "",
-          workdays: halves(assignment.block).length * workdaysPerBlock,
-          wishes: entry.wishes,
-        },
-      ];
-    }),
-    unplaced: people.flatMap((person) =>
-      drafted.has(person.personId)
-        ? []
-        : [
-            {
-              personId: person.personId,
-              firstName: person.firstName,
-              lastName: person.lastName,
-              reason: withoutPlace.has(person.personId)
-                ? ("NoOpenPlace" as const)
-                : ("NoAvailability" as const),
-              wishes: supply.get(person.personId)?.wishes ?? null,
-            },
-          ],
-    ),
-    openSlots: slots.flatMap((slot) => {
-      const places = slot.places - (filled.get(slotKey(slot.schoolId, slot.day, slot.block)) ?? 0);
+      const places =
+        bound - (occupied.get(slotKey(demand.schoolId, demand.day, demand.block)) ?? 0);
 
       return places > 0
-        ? [{ ...slot, schoolName: schoolNames.get(slot.schoolId) ?? "", places }]
+        ? [{ schoolId: demand.schoolId, day: demand.day, block: demand.block, places }]
         : [];
-    }),
-    openPlaces: plan.openPlaces,
-    filledPlaces: plan.filledPlaces,
-  };
-};
+    });
+
+    const people = board.affiliations.filter(
+      (affiliation) => affiliation.status === "Active" && !placed.has(affiliation.personId),
+    );
+
+    const supply = new Map(source.availability.map((entry) => [entry.personId, entry]));
+
+    const assistants = people.flatMap((person) => {
+      const entry = supply.get(person.personId);
+
+      return entry === undefined || entry.days.length === 0 ? [] : [entry];
+    });
+
+    const plan = draftPlacements({ slots, assistants }, random, search);
+    const byPerson = new Map(people.map((person) => [person.personId, person]));
+    const withoutPlace = new Set(plan.unplaced);
+    const drafted = new Set(plan.assignments.map((assignment) => assignment.personId));
+    const filled = new Map<string, number>();
+
+    for (const assignment of plan.assignments) {
+      for (const block of halves(assignment.block)) {
+        const key = slotKey(assignment.schoolId, assignment.day, block);
+        filled.set(key, (filled.get(key) ?? 0) + 1);
+      }
+    }
+
+    return {
+      departmentId: board.departmentId,
+      semesterId: board.semesterId,
+      placements: plan.assignments.flatMap((assignment) => {
+        const entry = supply.get(assignment.personId);
+
+        // The scheduler places only the assistants that the supply lists.
+        if (entry === undefined) return [];
+
+        return [
+          {
+            ...assignment,
+            firstName: byPerson.get(assignment.personId)?.firstName ?? "",
+            lastName: byPerson.get(assignment.personId)?.lastName ?? "",
+            schoolName: schoolNames.get(assignment.schoolId) ?? "",
+            workdays: halves(assignment.block).length * workdaysPerBlock,
+            wishes: entry.wishes,
+          },
+        ];
+      }),
+      unplaced: people.flatMap((person) =>
+        drafted.has(person.personId)
+          ? []
+          : [
+              {
+                personId: person.personId,
+                firstName: person.firstName,
+                lastName: person.lastName,
+                reason: withoutPlace.has(person.personId)
+                  ? ("NoOpenPlace" as const)
+                  : ("NoAvailability" as const),
+                wishes: supply.get(person.personId)?.wishes ?? null,
+              },
+            ],
+      ),
+      openSlots: slots.flatMap((slot) => {
+        const places =
+          slot.places - (filled.get(slotKey(slot.schoolId, slot.day, slot.block)) ?? 0);
+
+        return places > 0
+          ? [{ ...slot, schoolName: schoolNames.get(slot.schoolId) ?? "", places }]
+          : [];
+      }),
+      openPlaces: plan.openPlaces,
+      filledPlaces: plan.filledPlaces,
+    };
+  },
+);

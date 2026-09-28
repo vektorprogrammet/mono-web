@@ -1,26 +1,54 @@
 import { RouterContextProvider } from "react-router";
 import { contactIngressContext } from "../src/lib/contact-context.server";
-import { DepartmentJsonSchema, type DepartmentJson } from "@vektorprogrammet/http-api"
-import { Schema } from "effect";
+import { ContactVisitorIp } from "@vektorprogrammet/rpc";
+import type { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  type NativeBackend,
+  nativeRpcProblem,
+  nativeRpcSuccess,
+  stubNativeBackend,
+} from "./native-rpc";
 
-const contactApi = { departments: Array<DepartmentJson>() };
+vi.stubEnv("API_URL", "http://api.test");
 
-const withDepartmentResponse = (deliver: typeof globalThis.fetch): typeof globalThis.fetch => async (input, init) => {
-  const url = new URL(input instanceof Request ? input.url : String(input));
+const backend = stubNativeBackend();
 
-  if (url.pathname === "/api/departments") return Response.json(contactApi.departments, { headers: {
-    "cache-control": "public, max-age=60, s-maxage=300, must-revalidate",
-    vary: "Origin",
-    etag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"',
-  } });
+/** A department as `organization.listDepartments` encodes it. */
+const makeDepartment = (overrides: { readonly [field: string]: Schema.Json } = {}) => ({
+  departmentId: "department-17",
+  name: "Vektorprogrammet Ås",
+  shortName: "Ås",
+  email: "aas@example.com",
+  address: "Universitetsveien 1",
+  city: "Ås",
+  latitude: "59.66",
+  longitude: "10.77",
+  slackChannel: null,
+  logoPath: null,
+  active: true,
+  revision: 0,
+  ...overrides,
+});
 
-  return deliver(input, init);
+const contactApi = { departments: Array<ReturnType<typeof makeDepartment>>() };
+
+/** Answers the department list, and passes every other call to `contact`. */
+const withDepartments =
+  (contact: NativeBackend): NativeBackend =>
+  (call) =>
+    call.tag === "organization.listDepartments"
+      ? nativeRpcSuccess(call, contactApi.departments)
+      : contact(call);
+
+const unexpectedContact: NativeBackend = (call) => {
+  throw new Error(`Unexpected contact request ${call.tag}`);
 };
 
 beforeEach(() => {
   vi.stubEnv("API_URL", "http://api.test");
-  vi.stubGlobal("fetch", withDepartmentResponse(async () => { throw new Error("Unexpected contact request"); }));
+  backend.calls.length = 0;
+  backend.answer(withDepartments(unexpectedContact));
 });
 
 import { contactDepartmentSlug, type ContactFormValues } from "../src/lib/contact-message";
@@ -36,26 +64,6 @@ const submitContactMessage = (request: Request, slug?: string) =>
     visitorIp: ContactVisitorIp.make("127.0.0.1"),
   });
 
-import { ContactVisitorIp } from "@vektorprogrammet/http-api"
-import { makeNativeProblem } from "@vektorprogrammet/http-api";
-
-const makeDepartment = (overrides: Partial<typeof DepartmentJsonSchema.Encoded> = {}): DepartmentJson =>
-  Schema.decodeSync(DepartmentJsonSchema)({
-    departmentId: "department-17",
-    name: "Vektorprogrammet Ås",
-    shortName: "Ås",
-    email: "aas@example.com",
-    address: "Universitetsveien 1",
-    city: "Ås",
-    latitude: "59.66",
-    longitude: "10.77",
-    slackChannel: null,
-    logoPath: null,
-    active: true,
-    revision: 0,
-    ...overrides,
-  });
-
 const department = makeDepartment();
 
 contactApi.departments = [department];
@@ -67,22 +75,18 @@ const formRequest = (values: ContactFormValues): Request =>
   });
 
 afterEach(() => {
-  vi.unstubAllEnvs();
-  vi.unstubAllGlobals();
   contactApi.departments = [department];
 });
 
 describe("homepage contact-message boundary", () => {
   it("denies contact writes without a bound ingress context before fetching", async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>();
-    vi.stubGlobal("fetch", fetch);
     const context = new RouterContextProvider();
     const request = new Request("http://127.0.0.1:8787/kontakt", { method: "POST" });
 
     const result = await submitWithIngress(request, undefined, context.get(contactIngressContext));
 
     expect(result.ok).toBe(false);
-    expect(fetch).not.toHaveBeenCalled();
+    expect(backend.calls).toEqual([]);
   });
 
   it("maps the live department name to the stable route slug", () => {
@@ -90,18 +94,7 @@ describe("homepage contact-message boundary", () => {
   });
 
   it("submits the route-selected department without returning the draft", async () => {
-    vi.stubEnv("API_URL", "http://api.test");
-
-    const fetchMock = vi
-      .fn<typeof globalThis.fetch>()
-      .mockResolvedValueOnce(
-        new Response(null, {
-          status: 201,
-          headers: { "cache-control": "no-store", vary: "Origin" },
-        }),
-      );
-
-    vi.stubGlobal("fetch", withDepartmentResponse(fetchMock));
+    backend.answer(withDepartments((call) => nativeRpcSuccess(call, null)));
 
     const values = {
       name: "Ola Nordmann",
@@ -114,13 +107,16 @@ describe("homepage contact-message boundary", () => {
 
     expect(result).toEqual({ ok: true });
     expect(JSON.stringify(result)).not.toContain(values.email);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(new Request(url).url).toBe("http://api.test/api/contact-messages");
-    expect(await new Response(init?.body).json()).toEqual({
-      ...values,
-      departmentId: department.departmentId,
-    });
+
+    const contact = backend.calls.filter(({ tag }) => tag === "contact.submitContactMessage");
+
+    expect(contact).toHaveLength(1);
+    expect(contact[0]?.url).toBe("http://api.test/api/rpc/");
+    expect(contact[0]?.payload).toEqual({ ...values, departmentId: department.departmentId });
+    expect(contact[0]?.headers.get("x-vektor-contact-backend")).toBe(
+      "backend-test-00000000000000000000000",
+    );
+    expect(contact[0]?.headers.get("x-vektor-contact-ip")).toBe("127.0.0.1");
   });
 
   it("rejects an unknown or inactive department route", async () => {
@@ -156,9 +152,6 @@ describe("homepage contact-message boundary", () => {
   });
 
   it("keeps invalid private input out of the action response", async () => {
-    vi.stubEnv("API_URL", "http://api.test");
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", withDepartmentResponse(fetchMock));
     const privateCanary = "private-contact-canary";
 
     const result = await submitContactMessage(
@@ -173,11 +166,10 @@ describe("homepage contact-message boundary", () => {
 
     expect(result).toMatchObject({ ok: false });
     expect(JSON.stringify(result)).not.toContain(privateCanary);
+    expect(backend.calls.map(({ tag }) => tag)).not.toContain("contact.submitContactMessage");
   });
 
-  it("classifies the typed native validation and rate-limit responses", async () => {
-    vi.stubEnv("API_URL", "http://api.test");
-
+  it("classifies the typed native validation and rate-limit problems", async () => {
     const values = {
       name: "Ola Nordmann",
       email: "ola@example.com",
@@ -185,51 +177,25 @@ describe("homepage contact-message boundary", () => {
       message: "Når starter neste opptak?",
     } as const;
 
-    const validationFetch = vi
-      .fn<typeof globalThis.fetch>()
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            ...makeNativeProblem("validation.failed", 422),
-            validation: { errors: [], truncated: false },
-          }),
-          {
-            status: 422,
-            headers: {
-              "content-type": "application/problem+json",
-              "cache-control": "no-store",
-              vary: "Origin",
-            },
-          },
-        ),
-      );
-
-    vi.stubGlobal("fetch", withDepartmentResponse(validationFetch));
+    backend.answer(withDepartments((call) => nativeRpcProblem(call, "validation.failed")));
 
     await expect(submitContactMessage(formRequest(values), "aas")).resolves.toEqual({
       ok: false,
       message: "Fyll ut alle feltene med gyldig informasjon.",
     });
 
-    vi.stubGlobal(
-      "fetch",
-      withDepartmentResponse(vi
-        .fn()
-        .mockResolvedValue(
-          new Response(JSON.stringify(makeNativeProblem("rate-limit.exceeded", 429)), {
-            status: 429,
-            headers: {
-              "content-type": "application/problem+json",
-              "cache-control": "no-store",
-              vary: "Origin",
-              "retry-after": "3600",
-            },
-          }),
-        )),
-    );
+    backend.answer(withDepartments((call) => nativeRpcProblem(call, "rate-limit.exceeded")));
+
     await expect(submitContactMessage(formRequest(values), "aas")).resolves.toEqual({
       ok: false,
       message: "Du har sendt for mange meldinger. Prøv igjen senere.",
+    });
+
+    backend.answer(withDepartments((call) => nativeRpcProblem(call, "contact.unavailable")));
+
+    await expect(submitContactMessage(formRequest(values), "aas")).resolves.toEqual({
+      ok: false,
+      message: "Meldingen kunne ikke sendes. Prøv igjen senere.",
     });
   });
 });

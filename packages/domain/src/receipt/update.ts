@@ -1,4 +1,5 @@
 import { Data, Match, flow, Predicate, Effect, Schema, Struct } from "effect";
+import { dual } from "effect/Function";
 import { DepartmentId } from "../organization/schema.js";
 import {
   InactiveActor,
@@ -71,13 +72,15 @@ export interface ReceiptDecision {
 }
 
 const activeActor = (actor: ReceiptActor): Effect.Effect<void, InactiveActor> =>
-  actor.active ? Effect.void : Effect.fail(new InactiveActor({ personId: actor.personId }));
+  actor.active ? Effect.void : Effect.fail(InactiveActor.make({ personId: actor.personId }));
 
 const requireReceipt = (
   receipt: Receipt | undefined,
   receiptId: string,
 ): Effect.Effect<Receipt, ReceiptNotFound> =>
-  receipt === undefined ? Effect.fail(new ReceiptNotFound({ receiptId })) : Effect.succeed(receipt);
+  receipt === undefined
+    ? Effect.fail(ReceiptNotFound.make({ receiptId }))
+    : Effect.succeed(receipt);
 
 const currentRevision = (
   receipt: Receipt,
@@ -86,7 +89,7 @@ const currentRevision = (
   receipt.revision === expected
     ? Effect.void
     : Effect.fail(
-        new StaleReceiptRevision({
+        StaleReceiptRevision.make({
           receiptId: receipt.receiptId,
           expected,
           actual: receipt.revision,
@@ -100,7 +103,7 @@ const pending = (
   receipt.status === "Pending"
     ? Effect.void
     : Effect.fail(
-        new InvalidReceiptTransition({
+        InvalidReceiptTransition.make({
           receiptId: receipt.receiptId,
           status: receipt.status,
           command,
@@ -111,7 +114,7 @@ const owner = (receipt: Receipt, actor: ReceiptActor): Effect.Effect<void, Recei
   receipt.ownerPersonId === actor.personId
     ? Effect.void
     : Effect.fail(
-        new ReceiptOwnerDenied({
+        ReceiptOwnerDenied.make({
           receiptId: receipt.receiptId,
           personId: actor.personId,
         }),
@@ -129,7 +132,7 @@ const approver = (
   return allowed
     ? Effect.void
     : Effect.fail(
-        new ReceiptScopeDenied({
+        ReceiptScopeDenied.make({
           receiptId: receipt.receiptId,
           departmentId: receipt.departmentId,
         }),
@@ -170,15 +173,13 @@ export const authorizeReceiptMutationAccess = (
     yield* activeActor(authorization.actor);
 
     return yield* Match.value(authorization).pipe(
-      Match.tag("SubmitReceipt", () => {
-        return Effect.void;
-      }),
-      Match.tag("RevisePendingReceipt", "WithdrawPendingReceipt", (authorization) => {
-        return owner(authorization.current, authorization.actor);
-      }),
-      Match.tag("ApproveReceipt", "RejectReceipt", "ReopenRejectedReceipt", (authorization) => {
-        return approver(authorization.current, authorization.actor);
-      }),
+      Match.tag("SubmitReceipt", () => Effect.void),
+      Match.tag("RevisePendingReceipt", "WithdrawPendingReceipt", (authorization) =>
+        owner(authorization.current, authorization.actor),
+      ),
+      Match.tag("ApproveReceipt", "RejectReceipt", "ReopenRejectedReceipt", (authorization) =>
+        approver(authorization.current, authorization.actor),
+      ),
       Match.exhaustive,
     );
   });
@@ -207,7 +208,7 @@ const decideCommand = (
       SubmitReceipt: (input) =>
         Effect.gen(function* () {
           if (existing !== undefined) {
-            return yield* new ReceiptAlreadyExists({ receiptId: context.receiptId });
+            return yield* ReceiptAlreadyExists.make({ receiptId: context.receiptId });
           }
 
           const receipt: Receipt = {
@@ -322,7 +323,7 @@ const decideCommand = (
           yield* currentRevision(current, input.expectedRevision);
 
           if (current.status !== "Rejected") {
-            return yield* new InvalidReceiptTransition({
+            return yield* InvalidReceiptTransition.make({
               receiptId: current.receiptId,
               status: current.status,
               command: input._tag,
@@ -370,25 +371,38 @@ const decodeReceiptCommand = flow(
   Schema.decodeUnknownEffect(AuthorizedReceiptCommandSchema, {
     onExcessProperty: "error",
   }),
-  Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })),
+  Effect.mapError((cause) => ReceiptDecodeError.make({ message: String(cause) })),
 );
 
 const decodeReceiptDecisionContext = flow(
   Schema.decodeUnknownEffect(ReceiptDecisionContextSchema, {
     onExcessProperty: "error",
   }),
-  Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })),
+  Effect.mapError((cause) => ReceiptDecodeError.make({ message: String(cause) })),
 );
 
-export const decideReceipt = (
-  existing: Receipt | undefined,
-  input: Schema.Json,
-  context: ReceiptDecisionContext,
-): Effect.Effect<ReceiptDecision, ReceiptFailure> =>
-  decodeReceiptCommand(input).pipe(
-    Effect.flatMap((command) =>
-      decodeReceiptDecisionContext(context).pipe(
-        Effect.flatMap((decodedContext) => decideCommand(existing, command, decodedContext)),
+export const decideReceipt: {
+  (
+    input: Schema.Json,
+    context: ReceiptDecisionContext,
+  ): (existing: Receipt | undefined) => Effect.Effect<ReceiptDecision, ReceiptFailure>;
+  (
+    existing: Receipt | undefined,
+    input: Schema.Json,
+    context: ReceiptDecisionContext,
+  ): Effect.Effect<ReceiptDecision, ReceiptFailure>;
+} = dual(
+  3,
+  (
+    existing: Receipt | undefined,
+    input: Schema.Json,
+    context: ReceiptDecisionContext,
+  ): Effect.Effect<ReceiptDecision, ReceiptFailure> =>
+    decodeReceiptCommand(input).pipe(
+      Effect.flatMap((command) =>
+        decodeReceiptDecisionContext(context).pipe(
+          Effect.flatMap((decodedContext) => decideCommand(existing, command, decodedContext)),
+        ),
       ),
     ),
-  );
+);

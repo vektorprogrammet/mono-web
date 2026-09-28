@@ -13,8 +13,9 @@
  * itself, such as a runner's fixed clock. The Oxlint rule `anti-slop/no-literal-window-instant`
  * rejects literal window bounds and accepts a literal instant as the argument of `journeyClock`.
  *
- * The module has no dependencies, so Node and Bun runners can both import it.
+ * The module depends only on Effect, so Node and Bun runners, seeds, and specs can all import it.
  */
+import { DateTime, Option } from "effect";
 
 /** Instants relative to one reference instant. */
 export interface JourneyClock {
@@ -32,7 +33,7 @@ export interface JourneyClock {
  * adds whole days and minutes to it, or subtracts them for negative offsets. Seeds, drivers, and
  * specs that take their instants from one clock agree with each other on any date.
  *
- * @throws An `Error` when `reference` is not an instant that `Date.parse` reads.
+ * @throws An `Error` when `reference` is not an instant that `DateTime.make` reads.
  *
  * @sideEffects none
  *
@@ -48,16 +49,18 @@ export interface JourneyClock {
  * @construct test-harness
  */
 export const journeyClock = (reference: string): JourneyClock => {
-  const referenceTime = Date.parse(reference);
+  const parsed = DateTime.make(reference);
 
-  if (!Number.isFinite(referenceTime)) {
+  if (Option.isNone(parsed)) {
     throw new Error(`A journey clock reference must be an RFC 3339 instant: ${reference}`);
   }
 
+  const referenceTime = DateTime.toEpochMillis(parsed.value);
+
   return {
-    now: new Date(referenceTime).toISOString(),
+    now: DateTime.formatIso(parsed.value),
     fromNow: (days, minutes = 0) =>
-      new Date(referenceTime + days * 86_400_000 + minutes * 60_000).toISOString(),
+      DateTime.formatIso(DateTime.makeUnsafe(referenceTime + days * 86_400_000 + minutes * 60_000)),
   };
 };
 
@@ -70,7 +73,7 @@ export const journeyClock = (reference: string): JourneyClock => {
  * reads, and gives a `journeyClock` at that instant, or at the current time when it is unset. So
  * the fixture instants of a journey lie where the backend it starts sees them.
  *
- * @throws An `Error` when `ADMISSION_FIXED_NOW` is set to text that `Date.parse` does not read.
+ * @throws An `Error` when `ADMISSION_FIXED_NOW` is set to text that `DateTime.make` does not read.
  *
  * @sideEffects Reads `ADMISSION_FIXED_NOW` from the environment, and the current time when it is
  * unset.
@@ -87,11 +90,12 @@ export const journeyClock = (reference: string): JourneyClock => {
  * @construct test-harness
  */
 export const admissionJourneyClock = (): JourneyClock => {
+  // oxlint-disable-next-line effecttsgo/process-env -- EX-0019: seeds, specs, and drivers outside an Effect runtime call this clock synchronously, so it reads the variable at each call
   const fixedNow = process.env.ADMISSION_FIXED_NOW;
 
-  if (fixedNow !== undefined && !Number.isFinite(Date.parse(fixedNow))) {
+  if (fixedNow !== undefined && Option.isNone(DateTime.make(fixedNow))) {
     throw new Error("ADMISSION_FIXED_NOW must be an RFC 3339 instant");
   }
 
-  return journeyClock(fixedNow ?? new Date().toISOString());
+  return journeyClock(fixedNow ?? DateTime.formatIso(DateTime.nowUnsafe()));
 };

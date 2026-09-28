@@ -1,5 +1,9 @@
+import { Result } from "effect";
+import type { OrganizationCapability } from "../authz/delegation.js";
+import { requireDepartmentReach, type DepartmentReach } from "../authz/reach.js";
 import type { OrganizationPersonAuthority } from "./authority.js";
 import { DepartmentId, MembershipId, PersonId, TeamId } from "./schema.js";
+import { dual } from "effect/Function";
 
 export interface Spec0055OrganizationAuthorityFixtureIds {
   readonly evaluatedAt: string;
@@ -113,3 +117,46 @@ export const spec0055OrganizationAuthorityFixtures = (
     },
   };
 };
+
+/**
+ * The resolved authority of an active global administrator with no appointments, at a fixed
+ * instant. Tests and proofs mint evidence from it; production resolves authority from facts.
+ */
+export const activeAdministratorAuthority = (personId: string): OrganizationPersonAuthority => ({
+  personId: PersonId.make(personId),
+  evaluatedAt: "2026-09-28T12:00:00.000Z",
+  globalAdministrator: "Active",
+  memberships: [],
+  nationalBoardSeats: [],
+  delegations: [],
+});
+
+/**
+ * Department reach evidence for an active global administrator, for tests and proofs that call a
+ * department-scoped command directly. A capability that no global administrator holds fails.
+ */
+export const administratorDepartmentReach: {
+  <C extends OrganizationCapability>(
+    capability: C,
+    departmentId: string,
+  ): (personId: string) => DepartmentReach<C>;
+  <C extends OrganizationCapability>(
+    personId: string,
+    capability: C,
+    departmentId: string,
+  ): DepartmentReach<C>;
+} = dual(
+  3,
+  <C extends OrganizationCapability>(
+    personId: string,
+    capability: C,
+    departmentId: string,
+  ): DepartmentReach<C> =>
+    Result.getOrThrow(
+      requireDepartmentReach(
+        activeAdministratorAuthority(personId),
+        capability,
+        DepartmentId.make(departmentId),
+      ),
+    ),
+);

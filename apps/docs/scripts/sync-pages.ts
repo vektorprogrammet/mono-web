@@ -4,9 +4,10 @@
 // - a TypeDoc `{@includeCode path}` line becomes a code block with that file;
 // - an `.mdx` source gets imports for the components it uses from `mdxComponents`.
 // `--watch` re-mirrors a source whenever it changes, for `vocs dev`.
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { watch } from "node:fs";
-import { dirname, extname, posix, relative, resolve } from "node:path";
+import * as BunRuntime from "@effect/platform-bun/BunRuntime";
+import * as BunServices from "@effect/platform-bun/BunServices";
+import { Array, Console, Data, Effect, FileSystem, Path, Schema, Stream } from "effect";
+import process from "node:process";
 import {
   completeDirectories,
   mdxComponents,
@@ -16,31 +17,48 @@ import {
   sources,
 } from "../site.ts";
 
-for (const directory of completeDirectories) {
-  const unpublished = (await readdir(resolve(repositoryRoot, directory)))
-    .filter((name) => /\.mdx?$/.test(name))
-    .map((name) => `${directory}/${name}`)
-    .filter((source) => !sources.includes(source));
+/** Markdown files in a complete directory that no section of `site.ts` publishes. */
+class UnpublishedSources extends Data.TaggedError("UnpublishedSources")<{
+  readonly message: string;
+}> {}
 
-  if (unpublished.length > 0)
-    throw new Error(`Add ${unpublished.join(", ")} to a section in apps/docs/site.ts.`);
-}
+const encodeSpecifier = Schema.encodeSync(Schema.fromJsonString(Schema.String));
 
-async function mirror(source: string) {
-  const target = resolve(pagesDirectory, pageFile(source));
-  let content = await readFile(resolve(repositoryRoot, source), "utf8");
+const checkCompleteDirectories = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+
+  for (const directory of completeDirectories) {
+    const unpublished = (yield* fs.readDirectory(path.resolve(repositoryRoot, directory)))
+      .filter((name) => /\.mdx?$/.test(name))
+      .map((name) => `${directory}/${name}`)
+      .filter((source) => !sources.includes(source));
+
+    if (unpublished.length > 0)
+      return yield* new UnpublishedSources({
+        message: `Add ${unpublished.join(", ")} to a section in apps/docs/site.ts.`,
+      });
+  }
+});
+
+const mirror = Effect.fnUntraced(function* (source: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const target = path.resolve(pagesDirectory, pageFile(source));
+  let content = yield* fs.readFileString(path.resolve(repositoryRoot, source), "utf8");
 
   for (const [line, include = ""] of content.matchAll(/^\{@includeCode\s+(\S+)\}$/gm)) {
-    const code = (
-      await readFile(resolve(repositoryRoot, dirname(source), include), "utf8")
-    ).trimEnd();
+    const code = (yield* fs.readFileString(
+      path.resolve(repositoryRoot, path.dirname(source), include),
+      "utf8",
+    )).trimEnd();
 
     // Fence the file with more backticks than any fence inside it.
     const fence = "`".repeat(
       Math.max(3, ...[...code.matchAll(/`{3,}/g)].map(([run]) => run.length + 1)),
     );
 
-    content = content.replace(line, `${fence}${extname(include).slice(1)}\n${code}\n${fence}`);
+    content = content.replace(line, `${fence}${path.extname(include).slice(1)}\n${code}\n${fence}`);
   }
 
   if (source.endsWith(".mdx")) {
@@ -48,33 +66,56 @@ async function mirror(source: string) {
       .filter(([name]) => content.includes(`<${name}`))
       .map(
         ([name, file]) =>
-          `import { ${name} } from ${JSON.stringify(relative(dirname(target), file))};\n`,
+          `import { ${name} } from ${encodeSpecifier(path.relative(path.dirname(target), file))};\n`,
       );
 
     if (imports.length > 0) content = `${imports.join("")}\n${content}`;
   }
 
-  await mkdir(dirname(target), { recursive: true });
+  yield* fs.makeDirectory(path.dirname(target), { recursive: true });
 
-  await writeFile(target, content);
-}
+  yield* fs.writeFileString(target, content);
+});
 
-// Committed Vocs files in the pages directory start with an underscore.
-for (const entry of await readdir(pagesDirectory))
-  if (!entry.startsWith("_")) await rm(resolve(pagesDirectory, entry), { recursive: true });
+// Watch directories, not files: editors often replace a file on save.
+const watchSources = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const directories = Array.dedupe(sources.map((source) => path.dirname(source)));
 
-await Promise.all(sources.map(mirror));
+  yield* Stream.mergeAll(
+    directories.map((directory) =>
+      fs.watch(path.resolve(repositoryRoot, directory)).pipe(
+        Stream.map((event) => path.join(directory, path.basename(event.path))),
+        Stream.filter((source) => sources.includes(source)),
+      ),
+    ),
+    { concurrency: "unbounded" },
+  ).pipe(
+    Stream.runForEach((source) =>
+      mirror(source).pipe(Effect.catchCause((cause) => Console.error(cause))),
+    ),
+  );
+});
 
-console.log(
-  `Mirrored ${sources.length} repository documents into ${relative(repositoryRoot, pagesDirectory)}.`,
-);
+const program = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
 
-if (process.argv.includes("--watch")) {
-  // Watch directories, not files: editors often replace a file on save.
-  for (const directory of new Set(sources.map((source) => posix.dirname(source))))
-    watch(resolve(repositoryRoot, directory), (_event, name) => {
-      const source = posix.join(directory, name ?? "");
+  yield* checkCompleteDirectories;
 
-      if (sources.includes(source)) mirror(source).catch(console.error);
-    });
-}
+  // Committed Vocs files in the pages directory start with an underscore.
+  for (const entry of yield* fs.readDirectory(pagesDirectory))
+    if (!entry.startsWith("_"))
+      yield* fs.remove(path.resolve(pagesDirectory, entry), { recursive: true });
+
+  yield* Effect.forEach(sources, mirror, { concurrency: "unbounded", discard: true });
+
+  yield* Console.log(
+    `Mirrored ${sources.length} repository documents into ${path.relative(repositoryRoot, pagesDirectory)}.`,
+  );
+
+  if (process.argv.includes("--watch")) yield* watchSources;
+});
+
+BunRuntime.runMain(program.pipe(Effect.provide(BunServices.layer)));

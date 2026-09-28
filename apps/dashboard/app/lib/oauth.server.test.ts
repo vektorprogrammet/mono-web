@@ -3,14 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.hoisted(() => vi.stubEnv("API_URL", "http://api.test"));
 
-import { nativeSessionResponse, sessionCookie } from "../../test/native-http";
+import { sessionCookie } from "../../test/native-http";
+import { isNativeRpcRequest, nativeSessionAnswer } from "../../test/native-rpc";
 
 const stubOAuthFetch = (next: typeof fetch) => {
-  const transport: typeof fetch = async (input, init) => {
-    const request = new Request(input, init);
-
-    return new URL(request.url).pathname === "/api/session" ? nativeSessionResponse() : next(input, init);
-  };
+  const transport: typeof fetch = async (input, init) =>
+    isNativeRpcRequest(input) ? nativeSessionAnswer(input, init) : next(input, init);
 
   vi.stubGlobal("fetch", transport);
 };

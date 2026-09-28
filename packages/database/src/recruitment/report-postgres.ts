@@ -1,4 +1,5 @@
 import { Predicate, Effect, Schema } from "effect";
+import { dual } from "effect/Function";
 import { Database } from "../service.js";
 import { listAdmissionPeriodsForManagement } from "../admission-period/postgres.js";
 import { Organization } from "@vektorprogrammet/domain/organization";
@@ -19,8 +20,7 @@ import {
   orderInterviewReport,
 } from "@vektorprogrammet/domain/recruitment";
 
-/** Same single-department recruitment policy, reconstructed from current Organization authority. */
-export const resolveInterviewReportLeader = (personId: PersonId, now: string) =>
+const resolveInterviewReportLeaderImpl = (personId: PersonId, now: string) =>
   Effect.gen(function* () {
     const organization = yield* Organization;
     const authority = yield* organization.resolvePersonAuthority(personId, now);
@@ -33,7 +33,7 @@ export const resolveInterviewReportLeader = (personId: PersonId, now: string) =>
       ),
     ];
 
-    if (departments.length !== 1) return yield* new RecruitmentRoleDenied({ personId });
+    if (departments.length !== 1) return yield* RecruitmentRoleDenied.make({ personId });
 
     const decision = mapOrganizationAuthorityToDepartmentActor(
       authority,
@@ -46,13 +46,18 @@ export const resolveInterviewReportLeader = (personId: PersonId, now: string) =>
       !Predicate.isTagged(decision.value, "DepartmentAdministrator") ||
       !decision.value.active
     )
-      return yield* new RecruitmentRoleDenied({ personId });
+      return yield* RecruitmentRoleDenied.make({ personId });
 
     return decision.value;
   });
 
-/** No writes: fixed candidate set, deterministic applicant custody, then fresh identity observation. */
-export const readCompletedInterviewReport = (
+/** Same single-department recruitment policy, reconstructed from current Organization authority. */
+export const resolveInterviewReportLeader: {
+  (now: string): (personId: PersonId) => ReturnType<typeof resolveInterviewReportLeaderImpl>;
+  (personId: PersonId, now: string): ReturnType<typeof resolveInterviewReportLeaderImpl>;
+} = dual(2, resolveInterviewReportLeaderImpl);
+
+const readCompletedInterviewReportImpl = (
   personId: PersonId,
   now: string,
   input: InterviewReportQuery,
@@ -60,7 +65,9 @@ export const readCompletedInterviewReport = (
   Effect.gen(function* () {
     const query = yield* Schema.decodeEffect(InterviewReportQuery)(input, {
       onExcessProperty: "error",
-    }).pipe(Effect.mapError(() => new RecruitmentDecodeError({ message: "invalid report query" })));
+    }).pipe(
+      Effect.mapError(() => RecruitmentDecodeError.make({ message: "invalid report query" })),
+    );
 
     const sql = yield* Database;
 
@@ -74,7 +81,7 @@ export const readCompletedInterviewReport = (
             query.admissionPeriodId !== undefined &&
             !periods.some((period) => period.id === query.admissionPeriodId)
           )
-            return yield* new RecruitmentScopeDenied({
+            return yield* RecruitmentScopeDenied.make({
               personId,
               departmentId: actor.departmentId,
             });
@@ -135,8 +142,8 @@ export const readCompletedInterviewReport = (
                 .map(({ linkedPersonId: _identity, ...row }) => row),
               { onExcessProperty: "error" },
             ).pipe(
-              Effect.mapError(
-                () => new RecruitmentDecodeError({ message: "invalid persisted report row" }),
+              Effect.mapError(() =>
+                RecruitmentDecodeError.make({ message: "invalid persisted report row" }),
               ),
             );
           }
@@ -156,7 +163,7 @@ export const readCompletedInterviewReport = (
       .pipe(
         Effect.catchTag("SqlError", (cause) =>
           Effect.fail(
-            new RecruitmentPersistenceError({
+            RecruitmentPersistenceError.make({
               operation: "read completed interview report",
               message: "report unavailable",
               cause,
@@ -165,3 +172,16 @@ export const readCompletedInterviewReport = (
         ),
       );
   });
+
+/** No writes: fixed candidate set, deterministic applicant custody, then fresh identity observation. */
+export const readCompletedInterviewReport: {
+  (
+    now: string,
+    input: InterviewReportQuery,
+  ): (personId: PersonId) => ReturnType<typeof readCompletedInterviewReportImpl>;
+  (
+    personId: PersonId,
+    now: string,
+    input: InterviewReportQuery,
+  ): ReturnType<typeof readCompletedInterviewReportImpl>;
+} = dual(3, readCompletedInterviewReportImpl);

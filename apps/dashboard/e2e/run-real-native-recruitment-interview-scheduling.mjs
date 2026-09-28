@@ -9,12 +9,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { journeyClock } from "../../../tools/e2e/journey-clock.ts";
+import { replacedAnswer, replacedRequest } from "./native-rpc-ledger.ts";
+import { isNativeRpcPath } from "./native-operations.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 
-const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
 
@@ -475,6 +476,20 @@ async function startRecordingProxy(targetOrigin) {
       status: 0,
     };
 
+    const rpc = isNativeRpcPath(path) ? replacedRequest(requestJson) : undefined;
+
+    // A native RPC is recorded as the HTTP route it replaced, with the facts of its message.
+    if (rpc !== undefined) {
+      record.rpcTag = rpc.tag;
+      record.method = rpc.method;
+      record.path = rpc.path;
+      record.idempotencyKey = rpc.idempotencyKey;
+      record.ifMatch = rpc.ifMatch;
+      record.requestJson = rpc.requestJson;
+      record.sessionCookieAuth ||= hasSessionCookie(rpc.messageHeaders.cookie);
+      record.authorizationHeaderPresent ||= rpc.messageHeaders.authorization !== undefined;
+    }
+
     records.push(record);
 
     try {
@@ -507,6 +522,14 @@ async function startRecordingProxy(targetOrigin) {
       record.status = upstream.status;
       record.responseJson = responseJson ?? null;
       record.responseEtag = upstream.headers.get("etag");
+      const answer = rpc === undefined ? undefined : replacedAnswer(responseJson);
+
+      if (answer !== undefined) {
+        record.status = answer.status;
+        record.responseJson = answer.responseJson;
+        record.responseEtag = answer.responseEtag;
+      }
+
       record.responseHasResponseCapability = hasObjectKey(responseJson, "responseCapability");
       response.statusCode = upstream.status;
 
@@ -960,11 +983,6 @@ async function main() {
       SCHEDULING_RECORDING_EVIDENCE_PATH: recordingEvidencePath,
     };
 
-    await runCommand("bun", ["run", "build"], {
-      cwd: sdkRoot,
-      env: journeyEnvironment,
-      label: "Native scheduling SDK build",
-    });
 
     // The journey serves the production build, whose bundles are never re-optimized and reloaded
     // under a navigating browser as a dev server's are.

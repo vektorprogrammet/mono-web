@@ -1,6 +1,6 @@
 import { Predicate } from "effect";
-import { RecruitmentAssignmentBoardSchema } from "@vektorprogrammet/http-api"
-import { IdempotencyKey } from "@vektorprogrammet/http-api";
+import { RecruitmentAssignmentBoardSchema } from "@vektorprogrammet/rpc"
+import { IdempotencyKey } from "@vektorprogrammet/rpc";
 import { Effect, Schema as S } from "effect";
 import { AsyncData } from "foldkit";
 import { describe, expect, it } from "vitest";

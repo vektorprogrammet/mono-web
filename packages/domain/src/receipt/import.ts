@@ -1,4 +1,5 @@
 import { Data, Predicate, Schema } from "effect";
+import { dual } from "effect/Function";
 import {
   isIsoDate,
   isIsoInstant,
@@ -224,11 +225,24 @@ const importReceiptOccurrence = (
 };
 
 /** Imports one legacy row as the first occurrence of its source identity. */
-export const importLegacyReceipt = (
-  row: LegacyReceiptRow,
-  receiptId: string,
-  provenance: ReceiptImportProvenance,
-): ReceiptImportResult => importReceiptOccurrence(row, receiptId, provenance, 0);
+export const importLegacyReceipt: {
+  (
+    receiptId: string,
+    provenance: ReceiptImportProvenance,
+  ): (row: LegacyReceiptRow) => ReceiptImportResult;
+  (
+    row: LegacyReceiptRow,
+    receiptId: string,
+    provenance: ReceiptImportProvenance,
+  ): ReceiptImportResult;
+} = dual(
+  3,
+  (
+    row: LegacyReceiptRow,
+    receiptId: string,
+    provenance: ReceiptImportProvenance,
+  ): ReceiptImportResult => importReceiptOccurrence(row, receiptId, provenance, 0),
+);
 
 export interface LegacyReceiptImportInput {
   readonly row: LegacyReceiptRow;

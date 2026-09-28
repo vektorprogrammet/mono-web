@@ -3,7 +3,7 @@
 # apps/backend/src/organization
 
 This folder holds the Organization bounded context in `apps/backend/src`.
-The backend layer holds HTTP handlers, delivery workers, and provider adapters that the native process composes. It keeps response receipts and preconditions in the transport, and provider I/O after commit.
+The backend layer holds RPC handlers, delivery workers, and provider adapters that the native process composes. It keeps command receipts and preconditions in the transport, and provider I/O after commit.
 
 The Organization context in other folders:
 
@@ -62,7 +62,7 @@ Responsibilities:
 | Context                                           | Relationship                                                | Exposes                             | Integration                                                                                                                                                                  |
 | ------------------------------------------------- | ----------------------------------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [TeamApplications](../team-application/AGENTS.md) | open host service, published language, anticorruption layer | `Team`, `Department`                | Team and department activity plus mailbox, translated into TeamIntakeFacts; the intake itself is TeamApplications' own, and TeamApplications never writes Organization state |
-| [Schools](../schools/AGENTS.md)                   | open host service, published language, conformist           | `Department`                        |                                                                                                                                                                              |
+| Schools                                           | open host service, published language, conformist           | `Department`                        |                                                                                                                                                                              |
 | [Admissions](../admission/AGENTS.md)              | open host service, published language, conformist           | `Department`, `FieldOfStudy`        |                                                                                                                                                                              |
 | [Recruitment](../recruitment/AGENTS.md)           | open host service, published language, conformist           | `Department`                        |                                                                                                                                                                              |
 | [Placements](../placements/AGENTS.md)             | open host service, published language, conformist           | `Department`                        |                                                                                                                                                                              |

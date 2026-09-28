@@ -12,19 +12,23 @@ Shared acknowledged JSON transport; deliberately no retry on ambiguous acceptanc
 deliverJson(
   body: Schema.Json,
   config: HttpDeliveryConfig,
-  headers: Readonly<Record<string, string>> = {}
+  headers?: Readonly<Record<string, string>>
 ): Effect.Effect<void, HttpDeliveryFailure | Cause.TimeoutError, HttpClient.HttpClient>
+deliverJson(
+  config: HttpDeliveryConfig,
+  headers?: Readonly<Record<string, string>>
+): (body: Schema.Json) => Effect.Effect<void, HttpDeliveryFailure | Cause.TimeoutError, HttpClient.HttpClient>
 ```
 
 - Inputs:
   - `body: Schema.Json`
   - `config: HttpDeliveryConfig`
-  - `headers: Readonly<Record<string, string>> = {}`
+  - `headers?: Readonly<Record<string, string>>`
 - Output: `Effect.Effect<void, HttpDeliveryFailure | Cause.TimeoutError, HttpClient.HttpClient>`
 - Errors: `HttpDeliveryFailure | Cause.TimeoutError`
 - Requirements: `HttpClient.HttpClient`
 - Side effects: One HTTP POST to `config.endpoint`; the timeout waits on the Effect clock.
-- Source: [apps/backend/src/delivery/http.ts:56](../../apps/backend/src/delivery/http.ts#L56)
+- Source: [apps/backend/src/delivery/http.ts:57](../../apps/backend/src/delivery/http.ts#L57)
 
 **How it works**
 

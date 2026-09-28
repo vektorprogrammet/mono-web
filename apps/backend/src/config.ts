@@ -1,6 +1,6 @@
 import { ContactEmail } from "@vektorprogrammet/domain/contact";
 import { mailDeliveryConfig, type MailDeliveryConfig } from "./mail/http.js";
-import { publicRateLimit, type PublicRateLimit } from "./http-api/public-rate-limit.js";
+import { publicRateLimit, type PublicRateLimit } from "./rpc/public-rate-limit.js";
 import { receiptDeliveryConfig, type ReceiptDeliveryConfig } from "./receipt/delivery.js";
 import {
   recruitmentNotificationConfig,
@@ -30,6 +30,7 @@ import {
 
 import { contactConfig, type ContactConfig } from "./contact/config.js";
 import { Config, ConfigProvider, Effect, Redacted, Schema, SchemaGetter } from "effect";
+import { dual } from "effect/Function";
 
 export interface PublicApplicationEffectConfig {
   readonly endpoint: URL;
@@ -183,15 +184,34 @@ const oauthBackendConfig = (
     }),
   );
 
-export const decodeOAuthBackendConfig = (
-  env: Readonly<Record<string, string | undefined>>,
-  trustedOrigins: ReadonlyArray<string>,
-): Effect.Effect<Pick<BackendAuthConfig, "oauth" | "internalSourceNetworks">, Config.ConfigError> =>
-  oauthBackendConfig(
-    env,
-    trustedOrigins,
-    ConfigProvider.fromEnvRecord(env, { preserveEmptyStrings: true }),
-  );
+export const decodeOAuthBackendConfig: {
+  (
+    trustedOrigins: ReadonlyArray<string>,
+  ): (
+    env: Readonly<Record<string, string | undefined>>,
+  ) => Effect.Effect<
+    Pick<BackendAuthConfig, "oauth" | "internalSourceNetworks">,
+    Config.ConfigError
+  >;
+  (
+    env: Readonly<Record<string, string | undefined>>,
+    trustedOrigins: ReadonlyArray<string>,
+  ): Effect.Effect<Pick<BackendAuthConfig, "oauth" | "internalSourceNetworks">, Config.ConfigError>;
+} = dual(
+  2,
+  (
+    env: Readonly<Record<string, string | undefined>>,
+    trustedOrigins: ReadonlyArray<string>,
+  ): Effect.Effect<
+    Pick<BackendAuthConfig, "oauth" | "internalSourceNetworks">,
+    Config.ConfigError
+  > =>
+    oauthBackendConfig(
+      env,
+      trustedOrigins,
+      ConfigProvider.fromEnvRecord(env, { preserveEmptyStrings: true }),
+    ),
+);
 
 const PositiveInteger = Schema.String.check(Schema.isPattern(/^\d+$/u)).pipe(
   Schema.decodeTo(Schema.Int.check(Schema.isGreaterThan(0)), {
@@ -370,7 +390,8 @@ const passwordResetDeliveryConfig = (
 
     const transport = mailDeliveryConfig(env);
 
-    if (!transport) throw new Error("Password reset delivery requires mail configuration");
+    if (transport === undefined)
+      throw new Error("Password reset delivery requires mail configuration");
 
     const sender = yield* Config.schema(Schema.Redacted(ContactEmail), "MAIL_SENDER").parse(
       provider,
@@ -398,7 +419,13 @@ const receiptDeliveryPollConfig = (
       throw new Error("RECEIPT_DELIVERY_MODE must be disabled or http");
     }
 
-    if (!receiptDelivery || !env.RECEIPT_STAGING_ROOT || !env.RECEIPT_COMMITTED_ROOT)
+    if (
+      receiptDelivery === undefined ||
+      env.RECEIPT_STAGING_ROOT === undefined ||
+      env.RECEIPT_STAGING_ROOT.length === 0 ||
+      env.RECEIPT_COMMITTED_ROOT === undefined ||
+      env.RECEIPT_COMMITTED_ROOT.length === 0
+    )
       throw new Error("Receipt worker requires delivery configuration and explicit storage roots");
 
     return yield* Config.schema(PositiveInteger, "RECEIPT_DELIVERY_POLL_MS")

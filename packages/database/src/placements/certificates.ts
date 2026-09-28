@@ -4,6 +4,7 @@
  * placement, a commitment, a decision, an occurrence, or legacy history.
  */
 import { Effect, Option, Predicate, Schema } from "effect";
+import { dual } from "effect/Function";
 import { SqlSchema } from "effect/unstable/sql";
 import { isSqlError } from "effect/unstable/sql/SqlError";
 import { certificateIssuerBasis, reaches, ReachTarget } from "@vektorprogrammet/domain/authz";
@@ -21,7 +22,8 @@ import {
   CertificateAccessDenied,
   CertificateAssistant,
   CertificateAssistantNotFound,
-  CertificateCommandTarget,
+  type CertificateIssueAuthorization,
+  type DaysServedConfirmationAuthorization,
   certificateContent,
   CertificateContent,
   certificateContentSha256,
@@ -70,7 +72,7 @@ const conflict = (cause: unknown, depth: number): boolean =>
 const persistenceFailure =
   (operation: string) =>
   (cause: unknown): CertificatePersistenceError =>
-    new CertificatePersistenceError({ operation, conflict: conflict(cause, 0), cause });
+    CertificatePersistenceError.make({ operation, conflict: conflict(cause, 0), cause });
 
 const SemesterRow = Schema.Struct({
   semesterId: SemesterId,
@@ -451,14 +453,14 @@ const requireDaysServedAuthority = (
 ) =>
   reaches(authority, "placements.days-served", ReachTarget.Department({ departmentId }))
     ? Effect.void
-    : Effect.fail(new CertificateAccessDenied({ reason: "NotInScope" }));
+    : Effect.fail(CertificateAccessDenied.make({ reason: "NotInScope" }));
 
 const requireDepartment = (departmentId: DepartmentId, lock: boolean) =>
   findDepartment({ departmentId, lock }).pipe(
     Effect.mapError(persistenceFailure("read certificate department")),
     Effect.flatMap(
       Option.match({
-        onNone: () => Effect.fail(new CertificateScopeNotFound()),
+        onNone: () => Effect.fail(CertificateScopeNotFound.make({})),
         onSome: Effect.succeed,
       }),
     ),
@@ -469,7 +471,7 @@ const requireSemester = (semesterId: SemesterId) =>
     Effect.mapError(persistenceFailure("read certificate semester")),
     Effect.flatMap(([semester]) =>
       semester === undefined
-        ? Effect.fail(new CertificateScopeNotFound())
+        ? Effect.fail(CertificateScopeNotFound.make({}))
         : Effect.succeed(semester),
     ),
   );
@@ -501,13 +503,13 @@ const requireIssuer = (
       command ? "ForShare" : "None",
     ).pipe(Effect.mapError(persistenceFailure("read governed department")));
 
-    if (department === undefined) return yield* new CertificateScopeNotFound();
+    if (department === undefined) return yield* CertificateScopeNotFound.make({});
 
     const issuer = yield* certificateIssuerWithSql(sql, authority, department).pipe(
       Effect.mapError(persistenceFailure("read certificate issuer")),
     );
 
-    if (Option.isNone(issuer)) return yield* new CertificateAccessDenied({ reason: "NotInScope" });
+    if (Option.isNone(issuer)) return yield* CertificateAccessDenied.make({ reason: "NotInScope" });
 
     return issuer.value;
   });
@@ -526,7 +528,7 @@ const buildPreview = (
       personId,
     }).pipe(Effect.mapError(persistenceFailure("read certificate assistant")));
 
-    if (assistant === undefined) return yield* new CertificateAssistantNotFound({ personId });
+    if (assistant === undefined) return yield* CertificateAssistantNotFound.make({ personId });
 
     const services = [
       ...(yield* readServices(department.departmentId, null, [personId]).pipe(
@@ -614,7 +616,7 @@ export const readCertificateScopes = (principal: CertificatePrincipal) =>
     });
 
     if (departments.length === 0)
-      return yield* new CertificateAccessDenied({ reason: "NotInScope" });
+      return yield* CertificateAccessDenied.make({ reason: "NotInScope" });
 
     const semesters = yield* findSemesters(null).pipe(
       Effect.mapError(persistenceFailure("read certificate semesters")),
@@ -630,8 +632,7 @@ export const readCertificateScopes = (principal: CertificatePrincipal) =>
     }).pipe(Effect.mapError(persistenceFailure("build certificate scopes")));
   });
 
-/** One page of the assistants of a department and semester with their days served. */
-export const readDaysServed = (
+const readDaysServedImpl = (
   principal: CertificatePrincipal,
   scope: PlacementScope,
   cursor?: string,
@@ -671,6 +672,19 @@ export const readDaysServed = (
     };
   });
 
+/** One page of the assistants of a department and semester with their days served. */
+export const readDaysServed: {
+  (
+    scope: PlacementScope,
+    cursor?: string,
+  ): (principal: CertificatePrincipal) => ReturnType<typeof readDaysServedImpl>;
+  (
+    principal: CertificatePrincipal,
+    scope: PlacementScope,
+    cursor?: string,
+  ): ReturnType<typeof readDaysServedImpl>;
+} = dual((args) => Predicate.isObject(args[1]), readDaysServedImpl);
+
 /** Current days-served authority in the department, under the department lock of every command. */
 const authorizeConfirmation = (
   sql: DatabaseOperations,
@@ -699,48 +713,86 @@ const authorizeIssue = (
     const issuer = yield* requireIssuer(sql, authority, departmentId, true);
 
     if (personId === principal.personId)
-      return yield* new CertificateAccessDenied({ reason: "OwnCertificate" });
+      return yield* CertificateAccessDenied.make({ reason: "OwnCertificate" });
 
     return { department, issuer };
   });
 
-/**
- * Resolves the principal's current authority for one command on the caller's transaction, with
- * the locks that the command takes, so a stored response replays only to a current holder.
- */
-export const authorizeCertificateCommand = (
+const authorizeDaysServedConfirmationImpl = (
   principal: CertificatePrincipal,
-  target: CertificateCommandTarget,
+  scope: PlacementScope,
 ) =>
   Effect.gen(function* () {
     const sql = yield* Database;
+    yield* authorizeConfirmation(sql, principal, scope);
 
-    yield* CertificateCommandTarget.$match(target, {
-      ConfirmDaysServed: (scope) => authorizeConfirmation(sql, principal, scope),
-      IssueCertificate: ({ departmentId, personId }) =>
-        Effect.asVoid(authorizeIssue(sql, principal, departmentId, personId)),
-    });
+    // SAFETY: the one constructor of the evidence brand; authorizeConfirmation above is what it proves.
+    return {
+      principal,
+      departmentId: scope.departmentId,
+      semesterId: scope.semesterId,
+    } as DaysServedConfirmationAuthorization;
   });
 
 /**
- * Appends the next confirmation of one assistant's total under the department lock. The
- * precondition sees the fresh entry; the earlier confirmations and the service facts stay.
+ * Resolves the principal's current days-served authority in the scope on the caller's transaction,
+ * under the department lock, so a stored response replays only to a current holder.
  */
-export const confirmDaysServed = <E, R>(
+export const authorizeDaysServedConfirmation: {
+  (
+    scope: PlacementScope,
+  ): (principal: CertificatePrincipal) => ReturnType<typeof authorizeDaysServedConfirmationImpl>;
+  (
+    principal: CertificatePrincipal,
+    scope: PlacementScope,
+  ): ReturnType<typeof authorizeDaysServedConfirmationImpl>;
+} = dual(2, authorizeDaysServedConfirmationImpl);
+
+const authorizeCertificateIssueImpl = (
   principal: CertificatePrincipal,
-  command: ConfirmDaysServedCommand,
+  departmentId: DepartmentId,
+  personId: PersonId,
+) =>
+  Effect.gen(function* () {
+    const sql = yield* Database;
+    const { department, issuer } = yield* authorizeIssue(sql, principal, departmentId, personId);
+
+    // SAFETY: the one constructor of the evidence brand; authorizeIssue above is what it proves.
+    return { principal, department, personId, issuer } as CertificateIssueAuthorization;
+  });
+
+/**
+ * Resolves whether the principal currently issues the department's certificates for another
+ * person, on the caller's transaction and under the department lock, so a stored response replays
+ * only to a current issuer.
+ */
+export const authorizeCertificateIssue: {
+  (
+    departmentId: DepartmentId,
+    personId: PersonId,
+  ): (principal: CertificatePrincipal) => ReturnType<typeof authorizeCertificateIssueImpl>;
+  (
+    principal: CertificatePrincipal,
+    departmentId: DepartmentId,
+    personId: PersonId,
+  ): ReturnType<typeof authorizeCertificateIssueImpl>;
+} = dual(3, authorizeCertificateIssueImpl);
+
+const confirmDaysServedImpl = <E, R>(
+  authorization: DaysServedConfirmationAuthorization,
+  input: Omit<ConfirmDaysServedCommand, "departmentId" | "semesterId">,
   checkPrecondition: (current: DaysServedEntry) => Effect.Effect<void, E, R>,
 ) =>
   Effect.gen(function* () {
     const sql = yield* Database;
-    const scope = { departmentId: command.departmentId, semesterId: command.semesterId };
-
-    yield* authorizeConfirmation(sql, principal, scope);
+    const { principal, departmentId, semesterId } = authorization;
+    const command = { ...input, departmentId, semesterId };
+    const scope = { departmentId, semesterId };
 
     const current = yield* readEntry(scope, command.personId);
 
     if (Option.isNone(current))
-      return yield* new CertificateAssistantNotFound({ personId: command.personId });
+      return yield* CertificateAssistantNotFound.make({ personId: command.personId });
 
     yield* checkPrecondition(current.value);
 
@@ -764,13 +816,30 @@ export const confirmDaysServed = <E, R>(
     const confirmed = yield* readEntry(scope, command.personId);
 
     if (Option.isNone(confirmed))
-      return yield* new CertificateAssistantNotFound({ personId: command.personId });
+      return yield* CertificateAssistantNotFound.make({ personId: command.personId });
 
     return confirmed.value;
   });
 
-/** One page of the assistants with service facts in a department, for its issuers. */
-export const listCertificates = (
+/**
+ * Appends the next confirmation of one assistant's total under the department lock. The
+ * precondition sees the fresh entry; the earlier confirmations and the service facts stay.
+ */
+export const confirmDaysServed: {
+  <E, R>(
+    input: Omit<ConfirmDaysServedCommand, "departmentId" | "semesterId">,
+    checkPrecondition: (current: DaysServedEntry) => Effect.Effect<void, E, R>,
+  ): (
+    authorization: DaysServedConfirmationAuthorization,
+  ) => ReturnType<typeof confirmDaysServedImpl<E, R>>;
+  <E, R>(
+    authorization: DaysServedConfirmationAuthorization,
+    input: Omit<ConfirmDaysServedCommand, "departmentId" | "semesterId">,
+    checkPrecondition: (current: DaysServedEntry) => Effect.Effect<void, E, R>,
+  ): ReturnType<typeof confirmDaysServedImpl<E, R>>;
+} = dual(3, confirmDaysServedImpl);
+
+const listCertificatesImpl = (
   principal: CertificatePrincipal,
   departmentId: DepartmentId,
   cursor?: string,
@@ -823,8 +892,20 @@ export const listCertificates = (
     return { ...page, items, departmentName: department.name };
   });
 
-/** The certificate that the principal would issue now, and the semesters it leaves out. */
-export const readCertificate = (
+/** One page of the assistants with service facts in a department, for its issuers. */
+export const listCertificates: {
+  (
+    departmentId: DepartmentId,
+    cursor?: string,
+  ): (principal: CertificatePrincipal) => ReturnType<typeof listCertificatesImpl>;
+  (
+    principal: CertificatePrincipal,
+    departmentId: DepartmentId,
+    cursor?: string,
+  ): ReturnType<typeof listCertificatesImpl>;
+} = dual((args) => Predicate.isObject(args[0]), listCertificatesImpl);
+
+const readCertificateImpl = (
   principal: CertificatePrincipal,
   departmentId: DepartmentId,
   personId: PersonId,
@@ -836,36 +917,40 @@ export const readCertificate = (
     const issuer = yield* requireIssuer(sql, authority, departmentId, false);
 
     if (personId === principal.personId)
-      return yield* new CertificateAccessDenied({ reason: "OwnCertificate" });
+      return yield* CertificateAccessDenied.make({ reason: "OwnCertificate" });
 
     return yield* buildPreview(department, personId, issuer);
   });
 
-/**
- * Records one issue of the current certificate under the department lock: who issued it, when,
- * under which seat, and the hash of the content. The precondition sees the fresh preview.
- */
-export const issueCertificate = <E, R>(
-  principal: CertificatePrincipal,
-  command: IssueCertificateCommand,
+/** The certificate that the principal would issue now, and the semesters it leaves out. */
+export const readCertificate: {
+  (
+    departmentId: DepartmentId,
+    personId: PersonId,
+  ): (principal: CertificatePrincipal) => ReturnType<typeof readCertificateImpl>;
+  (
+    principal: CertificatePrincipal,
+    departmentId: DepartmentId,
+    personId: PersonId,
+  ): ReturnType<typeof readCertificateImpl>;
+} = dual(3, readCertificateImpl);
+
+const issueCertificateImpl = <E, R>(
+  authorization: CertificateIssueAuthorization,
+  input: Pick<IssueCertificateCommand, "commandId">,
   checkPrecondition: (current: CertificatePreview) => Effect.Effect<void, E, R>,
 ) =>
   Effect.gen(function* () {
     const sql = yield* Database;
-
-    const { department, issuer } = yield* authorizeIssue(
-      sql,
-      principal,
-      command.departmentId,
-      command.personId,
-    );
+    const { principal, department, personId, issuer } = authorization;
+    const command = { ...input, departmentId: department.departmentId, personId };
 
     const preview = yield* buildPreview(department, command.personId, issuer);
 
     yield* checkPrecondition(preview);
 
     if (preview.content === null || preview.contentSha256 === null)
-      return yield* new CertificateEmpty();
+      return yield* CertificateEmpty.make({});
 
     const content = yield* Schema.encodeEffect(CertificateContent)(preview.content).pipe(
       Effect.mapError(persistenceFailure("encode certificate content")),
@@ -895,3 +980,21 @@ export const issueCertificate = <E, R>(
       issuer,
     }).pipe(Effect.mapError(persistenceFailure("decode certificate issue")));
   });
+
+/**
+ * Records one issue of the current certificate under the department lock: who issued it, when,
+ * under which seat, and the hash of the content. The precondition sees the fresh preview.
+ */
+export const issueCertificate: {
+  <E, R>(
+    input: Pick<IssueCertificateCommand, "commandId">,
+    checkPrecondition: (current: CertificatePreview) => Effect.Effect<void, E, R>,
+  ): (
+    authorization: CertificateIssueAuthorization,
+  ) => ReturnType<typeof issueCertificateImpl<E, R>>;
+  <E, R>(
+    authorization: CertificateIssueAuthorization,
+    input: Pick<IssueCertificateCommand, "commandId">,
+    checkPrecondition: (current: CertificatePreview) => Effect.Effect<void, E, R>,
+  ): ReturnType<typeof issueCertificateImpl<E, R>>;
+} = dual(3, issueCertificateImpl);

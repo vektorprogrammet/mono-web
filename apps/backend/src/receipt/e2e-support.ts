@@ -2,8 +2,9 @@
  * Local E2E concurrency probe for receipt approval evidence.
  * Composed only when `ReceiptApiConfig.e2e` is present (local deployments only).
  */
-import { Problem } from "@vektorprogrammet/http-api/http-semantics";
+import { Problem } from "@vektorprogrammet/rpc/problem";
 import { Cause, Clock, Deferred, Duration, Effect } from "effect";
+import type { Headers } from "effect/unstable/http";
 import type { ReceiptApiConfig } from "./config.js";
 
 export type ReceiptE2EConcurrencyLane = "file-read" | "approve" | "reject";
@@ -17,16 +18,17 @@ export type ReceiptE2EBarrierArrival = Effect.Effect<
   Problem<"request.malformed"> | Cause.TimeoutError
 >;
 
-/** Holds each probed request inside its transaction until all three lanes have arrived. */
+/**
+ * Holds each probed request inside its transaction until all three lanes have arrived. The probe
+ * is a real HTTP header of the RPC request, which the RPC `headers` carry.
+ */
 export type ReceiptE2ETransactionBarrier = (
-  request: Request,
+  headers: Headers.Headers,
   receiptId: string,
   lane: ReceiptE2EConcurrencyLane,
 ) => ReceiptE2EBarrierArrival;
 
 export const RECEIPT_E2E_CONCURRENCY_REQUEST_HEADER = "x-receipt-e2e-concurrency-probe";
-
-export const RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER = "x-receipt-e2e-concurrency-synchronized";
 
 const LANE_COUNT = 3;
 
@@ -50,12 +52,12 @@ export const makeReceiptE2ETransactionBarrier: Effect.Effect<ReceiptE2ETransacti
       new Cause.TimeoutError("Receipt E2E transaction concurrency barrier timed out"),
     );
 
-    return (request, receiptId, lane) =>
+    return (headers, receiptId, lane) =>
       Clock.clockWith((clock) =>
         Effect.suspend((): ReceiptE2EBarrierArrival => {
-          const marker = request.headers.get(RECEIPT_E2E_CONCURRENCY_REQUEST_HEADER);
+          const marker = headers[RECEIPT_E2E_CONCURRENCY_REQUEST_HEADER];
 
-          if (marker === null) return Effect.succeed(false);
+          if (marker === undefined) return Effect.succeed(false);
 
           if (marker !== lane) return malformed;
 

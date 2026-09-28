@@ -1,40 +1,42 @@
+/** 0095: owned local PostgreSQL/auth/RPC/files import and restore rehearsal. */
+import * as BunHttpServer from "@effect/platform-bun/BunHttpServer";
+import * as BunRuntime from "@effect/platform-bun/BunRuntime";
+import * as BunServices from "@effect/platform-bun/BunServices";
 import {
   canonicalJsonBytes,
   canonicalJsonValue,
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
 import { ReceiptOutboxRequestSchema } from "@vektorprogrammet/domain/receipt";
-/** 0095: owned local PostgreSQL/auth/SDK/files import and restore rehearsal. */
 import assert from "node:assert/strict";
-import { observeReceiptDelivery } from "./receipt-delivery-observation.js";
-import { spawn, execFileSync, type ChildProcess } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import {
-  mkdtemp,
-  mkdir,
-  readFile,
-  writeFile,
-  rm,
-  cp,
-  symlink,
-  chmod,
-  readdir,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
 import { Buffer } from "node:buffer";
-import process from "node:process";
-import { Pool } from "pg";
+import { randomBytes } from "node:crypto";
+import { observeReceiptDelivery } from "./receipt-delivery-observation.js";
+import { Pool, type QueryResultRow } from "pg";
+import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import {
-  type DisposablePostgres,
-  postgresProgram,
-  reserveLoopbackPorts,
-  startDisposablePostgres,
-} from "@monoweb/postgres";
-import * as BunServices from "@effect/platform-bun/BunServices";
-import { Console, Schema, Cause, Predicate, Effect, Layer, Redacted, Struct } from "effect";
+  Cause,
+  Config,
+  Console,
+  Data,
+  DateTime,
+  Effect,
+  Exit,
+  FileSystem,
+  Layer,
+  Option,
+  Path,
+  Predicate,
+  Redacted,
+  Schema,
+  Scope,
+  Stream,
+  Struct,
+} from "effect";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { ChildProcess, type ChildProcessSpawner } from "effect/unstable/process";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
-import { Database, databaseHealth } from "@vektorprogrammet/database";
 import {
   storeReceiptImportResult,
   reconcileReceiptImport,
@@ -47,7 +49,7 @@ import {
 import { ReceiptFileService } from "@vektorprogrammet/domain/receipt";
 import type { ReceiptImportResult } from "@vektorprogrammet/domain/receipt";
 import { ReceiptId } from "@vektorprogrammet/domain/receipt";
-import { createPromiseClient } from "../../packages/sdk/src/promise.js";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
 import {
   ReceiptFileStoreResource,
   ReceiptFileStoreLive,
@@ -58,796 +60,897 @@ import {
   rowDigest,
   prepareReceiptSnapshot,
 } from "@vektorprogrammet/backend/receipt/import-snapshot";
+import { commandOutput, indentedJsonText } from "../acceptance/acceptance-process.js";
+import { firstSetCookie, jsonText, step, surfaceStepFailure } from "../acceptance/journey-step.js";
 
-const root = resolve(import.meta.dirname, "../..");
+/** The rehearsal failed; its sanitized evidence names the cause. */
+class ReceiptRehearsalFailed extends Data.TaggedError("ReceiptRehearsalFailed")<{
+  readonly message: string;
+}> {}
 
-const command = (name: string, args: string[], env = process.env) =>
-  execFileSync(name, args, {
-    cwd: root,
-    env,
-    encoding: "utf8",
-    timeout: 60_000,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+/** A step of the rehearsal that outlived its bound. */
+class ReceiptRehearsalTimeout extends Data.TaggedError("ReceiptRehearsalTimeout")<{
+  readonly message: string;
+}> {}
 
-const revision = command("git", ["rev-parse", "HEAD"]).trim();
+/** One `pg` query as a step; a rejection fails the step with the original error. */
+// oxlint-disable-next-line typescript/no-explicit-any -- pg types an untyped row as any, as the calls did
+const query = <Row extends QueryResultRow = any>(
+  target: Pool,
+  text: string,
+  values?: ReadonlyArray<unknown>,
+) => step(() => target.query<Row>(text, values === undefined ? undefined : [...values]));
 
-assert.equal(
-  command("git", ["status", "--porcelain"]).trim(),
-  "",
-  "committed clean artifact required",
-);
+/** Asserts that the effect fails or dies, as `assert.rejects` did for its promise. */
+const rejects = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Effect.exit(effect).pipe(
+    Effect.map((exit) => assert.ok(Exit.isFailure(exit), "Missing expected rejection.")),
+  );
 
-for (const key of [
-  "RECEIPT_DELIVERY_URL",
-  "RECEIPT_DELIVERY_TOKEN",
-  "CONTACT_DELIVERY_URL",
-  "CONTACT_DELIVERY_TOKEN",
-  "PUBLIC_APPLICATION_EFFECT_ENDPOINT",
-  "PUBLIC_APPLICATION_EFFECT_TOKEN",
-])
-  assert.ok(!process.env[key], `unset provider configuration: ${key}`);
+/** Whether the owned backend answers its health check with 200; a failure fails the check. */
+const healthAnswers200 = (origin: string) =>
+  HttpClient.get(`${origin}/health`).pipe(
+    Effect.map((response) => assert.equal(response.status, 200)),
+  );
 
-const artifacts = await mkdtemp(join(tmpdir(), "vektor-receipt-0095-"));
+/** Retries the check every 100 ms, 150 times, as the owned runtime starts. */
+const wait = <A, E, R>(check: Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    for (let n = 0; n < 150; n++) {
+      const exit = yield* Effect.exit(check);
 
-const storage = join(artifacts, "storage");
+      if (Exit.isSuccess(exit)) return;
 
-const fixtureRoot = join(artifacts, "source");
-
-await mkdir(fixtureRoot);
-
-await mkdir(storage);
-
-const children: ChildProcess[] = [];
-
-const logs: string[] = [];
-
-const secretValues: string[] = [];
-
-const safe = (value: string) =>
-  secretValues.reduce((text, secret) => text.replaceAll(secret, "[redacted]"), value);
-
-const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-const start = (name: string, args: string[], env: NodeJS.ProcessEnv) => {
-  const child = spawn(name, args, { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
-  children.push(child);
-  child.stdout?.on("data", () => {});
-  child.stderr?.on("data", (b) => {
-    logs.push(String(b));
-
-    if (logs.length > 30) logs.shift();
-  });
-
-  return child;
-};
-
-const stop = async (child: ChildProcess) => {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => child.kill("SIGKILL"), 5000);
-    const bound = setTimeout(() => reject(new Error("owned child did not exit")), 15000);
-    child.once("exit", () => {
-      clearTimeout(timeout);
-      clearTimeout(bound);
-      resolve();
-    });
-    child.kill("SIGTERM");
-  });
-};
-
-const wait = async <A>(check: () => Promise<A>) => {
-  for (let n = 0; n < 150; n++) {
-    try {
-      await check();
-
-      return;
-    } catch {
-      await pause(100);
+      yield* Effect.sleep("100 millis");
     }
-  }
 
-  throw new Error("owned runtime startup timed out");
-};
-
-let postgres: DisposablePostgres | undefined;
-
-let pool: InstanceType<typeof Pool> | undefined;
-
-let backend: ChildProcess | undefined;
-
-let evidence: Schema.Json | undefined;
-
-let cleanupOkay = false;
-
-try {
-  const [backendPort, dashboardPort] = await reserveLoopbackPorts(2);
-
-  const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
-
-  postgres = await startDisposablePostgres({ database: "receipt_0095" });
-  const pgUrl = postgres.url;
-  pool = new Pool({ connectionString: pgUrl });
-
-  const databaseLayer = DatabaseLive({ url: Redacted.make(pgUrl), maxConnections: 2 }).pipe(
-    Layer.provide(BunServices.layer),
-  );
-
-  const run = <A, E>(program: Effect.Effect<A, E, Database>) =>
-    Effect.runPromise(program.pipe(Effect.provide(databaseLayer)));
-
-  await run(databaseHealth);
-  await Effect.runPromise(Console.log("0095 database migrated"));
-  const backendOrigin = `http://127.0.0.1:${backendPort}`;
-  const password = randomBytes(24).toString("hex");
-  secretValues.push(password);
-
-  const persons = [
-    {
-      personId: "receipt-owner-0095",
-      firstName: "Synthetic",
-      lastName: "Owner",
-      email: "owner0095@example.invalid",
-      password,
-    },
-    {
-      personId: "receipt-foreign-0095",
-      firstName: "Synthetic",
-      lastName: "Other",
-      email: "foreign0095@example.invalid",
-      password,
-    },
-  ];
-
-  const env = {
-    ...process.env,
-    BACKEND_HOST: "127.0.0.1",
-    BACKEND_PORT: String(backendPort),
-    BACKEND_PG_URL: pgUrl,
-    BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
-    NATIVE_IDENTITY_DEPLOYMENT: "local",
-    NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
-    OAUTH_CANONICAL_ORIGIN: backendOrigin,
-    OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
-    OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
-    PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-    PASSWORD_RESET_DELIVERY_MODE: "disabled",
-    RECEIPT_DELIVERY_MODE: "disabled",
-    RECEIPT_STAGING_ROOT: join(storage, "staging"),
-    RECEIPT_COMMITTED_ROOT: join(storage, "committed"),
-  };
-
-  secretValues.push(env.BETTER_AUTH_SECRET);
-  command("bun", ["run", "packages/database/runtime/identity-seed-main.ts"], {
-    ...env,
-    IDENTITY_SEED_PG_URL: pgUrl,
-    IDENTITY_SEED_PERSONS: JSON.stringify(persons),
+    return yield* new ReceiptRehearsalTimeout({ message: "owned runtime startup timed out" });
   });
 
-  for (const person of persons) {
-    const result: import("pg").QueryResult<{
-      id: string;
-      email: string;
-      emailVerified: boolean;
-      providerId: string;
-    }> = await pool.query(
-      'SELECT u.id,u.email,u."emailVerified",a."providerId" FROM auth."user" u JOIN auth."account" a ON a."userId"=u.id WHERE u.id=$1',
-      [person.personId],
-    );
+type OwnedChild = ChildProcessSpawner.ChildProcessHandle;
 
-    assert.deepEqual(result.rows, [
-      { id: person.personId, email: person.email, emailVerified: true, providerId: "credential" },
-    ]);
-  }
+const rehearsal = Effect.gen(function* () {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const join = path.join;
+  const root = path.resolve(import.meta.dirname, "../..");
 
-  await pool.query(
-    "INSERT INTO organization_departments(department_id,name,short_name,email,city,active) VALUES ('receipt-department-0095','Synthetic0095','Synthetic0095','dept0095@example.invalid','Synthetic',true)",
+  const command = (
+    name: string,
+    args: ReadonlyArray<string>,
+    env: Readonly<Record<string, string | undefined>> = {},
+  ) =>
+    commandOutput({ command: name, args, cwd: root, env, deadline: "60 seconds", stderr: "pipe" });
+
+  const revision = (yield* command("git", ["rev-parse", "HEAD"])).trim();
+
+  assert.equal(
+    (yield* command("git", ["status", "--porcelain"])).trim(),
+    "",
+    "committed clean artifact required",
   );
 
-  const tables = [
-    "economy_receipts",
-    "economy_receipt_import_ledger",
-    "economy_receipt_command_receipts",
-    "economy_receipt_outbox",
-    "economy_receipt_audit",
-    "person_profiles",
-    "organization_departments",
-    "economy_payment_authorities",
-    "economy_receipt_approval_grants",
-  ];
-
-  const snapshot = async (p = pool!) =>
-    Object.fromEntries(
-      await Promise.all(
-        tables.map(async (table) => {
-          const rows = (
-            await p.query(`SELECT to_jsonb(t) AS row FROM ${table} t ORDER BY to_jsonb(t)::text`)
-          ).rows;
-
-          return [table, sha256Hex(canonicalJsonBytes(rows))];
-        }),
-      ),
+  for (const key of [
+    "RECEIPT_DELIVERY_URL",
+    "RECEIPT_DELIVERY_TOKEN",
+    "CONTACT_DELIVERY_URL",
+    "CONTACT_DELIVERY_TOKEN",
+    "PUBLIC_APPLICATION_EFFECT_ENDPOINT",
+    "PUBLIC_APPLICATION_EFFECT_TOKEN",
+  ])
+    assert.ok(
+      Option.getOrElse(yield* Config.option(Config.String(key)), () => "") === "",
+      `unset provider configuration: ${key}`,
     );
 
-  const credentialDigest = async (p = pool!) =>
-    sha256Hex(
-      canonicalJsonBytes(
-        (
-          await p.query(
-            'SELECT u.id,u.email,u."emailVerified",a."providerId",a.password FROM auth."user" u JOIN auth."account" a ON a."userId"=u.id ORDER BY u.id',
-          )
-        ).rows,
-      ),
+  const reopenRehearsal = Option.contains(
+    yield* Config.option(Config.String("RECEIPT_REOPEN_REHEARSAL")),
+    "1",
+  );
+
+  const artifacts = yield* fileSystem.makeTempDirectory({ prefix: "vektor-receipt-0095-" });
+
+  const storage = join(artifacts, "storage");
+
+  const fixtureRoot = join(artifacts, "source");
+
+  yield* fileSystem.makeDirectory(fixtureRoot);
+
+  yield* fileSystem.makeDirectory(storage);
+
+  const logs: string[] = [];
+
+  const secretValues: string[] = [];
+
+  const safe = (value: string) =>
+    secretValues.reduce((text, secret) => text.replaceAll(secret, "[redacted]"), value);
+
+  const main = Effect.gen(function* () {
+    const rehearsalScope = yield* Effect.scope;
+
+    /** Starts an owned child in the rehearsal scope; it keeps the last 30 chunks of standard error. */
+    const start = (
+      name: string,
+      args: ReadonlyArray<string>,
+      env: Readonly<Record<string, string | undefined>>,
+    ) =>
+      Effect.gen(function* () {
+        const child = yield* ChildProcess.make(name, args, {
+          cwd: root,
+          env: { ...env },
+          extendEnv: true,
+          stdin: "ignore",
+          forceKillAfter: "5 seconds",
+        });
+
+        yield* child.stdout.pipe(Stream.runDrain, Effect.ignore, Effect.forkScoped);
+        yield* child.stderr.pipe(
+          Stream.decodeText(),
+          Stream.runForEach((text) =>
+            Effect.sync(() => {
+              logs.push(text);
+
+              if (logs.length > 30) logs.shift();
+            }),
+          ),
+          Effect.ignore,
+          Effect.forkScoped,
+        );
+
+        return child;
+      }).pipe(Effect.provideService(Scope.Scope, rehearsalScope));
+
+    /** Stops an owned child: SIGTERM, SIGKILL after five seconds, and a failure after fifteen. */
+    const stop = (child: OwnedChild) =>
+      Effect.gen(function* () {
+        if (!(yield* child.isRunning)) return;
+
+        yield* child.kill({ forceKillAfter: "5 seconds" }).pipe(
+          Effect.timeoutOrElse({
+            duration: "15 seconds",
+            orElse: () =>
+              Effect.fail(new ReceiptRehearsalTimeout({ message: "owned child did not exit" })),
+          }),
+        );
+      });
+
+    let backend: OwnedChild | undefined;
+
+    const [backendPort, dashboardPort] = yield* step(() => reserveLoopbackPorts(2));
+
+    const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+
+    const postgres = yield* Effect.acquireRelease(
+      step(() => startDisposablePostgres({ database: "receipt_0095" })),
+      (owned) => Effect.promise(() => owned.stop()),
     );
 
-  const files = await Effect.runPromise(
-    ReceiptFileStoreResource.pipe(
+    const pgUrl = postgres.url;
+
+    const pool = yield* Effect.acquireRelease(
+      Effect.sync(() => new Pool({ connectionString: pgUrl })),
+      (owned) => Effect.promise(() => owned.end()),
+    );
+
+    const databaseLayer = DatabaseLive({ url: Redacted.make(pgUrl), maxConnections: 2 });
+
+    const run = <A, E, R>(program: Effect.Effect<A, E, R>) =>
+      program.pipe(Effect.provide(databaseLayer));
+
+    // The database health check of the migrated schema.
+    yield* run(SqlClient.SqlClient.use((sql) => sql`SELECT 1 AS ready`));
+    yield* Console.log("0095 database migrated");
+    const backendOrigin = `http://127.0.0.1:${backendPort}`;
+    const password = randomBytes(24).toString("hex");
+    secretValues.push(password);
+
+    const persons = [
+      {
+        personId: "receipt-owner-0095",
+        firstName: "Synthetic",
+        lastName: "Owner",
+        email: "owner0095@example.invalid",
+        password,
+      },
+      {
+        personId: "receipt-foreign-0095",
+        firstName: "Synthetic",
+        lastName: "Other",
+        email: "foreign0095@example.invalid",
+        password,
+      },
+    ];
+
+    const env = {
+      BACKEND_HOST: "127.0.0.1",
+      BACKEND_PORT: String(backendPort),
+      BACKEND_PG_URL: pgUrl,
+      BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
+      NATIVE_IDENTITY_DEPLOYMENT: "local",
+      NATIVE_IDENTITY_TRUSTED_ORIGINS: yield* jsonText([dashboardOrigin]),
+      OAUTH_CANONICAL_ORIGIN: backendOrigin,
+      OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
+      OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
+      PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+      PASSWORD_RESET_DELIVERY_MODE: "disabled",
+      RECEIPT_DELIVERY_MODE: "disabled",
+      RECEIPT_STAGING_ROOT: join(storage, "staging"),
+      RECEIPT_COMMITTED_ROOT: join(storage, "committed"),
+    };
+
+    secretValues.push(env.BETTER_AUTH_SECRET);
+    yield* command("bun", ["run", "packages/database/runtime/identity-seed-main.ts"], {
+      ...env,
+      IDENTITY_SEED_PG_URL: pgUrl,
+      IDENTITY_SEED_PERSONS: yield* jsonText(persons),
+    });
+
+    for (const person of persons) {
+      const result = yield* query<{
+        id: string;
+        email: string;
+        emailVerified: boolean;
+        providerId: string;
+      }>(
+        pool,
+
+        'SELECT u.id,u.email,u."emailVerified",a."providerId" FROM auth."user" u JOIN auth."account" a ON a."userId"=u.id WHERE u.id=$1',
+        [person.personId],
+      );
+
+      assert.deepEqual(result.rows, [
+        { id: person.personId, email: person.email, emailVerified: true, providerId: "credential" },
+      ]);
+    }
+
+    yield* query(
+      pool,
+      "INSERT INTO organization_departments(department_id,name,short_name,email,city,active) VALUES ('receipt-department-0095','Synthetic0095','Synthetic0095','dept0095@example.invalid','Synthetic',true)",
+    );
+
+    const tables = [
+      "economy_receipts",
+      "economy_receipt_import_ledger",
+      "economy_receipt_command_receipts",
+      "economy_receipt_outbox",
+      "economy_receipt_audit",
+      "person_profiles",
+      "organization_departments",
+      "economy_payment_authorities",
+      "economy_receipt_approval_grants",
+    ];
+
+    const snapshot = (p: Pool = pool) =>
+      Effect.forEach(
+        tables,
+        (table) =>
+          query(p, `SELECT to_jsonb(t) AS row FROM ${table} t ORDER BY to_jsonb(t)::text`).pipe(
+            Effect.map((result) => [table, sha256Hex(canonicalJsonBytes(result.rows))] as const),
+          ),
+        { concurrency: "unbounded" },
+      ).pipe(Effect.map((entries) => Object.fromEntries(entries)));
+
+    const credentialDigest = (p: Pool = pool) =>
+      query(
+        p,
+        'SELECT u.id,u.email,u."emailVerified",a."providerId",a.password FROM auth."user" u JOIN auth."account" a ON a."userId"=u.id ORDER BY u.id',
+      ).pipe(Effect.map((result) => sha256Hex(canonicalJsonBytes(result.rows))));
+
+    const files = yield* ReceiptFileStoreResource.pipe(
       Effect.provide(
         ReceiptFileStoreLive({
           stagingRoot: env.RECEIPT_STAGING_ROOT,
           committedRoot: env.RECEIPT_COMMITTED_ROOT,
-        }).pipe(Layer.provide(BunServices.layer)),
+        }),
       ),
-    ),
-  );
+    );
 
-  const baselineBytes = Buffer.from(
-    "%PDF-1.4\nPre-existing native synthetic receipt 0095\n%%EOF\n",
-  );
+    const baselineBytes = Buffer.from(
+      "%PDF-1.4\nPre-existing native synthetic receipt 0095\n%%EOF\n",
+    );
 
-  const baselineFile = (
-    await Effect.runPromise(
-      files.stageBytes(
-        new File([baselineBytes], "baseline.pdf", { type: "application/pdf" }),
-        "0095-native-baseline",
-        "application/pdf",
-        10 * 1024 * 1024,
-      ),
-    )
-  ).file;
+    const baselineFile = (yield* files.stageBytes(
+      new File([baselineBytes], "baseline.pdf", { type: "application/pdf" }),
+      "0095-native-baseline",
+      "application/pdf",
+      10 * 1024 * 1024,
+    )).file;
 
-  await Effect.runPromise(
-    files.service.apply(
+    yield* files.service.apply(
       ReceiptOutboxRequestSchema.cases.PromoteReceiptFile.make({
         effectId: "0095-native-baseline-promote",
         commandId: "0095-native-baseline",
         receiptId: "receipt-0095-baseline",
         file: baselineFile,
       }),
-    ),
-  );
-  // Explicit pre-existing native fixture, before the measured historical import window.
-  await pool.query(
-    `INSERT INTO economy_receipts(receipt_id,visual_id,owner_person_id,department_id,amount_ore,currency,description,receipt_date,submitted_at,status,approved_at,payment_account_ciphertext,file_ref,file_object_key,file_content_type,file_byte_length,file_sha256,revision)
+    );
+    // Explicit pre-existing native fixture, before the measured historical import window.
+    yield* query(
+      pool,
+      `INSERT INTO economy_receipts(receipt_id,visual_id,owner_person_id,department_id,amount_ore,currency,description,receipt_date,submitted_at,status,approved_at,payment_account_ciphertext,file_ref,file_object_key,file_content_type,file_byte_length,file_sha256,revision)
  VALUES ('receipt-0095-baseline','SYN-0095-baseline',$1,'receipt-department-0095',500,'NOK','Pre-existing synthetic native receipt','2026-08-01','2026-08-01T12:00:00Z','Pending',NULL,'synthetic:baseline',$2,$3,$4,$5,$6,0)`,
-    [
-      persons[0]!.personId,
-      baselineFile.fileRef,
-      baselineFile.objectKey,
-      baselineFile.contentType,
-      baselineFile.byteLength,
-      baselineFile.sha256,
-    ],
-  );
-  await Effect.runPromise(Console.log("0095 native baseline seeded"));
+      [
+        persons[0]!.personId,
+        baselineFile.fileRef,
+        baselineFile.objectKey,
+        baselineFile.contentType,
+        baselineFile.byteLength,
+        baselineFile.sha256,
+      ],
+    );
+    yield* Console.log("0095 native baseline seeded");
 
-  const baseline = await snapshot(),
-    baselineCredentials = await credentialDigest();
+    const baseline = yield* snapshot(),
+      baselineCredentials = yield* credentialDigest();
 
-  command(postgresProgram("pg_dump"), [
-    "--format=custom",
-    "--file",
-    join(artifacts, "baseline.dump"),
-    pgUrl,
-  ]);
-  await chmod(join(artifacts, "baseline.dump"), 0o600);
-  await cp(storage, join(artifacts, "baseline-files"), { recursive: true });
-  const bytes = Buffer.from("%PDF-1.4\nSynthetic receipt 0095 only\n%%EOF\n");
-  await writeFile(join(fixtureRoot, "receipt.pdf"), bytes);
-  await writeFile(join(artifacts, "outside.pdf"), bytes);
-  await symlink(join(artifacts, "outside.pdf"), join(fixtureRoot, "outside-link.pdf"));
+    yield* command(postgresProgram("pg_dump"), [
+      "--format=custom",
+      "--file",
+      join(artifacts, "baseline.dump"),
+      pgUrl,
+    ]);
+    yield* fileSystem.chmod(join(artifacts, "baseline.dump"), 0o600);
+    yield* fileSystem.copy(storage, join(artifacts, "baseline-files"));
+    const bytes = Buffer.from("%PDF-1.4\nSynthetic receipt 0095 only\n%%EOF\n");
+    yield* fileSystem.writeFile(join(fixtureRoot, "receipt.pdf"), bytes);
+    yield* fileSystem.writeFile(join(artifacts, "outside.pdf"), bytes);
+    yield* fileSystem.symlink(
+      join(artifacts, "outside.pdf"),
+      join(fixtureRoot, "outside-link.pdf"),
+    );
 
-  const file = {
-    path: "receipt.pdf",
-    sha256: digest(bytes),
-    byteLength: bytes.length,
-    contentType: "application/pdf",
-  };
-
-  const valid = {
-    sourcePrimaryKey: "pending",
-    destinationIdentity: "receipt-0095-pending",
-    sourceUser: "legacy-owner",
-    sourceDepartment: "legacy-department",
-    visualId: "SYN-0095-pending",
-    amountDecimal: "123.45",
-    description: "Synthetic imported expense",
-    receiptDate: "2026-08-20",
-    submittedAt: "2026-08-21T12:00:00.000Z",
-    status: "pending",
-    refundDate: null,
-    file,
-  };
-
-  const variants = [
-    {},
-    { sourcePrimaryKey: "refunded", status: "refunded", refundDate: "2026-08-22T12:00:00.000Z" },
-    { sourcePrimaryKey: "rejected", status: "rejected" },
-    { sourcePrimaryKey: "amount", amountDecimal: "1.234" },
-    { sourcePrimaryKey: "date", receiptDate: "not-date" },
-    { sourcePrimaryKey: "status", status: "unknown" },
-    { sourcePrimaryKey: "owner", sourceUser: "unmapped" },
-    { sourcePrimaryKey: "department", sourceDepartment: "unmapped" },
-    { sourcePrimaryKey: "missing", file: null },
-    { sourcePrimaryKey: "unreadable", file: { ...file, path: "missing.pdf" } },
-    { sourcePrimaryKey: "digest", file: { ...file, sha256: "0".repeat(64) } },
-    { sourcePrimaryKey: "traversal", file: { ...file, path: "../outside.pdf" } },
-    { sourcePrimaryKey: "symlink", file: { ...file, path: "outside-link.pdf" } },
-    { sourcePrimaryKey: "mime", file: { ...file, contentType: "text/html" } },
-    { sourcePrimaryKey: "duplicate", visualId: "DUP" },
-    { sourcePrimaryKey: "duplicate", visualId: "DUP" },
-  ];
-
-  const rows: Array<{
-    sourcePrimaryKey: string;
-    destinationIdentity: string;
-    data: unknown;
-    rowDigest: string;
-  }> = variants.map((change, index) => {
-    const source = {
-      ...valid,
-      ...change,
-      destinationIdentity: `receipt-0095-${index}`,
-      visualId: change.visualId ?? `SYN-0095-${index}`,
+    const file = {
+      path: "receipt.pdf",
+      sha256: digest(bytes),
+      byteLength: bytes.length,
+      contentType: "application/pdf",
     };
 
-    const { sourcePrimaryKey, destinationIdentity, ...data } = source;
+    const valid = {
+      sourcePrimaryKey: "pending",
+      destinationIdentity: "receipt-0095-pending",
+      sourceUser: "legacy-owner",
+      sourceDepartment: "legacy-department",
+      visualId: "SYN-0095-pending",
+      amountDecimal: "123.45",
+      description: "Synthetic imported expense",
+      receiptDate: "2026-08-20",
+      submittedAt: "2026-08-21T12:00:00.000Z",
+      status: "pending",
+      refundDate: null,
+      file,
+    };
 
-    return { sourcePrimaryKey, destinationIdentity, data, rowDigest: rowDigest(source) };
-  });
+    const variants = [
+      {},
+      { sourcePrimaryKey: "refunded", status: "refunded", refundDate: "2026-08-22T12:00:00.000Z" },
+      { sourcePrimaryKey: "rejected", status: "rejected" },
+      { sourcePrimaryKey: "amount", amountDecimal: "1.234" },
+      { sourcePrimaryKey: "date", receiptDate: "not-date" },
+      { sourcePrimaryKey: "status", status: "unknown" },
+      { sourcePrimaryKey: "owner", sourceUser: "unmapped" },
+      { sourcePrimaryKey: "department", sourceDepartment: "unmapped" },
+      { sourcePrimaryKey: "missing", file: null },
+      { sourcePrimaryKey: "unreadable", file: { ...file, path: "missing.pdf" } },
+      { sourcePrimaryKey: "digest", file: { ...file, sha256: "0".repeat(64) } },
+      { sourcePrimaryKey: "traversal", file: { ...file, path: "../outside.pdf" } },
+      { sourcePrimaryKey: "symlink", file: { ...file, path: "outside-link.pdf" } },
+      { sourcePrimaryKey: "mime", file: { ...file, contentType: "text/html" } },
+      { sourcePrimaryKey: "duplicate", visualId: "DUP" },
+      { sourcePrimaryKey: "duplicate", visualId: "DUP" },
+    ];
 
-  const malformedSource = {
-    ...valid,
-    sourcePrimaryKey: "malformed",
-    destinationIdentity: "receipt-0095-malformed",
-    description: 42,
-  };
+    const rows: Array<{
+      sourcePrimaryKey: string;
+      destinationIdentity: string;
+      data: unknown;
+      rowDigest: string;
+    }> = variants.map((change, index) => {
+      const source = {
+        ...valid,
+        ...change,
+        destinationIdentity: `receipt-0095-${index}`,
+        visualId: change.visualId ?? `SYN-0095-${index}`,
+      };
 
-  const {
-    sourcePrimaryKey: malformedKey,
-    destinationIdentity: malformedDestination,
-    ...malformedData
-  } = malformedSource;
+      const { sourcePrimaryKey, destinationIdentity, ...data } = source;
 
-  rows.push({
-    sourcePrimaryKey: malformedKey,
-    destinationIdentity: malformedDestination,
-    data: malformedData,
-    rowDigest: rowDigest(malformedSource),
-  });
+      return { sourcePrimaryKey, destinationIdentity, data, rowDigest: rowDigest(source) };
+    });
 
-  const manifest = decodeSnapshot({
-    kind: "synthetic-receipt-import-0095",
-    sourceRepository: "synthetic-legacy",
-    sourceRevision: "fixture-0095-v1",
-    snapshotId: "immutable-0095-v1",
-    sourceWatermark: "synthetic:0",
-    transformationRevision: "0095-v1",
-    persons: [
-      {
-        sourceUser: "legacy-owner",
-        personId: persons[0]!.personId,
-        syntheticPaymentAccount: "synthetic:0095:not-a-payment-account",
-      },
-    ],
-    departments: [
-      { sourceDepartment: "legacy-department", departmentId: "receipt-department-0095" },
-    ],
-    rows,
-  });
+    const malformedSource = {
+      ...valid,
+      sourcePrimaryKey: "malformed",
+      destinationIdentity: "receipt-0095-malformed",
+      description: 42,
+    };
 
-  await writeFile(join(artifacts, "manifest.json"), JSON.stringify(manifest, null, 2));
+    const {
+      sourcePrimaryKey: malformedKey,
+      destinationIdentity: malformedDestination,
+      ...malformedData
+    } = malformedSource;
 
-  const prepared = await Effect.runPromise(
-    prepareReceiptSnapshot(manifest, fixtureRoot, files).pipe(Effect.provide(BunServices.layer)),
-  );
+    rows.push({
+      sourcePrimaryKey: malformedKey,
+      destinationIdentity: malformedDestination,
+      data: malformedData,
+      rowDigest: rowDigest(malformedSource),
+    });
 
-  const accepted = prepared.results.filter(
-    (r): r is Extract<ReceiptImportResult, { _tag: "AcceptedReceiptImport" }> =>
-      Predicate.isTagged(r, "AcceptedReceiptImport"),
-  );
+    const manifest = decodeSnapshot({
+      kind: "synthetic-receipt-import-0095",
+      sourceRepository: "synthetic-legacy",
+      sourceRevision: "fixture-0095-v1",
+      snapshotId: "immutable-0095-v1",
+      sourceWatermark: "synthetic:0",
+      transformationRevision: "0095-v1",
+      persons: [
+        {
+          sourceUser: "legacy-owner",
+          personId: persons[0]!.personId,
+          syntheticPaymentAccount: "synthetic:0095:not-a-payment-account",
+        },
+      ],
+      departments: [
+        { sourceDepartment: "legacy-department", departmentId: "receipt-department-0095" },
+      ],
+      rows,
+    });
 
-  assert.equal(accepted.length, 3);
-  assert.equal(prepared.results.length, rows.length);
-  let effectAttempts = 0;
+    yield* fileSystem.writeFileString(
+      join(artifacts, "manifest.json"),
+      yield* indentedJsonText(manifest),
+    );
 
-  const guard = ReceiptAuxiliaryEffects.of({
-    apply: (request) =>
-      Effect.sync(() => {
-        effectAttempts++;
-      }).pipe(
-        Effect.andThen(
-          Effect.fail(new ReceiptAuxiliaryEffectConflict({ effectId: request.effectId })),
+    const prepared = yield* prepareReceiptSnapshot(manifest, fixtureRoot, files);
+
+    const accepted = prepared.results.filter(
+      (r): r is Extract<ReceiptImportResult, { _tag: "AcceptedReceiptImport" }> =>
+        Predicate.isTagged(r, "AcceptedReceiptImport"),
+    );
+
+    assert.equal(accepted.length, 3);
+    assert.equal(prepared.results.length, rows.length);
+    let effectAttempts = 0;
+
+    const guard = ReceiptAuxiliaryEffects.of({
+      apply: (request) =>
+        Effect.sync(() => {
+          effectAttempts++;
+        }).pipe(
+          Effect.andThen(
+            Effect.fail(ReceiptAuxiliaryEffectConflict.make({ effectId: request.effectId })),
+          ),
         ),
-      ),
-  });
+    });
 
-  const observeNoEffects = async () => {
-    const result = await run(
-      deliverNextReceiptOutbox("0095-guard", new Date().toISOString()).pipe(
-        Effect.provideService(ReceiptAuxiliaryEffects, guard),
-        Effect.provideService(ReceiptFileService, files.service),
-      ),
+    const observeNoEffects = Effect.fnUntraced(function* () {
+      const claimedAt = DateTime.formatIso(yield* DateTime.now);
+
+      const result = yield* run(
+        deliverNextReceiptOutbox({ claimId: "0095-guard", claimedAt }).pipe(
+          Effect.provideService(ReceiptAuxiliaryEffects, guard),
+          Effect.provideService(ReceiptFileService, files.service),
+        ),
+      );
+
+      assert.equal(result._tag, "Idle");
+      assert.equal(effectAttempts, 0);
+      assert.equal(
+        (yield* query(pool, "SELECT count(*)::int AS n FROM economy_receipt_outbox")).rows[0].n,
+        0,
+      );
+    });
+
+    // Staged bytes precede the atomic receipt+ledger commit. Force its second insert to fail.
+    yield* query(
+      pool,
+      "CREATE FUNCTION fail_0095() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION '0095 injected ledger failure'; END $$; CREATE TRIGGER fail_0095 BEFORE INSERT ON economy_receipt_import_ledger FOR EACH ROW EXECUTE FUNCTION fail_0095()",
     );
-
-    assert.equal(result._tag, "Idle");
-    assert.equal(effectAttempts, 0);
+    yield* storeReceiptImportResult(accepted[0]!).pipe(run, rejects);
     assert.equal(
-      (await pool!.query("SELECT count(*)::int AS n FROM economy_receipt_outbox")).rows[0].n,
-      0,
+      (yield* query(pool, "SELECT count(*)::int AS n FROM economy_receipts")).rows[0].n,
+      1,
     );
-  };
+    yield* observeNoEffects();
+    yield* query(
+      pool,
+      "DROP TRIGGER fail_0095 ON economy_receipt_import_ledger; DROP FUNCTION fail_0095()",
+    );
 
-  // Staged bytes precede the atomic receipt+ledger commit. Force its second insert to fail.
-  await pool.query(
-    "CREATE FUNCTION fail_0095() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION '0095 injected ledger failure'; END $$; CREATE TRIGGER fail_0095 BEFORE INSERT ON economy_receipt_import_ledger FOR EACH ROW EXECUTE FUNCTION fail_0095()",
-  );
-  await assert.rejects(run(storeReceiptImportResult(accepted[0]!)));
-  assert.equal((await pool.query("SELECT count(*)::int AS n FROM economy_receipts")).rows[0].n, 1);
-  await observeNoEffects();
-  await pool.query(
-    "DROP TRIGGER fail_0095 ON economy_receipt_import_ledger; DROP FUNCTION fail_0095()",
-  );
-
-  const importAll = async () => {
-    for (const result of prepared.results) {
-      if (Predicate.isTagged(result, "AcceptedReceiptImport"))
-        await Effect.runPromise(
-          files.service.apply(
+    const importAll = Effect.fnUntraced(function* () {
+      for (const result of prepared.results) {
+        if (Predicate.isTagged(result, "AcceptedReceiptImport"))
+          yield* files.service.apply(
             ReceiptOutboxRequestSchema.cases.PromoteReceiptFile.make({
               effectId: `0095:${result.sourcePrimaryKey}:promote`,
               commandId: `0095:${result.sourcePrimaryKey}`,
               receiptId: result.receipt.receiptId,
               file: result.receipt.file,
             }),
-          ),
-        );
-      await run(storeReceiptImportResult(result));
-    }
-  };
-
-  await importAll();
-  await observeNoEffects();
-  await Effect.runPromise(Console.log("0095 import and failure/retry passed"));
-
-  // Staging objects owned by rejected occurrences have no committed references.
-  for (const file of prepared.staged) {
-    if (
-      !(
-        await pool.query("SELECT 1 FROM economy_receipts WHERE file_ref=$1 OR file_object_key=$2", [
-          file.fileRef,
-          file.objectKey,
-        ])
-      ).rowCount
-    )
-      await Effect.runPromise(files.cleanupStage(file));
-  }
-
-  backend = start("bun", ["run", "apps/backend/src/main.ts"], env);
-  await wait(async () => {
-    const response = await fetch(`${backendOrigin}/health`);
-    assert.equal(response.status, 200);
-  });
-
-  const signIn = async (email: string) => {
-    const response = await fetch(`${backendOrigin}/api/auth/sign-in/email`, {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: dashboardOrigin },
-      body: JSON.stringify({ email, password }),
+          );
+        yield* run(storeReceiptImportResult(result));
+      }
     });
 
-    assert.equal(response.status, 200);
-    const cookie = response.headers.get("set-cookie")?.split(";")[0];
-    assert.ok(cookie);
+    yield* importAll();
+    yield* observeNoEffects();
+    yield* Console.log("0095 import and failure/retry passed");
 
-    return cookie;
-  };
+    // Staging objects owned by rejected occurrences have no committed references.
+    for (const file of prepared.staged) {
+      if (
+        ((yield* query(
+          pool,
+          "SELECT 1 FROM economy_receipts WHERE file_ref=$1 OR file_object_key=$2",
+          [file.fileRef, file.objectKey],
+        )).rowCount ?? 0) === 0
+      )
+        yield* files.cleanupStage(file);
+    }
 
-  await Effect.runPromise(Console.log("0095 backend ready"));
+    backend = yield* start("bun", ["run", "apps/backend/src/main.ts"], env);
+    yield* wait(healthAnswers200(backendOrigin));
 
-  const cookie = await signIn(persons[0]!.email),
-    foreign = await signIn(persons[1]!.email);
+    const signIn = Effect.fnUntraced(function* (email: string) {
+      const response = yield* HttpClient.execute(
+        HttpClientRequest.post(`${backendOrigin}/api/auth/sign-in/email`).pipe(
+          HttpClientRequest.setHeader("origin", dashboardOrigin),
+          HttpClientRequest.bodyText(yield* jsonText({ email, password }), "application/json"),
+        ),
+      );
 
-  secretValues.push(
-    cookie,
-    foreign,
-    ...[cookie, foreign].map((value) => value.slice(value.indexOf("=") + 1)),
-  );
-  const client = createPromiseClient(backendOrigin, { cookie, origin: dashboardOrigin });
+      assert.equal(response.status, 200);
+      const cookie = firstSetCookie(response);
+      assert.ok(cookie !== undefined && cookie.length > 0);
 
-  const reconciliationDiagnostics: Array<{
-    sourcePrimaryKey: string;
-    phase: string;
-    reason: string;
-  }> = [];
+      return cookie;
+    });
 
-  const reconcile = async (result: (typeof accepted)[number]) => {
-    let phase = "persisted fact comparison";
+    yield* Console.log("0095 backend ready");
 
-    const observed = await run(
-      reconcileReceiptImport(result, () =>
-        Effect.tryPromise({
-          try: async () => {
+    const cookie = yield* signIn(persons[0]!.email),
+      foreign = yield* signIn(persons[1]!.email);
+
+    secretValues.push(
+      cookie,
+      foreign,
+      ...[cookie, foreign].map((value) => value.slice(value.indexOf("=") + 1)),
+    );
+    const native = nativeScriptClient(backendOrigin);
+
+    const ownerHeaders = { cookie, origin: dashboardOrigin };
+
+    const reconciliationDiagnostics: Array<{
+      sourcePrimaryKey: string;
+      phase: string;
+      reason: string;
+    }> = [];
+
+    const reconcile = Effect.fnUntraced(function* (result: (typeof accepted)[number]) {
+      let phase = "persisted fact comparison";
+
+      const observed = yield* run(
+        reconcileReceiptImport(result, () =>
+          Effect.gen(function* () {
             phase = "native owner projection";
-            const list = await client.receipts.listReceipts({ query: {} });
-            const item = list.body.items.find((i) => i.receiptId === result.receipt.receiptId);
+
+            const list = yield* step(() =>
+              native.call(ownerHeaders, (client) => client["receipts.listReceipts"]({})),
+            );
+
+            assert.ok(
+              list.ok,
+              `listReceipts answered ${list.status}: ${list.ok ? "" : "defect" in list ? list.defect : list.code}`,
+            );
+            const item = list.value.items.find((i) => i.receiptId === result.receipt.receiptId);
             assert.ok(item);
             assert.equal(item.amountOre, result.receipt.amountOre);
             assert.equal(item.status, result.receipt.status);
             assert.equal(item.visualId, result.receipt.visualId);
-            assert.ok(!JSON.stringify(item).includes("synthetic:0095:not-a-payment-account"));
-            assert.ok(!JSON.stringify(item).includes(result.receipt.file.objectKey));
+            const itemText = yield* jsonText(item);
+            assert.ok(!itemText.includes("synthetic:0095:not-a-payment-account"));
+            assert.ok(!itemText.includes(result.receipt.file.objectKey));
             phase = "native private byte download";
 
-            const downloaded = await client.receipts.readReceiptFile({
-              params: { receiptId: ReceiptId.make(result.receipt.receiptId) },
-            });
+            const downloaded = yield* step(() =>
+              native.call(ownerHeaders, (client) =>
+                client["receipts.readReceiptFile"]({
+                  receiptId: ReceiptId.make(result.receipt.receiptId),
+                }),
+              ),
+            );
 
-            return digest(downloaded.body) === result.receipt.file.sha256;
-          },
-          catch: (cause) => {
-            const reason = safe(String(cause));
-            reconciliationDiagnostics.push({
-              sourcePrimaryKey: result.sourcePrimaryKey,
-              phase,
-              reason,
-            });
-            logs.push(`reconciliation ${result.sourcePrimaryKey} ${phase}: ${reason}`);
+            assert.ok(downloaded.ok, `readReceiptFile answered ${downloaded.status}`);
 
-            return new Cause.UnknownError(cause, "fresh observation failed");
-          },
-        }).pipe(Effect.orElseSucceed(() => false)),
+            return digest(downloaded.value.bytes) === result.receipt.file.sha256;
+          }).pipe(
+            surfaceStepFailure,
+            // A failed observation, an assertion included, records its phase and counts as false.
+            Effect.catchCause((cause) =>
+              Effect.sync(() => {
+                const reason = safe(String(Cause.squash(cause)));
+                reconciliationDiagnostics.push({
+                  sourcePrimaryKey: result.sourcePrimaryKey,
+                  phase,
+                  reason,
+                });
+                logs.push(`reconciliation ${result.sourcePrimaryKey} ${phase}: ${reason}`);
+
+                return false;
+              }),
+            ),
+          ),
+        ),
+      );
+
+      if (!observed && phase === "persisted fact comparison") {
+        reconciliationDiagnostics.push({
+          sourcePrimaryKey: result.sourcePrimaryKey,
+          phase,
+          reason: "persisted canonical fact differs from source",
+        });
+        logs.push(
+          `reconciliation ${result.sourcePrimaryKey}: persisted canonical fact differs from source`,
+        );
+      }
+
+      return observed;
+    });
+
+    const reconciliations = [];
+
+    for (const result of accepted) {
+      assert.equal(yield* reconcile(result), true);
+      reconciliations.push({
+        sourcePrimaryKey: result.sourcePrimaryKey,
+        sourceOccurrence: result.sourceOccurrence,
+        sourceDigest: result.provenance.sourceDigest,
+        reconciled: true,
+      });
+
+      for (const deniedCookie of [foreign, undefined]) {
+        const denied = yield* step(() =>
+          native.call(
+            deniedCookie === undefined
+              ? { origin: dashboardOrigin }
+              : { cookie: deniedCookie, origin: dashboardOrigin },
+            (client) =>
+              client["receipts.readReceiptFile"]({
+                receiptId: ReceiptId.make(result.receipt.receiptId),
+              }),
+          ),
+        );
+
+        // A foreign owner is told the file does not exist; no credential is told to present one.
+        assert.equal(denied.ok, false);
+        assert.equal(denied.status, deniedCookie === undefined ? 401 : 404);
+      }
+    }
+
+    yield* Console.log("0095 owner reads and denials passed");
+
+    const collision = {
+      ...accepted[0]!,
+      sourcePrimaryKey: "destination-collision",
+      receipt: Struct.assign(accepted[0]!.receipt, {
+        receiptId: ReceiptId.make("receipt-0095-baseline"),
+      }),
+      provenance: {
+        ...accepted[0]!.provenance,
+        destinationIdentity: "receipt-0095-baseline",
+        sourceDigest: digest("synthetic-destination-collision-0095"),
+      },
+    };
+
+    yield* run(storeReceiptImportResult(collision));
+
+    const collisionLedger = (yield* query(
+      pool,
+      "SELECT result,reasons_json FROM economy_receipt_import_ledger WHERE source_primary_key='destination-collision'",
+    )).rows;
+
+    assert.equal(collisionLedger[0]?.result, "Quarantined");
+    assert.ok(collisionLedger[0]?.reasons_json.reasons.includes("DestinationIdentityCollision"));
+
+    const invalidBearer = yield* step(() =>
+      native.call(
+        { cookie, authorization: "Bearer invalid-synthetic-0095", origin: dashboardOrigin },
+        (client) =>
+          client["receipts.readReceiptFile"]({
+            receiptId: ReceiptId.make(accepted[0]!.receipt.receiptId),
+          }),
       ),
     );
 
-    if (!observed && phase === "persisted fact comparison") {
-      reconciliationDiagnostics.push({
-        sourcePrimaryKey: result.sourcePrimaryKey,
-        phase,
-        reason: "persisted canonical fact differs from source",
-      });
-      logs.push(
-        `reconciliation ${result.sourcePrimaryKey}: persisted canonical fact differs from source`,
-      );
-    }
+    assert.equal(invalidBearer.status, 401);
+    const stable = yield* snapshot();
 
-    return observed;
-  };
+    const fileDigest = Effect.fnUntraced(function* () {
+      const values = [];
 
-  const reconciliations = [];
+      for (const result of accepted)
+        values.push(
+          digest(
+            yield* fileSystem.readFile(
+              join(env.RECEIPT_COMMITTED_ROOT, result.receipt.file.objectKey),
+            ),
+          ),
+        );
 
-  for (const result of accepted) {
-    assert.equal(await reconcile(result), true);
-    reconciliations.push({
-      sourcePrimaryKey: result.sourcePrimaryKey,
-      sourceOccurrence: result.sourceOccurrence,
-      sourceDigest: result.provenance.sourceDigest,
-      reconciled: true,
+      return values;
     });
 
-    for (const deniedCookie of [foreign, undefined]) {
-      const r = await fetch(`${backendOrigin}/api/receipts/${result.receipt.receiptId}/file`, {
-        headers: deniedCookie ? { cookie: deniedCookie } : {},
-      });
+    const stableFiles = yield* fileDigest();
+    yield* importAll();
+    assert.deepEqual(yield* snapshot(), stable);
+    assert.deepEqual(yield* fileDigest(), stableFiles);
+    yield* Effect.all(
+      [run(storeReceiptImportResult(accepted[0]!)), run(storeReceiptImportResult(accepted[0]!))],
+      { concurrency: "unbounded" },
+    );
+    assert.deepEqual(yield* snapshot(), stable);
+    yield* storeReceiptImportResult({
+      ...accepted[0]!,
+      provenance: { ...accepted[0]!.provenance, sourceDigest: "f".repeat(64) },
+    }).pipe(run, rejects);
+    const tamper = accepted[0]!;
+    const copiedPath = join(env.RECEIPT_COMMITTED_ROOT, tamper.receipt.file.objectKey);
+    yield* fileSystem.writeFileString(copiedPath, "tampered");
+    assert.equal(yield* reconcile(tamper), false);
+    yield* fileSystem.writeFile(copiedPath, bytes);
+    assert.equal(yield* reconcile(tamper), true);
+    yield* query(pool, "UPDATE economy_receipts SET amount_ore=amount_ore+1 WHERE receipt_id=$1", [
+      tamper.receipt.receiptId,
+    ]);
+    assert.equal(yield* reconcile(tamper), false);
+    yield* query(pool, "UPDATE economy_receipts SET amount_ore=amount_ore-1 WHERE receipt_id=$1", [
+      tamper.receipt.receiptId,
+    ]);
+    assert.equal(yield* reconcile(tamper), true);
+    // Every reconciliation reads the owner projection through the script client, so it lives until
+    // the last one; a disposed client fails each read, which a tamper check would count as detection.
+    yield* step(() => native.dispose());
+    yield* observeNoEffects();
+    const authorityTables = ["economy_payment_authorities", "economy_receipt_approval_grants"];
+    const current = yield* snapshot();
 
-      assert.equal(r.status, deniedCookie ? 404 : 401);
-      assert.ok(!Buffer.from(await r.arrayBuffer()).equals(bytes));
-    }
-  }
+    for (const table of authorityTables) assert.equal(current[table], baseline[table]);
+    yield* Console.log("0095 replay and tamper observations passed");
 
-  await Effect.runPromise(Console.log("0095 owner reads and denials passed"));
+    const observeDelivery = () =>
+      observeReceiptDelivery({
+        pool,
+        env,
+        origin: backendOrigin,
+        dashboardOrigin,
+        cookie,
+        approverCookie: foreign,
+        root,
+        artifactDirectory: artifacts,
+        registerSecret: (secret) => {
+          secretValues.push(secret);
+        },
+        restart: (nextEnv) =>
+          Effect.gen(function* () {
+            if (backend !== undefined) yield* stop(backend);
+            backend = yield* start("bun", ["run", "apps/backend/src/main.ts"], nextEnv);
+            yield* wait(healthAnswers200(backendOrigin));
+          }),
+      }).pipe(Effect.provide(BunHttpServer.layer({ port: 0, hostname: "127.0.0.1" })));
 
-  const collision = {
-    ...accepted[0]!,
-    sourcePrimaryKey: "destination-collision",
-    receipt: Struct.assign(accepted[0]!.receipt, {
-      receiptId: ReceiptId.make("receipt-0095-baseline"),
-    }),
-    provenance: {
-      ...accepted[0]!.provenance,
-      destinationIdentity: "receipt-0095-baseline",
-      sourceDigest: digest("synthetic-destination-collision-0095"),
-    },
-  };
-
-  await run(storeReceiptImportResult(collision));
-
-  const collisionLedger = (
-    await pool.query(
-      "SELECT result,reasons_json FROM economy_receipt_import_ledger WHERE source_primary_key='destination-collision'",
+    const deliveryObservation = Option.contains(
+      yield* Config.option(Config.String("RECEIPT_DELIVERY_REHEARSAL")),
+      "1",
     )
-  ).rows;
+      ? yield* observeDelivery()
+      : null;
 
-  assert.equal(collisionLedger[0]?.result, "Quarantined");
-  assert.ok(collisionLedger[0]?.reasons_json.reasons.includes("DestinationIdentityCollision"));
+    if (backend !== undefined) yield* stop(backend);
+    backend = undefined;
+    const restoredUrl = yield* step(() => postgres.createDatabase("receipt_0095_restored"));
+    yield* command(postgresProgram("pg_restore"), [
+      "--exit-on-error",
+      "--dbname",
+      restoredUrl,
+      join(artifacts, "baseline.dump"),
+    ]);
+    yield* Effect.acquireUseRelease(
+      Effect.sync(() => new Pool({ connectionString: restoredUrl })),
+      (restored) =>
+        Effect.gen(function* () {
+          assert.deepEqual(yield* snapshot(restored), baseline);
+          assert.equal(yield* credentialDigest(restored), baselineCredentials);
+        }),
+      (restored) => Effect.promise(() => restored.end()),
+    );
 
-  const invalidBearer = await fetch(
-    `${backendOrigin}/api/receipts/${accepted[0]!.receipt.receiptId}/file`,
-    { headers: { cookie, authorization: "Bearer invalid-synthetic-0095" } },
-  );
+    yield* fileSystem.copy(join(artifacts, "baseline-files"), join(artifacts, "restored-files"));
+    assert.equal(
+      digest(
+        yield* fileSystem.readFile(
+          join(artifacts, "restored-files", "committed", baselineFile.objectKey),
+        ),
+      ),
+      digest(baselineBytes),
+    );
 
-  assert.equal(invalidBearer.status, 401);
-  const stable = await snapshot();
-
-  const fileDigest = async () => {
-    const values = [];
-
-    for (const result of accepted)
-      values.push(
-        digest(await readFile(join(env.RECEIPT_COMMITTED_ROOT, result.receipt.file.objectKey))),
-      );
-
-    return values;
-  };
-
-  const stableFiles = await fileDigest();
-  await importAll();
-  assert.deepEqual(await snapshot(), stable);
-  assert.deepEqual(await fileDigest(), stableFiles);
-  await Promise.all([
-    run(storeReceiptImportResult(accepted[0]!)),
-    run(storeReceiptImportResult(accepted[0]!)),
-  ]);
-  assert.deepEqual(await snapshot(), stable);
-  await assert.rejects(
-    run(
-      storeReceiptImportResult({
-        ...accepted[0]!,
-        provenance: { ...accepted[0]!.provenance, sourceDigest: "f".repeat(64) },
-      }),
-    ),
-  );
-  const tamper = accepted[0]!;
-  const copiedPath = join(env.RECEIPT_COMMITTED_ROOT, tamper.receipt.file.objectKey);
-  await writeFile(copiedPath, "tampered");
-  assert.equal(await reconcile(tamper), false);
-  await writeFile(copiedPath, bytes);
-  assert.equal(await reconcile(tamper), true);
-  await pool.query("UPDATE economy_receipts SET amount_ore=amount_ore+1 WHERE receipt_id=$1", [
-    tamper.receipt.receiptId,
-  ]);
-  assert.equal(await reconcile(tamper), false);
-  await pool.query("UPDATE economy_receipts SET amount_ore=amount_ore-1 WHERE receipt_id=$1", [
-    tamper.receipt.receiptId,
-  ]);
-  assert.equal(await reconcile(tamper), true);
-  await observeNoEffects();
-  const authorityTables = ["economy_payment_authorities", "economy_receipt_approval_grants"];
-  const current = await snapshot();
-
-  for (const table of authorityTables) assert.equal(current[table], baseline[table]);
-  await Effect.runPromise(Console.log("0095 replay and tamper observations passed"));
-  let deliveryObservation: Awaited<ReturnType<typeof observeReceiptDelivery>> | null = null;
-
-  if (process.env.RECEIPT_DELIVERY_REHEARSAL === "1") {
-    deliveryObservation = await observeReceiptDelivery({
-      pool,
-      env,
-      origin: backendOrigin,
-      dashboardOrigin,
-      cookie,
-      approverCookie: foreign,
-      root,
-      artifactDirectory: artifacts,
-      registerSecret: (secret) => {
-        secretValues.push(secret);
+    return canonicalJsonValue({
+      specId: "0095",
+      deliveryObservation,
+      revision,
+      manifestDigest: sha256Hex(canonicalJsonBytes(manifest)),
+      counts: {
+        input: rows.length,
+        accepted: accepted.length,
+        quarantined: rows.length - accepted.length,
       },
-      restart: async (nextEnv) => {
-        if (backend) await stop(backend);
-        backend = start("bun", ["run", "apps/backend/src/main.ts"], nextEnv);
-        await wait(async () => {
-          const r = await fetch(`${backendOrigin}/health`);
-          assert.equal(r.status, 200);
-        });
+      quarantine: prepared.results
+        .filter((r) => Predicate.isTagged(r, "QuarantinedReceiptImport"))
+        .map((r) => ({
+          sourcePrimaryKey: r.sourcePrimaryKey,
+          sourceOccurrence: r.sourceOccurrence,
+          reasons: r.reasons,
+          sourceDigest: r.provenance.sourceDigest,
+        })),
+      fileRejections: prepared.fileFailures,
+      reconciliations,
+      reconciliationDiagnostics,
+      denials: { foreign: 404, anonymous: 401, invalidBearerWithOwnerCookie: 401 },
+      supplementalDestinationCollision: {
+        input: 1,
+        quarantined: 1,
+        reason: "DestinationIdentityCollision",
       },
+      effectAttempts,
+      commandOutboxEffects: 0,
+      replay: {
+        factsLedgerFilesUnchanged: true,
+        concurrentReplay: true,
+        conflictingReplayRejected: true,
+      },
+      failureRetry: { ledgerFailureAfterStaging: true, noVisibleFactAfterFailure: true },
+      tamper: { bytesInvalidate: true, factsInvalidate: true },
+      restore: {
+        databaseBaseline: true,
+        filesBaseline: true,
+        nonemptyBaselineFileSha256: digest(baselineBytes),
+        credentialsBaseline: true,
+        backupSha256: digest(yield* fileSystem.readFile(join(artifacts, "baseline.dump"))),
+      },
+      scope:
+        deliveryObservation === null
+          ? "synthetic historical import; zero notification attempts; no password migration, production or cutover claim"
+          : "synthetic historical import with zero notification attempts, followed by 0097 loopback transport acceptance; no real provider, human receipt, password migration, production or cutover claim",
     });
-  }
-
-  await stop(backend);
-  backend = undefined;
-  const restoredUrl = await postgres.createDatabase("receipt_0095_restored");
-  command(postgresProgram("pg_restore"), [
-    "--exit-on-error",
-    "--dbname",
-    restoredUrl,
-    join(artifacts, "baseline.dump"),
-  ]);
-  const restored = new Pool({ connectionString: restoredUrl });
-
-  try {
-    assert.deepEqual(await snapshot(restored), baseline);
-    assert.equal(await credentialDigest(restored), baselineCredentials);
-  } finally {
-    await restored.end();
-  }
-
-  await cp(join(artifacts, "baseline-files"), join(artifacts, "restored-files"), {
-    recursive: true,
   });
-  assert.equal(
-    digest(await readFile(join(artifacts, "restored-files", "committed", baselineFile.objectKey))),
-    digest(baselineBytes),
-  );
-  evidence = canonicalJsonValue({
-    specId: "0095",
-    deliveryObservation,
-    revision,
-    manifestDigest: sha256Hex(canonicalJsonBytes(manifest)),
-    counts: {
-      input: rows.length,
-      accepted: accepted.length,
-      quarantined: rows.length - accepted.length,
-    },
-    quarantine: prepared.results
-      .filter((r) => Predicate.isTagged(r, "QuarantinedReceiptImport"))
-      .map((r) => ({
-        sourcePrimaryKey: r.sourcePrimaryKey,
-        sourceOccurrence: r.sourceOccurrence,
-        reasons: r.reasons,
-        sourceDigest: r.provenance.sourceDigest,
-      })),
-    fileRejections: prepared.fileFailures,
-    reconciliations,
-    reconciliationDiagnostics,
-    denials: { foreign: 404, anonymous: 401, invalidBearerWithOwnerCookie: 401 },
-    supplementalDestinationCollision: {
-      input: 1,
-      quarantined: 1,
-      reason: "DestinationIdentityCollision",
-    },
-    effectAttempts,
-    commandOutboxEffects: 0,
-    replay: {
-      factsLedgerFilesUnchanged: true,
-      concurrentReplay: true,
-      conflictingReplayRejected: true,
-    },
-    failureRetry: { ledgerFailureAfterStaging: true, noVisibleFactAfterFailure: true },
-    tamper: { bytesInvalidate: true, factsInvalidate: true },
-    restore: {
-      databaseBaseline: true,
-      filesBaseline: true,
-      nonemptyBaselineFileSha256: digest(baselineBytes),
-      credentialsBaseline: true,
-      backupSha256: digest(await readFile(join(artifacts, "baseline.dump"))),
-    },
-    scope:
-      deliveryObservation === null
-        ? "synthetic historical import; zero notification attempts; no password migration, production or cutover claim"
-        : "synthetic historical import with zero notification attempts, followed by 0097 loopback transport acceptance; no real provider, human receipt, password migration, production or cutover claim",
-  });
-} catch (cause) {
-  await writeFile(
-    join(artifacts, "failure.json"),
-    JSON.stringify(
-      { revision, error: safe(String(cause)), backendDiagnostics: safe(logs.join("")) },
-      null,
-      2,
+
+  const outcome = yield* Effect.exit(
+    Effect.scoped(
+      main.pipe(
+        surfaceStepFailure,
+        Effect.tapCause((cause) =>
+          Effect.gen(function* () {
+            yield* fileSystem.writeFileString(
+              join(artifacts, "failure.json"),
+              yield* indentedJsonText({
+                revision,
+                error: safe(String(Cause.squash(cause))),
+                backendDiagnostics: safe(logs.join("")),
+              }),
+            );
+            yield* Console.error(`0095 failure diagnostics: ${join(artifacts, "failure.json")}`);
+          }),
+        ),
+      ),
     ),
   );
-  await Effect.runPromise(
-    Console.error(`0095 failure diagnostics: ${join(artifacts, "failure.json")}`),
-  );
-  throw new Error("Receipt rehearsal failed; inspect sanitized failure evidence");
-} finally {
-  if (pool) await pool.end();
 
-  for (const child of [...children].reverse()) await stop(child);
-  await postgres?.stop();
-  await rm(storage, { recursive: true, force: true });
+  yield* fileSystem.remove(storage, { recursive: true, force: true });
 
-  if (process.env.RECEIPT_REOPEN_REHEARSAL === "1") {
-    for (const entry of await readdir(artifacts)) {
+  if (reopenRehearsal) {
+    for (const entry of yield* fileSystem.readDirectory(artifacts)) {
       if (
         ![
           "failure.json",
@@ -857,29 +960,36 @@ try {
           "0102-browser-failure.png",
         ].includes(entry)
       )
-        await rm(join(artifacts, entry), { recursive: true, force: true });
+        yield* fileSystem.remove(join(artifacts, entry), { recursive: true, force: true });
     }
   }
 
-  cleanupOkay = true;
-}
+  if (Exit.isFailure(outcome))
+    return yield* new ReceiptRehearsalFailed({
+      message: "Receipt rehearsal failed; inspect sanitized failure evidence",
+    });
 
-assert.ok(cleanupOkay);
-
-const encodedEvidence = JSON.stringify(
-  {
-    ...Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(evidence),
+  const encodedEvidence = yield* indentedJsonText({
+    ...(yield* Schema.decodeUnknownEffect(Schema.Record(Schema.String, Schema.Json))(
+      outcome.value,
+    )),
     passed: true,
     cleanup:
       "owned processes exited; disposable PostgreSQL and active private storage removed; synthetic evidence retained",
-  },
-  null,
-  2,
+  });
+
+  if (safe(encodedEvidence) !== encodedEvidence)
+    return yield* new ReceiptRehearsalFailed({
+      message: "Retained evidence contains a credential",
+    });
+
+  yield* fileSystem.writeFileString(join(artifacts, "evidence.json"), encodedEvidence, {
+    mode: 0o600,
+  });
+
+  yield* Console.log(`0095 passed: ${join(artifacts, "evidence.json")}`);
+});
+
+BunRuntime.runMain(
+  rehearsal.pipe(Effect.provide(Layer.mergeAll(BunServices.layer, FetchHttpClient.layer))),
 );
-
-if (safe(encodedEvidence) !== encodedEvidence)
-  throw new Error("Retained evidence contains a credential");
-
-await writeFile(join(artifacts, "evidence.json"), encodedEvidence, { mode: 0o600 });
-
-await Effect.runPromise(Console.log(`0095 passed: ${join(artifacts, "evidence.json")}`));

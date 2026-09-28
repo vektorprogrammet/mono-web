@@ -1,3 +1,4 @@
+import { administratorDepartmentReach } from "@vektorprogrammet/domain/organization/authority-fixtures";
 import { expect, layer } from "@effect/vitest";
 import { Database } from "../service.js";
 import { DatabaseTestLive } from "../test-support/platform.js";
@@ -20,9 +21,24 @@ const scope = {
 
 const personId = PersonId.make("command-volunteer");
 
+/** Self modes act as the volunteer; board and coverage modes as a coordinator of the scope. */
 const command = (mutation: PlacementMutation, commandId = "a".repeat(64)) =>
   Placements.use((placements) =>
-    placements.execute({ mutation, actor: personId, now, commandId }, () => Effect.void),
+    placements.execute(
+      mutation.mode === "board" || mutation.mode === "coverage"
+        ? {
+            mutation,
+            coordinator: administratorDepartmentReach(
+              personId,
+              "placements.coordinate",
+              mutation.scope.departmentId,
+            ),
+            now,
+            commandId,
+          }
+        : { mutation, actor: personId, now, commandId },
+      () => Effect.void,
+    ),
   );
 
 const seed = Database.use((sql) =>

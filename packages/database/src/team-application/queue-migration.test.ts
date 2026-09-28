@@ -372,7 +372,7 @@ const upgradeEvidence = {
 };
 
 class MigrationCluster extends Context.Service<MigrationCluster, DisposablePostgres>()(
-  "team-application/queue-migration.test/MigrationCluster",
+  "@vektorprogrammet/database/team-application/queue-migration.test/MigrationCluster",
 ) {}
 
 const migrationCluster = Layer.effect(

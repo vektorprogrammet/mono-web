@@ -3,7 +3,7 @@
 # apps/dashboard/app/foldkit/scheduling
 
 This folder holds Recruitment code under another name. Interview scheduling.
-The dashboard layer holds authenticated journeys: one Foldkit Model per workflow renders server-owned facts and submits commands through the generated SDK.
+The dashboard layer holds authenticated journeys: one Foldkit Model per workflow renders server-owned facts and submits commands through the RPC client.
 
 The Recruitment context in other folders:
 

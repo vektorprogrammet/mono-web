@@ -1,7 +1,7 @@
 import { Dialog } from "@foldkit/ui";
 import { Predicate } from "effect";
-import { RecruitmentInterviewConductObservationSchema } from "@vektorprogrammet/http-api"
-import { IdempotencyKey, SchedulingBoard, StrongETag } from "@vektorprogrammet/http-api";
+import { RecruitmentInterviewConductObservationSchema } from "@vektorprogrammet/rpc"
+import { IdempotencyKey, SchedulingBoard, StrongETag } from "@vektorprogrammet/rpc";
 import { Scene } from "foldkit/test";
 import { AsyncData, FieldValidation } from "foldkit";
 import { Schema as S } from "effect";

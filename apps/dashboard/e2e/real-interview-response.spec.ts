@@ -1,6 +1,6 @@
 import { InvitationResponseResourceSchema, type InvitationResponseObservation } from "../app/foldkit/interview/bridge";
 import { Schema, Predicate } from "effect";
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
@@ -835,11 +835,11 @@ test.describe("Native recruitment invitation response", () => {
               null,
             );
 
-            const pendingAccessibility = await new AxeBuilder({ page })
-              .include("main.foldkit-interview")
-              .analyze();
+            const pendingAccessibility = await auditSettledPage(page, {
+              include: ["main.foldkit-interview"],
+            });
 
-            if (pendingAccessibility.violations.length !== 0) {
+            if (pendingAccessibility.length !== 0) {
               throw new Error("Applicant pending validation state has accessibility violations");
             }
 
@@ -911,11 +911,11 @@ test.describe("Native recruitment invitation response", () => {
           await expect(page.getByText(responseCase.stateLabel, { exact: true })).toBeVisible();
           await assertApplicantPrivacy(context, page, capability, capabilities);
 
-          const accessibility = await new AxeBuilder({ page })
-            .include("main.foldkit-interview")
-            .analyze();
+          const accessibility = await auditSettledPage(page, {
+            include: ["main.foldkit-interview"],
+          });
 
-          if (accessibility.violations.length !== 0) {
+          if (accessibility.length !== 0) {
             throw new Error("Applicant response state has accessibility violations");
           }
 
@@ -1011,11 +1011,11 @@ test.describe("Native recruitment invitation response", () => {
           }
         }
 
-        const accessibility = await new AxeBuilder({ page })
-          .include('section[aria-labelledby="fs-page-title"]')
-          .analyze();
+        const accessibility = await auditSettledPage(page, {
+          include: ['section[aria-labelledby="fs-page-title"]'],
+        });
 
-        if (accessibility.violations.length !== 0) {
+        if (accessibility.length !== 0) {
           throw new Error("Staff scheduling board has accessibility violations");
         }
 

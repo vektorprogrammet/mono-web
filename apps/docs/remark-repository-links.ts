@@ -2,7 +2,9 @@
 // A link to a published document becomes its site route; a link to any other
 // repository file or directory becomes its GitHub view. A link to a missing path
 // stays unchanged, so the Vocs dead-link check fails the build.
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0011: remark runs this plugin synchronously, and Effect FileSystem has no synchronous backend
 import { existsSync, statSync } from "node:fs";
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0011: remark runs this plugin synchronously, and Effect Path is a service of the same platform layer
 import { posix, relative, resolve, sep } from "node:path";
 import type { Root } from "mdast";
 import { visit } from "unist-util-visit";
@@ -14,9 +16,12 @@ const external = /^(?:[a-z][a-z\d+.-]*:|#|\/)/i;
 export function remarkRepositoryLinks() {
   return (tree: Root, file: VFile) => {
     // The search index compiles sources without a path; its links need no rewriting.
-    if (!file.path) return;
+    // The getter is typed `string` but returns `undefined` for a file without a path.
+    const filePath: string | undefined = file.path;
 
-    const page = relative(pagesDirectory, file.path).split(sep).join("/");
+    if (filePath === undefined || filePath === "") return;
+
+    const page = relative(pagesDirectory, filePath).split(sep).join("/");
 
     if (page.startsWith("..")) return;
 

@@ -1,4 +1,4 @@
-import { UserProfileResponse } from "@vektorprogrammet/http-api";
+import { UserProfileResponse } from "@vektorprogrammet/rpc";
 import { Schema as S } from "effect";
 import { describe, expect, it } from "vitest";
 import { loadProfile, projectProfile } from "./profile-view";

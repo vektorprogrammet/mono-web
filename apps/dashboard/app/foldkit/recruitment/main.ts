@@ -1,4 +1,4 @@
-import { IdempotencyKey } from "@vektorprogrammet/http-api";
+import { IdempotencyKey } from "@vektorprogrammet/rpc";
 import { Schema as S } from "effect";
 import { Runtime } from "foldkit";
 import type { RecruitmentClient } from "./browser-client";

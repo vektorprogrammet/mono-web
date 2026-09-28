@@ -6,6 +6,7 @@ import {
 } from "@vektorprogrammet/domain/placements";
 import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { flow, Data, DateTime, Predicate, Effect, Schema } from "effect";
+import { dual } from "effect/Function";
 import { Database, type DatabaseOperations } from "../service.js";
 import {
   markOutboxDelivered,
@@ -207,7 +208,7 @@ const claimInTransaction = (sql: DatabaseOperations, claimId: string, claimedAt:
     };
   });
 
-export const claimNextSchoolServiceNotification = (claimId: string, claimedAt: string) =>
+const claimNextSchoolServiceNotificationImpl = (claimId: string, claimedAt: string) =>
   Database.use((sql) =>
     sql
       .withTransaction(claimInTransaction(sql, claimId, claimedAt))
@@ -217,6 +218,13 @@ export const claimNextSchoolServiceNotification = (claimId: string, claimedAt: s
         ),
       ),
   );
+
+export const claimNextSchoolServiceNotification: {
+  (
+    claimedAt: string,
+  ): (claimId: string) => ReturnType<typeof claimNextSchoolServiceNotificationImpl>;
+  (claimId: string, claimedAt: string): ReturnType<typeof claimNextSchoolServiceNotificationImpl>;
+} = dual(2, claimNextSchoolServiceNotificationImpl);
 
 export const recoverStaleSchoolServiceNotifications = (claimedBefore: string) =>
   Database.use((sql) =>
@@ -230,61 +238,84 @@ export const recoverStaleSchoolServiceNotifications = (claimedBefore: string) =>
     ),
   );
 
-export const deliverNextSchoolServiceNotification = (
-  claimId: string,
-  claimedAt: string,
-  interpreter: SchoolServiceNotificationInterpreter,
-): Effect.Effect<
-  SchoolServiceNotificationDeliveryResult,
-  SchoolServiceNotificationOutboxError,
-  Database
-> =>
-  Effect.gen(function* () {
-    const selected = yield* claimNextSchoolServiceNotification(claimId, claimedAt);
+export const deliverNextSchoolServiceNotification: {
+  (
+    claimedAt: string,
+    interpreter: SchoolServiceNotificationInterpreter,
+  ): (
+    claimId: string,
+  ) => Effect.Effect<
+    SchoolServiceNotificationDeliveryResult,
+    SchoolServiceNotificationOutboxError,
+    Database
+  >;
+  (
+    claimId: string,
+    claimedAt: string,
+    interpreter: SchoolServiceNotificationInterpreter,
+  ): Effect.Effect<
+    SchoolServiceNotificationDeliveryResult,
+    SchoolServiceNotificationOutboxError,
+    Database
+  >;
+} = dual(
+  3,
+  (
+    claimId: string,
+    claimedAt: string,
+    interpreter: SchoolServiceNotificationInterpreter,
+  ): Effect.Effect<
+    SchoolServiceNotificationDeliveryResult,
+    SchoolServiceNotificationOutboxError,
+    Database
+  > =>
+    Effect.gen(function* () {
+      const selected = yield* claimNextSchoolServiceNotification(claimId, claimedAt);
 
-    if (selected === undefined) return SchoolServiceNotificationDeliveryResult.Idle();
+      if (selected === undefined) return SchoolServiceNotificationDeliveryResult.Idle();
 
-    if (Predicate.isTagged(selected, "Quarantined")) {
-      return SchoolServiceNotificationDeliveryResult.Quarantined({
-        effectId: selected.effectId,
-        failureTag: selected.failureTag,
-      });
-    }
+      if (Predicate.isTagged(selected, "Quarantined")) {
+        return SchoolServiceNotificationDeliveryResult.Quarantined({
+          effectId: selected.effectId,
+          failureTag: selected.failureTag,
+        });
+      }
 
-    const claim = selected.claim;
+      const claim = selected.claim;
 
-    return yield* interpreter(claim.request).pipe(
-      Effect.matchEffect({
-        onFailure: (failure) =>
-          Database.use((sql) =>
-            markOutboxFailed(sql, notificationOutbox, claim, failure._tag),
-          ).pipe(
-            Effect.as(
-              SchoolServiceNotificationDeliveryResult.Failed({ claim, failureTag: failure._tag }),
-            ),
-            Effect.catchTag("SqlError", (cause) =>
-              Effect.fail(outboxError("fail school service notification", cause)),
-            ),
-          ),
-        // Record when the provider acknowledged, not when the claim was taken.
-        onSuccess: () =>
-          DateTime.now.pipe(
-            Effect.flatMap((acknowledgedAt) =>
-              Database.use((sql) =>
-                markOutboxDelivered(sql, notificationOutbox, claim, {
-                  deliveredAt: DateTime.formatIso(acknowledgedAt),
-                }),
+      return yield* interpreter(claim.request).pipe(
+        Effect.matchEffect({
+          onFailure: (failure) =>
+            Database.use((sql) =>
+              markOutboxFailed(sql, notificationOutbox, claim, failure._tag),
+            ).pipe(
+              Effect.as(
+                SchoolServiceNotificationDeliveryResult.Failed({ claim, failureTag: failure._tag }),
+              ),
+              Effect.catchTag("SqlError", (cause) =>
+                Effect.fail(outboxError("fail school service notification", cause)),
               ),
             ),
-            Effect.as(SchoolServiceNotificationDeliveryResult.Delivered({ claim })),
-            Effect.catchTag("SqlError", (cause) =>
-              Effect.fail(outboxError("deliver school service notification", cause)),
+          // Record when the provider acknowledged, not when the claim was taken.
+          onSuccess: () =>
+            DateTime.now.pipe(
+              Effect.flatMap((acknowledgedAt) =>
+                Database.use((sql) =>
+                  markOutboxDelivered(sql, notificationOutbox, claim, {
+                    deliveredAt: DateTime.formatIso(acknowledgedAt),
+                  }),
+                ),
+              ),
+              Effect.as(SchoolServiceNotificationDeliveryResult.Delivered({ claim })),
+              Effect.catchTag("SqlError", (cause) =>
+                Effect.fail(outboxError("deliver school service notification", cause)),
+              ),
             ),
-          ),
-      }),
-    );
-  }).pipe(
-    Effect.catchTag("OutboxClaimLost", ({ effectId }) =>
-      Effect.succeed(SchoolServiceNotificationDeliveryResult.ClaimLost({ effectId })),
+        }),
+      );
+    }).pipe(
+      Effect.catchTag("OutboxClaimLost", ({ effectId }) =>
+        Effect.succeed(SchoolServiceNotificationDeliveryResult.ClaimLost({ effectId })),
+      ),
     ),
-  );
+);

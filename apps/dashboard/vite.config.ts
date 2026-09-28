@@ -41,10 +41,6 @@ export default defineConfig(({ command }) => {
     "@/ui": "/app/components/ui",
   };
 
-  const rehearsalSdk = process.env.ORGANIZATION_IMPORT_REHEARSAL_SDK_EFFECT_PATH;
-
-  if (rehearsalSdk !== undefined) alias["@vektorprogrammet/sdk/effect"] = rehearsalSdk;
-
   const server: ServerOptions = {
     host: "127.0.0.1",
     port: Number(process.env.LOCAL_DASHBOARD_PORT ?? 5173),
@@ -62,7 +58,7 @@ export default defineConfig(({ command }) => {
       ),
     },
     plugins: [reactRouter(), foldkit(), tailwindcss(), defaultProfileImage()],
-    // Workspace packages such as the SDK resolve to source; the plugins append Vite's default conditions.
+    // No workspace export map uses this condition since the SDK was removed; the plugins append Vite's default conditions.
     resolve: { alias, conditions: ["@vektorprogrammet/source"] },
     ssr: { resolve: { conditions: ["@vektorprogrammet/source"] } },
     server,

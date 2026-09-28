@@ -21,6 +21,7 @@ import {
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
 import { flow, Data, Predicate, Effect, Schema } from "effect";
+import { dual } from "effect/Function";
 import { RecruitmentPersistenceError } from "@vektorprogrammet/domain/recruitment";
 import {
   RecruitmentInvitationResponseOutboxRequestSchema,
@@ -134,7 +135,7 @@ export const RecruitmentInvitationResponseDeliveryResult =
   Data.taggedEnum<RecruitmentInvitationResponseDeliveryResult>();
 
 const persistenceError = (operation: string, cause?: unknown): RecruitmentPersistenceError =>
-  new RecruitmentPersistenceError({
+  RecruitmentPersistenceError.make({
     operation,
     cause,
     message:
@@ -479,54 +480,101 @@ export const sealInterviewResponseEnvelopes = (interviewId: string) =>
     ),
   );
 
-export const claimNextRecruitmentInvitationResponse = (
-  claimId: string,
-  claimedAt: string,
-): Effect.Effect<
-  ClaimedRecruitmentInvitationResponse | undefined,
-  RecruitmentPersistenceError | OutboxClaimLost,
-  Admissions | Database | Profile
-> =>
-  Effect.gen(function* () {
-    const admissions = yield* Admissions;
-    const sql = yield* Database;
-    const profile = yield* Profile;
+export const claimNextRecruitmentInvitationResponse: {
+  (
+    claimedAt: string,
+  ): (
+    claimId: string,
+  ) => Effect.Effect<
+    ClaimedRecruitmentInvitationResponse | undefined,
+    RecruitmentPersistenceError | OutboxClaimLost,
+    Admissions | Database | Profile
+  >;
+  (
+    claimId: string,
+    claimedAt: string,
+  ): Effect.Effect<
+    ClaimedRecruitmentInvitationResponse | undefined,
+    RecruitmentPersistenceError | OutboxClaimLost,
+    Admissions | Database | Profile
+  >;
+} = dual(
+  2,
+  (
+    claimId: string,
+    claimedAt: string,
+  ): Effect.Effect<
+    ClaimedRecruitmentInvitationResponse | undefined,
+    RecruitmentPersistenceError | OutboxClaimLost,
+    Admissions | Database | Profile
+  > =>
+    Effect.gen(function* () {
+      const admissions = yield* Admissions;
+      const sql = yield* Database;
+      const profile = yield* Profile;
 
-    return yield* sql
-      .withTransaction(claimInTransaction(sql, admissions, profile, claimId, claimedAt))
-      .pipe(
+      return yield* sql
+        .withTransaction(claimInTransaction(sql, admissions, profile, claimId, claimedAt))
+        .pipe(
+          Effect.catchTag("SqlError", (cause) =>
+            Effect.fail(persistenceError("invitation response claim transaction", cause)),
+          ),
+        );
+    }),
+);
+
+export const completeRecruitmentInvitationResponse: {
+  (
+    evidence: RecruitmentNotificationEvidence,
+  ): (
+    claim: ClaimedRecruitmentInvitationResponse,
+  ) => Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database>;
+  (
+    claim: ClaimedRecruitmentInvitationResponse,
+    evidence: RecruitmentNotificationEvidence,
+  ): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database>;
+} = dual(
+  2,
+  (
+    claim: ClaimedRecruitmentInvitationResponse,
+    evidence: RecruitmentNotificationEvidence,
+  ): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database> =>
+    Effect.gen(function* () {
+      if (evidence.effectId !== claim.effectId)
+        return yield* persistenceError("invitation response delivery evidence effect mismatch");
+
+      yield* Database.use((sql) =>
+        markOutboxDelivered(sql, responseOutbox, claim, { deliveredAt: evidence.deliveredAt }),
+      ).pipe(
         Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(persistenceError("invitation response claim transaction", cause)),
+          Effect.fail(persistenceError("complete invitation response claim", cause)),
         ),
       );
-  });
+    }),
+);
 
-export const completeRecruitmentInvitationResponse = (
-  claim: ClaimedRecruitmentInvitationResponse,
-  evidence: RecruitmentNotificationEvidence,
-): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database> =>
-  Effect.gen(function* () {
-    if (evidence.effectId !== claim.effectId)
-      return yield* persistenceError("invitation response delivery evidence effect mismatch");
-
-    yield* Database.use((sql) =>
-      markOutboxDelivered(sql, responseOutbox, claim, { deliveredAt: evidence.deliveredAt }),
-    ).pipe(
+export const failRecruitmentInvitationResponse: {
+  (
+    failureTag: string,
+  ): (
+    claim: ClaimedRecruitmentInvitationResponse,
+  ) => Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database>;
+  (
+    claim: ClaimedRecruitmentInvitationResponse,
+    failureTag: string,
+  ): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database>;
+} = dual(
+  2,
+  (
+    claim: ClaimedRecruitmentInvitationResponse,
+    failureTag: string,
+  ): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database> =>
+    Database.use((sql) => markOutboxFailed(sql, responseOutbox, claim, failureTag)).pipe(
       Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("complete invitation response claim", cause)),
+        Effect.fail(persistenceError("fail invitation response claim", cause)),
       ),
-    );
-  });
-
-export const failRecruitmentInvitationResponse = (
-  claim: ClaimedRecruitmentInvitationResponse,
-  failureTag: string,
-): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database> =>
-  Database.use((sql) => markOutboxFailed(sql, responseOutbox, claim, failureTag)).pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("fail invitation response claim", cause)),
     ),
-  );
+);
 
 export const releaseRecruitmentInvitationResponse = (
   claim: ClaimedRecruitmentInvitationResponse,
@@ -553,56 +601,77 @@ export const recoverStaleRecruitmentInvitationResponses = (
     ),
   );
 
-export const deliverNextRecruitmentInvitationResponse = (
-  claimId: string,
-  claimedAt: string,
-): Effect.Effect<
-  RecruitmentInvitationResponseDeliveryResult,
-  RecruitmentPersistenceError,
-  Admissions | Database | NotificationGateway | Profile
-> =>
-  Effect.acquireUseRelease(
-    claimNextRecruitmentInvitationResponse(claimId, claimedAt),
-    (
-      claim,
-    ): Effect.Effect<
-      RecruitmentInvitationResponseDeliveryResult,
-      RecruitmentPersistenceError | OutboxClaimLost,
-      Admissions | Database | NotificationGateway | Profile
-    > => {
-      if (claim === undefined)
-        return Effect.succeed(RecruitmentInvitationResponseDeliveryResult.Idle());
+export const deliverNextRecruitmentInvitationResponse: {
+  (
+    claimedAt: string,
+  ): (
+    claimId: string,
+  ) => Effect.Effect<
+    RecruitmentInvitationResponseDeliveryResult,
+    RecruitmentPersistenceError,
+    Admissions | Database | NotificationGateway | Profile
+  >;
+  (
+    claimId: string,
+    claimedAt: string,
+  ): Effect.Effect<
+    RecruitmentInvitationResponseDeliveryResult,
+    RecruitmentPersistenceError,
+    Admissions | Database | NotificationGateway | Profile
+  >;
+} = dual(
+  2,
+  (
+    claimId: string,
+    claimedAt: string,
+  ): Effect.Effect<
+    RecruitmentInvitationResponseDeliveryResult,
+    RecruitmentPersistenceError,
+    Admissions | Database | NotificationGateway | Profile
+  > =>
+    Effect.acquireUseRelease(
+      claimNextRecruitmentInvitationResponse(claimId, claimedAt),
+      (
+        claim,
+      ): Effect.Effect<
+        RecruitmentInvitationResponseDeliveryResult,
+        RecruitmentPersistenceError | OutboxClaimLost,
+        Admissions | Database | NotificationGateway | Profile
+      > => {
+        if (claim === undefined)
+          return Effect.succeed(RecruitmentInvitationResponseDeliveryResult.Idle());
 
-      return Effect.gen(function* () {
-        const gateway = yield* NotificationGateway;
+        return Effect.gen(function* () {
+          const gateway = yield* NotificationGateway;
 
-        return yield* gateway.deliverInterviewInvitationResponse(claim.request).pipe(
-          Effect.matchEffect({
-            onFailure: (failure) =>
-              failRecruitmentInvitationResponse(claim, failure._tag).pipe(
-                Effect.as(
-                  RecruitmentInvitationResponseDeliveryResult.Failed({
-                    claim,
-                    failureTag: failure._tag,
-                  }),
+          return yield* gateway.deliverInterviewInvitationResponse(claim.request).pipe(
+            Effect.matchEffect({
+              onFailure: (failure) =>
+                failRecruitmentInvitationResponse(claim, failure._tag).pipe(
+                  Effect.as(
+                    RecruitmentInvitationResponseDeliveryResult.Failed({
+                      claim,
+                      failureTag: failure._tag,
+                    }),
+                  ),
                 ),
-              ),
-            onSuccess: (evidence) =>
-              completeRecruitmentInvitationResponse(claim, evidence).pipe(
-                Effect.as(
-                  RecruitmentInvitationResponseDeliveryResult.Delivered({ claim, evidence }),
+              onSuccess: (evidence) =>
+                completeRecruitmentInvitationResponse(claim, evidence).pipe(
+                  Effect.as(
+                    RecruitmentInvitationResponseDeliveryResult.Delivered({ claim, evidence }),
+                  ),
                 ),
-              ),
-          }),
-        );
-      });
-    },
-    (claim) => (claim === undefined ? Effect.void : releaseRecruitmentInvitationResponse(claim)),
-  ).pipe(
-    Effect.catchTag("OutboxClaimLost", ({ effectId }) =>
-      Effect.succeed(RecruitmentInvitationResponseDeliveryResult.ClaimLost({ effectId })),
+            }),
+          );
+        });
+      },
+      (claim) => (claim === undefined ? Effect.void : releaseRecruitmentInvitationResponse(claim)),
+    ).pipe(
+      Effect.catchTag("OutboxClaimLost", ({ effectId }) =>
+        Effect.succeed(RecruitmentInvitationResponseDeliveryResult.ClaimLost({ effectId })),
+      ),
     ),
-  );
+);
 
 export const invitationResponsePayloadForEvidence = (
   request: RecruitmentInvitationResponseOutboxRequest,

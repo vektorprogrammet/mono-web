@@ -29,7 +29,7 @@ Create one file in `docs/specs/` only while a non-trivial journey is active.
 Remove the completed specification after its durable intent is present in the
 system document, code, and observable checks.
 
-Code and generated contracts are authoritative for current implementation.
+Code and executable contracts are authoritative for current implementation.
 Do not keep generated code reference, runtime evidence, screenshots, logs, or
 dated migration reports in the repository.
 
@@ -48,8 +48,7 @@ The local development instructions below do not establish migration completion.
 | `apps/homepage`         | Public React application                                                        |
 | `packages/domain`       | Business values, transitions, failures, and authority                           |
 | `packages/database`     | PostgreSQL schema, persistence, locks, audit, and outbox                        |
-| `packages/http-api`     | HTTP contracts, middleware declarations, and OpenAPI                            |
-| `packages/sdk`          | Generated native API client                                                     |
+| `packages/rpc`          | The native RPC contract, its credential middlewares, problems, and client       |
 | `tools/acceptance`      | Local API and browser acceptance probes of single journeys                      |
 | `tools/conventions`     | Layout, guide, construct, and Effect exception checks and their generated files |
 | `tools/e2e`             | Golden journeys, local journey drivers, and legacy migration commands           |
@@ -61,7 +60,6 @@ The local development instructions below do not establish migration completion.
 | `tools/verification`    | Cross-application PostgreSQL proofs and migration rehearsals                    |
 | `infra`                 | Worker preview deployment configuration                                         |
 | `docs`                  | Intended system, architecture, operations, and active specifications            |
-| `patches`               | Dependency patches that `patchedDependencies` in package.json applies           |
 | `.github`               | Checks, Tests, Docs, and preview workflows and their actions                    |
 | `.claude`               | Claude Code settings and project rules                                          |
 | `.agents`               | Agent skills of the repository: the Effect house overlay                        |
@@ -111,11 +109,6 @@ Pre-commit checks only staged paths: one serial, two-thread Oxfmt process, one b
 Pre-push runs `just check` and tests of packages changed from `main`; push only from a clean worktree. Prek temporarily moves unstaged changes aside while hooks run. Commit with no unstaged tracked changes to avoid a killed hook leaving its parking patch behind.
 Every workspace that invokes Vitest merges [vitest.shared.ts](vitest.shared.ts), which bounds workers and admits standalone runs through the same machine-wide locks. Run hooks by hand with `just hooks` or `just hooks --hook-stage pre-push`.
 
-The root manifest declares a type-only Effect patch. It preserves union-command
-requests and callable Fetch inputs across runtimes. SDK type checks cover both
-contracts, including Bun types. Remove the patch when upstream declarations pass
-those checks without it.
-
 `engines.postgresql` lists the supported PostgreSQL majors, `"17 || 18"`. The hosted Supabase database runs 17.
 The highest major, 18, is the default. `VEKTOR_POSTGRES_MAJOR` selects another supported major for one environment,
 for example `VEKTOR_POSTGRES_MAJOR=17 devenv shell`. devenv re-evaluates the shell when the variable changes.
@@ -134,8 +127,8 @@ Run commands inside `devenv shell`, from this repository root. The root [justfil
 
 | Group     | Recipe                            | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | --------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| check     | `just check [args...]`            | Check layout, constructs, guides, Effect exceptions, source safety, format, lint, types, and the HTTP contract. Arguments go to Turbo.                                                                                                                                                                                                                                                                                                                                            |
-| check     | `just check-types [args...]`      | Type check every package and assert the HTTP contract. Arguments go to Turbo.                                                                                                                                                                                                                                                                                                                                                                                                     |
+| check     | `just check [args...]`            | Check layout, constructs, guides, Effect exceptions, source safety, format, lint, and types. Arguments go to Turbo.                                                                                                                                                                                                                                                                                                                                                               |
+| check     | `just check-types [args...]`      | Type check every package. Arguments go to Turbo.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | check     | `just constructs [args...]`       | Check the construct index and contract pages against the @construct tags and their JSDoc, each construct's contract tags and annotations, and that two modules share it; `just constructs write` renders the pages, and `just constructs consumers [name]` prints the modules that import a construct.                                                                                                                                                                            |
 | check     | `just exceptions [args...]`       | Check that every suppression of an Effect rule names its entry in docs/effect-exceptions.json, and every entry its current sites and versions.                                                                                                                                                                                                                                                                                                                                    |
 | check     | `just format [args...]`           | Format with Oxfmt, or check with `just format --check`. Oxfmt has no config key for threads.                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -186,7 +179,6 @@ An affected package graph can run separately:
 
 ```bash
 just check-types -F @vektorprogrammet/backend --concurrency=1
-bun run --cwd packages/http-api generate
 ```
 
 Homepage builds require a clean committed source artifact. Do not weaken that provenance guard for a dirty operator tree.

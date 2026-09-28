@@ -1,10 +1,10 @@
-import { OnboardingClaim } from "@vektorprogrammet/http-api"
+import { OnboardingClaim } from "@vektorprogrammet/rpc"
 import { Schema } from "effect";
 import { useSyncExternalStore } from "react";
 import { data, Link, useFetcher, useLoaderData } from "react-router";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import { hasAuthenticatedSession, requireAuth } from "../lib/auth.server";
 import { nativeProblemFrom } from "../lib/native-problem";
 import type { Route } from "./+types/konto-aktivering";
@@ -35,11 +35,10 @@ export async function action({ request }: Route.ActionArgs) {
         : { mode, token: form.get("token") },
     );
 
+    // A new-account claim presents its token alone, so it forwards no session cookie.
     const cookie = payload.mode === "ExistingAccount" ? await requireAuth(request) : "";
-    const client = createAuthenticatedClient(cookie, request);
 
-    if (payload.mode === "NewAccount") await client.onboarding.claim({ payload });
-    else await client.onboarding.claim({ payload });
+    await callNative(cookie, request, (client) => client["onboarding.claim"](payload));
 
     return privateData({
       ok: true,

@@ -21,6 +21,7 @@ import {
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
 import { flow, Data, Predicate, Effect, Schema } from "effect";
+import { dual } from "effect/Function";
 import {
   RecruitmentNotificationEffectId,
   RecruitmentConductCommandId,
@@ -120,7 +121,7 @@ export const RecruitmentInterviewCompletionDeliveryResult =
   Data.taggedEnum<RecruitmentInterviewCompletionDeliveryResult>();
 
 const persistenceError = (operation: string, cause?: unknown): RecruitmentPersistenceError =>
-  new RecruitmentPersistenceError({
+  RecruitmentPersistenceError.make({
     operation,
     cause,
     message: cause instanceof Error ? cause.message : "recruitment completion outbox failed",
@@ -415,57 +416,104 @@ const claimInTransaction = (
     return { effectId: row.effectId, claimId: row.claimId, attempts: row.attempts, request };
   });
 
-export const claimNextRecruitmentInterviewCompletion = (
-  claimId: string,
-  claimedAt: string,
-): Effect.Effect<
-  ClaimedRecruitmentInterviewCompletion | undefined,
-  RecruitmentPersistenceError | OutboxClaimLost,
-  Admissions | Database | Profile
-> =>
-  Effect.gen(function* () {
-    const admissions = yield* Admissions;
-    const sql = yield* Database;
-    const profile = yield* Profile;
+export const claimNextRecruitmentInterviewCompletion: {
+  (
+    claimedAt: string,
+  ): (
+    claimId: string,
+  ) => Effect.Effect<
+    ClaimedRecruitmentInterviewCompletion | undefined,
+    RecruitmentPersistenceError | OutboxClaimLost,
+    Admissions | Database | Profile
+  >;
+  (
+    claimId: string,
+    claimedAt: string,
+  ): Effect.Effect<
+    ClaimedRecruitmentInterviewCompletion | undefined,
+    RecruitmentPersistenceError | OutboxClaimLost,
+    Admissions | Database | Profile
+  >;
+} = dual(
+  2,
+  (
+    claimId: string,
+    claimedAt: string,
+  ): Effect.Effect<
+    ClaimedRecruitmentInterviewCompletion | undefined,
+    RecruitmentPersistenceError | OutboxClaimLost,
+    Admissions | Database | Profile
+  > =>
+    Effect.gen(function* () {
+      const admissions = yield* Admissions;
+      const sql = yield* Database;
+      const profile = yield* Profile;
 
-    return yield* sql
-      .withTransaction(claimInTransaction(sql, admissions, profile, claimId, claimedAt))
-      .pipe(
+      return yield* sql
+        .withTransaction(claimInTransaction(sql, admissions, profile, claimId, claimedAt))
+        .pipe(
+          Effect.catchTag("SqlError", (cause) =>
+            Effect.fail(persistenceError("interview completion claim transaction", cause)),
+          ),
+        );
+    }),
+);
+
+export const completeRecruitmentInterviewCompletion: {
+  (
+    evidence: RecruitmentNotificationEvidence,
+  ): (
+    claim: ClaimedRecruitmentInterviewCompletion,
+  ) => Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database>;
+  (
+    claim: ClaimedRecruitmentInterviewCompletion,
+    evidence: RecruitmentNotificationEvidence,
+  ): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database>;
+} = dual(
+  2,
+  (
+    claim: ClaimedRecruitmentInterviewCompletion,
+    evidence: RecruitmentNotificationEvidence,
+  ): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database> =>
+    Effect.gen(function* () {
+      if (evidence.effectId !== claim.effectId)
+        return yield* persistenceError("completion delivery evidence effect mismatch");
+
+      yield* Database.use((sql) =>
+        markOutboxDelivered(sql, completionOutbox, claim, {
+          deliveredAt: evidence.deliveredAt,
+          providerReference: evidence.providerReference,
+        }),
+      ).pipe(
         Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(persistenceError("interview completion claim transaction", cause)),
+          Effect.fail(persistenceError("complete interview completion claim", cause)),
         ),
       );
-  });
+    }),
+);
 
-export const completeRecruitmentInterviewCompletion = (
-  claim: ClaimedRecruitmentInterviewCompletion,
-  evidence: RecruitmentNotificationEvidence,
-): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database> =>
-  Effect.gen(function* () {
-    if (evidence.effectId !== claim.effectId)
-      return yield* persistenceError("completion delivery evidence effect mismatch");
-
-    yield* Database.use((sql) =>
-      markOutboxDelivered(sql, completionOutbox, claim, {
-        deliveredAt: evidence.deliveredAt,
-        providerReference: evidence.providerReference,
-      }),
-    ).pipe(
+export const failRecruitmentInterviewCompletion: {
+  (
+    failureTag: string,
+  ): (
+    claim: ClaimedRecruitmentInterviewCompletion,
+  ) => Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database>;
+  (
+    claim: ClaimedRecruitmentInterviewCompletion,
+    failureTag: string,
+  ): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database>;
+} = dual(
+  2,
+  (
+    claim: ClaimedRecruitmentInterviewCompletion,
+    failureTag: string,
+  ): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database> =>
+    Database.use((sql) => markOutboxFailed(sql, completionOutbox, claim, failureTag)).pipe(
       Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("complete interview completion claim", cause)),
+        Effect.fail(persistenceError("fail interview completion claim", cause)),
       ),
-    );
-  });
-
-export const failRecruitmentInterviewCompletion = (
-  claim: ClaimedRecruitmentInterviewCompletion,
-  failureTag: string,
-): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database> =>
-  Database.use((sql) => markOutboxFailed(sql, completionOutbox, claim, failureTag)).pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("fail interview completion claim", cause)),
     ),
-  );
+);
 
 export const releaseRecruitmentInterviewCompletion = (
   claim: ClaimedRecruitmentInterviewCompletion,
@@ -497,56 +545,77 @@ export const recoverStaleRecruitmentInterviewCompletions = (
     ),
   );
 
-export const deliverNextRecruitmentInterviewCompletion = (
-  claimId: string,
-  claimedAt: string,
-): Effect.Effect<
-  RecruitmentInterviewCompletionDeliveryResult,
-  RecruitmentPersistenceError,
-  Admissions | Database | NotificationGateway | Profile
-> =>
-  Effect.acquireUseRelease(
-    claimNextRecruitmentInterviewCompletion(claimId, claimedAt),
-    (
-      claim,
-    ): Effect.Effect<
-      RecruitmentInterviewCompletionDeliveryResult,
-      RecruitmentPersistenceError | OutboxClaimLost,
-      Admissions | Database | NotificationGateway | Profile
-    > => {
-      if (claim === undefined)
-        return Effect.succeed(RecruitmentInterviewCompletionDeliveryResult.Idle());
+export const deliverNextRecruitmentInterviewCompletion: {
+  (
+    claimedAt: string,
+  ): (
+    claimId: string,
+  ) => Effect.Effect<
+    RecruitmentInterviewCompletionDeliveryResult,
+    RecruitmentPersistenceError,
+    Admissions | Database | NotificationGateway | Profile
+  >;
+  (
+    claimId: string,
+    claimedAt: string,
+  ): Effect.Effect<
+    RecruitmentInterviewCompletionDeliveryResult,
+    RecruitmentPersistenceError,
+    Admissions | Database | NotificationGateway | Profile
+  >;
+} = dual(
+  2,
+  (
+    claimId: string,
+    claimedAt: string,
+  ): Effect.Effect<
+    RecruitmentInterviewCompletionDeliveryResult,
+    RecruitmentPersistenceError,
+    Admissions | Database | NotificationGateway | Profile
+  > =>
+    Effect.acquireUseRelease(
+      claimNextRecruitmentInterviewCompletion(claimId, claimedAt),
+      (
+        claim,
+      ): Effect.Effect<
+        RecruitmentInterviewCompletionDeliveryResult,
+        RecruitmentPersistenceError | OutboxClaimLost,
+        Admissions | Database | NotificationGateway | Profile
+      > => {
+        if (claim === undefined)
+          return Effect.succeed(RecruitmentInterviewCompletionDeliveryResult.Idle());
 
-      return Effect.gen(function* () {
-        const gateway = yield* NotificationGateway;
+        return Effect.gen(function* () {
+          const gateway = yield* NotificationGateway;
 
-        return yield* gateway.deliverInterviewCompletionReceipt(claim.request).pipe(
-          Effect.matchEffect({
-            onFailure: (failure) =>
-              failRecruitmentInterviewCompletion(claim, failure._tag).pipe(
-                Effect.as(
-                  RecruitmentInterviewCompletionDeliveryResult.Failed({
-                    claim,
-                    failureTag: failure._tag,
-                  }),
+          return yield* gateway.deliverInterviewCompletionReceipt(claim.request).pipe(
+            Effect.matchEffect({
+              onFailure: (failure) =>
+                failRecruitmentInterviewCompletion(claim, failure._tag).pipe(
+                  Effect.as(
+                    RecruitmentInterviewCompletionDeliveryResult.Failed({
+                      claim,
+                      failureTag: failure._tag,
+                    }),
+                  ),
                 ),
-              ),
-            onSuccess: (evidence) =>
-              completeRecruitmentInterviewCompletion(claim, evidence).pipe(
-                Effect.as(
-                  RecruitmentInterviewCompletionDeliveryResult.Delivered({ claim, evidence }),
+              onSuccess: (evidence) =>
+                completeRecruitmentInterviewCompletion(claim, evidence).pipe(
+                  Effect.as(
+                    RecruitmentInterviewCompletionDeliveryResult.Delivered({ claim, evidence }),
+                  ),
                 ),
-              ),
-          }),
-        );
-      });
-    },
-    (claim) => (claim === undefined ? Effect.void : releaseRecruitmentInterviewCompletion(claim)),
-  ).pipe(
-    Effect.catchTag("OutboxClaimLost", ({ effectId }) =>
-      Effect.succeed(RecruitmentInterviewCompletionDeliveryResult.ClaimLost({ effectId })),
+            }),
+          );
+        });
+      },
+      (claim) => (claim === undefined ? Effect.void : releaseRecruitmentInterviewCompletion(claim)),
+    ).pipe(
+      Effect.catchTag("OutboxClaimLost", ({ effectId }) =>
+        Effect.succeed(RecruitmentInterviewCompletionDeliveryResult.ClaimLost({ effectId })),
+      ),
     ),
-  );
+);
 
 export type RecruitmentInterviewCompletionOutboxFailure =
   | RecruitmentPersistenceError

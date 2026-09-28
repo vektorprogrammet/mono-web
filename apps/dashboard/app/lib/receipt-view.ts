@@ -1,17 +1,17 @@
 import { Predicate, Data, flow } from "effect";
 import { nativeProblemFrom as decodeNativeProblem, type NativeProblemSummary as DecodedNativeProblem, nativeFailureFrom } from "./native-problem";
 import {
-  ReceiptApprovalQueueItem,
-  ReceiptListItem,
-  ReceiptSettlementQueueItem,
+  type ReceiptApprovalQueueItem,
+  type ReceiptListItem,
+  type ReceiptSettlementQueueItem,
   type StrongETag as StrongETagValue,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 
-type OwnedReceiptProjection = typeof ReceiptListItem.Type;
+type OwnedReceiptProjection = ReceiptListItem;
 
-type ApprovalReceiptProjection = typeof ReceiptApprovalQueueItem.Type;
+type ApprovalReceiptProjection = ReceiptApprovalQueueItem;
 
-type SettlementQueueProjection = typeof ReceiptSettlementQueueItem.Type;
+type SettlementQueueProjection = ReceiptSettlementQueueItem;
 
 type ReceiptSettlementEvidenceProjection = Exclude<OwnedReceiptProjection["settlement"], null>;
 

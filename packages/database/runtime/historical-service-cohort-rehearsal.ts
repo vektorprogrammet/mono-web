@@ -539,7 +539,7 @@ try {
     productionEffects: "none",
   };
 } finally {
-  if (pool) await pool.end().catch(() => undefined);
+  if (pool !== undefined) await pool.end().catch(() => undefined);
 
   await postgres?.stop().catch(() => undefined);
   await removeWorkspace(workspace.artifacts);

@@ -1,45 +1,49 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
+import { ConfigProvider, Effect, Layer } from "effect";
+import { CurrentAssignmentFailure } from "@vektorprogrammet/database/placements";
+import { TestPlatform } from "@vektorprogrammet/database/test-support/platform";
 import {
   disposableCurrentAssignmentDatabaseUrl,
   runCurrentAssignmentCohortCli,
 } from "./current-assignment-cohort-cli.js";
 
 describe("synthetic assignment CLI custody", () => {
-  it("rejects ambient provider configuration before opening the synthetic CLI boundary", async () => {
-    for (const [key, value] of [
-      ["PUBLIC_APPLICATION_EFFECT_MODE", "disabled"],
-      ["PUBLIC_APPLICATION_EFFECT_TOKEN", "synthetic-provider-configuration"],
-      ["RECEIPT_DELIVERY_URL", "https://provider.example.invalid/delivery"],
-      ["RECEIPT_DELIVERY_TOKEN", "synthetic-provider-configuration"],
-    ] as const) {
-      const previous = {
-        mode: process.env.CURRENT_ASSIGNMENT_MODE,
-        deployment: process.env.NATIVE_IDENTITY_DEPLOYMENT,
-        provider: process.env[key],
-        argv: process.argv,
-      };
-
-      process.env.CURRENT_ASSIGNMENT_MODE = "synthetic";
-      process.env.NATIVE_IDENTITY_DEPLOYMENT = "local";
-      process.env[key] = value;
-      process.argv = process.argv.slice(0, 2);
-
-      try {
-        await expect(runCurrentAssignmentCohortCli()).rejects.toThrow("InvalidSnapshot");
-      } finally {
-        process.argv = previous.argv;
-
-        for (const [environmentKey, previousValue] of [
-          ["CURRENT_ASSIGNMENT_MODE", previous.mode],
-          ["NATIVE_IDENTITY_DEPLOYMENT", previous.deployment],
-          [key, previous.provider],
+  it.effect(
+    "rejects ambient provider configuration before opening the synthetic CLI boundary",
+    () =>
+      Effect.gen(function* () {
+        for (const [key, value] of [
+          ["PUBLIC_APPLICATION_EFFECT_MODE", "disabled"],
+          ["PUBLIC_APPLICATION_EFFECT_TOKEN", "synthetic-provider-configuration"],
+          ["RECEIPT_DELIVERY_URL", "https://provider.example.invalid/delivery"],
+          ["RECEIPT_DELIVERY_TOKEN", "synthetic-provider-configuration"],
+          ["RECEIPT_DELIVERY_TOKEN", ""],
         ] as const) {
-          if (previousValue === undefined) delete process.env[environmentKey];
-          else process.env[environmentKey] = previousValue;
+          const failure = yield* Effect.flip(
+            runCurrentAssignmentCohortCli(["bun", "current-assignment-cohort-main.ts"]).pipe(
+              Effect.provide(
+                Layer.merge(
+                  TestPlatform,
+                  ConfigProvider.layer(
+                    ConfigProvider.fromEnv({
+                      env: {
+                        CURRENT_ASSIGNMENT_MODE: "synthetic",
+                        NATIVE_IDENTITY_DEPLOYMENT: "local",
+                        [key]: value,
+                      },
+                      preserveEmptyStrings: true,
+                    }),
+                  ),
+                ),
+              ),
+            ),
+          );
+
+          expect(failure).toBeInstanceOf(CurrentAssignmentFailure);
+          expect(failure).toHaveProperty("code", "InvalidSnapshot");
         }
-      }
-    }
-  });
+      }),
+  );
 
   it("requires numeric loopback and the disposable current assignment namespace", () => {
     expect(

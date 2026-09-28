@@ -45,5 +45,5 @@ export interface MailOperations {
 
 /** Provider-neutral authority for delivering one complete mail message. */
 export class Mail extends Context.Service<Mail, MailOperations>()(
-  "@vektorprogrammet/domain/Mail",
+  "@vektorprogrammet/domain/mail",
 ) {}

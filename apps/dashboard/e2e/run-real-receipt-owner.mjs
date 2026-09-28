@@ -1,5 +1,5 @@
 import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
-import { ReadReceiptEvidenceEndpoint } from "@vektorprogrammet/http-api";
+import { internalNativeRpcPath } from "@vektorprogrammet/rpc";
 import { Predicate } from "effect";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -18,7 +18,6 @@ const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 
-const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
 
@@ -692,16 +691,12 @@ async function main() {
           env: internalApiEnvironment,
         });
     await waitForHttp(`${backendOrigin}/health`, apiProcess, "Unified native backend");
-    // Internal ingress mounts only the internal API; its evidence route answers once it is up.
+    // Internal ingress mounts only the internal RPC endpoint; it answers once it is up.
     await waitForHttp(
-      `${internalBackendOrigin}${ReadReceiptEvidenceEndpoint.path.replace(":receiptId", "readiness")}`,
+      `${internalBackendOrigin}${internalNativeRpcPath}`,
       internalApiProcess,
       "Internal native backend",
     );
-    await runCommand("bun", ["run", "build"], {
-      cwd: sdkRoot,
-      env: dashboardEnvironment,
-    });
     await runCommand("bun", ["run", "build"], {
       cwd: dashboardRoot,
       env: dashboardEnvironment,
@@ -714,13 +709,10 @@ async function main() {
     });
     await waitForHttp(dashboardLoginUrl, dashboardProcess, "Dashboard");
 
+    // Node comes from the devenv toolchain, whose major the root manifest's engines field pins.
     await runCommand(
-      "nix",
+      "node",
       [
-        "shell",
-        "nixpkgs#nodejs_24",
-        "--command",
-        "node",
         "./node_modules/@playwright/test/cli.js",
         "test",
         "e2e/receipts.spec.ts",

@@ -9,6 +9,7 @@ import type {
   PublicApplicationPersistenceError,
 } from "@vektorprogrammet/domain/application";
 import { pollForever } from "../worker-support.js";
+import { dual } from "effect/Function";
 
 export interface PublicApplicationOutboxWorkerOptions {
   readonly workerId: string;
@@ -24,40 +25,53 @@ const requirePositiveInteger = (value: number, name: string): void => {
   }
 };
 
-export const runPublicApplicationOutboxWorker = (
-  interpreter: PublicApplicationEffectInterpreter,
-  options: PublicApplicationOutboxWorkerOptions,
-): Effect.Effect<never, PublicApplicationPersistenceError, Database> => {
-  requirePositiveInteger(options.pollIntervalMilliseconds, "poll interval");
-  requirePositiveInteger(options.staleClaimMilliseconds, "stale claim interval");
+export const runPublicApplicationOutboxWorker: {
+  (
+    options: PublicApplicationOutboxWorkerOptions,
+  ): (
+    interpreter: PublicApplicationEffectInterpreter,
+  ) => Effect.Effect<never, PublicApplicationPersistenceError, Database>;
+  (
+    interpreter: PublicApplicationEffectInterpreter,
+    options: PublicApplicationOutboxWorkerOptions,
+  ): Effect.Effect<never, PublicApplicationPersistenceError, Database>;
+} = dual(
+  2,
+  (
+    interpreter: PublicApplicationEffectInterpreter,
+    options: PublicApplicationOutboxWorkerOptions,
+  ): Effect.Effect<never, PublicApplicationPersistenceError, Database> => {
+    requirePositiveInteger(options.pollIntervalMilliseconds, "poll interval");
+    requirePositiveInteger(options.staleClaimMilliseconds, "stale claim interval");
 
-  if (options.workerId.length === 0) throw new Error("worker ID must not be empty");
+    if (options.workerId.length === 0) throw new Error("worker ID must not be empty");
 
-  let claimSequence = 0;
+    let claimSequence = 0;
 
-  const tick = Effect.gen(function* () {
-    const now = DateTime.formatIso(yield* DateTime.now);
+    const tick = Effect.gen(function* () {
+      const now = DateTime.formatIso(yield* DateTime.now);
 
-    return yield* deliverNextPublicApplicationOutbox(
-      `${options.workerId}:${claimSequence++}`,
-      now,
-      interpreter,
-    );
-  });
-
-  return Effect.gen(function* () {
-    const now = yield* DateTime.now;
-
-    const claimedBefore = DateTime.formatIso(
-      DateTime.subtract(now, { milliseconds: options.staleClaimMilliseconds }),
-    );
-
-    yield* recoverAllStalePublicApplicationOutbox(claimedBefore);
-    options.onStart?.();
-
-    return yield* pollForever(tick, {
-      interval: Duration.millis(options.pollIntervalMilliseconds),
-      skipDelay: Predicate.isTagged("Delivered"),
+      return yield* deliverNextPublicApplicationOutbox(
+        `${options.workerId}:${claimSequence++}`,
+        now,
+        interpreter,
+      );
     });
-  }).pipe(Effect.ensuring(Effect.sync(() => options.onStop?.())));
-};
+
+    return Effect.gen(function* () {
+      const now = yield* DateTime.now;
+
+      const claimedBefore = DateTime.formatIso(
+        DateTime.subtract(now, { milliseconds: options.staleClaimMilliseconds }),
+      );
+
+      yield* recoverAllStalePublicApplicationOutbox(claimedBefore);
+      options.onStart?.();
+
+      return yield* pollForever(tick, {
+        interval: Duration.millis(options.pollIntervalMilliseconds),
+        skipDelay: Predicate.isTagged("Delivered"),
+      });
+    }).pipe(Effect.ensuring(Effect.sync(() => options.onStop?.())));
+  },
+);

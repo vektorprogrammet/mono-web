@@ -1,10 +1,10 @@
-import { UserProfileResponse } from "@vektorprogrammet/http-api";
+import { UserProfileResponse } from "@vektorprogrammet/rpc";
 import { Schema as S } from "effect";
 import { createElement } from "react";
 import { data, useLoaderData } from "react-router";
 import { DASHBOARD_ELEMENT, DASHBOARD_INPUT_ATTRIBUTE } from "../foldkit/dashboard/elements";
 import { DashboardInput, DashboardInputJson, isDashboardRole, LandingSummary } from "../foldkit/dashboard/model";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import { nativeProblemFrom } from "../lib/native-problem";
 import { ownerEnabled, responseHeaders } from "../lib/interview-bridge.server";
@@ -16,15 +16,13 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
 
   let profile: typeof UserProfileResponse.Type | null = null;
 
   try {
-    const result = await client.profile.readOwnProfile({ headers: {} });
-
-    if (result.body === undefined) throw new Error("Profile response did not include a body");
-    profile = result.body;
+    ({ profile } = await callNative(cookie, request, (native) =>
+      native["profile.readOwnProfile"](),
+    ));
   } catch (error) {
     const code = nativeProblemFrom(error)?.code;
 

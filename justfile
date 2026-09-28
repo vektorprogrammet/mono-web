@@ -41,7 +41,7 @@ changelog *args:
 land branch:
     bun --no-env-file tools/scripts/land.ts "$1"
 
-# Check layout, constructs, guides, Effect exceptions, source safety, format, lint, types, and the HTTP contract. Arguments go to Turbo.
+# Check layout, constructs, guides, Effect exceptions, source safety, format, lint, and types. Arguments go to Turbo.
 [group('check')]
 check *args: layout constructs guides exceptions source-safety (format "--check") lint
     bun x turbo check-types "$@"
@@ -93,7 +93,7 @@ lint *args=".":
     bun run --cwd apps/homepage typegen
     just lint-files "$@"
 
-# Type check every package and assert the HTTP contract. Arguments go to Turbo.
+# Type check every package. Arguments go to Turbo.
 [group('check')]
 check-types *args:
     bun x turbo check-types "$@"
@@ -125,7 +125,7 @@ golden journey:
     set -euo pipefail
     case "$1" in
       school-service | recruitment) exec bun --no-env-file tools/e2e/placement-check.ts "--golden-$1" ;;
-      reimbursement) exec bun --no-env-file tools/e2e/golden-reimbursement.mjs ;;
+      reimbursement) exec bun --no-env-file tools/e2e/golden-reimbursement.ts ;;
       team-application) exec bun --no-env-file tools/e2e/golden-team-application.ts ;;
       *) echo "Unknown journey '$1'. Use school-service, recruitment, reimbursement, or team-application." >&2; exit 2 ;;
     esac

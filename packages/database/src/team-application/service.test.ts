@@ -8,6 +8,7 @@ import {
   TeamApplications,
   type TeamApplicationInput,
   type TeamApplicationIntake,
+  TeamApplicationAction,
 } from "@vektorprogrammet/domain/team-application";
 import { DatabaseTestLive } from "../test-support/platform.js";
 import { Database } from "../service.js";
@@ -307,7 +308,7 @@ layer(teamApplicationsLayer, { excludeTestServices: true, timeout: "30 seconds" 
               ["ta-suspended", "AuthorityInactive"],
               ["ta-admin", "NotInScope"],
             ] as const) {
-              const denied = new TeamApplicationAccessDenied({ reason });
+              const denied = TeamApplicationAccessDenied.make({ reason });
 
               expect(yield* Effect.flip(list(person))).toEqual(denied);
               expect(yield* Effect.flip(read(person))).toEqual(denied);
@@ -343,7 +344,7 @@ layer(teamApplicationsLayer, { excludeTestServices: true, timeout: "30 seconds" 
               .toReversed(),
           );
           expect(yield* Effect.flip(page("not-a-cursor!"))).toEqual(
-            new TeamApplicationInvalidCursor(),
+            TeamApplicationInvalidCursor.make(),
           );
         }),
       );
@@ -359,16 +360,24 @@ layer(teamApplicationsLayer, { excludeTestServices: true, timeout: "30 seconds" 
             Effect.flatMap(principal(person), (actor) =>
               inTransaction(
                 TeamApplications.use((service) =>
-                  service.deleteApplication(
-                    { commandId: commandId(command), applicationId },
-                    actor,
-                  ),
+                  service
+                    .authorize(
+                      actor,
+                      TeamApplicationAction.DeleteTeamApplication({ applicationId }),
+                    )
+                    .pipe(
+                      Effect.flatMap((authorization) =>
+                        service.deleteApplication(authorization, {
+                          commandId: commandId(command),
+                        }),
+                      ),
+                    ),
                 ),
               ),
             );
 
           expect(yield* Effect.flip(remove("ta-member", "delete-by-member"))).toEqual(
-            new TeamApplicationAccessDenied({ reason: "NotLeader" }),
+            TeamApplicationAccessDenied.make({ reason: "NotLeader" }),
           );
           expect(
             yield* count(`FROM team_applications WHERE application_id = '${applicationId}'`),
@@ -422,16 +431,26 @@ layer(teamApplicationsLayer, { excludeTestServices: true, timeout: "30 seconds" 
         Effect.flatMap(principal(person), (actor) =>
           inTransaction(
             TeamApplications.use((service) =>
-              service.reviseIntake(
-                {
-                  commandId: commandId(command),
-                  teamId: teamId("ta-revise"),
-                  acceptApplication: false,
-                  deadline: "2099-06-01T00:00:00+02:00",
-                },
-                actor,
-                check,
-              ),
+              service
+                .authorize(
+                  actor,
+                  TeamApplicationAction.ReviseTeamApplicationIntake({
+                    teamId: teamId("ta-revise"),
+                  }),
+                )
+                .pipe(
+                  Effect.flatMap((authorization) =>
+                    service.reviseIntake(
+                      authorization,
+                      {
+                        commandId: commandId(command),
+                        acceptApplication: false,
+                        deadline: "2099-06-01T00:00:00+02:00",
+                      },
+                      check,
+                    ),
+                  ),
+                ),
             ),
           ),
         );
@@ -445,7 +464,7 @@ layer(teamApplicationsLayer, { excludeTestServices: true, timeout: "30 seconds" 
           ).toBe("stale");
           expect(
             yield* Effect.flip(revise("ta-member", "revise-member", () => Effect.void)),
-          ).toEqual(new TeamApplicationAccessDenied({ reason: "NotLeader" }));
+          ).toEqual(TeamApplicationAccessDenied.make({ reason: "NotLeader" }));
           expect(yield* intake()).toEqual(before);
           expect(yield* count(`FROM team_application_audit WHERE team_id = 'ta-revise'`)).toBe(0);
         }),

@@ -74,7 +74,7 @@ const otherCohort = {
   password: "AuthLiveTest!other-password-0054",
 } as const;
 
-const requestContext = new IdentityRequestContext({
+const requestContext = IdentityRequestContext.make({
   requestCorrelation: "auth-live-test",
   sourceIp: "127.0.0.1",
   userAgent: "auth-live-test",
@@ -310,7 +310,7 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
       "revokes owned persisted sessions and commits the audit together",
       () =>
         Effect.gen(function* () {
-          const actor = new IdentityActor({
+          const actor = IdentityActor.make({
             personId: PersonId.make("snapshot-mutation-person"),
             sessionId: "snapshot-mutation-session",
             expiresAt: DateTime.makeUnsafe("2031-09-16T12:00:00.000Z"),
@@ -369,7 +369,7 @@ describe("audited Better Auth response ordering", () => {
       Effect.gen(function* () {
         const ordering: string[] = [];
 
-        const actor = new IdentityActor({
+        const actor = IdentityActor.make({
           personId: PersonId.make("audit-ordering-person"),
           sessionId: "audit-ordering-session",
           expiresAt: DateTime.makeUnsafe("2031-09-16T12:00:00.000Z"),
@@ -409,7 +409,7 @@ describe("audited Better Auth response ordering", () => {
                 });
 
                 return Effect.fail(
-                  new IdentityEngineError({
+                  IdentityEngineError.make({
                     operation: "recordSecurityEvent",
                     message: "injected audit append failure",
                   }),
@@ -554,7 +554,7 @@ dsl("AuthLive (spec 0054)", () => {
             );
 
           const context = (requestCorrelation: string) =>
-            new IdentityRequestContext({
+            IdentityRequestContext.make({
               requestCorrelation,
               sourceIp: "127.0.0.1",
               userAgent: "auth-live-hardening-test",

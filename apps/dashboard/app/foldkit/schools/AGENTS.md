@@ -3,11 +3,10 @@
 # apps/dashboard/app/foldkit/schools
 
 This folder holds the Schools bounded context in `apps/dashboard/app/foldkit`.
-The dashboard layer holds authenticated journeys: one Foldkit Model per workflow renders server-owned facts and submits commands through the generated SDK.
+The dashboard layer holds authenticated journeys: one Foldkit Model per workflow renders server-owned facts and submits commands through the RPC client.
 
 The Schools context in other folders:
 
-- [apps/backend/src/schools](../../../../backend/src/schools/AGENTS.md)
 - [packages/database/src/schools](../../../../../packages/database/src/schools/AGENTS.md)
 - [packages/domain/src/schools](../../../../../packages/domain/src/schools/AGENTS.md)
 

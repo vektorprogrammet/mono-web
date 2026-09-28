@@ -847,21 +847,21 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
       NotificationGateway.of({
         deliverInterviewCompletionReceipt: (request) =>
           Effect.fail(
-            new RecruitmentNotificationDeliveryError({
+            RecruitmentNotificationDeliveryError.make({
               effectId: request.effectId,
               message: "Proof recording delivery failure",
             }),
           ),
         deliverInterviewInvitation: (request) =>
           Effect.fail(
-            new RecruitmentNotificationDeliveryError({
+            RecruitmentNotificationDeliveryError.make({
               effectId: request.effectId,
               message: "Proof recording delivery failure",
             }),
           ),
         deliverInterviewInvitationResponse: (request) =>
           Effect.fail(
-            new RecruitmentNotificationDeliveryError({
+            RecruitmentNotificationDeliveryError.make({
               effectId: request.effectId,
               message: "Proof recording delivery failure",
             }),

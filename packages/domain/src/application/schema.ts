@@ -366,12 +366,9 @@ export const ApplicantProgressResponseSchema = Schema.Struct({
 
 export type ApplicantProgressResponse = typeof ApplicantProgressResponseSchema.Type;
 
-export const decodeApplicantProgressResponse = Schema.decodeUnknownSync(
-  ApplicantProgressResponseSchema,
-  {
-    onExcessProperty: "error",
-  },
-);
+/** Decodes JSON data into an applicant progress response, rejecting properties the schema does not name. */
+export const decodeApplicantProgressResponse = (input: Schema.Json): ApplicantProgressResponse =>
+  Schema.decodeUnknownSync(ApplicantProgressResponseSchema)(input, { onExcessProperty: "error" });
 
 export const PublicApplicationFieldOfStudySchema = Schema.Struct({
   fieldOfStudyId: AdmissionFieldOfStudy.json.fields.fieldOfStudyId,
@@ -423,10 +420,3 @@ export interface PublicApplicationSubmitResult {
   readonly replayed: boolean;
   readonly outboxCount: number;
 }
-
-export const decodePublicApplicationConfirmation = Schema.decodeUnknownEffect(
-  PublicApplicationConfirmationSchema,
-  {
-    onExcessProperty: "error",
-  },
-);

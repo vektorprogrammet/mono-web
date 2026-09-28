@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 // oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0003: Effect FileSystem.open has no O_NOFOLLOW; the snapshot reader refuses a symlink at open time
 import { constants, open } from "node:fs/promises";
 import { Data, Effect, FileSystem, Match, Option, Path, Predicate, Result, Schema } from "effect";
+import { dual } from "effect/Function";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { PersonId, DepartmentId } from "@vektorprogrammet/domain/organization";
 
@@ -72,6 +73,7 @@ export const digest = (value: Uint8Array | string): string =>
 
 export const rowDigest = (row: Schema.Json): string => sha256Hex(canonicalJsonBytes(row));
 
+// oxlint-disable-next-line effecttsgo/missing-pipeable-signature -- EX-0010: a Schema decoder whose second parameter is parse options; its callers pass non-JSON fixtures
 export const decodeSnapshot = Schema.decodeUnknownSync(ReceiptSnapshot, {
   onExcessProperty: "error",
 });
@@ -137,7 +139,9 @@ const readRegularFile = (resolved: string, file: typeof FileEntry.Type) =>
     (handle) => readable(() => handle.close()),
   );
 
-export const readSnapshotFile = (root: string, file: typeof FileEntry.Type) =>
+type SnapshotFileEntry = typeof FileEntry.Type;
+
+const readSnapshotFileAt = (root: string, file: SnapshotFileEntry) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
@@ -173,6 +177,14 @@ export const readSnapshotFile = (root: string, file: typeof FileEntry.Type) =>
       Effect.fail(new ReceiptSnapshotFileRejected({ reason: "UnreadableFile", cause })),
     ),
   );
+
+type SnapshotFileRead = ReturnType<typeof readSnapshotFileAt>;
+
+/** Reads one snapshot file under the root, refusing an unsafe path, a digest mismatch, or an unsupported file. */
+export const readSnapshotFile: {
+  (file: SnapshotFileEntry): (root: string) => SnapshotFileRead;
+  (root: string, file: SnapshotFileEntry): SnapshotFileRead;
+} = dual(2, readSnapshotFileAt);
 
 const uniqueIdentityMap = (entries: ReadonlyArray<readonly [string, string]>) => {
   const map = new Map<string, string>();
@@ -234,8 +246,7 @@ const stageSnapshotFile = (
     ),
   );
 
-/** No persistence here: every occurrence is transformed before collision checks. */
-export const prepareReceiptSnapshot = (
+const prepareReceiptSnapshotWith = (
   snapshot: ReceiptSnapshot,
   root: string,
   files: ReceiptFileStore,
@@ -409,3 +420,11 @@ export const prepareReceiptSnapshot = (
       fileFailures: [...failures].map(([occurrence, reason]) => ({ occurrence, reason })),
     };
   });
+
+type PreparedReceiptSnapshot = ReturnType<typeof prepareReceiptSnapshotWith>;
+
+/** No persistence here: every occurrence is transformed before collision checks. */
+export const prepareReceiptSnapshot: {
+  (root: string, files: ReceiptFileStore): (snapshot: ReceiptSnapshot) => PreparedReceiptSnapshot;
+  (snapshot: ReceiptSnapshot, root: string, files: ReceiptFileStore): PreparedReceiptSnapshot;
+} = dual(3, prepareReceiptSnapshotWith);

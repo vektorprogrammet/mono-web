@@ -1,4 +1,4 @@
-import { Order, Predicate } from "effect";
+import { Match, Option, Order, Predicate, Schema } from "effect";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startDisposablePostgres } from "@monoweb/postgres";
+import { isNativeRpcPath } from "./native-operations.ts";
 import { addressesAnyRoute, legacyRoutes } from "./request-routes.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -18,7 +19,6 @@ const backendRoot = fileURLToPath(new URL("../../backend/", import.meta.url));
 
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
 
-const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 
 const postgresPort = 45160;
 
@@ -191,6 +191,80 @@ const schoolsUnavailableProblem = {
   detail: "The school directory is temporarily unavailable.",
 };
 
+/** The native RPC that the browser reads the school directory with. */
+const listSchoolsTag = "directory.listSchools";
+
+/** The one RPC request that a request body carries: its id, tag, and payload. */
+const RpcRequestBody = Schema.fromJsonString(
+  Schema.Struct({
+    id: Schema.Union([Schema.String, Schema.Int]),
+    tag: Schema.String,
+    payload: Schema.Unknown,
+  }),
+);
+
+const parseRpcRequest = (bytes) =>
+  bytes === undefined
+    ? null
+    : Option.getOrNull(Schema.decodeUnknownOption(RpcRequestBody)(bytes.toString("utf8")));
+
+/** The answer that ends one RPC request: a success value, or one failure's error. */
+const RpcAnswer = Schema.Tuple([
+  Schema.Struct({
+    exit: Schema.Union([
+      Schema.TaggedStruct("Success", { value: Schema.Unknown }),
+      Schema.TaggedStruct("Failure", {
+        cause: Schema.Tuple([Schema.Struct({ error: Schema.Unknown })]),
+      }),
+    ]),
+  }),
+]);
+
+const ProblemStatus = Schema.Struct({ status: Schema.Int });
+
+/**
+ * Unwraps the answer of one RPC: a success answers its value at 200, and a failure answers its
+ * problem at the registry status of the problem's code.
+ */
+const unwrapRpcAnswer = (json) =>
+  Option.match(Schema.decodeUnknownOption(RpcAnswer)(json), {
+    onNone: () => null,
+    onSome: ([{ exit }]) =>
+      Match.value(exit).pipe(
+        Match.tag("Success", ({ value }) => ({ status: 200, json: value })),
+        Match.tag("Failure", ({ cause: [{ error }] }) => ({
+          status: Option.match(Schema.decodeUnknownOption(ProblemStatus)(error), {
+            onNone: () => 500,
+            onSome: ({ status }) => status,
+          }),
+          json: error,
+        })),
+        Match.exhaustive,
+      ),
+  });
+
+const ExitMessage = Schema.TaggedStruct("Exit", {
+  requestId: Schema.Union([Schema.String, Schema.Int]),
+  exit: Schema.Unknown,
+});
+
+const FailureExit = Schema.TaggedStruct("Failure", { cause: Schema.Array(Schema.Unknown) });
+
+const FailReason = Schema.TaggedStruct("Fail", { error: Schema.Unknown });
+
+/** Answers one RPC request with the schools.unavailable problem, as the backend would. */
+const sendSchoolsUnavailableRpc = (response, requestId) => {
+  response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+  response.end(
+    JSON.stringify([
+      ExitMessage.make({
+        requestId,
+        exit: FailureExit.make({ cause: [FailReason.make({ error: schoolsUnavailableProblem })] }),
+      }),
+    ]),
+  );
+};
+
 const sendSchoolsUnavailable = (response) => {
   response.writeHead(503, {
     "content-type": "application/problem+json",
@@ -236,8 +310,10 @@ const assertProblemResponse = (entry, expected) => {
   }
 
   assert.ok(
-    entry.responseContentType?.startsWith("application/problem+json"),
-    `${entry.method} ${entry.pathname} must return application/problem+json`,
+    entry.responseContentType?.startsWith(
+      entry.rpcTag === null ? "application/problem+json" : "application/json",
+    ),
+    `${entry.method} ${entry.pathname} must return its problem in its declared media type`,
   );
 };
 
@@ -266,6 +342,8 @@ const startRecordingUpstream = async (ledger) => {
       pathname,
       search: new URL(request.url ?? "/", upstreamOrigin).search,
       forced: false,
+      rpcTag: null,
+      rpcPayload: null,
       forwardedTo: backendOrigin,
       sessionCookieAuth:
         Predicate.isString(request.headers.cookie) &&
@@ -284,18 +362,22 @@ const startRecordingUpstream = async (ledger) => {
     ledger.push(entry);
 
     try {
-      if (!forcedSchoolsFailure && request.method === "GET" && pathname === "/api/schools") {
+      const body = await requestBody(request);
+      const rpcRequest = isNativeRpcPath(pathname) ? parseRpcRequest(body) : null;
+      entry.rpcTag = rpcRequest?.tag ?? null;
+      entry.rpcPayload = rpcRequest?.payload ?? null;
+
+      if (!forcedSchoolsFailure && request.method === "POST" && entry.rpcTag === listSchoolsTag) {
         forcedSchoolsFailure = true;
         entry.forced = true;
         entry.status = 503;
-        entry.responseContentType = "application/problem+json";
+        entry.responseContentType = "application/json";
         entry.responseJson = schoolsUnavailableProblem;
-        sendSchoolsUnavailable(response);
+        sendSchoolsUnavailableRpc(response, rpcRequest.id);
 
         return;
       }
 
-      const body = await requestBody(request);
       const headers = new Headers();
 
       for (const [name, value] of Object.entries(request.headers)) {
@@ -320,6 +402,15 @@ const startRecordingUpstream = async (ledger) => {
       entry.status = upstream.status;
       entry.responseContentType = upstream.headers.get("content-type");
       entry.responseJson = parseJsonBody(responseBytes);
+
+      // An RPC answers 200 with its exit; the ledger records the exit's value or problem.
+      const answer = entry.rpcTag === null ? null : unwrapRpcAnswer(entry.responseJson);
+
+      if (answer !== null) {
+        entry.status = answer.status;
+        entry.responseJson = answer.json;
+      }
+
       response.statusCode = upstream.status;
       copyResponseHeaders(upstream.headers, response);
       response.end(responseBytes);
@@ -439,11 +530,6 @@ try {
   };
 
   run("bun", ["run", "build"], {
-    cwd: sdkRoot,
-    env: dashboardEnvironment,
-    label: "Schools SDK build",
-  });
-  run("bun", ["run", "build"], {
     cwd: dashboardRoot,
     env: dashboardEnvironment,
     label: "Schools dashboard production build",
@@ -480,7 +566,7 @@ try {
   const browserEvidence = JSON.parse(await readFile(browserEvidencePath, "utf8"));
   assert.equal(browserEvidence.passed, true);
 
-  const schoolsRequests = ledger.filter((entry) => entry.pathname === "/api/schools");
+  const schoolsRequests = ledger.filter((entry) => entry.rpcTag === listSchoolsTag);
   const forcedFailures = schoolsRequests.filter((entry) => entry.forced);
 
   const forwardedSuccesses = schoolsRequests.filter(
@@ -494,7 +580,7 @@ try {
   assert.ok(authorityDenials.length >= 2, "typed authority denials must reach the backend");
 
   for (const entry of schoolsRequests) {
-    assert.equal(entry.method, "GET", "the native Schools operation is read-only");
+    assert.equal(entry.method, "POST", "the native Schools operation is one RPC");
     assert.equal(entry.sessionCookieAuth, true, "the native Schools operation requires a session");
     assert.equal(
       entry.authorizationHeaderPresent,
@@ -507,10 +593,14 @@ try {
       "the native Schools read must not use Idempotency-Key",
     );
     assert.equal(entry.ifMatch, null, "the native Schools read must not use If-Match");
-    const queryKeys = [...new URLSearchParams(entry.search).keys()];
+
+    const payloadKeys = Predicate.isObjectOrArray(entry.rpcPayload)
+      ? Object.keys(entry.rpcPayload)
+      : [];
+
     assert.ok(
-      queryKeys.length <= 1 && queryKeys.every((key) => key === "department"),
-      "the native Schools read used an unsupported query parameter",
+      payloadKeys.length <= 1 && payloadKeys.every((key) => key === "departmentId"),
+      "the native Schools read used an unsupported payload member",
     );
   }
 
@@ -592,8 +682,9 @@ try {
     seed: seedEvidence,
     browser: browserEvidence,
     requestLedger: {
-      browserPath: "/api/schools",
-      backendPath: "/api/schools",
+      browserPath: "/api/rpc",
+      backendPath: "/api/rpc",
+      rpcTag: listSchoolsTag,
       schoolsRequests,
       forcedFailures: forcedFailures.length,
       forwardedSuccesses: forwardedSuccesses.length,

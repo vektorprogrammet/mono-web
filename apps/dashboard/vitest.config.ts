@@ -5,7 +5,7 @@ import { sharedVitestConfig } from "../../vitest.shared.js";
 export default mergeConfig(
   sharedVitestConfig,
   defineConfig({
-  // Workspace packages such as the SDK resolve to source; Vitest appends its default conditions.
+  // No workspace export map uses this condition since the SDK was removed; Vitest appends its default conditions.
   resolve: {
     alias: {
       "@/components": fileURLToPath(new URL("./app/components", import.meta.url)),

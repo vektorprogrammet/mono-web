@@ -19,14 +19,16 @@
         "`just rehearsal organization-import` serves its native API through this handler."
       ],
       "owner": "apps/backend",
-      "examinedWith": { "effect": "4.0.0-rc.116" },
+      "examinedWith": {
+        "effect": "4.0.0-rc.116"
+      },
       "retirementTrigger": "HttpRouter.asHttpEffect() types its failure, or the callers build their handler with HttpRouter.toHttpEffect. Then remove the suppression."
     },
     {
       "id": "EX-0002",
       "rules": ["FX008", "effecttsgo/unsafe-effect-type-assertion"],
       "scope": {
-        "files": ["apps/backend/src/http-api/problem.ts"],
+        "files": ["apps/backend/src/rpc/problem.ts"],
         "symbols": ["problemMapper"]
       },
       "reason": "Each failure tag maps to the problem type that its case returns, and other failures pass through unchanged, so the type check of an endpoint still sees an unmapped failure.",
@@ -37,11 +39,14 @@
         "Effect.catchIf with a type guard, as unreachable in the same file does, narrows one known failure, not a record of cases."
       ],
       "verification": [
-        "`just check-types` checks every endpoint whose problems a mapper produces.",
-        "The HTTP tests of the contexts decode the answered problems with the contract schemas, for example `apps/backend/src/content/http.test.ts`."
+        "`just check-types` checks every RPC whose problems a mapper produces.",
+        "The RPC tests of the contexts decode the answered problems through the contract's error schemas, for example `apps/backend/src/content/rpc.test.ts`."
       ],
-      "owner": "apps/backend/src/http-api",
-      "examinedWith": { "effect": "4.0.0-rc.116", "typescript": "7.0.2" },
+      "owner": "apps/backend/src/rpc",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "typescript": "7.0.2"
+      },
       "retirementTrigger": "TypeScript infers the mapped failure union from the generic cases record. Then remove the assertion and the suppression."
     },
     {
@@ -62,7 +67,10 @@
         "No test replaces a path between the check and the open; review verifies the O_NOFOLLOW open."
       ],
       "owner": "apps/backend/src/receipt",
-      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/platform-bun": "4.0.0-rc.116" },
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "@effect/platform-bun": "4.0.0-rc.116"
+      },
       "retirementTrigger": "Effect FileSystem.open can refuse a symbolic link, for example with a no-follow flag. Then open through FileSystem and remove the node:fs/promises import."
     },
     {
@@ -80,7 +88,9 @@
       ],
       "verification": ["`just e2e interview-response` runs the spec in the hosted journey matrix."],
       "owner": "apps/dashboard",
-      "examinedWith": { "@phibkro/oxlint-effect-plugin": "0.1.0" },
+      "examinedWith": {
+        "@phibkro/oxlint-effect-plugin": "0.1.0"
+      },
       "retirementTrigger": "The callback moves to a module that oxlint.config.ts declares platform browser, or effect/no-cross-runtime recognizes Playwright page callbacks. Then remove the suppressions."
     },
     {
@@ -100,7 +110,10 @@
         "`just e2e identity` signs in, reads, and revokes sessions through the backend."
       ],
       "owner": "packages/database",
-      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/tsgo": "0.36.4" },
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "@effect/tsgo": "0.36.4"
+      },
       "retirementTrigger": "No caller runs these operations inside its own transaction. Then resolve Database when the layer is built and remove the expectation."
     },
     {
@@ -120,29 +133,11 @@
         "`just e2e content-publication` publishes articles through the backend."
       ],
       "owner": "packages/domain/src/content",
-      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/tsgo": "0.36.4" },
-      "retirementTrigger": "The capability topology lets ContentManagement depend on Organization. Then provide Organization when the layer is built and remove the expectation."
-    },
-    {
-      "id": "EX-0007",
-      "rules": ["FX006", "effecttsgo/leaking-requirements"],
-      "scope": {
-        "files": ["packages/http-api/src/common.ts"],
-        "symbols": ["PersonSecurity", "PersonOrServiceSecurity"]
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "@effect/tsgo": "0.36.4"
       },
-      "reason": "HttpApiMiddleware security handlers run per request, so they require the request, its parsed search parameters, and its route context.",
-      "missingCapability": "Effect does not mark HttpServerRequest, ParsedSearchParams, or RouteContext with @effect-leakable-service, so effecttsgo/leaking-requirements reports the security services that require them.",
-      "nativeAlternatives": [
-        "Resolving the request services when the layer is built: they exist only per request.",
-        "Marking the services @effect-leakable-service: the effect package declares them, and this repository does not edit it."
-      ],
-      "verification": [
-        "`just check-types` checks the security middleware of every endpoint that declares it.",
-        "`apps/backend/src/receipt/http.test.ts` sends person and service bearers through both, because the receipt group declares them."
-      ],
-      "owner": "packages/http-api",
-      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/tsgo": "0.36.4" },
-      "retirementTrigger": "Effect marks these per-request services leakable, or @effect/tsgo stops reporting the requirements of HttpApiMiddleware services. Then remove the expectations."
+      "retirementTrigger": "The capability topology lets ContentManagement depend on Organization. Then provide Organization when the layer is built and remove the expectation."
     },
     {
       "id": "EX-0008",
@@ -162,65 +157,284 @@
         "No test replaces the path with a symbolic link or widens its mode; review verifies the O_NOFOLLOW open and the checks of the opened file."
       ],
       "owner": "packages/database",
-      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/platform-bun": "4.0.0-rc.116" },
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "@effect/platform-bun": "4.0.0-rc.116"
+      },
       "retirementTrigger": "Effect FileSystem.open can refuse a symbolic link, for example with a no-follow flag. Then open through FileSystem and remove the node:fs/promises import."
     },
     {
-      "id": "EX-0009",
-      "rules": ["FX011", "effect/no-ambient-console"],
+      "id": "EX-0010",
+      "rules": ["FX002", "effecttsgo/missing-pipeable-signature"],
       "scope": {
-        "files": ["tools/acceptance/recommendation-check.ts"],
-        "symbols": [
-          "recordGate",
-          "stage",
-          "ReturningLoginProbeComplete",
-          "ReturningTargetedComplete",
-          "ApplicantProgressTargetedComplete",
-          "CoInterviewerTargetedComplete",
-          "CorrectionTargetedComplete",
-          "failureEvidence"
-        ]
+        "files": ["apps/backend/src/receipt/import-snapshot.ts"],
+        "symbols": ["decodeSnapshot"]
       },
-      "reason": "The recommendation probe reports its fixture check, its gate milestones, its returning stages, its result, and its failure evidence as lines on standard output and standard error, which the operator reads. Each line is bounded, and the failure evidence is redacted.",
-      "missingCapability": "None in Effect: Console of effect writes the same lines, but only inside an Effect program. The probe is a script of top-level Promise code with no Effect runtime at its entry point.",
+      "reason": "decodeSnapshot is the Schema decoder of a receipt snapshot with excess properties refused. Its callers pass fixtures and malformed rows whose static type is not JSON, such as rows with `data: unknown`, because the importer must quarantine them; its second parameter is the parse options of the decoder, not the subject of a data-last call.",
+      "missingCapability": "None in Effect. Schema.decodeUnknownSync returns `(input: unknown, options?: ParseOptions) => A`, and the rule asks for a pipeable overload of that signature, which a decoder of one subject has no use for.",
       "nativeAlternatives": [
-        "Console.log and Console.error of effect, each run with Effect.runSync at its site: that runs programs outside an owned entry point, which FX003 and effect/no-premature-execution reject.",
-        "One Effect program that the entry point of the probe runs: a rewrite of the whole probe, which is the retirement path."
+        "A one-parameter wrapper typed `(input: Schema.Json)`, as the domain decoders use: the receipt import rehearsal and the snapshot test pass rows whose data is `unknown` or `Json | undefined`, so each caller would have to change its fixture types.",
+        "A one-parameter wrapper typed `(input: unknown)`: `anti-slop/no-unknown-parameters` rejects it.",
+        "Exporting ReceiptSnapshot and decoding at each call site: every caller would repeat `onExcessProperty: \"error\"`, a fact that one decoder should own.",
+        "`dual` from `effect/Function`: the second parameter is parse options, so a data-last form reads the options as the subject."
       ],
       "verification": [
-        "The hosted journey matrix runs the probe as `just e2e recommendation-applicant-progress`, `recommendation-co-interviewer`, `recommendation-correction`, and `recommendation-returning`.",
-        "The plugin accepts a directive only when it names no-ambient-console alone with a nonempty `dev only:` reason, and it reports broad, unreasoned, and unused directives."
+        "`apps/backend/src/receipt/import-snapshot.test.ts` decodes a synthetic snapshot through it.",
+        "`just rehearsal receipt-import` (`tools/verification/receipt-import-rehearsal.ts`) decodes its manifest through it, and `tools/e2e/run-legacy-receipt-rehearsal.ts` checks that it rejects another snapshot kind."
       ],
-      "owner": "tools/acceptance",
-      "examinedWith": { "@phibkro/oxlint-effect-plugin": "0.1.0", "effect": "4.0.0-rc.116" },
-      "retirementTrigger": "The probe becomes an Effect program that its entry point runs, and it writes through Console of effect. Then remove the directives."
+      "owner": "apps/backend/src/receipt",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "@effect/tsgo": "0.36.4"
+      },
+      "retirementTrigger": "The callers decode JSON-typed input, or the rule exempts Schema decoders. Then give decodeSnapshot a one-parameter form and remove the suppression."
     },
     {
-      "id": "EX-0010",
-      "rules": ["FX001", "FX012"],
+      "id": "EX-0011",
+      "rules": ["FX002", "effecttsgo/node-builtin-import"],
       "scope": {
-        "files": [
-          "packages/sdk/src/effect-client.ts",
-          "packages/sdk/src/__tests__/generated-native-client.test.ts"
-        ],
-        "symbols": ["EffectSdk"]
+        "files": ["apps/docs/site.ts", "apps/docs/remark-repository-links.ts"],
+        "symbols": ["specs", "title", "remarkRepositoryLinks"]
       },
-      "reason": "Command endpoints of the contract, such as placements.commandBoard, take a union of commands as their payload, and the dashboard sends a command that it has not narrowed to one member. patches/effect@4.0.0-rc.116.patch changes the declaration type HttpApiEndpoint.ClientRequest so that a generated client method takes the whole payload type. The client runtime is unchanged.",
-      "missingCapability": "HttpApiEndpoint.ClientRequest of effect 4.0.0-rc.116, unchanged in 4.0.0-rc.117 and on the main branch of effect-smol on 2026-09-27, distributes a union payload over its members: a method takes { payload: A } | { payload: B }, not { payload: A | B }, so a payload typed as the union fails with TS2345. Its conditional P extends Brand<…> names Payload[\"Type\"] in the false branch, and TypeScript narrows that to the member P inside the true branch of Payload[\"Type\"] extends infer P. A program with one union endpoint reproduces it with TypeScript 7.0.2 and 5.9.3.",
+      "reason": "Vocs loads `vocs.config.ts` under Node and calls its sidebar builders and remark plugins synchronously: `site.ts` lists the specifications and reads each page's first heading while the configuration evaluates, and the remark plugin checks whether a linked repository path exists while it transforms a page.",
+      "missingCapability": "Effect FileSystem has no synchronous backend: the Node and Bun layers implement every operation asynchronously, so Effect.runSync cannot read a directory or a file.",
       "nativeAlternatives": [
-        "Narrowing each command with Match and calling the method once per member: every caller of a union endpoint then repeats one identical call per command.",
-        "Asserting the request type at each call site: the assertion removes the check of the request against the contract.",
-        "One endpoint per command, or a struct that wraps the union: both change the HTTP contract and the wire format of every command endpoint.",
-        "Deriving the SDK client type again with a corrected request type: it copies HttpApiClient.Client.Method and its unexported MethodReturn from the Effect source, and the copy drifts with each release."
+        "Effect.runSync with the FileSystem service: fails with an asynchronous operation.",
+        "An asynchronous configuration that runs an Effect program with Effect.runPromise: Vite awaits a Promise default export, but the production branch of the Vocs 2.10.0 resolver spreads the default export without awaiting it, and the remark plugin would run a program outside a composition root in every transform.",
+        "Precomputing titles and link targets in `scripts/sync-pages.ts`: the remark plugin resolves links to any repository path, and `vocs dev` would read stale titles until the script ran again."
       ],
       "verification": [
-        "`bun run --cwd packages/sdk check-types` checks the type test \"accepts the complete command union through one Promise endpoint\" in packages/sdk/src/__tests__/generated-native-client.test.ts, which fails with TS2344 without the patch.",
-        "`just check-types` checks the dashboard callers that send an unnarrowed command union: apps/dashboard/app/foldkit/recruitment-maintenance/command.ts, apps/dashboard/app/foldkit/schools/browser-client.ts, and apps/dashboard/app/routes/dashboard.assistenter._index.tsx. Without the patch each fails with TS2345.",
-        "The patch changes only dist/unstable/httpapi/HttpApiEndpoint.d.ts and its source. The contract tests of the same test file run the unchanged client runtime."
+        "`bun run --cwd apps/docs build` renders every published page, builds the sidebar from `site.ts`, and fails on a dead link that the remark plugin leaves unchanged.",
+        "The Docs workflow runs that build."
       ],
-      "owner": "packages/sdk",
-      "examinedWith": { "effect": "4.0.0-rc.116", "typescript": "7.0.2" },
-      "retirementTrigger": "An Effect release whose HttpApiEndpoint.ClientRequest takes the whole union as the payload of a union endpoint. Then remove the patch and its patchedDependencies entry, delete this entry and the comments that name it, and keep the type test, which then checks the release."
+      "owner": "apps/docs",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116"
+      },
+      "retirementTrigger": "Vocs awaits an asynchronous configuration in every branch and remark plugins may run Effect programs through a runtime bridge, or Effect gains a synchronous FileSystem. Then read through FileSystem and remove the suppressions."
+    },
+    {
+      "id": "EX-0012",
+      "rules": ["FX002", "effecttsgo/node-builtin-import"],
+      "scope": {
+        "files": ["tools/e2e/golden-harness.ts"],
+        "symbols": ["respond", "startProvider"]
+      },
+      "reason": "The loopback notification provider of the golden harness is an HTTP listener on a reserved loopback port. It records every attempt, counts active requests until each response closes, and closes every connection on release, so that cleanup verification finds the port free.",
+      "missingCapability": "Effect's HttpServer needs a platform server. The Bun one, BunHttpServer of @effect/platform-bun, brings Bun's global types into the Node-typed e2e program (tools/e2e/tsconfig.json), where they change the global Request and fetch types and fail the type check of packages/database/src/oauth-live.ts. No Node platform package is a dependency of tools/e2e.",
+      "nativeAlternatives": [
+        "BunHttpServer.make with HttpServer.serve: fails `tsc -p tools/e2e/tsconfig.json` through the Bun global types, and its release stops the server gracefully instead of closing idle connections.",
+        "NodeHttpServer of @effect/platform-node: not a dependency, and the Bun composition-root group admits no Node platform layer."
+      ],
+      "verification": [
+        "`bun --no-env-file tools/e2e/golden-harness-self-test.ts` asserts the accepted, failed, and unauthorized attempts, and that every port rebinds after release, in six probe runners.",
+        "`bun --no-env-file tools/e2e/golden-team-application.ts` delivers its notifications through the provider."
+      ],
+      "owner": "tools/e2e",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "@effect/platform-bun": "4.0.0-rc.116"
+      },
+      "retirementTrigger": "The e2e program type-checks with Bun's global types, or a Node platform server becomes a dependency. Then serve the provider through HttpServer and remove the node:http import."
+    },
+    {
+      "id": "EX-0013",
+      "rules": ["FX002", "effecttsgo/node-builtin-import"],
+      "scope": {
+        "files": ["tools/scripts/heavy-lock.ts"],
+        "symbols": ["flockDescriptor", "openLockFile", "replaceLockText"]
+      },
+      "reason": "The machine-wide heavy lock and the hook slots are flock(1) locks on the open file description of a lock file that the holder keeps open until it exits. flock(1) locks the descriptor that it receives as standard input, and the holder truncates and writes that same descriptor to name itself, so waiting processes can show the live holders.",
+      "missingCapability": "Effect's ChildProcess accepts only \"pipe\", \"inherit\", \"ignore\", \"overlapped\", or a Stream as standard input, never a descriptor of this process, and FileSystem.File does not expose its descriptor in the examined version.",
+      "nativeAlternatives": [
+        "ChildProcess.make with a Stream as stdin: flock(1) would lock a pipe, not the lock file.",
+        "flock(1) with a file path and the job as its command: the lock would belong to flock's process, and the holder could not take the gate and the lock in two steps or write its line before the job starts.",
+        "FileSystem.open with an additional descriptor: the File handle has no descriptor to pass, and additional descriptors of ChildProcess are pipes."
+      ],
+      "verification": [
+        "`bun test tests` in tools/scripts runs `tests/heavy-lock.test.ts`: two heavy jobs serialize, a hook job waits for a heavy job, a heavy job waits for running hook jobs and before later ones, nested jobs do not wait for themselves, and a killed holder releases the lock.",
+        "Every heavy job of `just measure` takes the lock."
+      ],
+      "owner": "tools/scripts",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "@effect/platform-bun": "4.0.0-rc.116"
+      },
+      "retirementTrigger": "ChildProcess accepts a descriptor of this process as standard input and FileSystem.File exposes its descriptor, or the lock moves to an Effect service that owns flock(2). Then open the lock files through FileSystem, pass their descriptors through ChildProcess, and remove the node imports."
+    },
+    {
+      "id": "EX-0014",
+      "rules": ["FX002", "effecttsgo/process-env"],
+      "scope": {
+        "files": ["tools/scripts/vitest-admission.ts"],
+        "symbols": ["setup"]
+      },
+      "reason": "The Vitest global setup admits a run under the heavy lock and a hook slot, and the workers that Vitest starts afterwards must learn that their main process holds the lock, so that a `just measure` or a nested Vitest run inside a test does not wait for its own holder. Vitest starts its workers with the environment of its main process, so the setup writes VEKTORPROGRAMMET_HEAVY_LOCK into it.",
+      "missingCapability": "None in Effect: Config reads the environment and ChildProcess sets the environment of a child, but no Effect construct changes the environment of the running process, and Vitest, not this program, starts the workers.",
+      "nativeAlternatives": [
+        "ChildProcess with `env`: Vitest spawns its workers itself.",
+        "Vitest's `provide` of the global setup: it reaches the tests through `inject`, not the environment of the processes that a test starts."
+      ],
+      "verification": [
+        "A focused Vitest run, such as `bun run --cwd tools/postgres vitest run`, prints the admission lines and runs `tools/postgres/teardown.test.ts`, whose `just measure` child inside the run does not wait for its holder."
+      ],
+      "owner": "tools/scripts",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116"
+      },
+      "retirementTrigger": "Vitest passes an environment to its workers from the global setup, or the admission moves into the scripts that start Vitest. Then remove the write."
+    },
+    {
+      "id": "EX-0015",
+      "rules": ["FX002", "effecttsgo/node-builtin-import"],
+      "scope": {
+        "files": ["tools/scripts/job-process.ts"],
+        "symbols": ["runJob"]
+      },
+      "reason": "`just measure` and a hook slot run a job in their own process group with the terminal, forward SIGINT, SIGTERM, and SIGHUP to it, record in the ledger whether the job ended with an exit code or a signal, and then end the same way, so the caller sees the job's own status.",
+      "missingCapability": "A ChildProcess handle fails `exitCode` with an Unknown PlatformError when a signal ends the process, and names the signal only inside the message of its cause. Its scoped release also signals the child's process group, which a job that shares this process's group does not have.",
+      "nativeAlternatives": [
+        "ChildProcess with `detached: false` and the signal parsed from the message of the PlatformError: the ledger and the exit would depend on the wording of an error message.",
+        "ChildProcess with the default `detached: true`: the job leaves the terminal's process group, so a terminal interrupt reaches it only through forwarding, and the release kills the processes that the ledger counts as surviving."
+      ],
+      "verification": [
+        "`bun test tests` in tools/scripts runs real measure-job and hook-slot jobs to their exit codes in `tests/heavy-lock.test.ts`.",
+        "`bun --no-env-file tools/scripts/measure-job.ts --class probe -- true` appends a ledger row with its exit code, and every heavy job runs through it. No test sends a signal to a measured job."
+      ],
+      "owner": "tools/scripts",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "@effect/platform-bun": "4.0.0-rc.116"
+      },
+      "retirementTrigger": "A ChildProcess handle reports the terminating signal as a value. Then spawn the job through ChildProcess with `detached: false` and remove the node import."
+    },
+    {
+      "id": "EX-0016",
+      "rules": ["FX002", "effecttsgo/global-fetch"],
+      "scope": {
+        "files": ["tools/acceptance/returning-assistant-journey.ts"],
+        "symbols": ["runReturningAssistantBrowserJourney"]
+      },
+      "reason": "The returning journey proves that the browser page itself calls the RPC endpoint across origins with its own session cookie, as CORS admits it. Playwright serializes the page.evaluate callback and runs it in the page, so the call must be the page's fetch with credentials: include.",
+      "missingCapability": "effecttsgo/global-fetch judges code by its module, which runs under Bun. It cannot see that Playwright runs a page.evaluate callback in the browser page, where no Effect runtime or HttpClient service exists.",
+      "nativeAlternatives": [
+        "HttpClient of effect from the probe process: it sends no browser cookie jar and no Origin of the page, so it does not observe the browser's CORS path.",
+        "Playwright's APIRequestContext: it shares the context's cookies but is not the page's fetch, so it bypasses CORS as well.",
+        "A string expression for page.evaluate: it hides the same fetch from the check instead of registering it."
+      ],
+      "verification": [
+        "`bun --no-env-file tools/acceptance/recommendation-check.ts --returning-mode` runs the options probe; the hosted journey matrix runs it as `just e2e recommendation-returning`."
+      ],
+      "owner": "tools/acceptance",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116"
+      },
+      "retirementTrigger": "The effecttsgo rules recognize Playwright page callbacks, or the callback moves to a module whose platform is the browser. Then remove the suppression."
+    },
+    {
+      "id": "EX-0017",
+      "rules": ["FX003"],
+      "scope": {
+        "files": ["tools/e2e/golden-school-service-evidence.ts", "tools/e2e/safe-file-io.ts"],
+        "symbols": [
+          "runForPromiseCaller",
+          "dashboardBuildInventory",
+          "inspectGoldenEvidence",
+          "stageGoldenEvidence",
+          "withProjectionFileLock"
+        ]
+      },
+      "reason": "The evidence reader of the golden school-service journey and the projection file lock are Effect programs, and callers that are no Effect programs yet import them: the CI wrapper `golden-school-service-ci.mjs` awaits the evidence inspection and staging, the browser driver `apps/dashboard/e2e/run-real-native-placement.mjs` awaits the dashboard build inventory, and the conduct driver `apps/dashboard/e2e/run-real-native-recruitment-interview-conduct.mjs` awaits the file lock. Each Promise form runs its Effect form once, the evidence forms with the Bun platform, and rejects with the error that the Effect form failed or died with, so the callers keep their behaviour.",
+      "missingCapability": "None in Effect: Effect.runPromise is the bridge. The requirement stays until the callers become Effect programs.",
+      "nativeAlternatives": [
+        "Rewriting the three callers as Effect programs: they belong to other slices of the rewrite of tools and apps/dashboard/e2e.",
+        "Keeping async functions in the modules: effecttsgo/async-function rejects them."
+      ],
+      "verification": [
+        "`bun test tools/e2e/golden-school-service-evidence.test.ts` runs the Effect forms of the evidence reader and staging and the CI wrapper's early failure.",
+        "`just golden school-service` runs the browser driver, which awaits dashboardBuildInventory.",
+        "`just e2e conduct` runs the conduct driver, which awaits withProjectionFileLock."
+      ],
+      "owner": "tools/e2e",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "@effect/platform-bun": "4.0.0-rc.116"
+      },
+      "retirementTrigger": "The CI wrapper, the placement browser driver, and the conduct driver become Effect programs. Then they use readGoldenEvidence, stageEvidence, readDashboardBuild, and projectionFileLock, and the Promise forms go."
+    },
+    {
+      "id": "EX-0018",
+      "rules": ["FX002", "effecttsgo/node-builtin-import"],
+      "scope": {
+        "files": ["tools/e2e/safe-file-io.ts"],
+        "symbols": [
+          "acquireFileLock",
+          "openDirectoryPathNoFollow",
+          "writeFilePathNoFollow",
+          "projectionLockPath"
+        ]
+      },
+      "reason": "Journey drivers write parity evidence into a shared projection directory. The writer must refuse a symbolic link in any path component and a hard-linked target, so it walks the path one component at a time through /proc/self/fd with O_NOFOLLOW and O_DIRECTORY, checks the link count with fstat, and serializes writers across processes with flock(2) on the descriptor of a lock file.",
+      "missingCapability": "FileSystem.open takes a flag string without O_NOFOLLOW, O_DIRECTORY, or O_NONBLOCK, opens no path relative to a directory descriptor, and FileSystem.File exposes no descriptor for flock(2) in the examined version. The descriptor walk resolves its paths synchronously, where the Path service answers through an Effect.",
+      "nativeAlternatives": [
+        "FileSystem.open and File.stat: no O_NOFOLLOW, no descriptor-relative open, and no descriptor for flock(2).",
+        "FileSystem.stat before each write: it follows links, and a check before the open leaves a race that O_NOFOLLOW closes."
+      ],
+      "verification": [
+        "`just e2e conduct` writes its screenshots and runtime evidence through writeFilePathNoFollow under projectionFileLock."
+      ],
+      "owner": "tools/e2e",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116"
+      },
+      "retirementTrigger": "FileSystem opens with O_NOFOLLOW relative to a directory handle and exposes a descriptor or an advisory lock. Then write through FileSystem and remove the node:fs and node:path imports."
+    },
+    {
+      "id": "EX-0019",
+      "rules": ["FX002", "effecttsgo/process-env"],
+      "scope": {
+        "files": ["tools/e2e/journey-clock.ts"],
+        "symbols": ["admissionJourneyClock"]
+      },
+      "reason": "admissionJourneyClock is a synchronous construct: seeds, Playwright specs, and drivers that are no Effect programs call it at module load or inside Promise code, and it must read ADMISSION_FIXED_NOW at each call, the variable that the backend's admission clock reads, so that fixture instants lie where the backend sees them.",
+      "missingCapability": "None in Effect: Config reads the variable through an Effect, which a synchronous caller outside an Effect runtime cannot run without a runtime bridge of its own.",
+      "nativeAlternatives": [
+        "Config.option(Config.String(\"ADMISSION_FIXED_NOW\")): an Effect, which the synchronous callers cannot yield.",
+        "A parameter for the instant: every caller would read the environment itself instead."
+      ],
+      "verification": [
+        "`just golden school-service` and `just e2e interview-response` derive fixture instants from the clock."
+      ],
+      "owner": "tools/e2e",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116"
+      },
+      "retirementTrigger": "Every caller of admissionJourneyClock is an Effect program. Then read ADMISSION_FIXED_NOW through Config in an Effect form and remove the synchronous one."
+    },
+    {
+      "id": "EX-0020",
+      "rules": ["FX002", "effecttsgo/node-builtin-import"],
+      "scope": {
+        "files": ["tools/postgres/index.ts"],
+        "symbols": ["spawnPostmaster", "executable", "versionOf", "supportedPostgresMajors"]
+      },
+      "reason": "The disposable cluster must outlive a crash of its owner and still be removed by its sentinel. The postmaster writes its log to a file descriptor, runs in its own process group without holding the owner alive, and gets each shutdown signal alone, so that it relays a fast or immediate shutdown to its backends. The exported values supportedPostgresMajors, postgresProgram, and postgresVersion are synchronous, so the manifest and the installation on PATH resolve synchronously.",
+      "missingCapability": "Effect's ChildProcess accepts only \"pipe\", \"inherit\", \"ignore\", \"overlapped\", or a Stream or Sink as standard output and error, never a descriptor of a file, and its kill and scoped release signal the whole process group of a detached child. FileSystem and ChildProcessSpawner have no synchronous operations in the examined version.",
+      "nativeAlternatives": [
+        "ChildProcess with a Sink that appends the server log to a FileSystem file: the log passes through a pipe of the owner, so the server loses its log, and meets a broken pipe, when the owner dies before the sentinel stops it.",
+        "ChildProcess kill with SIGINT, SIGQUIT, and SIGKILL: the node-shared spawner signals the process group of the detached postmaster, so every backend gets the postmaster's shutdown signal directly instead of the postmaster's orderly relay.",
+        "FileSystem.access, FileSystem.readFileString, and ChildProcessSpawner.string for the installation and the manifest: each is asynchronous, so the synchronous exported values would have to become Effects or Promises, which changes the construct's contract for every journey that reads them."
+      ],
+      "verification": [
+        "`bun run --cwd tools/postgres test` runs teardown.test.ts, which ends a real owner by an uncaught failure, SIGKILL of the owner and of its process group, SIGTERM through `just measure`, and a tool timeout, and asserts that no directory, server, listener, or sentinel remains; readiness.test.ts and index.test.ts cover readiness and the major selection.",
+        "Every journey, proof, and rehearsal that starts PostgreSQL runs through startDisposablePostgres, for example `just golden team-application` and `just proof delivery-recovery`, and the database suite starts clusters through it and through startDisposablePgBouncer."
+      ],
+      "owner": "tools/postgres",
+      "examinedWith": {
+        "effect": "4.0.0-rc.116",
+        "@effect/platform-bun": "4.0.0-rc.116"
+      },
+      "retirementTrigger": "ChildProcess accepts a file descriptor as standard output and error and signals a detached child alone, and the synchronous exports become Effects. Then spawn the postmaster through ChildProcess, resolve the manifest and the installation through FileSystem and ChildProcessSpawner, and remove the node imports."
     }
   ]
 }

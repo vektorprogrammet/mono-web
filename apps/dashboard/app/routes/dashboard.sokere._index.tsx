@@ -10,7 +10,7 @@ import {
   recruitmentFailureFromSdk,
 } from "../foldkit/recruitment/bridge";
 import { type RecruitmentInput, LoadedRecruitmentInput, FailedRecruitmentInput } from "../foldkit/recruitment/model";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/dashboard.sokere._index";
 
@@ -21,15 +21,13 @@ const responseHeaders = {
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
 
   let profile;
 
   try {
-    const result = await client.profile.readOwnProfile({ headers: {} });
-
-    if (result.body === undefined) throw new Error("Profile response did not include a body");
-    profile = result.body;
+    ({ profile } = await callNative(cookie, request, (native) =>
+      native["profile.readOwnProfile"](),
+    ));
   } catch {
     throw await expiredSessionRedirect(request);
   }
@@ -50,9 +48,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   let recruitment: RecruitmentInput;
 
   try {
-    const result = await client.recruitment.readAssignmentBoard({ query: { status } });
+    const board = await callNative(cookie, request, (native) =>
+      native["recruitment.readAssignmentBoard"]({ status }),
+    );
+
     recruitment = LoadedRecruitmentInput.make({status,
-board: result.body});
+board});
   } catch (error) {
     const failure = recruitmentFailureFromSdk(error);
 

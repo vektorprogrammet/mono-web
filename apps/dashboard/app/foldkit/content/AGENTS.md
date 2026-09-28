@@ -3,7 +3,7 @@
 # apps/dashboard/app/foldkit/content
 
 This folder holds the Content bounded context in `apps/dashboard/app/foldkit`.
-The dashboard layer holds authenticated journeys: one Foldkit Model per workflow renders server-owned facts and submits commands through the generated SDK.
+The dashboard layer holds authenticated journeys: one Foldkit Model per workflow renders server-owned facts and submits commands through the RPC client.
 
 The Content context in other folders:
 

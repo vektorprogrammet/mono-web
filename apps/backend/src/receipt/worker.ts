@@ -13,11 +13,14 @@ export const runReceiptDeliveryWorker = (pollIntervalMilliseconds: number) =>
       // Match request-time and operator recovery. Provider timeout is at most 30 seconds.
       const cutoff = DateTime.formatIso(DateTime.subtract(yield* DateTime.now, { minutes: 1 }));
 
-      for (const claim of yield* listStaleReceiptOutboxClaimIds(cutoff)) {
+      for (const claim of yield* listStaleReceiptOutboxClaimIds({ claimedBefore: cutoff })) {
         yield* recoverStaleReceiptOutbox(claim, cutoff);
       }
 
-      yield* deliverNextReceiptOutbox(randomUUID(), DateTime.formatIso(yield* DateTime.now));
+      yield* deliverNextReceiptOutbox({
+        claimId: randomUUID(),
+        claimedAt: DateTime.formatIso(yield* DateTime.now),
+      });
     }),
     { interval: Duration.millis(pollIntervalMilliseconds) },
   );

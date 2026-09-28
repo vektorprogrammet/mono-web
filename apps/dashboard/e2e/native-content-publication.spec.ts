@@ -1,9 +1,17 @@
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.js";
 import { writeFile } from "node:fs/promises";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
-import { Option, Schema } from "effect";
-import { NativeProblem } from "@vektorprogrammet/http-api";
+import { Option, Predicate, Schema } from "effect";
+import { nativeRpcPath } from "@vektorprogrammet/rpc";
 import { ContentArticleObservationSchema, ContentBridgeActionSchema } from "../app/foldkit/content/bridge";
+import {
+  isNativeRpcPath,
+  nativeRpcOutcome,
+  nativeRpcRequestBody,
+  nativeRpcStatus,
+  nativeRpcTag,
+  nativeRpcValue,
+} from "./native-operations.js";
 import { addressesAnyRoute, legacyRoutes } from "./request-routes.js";
 
 
@@ -46,10 +54,55 @@ type BrowserRequest = {
   readonly method: string;
   readonly pathname: string;
   readonly search: string;
+  readonly rpcTag?: string;
+  readonly articleId?: number;
   readonly idempotencyKey?: string;
   readonly ifMatch?: string;
   readonly requestFields?: ReadonlyArray<string>;
 };
+
+/** The members of an RPC payload that the request ledger keeps. */
+const RpcPayloadFacts = Schema.fromJsonString(
+  Schema.Struct({
+    payload: Schema.Struct({
+      articleId: Schema.optional(Schema.Int),
+      idempotencyKey: Schema.optional(Schema.String),
+      ifMatch: Schema.optional(Schema.String),
+    }),
+  }),
+);
+
+const rpcPayloadFacts = (body: string | null) =>
+  Option.getOrUndefined(Schema.decodeOption(RpcPayloadFacts)(body ?? ""))?.payload;
+
+/** The problem that one RPC response answered, or its whole outcome when it answered none. */
+const problemOf = (body: string) => {
+  const outcome = nativeRpcOutcome(body);
+
+  return Predicate.isTagged(outcome, "Problem") ? outcome.problem : outcome;
+};
+
+/** The entity tag that one article read answered, or a failure when it answered none. */
+const ArticleETag = Schema.Struct({ etag: Schema.String });
+
+/**
+ * Posts one RPC from the script of `page`, with the browser's cookies and origin, and answers the
+ * RPC response text. The request is a browser request, so the request ledger records it.
+ */
+const postRpcFromPage = (page: Page, body: string) =>
+  page.evaluate(
+    async ({ url, body }: { url: string; body: string }) => {
+      const response = await fetch(url, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body,
+      });
+
+      return response.text();
+    },
+    { url: `${contentApiOrigin}${nativeRpcPath}`, body },
+  );
 
 type BrowserResponse = BrowserRequest & { readonly status: number };
 
@@ -73,12 +126,20 @@ const openContext = async (
       // Multipart and bodyless requests do not contribute JSON field evidence.
     }
 
+    // An RPC names its operation and carries its key and entity tag in its payload.
+    const rpc =
+      request.method() === "POST" && isNativeRpcPath(url.pathname)
+        ? { tag: nativeRpcTag(request.postData() ?? ""), facts: rpcPayloadFacts(request.postData()) }
+        : undefined;
+
     browserRequests.push({
       method: request.method(),
       pathname: url.pathname,
       search: url.search,
-      idempotencyKey: headers["idempotency-key"] === undefined ? undefined : headers["idempotency-key"],
-      ifMatch: headers["if-match"] === undefined ? undefined : headers["if-match"],
+      rpcTag: rpc?.tag,
+      articleId: rpc?.facts?.articleId,
+      idempotencyKey: rpc?.facts?.idempotencyKey ?? headers["idempotency-key"],
+      ifMatch: rpc?.facts?.ifMatch ?? headers["if-match"],
       requestFields: requestFields === undefined ? undefined : requestFields,
     });
   });
@@ -204,8 +265,8 @@ test.describe("Native Content publication (spec 0062)", () => {
         published: true,
       };
 
-      const accessibility = await new AxeBuilder({ page: administrator.page }).analyze();
-      expect(accessibility.violations).toEqual([]);
+      const accessibility = await auditSettledPage(administrator.page);
+      expect(accessibility).toEqual([]);
 
       // --- Leader: revise + republish one immutable version -----------
       const leader = await openContext(browser, browserRequests, browserResponses, pageErrors);
@@ -286,55 +347,29 @@ test.describe("Native Content publication (spec 0062)", () => {
       contexts.push(publishedAuthor.context);
       await signIn(publishedAuthor.page, persons.authorDepartmentA, "/dashboard/artikler");
 
-      const publishedMemberRevision = Schema.decodeSync(Schema.Struct({ detailStatus: Schema.Int, status: Schema.Int, body: NativeProblem }))(await publishedAuthor.page.evaluate(
-        async ({
-          articleId,
-          departmentId,
-          apiOrigin,
-        }: {
-          articleId: number;
-          departmentId: string;
-          apiOrigin: string;
-        }) => {
-          const detailResponse = await fetch(`${apiOrigin}/api/content/articles/${articleId}`, {
-            credentials: "include",
-          });
+      const publishedDetail = await postRpcFromPage(
+        publishedAuthor.page,
+        nativeRpcRequestBody("content.readArticle", { articleId: twoVersionArticleId }),
+      );
 
-          const etag = '"vkr2.u07rIftJrsco7ukQ6cx0H6e8Axg_EHPO4atC27n8zhk"';
-
-          const response = await fetch(`${apiOrigin}/api/content/articles/${articleId}`, {
-            method: "PATCH",
-            credentials: "include",
-            headers: {
-              "content-type": "application/merge-patch+json",
-              "Idempotency-Key": "author-published-revise-denial",
-              "If-Match": etag,
-            },
-            body: JSON.stringify({
-              title: "To versjoner",
-              bodyHtml: "<p>Uautorisert publisert endring</p>",
-              departmentIds: [departmentId],
-              sticky: false,
-            }),
-          });
-
-          return {
-            detailStatus: detailResponse.status,
-            status: response.status,
-            body: (await response.json()),
-          };
-        },
-        {
+      const publishedMemberRevision = await postRpcFromPage(
+        publishedAuthor.page,
+        nativeRpcRequestBody("content.reviseArticle", {
           articleId: twoVersionArticleId,
-          departmentId: departmentAlpha,
-          apiOrigin: contentApiOrigin,
-        },
-      ));
+          idempotencyKey: "author-published-revise-denial",
+          ifMatch: '"vkr2.u07rIftJrsco7ukQ6cx0H6e8Axg_EHPO4atC27n8zhk"',
+          request: {
+            title: "To versjoner",
+            bodyHtml: "<p>Uautorisert publisert endring</p>",
+            departmentIds: [departmentAlpha],
+            sticky: false,
+          },
+        }),
+      );
 
-      expect(publishedMemberRevision.detailStatus).toBe(403);
-      expect(publishedMemberRevision.status).toBe(403);
-      expect(publishedMemberRevision.body).toMatchObject({
-        status: 403,
+      expect(nativeRpcStatus(publishedDetail)).toBe(403);
+      expect(nativeRpcStatus(publishedMemberRevision)).toBe(403);
+      expect(problemOf(publishedMemberRevision)).toMatchObject({
         code: "authority.denied",
         type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
       });
@@ -417,44 +452,32 @@ test.describe("Native Content publication (spec 0062)", () => {
       const authorDraftId = Number(await authorDraftRow.getAttribute("data-article-id"));
       expect(Number.isSafeInteger(authorDraftId)).toBe(true);
 
-      const directNativePublish = Schema.decodeSync(Schema.Struct({ status: Schema.Int, body: NativeProblem }))(await author.page.evaluate(
-        async ({ articleId, apiOrigin }: { articleId: number; apiOrigin: string }) => {
-          const detailResponse = await fetch(`${apiOrigin}/api/content/articles/${articleId}`, {
-            credentials: "include",
-          });
+      const authorDraft = await postRpcFromPage(
+        author.page,
+        nativeRpcRequestBody("content.readArticle", { articleId: authorDraftId }),
+      );
 
-          const etag = detailResponse.headers.get("etag");
+      const { etag: authorDraftETag } = Schema.decodeUnknownSync(ArticleETag)(
+        nativeRpcValue(authorDraft),
+      );
 
-          if (etag === null) throw new Error("content detail response omitted ETag");
+      const directNativePublish = await postRpcFromPage(
+        author.page,
+        nativeRpcRequestBody("content.publishArticle", {
+          articleId: authorDraftId,
+          idempotencyKey: "author-forced-publish-denial",
+          ifMatch: authorDraftETag,
+        }),
+      );
 
-          const response = await fetch(`${apiOrigin}/api/content/articles/${articleId}:publish`, {
-            method: "POST",
-            credentials: "include",
-            headers: {
-              "content-type": "application/json",
-              "Idempotency-Key": "author-forced-publish-denial",
-              "If-Match": etag,
-            },
-            body: "{}",
-          });
-
-          return {
-            status: response.status,
-            body: (await response.json()),
-          };
-        },
-        { articleId: authorDraftId, apiOrigin: contentApiOrigin },
-      ));
-
-      expect(directNativePublish.status).toBe(403);
-      expect(directNativePublish.body).toMatchObject({
-        status: 403,
+      expect(nativeRpcStatus(directNativePublish)).toBe(403);
+      expect(problemOf(directNativePublish)).toMatchObject({
         code: "authority.denied",
         type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
       });
       observations.authorDenial = { publishButtonAbsent: true, nativeStatus: 403 };
-      const authorAccessibility = await new AxeBuilder({ page: author.page }).analyze();
-      expect(authorAccessibility.violations).toEqual([]);
+      const authorAccessibility = await auditSettledPage(author.page);
+      expect(authorAccessibility).toEqual([]);
 
       // --- Ended-only and no-authority personas: safely indistinguishable denials ---
       for (const [name, person] of [
@@ -480,13 +503,16 @@ test.describe("Native Content publication (spec 0062)", () => {
       await expect(anonPage.getByText("Publisert alfa")).toBeVisible();
       await expect(anonPage.getByText("To versjoner")).toHaveCount(0);
 
-      const departmentListing = await anonPage.request.get(
-        `${contentApiOrigin}/api/news?department=${departmentBeta}`,
-      );
+      const departmentListing = await anonPage.request.post(`${contentApiOrigin}${nativeRpcPath}`, {
+        headers: { "content-type": "application/json" },
+        data: nativeRpcRequestBody("content.listNews", { departmentId: departmentBeta }),
+      });
 
-      expect(departmentListing.status()).toBe(200);
+      const departmentListingText = await departmentListing.text();
 
-      const departmentListingBody = Schema.decodeUnknownSync(Schema.Struct({ articles: Schema.Array(Schema.Struct({ slug: Schema.String })) }))(await departmentListing.json());
+      expect(nativeRpcStatus(departmentListingText)).toBe(200);
+
+      const departmentListingBody = Schema.decodeUnknownSync(Schema.Struct({ articles: Schema.Array(Schema.Struct({ slug: Schema.String })) }))(nativeRpcValue(departmentListingText));
 
       expect(departmentListingBody.articles.map((article) => article.slug)).toEqual([
         "festet-fleravdeling",
@@ -516,19 +542,19 @@ test.describe("Native Content publication (spec 0062)", () => {
         teaserVisible: true,
       };
 
-      const anonAccessibility = await new AxeBuilder({ page: anonPage })
-        .include('section[aria-labelledby="news-teaser-heading"]')
-        .analyze();
+      const anonAccessibility = await auditSettledPage(anonPage, {
+        include: ['section[aria-labelledby="news-teaser-heading"]'],
+      });
 
-      expect(anonAccessibility.violations).toEqual([]);
+      expect(anonAccessibility).toEqual([]);
 
       // --- Request confinement -----------------------------------------
       const bridgeRequests = browserRequests.filter(
         (request) => request.pathname === "/dashboard/content",
       );
 
-      const nativeContentRequests = browserRequests.filter((request) =>
-        request.pathname.startsWith("/api/content/articles"),
+      const nativeContentRequests = browserRequests.filter(
+        (request) => isNativeRpcPath(request.pathname) && request.rpcTag?.startsWith("content.") === true,
       );
 
       const publicRequests = browserRequests.filter(
@@ -536,23 +562,24 @@ test.describe("Native Content publication (spec 0062)", () => {
           request.pathname === "/" ||
           request.pathname === "/nyheter" ||
           request.pathname.startsWith("/nyhet/") ||
-          request.pathname.startsWith("/api/news"),
+          request.rpcTag === "content.listNews" ||
+          request.rpcTag === "content.readNewsArticle",
       );
 
       expect(publicRequests.some((request) => request.pathname === "/nyheter")).toBe(true);
       expect(publicRequests.some((request) => request.pathname.startsWith("/nyhet/"))).toBe(true);
       expect(bridgeRequests.length).toBeGreaterThanOrEqual(3);
       expect(nativeContentRequests).toEqual([
-        expect.objectContaining({ method: "GET", pathname: "/api/content/articles/5" }),
+        expect.objectContaining({ rpcTag: "content.readArticle", articleId: 5 }),
         expect.objectContaining({
-          method: "PATCH",
-          pathname: "/api/content/articles/5",
+          rpcTag: "content.reviseArticle",
+          articleId: 5,
           idempotencyKey: "author-published-revise-denial",
         }),
-        expect.objectContaining({ method: "GET", pathname: "/api/content/articles/1" }),
+        expect.objectContaining({ rpcTag: "content.readArticle", articleId: 1 }),
         expect.objectContaining({
-          method: "POST",
-          pathname: "/api/content/articles/1:publish",
+          rpcTag: "content.publishArticle",
+          articleId: 1,
           idempotencyKey: "author-forced-publish-denial",
         }),
       ]);
@@ -577,7 +604,7 @@ test.describe("Native Content publication (spec 0062)", () => {
         nativeContentRequests,
         observations,
         pageErrors,
-        accessibilityViolations: accessibility.violations,
+        accessibilityViolations: accessibility,
       };
 
       if (evidencePath !== undefined) {

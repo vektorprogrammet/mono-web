@@ -1,4 +1,4 @@
-import { IdempotencyKey } from "@vektorprogrammet/http-api";
+import { IdempotencyKey } from "@vektorprogrammet/rpc";
 import { Schema as S } from "effect";
 import { taggedStruct } from "foldkit/schema";
 import {

@@ -189,20 +189,18 @@ layer(contentLayer, { excludeTestServices: true, timeout: "15 seconds" })(
         Effect.gen(function* () {
           yield* reset;
 
-          const failure = yield* Effect.gen(function* () {
-            yield* publishPostgres({
-              command: PublishArticleInputSchema.make({
-                commandId: ContentCommandId.make("publish-own-article"),
-                articleId,
-              }),
-              personId: administratorId,
-              authorizationInstant,
-            });
-
-            return yield* Effect.flip(
-              readArticleDetailPostgres({ articleId, personId, authorizationInstant }),
-            );
+          yield* publishPostgres({
+            command: PublishArticleInputSchema.make({
+              commandId: ContentCommandId.make("publish-own-article"),
+              articleId,
+            }),
+            personId: administratorId,
+            authorizationInstant,
           });
+
+          const failure = yield* Effect.flip(
+            readArticleDetailPostgres({ articleId, personId, authorizationInstant }),
+          );
 
           expect(failure._tag).toBe("DraftNotOwned");
         }),
@@ -212,24 +210,22 @@ layer(contentLayer, { excludeTestServices: true, timeout: "15 seconds" })(
         Effect.gen(function* () {
           yield* reset;
 
-          const observed = yield* Effect.gen(function* () {
-            const missing = yield* Effect.flip(
-              readArticleDetailPostgres({
-                articleId: ArticleId.make(999),
-                personId,
-                authorizationInstant,
-              }),
-            );
+          const missing = yield* Effect.flip(
+            readArticleDetailPostgres({
+              articleId: ArticleId.make(999),
+              personId,
+              authorizationInstant,
+            }),
+          );
 
-            const sql = yield* Database;
-            yield* sql`UPDATE content_articles SET created_by_person_id = 'another-editor' WHERE article_id = ${articleId}`;
+          const sql = yield* Database;
+          yield* sql`UPDATE content_articles SET created_by_person_id = 'another-editor' WHERE article_id = ${articleId}`;
 
-            const denied = yield* Effect.flip(
-              readArticleDetailPostgres({ articleId, personId, authorizationInstant }),
-            );
+          const denied = yield* Effect.flip(
+            readArticleDetailPostgres({ articleId, personId, authorizationInstant }),
+          );
 
-            return { missing, denied };
-          });
+          const observed = { missing, denied };
 
           expect(observed.missing._tag).toBe("ArticleNotFound");
           expect(observed.denied._tag).toBe("DraftNotOwned");
@@ -244,22 +240,20 @@ layer(contentLayer, { excludeTestServices: true, timeout: "15 seconds" })(
           Effect.gen(function* () {
             yield* reset;
 
-            const observed = yield* Effect.gen(function* () {
-              const created = yield* createDraftPostgres(createInput);
-              const sql = yield* Database;
-              yield* sql`
+            const created = yield* createDraftPostgres(createInput);
+            const sql = yield* Database;
+            yield* sql`
         UPDATE organization_memberships SET end_at = '2029-01-01T00:00:00.000Z'
         WHERE membership_id = 'workspace-membership'
       `;
-              const replayed = yield* createDraftPostgres(createInput);
+            const replayed = yield* createDraftPostgres(createInput);
 
-              const counts = yield* sql<{ readonly articles: number; readonly audits: number }>`
+            const counts = yield* sql<{ readonly articles: number; readonly audits: number }>`
         SELECT (SELECT count(*)::integer FROM content_articles WHERE slug = 'replay-article') AS articles,
           (SELECT count(*)::integer FROM content_publication_audit WHERE command_id = ${createCommand.commandId}) AS audits
       `;
 
-              return { created, replayed, counts };
-            });
+            const observed = { created, replayed, counts };
 
             expect(observed.replayed).toEqual(observed.created);
             expect(observed.counts).toEqual([{ articles: 1, audits: 1 }]);
@@ -270,20 +264,18 @@ layer(contentLayer, { excludeTestServices: true, timeout: "15 seconds" })(
         Effect.gen(function* () {
           yield* reset;
 
-          const failure = yield* Effect.gen(function* () {
-            const created = yield* createDraftPostgres(createInput);
+          const created = yield* createDraftPostgres(createInput);
 
-            return yield* Effect.flip(
-              publishPostgres({
-                command: PublishArticleInputSchema.make({
-                  commandId: createCommand.commandId,
-                  articleId: created.articleId,
-                }),
-                personId: administratorId,
-                authorizationInstant,
+          const failure = yield* Effect.flip(
+            publishPostgres({
+              command: PublishArticleInputSchema.make({
+                commandId: createCommand.commandId,
+                articleId: created.articleId,
               }),
-            );
-          });
+              personId: administratorId,
+              authorizationInstant,
+            }),
+          );
 
           expect(failure._tag).toBe("CommandConflict");
         }),
@@ -293,20 +285,18 @@ layer(contentLayer, { excludeTestServices: true, timeout: "15 seconds" })(
         Effect.gen(function* () {
           yield* reset;
 
-          const failure = yield* Effect.gen(function* () {
-            yield* createDraftPostgres(createInput);
+          yield* createDraftPostgres(createInput);
 
-            return yield* Effect.flip(
-              createDraftPostgres({
-                command: CreateArticleDraftInputSchema.make({
-                  ...createCommand,
-                  title: "Different canonical bytes",
-                }),
-                personId,
-                authorizationInstant,
+          const failure = yield* Effect.flip(
+            createDraftPostgres({
+              command: CreateArticleDraftInputSchema.make({
+                ...createCommand,
+                title: "Different canonical bytes",
               }),
-            );
-          });
+              personId,
+              authorizationInstant,
+            }),
+          );
 
           expect(failure._tag).toBe("CommandConflict");
         }),
@@ -316,17 +306,15 @@ layer(contentLayer, { excludeTestServices: true, timeout: "15 seconds" })(
         Effect.gen(function* () {
           yield* reset;
 
-          const failure = yield* Effect.gen(function* () {
-            yield* createDraftPostgres(createInput);
-            const sql = yield* Database;
-            yield* sql`
+          yield* createDraftPostgres(createInput);
+          const sql = yield* Database;
+          yield* sql`
         UPDATE content_publication_command_receipts
         SET result_json = result_json || ${sql.json({ privateLeak: "must fail closed" })}
         WHERE command_id = ${createCommand.commandId}
       `;
 
-            return yield* Effect.flip(createDraftPostgres(createInput));
-          });
+          const failure = yield* Effect.flip(createDraftPostgres(createInput));
 
           expect(failure._tag).toBe("ContentPersistenceError");
         }),
@@ -336,26 +324,28 @@ layer(contentLayer, { excludeTestServices: true, timeout: "15 seconds" })(
         Effect.gen(function* () {
           yield* reset;
 
-          const failure = yield* Effect.gen(function* () {
-            const sql = yield* Database;
-            // Force the conflict after the real slug scan, at the actual unique index.
-            yield* sql.unsafe(`
+          const sql = yield* Database;
+          // Force the conflict after the real slug scan, at the actual unique index.
+          yield* sql.unsafe(`
         CREATE FUNCTION test_content_slug_conflict() RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN NEW.slug := 'eksakt-kladd'; RETURN NEW; END;
         $$
       `);
-            yield* sql.unsafe(`
+          yield* sql.unsafe(`
         CREATE TRIGGER test_content_slug_conflict BEFORE INSERT ON content_articles
         FOR EACH ROW EXECUTE FUNCTION test_content_slug_conflict()
       `);
 
-            try {
-              return yield* Effect.flip(createDraftPostgres(createInput));
-            } finally {
-              yield* sql.unsafe("DROP TRIGGER test_content_slug_conflict ON content_articles");
-              yield* sql.unsafe("DROP FUNCTION test_content_slug_conflict()");
-            }
-          });
+          const failure = yield* Effect.flip(createDraftPostgres(createInput)).pipe(
+            Effect.ensuring(
+              sql
+                .unsafe("DROP TRIGGER test_content_slug_conflict ON content_articles")
+                .pipe(
+                  Effect.andThen(sql.unsafe("DROP FUNCTION test_content_slug_conflict()")),
+                  Effect.orDie,
+                ),
+            ),
+          );
 
           expect(failure._tag).toBe("SlugConflict");
         }),
@@ -367,51 +357,49 @@ layer(contentLayer, { excludeTestServices: true, timeout: "15 seconds" })(
           Effect.gen(function* () {
             yield* reset;
 
-            const observed = yield* Effect.gen(function* () {
-              for (const versionNumber of [1, 2, 3]) {
-                yield* publishPostgres({
-                  command: PublishArticleInputSchema.make({
-                    commandId: ContentCommandId.make(`publish-version-${versionNumber}`),
-                    articleId,
-                  }),
-                  personId: administratorId,
-                  authorizationInstant,
-                });
-              }
-
-              yield* unpublishPostgres({
-                command: UnpublishArticleInputSchema.make({
-                  commandId: ContentCommandId.make("unpublish-third-version"),
-                  articleId,
-                }),
-                personId: administratorId,
-                authorizationInstant,
-              });
-
-              const unpublished = yield* readArticleDetailPostgres({
-                articleId,
-                personId: administratorId,
-                authorizationInstant,
-              });
-
-              const republished = yield* publishPostgres({
+            for (const versionNumber of [1, 2, 3]) {
+              yield* publishPostgres({
                 command: PublishArticleInputSchema.make({
-                  commandId: ContentCommandId.make("republish-fourth-version"),
+                  commandId: ContentCommandId.make(`publish-version-${versionNumber}`),
                   articleId,
                 }),
                 personId: administratorId,
                 authorizationInstant,
               });
+            }
 
-              const sql = yield* Database;
+            yield* unpublishPostgres({
+              command: UnpublishArticleInputSchema.make({
+                commandId: ContentCommandId.make("unpublish-third-version"),
+                articleId,
+              }),
+              personId: administratorId,
+              authorizationInstant,
+            });
 
-              const versions = yield* sql<{ readonly versionNumber: number }>`
+            const unpublished = yield* readArticleDetailPostgres({
+              articleId,
+              personId: administratorId,
+              authorizationInstant,
+            });
+
+            const republished = yield* publishPostgres({
+              command: PublishArticleInputSchema.make({
+                commandId: ContentCommandId.make("republish-fourth-version"),
+                articleId,
+              }),
+              personId: administratorId,
+              authorizationInstant,
+            });
+
+            const sql = yield* Database;
+
+            const versions = yield* sql<{ readonly versionNumber: number }>`
         SELECT version_number AS "versionNumber" FROM content_article_versions
         WHERE article_id = ${articleId} ORDER BY version_number
       `;
 
-              return { unpublished, republished, versions };
-            });
+            const observed = { unpublished, republished, versions };
 
             expect(observed.unpublished.currentVersionNumber).toBeNull();
             expect(observed.republished.versionNumber).toBe(4);
@@ -428,23 +416,21 @@ layer(contentLayer, { excludeTestServices: true, timeout: "15 seconds" })(
         Effect.gen(function* () {
           yield* reset;
 
-          const published = yield* Effect.gen(function* () {
-            const sql = yield* Database;
-            yield* sql`
+          const sql = yield* Database;
+          yield* sql`
         UPDATE content_articles SET body_html = '<p>before</p><script>alert(1)</script><p>after</p>'
         WHERE article_id = ${articleId}
       `;
-            yield* publishPostgres({
-              command: PublishArticleInputSchema.make({
-                commandId: ContentCommandId.make("publish-sanitized-body"),
-                articleId,
-              }),
-              personId: administratorId,
-              authorizationInstant,
-            });
-
-            return yield* readPublishedArticlePostgres("eksakt-kladd");
+          yield* publishPostgres({
+            command: PublishArticleInputSchema.make({
+              commandId: ContentCommandId.make("publish-sanitized-body"),
+              articleId,
+            }),
+            personId: administratorId,
+            authorizationInstant,
           });
+
+          const published = yield* readPublishedArticlePostgres("eksakt-kladd");
 
           expect(published.bodyHtml).toBe("<p>before</p><p>after</p>");
         }),
@@ -454,31 +440,29 @@ layer(contentLayer, { excludeTestServices: true, timeout: "15 seconds" })(
         Effect.gen(function* () {
           yield* reset;
 
-          const observed = yield* Effect.gen(function* () {
-            const sql = yield* Database;
-            yield* sql`
+          const sql = yield* Database;
+          yield* sql`
         UPDATE content_articles SET body_html = ${'<p><a href="java&#x73;cript:alert(1)">unsafe</a></p>'}
         WHERE article_id = ${articleId}
       `;
 
-            const failure = yield* Effect.flip(
-              publishPostgres({
-                command: PublishArticleInputSchema.make({
-                  commandId: ContentCommandId.make("publish-unsafe-body"),
-                  articleId,
-                }),
-                personId: administratorId,
-                authorizationInstant,
+          const failure = yield* Effect.flip(
+            publishPostgres({
+              command: PublishArticleInputSchema.make({
+                commandId: ContentCommandId.make("publish-unsafe-body"),
+                articleId,
               }),
-            );
+              personId: administratorId,
+              authorizationInstant,
+            }),
+          );
 
-            const counts = yield* sql<{ readonly versions: number; readonly audits: number }>`
+          const counts = yield* sql<{ readonly versions: number; readonly audits: number }>`
         SELECT (SELECT count(*)::integer FROM content_article_versions) AS versions,
           (SELECT count(*)::integer FROM content_publication_audit) AS audits
       `;
 
-            return { failure, counts };
-          });
+          const observed = { failure, counts };
 
           expect(observed.failure._tag).toBe("ContentDecodeError");
           expect(observed.counts).toEqual([{ versions: 0, audits: 0 }]);
@@ -491,28 +475,26 @@ layer(contentLayer, { excludeTestServices: true, timeout: "15 seconds" })(
         Effect.gen(function* () {
           yield* reset;
 
-          const failure = yield* Effect.gen(function* () {
-            const sql = yield* Database;
-            yield* sql`
+          const sql = yield* Database;
+          yield* sql`
         UPDATE organization_memberships SET is_team_leader = TRUE
         WHERE membership_id = 'workspace-membership'
       `;
-            yield* sql`
+          yield* sql`
         INSERT INTO organization_memberships (membership_id, person_id, team_id, start_at)
         VALUES ('outside-membership', ${personId}, 'outside-team', '2028-01-01T00:00:00.000Z')
       `;
 
-            return yield* Effect.flip(
-              createDraftPostgres({
-                command: CreateArticleDraftInputSchema.make({
-                  ...createCommand,
-                  departmentIds: [outsideDepartmentId],
-                }),
-                personId,
-                authorizationInstant,
+          const failure = yield* Effect.flip(
+            createDraftPostgres({
+              command: CreateArticleDraftInputSchema.make({
+                ...createCommand,
+                departmentIds: [outsideDepartmentId],
               }),
-            );
-          });
+              personId,
+              authorizationInstant,
+            }),
+          );
 
           expect(failure._tag).toBe("NotInScope");
         }),

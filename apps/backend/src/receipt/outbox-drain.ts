@@ -6,6 +6,7 @@ import {
   type EconomyOperations,
 } from "@vektorprogrammet/domain/receipt";
 import { DateTime, Effect, Option, Predicate } from "effect";
+import { dual } from "effect/Function";
 import { currentInstant } from "../authority.js";
 import type { ReceiptFileStore } from "./filesystem.js";
 import type { ReceiptApiConfig } from "./config.js";
@@ -45,14 +46,15 @@ const staleOutboxCutoff = (now: string): string =>
       DateTime.formatIso(DateTime.subtract(instant, { milliseconds: STALE_OUTBOX_CLAIM_AGE_MS })),
   });
 
-/**
- * Recovers stale claims for the receipt, then delivers until the outbox is idle, one delivery
- * fails, or {@link MAX_DELIVERIES_PER_DRAIN} deliveries have succeeded (`Limit`).
- * Recovery and delivery failures never fail the committed request.
- */
-export const drainReceiptOutboxWith = (
+/** Where a drain reads its clock and which outbox claim prefix it writes. */
+interface ReceiptOutboxDrainOptions {
+  readonly config: ReceiptApiConfig;
+  readonly outboxClaimId?: string;
+}
+
+const drainReceiptOutboxUsing = (
   economy: ReceiptOutboxDrainOperations,
-  options: { readonly config: ReceiptApiConfig; readonly outboxClaimId?: string },
+  options: ReceiptOutboxDrainOptions,
   fileStore: ReceiptFileStore,
   receiptId: string,
 ) =>
@@ -84,8 +86,44 @@ export const drainReceiptOutboxWith = (
     return Predicate.isTagged(last, "Delivered") ? ("Limit" as const) : last._tag;
   });
 
-export const drainReceiptOutbox = (
-  options: { readonly config: ReceiptApiConfig; readonly outboxClaimId?: string },
+type ReceiptOutboxDrain = ReturnType<typeof drainReceiptOutboxUsing>;
+
+/**
+ * Recovers stale claims for the receipt, then delivers until the outbox is idle, one delivery
+ * fails, or {@link MAX_DELIVERIES_PER_DRAIN} deliveries have succeeded (`Limit`).
+ * Recovery and delivery failures never fail the committed request.
+ */
+export const drainReceiptOutboxWith: {
+  (
+    options: ReceiptOutboxDrainOptions,
+    fileStore: ReceiptFileStore,
+    receiptId: string,
+  ): (economy: ReceiptOutboxDrainOperations) => ReceiptOutboxDrain;
+  (
+    economy: ReceiptOutboxDrainOperations,
+    options: ReceiptOutboxDrainOptions,
+    fileStore: ReceiptFileStore,
+    receiptId: string,
+  ): ReceiptOutboxDrain;
+} = dual(4, drainReceiptOutboxUsing);
+
+const drainReceiptOutboxFromEconomy = (
+  options: ReceiptOutboxDrainOptions,
   fileStore: ReceiptFileStore,
   receiptId: string,
 ) => Economy.use((economy) => drainReceiptOutboxWith(economy, options, fileStore, receiptId));
+
+type ReceiptOutboxEconomyDrain = ReturnType<typeof drainReceiptOutboxFromEconomy>;
+
+/** {@link drainReceiptOutboxWith} on the Economy service of the context. */
+export const drainReceiptOutbox: {
+  (
+    fileStore: ReceiptFileStore,
+    receiptId: string,
+  ): (options: ReceiptOutboxDrainOptions) => ReceiptOutboxEconomyDrain;
+  (
+    options: ReceiptOutboxDrainOptions,
+    fileStore: ReceiptFileStore,
+    receiptId: string,
+  ): ReceiptOutboxEconomyDrain;
+} = dual(3, drainReceiptOutboxFromEconomy);

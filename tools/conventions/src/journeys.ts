@@ -11,7 +11,8 @@
  * apps and every file of the acceptance probes runs under some name, or this declaration excludes
  * it with its reason, so no check exists that nothing runs.
  */
-import { posix } from "node:path";
+import { dual } from "effect/Function";
+import { repositoryPath } from "./repository-path.js";
 import { Schema } from "effect";
 import type { Finding } from "./check.js";
 import type { CaseStatement, Justfile, Recipe } from "./justfile.js";
@@ -258,7 +259,9 @@ const readRuns = (repository: Repository): ((command: string, directory?: string
           : [];
 
       return bases.flatMap((base) => {
-        const found = moduleCandidates(posix.join(base, path)).find((file) => files.has(file));
+        const found = moduleCandidates(repositoryPath.join(base, path)).find((file) =>
+          files.has(file),
+        );
 
         return found === undefined ? [] : [found];
       });
@@ -270,7 +273,7 @@ const readRuns = (repository: Repository): ((command: string, directory?: string
     if (cached !== undefined) return cached;
 
     const found = resolve(
-      posix.dirname(file),
+      repositoryPath.dirname(file),
       [...repository.read(file).matchAll(quotedPath)].map(([, , text = ""]) => text),
     );
 
@@ -287,7 +290,7 @@ const readRuns = (repository: Repository): ((command: string, directory?: string
       for (const file of resolve(from, text.split(/[\s;&|()]+/u).map(unquote))) seeds.add(file);
 
       for (const [, where = "", script = ""] of text.matchAll(packageScript)) {
-        const at = posix.join(from, unquote(where)).replace(/\/$/u, "");
+        const at = repositoryPath.join(from, unquote(where)).replace(/\/$/u, "");
         const name = unquote(script);
 
         if (scripts.has(`${at} ${name}`)) continue;
@@ -328,200 +331,205 @@ const commandOf = (dispatch: CaseStatement, name: string): string => {
 };
 
 /** Every hosting finding: the journey sets, this declaration, the workflow, and the app scripts. */
-export const checkJourneys = (
-  repository: Repository,
-  justfile: Justfile,
-  workflow: Workflow,
-): ReadonlyArray<Finding> => {
-  const findings: Array<Finding> = [];
-  const sets = readJourneySets(justfile);
-  const members = journeys(justfile);
+export const checkJourneys: {
+  (justfile: Justfile, workflow: Workflow): (repository: Repository) => ReadonlyArray<Finding>;
+  (repository: Repository, justfile: Justfile, workflow: Workflow): ReadonlyArray<Finding>;
+} = dual(
+  3,
+  (repository: Repository, justfile: Justfile, workflow: Workflow): ReadonlyArray<Finding> => {
+    const findings: Array<Finding> = [];
+    const sets = readJourneySets(justfile);
+    const members = journeys(justfile);
 
-  for (const { recipe, found, dispatch } of sets) {
-    if (found === undefined) {
-      findings.push({
-        path: journeysDeclaration,
-        message: `names the journey recipe ${recipe}, which the justfile lacks; remove it from journeyRecipes`,
-      });
+    for (const { recipe, found, dispatch } of sets) {
+      if (found === undefined) {
+        findings.push({
+          path: journeysDeclaration,
+          message: `names the journey recipe ${recipe}, which the justfile lacks; remove it from journeyRecipes`,
+        });
 
-      continue;
-    }
+        continue;
+      }
 
-    if (dispatch === undefined) {
-      findings.push({
-        path: "justfile",
-        message: `the ${recipe} recipe needs exactly one case statement with a *) branch; the journey check reads the names of the recipe from its patterns`,
-      });
-
-      continue;
-    }
-
-    const names = [...new Set(dispatch.branches.flatMap((branch) => branch.patterns))];
-
-    for (const name of names)
-      if (!kebabCase.test(name))
+      if (dispatch === undefined) {
         findings.push({
           path: "justfile",
-          message: `the ${recipe} recipe accepts ${name}, which is not a kebab-case name; a journey set lists names, not patterns`,
+          message: `the ${recipe} recipe needs exactly one case statement with a *) branch; the journey check reads the names of the recipe from its patterns`,
         });
 
-    // Both list the names in English, such as `a, b, or c`.
-    for (const [place, list = ""] of [
-      ["doc comment", /:\s+([^:]*?)\.?$/u.exec(found.doc)?.[1]],
-      ["unknown-name message", /\bUse\s+([^."]*)\./u.exec(dispatch.otherwise ?? "")?.[1]],
-    ] as const) {
-      const listed = list
-        .split(/,\s*(?:or\s+)?|\s+or\s+/u)
-        .map((name) => name.trim())
-        .filter((name) => name !== "");
+        continue;
+      }
 
-      const lacking = names.filter((name) => !listed.includes(name));
-      const extra = listed.filter((name) => !names.includes(name));
+      const names = [...new Set(dispatch.branches.flatMap((branch) => branch.patterns))];
 
-      if (lacking.length > 0 || extra.length > 0)
-        findings.push({
-          path: "justfile",
-          message: `the ${place} of the ${recipe} recipe lists other names than its case statement${lacking.length > 0 ? `; add ${lacking.join(", ")}` : ""}${extra.length > 0 ? `; remove ${extra.join(", ")}` : ""}`,
-        });
+      for (const name of names)
+        if (!kebabCase.test(name))
+          findings.push({
+            path: "justfile",
+            message: `the ${recipe} recipe accepts ${name}, which is not a kebab-case name; a journey set lists names, not patterns`,
+          });
+
+      // Both list the names in English, such as `a, b, or c`.
+      for (const [place, list = ""] of [
+        ["doc comment", /:\s+([^:]*?)\.?$/u.exec(found.doc)?.[1]],
+        ["unknown-name message", /\bUse\s+([^."]*)\./u.exec(dispatch.otherwise ?? "")?.[1]],
+      ] as const) {
+        const listed = list
+          .split(/,\s*(?:or\s+)?|\s+or\s+/u)
+          .map((name) => name.trim())
+          .filter((name) => name !== "");
+
+        const lacking = names.filter((name) => !listed.includes(name));
+        const extra = listed.filter((name) => !names.includes(name));
+
+        if (lacking.length > 0 || extra.length > 0)
+          findings.push({
+            path: "justfile",
+            message: `the ${place} of the ${recipe} recipe lists other names than its case statement${lacking.length > 0 ? `; add ${lacking.join(", ")}` : ""}${extra.length > 0 ? `; remove ${extra.join(", ")}` : ""}`,
+          });
+      }
     }
-  }
 
-  for (const entry of ownJobs) {
-    const command = `just ${entry.recipe} ${entry.name}`;
+    for (const entry of ownJobs) {
+      const command = `just ${entry.recipe} ${entry.name}`;
 
-    if (!members.some((member) => sameJourney(member, entry)))
-      findings.push({
-        path: journeysDeclaration,
-        message: `gives ${command} the job ${entry.job}, but the ${entry.recipe} recipe does not accept ${entry.name}; remove the entry`,
-      });
-
-    if (!workflow.jobs.has(entry.job))
-      findings.push({
-        path: journeysDeclaration,
-        message: `gives ${command} the job ${entry.job}, which ${testsWorkflow} lacks`,
-      });
-
-    if (exclusionOf(entry) !== undefined)
-      findings.push({
-        path: journeysDeclaration,
-        message: `gives ${command} a job of its own and also excludes it; remove one entry`,
-      });
-  }
-
-  if (!workflow.jobs.has(matrixJob))
-    findings.push({
-      path: journeysDeclaration,
-      message: `names the matrix job ${matrixJob}, which ${testsWorkflow} lacks`,
-    });
-  else if (workflow.legs === undefined)
-    findings.push({
-      path: testsWorkflow,
-      message: `the ${matrixJob} job has no matrix include list of recipe and suite legs`,
-    });
-  else
-    for (const journey of legs(justfile))
-      if (!workflow.legs.some((leg) => leg.recipe === journey.recipe && leg.suite === journey.name))
-        findings.push({
-          path: testsWorkflow,
-          message: `does not run just ${journey.recipe} ${journey.name}: it is not a ${matrixJob} leg, and ${journeysDeclaration} neither gives it a job of its own nor excludes it. Run just layout write, or declare it there`,
-        });
-
-  const runOf = readRuns(repository);
-  const evidence = new Set<string>();
-  // The first journey, in leg order, that runs each file.
-  const runners = new Map<string, Journey>();
-
-  for (const journey of members) {
-    const dispatch = sets.find((set) => set.recipe === journey.recipe)?.dispatch;
-
-    if (dispatch === undefined) continue;
-
-    const run = runOf(commandOf(dispatch, journey.name));
-
-    if (journey.recipe === evidenceRecipe) for (const script of run.scripts) evidence.add(script);
-
-    for (const file of run.files) if (!runners.has(file)) runners.set(file, journey);
-  }
-
-  // The files that an excluded script or file would run.
-  const excluded = new Set<string>();
-
-  for (const entry of exclusions)
-    if ("recipe" in entry) {
       if (!members.some((member) => sameJourney(member, entry)))
         findings.push({
           path: journeysDeclaration,
-          message: `excludes just ${entry.recipe} ${entry.name}, but the ${entry.recipe} recipe does not accept ${entry.name}; remove the entry`,
-        });
-    } else if ("script" in entry) {
-      const script = `the script ${entry.script} of ${entry.directory}`;
-
-      if (!Object.hasOwn(readManifest(repository, entry.directory)?.scripts ?? {}, entry.script))
-        findings.push({
-          path: journeysDeclaration,
-          message: `excludes ${script}, which does not exist; remove the entry`,
-        });
-      else if (evidence.has(`${entry.directory} ${entry.script}`))
-        findings.push({
-          path: journeysDeclaration,
-          message: `excludes ${script}, which just ${evidenceRecipe} runs; remove the entry`,
+          message: `gives ${command} the job ${entry.job}, but the ${entry.recipe} recipe does not accept ${entry.name}; remove the entry`,
         });
 
-      for (const file of runOf(`bun run --cwd ${entry.directory} ${entry.script}`).files)
-        excluded.add(file);
-    } else {
-      const journey = runners.get(entry.file);
-
-      if (!repository.paths.includes(entry.file))
+      if (!workflow.jobs.has(entry.job))
         findings.push({
           path: journeysDeclaration,
-          message: `excludes ${entry.file}, which does not exist; remove the entry`,
-        });
-      else if (journey !== undefined)
-        findings.push({
-          path: journeysDeclaration,
-          message: `excludes ${entry.file}, which just ${journey.recipe} ${journey.name} runs; remove the entry`,
+          message: `gives ${command} the job ${entry.job}, which ${testsWorkflow} lacks`,
         });
 
-      for (const file of runOf(entry.file).files) excluded.add(file);
+      if (exclusionOf(entry) !== undefined)
+        findings.push({
+          path: journeysDeclaration,
+          message: `gives ${command} a job of its own and also excludes it; remove one entry`,
+        });
     }
 
-  const globs = evidenceScripts.map((pattern) => new Bun.Glob(pattern));
-
-  for (const path of repository.paths) {
-    const directory = /^(apps\/[^/]+)\/package\.json$/u.exec(path)?.[1];
-
-    if (directory === undefined) continue;
-
-    for (const script of Object.keys(readManifest(repository, directory)?.scripts ?? {}))
-      if (
-        globs.some((glob) => glob.match(script)) &&
-        !evidence.has(`${directory} ${script}`) &&
-        !exclusions.some(
-          (entry) => "script" in entry && entry.directory === directory && entry.script === script,
+    if (!workflow.jobs.has(matrixJob))
+      findings.push({
+        path: journeysDeclaration,
+        message: `names the matrix job ${matrixJob}, which ${testsWorkflow} lacks`,
+      });
+    else if (workflow.legs === undefined)
+      findings.push({
+        path: testsWorkflow,
+        message: `the ${matrixJob} job has no matrix include list of recipe and suite legs`,
+      });
+    else
+      for (const journey of legs(justfile))
+        if (
+          !workflow.legs.some((leg) => leg.recipe === journey.recipe && leg.suite === journey.name)
         )
-      )
-        findings.push({
-          path,
-          message: `has the browser evidence script ${script}, which just ${evidenceRecipe} does not run. Add its suite to the ${evidenceRecipe} recipe, or exclude it with its reason in ${journeysDeclaration}`,
-        });
-  }
+          findings.push({
+            path: testsWorkflow,
+            message: `does not run just ${journey.recipe} ${journey.name}: it is not a ${matrixJob} leg, and ${journeysDeclaration} neither gives it a job of its own nor excludes it. Run just layout write, or declare it there`,
+          });
 
-  const kinds = runFiles.map(({ kind, glob }) => ({ kind, glob: new Bun.Glob(glob) }));
-  const tests = new Bun.Glob(runFileTests);
-  const recipes = journeyRecipes.map((recipe) => `just ${recipe}`);
+    const runOf = readRuns(repository);
+    const evidence = new Set<string>();
+    // The first journey, in leg order, that runs each file.
+    const runners = new Map<string, Journey>();
 
-  for (const path of repository.paths) {
-    const kind = kinds.find(({ glob }) => glob.match(path))?.kind;
+    for (const journey of members) {
+      const dispatch = sets.find((set) => set.recipe === journey.recipe)?.dispatch;
 
-    if (kind === undefined || tests.match(path) || runners.has(path) || excluded.has(path))
-      continue;
+      if (dispatch === undefined) continue;
 
-    findings.push({
-      path,
-      message: `is a ${kind} that no journey runs: no name of ${recipes.slice(0, -1).join(", ")}, or ${recipes.at(-1) ?? ""} runs it, directly or through a file that it runs. Run it from a journey, or exclude it with its reason in ${journeysDeclaration}`,
-    });
-  }
+      const run = runOf(commandOf(dispatch, journey.name));
 
-  return findings;
-};
+      if (journey.recipe === evidenceRecipe) for (const script of run.scripts) evidence.add(script);
+
+      for (const file of run.files) if (!runners.has(file)) runners.set(file, journey);
+    }
+
+    // The files that an excluded script or file would run.
+    const excluded = new Set<string>();
+
+    for (const entry of exclusions)
+      if ("recipe" in entry) {
+        if (!members.some((member) => sameJourney(member, entry)))
+          findings.push({
+            path: journeysDeclaration,
+            message: `excludes just ${entry.recipe} ${entry.name}, but the ${entry.recipe} recipe does not accept ${entry.name}; remove the entry`,
+          });
+      } else if ("script" in entry) {
+        const script = `the script ${entry.script} of ${entry.directory}`;
+
+        if (!Object.hasOwn(readManifest(repository, entry.directory)?.scripts ?? {}, entry.script))
+          findings.push({
+            path: journeysDeclaration,
+            message: `excludes ${script}, which does not exist; remove the entry`,
+          });
+        else if (evidence.has(`${entry.directory} ${entry.script}`))
+          findings.push({
+            path: journeysDeclaration,
+            message: `excludes ${script}, which just ${evidenceRecipe} runs; remove the entry`,
+          });
+
+        for (const file of runOf(`bun run --cwd ${entry.directory} ${entry.script}`).files)
+          excluded.add(file);
+      } else {
+        const journey = runners.get(entry.file);
+
+        if (!repository.paths.includes(entry.file))
+          findings.push({
+            path: journeysDeclaration,
+            message: `excludes ${entry.file}, which does not exist; remove the entry`,
+          });
+        else if (journey !== undefined)
+          findings.push({
+            path: journeysDeclaration,
+            message: `excludes ${entry.file}, which just ${journey.recipe} ${journey.name} runs; remove the entry`,
+          });
+
+        for (const file of runOf(entry.file).files) excluded.add(file);
+      }
+
+    const globs = evidenceScripts.map((pattern) => new Bun.Glob(pattern));
+
+    for (const path of repository.paths) {
+      const directory = /^(apps\/[^/]+)\/package\.json$/u.exec(path)?.[1];
+
+      if (directory === undefined) continue;
+
+      for (const script of Object.keys(readManifest(repository, directory)?.scripts ?? {}))
+        if (
+          globs.some((glob) => glob.match(script)) &&
+          !evidence.has(`${directory} ${script}`) &&
+          !exclusions.some(
+            (entry) =>
+              "script" in entry && entry.directory === directory && entry.script === script,
+          )
+        )
+          findings.push({
+            path,
+            message: `has the browser evidence script ${script}, which just ${evidenceRecipe} does not run. Add its suite to the ${evidenceRecipe} recipe, or exclude it with its reason in ${journeysDeclaration}`,
+          });
+    }
+
+    const kinds = runFiles.map(({ kind, glob }) => ({ kind, glob: new Bun.Glob(glob) }));
+    const tests = new Bun.Glob(runFileTests);
+    const recipes = journeyRecipes.map((recipe) => `just ${recipe}`);
+
+    for (const path of repository.paths) {
+      const kind = kinds.find(({ glob }) => glob.match(path))?.kind;
+
+      if (kind === undefined || tests.match(path) || runners.has(path) || excluded.has(path))
+        continue;
+
+      findings.push({
+        path,
+        message: `is a ${kind} that no journey runs: no name of ${recipes.slice(0, -1).join(", ")}, or ${recipes.at(-1) ?? ""} runs it, directly or through a file that it runs. Run it from a journey, or exclude it with its reason in ${journeysDeclaration}`,
+      });
+    }
+
+    return findings;
+  },
+);

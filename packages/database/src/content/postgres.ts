@@ -1,3 +1,4 @@
+import { dual } from "effect/Function";
 import { flow, Predicate, Effect, Schema } from "effect";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
@@ -61,10 +62,10 @@ import { dedupeSlug, slugifyTitle } from "@vektorprogrammet/domain/content";
 import { sanitizeArticleBodyHtml } from "@vektorprogrammet/domain/content";
 
 const decodeError = (operation: string, cause: unknown): ContentDecodeError =>
-  new ContentDecodeError({ operation, message: String(cause) });
+  ContentDecodeError.make({ operation, message: String(cause) });
 
 const persistenceError = (operation: string, cause: unknown): ContentPersistenceError =>
-  new ContentPersistenceError({ operation, message: String(cause) });
+  ContentPersistenceError.make({ operation, message: String(cause) });
 
 type DraftRow = typeof DraftRowSchema.Type;
 
@@ -168,8 +169,8 @@ export const readWorkspacePostgres = (input: {
 
           if (Predicate.isTagged(decision, "Deny")) {
             return yield* decision.reason === "AuthorityInactive"
-              ? new ContentAuthorityInactive({})
-              : new ContentNotInScope({});
+              ? ContentAuthorityInactive.make({})
+              : ContentNotInScope.make({});
           }
 
           const filterDepartmentId = decodedQuery.departmentId;
@@ -179,7 +180,7 @@ export const readWorkspacePostgres = (input: {
               Effect.asVoid,
               Effect.mapError((cause) =>
                 Predicate.isTagged(cause, "DepartmentNotFound")
-                  ? new ContentDepartmentNotFound({ departmentId: filterDepartmentId })
+                  ? ContentDepartmentNotFound.make({ departmentId: filterDepartmentId })
                   : persistenceError("read content department filter", cause),
               ),
             );
@@ -188,7 +189,7 @@ export const readWorkspacePostgres = (input: {
               !Predicate.isTagged(decision.value, "ContentAdministrator") &&
               !decision.value.departmentIds.includes(filterDepartmentId)
             ) {
-              return yield* new ContentNotInScope({});
+              return yield* ContentNotInScope.make({});
             }
           }
 
@@ -254,7 +255,7 @@ export const readWorkspacePostgres = (input: {
             Effect.mapError((cause) =>
               Predicate.isTagged(cause, "ProfileContactNotFound") ||
               Predicate.isTagged(cause, "ProfileNotFound")
-                ? new ContentIntegrityError({
+                ? ContentIntegrityError.make({
                     operation: "read content workspace authors",
                     message: `missing profile for a workspace author: ${String(cause)}`,
                   })
@@ -268,7 +269,7 @@ export const readWorkspacePostgres = (input: {
 
           for (const draft of scoped) {
             if (!namesByPerson.has(draft.createdByPersonId)) {
-              return yield* new ContentIntegrityError({
+              return yield* ContentIntegrityError.make({
                 operation: "read content workspace authors",
                 message: `no profile resolved for author ${draft.createdByPersonId}`,
               });
@@ -351,8 +352,8 @@ export const readArticleDetailInTransactionPostgres = (input: {
 
     if (Predicate.isTagged(decision, "Deny")) {
       return yield* decision.reason === "AuthorityInactive"
-        ? new ContentAuthorityInactive({})
-        : new ContentNotInScope({});
+        ? ContentAuthorityInactive.make({})
+        : ContentNotInScope.make({});
     }
 
     const rows = yield* database<DraftRow>`
@@ -380,7 +381,7 @@ export const readArticleDetailInTransactionPostgres = (input: {
       catch: (cause) => decodeError("decode content article detail row", cause),
     });
 
-    if (draft === undefined) return yield* new ContentArticleNotFound({});
+    if (draft === undefined) return yield* ContentArticleNotFound.make({});
 
     const departmentIds =
       (yield* departmentIdsForArticles(database, [draft.articleId])).get(draft.articleId) ?? [];
@@ -393,15 +394,15 @@ export const readArticleDetailInTransactionPostgres = (input: {
 
     if (!canRevise) {
       return yield* Predicate.isTagged(decision.value, "ContentEditor")
-        ? new ContentDraftNotOwned({ articleId: draft.articleId })
-        : new ContentNotInScope({});
+        ? ContentDraftNotOwned.make({ articleId: draft.articleId })
+        : ContentNotInScope.make({});
     }
 
     const profiles = yield* profile.readProfiles([draft.createdByPersonId]).pipe(
       Effect.mapError((cause) =>
         Predicate.isTagged(cause, "ProfileContactNotFound") ||
         Predicate.isTagged(cause, "ProfileNotFound")
-          ? new ContentIntegrityError({
+          ? ContentIntegrityError.make({
               operation: "read content article detail author",
               message: `missing profile for article author: ${String(cause)}`,
             })
@@ -412,7 +413,7 @@ export const readArticleDetailInTransactionPostgres = (input: {
     const author = profiles[0];
 
     if (author === undefined) {
-      return yield* new ContentIntegrityError({
+      return yield* ContentIntegrityError.make({
         operation: "read content article detail author",
         message: "no profile resolved for article author",
       });
@@ -610,8 +611,8 @@ const authorityDecisionOrDenial = (
 
   if (Predicate.isTagged(decision, "Deny")) {
     return decision.reason === "AuthorityInactive"
-      ? Effect.fail(new ContentAuthorityInactive({}))
-      : Effect.fail(new ContentNotInScope({}));
+      ? Effect.fail(ContentAuthorityInactive.make({}))
+      : Effect.fail(ContentNotInScope.make({}));
   }
 
   return Effect.succeed(decision.value);
@@ -673,7 +674,7 @@ const replaceArticleDepartments = (
       Effect.asVoid,
       Effect.mapError((cause) =>
         String(cause).includes("foreign key")
-          ? new ContentDepartmentNotFound({ departmentId })
+          ? ContentDepartmentNotFound.make({ departmentId })
           : persistenceError("insert content department link", cause),
       ),
     );
@@ -714,7 +715,7 @@ export const createDraftPostgres = (input: {
 
           if (stored !== undefined) {
             if (commandReceiptConflicts(stored, "CreateDraft", payloadDigest)) {
-              return yield* new ContentCommandConflict({ commandId: command.commandId });
+              return yield* ContentCommandConflict.make({ commandId: command.commandId });
             }
 
             return yield* decodeStoredDraft(stored.resultJson);
@@ -740,19 +741,19 @@ export const createDraftPostgres = (input: {
                 actor.departmentIds.includes(departmentId),
               ))
           ) {
-            return yield* new ContentNotInScope({});
+            return yield* ContentNotInScope.make({});
           }
 
           const sticky = command.sticky ?? false;
 
           if (sticky && Predicate.isTagged(actor, "ContentEditor")) {
-            return yield* new ContentNotInScope({});
+            return yield* ContentNotInScope.make({});
           }
 
           const baseSlug = slugifyTitle(command.title);
 
           if (!/^[a-z0-9-]+$/.test(baseSlug) || baseSlug.length === 0) {
-            return yield* new ContentSlugConflict({});
+            return yield* ContentSlugConflict.make({});
           }
 
           const taken = new Set<string>(
@@ -824,7 +825,7 @@ export const createDraftPostgres = (input: {
                 constraint === "content_articles_slug_unique" ||
                 description.includes("content_articles_slug_unique") ||
                 description.includes("content_articles_slug_key")
-                ? new ContentSlugConflict({})
+                ? ContentSlugConflict.make({})
                 : persistenceError("insert content draft", cause);
             }),
           );
@@ -880,7 +881,7 @@ export const publishPostgres = (input: {
 
           if (stored !== undefined) {
             if (commandReceiptConflicts(stored, "Publish", payloadDigest)) {
-              return yield* new ContentCommandConflict({ commandId: command.commandId });
+              return yield* ContentCommandConflict.make({ commandId: command.commandId });
             }
 
             return yield* decodeStoredPublish(stored.resultJson);
@@ -896,7 +897,7 @@ export const publishPostgres = (input: {
           const draft = yield* readDraftForUpdate(database, command.articleId);
 
           if (draft === undefined) {
-            return yield* new ContentArticleNotFound({});
+            return yield* ContentArticleNotFound.make({});
           }
 
           const departmentIds = yield* departmentIdsForArticles(database, [draft.articleId]);
@@ -904,8 +905,8 @@ export const publishPostgres = (input: {
 
           if (!canPublishContent(actor, draftDepartments)) {
             return yield* Predicate.isTagged(actor, "ContentEditor")
-              ? new ContentNotPublisher({ articleId: draft.articleId })
-              : new ContentNotInScope({});
+              ? ContentNotPublisher.make({ articleId: draft.articleId })
+              : ContentNotInScope.make({});
           }
 
           const nextVersionRows = yield* database<{ readonly nextVersionNumber: number }>`
@@ -1013,7 +1014,7 @@ export const unpublishPostgres = (input: {
 
           if (stored !== undefined) {
             if (commandReceiptConflicts(stored, "Unpublish", payloadDigest)) {
-              return yield* new ContentCommandConflict({ commandId: command.commandId });
+              return yield* ContentCommandConflict.make({ commandId: command.commandId });
             }
 
             return yield* decodeStoredUnpublish(stored.resultJson);
@@ -1029,19 +1030,19 @@ export const unpublishPostgres = (input: {
           const draft = yield* readDraftForUpdate(database, command.articleId);
 
           if (draft === undefined) {
-            return yield* new ContentArticleNotFound({});
+            return yield* ContentArticleNotFound.make({});
           }
 
           const departmentIds = yield* departmentIdsForArticles(database, [draft.articleId]);
 
           if (!canPublishContent(actor, departmentIds.get(draft.articleId) ?? [])) {
             return yield* Predicate.isTagged(actor, "ContentEditor")
-              ? new ContentNotPublisher({ articleId: draft.articleId })
-              : new ContentNotInScope({});
+              ? ContentNotPublisher.make({ articleId: draft.articleId })
+              : ContentNotInScope.make({});
           }
 
           if (draft.currentVersionNumber === null) {
-            return yield* new ContentCommandConflict({ commandId: command.commandId });
+            return yield* ContentCommandConflict.make({ commandId: command.commandId });
           }
 
           yield* database`
@@ -1105,7 +1106,7 @@ export const reviseDraftPostgres = (input: {
 
           if (stored !== undefined) {
             if (commandReceiptConflicts(stored, "ReviseDraft", payloadDigest)) {
-              return yield* new ContentCommandConflict({ commandId: command.commandId });
+              return yield* ContentCommandConflict.make({ commandId: command.commandId });
             }
 
             return yield* decodeStoredDraft(stored.resultJson);
@@ -1126,7 +1127,7 @@ export const reviseDraftPostgres = (input: {
           const draft = yield* readDraftForUpdate(database, command.articleId);
 
           if (draft === undefined) {
-            return yield* new ContentArticleNotFound({});
+            return yield* ContentArticleNotFound.make({});
           }
 
           const departmentIds = yield* departmentIdsForArticles(database, [draft.articleId]);
@@ -1140,8 +1141,8 @@ export const reviseDraftPostgres = (input: {
             })
           ) {
             return yield* Predicate.isTagged(actor, "ContentEditor")
-              ? new ContentDraftNotOwned({ articleId: draft.articleId })
-              : new ContentNotPublisher({ articleId: draft.articleId });
+              ? ContentDraftNotOwned.make({ articleId: draft.articleId })
+              : ContentNotPublisher.make({ articleId: draft.articleId });
           }
 
           if (
@@ -1151,17 +1152,17 @@ export const reviseDraftPostgres = (input: {
                 actor.departmentIds.includes(departmentId),
               ))
           ) {
-            return yield* new ContentNotInScope({});
+            return yield* ContentNotInScope.make({});
           }
 
           if (draft.revision !== command.expectedRevision) {
-            return yield* new ContentCommandConflict({ commandId: command.commandId });
+            return yield* ContentCommandConflict.make({ commandId: command.commandId });
           }
 
           const sticky = command.sticky ?? draft.sticky;
 
           if (sticky !== draft.sticky && !canPublishContent(actor, current)) {
-            return yield* new ContentNotPublisher({ articleId: draft.articleId });
+            return yield* ContentNotPublisher.make({ articleId: draft.articleId });
           }
 
           const revised = yield* database<ArticleDraftJson>`
@@ -1249,7 +1250,7 @@ export const readContentArticleHttpSourcePostgres = (
 
       const row = rows[0];
 
-      if (row === undefined) return yield* new ContentArticleNotFound({});
+      if (row === undefined) return yield* ContentArticleNotFound.make({});
 
       return yield* Schema.decodeUnknownEffect(ContentArticleHttpSourceSchema)(row, {
         onExcessProperty: "error",
@@ -1393,17 +1394,37 @@ const PublishedNewsArticleHttpSourceSchema = Schema.Struct({
 export type PublishedNewsArticleHttpSource = typeof PublishedNewsArticleHttpSourceSchema.Type;
 
 /** Authoritative current-pointer and immutable-version source for news detail. */
-export const readPublishedNewsArticleHttpSourcePostgres = (
-  slug: string,
-  versionNumber?: number,
-): Effect.Effect<
-  PublishedNewsArticleHttpSource,
-  ContentArticleNotFound | ContentDecodeError | ContentPersistenceError,
-  Database
-> =>
-  Database.use((database) =>
-    Effect.gen(function* () {
-      const rows = yield* database`
+export const readPublishedNewsArticleHttpSourcePostgres: {
+  (
+    versionNumber?: number,
+  ): (
+    slug: string,
+  ) => Effect.Effect<
+    PublishedNewsArticleHttpSource,
+    ContentArticleNotFound | ContentDecodeError | ContentPersistenceError,
+    Database
+  >;
+  (
+    slug: string,
+    versionNumber?: number,
+  ): Effect.Effect<
+    PublishedNewsArticleHttpSource,
+    ContentArticleNotFound | ContentDecodeError | ContentPersistenceError,
+    Database
+  >;
+} = dual(
+  (args) => Predicate.isString(args[0]),
+  (
+    slug: string,
+    versionNumber?: number,
+  ): Effect.Effect<
+    PublishedNewsArticleHttpSource,
+    ContentArticleNotFound | ContentDecodeError | ContentPersistenceError,
+    Database
+  > =>
+    Database.use((database) =>
+      Effect.gen(function* () {
+        const rows = yield* database`
         SELECT
           article.article_id::integer AS "articleId",
           article.current_version_number AS "currentVersionNumber",
@@ -1427,19 +1448,20 @@ export const readPublishedNewsArticleHttpSourcePostgres = (
         ORDER BY version.version_number DESC
         LIMIT 1
       `.pipe(
-        Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(persistenceError("read public news HTTP article source", cause)),
-        ),
-      );
+          Effect.catchTag("SqlError", (cause) =>
+            Effect.fail(persistenceError("read public news HTTP article source", cause)),
+          ),
+        );
 
-      const row = rows[0];
+        const row = rows[0];
 
-      if (row === undefined) return yield* new ContentArticleNotFound({});
+        if (row === undefined) return yield* ContentArticleNotFound.make({});
 
-      return yield* Schema.decodeUnknownEffect(PublishedNewsArticleHttpSourceSchema)(row, {
-        onExcessProperty: "error",
-      }).pipe(
-        Effect.mapError((cause) => decodeError("decode public news HTTP article source", cause)),
-      );
-    }),
-  );
+        return yield* Schema.decodeUnknownEffect(PublishedNewsArticleHttpSourceSchema)(row, {
+          onExcessProperty: "error",
+        }).pipe(
+          Effect.mapError((cause) => decodeError("decode public news HTTP article source", cause)),
+        );
+      }),
+    ),
+);

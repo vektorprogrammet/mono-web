@@ -13,7 +13,7 @@ import {
 import { DepartmentId } from "../organization/schema.js";
 import { AdmissionFieldOfStudyId } from "../admission-period/schema.js";
 
-const invalidInput = new PublicApplicationDecodeError({
+const invalidInput = PublicApplicationDecodeError.make({
   message: "invalid public application input",
 });
 
@@ -75,7 +75,7 @@ export const decodePublicApplicationNow = flow(
   Schema.decodeUnknownEffect(
     Schema.String.pipe(Schema.check(Schema.makeFilter(isPublicApplicationInstant))),
   ),
-  Effect.mapError(
-    () => new PublicApplicationDecodeError({ message: "invalid public application time" }),
+  Effect.mapError(() =>
+    PublicApplicationDecodeError.make({ message: "invalid public application time" }),
   ),
 );

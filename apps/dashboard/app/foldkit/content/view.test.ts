@@ -9,9 +9,9 @@ import { updateFor } from "./update";
 
 const config = {update: updateFor(commandsFor(createBrowserContentWorkspaceClient("/content"))), view};
 
-import { ArticleId, type ContentWorkspace } from "@vektorprogrammet/http-api"
-import { DepartmentId } from "@vektorprogrammet/http-api"
-import { StrongETag } from "@vektorprogrammet/http-api";
+import { ArticleId, type ContentWorkspace } from "@vektorprogrammet/rpc"
+import { DepartmentId } from "@vektorprogrammet/domain"
+import { StrongETag } from "@vektorprogrammet/rpc";
 import { describe, expect, it, vi } from "vitest";
 import { init, type Model, ContentWorkspaceData } from "./model";
 import { view } from "./view";

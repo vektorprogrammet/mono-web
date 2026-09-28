@@ -2,7 +2,8 @@ import { canonicalJsonValue } from "@vektorprogrammet/domain/shared-kernel";
 import { Database, type DatabaseOperations } from "../service.js";
 import { lockPersonAuthorization } from "./authority-postgres.js";
 import * as Statement from "effect/unstable/sql/Statement";
-import { flow, Effect, Schema } from "effect";
+import { flow, Effect, Schema, Predicate } from "effect";
+import { dual } from "effect/Function";
 import {
   DepartmentNotFound,
   MembershipNotFound,
@@ -25,7 +26,7 @@ import {
   type DepartmentId,
   type TeamId,
 } from "@vektorprogrammet/domain/organization";
-import type { TeamInterestFilter } from "@vektorprogrammet/domain/organization";
+import type { SemesterId, TeamInterestReadScope } from "@vektorprogrammet/domain/organization";
 import {
   importLegacyOrganizationEffect,
   type LegacyOrganizationSnapshot,
@@ -35,35 +36,32 @@ import {
 } from "@vektorprogrammet/domain/organization";
 
 const persistenceError = (operation: string, cause: unknown) =>
-  new OrganizationPersistenceError({ operation, message: String(cause) });
+  OrganizationPersistenceError.make({ operation, message: String(cause) });
 
 const decodeDepartment = flow(
   Schema.decodeUnknownEffect(Department, { onExcessProperty: "error" }),
-  Effect.mapError(
-    (cause) =>
-      new OrganizationDecodeError({
-        operation: "decode Department select",
-        message: String(cause),
-      }),
+  Effect.mapError((cause) =>
+    OrganizationDecodeError.make({
+      operation: "decode Department select",
+      message: String(cause),
+    }),
   ),
 );
 
 const decodeTeam = flow(
   Schema.decodeUnknownEffect(Team, { onExcessProperty: "error" }),
-  Effect.mapError(
-    (cause) =>
-      new OrganizationDecodeError({ operation: "decode Team select", message: String(cause) }),
+  Effect.mapError((cause) =>
+    OrganizationDecodeError.make({ operation: "decode Team select", message: String(cause) }),
   ),
 );
 
 const decodeMembership = flow(
   Schema.decodeUnknownEffect(MembershipInvariantSchema, { onExcessProperty: "error" }),
-  Effect.mapError(
-    (cause) =>
-      new OrganizationDecodeError({
-        operation: "decode Membership select",
-        message: String(cause),
-      }),
+  Effect.mapError((cause) =>
+    OrganizationDecodeError.make({
+      operation: "decode Membership select",
+      message: String(cause),
+    }),
   ),
 );
 
@@ -107,7 +105,7 @@ export const readOrganizationDepartment = (
     const sql = yield* Database;
     const department = yield* findDepartment(sql, departmentId);
 
-    return department === undefined ? yield* new DepartmentNotFound({ departmentId }) : department;
+    return department === undefined ? yield* DepartmentNotFound.make({ departmentId }) : department;
   });
 
 export const listOrganizationDepartments: Effect.Effect<
@@ -180,7 +178,7 @@ export const readOrganizationTeam = (
     const sql = yield* Database;
     const team = yield* findTeam(sql, teamId);
 
-    return team === undefined ? yield* new TeamNotFound({ teamId }) : team;
+    return team === undefined ? yield* TeamNotFound.make({ teamId }) : team;
   });
 
 export const listOrganizationTeams = (
@@ -308,7 +306,7 @@ export const readOrganizationMembership = (
     const sql = yield* Database;
     const membership = yield* findMembership(sql, membershipId, false);
 
-    return membership === undefined ? yield* new MembershipNotFound({ membershipId }) : membership;
+    return membership === undefined ? yield* MembershipNotFound.make({ membershipId }) : membership;
   });
 
 export const listOrganizationMembershipsForTeam = (
@@ -591,54 +589,70 @@ export const importOrganizationSnapshot = (
 
 const decodeTeamInterestRegistration = flow(
   Schema.decodeUnknownEffect(TeamInterestRegistration, { onExcessProperty: "error" }),
-  Effect.mapError(
-    (cause) =>
-      new OrganizationDecodeError({
-        operation: "decode TeamInterestRegistration select",
-        message: String(cause),
-      }),
+  Effect.mapError((cause) =>
+    OrganizationDecodeError.make({
+      operation: "decode TeamInterestRegistration select",
+      message: String(cause),
+    }),
   ),
 );
 
-const teamInterestScopeClause = (database: DatabaseOperations, filter: TeamInterestFilter) =>
+const teamInterestScopeClause = (database: DatabaseOperations, scope: TeamInterestReadScope) =>
   Statement.or([
-    ...filter.authorizedDepartmentIds.map(
+    ...scope.departmentIds.map(
       (departmentId) => database`registration.department_id = ${departmentId}`,
     ),
-    ...filter.authorizedTeamIds.map((teamId) => database`registration.team_id = ${teamId}`),
+    ...scope.teams.map(({ teamId }) => database`registration.team_id = ${teamId}`),
   ]);
 
 const teamInterestPredicate = (
   database: DatabaseOperations,
-  filter: TeamInterestFilter,
+  scope: TeamInterestReadScope,
+  semesterId: SemesterId | undefined,
 ): Statement.Fragment => {
-  const clauses: Array<Statement.Fragment> = [teamInterestScopeClause(database, filter)];
+  const clauses: Array<Statement.Fragment> = [teamInterestScopeClause(database, scope)];
 
-  if (filter.semesterId !== undefined) {
-    clauses.push(database`registration.semester_id = ${filter.semesterId}`);
-  }
-
-  if (filter.departmentId !== undefined) {
-    clauses.push(database`registration.department_id = ${filter.departmentId}`);
+  if (semesterId !== undefined) {
+    clauses.push(database`registration.semester_id = ${semesterId}`);
   }
 
   return Statement.and(clauses);
 };
 
-export const listOrganizationTeamInterestRegistrations = (
-  filter: TeamInterestFilter,
-): Effect.Effect<
-  ReadonlyArray<TeamInterestRegistration>,
-  OrganizationDecodeError | OrganizationPersistenceError,
-  Database
-> => {
-  if (filter.authorizedDepartmentIds.length === 0 && filter.authorizedTeamIds.length === 0)
-    return Effect.succeed([]);
+export const listOrganizationTeamInterestRegistrations: {
+  (
+    semesterId?: SemesterId,
+  ): (
+    scope: TeamInterestReadScope,
+  ) => Effect.Effect<
+    ReadonlyArray<TeamInterestRegistration>,
+    OrganizationDecodeError | OrganizationPersistenceError,
+    Database
+  >;
+  (
+    scope: TeamInterestReadScope,
+    semesterId?: SemesterId,
+  ): Effect.Effect<
+    ReadonlyArray<TeamInterestRegistration>,
+    OrganizationDecodeError | OrganizationPersistenceError,
+    Database
+  >;
+} = dual(
+  (args) => Predicate.isObject(args[0]),
+  (
+    scope: TeamInterestReadScope,
+    semesterId?: SemesterId,
+  ): Effect.Effect<
+    ReadonlyArray<TeamInterestRegistration>,
+    OrganizationDecodeError | OrganizationPersistenceError,
+    Database
+  > => {
+    if (scope.departmentIds.length === 0 && scope.teams.length === 0) return Effect.succeed([]);
 
-  return Effect.gen(function* () {
-    const database = yield* Database;
+    return Effect.gen(function* () {
+      const database = yield* Database;
 
-    const rows = yield* database<TeamInterestRegistrationSelect>`
+      const rows = yield* database<TeamInterestRegistrationSelect>`
       SELECT
         registration.registration_id::text AS "registrationId",
         registration.submitter_name AS "submitterName",
@@ -653,14 +667,15 @@ export const listOrganizationTeamInterestRegistrations = (
       FROM public.organization_team_interest_registrations AS registration
       INNER JOIN organization_teams AS team
         ON team.team_id = registration.team_id
-      WHERE ${teamInterestPredicate(database, filter)}
+      WHERE ${teamInterestPredicate(database, scope, semesterId)}
       ORDER BY registration.registration_id ASC
     `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("list organization team interest registrations", cause)),
-      ),
-    );
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("list organization team interest registrations", cause)),
+        ),
+      );
 
-    return yield* Effect.forEach(rows, (row) => decodeTeamInterestRegistration(row));
-  });
-};
+      return yield* Effect.forEach(rows, (row) => decodeTeamInterestRegistration(row));
+    });
+  },
+);

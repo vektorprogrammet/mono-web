@@ -3,7 +3,7 @@
 # apps/dashboard/app/foldkit/dashboard
 
 This folder is not a bounded context. The application shell: navigation and the routes to each context page.
-The dashboard layer holds authenticated journeys: one Foldkit Model per workflow renders server-owned facts and submits commands through the generated SDK.
+The dashboard layer holds authenticated journeys: one Foldkit Model per workflow renders server-owned facts and submits commands through the RPC client.
 
 ## Entry points
 

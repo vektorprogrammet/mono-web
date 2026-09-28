@@ -1,4 +1,4 @@
-import { StrongETag } from "@vektorprogrammet/http-api";
+import { StrongETag } from "@vektorprogrammet/rpc";
 import { Schema as S } from "effect";
 import { AsyncData, FieldValidation } from "foldkit";
 import {

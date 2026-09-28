@@ -103,11 +103,17 @@ const confirm = (
 
     return yield* transaction(
       Placements.use((placements) =>
-        placements.confirmDaysServed(
-          reader,
-          { commandId: nextCommandId(), departmentId, semesterId, personId, total },
-          () => Effect.void,
-        ),
+        placements
+          .authorizeDaysServedConfirmation(reader, { departmentId, semesterId })
+          .pipe(
+            Effect.flatMap((authorization) =>
+              placements.confirmDaysServed(
+                authorization,
+                { commandId: nextCommandId(), personId, total },
+                () => Effect.void,
+              ),
+            ),
+          ),
       ),
     );
   });
@@ -118,11 +124,17 @@ const issue = (actor: PersonId, departmentId: DepartmentId, personId: PersonId) 
 
     return yield* transaction(
       Placements.use((placements) =>
-        placements.issueCertificate(
-          reader,
-          { commandId: nextCommandId(), departmentId, personId },
-          () => Effect.void,
-        ),
+        placements
+          .authorizeCertificateIssue(reader, departmentId, personId)
+          .pipe(
+            Effect.flatMap((authorization) =>
+              placements.issueCertificate(
+                authorization,
+                { commandId: nextCommandId() },
+                () => Effect.void,
+              ),
+            ),
+          ),
       ),
     );
   });
@@ -537,20 +549,23 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "60 seconds" })(
           const rejected = yield* Effect.flip(
             transaction(
               Placements.use((placements) =>
-                placements.confirmDaysServed(
-                  reader,
-                  {
-                    commandId: nextCommandId(),
+                placements
+                  .authorizeDaysServedConfirmation(reader, {
                     departmentId: trondheim,
                     semesterId: autumn,
-                    personId: person.bo,
-                    total: 5,
-                  },
-                  (current) =>
-                    daysServedEntryVersion(current) === stale
-                      ? Effect.void
-                      : Effect.fail("precondition.failed" as const),
-                ),
+                  })
+                  .pipe(
+                    Effect.flatMap((authorization) =>
+                      placements.confirmDaysServed(
+                        authorization,
+                        { commandId: nextCommandId(), personId: person.bo, total: 5 },
+                        (current) =>
+                          daysServedEntryVersion(current) === stale
+                            ? Effect.void
+                            : Effect.fail("precondition.failed" as const),
+                      ),
+                    ),
+                  ),
               ),
             ),
           );
@@ -561,7 +576,7 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "60 seconds" })(
           // Without the delegated capability a team leader confirms nothing.
           const denied = yield* Effect.flip(confirm(person.itLeader, autumn, person.bo, 1));
 
-          expect(denied).toEqual(new CertificateAccessDenied({ reason: "NotInScope" }));
+          expect(denied).toEqual(CertificateAccessDenied.make({ reason: "NotInScope" }));
           expect(yield* confirmationRows(person.bo)).toHaveLength(2);
         }),
     );
@@ -580,7 +595,7 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "60 seconds" })(
             { semesterId: autumn, status: "Unconfirmed" },
           ]);
           expect(yield* Effect.flip(issue(person.styretLeader, trondheim, person.ada))).toEqual(
-            new CertificateEmpty(),
+            CertificateEmpty.make({}),
           );
 
           // Spring as calculated, autumn adjusted above its count of one; Ås confirms its own.
@@ -771,7 +786,7 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "60 seconds" })(
           expect(stored).toEqual([{ teamId: "cert-event", boardId: null }]);
           expect((yield* rosters(person.eventLeader)).boards).toEqual([]);
           expect(yield* Effect.flip(readDaysServed(person.eventLeader, autumn))).toEqual(
-            new CertificateAccessDenied({ reason: "NotInScope" }),
+            CertificateAccessDenied.make({ reason: "NotInScope" }),
           );
 
           const { authorizationInstant } = yield* principal(person.eventLeader);
@@ -800,7 +815,7 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "60 seconds" })(
 
           expect(after.map((seat) => seat.personId)).not.toContain(person.eventLeader);
           expect(yield* Effect.flip(issue(person.eventLeader, trondheim, person.cato))).toEqual(
-            new CertificateAccessDenied({ reason: "NotInScope" }),
+            CertificateAccessDenied.make({ reason: "NotInScope" }),
           );
         }),
     );
@@ -809,15 +824,15 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "60 seconds" })(
       Effect.gen(function* () {
         // An assistant without a seat is no issuer.
         expect(yield* Effect.flip(readCertificate(person.ada, trondheim, person.ada))).toEqual(
-          new CertificateAccessDenied({ reason: "NotInScope" }),
+          CertificateAccessDenied.make({ reason: "NotInScope" }),
         );
         // An issuing seat does not reach the holder's own certificate.
         expect(
           yield* Effect.flip(readCertificate(person.styretMember, trondheim, person.styretMember)),
-        ).toEqual(new CertificateAccessDenied({ reason: "OwnCertificate" }));
+        ).toEqual(CertificateAccessDenied.make({ reason: "OwnCertificate" }));
         expect(
           yield* Effect.flip(issue(person.styretMember, trondheim, person.styretMember)),
-        ).toEqual(new CertificateAccessDenied({ reason: "OwnCertificate" }));
+        ).toEqual(CertificateAccessDenied.make({ reason: "OwnCertificate" }));
         expect(yield* issueRows(person.styretMember)).toEqual([]);
 
         // The table refuses a self-issue that bypasses the service.

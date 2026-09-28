@@ -1,8 +1,7 @@
-import { ContactMessage, isProblem } from "@vektorprogrammet/http-api";
-import { createEffectClient } from "@vektorprogrammet/sdk/effect";
-import { Match, Predicate, Effect, Schema } from "effect";
-import type { ContactMessagePayload, HomepageDepartment } from "./api-types";
-import { createHomepageApiClient } from "./api.server";
+import { ContactMessage, isProblem } from "@vektorprogrammet/rpc";
+import { Match, Predicate, Schema } from "effect";
+import type { HomepageDepartment } from "./api-types";
+import { callHomepageNative } from "./api.server";
 import {
   CONTACT_BACKEND_HEADER,
   CONTACT_IP_HEADER,
@@ -15,18 +14,14 @@ import {
   contactDepartmentSlug,
 } from "./contact-message";
 
-
 async function activeDepartments(backendOrigin?: string): Promise<readonly HomepageDepartment[]> {
   try {
-    const result = await createHomepageApiClient(backendOrigin).organization.listDepartments({
-      headers: {},
-    });
+    const listed = await callHomepageNative(
+      (client) => client["organization.listDepartments"](),
+      { explicitOrigin: backendOrigin },
+    );
 
-    if (result.body === undefined) {
-      throw new Error("The conditional department response has no body.");
-    }
-
-    const departments = result.body.filter((department) => department.active);
+    const departments = listed.filter((department) => department.active);
     const slugs = new Set<string>();
 
     for (const department of departments) {
@@ -102,10 +97,10 @@ export async function submitContactMessage(
     message: formValue(formData, "message"),
   };
 
-  let payload: ContactMessagePayload;
+  let message: ContactMessage;
 
   try {
-    payload = Schema.decodeSync(ContactMessage)(
+    message = Schema.decodeSync(ContactMessage)(
       { ...values, departmentId: page.selectedDepartment.departmentId },
       { onExcessProperty: "error" },
     );
@@ -113,38 +108,27 @@ export async function submitContactMessage(
     return { ok: false, message: "Fyll ut alle feltene med gyldig informasjon." };
   }
 
-  const client = createEffectClient(ingress.backendOrigin, {
-    headers: { [CONTACT_BACKEND_HEADER]: ingress.backendToken },
-    fetch: async (input, init) => {
-      const url = new URL(input instanceof Request ? input.url : String(input));
+  try {
+    // The deployment secret and the visitor address travel with this one call only.
+    await callHomepageNative((client) => client["contact.submitContactMessage"](message), {
+      explicitOrigin: ingress.backendOrigin,
+      headers: {
+        [CONTACT_BACKEND_HEADER]: ingress.backendToken,
+        [CONTACT_IP_HEADER]: ingress.visitorIp,
+      },
+    });
 
-      if (url.origin !== ingress.backendOrigin)
-        throw new Error("Unsupported contact backend origin");
-      // Workers supports manual redirects; never forward the scoped credential to a redirect target.
-      const response = await fetch(input, { ...init, redirect: "manual" });
-
-      if ((response.status >= 300 && response.status < 400) || response.type === "opaqueredirect") {
-        await response.body?.cancel();
-        throw new Error("Contact backend redirect rejected");
-      }
-
-      return response;
-    },
-  });
-
-  return Effect.runPromise(
-    client.contact
-      .submitContactMessage({ payload, headers: { [CONTACT_IP_HEADER]: ingress.visitorIp } })
-      .pipe(
-        Effect.match({
-          onSuccess: (): ContactActionData => ({ ok: true }),
-          onFailure: (error): ContactActionData => ({
-            ok: false,
-            message: isProblem(error)
-              ? Match.value(error.code).pipe(Match.when("rate-limit.exceeded", () => "Du har sendt for mange meldinger. Prøv igjen senere." as const), Match.when("validation.failed", () => "Fyll ut alle feltene med gyldig informasjon." as const), Match.orElse(() => "Meldingen kunne ikke sendes. Prøv igjen senere." as const))
-              : "Meldingen kunne ikke sendes. Prøv igjen senere.",
-          }),
-        }),
-      ),
-  );
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      message: isProblem(error)
+        ? Match.value(error.code).pipe(
+            Match.when("rate-limit.exceeded", () => "Du har sendt for mange meldinger. Prøv igjen senere." as const),
+            Match.when("validation.failed", () => "Fyll ut alle feltene med gyldig informasjon." as const),
+            Match.orElse(() => "Meldingen kunne ikke sendes. Prøv igjen senere." as const),
+          )
+        : "Meldingen kunne ikke sendes. Prøv igjen senere.",
+    };
+  }
 }

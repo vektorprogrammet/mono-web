@@ -1,7 +1,8 @@
 // Negative controls run against the real repository with a few in-memory files, so they exercise
 // the real registry, package.json, and module guides.
 import { describe, expect, test } from "bun:test";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
+import { ConventionsPlatform } from "../src/cli.js";
 import type { Finding } from "../src/check.js";
 import {
   checkExceptions,
@@ -11,9 +12,12 @@ import {
 } from "../src/exceptions.js";
 import { readRepository, repositoryRoot, type Repository } from "../src/repository.js";
 
-const root = repositoryRoot(import.meta.dir);
+const run = <A, E>(effect: Effect.Effect<A, E, ConventionsPlatform>): Promise<A> =>
+  Effect.runPromise(effect.pipe(Effect.provide(ConventionsPlatform)));
 
-const base = readRepository(root, false);
+const root = await run(repositoryRoot(import.meta.dir));
+
+const base = await run(readRepository(root, false));
 
 const withFiles = (files: Readonly<Record<string, string>>): Repository => ({
   root,

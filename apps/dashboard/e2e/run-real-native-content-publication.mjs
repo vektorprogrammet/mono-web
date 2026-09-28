@@ -1,4 +1,4 @@
-import { Predicate } from "effect";
+import { Match, Option, Predicate, Schema } from "effect";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
+import { isNativeRpcPath } from "./native-operations.ts";
 import { addressesAnyRoute, legacyRoutes } from "./request-routes.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -15,8 +16,6 @@ const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 
 const backendRoot = fileURLToPath(new URL("../../backend/", import.meta.url));
-
-const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 
 const homepageRoot = fileURLToPath(new URL("../../homepage/", import.meta.url));
 
@@ -174,18 +173,140 @@ const copyResponseHeaders = (source, target) => {
   if (cookies.length > 0) target.setHeader("Set-Cookie", cookies);
 };
 
+const contentUnavailableProblem = {
+  type: "urn:vektorprogrammet:problem:v0.2:content.unavailable",
+  title: "Content unavailable",
+  status: 503,
+  code: "content.unavailable",
+  detail: "Content data is unavailable.",
+};
+
+/** The one RPC request that a request body carries: its id, tag, and payload. */
+const RpcRequestBody = Schema.fromJsonString(
+  Schema.Struct({
+    id: Schema.Union([Schema.String, Schema.Int]),
+    tag: Schema.String,
+    payload: Schema.Unknown,
+  }),
+);
+
+const parseRpcRequest = (bytes) =>
+  bytes === undefined
+    ? null
+    : Option.getOrNull(Schema.decodeUnknownOption(RpcRequestBody)(bytes.toString("utf8")));
+
+/** The answer that ends one RPC request: a success value, or one failure's error. */
+const RpcAnswer = Schema.Tuple([
+  Schema.Struct({
+    exit: Schema.Union([
+      Schema.TaggedStruct("Success", { value: Schema.Unknown }),
+      Schema.TaggedStruct("Failure", {
+        cause: Schema.Tuple([Schema.Struct({ error: Schema.Unknown })]),
+      }),
+    ]),
+  }),
+]);
+
+const ProblemStatus = Schema.Struct({ status: Schema.Int });
+
+/** The registry status of one RPC answer: 200 for a success, its problem's status for a failure. */
+const rpcAnswerStatus = (bytes) => {
+  let json;
+
+  try {
+    json = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    return null;
+  }
+
+  return Option.match(Schema.decodeUnknownOption(RpcAnswer)(json), {
+    onNone: () => null,
+    onSome: ([{ exit }]) =>
+      Match.value(exit).pipe(
+        Match.tag("Success", () => 200),
+        Match.tag("Failure", ({ cause: [{ error }] }) =>
+          Option.match(Schema.decodeUnknownOption(ProblemStatus)(error), {
+            onNone: () => 500,
+            onSome: ({ status }) => status,
+          }),
+        ),
+        Match.exhaustive,
+      ),
+  });
+};
+
+const ExitMessage = Schema.TaggedStruct("Exit", {
+  requestId: Schema.Union([Schema.String, Schema.Int]),
+  exit: Schema.Unknown,
+});
+
+const FailureExit = Schema.TaggedStruct("Failure", { cause: Schema.Array(Schema.Unknown) });
+
+const FailReason = Schema.TaggedStruct("Fail", { error: Schema.Unknown });
+
+/** Answers one RPC request with the content.unavailable problem, as the backend would. */
+const sendContentUnavailableRpc = (response, requestId) => {
+  response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+  response.end(
+    JSON.stringify([
+      ExitMessage.make({
+        requestId,
+        exit: FailureExit.make({ cause: [FailReason.make({ error: contentUnavailableProblem })] }),
+      }),
+    ]),
+  );
+};
+
+const PayloadMembers = Schema.Record(Schema.String, Schema.Unknown);
+
+const payloadMember = (payload, name) =>
+  Option.match(Schema.decodeUnknownOption(PayloadMembers)(payload), {
+    onNone: () => undefined,
+    onSome: (members) => members[name],
+  });
+
+/**
+ * The HTTP route that each content RPC replaced. The ledger names each RPC by that route, as the
+ * command receipts of the backend name it by their normalized target.
+ */
+const replacedContentRoute = (tag, payload) => {
+  const articleId = String(payloadMember(payload, "articleId"));
+
+  switch (tag) {
+    case "content.readContentWorkspace":
+      return ["GET", "/api/content/articles"];
+    case "content.createArticle":
+      return ["POST", "/api/content/articles"];
+    case "content.readArticle":
+      return ["GET", `/api/content/articles/${articleId}`];
+    case "content.reviseArticle":
+      return ["PATCH", `/api/content/articles/${articleId}`];
+    case "content.publishArticle":
+      return ["POST", `/api/content/articles/${articleId}:publish`];
+    case "content.unpublishArticle":
+      return ["POST", `/api/content/articles/${articleId}:unpublish`];
+    case "content.listNews":
+      return ["GET", "/api/news"];
+    case "content.readNewsArticle":
+      return ["GET", `/api/news/${String(payloadMember(payload, "slug"))}`];
+    default:
+      return null;
+  }
+};
+
 const startRecordingUpstream = async (ledger) => {
   let forcedContentFailure = false;
 
   const server = createServer(async (request, response) => {
     const startedAt = Date.now();
-    const pathname = new URL(request.url ?? "/", upstreamOrigin).pathname;
+    const url = new URL(request.url ?? "/", upstreamOrigin);
 
     const entry = {
       sequence: ledger.length + 1,
       method: request.method ?? "GET",
-      pathname,
-      search: new URL(request.url ?? "/", upstreamOrigin).search,
+      pathname: url.pathname,
+      search: url.search,
+      rpcTag: null,
       forced: false,
       forwardedTo: backendOrigin,
       status: 0,
@@ -195,49 +316,35 @@ const startRecordingUpstream = async (ledger) => {
     ledger.push(entry);
 
     try {
-      if (
-        !forcedContentFailure &&
-        request.method === "GET" &&
-        pathname === "/api/content/articles"
-      ) {
+      const body = await requestBody(request);
+      const rpcRequest = isNativeRpcPath(url.pathname) ? parseRpcRequest(body) : null;
+
+      if (rpcRequest !== null) {
+        entry.rpcTag = rpcRequest.tag;
+        const route = replacedContentRoute(rpcRequest.tag, rpcRequest.payload);
+
+        if (route !== null) [entry.method, entry.pathname] = route;
+        const idempotencyKey = payloadMember(rpcRequest.payload, "idempotencyKey");
+
+        if (Predicate.isString(idempotencyKey)) entry.idempotencyKey = idempotencyKey;
+        const ifMatch = payloadMember(rpcRequest.payload, "ifMatch");
+
+        if (Predicate.isString(ifMatch)) entry.ifMatch = ifMatch;
+        const command = payloadMember(rpcRequest.payload, "request");
+
+        entry.requestFields = Option.match(Schema.decodeUnknownOption(PayloadMembers)(command), {
+          onNone: () => [],
+          onSome: (members) => Object.keys(members).sort(),
+        });
+      }
+
+      if (!forcedContentFailure && entry.rpcTag === "content.readContentWorkspace") {
         forcedContentFailure = true;
         entry.forced = true;
         entry.status = 503;
-        response.writeHead(503, {
-          "content-type": "application/problem+json; charset=utf-8",
-          "cache-control": "no-store",
-        });
-        response.end(
-          JSON.stringify({
-            type: "urn:vektorprogrammet:problem:v0.2:content.unavailable",
-            title: "Content unavailable",
-            status: 503,
-            code: "content.unavailable",
-            detail: "Content data is unavailable.",
-          }),
-        );
+        sendContentUnavailableRpc(response, rpcRequest.id);
 
         return;
-      }
-
-      const body = await requestBody(request);
-      const idempotencyKey = request.headers["idempotency-key"];
-
-      if (Predicate.isString(idempotencyKey)) entry.idempotencyKey = idempotencyKey;
-      const ifMatch = request.headers["if-match"];
-
-      if (Predicate.isString(ifMatch)) entry.ifMatch = ifMatch;
-
-      if (body !== undefined) {
-        try {
-          const payload = JSON.parse(body.toString("utf8"));
-
-          if (Predicate.isObjectOrArray(payload) && payload !== null && !Array.isArray(payload)) {
-            entry.requestFields = Object.keys(payload).sort();
-          }
-        } catch {
-          // Non-JSON request bodies do not contribute field evidence.
-        }
       }
 
       const headers = new Headers();
@@ -260,10 +367,14 @@ const startRecordingUpstream = async (ledger) => {
         redirect: "manual",
       });
 
-      entry.status = upstream.status;
+      const responseBytes = Buffer.from(await upstream.arrayBuffer());
+
+      // An RPC answers 200 with its exit; the ledger records the registry status of the exit.
+      entry.status =
+        entry.rpcTag === null ? upstream.status : (rpcAnswerStatus(responseBytes) ?? upstream.status);
       response.statusCode = upstream.status;
       copyResponseHeaders(upstream.headers, response);
-      response.end(Buffer.from(await upstream.arrayBuffer()));
+      response.end(responseBytes);
     } catch (cause) {
       entry.status = 502;
       response.writeHead(502, { "content-type": "application/json; charset=utf-8" });
@@ -421,11 +532,6 @@ try {
   };
 
   run("bun", ["run", "build"], {
-    cwd: sdkRoot,
-    env: dashboardEnvironment,
-    label: "Content SDK build",
-  });
-  run("bun", ["run", "build"], {
     cwd: dashboardRoot,
     env: dashboardEnvironment,
     label: "Content dashboard production build",
@@ -489,14 +595,19 @@ try {
     entry.pathname.startsWith("/api/content/articles"),
   );
 
+  // Every staff request is one content RPC, named by the route it replaced; a browser's CORS
+  // preflight of the RPC endpoint names none.
   for (const entry of staffRequests) {
     const exact =
-      (entry.method === "OPTIONS" && entry.pathname.startsWith("/api/content/articles")) ||
-      (entry.method === "GET" && entry.pathname === "/api/content/articles") ||
-      (entry.method === "POST" && entry.pathname === "/api/content/articles") ||
-      (entry.method === "GET" && /^\/api\/content\/articles\/\d+$/u.test(entry.pathname)) ||
-      (entry.method === "PATCH" && /^\/api\/content\/articles\/\d+$/u.test(entry.pathname)) ||
-      (entry.method === "POST" &&
+      (entry.rpcTag === "content.readContentWorkspace" &&
+        entry.method === "GET" &&
+        entry.pathname === "/api/content/articles") ||
+      (entry.rpcTag === "content.createArticle" && entry.pathname === "/api/content/articles") ||
+      (entry.rpcTag === "content.readArticle" &&
+        /^\/api\/content\/articles\/\d+$/u.test(entry.pathname)) ||
+      (entry.rpcTag === "content.reviseArticle" &&
+        /^\/api\/content\/articles\/\d+$/u.test(entry.pathname)) ||
+      ((entry.rpcTag === "content.publishArticle" || entry.rpcTag === "content.unpublishArticle") &&
         /^\/api\/content\/articles\/\d+:(?:publish|unpublish)$/u.test(entry.pathname));
 
     assert.equal(
@@ -506,7 +617,24 @@ try {
     );
   }
 
-  const staffMutations = staffRequests.filter((entry) => ["PATCH", "POST"].includes(entry.method));
+  assert.deepEqual(
+    ledger.filter(
+      (entry) =>
+        isNativeRpcPath(entry.pathname) && entry.method !== "OPTIONS" && entry.rpcTag === null,
+    ),
+    [],
+    "every request to the RPC endpoint must carry one RPC request",
+  );
+
+  const staffMutations = staffRequests.filter((entry) =>
+    [
+      "content.createArticle",
+      "content.reviseArticle",
+      "content.publishArticle",
+      "content.unpublishArticle",
+    ].includes(entry.rpcTag),
+  );
+
   assert.ok(staffMutations.length >= 3, "staff arc must mutate through the native API");
 
   for (const mutation of staffMutations) {
@@ -515,8 +643,7 @@ try {
       "missing idempotency key: " + mutation.method + " " + mutation.pathname,
     );
 
-    const createsArticle =
-      mutation.method === "POST" && mutation.pathname === "/api/content/articles";
+    const createsArticle = mutation.rpcTag === "content.createArticle";
 
     if (!createsArticle) {
       assert.match(mutation.ifMatch ?? "", /^"vkr2\./u);

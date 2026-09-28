@@ -15,6 +15,7 @@ import {
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
 import { flow, Effect, Schema, Struct } from "effect";
+import { dual } from "effect/Function";
 import {
   CorrectionHistoryOriginalSchema,
   RecruitmentConductValidationError,
@@ -142,7 +143,7 @@ interface CancellationRow {
 }
 
 const persistenceError = (operation: string, cause?: Error) =>
-  new RecruitmentPersistenceError({
+  RecruitmentPersistenceError.make({
     operation,
     cause,
     message: cause?.message ?? "recruitment persistence failed",
@@ -151,12 +152,11 @@ const persistenceError = (operation: string, cause?: Error) =>
 const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, operation: string) =>
   flow(
     Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
-    Effect.mapError(
-      (cause) =>
-        new RecruitmentPersistenceError({
-          operation: `decode ${operation}`,
-          message: String(cause),
-        }),
+    Effect.mapError((cause) =>
+      RecruitmentPersistenceError.make({
+        operation: `decode ${operation}`,
+        message: String(cause),
+      }),
     ),
   );
 
@@ -525,7 +525,7 @@ const authorityActor = (
     );
 
     if (membership === undefined) {
-      return yield* new RecruitmentScopeDenied({ personId, departmentId });
+      return yield* RecruitmentScopeDenied.make({ personId, departmentId });
     }
 
     return yield* decode(
@@ -562,7 +562,7 @@ const authorizeAndLoad = (
     const interview = yield* readInterview(sql, interviewId, lock);
 
     if (interview === undefined)
-      return yield* new RecruitmentInterviewNotFound({
+      return yield* RecruitmentInterviewNotFound.make({
         interviewId: RecruitmentInterviewId.make(interviewId),
       });
     const authorizationInstant = context.authorizationInstant ?? context.now;
@@ -580,7 +580,7 @@ const authorizeAndLoad = (
     const isParticipant = interview.interviewerPersonId === actor.personId || isCoInterviewer;
 
     if (!isParticipant) {
-      return yield* new RecruitmentScopeDenied({
+      return yield* RecruitmentScopeDenied.make({
         personId: actor.personId,
         departmentId: actor.departmentId,
       });
@@ -591,7 +591,7 @@ const authorizeAndLoad = (
       : undefined;
 
     if (isCoInterviewer && coInterviewerConduct === undefined) {
-      return yield* new RecruitmentScopeDenied({
+      return yield* RecruitmentScopeDenied.make({
         personId: actor.personId,
         departmentId: actor.departmentId,
       });
@@ -631,12 +631,12 @@ const observation = (
 ): Effect.Effect<RecruitmentInterviewConductObservation, RecruitmentFailure> =>
   Effect.gen(function* () {
     if (state.schedule === null)
-      return yield* new RecruitmentInterviewNotScheduled({
+      return yield* RecruitmentInterviewNotScheduled.make({
         interviewId: state.interview.interviewId,
       });
 
     if (state.invitationResponse !== "Accepted") {
-      return yield* new RecruitmentInvitationNotAccepted({
+      return yield* RecruitmentInvitationNotAccepted.make({
         interviewId: state.interview.interviewId,
         responseState: state.invitationResponse ?? "Absent",
       });
@@ -727,65 +727,115 @@ const readApplicant = (admissions: AdmissionsOperations, applicationId: string) 
     Effect.mapError((cause) => persistenceError("resolve conduct applicant", cause)),
   );
 
-export const readInterviewConduct = (
-  interviewId: RecruitmentInterviewId,
-  context: RecruitmentConductContext,
-): Effect.Effect<
-  RecruitmentInterviewConductObservation,
-  RecruitmentFailure,
-  Database | Admissions | Organization
-> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
+export const readInterviewConduct: {
+  (
+    context: RecruitmentConductContext,
+  ): (
+    interviewId: RecruitmentInterviewId,
+  ) => Effect.Effect<
+    RecruitmentInterviewConductObservation,
+    RecruitmentFailure,
+    Database | Admissions | Organization
+  >;
+  (
+    interviewId: RecruitmentInterviewId,
+    context: RecruitmentConductContext,
+  ): Effect.Effect<
+    RecruitmentInterviewConductObservation,
+    RecruitmentFailure,
+    Database | Admissions | Organization
+  >;
+} = dual(
+  2,
+  (
+    interviewId: RecruitmentInterviewId,
+    context: RecruitmentConductContext,
+  ): Effect.Effect<
+    RecruitmentInterviewConductObservation,
+    RecruitmentFailure,
+    Database | Admissions | Organization
+  > =>
+    Effect.gen(function* () {
+      const sql = yield* Database;
 
-    return yield* sql
-      .withTransaction(readInterviewConductInTransaction(interviewId, context, sql))
-      .pipe(
-        Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(persistenceError("conduct observation", cause)),
-        ),
+      return yield* sql
+        .withTransaction(readInterviewConductInTransaction(interviewId, context, sql))
+        .pipe(
+          Effect.catchTag("SqlError", (cause) =>
+            Effect.fail(persistenceError("conduct observation", cause)),
+          ),
+        );
+    }),
+);
+
+export const readInterviewConductInTransaction: {
+  (
+    context: RecruitmentConductContext,
+    sql: DatabaseOperations,
+  ): (
+    interviewId: RecruitmentInterviewId,
+  ) => Effect.Effect<
+    RecruitmentInterviewConductObservation,
+    RecruitmentFailure,
+    Admissions | Organization
+  >;
+  (
+    interviewId: RecruitmentInterviewId,
+    context: RecruitmentConductContext,
+    sql: DatabaseOperations,
+  ): Effect.Effect<
+    RecruitmentInterviewConductObservation,
+    RecruitmentFailure,
+    Admissions | Organization
+  >;
+} = dual(
+  3,
+  (
+    interviewId: RecruitmentInterviewId,
+    context: RecruitmentConductContext,
+    sql: DatabaseOperations,
+  ): Effect.Effect<
+    RecruitmentInterviewConductObservation,
+    RecruitmentFailure,
+    Admissions | Organization
+  > =>
+    Effect.gen(function* () {
+      const admissions = yield* Admissions;
+      const organization = yield* Organization;
+
+      const loaded = yield* authorizeAndLoad(
+        sql,
+        organization,
+        context,
+        interviewId,
+        false,
+        "InterviewParticipant",
       );
-  });
 
-export const readInterviewConductInTransaction = (
-  interviewId: RecruitmentInterviewId,
-  context: RecruitmentConductContext,
-  sql: DatabaseOperations,
-): Effect.Effect<
-  RecruitmentInterviewConductObservation,
-  RecruitmentFailure,
-  Admissions | Organization
-> =>
-  Effect.gen(function* () {
-    const admissions = yield* Admissions;
-    const organization = yield* Organization;
+      const state = yield* stateFor(
+        loaded.interview,
+        loaded.schedule,
+        loaded.invitation,
+        loaded.questions,
+        loaded.conduct,
+        loaded.cancellation,
+      );
 
-    const loaded = yield* authorizeAndLoad(
-      sql,
-      organization,
-      context,
-      interviewId,
-      false,
-      "InterviewParticipant",
-    );
+      const applicant = yield* readApplicant(admissions, loaded.interview.applicationId);
 
-    const state = yield* stateFor(
-      loaded.interview,
-      loaded.schedule,
-      loaded.invitation,
-      loaded.questions,
-      loaded.conduct,
-      loaded.cancellation,
-    );
-
-    const applicant = yield* readApplicant(admissions, loaded.interview.applicationId);
-
-    return yield* observation(state, applicant, loaded.corrections, loaded.effective, loaded.actor);
-  }).pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("conduct observation", cause)),
+      return yield* observation(
+        state,
+        applicant,
+        loaded.corrections,
+        loaded.effective,
+        loaded.actor,
+      );
+    }).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("conduct observation", cause)),
+      ),
     ),
-  );
+);
 
 const finalizeInTransaction = (
   command: FinalizeInterviewCommand,
@@ -818,7 +868,7 @@ const finalizeInTransaction = (
         receipt.interviewId !== command.interviewId ||
         receipt.kind !== "InterviewFinalized"
       ) {
-        return yield* new RecruitmentLifecycleCommandConflict({ commandId: command.commandId });
+        return yield* RecruitmentLifecycleCommandConflict.make({ commandId: command.commandId });
       }
 
       const stored = yield* decode(
@@ -845,7 +895,7 @@ const finalizeInTransaction = (
     const conduct = transition.state.conduct;
 
     if (conduct === null)
-      return yield* new RecruitmentConductValidationError({
+      return yield* RecruitmentConductValidationError.make({
         interviewId: command.interviewId,
         message: "finalization produced no conduct",
       });
@@ -855,7 +905,7 @@ const finalizeInTransaction = (
     }>`UPDATE recruitment_interviews SET revision = revision + 1 WHERE interview_id = ${command.interviewId} AND revision = ${command.expectedRevision} RETURNING revision`;
 
     if (updated[0]?.revision !== transition.state.revision)
-      return yield* new RecruitmentInterviewStaleRevision({
+      return yield* RecruitmentInterviewStaleRevision.make({
         interviewId: command.interviewId,
         expectedRevision: command.expectedRevision,
         actualRevision: loaded.interview.revision,
@@ -906,7 +956,7 @@ const cancelInTransaction = (
         receipt.interviewId !== command.interviewId ||
         receipt.kind !== "InterviewCancelled"
       ) {
-        return yield* new RecruitmentLifecycleCommandConflict({ commandId: command.commandId });
+        return yield* RecruitmentLifecycleCommandConflict.make({ commandId: command.commandId });
       }
 
       const stored = yield* decode(
@@ -933,7 +983,7 @@ const cancelInTransaction = (
     const cancellation = transition.state.cancellation;
 
     if (cancellation === null)
-      return yield* new RecruitmentConductValidationError({
+      return yield* RecruitmentConductValidationError.make({
         interviewId: command.interviewId,
         message: "cancellation produced no record",
       });
@@ -943,7 +993,7 @@ const cancelInTransaction = (
     }>`UPDATE recruitment_interviews SET revision = revision + 1 WHERE interview_id = ${command.interviewId} AND revision = ${command.expectedRevision} RETURNING revision`;
 
     if (updated[0]?.revision !== transition.state.revision)
-      return yield* new RecruitmentInterviewStaleRevision({
+      return yield* RecruitmentInterviewStaleRevision.make({
         interviewId: command.interviewId,
         expectedRevision: command.expectedRevision,
         actualRevision: loaded.interview.revision,
@@ -989,7 +1039,7 @@ const correctInTransaction = (
 
     if (receipt !== undefined) {
       if (receipt.commandSha256 !== digest || receipt.interviewId !== command.interviewId)
-        return yield* new RecruitmentLifecycleCommandConflict({ commandId: command.commandId });
+        return yield* RecruitmentLifecycleCommandConflict.make({ commandId: command.commandId });
 
       const stored = yield* decode(
         CorrectInterviewAssessmentObservationSchema,
@@ -1031,7 +1081,7 @@ const correctInTransaction = (
     `;
 
     if (updated[0]?.revision !== transition.state.revision)
-      return yield* new RecruitmentInterviewStaleRevision({
+      return yield* RecruitmentInterviewStaleRevision.make({
         interviewId: command.interviewId,
         expectedRevision: command.expectedRevision,
         actualRevision: loaded.interview.revision,
@@ -1078,84 +1128,127 @@ const correctInTransaction = (
     ),
   );
 
-export const correctInterviewAssessment = (
-  command: CorrectInterviewAssessmentCommand,
-  context: RecruitmentConductContext,
-): Effect.Effect<CorrectInterviewAssessmentResult, RecruitmentFailure, Database | Organization> =>
-  Effect.gen(function* () {
-    const decoded = yield* decode(
-      CorrectInterviewAssessmentCommandSchema,
-      "correction command",
-    )(command);
+export const correctInterviewAssessment: {
+  (
+    context: RecruitmentConductContext,
+  ): (
+    command: CorrectInterviewAssessmentCommand,
+  ) => Effect.Effect<CorrectInterviewAssessmentResult, RecruitmentFailure, Database | Organization>;
+  (
+    command: CorrectInterviewAssessmentCommand,
+    context: RecruitmentConductContext,
+  ): Effect.Effect<CorrectInterviewAssessmentResult, RecruitmentFailure, Database | Organization>;
+} = dual(
+  2,
+  (
+    command: CorrectInterviewAssessmentCommand,
+    context: RecruitmentConductContext,
+  ): Effect.Effect<CorrectInterviewAssessmentResult, RecruitmentFailure, Database | Organization> =>
+    Effect.gen(function* () {
+      const decoded = yield* decode(
+        CorrectInterviewAssessmentCommandSchema,
+        "correction command",
+      )(command);
 
-    const sql = yield* Database;
-    const organization = yield* Organization;
+      const sql = yield* Database;
+      const organization = yield* Organization;
 
-    return yield* sql
-      .withTransaction(
-        correctInTransaction(
-          decoded,
-          context,
-          sql,
-          organization,
-          sha256Hex(canonicalJsonBytes(decoded)),
-        ),
-      )
-      .pipe(
-        Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(persistenceError("correction transaction", cause)),
-        ),
-      );
-  });
+      return yield* sql
+        .withTransaction(
+          correctInTransaction(
+            decoded,
+            context,
+            sql,
+            organization,
+            sha256Hex(canonicalJsonBytes(decoded)),
+          ),
+        )
+        .pipe(
+          Effect.catchTag("SqlError", (cause) =>
+            Effect.fail(persistenceError("correction transaction", cause)),
+          ),
+        );
+    }),
+);
 
-export const finalizeInterview = (
-  command: FinalizeInterviewCommand,
-  context: RecruitmentConductContext,
-): Effect.Effect<FinalizeInterviewResult, RecruitmentFailure, Database | Organization> =>
-  Effect.gen(function* () {
-    const decoded = yield* decode(FinalizeInterviewCommandSchema, "finalization command")(command);
-    const sql = yield* Database;
-    const organization = yield* Organization;
+export const finalizeInterview: {
+  (
+    context: RecruitmentConductContext,
+  ): (
+    command: FinalizeInterviewCommand,
+  ) => Effect.Effect<FinalizeInterviewResult, RecruitmentFailure, Database | Organization>;
+  (
+    command: FinalizeInterviewCommand,
+    context: RecruitmentConductContext,
+  ): Effect.Effect<FinalizeInterviewResult, RecruitmentFailure, Database | Organization>;
+} = dual(
+  2,
+  (
+    command: FinalizeInterviewCommand,
+    context: RecruitmentConductContext,
+  ): Effect.Effect<FinalizeInterviewResult, RecruitmentFailure, Database | Organization> =>
+    Effect.gen(function* () {
+      const decoded = yield* decode(
+        FinalizeInterviewCommandSchema,
+        "finalization command",
+      )(command);
 
-    return yield* sql
-      .withTransaction(
-        finalizeInTransaction(
-          decoded,
-          context,
-          sql,
-          organization,
-          sha256Hex(canonicalJsonBytes(decoded)),
-        ),
-      )
-      .pipe(
-        Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(persistenceError("finalization transaction", cause)),
-        ),
-      );
-  });
+      const sql = yield* Database;
+      const organization = yield* Organization;
 
-export const cancelInterview = (
-  command: CancelInterviewCommand,
-  context: RecruitmentConductContext,
-): Effect.Effect<CancelInterviewResult, RecruitmentFailure, Database | Organization> =>
-  Effect.gen(function* () {
-    const decoded = yield* decode(CancelInterviewCommandSchema, "cancellation command")(command);
-    const sql = yield* Database;
-    const organization = yield* Organization;
+      return yield* sql
+        .withTransaction(
+          finalizeInTransaction(
+            decoded,
+            context,
+            sql,
+            organization,
+            sha256Hex(canonicalJsonBytes(decoded)),
+          ),
+        )
+        .pipe(
+          Effect.catchTag("SqlError", (cause) =>
+            Effect.fail(persistenceError("finalization transaction", cause)),
+          ),
+        );
+    }),
+);
 
-    return yield* sql
-      .withTransaction(
-        cancelInTransaction(
-          decoded,
-          context,
-          sql,
-          organization,
-          sha256Hex(canonicalJsonBytes(decoded)),
-        ),
-      )
-      .pipe(
-        Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(persistenceError("cancellation transaction", cause)),
-        ),
-      );
-  });
+export const cancelInterview: {
+  (
+    context: RecruitmentConductContext,
+  ): (
+    command: CancelInterviewCommand,
+  ) => Effect.Effect<CancelInterviewResult, RecruitmentFailure, Database | Organization>;
+  (
+    command: CancelInterviewCommand,
+    context: RecruitmentConductContext,
+  ): Effect.Effect<CancelInterviewResult, RecruitmentFailure, Database | Organization>;
+} = dual(
+  2,
+  (
+    command: CancelInterviewCommand,
+    context: RecruitmentConductContext,
+  ): Effect.Effect<CancelInterviewResult, RecruitmentFailure, Database | Organization> =>
+    Effect.gen(function* () {
+      const decoded = yield* decode(CancelInterviewCommandSchema, "cancellation command")(command);
+      const sql = yield* Database;
+      const organization = yield* Organization;
+
+      return yield* sql
+        .withTransaction(
+          cancelInTransaction(
+            decoded,
+            context,
+            sql,
+            organization,
+            sha256Hex(canonicalJsonBytes(decoded)),
+          ),
+        )
+        .pipe(
+          Effect.catchTag("SqlError", (cause) =>
+            Effect.fail(persistenceError("cancellation transaction", cause)),
+          ),
+        );
+    }),
+);

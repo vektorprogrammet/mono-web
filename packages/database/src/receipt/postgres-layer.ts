@@ -32,13 +32,13 @@ export const EconomyLive = Layer.effect(
 
     return Economy.of({
       executeReceipt: (input, principal, allocation) =>
-        executeReceiptCommand(input, principal, allocation).pipe(
+        executeReceiptCommand({ command: input, principal, allocation }).pipe(
           Effect.provideService(Database, database),
         ),
       authorizeReceiptMutation: (target, principal) =>
         authorizeReceiptMutation(target, principal).pipe(Effect.provideService(Database, database)),
       executeAuthorizedReceipt: (input, authorization, allocation) =>
-        executeAuthorizedReceiptCommand(input, authorization, allocation).pipe(
+        executeAuthorizedReceiptCommand({ command: input, authorization, allocation }).pipe(
           Effect.provideService(Database, database),
         ),
       readReceiptSettlementRevision: (receiptId, principal) =>
@@ -48,15 +48,15 @@ export const EconomyLive = Layer.effect(
       recordReceiptSettlement: (input, principal) =>
         recordReceiptSettlement(input, principal).pipe(Effect.provideService(Database, database)),
       listOwnedReceipts: (ownerPersonId, status, after) =>
-        listOwnedReceiptProjection(ownerPersonId, status, after).pipe(
+        listOwnedReceiptProjection({ ownerPersonId, status, after }).pipe(
           Effect.provideService(Database, database),
         ),
       listReceiptsForApproval: (personId, authorizationInstant, status, after) =>
-        listReceiptsForApprovalPostgres(personId, authorizationInstant, status, after).pipe(
+        listReceiptsForApprovalPostgres({ personId, authorizationInstant, status, after }).pipe(
           Effect.provideService(Database, database),
         ),
       listReceiptsForSettlement: (personId, authorizationInstant, after) =>
-        listReceiptsForSettlement(personId, authorizationInstant, after).pipe(
+        listReceiptsForSettlement({ personId, authorizationInstant, after }).pipe(
           Effect.provideService(Database, database),
         ),
       readReceiptFileForApproval: (receiptId, personId, authorizationInstant) =>
@@ -73,7 +73,7 @@ export const EconomyLive = Layer.effect(
         ),
       receiptStatusTotals: receiptStatusTotals.pipe(Effect.provideService(Database, database)),
       listStaleOutboxClaims: (claimedBefore, receiptId) =>
-        listStaleReceiptOutboxClaimIds(claimedBefore, receiptId).pipe(
+        listStaleReceiptOutboxClaimIds({ claimedBefore, receiptId }).pipe(
           Effect.provideService(Database, database),
         ),
       recoverStaleOutboxClaim: (claimId, claimedBefore) =>
@@ -81,7 +81,7 @@ export const EconomyLive = Layer.effect(
           Effect.provideService(Database, database),
         ),
       deliverNextOutboxEffect: (claimId, claimedAt, receiptId) =>
-        deliverNextReceiptOutbox(claimId, claimedAt, receiptId).pipe(
+        deliverNextReceiptOutbox({ claimId, claimedAt, receiptId }).pipe(
           Effect.provideService(Database, database),
         ),
     });

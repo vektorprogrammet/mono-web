@@ -3,6 +3,12 @@
   "compilerOptions": {
     "types": ["node", "bun"]
   },
-  "files": ["safe-file-io.ts"],
+  "files": [
+    "safe-file-io.ts",
+    "golden-reimbursement.ts",
+    "golden-school-service-evidence.test.ts",
+    "placement-check.ts",
+    "run-real-native-recruitment-assignment.ts"
+  ],
   "include": []
 }

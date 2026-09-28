@@ -1,9 +1,26 @@
-import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import * as BunRuntime from "@effect/platform-bun/BunRuntime";
+import * as BunServices from "@effect/platform-bun/BunServices";
 import { availableParallelism, homedir, hostname } from "node:os";
-import { dirname, join } from "node:path";
-import { Option, Schema } from "effect";
+import process from "node:process";
+import {
+  Clock,
+  Config,
+  Console,
+  Data,
+  DateTime,
+  Duration,
+  Effect,
+  Fiber,
+  FileSystem,
+  Option,
+  Path,
+  Schedule,
+  Schema,
+} from "effect";
+import { ChildProcess } from "effect/unstable/process";
+import { runCommand } from "./command.js";
 import { heavyLockVariable, takeHeavyLock } from "./heavy-lock.js";
+import { jobDisposition, runJob } from "./job-process.js";
 
 const usage = `Usage:
   just measure --class <job-class> [--ledger <path>] -- <command...>
@@ -20,11 +37,10 @@ Appends one JSON line per run to the machine-local ledger:
 The ledger is runtime evidence. Do not commit it.
 `;
 
-// A function declaration lets calls narrow control flow as `never`.
-function fail(message: string): never {
-  process.stderr.write(`measure-job: ${message}\n`);
-  process.exit(2);
-}
+/** A usage error or a failed step; the program prints it and exits 2. */
+class MeasureFailure extends Data.TaggedError("MeasureFailure")<{ readonly message: string }> {}
+
+const fail = (message: string) => Effect.fail(new MeasureFailure({ message }));
 
 const sampleIntervalMs = 500;
 
@@ -72,75 +88,6 @@ const encodeLine = Schema.encodeSync(LedgerLine);
 
 const decodeLine = Schema.decodeUnknownOption(LedgerLine);
 
-// Arguments
-
-const argv = process.argv.slice(2);
-
-const separator = argv.indexOf("--");
-
-const options = separator === -1 ? argv : argv.slice(0, separator);
-
-const command = separator === -1 ? [] : argv.slice(separator + 1);
-
-let jobClass: string | undefined;
-
-let ledgerPath = join(
-  process.env.XDG_STATE_HOME || join(homedir(), ".local", "state"),
-  "vektorprogrammet",
-  "job-ledger.jsonl",
-);
-
-let report = false;
-
-for (let index = 0; index < options.length; index += 1) {
-  const option = options[index];
-
-  if (option === "--help" || option === "-h") {
-    process.stdout.write(usage);
-    process.exit(0);
-  } else if (option === "--report") report = true;
-  else if (option === "--class") jobClass = options[++index] ?? fail("--class needs a value.");
-  else if (option === "--ledger") ledgerPath = options[++index] ?? fail("--ledger needs a value.");
-  else fail(`Unknown argument ${option}. Use --help.`);
-}
-
-if (!existsSync("/proc/self/stat")) fail("Linux /proc is required.");
-
-const getconf = (name: string): number => {
-  const value = Number(spawnSync("getconf", [name], { encoding: "utf8" }).stdout?.trim());
-
-  return Number.isInteger(value) && value > 0 ? value : fail(`getconf ${name} failed.`);
-};
-
-const clockTicks = getconf("CLK_TCK");
-
-const pageSize = getconf("PAGESIZE");
-
-const logicalCpus = availableParallelism();
-
-// System and process readings
-
-const readMeminfo = () => {
-  const fields = new Map<string, number>();
-
-  for (const line of readFileSync("/proc/meminfo", "latin1").split("\n")) {
-    const match = /^(\w+):\s+(\d+) kB$/.exec(line);
-
-    if (match?.[1] !== undefined && match[2] !== undefined)
-      fields.set(match[1], Number(match[2]) * 1024);
-  }
-
-  const field = (name: string) => fields.get(name) ?? fail(`/proc/meminfo has no ${name}.`);
-
-  return {
-    total: field("MemTotal"),
-    available: field("MemAvailable"),
-    swapUsed: field("SwapTotal") - field("SwapFree"),
-  };
-};
-
-const readLoad1 = () => Number(readFileSync("/proc/loadavg", "latin1").split(" ")[0]);
-
 type ProcessStat = {
   readonly parent: number;
   readonly start: string;
@@ -151,15 +98,7 @@ type ProcessStat = {
   readonly rssPages: number;
 };
 
-const readStat = (pid: number | "self"): ProcessStat | undefined => {
-  let text: string;
-
-  try {
-    text = readFileSync(`/proc/${pid}/stat`, "latin1");
-  } catch {
-    return undefined;
-  }
-
+const parseStat = (text: string): ProcessStat => {
   // Fields after the parenthesized command name start at field 3 (state).
   const fields = text.slice(text.lastIndexOf(")") + 2).split(" ");
   const field = (number: number) => Number(fields[number - 3]);
@@ -175,67 +114,6 @@ const readStat = (pid: number | "self"): ProcessStat | undefined => {
     rssPages: field(24),
   };
 };
-
-const readProcesses = () => {
-  const pids = readdirSync("/proc")
-    .map(Number)
-    .filter(Number.isInteger)
-    // Parents usually have lower pids. Reading them first means a child reaped
-    // during the scan is missed once rather than counted twice.
-    .sort((left, right) => left - right);
-
-  const processes = new Map<number, ProcessStat>();
-
-  for (const pid of pids) {
-    const stat = readStat(pid);
-
-    if (stat !== undefined) processes.set(pid, stat);
-  }
-
-  return processes;
-};
-
-// The tree is every descendant of this process. Known members stay tracked
-// after they are reparented, identified by pid and start time.
-let tracked = new Map<number, string>();
-
-const sampleTree = () => {
-  const processes = readProcesses();
-  const children = new Map<number, Array<number>>();
-
-  for (const [pid, stat] of processes) {
-    const siblings = children.get(stat.parent);
-
-    if (siblings === undefined) children.set(stat.parent, [pid]);
-    else siblings.push(pid);
-  }
-
-  const pending = [...(children.get(process.pid) ?? [])];
-
-  for (const [pid, start] of tracked) {
-    if (processes.get(pid)?.start === start) pending.push(pid);
-  }
-
-  const members = new Map<number, string>();
-  let rssBytes = 0;
-  let cpuTicks = 0;
-
-  for (let pid = pending.pop(); pid !== undefined; pid = pending.pop()) {
-    const stat = processes.get(pid);
-
-    if (stat === undefined || members.has(pid)) continue;
-    members.set(pid, stat.start);
-    rssBytes += stat.rssPages * pageSize;
-    cpuTicks += stat.cpuTicks;
-    pending.push(...(children.get(pid) ?? []));
-  }
-
-  tracked = members;
-
-  return { rssBytes, cpuTicks, processes: members.size };
-};
-
-const selfChildTicks = () => readStat("self")?.childTicks ?? fail("/proc/self/stat is unreadable.");
 
 // Report
 
@@ -256,236 +134,418 @@ const median = (values: ReadonlyArray<number>) => {
   return sorted.length % 2 === 1 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2;
 };
 
-const printReport = () => {
-  const rows: Array<LedgerRow> = [];
-  const invalid: Array<number> = [];
+const disposition = jobDisposition();
 
-  if (existsSync(ledgerPath)) {
-    readFileSync(ledgerPath, "utf8")
-      .split("\n")
-      .forEach((line, index) => {
-        if (line.trim() === "") return;
-        const row = decodeLine(line);
+const program = Effect.gen(function* () {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
 
-        if (Option.isSome(row)) rows.push(row.value);
-        else invalid.push(index + 1);
-      });
-  }
+  // Arguments
 
-  const memory = readMeminfo();
-  const load1 = readLoad1();
-  process.stdout.write(
-    `Ledger: ${ledgerPath}\n` +
-      `Now: MemAvailable ${gib(memory.available)} of ${gib(memory.total)}, swap used ${gib(memory.swapUsed)}, ` +
-      `load1 ${load1.toFixed(2)}, logical CPUs ${logicalCpus}\n\n`,
-  );
-  const classes = new Map<string, Array<LedgerRow>>();
+  const argv = process.argv.slice(2);
+  const separator = argv.indexOf("--");
+  const options = separator === -1 ? argv : argv.slice(0, separator);
+  const command = separator === -1 ? [] : argv.slice(separator + 1);
+  let jobClass: string | undefined;
 
-  for (const row of rows) {
-    const runs = classes.get(row.class);
+  // An empty XDG_STATE_HOME counts as unset.
+  const stateHome = yield* Config.withDefault(Config.String("XDG_STATE_HOME"), "");
 
-    if (runs === undefined) classes.set(row.class, [row]);
-    else runs.push(row);
-  }
-
-  const table = [
-    [
-      "class",
-      "runs",
-      "failed",
-      "median wall",
-      "max wall",
-      "max peak RSS",
-      "max peak cores",
-      "max mean cores",
-    ],
-  ];
-
-  for (const [name, runs] of [...classes].sort(([left], [right]) => left.localeCompare(right))) {
-    table.push([
-      name,
-      String(runs.length),
-      String(runs.filter((run) => run.exitCode !== 0).length),
-      duration(median(runs.map((run) => run.wallMs))),
-      duration(Math.max(...runs.map((run) => run.wallMs))),
-      gib(Math.max(...runs.map((run) => run.peakRssBytes))),
-      Math.max(...runs.map((run) => run.peakCores)).toFixed(1),
-      Math.max(...runs.map((run) => run.meanCores)).toFixed(1),
-    ]);
-  }
-
-  const widths = table[0]!.map((_, column) =>
-    Math.max(...table.map((cells) => cells[column]!.length)),
+  let ledgerPath = path.join(
+    stateHome === "" ? path.join(homedir(), ".local", "state") : stateHome,
+    "vektorprogrammet",
+    "job-ledger.jsonl",
   );
 
-  for (const cells of table) {
-    process.stdout.write(
-      `${cells.map((cell, column) => (column === 0 ? cell.padEnd(widths[column]!) : cell.padStart(widths[column]!))).join("  ")}\n`,
+  let report = false;
+
+  for (let index = 0; index < options.length; index += 1) {
+    const option = options[index];
+
+    if (option === "--help" || option === "-h") {
+      yield* Console.log(usage.trimEnd());
+
+      return 0;
+    } else if (option === "--report") report = true;
+    else if (option === "--class") {
+      index += 1;
+      jobClass = options[index] ?? (yield* fail("--class needs a value."));
+    } else if (option === "--ledger") {
+      index += 1;
+      ledgerPath = options[index] ?? (yield* fail("--ledger needs a value."));
+    } else return yield* fail(`Unknown argument ${option}. Use --help.`);
+  }
+
+  if (!(yield* Effect.orElseSucceed(fileSystem.exists("/proc/self/stat"), () => false)))
+    return yield* fail("Linux /proc is required.");
+
+  const getconf = Effect.fnUntraced(function* (name: string) {
+    const result = yield* Effect.option(runCommand(ChildProcess.make("getconf", [name])));
+    const value = Option.isSome(result) ? Number(result.value.stdout.trim()) : Number.NaN;
+
+    return Number.isInteger(value) && value > 0 ? value : yield* fail(`getconf ${name} failed.`);
+  });
+
+  const clockTicks = yield* getconf("CLK_TCK");
+  const pageSize = yield* getconf("PAGESIZE");
+  const logicalCpus = availableParallelism();
+
+  // System and process readings
+
+  const readProc = (file: string) => fileSystem.readFileString(file, "latin1");
+
+  const readMeminfo = Effect.gen(function* () {
+    const fields = new Map<string, number>();
+
+    for (const line of (yield* Effect.orDie(readProc("/proc/meminfo"))).split("\n")) {
+      const match = /^(\w+):\s+(\d+) kB$/.exec(line);
+
+      if (match?.[1] !== undefined && match[2] !== undefined)
+        fields.set(match[1], Number(match[2]) * 1024);
+    }
+
+    const field = (name: string) => {
+      const value = fields.get(name);
+
+      return value === undefined ? fail(`/proc/meminfo has no ${name}.`) : Effect.succeed(value);
+    };
+
+    return {
+      total: yield* field("MemTotal"),
+      available: yield* field("MemAvailable"),
+      swapUsed: (yield* field("SwapTotal")) - (yield* field("SwapFree")),
+    };
+  });
+
+  const readLoad1 = Effect.map(Effect.orDie(readProc("/proc/loadavg")), (text) =>
+    Number(text.split(" ")[0]),
+  );
+
+  const readStat = (pid: number | "self") =>
+    Effect.map(Effect.option(readProc(`/proc/${pid}/stat`)), Option.map(parseStat));
+
+  const readProcesses = Effect.gen(function* () {
+    const pids = (yield* Effect.orDie(fileSystem.readDirectory("/proc")))
+      .map(Number)
+      .filter(Number.isInteger)
+      // Parents usually have lower pids. Reading them first means a child reaped
+      // during the scan is missed once rather than counted twice.
+      .sort((left, right) => left - right);
+
+    const processes = new Map<number, ProcessStat>();
+
+    for (const pid of pids) {
+      const stat = yield* readStat(pid);
+
+      if (Option.isSome(stat)) processes.set(pid, stat.value);
+    }
+
+    return processes;
+  });
+
+  // The tree is every descendant of this process. Known members stay tracked
+  // after they are reparented, identified by pid and start time.
+  let tracked = new Map<number, string>();
+
+  const sampleTree = Effect.gen(function* () {
+    const processes = yield* readProcesses;
+    const children = new Map<number, Array<number>>();
+
+    for (const [pid, stat] of processes) {
+      const siblings = children.get(stat.parent);
+
+      if (siblings === undefined) children.set(stat.parent, [pid]);
+      else siblings.push(pid);
+    }
+
+    const pending = [...(children.get(process.pid) ?? [])];
+
+    for (const [pid, start] of tracked) {
+      if (processes.get(pid)?.start === start) pending.push(pid);
+    }
+
+    const members = new Map<number, string>();
+    let rssBytes = 0;
+    let cpuTicks = 0;
+
+    for (let pid = pending.pop(); pid !== undefined; pid = pending.pop()) {
+      const stat = processes.get(pid);
+
+      if (stat === undefined || members.has(pid)) continue;
+      members.set(pid, stat.start);
+      rssBytes += stat.rssPages * pageSize;
+      cpuTicks += stat.cpuTicks;
+      pending.push(...(children.get(pid) ?? []));
+    }
+
+    tracked = members;
+
+    return { rssBytes, cpuTicks, processes: members.size };
+  });
+
+  const selfChildTicks = Effect.flatMap(readStat("self"), (stat) =>
+    Option.isSome(stat) ? Effect.succeed(stat.value.childTicks) : fail("/proc/self/stat is unreadable."),
+  );
+
+  const printReport = Effect.gen(function* () {
+    const rows: Array<LedgerRow> = [];
+    const invalid: Array<number> = [];
+
+    if (yield* Effect.orElseSucceed(fileSystem.exists(ledgerPath), () => false)) {
+      (yield* Effect.orDie(fileSystem.readFileString(ledgerPath)))
+        .split("\n")
+        .forEach((line, index) => {
+          if (line.trim() === "") return;
+          const row = decodeLine(line);
+
+          if (Option.isSome(row)) rows.push(row.value);
+          else invalid.push(index + 1);
+        });
+    }
+
+    const memory = yield* readMeminfo;
+    const load1 = yield* readLoad1;
+
+    yield* Console.log(
+      `Ledger: ${ledgerPath}\n` +
+        `Now: MemAvailable ${gib(memory.available)} of ${gib(memory.total)}, swap used ${gib(memory.swapUsed)}, ` +
+        `load1 ${load1.toFixed(2)}, logical CPUs ${logicalCpus}\n`,
     );
+
+    const classes = new Map<string, Array<LedgerRow>>();
+
+    for (const row of rows) {
+      const runs = classes.get(row.class);
+
+      if (runs === undefined) classes.set(row.class, [row]);
+      else runs.push(row);
+    }
+
+    const table = [
+      [
+        "class",
+        "runs",
+        "failed",
+        "median wall",
+        "max wall",
+        "max peak RSS",
+        "max peak cores",
+        "max mean cores",
+      ],
+    ];
+
+    for (const [name, runs] of [...classes].sort(([left], [right]) => left.localeCompare(right))) {
+      table.push([
+        name,
+        String(runs.length),
+        String(runs.filter((run) => run.exitCode !== 0).length),
+        duration(median(runs.map((run) => run.wallMs))),
+        duration(Math.max(...runs.map((run) => run.wallMs))),
+        gib(Math.max(...runs.map((run) => run.peakRssBytes))),
+        Math.max(...runs.map((run) => run.peakCores)).toFixed(1),
+        Math.max(...runs.map((run) => run.meanCores)).toFixed(1),
+      ]);
+    }
+
+    const widths = table[0]!.map((_, column) =>
+      Math.max(...table.map((cells) => cells[column]!.length)),
+    );
+
+    for (const cells of table) {
+      yield* Console.log(
+        cells
+          .map((cell, column) =>
+            column === 0 ? cell.padEnd(widths[column]!) : cell.padStart(widths[column]!),
+          )
+          .join("  "),
+      );
+    }
+
+    if (rows.length === 0) yield* Console.log("(no measured runs)");
+
+    if (invalid.length > 0)
+      yield* Console.error(`measure-job: ignored invalid ledger lines ${invalid.join(", ")}`);
+  });
+
+  if (report) {
+    if (jobClass !== undefined || command.length > 0)
+      return yield* fail("--report takes no class or command.");
+
+    yield* printReport;
+
+    return 0;
   }
 
-  if (rows.length === 0) process.stdout.write("(no measured runs)\n");
+  if (jobClass === undefined) return yield* fail("Pass --class <job-class> or --report. Use --help.");
 
-  if (invalid.length > 0)
-    process.stderr.write(`measure-job: ignored invalid ledger lines ${invalid.join(", ")}\n`);
-};
+  if (!Schema.is(JobClass)(jobClass))
+    return yield* fail("The job class must be lowercase words joined by hyphens.");
 
-if (report) {
-  if (jobClass !== undefined || command.length > 0) fail("--report takes no class or command.");
-  printReport();
-  process.exit(0);
-}
+  const [jobProgram, ...programArguments] = command;
 
-if (jobClass === undefined) fail("Pass --class <job-class> or --report. Use --help.");
+  if (jobProgram === undefined) return yield* fail("Pass the command after --.");
 
-if (!Schema.is(JobClass)(jobClass))
-  fail("The job class must be lowercase words joined by hyphens.");
+  const measuredClass = jobClass;
 
-const [program, ...programArguments] = command;
-
-if (program === undefined) fail("Pass the command after --.");
-
-// The lock is taken before the readings, so the ledger measures the job, not the wait.
-let jobEnv: NodeJS.ProcessEnv;
-
-try {
-  jobEnv = takeHeavyLock("exclusive", jobClass, command, (message) =>
-    process.stderr.write(`measure-job: ${message}\n`),
+  // The lock is taken before the readings, so the ledger measures the job, not the wait.
+  const variables = yield* takeHeavyLock({
+    mode: "exclusive",
+    jobClass: measuredClass,
+    command,
+    log: (message) => Console.error(`measure-job: ${message}`),
+  }).pipe(
+    Effect.catchTag("HeavyLockFailure", ({ message }) => fail(`The heavy lock failed: ${message}`)),
   );
-} catch (error) {
-  fail(`The heavy lock failed: ${error instanceof Error ? error.message : String(error)}`);
-}
 
-// Measurement
+  // Measurement
 
-const git = (...gitArguments: Array<string>) => {
-  const result = spawnSync("git", gitArguments, { encoding: "utf8" });
+  const git = Effect.fnUntraced(function* (...gitArguments: Array<string>) {
+    const result = yield* Effect.option(runCommand(ChildProcess.make("git", gitArguments)));
 
-  return result.status === 0 ? result.stdout.trim() : null;
-};
+    return Option.isSome(result) && result.value.status === 0 ? result.value.stdout.trim() : null;
+  });
 
-const revision = git("rev-parse", "HEAD");
+  const revision = yield* git("rev-parse", "HEAD");
+  const status = yield* git("status", "--porcelain", "--untracked-files=normal");
+  const startMemory = yield* readMeminfo;
+  const load1Start = yield* readLoad1;
 
-const status = git("status", "--porcelain", "--untracked-files=normal");
+  // Reaped descendants add their CPU time to this process's child ticks.
+  const childTicksStart = yield* selfChildTicks;
+  const startedAt = yield* DateTime.now;
+  const nowMs = Effect.map(Clock.currentTimeNanos, (nanos) => Number(nanos) / 1e6);
+  const startedMs = yield* nowMs;
 
-const startMemory = readMeminfo();
+  const rssSamples: Array<number> = [];
+  let peakCores = 0;
+  let peakProcesses = 0;
+  let minMemAvailable = startMemory.available;
+  let peakSwapUsed = startMemory.swapUsed;
+  let load1Peak = load1Start;
+  let cumulativeTicks = 0;
+  let previousMs = startedMs;
 
-const load1Start = readLoad1();
+  const sample = Effect.fnUntraced(function* (running: boolean) {
+    const now = yield* nowMs;
+    const tree = yield* sampleTree;
+    const memory = yield* readMeminfo;
 
-// Reaped descendants add their CPU time to this process's child ticks.
-const childTicksStart = selfChildTicks();
+    // Cumulative tree CPU never decreases. A scan that misses a just-reaped
+    // process must not produce a false spike at the next sample.
+    const ticks = Math.max(
+      cumulativeTicks,
+      (yield* selfChildTicks) - childTicksStart + tree.cpuTicks,
+    );
 
-const startedAt = new Date();
+    const elapsedMs = now - previousMs;
 
-const startedMs = performance.now();
+    if (running || elapsedMs >= sampleIntervalMs / 2) {
+      peakCores = Math.max(peakCores, (ticks - cumulativeTicks) / clockTicks / (elapsedMs / 1000));
+    }
 
-const child = spawn(program, programArguments, { stdio: "inherit", env: jobEnv });
+    cumulativeTicks = ticks;
+    previousMs = now;
 
-const rssSamples: Array<number> = [];
+    if (running) {
+      rssSamples.push(tree.rssBytes);
+      peakProcesses = Math.max(peakProcesses, tree.processes);
+    }
 
-let peakCores = 0;
+    minMemAvailable = Math.min(minMemAvailable, memory.available);
+    peakSwapUsed = Math.max(peakSwapUsed, memory.swapUsed);
+    load1Peak = Math.max(load1Peak, yield* readLoad1);
 
-let peakProcesses = 0;
+    return { processes: tree.processes, swapUsed: memory.swapUsed };
+  });
 
-let minMemAvailable = startMemory.available;
+  // From the start of the job to the ledger row, a signal goes to the job and does not stop this
+  // program: the row records how the job ended.
+  return yield* Effect.uninterruptible(
+    Effect.gen(function* () {
+      const sampler = yield* Effect.forkChild(
+        Effect.interruptible(
+          Effect.schedule(sample(true), Schedule.fixed(Duration.millis(sampleIntervalMs))),
+        ),
+      );
 
-let peakSwapUsed = startMemory.swapUsed;
+      const jobExit = yield* runJob({
+        command: jobProgram,
+        arguments: programArguments,
+        variables,
+        forwardedSignals: ["SIGINT", "SIGTERM"],
+      }).pipe(
+        Effect.catchTag("JobStartFailure", ({ message }) =>
+          Effect.andThen(Fiber.interrupt(sampler), fail(`${jobProgram} could not start: ${message}`)),
+        ),
+      );
 
-let load1Peak = load1Start;
+      yield* Fiber.interrupt(sampler);
 
-let cumulativeTicks = 0;
+      const wallMs = (yield* nowMs) - startedMs;
+      const final = yield* sample(false);
+      const sortedRss = [...rssSamples].sort((left, right) => left - right);
 
-let previousMs = startedMs;
+      const row: LedgerRow = {
+        version: 1,
+        class: measuredClass,
+        command: [jobProgram, ...programArguments],
+        cwd: process.cwd(),
+        revision,
+        dirty: status === null ? null : status !== "",
+        host: hostname(),
+        startedAt: DateTime.formatIso(startedAt),
+        wallMs: Math.round(wallMs),
+        exitCode: jobExit.exitCode,
+        signal: jobExit.signal,
+        samples: rssSamples.length,
+        sampleIntervalMs,
+        logicalCpus,
+        memTotalBytes: startMemory.total,
+        peakRssBytes: sortedRss.at(-1) ?? 0,
+        p95RssBytes: sortedRss[Math.max(0, Math.ceil(sortedRss.length * 0.95) - 1)] ?? 0,
+        peakCores: Number(peakCores.toFixed(2)),
+        meanCores: Number(
+          (((yield* selfChildTicks) - childTicksStart) / clockTicks / (wallMs / 1000)).toFixed(2),
+        ),
+        peakProcesses,
+        survivingProcesses: final.processes,
+        memAvailableStartBytes: startMemory.available,
+        minMemAvailableBytes: minMemAvailable,
+        swapDeltaBytes: final.swapUsed - startMemory.swapUsed,
+        swapPeakIncreaseBytes: peakSwapUsed - startMemory.swapUsed,
+        load1Start,
+        load1Peak,
+      };
 
-const sample = (running: boolean) => {
-  const now = performance.now();
-  const tree = sampleTree();
-  const memory = readMeminfo();
-  // Cumulative tree CPU never decreases. A scan that misses a just-reaped
-  // process must not produce a false spike at the next sample.
-  const ticks = Math.max(cumulativeTicks, selfChildTicks() - childTicksStart + tree.cpuTicks);
-  const elapsedMs = now - previousMs;
+      yield* Effect.orDie(fileSystem.makeDirectory(path.dirname(ledgerPath), { recursive: true }));
+      yield* Effect.orDie(
+        fileSystem.writeFileString(ledgerPath, `${encodeLine(row)}\n`, { flag: "a" }),
+      );
 
-  if (running || elapsedMs >= sampleIntervalMs / 2) {
-    peakCores = Math.max(peakCores, (ticks - cumulativeTicks) / clockTicks / (elapsedMs / 1000));
-  }
+      yield* Console.error(
+        `measure-job: ${measuredClass} ${jobExit.signal ?? `exit ${jobExit.exitCode}`} in ${duration(wallMs)}, ` +
+          `peak RSS ${gib(row.peakRssBytes)}, peak cores ${row.peakCores}, mean cores ${row.meanCores}` +
+          `${row.survivingProcesses > 0 ? `, ${row.survivingProcesses} processes still running` : ""}`,
+      );
 
-  cumulativeTicks = ticks;
-  previousMs = now;
+      yield* disposition.record(jobExit);
 
-  if (running) {
-    rssSamples.push(tree.rssBytes);
-    peakProcesses = Math.max(peakProcesses, tree.processes);
-  }
-
-  minMemAvailable = Math.min(minMemAvailable, memory.available);
-  peakSwapUsed = Math.max(peakSwapUsed, memory.swapUsed);
-  load1Peak = Math.max(load1Peak, readLoad1());
-
-  return { processes: tree.processes, swapUsed: memory.swapUsed };
-};
-
-const timer = setInterval(() => sample(true), sampleIntervalMs);
-
-const signalHandlers = (["SIGINT", "SIGTERM"] as const).map(
-  (signal) => [signal, () => child.kill(signal)] as const,
+      return jobExit.exitCode ?? 1;
+    }),
+  );
+}).pipe(
+  Effect.catchTag("MeasureFailure", ({ message }) =>
+    Console.error(`measure-job: ${message}`).pipe(Effect.as(2)),
+  ),
 );
 
-for (const [signal, handler] of signalHandlers) process.on(signal, handler);
+/** The platform of the scripts, which their tests take too. */
+export const ScriptsPlatform = BunServices.layer;
 
-child.once("error", (error) => {
-  clearInterval(timer);
-  fail(`${program} could not start: ${error.message}`);
-});
+/** The services of `ScriptsPlatform`. */
+export type ScriptsPlatform = BunServices.BunServices;
 
-child.once("exit", (exitCode, signal) => {
-  clearInterval(timer);
-  const wallMs = performance.now() - startedMs;
-  const final = sample(false);
-  const sortedRss = [...rssSamples].sort((left, right) => left - right);
-
-  const row: LedgerRow = {
-    version: 1,
-    class: jobClass,
-    command: [program, ...programArguments],
-    cwd: process.cwd(),
-    revision,
-    dirty: status === null ? null : status !== "",
-    host: hostname(),
-    startedAt: startedAt.toISOString(),
-    wallMs: Math.round(wallMs),
-    exitCode,
-    signal,
-    samples: rssSamples.length,
-    sampleIntervalMs,
-    logicalCpus,
-    memTotalBytes: startMemory.total,
-    peakRssBytes: sortedRss.at(-1) ?? 0,
-    p95RssBytes: sortedRss[Math.max(0, Math.ceil(sortedRss.length * 0.95) - 1)] ?? 0,
-    peakCores: Number(peakCores.toFixed(2)),
-    meanCores: Number(
-      ((selfChildTicks() - childTicksStart) / clockTicks / (wallMs / 1000)).toFixed(2),
-    ),
-    peakProcesses,
-    survivingProcesses: final.processes,
-    memAvailableStartBytes: startMemory.available,
-    minMemAvailableBytes: minMemAvailable,
-    swapDeltaBytes: final.swapUsed - startMemory.swapUsed,
-    swapPeakIncreaseBytes: peakSwapUsed - startMemory.swapUsed,
-    load1Start,
-    load1Peak,
-  };
-
-  mkdirSync(dirname(ledgerPath), { recursive: true });
-  appendFileSync(ledgerPath, `${encodeLine(row)}\n`);
-  process.stderr.write(
-    `measure-job: ${jobClass} ${signal ?? `exit ${exitCode}`} in ${duration(wallMs)}, ` +
-      `peak RSS ${gib(row.peakRssBytes)}, peak cores ${row.peakCores}, mean cores ${row.meanCores}` +
-      `${row.survivingProcesses > 0 ? `, ${row.survivingProcesses} processes still running` : ""}\n`,
-  );
-
-  for (const [name, handler] of signalHandlers) process.off(name, handler);
-
-  if (signal !== null) process.kill(process.pid, signal);
-  else process.exit(exitCode ?? 1);
-});
+if (import.meta.main)
+  BunRuntime.runMain(program.pipe(Effect.scoped, Effect.provide(ScriptsPlatform)), {
+    teardown: disposition.teardown,
+  });

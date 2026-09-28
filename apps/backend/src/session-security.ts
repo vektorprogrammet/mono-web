@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { IdentityRequestContext } from "@vektorprogrammet/domain/identity";
 import { Data, Schema } from "effect";
 import { allowHeader } from "./http-semantics.js";
+import { dual } from "effect/Function";
 
 const Deployment = Schema.Literals(["local", "production"]);
 
@@ -113,7 +114,7 @@ const RequestCorrelationHeader = "x-vektorprogrammet-request-correlation";
 
 /** Creates bounded, non-secret request evidence for audit persistence. */
 export const identityRequestContext = (request: Request): IdentityRequestContext =>
-  new IdentityRequestContext({
+  IdentityRequestContext.make({
     requestCorrelation: safeCorrelation(request.headers.get(RequestCorrelationHeader)),
     sourceIp: safeSourceIp(request),
     userAgent: safeUserAgent(request.headers.get("user-agent")),
@@ -157,10 +158,10 @@ const isIdentityMutation = (request: Request): boolean => {
 };
 
 /** Decides origin authority before credentialed or identity-mutating dispatch. */
-export const decideTrustedOrigin = (
-  policy: NativeSessionBoundaryPolicy,
-  request: Request,
-): OriginDecision => {
+export const decideTrustedOrigin: {
+  (request: Request): (policy: NativeSessionBoundaryPolicy) => OriginDecision;
+  (policy: NativeSessionBoundaryPolicy, request: Request): OriginDecision;
+} = dual(2, (policy: NativeSessionBoundaryPolicy, request: Request): OriginDecision => {
   const origin = request.headers.get("origin");
 
   if (origin !== null) {
@@ -186,21 +187,14 @@ export const decideTrustedOrigin = (
   return sameOriginBrowserRequest
     ? OriginDecision.Allowed({ origin: null })
     : OriginDecision.Rejected();
-};
+});
 
 /**
  * Browser-controlled headers supported by the current native API contract.
  * Cookie and CORS-safelisted headers are intentionally absent because browsers
  * do not include them in Access-Control-Request-Headers.
  */
-export const NativeBrowserRequestHeaders = [
-  "Authorization",
-  "Content-Type",
-  "Idempotency-Key",
-  "If-Match",
-  "If-None-Match",
-  "X-Recruitment-Invitation-Capability",
-] as const;
+export const NativeBrowserRequestHeaders = ["Authorization", "Content-Type"] as const;
 
 const nativeBrowserRequestHeaderSet = new Set(
   NativeBrowserRequestHeaders.map((header) => header.toLowerCase()),
@@ -225,22 +219,25 @@ export const allowsNativePreflightHeaders = (request: Request): boolean => {
  * Emits preflight headers for the methods selected by authoritative route
  * metadata. The caller must not pass a process-wide method superset.
  */
-export const trustedPreflightResponse = (
-  origin: string,
-  allowedMethods: ReadonlyArray<string>,
-): Response =>
-  new Response(null, {
-    status: 204,
-    headers: {
-      "access-control-allow-credentials": "true",
-      "access-control-allow-headers": NativeBrowserRequestHeaders.join(", "),
-      "access-control-allow-methods": allowHeader(allowedMethods),
-      "access-control-allow-origin": origin,
-      "access-control-max-age": "600",
-      "cache-control": "no-store",
-      vary: "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
-    },
-  });
+export const trustedPreflightResponse: {
+  (allowedMethods: ReadonlyArray<string>): (origin: string) => Response;
+  (origin: string, allowedMethods: ReadonlyArray<string>): Response;
+} = dual(
+  2,
+  (origin: string, allowedMethods: ReadonlyArray<string>): Response =>
+    new Response(null, {
+      status: 204,
+      headers: {
+        "access-control-allow-credentials": "true",
+        "access-control-allow-headers": NativeBrowserRequestHeaders.join(", "),
+        "access-control-allow-methods": allowHeader(allowedMethods),
+        "access-control-allow-origin": origin,
+        "access-control-max-age": "600",
+        "cache-control": "no-store",
+        vary: "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+      },
+    }),
+);
 
 const mergeVary = (headers: Headers, values: ReadonlyArray<string>): void => {
   const seen = new Map<string, string>();
@@ -256,7 +253,10 @@ const mergeVary = (headers: Headers, values: ReadonlyArray<string>): void => {
 };
 
 /** Adds request-relative CORS while every external response varies by Origin. */
-export const withTrustedOriginCors = (response: Response, origin: string | null): Response => {
+export const withTrustedOriginCors: {
+  (origin: string | null): (response: Response) => Response;
+  (response: Response, origin: string | null): Response;
+} = dual(2, (response: Response, origin: string | null): Response => {
   const headers = new Headers(response.headers);
   mergeVary(headers, ["Origin"]);
 
@@ -271,4 +271,4 @@ export const withTrustedOriginCors = (response: Response, origin: string | null)
     statusText: response.statusText,
     headers,
   });
-};
+});

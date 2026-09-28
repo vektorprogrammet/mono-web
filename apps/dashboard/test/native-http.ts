@@ -1,4 +1,4 @@
-import { makeNativeProblem, type NativeProblemCode } from "@vektorprogrammet/http-api";
+import { makeNativeProblem, type NativeProblemCode } from "@vektorprogrammet/rpc";
 import { RouterContextProvider } from "react-router";
 
 export const sessionCookie = "better-auth.session_token=session-value";

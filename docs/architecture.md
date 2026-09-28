@@ -1,6 +1,6 @@
 # Intended architecture
 
-**Status:** Target architecture for the native replacement. Revised 2026-09-24.
+**Status:** Target architecture for the native replacement. Revised 2026-09-28.
 
 See [system.md](system.md) for business meaning and [STATE.md](../STATE.md) for
 current implementation status.
@@ -8,14 +8,14 @@ current implementation status.
 ## Product shape
 
 The target remains one modular backend, two browser applications, one PostgreSQL
-database, and one generated client contract.
+database, and one RPC contract that the backend serves and every client calls.
 
 ```text
 apps/homepage ---+
-                +--> packages/sdk --> packages/http-api
-apps/dashboard -+                          |
-                                           +--> portable domain contracts
-apps/backend --> domain services ----------+
+                +--> RpcClient --> packages/rpc
+apps/dashboard -+                     |
+                                      +--> portable domain contracts
+apps/backend --> domain services -----+
                     |
                     +--> PostgreSQL adapters --> packages/database --> PostgreSQL
 
@@ -44,9 +44,8 @@ system retires.
 | --------------------- | --------------------------------------------------------------------------------------------------------- |
 | `packages/domain`     | Business values, state transitions, failures, capability requirements, and service contracts              |
 | `packages/database`   | Shared PostgreSQL schema and runtime; persistence adapters and service Layers for each context            |
-| `packages/http-api`   | Public and internal HTTP groups, middleware declarations, schemas, and generated OpenAPI                  |
-| `packages/sdk`        | Generated consumer operations and boundary decoding                                                       |
-| `apps/backend`        | Native process composition, HTTP serving, delivery workers, and runtime configuration                     |
+| `packages/rpc`        | External and internal RPC groups, credential middlewares, AccessSpecs, problems, and the clients          |
+| `apps/backend`        | Native process composition, RPC handlers, the HTTP ingress, delivery workers, and runtime configuration   |
 | `apps/homepage`       | Anonymous and public journeys                                                                             |
 | `apps/dashboard`      | Authenticated applicant, volunteer, coordinator, leader, and administrator journeys                       |
 | `tools/verification`  | Cross-application PostgreSQL proofs, migration rehearsals, and their fixtures                             |
@@ -62,11 +61,10 @@ This diagram defines architectural ownership, not the exact installed dependency
 Package manifests define that inventory.
 
 ```text
-frontends               -> packages/sdk, portable contracts
-packages/http-api       -> packages/domain
-apps/backend            -> service contracts and concrete runtime Layers
+frontends               -> packages/rpc, portable contracts
+packages/rpc            -> packages/domain
+apps/backend            -> packages/rpc, service contracts, and concrete runtime Layers
 packages/database       -> packages/domain
-packages/sdk            -> generated HTTP contract
 packages/domain         -> Effect and portable domain dependencies
 ```
 
@@ -75,24 +73,25 @@ Required rules:
 - `packages/domain` must not import database, HTTP, application, browser, provider,
   or migration-tool code.
 - Product packages must not import from `tools`.
-- Frontends communicate through the generated SDK. They do not import backend or
+- Frontends call the backend through the RPC groups of `packages/rpc`. They do not import backend or
   database implementation.
 - A service exists for a dependency, authority, replaceable policy, or owned
   lifecycle. A total local calculation stays a direct function.
 - Concrete runtimes and vendors belong in Layer implementations and composition
   roots.
 - The production database entry provides PostgreSQL only; PGlite and its extensions enter through `packages/database/src/test-support/platform.ts`, not through the backend or database barrel.
-- Core Effect code, in `packages/domain`, `packages/database`, `packages/http-api`, and `apps/backend`,
+- Effect code, in `packages`, `apps/backend`, `apps/docs`, and `tools`,
   reaches the clock, randomness, timers, the network, the environment, Node built-ins, and the console through Effect services,
   and uses Effect programs, tagged errors, and Schema instead of Promises, native errors, and `JSON`.
-  Oxlint rejects the platform forms there (the `effectNative` rules of the Effect language service); the other apps, packages, and tools are not Effect programs.
+  Oxlint reports every Effect language-service rule there as an error (operator decision, 2026-09-28); a journey driver or tool is an Effect program whose composition root provides the Bun platform.
+  `apps/homepage` and `apps/dashboard` run only the recommended and correctness rules.
 - Do not add a microservice until an observed operational need requires an
   independent deployment boundary.
 - Oxlint rejects the selected browser-to-database, product-to-proof, and cross-package source imports, including relative paths.
 
 A context's service owns complete commands, locks included.
 Its database Layer takes the context lock and holds it across the fresh read, transport precondition, domain decision, and writes in the caller transaction.
-HTTP handlers resolve credentials, decode requests, enforce protocol preconditions, and store response receipts.
+RPC handlers resolve credentials, enforce preconditions, and store command receipts; the RPC server decodes payloads.
 They call the service within the command transaction instead of sequencing locks and mutations.
 Business facts, audit, history, outbox work, and response receipts commit together.
 
@@ -104,22 +103,21 @@ Package-local tests stay with their domain. Export maps expose supported entry p
 The same business contract crosses several interfaces. A route, schema, or table
 is not the business contract by itself. Each interface owns one kind of trust.
 
-| Caller to receiver                | Required contract                                                                                                                                                                                                                                                     | Hidden implementation                                           |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Human browser to native server    | The generated external HTTP contract defines requests, responses, errors, cache rules, revisions, and idempotency. Protected operations resolve the actor and current scope; public flows use explicit capabilities. Better Auth owns its separate credential routes. | Browser state, page structure, PHP routes, and database rows.   |
-| Service to native server          | A machine operation needs an explicit service identity, capability, resource scope, and credential policy. Denial and revocation must hold without a browser session. Internal ingress and network rules add isolation but do not grant business authority.           | Provider tokens, transport plumbing, and the receiving handler. |
-| Native server to domain service   | A command names the actor, intended transition, expected revision, and observable failure. Queries read owned facts under the same authority.                                                                                                                         | HTTP envelopes and persistence models.                          |
-| Domain service to PostgreSQL      | The repository preserves constraints, isolation, compare-and-set revisions, immutable evidence, audit, and outbox work in one transaction. Rejected or competing commands leave no partial business state.                                                            | SQL layout, table names, and index choices.                     |
-| Native server to provider         | An asynchronous outbox envelope identifies one committed effect. Delivery can retry without repeating the business decision. Private-file reads prove custody and scope.                                                                                              | Mail, storage, SMS, and deployment vendors.                     |
-| Migration source to native target | A selected read-only source snapshot, explicit mappings, row dispositions, immutable provenance, replay rules, and a fenced final delta establish native facts. Import never fabricates human decisions or sends historical notifications.                            | Legacy schema and transformation machinery.                     |
+| Caller to receiver                | Required contract                                                                                                                                                                                                                                           | Hidden implementation                                           |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Human browser to native server    | The external RPC contract defines payloads, successes, problems, revisions, and idempotency. Protected operations resolve the actor and current scope; public flows use explicit capabilities. Better Auth owns its separate credential routes.             | Browser state, page structure, PHP routes, and database rows.   |
+| Service to native server          | A machine operation needs an explicit service identity, capability, resource scope, and credential policy. Denial and revocation must hold without a browser session. Internal ingress and network rules add isolation but do not grant business authority. | Provider tokens, transport plumbing, and the receiving handler. |
+| Native server to domain service   | A command names the actor, intended transition, expected revision, and observable failure. Queries read owned facts under the same authority.                                                                                                               | RPC envelopes and persistence models.                           |
+| Domain service to PostgreSQL      | The repository preserves constraints, isolation, compare-and-set revisions, immutable evidence, audit, and outbox work in one transaction. Rejected or competing commands leave no partial business state.                                                  | SQL layout, table names, and index choices.                     |
+| Native server to provider         | An asynchronous outbox envelope identifies one committed effect. Delivery can retry without repeating the business decision. Private-file reads prove custody and scope.                                                                                    | Mail, storage, SMS, and deployment vendors.                     |
+| Migration source to native target | A selected read-only source snapshot, explicit mappings, row dispositions, immutable provenance, replay rules, and a fenced final delta establish native facts. Import never fabricates human decisions or sends historical notifications.                  | Legacy schema and transformation machinery.                     |
 
-The external HTTP root and generated SDK describe application operations, most
-of them human-facing. A machine operation is not authorized by its location.
-The internal HTTP root is separate from public OpenAPI. Its receipt-evidence route
-currently accepts a scoped Person cookie; an internal path is not automatically
-a service-principal API. OAuth introspection has its own isolated route. A
-machine-facing operation must prove the service credential and grant through the
-actual HTTP path, not only through a handler test.
+The external RPC endpoint serves application operations, most of them human-facing.
+A machine operation is not authorized by its location. The internal RPC endpoint is a
+separate ingress. Its receipt-evidence operation currently accepts a scoped Person
+cookie; an internal endpoint is not automatically a service-principal API. OAuth
+introspection has its own isolated route. A machine-facing operation must prove the
+service credential and grant through the actual ingress, not only through a handler test.
 
 ## Domain services
 
@@ -174,12 +172,11 @@ Adoption criteria and verification practices live in [AGENTS.md](../AGENTS.md#bo
 
 Use Effect Schema at every external or durable boundary:
 
-- HTTP request and response;
+- RPC payload, success, and problem;
 - environment and configuration;
 - database read and write;
 - provider payload;
 - private-file metadata;
-- generated SDK response;
 - runtime message or receipt.
 
 Decode once at entry. Keep the encoded and decoded forms explicit when they differ.
@@ -197,8 +194,9 @@ organization appointment, volunteer affiliation, placement, and authority are
 separate records.
 
 Authorization is relationship-based and time-aware. The domain owns capability
-requirements. The database adapter reads current facts. The HTTP middleware calls
-the interpreter before the handler executes.
+requirements. The database adapter reads current facts. The RPC credential middleware
+refuses a request without its credential, and the handler evaluates the RPC's AccessSpec
+with the interpreter inside the transaction that reads or commits.
 
 ```text
 session -> principal -> scoped facts -> capability interpreter -> allow or deny
@@ -303,15 +301,36 @@ and an attempt writes its outcome only while it holds the lease. Migration 0078 
 Private files require no-follow traversal, ownership checks, restricted permissions,
 and explicit lifecycle handling. A path string is not authority.
 
-## HTTP and generated client
+## RPC contract and ingress
 
-`packages/http-api/src/api.ts` composes the public and internal native APIs. The
-OpenAPI document and the SDK operation index are generated from that
-contract by the package `generate` tasks, which Turbo runs before type checks and builds.
+`packages/rpc/src/api.ts` composes the external (`NativeRpcs`, at `/api/rpc`) and internal
+(`InternalNativeRpcs`, at `/internal/rpc`) RPC groups of `effect/unstable/rpc`. Each RPC's tag is
+its operation ID, which command receipts store; its payload, success, and declared problems are
+Schemas; its credential middleware and AccessSpec travel with it. The backend implements each
+context's group with `toLayer`, and every client derives from the same group: `RpcClient` in Effect
+code, `callNative` in the dashboard server, `callHomepageNative` in the homepage server, and
+`nativeScriptClient` from `@vektorprogrammet/rpc/script` in journeys and probes. No client, route
+list, or operation index is generated or kept by hand.
 
-A generated artifact must name its source and generator. Generation must be
-repeatable. Git ignores generated artifacts; regenerate them instead of committing them.
-Do not hand-edit a generated client or maintain a separate route list in documentation.
+The HTTP ingress in `apps/backend/src/router.ts` stays HTTP: trusted origins, CORS, and the OAuth
+gatekeeping wrap the RPC endpoint, Better Auth serves `/api/auth/*`, and `GET /health` answers
+probes. The ingress reads an RPC body within `nativeRpcMaxBodyBytes`, refuses duplicate JSON
+members, keeps only the caller headers of an RPC message (a message header would otherwise
+override the HTTP header of the same name), and marks every answer
+`Cache-Control: private, no-store`. A problem is an RFC 9457 body in the RPC failure channel;
+`ProblemBoundary` reports a defect and answers `internal.error`.
+
+RPC does not carry these facts of the former HTTP contract:
+
+| Lost                                           | What a client does instead                                                   |
+| ---------------------------------------------- | ---------------------------------------------------------------------------- |
+| `If-None-Match`, 304, public `Cache-Control`   | Re-reads the whole resource; no shared cache stores an RPC answer            |
+| `ETag` and `Location` headers, 201, 204        | Reads an entity tag that a later RPC takes as `ifMatch` from a success field |
+| Per-operation body bounds                      | One ingress bound; each command still checks the sizes its domain bounds     |
+| Field `validation.failed` from schema decoding | Decodes with the contract schema before calling; the server answers a defect |
+| `WWW-Authenticate` challenges                  | Reads `credential.missing` or `credential.invalid`                           |
+| Multipart files                                | Sends bytes as a `Uint8Array` field, base64 on the JSON wire                 |
+| OpenAPI                                        | Third-party OAuth clients speak the Effect RPC wire protocol                 |
 
 ## Frontend state
 
@@ -322,7 +341,7 @@ offline, mutation, and error states.
 Rules:
 
 - Components render model state and send events.
-- Loaders and actions call the SDK.
+- Loaders and actions call the RPC client through `callNative`.
 - Server authorization is never replaced by a client role check.
 - A preview role override changes presentation only.
 - Polling, cancellation, stale-response rejection, and cleanup belong to the Model
@@ -373,12 +392,12 @@ For one permanent journey change:
 2. Define the actor, authority, owned facts, transaction, effects, recovery, and
    observable outcome.
 3. Change every required layer as one clean cutover.
-4. Generate OpenAPI and SDK artifacts from the HTTP contract.
-5. Exercise the real UI, HTTP, and PostgreSQL path.
+4. Change the RPC contract, its handlers, and its callers together.
+5. Exercise the real UI, RPC, and PostgreSQL path.
 6. Exercise denial and any relevant replay, retry, stale write, or rollback path.
 7. Remove disposable runtime assets and the completed contract.
 8. Update [system.md](system.md), [operational-responsibility-map.md](operational-responsibility-map.md),
    and [STATE.md](../STATE.md) only when their facts changed.
 
-A route, table, generated method, unit test, or static report is not proof of a
+An RPC, table, unit test, or static report is not proof of a
 complete journey.

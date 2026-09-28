@@ -6,36 +6,37 @@ Classifies the requests that journey recorders observe by whole path segments: n
 
 ## `isNativeRequest`
 
-Whether a dashboard-to-backend request stays on the native surface: an operation of the native HTTP contract or an email-password route of the identity engine.
+Whether a dashboard-to-backend request stays on the native surface: an operation of the native RPC contract or an email-password route of the identity engine.
 
 ```ts
-isNativeRequest(method: string, pathname: string): boolean
+isNativeRequest(method: string, pathname: string, body?: string): boolean
 ```
 
 - Inputs:
   - `method: string`
   - `pathname: string`
+  - `body?: string`
 - Output: `boolean`
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [apps/dashboard/e2e/native-operations.ts:93](../../apps/dashboard/e2e/native-operations.ts#L93)
+- Source: [apps/dashboard/e2e/native-operations.ts:172](../../apps/dashboard/e2e/native-operations.ts#L172)
 
 **How it works**
 
-The operations come from the OpenAPI document of `ExternalNativeApi`, each a method and a path
-template. A request is one of them when `method`, in upper case, is the operation's and
-`pathname` fills the template segment by segment: a parameter such as `{sessionId}` or
-`{receiptId}:approve` holds the rest of one whole segment, and the literal text around it must
-match, so a random value in a parameter never changes the answer. Beside the contract, only
-`POST /api/auth/sign-in/email`, `POST /api/auth/sign-up/email`, and
-`GET /api/auth/get-session` are native. Every other request, such as a legacy API call or a
-provider, recovery, or token route, leaves the surface.
+Every native operation is an RPC of `NativeRpcs`, which the client posts to the RPC endpoint
+(`POST /api/rpc`, with or without one trailing slash); `GET /health` is the one plain HTTP
+operation. When the recorder passes the request `body`, a request to the RPC endpoint is native
+only when the RPC request message in it names an RPC of `NativeRpcs`, so an unknown tag leaves
+the surface. Beside the contract, only `POST /api/auth/sign-in/email`,
+`POST /api/auth/sign-up/email`, and `GET /api/auth/get-session` are native. Every other request,
+such as a legacy API call or a provider, recovery, or token route, leaves the surface. The path
+is compared whole, so no opaque value in it can match by chance.
 
 **Use**
 
 ```ts
-proxy.records.filter(({ method, pathname }) => !isNativeRequest(method, pathname));
+proxy.records.filter(({ method, pathname, body }) => !isNativeRequest(method, pathname, body));
 ```
 
 **Avoid**

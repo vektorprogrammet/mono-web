@@ -5,6 +5,7 @@
  * data. Other textual files must be valid UTF-8. The rules are heuristics; reviewed exceptions
  * are exact paths or exact file digests, each with a recorded reason.
  */
+import { dual } from "effect/Function";
 import { createHash } from "node:crypto";
 
 export type SourceSafetyReason = "INVALID_UTF8" | "UNSAFE_SOURCE";
@@ -926,7 +927,10 @@ const isAllowedTestValue = (
 };
 
 /** Returns a sanitized failure for concrete sensitive values in dotenv assignments. */
-export const unsafeEnvSourceTextReason = (text: string, path = ""): "UNSAFE_SOURCE" | null => {
+export const unsafeEnvSourceTextReason: {
+  (path: string): (text: string) => "UNSAFE_SOURCE" | null;
+  (text: string, path: string): "UNSAFE_SOURCE" | null;
+} = dual(2, (text: string, path: string): "UNSAFE_SOURCE" | null => {
   for (const line of text.split(/\r?\n/u)) {
     const trimmed = line.trim();
 
@@ -950,7 +954,7 @@ export const unsafeEnvSourceTextReason = (text: string, path = ""): "UNSAFE_SOUR
   }
 
   return null;
-};
+});
 
 /** Returns a sanitized failure for literal data or sensitive values in SQL source. */
 export const unsafeSqlSourceTextReason = (text: string): "UNSAFE_SOURCE" | null => {
@@ -983,10 +987,10 @@ export const unsafeSqlSourceTextReason = (text: string): "UNSAFE_SOURCE" | null 
 };
 
 /** Validates the bytes of a textual source file. */
-export const sourceTextSafetyReason = (
-  path: string,
-  value: Uint8Array,
-): SourceSafetyReason | null => {
+export const sourceTextSafetyReason: {
+  (value: Uint8Array): (path: string) => SourceSafetyReason | null;
+  (path: string, value: Uint8Array): SourceSafetyReason | null;
+} = dual(2, (path: string, value: Uint8Array): SourceSafetyReason | null => {
   if (!isTextualSourcePath(path)) return null;
   let text: string;
 
@@ -1011,7 +1015,7 @@ export const sourceTextSafetyReason = (
     return "UNSAFE_SOURCE";
 
   return null;
-};
+});
 
 /** Reserved example and test domains are fixture addresses, not personal data. */
 const hasUnreservedEmail = (text: string): boolean =>

@@ -118,7 +118,7 @@ const trace = (target: string) =>
 
     assert.equal(delegated.clientSecret, undefined);
 
-    const requestContext = new IdentityRequestContext({
+    const requestContext = IdentityRequestContext.make({
       requestCorrelation: "oauth-0082-postgres-proof-request",
       sourceIp: "127.0.0.1",
       userAgent: "oauth-0082-postgres-proof",

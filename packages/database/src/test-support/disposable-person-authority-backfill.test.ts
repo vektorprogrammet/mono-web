@@ -286,12 +286,10 @@ layer(DatabaseTestLive(), { excludeTestServices: true })(
             expect(yield* encodeJson(first)).not.toContain(token);
           }
 
-          yield* Effect.gen(function* () {
-            const sql = yield* Database;
-            yield* sql`DELETE FROM public.economy_receipt_approval_grants`;
-            yield* sql`DELETE FROM public.economy_payment_authorities`;
-            yield* sql`DELETE FROM public.organization_global_administrator_grants`;
-          });
+          const sql = yield* Database;
+          yield* sql`DELETE FROM public.economy_receipt_approval_grants`;
+          yield* sql`DELETE FROM public.economy_payment_authorities`;
+          yield* sql`DELETE FROM public.organization_global_administrator_grants`;
 
           const second = yield* backfillDisposablePersonAuthoritiesFromPreConfigEvidence(
             preConfigEvidence(

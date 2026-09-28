@@ -11,29 +11,27 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })((it) => 
     "derives catalog validators from persisted revisions and admission boundaries",
     () =>
       Effect.gen(function* () {
-        const observed = yield* Effect.gen(function* () {
-          const sql = yield* Database;
-          yield* sql`INSERT INTO admission_period_departments (department_id, name, revision)
+        const sql = yield* Database;
+        yield* sql`INSERT INTO admission_period_departments (department_id, name, revision)
   VALUES ('department-1', 'Realfag', 13)`;
-          yield* sql`INSERT INTO admission_period_semesters (semester_id, start_at, end_at, revision)
+        yield* sql`INSERT INTO admission_period_semesters (semester_id, start_at, end_at, revision)
   VALUES ('semester-1', '2031-01-01T00:00:00.000Z', '2031-07-01T00:00:00.000Z', 11)`;
-          yield* sql`INSERT INTO admission_periods
+        yield* sql`INSERT INTO admission_periods
   (admission_period_id, department_id, semester_id, start_at, end_at, revision, last_command_id)
   VALUES ('period-1', 'department-1', 'semester-1', '2031-01-01T00:00:00.000Z', '2031-02-01T00:00:00.000Z', 7, 'seed')`;
-          yield* sql`INSERT INTO admission_period_fields_of_study (field_of_study_id, department_id, name, active, revision)
+        yield* sql`INSERT INTO admission_period_fields_of_study (field_of_study_id, department_id, name, active, revision)
   VALUES ('field-1', 'department-1', 'Matematikk', TRUE, 17)`;
-          const before = yield* listPublicApplicationCatalog({ now: "2031-01-15T12:00:00.000Z" });
+        const before = yield* listPublicApplicationCatalog({ now: "2031-01-15T12:00:00.000Z" });
 
-          const unchanged = yield* listPublicApplicationCatalog({
-            now: "2031-01-15T12:00:00.000Z",
-          });
-
-          yield* sql`UPDATE admission_period_fields_of_study SET revision = revision + 1 WHERE field_of_study_id = 'field-1'`;
-          const revised = yield* listPublicApplicationCatalog({ now: "2031-01-15T12:00:00.000Z" });
-          const closed = yield* listPublicApplicationCatalog({ now: "2031-02-01T00:00:00.000Z" });
-
-          return { before, unchanged, revised, closed };
+        const unchanged = yield* listPublicApplicationCatalog({
+          now: "2031-01-15T12:00:00.000Z",
         });
+
+        yield* sql`UPDATE admission_period_fields_of_study SET revision = revision + 1 WHERE field_of_study_id = 'field-1'`;
+        const revised = yield* listPublicApplicationCatalog({ now: "2031-01-15T12:00:00.000Z" });
+        const closed = yield* listPublicApplicationCatalog({ now: "2031-02-01T00:00:00.000Z" });
+
+        const observed = { before, unchanged, revised, closed };
 
         expect(observed.before.catalog).toEqual({
           departments: [

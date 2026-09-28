@@ -1,4 +1,5 @@
 import { Result, Schema } from "effect";
+import { dual } from "effect/Function";
 import { PersonId } from "../organization/schema.js";
 
 export const AccountAccess = Schema.Struct({
@@ -17,22 +18,35 @@ export class AccountAccessFailure extends Schema.TaggedError<AccountAccessFailur
 ) {}
 
 /** Enabled <-> Disabled. A repeated state needs replay, not a new transition. */
-export const transitionAccountAccess = (
-  current: AccountAccess,
-  input: { readonly disabled: boolean; readonly expectedRevision: number },
-  context: { readonly actorPersonId: PersonId; readonly anotherUsableAdministrator: boolean },
-): Result.Result<AccountAccess, AccountAccessFailure> => {
-  if (current.revision !== input.expectedRevision)
-    return Result.fail(new AccountAccessFailure({ code: "Stale" }));
+export const transitionAccountAccess: {
+  (
+    input: { readonly disabled: boolean; readonly expectedRevision: number },
+    context: { readonly actorPersonId: PersonId; readonly anotherUsableAdministrator: boolean },
+  ): (current: AccountAccess) => Result.Result<AccountAccess, AccountAccessFailure>;
+  (
+    current: AccountAccess,
+    input: { readonly disabled: boolean; readonly expectedRevision: number },
+    context: { readonly actorPersonId: PersonId; readonly anotherUsableAdministrator: boolean },
+  ): Result.Result<AccountAccess, AccountAccessFailure>;
+} = dual(
+  3,
+  (
+    current: AccountAccess,
+    input: { readonly disabled: boolean; readonly expectedRevision: number },
+    context: { readonly actorPersonId: PersonId; readonly anotherUsableAdministrator: boolean },
+  ): Result.Result<AccountAccess, AccountAccessFailure> => {
+    if (current.revision !== input.expectedRevision)
+      return Result.fail(AccountAccessFailure.make({ code: "Stale" }));
 
-  if (input.disabled && current.personId === context.actorPersonId)
-    return Result.fail(new AccountAccessFailure({ code: "SelfDisable" }));
+    if (input.disabled && current.personId === context.actorPersonId)
+      return Result.fail(AccountAccessFailure.make({ code: "SelfDisable" }));
 
-  if (input.disabled && !context.anotherUsableAdministrator)
-    return Result.fail(new AccountAccessFailure({ code: "LastAdministrator" }));
+    if (input.disabled && !context.anotherUsableAdministrator)
+      return Result.fail(AccountAccessFailure.make({ code: "LastAdministrator" }));
 
-  if (input.disabled === current.disabled)
-    return Result.fail(new AccountAccessFailure({ code: "Invalid" }));
+    if (input.disabled === current.disabled)
+      return Result.fail(AccountAccessFailure.make({ code: "Invalid" }));
 
-  return Result.succeed({ ...current, disabled: input.disabled, revision: current.revision + 1 });
-};
+    return Result.succeed({ ...current, disabled: input.disabled, revision: current.revision + 1 });
+  },
+);

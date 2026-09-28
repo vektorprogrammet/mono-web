@@ -1,8 +1,14 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Page, type Locator, type BrowserContext } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
-import { Predicate } from "effect";
+import { auditSettledPage } from "./settled-axe.js";
+import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
+import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
+import { PlacementScope } from "@vektorprogrammet/domain/placements";
+import { RecruitmentInterviewId } from "@vektorprogrammet/domain/recruitment";
+import { IdempotencyKey, StrongETag } from "@vektorprogrammet/rpc/problem";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
+import { Predicate, Schema } from "effect";
 
 const manifestPath = process.env.PLACEMENT_JOURNEY_MANIFEST;
 
@@ -238,33 +244,47 @@ test("continuous recruitment to first placement", async ({ browser }) => {
     // Claim URLs are bearer capabilities. Do not give the other applicant this capability.
     // Their own session cannot read the staff assessment or issue an invitation.
 
-    const privateRead = await other.request.get(
-      m.backendOrigin + "/api/recruitment/interviews/" + interviewId,
+    const native = nativeScriptClient(m.backendOrigin);
+
+    const sessionOf = async (page: Page) => ({
+      cookie: (await page.context().cookies(m.backendOrigin))
+        .map(({ name, value }) => `${name}=${value}`)
+        .join("; "),
+      origin: m.dashboardOrigin,
+    });
+
+    const privateRead = await native.call(await sessionOf(other), (client) =>
+      client["recruitment.readInterviewConduct"]({
+        interviewId: RecruitmentInterviewId.make(interviewId),
+      }),
     );
 
-    expect([403, 404]).toContain(privateRead.status());
-    expect(await privateRead.text()).not.toMatch(/Jeg vil hjelpe|explanatoryPower|ada@example/);
+    expect([403, 404]).toContain(privateRead.status);
+    expect(JSON.stringify(privateRead)).not.toMatch(/Jeg vil hjelpe|explanatoryPower|ada@example/);
 
-    const leaderBoard = await staff.request.get(
-      m.backendOrigin + "/api/onboarding?departmentId=" + m.departmentId,
+    const leaderBoard = await native.call(await sessionOf(staff), (client) =>
+      client["onboarding.readBoard"]({ departmentId: DepartmentId.make(m.departmentId) }),
     );
 
-    expect(leaderBoard.status()).toBe(200);
+    expect(leaderBoard.status).toBe(200);
 
-    const denied = await other.request.post(
-      m.backendOrigin + "/api/onboarding?departmentId=" + m.departmentId,
-      {
-        headers: {
-          origin: m.dashboardOrigin,
-          "if-match": (await leaderBoard.json()).etag,
-          "idempotency-key": "other-applicant-denied",
+    if (!leaderBoard.ok) throw new Error(`leader onboarding board: ${leaderBoard.code}`);
+
+    const denied = await native.call(await sessionOf(other), (client) =>
+      client["onboarding.command"]({
+        departmentId: DepartmentId.make(m.departmentId),
+        idempotencyKey: IdempotencyKey.make("other-applicant-denied"),
+        ifMatch: leaderBoard.value.etag,
+        request: {
+          applicationId: PublicApplicationIdSchema.make(mainApplication.application_id),
+          action: "Issue",
         },
-        data: { applicationId: mainApplication.application_id, action: "Issue" },
-      },
+      }),
     );
 
-    expect(denied.status()).toBe(403);
-    expect((await denied.json()).code).toBe("authority.denied");
+    await native.dispose();
+    expect(denied.status).toBe(403);
+    expect(denied.ok ? "success" : denied.code).toBe("authority.denied");
     await checkpoint("other-applicant-denied");
 
     await applicant.goto(mainClaim);
@@ -308,22 +328,33 @@ test("continuous recruitment to first placement", async ({ browser }) => {
 
     await signIn(wrong, m.persons.wrongDepartment, "/dashboard");
 
-    const wrongResult = await wrong.request.post(
-      m.backendOrigin +
-        "/api/placements?" +
-        new URLSearchParams({ departmentId: m.departmentId, semesterId: m.semesterId }),
-      {
-        headers: {
-          origin: m.dashboardOrigin,
-          "if-match": fields.etag,
-          "idempotency-key": crypto.randomUUID(),
-        },
-        data: { action: "Affiliation", personId: fields.personId, transition: "Establish" },
-      },
+    // The out-of-scope board command goes to the placement RPC that replaced its HTTP route.
+    const placementClient = nativeScriptClient(m.backendOrigin);
+
+    const wrongCookie = (await wrong.context().cookies(m.dashboardOrigin))
+      .map(({ name, value }) => `${name}=${value}`)
+      .join("; ");
+
+    const wrongResult = await placementClient.call(
+      { cookie: wrongCookie, origin: m.dashboardOrigin },
+      (client) =>
+        client["placements.commandBoard"]({
+          ...Schema.decodeSync(PlacementScope)({
+            departmentId: m.departmentId,
+            semesterId: m.semesterId,
+          }),
+          idempotencyKey: IdempotencyKey.make(crypto.randomUUID()),
+          ifMatch: StrongETag.make(fields.etag ?? ""),
+          request: {
+            action: "Affiliation",
+            personId: PersonId.make(fields.personId ?? ""),
+            transition: "Establish",
+          },
+        }),
     );
 
-    expect(wrongResult.status()).toBe(403);
-    expect((await wrongResult.json()).code).toBe("authority.denied");
+    await placementClient.dispose();
+    expect(wrongResult).toMatchObject({ ok: false, status: 403, code: "authority.denied" });
     await checkpoint("wrong-scope-denied");
     await card(staff, "Ada Rekrutt").getByRole("button", { name: "Godkjenn tilknytning" }).click();
     await saved(card(staff, "Ada Rekrutt").locator("form"));
@@ -358,7 +389,7 @@ test("continuous recruitment to first placement", async ({ browser }) => {
     await other.goto(m.dashboardOrigin + placements);
     await expect(other.locator("[data-own-placement-id]")).toHaveCount(0);
     expect(await other.locator("body").innerText()).not.toContain("Ada Rekrutt");
-    expect((await new AxeBuilder({ page: volunteer }).analyze()).violations).toEqual([]);
+    expect(await auditSettledPage(volunteer)).toEqual([]);
     await volunteer.screenshot({
       path: join(m.artifacts, "recruitment-first-placement.png"),
       fullPage: true,

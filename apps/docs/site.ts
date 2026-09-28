@@ -1,6 +1,8 @@
 // The documentation site renders repository Markdown in place. This manifest names the
 // published sources; `scripts/sync-pages.ts` mirrors them into the ignored `src/pages`.
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0011: Vocs evaluates this manifest synchronously, and Effect FileSystem has no synchronous backend
 import { readdirSync, readFileSync } from "node:fs";
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0011: Vocs evaluates this manifest synchronously, and Effect Path is a service of the same platform layer
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -72,9 +74,10 @@ export function route(source: string) {
 
 /** The source's first-level heading. */
 export function title(source: string) {
-  const heading = /^# (.+)$/m.exec(readFileSync(resolve(repositoryRoot, source), "utf8"));
+  const heading = /^# (.+)$/m.exec(readFileSync(resolve(repositoryRoot, source), "utf8"))?.[1];
 
-  if (!heading?.[1]) throw new Error(`${source} has no first-level heading.`);
+  if (heading === undefined || heading === "")
+    throw new Error(`${source} has no first-level heading.`);
 
-  return heading[1].trim();
+  return heading.trim();
 }

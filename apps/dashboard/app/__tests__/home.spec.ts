@@ -1,4 +1,4 @@
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "../../e2e/settled-axe.js";
 import { expect, test } from "@playwright/test";
 
 test.describe("Dashboard home page", () => {
@@ -7,9 +7,9 @@ test.describe("Dashboard home page", () => {
   }) => {
     await page.goto("/dashboard");
 
-    const accessibilityScanResults = await new AxeBuilder({ page }).analyze();
+    const accessibilityScanResults = await auditSettledPage(page);
 
-    expect(accessibilityScanResults.violations).toEqual([]);
+    expect(accessibilityScanResults).toEqual([]);
   });
 
   test("has title", async ({ page }) => {

@@ -16,8 +16,8 @@ const config = {
   view,
 };
 
-import { DepartmentId } from "@vektorprogrammet/http-api";
-import { SchoolId, type SchoolDirectory } from "@vektorprogrammet/http-api";
+import { DepartmentId, SchoolId } from "@vektorprogrammet/domain";
+import type { SchoolDirectory } from "@vektorprogrammet/rpc";
 import { describe, expect, it } from "vitest";
 import { SchoolDirectoryData, init, type Model, SchoolDirectoryFailure } from "./model";
 import { view } from "./view";

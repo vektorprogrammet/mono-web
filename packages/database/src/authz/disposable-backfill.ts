@@ -176,20 +176,13 @@ const normalizedEndAt = (endAt: string | null): string | null =>
 const authoredSubjectKey = (subject: DisposableAuthzRuleSubjectAuthoring): string =>
   Predicate.isTagged(subject, "Person") ? `Person:${subject.personId}` : `Tag:${subject.tagName}`;
 
-const canonicalSubjectKey = (subject: AuthzRuleSubject): string => {
-  return Match.value(subject).pipe(
-    Match.tag("Person", (subject) => {
-      return `Person:${subject.personId}`;
-    }),
-    Match.tag("Tag", (subject) => {
-      return `Tag:${subject.tagId}`;
-    }),
-    Match.tag("ServicePrincipal", (subject) => {
-      return `ServicePrincipal:${subject.servicePrincipalId}`;
-    }),
+const canonicalSubjectKey = (subject: AuthzRuleSubject): string =>
+  Match.value(subject).pipe(
+    Match.tag("Person", (subject) => `Person:${subject.personId}`),
+    Match.tag("Tag", (subject) => `Tag:${subject.tagId}`),
+    Match.tag("ServicePrincipal", (subject) => `ServicePrincipal:${subject.servicePrincipalId}`),
     Match.exhaustive,
   );
-};
 
 const duplicate = (entity: DisposableAuthzBackfillDuplicate["entity"], identity: string) =>
   new DisposableAuthzBackfillDuplicate({ entity, identity });

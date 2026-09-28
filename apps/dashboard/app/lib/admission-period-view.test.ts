@@ -3,7 +3,7 @@ import {
   AdmissionPeriodManagementItem,
   Problem,
   StrongETag,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {

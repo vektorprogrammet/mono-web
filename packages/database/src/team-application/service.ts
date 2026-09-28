@@ -54,10 +54,12 @@ export const TeamApplicationsLive = (delivery: Partial<TeamApplicationDeliveryOp
           readTeamApplication(principal, applicationId).pipe(
             Effect.provideService(Database, database),
           ),
-        deleteApplication: (command, principal) =>
-          deleteTeamApplication(command, principal).pipe(Effect.provideService(Database, database)),
-        reviseIntake: (command, principal, checkPrecondition) =>
-          reviseTeamApplicationIntake(command, principal, checkPrecondition).pipe(
+        deleteApplication: (authorization, command) =>
+          deleteTeamApplication(authorization, command).pipe(
+            Effect.provideService(Database, database),
+          ),
+        reviseIntake: (authorization, command, checkPrecondition) =>
+          reviseTeamApplicationIntake(authorization, command, checkPrecondition).pipe(
             Effect.provideService(Database, database),
           ),
         deliverNextOutboxEffect: (sender, idle) =>

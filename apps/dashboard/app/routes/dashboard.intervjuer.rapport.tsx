@@ -1,10 +1,9 @@
 import { Predicate } from "effect";
 import { Schema } from "effect";
 import { Form, Link, data, useLoaderData, useNavigation } from "react-router";
-import { InterviewReport,
-InterviewReportQuery,
-interviewScoreTotal, } from "@vektorprogrammet/http-api"
-import { createAuthenticatedClient } from "../lib/api.server";
+import { interviewScoreTotal } from "@vektorprogrammet/domain/recruitment";
+import { InterviewReport, InterviewReportQuery } from "@vektorprogrammet/rpc";
+import { callNative } from "../lib/api.server";
 import { requireAuth, expiredSessionRedirect } from "../lib/auth.server";
 import { recruitmentFailureFromSdk } from "../foldkit/recruitment/bridge";
 import { Button } from "../components/ui/button";
@@ -28,13 +27,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   try {
-    const result = await createAuthenticatedClient(cookie, request).recruitment.readInterviewReport(
-      { query },
+    const report = await callNative(cookie, request, (client) =>
+      client["recruitment.readInterviewReport"](query),
     );
-
-    const report = Schema.decodeSync(InterviewReport)(result.body, {
-      onExcessProperty: "error",
-    });
 
     return data({ report, failed: false as const, query }, { headers: responseHeaders });
   } catch (error) {

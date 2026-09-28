@@ -1,6 +1,6 @@
 import { Input, Select, Textarea } from "@foldkit/ui";
 import { Option, Predicate, Schema } from "effect";
-import { RecruitmentInterviewQuestionKindSchema } from "@vektorprogrammet/http-api";
+import { RecruitmentInterviewQuestionKindSchema } from "@vektorprogrammet/rpc";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Model } from "./model";
 import {

@@ -1,4 +1,10 @@
-import { spawnSync } from "node:child_process";
+import * as BunRuntime from "@effect/platform-bun/BunRuntime";
+import * as BunServices from "@effect/platform-bun/BunServices";
+import process from "node:process";
+import { Console, Data, Effect } from "effect";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { runCommand } from "./command.js";
+import { exitWithReturnedCode } from "./exit-code.js";
 
 const usage = `Usage:
   just land <branch>
@@ -15,118 +21,158 @@ Then it removes the branch's worktree, deletes the branch, and prints the landed
 commit. It does not push.
 `;
 
-// A function declaration lets calls narrow control flow as `never`.
-function fail(message: string): never {
-  process.stderr.write(`land: ${message}\n`);
-  process.exit(1);
-}
 
-const git = (...gitArguments: Array<string>) => spawnSync("git", gitArguments, { encoding: "utf8" });
+/** A refusal or a failed step; the program prints it and exits 1. */
+class LandFailure extends Data.TaggedError("LandFailure")<{ readonly message: string }> {}
 
-const read = (...gitArguments: Array<string>) => {
-  const result = git(...gitArguments);
+const fail = (message: string) => Effect.fail(new LandFailure({ message }));
 
-  return result.status === 0
-    ? result.stdout.trim()
-    : fail(`git ${gitArguments.join(" ")} failed: ${result.stderr.trim()}`);
-};
+const git = (...gitArguments: Array<string>) =>
+  runCommand(ChildProcess.make("git", gitArguments, { stdin: "ignore" }));
 
-const isAncestor = (ancestor: string, descendant: string) => {
-  const { status } = git("merge-base", "--is-ancestor", ancestor, descendant);
-
-  if (status !== 0 && status !== 1) fail(`git merge-base --is-ancestor exited with ${status}.`);
-
-  return status === 0;
-};
-
-const options = process.argv.slice(2);
-
-if (options.includes("--help") || options.includes("-h")) {
-  process.stdout.write(usage);
-  process.exit(0);
-}
-
-const [branch] = options;
-
-if (branch === undefined || options.length !== 1) fail("Pass one branch. Use --help.");
-
-if (branch === "main") fail("main cannot land on itself.");
-
-const current = git("symbolic-ref", "--quiet", "--short", "HEAD").stdout.trim();
-
-if (current !== "main")
-  fail(`Run just land in the main checkout. This checkout has ${current || "a detached HEAD"}.`);
-
-if (git("rev-parse", "--verify", "--quiet", `refs/heads/${branch}`).status !== 0)
-  fail(`${branch} is not a local branch.`);
-
-const mainChanges = read("status", "--porcelain");
-
-if (mainChanges !== "") fail(`main has changes. Commit or remove them first:\n${mainChanges}`);
-
-// `git worktree list --porcelain` separates worktrees by a blank line.
-const worktree = read("worktree", "list", "--porcelain")
-  .split("\n\n")
-  .map((entry) => entry.split("\n"))
-  .find((lines) => lines.includes(`branch refs/heads/${branch}`))
-  ?.find((line) => line.startsWith("worktree "))
-  ?.slice("worktree ".length);
-
-if (worktree !== undefined) {
-  const changes = read("-C", worktree, "status", "--porcelain");
-
-  if (changes !== "")
-    fail(`The worktree ${worktree} of ${branch} has changes. Commit or remove them first:\n${changes}`);
-}
-
-if (git("merge-base", "main", branch).status !== 0) fail(`${branch} shares no history with main.`);
-
-const tip = read("rev-parse", branch);
-
-// A branch that contains the unlanded commits of another branch would land them as well.
-const bases = read("for-each-ref", "--format=%(refname:short)", "refs/heads")
-  .split("\n")
-  .filter((other) => other !== "" && other !== branch && other !== "main")
-  .filter((other) => {
-    const otherTip = read("rev-parse", other);
-
-    return otherTip !== tip && isAncestor(otherTip, tip) && !isAncestor(otherTip, "main");
-  });
-
-if (bases.length > 0)
-  fail(
-    `${branch} is based on ${bases.join(", ")}, which main does not contain. ` +
-      `Land ${bases.length === 1 ? "it" : "them"} first, or rebase ${branch} onto main.`,
+const read = (...gitArguments: Array<string>) =>
+  Effect.flatMap(git(...gitArguments), (result) =>
+    result.status === 0
+      ? Effect.succeed(result.stdout.trim())
+      : fail(`git ${gitArguments.join(" ")} failed: ${result.stderr.trim()}`),
   );
 
-const before = read("rev-parse", "--short", "main");
+const isAncestor = (ancestor: string, descendant: string) =>
+  Effect.flatMap(git("merge-base", "--is-ancestor", ancestor, descendant), ({ status }) =>
+    status === 0 || status === 1
+      ? Effect.succeed(status === 0)
+      : fail(`git merge-base --is-ancestor exited with ${status}.`),
+  );
 
-let how: string;
+const land = Effect.gen(function* () {
+  const options = process.argv.slice(2);
 
-if (isAncestor(tip, "main")) how = "main already contained it";
-else {
-  if (spawnSync("git", ["merge", "--no-ff", "--no-edit", branch], { stdio: "inherit" }).status !== 0) {
-    if (git("rev-parse", "--verify", "--quiet", "MERGE_HEAD").status === 0) read("merge", "--abort");
+  if (options.includes("--help") || options.includes("-h")) {
+    yield* Console.log(usage.trimEnd());
 
-    fail(`The merge of ${branch} stopped and was aborted. main is unchanged at ${before}.`);
+    return 0;
   }
 
-  how = "merge commit";
-}
+  const [branch] = options;
 
-const landed = read("log", "-1", "--format=%h %s", "main");
+  if (branch === undefined || options.length !== 1) return yield* fail("Pass one branch. Use --help.");
 
-process.stdout.write(`land: main is at ${landed} (${how}; it was at ${before}).\n`);
+  if (branch === "main") return yield* fail("main cannot land on itself.");
 
-if (worktree !== undefined) {
-  const removal = git("worktree", "remove", worktree);
+  const current = (yield* git("symbolic-ref", "--quiet", "--short", "HEAD")).stdout.trim();
 
-  if (removal.status !== 0)
-    fail(`${branch} landed, but its worktree ${worktree} was not removed: ${removal.stderr.trim()}`);
+  if (current !== "main")
+    return yield* fail(
+      `Run just land in the main checkout. This checkout has ${current === "" ? "a detached HEAD" : current}.`,
+    );
 
-  process.stdout.write(`land: removed the worktree ${worktree}.\n`);
-}
+  if ((yield* git("rev-parse", "--verify", "--quiet", `refs/heads/${branch}`)).status !== 0)
+    return yield* fail(`${branch} is not a local branch.`);
 
-read("branch", "--delete", branch);
+  const mainChanges = yield* read("status", "--porcelain");
 
-process.stdout.write(`land: deleted ${branch}. Nothing was pushed.\n`);
+  if (mainChanges !== "")
+    return yield* fail(`main has changes. Commit or remove them first:\n${mainChanges}`);
+
+  // `git worktree list --porcelain` separates worktrees by a blank line.
+  const worktree = (yield* read("worktree", "list", "--porcelain"))
+    .split("\n\n")
+    .map((entry) => entry.split("\n"))
+    .find((lines) => lines.includes(`branch refs/heads/${branch}`))
+    ?.find((line) => line.startsWith("worktree "))
+    ?.slice("worktree ".length);
+
+  if (worktree !== undefined) {
+    const changes = yield* read("-C", worktree, "status", "--porcelain");
+
+    if (changes !== "")
+      return yield* fail(
+        `The worktree ${worktree} of ${branch} has changes. Commit or remove them first:\n${changes}`,
+      );
+  }
+
+  if ((yield* git("merge-base", "main", branch)).status !== 0)
+    return yield* fail(`${branch} shares no history with main.`);
+
+  const tip = yield* read("rev-parse", branch);
+
+  // A branch that contains the unlanded commits of another branch would land them as well.
+  const others = (yield* read("for-each-ref", "--format=%(refname:short)", "refs/heads"))
+    .split("\n")
+    .filter((other) => other !== "" && other !== branch && other !== "main");
+
+  const bases = yield* Effect.filter(others, (other) =>
+    Effect.gen(function* () {
+      const otherTip = yield* read("rev-parse", other);
+
+      return (
+        otherTip !== tip &&
+        (yield* isAncestor(otherTip, tip)) &&
+        !(yield* isAncestor(otherTip, "main"))
+      );
+    }),
+  );
+
+  if (bases.length > 0)
+    return yield* fail(
+      `${branch} is based on ${bases.join(", ")}, which main does not contain. ` +
+        `Land ${bases.length === 1 ? "it" : "them"} first, or rebase ${branch} onto main.`,
+    );
+
+  const before = yield* read("rev-parse", "--short", "main");
+
+  let how: string;
+
+  if (yield* isAncestor(tip, "main")) how = "main already contained it";
+  else {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+
+    const merged = yield* spawner.exitCode(
+      ChildProcess.make("git", ["merge", "--no-ff", "--no-edit", branch], {
+        stdin: "inherit",
+        stdout: "inherit",
+        stderr: "inherit",
+      }),
+    );
+
+    if (merged !== 0) {
+      if ((yield* git("rev-parse", "--verify", "--quiet", "MERGE_HEAD")).status === 0)
+        yield* read("merge", "--abort");
+
+      return yield* fail(
+        `The merge of ${branch} stopped and was aborted. main is unchanged at ${before}.`,
+      );
+    }
+
+    how = "merge commit";
+  }
+
+  const landed = yield* read("log", "-1", "--format=%h %s", "main");
+
+  yield* Console.log(`land: main is at ${landed} (${how}; it was at ${before}).`);
+
+  if (worktree !== undefined) {
+    const removal = yield* git("worktree", "remove", worktree);
+
+    if (removal.status !== 0)
+      return yield* fail(
+        `${branch} landed, but its worktree ${worktree} was not removed: ${removal.stderr.trim()}`,
+      );
+
+    yield* Console.log(`land: removed the worktree ${worktree}.`);
+  }
+
+  yield* read("branch", "--delete", branch);
+
+  yield* Console.log(`land: deleted ${branch}. Nothing was pushed.`);
+
+  return 0;
+});
+
+const program = land.pipe(
+  Effect.catchTag("LandFailure", ({ message }) =>
+    Console.error(`land: ${message}`).pipe(Effect.as(1)),
+  ),
+);
+
+BunRuntime.runMain(program.pipe(Effect.provide(BunServices.layer)), exitWithReturnedCode);

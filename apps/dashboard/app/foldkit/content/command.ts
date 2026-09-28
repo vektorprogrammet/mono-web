@@ -1,4 +1,4 @@
-import { IdempotencyKey } from "@vektorprogrammet/http-api";
+import { IdempotencyKey } from "@vektorprogrammet/rpc";
 import type { ContentBridgeFailure } from "./bridge";
 import { Effect } from "effect";
 import type { ContentWorkspaceClient } from "./browser-client";

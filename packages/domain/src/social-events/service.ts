@@ -2,6 +2,7 @@ import { Context, Effect } from "effect";
 import type { OrganizationPersonAuthority } from "../organization/authority.js";
 import type { DepartmentId, SemesterId } from "../organization/schema.js";
 import type { SocialEventFailure } from "./errors.js";
+import type { SocialEventCreation } from "./authority.js";
 import type {
   CreateSocialEventCommand,
   SocialEventListResource,
@@ -36,11 +37,13 @@ export interface SocialEventsOperations {
   readonly validateScope: (
     scope: SocialEventScope,
   ) => Effect.Effect<SocialEventScope, SocialEventFailure>;
+  /** Creates the event in the creator's department; a request for another department is a defect. */
   readonly create: (
-    command: CreateSocialEventCommand,
+    creator: SocialEventCreation,
+    command: Omit<CreateSocialEventCommand, "actorPersonId">,
   ) => Effect.Effect<SocialEventResource, SocialEventFailure>;
 }
 
 export class SocialEvents extends Context.Service<SocialEvents, SocialEventsOperations>()(
-  "@vektorprogrammet/domain/SocialEvents",
+  "@vektorprogrammet/domain/social-events/service/SocialEvents",
 ) {}

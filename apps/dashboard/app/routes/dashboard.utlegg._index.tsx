@@ -1,5 +1,5 @@
 import { ReceiptPagination } from "@/components/receipts/ReceiptPagination";
-import { Predicate, Schema, Match } from "effect";
+import { Match, Option, Predicate, Schema } from "effect";
 import { ApprovalReceiptList } from "@/components/receipts/ApprovalReceiptList";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,16 +11,16 @@ import {
   type ReceiptStatus,
   ReceiptUiError,
 } from "@/lib/receipt-view";
-import { ReceiptId } from "@vektorprogrammet/http-api";
+import { ReceiptCursor, ReceiptId } from "@vektorprogrammet/rpc";
 import {
   IdempotencyKey,
   StrongETag,
   type IdempotencyKey as IdempotencyKeyValue,
   type StrongETag as StrongETagValue,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 
 import { Link, useActionData, useLoaderData, useNavigation } from "react-router";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/dashboard.utlegg._index";
 
@@ -96,9 +96,27 @@ function parseApprovalCommand(
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
-  const cursor = new URL(request.url).searchParams.get("cursor") ?? undefined;
+  const cursorText = new URL(request.url).searchParams.get("cursor");
   const requestedStatus = new URL(request.url).searchParams.get("status");
+
+  // A cursor that no list issued names no page; the backend never sees it.
+  const cursor =
+    cursorText === null
+      ? Option.some(undefined)
+      : Schema.decodeOption(ReceiptCursor)(cursorText);
+
+  if (Option.isNone(cursor)) {
+    const error: ReceiptUiError = ReceiptUiError.ReceiptDecodeError({
+      message: "Kontroller feltene og prøv igjen.",
+    });
+
+    return {
+      nextCursor: undefined,
+      receipts: [],
+      status: undefined,
+      error,
+    };
+  }
 
   if (requestedStatus !== null && !isReceiptStatus(requestedStatus)) {
     const error: ReceiptUiError = ReceiptUiError.ReceiptDecodeError({
@@ -116,14 +134,14 @@ export async function loader({ request }: Route.LoaderArgs) {
   const status = isReceiptStatus(requestedStatus) ? requestedStatus : undefined;
 
   try {
-    const result = await client.receipts.listReceiptsForApproval({
-      query: { status, cursor },
-    });
+    const result = await callNative(cookie, request, (client) =>
+      client["receipts.listReceiptsForApproval"]({ status, cursor: cursor.value }),
+    );
 
     return {
-      receipts: result.body.items.map(mapApprovalReceiptView),
+      receipts: result.items.map(mapApprovalReceiptView),
       status,
-      nextCursor: result.body.nextCursor,
+      nextCursor: result.nextCursor,
       error: undefined,
     };
   } catch (error) {
@@ -142,7 +160,6 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
   const form = await request.formData();
   const intentValue = readFormText(form, "_intent");
 
@@ -163,19 +180,18 @@ export async function action({ request }: Route.ActionArgs) {
   const command = parsed.value;
 
   try {
-    const requestInput = {
-      params: { receiptId: command.receiptId },
-      headers: {
-        "idempotency-key": command.commandId,
-        "if-match": command.etag,
-      },
-      payload: {},
+    const payload = {
+      receiptId: command.receiptId,
+      idempotencyKey: command.commandId,
+      ifMatch: command.etag,
     };
 
-    const result = await Match.value(command).pipe(
-      Match.when({ intent: "approve" }, () => client.receipts.approveReceipt(requestInput)),
-      Match.when({ intent: "reopen" }, () => client.receipts.reopenReceipt(requestInput)),
-      Match.orElse(() => client.receipts.rejectReceipt(requestInput)),
+    const result = await callNative(cookie, request, (client) =>
+      Match.value(command).pipe(
+        Match.when({ intent: "approve" }, () => client["receipts.approveReceipt"](payload)),
+        Match.when({ intent: "reopen" }, () => client["receipts.reopenReceipt"](payload)),
+        Match.orElse(() => client["receipts.rejectReceipt"](payload)),
+      ),
     );
 
     return {
@@ -183,10 +199,10 @@ export async function action({ request }: Route.ActionArgs) {
       actionNotice: {
         intent: command.intent,
         commandId: command.commandId,
-        receiptId: result.body.receiptId,
-        status: result.body.status,
-        revision: result.body.revision,
-        etag: result.body.etag,
+        receiptId: result.receiptId,
+        status: result.status,
+        revision: result.revision,
+        etag: result.etag,
       },
     };
   } catch (error) {

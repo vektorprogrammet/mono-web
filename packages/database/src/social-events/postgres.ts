@@ -1,3 +1,4 @@
+import { dual } from "effect/Function";
 import { flow, Effect, Schema } from "effect";
 import { Database } from "../service.js";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
@@ -9,6 +10,7 @@ import {
   SocialEventScope,
   SocialEventScopeResource,
   type CreateSocialEventCommand as CreateSocialEventCommandValue,
+  type SocialEventCreation,
   type SocialEventListResource as SocialEventListResourceValue,
   type SocialEventObservedAt as SocialEventObservedAtValue,
   type SocialEventResource as SocialEventResourceValue,
@@ -278,24 +280,42 @@ export const readSocialEventListPostgres = (
   );
 
 /**
- * Inserts the canonical event, one domain command receipt, and one audit row.
- * The caller owns the serializable HTTP transaction and has already performed
- * authority plus selected-scope validation before the generic receipt lookup.
+ * Inserts the canonical event, one domain command receipt, and one audit row, as the creator.
+ * The caller owns the serializable HTTP transaction and resolved the creator's evidence in it
+ * before the generic receipt lookup. The event's department is the evidence's department.
  */
-export const createSocialEventPostgres = (
-  input: CreateSocialEventCommandValue,
-): Effect.Effect<SocialEventResourceValue, SocialEventFailure, Database> =>
-  Effect.gen(function* () {
-    const command = yield* decodeCreateCommand(input);
+export const createSocialEventPostgres: {
+  (
+    input: Omit<CreateSocialEventCommandValue, "actorPersonId">,
+  ): (
+    creator: SocialEventCreation,
+  ) => Effect.Effect<SocialEventResourceValue, SocialEventFailure, Database>;
+  (
+    creator: SocialEventCreation,
+    input: Omit<CreateSocialEventCommandValue, "actorPersonId">,
+  ): Effect.Effect<SocialEventResourceValue, SocialEventFailure, Database>;
+} = dual(
+  2,
+  (
+    creator: SocialEventCreation,
+    input: Omit<CreateSocialEventCommandValue, "actorPersonId">,
+  ): Effect.Effect<SocialEventResourceValue, SocialEventFailure, Database> =>
+    Effect.gen(function* () {
+      if (input.request.departmentId !== creator.departmentId)
+        return yield* Effect.die(
+          new Error("social event creator evidence names another department"),
+        );
 
-    const scope = yield* validateSocialEventScopePostgres({
-      departmentId: command.request.departmentId,
-      semesterId: command.request.semesterId,
-    });
+      const command = yield* decodeCreateCommand({ ...input, actorPersonId: creator.personId });
 
-    const sql = yield* Database;
+      const scope = yield* validateSocialEventScopePostgres({
+        departmentId: command.request.departmentId,
+        semesterId: command.request.semesterId,
+      });
 
-    const rows = yield* sql<SocialEventRow>`
+      const sql = yield* Database;
+
+      const rows = yield* sql<SocialEventRow>`
       INSERT INTO public.social_events (
         event_id,
         department_id,
@@ -334,25 +354,25 @@ export const createSocialEventPostgres = (
         to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "endAt"
     `;
 
-    const row = rows[0];
+      const row = rows[0];
 
-    if (row === undefined) {
-      return yield* persistenceError("insert social-event", "insert did not return an event");
-    }
+      if (row === undefined) {
+        return yield* persistenceError("insert social-event", "insert did not return an event");
+      }
 
-    const resource = yield* decodeResource("decode created social-event")(row);
+      const resource = yield* decodeResource("decode created social-event")(row);
 
-    const receiptCommand = {
-      _tag: "CreateSocialEvent" as const,
-      commandId: command.commandId,
-      eventId: command.eventId,
-      actorPersonId: command.actorPersonId,
-      occurredAt: command.occurredAt,
-      ...command.request,
-    };
+      const receiptCommand = {
+        _tag: "CreateSocialEvent" as const,
+        commandId: command.commandId,
+        eventId: command.eventId,
+        actorPersonId: command.actorPersonId,
+        occurredAt: command.occurredAt,
+        ...command.request,
+      };
 
-    const commandSha256 = sha256Hex(canonicalJsonBytes(receiptCommand));
-    yield* sql`
+      const commandSha256 = sha256Hex(canonicalJsonBytes(receiptCommand));
+      yield* sql`
       INSERT INTO public.social_event_command_receipts (
         command_id,
         command_sha256,
@@ -371,7 +391,7 @@ export const createSocialEventPostgres = (
         ${command.occurredAt}
       )
     `;
-    yield* sql`
+      yield* sql`
       INSERT INTO public.social_event_audit (
         command_id,
         event_id,
@@ -387,9 +407,10 @@ export const createSocialEventPostgres = (
       )
     `;
 
-    return resource;
-  }).pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("create social-event", cause)),
+      return resource;
+    }).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("create social-event", cause)),
+      ),
     ),
-  );
+);

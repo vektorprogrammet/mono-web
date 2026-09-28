@@ -11,15 +11,8 @@
  * harness verifies that nothing it started survives.
  */
 import { randomBytes } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import {
-  createServer as createHttpServer,
-  request as httpRequest,
-  type IncomingMessage,
-  type Server,
-  type ServerResponse,
-} from "node:http";
-import { join } from "node:path";
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0012: the loopback provider listens through node:http.
+import * as NodeHttp from "node:http";
 import { fileURLToPath } from "node:url";
 import { Buffer } from "node:buffer";
 import process from "node:process";
@@ -33,6 +26,7 @@ import {
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
   Cause,
+  Config,
   DateTime,
   Deferred,
   type Duration,
@@ -40,13 +34,17 @@ import {
   Exit,
   Fiber,
   FileSystem,
+  Layer,
   Option,
+  Path,
   Predicate,
   Schedule,
   Schema,
   type Scope,
   Stream,
 } from "effect";
+import { dual } from "effect/Function";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
 import { ChildProcess, type ChildProcessSpawner } from "effect/unstable/process";
 import { Pool, type PoolClient } from "pg";
 
@@ -79,9 +77,9 @@ export const describeCause = (cause: unknown): string =>
 export const failure =
   (stage: string) =>
   (cause: unknown): HarnessFailure =>
-    cause instanceof HarnessFailure
+    Schema.is(HarnessFailure)(cause)
       ? cause
-      : new HarnessFailure({ stage, message: describeCause(cause) });
+      : HarnessFailure.make({ stage, message: describeCause(cause) });
 
 const isoNow = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -275,7 +273,7 @@ const spawnOwned = (ledger: Ledger) =>
           if (spec.supervised === true && !entry.stopping)
             yield* Deferred.succeed(
               ledger.supervision,
-              new HarnessFailure({
+              HarnessFailure.make({
                 stage: spec.label,
                 message: `exited unexpectedly (${entry.exit}): ${ledger.redactor.apply(tail(entry.log.read(), failureLogCharacters))}`,
               }),
@@ -316,14 +314,14 @@ const runToCompletion =
           Effect.timeoutOrElse({
             duration: deadline,
             orElse: () =>
-              Effect.fail(new HarnessFailure({ stage: spec.label, message: "deadline exceeded" })),
+              Effect.fail(HarnessFailure.make({ stage: spec.label, message: "deadline exceeded" })),
           }),
         );
 
         entry.exit = `code ${code}`;
 
         if (code !== 0)
-          return yield* new HarnessFailure({
+          return yield* HarnessFailure.make({
             stage: spec.label,
             message: `exited with code ${code}: ${ledger.redactor.apply(tail(stdout + stderr, failureLogCharacters))}`,
           });
@@ -351,25 +349,29 @@ const captureSource = Effect.fnUntraced(function* (
   pathspecs: ReadonlyArray<string>,
 ) {
   const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
 
   const git = (args: ReadonlyArray<string>) =>
     run({ label: "git", command: "git", args, cwd: root, env: environment }, "60 seconds");
 
   if ((yield* git(["status", "--porcelain"])).trim() !== "")
-    return yield* new HarnessFailure({
+    return yield* HarnessFailure.make({
       stage: "source",
       message: "requires committed clean source",
     });
 
   const revision = (yield* git(["rev-parse", "HEAD"])).trim();
   const tree = (yield* git(["rev-parse", "HEAD^{tree}"])).trim();
-  const paths = (yield* git(["ls-files", "-z", "--", ...pathspecs])).split("\0").filter(Boolean);
+
+  const paths = (yield* git(["ls-files", "-z", "--", ...pathspecs]))
+    .split("\0")
+    .filter((entry) => entry.length > 0);
 
   const files = yield* Effect.forEach(
     paths,
-    (path) =>
-      fs.readFile(join(root, path)).pipe(
-        Effect.map((bytes): SourceFile => ({ path, sha256: sha256Hex(bytes) })),
+    (file) =>
+      fs.readFile(path.join(root, file)).pipe(
+        Effect.map((bytes): SourceFile => ({ path: file, sha256: sha256Hex(bytes) })),
         Effect.mapError(failure("source")),
       ),
     { concurrency: 16 },
@@ -391,32 +393,34 @@ const verifySource = Effect.fnUntraced(function* (
     observed.revision !== expected.revision ||
     sha256Hex(canonicalJsonBytes(observed.files)) !== sha256Hex(canonicalJsonBytes(expected.files))
   )
-    return yield* new HarnessFailure({
+    return yield* HarnessFailure.make({
       stage: "source",
       message: "source changed during acceptance",
     });
 });
 
-/** Environment passed to children; nothing else from the operator shell leaks in. */
-export const safeEnvironment = (): Readonly<Record<string, string>> =>
-  Object.fromEntries(
-    [
-      "PATH",
-      "HOME",
-      "TMPDIR",
-      "LANG",
-      "LC_ALL",
-      "TZ",
-      "LD_LIBRARY_PATH",
-      "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH",
-      "PLAYWRIGHT_NODE_EXECUTABLE",
-      "PLAYWRIGHT_BROWSERS_PATH",
-    ].flatMap((key) => {
-      const value = process.env[key];
+const safeEnvironmentKeys = [
+  "PATH",
+  "HOME",
+  "TMPDIR",
+  "LANG",
+  "LC_ALL",
+  "TZ",
+  "LD_LIBRARY_PATH",
+  "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH",
+  "PLAYWRIGHT_NODE_EXECUTABLE",
+  "PLAYWRIGHT_BROWSERS_PATH",
+] as const;
 
-      return value === undefined ? [] : [[key, value]];
-    }),
-  );
+/** Environment passed to children; nothing else from the operator shell leaks in. */
+export const safeEnvironment: Effect.Effect<
+  Readonly<Record<string, string>>,
+  Config.ConfigError
+> = Effect.forEach(safeEnvironmentKeys, (key) =>
+  Config.option(Config.String(key)).pipe(
+    Effect.map(Option.match({ onNone: () => [], onSome: (value) => [[key, value] as const] })),
+  ),
+).pipe(Effect.map((entries) => Object.fromEntries(entries.flat())));
 
 const makeLedger = Effect.map(
   Deferred.make<HarnessFailure>(),
@@ -430,29 +434,52 @@ const makeLedger = Effect.map(
 );
 
 /** Clean-source guard and manifest for tools that do not run a journey. */
-export const inspectSource = (root: string, pathspecs: ReadonlyArray<string>) =>
+export const inspectSource: {
+  (
+    pathspecs: ReadonlyArray<string>,
+  ): (root: string) => Effect.Effect<SourceSnapshot, HarnessFailure, BunServices.BunServices>;
+  (
+    root: string,
+    pathspecs: ReadonlyArray<string>,
+  ): Effect.Effect<SourceSnapshot, HarnessFailure, BunServices.BunServices>;
+} = dual(2, (root: string, pathspecs: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const ledger = yield* makeLedger;
+    const environment = yield* safeEnvironment.pipe(Effect.mapError(failure("environment")));
 
-    return yield* captureSource(runToCompletion(ledger), root, safeEnvironment(), pathspecs);
-  });
+    return yield* captureSource(runToCompletion(ledger), root, environment, pathspecs);
+  }),
+);
 
 /** Polls a condition until it holds; a typed failure from the check ends polling at once. */
-export const eventually = <R>(
-  label: string,
-  check: Effect.Effect<boolean, HarnessFailure, R>,
-  deadline: Duration.Input,
-): Effect.Effect<void, HarnessFailure, R> =>
-  check.pipe(
-    Effect.flatMap((ready) => (ready ? Effect.void : Effect.fail(new NotReady()))),
-    Effect.retry({
-      while: (error) => Predicate.isTagged(error, "NotReady"),
-      schedule: Schedule.spaced("100 millis").pipe(Schedule.upTo({ duration: deadline })),
-    }),
-    Effect.catchTag("NotReady", () =>
-      Effect.fail(new HarnessFailure({ stage: label, message: `Timed out: ${label}` })),
+export const eventually: {
+  <R>(
+    check: Effect.Effect<boolean, HarnessFailure, R>,
+    deadline: Duration.Input,
+  ): (label: string) => Effect.Effect<void, HarnessFailure, R>;
+  <R>(
+    label: string,
+    check: Effect.Effect<boolean, HarnessFailure, R>,
+    deadline: Duration.Input,
+  ): Effect.Effect<void, HarnessFailure, R>;
+} = dual(
+  3,
+  <R>(
+    label: string,
+    check: Effect.Effect<boolean, HarnessFailure, R>,
+    deadline: Duration.Input,
+  ): Effect.Effect<void, HarnessFailure, R> =>
+    check.pipe(
+      Effect.flatMap((ready) => (ready ? Effect.void : Effect.fail(NotReady.make({})))),
+      Effect.retry({
+        while: (error) => Predicate.isTagged(error, "NotReady"),
+        schedule: Schedule.spaced("100 millis").pipe(Schedule.upTo({ duration: deadline })),
+      }),
+      Effect.catchTag("NotReady", () =>
+        Effect.fail(HarnessFailure.make({ stage: label, message: `Timed out: ${label}` })),
+      ),
     ),
-  );
+);
 
 export interface HttpProbe {
   readonly label: string;
@@ -464,46 +491,48 @@ export interface HttpProbe {
   readonly deadline: Duration.Input;
 }
 
-/** Waits for a 2xx response over node:http, which honours an explicit Host header. */
-export const waitForHttp = (probe: HttpProbe) =>
-  eventually(
-    probe.label,
-    Effect.gen(function* () {
-      if (probe.process !== undefined && !(yield* probe.process.isRunning))
-        return yield* new HarnessFailure({
-          stage: probe.label,
-          message: `exited before ready: ${tail(yield* probe.process.logTail, failureLogCharacters)}`,
-        });
+/**
+ * Waits for a 2xx response. Each attempt sends one GET with an optional Host header, follows no
+ * redirect, and counts as not ready after two seconds or on a transport failure.
+ */
+export const waitForHttp = (probe: HttpProbe): Effect.Effect<void, HarnessFailure> =>
+  Effect.gen(function* () {
+    const request = HttpClientRequest.get(probe.url, {
+      headers: probe.host === undefined ? {} : { host: probe.host },
+    });
 
-      const url = new URL(probe.url);
+    const attempt = Effect.flatMap(HttpClient.HttpClient, (client) => client.execute(request)).pipe(
+      Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" }),
+      Effect.timeout("2 seconds"),
+      // The body is drained, bounded, so the connection returns to the pool.
+      Effect.flatMap((response) =>
+        response.arrayBuffer.pipe(
+          Effect.timeout("2 seconds"),
+          Effect.ignore,
+          Effect.as(response.status),
+        ),
+      ),
+      Effect.orElseSucceed(() => 0),
+      // The harness selects the client itself, so journeys keep their requirements.
+      Effect.provide(FetchHttpClient.layer),
+    );
 
-      const status = yield* Effect.callback<number>((resume) => {
-        const request = httpRequest(
-          {
-            hostname: url.hostname,
-            port: url.port,
-            path: `${url.pathname}${url.search}`,
-            method: "GET",
-            headers: probe.host === undefined ? {} : { host: probe.host },
-            timeout: 2_000,
-          },
-          (response) => {
-            response.resume();
-            resume(Effect.succeed(response.statusCode ?? 0));
-          },
-        );
+    return yield* eventually(
+      probe.label,
+      Effect.gen(function* () {
+        if (probe.process !== undefined && !(yield* probe.process.isRunning))
+          return yield* HarnessFailure.make({
+            stage: probe.label,
+            message: `exited before ready: ${tail(yield* probe.process.logTail, failureLogCharacters)}`,
+          });
 
-        request.once("timeout", () => request.destroy());
-        request.once("error", () => resume(Effect.succeed(0)));
-        request.end();
+        const status = yield* attempt;
 
-        return Effect.sync(() => request.destroy());
-      });
-
-      return status >= 200 && status <= 299;
-    }),
-    probe.deadline,
-  );
+        return status >= 200 && status <= 299;
+      }),
+      probe.deadline,
+    );
+  });
 
 export interface JourneyPostgres {
   readonly url: string;
@@ -520,36 +549,64 @@ const statement = (client: PoolClient, text: string) =>
   );
 
 /** Runs one read-only REPEATABLE READ transaction, so every read shares one snapshot. */
-export const readOnlySnapshot = <A, R>(
-  pool: Pool,
-  read: (client: PoolClient) => Effect.Effect<A, HarnessFailure, R>,
-): Effect.Effect<A, HarnessFailure, R> =>
-  Effect.acquireUseRelease(
-    Effect.tryPromise({ try: () => pool.connect(), catch: failure("snapshot") }),
-    (client) =>
-      statement(client, "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY").pipe(
-        Effect.andThen(read(client)),
-        Effect.tap(() => statement(client, "COMMIT")),
-      ),
-    (client, exit) =>
-      (Exit.isSuccess(exit) ? Effect.void : Effect.ignore(statement(client, "ROLLBACK"))).pipe(
-        Effect.ensuring(Effect.sync(() => client.release())),
-      ),
-  );
+export const readOnlySnapshot: {
+  <A, R>(
+    read: (client: PoolClient) => Effect.Effect<A, HarnessFailure, R>,
+  ): (pool: Pool) => Effect.Effect<A, HarnessFailure, R>;
+  <A, R>(
+    pool: Pool,
+    read: (client: PoolClient) => Effect.Effect<A, HarnessFailure, R>,
+  ): Effect.Effect<A, HarnessFailure, R>;
+} = dual(
+  2,
+  <A, R>(
+    pool: Pool,
+    read: (client: PoolClient) => Effect.Effect<A, HarnessFailure, R>,
+  ): Effect.Effect<A, HarnessFailure, R> =>
+    Effect.acquireUseRelease(
+      Effect.tryPromise({ try: () => pool.connect(), catch: failure("snapshot") }),
+      (client) =>
+        statement(client, "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY").pipe(
+          Effect.andThen(read(client)),
+          Effect.tap(() => statement(client, "COMMIT")),
+        ),
+      (client, exit) =>
+        (Exit.isSuccess(exit) ? Effect.void : Effect.ignore(statement(client, "ROLLBACK"))).pipe(
+          Effect.ensuring(Effect.sync(() => client.release())),
+        ),
+    ),
+);
 
 /** Queries one relation and decodes every row at the persistence boundary. */
-export const selectRows = <Row>(
-  client: PoolClient,
-  label: string,
-  text: string,
-  values: ReadonlyArray<SqlValue>,
-  row: Schema.Decoder<Row>,
-) =>
-  Effect.tryPromise({ try: () => client.query(text, [...values]), catch: failure(label) }).pipe(
-    Effect.flatMap((result) =>
-      Schema.decodeEffect(Schema.Array(row))(result.rows).pipe(Effect.mapError(failure(label))),
+export const selectRows: {
+  <Row>(
+    label: string,
+    text: string,
+    values: ReadonlyArray<SqlValue>,
+    row: Schema.Decoder<Row>,
+  ): (client: PoolClient) => Effect.Effect<ReadonlyArray<Row>, HarnessFailure>;
+  <Row>(
+    client: PoolClient,
+    label: string,
+    text: string,
+    values: ReadonlyArray<SqlValue>,
+    row: Schema.Decoder<Row>,
+  ): Effect.Effect<ReadonlyArray<Row>, HarnessFailure>;
+} = dual(
+  5,
+  <Row>(
+    client: PoolClient,
+    label: string,
+    text: string,
+    values: ReadonlyArray<SqlValue>,
+    row: Schema.Decoder<Row>,
+  ): Effect.Effect<ReadonlyArray<Row>, HarnessFailure> =>
+    Effect.tryPromise({ try: () => client.query(text, [...values]), catch: failure(label) }).pipe(
+      Effect.flatMap((result) =>
+        Schema.decodeEffect(Schema.Array(row))(result.rows).pipe(Effect.mapError(failure(label))),
+      ),
     ),
-  );
+);
 
 export interface ProviderSpec {
   readonly port: number;
@@ -566,11 +623,14 @@ export interface LoopbackProvider {
 
 const JsonBody = Schema.fromJsonString(Schema.Json);
 
+/** The indented JSON text of an artifact, as `JSON.stringify(value, null, 2)` writes it. */
+const prettyJsonText = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown, { space: 2 }));
+
 const respond = (
   state: ProviderState,
   spec: ProviderSpec,
-  request: IncomingMessage,
-  response: ServerResponse,
+  request: NodeHttp.IncomingMessage,
+  response: NodeHttp.ServerResponse,
   bytes: Buffer,
 ) => {
   const idempotencyKey = request.headers["idempotency-key"];
@@ -602,7 +662,8 @@ const respond = (
 
   state.attempts.push({
     sequence: state.attempts.length + 1,
-    receivedAt: new Date().toISOString(),
+    // The Node request callback runs outside any fiber, so it reads the clock directly.
+    receivedAt: DateTime.formatIso(DateTime.nowUnsafe()),
     mode: state.mode,
     idempotencyKey: Array.isArray(idempotencyKey) ? null : (idempotencyKey ?? null),
     status,
@@ -624,7 +685,7 @@ const startProvider = (ledger: Ledger) => (spec: ProviderSpec) =>
       attempts: [],
     };
 
-    const handle = (request: IncomingMessage, response: ServerResponse) => {
+    const handle = (request: NodeHttp.IncomingMessage, response: NodeHttp.ServerResponse) => {
       const chunks: Array<Buffer> = [];
       let size = 0;
 
@@ -643,8 +704,8 @@ const startProvider = (ledger: Ledger) => (spec: ProviderSpec) =>
     };
 
     yield* Effect.acquireRelease(
-      Effect.callback<Server, HarnessFailure>((resume) => {
-        const server = createHttpServer(handle);
+      Effect.callback<NodeHttp.Server, HarnessFailure>((resume) => {
+        const server = NodeHttp.createServer(handle);
 
         server.once("error", (cause) => resume(Effect.fail(failure("provider")(cause))));
         server.listen(spec.port, "127.0.0.1", () => resume(Effect.succeed(server)));
@@ -677,12 +738,15 @@ const startPostgres =
   (ledger: Ledger, privateRoot: string, environment: Readonly<Record<string, string>>) =>
   (port: number, applicationName: string) =>
     Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+
       const { cluster, entry } = yield* Effect.acquireRelease(
         Effect.tryPromise({
           try: () =>
             startDisposablePostgres({
               port,
-              directory: join(privateRoot, "postgres"),
+              directory: path.join(privateRoot, "postgres"),
               maxConnections: 40,
               environment,
             }),
@@ -703,12 +767,15 @@ const startPostgres =
           }),
         ),
         (started) =>
-          Effect.promise(async () => {
+          Effect.gen(function* () {
             started.entry.stopping = true;
-            started.entry.log.append(
-              await readFile(started.cluster.logFile, "utf8").catch(() => ""),
-            );
-            await started.cluster.stop();
+
+            const log = yield* fs
+              .readFileString(started.cluster.logFile)
+              .pipe(Effect.orElseSucceed(() => ""));
+
+            started.entry.log.append(log);
+            yield* Effect.promise(() => started.cluster.stop());
             started.entry.exit ??= "fast shutdown";
           }),
       );
@@ -719,7 +786,7 @@ const startPostgres =
 
           return Deferred.succeed(
             ledger.supervision,
-            new HarnessFailure({
+            HarnessFailure.make({
               stage: "postgres",
               message: ledger.redactor.apply(tail(cause.message, failureLogCharacters)),
             }),
@@ -1025,14 +1092,20 @@ const interceptSignals = (
 const main = (journey: GoldenJourney, root: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const environment = safeEnvironment();
-    const fault = process.env[journey.faultVariable];
+    const path = yield* Path.Path;
+    const join = path.join;
+    const environment = yield* safeEnvironment.pipe(Effect.mapError(failure("preflight")));
+
+    const fault = yield* Config.option(Config.String(journey.faultVariable)).pipe(
+      Effect.map(Option.getOrUndefined),
+      Effect.mapError(failure("preflight")),
+    );
 
     if (
       fault !== undefined &&
       !journey.faultPoints.some((point) => fault === point || fault === `interrupt-${point}`)
     )
-      return yield* new HarnessFailure({
+      return yield* HarnessFailure.make({
         stage: "preflight",
         message: `unknown journey fault: ${fault}`,
       });
@@ -1103,7 +1176,7 @@ const main = (journey: GoldenJourney, root: string) =>
           const expected = journey.steps[observations.length];
 
           if (step !== expected)
-            return yield* new HarnessFailure({
+            return yield* HarnessFailure.make({
               stage: "checkpoint",
               message: `checkpoint order: expected ${expected ?? "none"}, observed ${step}`,
             });
@@ -1122,7 +1195,7 @@ const main = (journey: GoldenJourney, root: string) =>
       faultPoint: (point) =>
         fault === point
           ? Effect.fail(
-              new HarnessFailure({ stage: "fault", message: `Injected journey failure ${point}` }),
+              HarnessFailure.make({ stage: "fault", message: `Injected journey failure ${point}` }),
             )
           : fault === `interrupt-${point}`
             ? Effect.sync(() => process.kill(process.pid, "SIGTERM")).pipe(
@@ -1141,7 +1214,7 @@ const main = (journey: GoldenJourney, root: string) =>
         const interruption = Effect.raceFirst(
           Deferred.await(signals),
           Effect.sleep(journey.deadline).pipe(Effect.as<InterruptionReason>("deadline")),
-        ).pipe(Effect.flatMap((reason) => Effect.fail(new JourneyInterrupted({ reason }))));
+        ).pipe(Effect.flatMap((reason) => Effect.fail(JourneyInterrupted.make({ reason }))));
 
         const supervision = Deferred.await(ledger.supervision).pipe(
           Effect.flatMap((error) => Effect.fail(error)),
@@ -1152,7 +1225,7 @@ const main = (journey: GoldenJourney, root: string) =>
             observations.length === journey.steps.length
               ? Effect.void
               : Effect.fail(
-                  new HarnessFailure({
+                  HarnessFailure.make({
                     stage: "checkpoint",
                     message: `observed ${observations.length} of ${journey.steps.length} required steps`,
                   }),
@@ -1169,10 +1242,9 @@ const main = (journey: GoldenJourney, root: string) =>
 
             return Effect.succeed<Outcome>({
               kind: "failed",
-              failure:
-                error instanceof HarnessFailure
-                  ? `${error.stage}: ${error.message}`
-                  : Cause.pretty(cause),
+              failure: Schema.is(HarnessFailure)(error)
+                ? `${error.stage}: ${error.message}`
+                : Cause.pretty(cause),
             });
           }),
         );
@@ -1245,14 +1317,14 @@ const main = (journey: GoldenJourney, root: string) =>
             .writeFileString(join(artifacts, name), text, { mode: 0o600 })
             .pipe(Effect.mapError(failure("artifacts")));
 
-        yield* write("evidence.json", ledger.redactor.apply(JSON.stringify(evidence, null, 2)));
+        yield* write("evidence.json", ledger.redactor.apply(prettyJsonText(evidence)));
         yield* write(
           "source-manifest.json",
-          JSON.stringify(
-            { revision: source.revision, sourceTree: source.tree, sources: source.files },
-            null,
-            2,
-          ),
+          prettyJsonText({
+            revision: source.revision,
+            sourceTree: source.tree,
+            sources: source.files,
+          }),
         );
 
         if (primary !== undefined) yield* write("failure.log", ledger.redactor.apply(logs));
@@ -1265,11 +1337,11 @@ const main = (journey: GoldenJourney, root: string) =>
           names.sort().filter((name) => name !== "receipt.json" && !name.startsWith("private")),
           (name) =>
             Effect.gen(function* () {
-              const path = join(artifacts, name);
+              const file = join(artifacts, name);
 
-              if ((yield* fs.stat(path)).type !== "File") return [];
+              if ((yield* fs.stat(file)).type !== "File") return [];
 
-              const bytes = yield* fs.readFile(path);
+              const bytes = yield* fs.readFile(file);
 
               return [
                 {
@@ -1320,7 +1392,7 @@ const main = (journey: GoldenJourney, root: string) =>
 
         if (leaked.length > 0) yield* write("credential-leak.txt", leaked.join("\n"));
 
-        yield* write("receipt.json", JSON.stringify(receipt, null, 2));
+        yield* write("receipt.json", prettyJsonText(receipt));
         yield* Effect.sync(() =>
           process.stdout.write(
             `${passed ? "" : `failure: ${tail(ledger.redactor.apply(primary ?? `credential leaked into ${leaked.join(", ")}`), failureLogCharacters)}\n`}` +
@@ -1349,7 +1421,7 @@ export const runGoldenJourney = (journey: GoldenJourney): void => {
           return 1;
         }),
       ),
-      Effect.provide(BunServices.layer),
+      Effect.provide(Layer.mergeAll(BunServices.layer, FetchHttpClient.layer)),
     ),
   ).then(
     (code) => process.stdout.write("", () => process.exit(code)),
@@ -1365,22 +1437,35 @@ export const runGoldenJourney = (journey: GoldenJourney): void => {
  * signal and waits (bounded) for the driver to settle, so cleanup verification never
  * races a browser that is still closing.
  */
-export const fromAbortable = <A>(
-  label: string,
-  start: (signal: AbortSignal) => Promise<A>,
-  grace: Duration.Input,
-) =>
-  Effect.callback<A, HarnessFailure>((resume) => {
-    const controller = new AbortController();
+export const fromAbortable: {
+  <A>(
+    start: (signal: AbortSignal) => Promise<A>,
+    grace: Duration.Input,
+  ): (label: string) => Effect.Effect<A, HarnessFailure>;
+  <A>(
+    label: string,
+    start: (signal: AbortSignal) => Promise<A>,
+    grace: Duration.Input,
+  ): Effect.Effect<A, HarnessFailure>;
+} = dual(
+  3,
+  <A>(
+    label: string,
+    start: (signal: AbortSignal) => Promise<A>,
+    grace: Duration.Input,
+  ): Effect.Effect<A, HarnessFailure> =>
+    Effect.callback<A, HarnessFailure>((resume) => {
+      const controller = new AbortController();
 
-    const settled = start(controller.signal).then(
-      (value) => resume(Effect.succeed(value)),
-      (cause: unknown) => resume(Effect.fail(failure(label)(cause))),
-    );
+      const settled = start(controller.signal).then(
+        (value) => resume(Effect.succeed(value)),
+        (cause: unknown) => resume(Effect.fail(failure(label)(cause))),
+      );
 
-    return Effect.sync(() => controller.abort(new Error(`${label} interrupted`))).pipe(
-      Effect.andThen(Effect.promise(() => settled)),
-      Effect.timeout(grace),
-      Effect.ignore,
-    );
-  });
+      return Effect.sync(() => controller.abort(new Error(`${label} interrupted`))).pipe(
+        Effect.andThen(Effect.promise(() => settled)),
+        Effect.timeout(grace),
+        Effect.ignore,
+      );
+    }),
+);

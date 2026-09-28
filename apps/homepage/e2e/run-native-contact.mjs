@@ -1,4 +1,4 @@
-// Spec 0043.1: isolated real Worker, native HTTP, PostgreSQL and acknowledged loopback delivery.
+// Spec 0043.1: isolated real Worker, native RPC, PostgreSQL and acknowledged loopback delivery.
 // Reuses repository real-journey runners' PostgreSQL lifecycle and installed Cloudflare runtime.
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
@@ -11,9 +11,21 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { chromium, expect } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "../../dashboard/e2e/settled-axe.ts";
+import { Option, Predicate, Schema } from "effect";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
+
+/** The tag of one RPC request body, as the JSON serialization of the RPC client writes it. */
+const rpcTagOf = (body) =>
+  Option.getOrUndefined(
+    Option.map(
+      Schema.decodeUnknownOption(
+        Schema.fromJsonString(Schema.TaggedStruct("Request", { tag: Schema.String })),
+      )(body),
+      (message) => message.tag,
+    ),
+  );
 
 const homepage = join(root, "apps/homepage");
 
@@ -274,7 +286,16 @@ try {
 
         if (url.origin !== backendOrigin) throw new Error("Local Worker outbound origin rejected");
 
-        if (redirectContact && request.method === "POST") {
+        const body = ["GET", "HEAD"].includes(request.method)
+          ? undefined
+          : await request.arrayBuffer();
+
+        // Every native read is an RPC POST too, so only the contact command is redirected.
+        if (
+          redirectContact &&
+          body !== undefined &&
+          rpcTagOf(Buffer.from(body).toString("utf8")) === "contact.submitContactMessage"
+        ) {
           return new Response(null, { status: 307, headers: { location: redirectOrigin } });
         }
 
@@ -282,7 +303,7 @@ try {
 headers: request.headers,
 redirect: "manual" };
 
-if (!(["GET", "HEAD"].includes(request.method))) Object.assign(requestOptions1, { body: await request.arrayBuffer() });
+if (body !== undefined) Object.assign(requestOptions1, { body });
 const response = await fetch(url, requestOptions1);
 
         workerOutbound.push({
@@ -377,19 +398,48 @@ const response = await mf.dispatchFetch(`http://p000.vektor.phibkro.org${req.url
   await listen(ingress, ingressPort);
   const origin = `http://127.0.0.1:${ingressPort}`;
 
+  /** One RPC request message, as the JSON serialization of the RPC client writes it. */
+  const RpcRequest = Schema.TaggedStruct("Request", {
+    id: Schema.String,
+    tag: Schema.String,
+    payload: Schema.Json,
+    headers: Schema.Array(Schema.Tuple([Schema.String, Schema.String])),
+  });
+
   const headers = (ip, token = tokens.backend) => ({
     "content-type": "application/json",
     "x-vektor-contact-ip": ip,
     "x-vektor-contact-backend": token,
   });
 
-  const post = (payload = message, ip = "192.0.2.1", token = tokens.backend) =>
-    fetch(`${backendOrigin}/api/contact-messages`, {
+  /**
+   * Sends one `contact.submitContactMessage` RPC as the homepage server does, in the JSON wire
+   * format of the RPC client, and answers the status of its outcome under the HTTP contract: 200
+   * for a success, the problem's own status for a declared problem, and 500 for a defect, which is
+   * how the RPC server answers a payload that fails the contract schema.
+   */
+  const post = async (payload = message, ip = "192.0.2.1", token = tokens.backend) => {
+    const response = await fetch(`${backendOrigin}/api/rpc`, {
       method: "POST",
       headers: headers(ip, token),
-      body: JSON.stringify(payload),
+      body: JSON.stringify(
+        RpcRequest.make({ id: "0", tag: "contact.submitContactMessage", payload, headers: [] }),
+      ),
       redirect: "error",
     });
+
+    if (response.status !== 200) return { status: response.status };
+
+    const exit = (await response.json()).find(Predicate.isTagged("Exit"))?.exit;
+
+    if (Predicate.isTagged(exit, "Success")) return { status: 200 };
+
+    const failure = exit?.cause.find(Predicate.isTagged("Fail"));
+
+    return failure === undefined
+      ? { status: 500, code: "defect" }
+      : { status: failure.error.status, code: failure.error.code };
+  };
 
   const count = async () =>
     Number(
@@ -412,9 +462,11 @@ const response = await mf.dispatchFetch(`http://p000.vektor.phibkro.org${req.url
   checkpoint(
     "wrong/missing/wrong-hop credential and noncanonical identity reject before quota/delivery",
   );
-  assert.equal((await post({ ...message, email: "invalid" })).status, 422);
-  assert.equal((await post({ ...message, to: "attacker@example.org" })).status, 422);
-  assert.equal((await post({ ...message, message: "x".repeat(70_000) })).status, 413);
+  // The RPC server decodes the payload before any handler, so a message that fails the contract
+  // schema is a defect of that request, and consumes no quota. An extra member such as `to` is
+  // stripped by the decoding rather than rejected; the recipient stays the department's.
+  assert.equal((await post({ ...message, email: "invalid" })).status, 500);
+  assert.equal((await post({ ...message, message: "x".repeat(70_000) })).status, 500);
   assert.equal(await count(), 0);
 
   for (const departmentId of ["unknown", "contact-inactive", "contact-invalid-email"]) {
@@ -446,10 +498,10 @@ const response = await mf.dispatchFetch(`http://p000.vektor.phibkro.org${req.url
   records.length = 0;
   checkpoint("fixed expiry does not slide and expired window resets");
   const concurrent = await Promise.all(Array.from({ length: 12 }, () => post()));
-  assert.equal(concurrent.filter((r) => r.status === 201).length, 5);
+  assert.equal(concurrent.filter((r) => r.status === 200).length, 5);
   assert.equal(concurrent.filter((r) => r.status === 429).length, 7);
   assert.equal(records.length, 5);
-  assert.equal((await post(message, "192.0.2.2")).status, 201);
+  assert.equal((await post(message, "192.0.2.2")).status, 200);
   await clear();
   checkpoint("atomic concurrency admits5/rejects7; separate visitor has quota");
   mode = "reject";
@@ -512,12 +564,11 @@ const response = await mf.dispatchFetch(`http://p000.vektor.phibkro.org${req.url
   };
 
   const axe = async (label) => {
-    const result = await new AxeBuilder({ page })
-      .include('nav[aria-label="Velg avdeling"]')
-      .include("main")
-      .analyze();
+    const result = await auditSettledPage(page, {
+      include: ['nav[aria-label="Velg avdeling"]', "main"],
+    });
 
-    assert.deepEqual(result.violations, [], `axe ${label}`);
+    assert.deepEqual(result, [], `axe ${label}`);
   };
 
   await axe("initial");

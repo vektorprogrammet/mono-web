@@ -1,0 +1,746 @@
+# RPC only
+
+Status: in progress (2026-09-28), on branch `refactor/rpc-only`, cut from `6979637`
+(`refactor/authz-evidence-organization`). The operator decided to delete the HttpApi contract, the
+generated SDK, and OpenAPI, and to serve every native operation as an Effect RPC.
+
+Remove this specification when every operation below is ported or recorded as dropped, the
+journeys pass, and `docs/architecture.md`, `docs/system.md`, and `AGENTS.md` describe RPC.
+
+## What stays HTTP
+
+- Better Auth `/api/auth/*` and the OAuth2 routes: HTTP by protocol.
+- `GET /health`: infrastructure probes it. `router.ts` serves it without RPC.
+- The ingress in `apps/backend/src/router.ts`: trusted origins, CORS, and the OAuth gatekeeping
+  wrap the RPC endpoint exactly as they wrapped the HttpApi routes.
+
+## The HTTP contract to port
+
+The deleted files are at the base commit. Read them with
+`git show 6979637:<path>`: the contract in `packages/http-api/src/<context>.ts`, the handlers in
+`apps/backend/src/<context>/http*.ts`, the endpoint tests in `*.http.test.ts` and `*/http.test.ts`,
+the backend harness `apps/backend/src/test/native-http.ts`, and the SDK in `packages/sdk`.
+Port the behavior; do not rewrite it from memory.
+
+## Conventions
+
+The precedent is social events, ported end to end: the contract
+`packages/rpc/src/social-events.ts`, the handlers `apps/backend/src/social-events/rpc.ts`, and the
+dashboard bridge `apps/dashboard/app/routes/__foldkit.social-events.ts`. Copy its shape.
+
+- **Tag.** The RPC tag is the old operation ID (`social-events.create`). Command receipts store it.
+- **Payload.** Path, query, and body fields become one payload struct. A replayable command takes
+  `idempotencyKey: IdempotencyKey`; the old body is its `request` field. An If-Match precondition
+  becomes `ifMatch: StrongETag`, compared inside the committing transaction as before.
+- **ETags.** A success that carried an ETag header that a later RPC takes as `ifMatch` returns it
+  as a field beside the resource. Derive it exactly as the handler did.
+- **Conditional reads.** `If-None-Match` and 304 are dropped. Record each in the checklist.
+- **Errors.** Each RPC declares `error: rpcProblems(<Operation>Problem)`. Drop the codes that only
+  HTTP parsing produced: `request.malformed`, `header.malformed`, `origin.denied`,
+  `request.too-large`, `media-type.unsupported`, `idempotency-key.invalid`,
+  `precondition.required`, `method.not-allowed`. Keep `credential.missing` and
+  `credential.invalid` when the handler re-resolves the credential in its transaction.
+  `packages/rpc/src/endpoint-problems.ts` still holds the old unions to start from.
+- **Structural validation.** A payload that does not decode fails in the RPC server before the
+  handler, not as `validation.failed` with pointers. Semantic validation stays `validation.failed`.
+  Record each UI that showed field errors from schema decoding.
+- **Credentials.** The RPC takes the middleware of its old security: `PersonCredential`,
+  `SessionCredential`, `PersonOrServiceCredential`, `InvitationCapabilityCredential` (the
+  capability moves into the payload), or `ContactBackendCredential`. The handler still resolves the
+  credential and the authority inside its transaction, from the `headers` its options carry,
+  through `credentialRequestOf(headers)`.
+- **AccessSpec.** `.pipe(withAccessSpec(...))` on the RPC; the handler evaluates it with
+  `authorizePerson(..., personPresentation(headers))` and `reflectAccessSpec(<Rpc>)`.
+- **Command receipts.** `executeNativeHttpCommandPostgres` stays. `execute` ends with
+  `successCapsule(<SuccessSchema>)`, and the handler answers `commandOutcome(<SuccessSchema>)`.
+  `commandIdentity` takes the old HTTP route path as `normalizedTarget`, so receipts and domain
+  command IDs of commands that straddle the cutover stay stable.
+- **Defects.** Every RPC runs inside `ProblemBoundary`: a defect is reported and answered
+  `internal.error`. Do not catch defects in a handler.
+- **Handlers.** Each context exports `<Group>RpcHandlers(options: NativeRpcOptions)` from its
+  `rpc.ts`. `router.ts` already lists every one; do not edit it.
+- **Re-exports.** A contract re-exports only the schemas its own RPCs use. Clients import other
+  domain values from `@vektorprogrammet/domain`.
+- **Clients.** The dashboard server calls `callNative(cookie, request, (client) => ...)` from
+  `apps/dashboard/app/lib/api.server.ts`. Journey drivers and probes use `nativeScriptClient` from
+  `@vektorprogrammet/rpc/script`, whose results keep the registry status of each problem. Backend
+  tests use `makeBackendTestRpc` from `apps/backend/src/test/native-rpc.ts`.
+- **Files.** Uploads and downloads travel as bytes in the payload (`Schema.Uint8Array`) on the JSON
+  endpoint, where the dashboard server relays them. If a browser needs a direct URL, or JSON size
+  is a problem, record it; `RpcSerialization.layerSchemaBinary` exists and would need its own path.
+
+## Lint policy
+
+Every Effect language-service rule that `@effect/tsgo` ships is an error, except in
+`apps/homepage` and `apps/dashboard` (recommended and correctness only), and
+`strict-effect-provide` at the entry points that `oxlint.config.ts` declares
+(`tools/conventions/tests/oxlint-groups.test.ts` guards both). Every file a worker creates or
+changes lints clean: `bun x oxlint --threads=2 <files>`. The rules ship no autofix through Oxlint.
+
+- `missing-pipeable-signature`: give an exported function of two or more parameters a pipeable
+  form with `dual` from `effect/Function`, typed as an overload pair (precedent:
+  `backendHttpHandler` in `apps/backend/src/router.ts`). With optional trailing parameters,
+  use the predicate form `dual((args) => <first argument is the data>, impl)`, or take one named
+  options interface instead (precedent: `makeBackendTestRpc`, `ExternalNativeRpcRouterLive`).
+- `new-schema-class`: `X.make(...)`, not `new X(...)`, for Schema classes and tagged errors.
+- `strict-boolean-expressions`: compare explicitly (`!== undefined`, `.length > 0`,
+  `Option.isSome`), never rely on truthiness.
+- `schema-struct-with-tag`, `prefer-typed-schema-decoder`, `unnecessary-arrow-block`,
+  `deterministic-keys`, `nested-effect-gen-yield`: follow the rule's message; each has one form.
+- A suppression needs its entry in `docs/effect-exceptions.json`; prefer the fix.
+
+## Effect lookup order
+
+Before writing Effect code, read in this order, and check every API against the installed source:
+
+1. `node_modules/effect/AGENTS.md` and the `ai-docs` examples it links.
+2. `.agents/skills/effect-house/SKILL.md` and its `references/`.
+3. The official repository at the installed release, outside this repository:
+   `/home/claude/reference/effect-4.0.0-rc.116` (`LLMS.md`, and for RPC
+   `packages/effect/test/rpc/*.test.ts`). It is a reference, not a dependency.
+4. The installed source under `node_modules/effect/src` is the authority.
+
+## Missing capabilities
+
+Record here every behavior of the HTTP contract that RPC does not provide, with the operation and
+what a client loses.
+
+- `If-None-Match` and 304 on 13 reads: a client re-reads the full resource.
+- OpenAPI: third-party OAuth clients (82 operations accept an OAuth user bearer) lose a
+  machine-readable contract and must speak the Effect RPC wire protocol.
+
+## Checklist
+
+Mark an operation `ported` when its RPC, handler, client callers, and tests exist, or `dropped`
+with the reason in Missing capabilities.
+
+### admissionOutcomes (`packages/rpc/src/admission-outcomes.ts`)
+
+| RPC tag | Replaces | Transport facts | Credentials | Status |
+| --- | --- | --- | --- | --- |
+| `admissionOutcomes.listScopes` | GET `/api/admission-outcomes/scopes` | - | cookieHeader, oauthUserBearer | ported |
+| `admissionOutcomes.readOutcome` | GET `/api/admission-outcomes/{applicationId}` | ifMatch; if-none-match (dropped) | cookieHeader, oauthUserBearer | ported |
+| `admissionOutcomes.readOutcomes` | GET `/api/admission-outcomes` | query: departmentId, semesterId | cookieHeader, oauthUserBearer | ported |
+| `admissionOutcomes.recordOutcome` | POST `/api/admission-outcomes/{applicationId}:record` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+
+Notes:
+
+- The four RPCs keep the old operation IDs as tags and the old routes as `normalizedTarget`.
+  `recordOutcome` still takes `DepartmentReach<"admissions.outcomes">` from the application's own
+  department; another department's application answers authority.denied before any write
+  (`apps/backend/src/admission/outcome.rpc.test.ts`).
+- Dropped: `If-None-Match` and 304 on `readOutcome`, and its `ETag` header; the resource keeps
+  `etag`. `precondition.required`: the payload requires `ifMatch`.
+- A command whose outcome does not decode, or that lacks `ifMatch`, fails in the RPC server as a
+  defect instead of validation.failed or precondition.required. An unknown member of the command
+  is dropped, not answered validation.failed. `dashboard.vikarer` decodes its form itself, so no
+  field error is lost.
+
+### admissions (`packages/rpc/src/admissions.ts`)
+
+| RPC tag | Replaces | Transport facts | Credentials | Status |
+| --- | --- | --- | --- | --- |
+| `admissions.createAdmissionPeriod` | POST `/api/admission-periods` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `admissions.listAdmissionPeriods` | GET `/api/admission-periods` | ifMatch; if-none-match (dropped) | cookieHeader, oauthUserBearer | ported |
+| `admissions.listApplicationOptions` | GET `/api/application-options` | ifMatch; if-none-match (dropped) | none | ported |
+| `admissions.listOpenAdmissionPeriods` | GET `/api/open-admission-periods` | ifMatch; if-none-match (dropped) | none | ported |
+| `admissions.readApplicantProgress` | GET `/api/applicant-progress` | - | cookieHeader, oauthUserBearer | ported |
+| `admissions.readApplicationConfirmation` | GET `/api/applications/{applicationId}` | - | none | ported |
+| `admissions.readReturningAssistantOptions` | GET `/api/returning-assistant/options` | - | cookieHeader, oauthUserBearer | ported |
+| `admissions.registerReturningAssistant` | POST `/api/returning-assistant/registrations` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `admissions.reviseAdmissionPeriod` | PATCH `/api/admission-periods/{admissionPeriodId}` | idempotencyKey; ifMatch; merge patch | cookieHeader, oauthUserBearer | ported |
+| `admissions.submitApplication` | POST `/api/applications` | idempotencyKey | none | ported |
+
+Notes:
+
+- The ten RPCs keep the old operation IDs as tags and the old routes as `normalizedTarget`, so
+  command receipts and command IDs that straddle the cutover stay stable.
+- Dropped on `listOpenAdmissionPeriods` and `listApplicationOptions`: the public `Cache-Control`
+  (a `max-age`/`s-maxage` of at most 30 s, bounded by the next window boundary), the collection
+  `ETag`, and `If-None-Match`/304. A CDN or browser no longer caches the public catalog.
+- Dropped on `listAdmissionPeriods`: the collection `ETag` and `If-None-Match`/304. Each item
+  keeps its `etag`, which `reviseAdmissionPeriod` takes as `ifMatch`.
+- Commands answer 200, not 201, and carry no `Location` or `ETag` header. The period item carries
+  its `etag`; the application confirmation and the returning registration had no body tag, so a
+  client that read their `ETag` header loses it.
+- A payload that does not decode fails in the RPC server as a defect, before the handler, instead
+  of validation.failed with a pointer per rejected member, and an unknown member is dropped
+  instead of rejected. The homepage application form and the dashboard period and returning
+  forms decode the same schemas before they call, so they lose no field error; a third-party
+  client does. Semantic validation (an unknown department or semester, a missing department of a
+  global administrator, the merge-patch no-change and field-not-deletable rules) still answers
+  validation.failed with its pointer.
+- `request.too-large` is gone: `ADMISSION_MAX_BODY_BYTES` (16 KiB) no longer bounds admission
+  payloads, and neither `router.ts` nor the session boundary bounds the RPC body. The payload
+  schemas still bound each field, but only after the whole body is read and parsed.
+- `rate-limit.exceeded` and 503 problems no longer carry `Retry-After`: the RPC problem encodes
+  the body only. The public rate limit is consumed after the payload decodes, not before.
+- `reviseAdmissionPeriod` answers an identifier that no path can spell with validation.failed at
+  `/admissionPeriodId` instead of request.malformed.
+- Callers outside this slice's files were ported at their call sites only:
+  `apps/dashboard/e2e/native-placement.spec.ts`, `native-recruitment-interview-conduct.spec.ts`,
+  `tools/e2e/placement-check.ts`, `tools/acceptance/onboarding-check.ts`, and
+  `recommendation-check.ts`.
+
+### certificates (`packages/rpc/src/certificates.ts`)
+
+| RPC tag | Replaces | Transport facts | Credentials | Status |
+| --- | --- | --- | --- | --- |
+| `certificates.confirmDaysServed` | POST `/api/departments/{departmentId}/semesters/{semesterId}/days-served/{personId}` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+| `certificates.issueCertificate` | POST `/api/departments/{departmentId}/certificates/{personId}/issues` | idempotencyKey; ifMatch; binary application/pdf | cookieHeader, oauthUserBearer | ported |
+| `certificates.listCertificates` | GET `/api/departments/{departmentId}/certificates` | query: cursor | cookieHeader, oauthUserBearer | ported |
+| `certificates.listDaysServed` | GET `/api/departments/{departmentId}/semesters/{semesterId}/days-served` | query: cursor | cookieHeader, oauthUserBearer | ported |
+| `certificates.readCertificate` | GET `/api/departments/{departmentId}/certificates/{personId}` | - | cookieHeader, oauthUserBearer | ported |
+| `certificates.readCertificateScopes` | GET `/api/certificate-scopes` | - | cookieHeader, oauthUserBearer | ported |
+
+Notes (certificates):
+
+- The six RPCs keep the old operation IDs as tags. Each command's `normalizedTarget` is the old
+  route template filled with its path members, and its domain command ID is still the receipt
+  identity digest, so receipts and commands that straddle the cutover stay stable.
+- Evidence is unchanged: `confirmDaysServed` takes `DaysServedConfirmationAuthorization` and
+  `issueCertificate` takes `CertificateIssueAuthorization`, each resolved in the committing
+  transaction before the receipt lookup; a seat that ended cannot replay a stored issue
+  (`apps/backend/src/placements/certificates-rpc.test.ts`). The handlers provide
+  `CertificateFontsLive` themselves, so the fonts still load once, when the handlers are built.
+- `issueCertificate` answers the PDF as `CertificatePdf` (`Schema.Uint8Array`) in the success. On
+  the JSON serialization the bytes travel as base64 inside the RPC response, about 4/3 of the PDF
+  plus the envelope, buffered whole on both sides; the answer has no `application/pdf` media type,
+  no `ETag` (it equaled the `ifMatch` the client sent), and no URL a browser can download. A
+  client that shows the PDF must relay the bytes itself. No dashboard route, journey, or probe
+  called any certificate operation at the base commit, so no relay route exists yet. The receipt
+  still stores the PDF bytes with `application/pdf` and the certificate tag, and a replay answers
+  the same bytes.
+- `listDaysServed` and `listCertificates` keep `request.malformed` for a cursor that passes
+  `AssistantCursor` but names no position (`CertificateInvalidCursor`, the domain's own answer).
+  An unknown or repeated query member answered `request.malformed` before; the typed payload
+  cannot carry one.
+- A `confirmDaysServed` total that fails `DaysServedTotal` answered validation.failed at `/total`;
+  the RPC server now fails that payload as a defect, and the 1 KiB body bound is gone. Reads lose
+  `Cache-Control: private, no-store` and `Vary: Origin`.
+
+### contact (`packages/rpc/src/contact.ts`)
+
+| RPC tag | Replaces | Transport facts | Credentials | Status |
+| --- | --- | --- | --- | --- |
+| `contact.submitContactMessage` | POST `/api/contact-messages` | contact ip header | contactBackend | ported |
+
+Notes (contact):
+
+- The visitor address still travels in the `x-vektor-contact-ip` header, now as a header of the RPC
+  message beside the deployment secret; the handler decodes it and answers `header.malformed` for a
+  noncanonical address, before quota. The per-visitor quota (five attempts per fixed hour) is kept.
+- A message that fails the `ContactMessage` schema no longer answers `validation.failed`: the RPC
+  server fails the request as a defect before the handler, and no quota is consumed. The homepage
+  decodes the form with the same schema first, so its form still shows its own message.
+- An extra member, such as an injected `to`, is stripped by the payload decoding instead of rejected;
+  the recipient stays the department's address. `request.too-large` (64 KiB body limit) is gone.
+- `rate-limit.exceeded` no longer carries `Retry-After`; success answers no value instead of 201.
+
+### content (`packages/rpc/src/content.ts`)
+
+| RPC tag | Replaces | Transport facts | Credentials | Status |
+| --- | --- | --- | --- | --- |
+| `content.createArticle` | POST `/api/content/articles` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `content.listNews` | GET `/api/news` | ifMatch; if-none-match (dropped); query: department | none | ported |
+| `content.publishArticle` | POST `/api/content/articles/{articleId}:publish` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+| `content.readArticle` | GET `/api/content/articles/{articleId}` | ifMatch; if-none-match (dropped) | cookieHeader, oauthUserBearer | ported |
+| `content.readContentWorkspace` | GET `/api/content/articles` | query: department | cookieHeader, oauthUserBearer | ported |
+| `content.readNewsArticle` | GET `/api/news/{slug}` | ifMatch; if-none-match (dropped); query: version | none | ported |
+| `content.reviseArticle` | PATCH `/api/content/articles/{articleId}` | idempotencyKey; ifMatch; merge patch | cookieHeader, oauthUserBearer | ported |
+| `content.unpublishArticle` | POST `/api/content/articles/{articleId}:unpublish` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+
+Notes (content):
+
+- The eight RPCs keep the old operation IDs as tags and the old routes as `normalizedTarget`
+  (`/api/content/articles`, `/api/content/articles/{articleId}`, and its `:publish` and
+  `:unpublish` forms). Each command's receipt keeps the HTTP capsule (a new draft: 201 with
+  `location` and `etag`; otherwise 200 with `etag`), and a replay decodes it, so a retry that
+  straddles the cutover answers its first response. The RPCs answer `ContentArticleResource`
+  (`{ article, etag }`) or `{ result, etag }`; the `etag` field replaces the `ETag` header, and
+  `reviseArticle`, `publishArticle`, and `unpublishArticle` take it as `ifMatch`.
+- Authority is unchanged: a command resolves the credential, the organization authority, and the
+  content actor inside its serializable transaction, evaluates its AccessSpec there with the
+  content grant scope, and compares `ifMatch` in `execute`, after the receipt lookup. The database
+  adapter still resolves content authority itself before it writes
+  (`apps/backend/src/content/rpc.test.ts`, on PostgreSQL). The handler's content actor check
+  (`resolveContentActor`) is kept. It denies the same persons that the adapter's own resolution
+  denies, but something observable depends on it: a read answers an unavailable Organization
+  projection as internal.error before any content read, where the adapter would answer
+  content.unavailable. In a command it reuses the authority that the transaction already resolved,
+  so it costs no query.
+- Public reads stay anonymous and evaluate their AccessSpec with `authorizeAnonymous`. Dropped on
+  `listNews` and `readNewsArticle`: the public `Cache-Control` (`public, max-age=60,
+  s-maxage=300, must-revalidate`), the `ETag`, `If-None-Match`/304, and the read-side `If-Match`
+  (412). A CDN or browser no longer caches news; every homepage render reaches the backend, as its
+  loaders already read fresh per render. The handlers no longer read the HTTP entity-tag sources of
+  the news tables.
+- Dropped on `readArticle`: `If-None-Match`/304 and the read-side `If-Match`; the resource keeps
+  `etag`. Staff reads and commands lose `Cache-Control: private, no-store`/`no-store`; commands
+  answer 200 instead of 201 and carry no `Location` or `ETag` header.
+- Dropped codes that only HTTP parsing produced: `request.malformed` (a query member other than
+  `department` or `version`, a slug that is no `ArticleSlug`), `header.malformed`, `origin.denied`,
+  `idempotency-key.invalid`, `request.too-large` (the 1 MiB content body bound),
+  `media-type.unsupported` (`application/merge-patch+json` for revisions), `precondition.required`,
+  `precondition.invalid`, and `validation.failed`, which only body decoding produced. Also dropped:
+  `dependency.unavailable`, which no content handler produced. The staff RPCs declare
+  `credential.missing` and `credential.invalid`, since each handler resolves the person again.
+- Structural validation moved to the RPC server: a draft or merge patch whose fields fail their
+  schemas, repeated department identifiers, a slug that is no `ArticleSlug`, or a version below 1
+  now fail as a defect (internal.error) instead of validation.failed or request.malformed, and an
+  unknown merge-patch member is stripped instead of answered validation.failed. The merge-patch
+  rules stay: no member answers validation.no-change, a `null` member
+  validation.field-not-deletable. The dashboard content bridge decodes `ContentBridgeActionSchema`
+  (the same field schemas) before it calls, so no UI loses a field error.
+- Clients: the dashboard bridge `routes/__foldkit.content.ts` calls the RPCs through `callNative`
+  (the Foldkit browser client still talks to the bridge; publish and unpublish still read the
+  current tag first). The homepage news loaders call `callHomepageNative`, and
+  `apps/homepage/src/lib/api-types.ts` takes the news types from the contract. The journey spec
+  posts its direct denial probes as RPCs from the page and records each RPC's tag and payload
+  facts; `run-real-native-content-publication.mjs` names each RPC by the route it replaced, forces
+  the first `content.readContentWorkspace` as a content.unavailable exit, and no longer builds the
+  deleted `packages/sdk`. The journey was ported for compilation only and not run.
+- `apps/homepage/vite-digests.ts` still labels the news routes `native-backend:/api/news`: a
+  projection-manifest source label, not a call, left as the other slices left theirs.
+
+### directory (`packages/rpc/src/directory.ts`)
+
+| RPC tag | Replaces | Transport facts | Credentials | Status |
+| --- | --- | --- | --- | --- |
+| `directory.executeSchoolCommand` | POST `/api/schools/commands` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `directory.listPeople` | GET `/api/people` | - | cookieHeader, oauthUserBearer | ported |
+| `directory.listSchools` | GET `/api/schools` | query: department | cookieHeader, oauthUserBearer | ported |
+| `directory.readSchoolManagement` | GET `/api/schools/management` | - | cookieHeader, oauthUserBearer | ported |
+
+Notes (directory):
+
+- `directory.listPeople` drops `directory.cursor-malformed`: only a query string produced it, and
+  the RPC takes no payload.
+- `directory.listSchools` takes `{ departmentId? }` (`SchoolDirectoryQuerySchema`). An unknown,
+  duplicate, or empty department parameter answered `request.malformed` before authentication; the
+  typed client cannot send one now, and a hand-built payload fails in the RPC server as a defect.
+- `directory.readSchoolManagement` and `directory.executeSchoolCommand` lose their private
+  `Cache-Control` and the command's ETag header; no RPC took that ETag as `ifMatch`. The command's
+  `commandId` must still equal its idempotency key (`idempotency.digest-conflict`).
+- The dashboard Foldkit schools client calls these RPCs from the browser through
+  `apps/dashboard/app/lib/browser-native.ts`. The RPC client dies on an answer that does not fit the
+  contract; that helper turns such a defect into the typed `NativeAnswerInvalid` failure, so the
+  view shows its failure message as it did for a malformed HTTP body.
+- `apps/dashboard/e2e/run-real-native-schools-directory.mjs` records each RPC with the registry
+  status of its exit, and forces its one upstream failure as a `schools.unavailable` exit.
+
+### internal (`packages/rpc/src/receipts.ts (InternalReceiptsRpcs)`)
+
+| RPC tag | Replaces | Transport facts | Credentials | Status |
+| --- | --- | --- | --- | --- |
+| `receipts.readReceiptEvidence` | GET `/api/receipt-lifecycle-evidence-records/{receiptId}` | - | cookieHeader | ported |
+
+Notes (internal):
+
+- `InternalNativeRpcRouterLive` alone serves it, at `internalNativeRpcPath`; `NativeRpcs` has no
+  such tag. It keeps `SessionCredential`, the internal AccessSpec, and its evaluation in one
+  repeatable-read snapshot; a bearer answers credential.invalid. The shared client and script
+  client build only `NativeRpcs`, so `receipts.spec.ts` posts the RPC to the internal path with
+  `apps/dashboard/e2e/receipt-rpc.ts`, and `apps/backend/src/receipt/rpc.test.ts` serves the
+  internal router itself.
+
+### onboarding (`packages/rpc/src/onboarding.ts`)
+
+| RPC tag | Replaces | Transport facts | Credentials | Status |
+| --- | --- | --- | --- | --- |
+| `onboarding.claim` | POST `/api/onboarding/claim` | - | cookieHeader | ported |
+| `onboarding.command` | POST `/api/onboarding` | idempotencyKey; ifMatch; query: departmentId | cookieHeader, oauthUserBearer | ported |
+| `onboarding.readBoard` | GET `/api/onboarding` | query: departmentId | cookieHeader, oauthUserBearer | ported |
+
+Notes (onboarding):
+
+- The three RPCs keep the old operation IDs as tags. `onboarding.command` keeps
+  `/api/onboarding/{departmentId}` as its normalized target and digests the command's JSON with its
+  `ifMatch`, as the HTTP handler did; its receipt keeps the HTTP capsule (resource body, `etag`
+  header). The command still takes `DepartmentReach<"admissions.outcomes">` (the coordinator) as
+  evidence, resolved in the committing transaction (`apps/backend/src/onboarding/claim.rpc.test.ts`).
+- `onboarding.readBoard` and `onboarding.command` take `{ departmentId }` in the payload; the
+  command also takes `idempotencyKey`, `ifMatch`, and `request` (the command). Both answer
+  `OnboardingResource`, the board with its `etag`, as before; the command's `ETag` header is gone.
+- `onboarding.claim` has no credential middleware, as the HTTP route had no security scheme: the
+  handler answers credential.missing or credential.invalid itself. A new-account claim with a
+  cookie or bearer beside its token answers credential.invalid; an existing-account claim takes the
+  browser session and refuses a delegated bearer. Credential problems carry no `WWW-Authenticate`
+  challenge over RPC.
+- Dropped: `validation.failed` from decoding the claim or the command (a payload that does not
+  decode now fails in the RPC server as a defect), `request.malformed`, `request.too-large`
+  (8 KiB body bound), `media-type.unsupported`, `precondition.required`, `precondition.invalid`,
+  and `idempotency-key.invalid`. The dashboard's onboarding and account-claim forms decode the same
+  schemas before they call, so no field error is lost.
+- `apps/dashboard/app/routes/dashboard.onboarding.tsx` reads `placements.listScopes` for its
+  department list; that RPC belongs to the placements slice and does not type-check until it lands.
+
+### organization (`packages/rpc/src/organization.ts`)
+
+| RPC tag | Replaces | Transport facts | Credentials | Status |
+| --- | --- | --- | --- | --- |
+| `organization.createDepartment` | POST `/api/departments` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `organization.createFieldOfStudy` | POST `/api/field-of-studies` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `organization.createTeam` | POST `/api/teams` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `organization.executeDelegation` | POST `/api/organization/delegations/commands` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `organization.executeLifecycle` | POST `/api/organization/appointments/commands` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `organization.listDepartments` | GET `/api/departments` | ifMatch; if-none-match (dropped) | none | ported |
+| `organization.listFieldOfStudies` | GET `/api/field-of-studies` | ifMatch; if-none-match (dropped) | none | ported |
+| `organization.listMailingLists` | GET `/api/mailing-lists` | query: department, semester, type | cookieHeader, oauthUserBearer | ported |
+| `organization.listTeamInterest` | GET `/api/team-interest-registrations` | query: department, semester | cookieHeader, oauthUserBearer | ported |
+| `organization.listTeams` | GET `/api/teams` | ifMatch; if-none-match (dropped) | none | ported |
+| `organization.readAppointmentManagement` | GET `/api/organization/appointments` | - | cookieHeader, oauthUserBearer | ported |
+| `organization.readBoardRosters` | GET `/api/organization/board-rosters` | - | cookieHeader, oauthUserBearer | ported |
+| `organization.readDelegationManagement` | GET `/api/organization/delegations` | - | cookieHeader, oauthUserBearer | ported |
+
+Notes (organization):
+
+- `listDepartments`, `listTeams`, `listFieldOfStudies` lose `If-None-Match`/304, their ETags, and
+  their public `Cache-Control` (`public, max-age=60, s-maxage=300`): an RPC is a POST that no shared
+  cache stores, so every read reaches the backend. No RPC took those ETags as `ifMatch`.
+- The three create commands answer 200 with the resource instead of 201 with `Location` and ETag;
+  `executeLifecycle` and `executeDelegation` lose their ETag header. No RPC took those ETags as
+  `ifMatch`. Receipts keep the old route paths as normalized targets, so a replay across the cutover
+  answers the stored resource.
+- Structural validation moved to the RPC server: a command body that is not JSON, of another media
+  type, or larger than `ORGANIZATION_MAX_BODY_BYTES` answered `validation.failed` or
+  `request.too-large`; a payload that does not decode now fails before the handler, and the per
+  operation body bound no longer applies (the config is still decoded, and unused). An excess
+  property, such as `actorRole`, was rejected with `validation.failed`; the RPC payload schema now
+  drops it. No dashboard form showed field pointers from these failures.
+- `listTeamInterest` takes `{ departmentId?, semesterId? }` and `listMailingLists` takes
+  `{ departmentId?, semesterId?, type? }`. A malformed identifier or an unknown list type answered
+  `request.malformed` 400; the typed client cannot send one now.
+- `executeLifecycle` and `executeDelegation` keep their rule that the command's `commandId` equals
+  its idempotency key.
+- The Foldkit organization catalogs and the appointment and delegation management call these RPCs
+  from the browser through `apps/dashboard/app/lib/browser-native.ts`; the catalog's 304 failure is
+  gone.
+- `run-real-native-organization-administration.mjs` and the organization import rehearsal record
+  each RPC as the route that it replaced, so their receipts and evidence keep those names; they now
+  also read `system.readSession` and `profile.readOwnProfile` of other slices.
+- Callers left in files that other slices own, for their owners or the lead:
+  `apps/dashboard/app/routes/__foldkit.content.ts` (`listDepartments`), its
+  `foldkit/content/bridge-route.test.ts` and `apps/homepage/test/{news,contact-message}.test.ts`
+  (fetch mocks of `/api/departments`), `apps/dashboard/e2e/golden-team-application-browser.ts`
+  (`executeLifecycle`), and `tools/e2e/legacy-candidate-native-journey.ts` (`listMailingLists`,
+  on the deleted `ExternalNativeApiRouterLive`).
+
+### placements (`packages/rpc/src/placements.ts`)
+
+| RPC tag | Replaces | Transport facts | Credentials | Status |
+| --- | --- | --- | --- | --- |
+| `placements.commandBoard` | POST `/api/placements` | idempotencyKey; ifMatch; query: departmentId, semesterId | cookieHeader, oauthUserBearer | ported |
+| `placements.commandCoverageBoard` | POST `/api/placements/coverage` | idempotencyKey; ifMatch; query: departmentId, semesterId | cookieHeader, oauthUserBearer | ported |
+| `placements.commandOwnAffiliation` | POST `/api/placements/affiliation` | idempotencyKey; ifMatch; query: departmentId | cookieHeader, oauthUserBearer | ported |
+| `placements.commandOwnCoverage` | POST `/api/placements/coverage/own` | idempotencyKey; ifMatch; query: departmentId, semesterId | cookieHeader, oauthUserBearer | ported |
+| `placements.listScopes` | GET `/api/placements/scopes` | - | cookieHeader, oauthUserBearer | ported |
+| `placements.readBoard` | GET `/api/placements` | query: departmentId, semesterId | cookieHeader, oauthUserBearer | ported |
+| `placements.readCoverageBoard` | GET `/api/placements/coverage` | query: departmentId, semesterId | cookieHeader, oauthUserBearer | ported |
+| `placements.readDraft` | GET `/api/placements/draft` | query: departmentId, semesterId | cookieHeader, oauthUserBearer | ported |
+| `placements.readOwnAffiliation` | GET `/api/placements/affiliation` | query: departmentId | cookieHeader, oauthUserBearer | ported |
+| `placements.readOwnCoverage` | GET `/api/placements/coverage/own` | query: departmentId, semesterId | cookieHeader, oauthUserBearer | ported |
+
+Notes (placements):
+
+- The ten RPCs keep the old operation IDs as tags. Each command's `normalizedTarget` is the target
+  the HTTP handler filled from its query scope (`/api/placements/{departmentId}/{semesterId}`,
+  `/api/placements/affiliation/{departmentId}`, `/api/placements/coverage/{departmentId}/{semesterId}`,
+  and `/api/placements/coverage/own/{departmentId}/{semesterId}`), and the domain command ID is
+  still the receipt identity digest.
+- Evidence is unchanged: `commandBoard` and `commandCoverageBoard` take
+  `DepartmentReach<"placements.coordinate">` in `PlacementExecution`, and `commandOwnAffiliation`
+  and `commandOwnCoverage` run as the resolved person, all inside the committing transaction
+  (`apps/backend/src/placements/rpc.test.ts`). Each snapshot keeps its `etag`, derived from the
+  whole snapshot as before; the draft keeps `boardEtag`.
+- One problem union per kind replaces `PlacementProblem`: `PlacementsReadProblem` and
+  `PlacementsCommandProblem`. Dropped: `precondition.required` (the payload requires `ifMatch`),
+  `request.malformed` for an unknown or repeated query member, `request.too-large` (the 8 KiB body
+  bound), `media-type.unsupported`, `precondition.invalid`, `idempotency-key.invalid`,
+  `header.malformed`, and `validation.failed`, which only body and query decoding produced: such a
+  payload now fails in the RPC server as a defect. `dashboard.assistenter` decodes every command
+  with the same schemas before it calls, so it loses no field error.
+- The request digest covers the command encoded by its schema rather than the parsed body, which
+  is the same JSON for any body the schema accepts without excess members. New receipts store the
+  snapshot with its media type only; old receipts, whose body also carries `etag`, still replay.
+- Reads and commands lose `Cache-Control: private, no-store`, `Vary: Origin`, and the command's
+  `ETag` header; the snapshot's `etag` field carries the tag.
+- Callers ported: `dashboard.assistenter` (through `callNative`), and the journeys
+  `tools/e2e/placement-check.ts`, `apps/dashboard/e2e/native-placement.spec.ts`, and the placement
+  calls of `native-recruitment-first-placement.spec.ts` and
+  `tools/e2e/legacy-candidate-native-journey.ts`. `placement-check.ts` asserted 428 and 422 for a
+  command without `If-Match` and for invalid bodies; it now asserts that the command schema
+  rejects those bodies. The legacy candidate journey asserted 400 for a forged `personId` query
+  member; the payload drops it, and the journey asserts the caller still reads only their own
+  affiliation. `run-real-native-placement.mjs` no longer builds the deleted `packages/sdk`.
+- Left for the onboarding slice: `apps/dashboard/app/routes/dashboard.onboarding.tsx` still calls
+  `client.placements.listScopes()` through the deleted `createAuthenticatedClient`.
+
+### profile (`packages/rpc/src/profile.ts`)
+
+| RPC tag | Replaces | Transport facts | Credentials | Status |
+| --- | --- | --- | --- | --- |
+| `profile.readOwnProfile` | GET `/api/profile` | ifMatch; if-none-match (dropped) | cookieHeader, oauthUserBearer | ported |
+| `profile.updateOwnProfile` | PATCH `/api/profile` | idempotencyKey; ifMatch; merge patch | cookieHeader, oauthUserBearer | ported |
+
+Notes (profile):
+
+- Both RPCs answer `OwnProfileResource`, the profile beside its strong entity tag, which
+  `profile.updateOwnProfile` takes as `ifMatch`. The read drops `If-None-Match`/304 and also the
+  read-side `If-Match` (412 on a GET); no client sent either.
+- The merge patch is the `request` field (`ProfileMergePatch`): an absent member keeps its value, no
+  member answers `validation.no-change`, a `null` member `validation.field-not-deletable`, as before.
+  A patch value that fails its field schema, or an unknown member, no longer answers
+  `validation.failed` with the whole request: the RPC server fails the payload as a defect, and an
+  unknown member is stripped. The dashboard decodes the form with the same fields first and never
+  showed server field pointers.
+- The update's command receipt keeps the HTTP capsule byte for byte (profile JSON body, `etag`
+  header), so a retry that straddles the cutover replays its first answer; `commandOutcome` is not
+  used because the success schema is not the stored body.
+
+### receipts (`packages/rpc/src/receipts.ts`)
+
+| RPC tag | Replaces | Transport facts | Credentials | Status |
+| --- | --- | --- | --- | --- |
+| `receipts.approveReceipt` | POST `/api/receipts/{receiptId}:approve` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+| `receipts.listReceipts` | GET `/api/receipts` | query: cursor, status | cookieHeader, oauthUserBearer | ported |
+| `receipts.listReceiptsForApproval` | GET `/api/receipt-approval-queue` | query: cursor, status | cookieHeader, oauthUserBearer, oauthServiceBearer | ported |
+| `receipts.listReceiptsForSettlement` | GET `/api/receipt-settlement-queue` | query: cursor | cookieHeader, oauthUserBearer | ported |
+| `receipts.readReceiptFile` | GET `/api/receipts/{receiptId}/file` | binary application/octet-stream | cookieHeader, oauthUserBearer | ported |
+| `receipts.readReceiptFileForApproval` | GET `/api/receipt-approval-queue/{receiptId}/file` | binary application/octet-stream | cookieHeader, oauthUserBearer | ported |
+| `receipts.readReceiptSettlementForFinance` | GET `/api/receipt-settlement-queue/{receiptId}` | - | cookieHeader, oauthUserBearer | ported |
+| `receipts.rejectReceipt` | POST `/api/receipts/{receiptId}:reject` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+| `receipts.reopenReceipt` | POST `/api/receipts/{receiptId}:reopen` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+| `receipts.reviseReceipt` | PATCH `/api/receipts/{receiptId}` | idempotencyKey; ifMatch; multipart upload | cookieHeader, oauthUserBearer | ported |
+| `receipts.settleReceipt` | POST `/api/receipts/{receiptId}:settle` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+| `receipts.submitReceipt` | POST `/api/receipts` | idempotencyKey; multipart upload; query: departmentId | cookieHeader, oauthUserBearer | ported |
+| `receipts.withdrawReceipt` | POST `/api/receipts/{receiptId}:withdraw` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+
+Notes (receipts):
+
+- The thirteen RPCs keep the old operation IDs as tags and the old routes (`/api/receipts`,
+  `/api/receipts/{id}`, `/api/receipts/{id}/withdraw|approve|reject|reopen|settle`) as normalized
+  targets. Each command's receipt stores the HTTP capsule byte for byte (201 with `Location` and
+  `ETag` for a submission, 200 with `ETag` otherwise), whose body `commandOutcome` decodes, so a
+  retry that straddles the cutover replays. The empty-body transitions take
+  `{ receiptId, idempotencyKey, ifMatch }` and no `request`; their digest still covers `{}`.
+- Authority is unchanged: every command resolves the credential inside its serializable
+  transaction and authorizes through `Economy.authorizeReceiptMutation`, the If-Match check runs
+  there, and the owner file read evaluates the owner grant in its snapshot
+  (`apps/backend/src/receipt/{commands,reads}.ts`, tested in `rpc.test.ts` on PostgreSQL).
+- Files: a submission or revision carries `{ contentType, bytes }` (`ReceiptFileUpload`), and the
+  two file reads answer `ReceiptFileContent` (stored media type and bytes). The JSON serialization
+  carries bytes as base64: a request or answer is about 4/3 of the file, and the server and client
+  each hold the base64 text, the decoded bytes, and the `File` that staging reads, roughly three
+  copies of a 10 MiB file per call. `RpcSerialization.layerSchemaBinary` (MessagePack) would carry
+  raw bytes; it needs its own RPC path and client, so it is not adopted here.
+- The size and media-type limits are checked in the handler (`validate.ts`) and still answer
+  validation.failed: an empty file, a file over `maxFileBytes`, or a media type other than JPEG,
+  PNG, or PDF. `request.too-large` is gone: nothing bounds the RPC body before it is read and
+  parsed. The browser still posts a multipart form to the dashboard, whose bounded reader
+  (`apps/dashboard/app/lib/receipt-upload.server.ts`, moved from `packages/http-api`) answers a
+  larger file with 413 before any RPC.
+- The browser still gets the approval file at `/dashboard/utlegg/{id}/file`: the dashboard route
+  calls `receipts.readReceiptFileForApproval` and answers the bytes with the private headers
+  (`cache-control: private, no-store`, `vary: Origin`, `nosniff`, `inline` disposition) derived
+  from the stored media type. The backend's own `Cache-Control`, `Content-Disposition`, and
+  `Content-Length` on its file answers are gone.
+- Dropped: 201, `Location`, and the `ETag` header on commands (each `ReceiptResource` keeps its
+  `etag`); the `ETag` header of `receipts.settleReceipt`, which named the settled receipt's revision
+  beside the evidence (no RPC takes it: a settled receipt answers receipt.already-settled; a client
+  reads the tag from `receipts.listReceipts`); the private `Cache-Control`/`Vary` of the reads.
+- Dropped probes: a malformed JSON body, an excess member, a query on a command, and an unknown
+  list filter cannot reach the handler (the payload schema fails as a defect or strips the
+  member), so `request.malformed`, `media-type.unsupported`, `idempotency-key.invalid`,
+  `precondition.required`, and the old `validation.failed` for a non-empty transition body are gone.
+  `listReceipts` takes a single `status`, as its handler accepted. A cursor text that no list
+  issued fails decoding as a defect instead of request.malformed; the dashboard routes decode the
+  cursor first and show their decode error.
+- The settlement request (`RecordReceiptSettlementRequest`) now fails decoding as a defect instead
+  of validation.failed with pointers; the dashboard settlement form decodes it first and shows its
+  own field errors. The owner form checks its fields before it calls, too.
+- The E2E concurrency barrier reads its probe from the RPC `headers`, so a journey sends
+  `x-receipt-e2e-concurrency-probe` as a real HTTP header of the RPC request. The
+  `x-receipt-e2e-concurrency-synchronized` response header is gone: an RPC answer carries no
+  header. A lane that the others never meet still times out as receipts.unavailable, so the
+  approval journey reads synchronization from the three outcomes (200, 200, 412). A probe that names
+  another lane or receipt, which answered request.malformed, is now a defect (internal.error).
+- Every receipt RPC re-resolves the credential in its handler, so each declares credential.missing
+  and credential.invalid.
+- Callers migrated: the dashboard routes `dashboard.utlegg*` and `dashboard.mine-utlegg*`, their
+  unit tests, `receipts.spec.ts`, `receipt-approval.spec.ts`, `run-real-receipt-owner.mjs`,
+  `run-real-receipt-approval.mjs`, `run-real-native-receipt-settlement.mjs`, the golden
+  reimbursement journey, `tools/verification/receipt-*.ts`, `unattended-delivery-recovery.ts`, and
+  the receipt reads of `tools/e2e/legacy-candidate-native-journey.ts`. The journey recorders label
+  each RPC with the route it replaced. `apps/dashboard/e2e/fixtures/receipt-api.ts`, an HTTP stub
+  of the old contract that nothing ran, is deleted. None of these journeys was run.
+
+### recruitment (`packages/rpc/src/recruitment.ts`)
+
+| RPC tag | Replaces | Transport facts | Credentials | Status |
+| --- | --- | --- | --- | --- |
+| `recruitment.cancelInterview` | POST `/api/recruitment/interviews/{interviewId}:cancel` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+| `recruitment.confirmInvitation` | POST `/api/recruitment/invitation-response:confirm` | ifMatch | invitationCapability | ported |
+| `recruitment.correctInterviewAssessment` | POST `/api/recruitment/interviews/{interviewId}:correct` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+| `recruitment.createApplicationInterview` | POST `/api/recruitment/applications/{applicationId}/interviews` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `recruitment.finalizeInterview` | POST `/api/recruitment/interviews/{interviewId}:finalize` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+| `recruitment.maintainRecruitment` | POST `/api/recruitment/maintenance/commands` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `recruitment.readAssignmentBoard` | GET `/api/recruitment/application-assignments` | query: status | cookieHeader, oauthUserBearer | ported |
+| `recruitment.readInterviewConduct` | GET `/api/recruitment/interviews/{interviewId}` | ifMatch; if-none-match (dropped) | cookieHeader, oauthUserBearer | ported |
+| `recruitment.readInterviewReport` | GET `/api/recruitment/interview-report` | query: admissionPeriodId, recommendation, participation, sort, direction | cookieHeader, oauthUserBearer | ported |
+| `recruitment.readInterviewStaffing` | GET `/api/recruitment/interview-staffing` | - | cookieHeader, oauthUserBearer | ported |
+| `recruitment.readInvitationResponse` | GET `/api/recruitment/invitation-response` | ifMatch; if-none-match (dropped) | invitationCapability | ported |
+| `recruitment.readQuestionnaires` | GET `/api/recruitment/questionnaires` | - | cookieHeader, oauthUserBearer | ported |
+| `recruitment.readSchedulingBoard` | GET `/api/recruitment/interviews` | - | cookieHeader, oauthUserBearer | ported |
+| `recruitment.rejectInvitation` | POST `/api/recruitment/invitation-response:reject` | ifMatch | invitationCapability | ported |
+| `recruitment.requestNewInvitationTime` | POST `/api/recruitment/invitation-response:request-new-time` | ifMatch | invitationCapability | ported |
+| `recruitment.scheduleInterview` | POST `/api/recruitment/interviews/{interviewId}:schedule` | idempotencyKey; ifMatch | cookieHeader, oauthUserBearer | ported |
+
+Notes (recruitment):
+
+- The sixteen RPCs keep the old operation IDs as tags and the old routes as `normalizedTarget`, so
+  receipts and domain command IDs that straddle the cutover stay stable. Every command keeps its
+  AccessSpec, its authority resolved inside the committing transaction, and its command receipt;
+  `recruitment.maintainRecruitment` still takes `RecruitmentMaintenanceAuthorization` and requires
+  `commandId` to equal the idempotency key (`idempotency.digest-conflict`).
+- Interview command receipts keep the HTTP capsule byte for byte: the response body and the
+  interview's new entity tag as the `etag` header (assignment: status 201 and `location` too). The
+  RPC answers `{ result, etag }` (assignment: `{ interview, etag }`), and a replay decodes the stored
+  capsule, so a retry across the cutover answers the first response.
+- ETags that a later RPC takes as `ifMatch` travel as fields: `readInterviewConduct` answers
+  `{ detail, etag }`, the scheduling board keeps an `etag` per interview, `readInvitationResponse`
+  answers `{ observation, etag }`, and each invitation response answers `{ etag }` where HTTP
+  answered 204 with an `ETag` header. `readQuestionnaires`, `readInterviewStaffing`, and
+  `maintainRecruitment` lose their ETag headers; no RPC took them as `ifMatch`.
+- Invitation responses take `InvitationCapabilityCredential`. The capability moved from the
+  `X-Recruitment-Invitation-Capability` header into the payload (`capability`), where the handler
+  decodes it: a malformed, empty, or unknown capability answers resource.not-found, and every
+  AccessSpec denial is concealed as resource.not-found as before. A cookie or bearer beside the
+  capability answers credential.invalid (no `WWW-Authenticate` challenge over RPC). A payload with
+  no `capability` member at all fails in the RPC server as a defect.
+- Dropped: `If-None-Match`/304 and the read-side `If-Match` (412) on `readInvitationResponse` and
+  `readInterviewConduct`, and the private `Cache-Control`/`Vary` of every read.
+- Dropped as HTTP parsing: `request.malformed`, `header.malformed`, `origin.denied`,
+  `request.too-large` (the recruitment body bound, and the 1 MiB maintenance bound),
+  `media-type.unsupported`, `idempotency-key.invalid`, `precondition.required`,
+  `precondition.invalid`. Structural validation moved to the RPC server: a finalization or
+  correction whose answers, scores, or recommendation do not decode, an invitation message that
+  fails its schema (such as one containing a capability-like token), and an interview report query
+  with an unknown sort or filter now fail as a defect instead of validation.failed or
+  request.malformed; an unknown report query member is dropped instead of refused. Answers that
+  decode but do not fit the questionnaire still answer recruitment.conduct-invalid. The dashboard
+  bridge and Foldkit forms decode the same schemas first, so no UI loses a field error.
+- `recruitment.cancelInterview` takes no `request` member: the HTTP body was an exact empty object,
+  which the digest still uses. `recruitment.confirmInvitation` likewise takes no body.
+- An identifier that no route path can spell (a lone surrogate passes the identifier schemas) makes
+  the normalized target throw; it is now a defect (internal.error) instead of request.malformed.
+- The old `index.ts` exports `recruitmentInterviewAccessContext`, `interviewETag`,
+  `invitationETag`, and `schedulingBoardWithETags` had no caller outside the backend's own tests,
+  so they stay module exports of `apps/backend/src/recruitment/`.
+- Clients: the dashboard recruitment bridge (`routes/__foldkit.recruitment.ts`), the interview
+  invitation bridge (`lib/interview-bridge.server.ts`, capability calls with no session cookie via
+  `callNativeAnonymously`), the maintenance Foldkit program (`callBrowserNative`), and the
+  interview, applicant, onboarding, and account-claim routes call the RPCs. Journey recorders
+  classify each RPC as the route it replaced (`apps/dashboard/e2e/native-rpc-ledger.ts`), so their
+  transport assertions keep their route names; statuses that were 201 or 204 are now 200. The
+  acceptance probes read each RPC as the replaced route's response (`replacedFetch`).
+- Journeys were ported for compilation only and not run (the lead runs them at integration).
+
+
+### social-events (`packages/rpc/src/social-events.ts`)
+
+| RPC tag | Replaces | Transport facts | Credentials | Status |
+| --- | --- | --- | --- | --- |
+| `social-events.create` | POST `/api/social-events` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `social-events.list` | GET `/api/social-events` | query: departmentId, semesterId | cookieHeader, oauthUserBearer | ported |
+| `social-events.readScope` | GET `/api/social-events/scope` | - | cookieHeader, oauthUserBearer | ported |
+
+Notes (social-events):
+
+- Dropped on `create`: 201 (it answers 200), the `Location` and `ETag` headers (no RPC takes that
+  ETag as `ifMatch`), `Cache-Control: no-store` and `Vary: Origin`, and the `Retry-After: 1` of
+  `idempotency.in-flight`. A replay still answers the first value from its receipt.
+- A create whose end precedes its start fails the payload schema, so the RPC server answers it as
+  a defect before the handler instead of `validation.failed`, and writes nothing.
+- `apps/dashboard/e2e/run-real-native-social-events.mjs` calls each RPC through the script client,
+  posts the invalid-time payload as raw JSON, and records each RPC by tag, payload, credential
+  facts (the message headers merged over the HTTP headers), and exit.
+
+### system (`packages/rpc/src/system.ts`)
+
+| RPC tag | Replaces | Transport facts | Credentials | Status |
+| --- | --- | --- | --- | --- |
+| `system.deleteOwnedSession` | DELETE `/api/sessions/{sessionId}` | idempotencyKey | cookieHeader | ported |
+| `system.deleteSession` | DELETE `/api/session` | idempotencyKey | cookieHeader | ported |
+| `system.health` | GET `/health` | - | none | dropped |
+| `system.listSessions` | GET `/api/sessions` | - | cookieHeader | ported |
+| `system.readSession` | GET `/api/session` | - | cookieHeader | ported |
+| `system.revokeAllSessions` | POST `/api/sessions:revoke-all` | idempotencyKey | cookieHeader | ported |
+| `system.revokeOtherSessions` | POST `/api/sessions:revoke-others` | idempotencyKey | cookieHeader | ported |
+
+Notes (system):
+
+- `system.health` is dropped as an RPC: `router.ts` serves `GET /health` as plain HTTP, because
+  infrastructure probes it.
+- The session commands answer no value instead of 204. Their receipts keep the HTTP no-content
+  capsule, so a retry that straddles the cutover replays; `normalizedTarget` stays the old path,
+  including the handler's own `/api/sessions::revoke-others` and `/api/sessions::revoke-all`.
+- The audit context of a revocation (correlation, source IP, user agent) is read from the RPC
+  `headers`, which merge the headers of the RPC message over the HTTP headers: a caller can set
+  `cf-connecting-ip`, `user-agent`, and `x-vektorprogrammet-request-correlation` in the message.
+  The HTTP ingress set the correlation header; the RPC message now overrides it (lead: see hand-back).
+
+### team-applications (`packages/rpc/src/team-application.ts`)
+
+| RPC tag | Replaces | Transport facts | Credentials | Status |
+| --- | --- | --- | --- | --- |
+| `team-applications.deleteTeamApplication` | DELETE `/api/team-applications/{applicationId}` | idempotencyKey | cookieHeader, oauthUserBearer | ported |
+| `team-applications.listTeamApplicationIntakes` | GET `/api/team-application-intakes` | - | none | ported |
+| `team-applications.listTeamApplications` | GET `/api/teams/{teamId}/applications` | query: cursor | cookieHeader, oauthUserBearer | ported |
+| `team-applications.readTeamApplication` | GET `/api/team-applications/{applicationId}` | - | cookieHeader, oauthUserBearer | ported |
+| `team-applications.readTeamApplicationIntake` | GET `/api/teams/{teamId}/application-intake` | - | none | ported |
+| `team-applications.reviseTeamApplicationIntake` | PATCH `/api/teams/{teamId}/application-intake` | idempotencyKey; ifMatch; merge patch | cookieHeader, oauthUserBearer | ported |
+| `team-applications.submitTeamApplication` | POST `/api/teams/{teamId}/applications` | idempotencyKey | none | ported |
+
+Notes (team-applications):
+
+- The seven RPCs keep the old operation IDs as tags and the old routes as `normalizedTarget`
+  (`/api/teams/{teamId}/applications`, `/api/team-applications/{applicationId}`,
+  `/api/teams/{teamId}/application-intake`). Each command's receipt keeps the HTTP capsule byte for
+  byte: 201 with `Location` and `ETag` for a submission, 204 for a deletion, and 200 with the
+  intake and its `etag` header for a revision, so a retry that straddles the cutover replays, and
+  the golden journey's receipt evidence is unchanged. A deletion answers no value.
+- Evidence is unchanged: deletion and intake revision take `TeamApplicationAuthorization<A>` from
+  `TeamApplications.authorize` (`authorizeTeamApplicationAction`) inside the committing
+  transaction, before the receipt lookup; the staff reads resolve the actor in the domain adapter
+  within one repeatable-read snapshot; the public intake reads and the submission evaluate their
+  anonymous AccessSpecs with `authorizeAnonymous`. The per-process public rate limit and the
+  outbox delivery are kept (`apps/backend/src/team-application/rpc.test.ts`).
+- The rate limit now counts a submission after its payload decodes: a payload that fails
+  `TeamApplicationInput` (or has no idempotency key) fails in the RPC server as a defect and
+  consumes no quota. Before, every request counted before its body was read.
+- Dropped as HTTP parsing: `request.malformed` (except the cursor below), `header.malformed`,
+  `idempotency-key.invalid`, `origin.denied`, `request.too-large` (the 128 KiB submission and 4 KiB
+  patch bounds), `media-type.unsupported`, `precondition.required`, `precondition.invalid`, and the
+  submission's `validation.failed` with a pointer per field. The homepage form decodes every
+  field with the contract schema before it submits and shows its own field messages, so it loses
+  no field error; a third-party client does. An unknown member is stripped instead of refused.
+- Kept: `request.malformed` on `listTeamApplications` for a cursor that passes
+  `TeamApplicationCursor` but names no position (`TeamApplicationInvalidCursor`), and on revision
+  `validation.no-change`, `validation.field-not-deletable` (`/acceptApplication`), and
+  `validation.failed` should the command not decode.
+- The staff RPCs take `PersonCredential` and re-resolve the credential in their transaction, so
+  each declares credential.missing and credential.invalid; an anonymous denial carries no
+  `WWW-Authenticate` challenge over RPC. The staff reads lose `Cache-Control: private, no-store`
+  and `Vary: Origin`, the public reads `Cache-Control: no-store`.
+- Dropped: 201, `Location`, and the `ETag` header on the submission (the confirmation had no body
+  tag, and no RPC took it), 204 on deletion, and the revision's `ETag` header (the resource keeps
+  `etag`).
+- Callers migrated: the dashboard Foldkit `team-applications` client (`callBrowserNative`; its test
+  records the RPC wire), the homepage team form route and `team-directory.server.ts`
+  (`callHomepageNative`), `apps/homepage/src/lib/api-types.ts`, and the golden team-application
+  journey (not run). The journey's direct probes post RPCs and read them as the replaced routes'
+  statuses; undecodable submissions now expect a defect instead of 422, the missing-If-Match probe
+  is gone, and the suspension goes through `organization.executeLifecycle`. The runner no longer
+  builds the deleted `packages/sdk`. `apps/homepage/vite-digests.ts` still names the old routes as
+  its digest source labels.

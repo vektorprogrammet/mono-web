@@ -1,52 +1,36 @@
-import {
-  ListDepartmentsEndpoint,
-  ListNewsEndpoint,
-  ListTeamApplicationIntakesEndpoint,
-  ListTeamsEndpoint,
-  ReadApplicationCatalogEndpoint,
-  ReadNewsArticleEndpoint,
-  ReadTeamApplicationIntakeEndpoint,
-  SubmitContactMessageEndpoint,
-  SubmitTeamApplicationEndpoint,
-} from "@vektorprogrammet/http-api";
-import type { HttpApiEndpoint, HttpApiSchema } from "effect/unstable/httpapi";
+import type {
+  DepartmentJson,
+  PublicApplicationCatalogSchema,
+  TeamJson,
+} from "@vektorprogrammet/rpc";
+import type {
+  NewsArticleQuery,
+  PublicTeamApplicationIntake,
+  PublishedNewsArticle as PublishedNewsArticleType,
+  PublishedNewsListing as PublishedNewsListingType,
+  TeamApplicationConfirmation,
+  TeamApplicationInput,
+  TeamApplicationIntakeListItem,
+} from "@vektorprogrammet/rpc";
 
-type EndpointResponseBody<Response> =
-  Response extends HttpApiSchema.WithHeaders<infer Body, infer _Headers> ? Body["Type"] : never;
+export type HomepageDepartment = DepartmentJson;
 
-type EndpointBody<Endpoint extends HttpApiEndpoint.Constraint> = Exclude<
-  EndpointResponseBody<HttpApiEndpoint.Success<Endpoint>>,
-  void
->;
-
-export type HomepageDepartment = EndpointBody<typeof ListDepartmentsEndpoint>[number];
-
-export type PublishedNewsListing = EndpointBody<typeof ListNewsEndpoint>;
+export type PublishedNewsListing = PublishedNewsListingType;
 
 export type PublishedNewsSummary = PublishedNewsListing["articles"][number];
 
-export type PublishedNewsArticle = EndpointBody<typeof ReadNewsArticleEndpoint>;
+export type PublishedNewsArticle = PublishedNewsArticleType;
 
-export type PublicApplicationCatalog = EndpointBody<typeof ReadApplicationCatalogEndpoint>;
+export type PublicApplicationCatalog = typeof PublicApplicationCatalogSchema.Type;
 
-export type ContactMessagePayload = HttpApiEndpoint.Payload<
-  typeof SubmitContactMessageEndpoint
->["Type"];
+export type NewsArticleSlug = NewsArticleQuery["slug"];
 
-export type ContactMessageHeaders = HttpApiEndpoint.Headers<
-  typeof SubmitContactMessageEndpoint
->["Type"];
+export type HomepageTeam = TeamJson;
 
-export type NewsArticleSlug = HttpApiEndpoint.Params<typeof ReadNewsArticleEndpoint>["Type"]["slug"];
+export type HomepageTeamIntake = TeamApplicationIntakeListItem;
 
-export type HomepageTeam = EndpointBody<typeof ListTeamsEndpoint>[number];
+export type HomepageTeamApplicationIntake = PublicTeamApplicationIntake;
 
-export type HomepageTeamIntake = EndpointBody<typeof ListTeamApplicationIntakesEndpoint>[number];
+export type TeamApplicationPayload = TeamApplicationInput;
 
-export type HomepageTeamApplicationIntake = EndpointBody<typeof ReadTeamApplicationIntakeEndpoint>;
-
-export type TeamApplicationPayload = HttpApiEndpoint.Payload<
-  typeof SubmitTeamApplicationEndpoint
->["Type"];
-
-export type SubmittedTeamApplication = EndpointBody<typeof SubmitTeamApplicationEndpoint>;
+export type SubmittedTeamApplication = TeamApplicationConfirmation;

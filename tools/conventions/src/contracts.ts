@@ -7,10 +7,13 @@
  * and what to do instead. The optional `@throws` names a failure that the types do not carry.
  * The signature is the parameter and return type annotations as written, and the errors and
  * requirements are split out of the Effect, Stream, Layer, Result, or Option that it returns.
+ * A value typed as an overload set, such as a `dual` function, takes the parameters and return
+ * type of its data-first overload, the one with the most parameters.
  *
  * Every function here takes any top-level declaration. What is particular to a shared construct,
  * its category and its consumers, lives in `constructs.ts`.
  */
+import { dual } from "effect/Function";
 import { parseSync, type ESTree, type ParseResult } from "rolldown/utils";
 
 // Rolldown exports the parse result but not its comment type.
@@ -41,7 +44,10 @@ export interface Signature extends Channels {
 export interface Declaration {
   /** The local name, or `default` for an anonymous default export. */
   readonly local: string;
-  /** A function declaration, or a variable whose initializer is a function. */
+  /**
+   * A function declaration, a variable whose initializer is a function, or a variable whose type
+   * is an overload set, such as a `dual` function.
+   */
   readonly callable: boolean;
   readonly line: number;
   /** The JSDoc lines without their leading `*`. */
@@ -283,6 +289,44 @@ const isFunction = (expression: ESTree.Expression | null): boolean => {
   return inner?.type === "ArrowFunctionExpression" || inner?.type === "FunctionExpression";
 };
 
+/**
+ * The call signatures of a type that holds nothing else, such as the overload pair that `dual`
+ * declares; `undefined` for any other type.
+ */
+const callSignatures = (
+  annotation: ESTree.TSType | undefined,
+): ReadonlyArray<ESTree.TSCallSignatureDeclaration> | undefined => {
+  if (annotation?.type !== "TSTypeLiteral" || annotation.members.length === 0) return undefined;
+
+  const signatures = annotation.members.flatMap((member) =>
+    member.type === "TSCallSignatureDeclaration" ? [member] : [],
+  );
+
+  return signatures.length === annotation.members.length ? signatures : undefined;
+};
+
+/**
+ * An overload set, described by its data-first overload, the first with the most parameters: its
+ * parameters are the inputs and its return type the output. The text lists every overload.
+ */
+const overloadSignature = (
+  name: string,
+  overloads: ReadonlyArray<ESTree.TSCallSignatureDeclaration>,
+  inline: Inline,
+): Signature => {
+  const signatures = overloads.map((overload) => functionSignature(name, overload, inline));
+
+  const dataFirst = signatures.reduce((widest, signature) =>
+    signature.inputs.length > widest.inputs.length ? signature : widest,
+  );
+
+  return {
+    ...dataFirst,
+    text: signatures.map((signature) => signature.text).join("\n"),
+    unannotated: [...new Set(signatures.flatMap((signature) => signature.unannotated))],
+  };
+};
+
 const variableSignature = (
   keyword: string,
   name: string,
@@ -291,8 +335,11 @@ const variableSignature = (
 ): Signature => {
   const annotation = declarator.id.typeAnnotation?.typeAnnotation;
   const init = unwrap(declarator.init);
+  const overloads = callSignatures(annotation);
 
   if (annotation?.type === "TSFunctionType") return functionSignature(name, annotation, inline);
+
+  if (overloads !== undefined) return overloadSignature(name, overloads, inline);
 
   if (
     annotation === undefined &&
@@ -443,7 +490,9 @@ const declared = (
       return node.declarations.flatMap((declarator) =>
         bindingNames(declarator.id).map((local) => ({
           local,
-          callable: isFunction(declarator.init),
+          callable:
+            isFunction(declarator.init) ||
+            callSignatures(declarator.id.typeAnnotation?.typeAnnotation) !== undefined,
           signature: variableSignature(node.kind, local, declarator, inline),
         })),
       );
@@ -526,7 +575,10 @@ const declared = (
 };
 
 /** The top-level declarations of a module, with the line, JSDoc, and signature of each. */
-export const readDeclarations = (path: string, text: string): ModuleDeclarations => {
+export const readDeclarations: {
+  (text: string): (path: string) => ModuleDeclarations;
+  (path: string, text: string): ModuleDeclarations;
+} = dual(2, (path: string, text: string): ModuleDeclarations => {
   const parsed = parseSync(path, text);
   const lineStarts = [0, ...[...text.matchAll(/\n/gu)].map((match) => match.index + 1)];
   const lineOf = (offset: number) => lineStarts.findLastIndex((start) => start <= offset) + 1;
@@ -565,7 +617,7 @@ export const readDeclarations = (path: string, text: string): ModuleDeclarations
         : [],
     ),
   };
-};
+});
 
 // ---------------------------------------------------------------------------------------------
 // Documentation
@@ -635,13 +687,16 @@ export const readDocumentation = (doc: ReadonlyArray<string>): Documentation => 
 };
 
 /** The text of the tags named `name`, joined as paragraphs; `undefined` when none has text. */
-export const tagText = (documentation: Documentation, name: string): string | undefined => {
+export const tagText: {
+  (name: string): (documentation: Documentation) => string | undefined;
+  (documentation: Documentation, name: string): string | undefined;
+} = dual(2, (documentation: Documentation, name: string): string | undefined => {
   const texts = documentation.tags.flatMap((tag) =>
     tag.name === name && tag.text !== "" ? [tag.text] : [],
   );
 
   return texts.length === 0 ? undefined : texts.join("\n\n");
-};
+});
 
 /** The block tags that a contract requires, with what each holds. */
 export const contractTags = {

@@ -3,7 +3,7 @@
 # apps/dashboard/app/foldkit/profile
 
 This folder holds People code under another name. Profile self-service under its older name.
-The dashboard layer holds authenticated journeys: one Foldkit Model per workflow renders server-owned facts and submits commands through the generated SDK.
+The dashboard layer holds authenticated journeys: one Foldkit Model per workflow renders server-owned facts and submits commands through the RPC client.
 
 The People context in other folders:
 

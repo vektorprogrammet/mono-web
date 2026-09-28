@@ -20,7 +20,8 @@
  * Constructors documented as bare hash the identifier without a prefix, so they share one key
  * space. Adding a prefix to one of them is a lock migration, not a rename.
  */
-import { Brand, Effect } from "effect";
+import { Brand, Effect, Predicate } from "effect";
+import { dual } from "effect/Function";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { AUTHZ_LOCK_PROTOCOL } from "@vektorprogrammet/domain/authz";
 import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
@@ -200,24 +201,40 @@ export type AdvisoryLockMode = "exclusive" | "shared";
  *
  * @construct sql-lock
  */
-export const lockAdvisory = (
-  sql: DatabaseOperations,
-  key: AdvisoryLockKey,
-  mode: AdvisoryLockMode = "exclusive",
-): Effect.Effect<void, SqlError> =>
-  (mode === "shared"
-    ? sql`SELECT pg_catalog.pg_advisory_xact_lock_shared(pg_catalog.hashtextextended(${key}, 0))`
-    : sql`SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(${key}, 0))`
-  ).pipe(Effect.asVoid);
+export const lockAdvisory: {
+  (
+    key: AdvisoryLockKey,
+    mode?: AdvisoryLockMode,
+  ): (sql: DatabaseOperations) => Effect.Effect<void, SqlError>;
+  (
+    sql: DatabaseOperations,
+    key: AdvisoryLockKey,
+    mode?: AdvisoryLockMode,
+  ): Effect.Effect<void, SqlError>;
+} = dual(
+  (args) => !Predicate.isString(args[0]),
+  (
+    sql: DatabaseOperations,
+    key: AdvisoryLockKey,
+    mode: AdvisoryLockMode = "exclusive",
+  ): Effect.Effect<void, SqlError> =>
+    (mode === "shared"
+      ? sql`SELECT pg_catalog.pg_advisory_xact_lock_shared(pg_catalog.hashtextextended(${key}, 0))`
+      : sql`SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(${key}, 0))`
+    ).pipe(Effect.asVoid),
+);
 
 /**
  * Takes the exclusive advisory lock on `key` until the current transaction ends when no other
  * transaction holds it. Answers false instead of waiting.
  */
-export const tryLockAdvisory = (
-  sql: DatabaseOperations,
-  key: AdvisoryLockKey,
-): Effect.Effect<boolean, SqlError> =>
-  sql<{ readonly acquired: boolean }>`
+export const tryLockAdvisory: {
+  (key: AdvisoryLockKey): (sql: DatabaseOperations) => Effect.Effect<boolean, SqlError>;
+  (sql: DatabaseOperations, key: AdvisoryLockKey): Effect.Effect<boolean, SqlError>;
+} = dual(
+  2,
+  (sql: DatabaseOperations, key: AdvisoryLockKey): Effect.Effect<boolean, SqlError> =>
+    sql<{ readonly acquired: boolean }>`
     SELECT pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended(${key}, 0)) AS acquired
-  `.pipe(Effect.map((rows) => rows[0]?.acquired === true));
+  `.pipe(Effect.map((rows) => rows[0]?.acquired === true)),
+);

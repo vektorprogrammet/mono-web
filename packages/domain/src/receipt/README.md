@@ -35,9 +35,9 @@ Consumers must not import private PostgreSQL modules or write receipt tables dir
 
 The [service declaration](service.ts) owns operation signatures, Effect requirements, and transaction-specific witnesses.
 The [schemas](schema.ts) own amounts, dates, identities, revisions, file metadata, and settlement evidence.
-The [HTTP contract](../../../http-api/src/receipts.ts) owns transport requests and responses.
-Browser consumers use `@vektorprogrammet/sdk` or `@vektorprogrammet/sdk/effect`, not the database Layer.
-The [SDK export map](../../../sdk/package.json) owns these generated consumer entry points.
+The [RPC contract](../../../rpc/src/receipts.ts) owns transport requests and responses.
+Browser consumers call these RPCs through the dashboard's RPC clients, `callNative` and `callBrowserNative`, not the database Layer.
+The [RPC export map](../../../rpc/package.json) owns the client entry points; none is generated.
 
 ### Run the executable example
 
@@ -109,7 +109,7 @@ Do not expose storage identities, payment ciphertext, provider secrets, or persi
 | Existing settlement or duplicate external reference | Reconcile the existing evidence. Do not create a second record.                                |
 | Persistence or file failure                         | Preserve the cause privately and inspect the owned recovery boundary.                          |
 
-The [failure unions](errors.ts), [file failures](file-errors.ts), and [HTTP mapping](../../../../apps/backend/src/receipt/http-problem.ts) own exact tags and statuses.
+The [failure unions](errors.ts), [file failures](file-errors.ts), and [RPC problem mapping](../../../../apps/backend/src/receipt/problem.ts) own exact tags and statuses.
 Settlement also rejects a settlement time after its recorded time.
 Its immutable evidence binds the approved amount, destination fingerprint, external reference, actor, and revision.
 The [settlement implementation](../../../database/src/receipt/settlement.ts) owns those checks and uniqueness rules.
@@ -154,8 +154,8 @@ post-commit delivery
   fenced claim -> private-file or notification interpreter -> completion
 ```
 
-The [HTTP transaction owner](../../../../apps/backend/src/http-api/receipt-transaction.ts) retains response receipts and preconditions.
-The [receipt HTTP commands](../../../../apps/backend/src/receipt/http-commands.ts) supply receipt-specific authority and execution.
+The [command receipt owner](../../../../apps/backend/src/rpc/receipt-transaction.ts) retains response receipts and preconditions.
+The [receipt RPC commands](../../../../apps/backend/src/receipt/commands.ts) supply receipt-specific authority and execution.
 The [database command implementation](../../../database/src/receipt/postgres.ts) preserves state, revision, command receipt, audit, and outbox in one transaction.
 The [decision function](update.ts) owns legal lifecycle transitions.
 HTTP responses do not replace domain command receipts.
@@ -213,15 +213,15 @@ The [receipt recovery rules](../../../../docs/delivery-recovery.md#receipt-work)
 
 The following sources own the limits. This guide does not duplicate their numeric values.
 
-| Boundary           | Canonical source and behavior                                                                                                                                                                                                                                                                                                                                     |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| File intake        | [`RECEIPT_FILE_MAX_BYTES`](schema.ts) owns the maximum file size; [receipt configuration](../../../../apps/backend/src/receipt/config.ts) defaults to it. The [bounded multipart reader](../../../http-api/src/receipt-upload.ts) limits actual transfer bytes before parsing, and the dashboard's owner form answers a larger file with 413 and commits nothing. |
-| Private files      | The [filesystem adapter](../../../../apps/backend/src/receipt/filesystem.ts) bounds staging and committed reads. Native downloads materialize bounded bytes and check their digest.                                                                                                                                                                               |
-| Collections        | [Pagination declarations](pagination.ts) own the page size and cursor types. The [collection methods](service.ts) return bounded pages.                                                                                                                                                                                                                           |
-| Delivery ownership | The [outbox adapter](../../../database/src/receipt/outbox.ts) bounds concurrent interpreters within the runtime and fences each durable claim.                                                                                                                                                                                                                    |
-| Provider calls     | The [delivery parser](../../../../apps/backend/src/receipt/delivery.ts) bounds deadlines. The [HTTP transport](../../../../apps/backend/src/delivery/http.ts) propagates cancellation without an internal retry loop.                                                                                                                                             |
-| Recovery           | The [worker](../../../../apps/backend/src/receipt/worker.ts) owns stale-claim recovery and retry cadence. The [request drain](../../../../apps/backend/src/receipt/outbox-drain.ts) bounds work per invocation.                                                                                                                                                   |
-| Processes          | The [native root](../../../../apps/backend/src/main.ts) owns the worker lifetime. The [shared pool](../../../database/src/pg-pool.ts) owns database acquisition and release.                                                                                                                                                                                      |
+| Boundary           | Canonical source and behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| File intake        | [`RECEIPT_FILE_MAX_BYTES`](schema.ts) owns the maximum file size; [receipt configuration](../../../../apps/backend/src/receipt/config.ts) defaults to it. The dashboard's [bounded multipart reader](../../../../apps/dashboard/app/lib/receipt-upload.server.ts) limits the transfer bytes of the owner's form before parsing and answers a larger file with 413, committing nothing; the backend checks the byte bound and media type of the file that the RPC payload carries. |
+| Private files      | The [filesystem adapter](../../../../apps/backend/src/receipt/filesystem.ts) bounds staging and committed reads. Native downloads materialize bounded bytes and check their digest.                                                                                                                                                                                                                                                                                               |
+| Collections        | [Pagination declarations](pagination.ts) own the page size and cursor types. The [collection methods](service.ts) return bounded pages.                                                                                                                                                                                                                                                                                                                                           |
+| Delivery ownership | The [outbox adapter](../../../database/src/receipt/outbox.ts) bounds concurrent interpreters within the runtime and fences each durable claim.                                                                                                                                                                                                                                                                                                                                    |
+| Provider calls     | The [delivery parser](../../../../apps/backend/src/receipt/delivery.ts) bounds deadlines. The [HTTP transport](../../../../apps/backend/src/delivery/http.ts) propagates cancellation without an internal retry loop.                                                                                                                                                                                                                                                             |
+| Recovery           | The [worker](../../../../apps/backend/src/receipt/worker.ts) owns stale-claim recovery and retry cadence. The [request drain](../../../../apps/backend/src/receipt/outbox-drain.ts) bounds work per invocation.                                                                                                                                                                                                                                                                   |
+| Processes          | The [native root](../../../../apps/backend/src/main.ts) owns the worker lifetime. The [shared pool](../../../database/src/pg-pool.ts) owns database acquisition and release.                                                                                                                                                                                                                                                                                                      |
 
 The shared delivery permit applies within one JavaScript process, before a durable claim.
 Database claim fences still apply across processes.
@@ -244,19 +244,19 @@ These queries bound candidate-row materialization and result size. They do not g
 Current authority, rules, and grant projections remain complete. Their memory use scales with configured authority records.
 The [OAuth list boundary](../authz/service-principal-grants.ts) retains all applicable exact-grant evidence, not only the first grant.
 
-To continue the collection, pass the returned cursor through the same generated operation until `nextCursor` is absent.
+To continue the collection, pass the returned cursor through the same RPC until `nextCursor` is absent.
 Keep only the current result page in the dashboard Model.
 Do not replace pagination with a hidden result cap or a misleading total count.
 
 File-effect markers and durable failed work retain history on storage. A bound on transient memory does not limit retained business history.
 
-Bounded native transfer is not allocation-free JavaScript. Multipart parsing, file reads, hashing, and SDK downloads still allocate or materialize data.
+Bounded native transfer is not allocation-free JavaScript. Multipart parsing, file reads, hashing, and RPC downloads (base64 in JSON) still allocate or materialize data.
 No claim here bounds third-party internals, provider memory, or the R2 runtime.
 The real journey must record process and memory observations during operation and after cleanup.
 
 ## Change and check it
 
-For a lifecycle change, update the schema, decision, transaction, projections, HTTP contract, SDK, and dashboard callers together.
+For a lifecycle change, update the schema, decision, transaction, projections, RPC contract and handlers, and dashboard callers together.
 For a settlement change, preserve separate authority and immutable external evidence.
 For a storage change, preserve digest checks, private access, ordered promotion, and replay after restart.
 For a delivery change, preserve claim fences, predecessor order, immutable envelopes, and provider idempotency.
@@ -264,16 +264,15 @@ For a delivery change, preserve claim fences, predecessor order, immutable envel
 Keep numeric limits in their canonical declarations rather than this guide.
 Do not use a schema change, a recording adapter, or a successful compile as proof of database or provider behavior.
 
-Run the focused decision and HTTP transaction checks from the repository root:
+Run the focused decision and RPC transaction checks from the repository root:
 
 ```bash
 bun run --cwd packages/domain vitest run src/receipt/update.test.ts src/receipt/update.property.test.ts --no-file-parallelism --maxWorkers=1
-bun run --cwd apps/backend vitest run src/receipt/http.test.ts src/http-api/receipt-transaction.test.ts --no-file-parallelism --maxWorkers=1
-bun run --cwd packages/http-api generate
+bun run --cwd apps/backend vitest run src/receipt/rpc.test.ts src/rpc/receipt-transaction.test.ts --no-file-parallelism --maxWorkers=1
 ```
 
 The decision checks defend legal transitions and invariants. They do not resolve live authority.
-The HTTP checks cover the adapter contract with their declared test dependencies, not a continuous browser journey.
+The RPC checks cover the adapter contract with their declared test dependencies, not a continuous browser journey.
 The generation step derives the transport artifacts and checks the contract release invariants. It does not exercise delivery.
 
 The [functional testing guide](../../../../docs/web-system-functional-testing.md) owns local journey commands and their evidence requirements.

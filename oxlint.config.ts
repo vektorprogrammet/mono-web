@@ -1,4 +1,10 @@
-import { correctness, effectNative, recommended } from "@effect/tsgo/oxlint-presets";
+import {
+  antipattern,
+  correctness,
+  effectNative,
+  recommended,
+  style,
+} from "@effect/tsgo/oxlint-presets";
 import { defineConfig, type OxlintConfig } from "oxlint";
 import {
   DEFAULT_PLUGIN_NAME,
@@ -8,22 +14,35 @@ import {
   type OxlintConfigFragment,
 } from "@phibkro/oxlint-effect-plugin";
 
-// The Effect language-service rules of the `@effect/tsgo` presets need type information, and each
-// one is an error. The effectNative rules replace platform APIs with Effect services, so they run
-// only in the core Effect packages: the other apps, packages, and tools are not Effect programs.
-const effectTsgoPresets = [recommended, correctness];
+// Every Effect language-service rule that `@effect/tsgo` ships is an error: its correctness,
+// antipattern, style, and effectNative presets. They need type information. The two React
+// applications are the exception: apps/homepage and apps/dashboard keep the recommended and
+// correctness rules without the effectNative ones, because React components and Playwright specs
+// build on the platform APIs those rules replace.
+const effectTsgoPresets = [recommended, correctness, antipattern, style, effectNative];
 
-const coreEffectFiles = [
-  "apps/backend/**",
-  "packages/database/**",
-  "packages/domain/**",
-  "packages/http-api/**",
-];
+const reactApplicationFiles = ["apps/homepage/**", "apps/dashboard/**"];
 
 const presetRules = (presets: ReadonlyArray<OxlintConfig>, severity: "error" | "off") =>
   Object.fromEntries(
     presets.flatMap((preset) => Object.keys(preset.rules ?? {})).map((rule) => [rule, severity]),
   );
+
+// The Effect rules of the React applications: recommended and correctness, less effectNative.
+const reactApplicationRules = () => {
+  const kept = new Set(
+    [recommended, correctness]
+      .flatMap((preset) => Object.keys(preset.rules ?? {}))
+      .filter((rule) => !Object.hasOwn(effectNative.rules ?? {}, rule)),
+  );
+
+  return Object.fromEntries(
+    Object.keys(presetRules(effectTsgoPresets, "error")).map((rule) => [
+      rule,
+      kept.has(rule) ? "error" : "off",
+    ]),
+  );
+};
 
 // Bun implements these Node modules, and the Bun groups import them beside Bun's own modules.
 // The rule admits extra modules but no globals, so these files import `process` and `Buffer` too.
@@ -70,7 +89,7 @@ const effectConfig = {
       strictness: "strict",
     },
     {
-      files: ["packages/sdk/src/**/*.ts"],
+      files: ["packages/rpc/src/client.ts"],
       role: "effect-library",
       platform: "portable",
       strictness: "strict",
@@ -101,8 +120,8 @@ const effectConfig = {
       strictness: "strict",
     },
     {
-      // The SDK selects FetchHttpClient, closes the environment, and runs each operation for Promise callers.
-      files: ["packages/sdk/src/effect-client.ts", "packages/sdk/src/promise.ts"],
+      // The script client builds its own runtime and runs each RPC for Promise callers.
+      files: ["packages/rpc/src/script-client.ts"],
       role: "composition-root",
       platform: "portable",
       strictness: "strict",
@@ -149,21 +168,48 @@ const effectConfig = {
       files: [
         "apps/backend/src/main.ts",
         "apps/backend/src/**/*-main.ts",
+        "apps/docs/scripts/sync-pages.ts",
+        "tools/acceptance/onboarding-check.ts",
         "tools/acceptance/password-recovery-check.ts",
+        "tools/acceptance/substitute-outcome-check.ts",
+        "tools/acceptance/recommendation-check.ts",
         "tools/e2e/golden-harness.ts",
         "tools/e2e/golden-harness-self-test.ts",
+        "tools/e2e/golden-recruitment.ts",
+        "tools/e2e/golden-reimbursement.ts",
+        "tools/e2e/golden-school-service.ts",
+        "tools/e2e/golden-school-service-evidence.ts",
+        "tools/e2e/golden-school-service-evidence.test.ts",
+        "tools/e2e/run-real-native-recruitment-assignment.ts",
         "tools/e2e/legacy-candidate-native-journey.ts",
         "tools/e2e/legacy-organization-rehearsal-runtime.ts",
+        "tools/e2e/placement-check.ts",
         "tools/e2e/public-application-outbox-driver.ts",
+        "tools/e2e/receipt-delivery-sink.ts",
         "tools/e2e/record-native-recruitment-invitation-response.ts",
         "tools/e2e/record-native-recruitment-invitation.ts",
         "tools/e2e/run-legacy-*.ts",
+        "tools/conventions/src/cli.ts",
+        "tools/placements-docs/placements.ts",
+        "tools/scripts/changelog.ts",
+        "tools/scripts/deploy-preview.ts",
+        "tools/scripts/dev.ts",
+        "tools/scripts/hook-slot.ts",
+        "tools/scripts/land.ts",
+        "tools/scripts/measure-job.ts",
+        "tools/scripts/model.ts",
+        "tools/scripts/require-legacy-data-profile.ts",
+        "tools/scripts/vitest-admission.ts",
+        "tools/source-safety/src/check.ts",
         "tools/verification/completion-receipt-postgres-proof-main.ts",
         "tools/verification/current-assignment-cohort-cli.ts",
+        "tools/verification/current-assignment-cohort-main.ts",
         "tools/verification/current-assignment-cohort-rehearsal.ts",
         "tools/verification/identity-cohort-rehearsal.ts",
         "tools/verification/organization-import-rehearsal-main.ts",
         "tools/verification/receipt-import-rehearsal.ts",
+        "tools/verification/recommendation-preupgrade-fixture.ts",
+        "tools/verification/unattended-delivery-recovery.ts",
       ],
       role: "composition-root",
       platform: "bun",
@@ -175,6 +221,7 @@ const effectConfig = {
       files: [
         "tools/conventions/tests/*.test.ts",
         "tools/e2e/safe-file-io.ts",
+        "tools/placements-docs/placements-artifact.test.ts",
         "tools/scripts/tests/*.test.ts",
         "tools/source-safety/tests/source-safety.test.ts",
       ],
@@ -211,15 +258,6 @@ const crossPackageSourceImportPatterns = [
   },
 ];
 
-// Same boundary without the SDK, whose export map resolves to built `dist/` unless the source condition is set.
-const crossPackageSourceImportPatternsExceptSdk = [
-  {
-    regex:
-      "^(\\./)?(\\.\\./)+(apps/[^/]+|tools/[^/]+|packages/(database|domain|http-api)|[^./][^/]*)/src(/|$)",
-    message: crossPackageSourceImportMessage,
-  },
-];
-
 const productImportPatterns = [
   ...crossPackageSourceImportPatterns,
   {
@@ -237,6 +275,25 @@ const browserImportPatterns = [
 
 const expandedEffectConfig = totalOverrides(expandDomains(effectConfig));
 
+// Effect.provide belongs at an entry point, which the rule cannot recognise itself: its
+// documentation asks to disable it there. The entry points are the files that `effectConfig`
+// declares as composition roots or tests, and the backend test harness that serves them.
+const entryPointFiles = [
+  ...new Set(
+    effectConfig.groups
+      .filter((group) => group.role === "composition-root" || group.role === "test")
+      .flatMap((group) => group.files),
+  ),
+  "apps/backend/src/test/**/*.ts",
+  // The proofs, rehearsals, and examples of the domain and database packages run as programs, and
+  // the runtimes they share provide each proof its own database or platform.
+  "packages/domain/runtime/**/*.ts",
+  "packages/database/runtime/**/*.ts",
+  "packages/database/examples/**/*.ts",
+  "packages/database/src/receipt/file-proof.ts",
+  "packages/database/src/rule-reconciliation-migration-postgres-proof.ts",
+];
+
 export default defineConfig({
   ...expandedEffectConfig,
   extends: effectTsgoPresets,
@@ -250,7 +307,6 @@ export default defineConfig({
   ],
   rules: {
     ...presetRules(effectTsgoPresets, "error"),
-    ...presetRules([effectNative], "off"),
     "no-restricted-imports": ["error", { patterns: crossPackageSourceImportPatterns }],
     "anti-slop-effect/no-manual-effect-error-tag": "error",
     "anti-slop-effect/no-manual-tag-comparison": "error",
@@ -269,8 +325,12 @@ export default defineConfig({
     "anti-slop/no-reduce-accumulator-copy": "error",
     "anti-slop/no-reflect-apply": "error",
     "anti-slop/no-reflect-get": "error",
+    // The RPC client posts with a trailing slash and a probe without; paths go through the predicates.
+    "anti-slop/no-rpc-path-comparison": "error",
     "anti-slop/no-runtime-typeof": "error",
     "anti-slop/no-shape-in-symbol-names": "error",
+    // Axe runs only through auditSettledPage, which waits for running transitions to finish.
+    "anti-slop/no-unsettled-axe": "error",
     "anti-slop/no-unknown-parameters": "error",
     "anti-slop/no-unknown-returns": "error",
     "anti-slop/no-unknown-type-aliases": "error",
@@ -281,7 +341,6 @@ export default defineConfig({
   },
   overrides: [
     ...expandedEffectConfig.overrides,
-    { files: coreEffectFiles, rules: presetRules([effectNative], "error") },
     {
       files: ["apps/*/src/**", "apps/dashboard/app/**", "packages/*/src/**"],
       rules: {
@@ -289,11 +348,7 @@ export default defineConfig({
       },
     },
     {
-      files: [
-        "apps/homepage/src/**",
-        "apps/dashboard/app/**",
-        "packages/{domain,http-api,sdk}/src/**",
-      ],
+      files: ["apps/homepage/src/**", "apps/dashboard/app/**", "packages/{domain,rpc}/src/**"],
       rules: {
         "no-restricted-imports": [
           "error",
@@ -309,18 +364,6 @@ export default defineConfig({
       files: ["tools/acceptance/**"],
       rules: {
         "no-restricted-imports": "off",
-      },
-    },
-    {
-      // Bun resolves the SDK to built `dist/` without `--conditions=@vektorprogrammet/source`; these drivers import its source.
-      files: [
-        "tools/e2e/placement-check.ts",
-        "tools/verification/organization-import-rehearsal-main.ts",
-        "tools/verification/receipt-import-rehearsal.ts",
-        "tools/verification/receipt-reopen-observation.ts",
-      ],
-      rules: {
-        "no-restricted-imports": ["error", { patterns: crossPackageSourceImportPatternsExceptSdk }],
       },
     },
     {
@@ -348,6 +391,16 @@ export default defineConfig({
         "packages/database/src/schema-calendar-arithmetic.test.ts",
       ],
       rules: { "anti-slop/no-zoneless-calendar-interval": "off" },
+    },
+    {
+      // The settled-audit construct is the one module that loads and constructs axe.
+      files: ["apps/dashboard/e2e/settled-axe.ts"],
+      rules: { "anti-slop/no-unsettled-axe": "off" },
+    },
+    {
+      // The definition of the RPC endpoint predicates compares the paths it names.
+      files: ["packages/rpc/src/api.ts"],
+      rules: { "anti-slop/no-rpc-path-comparison": "off" },
     },
     {
       // Unit leadership decides authority only through the reach interpreter (O8-11).
@@ -425,6 +478,9 @@ export default defineConfig({
       globals: { Bun: "readonly", HTMLRewriter: "readonly" },
       rules: { "no-undef": "error" },
     },
+    { files: entryPointFiles, rules: { "effecttsgo/strict-effect-provide": "off" } },
+    // Last, so no broader group decides the Effect rules of the React applications.
+    { files: reactApplicationFiles, rules: reactApplicationRules() },
   ],
   ignorePatterns: [
     "tools/oxlint/anti-slop/**",

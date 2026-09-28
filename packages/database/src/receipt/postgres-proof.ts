@@ -188,66 +188,66 @@ export const runReceiptPostgresProof = Effect.gen(function* () {
 
   const firstContext = context("proof-receipt-1", "PROOF-0001", "2026-08-20T12:00:00.000Z");
 
-  const submitted = yield* executeReceiptCommand(
-    submit("proof-command-submit-1", "Travel"),
-    principal(ownerPersonId, firstContext.now),
-    allocation(firstContext),
-  );
+  const submitted = yield* executeReceiptCommand({
+    command: submit("proof-command-submit-1", "Travel"),
+    principal: principal(ownerPersonId, firstContext.now),
+    allocation: allocation(firstContext),
+  });
 
-  const replay = yield* executeReceiptCommand(
-    submit("proof-command-submit-1", "Travel"),
-    principal(ownerPersonId, firstContext.now),
-    allocation(firstContext),
-  );
+  const replay = yield* executeReceiptCommand({
+    command: submit("proof-command-submit-1", "Travel"),
+    principal: principal(ownerPersonId, firstContext.now),
+    allocation: allocation(firstContext),
+  });
 
   const conflictingReplay = yield* Effect.exit(
-    executeReceiptCommand(
-      submit("proof-command-submit-1", "Changed travel"),
-      principal(ownerPersonId, firstContext.now),
-      allocation(firstContext),
-    ),
+    executeReceiptCommand({
+      command: submit("proof-command-submit-1", "Changed travel"),
+      principal: principal(ownerPersonId, firstContext.now),
+      allocation: allocation(firstContext),
+    }),
   );
 
   const wrongScope = yield* Effect.exit(
-    executeReceiptCommand(
-      ReceiptCommandRequestSchema.cases.ApproveReceipt.make({
+    executeReceiptCommand({
+      command: ReceiptCommandRequestSchema.cases.ApproveReceipt.make({
         commandId: "proof-command-wrong-scope",
         receiptId: ReceiptId.make("proof-receipt-1"),
         expectedRevision: 0,
       }),
-      principal(wrongScopeApproverPersonId, "2026-08-20T12:01:00.000Z"),
-    ),
+      principal: principal(wrongScopeApproverPersonId, "2026-08-20T12:01:00.000Z"),
+    }),
   );
 
-  const approved = yield* executeReceiptCommand(
-    ReceiptCommandRequestSchema.cases.ApproveReceipt.make({
+  const approved = yield* executeReceiptCommand({
+    command: ReceiptCommandRequestSchema.cases.ApproveReceipt.make({
       commandId: "proof-command-approve",
       receiptId: ReceiptId.make("proof-receipt-1"),
       expectedRevision: 0,
     }),
-    principal(approverPersonId, "2026-08-20T12:02:00.000Z"),
-  );
+    principal: principal(approverPersonId, "2026-08-20T12:02:00.000Z"),
+  });
 
   const terminalTransition = yield* Effect.exit(
-    executeReceiptCommand(
-      ReceiptCommandRequestSchema.cases.RejectReceipt.make({
+    executeReceiptCommand({
+      command: ReceiptCommandRequestSchema.cases.RejectReceipt.make({
         commandId: "proof-command-terminal",
         receiptId: ReceiptId.make("proof-receipt-1"),
         expectedRevision: 1,
       }),
-      principal(approverPersonId, "2026-08-20T12:03:00.000Z"),
-    ),
+      principal: principal(approverPersonId, "2026-08-20T12:03:00.000Z"),
+    }),
   );
 
   const secondContext = context("proof-receipt-2", "PROOF-0002", "2026-08-20T13:00:00.000Z");
-  yield* executeReceiptCommand(
-    submit("proof-command-submit-2", "Supplies", secondFile),
-    principal(ownerPersonId, secondContext.now),
-    allocation(secondContext),
-  );
+  yield* executeReceiptCommand({
+    command: submit("proof-command-submit-2", "Supplies", secondFile),
+    principal: principal(ownerPersonId, secondContext.now),
+    allocation: allocation(secondContext),
+  });
 
-  const revised = yield* executeReceiptCommand(
-    ReceiptCommandRequestSchema.cases.RevisePendingReceipt.make({
+  const revised = yield* executeReceiptCommand({
+    command: ReceiptCommandRequestSchema.cases.RevisePendingReceipt.make({
       commandId: "proof-command-revise",
       receiptId: ReceiptId.make("proof-receipt-2"),
       expectedRevision: 0,
@@ -256,17 +256,17 @@ export const runReceiptPostgresProof = Effect.gen(function* () {
       receiptDate: "2026-08-19",
       file: secondFile,
     }),
-    principal(ownerPersonId, "2026-08-20T13:01:00.000Z"),
-  );
+    principal: principal(ownerPersonId, "2026-08-20T13:01:00.000Z"),
+  });
 
-  const withdrawn = yield* executeReceiptCommand(
-    ReceiptCommandRequestSchema.cases.WithdrawPendingReceipt.make({
+  const withdrawn = yield* executeReceiptCommand({
+    command: ReceiptCommandRequestSchema.cases.WithdrawPendingReceipt.make({
       commandId: "proof-command-withdraw",
       receiptId: ReceiptId.make("proof-receipt-2"),
       expectedRevision: 1,
     }),
-    principal(ownerPersonId, "2026-08-20T13:02:00.000Z"),
-  );
+    principal: principal(ownerPersonId, "2026-08-20T13:02:00.000Z"),
+  });
 
   yield* sql.unsafe(`
     CREATE FUNCTION reject_receipt_proof_audit() RETURNS trigger AS $$
@@ -284,11 +284,11 @@ export const runReceiptPostgresProof = Effect.gen(function* () {
   const rollbackContext = context("proof-receipt-3", "PROOF-0003", "2026-08-20T14:00:00.000Z");
 
   const failedTransaction = yield* Effect.exit(
-    executeReceiptCommand(
-      submit("proof-command-rollback", "Rollback after durable writes", rollbackFile),
-      principal(ownerPersonId, rollbackContext.now),
-      allocation(rollbackContext),
-    ),
+    executeReceiptCommand({
+      command: submit("proof-command-rollback", "Rollback after durable writes", rollbackFile),
+      principal: principal(ownerPersonId, rollbackContext.now),
+      allocation: allocation(rollbackContext),
+    }),
   );
 
   yield* sql.unsafe(`
@@ -354,18 +354,18 @@ export const runReceiptPostgresProof = Effect.gen(function* () {
   );
 
   const invalidAmount = yield* Effect.exit(
-    executeReceiptCommand(
-      { ...submit("proof-command-invalid-amount", "Invalid amount"), amountOre: 0 },
-      principal(ownerPersonId, invalidContext.now),
-      allocation(invalidContext),
-    ),
+    executeReceiptCommand({
+      command: { ...submit("proof-command-invalid-amount", "Invalid amount"), amountOre: 0 },
+      principal: principal(ownerPersonId, invalidContext.now),
+      allocation: allocation(invalidContext),
+    }),
   );
 
   const assistantReceiptIds: string[] = [];
   let ownerCursor: string | undefined;
 
   do {
-    const page = yield* listOwnedReceiptProjection(ownerPersonId, undefined, ownerCursor);
+    const page = yield* listOwnedReceiptProjection({ ownerPersonId, after: ownerCursor });
 
     for (const row of page.items) assistantReceiptIds.push(row.receiptId);
     ownerCursor = page.nextCursor;
@@ -375,7 +375,7 @@ export const runReceiptPostgresProof = Effect.gen(function* () {
   let position: ReceiptCursorPosition | undefined;
 
   while (true) {
-    const rows = yield* listApproverReceipts(undefined, position);
+    const rows = yield* listApproverReceipts({ after: position });
 
     for (const row of rows) approverReceiptIds.push(row.receiptId);
 

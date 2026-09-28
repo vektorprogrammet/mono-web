@@ -70,9 +70,6 @@ export class IdentityActor extends Schema.Class<IdentityActor>("IdentityActor")(
   expiresAt: Schema.DateTimeUtcFromDate,
 }) {}
 
-/** Decodes an engine-native actor row into the canonical domain shape. */
-export const decodeIdentityActor = Schema.decodeUnknownEffect(IdentityActor);
-
 /** Credential-free metadata exposed by the native session resources. */
 export class IdentitySession extends Schema.Class<IdentitySession>("IdentitySession")({
   sessionId: IdentitySessionId,
@@ -84,8 +81,6 @@ export class IdentitySession extends Schema.Class<IdentitySession>("IdentitySess
   userAgent: UserAgent,
   current: Schema.Boolean,
 }) {}
-
-export const decodeIdentitySession = Schema.decodeUnknownEffect(IdentitySession);
 
 export const IdentitySecurityEventKind = Schema.Literals([
   "sign-in-success",

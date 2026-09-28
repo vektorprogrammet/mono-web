@@ -1,4 +1,4 @@
-import { Predicate } from "effect";
+import { Match, Predicate } from "effect";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -9,14 +9,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.ts";
 import { startDisposablePostgres } from "@monoweb/postgres";
 import { chromium } from "@playwright/test";
-import { createPromiseClient } from "@vektorprogrammet/sdk";
+import { nativeRpcPath } from "@vektorprogrammet/rpc";
 
 import { dashboardMount } from "../dashboard-base.ts";
 import { journeyClock } from "../../../tools/e2e/journey-clock.ts";
-import { isNativeRequest } from "./native-operations.ts";
+import {
+  isNativeOperation,
+  isNativeRequest,
+  nativeRpcOutcome,
+  nativeRpcRequestBody,
+  nativeRpcStatus,
+  nativeRpcValue,
+} from "./native-operations.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -286,6 +293,67 @@ const parseJson = (bytes) => {
   }
 };
 
+const encodedId = (payload) =>
+  Predicate.isString(payload.receiptId) ? encodeURIComponent(payload.receiptId) : "";
+
+/**
+ * The HTTP route that each native RPC of this journey replaced, from its tag and payload. The
+ * ledger records an RPC by that route, so its facts stay comparable with the commands' receipts.
+ */
+const replacedRoute = (tag, payload) =>
+  Match.value(tag).pipe(
+    Match.when("system.readSession", () => ["GET", "/api/session"]),
+    Match.when("profile.readOwnProfile", () => ["GET", "/api/profile"]),
+    Match.when("receipts.submitReceipt", () => ["POST", "/api/receipts"]),
+    Match.when("receipts.listReceipts", () => ["GET", "/api/receipts"]),
+    Match.when("receipts.approveReceipt", () => ["POST", `/api/receipts/${encodedId(payload)}:approve`]),
+    Match.when("receipts.settleReceipt", () => ["POST", `/api/receipts/${encodedId(payload)}:settle`]),
+    Match.when("receipts.listReceiptsForSettlement", () => ["GET", "/api/receipt-settlement-queue"]),
+    Match.when("receipts.readReceiptSettlementForFinance", () => [
+      "GET",
+      `/api/receipt-settlement-queue/${encodedId(payload)}`,
+    ]),
+    Match.orElse(() => ["POST", `/api/rpc#${tag}`]),
+  );
+
+/** The one RPC request message that a request body to the RPC endpoint carries. */
+const parseRpcRequest = (json) =>
+  json !== null &&
+  Predicate.isObjectOrArray(json) &&
+  !Array.isArray(json) &&
+  Predicate.isTagged(json, "Request") &&
+  Predicate.isString(json.tag)
+    ? {
+        tag: json.tag,
+        payload: Predicate.isObjectOrArray(json.payload) ? json.payload : {},
+        headers: new Map(Array.isArray(json.headers) ? json.headers : []),
+      }
+    : undefined;
+
+/** One RPC answer as a journey reads it: its registry status and its value or problem body. */
+const rpcAnswer = (text) => {
+  const outcome = nativeRpcOutcome(text);
+
+  const body = Predicate.isTagged(outcome, "Success")
+    ? outcome.value
+    : Predicate.isTagged(outcome, "Problem")
+      ? outcome.problem
+      : null;
+
+  return { status: nativeRpcStatus(text) ?? 500, body, json: async () => body };
+};
+
+/** Posts one RPC as a driver does: the cookie and the dashboard origin are HTTP headers. */
+async function postRpc(apiOrigin, cookie, tag, payload) {
+  const response = await fetch(`${apiOrigin}${nativeRpcPath}`, {
+    method: "POST",
+    headers: nativeHeaders(cookie, { "content-type": "application/json" }),
+    body: nativeRpcRequestBody(tag, payload),
+  });
+
+  return rpcAnswer(await response.text());
+}
+
 async function startRecordingProxy(targetOrigin) {
   const records = [];
 
@@ -312,26 +380,47 @@ async function startRecordingProxy(targetOrigin) {
       });
 
       const upstreamBody = Buffer.from(await upstream.arrayBuffer());
+
+      // A native RPC is recorded as the route it replaced, with its key, precondition, request,
+      // and answer from the RPC messages. The dashboard server forwards the cookie in the message.
+      // The RPC client posts to the endpoint with one trailing slash, which `isNativeOperation`
+      // accepts as the backend does.
+      const rpc =
+        request.method === "POST" && isNativeOperation(request.method, url.pathname)
+          ? parseRpcRequest(parseJson(requestBody))
+          : undefined;
+
+      const answer = rpc === undefined ? undefined : rpcAnswer(upstreamBody.toString("utf8"));
+
+      const [method, pathname] =
+        rpc === undefined ? [request.method ?? "GET", url.pathname] : replacedRoute(rpc.tag, rpc.payload);
+
       records.push({
-        method: request.method ?? "GET",
-        pathname: url.pathname,
+        method,
+        pathname,
         query: url.search,
         targetOrigin: url.origin,
+        transportMethod: request.method ?? "GET",
+        transportPath: url.pathname,
+        rpcTag: rpc?.tag ?? null,
         requestHeaders: {
-          authorization: request.headers.authorization ?? null,
-          cookiePresent: Predicate.isString(request.headers.cookie),
-          idempotencyKey: request.headers["idempotency-key"] ?? null,
-          ifMatch: request.headers["if-match"] ?? null,
+          authorization: request.headers.authorization ?? rpc?.headers.get("authorization") ?? null,
+          cookiePresent:
+            Predicate.isString(request.headers.cookie) || Predicate.isString(rpc?.headers.get("cookie")),
+          idempotencyKey: Predicate.isString(rpc?.payload.idempotencyKey)
+            ? rpc.payload.idempotencyKey
+            : null,
+          ifMatch: Predicate.isString(rpc?.payload.ifMatch) ? rpc.payload.ifMatch : null,
           contentType: request.headers["content-type"] ?? null,
         },
-        requestJson: parseJson(requestBody),
-        responseStatus: upstream.status,
+        requestJson: rpc === undefined ? parseJson(requestBody) : (rpc.payload.request ?? null),
+        responseStatus: answer?.status ?? upstream.status,
         responseHeaders: {
           etag: upstream.headers.get("etag"),
           contentType: upstream.headers.get("content-type"),
           cacheControl: upstream.headers.get("cache-control"),
         },
-        responseJson: parseJson(upstreamBody),
+        responseJson: answer === undefined ? parseJson(upstreamBody) : answer.body,
       });
       response.statusCode = upstream.status;
 
@@ -455,12 +544,8 @@ async function startDeliverySink() {
 }
 
 function resultBody(result, label) {
-  assert.ok(
-    result && (result === null || Predicate.isObjectOrArray(result)),
-    `${label} did not return an SDK response`,
-  );
-  assert.ok("body" in result, `${label} SDK response has no body`);
-  assert.ok(result.body !== undefined, `${label} SDK response returned no body`);
+  assert.equal(result.status, 200, `${label} answered ${JSON.stringify(result.body)}`);
+  assert.ok(result.body !== null && result.body !== undefined, `${label} returned no value`);
 
   return result.body;
 }
@@ -476,31 +561,21 @@ function nativeHeaders(cookie, headers = {}) {
 }
 
 async function requestSettlement(apiOrigin, cookie, receiptId, etag, idempotencyKey, payload) {
-  return fetch(`${apiOrigin}/api/receipts/${encodeURIComponent(receiptId)}:settle`, {
-    method: "POST",
-    headers: nativeHeaders(cookie, {
-      "content-type": "application/json",
-      "idempotency-key": idempotencyKey,
-      "if-match": etag,
-    }),
-    body: JSON.stringify(payload),
+  return postRpc(apiOrigin, cookie, "receipts.settleReceipt", {
+    receiptId,
+    idempotencyKey,
+    ifMatch: etag,
+    request: payload,
   });
 }
 
 async function requestFinanceEvidence(apiOrigin, cookie, receiptId) {
-  return fetch(`${apiOrigin}/api/receipt-settlement-queue/${encodeURIComponent(receiptId)}`, {
-    headers: nativeHeaders(cookie),
-  });
+  return postRpc(apiOrigin, cookie, "receipts.readReceiptSettlementForFinance", { receiptId });
 }
 
 async function expectProblem(response, expectedStatus, expectedCode, label) {
   const body = await response.json();
   assert.equal(response.status, expectedStatus, `${label} status: ${JSON.stringify(body)}`);
-  assert.match(
-    response.headers.get("content-type") ?? "",
-    /application\/problem\+json/u,
-    `${label} must return a native problem document`,
-  );
   assert.equal(body?.status, expectedStatus, `${label} problem status`);
   assert.equal(body?.code, expectedCode, `${label} problem code`);
   assert.equal(
@@ -636,12 +711,16 @@ async function login(browser, persona) {
   assert.ok(sessionCookie, `${persona.personId} session cookie is missing`);
   const cookie = `${sessionCookie.name}=${sessionCookie.value}`;
 
-  const sessionResponse = await fetch(`${backendOrigin}/api/session`, {
-    headers: nativeHeaders(cookie),
-  });
+  const sessionAnswer = await (
+    await fetch(`${backendOrigin}/api/rpc`, {
+      method: "POST",
+      headers: nativeHeaders(cookie, { "content-type": "application/json" }),
+      body: nativeRpcRequestBody("system.readSession"),
+    })
+  ).text();
 
-  assert.equal(sessionResponse.status, 200, `${persona.personId} native session read`);
-  const session = await sessionResponse.json();
+  assert.equal(nativeRpcStatus(sessionAnswer), 200, `${persona.personId} native session read`);
+  const session = nativeRpcValue(sessionAnswer);
   assert.equal(
     session?.personId,
     persona.personId,
@@ -960,33 +1039,21 @@ async function main() {
 
     for (const session of sessions) session.context.on("request", recordBrowserRequest);
 
-    const ownerSdk = createPromiseClient(proxy.origin, {
-      cookie: owner.cookie,
-      origin: dashboardOrigin,
-    });
-
-    const approverSdk = createPromiseClient(proxy.origin, {
-      cookie: approver.cookie,
-      origin: dashboardOrigin,
-    });
-
-    const settlerSdk = createPromiseClient(proxy.origin, {
-      cookie: settler.cookie,
-      origin: dashboardOrigin,
-    });
-
     const listOwned = async () =>
-      resultBody(await ownerSdk.receipts.listReceipts({ query: {} }), "list owned receipts");
+      resultBody(
+        await postRpc(proxy.origin, owner.cookie, "receipts.listReceipts", {}),
+        "list owned receipts",
+      );
 
     const listSettlementQueue = async () =>
       resultBody(
-        await settlerSdk.receipts.listReceiptsForSettlement({ query: {} }),
+        await postRpc(proxy.origin, settler.cookie, "receipts.listReceiptsForSettlement", {}),
         "list settlement queue",
       );
 
     const readFinanceSettlement = async (receiptId) =>
       resultBody(
-        await settlerSdk.receipts.readReceiptSettlementForFinance({ params: { receiptId } }),
+        await requestFinanceEvidence(proxy.origin, settler.cookie, receiptId),
         "read settlement evidence for finance",
       );
 
@@ -1018,12 +1085,12 @@ async function main() {
     const approvalKey = randomUUID();
 
     const approvedResult = resultBody(
-      await approverSdk.receipts.approveReceipt({
-        params: { receiptId: submittedReceipt.receiptId },
-        headers: { "idempotency-key": approvalKey, "if-match": submittedReceipt.etag },
-        payload: {},
+      await postRpc(proxy.origin, approver.cookie, "receipts.approveReceipt", {
+        receiptId: submittedReceipt.receiptId,
+        idempotencyKey: approvalKey,
+        ifMatch: submittedReceipt.etag,
       }),
-      "approve receipt through generated SDK",
+      "approve receipt through the native RPC",
     );
 
     assert.equal(approvedResult.status, "Approved", "Approval changes the claim decision only");
@@ -1103,7 +1170,6 @@ async function main() {
       "Settlement grant must be separate from approval grant",
     );
 
-    const queuePath = `${proxy.origin}/api/receipt-settlement-queue`;
     const denialCountsBefore = await readWriteCounts(pool);
 
     const settlementAttemptPayload = (reference, expectedRevision = approvedResult.revision) => ({
@@ -1131,7 +1197,13 @@ async function main() {
       ["expired settlement grantee", expiredSettler.cookie, 200, 404, "receipt.not-found"],
       ["wrong department settlement grantee", foreignSettler.cookie, 200, 404, "receipt.not-found"],
     ]) {
-      const queueResponse = await fetch(queuePath, { headers: nativeHeaders(cookie) });
+      const queueResponse = await postRpc(
+        proxy.origin,
+        cookie,
+        "receipts.listReceiptsForSettlement",
+        {},
+      );
+
       const queueRecord = proxy.records.at(-1);
       assert.equal(
         queueRecord?.requestHeaders.cookiePresent,
@@ -1329,12 +1401,12 @@ async function main() {
     assert.match(confirmationText, new RegExp(submittedReceipt.visualId, "u"));
     assert.match(confirmationText, /browser-settlement-reference-0114/u);
 
-    const axe = await new AxeBuilder({ page: settler.page })
-      .include("[data-receipt-settlement-dialog]")
-      .analyze();
+    const axe = await auditSettledPage(settler.page, {
+      include: ["[data-receipt-settlement-dialog]"],
+    });
 
     assert.deepEqual(
-      axe.violations.map(({ id }) => id),
+      axe.map(({ id }) => id),
       [],
       "Settlement confirmation has no blocking accessibility violations",
     );
@@ -1425,7 +1497,17 @@ async function main() {
       "private, no-store",
       "Settlement response is private",
     );
-    assert.ok(canonicalRecord.responseHeaders.etag, "Settlement response carries a fresh ETag");
+
+    // The settlement RPC answers its evidence alone (its ETag header is dropped); the settled
+    // receipt's fresh tag is the one that the owner's list answers.
+    const settledEtag = receiptById(
+      (await listOwned()).items,
+      submittedReceipt.receiptId,
+      "owner after settlement",
+    ).etag;
+
+    assert.ok(Predicate.isString(settledEtag), "The settled receipt carries a tag");
+    assert.notEqual(settledEtag, approvedResult.etag, "Settlement issues a fresh receipt tag");
 
     const canonicalEvidence = await eventually(
       () => readReceiptEvidence(pool, submittedReceipt.receiptId),
@@ -1673,7 +1755,7 @@ async function main() {
       proxy.origin,
       settler.cookie,
       submittedReceipt.receiptId,
-      canonicalRecord.responseHeaders.etag,
+      settledEtag,
       randomUUID(),
       settlementAttemptPayload(
         "second-settlement-reference-0114",
@@ -1773,21 +1855,21 @@ async function main() {
     deliverySink.failNext();
 
     const deliverySettlement = resultBody(
-      await settlerSdk.receipts.settleReceipt({
-        params: { receiptId: deliveryCandidate.receiptId },
-        headers: { "idempotency-key": deliveryKey, "if-match": deliveryCandidate.etag },
-        payload: settlementAttemptPayload(
-          "delivery-retry-reference-0114",
-          deliveryCandidate.revision,
-        ),
-      }),
-      "settle delivery-retry receipt through generated SDK",
+      await requestSettlement(
+        proxy.origin,
+        settler.cookie,
+        deliveryCandidate.receiptId,
+        deliveryCandidate.etag,
+        deliveryKey,
+        settlementAttemptPayload("delivery-retry-reference-0114", deliveryCandidate.revision),
+      ),
+      "settle delivery-retry receipt through the native RPC",
     );
 
     assert.equal(
       deliverySettlement.receiptId,
       deliveryCandidate.receiptId,
-      "SDK settlement response identifies the receipt",
+      "RPC settlement response identifies the receipt",
     );
 
     const failedDeliveryEvidence = await eventually(
@@ -1903,7 +1985,12 @@ async function main() {
       proxyTargets: [...new Set(proxy.records.map(({ targetOrigin }) => targetOrigin))],
       deliveryTargets: deliverySink.deliveries.map(({ loopback }) => loopback),
       providerCalls: proxy.records.filter(
-        ({ method, pathname }) => !isNativeRequest(method, pathname),
+        ({ transportMethod, transportPath, rpcTag }) =>
+          !isNativeRequest(
+            transportMethod,
+            transportPath,
+            rpcTag === null ? undefined : nativeRpcRequestBody(rpcTag),
+          ),
       ),
     };
 
@@ -1951,8 +2038,8 @@ async function main() {
     evidence = {
       topology: {
         dashboard: "production-react-router-server",
-        backend: "native-effect-http-api",
-        sdk: "generated-@vektorprogrammet/sdk",
+        backend: "native-effect-rpc",
+        client: "native-rpc-@vektorprogrammet/rpc",
         browser: "real-headless-chromium",
         database: "disposable-postgresql-local",
         delivery: "acknowledged-loopback-http",
@@ -2007,7 +2094,7 @@ async function main() {
         route: settlementRoute,
         mobileWidth: 390,
         keyboard: "open-and-confirm",
-        accessibilityViolations: axe.violations.length,
+        accessibilityViolations: axe.length,
         ownerReloaded: true,
         financeReloaded: true,
       },

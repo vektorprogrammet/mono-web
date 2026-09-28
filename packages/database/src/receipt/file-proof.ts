@@ -1,3 +1,4 @@
+import { dual } from "effect/Function";
 import type { PgPoolConfig } from "@effect/sql-pg/PgClient";
 import * as Migrator from "effect/unstable/sql/Migrator";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -180,11 +181,11 @@ const submit = (
 ) => {
   const commandContext = context(receiptId, visualId, now);
 
-  return executeReceiptCommand(
-    submitCommand(commandId, "Receipt file proof", file),
-    principal(ownerPersonId, now),
-    allocation(commandContext),
-  );
+  return executeReceiptCommand({
+    command: submitCommand(commandId, "Receipt file proof", file),
+    principal: principal(ownerPersonId, now),
+    allocation: allocation(commandContext),
+  });
 };
 
 const hasFailureTag = (
@@ -214,7 +215,7 @@ const drain = (
 > =>
   Effect.forEach(
     Array.from({ length: count }, (_, index) => index),
-    (index) => deliverNextReceiptOutbox(`${prefix}-${index}`, claimedAt),
+    (index) => deliverNextReceiptOutbox({ claimId: `${prefix}-${index}`, claimedAt }),
   );
 
 /** Constraint and index definitions of the tables that `0001-receipt-authority.sql` creates. */
@@ -331,7 +332,7 @@ const upgradedLegacyReceiptSchema = (database: PgPoolConfig) =>
     return yield* receiptSchemaDefinition(sql);
   }).pipe(Effect.provide(sharedPgLayer(database)));
 
-export const runReceiptFileProof = (
+const runReceiptFileProofImpl = (
   fileSnapshot: Effect.Effect<ReceiptFileRecordingSnapshot>,
   failNextFileEffect: (effectId: string) => Effect.Effect<void>,
   auxiliaryEffectIds: Effect.Effect<ReadonlyArray<string>>,
@@ -405,8 +406,8 @@ export const runReceiptFileProof = (
     );
     const submitDelivery = yield* drain(3, "claim-submit", "2026-08-20T16:01:00.000Z");
 
-    yield* executeReceiptCommand(
-      ReceiptCommandRequestSchema.cases.RevisePendingReceipt.make({
+    yield* executeReceiptCommand({
+      command: ReceiptCommandRequestSchema.cases.RevisePendingReceipt.make({
         commandId: "file-proof-revise",
         receiptId: ReceiptId.make("file-proof-receipt"),
         expectedRevision: 0,
@@ -415,20 +416,20 @@ export const runReceiptFileProof = (
         receiptDate: "2026-08-20",
         file: replacement,
       }),
-      principal(ownerPersonId, "2026-08-20T16:02:00.000Z"),
-    );
+      principal: principal(ownerPersonId, "2026-08-20T16:02:00.000Z"),
+    });
 
-    const staleClaim = yield* claimNextReceiptOutbox(
-      "claim-stale-dead-process",
-      "2026-08-20T16:03:00.000Z",
-    );
+    const staleClaim = yield* claimNextReceiptOutbox({
+      claimId: "claim-stale-dead-process",
+      claimedAt: "2026-08-20T16:03:00.000Z",
+    });
 
     if (staleClaim === undefined) throw new Error("expected replacement promote claim");
 
-    const staleClaimIds = yield* listStaleReceiptOutboxClaimIds(
-      "2026-08-20T16:04:00.000Z",
-      "file-proof-receipt",
-    );
+    const staleClaimIds = yield* listStaleReceiptOutboxClaimIds({
+      claimedBefore: "2026-08-20T16:04:00.000Z",
+      receiptId: "file-proof-receipt",
+    });
 
     if (!staleClaimIds.includes(staleClaim.claimId)) {
       throw new Error("stale Receipt outbox claim was not explicitly discovered");
@@ -452,28 +453,28 @@ export const runReceiptFileProof = (
 
     yield* failNextFileEffect("file-proof-revise:PromoteReceiptFile");
 
-    const failedDelivery = yield* deliverNextReceiptOutbox(
-      "claim-replacement-failure",
-      "2026-08-20T16:05:00.000Z",
-    );
+    const failedDelivery = yield* deliverNextReceiptOutbox({
+      claimId: "claim-replacement-failure",
+      claimedAt: "2026-08-20T16:05:00.000Z",
+    });
 
     const currentAfterFailure = yield* fileSnapshot;
 
-    const replacementDelivery = yield* deliverNextReceiptOutbox(
-      "claim-replacement-retry",
-      "2026-08-20T16:06:00.000Z",
-    );
+    const replacementDelivery = yield* deliverNextReceiptOutbox({
+      claimId: "claim-replacement-retry",
+      claimedAt: "2026-08-20T16:06:00.000Z",
+    });
 
     const reviseRemainder = yield* drain(2, "claim-revise", "2026-08-20T16:07:00.000Z");
 
-    yield* executeReceiptCommand(
-      ReceiptCommandRequestSchema.cases.WithdrawPendingReceipt.make({
+    yield* executeReceiptCommand({
+      command: ReceiptCommandRequestSchema.cases.WithdrawPendingReceipt.make({
         commandId: "file-proof-withdraw",
         receiptId: ReceiptId.make("file-proof-receipt"),
         expectedRevision: 1,
       }),
-      principal(ownerPersonId, "2026-08-20T16:08:00.000Z"),
-    );
+      principal: principal(ownerPersonId, "2026-08-20T16:08:00.000Z"),
+    });
     const withdrawDelivery = yield* drain(2, "claim-withdraw", "2026-08-20T16:09:00.000Z");
 
     yield* submit(
@@ -492,8 +493,14 @@ export const runReceiptFileProof = (
 
     const workerClaims = yield* Effect.all(
       [
-        claimNextReceiptOutbox("claim-worker-a", "2026-08-20T16:10:30.000Z"),
-        claimNextReceiptOutbox("claim-worker-b", "2026-08-20T16:10:30.000Z"),
+        claimNextReceiptOutbox({
+          claimId: "claim-worker-a",
+          claimedAt: "2026-08-20T16:10:30.000Z",
+        }),
+        claimNextReceiptOutbox({
+          claimId: "claim-worker-b",
+          claimedAt: "2026-08-20T16:10:30.000Z",
+        }),
       ],
       { concurrency: "unbounded" },
     );
@@ -519,24 +526,24 @@ export const runReceiptFileProof = (
     const [approve, reject] = yield* Effect.all(
       [
         Effect.exit(
-          executeReceiptCommand(
-            ReceiptCommandRequestSchema.cases.ApproveReceipt.make({
+          executeReceiptCommand({
+            command: ReceiptCommandRequestSchema.cases.ApproveReceipt.make({
               commandId: "file-proof-race-approve",
               receiptId: ReceiptId.make("file-proof-race-receipt"),
               expectedRevision: 0,
             }),
-            principal(approverPersonId, raceContext.now),
-          ),
+            principal: principal(approverPersonId, raceContext.now),
+          }),
         ),
         Effect.exit(
-          executeReceiptCommand(
-            ReceiptCommandRequestSchema.cases.RejectReceipt.make({
+          executeReceiptCommand({
+            command: ReceiptCommandRequestSchema.cases.RejectReceipt.make({
               commandId: "file-proof-race-reject",
               receiptId: ReceiptId.make("file-proof-race-receipt"),
               expectedRevision: 0,
             }),
-            principal(approverPersonId, raceContext.now),
-          ),
+            principal: principal(approverPersonId, raceContext.now),
+          }),
         ),
       ],
       { concurrency: "unbounded" },
@@ -578,18 +585,18 @@ export const runReceiptFileProof = (
     const identicalCommandResults = yield* Effect.all(
       [
         Effect.exit(
-          executeReceiptCommand(
-            identicalCommand,
-            principal(ownerPersonId, identicalContext.now),
-            allocation(identicalContext),
-          ),
+          executeReceiptCommand({
+            command: identicalCommand,
+            principal: principal(ownerPersonId, identicalContext.now),
+            allocation: allocation(identicalContext),
+          }),
         ),
         Effect.exit(
-          executeReceiptCommand(
-            identicalCommand,
-            principal(ownerPersonId, identicalContext.now),
-            allocation(identicalContext),
-          ),
+          executeReceiptCommand({
+            command: identicalCommand,
+            principal: principal(ownerPersonId, identicalContext.now),
+            allocation: allocation(identicalContext),
+          }),
         ),
       ],
       { concurrency: "unbounded" },
@@ -610,26 +617,26 @@ export const runReceiptFileProof = (
     const conflictingCommandResults = yield* Effect.all(
       [
         Effect.exit(
-          executeReceiptCommand(
-            submitCommand(
+          executeReceiptCommand({
+            command: submitCommand(
               "file-proof-concurrent-conflict",
               "Concurrent conflicting submission A",
               conflictFile,
             ),
-            principal(ownerPersonId, conflictingContext.now),
-            allocation(conflictingContext),
-          ),
+            principal: principal(ownerPersonId, conflictingContext.now),
+            allocation: allocation(conflictingContext),
+          }),
         ),
         Effect.exit(
-          executeReceiptCommand(
-            submitCommand(
+          executeReceiptCommand({
+            command: submitCommand(
               "file-proof-concurrent-conflict",
               "Concurrent conflicting submission B",
               conflictFile,
             ),
-            principal(ownerPersonId, conflictingContext.now),
-            allocation(conflictingContext),
-          ),
+            principal: principal(ownerPersonId, conflictingContext.now),
+            allocation: allocation(conflictingContext),
+          }),
         ),
       ],
       { concurrency: "unbounded" },
@@ -793,3 +800,19 @@ export const runReceiptFileProof = (
 
     return evidence;
   });
+
+export const runReceiptFileProof: {
+  (
+    failNextFileEffect: (effectId: string) => Effect.Effect<void>,
+    auxiliaryEffectIds: Effect.Effect<ReadonlyArray<string>>,
+    legacyUpgradeDatabase: PgPoolConfig,
+  ): (
+    fileSnapshot: Effect.Effect<ReceiptFileRecordingSnapshot>,
+  ) => ReturnType<typeof runReceiptFileProofImpl>;
+  (
+    fileSnapshot: Effect.Effect<ReceiptFileRecordingSnapshot>,
+    failNextFileEffect: (effectId: string) => Effect.Effect<void>,
+    auxiliaryEffectIds: Effect.Effect<ReadonlyArray<string>>,
+    legacyUpgradeDatabase: PgPoolConfig,
+  ): ReturnType<typeof runReceiptFileProofImpl>;
+} = dual(4, runReceiptFileProofImpl);

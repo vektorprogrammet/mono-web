@@ -66,7 +66,7 @@ Pure calculations remain direct functions. Documentation does not introduce a Se
 | Supported imports       | Package export maps                                      | Derive the public entry-point inventory                         |
 | Signatures and schemas  | TypeScript declarations                                  | Generate reference material                                     |
 | API-specific guarantees | Documentation beside public declarations                 | Render that documentation without maintaining a second copy     |
-| HTTP operations         | Existing HTTP API definitions                            | Reuse the OpenAPI document generated from those definitions     |
+| RPC operations          | The RPC groups of `packages/rpc`                         | Link the contract source; RPC has no OpenAPI document           |
 | Working examples        | Executable TypeScript files                              | Include those exact files, rather than copied code blocks       |
 | Business meaning        | [Intended system](system.md)                             | Link the relevant rule instead of restating it                  |
 | Architectural ownership | [Architecture](architecture.md#ownership)                | Link the owner and dependency rules                             |
@@ -99,10 +99,10 @@ Their commands state required tools, configuration, cleanup, and evidence limits
 
 ## Existing tooling and adoption
 
-The repository already has a documentation entry point, system guides, package export maps, and generated HTTP artifacts.
+The repository already has a documentation entry point, system guides, package export maps, and the RPC contract.
 The [documentation site](../apps/docs/site.ts) renders the repository's Markdown and MDX documents in place with Vocs.
 It publishes existing documents; it is not a module reference or example-validation system.
-The [HTTP generator](../packages/http-api/scripts/generate-openapi.ts) derives OpenAPI from the contract before each type check, so no committed copy can drift.
+The [RPC contract](../packages/rpc/src/api.ts) is its own reference: nothing is generated from it, so no copy can drift. It produces no OpenAPI document ([architecture](architecture.md#rpc-contract-and-ingress)).
 
 The pilot evaluated [Effect docgen](https://github.com/Effect-TS/docgen) before selecting a maintained alternative.
 The [guide tool-choice record](../packages/domain/src/placements/README.md#tool-choice) owns the qualification result and compatibility limits.
@@ -163,11 +163,11 @@ Review compares important explanations with implementation and behavioral eviden
 
 ## Development sequence
 
-| Slice                  | Deliverable                                                                        | Acceptance                                                           |
-| ---------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| A: Placements pilot    | Consumer guide, maintainer guide, public-import examples, and reference generation | The pilot acceptance conditions hold                                 |
-| B: Required checks     | Documentation checks in existing credential-free CI                                | Broken examples and stale reference material fail the required check |
-| C: Capability coverage | Apply the accepted pattern to Recruitment, Identity, Receipts, and the SDK         | Each capability passes its own bounded contract                      |
+| Slice                  | Deliverable                                                                         | Acceptance                                                           |
+| ---------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| A: Placements pilot    | Consumer guide, maintainer guide, public-import examples, and reference generation  | The pilot acceptance conditions hold                                 |
+| B: Required checks     | Documentation checks in existing credential-free CI                                 | Broken examples and stale reference material fail the required check |
+| C: Capability coverage | Apply the accepted pattern to Recruitment, Identity, Receipts, and the RPC contract | Each capability passes its own bounded contract                      |
 
 Each slice receives its own implementation specification.
 The roadmap does not authorize one repository-wide documentation rewrite.

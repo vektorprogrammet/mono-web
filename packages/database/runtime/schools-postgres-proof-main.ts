@@ -212,7 +212,7 @@ const program = Effect.scoped(
           }).pipe(
             Effect.catchTag("SqlError", (cause) =>
               Effect.fail(
-                new SchoolsPersistenceError({
+                SchoolsPersistenceError.make({
                   operation: "capture Schools proof reader connection",
                   message: String(cause),
                 }),

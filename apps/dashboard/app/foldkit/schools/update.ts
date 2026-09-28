@@ -1,12 +1,8 @@
-import type { SchoolDirectory, SchoolDirectoryDepartment } from "@vektorprogrammet/http-api";
+import type { SchoolDirectory, SchoolDirectoryDepartment } from "@vektorprogrammet/rpc";
 import { Tabs } from "@foldkit/ui";
 import { Match as M, Option, Schema, Predicate } from "effect";
-import {
-  SchoolCommand,
-  DepartmentId,
-  SemesterId,
-  type SchoolManagement,
-} from "@vektorprogrammet/http-api";
+import { DepartmentId, SemesterId } from "@vektorprogrammet/domain";
+import { SchoolCommand, type SchoolManagement } from "@vektorprogrammet/rpc";
 import { Command, Update } from "foldkit";
 import type { SchoolsDirectoryCommands } from "./command";
 import { GotDirectoryTabMessage, type Message } from "./message";

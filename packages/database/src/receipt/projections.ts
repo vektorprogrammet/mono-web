@@ -1,3 +1,4 @@
+import { dual } from "effect/Function";
 import { Database, type DatabaseOperations } from "../service.js";
 import { receiptCursorPage, receiptCursorTimestamp } from "./cursor.js";
 import { flow, Effect, Schema } from "effect";
@@ -26,7 +27,7 @@ import type {
 } from "@vektorprogrammet/domain/receipt";
 
 const projectionError = (operation: string, cause: unknown) =>
-  new ReceiptPersistenceError({ operation, message: String(cause) });
+  ReceiptPersistenceError.make({ operation, message: String(cause) });
 
 const decodeSettlementEvidence = flow(
   Schema.decodeUnknownEffect(ReceiptSettlementEvidenceSelectSchema, {
@@ -67,10 +68,20 @@ export interface ReceiptCandidateRow extends ReceiptListItem {
   readonly cursorTimestamp: string;
 }
 
-export const listApproverReceipts = (
-  status?: ReceiptStatus,
-  after?: ReceiptCursorPosition,
-): Effect.Effect<ReadonlyArray<ReceiptCandidateRow>, ReceiptPersistenceError, Database> =>
+/** The status filter and the cursor position of an approver candidate read. */
+export interface ApproverReceiptsInput {
+  readonly status?: ReceiptStatus | undefined;
+  readonly after?: ReceiptCursorPosition | undefined;
+}
+
+export const listApproverReceipts = ({
+  status,
+  after,
+}: ApproverReceiptsInput): Effect.Effect<
+  ReadonlyArray<ReceiptCandidateRow>,
+  ReceiptPersistenceError,
+  Database
+> =>
   Effect.gen(function* () {
     const sql = yield* Database;
     const statusPredicate = status === undefined ? sql`TRUE` : sql`status = ${status}`;
@@ -195,11 +206,18 @@ const findOwnedReceiptProjection = SqlSchema.findAll({
     }),
 });
 
-export const listOwnedReceiptProjection = (
-  ownerPersonId: string,
-  status?: ReceiptListItem["status"],
-  after?: string,
-): Effect.Effect<
+/** The owner, status filter, and cursor of an owned receipt page. */
+export interface OwnedReceiptProjectionInput {
+  readonly ownerPersonId: string;
+  readonly status?: ReceiptListItem["status"] | undefined;
+  readonly after?: string | undefined;
+}
+
+export const listOwnedReceiptProjection = ({
+  ownerPersonId,
+  status,
+  after,
+}: OwnedReceiptProjectionInput): Effect.Effect<
   ReceiptPage<OwnedReceiptProjectionItem>,
   ReceiptPersistenceError | ReceiptDecodeError,
   Database
@@ -241,18 +259,38 @@ export interface ReceiptLifecycleFileProjection {
   readonly sha256: string;
 }
 
-export const readReceiptLifecycleEvidence = (
-  receiptId: string,
-  ownerPersonId: string,
-): Effect.Effect<
-  ReceiptLifecycleEvidenceProjection,
-  ReceiptPersistenceError | ReceiptNotFound,
-  Database
-> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
+export const readReceiptLifecycleEvidence: {
+  (
+    ownerPersonId: string,
+  ): (
+    receiptId: string,
+  ) => Effect.Effect<
+    ReceiptLifecycleEvidenceProjection,
+    ReceiptPersistenceError | ReceiptNotFound,
+    Database
+  >;
+  (
+    receiptId: string,
+    ownerPersonId: string,
+  ): Effect.Effect<
+    ReceiptLifecycleEvidenceProjection,
+    ReceiptPersistenceError | ReceiptNotFound,
+    Database
+  >;
+} = dual(
+  2,
+  (
+    receiptId: string,
+    ownerPersonId: string,
+  ): Effect.Effect<
+    ReceiptLifecycleEvidenceProjection,
+    ReceiptPersistenceError | ReceiptNotFound,
+    Database
+  > =>
+    Effect.gen(function* () {
+      const sql = yield* Database;
 
-    const receipts = yield* sql<ReceiptLifecycleFileProjection>`
+      const receipts = yield* sql<ReceiptLifecycleFileProjection>`
       SELECT file_ref AS "fileRef", file_object_key AS "objectKey",
         file_content_type AS "contentType", file_byte_length::text AS "byteLength",
         file_sha256 AS "sha256"
@@ -260,12 +298,12 @@ export const readReceiptLifecycleEvidence = (
       WHERE receipt_id = ${receiptId} AND owner_person_id = ${ownerPersonId}
     `;
 
-    const receipt = receipts[0];
+      const receipt = receipts[0];
 
-    if (receipt === undefined) return yield* new ReceiptNotFound({ receiptId });
-    const settlement = yield* selectSettlementEvidence(sql, receiptId);
+      if (receipt === undefined) return yield* ReceiptNotFound.make({ receiptId });
+      const settlement = yield* selectSettlementEvidence(sql, receiptId);
 
-    const outbox = yield* sql<ReceiptLifecycleOutboxProjection>`
+      const outbox = yield* sql<ReceiptLifecycleOutboxProjection>`
       SELECT effect_id AS "effectId", effect_type AS "effectType",
         command_id AS "commandId", receipt_id AS "receiptId", ordinal, status, attempts,
         last_failure_tag AS "lastFailureTag"
@@ -274,7 +312,7 @@ export const readReceiptLifecycleEvidence = (
       ORDER BY command_id, ordinal
     `;
 
-    const audit = yield* sql<ReceiptLifecycleAuditProjection>`
+      const audit = yield* sql<ReceiptLifecycleAuditProjection>`
       SELECT command_id AS "commandId", receipt_id AS "receiptId",
         action, receipt_revision AS "receiptRevision"
       FROM economy_receipt_audit
@@ -282,21 +320,22 @@ export const readReceiptLifecycleEvidence = (
       ORDER BY occurred_at, command_id
     `;
 
-    return {
-      receiptId,
-      file: {
-        fileRef: receipt.fileRef,
-        objectKey: receipt.objectKey,
-        contentType: receipt.contentType,
-        byteLength: Number(receipt.byteLength),
-        sha256: receipt.sha256,
-      },
-      settlement: settlement ?? null,
-      outbox,
-      audit,
-    };
-  }).pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(projectionError("read Receipt lifecycle evidence", cause)),
+      return {
+        receiptId,
+        file: {
+          fileRef: receipt.fileRef,
+          objectKey: receipt.objectKey,
+          contentType: receipt.contentType,
+          byteLength: Number(receipt.byteLength),
+          sha256: receipt.sha256,
+        },
+        settlement: settlement ?? null,
+        outbox,
+        audit,
+      };
+    }).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(projectionError("read Receipt lifecycle evidence", cause)),
+      ),
     ),
-  );
+);

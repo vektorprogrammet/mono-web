@@ -13,7 +13,8 @@
  * modules outside its own module and the tests of its app or package import it. It warns about
  * functions that three or more modules outside their app or package import untagged.
  */
-import { posix } from "node:path";
+import { dual } from "effect/Function";
+import { repositoryPath } from "./repository-path.js";
 import type { Finding } from "./check.js";
 import {
   contractGaps,
@@ -40,9 +41,13 @@ import type { Repository } from "./repository.js";
  */
 export const constructCategories = {
   "http-transport":
-    "Reads native HTTP requests and writes their representations: bounded JSON, preconditions, idempotency keys, entity tags, and cache headers.",
-  "http-problem":
-    "Answers a native HTTP request with a declared problem: failure mapping, credential classification, authorization, and decoding.",
+    "Derives the transport facts that commands keep across the cutover from HTTP: command identities, request digests, preconditions, and entity tags.",
+  "authority-evidence":
+    "Checks a resolved authority and returns the evidence that a command which needs that authority takes; nothing else constructs it.",
+  "rpc-transport":
+    "Addresses the native RPC endpoints over HTTP, as the ingress serves them and every recorder matches them.",
+  "rpc-problem":
+    "Answers a native RPC with a declared problem: failure mapping, credential classification, authorization, command outcomes, and the defect boundary.",
   "sql-lock": "Transaction-scoped PostgreSQL advisory locks under registered keys.",
   "sql-lifecycle":
     "Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account access.",
@@ -52,6 +57,8 @@ export const constructCategories = {
   digest: "Canonical JSON and SHA-256 digests that evidence and idempotency identities hash.",
   "test-harness":
     "Starts and drives disposable infrastructure for tests, proofs, and journeys: PostgreSQL clusters, loopback ports, and the local backend.",
+  "browser-audit":
+    "Audits the pages that browser journeys render once they have settled: accessibility with axe.",
   "request-ledger":
     "Classifies the requests that journey recorders observe by whole path segments: native contract operations and legacy routes.",
 } satisfies Readonly<Record<string, string>>;
@@ -221,25 +228,28 @@ const parseFindings = (graph: ModuleGraph): ReadonlyArray<Finding> =>
   );
 
 /** The importers of each construct, which only this reads from the import graph. */
-export const readConsumers = (
-  constructs: ReadonlyArray<Construct>,
-  graph: ModuleGraph,
-): ReadonlyArray<Consumers> =>
-  constructs.map((construct) => {
-    const importers = [
-      ...(graph.importers.get(bindingKey({ path: construct.path, name: construct.name })) ?? []),
-    ].sort();
+export const readConsumers: {
+  (graph: ModuleGraph): (constructs: ReadonlyArray<Construct>) => ReadonlyArray<Consumers>;
+  (constructs: ReadonlyArray<Construct>, graph: ModuleGraph): ReadonlyArray<Consumers>;
+} = dual(
+  2,
+  (constructs: ReadonlyArray<Construct>, graph: ModuleGraph): ReadonlyArray<Consumers> =>
+    constructs.map((construct) => {
+      const importers = [
+        ...(graph.importers.get(bindingKey({ path: construct.path, name: construct.name })) ?? []),
+      ].sort();
 
-    const owner = packageOf(construct.path);
+      const owner = packageOf(construct.path);
 
-    return {
-      construct,
-      importers,
-      counted: importers.filter(
-        (importer) => !testFile.test(importer) || packageOf(importer) !== owner,
-      ),
-    };
-  });
+      return {
+        construct,
+        importers,
+        counted: importers.filter(
+          (importer) => !testFile.test(importer) || packageOf(importer) !== owner,
+        ),
+      };
+    }),
+);
 
 /** A construct that fewer than two modules share is no shared construct. */
 export const consumerFindings = (consumers: ReadonlyArray<Consumers>): ReadonlyArray<Finding> =>
@@ -255,40 +265,53 @@ export const consumerFindings = (consumers: ReadonlyArray<Consumers>): ReadonlyA
   );
 
 /** The untagged functions that three or more modules outside their app or package import. */
-export const readCandidates = (
-  repository: Repository,
-  graph: ModuleGraph,
-  constructs: ReadonlyArray<Construct>,
-): ReadonlyArray<Candidate> => {
-  const tagged = new Set(
-    constructs.map((construct) => bindingKey({ path: construct.path, name: construct.name })),
-  );
-
-  const candidates: Array<Candidate> = [];
-
-  for (const [key, importers] of graph.importers) {
-    if (tagged.has(key)) continue;
-
-    const hash = key.lastIndexOf("#");
-    const path = key.slice(0, hash);
-    const owner = packageOf(path);
-    const outside = [...importers].filter((importer) => packageOf(importer) !== owner);
-
-    if (outside.length < candidateImporters) continue;
-
-    const name = key.slice(hash + 1);
-    const local = graph.modules.get(path)?.locals.get(name);
-
-    const found = readDeclarations(path, repository.read(path)).declarations.find(
-      (candidate) => candidate.local === local,
+export const readCandidates: {
+  (
+    graph: ModuleGraph,
+    constructs: ReadonlyArray<Construct>,
+  ): (repository: Repository) => ReadonlyArray<Candidate>;
+  (
+    repository: Repository,
+    graph: ModuleGraph,
+    constructs: ReadonlyArray<Construct>,
+  ): ReadonlyArray<Candidate>;
+} = dual(
+  3,
+  (
+    repository: Repository,
+    graph: ModuleGraph,
+    constructs: ReadonlyArray<Construct>,
+  ): ReadonlyArray<Candidate> => {
+    const tagged = new Set(
+      constructs.map((construct) => bindingKey({ path: construct.path, name: construct.name })),
     );
 
-    if (found?.callable === true)
-      candidates.push({ path, name, line: found.line, importers: outside.sort() });
-  }
+    const candidates: Array<Candidate> = [];
 
-  return candidates.sort(byLocation);
-};
+    for (const [key, importers] of graph.importers) {
+      if (tagged.has(key)) continue;
+
+      const hash = key.lastIndexOf("#");
+      const path = key.slice(0, hash);
+      const owner = packageOf(path);
+      const outside = [...importers].filter((importer) => packageOf(importer) !== owner);
+
+      if (outside.length < candidateImporters) continue;
+
+      const name = key.slice(hash + 1);
+      const local = graph.modules.get(path)?.locals.get(name);
+
+      const found = readDeclarations(path, repository.read(path)).declarations.find(
+        (candidate) => candidate.local === local,
+      );
+
+      if (found?.callable === true)
+        candidates.push({ path, name, line: found.line, importers: outside.sort() });
+    }
+
+    return candidates.sort(byLocation);
+  },
+);
 
 // ---------------------------------------------------------------------------------------------
 // Pages
@@ -416,7 +439,7 @@ const renderIndex = (
   categories: ReadonlyArray<Category>,
   links: ReadonlyMap<Construct, string>,
 ): string => {
-  const from = posix.dirname(constructPages.index);
+  const from = repositoryPath.dirname(constructPages.index);
 
   return [
     "# Shared constructs",
@@ -435,10 +458,10 @@ const renderIndex = (
     `\`just constructs\` fails when these pages differ from the tags, when a construct lacks one of these tags or annotations, and when fewer modules import it. It lists untagged functions that ${candidateImporters} or more modules outside their app or package import.`,
     "",
     ...categories.flatMap(({ category, holds, members }) => [
-      `- [${category}](${posix.relative(from, pageOf(category))}): ${holds}`,
+      `- [${category}](${repositoryPath.relative(from, pageOf(category))}): ${holds}`,
       ...members.map(
         (construct) =>
-          `  - [${code(construct.name)}](${posix.relative(from, links.get(construct) ?? "")}): ${construct.summary}`,
+          `  - [${code(construct.name)}](${repositoryPath.relative(from, links.get(construct) ?? "")}): ${construct.summary}`,
       ),
     ]),
     "",
@@ -451,7 +474,7 @@ const renderCategory = ({ category, holds, members }: Category): string =>
     "",
     marker,
     "",
-    `${holds} The [index](${posix.relative(constructPages.contracts, constructPages.index)}) lists every category.`,
+    `${holds} The [index](${repositoryPath.relative(constructPages.contracts, constructPages.index)}) lists every category.`,
     "",
     ...members.flatMap(renderContract),
   ].join("\n");
@@ -470,40 +493,43 @@ export const renderPages = (constructs: ReadonlyArray<Construct>): ReadonlyMap<s
 };
 
 /** The pages that are missing, stale, or no longer rendered. */
-export const checkPages = (
-  repository: Repository,
-  constructs: ReadonlyArray<Construct>,
-): ReadonlyArray<Finding> => {
-  const pages = renderPages(constructs);
-  const present = new Set(repository.paths);
+export const checkPages: {
+  (constructs: ReadonlyArray<Construct>): (repository: Repository) => ReadonlyArray<Finding>;
+  (repository: Repository, constructs: ReadonlyArray<Construct>): ReadonlyArray<Finding>;
+} = dual(
+  2,
+  (repository: Repository, constructs: ReadonlyArray<Construct>): ReadonlyArray<Finding> => {
+    const pages = renderPages(constructs);
+    const present = new Set(repository.paths);
 
-  return [
-    ...[...pages].flatMap(([path, text]) =>
-      !present.has(path)
-        ? [{ path, message: "is missing; run just constructs write" }]
-        : repository.read(path) === text
-          ? []
-          : [
+    return [
+      ...[...pages].flatMap(([path, text]) =>
+        !present.has(path)
+          ? [{ path, message: "is missing; run just constructs write" }]
+          : repository.read(path) === text
+            ? []
+            : [
+                {
+                  path,
+                  message:
+                    "differs from the @construct tags and their JSDoc; run just constructs write",
+                },
+              ],
+      ),
+      ...repository.paths.flatMap((path) =>
+        path.startsWith(`${constructPages.contracts}/`) && !pages.has(path)
+          ? [
               {
                 path,
                 message:
-                  "differs from the @construct tags and their JSDoc; run just constructs write",
+                  "is the page of no construct category; run just constructs write to remove it",
               },
-            ],
-    ),
-    ...repository.paths.flatMap((path) =>
-      path.startsWith(`${constructPages.contracts}/`) && !pages.has(path)
-        ? [
-            {
-              path,
-              message:
-                "is the page of no construct category; run just constructs write to remove it",
-            },
-          ]
-        : [],
-    ),
-  ];
-};
+            ]
+          : [],
+      ),
+    ];
+  },
+);
 
 /** What `just constructs` reports: its findings fail the check, and its candidates do not. */
 interface ConstructCheck {

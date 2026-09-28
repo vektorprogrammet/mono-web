@@ -1,19 +1,11 @@
-import { spawn } from "node:child_process";
+import * as BunRuntime from "@effect/platform-bun/BunRuntime";
+import * as BunServices from "@effect/platform-bun/BunServices";
 import { createRequire } from "node:module";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import process from "node:process";
+import { Config, Console, Data, Effect, Match, Option, Path, Schema } from "effect";
+import { jobDisposition, runJob } from "./job-process.js";
 
-const root = fileURLToPath(new URL("../../", import.meta.url));
-
-const fail = (message: string): never => {
-  process.stderr.write(`Local development: ${message}\n`);
-  process.exit(1);
-};
-
-const args = process.argv.slice(2).filter((argument) => argument !== "--");
-
-if (args.length === 1 && (args[0] === "--help" || args[0] === "-h")) {
-  process.stdout.write(`Usage: just dev [--help]
+const usage = `Usage: just dev [--help]
 
 \`devenv up\` starts the devenv PostgreSQL service and then this launcher with
 BACKEND_PG_URL set to that service's database.
@@ -42,99 +34,120 @@ Receipt files and database contents persist across restarts.
 External delivery is disabled. Queued delivery does not prove mail delivery.
 Backend package .env files are disabled; provider environment is not inherited.
 Ctrl+C stops the application tasks owned by Turbo, not existing services.
-`);
-  process.exit(0);
-}
+`;
 
-if (args.length !== 0) fail("Unknown argument. Use just dev --help.");
+/** A refusal; the launcher prints it and exits 1. */
+class DevFailure extends Data.TaggedError("DevFailure")<{ readonly message: string }> {}
 
-const postgresUrl = process.env.BACKEND_PG_URL;
+const fail = (message: string) => Effect.fail(new DevFailure({ message }));
 
-if (!postgresUrl) fail("Set BACKEND_PG_URL to a dedicated local PostgreSQL database URL.");
+/** An environment variable, or undefined when it is not set. */
+const variable = (name: string) =>
+  Effect.map(Config.option(Config.String(name)), Option.getOrUndefined);
 
-let database: URL;
+const encodeOrigins = Schema.encodeSync(Schema.fromJsonString(Schema.Array(Schema.String)));
 
-try {
-  database = new URL(postgresUrl);
-} catch {
-  fail("BACKEND_PG_URL must be a PostgreSQL URL.");
-}
+const disposition = jobDisposition();
 
-if (
-  !["postgres:", "postgresql:"].includes(database.protocol) ||
-  !["127.0.0.1", "localhost", "[::1]"].includes(database.hostname) ||
-  database.pathname.length < 2 ||
-  database.search !== "" ||
-  database.hash !== "" ||
-  (database.port !== "" && (Number(database.port) < 1 || Number(database.port) > 65_535))
-) {
-  fail(
-    "BACKEND_PG_URL must name a loopback PostgreSQL database, without query parameters or fragments.",
-  );
-}
+const program = Effect.gen(function* () {
+  const path = yield* Path.Path;
+  const root = path.join(import.meta.dir, "..", "..");
+  const args = process.argv.slice(2).filter((argument) => argument !== "--");
 
-const secret = process.env.BETTER_AUTH_SECRET;
+  if (args.length === 1 && (args[0] === "--help" || args[0] === "-h")) {
+    yield* Console.log(usage.trimEnd());
 
-if (secret === undefined || secret.trim().length < 32) {
-  fail("Set BETTER_AUTH_SECRET to at least 32 characters.");
-}
-
-const port = (name: string, fallback: number): number => {
-  const raw = process.env[name] ?? String(fallback);
-  const value = Number(raw);
-
-  if (!/^\d+$/.test(raw) || !Number.isSafeInteger(value) || value < 1 || value > 65_535) {
-    fail(`${name} must be an integer from 1 to 65535.`);
+    return 0;
   }
 
-  return value;
-};
+  if (args.length !== 0) return yield* fail("Unknown argument. Use just dev --help.");
 
-const backendPort = port("LOCAL_BACKEND_PORT", 8791);
+  const postgresUrl = (yield* variable("BACKEND_PG_URL")) ?? "";
 
-const dashboardPort = port("LOCAL_DASHBOARD_PORT", 5173);
+  if (postgresUrl === "")
+    return yield* fail("Set BACKEND_PG_URL to a dedicated local PostgreSQL database URL.");
 
-const homepagePort = port("LOCAL_HOMEPAGE_PORT", 8787);
+  const database = URL.canParse(postgresUrl) ? new URL(postgresUrl) : undefined;
 
-if (new Set([backendPort, dashboardPort, homepagePort]).size !== 3) {
-  fail("LOCAL_BACKEND_PORT, LOCAL_DASHBOARD_PORT, and LOCAL_HOMEPAGE_PORT must be distinct.");
-}
+  if (database === undefined) return yield* fail("BACKEND_PG_URL must be a PostgreSQL URL.");
 
-const mount = process.env.DASHBOARD_MOUNT ?? "/dashboard/";
+  if (
+    !["postgres:", "postgresql:"].includes(database.protocol) ||
+    !["127.0.0.1", "localhost", "[::1]"].includes(database.hostname) ||
+    database.pathname.length < 2 ||
+    database.search !== "" ||
+    database.hash !== "" ||
+    (database.port !== "" && (Number(database.port) < 1 || Number(database.port) > 65_535))
+  ) {
+    return yield* fail(
+      "BACKEND_PG_URL must name a loopback PostgreSQL database, without query parameters or fragments.",
+    );
+  }
 
-if (mount !== "/dashboard/" && mount !== "/") fail("DASHBOARD_MOUNT must be /dashboard/ or /.");
+  const secret = yield* variable("BETTER_AUTH_SECRET");
 
-const receiptRoot = (name: string, fallback: string): string => {
-  const value = process.env[name] ?? fallback;
+  if (secret === undefined || secret.trim().length < 32) {
+    return yield* fail("Set BETTER_AUTH_SECRET to at least 32 characters.");
+  }
 
-  if (value.trim().length === 0) fail(`${name} must not be empty.`);
+  const port = Effect.fnUntraced(function* (name: string, fallback: number) {
+    const raw = (yield* variable(name)) ?? String(fallback);
+    const value = Number(raw);
 
-  return resolve(root, value);
-};
+    if (!/^\d+$/.test(raw) || !Number.isSafeInteger(value) || value < 1 || value > 65_535) {
+      return yield* fail(`${name} must be an integer from 1 to 65535.`);
+    }
 
-const backendOrigin = `http://127.0.0.1:${backendPort}`;
+    return value;
+  });
 
-const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+  const backendPort = yield* port("LOCAL_BACKEND_PORT", 8791);
+  const dashboardPort = yield* port("LOCAL_DASHBOARD_PORT", 5173);
+  const homepagePort = yield* port("LOCAL_HOMEPAGE_PORT", 8787);
 
-// Inherit terminal/tool discovery only, never provider credentials, remote endpoints,
-// PostgreSQL overrides, preload hooks, or release/rehearsal configuration.
-const env: NodeJS.ProcessEnv = {};
+  if (new Set([backendPort, dashboardPort, homepagePort]).size !== 3) {
+    return yield* fail(
+      "LOCAL_BACKEND_PORT, LOCAL_DASHBOARD_PORT, and LOCAL_HOMEPAGE_PORT must be distinct.",
+    );
+  }
 
-for (const key of [
-  "PATH",
-  "HOME",
-  "TMPDIR",
-  "LANG",
-  "LC_ALL",
-  "TERM",
-  "COLORTERM",
-  "NO_COLOR",
-  "FORCE_COLOR",
-]) {
-  if (process.env[key] !== undefined) env[key] = process.env[key];
-}
+  const mount = (yield* variable("DASHBOARD_MOUNT")) ?? "/dashboard/";
 
-Object.assign(env, {
+  if (mount !== "/dashboard/" && mount !== "/")
+    return yield* fail("DASHBOARD_MOUNT must be /dashboard/ or /.");
+
+  const receiptRoot = Effect.fnUntraced(function* (name: string, fallback: string) {
+    const value = (yield* variable(name)) ?? fallback;
+
+    if (value.trim().length === 0) return yield* fail(`${name} must not be empty.`);
+
+    return path.resolve(root, value);
+  });
+
+  const backendOrigin = `http://127.0.0.1:${backendPort}`;
+  const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+
+  // Inherit terminal/tool discovery only, never provider credentials, remote endpoints,
+  // PostgreSQL overrides, preload hooks, or release/rehearsal configuration.
+  const env: Record<string, string> = {};
+
+  for (const key of [
+    "PATH",
+    "HOME",
+    "TMPDIR",
+    "LANG",
+    "LC_ALL",
+    "TERM",
+    "COLORTERM",
+    "NO_COLOR",
+    "FORCE_COLOR",
+  ]) {
+    const value = yield* variable(key);
+
+    if (value !== undefined) env[key] = value;
+  }
+
+  Object.assign(env, {
   NODE_ENV: "development",
   TURBO_TELEMETRY_DISABLED: "1",
   DO_NOT_TRACK: "1",
@@ -147,15 +160,15 @@ Object.assign(env, {
   LOCAL_DASHBOARD_PORT: String(dashboardPort),
   LOCAL_HOMEPAGE_PORT: String(homepagePort),
   NATIVE_IDENTITY_DEPLOYMENT: "local",
-  NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
+  NATIVE_IDENTITY_TRUSTED_ORIGINS: encodeOrigins([dashboardOrigin]),
   OAUTH_CANONICAL_ORIGIN: backendOrigin,
   OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
   OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
   API_URL: backendOrigin,
   VITE_API_URL: dashboardOrigin,
   DASHBOARD_MOUNT: mount,
-  RECEIPT_STAGING_ROOT: receiptRoot("RECEIPT_STAGING_ROOT", ".cache/local-dev/receipts/staging"),
-  RECEIPT_COMMITTED_ROOT: receiptRoot(
+  RECEIPT_STAGING_ROOT: yield* receiptRoot("RECEIPT_STAGING_ROOT", ".cache/local-dev/receipts/staging"),
+  RECEIPT_COMMITTED_ROOT: yield* receiptRoot(
     "RECEIPT_COMMITTED_ROOT",
     ".cache/local-dev/receipts/committed",
   ),
@@ -167,72 +180,63 @@ Object.assign(env, {
   TEAM_APPLICATION_DELIVERY_MODE: "disabled",
 });
 
-// Use the installed native Turbo binary directly. Its JavaScript wrapper uses
-// execFileSync, which prevents reliable signal forwarding and can auto-install.
-const require = createRequire(import.meta.url);
+  // Use the installed native Turbo binary directly. Its JavaScript wrapper uses
+  // execFileSync, which prevents reliable signal forwarding and can auto-install.
+  const require = createRequire(import.meta.url);
+  const turboRequire = createRequire(require.resolve("turbo/package.json"));
+  const platform = process.platform === "win32" ? "windows" : process.platform;
+  const architecture = process.arch === "x64" ? "64" : process.arch;
+  const executable = process.platform === "win32" ? "turbo.exe" : "turbo";
 
-const turboRequire = createRequire(require.resolve("turbo/package.json"));
+  const turbo = yield* Effect.try({
+    try: () => turboRequire.resolve(`turbo-${platform}-${architecture}/bin/${executable}`),
+    catch: () =>
+      new DevFailure({
+        message: "The installed Turbo binary is missing. Run bun install before just dev.",
+      }),
+  });
 
-const platform = process.platform === "win32" ? "windows" : process.platform;
+  yield* Console.log(
+    `Homepage: http://127.0.0.1:${homepagePort}\nDashboard: ${dashboardOrigin}${mount}\nBackend: ${backendOrigin}\nExternal delivery: disabled`,
+  );
 
-const architecture = process.arch === "x64" ? "64" : process.arch;
+  // Turbo owns task startup, failure cancellation, and descendant shutdown. A signal that this
+  // launcher receives goes to Turbo, and the launcher then exits as that signal asks.
+  const turboExit = yield* runJob({
+    command: turbo,
+    arguments: [
+      "run",
+      "dev",
+      "--env-mode=loose",
+      "--ui=stream",
+      "--no-daemon",
+      "--filter=@vektorprogrammet/backend",
+      "--filter=@monoweb/homepage",
+      "--filter=@monoweb/dashboard",
+    ],
+    variables: env,
+    isolated: true,
+    cwd: root,
+    forwardedSignals: ["SIGINT", "SIGTERM"],
+  }).pipe(Effect.catchTag("JobStartFailure", () => fail("Turbo could not start.")));
 
-const executable = process.platform === "win32" ? "turbo.exe" : "turbo";
+  const stoppedBy = turboExit.forwarded ?? turboExit.signal;
 
-let turbo: string;
+  const exitCode = Match.value(stoppedBy).pipe(
+    Match.when("SIGINT", () => 130),
+    Match.when("SIGTERM", () => 143),
+    Match.orElse(() => turboExit.exitCode ?? 1),
+  );
 
-try {
-  turbo = turboRequire.resolve(`turbo-${platform}-${architecture}/bin/${executable}`);
-} catch {
-  fail("The installed Turbo binary is missing. Run bun install before just dev.");
-}
+  yield* disposition.record({ exitCode, signal: null });
 
-process.stdout.write(
-  `Homepage: http://127.0.0.1:${homepagePort}\nDashboard: ${dashboardOrigin}${mount}\nBackend: ${backendOrigin}\nExternal delivery: disabled\n`,
+  return exitCode;
+}).pipe(
+  Effect.catchTag("DevFailure", ({ message }) =>
+    Console.error(`Local development: ${message}`).pipe(Effect.as(1)),
+  ),
 );
 
-const child = spawn(
-  turbo,
-  [
-    "run",
-    "dev",
-    "--env-mode=loose",
-    "--ui=stream",
-    "--no-daemon",
-    "--filter=@vektorprogrammet/backend",
-    "--filter=@monoweb/homepage",
-    "--filter=@monoweb/dashboard",
-  ],
-  { cwd: root, env, stdio: "inherit" },
-);
-
-// Turbo owns task startup, failure cancellation, and descendant shutdown.
-let interrupted: NodeJS.Signals | undefined;
-
-const interrupt = (signal: NodeJS.Signals) => {
-  interrupted ??= signal;
-  child.kill(signal);
-};
-
-const sigint = () => interrupt("SIGINT");
-
-const sigterm = () => interrupt("SIGTERM");
-
-process.on("SIGINT", sigint);
-
-process.on("SIGTERM", sigterm);
-
-child.once("error", () => {
-  process.stderr.write("Local development: Turbo could not start.\n");
-  process.exitCode = 1;
-});
-
-child.once("close", (code, signal) => {
-  process.off("SIGINT", sigint);
-  process.off("SIGTERM", sigterm);
-  const stoppedBy = interrupted ?? signal;
-
-  if (stoppedBy === "SIGINT") process.exitCode = 130;
-  else if (stoppedBy === "SIGTERM") process.exitCode = 143;
-  else process.exitCode = code ?? 1;
+BunRuntime.runMain(program.pipe(Effect.provide(BunServices.layer)), {
+  teardown: disposition.teardown,
 });

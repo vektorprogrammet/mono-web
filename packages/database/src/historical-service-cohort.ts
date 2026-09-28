@@ -274,7 +274,7 @@ export const importHistoricalServiceCohort = Effect.fn("importHistoricalServiceC
   for (const occurrence of decoded) {
     increment(sourceCounts, sourceIdOf(occurrence.row));
 
-    if (!occurrence.value) continue;
+    if (occurrence.value === undefined) continue;
     const mappings = mappingsBySource.get(occurrence.value.sourceHistoryId) ?? [];
 
     if (mappings.length !== 1 || !referencesMatch(occurrence.value, mappings[0]!)) continue;
@@ -317,7 +317,7 @@ export const importHistoricalServiceCohort = Effect.fn("importHistoricalServiceC
         [snapshot.sourceRepository, snapshot.snapshotId],
       )).rows[0];
 
-      if (!evidence)
+      if (evidence === undefined)
         return yield* new HistoricalServiceFailure({ code: "ReferenceProvenanceMissing" });
 
       if (
@@ -386,7 +386,7 @@ export const importHistoricalServiceCohort = Effect.fn("importHistoricalServiceC
         return yield* new HistoricalServiceFailure({ code: "ReferenceProvenanceConflict" });
     }
 
-    if (prior.rows[0]) return yield* cohortReport(tx, snapshotKey);
+    if (prior.rows[0] !== undefined) return yield* cohortReport(tx, snapshotKey);
 
     const acceptedImports = yield* pgQuery<{
       source_history_id: string;
@@ -426,15 +426,23 @@ export const importHistoricalServiceCohort = Effect.fn("importHistoricalServiceC
 
     for (const occurrence of decoded) {
       const sourceHistoryId = sourceIdOf(occurrence.row);
-      const previous = sourceHistoryId ? importedBySource.get(sourceHistoryId) : undefined;
+
+      const previous =
+        sourceHistoryId !== undefined && sourceHistoryId !== ""
+          ? importedBySource.get(sourceHistoryId)
+          : undefined;
 
       if (previous !== undefined && !occurrence.digestMismatch) {
-        const mappings = sourceHistoryId ? (mappingsBySource.get(sourceHistoryId) ?? []) : [];
+        const mappings =
+          sourceHistoryId !== undefined && sourceHistoryId !== ""
+            ? (mappingsBySource.get(sourceHistoryId) ?? [])
+            : [];
+
         const mapping = mappings.length === 1 ? mappings[0] : undefined;
 
         if (
-          !occurrence.value ||
-          !mapping ||
+          occurrence.value === undefined ||
+          mapping === undefined ||
           !referencesMatch(occurrence.value, mapping) ||
           previous.source_kind !== snapshot.sourceKind ||
           (snapshot.sourceKind === "LegacyBackup" &&
@@ -465,12 +473,12 @@ export const importHistoricalServiceCohort = Effect.fn("importHistoricalServiceC
 
     for (const occurrence of decoded) {
       const row = occurrence.value;
-      const mappings = row ? (mappingsBySource.get(row.sourceHistoryId) ?? []) : [];
+      const mappings = row !== undefined ? (mappingsBySource.get(row.sourceHistoryId) ?? []) : [];
       const mapping = mappings.length === 1 ? mappings[0] : undefined;
       let reason: HistoricalServiceReason;
       let sourceDigest: string | undefined;
 
-      if (!row) reason = "InvalidRow";
+      if (row === undefined) reason = "InvalidRow";
       else if ((sourceCounts.get(row.sourceHistoryId) ?? 0) > 1) reason = "DuplicateSource";
       else if (mappings.length === 0) reason = "MappingMissing";
       else if (mappings.length > 1) reason = "MappingAmbiguous";
@@ -489,7 +497,7 @@ export const importHistoricalServiceCohort = Effect.fn("importHistoricalServiceC
             [snapshot.sourceRepository, row.sourceUserId, mapping!.personId],
           );
 
-          if (!personEvidence.rowCount) reason = "PersonReconciliationMissing";
+          if ((personEvidence.rowCount ?? 0) === 0) reason = "PersonReconciliationMissing";
           else {
             const references = (yield* pgQuery<{
               department_exists: boolean;
@@ -549,7 +557,13 @@ export const importHistoricalServiceCohort = Effect.fn("importHistoricalServiceC
         ],
       );
 
-      if (reason === "Imported" && row && mapping && sourceDigest) {
+      if (
+        reason === "Imported" &&
+        row !== undefined &&
+        mapping !== undefined &&
+        sourceDigest !== undefined &&
+        sourceDigest !== ""
+      ) {
         yield* pgQuery(
           tx,
           `INSERT INTO public.assistant_service_history

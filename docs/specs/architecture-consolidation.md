@@ -113,7 +113,7 @@ Messaging context that would read it is unbuilt. This is a dead outbox.
 | Live `*_audit` tables | 22 | 21 | `school_survey_audit` dropped by 0073 |
 | History tables | — | 5 | 2 are the receipt-fused organization tables; 3 are pure evidence |
 | Files hand-writing audit or history INSERTs | — | 25 | [scout] |
-| Shared receipt construct at the HTTP layer | — | 1 | `executeNativeHttpCommandPostgres` (`apps/backend/src/http-api/receipt-transaction.ts:250`), used by 12 of 12 command contexts, 0 bypass |
+| Shared receipt construct at the HTTP layer | — | 1 | `executeNativeHttpCommandPostgres` (`apps/backend/src/rpc/receipt-transaction.ts:252`), used by 12 of 12 command contexts, 0 bypass |
 | Shared receipt construct at the domain layer | — | 0 | all 17 domain sites hand-write read, digest compare, and insert |
 | Shared audit construct | — | 0 | 25 files hand-write the insert |
 | `CHECK` clauses | 927 | 928 | text occurrences |
@@ -191,7 +191,7 @@ sequences, the PersistedQueue store, the onboarding sweeper (an idempotent
 
 | Construct | State | Requirement | Restart | Two replicas |
 | --- | --- | --- | --- | --- |
-| `publicRateLimit` (`apps/backend/src/http-api/public-rate-limit.ts:21`) | in-memory `Map`, key from `publicRateLimitKey` (`:10`), which returns the literal `"public"` for every request | rate limit per visitor address | counters reset | the effective limit doubles |
+| `publicRateLimit` (`apps/backend/src/rpc/public-rate-limit.ts:14`) | in-memory `Map`, key from `publicRateLimitKey` (`:12`), which returns the literal `"public"` for every request | rate limit per visitor address | counters reset | the effective limit doubles |
 | Better Auth rate limiter (`packages/database/src/auth-engine.ts`) | vendor default in-memory `Map` | rate limit per credential or address | counters reset | the effective limit doubles |
 | `ADMISSION_FIXED_NOW` (`apps/backend/src/admission/config.ts:44`) | one instant per process | none; it is a journey pin | the pin persists until restart | each replica pins its own instant |
 | `ManagedRuntime` (`main.ts:169`) | the process runtime | real | rebuild on start | no shared state |
@@ -564,7 +564,7 @@ TABLE|INDEX|TRIGGER|FUNCTION`, `TRUNCATE`):
 
 | Area | Files with SQL statements | Non-test | Lead's count | Note |
 | --- | --- | --- | --- | --- |
-| `apps/backend/src` | 19 | 5 | 9 | the 5 are `onboarding/delivery.ts`, `receipt/delivery.ts`, `receipt/drain-main.ts`, `receipt/http-reads.ts`, `http-api/receipt-transaction.ts`; 14 more are test files |
+| `apps/backend/src` | 19 | 5 | 9 | the 5 are `onboarding/delivery.ts`, `receipt/delivery.ts`, `receipt/drain-main.ts`, `receipt/http-reads.ts`, `rpc/receipt-transaction.ts`; 14 more are test files |
 | `apps/dashboard/e2e`, `apps/homepage/e2e` | 22 | 22 | 10 seeds | 10 are `*-seed.mjs`, 11 are `run-real-*` or `run-native-*` runners, 1 is `receipt-approval.spec.ts` |
 | `tools` | 45 | 39 | 34 | 11 acceptance, 17 e2e, 14 verification, plus oxlint and source-safety rule files that read SQL as data |
 | `packages/domain/runtime` | 2 | 2 | — | the tutor D1 proof |

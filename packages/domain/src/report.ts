@@ -1,4 +1,5 @@
 import { Record, Result, Array } from "effect";
+import { dual } from "effect/Function";
 import type { Dataset, DatasetInputSummary } from "./data.js";
 import {
   REASON_CODES,
@@ -157,5 +158,11 @@ export const renderMarkdown = (report: MachineReport): string => {
   return lines.join("\n");
 };
 
-export const reportForDataset = (dataset: Dataset, result: SDep2TeamResult): MachineReport =>
-  createMachineReport({ ...result, input: dataset.input });
+export const reportForDataset: {
+  (result: SDep2TeamResult): (dataset: Dataset) => MachineReport;
+  (dataset: Dataset, result: SDep2TeamResult): MachineReport;
+} = dual(
+  2,
+  (dataset: Dataset, result: SDep2TeamResult): MachineReport =>
+    createMachineReport({ ...result, input: dataset.input }),
+);

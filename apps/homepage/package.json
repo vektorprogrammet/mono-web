@@ -40,8 +40,7 @@
     "@react-router/fs-routes": "^8.3.0",
     "@react-router/node": "^8.3.0",
     "@tailwindcss/vite": "^4.0.17",
-    "@vektorprogrammet/http-api": "workspace:*",
-    "@vektorprogrammet/sdk": "workspace:*",
+    "@vektorprogrammet/rpc": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -49,15 +48,15 @@
     "isbot": "^5.1.25",
     "lucide-react": "^0.486.0",
     "motion": "^12.6.2",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
+    "react": "catalog:react",
+    "react-dom": "catalog:react",
     "react-router": "^8.3.0",
     "tailwind-merge": "^3.0.2",
     "tailwindcss": "^4.0.17",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "7.0.2",
     "vaul": "^1.1.2",
-    "vite": "^8.0.7"
+    "vite": "catalog:react"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.1",
@@ -66,8 +65,8 @@
     "@playwright/test": "^1.51.1",
     "@react-router/dev": "^8.3.0",
     "@types/node": "^22.13.14",
-    "@types/react": "^19.2.10",
-    "@types/react-dom": "^19.2.3",
+    "@types/react": "catalog:react",
+    "@types/react-dom": "catalog:react",
     "vitest": "catalog:effect-v4"
   },
   "browserslist": {

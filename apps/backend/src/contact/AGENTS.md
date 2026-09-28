@@ -3,7 +3,7 @@
 # apps/backend/src/contact
 
 This folder holds the Contact bounded context in `apps/backend/src`.
-The backend layer holds HTTP handlers, delivery workers, and provider adapters that the native process composes. It keeps response receipts and preconditions in the transport, and provider I/O after commit.
+The backend layer holds RPC handlers, delivery workers, and provider adapters that the native process composes. It keeps command receipts and preconditions in the transport, and provider I/O after commit.
 
 The Contact context in other folders:
 

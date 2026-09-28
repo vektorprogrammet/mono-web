@@ -20,19 +20,25 @@ import {
   OwnAffiliationResource,
   PlacementBoardResource,
   PlacementScopes,
+  nativeRpcPath,
+  OwnProfileResource,
+  ReceiptFileContent,
   ReceiptListResponse,
-  UserProfileResponse,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Effect, Layer, ManagedRuntime, Redacted, Schema } from "effect";
 import { Etag, FetchHttpClient, HttpRouter } from "effect/unstable/http";
 import { ReceiptDeliveryLive } from "@vektorprogrammet/backend/receipt/delivery";
 import {
   backendHttpHandler,
   decodeBackendConfig,
-  ExternalNativeApiRouterLive,
-  nativeHttpRouterConfig,
+  ExternalNativeRpcRouterLive,
   nativeRouterWebHandler,
 } from "@vektorprogrammet/backend";
+import {
+  nativeRpcRequestBody,
+  nativeRpcStatus,
+  nativeRpcValue,
+} from "../../apps/dashboard/e2e/native-operations.js";
 import type { RehearsalTarget } from "./legacy-organization-rehearsal-runtime.js";
 
 export interface CandidateNativeIdentity {
@@ -124,16 +130,9 @@ export const observeLegacyCandidateNativeJourney = async (
     AuthLive(config.auth).pipe(Layer.provide(database)),
   );
 
-  const http = Layer.mergeAll(
-    platform,
-    BunHttpPlatform.layer,
-    Etag.layer,
-    HttpRouter.layer.pipe(
-      Layer.provide(Layer.succeed(HttpRouter.RouterConfig)(nativeHttpRouterConfig)),
-    ),
-  );
+  const http = Layer.mergeAll(platform, BunHttpPlatform.layer, Etag.layer, HttpRouter.layer);
 
-  const nativeApi = ExternalNativeApiRouterLive(config, { now: () => input.asOf }).pipe(
+  const nativeApi = ExternalNativeRpcRouterLive({ config, now: () => input.asOf }).pipe(
     HttpRouter.provideRequest(Layer.merge(services, platform)),
     Layer.provide(services),
     Layer.provide(http),
@@ -182,19 +181,115 @@ export const observeLegacyCandidateNativeJourney = async (
       checks.push(name);
     };
 
-    const json = async <S extends Schema.ConstraintDecoder<unknown, never>>(
+    /** Reads the caller's own profile over RPC and answers its status under the HTTP contract. */
+    const readOwnProfile = async (name: string, cookie?: string) => {
+      phase = name;
+      const headers = new Headers({ origin: dashboardOrigin, "content-type": "application/json" });
+
+      if (cookie !== undefined) headers.set("cookie", cookie);
+
+      const response = await runtime.runPromise(
+        api(
+          new Request(backendOrigin + nativeRpcPath, {
+            method: "POST",
+            headers,
+            body: nativeRpcRequestBody("profile.readOwnProfile"),
+          }),
+        ),
+      );
+
+      const answer = await response.text();
+
+      return { status: nativeRpcStatus(answer), value: nativeRpcValue(answer) };
+    };
+
+    /**
+     * One receipt RPC as a browser posts it, with its credential and origin as HTTP headers,
+     * answered with its status under the HTTP contract and its value.
+     */
+    const receiptRpc = (
       name: string,
-      path: string,
-      schema: S,
-      cookie: string,
+      tag: "receipts.listReceipts" | "receipts.readReceiptFile",
+      payload: Schema.Json,
+      cookie?: string,
+      authorization?: string,
     ) => {
       phase = name;
-      const response = await request(path, cookie);
-      assert.equal(response.status, 200);
-      const result = Schema.decodeUnknownSync(schema)(await response.json());
+      const headers = new Headers({ origin: dashboardOrigin, "content-type": "application/json" });
 
-      return result;
+      if (cookie !== undefined) headers.set("cookie", cookie);
+
+      if (authorization !== undefined) headers.set("authorization", authorization);
+
+      const request = new Request(backendOrigin + nativeRpcPath, {
+        method: "POST",
+        headers,
+        body: nativeRpcRequestBody(tag, payload),
+      });
+
+      return runtime
+        .runPromise(api(request))
+        .then((response) => response.text())
+        .then((answer) => ({ status: nativeRpcStatus(answer), value: nativeRpcValue(answer) }));
     };
+
+    const ownProfile = async (name: string, cookie: string) => {
+      const answer = await readOwnProfile(name, cookie);
+      assert.equal(answer.status, 200);
+
+      return Schema.decodeUnknownSync(OwnProfileResource)(answer.value).profile;
+    };
+
+    const ownProfileStatus = async (name: string, expected: number, cookie?: string) => {
+      assert.equal((await readOwnProfile(name, cookie)).status, expected);
+      checks.push(name);
+    };
+
+    /** Calls one RPC as a browser would, and answers its status under the HTTP contract. */
+    const callRpc = (name: string, tag: string, payload: Schema.Json, cookie?: string) => {
+      phase = name;
+      const headers = new Headers({ origin: dashboardOrigin, "content-type": "application/json" });
+
+      if (cookie !== undefined) headers.set("cookie", cookie);
+
+      return runtime
+        .runPromise(
+          api(
+            new Request(backendOrigin + nativeRpcPath, {
+              method: "POST",
+              headers,
+              body: nativeRpcRequestBody(tag, payload),
+            }),
+          ),
+        )
+        .then((response) => response.text())
+        .then((answer) => ({ status: nativeRpcStatus(answer), value: nativeRpcValue(answer) }));
+    };
+
+    const rpcJson = <S extends Schema.ConstraintDecoder<unknown, never>>(
+      name: string,
+      tag: string,
+      payload: Schema.Json,
+      schema: S,
+      cookie: string,
+    ) =>
+      callRpc(name, tag, payload, cookie).then((answer) => {
+        assert.equal(answer.status, 200);
+
+        return Schema.decodeSync(schema)(answer.value);
+      });
+
+    const rpcStatus = (
+      name: string,
+      tag: string,
+      payload: Schema.Json,
+      expected: number,
+      cookie?: string,
+    ) =>
+      callRpc(name, tag, payload, cookie).then((answer) => {
+        assert.equal(answer.status, expected);
+        checks.push(name);
+      });
 
     const signIn = async (label: string, identity: CandidateNativeIdentity) => {
       phase = `${label}-native-sign-in`;
@@ -232,12 +327,7 @@ export const observeLegacyCandidateNativeJourney = async (
     };
 
     for (const label of ["leader", "member", "otherDepartment"] as const) {
-      const result = await json(
-        `${label}-own-profile`,
-        "/api/profile",
-        UserProfileResponse,
-        cookies[label],
-      );
+      const result = await ownProfile(`${label}-own-profile`, cookies[label]);
 
       const identity = input.identities[label];
       assert.equal(result.personId, identity.personId);
@@ -248,18 +338,14 @@ export const observeLegacyCandidateNativeJourney = async (
       checks.push(phase);
     }
 
-    await status(
-      "historical-profile-authority-denied",
-      "/api/profile",
-      403,
-      cookies.historicalLeader,
-    );
-    await status("anonymous-profile-denied", "/api/profile", 401);
+    await ownProfileStatus("historical-profile-authority-denied", 403, cookies.historicalLeader);
+    await ownProfileStatus("anonymous-profile-denied", 401);
 
     for (const label of ["leader", "member", "historicalLeader", "otherDepartment"] as const) {
-      const scopes = await json(
+      const scopes = await rpcJson(
         `${label}-native-scope`,
-        "/api/placements/scopes",
+        "placements.listScopes",
+        null,
         PlacementScopes,
         cookies[label],
       );
@@ -302,11 +388,12 @@ export const observeLegacyCandidateNativeJourney = async (
       );
     }
 
-    const affiliationPath = `/api/placements/affiliation?${new URLSearchParams({ departmentId: input.scope.departmentId }).toString()}`;
+    const affiliationScope = { departmentId: input.scope.departmentId };
 
-    const ownAffiliation = await json(
+    const ownAffiliation = await rpcJson(
       "member-imported-affiliation",
-      affiliationPath,
+      "placements.readOwnAffiliation",
+      affiliationScope,
       OwnAffiliationResource,
       cookies.member,
     );
@@ -315,9 +402,10 @@ export const observeLegacyCandidateNativeJourney = async (
     assert.equal(ownAffiliation.status, "Active");
     checks.push(phase);
 
-    const foreignAffiliation = await json(
+    const foreignAffiliation = await rpcJson(
       "other-affiliation-isolation",
-      affiliationPath,
+      "placements.readOwnAffiliation",
+      affiliationScope,
       OwnAffiliationResource,
       cookies.otherDepartment,
     );
@@ -325,19 +413,29 @@ export const observeLegacyCandidateNativeJourney = async (
     assert.equal(foreignAffiliation.personId, input.identities.otherDepartment.personId);
     assert.equal(foreignAffiliation.status, "Absent");
     checks.push(phase);
-    await status(
-      "affiliation-person-override-rejected",
-      `${affiliationPath}&personId=${encodeURIComponent(input.identities.member.personId)}`,
-      400,
+
+    // The RPC payload has no person selector: a forged one is dropped, and the caller still reads
+    // only their own affiliation.
+    const overridden = await rpcJson(
+      "affiliation-person-override-ignored",
+      "placements.readOwnAffiliation",
+      { ...affiliationScope, personId: input.identities.member.personId },
+      OwnAffiliationResource,
       cookies.otherDepartment,
     );
 
-    const boardPath = (departmentId: string) =>
-      `/api/placements?${new URLSearchParams({ departmentId, semesterId: input.scope.semesterId }).toString()}`;
+    assert.equal(overridden.personId, input.identities.otherDepartment.personId);
+    checks.push(phase);
 
-    const board = await json(
+    const boardScope = (departmentId: string) => ({
+      departmentId,
+      semesterId: input.scope.semesterId,
+    });
+
+    const board = await rpcJson(
       "leader-imported-placement",
-      boardPath(input.scope.departmentId),
+      "placements.readBoard",
+      boardScope(input.scope.departmentId),
       PlacementBoardResource,
       cookies.leader,
     );
@@ -350,33 +448,43 @@ export const observeLegacyCandidateNativeJourney = async (
       ),
     );
     checks.push(phase);
-    await status(
+    await rpcStatus(
       "leader-other-placement-scope-denied",
-      boardPath(input.scope.otherDepartmentId),
+      "placements.readBoard",
+      boardScope(input.scope.otherDepartmentId),
       403,
       cookies.leader,
     );
 
     for (const label of ["member", "historicalLeader", "otherDepartment"] as const) {
-      await status(
+      await rpcStatus(
         `${label}-placement-board-denied`,
-        boardPath(input.scope.departmentId),
+        "placements.readBoard",
+        boardScope(input.scope.departmentId),
         403,
         cookies[label],
       );
     }
 
-    await status("anonymous-placement-denied", boardPath(input.scope.departmentId), 401);
+    await rpcStatus(
+      "anonymous-placement-denied",
+      "placements.readBoard",
+      boardScope(input.scope.departmentId),
+      401,
+    );
 
     assert.equal(input.receipt.ownerPersonId, input.identities.member.personId);
 
     for (const label of ["leader", "member", "historicalLeader", "otherDepartment"] as const) {
-      const receipts = await json(
+      const listed = await receiptRpc(
         `${label}-receipt-owner-isolation`,
-        "/api/receipts",
-        ReceiptListResponse,
+        "receipts.listReceipts",
+        {},
         cookies[label],
       );
+
+      assert.equal(listed.status, 200);
+      const receipts = Schema.decodeUnknownSync(ReceiptListResponse)(listed.value);
 
       assert.ok(
         receipts.items.every((item) => item.ownerPersonId === input.identities[label].personId),
@@ -388,34 +496,54 @@ export const observeLegacyCandidateNativeJourney = async (
       checks.push(phase);
     }
 
-    const filePath = `/api/receipts/${encodeURIComponent(input.receipt.receiptId)}/file`;
-    phase = "owner-private-receipt-bytes";
-    const downloaded = await request(filePath, cookies.member);
+    const fileRead = { receiptId: input.receipt.receiptId };
+
+    const downloaded = await receiptRpc(
+      "owner-private-receipt-bytes",
+      "receipts.readReceiptFile",
+      fileRead,
+      cookies.member,
+    );
+
     assert.equal(downloaded.status, 200);
     assert.equal(
       createHash("sha256")
-        .update(Buffer.from(await downloaded.arrayBuffer()))
+        .update(Buffer.from(Schema.decodeUnknownSync(ReceiptFileContent)(downloaded.value).bytes))
         .digest("hex"),
       input.receipt.sha256,
     );
     checks.push(phase);
 
     for (const label of ["leader", "historicalLeader", "otherDepartment"] as const) {
-      await status(`${label}-private-receipt-denied`, filePath, 404, cookies[label]);
+      const denied = await receiptRpc(
+        `${label}-private-receipt-denied`,
+        "receipts.readReceiptFile",
+        fileRead,
+        cookies[label],
+      );
+
+      assert.equal(denied.status, 404);
+      checks.push(phase);
     }
 
-    await status("anonymous-private-receipt-denied", filePath, 401);
-    phase = "invalid-bearer-no-cookie-fallback";
+    const anonymous = await receiptRpc(
+      "anonymous-private-receipt-denied",
+      "receipts.readReceiptFile",
+      fileRead,
+    );
 
-    const invalidBearer = await request(
-      filePath,
+    assert.equal(anonymous.status, 401);
+    checks.push(phase);
+
+    const invalidBearer = await receiptRpc(
+      "invalid-bearer-no-cookie-fallback",
+      "receipts.readReceiptFile",
+      fileRead,
       cookies.member,
-      undefined,
       "Bearer candidate-invalid",
     );
 
     assert.equal(invalidBearer.status, 401);
-    await invalidBearer.body?.cancel();
     checks.push(phase);
 
     if (input.changeMemberPasswordTo !== undefined) {
@@ -435,12 +563,7 @@ export const observeLegacyCandidateNativeJourney = async (
         password: input.changeMemberPasswordTo,
       });
 
-      const afterChange = await json(
-        "changed-password-same-person",
-        "/api/profile",
-        UserProfileResponse,
-        cookies.member,
-      );
+      const afterChange = await ownProfile("changed-password-same-person", cookies.member);
 
       assert.equal(afterChange.personId, input.identities.member.personId);
       checks.push(phase);

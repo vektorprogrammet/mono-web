@@ -1,4 +1,5 @@
 import { Predicate, Data } from "effect";
+import { dual } from "effect/Function";
 import {
   mapOrganizationAuthorityToDepartmentActor,
   type OrganizationPersonAuthority,
@@ -57,10 +58,10 @@ export class SchoolServiceNotificationDeliveryError extends Data.TaggedError(
 }> {}
 
 /** A coordinator holds `placements.coordinate` in the department, or is an active global administrator. */
-export const canManagePlacements = (
-  authority: OrganizationPersonAuthority,
-  departmentId: DepartmentId,
-): boolean => {
+export const canManagePlacements: {
+  (departmentId: DepartmentId): (authority: OrganizationPersonAuthority) => boolean;
+  (authority: OrganizationPersonAuthority, departmentId: DepartmentId): boolean;
+} = dual(2, (authority: OrganizationPersonAuthority, departmentId: DepartmentId): boolean => {
   const decision = mapOrganizationAuthorityToDepartmentActor(
     authority,
     "placements.coordinate",
@@ -68,23 +69,34 @@ export const canManagePlacements = (
   );
 
   return Predicate.isTagged(decision, "Allow") && !Predicate.isTagged(decision.value, "Member");
-};
+});
 
 /** Returns the next status, or null for a rejected transition. Does not authorize or persist a change. */
-export const nextAffiliationStatus = (
-  status: Affiliation["status"],
-  action: OwnAffiliationCommand["action"] | "Establish" | "Reject" | "Revoke",
-): Affiliation["status"] | null => {
-  if (action === "Request" && (status === "Absent" || status === "Inactive")) return "Pending";
+export const nextAffiliationStatus: {
+  (
+    action: OwnAffiliationCommand["action"] | "Establish" | "Reject" | "Revoke",
+  ): (status: Affiliation["status"]) => Affiliation["status"] | null;
+  (
+    status: Affiliation["status"],
+    action: OwnAffiliationCommand["action"] | "Establish" | "Reject" | "Revoke",
+  ): Affiliation["status"] | null;
+} = dual(
+  2,
+  (
+    status: Affiliation["status"],
+    action: OwnAffiliationCommand["action"] | "Establish" | "Reject" | "Revoke",
+  ): Affiliation["status"] | null => {
+    if (action === "Request" && (status === "Absent" || status === "Inactive")) return "Pending";
 
-  if (action === "Establish" && status === "Pending") return "Active";
+    if (action === "Establish" && status === "Pending") return "Active";
 
-  if ((action === "Withdraw" || action === "Reject") && status === "Pending") return "Inactive";
+    if ((action === "Withdraw" || action === "Reject") && status === "Pending") return "Inactive";
 
-  if (action === "Revoke" && status === "Active") return "Inactive";
+    if (action === "Revoke" && status === "Active") return "Inactive";
 
-  return null;
-};
+    return null;
+  },
+);
 
 const compareText = (left: string, right: string): number =>
   left === right ? 0 : left < right ? -1 : 1;
@@ -210,36 +222,54 @@ const exactUniqueValues = (
   );
 };
 
-export const hasExactSchoolServiceExceptionReview = (
-  proposal: SchoolServiceProposal,
-  reviewedExceptionIds: ReadonlyArray<string>,
-): boolean =>
-  exactUniqueValues(
-    proposal.exceptions.map((exception) => exception.exceptionId),
-    reviewedExceptionIds,
-  );
+export const hasExactSchoolServiceExceptionReview: {
+  (reviewedExceptionIds: ReadonlyArray<string>): (proposal: SchoolServiceProposal) => boolean;
+  (proposal: SchoolServiceProposal, reviewedExceptionIds: ReadonlyArray<string>): boolean;
+} = dual(
+  2,
+  (proposal: SchoolServiceProposal, reviewedExceptionIds: ReadonlyArray<string>): boolean =>
+    exactUniqueValues(
+      proposal.exceptions.map((exception) => exception.exceptionId),
+      reviewedExceptionIds,
+    ),
+);
 
 /**
  * Derives the actual attendance of one dated commitment: its confirmed roster minus absent
  * assistants plus the covering person of each current coverage record. Sorted and unique.
  */
-export const schoolServiceAttendance = (
-  commitment: Pick<SchoolServiceCommitment, "commitmentId" | "assignments">,
-  absences: ReadonlyArray<Pick<SchoolServiceAbsence, "absenceId" | "commitmentId" | "personId">>,
-  coverage: ReadonlyArray<Pick<SchoolServiceCoverage, "absenceId" | "coveringPersonId">>,
-): ReadonlyArray<PersonId> => {
-  const own = absences.filter((absence) => absence.commitmentId === commitment.commitmentId);
-  const absent = new Set(own.map((absence) => absence.personId));
-  const absenceIds = new Set(own.map((absence) => absence.absenceId));
+export const schoolServiceAttendance: {
+  (
+    absences: ReadonlyArray<Pick<SchoolServiceAbsence, "absenceId" | "commitmentId" | "personId">>,
+    coverage: ReadonlyArray<Pick<SchoolServiceCoverage, "absenceId" | "coveringPersonId">>,
+  ): (
+    commitment: Pick<SchoolServiceCommitment, "commitmentId" | "assignments">,
+  ) => ReadonlyArray<PersonId>;
+  (
+    commitment: Pick<SchoolServiceCommitment, "commitmentId" | "assignments">,
+    absences: ReadonlyArray<Pick<SchoolServiceAbsence, "absenceId" | "commitmentId" | "personId">>,
+    coverage: ReadonlyArray<Pick<SchoolServiceCoverage, "absenceId" | "coveringPersonId">>,
+  ): ReadonlyArray<PersonId>;
+} = dual(
+  3,
+  (
+    commitment: Pick<SchoolServiceCommitment, "commitmentId" | "assignments">,
+    absences: ReadonlyArray<Pick<SchoolServiceAbsence, "absenceId" | "commitmentId" | "personId">>,
+    coverage: ReadonlyArray<Pick<SchoolServiceCoverage, "absenceId" | "coveringPersonId">>,
+  ): ReadonlyArray<PersonId> => {
+    const own = absences.filter((absence) => absence.commitmentId === commitment.commitmentId);
+    const absent = new Set(own.map((absence) => absence.personId));
+    const absenceIds = new Set(own.map((absence) => absence.absenceId));
 
-  return [
-    ...new Set([
-      ...commitment.assignments
-        .map((assignment) => assignment.personId)
-        .filter((personId) => !absent.has(personId)),
-      ...coverage.flatMap((record) =>
-        absenceIds.has(record.absenceId) ? [record.coveringPersonId] : [],
-      ),
-    ]),
-  ].sort(compareText);
-};
+    return [
+      ...new Set([
+        ...commitment.assignments
+          .map((assignment) => assignment.personId)
+          .filter((personId) => !absent.has(personId)),
+        ...coverage.flatMap((record) =>
+          absenceIds.has(record.absenceId) ? [record.coveringPersonId] : [],
+        ),
+      ]),
+    ].sort(compareText);
+  },
+);

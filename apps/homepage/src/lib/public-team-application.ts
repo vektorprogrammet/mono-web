@@ -1,4 +1,3 @@
-import { HttpClientError } from "effect/unstable/http";
 import {
   IdempotencyKey,
   isProblem,
@@ -7,7 +6,7 @@ import {
   TeamApplicationInput,
   TeamApplicationsReadIntakeProblem,
   TeamApplicationsSubmitProblem,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Data, Match, Option, Predicate, Schema, Struct } from "effect";
 import type {
   HomepageTeamApplicationIntake,
@@ -342,14 +341,6 @@ const unavailableMessage = "Søknadstjenesten er midlertidig utilgjengelig. Prø
 
 /** One outcome for each code of the contract's TeamApplicationsSubmitProblem union. */
 const submitProblemOutcomes: Readonly<Record<TeamApplicationProblemCode, SubmitProblemOutcome>> = {
-  "request.malformed": retry(
-    "Søknaden kunne ikke leses. Kontroller feltene og send søknaden på nytt.",
-  ),
-  "header.malformed": retry("Søknaden kunne ikke sendes i riktig format. Prøv igjen."),
-  "idempotency-key.invalid": SubmitProblemOutcome.Retry({
-    message: "Innsendingen kunne ikke identifiseres. Send søknaden på nytt.",
-    newKey: true,
-  }),
   "resource.not-found": SubmitProblemOutcome.TeamNotFound(),
   "idempotency.in-flight": retry("Søknaden behandles allerede. Vent litt før du prøver igjen."),
   "idempotency.digest-conflict": SubmitProblemOutcome.Retry({
@@ -361,11 +352,6 @@ const submitProblemOutcomes: Readonly<Record<TeamApplicationProblemCode, SubmitP
     message: "Teamet tok ikke lenger imot søknader da du sendte. Søknaden ble ikke lagret.",
   }),
   "transaction.conflict": retry("Søknaden kunne ikke lagres akkurat nå. Prøv igjen."),
-  "request.too-large": retry(
-    "Søknaden inneholder mer tekst enn tjenesten kan ta imot. Kort ned teksten og prøv igjen.",
-  ),
-  "media-type.unsupported": retry("Søknaden kunne ikke sendes i riktig format. Prøv igjen."),
-  "validation.failed": retry("Kontroller feltene som er markert, og send søknaden på nytt."),
   "internal.error": retry(unavailableMessage),
   // The limiter binds nothing to the key, so the same submission may be sent again later.
   "rate-limit.exceeded": retry(
@@ -374,27 +360,12 @@ const submitProblemOutcomes: Readonly<Record<TeamApplicationProblemCode, SubmitP
   "idempotency.unavailable": retry(unavailableMessage),
 };
 
-/** Top-level JSON pointers of the contract fields, such as `/fieldOfStudy`. */
-const fieldByPointer: Readonly<Partial<Record<string, TeamApplicationFieldName>>> =
-  Object.fromEntries(teamApplicationFieldNames.map((field) => [`/${field}`, field]));
-
 const decodeSubmitProblem = Schema.decodeUnknownOption(TeamApplicationsSubmitProblem);
 
-function validationFieldErrors(problem: TeamApplicationProblem): TeamApplicationFieldErrors {
-  const fieldErrors: Partial<Record<TeamApplicationFieldName, string>> = {};
-
-  if (problem.code !== "validation.failed") return fieldErrors;
-
-  for (const { pointer } of problem.validation.errors) {
-    const field = fieldByPointer[pointer];
-
-    if (field !== undefined) fieldErrors[field] = "Kontroller dette feltet.";
-  }
-
-  return fieldErrors;
-}
-
-/** A failure outside the contract's problems: the service was not reached, or answered otherwise. */
+/**
+ * A failure outside the contract's problems: the service was not reached, or answered otherwise.
+ * The RPC client reports an HTTP failure below the protocol with the kind of that failure.
+ */
 function transportFailure(cause: unknown): PublicTeamApplicationErrorView {
   const unexpected = PublicTeamApplicationErrorView.Unexpected({
     message: "Søknaden kunne ikke sendes. Prøv igjen senere.",
@@ -402,17 +373,24 @@ function transportFailure(cause: unknown): PublicTeamApplicationErrorView {
     fieldErrors: {},
   });
 
-  if (!HttpClientError.isHttpClientError(cause)) return unexpected;
+  if (
+    !Predicate.isTagged(cause, "RpcClientError") ||
+    !Predicate.hasProperty(cause, "reason") ||
+    !Predicate.isTagged(cause.reason, "HttpError") ||
+    !Predicate.hasProperty(cause.reason, "kind")
+  ) {
+    return unexpected;
+  }
 
-  return Match.value(cause.reason).pipe(
-    Match.tag("TransportError", () =>
+  return Match.value(cause.reason.kind).pipe(
+    Match.when("TransportError", () =>
       PublicTeamApplicationErrorView.Network({
         message: "Søknadstjenesten svarer ikke akkurat nå. Prøv igjen om litt.",
         status: 503,
         fieldErrors: {},
       }),
     ),
-    Match.tag("InvalidUrlError", () =>
+    Match.when("InvalidUrlError", () =>
       PublicTeamApplicationErrorView.Configuration({
         message: "Søknadstjenesten er ikke tilgjengelig på denne siden.",
         status: 500,
@@ -432,7 +410,7 @@ export function failedPublicTeamApplication(
   submission: PublicTeamApplicationSubmission,
   cause: unknown,
 ): PublicTeamApplicationActionData {
-  // The SDK fails with a Problem; its body is the canonical wire problem.
+  // The RPC client fails with a Problem; its body is the canonical wire problem.
   const problem = Option.getOrUndefined(
     decodeSubmitProblem(isProblem(cause) ? problemBody(cause) : cause),
   );
@@ -466,7 +444,9 @@ export function failedPublicTeamApplication(
           PublicTeamApplicationErrorView[code]({
             message,
             status: problem.status,
-            fieldErrors: validationFieldErrors(problem),
+            // The form decodes every field with the contract schema before it submits, and the
+            // RPC answers no field pointers.
+            fieldErrors: {},
           }),
           newKey,
         ),

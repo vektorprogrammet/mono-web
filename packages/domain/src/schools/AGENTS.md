@@ -7,7 +7,6 @@ The domain layer holds business values, state transitions, failures, capability 
 
 The Schools context in other folders:
 
-- [apps/backend/src/schools](../../../../apps/backend/src/schools/AGENTS.md)
 - [apps/dashboard/app/foldkit/schools](../../../../apps/dashboard/app/foldkit/schools/AGENTS.md)
 - [packages/database/src/schools](../../../database/src/schools/AGENTS.md)
 

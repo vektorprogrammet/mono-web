@@ -10,7 +10,7 @@ import {
   type PublicApplicationId,
 } from "@vektorprogrammet/domain/application";
 import { AdmissionPeriodId as AdmissionPeriodIdSchema } from "@vektorprogrammet/domain/admission-period";
-import { publicRateLimit, type PublicRateLimit } from "../http-api/public-rate-limit.js";
+import { publicRateLimit, type PublicRateLimit } from "../rpc/public-rate-limit.js";
 
 export interface AdmissionApiConfig {
   readonly maxBodyBytes: number;

@@ -1,10 +1,11 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { Context, Data, Duration, Effect, Layer, Redacted } from "effect";
+import { Context, Data, Duration, Effect, Layer, Predicate, Redacted } from "effect";
+import { dual } from "effect/Function";
 import { Pool, type PoolClient, type PoolConfig, type QueryResult, type QueryResultRow } from "pg";
 
 /** The one native PostgreSQL pool shared by Database and Better Auth. */
 export class DatabasePgPool extends Context.Service<DatabasePgPool, Pool>()(
-  "@vektorprogrammet/database/DatabasePgPool",
+  "@vektorprogrammet/database/pg-pool/DatabasePgPool",
 ) {}
 
 /** A node-postgres connection or statement failure, carrying the driver's message. */
@@ -20,39 +21,74 @@ const pgFailure = (cause: unknown): PgQueryError =>
   });
 
 /** Runs one parameterized statement on a node-postgres pool or on a client it lent. */
-export const pgQuery = <R extends QueryResultRow = QueryResultRow>(
-  database: Pool | PoolClient,
-  text: string,
-  values: ReadonlyArray<unknown> = [],
-): Effect.Effect<QueryResult<R>, PgQueryError> =>
-  Effect.tryPromise({ try: () => database.query<R>(text, [...values]), catch: pgFailure });
+export const pgQuery: {
+  <R extends QueryResultRow = QueryResultRow>(
+    text: string,
+    values?: ReadonlyArray<unknown>,
+  ): (database: Pool | PoolClient) => Effect.Effect<QueryResult<R>, PgQueryError>;
+  <R extends QueryResultRow = QueryResultRow>(
+    database: Pool | PoolClient,
+    text: string,
+    values?: ReadonlyArray<unknown>,
+  ): Effect.Effect<QueryResult<R>, PgQueryError>;
+} = dual(
+  (args) => !Predicate.isString(args[0]),
+  <R extends QueryResultRow = QueryResultRow>(
+    database: Pool | PoolClient,
+    text: string,
+    values: ReadonlyArray<unknown> = [],
+  ): Effect.Effect<QueryResult<R>, PgQueryError> =>
+    Effect.tryPromise({ try: () => database.query<R>(text, [...values]), catch: pgFailure }),
+);
 
 /** Runs `use` on one client lent by `pool`; the client returns to the pool when `use` ends. */
-export const pgWithClient = <A, E, R>(
-  pool: Pool,
-  use: (client: PoolClient) => Effect.Effect<A, E, R>,
-): Effect.Effect<A, E | PgQueryError, R> =>
-  Effect.acquireUseRelease(
-    Effect.tryPromise({ try: () => pool.connect(), catch: pgFailure }),
-    use,
-    (client) => Effect.sync(() => client.release()),
-  );
+export const pgWithClient: {
+  <A, E, R>(
+    use: (client: PoolClient) => Effect.Effect<A, E, R>,
+  ): (pool: Pool) => Effect.Effect<A, E | PgQueryError, R>;
+  <A, E, R>(
+    pool: Pool,
+    use: (client: PoolClient) => Effect.Effect<A, E, R>,
+  ): Effect.Effect<A, E | PgQueryError, R>;
+} = dual(
+  2,
+  <A, E, R>(
+    pool: Pool,
+    use: (client: PoolClient) => Effect.Effect<A, E, R>,
+  ): Effect.Effect<A, E | PgQueryError, R> =>
+    Effect.acquireUseRelease(
+      Effect.tryPromise({ try: () => pool.connect(), catch: pgFailure }),
+      use,
+      (client) => Effect.sync(() => client.release()),
+    ),
+);
 
 /**
  * Runs `use` in one transaction on a client lent by `pool`: BEGIN, then COMMIT when `use`
  * succeeds, or ROLLBACK when it fails or is interrupted. The client returns to the pool either way.
  */
-export const pgTransaction = <A, E, R>(
-  pool: Pool,
-  use: (client: PoolClient) => Effect.Effect<A, E, R>,
-): Effect.Effect<A, E | PgQueryError, R> =>
-  pgWithClient<A, E | PgQueryError, R>(pool, (client) =>
-    pgQuery(client, "BEGIN").pipe(
-      Effect.andThen(use(client)),
-      Effect.tap(() => pgQuery(client, "COMMIT")),
-      Effect.onError(() => Effect.ignore(pgQuery(client, "ROLLBACK"))),
+export const pgTransaction: {
+  <A, E, R>(
+    use: (client: PoolClient) => Effect.Effect<A, E, R>,
+  ): (pool: Pool) => Effect.Effect<A, E | PgQueryError, R>;
+  <A, E, R>(
+    pool: Pool,
+    use: (client: PoolClient) => Effect.Effect<A, E, R>,
+  ): Effect.Effect<A, E | PgQueryError, R>;
+} = dual(
+  2,
+  <A, E, R>(
+    pool: Pool,
+    use: (client: PoolClient) => Effect.Effect<A, E, R>,
+  ): Effect.Effect<A, E | PgQueryError, R> =>
+    pgWithClient<A, E | PgQueryError, R>(pool, (client) =>
+      pgQuery(client, "BEGIN").pipe(
+        Effect.andThen(use(client)),
+        Effect.tap(() => pgQuery(client, "COMMIT")),
+        Effect.onError(() => Effect.ignore(pgQuery(client, "ROLLBACK"))),
+      ),
     ),
-  );
+);
 
 const makeSharedPgPool = (config: Parameters<typeof PgClient.layer>[0]) =>
   Effect.acquireRelease(

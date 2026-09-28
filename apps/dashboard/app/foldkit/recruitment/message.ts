@@ -1,6 +1,6 @@
-import { PublicApplicationIdSchema } from "@vektorprogrammet/http-api"
+import { PublicApplicationIdSchema } from "@vektorprogrammet/rpc"
 import { InterviewSchemaId,
-RecruitmentInterviewerOptionSchema, } from "@vektorprogrammet/http-api"
+RecruitmentInterviewerOptionSchema, } from "@vektorprogrammet/rpc"
 import { Dialog } from "@foldkit/ui";
 import { Schema as S } from "effect";
 import { taggedStruct } from "foldkit/schema";

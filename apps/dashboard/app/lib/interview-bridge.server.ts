@@ -1,7 +1,7 @@
 import { RecruitmentInvitationCapabilitySchema,
-RecruitmentInvitationResponseMessageSchema, } from "@vektorprogrammet/http-api"
-import { parseJsonWithUniqueMembers } from "@vektorprogrammet/http-api"
-import { createConfiguredPromiseClient } from "@vektorprogrammet/sdk";
+RecruitmentInvitationResponseMessageSchema, } from "@vektorprogrammet/rpc"
+import { parseJsonWithUniqueMembers } from "@vektorprogrammet/rpc"
+import { callNativeAnonymously } from "./api.server";
 import { Schema as S, Match, flow, Option, Result } from "effect";
 import { nativeProblemFrom } from "./native-problem";
 import { InvitationBridgeFailureSchema, decodeInvitationInteractionId, INVITATION_INTERACTION_HEADER, type InvitationBridgeFailure, type InvitationBridgeOperation, type InvitationInteractionId, InvitationBridgeOperationSchema } from "../foldkit/interview/bridge";
@@ -138,18 +138,18 @@ export const createInvitationCapabilityCookie = (
   return `${cookieName}=${encodeURIComponent(decodedCapability)}; Path=${bridgePath}; HttpOnly; SameSite=Strict${SecureCookieAttribute}`;
 };
 
-const createInvitationClient = (capability: typeof RecruitmentInvitationCapabilitySchema.Type) =>
-  createConfiguredPromiseClient({
-    headers: { "X-Recruitment-Invitation-Capability": capability },
-  }).recruitment;
-
+/**
+ * Reads the invitation that `capability` names. The capability is the call's one credential, so no
+ * session cookie travels with it.
+ */
 export const readInvitationCapability = async (capability: string) => {
-  const client = createInvitationClient(decodeExchangeCapability(capability));
-  const result = await client.readInvitationResponse({ headers: {} });
+  const resource = await callNativeAnonymously((client) =>
+    client["recruitment.readInvitationResponse"]({
+      capability: decodeExchangeCapability(capability),
+    }),
+  );
 
-  if (result.body === undefined) throw new Error("Invitation response did not include a body");
-
-  return result.body;
+  return resource.observation;
 };
 
 export const decodeOperation = flow(
@@ -184,43 +184,46 @@ export const decodeOperationRequest = async (
   }
 };
 
+/**
+ * Runs one invitation operation with the capability of the request's interaction cookie. The
+ * capability travels in the RPC payload, and no session cookie travels with it.
+ */
 export const runOperation = async (
   request: Request,
   operation: InvitationBridgeOperation,
 ) => {
-  const client = createInvitationClient(invitationCapability(request));
+  const capability = invitationCapability(request);
 
   switch (operation.operation) {
-    case "readInvitationResponse": {
-      const result = await client.readInvitationResponse({ headers: {} });
-
-      if (result.body === undefined) throw new Error("Invitation response did not include a body");
-
-      return { observation: result.body, etag: result.headers.etag };
-    }
+    case "readInvitationResponse":
+      return callNativeAnonymously((client) =>
+        client["recruitment.readInvitationResponse"]({ capability }),
+      );
 
     case "confirmInvitation":
-      await client.confirmInvitation({
-        params: {},
-        headers: { "if-match": operation.etag },
-        payload: {},
-      });
+      await callNativeAnonymously((client) =>
+        client["recruitment.confirmInvitation"]({ capability, ifMatch: operation.etag }),
+      );
 
       return undefined;
     case "rejectInvitation":
-      await client.rejectInvitation({
-        params: {},
-        headers: { "if-match": operation.etag },
-        payload: operation.message === null ? {} : { message: operation.message },
-      });
+      await callNativeAnonymously((client) =>
+        client["recruitment.rejectInvitation"]({
+          capability,
+          ifMatch: operation.etag,
+          request: operation.message === null ? {} : { message: operation.message },
+        }),
+      );
 
       return undefined;
     case "requestNewInvitationTime":
-      await client.requestNewInvitationTime({
-        params: {},
-        headers: { "if-match": operation.etag },
-        payload: { message: operation.message },
-      });
+      await callNativeAnonymously((client) =>
+        client["recruitment.requestNewInvitationTime"]({
+          capability,
+          ifMatch: operation.etag,
+          request: { message: operation.message },
+        }),
+      );
 
       return undefined;
   }
@@ -232,8 +235,8 @@ const safeFailure = (
 ): InvitationBridgeFailure => InvitationBridgeFailureSchema.cases[tag].make({message});
 
 /**
- * Projects a bridge rejection or a generated-SDK failure onto the invitation bridge.
- * Pass the cause unchanged: an SDK problem is decoded only from the SDK's own value.
+ * Projects a bridge rejection or an RPC failure onto the invitation bridge.
+ * Pass the cause unchanged: a problem is decoded only from the RPC client's own value.
  */
 export const bridgeFailureFrom = (cause: unknown): InvitationBridgeFailure => {
   if (S.is(InvitationBridgeFailureSchema)(cause)) {

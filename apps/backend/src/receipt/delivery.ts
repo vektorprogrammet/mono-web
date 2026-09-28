@@ -39,7 +39,7 @@ export const receiptDeliveryConfig = (
 
   try {
     const endpoint = new URL(env.RECEIPT_DELIVERY_URL!);
-    const token = env.RECEIPT_DELIVERY_TOKEN!;
+    const token = env.RECEIPT_DELIVERY_TOKEN;
     const sender = Schema.decodeUnknownSync(ContactEmail)(env.RECEIPT_DELIVERY_SENDER);
     const timeout = Number(env.RECEIPT_DELIVERY_TIMEOUT_MS);
 
@@ -49,21 +49,22 @@ export const receiptDeliveryConfig = (
 
     // Cleartext delivery is confined to local rehearsals; credentials never follow redirects.
     if (
-      endpoint.username ||
-      endpoint.password ||
-      endpoint.hash ||
-      endpoint.search ||
+      endpoint.username !== "" ||
+      endpoint.password !== "" ||
+      endpoint.hash !== "" ||
+      endpoint.search !== "" ||
       !(
         endpoint.protocol === "https:" ||
         (endpoint.protocol === "http:" && ["127.0.0.1", "[::1]"].includes(endpoint.hostname))
       ) ||
-      !token ||
+      token === undefined ||
+      token === "" ||
       /[\r\n]/.test(token) ||
       !Number.isSafeInteger(timeout) ||
       timeout < 1 ||
       timeout > 30_000 ||
       Object.keys(recipients).length === 0 ||
-      Object.keys(recipients).some((key) => !key.trim())
+      Object.keys(recipients).some((key) => key.trim() === "")
     )
       throw new Error();
 
@@ -88,21 +89,21 @@ export const ReceiptDeliveryLive = (config: ReceiptDeliveryConfig | undefined) =
       return ReceiptAuxiliaryEffects.of({
         apply: (request, claimId) =>
           Effect.gen(function* () {
-            if (!claimId)
-              return yield* new ReceiptDeliveryUnavailable({ effectId: request.effectId });
+            if (claimId === undefined || claimId === "")
+              return yield* ReceiptDeliveryUnavailable.make({ effectId: request.effectId });
 
             if (Predicate.isTagged(request, "WriteReceiptAudit")) {
               const audit =
                 yield* sql`SELECT 1 FROM economy_receipt_audit WHERE command_id = ${request.commandId} AND receipt_id = ${request.receiptId}`;
 
               if (audit.length !== 1)
-                return yield* new ReceiptDeliveryUnavailable({ effectId: request.effectId });
+                return yield* ReceiptDeliveryUnavailable.make({ effectId: request.effectId });
 
               return;
             }
 
             if (config === undefined)
-              return yield* new ReceiptDeliveryUnavailable({ effectId: request.effectId });
+              return yield* ReceiptDeliveryUnavailable.make({ effectId: request.effectId });
 
             const envelope = yield* sql.withTransaction(
               Effect.gen(function* () {
@@ -114,8 +115,8 @@ export const ReceiptDeliveryLive = (config: ReceiptDeliveryConfig | undefined) =
 
                 const row = rows[0];
 
-                if (!row || row.effect_type !== request._tag)
-                  return yield* new ReceiptDeliveryUnavailable({ effectId: request.effectId });
+                if (row === undefined || row.effect_type !== request._tag)
+                  return yield* ReceiptDeliveryUnavailable.make({ effectId: request.effectId });
 
                 if (row.delivery_envelope !== null)
                   return yield* Schema.decodeUnknownEffect(ReceiptDeliveryEnvelope)(
@@ -164,7 +165,7 @@ export const ReceiptDeliveryLive = (config: ReceiptDeliveryConfig | undefined) =
                 const status = submitted ? "Pending" : approved ? "Approved" : "Rejected";
 
                 if (
-                  !fact ||
+                  fact === undefined ||
                   (!settled && fact.status !== status) ||
                   (settled &&
                     (fact.settlement_amount === null ||
@@ -173,7 +174,7 @@ export const ReceiptDeliveryLive = (config: ReceiptDeliveryConfig | undefined) =
                       fact.external_reference === null ||
                       fact.settled_at === null))
                 ) {
-                  return yield* new ReceiptDeliveryUnavailable({ effectId: request.effectId });
+                  return yield* ReceiptDeliveryUnavailable.make({ effectId: request.effectId });
                 }
 
                 const subject = submitted
@@ -210,7 +211,7 @@ export const ReceiptDeliveryLive = (config: ReceiptDeliveryConfig | undefined) =
               SqlError: () => Effect.die(new Error("Receipt delivery persistence failed")),
               SchemaError: () => Effect.die(new Error("Receipt delivery envelope is invalid")),
             }),
-            Effect.mapError(() => new ReceiptDeliveryUnavailable({ effectId: request.effectId })),
+            Effect.mapError(() => ReceiptDeliveryUnavailable.make({ effectId: request.effectId })),
           ),
       });
     }),

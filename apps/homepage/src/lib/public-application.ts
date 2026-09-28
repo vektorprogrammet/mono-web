@@ -1,6 +1,5 @@
-import { HttpClientError } from "effect/unstable/http";
 import type { PublicApplicationCatalog } from "./api-types";
-import { isProblem, problemBody, validationProblemSchema, type ValidationProblem, IdempotencyKey, SubmitApplicationRequest } from "@vektorprogrammet/http-api";
+import { isProblem, problemBody, validationProblemSchema, type ValidationProblem, IdempotencyKey, SubmitApplicationRequest } from "@vektorprogrammet/rpc";
 import { Data, Match, Option, Predicate, Schema } from "effect";
 import {
   languageOptions,
@@ -342,12 +341,18 @@ export function mapPublicApplicationError(cause: unknown): PublicApplicationErro
     return result;
   }
 
-  if (HttpClientError.isHttpClientError(cause)) {
-    return Match.value(cause.reason).pipe(
-      Match.tag("TransportError", () => PublicApplicationErrorView.Network({
+  // The RPC client reports an HTTP failure below the protocol with the kind of that failure.
+  if (
+    Predicate.isTagged(cause, "RpcClientError") &&
+    Predicate.hasProperty(cause, "reason") &&
+    Predicate.isTagged(cause.reason, "HttpError") &&
+    Predicate.hasProperty(cause.reason, "kind")
+  ) {
+    return Match.value(cause.reason.kind).pipe(
+      Match.when("TransportError", () => PublicApplicationErrorView.Network({
         message: "Søknadstjenesten svarer ikke. Kontroller forbindelsen og prøv igjen.",
       })),
-      Match.tag("InvalidUrlError", () => PublicApplicationErrorView.Configuration({
+      Match.when("InvalidUrlError", () => PublicApplicationErrorView.Configuration({
         message: "Søknadstjenesten er ikke tilgjengelig på denne siden.",
       })),
       Match.orElse(unexpectedApplicationError),

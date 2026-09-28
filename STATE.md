@@ -20,7 +20,9 @@ Operator decisions:
 - The native target is PostgreSQL 17 or 18 (default 18); hosted Supabase runs 17 (operator decision, 2026-09-25).
   The root manifest declares the set once as `engines.postgresql`; `VEKTOR_POSTGRES_MAJOR` selects a major per environment.
 - `main` is pushed to `origin` (2026-09-25), so hosted CI runs.
-  The SDK is not published (operator decision, 2026-09-25). `@vektorprogrammet/sdk` is private; the Release SDK workflow and Changesets are removed.
+- The native API is Effect RPC only (operator decision, 2026-09-28). The HttpApi contract, the generated SDK, and OpenAPI are deleted;
+  `packages/rpc` holds the contract and its clients, and [docs/architecture.md](docs/architecture.md#rpc-contract-and-ingress) lists what RPC does not carry.
+  Until every journey passes on the RPC path, [docs/specs/rpc-only.md](docs/specs/rpc-only.md) records the port and its checklist.
 - Migrations are frozen (2026-09-27). Nothing runs in production; every database is disposable; the
   legacy database is reached only through import commands. The numbered migrations, the checksum
   registry, `just migration-hashes` and upgrade proofs will be replaced by one schema declaration
@@ -108,8 +110,15 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
   inside the content, school, or recruitment-maintenance domain answers 503, not 409 (content errors keep only the cause's text);
   the dashboard maps a command's `transaction.conflict` to its unknown-error branch (`receipt-view.ts`).
 - `apps/homepage/src/lib/public-application.ts` lists its problem codes by hand and omits `header.malformed`.
-  The homepage problem mappers (`mapPublicApplicationError`, `publicTeamApplicationPageFailure`, `failedPublicTeamApplication`) still accept a plain problem-shaped object besides the SDK's `Problem`; the dashboard reads problems only through `nativeProblemFrom`.
+  The homepage problem mappers (`mapPublicApplicationError`, `publicTeamApplicationPageFailure`, `failedPublicTeamApplication`) still accept a plain problem-shaped object besides `Problem`; the dashboard reads problems only through `nativeProblemFrom`.
+- RPC transport gaps. A payload that fails its schema is answered by the RPC server as a defect before any middleware, so `ProblemBoundary` neither reports it nor answers a problem code (`effect/unstable/rpc/RpcServer.ts`, `sendRequestDefect`).
+  A route that returns one web `Response` built outside the request reads a locked body on its second answer and crashes the process (the health route did until 0c52d63); no rule rejects the form.
+  `makeBackendTestRpc` (`apps/backend/src/test/native-rpc.ts`) builds a router per request, unlike `apps/backend/src/main.ts`, so a defect of state shared across requests passes its tests; `backendTestRouterLayer` serves several requests on one router.
+  `nativeUserChallenges` and `nativeCookieChallenge` in `apps/backend/src/rpc/credential.ts` build `WWW-Authenticate` challenges that no RPC answer carries.
 - Instants: domain fields still use `Rfc3339InstantSchema`, not `Instant` (`packages/domain/src/time.ts`).
+- Authorization evidence ([specification](docs/specs/authz-evidence.md)): nine branded evidence types, each with one constructor, gate the commands of Organization, onboarding, admission outcomes, placements, schools, recruitment maintenance, certificates, team applications, and social events.
+  Receipts (`packages/database/src/receipt/postgres.ts`, `authorizeReceiptMutation`) still export a constructible `ReceiptMutationAuthorization`, and content (`apps/backend/src/content/http-access.ts`) keeps a handler gate in front of the adapter's own check.
+  `OrganizationPersonAuthority` is not branded at its reader, so a fabricated authority can still mint evidence.
   The authority instant (M2), per-slice cutovers (M3), and deletion of the string helpers such as `compareRfc3339Instants` (M4) remain.
 - Receipt keyset cursors carry microsecond text (`packages/database/src/receipt/cursor.ts`). They stay exact because storage is millisecond; M3 moves them to `Instant`.
 - `packages/database/runtime/schema-boundary-postgres-proof-main.ts` (`proof:schema-boundary-postgres`, run by no `just` set) failed at `65e98276`, before and after its move to an Effect program, with "New interview conduct requires an explicit recommendation": its seed inserts an interview conduct without the recommendation that migration 0037 requires of every new conduct.
@@ -125,7 +134,7 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
 - Hand-written operation ids outside content, hand-written dashboard navigation paths, a fixed admissions `retry-after`, and fixed ports in older browser runners.
 - Twenty test files of the dashboard and homepage answer API and provider calls with a stubbed global `fetch` (`vi.stubGlobal("fetch", …)`) or a recording fetch, not a contract-served boundary:
   the `*.test.ts` files that stub `fetch` under `apps/dashboard/app`, `apps/dashboard/test`, and `apps/homepage/test`, and `apps/dashboard/app/foldkit/team-applications/update.test.ts`.
-  `packages/sdk/src/__tests__/generated-native-client.test.ts` shows the replacement for native API calls: it serves the contract's endpoints with `HttpApiBuilder` and records what the server decoded.
+  The RPC fakes `apps/dashboard/test/native-rpc.ts` and `apps/homepage/test/native-rpc.ts` answer the wire by hand. The replacement serves the contract's groups with test handler Layers through `RpcTest.makeClient` (`effect/unstable/rpc/RpcTest`), as `makeBackendTestRpc` serves the real handlers for backend tests.
 - PR previews (operator decision, 2026-09-25): Cloudflare Worker Previews of the homepage and dashboard only, as `vektor-preview-homepage` and `vektor-preview-dashboard`, which `wrangler preview` creates on first use ([contract](docs/specs/worker-pr-previews.md)).
   Their Cloudflare token (Workers Editor on the two preview Workers only) and account id live in Bitwarden Secrets Manager; `secretspec.toml` profile `preview` gives them to the deploy and delete steps, and GitHub holds only the read-only `BWS_ACCESS_TOKEN`. The parent Workers were created on 2026-09-26 and hold no version.
   Draft PR #24 proved the path on 2026-09-26: run `36242120400` read both secrets from Bitwarden (US cloud) through secretspec, deployed both previews, passed the document and asset probes, and posted the review comment; closing the PR ran the cleanup, and the Cloudflare API then listed no previews or versions on either Worker. The homepage preview hostname answered 404 at once, but `pr-24-vektor-preview-dashboard` still served the app 7 minutes later. `wrangler preview delete` is an open beta; recheck a closed PR's dashboard hostname and report upstream if it keeps serving. They have no backend, so pages that read the API show the unavailable state.

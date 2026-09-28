@@ -34,7 +34,7 @@ A person or an agent can find the right place for new code, the shared construct
 
 ### Layout
 
-- Packages stay layer-first: `packages/domain`, `packages/database`, `packages/http-api`, `packages/sdk`, and `apps/backend` for composition.
+- Packages stay layer-first: `packages/domain`, `packages/database`, `packages/rpc`, and `apps/backend` for composition.
 - Each layer uses the CML context name as its folder name: `packages/domain/src/<context>`, `packages/database/src/<context>`, `apps/backend/src/<context>`, `apps/dashboard/app/foldkit/<context>`.
 - Code shared by several contexts belongs to a CML Shared Kernel context, not to loose top-level files.
 - `packages/placements` folds back into `packages/domain/src/placements` and `packages/database/src/placements` before the context checks turn on.

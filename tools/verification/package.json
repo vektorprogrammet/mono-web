@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "vitest run --no-file-parallelism",
-    "check-types": "tsc --noEmit",
+    "check-types": "tsc --noEmit && tsc --noEmit -p tsconfig.bun.json",
     "rehearsal:organization-import": "bun run organization-import-rehearsal-main.ts",
     "rehearsal:receipt-import": "bun run receipt-import-rehearsal.ts",
     "rehearsal:account-cohort": "bun run identity-cohort-rehearsal.ts",
@@ -19,13 +19,13 @@
     "@vektorprogrammet/backend": "workspace:*",
     "@vektorprogrammet/database": "workspace:*",
     "@vektorprogrammet/domain": "workspace:*",
-    "@vektorprogrammet/http-api": "workspace:*",
-    "@vektorprogrammet/sdk": "workspace:*",
+    "@vektorprogrammet/rpc": "workspace:*",
     "better-auth": "1.7.1",
     "effect": "catalog:effect-v4",
     "pg": "8"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:effect-v4",
     "@types/node": "^22",
     "@types/pg": "^8.23.1",
     "typescript": "7.0.2",

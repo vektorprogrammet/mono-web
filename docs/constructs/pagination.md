@@ -17,7 +17,7 @@ type CursorPositioned<A> = A & { readonly cursorTimestamp: string }
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/database/src/receipt/cursor.ts:38](../../packages/database/src/receipt/cursor.ts#L38)
+- Source: [packages/database/src/receipt/cursor.ts:39](../../packages/database/src/receipt/cursor.ts#L39)
 
 **How it works**
 
@@ -42,6 +42,7 @@ Declare the row as `CursorPositioned<Row>` and select its text with `receiptCurs
 Selects the ordering column as microsecond UTC text so cursor positions compare exactly.
 
 ```ts
+receiptCursorTimestamp(column: Statement.Fragment): (sql: DatabaseOperations) => Statement.Fragment
 receiptCursorTimestamp(sql: DatabaseOperations, column: Statement.Fragment): Statement.Fragment
 ```
 
@@ -52,7 +53,7 @@ receiptCursorTimestamp(sql: DatabaseOperations, column: Statement.Fragment): Sta
 - Errors: none
 - Requirements: none
 - Side effects: none: it builds a fragment, and the statement that embeds it reads the rows.
-- Source: [packages/database/src/receipt/cursor.ts:62](../../packages/database/src/receipt/cursor.ts#L62)
+- Source: [packages/database/src/receipt/cursor.ts:63](../../packages/database/src/receipt/cursor.ts#L63)
 
 **How it works**
 
@@ -88,7 +89,7 @@ receiptCursorPage<A extends { readonly cursorTimestamp: string; readonly receipt
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/database/src/receipt/cursor.ts:100](../../packages/database/src/receipt/cursor.ts#L100)
+- Source: [packages/database/src/receipt/cursor.ts:104](../../packages/database/src/receipt/cursor.ts#L104)
 
 **How it works**
 

@@ -1,6 +1,6 @@
-import { ArticleSlug, isProblem } from "@vektorprogrammet/http-api";
-import type { PublishedNewsArticle, PublishedNewsListing } from "./api-types";
-import { createHomepageApiClient } from "./api.server";
+import { ArticleSlug, isProblem } from "@vektorprogrammet/rpc";
+import type { PublishedNewsListing } from "./api-types";
+import { callHomepageNative } from "./api.server";
 import {
   applyDepartmentFilter,
   NEWS_TEASER_COUNT,
@@ -12,7 +12,7 @@ import {
 /**
  * Server-only news loaders (spec 0062 §Homepage public surface contract).
  *
- * Every render performs its own fresh read through createHomepageApiClient();
+ * Every render performs its own fresh read through callHomepageNative();
  * no module-level cache, no build-time snapshot, no loader-shared mutable
  * state. Typed Response throws: 404 for unknown/withdrawn slugs (including a
  * ?versjon miss), 503 for network/decode/persistence failures.
@@ -24,35 +24,17 @@ const upstreamFailure = (): Response =>
 const notFound = (): Response => new Response("Nyheten finnes ikke.", { status: 404 });
 
 const readListing = async (): Promise<PublishedNewsListing> => {
-  const client = createHomepageApiClient();
-
   try {
-    const result = await client.content.listNews({
-      query: {},
-      headers: {},
-    });
-
-    if (result.body === undefined) throw new Error("The conditional news response has no body.");
-
-    return result.body;
+    return await callHomepageNative((client) => client["content.listNews"]({}));
   } catch {
     throw upstreamFailure();
   }
 };
 
 export const loadNewsListing = async (departmentSlugOrId?: string): Promise<NewsListingData> => {
-  const client = createHomepageApiClient();
-
-  const departments = await client.organization
-    .listDepartments({ headers: {} })
-    .then((result) => {
-      if (result.body === undefined) {
-        throw new Error("The conditional department response has no body.");
-      }
-
-      return result.body;
-    })
-    .catch((): readonly never[] => []);
+  const departments = await callHomepageNative((client) =>
+    client["organization.listDepartments"](),
+  ).catch((): readonly never[] => []);
 
   const { departmentId, degraded } = resolveDepartmentFilter(departments, departmentSlugOrId);
   // One fresh listing read per render; the filter is applied client-side on
@@ -79,7 +61,6 @@ export const loadNewsArticle = async (
   slug: string,
   versionParam?: string,
 ): Promise<NewsDetailData> => {
-  const client = createHomepageApiClient();
   const version = versionParam === undefined ? undefined : Number(versionParam);
 
   if (version !== undefined && (!Number.isSafeInteger(version) || version <= 0)) {
@@ -87,24 +68,17 @@ export const loadNewsArticle = async (
   }
 
   try {
-    const [articleResult, listingResult] = await Promise.all([
-      client.content.readNewsArticle({
-        params: { slug: ArticleSlug.make(slug) },
-        query: version === undefined ? {} : { version },
-        headers: {},
-      }),
-      client.content.listNews({ query: {}, headers: {} }),
+    const articleSlug = ArticleSlug.make(slug);
+    const query = version === undefined ? { slug: articleSlug } : { slug: articleSlug, version };
+
+    const [article, listing] = await Promise.all([
+      callHomepageNative((client) => client["content.readNewsArticle"](query)),
+      callHomepageNative((client) => client["content.listNews"]({})),
     ]);
-
-    if (articleResult.body === undefined || listingResult.body === undefined) {
-      throw new Error("The conditional news response has no body.");
-    }
-
-    const article: PublishedNewsArticle = articleResult.body;
 
     return {
       article,
-      otherNews: listingResult.body.articles
+      otherNews: listing.articles
         .filter((summary) => summary.slug !== article.slug)
         .slice(0, NEWS_TEASER_COUNT),
     };

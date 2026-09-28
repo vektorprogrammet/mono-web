@@ -1,4 +1,4 @@
-import type { StrongETag } from "@vektorprogrammet/http-api";
+import type { StrongETag } from "@vektorprogrammet/rpc";
 import { Effect, flow, Option, Schema as S } from "effect";
 import { decodeInvitationInteractionId, InvitationBridgeFailureSchema, InvitationResponseResourceSchema, INVITATION_INTERACTION_HEADER, type InvitationBridgeFailure, type InvitationInteractionId, type InvitationBridgeOperation, type InvitationResponseResource } from "./bridge";
 

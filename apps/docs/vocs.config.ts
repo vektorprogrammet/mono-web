@@ -1,7 +1,6 @@
-import { resolve } from "node:path";
-import { defineConfig, OpenApi } from "vocs/config";
+import { defineConfig } from "vocs/config";
 import { remarkRepositoryLinks } from "./remark-repository-links.ts";
-import { repositoryRoot, repositoryUrl, route, sections, title } from "./site.ts";
+import { repositoryUrl, route, sections, title } from "./site.ts";
 
 export default defineConfig({
   title: "Vektorprogrammet",
@@ -19,14 +18,7 @@ export default defineConfig({
     text: "Edit this page on GitHub",
   },
   socials: [{ icon: "github", link: repositoryUrl }],
-  topNav: [
-    { text: "Documentation", link: "/" },
-    { text: "HTTP API", link: "/api" },
-  ],
-  // The build derives this ignored spec from the HTTP contract first.
-  openapi: [
-    OpenApi.from({ spec: resolve(repositoryRoot, "packages/http-api/openapi.json"), path: "/api" }),
-  ],
+  topNav: [{ text: "Documentation", link: "/" }],
   sidebar: sections.map((section) => ({
     text: section.text,
     items: [

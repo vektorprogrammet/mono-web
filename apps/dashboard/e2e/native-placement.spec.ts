@@ -1,14 +1,18 @@
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.js";
 import type { AdmissionOutcomeCommand } from "@vektorprogrammet/domain/admissions";
-import type {
+import {
   CoverageCommand,
   OwnCoverageCommand,
   PlacementCommand,
+  PlacementScope,
 } from "@vektorprogrammet/domain/placements";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type BrowserContext, type Page, type Locator } from "@playwright/test";
-import { Order } from "effect";
+import { type NativeRpcClient, PublicApplicationIdSchema } from "@vektorprogrammet/rpc";
+import { IdempotencyKey, StrongETag } from "@vektorprogrammet/rpc/problem";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
+import { type Effect, Match, Order, Schema } from "effect";
 
 const manifestPath = process.env.PLACEMENT_JOURNEY_MANIFEST;
 
@@ -41,7 +45,7 @@ const selectScope = async (page: Page) => {
 };
 
 const axe = async (page: Page, state: string) => {
-  const result = await new AxeBuilder({ page }).analyze();
+  const violations = await auditSettledPage(page);
 
   const landmarks = await page.locator("form[aria-label]").evaluateAll((forms) =>
     forms.map((form) => ({
@@ -50,14 +54,7 @@ const axe = async (page: Page, state: string) => {
     })),
   );
 
-  expect(
-    result.violations.map(({ id, impact, nodes }) => ({
-      id,
-      impact,
-      nodes: nodes.map(({ target, failureSummary }) => ({ target, failureSummary })),
-    })),
-    `${state}; form landmarks: ${JSON.stringify(landmarks)}`,
-  ).toEqual([]);
+  expect(violations, `${state}; form landmarks: ${JSON.stringify(landmarks)}`).toEqual([]);
 };
 
 const fillPlacement = async (form: Locator, block: string, day = "Monday", workdays = "4") => {
@@ -78,56 +75,70 @@ const submittedAndRemoved = async (form: Locator) => {
   await expect(form).toHaveCount(0);
 };
 
-const readBoard = async (page: Page) => {
-  const response = await page.request.get(
-    `${manifest.backendOrigin}/api/placements?${new URLSearchParams({ departmentId: manifest.departmentId, semesterId: manifest.semesterId })}`,
-    { headers: { origin: manifest.dashboardOrigin } },
-  );
+let outcomeClient: ReturnType<typeof nativeScriptClient> | undefined;
 
-  expect(response.status()).toBe(200);
+/** The native RPC client of the admission-outcome calls, made once the manifest names the backend. */
+const outcomes = () => {
+  outcomeClient ??= nativeScriptClient(manifest.backendOrigin);
 
-  return response.json();
+  return outcomeClient;
 };
 
-const readCoverageBoard = async (page: Page) => {
-  const response = await page.request.get(
-    `${manifest.backendOrigin}/api/placements/coverage?${new URLSearchParams({
-      departmentId: manifest.departmentId,
-      semesterId: manifest.semesterId,
-    })}`,
-    { headers: { origin: manifest.dashboardOrigin } },
-  );
+/** The session of one browser context, sent from the dashboard origin as its server sends it. */
+const sessionOf = async (page: Page) => ({
+  cookie: (await page.context().cookies(manifest.dashboardOrigin))
+    .map(({ name, value }) => `${name}=${value}`)
+    .join("; "),
+  origin: manifest.dashboardOrigin,
+});
 
-  expect(response.status()).toBe(200);
+/** The department and semester of the journey, as the placement RPCs take them. */
+const placementScope = () =>
+  Schema.decodeSync(PlacementScope)({
+    departmentId: manifest.departmentId,
+    semesterId: manifest.semesterId,
+  });
 
-  return response.json();
+/**
+ * Answers one placement read as the person of `page`; a refusal fails the journey. The journey
+ * reads the answer as the untyped JSON body it read over HTTP.
+ */
+const readAs = async <A>(
+  page: Page,
+  read: (client: NativeRpcClient["Service"]) => Effect.Effect<A, unknown>,
+): Promise<any> => {
+  const answer = await outcomes().call(await sessionOf(page), read);
+
+  if (!answer.ok) throw new Error(`The placement read answered ${answer.code}`);
+
+  return answer.value;
 };
 
-const readOwnCoverage = async (page: Page) => {
-  const response = await page.request.get(
-    `${manifest.backendOrigin}/api/placements/coverage/own?${new URLSearchParams({
-      departmentId: manifest.departmentId,
-      semesterId: manifest.semesterId,
-    })}`,
-    { headers: { origin: manifest.dashboardOrigin } },
-  );
+const readBoard = (page: Page) =>
+  readAs(page, (client) => client["placements.readBoard"](placementScope()));
 
-  expect(response.status()).toBe(200);
+const readCoverageBoard = (page: Page) =>
+  readAs(page, (client) => client["placements.readCoverageBoard"](placementScope()));
 
-  return response.json();
-};
+const readOwnCoverage = (page: Page) =>
+  readAs(page, (client) => client["placements.readOwnCoverage"](placementScope()));
 
 /** Admission management reads one application's outcome entry with its version. */
 const readOutcome = async (page: Page, applicationId: string) => {
-  const response = await page.request.get(
-    `${manifest.backendOrigin}/api/admission-outcomes/${applicationId}`,
-    { headers: { origin: manifest.dashboardOrigin } },
+  const answer = await outcomes().call(await sessionOf(page), (client) =>
+    client["admissionOutcomes.readOutcome"]({
+      applicationId: PublicApplicationIdSchema.make(applicationId),
+    }),
   );
 
-  expect(response.status()).toBe(200);
+  if (!answer.ok) throw new Error(`Reading the outcome answered ${answer.code}`);
 
-  return response.json();
+  return answer.value;
 };
+
+test.afterAll(async () => {
+  await outcomeClient?.dispose();
+});
 
 test("0096 placement, 0110 school-service, and 0111 coverage journeys persist with explicit authority", async ({
   browser,
@@ -989,20 +1000,80 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     expected: number,
     expectedCode?: string,
   ) => {
-    const response = await actor.request.post(`${manifest.backendOrigin}${path}`, {
-      headers: {
-        origin: manifest.dashboardOrigin,
-        "if-match": etag,
-        "idempotency-key": crypto.randomUUID(),
-      },
-      data: payload,
+    // Each path names the placement command RPC that replaced its HTTP route.
+    const target = new URL(path, manifest.backendOrigin).pathname;
+
+    expect([
+      "/api/placements",
+      "/api/placements/coverage",
+      "/api/placements/coverage/own",
+    ]).toContain(target);
+
+    const keys = {
+      ...placementScope(),
+      idempotencyKey: IdempotencyKey.make(crypto.randomUUID()),
+      ifMatch: StrongETag.make(etag),
+    };
+
+    const session = await sessionOf(actor);
+
+    const answer = await Match.value(target).pipe(
+      Match.when("/api/placements", () =>
+        outcomes().call(session, (client) =>
+          client["placements.commandBoard"]({
+            ...keys,
+            request: Schema.decodeUnknownSync(PlacementCommand)(payload),
+          }),
+        ),
+      ),
+      Match.when("/api/placements/coverage", () =>
+        outcomes().call(session, (client) =>
+          client["placements.commandCoverageBoard"]({
+            ...keys,
+            request: Schema.decodeUnknownSync(CoverageCommand)(payload),
+          }),
+        ),
+      ),
+      Match.orElse(() =>
+        outcomes().call(session, (client) =>
+          client["placements.commandOwnCoverage"]({
+            ...keys,
+            request: Schema.decodeUnknownSync(OwnCoverageCommand)(payload),
+          }),
+        ),
+      ),
+    );
+
+    expect(answer.status, JSON.stringify(answer)).toBe(expected);
+
+    if (expectedCode !== undefined) expect(answer.ok ? undefined : answer.code).toBe(expectedCode);
+    http.push({ check, status: answer.status, boundary: "authenticated-rpc" });
+  };
+
+  /** An admission-outcome record the backend refuses, with its registry status and code. */
+  const rejectedOutcome = async (
+    actor: Page,
+    etag: string,
+    payload: AdmissionOutcomeCommand,
+    check: string,
+    expected: number,
+    expectedCode: string,
+  ) => {
+    const answer = await outcomes().call(await sessionOf(actor), (client) =>
+      client["admissionOutcomes.recordOutcome"]({
+        applicationId: PublicApplicationIdSchema.make(manifest.applicationId),
+        idempotencyKey: IdempotencyKey.make(crypto.randomUUID()),
+        ifMatch: StrongETag.make(etag),
+        request: payload,
+      }),
+    );
+
+    expect(answer, JSON.stringify(answer)).toMatchObject({
+      ok: false,
+      status: expected,
+      code: expectedCode,
     });
-
-    const problem = await response.json();
-    expect(response.status(), JSON.stringify(problem)).toBe(expected);
-
-    if (expectedCode !== undefined) expect(problem.code).toBe(expectedCode);
-    http.push({ check, status: response.status(), boundary: "authenticated-http" });
+    http.push({ check, status: answer.status, boundary: "authenticated-rpc" });
   };
 
   let passed = false;
@@ -1348,9 +1419,8 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     ).toHaveText(onCall);
     await checkpoint("outcome-recorded");
 
-    await rejected(
+    await rejectedOutcome(
       page,
-      `/api/admission-outcomes/${manifest.applicationId}:record`,
       unrecordedOutcome.etag,
       { outcome: "Rejected" },
       "a stale admission outcome version cannot overwrite",
@@ -1378,9 +1448,8 @@ test("golden school-service continuous functional journey", async ({ browser }) 
       0,
     );
     await expect(member.getByRole("form", { name: /^Opptaksutfall:/ })).toHaveCount(0);
-    await rejected(
+    await rejectedOutcome(
       member,
-      `/api/admission-outcomes/${manifest.applicationId}:record`,
       (await readOutcome(page, manifest.applicationId)).etag,
       { outcome: "Rejected" },
       "a department member records no admission outcome",

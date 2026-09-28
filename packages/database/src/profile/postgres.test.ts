@@ -16,19 +16,17 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })((it) => 
         const missing = PersonId.make("person-directory-missing-contact");
         const present = PersonId.make("person-directory-with-contact");
 
-        const failure = yield* Effect.gen(function* () {
-          const sql = yield* Database;
-          yield* sql`
+        const sql = yield* Database;
+        yield* sql`
     INSERT INTO person_profiles (person_id, first_name, last_name)
     VALUES (${missing}, 'Ann', 'Aardvark'), (${present}, 'Bob', 'Zebra')
   `;
-          yield* sql`
+        yield* sql`
     INSERT INTO person_contact_profiles (person_id, email, phone)
     VALUES (${present}, 'bob@example.invalid', '+4700000001')
   `;
 
-          return yield* Effect.flip(readDirectoryPage({ limit: 10 }));
-        });
+        const failure = yield* Effect.flip(readDirectoryPage({ limit: 10 }));
 
         expect(failure._tag).toBe("ProfileContactNotFound");
 
@@ -47,23 +45,21 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })((it) => 
       Effect.gen(function* () {
         const personId = PersonId.make("person-profile-http-source");
 
-        const source = yield* Effect.gen(function* () {
-          const sql = yield* Database;
-          yield* sql`
+        const sql = yield* Database;
+        yield* sql`
     INSERT INTO person_profiles (person_id, first_name, last_name, revision)
     VALUES (${personId}, 'Ada', 'Lovelace', 4)
   `;
-          yield* sql`
+        yield* sql`
     INSERT INTO person_contact_profiles (person_id, email, phone, revision)
     VALUES (${personId}, 'ada@example.invalid', '+4712345678', 6)
   `;
-          yield* sql`
+        yield* sql`
     UPDATE profile_http_versions SET representation_revision = 9
     WHERE person_id = ${personId}
   `;
 
-          return yield* readOwnProfileHttpSourcePostgres(personId);
-        });
+        const source = yield* readOwnProfileHttpSourcePostgres(personId);
 
         expect(source.representationRevision).toBe(9);
         expect(source.profile).toEqual({

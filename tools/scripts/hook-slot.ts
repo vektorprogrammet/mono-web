@@ -1,7 +1,9 @@
-import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { heavyLockVariable, takeHeavyLock, takeHookSlot } from "./heavy-lock.js";
+import * as BunRuntime from "@effect/platform-bun/BunRuntime";
+import * as BunServices from "@effect/platform-bun/BunServices";
+import process from "node:process";
+import { Console, Data, Effect, FileSystem, Path } from "effect";
+import { heavyLockVariable, localNow, takeHeavyLock, takeHookSlot } from "./heavy-lock.js";
+import { jobDisposition, runJob } from "./job-process.js";
 
 const usage = `Usage:
   just hook-slot --class <job-class> -- <command...>
@@ -19,105 +21,108 @@ waits for one. The locks are released when this process exits, also on a signal.
 The command runs with CPU affinity to 1/N of the allowed CPUs.
 `;
 
-// A function declaration lets calls narrow control flow as `never`.
-function fail(message: string): never {
-  process.stderr.write(`hook-slot: ${message}\n`);
-  process.exit(2);
-}
+/** A usage error or a failed step; the program prints it and exits 2. */
+class HookSlotFailure extends Data.TaggedError("HookSlotFailure")<{ readonly message: string }> {}
 
-const clock = () => new Date().toTimeString().slice(0, 8);
+const fail = (message: string) => Effect.fail(new HookSlotFailure({ message }));
 
-const log = (message: string) => process.stderr.write(`hook-slot: ${clock()} ${message}\n`);
+const log = (message: string) =>
+  Effect.flatMap(localNow, ({ time }) => Console.error(`hook-slot: ${time} ${message}`));
 
-const argv = process.argv.slice(2);
+const disposition = jobDisposition();
 
-const separator = argv.indexOf("--");
+const program = Effect.gen(function* () {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const argv = process.argv.slice(2);
+  const separator = argv.indexOf("--");
+  const options = separator === -1 ? argv : argv.slice(0, separator);
+  const command = separator === -1 ? [] : argv.slice(separator + 1);
+  let jobClass: string | undefined;
 
-const options = separator === -1 ? argv : argv.slice(0, separator);
+  for (let index = 0; index < options.length; index += 1) {
+    const option = options[index];
 
-const command = separator === -1 ? [] : argv.slice(separator + 1);
+    if (option === "--help" || option === "-h") {
+      yield* Console.log(usage.trimEnd());
 
-let jobClass: string | undefined;
+      return 0;
+    } else if (option === "--class") {
+      index += 1;
+      jobClass = options[index] ?? (yield* fail("--class needs a value."));
+    } else return yield* fail(`Unknown argument ${option}. Use --help.`);
+  }
 
-for (let index = 0; index < options.length; index += 1) {
-  const option = options[index];
+  if (jobClass === undefined) return yield* fail("Pass --class <job-class>. Use --help.");
 
-  if (option === "--help" || option === "-h") {
-    process.stdout.write(usage);
-    process.exit(0);
-  } else if (option === "--class") jobClass = options[++index] ?? fail("--class needs a value.");
-  else fail(`Unknown argument ${option}. Use --help.`);
-}
+  if (command.length === 0) return yield* fail("Pass the command after --.");
 
-if (jobClass === undefined) fail("Pass --class <job-class>. Use --help.");
+  const slotClass = jobClass;
 
-if (command.length === 0) fail("Pass the command after --.");
+  // The heavy lock comes before the slot: a hook job that waits for a heavy job holds no slot, so
+  // hook jobs inside that heavy job, such as the hooks of its commits, still get one.
+  const { variables, slot, slotCount } = yield* Effect.gen(function* () {
+    const taken = yield* takeHeavyLock({ mode: "shared", jobClass: slotClass, command, log });
+    const held = yield* takeHookSlot({ jobClass: slotClass, log });
 
-// The heavy lock comes before the slot: a hook job that waits for a heavy job holds no slot, so
-// hook jobs inside that heavy job, such as the hooks of its commits, still get one.
-let jobEnv: NodeJS.ProcessEnv;
+    return { variables: taken, ...held };
+  }).pipe(
+    Effect.catchTag("HeavyLockFailure", ({ message }) => fail(`The locks failed: ${message}`)),
+  );
 
-let slot: number;
+  // Each slot runs its job on an equal share of the allowed CPUs. Tools that size worker pools
+  // from the CPU count, such as Oxfmt, Oxlint, and Vitest (vitest.shared.ts), then start fewer
+  // workers. Explicit settings, such as `--no-file-parallelism`, still apply.
+  const cpuList = /^Cpus_allowed_list:\s*(\S+)$/m.exec(
+    yield* Effect.orDie(fileSystem.readFileString("/proc/self/status", "latin1")),
+  )?.[1];
 
-let slotCount: number;
+  if (cpuList === undefined) return yield* fail("/proc/self/status has no Cpus_allowed_list.");
 
-try {
-  jobEnv = takeHeavyLock("shared", jobClass, command, log);
-  ({ slot, slotCount } = takeHookSlot(jobClass, log));
-} catch (error) {
-  fail(`The locks failed: ${error instanceof Error ? error.message : String(error)}`);
-}
-
-// Each slot runs its job on an equal share of the allowed CPUs. Tools that size worker pools
-// from the CPU count, such as Oxfmt, Oxlint, and Vitest (vitest.shared.ts), then start fewer
-// workers. Explicit settings, such as `--no-file-parallelism`, still apply.
-const allowedCpus = (
-  /^Cpus_allowed_list:\s*(\S+)$/m.exec(readFileSync("/proc/self/status", "latin1"))?.[1] ??
-  fail("/proc/self/status has no Cpus_allowed_list.")
-)
-  .split(",")
-  .flatMap((range) => {
+  const allowedCpus = cpuList.split(",").flatMap((range) => {
     const [first = 0, last = first] = range.split("-").map(Number);
 
     return Array.from({ length: last - first + 1 }, (_, index) => first + index);
   });
 
-const cpusPerSlot = Math.max(1, Math.floor(allowedCpus.length / slotCount));
+  const cpusPerSlot = Math.max(1, Math.floor(allowedCpus.length / slotCount));
 
-const slotCpus = Array.from(
-  { length: cpusPerSlot },
-  (_, index) => allowedCpus[((slot - 1) * cpusPerSlot + index) % allowedCpus.length],
+  const slotCpus = Array.from(
+    { length: cpusPerSlot },
+    (_, index) => allowedCpus[((slot - 1) * cpusPerSlot + index) % allowedCpus.length],
+  );
+
+  yield* log(`the job uses ${cpusPerSlot} of ${allowedCpus.length} CPUs`);
+
+  // From the start of the job to its end, a signal goes to the job and does not stop this program.
+  const jobExit = yield* Effect.uninterruptible(
+    runJob({
+    command: "taskset",
+    arguments: [
+      "--cpu-list",
+      slotCpus.join(","),
+      process.execPath,
+      "--no-env-file",
+      path.join(import.meta.dir, "measure-job.ts"),
+      "--class",
+      slotClass,
+      "--",
+      ...command,
+    ],
+    variables,
+    forwardedSignals: ["SIGINT", "SIGTERM", "SIGHUP"],
+  }).pipe(
+    Effect.catchTag("JobStartFailure", ({ message }) => fail(`taskset could not start: ${message}`)),
+    Effect.tap(disposition.record),
+  ));
+
+  return jobExit.exitCode ?? 1;
+}).pipe(
+  Effect.catchTag("HookSlotFailure", ({ message }) =>
+    Console.error(`hook-slot: ${message}`).pipe(Effect.as(2)),
+  ),
 );
 
-log(`the job uses ${cpusPerSlot} of ${allowedCpus.length} CPUs`);
-
-const child = spawn(
-  "taskset",
-  [
-    "--cpu-list",
-    slotCpus.join(","),
-    process.execPath,
-    "--no-env-file",
-    join(import.meta.dir, "measure-job.ts"),
-    "--class",
-    jobClass,
-    "--",
-    ...command,
-  ],
-  { stdio: "inherit", env: jobEnv },
-);
-
-const signalHandlers = (["SIGINT", "SIGTERM", "SIGHUP"] as const).map(
-  (signal) => [signal, () => child.kill(signal)] as const,
-);
-
-for (const [signal, handler] of signalHandlers) process.on(signal, handler);
-
-child.once("error", (error) => fail(`taskset could not start: ${error.message}`));
-
-child.once("exit", (exitCode, signal) => {
-  for (const [name, handler] of signalHandlers) process.off(name, handler);
-
-  if (signal !== null) process.kill(process.pid, signal);
-  else process.exit(exitCode ?? 1);
+BunRuntime.runMain(program.pipe(Effect.scoped, Effect.provide(BunServices.layer)), {
+  teardown: disposition.teardown,
 });

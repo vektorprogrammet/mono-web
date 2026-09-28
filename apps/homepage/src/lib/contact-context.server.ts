@@ -1,7 +1,12 @@
-import { ContactVisitorIp as ContactVisitorIpSchema } from "@vektorprogrammet/http-api";
+import {
+  CONTACT_BACKEND_HEADER,
+  CONTACT_IP_HEADER,
+  ContactVisitorIp as ContactVisitorIpSchema,
+} from "@vektorprogrammet/rpc";
 import { Schema } from "effect";
 import { createContext } from "react-router";
-import type { ContactMessageHeaders } from "./api-types";
+
+export { CONTACT_BACKEND_HEADER, CONTACT_IP_HEADER };
 
 const canonicalIpv4 = (raw: string): string | undefined => {
   const octets = raw.split(".");
@@ -51,11 +56,7 @@ const canonicalContactIp = (raw: string): string => {
 
 export const CONTACT_INGRESS_HEADER = "x-vektor-contact-ingress";
 
-export const CONTACT_BACKEND_HEADER = "x-vektor-contact-backend";
-
-export const CONTACT_IP_HEADER = "x-vektor-contact-ip";
-
-type ContactVisitorIp = ContactMessageHeaders[typeof CONTACT_IP_HEADER];
+type ContactVisitorIp = ContactVisitorIpSchema;
 
 export type ContactIngress = {
   readonly backendOrigin: string;

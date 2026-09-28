@@ -1,5 +1,5 @@
 import type { RecruitmentAssignmentBoard,
-RecruitmentAssignmentBoardQuery, } from "@vektorprogrammet/http-api"
+RecruitmentAssignmentBoardQuery, } from "@vektorprogrammet/rpc"
 import { Effect, Schema as S } from "effect";
 import {
   CancelInterviewInputSchema,
@@ -55,7 +55,7 @@ interface RecruitmentOperations {
     input: CreateApplicationInterviewInput,
   ) => Effect.Effect<RecruitmentInterviewResource, RecruitmentBridgeFailure>;
   readonly readSchedulingBoard: () => Effect.Effect<
-    typeof SchedulingBoard.Type,
+    SchedulingBoard,
     RecruitmentBridgeFailure
   >;
   readonly scheduleInterview: (

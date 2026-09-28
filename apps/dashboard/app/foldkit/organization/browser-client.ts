@@ -1,27 +1,28 @@
-import type { DepartmentJson,
-FieldOfStudyJson,
-TeamJson, } from "@vektorprogrammet/http-api"
-import { createEffectClient, type EffectSdkFailure } from "@vektorprogrammet/sdk/effect";
-import { Data, Effect } from "effect";
-import { resolveBrowserApiUrl } from "../../lib/browser-api";
+import type {
+  DepartmentJson,
+  FieldOfStudyJson,
+  NativeRpcClient,
+  TeamJson,
+} from "@vektorprogrammet/rpc";
+import type { Effect } from "effect";
+import { callBrowserNative, type NativeAnswerInvalid } from "../../lib/browser-native";
 
-/** A catalog read that sent no cache validators was answered 304 Not Modified. */
-export class OrganizationCatalogNotModified extends Data.TaggedError(
-  "OrganizationCatalogNotModified",
-)<{ readonly message: string }> {}
+type NativeClient = NativeRpcClient["Service"];
+
+/** The failure of one native RPC call: its declared problems, transport errors, and an invalid answer. */
+type RpcFailure<Tag extends keyof NativeClient> =
+  | Effect.Error<ReturnType<NativeClient[Tag]>>
+  | NativeAnswerInvalid;
 
 export interface OrganizationCatalogOperations {
   readonly listDepartments: Effect.Effect<
     readonly DepartmentJson[],
-    EffectSdkFailure<"organization", "listDepartments"> | OrganizationCatalogNotModified
+    RpcFailure<"organization.listDepartments">
   >;
-  readonly listTeams: Effect.Effect<
-    readonly TeamJson[],
-    EffectSdkFailure<"organization", "listTeams"> | OrganizationCatalogNotModified
-  >;
+  readonly listTeams: Effect.Effect<readonly TeamJson[], RpcFailure<"organization.listTeams">>;
   readonly listFieldOfStudies: Effect.Effect<
     readonly FieldOfStudyJson[],
-    EffectSdkFailure<"organization", "listFieldOfStudies"> | OrganizationCatalogNotModified
+    RpcFailure<"organization.listFieldOfStudies">
   >;
 }
 
@@ -29,52 +30,10 @@ export interface OrganizationCatalogClient {
   readonly organization: OrganizationCatalogOperations;
 }
 
-export const createBrowserOrganizationCatalogClient = (): OrganizationCatalogClient => {
-  const client = createEffectClient(
-    resolveBrowserApiUrl(import.meta.env.VITE_API_URL, globalThis.location.origin),
-  );
-
-  return {
-    organization: {
-      listDepartments: client.organization
-        .listDepartments({ headers: {} })
-        .pipe(
-          Effect.flatMap(({ body }) =>
-            body === undefined
-              ? Effect.fail(
-                  new OrganizationCatalogNotModified({
-                    message: "listDepartments returned 304 without cache validators",
-                  }),
-                )
-              : Effect.succeed(body),
-          ),
-        ),
-      listTeams: client.organization
-        .listTeams({ headers: {} })
-        .pipe(
-          Effect.flatMap(({ body }) =>
-            body === undefined
-              ? Effect.fail(
-                  new OrganizationCatalogNotModified({
-                    message: "listTeams returned 304 without cache validators",
-                  }),
-                )
-              : Effect.succeed(body),
-          ),
-        ),
-      listFieldOfStudies: client.organization
-        .listFieldOfStudies({ headers: {} })
-        .pipe(
-          Effect.flatMap(({ body }) =>
-            body === undefined
-              ? Effect.fail(
-                  new OrganizationCatalogNotModified({
-                    message: "listFieldOfStudies returned 304 without cache validators",
-                  }),
-                )
-              : Effect.succeed(body),
-          ),
-        ),
-    },
-  };
-};
+export const createBrowserOrganizationCatalogClient = (): OrganizationCatalogClient => ({
+  organization: {
+    listDepartments: callBrowserNative((client) => client["organization.listDepartments"]()),
+    listTeams: callBrowserNative((client) => client["organization.listTeams"]()),
+    listFieldOfStudies: callBrowserNative((client) => client["organization.listFieldOfStudies"]()),
+  },
+});

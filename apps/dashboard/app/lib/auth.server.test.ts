@@ -1,5 +1,7 @@
-import { Predicate } from "effect";
-import { makeNativeProblem } from "@vektorprogrammet/http-api";
+import { Exit, Predicate, Schema } from "effect";
+import { Rpc } from "effect/unstable/rpc";
+import { DeleteSession, Problem, ReadSession, type SessionResponse } from "@vektorprogrammet/rpc";
+import { PersonId } from "@vektorprogrammet/domain/organization";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.hoisted(() => vi.stubEnv("API_URL", "http://api.test"));
@@ -7,6 +9,61 @@ vi.hoisted(() => vi.stubEnv("API_URL", "http://api.test"));
 import { loadSessionIdentity, hasAuthenticatedSession, requireAuth, safeRedirect, signInWithEmail, signOut, SignInResult } from "./auth.server";
 
 const transport = vi.fn<typeof fetch>();
+
+/** The RPC client numbers its requests; the answer echoes the number. */
+const RequestId = Schema.Union([Schema.String, Schema.Finite]);
+
+const RpcRequestBody = Schema.fromJsonString(
+  Schema.TaggedStruct("Request", {
+    id: RequestId,
+    tag: Schema.String,
+    payload: Schema.Unknown,
+    headers: Schema.Array(Schema.Tuple([Schema.String, Schema.String])),
+  }),
+);
+
+const RpcExitMessage = Schema.TaggedStruct("Exit", {
+  requestId: RequestId,
+  exit: Schema.Json,
+});
+
+/**
+ * The one RPC request that the native client sent in `input`. The headers that `callNative`
+ * forwards travel in the RPC message, and the backend merges them over the HTTP headers.
+ */
+async function rpcRequest(
+  input: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1],
+) {
+  const request = new Request(input, init);
+  const body = Schema.decodeSync(RpcRequestBody)(await request.text());
+  const headers = new Headers(request.headers);
+
+  for (const [name, value] of body.headers) headers.set(name, value);
+
+  return { url: request.url, headers, id: body.id, tag: body.tag, payload: body.payload };
+}
+
+/** The backend's answer to the request `id`, with its exit encoded as the RPC server encodes it. */
+const rpcAnswer = (id: typeof RequestId.Type, exit: Schema.Json): Response =>
+  Response.json([RpcExitMessage.make({ requestId: id, exit })]);
+
+const encodeReadSessionExit = Schema.encodeSync(Schema.toCodecJson(Rpc.exitSchema(ReadSession)));
+
+const encodeDeleteSessionExit = Schema.encodeSync(
+  Schema.toCodecJson(Rpc.exitSchema(DeleteSession)),
+);
+
+const currentSession: SessionResponse = {
+  sessionId: "session-1",
+  personId: PersonId.make("person-1"),
+  createdAt: "2030-01-01T00:00:00Z",
+  updatedAt: "2030-01-01T00:00:00Z",
+  expiresAt: "2030-01-02T00:00:00Z",
+  ipAddress: null,
+  userAgent: null,
+  current: true,
+};
 
 function responseWithCookies(
   status: number,
@@ -36,7 +93,15 @@ describe("native dashboard authentication", () => {
     const rawCookie =
       "theme=dark; better-auth.session_token=session-value; invitation_capability=opaque";
 
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({sessionId: "session-1", personId: "person-1", createdAt: "2030-01-01T00:00:00Z", updatedAt: "2030-01-01T00:00:00Z", expiresAt: "2030-01-02T00:00:00Z", ipAddress: null, userAgent: null, current: true}, {headers: {"cache-control": "private, no-store", vary: "Origin"}}));
+    const sent: Array<{ readonly tag: string; readonly cookie: string | null; readonly url: string }> = [];
+
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const { url, headers, id, tag } = await rpcRequest(input, init);
+      sent.push({ tag, cookie: headers.get("cookie"), url });
+
+      return rpcAnswer(id, encodeReadSessionExit(Exit.succeed(currentSession)));
+    });
+
     transport.mockImplementation(fetchMock);
 
     const request = new Request("http://dashboard.test/dashboard", {
@@ -45,8 +110,9 @@ describe("native dashboard authentication", () => {
 
     await expect(requireAuth(request)).resolves.toBe(rawCookie);
     expect(fetchMock).toHaveBeenCalledOnce();
-    const [input, init] = fetchMock.mock.calls[0];
-    expect(new Request(input, init).headers.get("cookie")).toBe(rawCookie);
+    expect(sent).toEqual([
+      { tag: "system.readSession", cookie: rawCookie, url: "http://api.test/api/rpc/" },
+    ]);
   });
 
   it("reads the Better Auth session identity with the exact incoming Cookie", async () => {
@@ -105,15 +171,15 @@ describe("native dashboard authentication", () => {
   });
 
   it.each([
-    ["missing credential problem", { body: makeNativeProblem("credential.missing") }],
-    ["invalid credential problem", { body: makeNativeProblem("credential.invalid") }],
+    ["missing credential problem", { problem: Problem.fromWire({ code: "credential.missing" }, {}) }],
+    ["invalid credential problem", { problem: Problem.fromWire({ code: "credential.invalid" }, {}) }],
   ] as const)("redirects an invalid session after a %s", async (_name, failure) => {
     transport.mockImplementation(vi.fn<typeof fetch>(async (input, init) => {
-      const url = new Request(input, init).url;
+      const { id, tag } = await rpcRequest(input, init);
 
-      return url.endsWith("/api/session")
-        ? Response.json(failure.body, {status: 401, headers: {"content-type": "application/problem+json", "cache-control": "no-store", vary: "Origin", "www-authenticate": 'VektorSession realm="native-api"'}})
-        : responseWithCookies(200, ["better-auth.session_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"]);
+      return tag === "system.readSession"
+        ? rpcAnswer(id, encodeReadSessionExit(Exit.fail(failure.problem)))
+        : rpcAnswer(id, encodeDeleteSessionExit(Exit.void));
     }));
 
     const request = new Request("http://dashboard.test/dashboard", {
@@ -128,12 +194,19 @@ describe("native dashboard authentication", () => {
   });
 
   it("preserves a transport failure instead of redirecting or revoking the session", async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new TypeError("network unavailable"));
+    const tags: Array<string> = [];
+
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      tags.push((await rpcRequest(input, init)).tag);
+
+      throw new TypeError("network unavailable");
+    });
+
     transport.mockImplementation(fetchMock);
     const request = new Request("http://dashboard.test/dashboard", {headers: {Cookie: "better-auth.session_token=session-value"}});
     await expect(requireAuth(request)).rejects.not.toBeInstanceOf(Response);
     await expect(hasAuthenticatedSession(request)).rejects.not.toBeInstanceOf(Response);
-    expect(fetchMock.mock.calls.every(([input, init]) => new Request(input, init).method === "GET")).toBe(true);
+    expect(tags).toEqual(["system.readSession", "system.readSession"]);
   });
 
   it("posts email credentials to Better Auth and preserves every Set-Cookie value", async () => {
@@ -278,7 +351,15 @@ describe("native dashboard authentication", () => {
   });
 
   it("deletes the generated native session and emits local clearing cookies", async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, {status: 204, headers: {"cache-control": "no-store", vary: "Origin"}}));
+    const sent: Array<Awaited<ReturnType<typeof rpcRequest>>> = [];
+
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const call = await rpcRequest(input, init);
+      sent.push(call);
+
+      return rpcAnswer(call.id, encodeDeleteSessionExit(Exit.void));
+    });
+
     transport.mockImplementation(fetchMock);
     const rawCookie = "theme=dark; better-auth.session_token=session-value";
 
@@ -291,11 +372,10 @@ describe("native dashboard authentication", () => {
     expect(headers.getSetCookie()).toEqual([
       "better-auth.session_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
     ]);
-    const [input, init] = fetchMock.mock.calls[0];
-    const sent = new Request(input, init);
-    expect(sent.method).toBe("DELETE");
-    expect(sent.headers.get("cookie")).toBe(rawCookie);
-    expect(sent.headers.get("idempotency-key")).toEqual(expect.any(String));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.tag).toBe("system.deleteSession");
+    expect(sent[0]?.headers.get("cookie")).toBe(rawCookie);
+    expect(sent[0]?.payload).toEqual({ idempotencyKey: expect.any(String) });
   });
 
   it("allows only same-origin relative post-login redirects", () => {

@@ -1,4 +1,4 @@
-import { ProfileMergePatch, StrongETag, UserProfileResponse } from "@vektorprogrammet/http-api";
+import { ProfileMergePatch, StrongETag, UserProfileResponse } from "@vektorprogrammet/rpc";
 import { Schema as S } from "effect";
 import { FieldValidation } from "foldkit";
 import { ProfileBridgeFailure, ProfileRequestId } from "./bridge";

@@ -10,7 +10,7 @@ import { getAssistantFaqs } from "~/api/faq";
 import { Divider } from "~/components/divider";
 import { PublicApplicationForm } from "~/components/public-application-form";
 import { Button } from "~/components/ui/button";
-import { createHomepageApiClient } from "~/lib/api.server";
+import { callHomepageNative } from "~/lib/api.server";
 import {
   mapPublicApplicationError,
   parsePublicApplicationForm,
@@ -20,21 +20,12 @@ import {
 import type { Route } from "./+types/_home.assistenter";
 
 export async function loader(): Promise<PublicApplicationLoaderData> {
-  const client = createHomepageApiClient();
-
   try {
-    const result = await client.admissions.listApplicationOptions({
-      headers: {},
-    });
+    const catalog = await callHomepageNative((client) =>
+      client["admissions.listApplicationOptions"](),
+    );
 
-    if (result.body === undefined) {
-      throw new Error("The conditional application options response has no body.");
-    }
-
-    return {
-      ok: true,
-      catalog: result.body,
-    };
+    return { ok: true, catalog };
   } catch (error) {
     return {
       ok: false,
@@ -64,18 +55,14 @@ export async function action({ request }: Route.ActionArgs): Promise<PublicAppli
     };
   }
 
-  const client = createHomepageApiClient();
+  const { commandId, payload } = parsed.value;
 
   try {
-    const result = await client.admissions.submitApplication({
-      headers: { "idempotency-key": parsed.value.commandId },
-      payload: parsed.value.payload,
-    });
+    const confirmation = await callHomepageNative((client) =>
+      client["admissions.submitApplication"]({ idempotencyKey: commandId, request: payload }),
+    );
 
-    return {
-      success: true,
-      confirmation: result.body,
-    };
+    return { success: true, confirmation };
   } catch (error) {
     return {
       success: false,

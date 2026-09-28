@@ -240,24 +240,3 @@ export type AdmissionPeriodObservation = typeof AdmissionPeriodObservationSchema
 export const AdmissionPeriodListSchema = Schema.Array(AdmissionPeriodProjectionSchema);
 
 export type AdmissionPeriodList = typeof AdmissionPeriodListSchema.Type;
-
-export const decodeAdmissionPeriodCommand = Schema.decodeUnknownEffect(
-  AdmissionPeriodCommandSchema,
-  {
-    onExcessProperty: "error",
-  },
-);
-
-export const decodeCreateAdmissionPeriodInput = Schema.decodeUnknownEffect(
-  CreateAdmissionPeriodInputSchema,
-  {
-    onExcessProperty: "error",
-  },
-);
-
-export const decodeReviseAdmissionPeriodInput = Schema.decodeUnknownEffect(
-  ReviseAdmissionPeriodInputSchema,
-  {
-    onExcessProperty: "error",
-  },
-);

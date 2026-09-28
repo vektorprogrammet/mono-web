@@ -228,7 +228,7 @@ Current-source reconciliation must resolve combined teaching blocks and ambiguou
 
 | Seam                        | Required proof before claiming the contract                                                                                                               |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Human client to server      | Exercise the generated HTTP and SDK journey, including denied scope, stale write, retry, and recovery. Credential routes remain separate.                 |
+| Human client to server      | Exercise the RPC journey, including denied scope, stale write, retry, and recovery. Credential routes remain separate.                                    |
 | Service to server           | Exercise a real service credential, scoped grants, and revocation through mounted ingress without a Person cookie. Network isolation grants no authority. |
 | Server to PostgreSQL        | Verify atomic state, revision, evidence, audit, and outbox writes. Denial, conflict, and failed commit leave no partial state. Verify restore and replay. |
 | Server to providers         | Verify real mail, private storage, acknowledgement, restart, and bounded retry on the exact candidate. Include SMS only for required active journeys.     |

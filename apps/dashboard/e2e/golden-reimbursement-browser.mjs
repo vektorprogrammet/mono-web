@@ -3,10 +3,20 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { writeFile } from "node:fs/promises";
 import { chromium, expect } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.ts";
 import { Predicate } from "effect";
-import { RECEIPT_FILE_MAX_BYTES, receiptTransferMaxBytes } from "@vektorprogrammet/http-api";
-import { fixture, receiptBytes } from "../../../tools/e2e/golden-reimbursement-evidence.mjs";
+import { nativeRpcPath } from "@vektorprogrammet/rpc";
+import {
+  RECEIPT_FILE_MAX_BYTES,
+  receiptTransferMaxBytes,
+} from "../app/lib/receipt-upload.server.ts";
+import {
+  nativeRpcOutcome,
+  nativeRpcRequestBody,
+  nativeRpcStatus,
+  nativeRpcValue,
+} from "./native-operations.ts";
+import { fixture, receiptBytes } from "../../../tools/e2e/golden-reimbursement-evidence.ts";
 import { sha256 } from "../../../tools/e2e/golden-school-service-evidence.mjs";
 
 export const runReimbursementBrowser = async ({
@@ -42,11 +52,38 @@ export const runReimbursementBrowser = async ({
       signal: AbortSignal.timeout(15_000),
     });
 
-  const json = async (response, status) => {
-    const body = await response.json();
-    assert.equal(response.status, status, `HTTP status ${JSON.stringify(body)}`);
+  /**
+   * One RPC as the cookie given, answered with its status under the HTTP contract and its value
+   * or problem body.
+   */
+  const rpc = async (cookie, tag, payload = {}) => {
+    const text = await (
+      await request(cookie, nativeRpcPath, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: nativeRpcRequestBody(tag, payload),
+      })
+    ).text();
 
-    return body;
+    const outcome = nativeRpcOutcome(text);
+
+    return {
+      status: nativeRpcStatus(text),
+      body: Predicate.isTagged(outcome, "Success")
+        ? outcome.value
+        : Predicate.isTagged(outcome, "Problem")
+          ? outcome.problem
+          : null,
+    };
+  };
+
+  /** The bytes of a receipt file answer, which carries them as base64 text. */
+  const fileBytes = (answer) => Buffer.from(answer.body.bytes, "base64");
+
+  const json = async (answer, status) => {
+    assert.equal(answer.status, status, `RPC status ${JSON.stringify(answer.body)}`);
+
+    return answer.body;
   };
 
   const problem = async (response, status, code) => {
@@ -73,7 +110,17 @@ export const runReimbursementBrowser = async ({
 
     assert.equal(cookies.length, 1);
     const cookie = cookies.map(({ name, value }) => `${name}=${value}`).join("; ");
-    const session = await json(await request(cookie, "/api/session"), 200);
+
+    const sessionAnswer = await (
+      await request(cookie, nativeRpcPath, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: nativeRpcRequestBody("system.readSession"),
+      })
+    ).text();
+
+    assert.equal(nativeRpcStatus(sessionAnswer), 200, `session read ${sessionAnswer}`);
+    const session = nativeRpcValue(sessionAnswer);
     assert.equal(session.personId, person.personId);
     checks.push({ kind: "session", role, personId: session.personId });
 
@@ -91,16 +138,21 @@ export const runReimbursementBrowser = async ({
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
         `${surface} page overflow`,
       );
-      const audit = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+      const audit = await auditSettledPage(page, { tags: ["wcag2a", "wcag2aa"] });
 
-      const serious = audit.violations.filter(
+      const serious = audit.filter(
         ({ impact }) => impact === "serious" || impact === "critical",
       );
 
       assert.deepEqual(
         serious.map(({ id }) => id),
         [],
-        `${surface} accessibility`,
+        `${surface} accessibility: ${JSON.stringify(
+          serious.map(({ id, targets }) => ({
+            id,
+            targets: targets.map(({ target, failureSummary }) => ({ target, failureSummary })),
+          })),
+        )}`,
       );
       checks.push({ kind: "surface", surface, layout, width, seriousViolations: 0 });
     }
@@ -108,14 +160,29 @@ export const runReimbursementBrowser = async ({
     await page.setViewportSize({ width: 1280, height: 900 });
   };
 
-  const list = async (actor, path) => json(await request(actor.cookie, path), 200);
+  const list = async (actor, tag, query = {}) => json(await rpc(actor.cookie, tag, query), 200);
 
-  const command = (actor, receiptId, action, key, etag, body = {}) =>
-    request(actor.cookie, `/api/receipts/${encodeURIComponent(receiptId)}:${action}`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "idempotency-key": key, "if-match": etag },
-      body: JSON.stringify(body),
+  const listOwned = (actor) => list(actor, "receipts.listReceipts");
+
+  const command = (actor, receiptId, action, key, etag, body) => {
+    const payload = { receiptId, idempotencyKey: key, ifMatch: etag };
+
+    // Only a settlement carries a request; the other transitions had an empty body.
+    if (body !== undefined) payload.request = body;
+
+    return rpc(actor.cookie, `receipts.${action}Receipt`, payload);
+  };
+
+  const submit = (actor, key, fields, bytes) =>
+    rpc(actor.cookie, "receipts.submitReceipt", {
+      idempotencyKey: key,
+      request: {
+        ...fields,
+        file: { contentType: "image/png", bytes: Buffer.from(bytes).toString("base64") },
+      },
     });
+
+  const ownerFile = (actor, receiptId) => rpc(actor.cookie, "receipts.readReceiptFile", { receiptId });
 
   const allDelivered = () =>
     eventually(
@@ -138,7 +205,7 @@ export const runReimbursementBrowser = async ({
     await expect(owner.page.locator("[data-command-id]")).toBeVisible();
     const submitKey = await owner.page.locator("[data-command-id]").getAttribute("data-command-id");
 
-    const pending = (await list(owner, "/api/receipts")).items.find(
+    const pending = (await listOwned(owner)).items.find(
       ({ description }) => description === fixture.description,
     );
 
@@ -152,22 +219,21 @@ export const runReimbursementBrowser = async ({
 
     if (fault === "interrupt-after-submitted") process.kill(process.pid, "SIGTERM");
 
-    const repeatSubmission = async () => {
-      const payload = new FormData();
-      payload.set("description", fixture.description);
-      payload.set("amountOre", String(fixture.amountOre));
-      payload.set("receiptDate", fixture.receiptDate);
-      payload.set("file", new File([receiptBytes], "receipt.png", { type: "image/png" }));
-
-      return json(
-        await request(owner.cookie, "/api/receipts", {
-          method: "POST",
-          headers: { "idempotency-key": submitKey },
-          body: payload,
-        }),
-        201,
+    // A replay answers the first submission's resource, now with 200 instead of 201.
+    const repeatSubmission = async () =>
+      json(
+        await submit(
+          owner,
+          submitKey,
+          {
+            description: fixture.description,
+            amountOre: fixture.amountOre,
+            receiptDate: fixture.receiptDate,
+          },
+          receiptBytes,
+        ),
+        200,
       );
-    };
 
     const repeats = await Promise.all([repeatSubmission(), repeatSubmission()]);
 
@@ -181,18 +247,14 @@ export const runReimbursementBrowser = async ({
 
     for (const actor of [other, wrong]) {
       assert.equal(
-        (await list(actor, "/api/receipts")).items.some((row) => row.receiptId === receiptId),
+        (await listOwned(actor)).items.some((row) => row.receiptId === receiptId),
         false,
       );
-      await problem(
-        await request(actor.cookie, `/api/receipts/${receiptId}/file`),
-        404,
-        "resource.not-found",
-      );
+      await problem(await ownerFile(actor, receiptId), 404, "resource.not-found");
     }
 
     await problem(
-      await request(wrong.cookie, `/api/receipt-approval-queue/${receiptId}/file`),
+      await rpc(wrong.cookie, "receipts.readReceiptFileForApproval", { receiptId }),
       403,
       "authority.denied",
     );
@@ -202,19 +264,14 @@ export const runReimbursementBrowser = async ({
       "authority.denied",
     );
     await checkpoint("private-denials");
-    const beforeRestart = await request(owner.cookie, `/api/receipts/${receiptId}/file`);
+    const beforeRestart = await ownerFile(owner, receiptId);
     assert.equal(beforeRestart.status, 200);
-    assert.equal(sha256(Buffer.from(await beforeRestart.arrayBuffer())), sha256(receiptBytes));
+    assert.equal(sha256(fileBytes(beforeRestart)), sha256(receiptBytes));
     await restart();
-    const afterRestart = await request(owner.cookie, `/api/receipts/${receiptId}/file`);
+    const afterRestart = await ownerFile(owner, receiptId);
     assert.equal(afterRestart.status, 200);
-    assert.equal(afterRestart.headers.get("cache-control"), "private, no-store");
-    assert.equal(sha256(Buffer.from(await afterRestart.arrayBuffer())), sha256(receiptBytes));
-    await problem(
-      await request(other.cookie, `/api/receipts/${receiptId}/file`),
-      404,
-      "resource.not-found",
-    );
+    assert.equal(sha256(fileBytes(afterRestart)), sha256(receiptBytes));
+    await problem(await ownerFile(other, receiptId), 404, "resource.not-found");
     await checkpoint("restart-custody");
 
     const approver = await login("approver");
@@ -252,7 +309,7 @@ export const runReimbursementBrowser = async ({
     );
     await checkpoint("approval-failed-delivery");
 
-    const approved = (await list(owner, "/api/receipts")).items.find(
+    const approved = (await listOwned(owner)).items.find(
       (row) => row.receiptId === receiptId,
     );
 
@@ -316,7 +373,7 @@ export const runReimbursementBrowser = async ({
       async () => (await readFacts()).settlements.length === 1,
     );
 
-    const settled = (await list(owner, "/api/receipts")).items.find(
+    const settled = (await listOwned(owner)).items.find(
       (row) => row.receiptId === receiptId,
     );
 
@@ -381,35 +438,27 @@ export const runReimbursementBrowser = async ({
     await restart("disabled");
     const opaqueBytes = Buffer.from([0, 255, 17, 42]);
 
-    const submitBounded = async (index) => {
-      const payload = new FormData();
-      payload.set("description", `Bounded traversal ${index}`);
-      payload.set("amountOre", "100");
-      payload.set("receiptDate", fixture.receiptDate);
-      payload.set(
-        "file",
-        new File([index === 0 ? opaqueBytes : receiptBytes], "receipt.png", { type: "image/png" }),
+    const submitBounded = async (index) =>
+      json(
+        await submit(
+          fresh,
+          randomUUID(),
+          {
+            description: `Bounded traversal ${index}`,
+            amountOre: 100,
+            receiptDate: fixture.receiptDate,
+          },
+          index === 0 ? opaqueBytes : receiptBytes,
+        ),
+        200,
       );
-
-      return json(
-        await request(fresh.cookie, "/api/receipts", {
-          method: "POST",
-          headers: { "idempotency-key": randomUUID() },
-          body: payload,
-        }),
-        201,
-      );
-    };
 
     const concurrent = await Promise.all([submitBounded(0), submitBounded(1)]);
 
     for (const [index, result] of concurrent.entries()) {
-      const file = await request(fresh.cookie, `/api/receipts/${result.receiptId}/file`);
+      const file = await ownerFile(fresh, result.receiptId);
       assert.equal(file.status, 200);
-      assert.equal(
-        sha256(Buffer.from(await file.arrayBuffer())),
-        sha256(index === 0 ? opaqueBytes : receiptBytes),
-      );
+      assert.equal(sha256(fileBytes(file)), sha256(index === 0 ? opaqueBytes : receiptBytes));
     }
 
     checks.push({
@@ -422,9 +471,16 @@ export const runReimbursementBrowser = async ({
     for (let index = 2; index < 51; index++) await submitBounded(index);
     const pendingBounds = [];
 
-    for (const { actor, path, expected } of [
-      { actor: fresh, path: "/api/receipts", expected: 52 },
-      { actor: approver, path: "/api/receipt-approval-queue?status=Pending", expected: 51 },
+    // Each collection keeps the route that its RPC replaced as its evidence path.
+    for (const { actor, path, tag, query, expected } of [
+      { actor: fresh, path: "/api/receipts", tag: "receipts.listReceipts", query: {}, expected: 52 },
+      {
+        actor: approver,
+        path: "/api/receipt-approval-queue?status=Pending",
+        tag: "receipts.listReceiptsForApproval",
+        query: { status: "Pending" },
+        expected: 51,
+      },
     ]) {
       const ids = [];
       const sizes = [];
@@ -433,13 +489,7 @@ export const runReimbursementBrowser = async ({
       do {
         assert.ok(sizes.length < 3, "collection traversal did not terminate");
 
-        const page = await list(
-          actor,
-          path +
-            (cursor === undefined
-              ? ""
-              : `${path.includes("?") ? "&" : "?"}cursor=${encodeURIComponent(cursor)}`),
-        );
+        const page = await list(actor, tag, cursor === undefined ? query : { ...query, cursor });
 
         assert.ok(page.items.length <= 50, "collection page exceeds bound");
         sizes.push(page.items.length);

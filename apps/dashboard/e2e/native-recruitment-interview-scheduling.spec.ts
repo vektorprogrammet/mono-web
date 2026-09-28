@@ -1,5 +1,5 @@
 import { Predicate } from "effect";
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { expect, test, type Page, type Request } from "@playwright/test";
@@ -201,11 +201,11 @@ test.describe("Native recruitment interview scheduling", () => {
       expect(legacyBrowserRequests).toEqual([]);
       expect(await page.locator("body").innerText()).not.toContain("responseCapability");
 
-      const accessibility = await new AxeBuilder({ page })
-        .include('section[aria-labelledby="fs-page-title"]')
-        .analyze();
+      const accessibility = await auditSettledPage(page, {
+        include: ['section[aria-labelledby="fs-page-title"]'],
+      });
 
-      expect(accessibility.violations).toEqual([]);
+      expect(accessibility).toEqual([]);
     } finally {
       await firstContext.close();
       firstContextClosed = true;

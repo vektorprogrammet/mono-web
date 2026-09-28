@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { dual } from "effect/Function";
 import { Database } from "../service.js";
 import { lockOnboardingApplicant } from "../onboarding/postgres.js";
 import type { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
@@ -19,14 +20,13 @@ export const readInterviewApplicantIdentity = (interviewId: RecruitmentInterview
         linkedApplicantPersonId: PersonId | null;
       }>`SELECT a.applicant_id AS "applicantId",i.department_id AS "departmentId",l.person_id AS "linkedApplicantPersonId" FROM public.recruitment_interviews i JOIN public.admission_applications a USING(application_id) LEFT JOIN public.applicant_account_links l USING(applicant_id) WHERE i.interview_id=${interviewId}`;
 
-      if (!rows[0]) return yield* new RecruitmentInterviewNotFound({ interviewId });
+      if (rows[0] === undefined) return yield* RecruitmentInterviewNotFound.make({ interviewId });
 
       return rows[0];
     }),
   );
 
-/** Caller holds a transaction. Applicant custody precedes interview/receipt locks. */
-export const guardInterviewApplicantIdentity = (
+const guardInterviewApplicantIdentityImpl = (
   interviewId: RecruitmentInterviewId,
   personId: PersonId,
 ) =>
@@ -36,7 +36,20 @@ export const guardInterviewApplicantIdentity = (
     const current = yield* readInterviewApplicantIdentity(interviewId);
 
     if (isKnownSelfInterview(current.linkedApplicantPersonId, personId))
-      return yield* new RecruitmentScopeDenied({ personId, departmentId: current.departmentId });
+      return yield* RecruitmentScopeDenied.make({ personId, departmentId: current.departmentId });
 
     return current;
   });
+
+/** Caller holds a transaction. Applicant custody precedes interview/receipt locks. */
+export const guardInterviewApplicantIdentity: {
+  (
+    personId: PersonId,
+  ): (
+    interviewId: RecruitmentInterviewId,
+  ) => ReturnType<typeof guardInterviewApplicantIdentityImpl>;
+  (
+    interviewId: RecruitmentInterviewId,
+    personId: PersonId,
+  ): ReturnType<typeof guardInterviewApplicantIdentityImpl>;
+} = dual(2, guardInterviewApplicantIdentityImpl);

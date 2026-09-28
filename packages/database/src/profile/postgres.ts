@@ -40,7 +40,7 @@ import type { UpdateOwnProfileInput } from "@vektorprogrammet/domain/profile";
 export const PROFILE_READ_LIMIT = 100;
 
 const persistenceError = (operation: string, cause?: unknown): ProfilePersistenceError =>
-  new ProfilePersistenceError({
+  ProfilePersistenceError.make({
     operation,
     message: cause instanceof Error ? cause.message : "profile persistence failed",
   });
@@ -51,7 +51,7 @@ const decodeProfile = (
   Schema.decodeEffect(PersonProfile)(row, { onExcessProperty: "error" }).pipe(
     Effect.mapError(
       (cause) =>
-        new ProfileDecodeError({
+        ProfileDecodeError.make({
           message: cause instanceof Error ? cause.message : "invalid person profile row",
         }),
     ),
@@ -63,7 +63,7 @@ const decodeContact = (
   Schema.decodeEffect(PersonContactProfile)(row, { onExcessProperty: "error" }).pipe(
     Effect.mapError(
       (cause) =>
-        new ProfileDecodeError({
+        ProfileDecodeError.make({
           message: cause instanceof Error ? cause.message : "invalid person contact row",
         }),
     ),
@@ -116,7 +116,7 @@ export const readPersonProfiles = (
     yield* Organization;
 
     if (personIds.length > PROFILE_READ_LIMIT) {
-      return yield* new ProfileQueryLimitExceeded({ limit: PROFILE_READ_LIMIT });
+      return yield* ProfileQueryLimitExceeded.make({ limit: PROFILE_READ_LIMIT });
     }
 
     const sql = yield* Database;
@@ -134,7 +134,7 @@ export const readPersonProfiles = (
     for (const personId of uniqueIds) {
       const profile = yield* readProfile(sql, personId);
 
-      if (profile === undefined) return yield* new ProfileNotFound({ personId });
+      if (profile === undefined) return yield* ProfileNotFound.make({ personId });
       profiles.push(profile);
     }
 
@@ -148,7 +148,7 @@ export const readPersonContacts = (
     yield* Organization;
 
     if (personIds.length > PROFILE_READ_LIMIT) {
-      return yield* new ProfileQueryLimitExceeded({ limit: PROFILE_READ_LIMIT });
+      return yield* ProfileQueryLimitExceeded.make({ limit: PROFILE_READ_LIMIT });
     }
 
     const sql = yield* Database;
@@ -166,7 +166,7 @@ export const readPersonContacts = (
     for (const personId of uniqueIds) {
       const contact = yield* readContact(sql, personId);
 
-      if (contact === undefined) return yield* new ProfileContactNotFound({ personId });
+      if (contact === undefined) return yield* ProfileContactNotFound.make({ personId });
       contacts.push(contact);
     }
 
@@ -212,7 +212,7 @@ const decodePersonId = flow(
   Schema.decodeUnknownEffect(PersonId, { onExcessProperty: "error" }),
   Effect.mapError(
     (cause) =>
-      new ProfileDecodeError({
+      ProfileDecodeError.make({
         message: cause instanceof Error ? cause.message : "invalid Profile actor person ID",
       }),
   ),
@@ -222,7 +222,7 @@ const decodeOwnProfileValue = flow(
   Schema.decodeUnknownEffect(OwnProfile, { onExcessProperty: "error" }),
   Effect.mapError(
     (cause) =>
-      new ProfileDecodeError({
+      ProfileDecodeError.make({
         message: cause instanceof Error ? cause.message : "invalid own Profile observation",
       }),
   ),
@@ -234,7 +234,7 @@ const decodeUpdateOwnProfileCommand = flow(
   }),
   Effect.mapError(
     (cause) =>
-      new ProfileDecodeError({
+      ProfileDecodeError.make({
         message: cause instanceof Error ? cause.message : "invalid own Profile command",
       }),
   ),
@@ -266,10 +266,10 @@ const readOwnProfileHttpSourceWith = (
       Effect.gen(function* () {
         const row = rows[0];
 
-        if (row === undefined) return yield* new ProfileNotFound({ personId });
+        if (row === undefined) return yield* ProfileNotFound.make({ personId });
 
         if (row.contactPersonId === null) {
-          return yield* new ProfileContactNotFound({ personId });
+          return yield* ProfileContactNotFound.make({ personId });
         }
 
         const profile = yield* decodeOwnProfileValue({
@@ -288,7 +288,7 @@ const readOwnProfileHttpSourceWith = (
         }).pipe(
           Effect.mapError(
             (cause) =>
-              new ProfileDecodeError({
+              ProfileDecodeError.make({
                 message: cause instanceof Error ? cause.message : "invalid own Profile HTTP source",
               }),
           ),
@@ -475,7 +475,7 @@ const replayOwnProfile = (
     const storedCommandJson = canonicalJson(receipt.commandJson);
 
     if (storedCommandJson !== commandJson) {
-      return yield* new ProfileCommandConflict({ commandId: command.commandId });
+      return yield* ProfileCommandConflict.make({ commandId: command.commandId });
     }
 
     const storedDigest = sha256Hex(canonicalJsonBytes(receipt.commandJson));
@@ -591,20 +591,20 @@ export const updateOwnProfile = (
           const profile = yield* lockPersonProfile(sql, actorPersonId);
 
           if (profile === undefined) {
-            return yield* new ProfileNotFound({ personId: actorPersonId });
+            return yield* ProfileNotFound.make({ personId: actorPersonId });
           }
 
           const contact = yield* lockPersonContact(sql, actorPersonId);
 
           if (contact === undefined) {
-            return yield* new ProfileContactNotFound({ personId: actorPersonId });
+            return yield* ProfileContactNotFound.make({ personId: actorPersonId });
           }
 
           if (
             profile.revision !== command.expectedNameRevision ||
             contact.revision !== command.expectedContactRevision
           ) {
-            return yield* new ProfileStaleRevision({
+            return yield* ProfileStaleRevision.make({
               personId: actorPersonId,
               expectedNameRevision: command.expectedNameRevision,
               actualNameRevision: profile.revision,
@@ -671,7 +671,7 @@ export const readDirectoryPage = (
     yield* Organization;
 
     if (!Number.isSafeInteger(input.limit) || input.limit <= 0) {
-      return yield* new ProfileQueryLimitExceeded({ limit: input.limit });
+      return yield* ProfileQueryLimitExceeded.make({ limit: input.limit });
     }
 
     const cursorTuple =
@@ -705,7 +705,7 @@ export const readDirectoryPage = (
 
     for (const row of rows) {
       if (row.email === null || row.phone === null) {
-        return yield* new ProfileContactNotFound({ personId: PersonId.make(row.personId) });
+        return yield* ProfileContactNotFound.make({ personId: PersonId.make(row.personId) });
       }
 
       entries.push({

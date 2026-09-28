@@ -1,13 +1,13 @@
 import {
   IdempotencyKey,
   makeNativeProblem,
-  type NativeProblemCode,
   PublicTeamApplicationIntake,
   TeamApplicationsSubmitProblem,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Schema } from "effect";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createHomepageApiClient } from "../src/lib/api.server";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { callHomepageNative } from "../src/lib/api.server";
+import { type NativeBackend, nativeRpcProblem, stubNativeBackend } from "./native-rpc";
 import {
   failedPublicTeamApplication,
   parsePublicTeamApplicationForm,
@@ -134,58 +134,44 @@ it("gives every submit problem of the contract its own outcome", () => {
   for (const member of TeamApplicationsSubmitProblem.members) {
     const code = member.fields.code.literal;
 
-    const problem =
-      code === "validation.failed"
-        ? { ...makeNativeProblem(code), validation: { errors: [], truncated: false } }
-        : makeNativeProblem(code);
-
-    const result = failedPublicTeamApplication(completeSubmission(), problem);
+    const result = failedPublicTeamApplication(completeSubmission(), makeNativeProblem(code));
 
     // A code without an outcome falls through to the unexpected failure.
     if (result.outcome === "rejected") expect(result.failure.error._tag).toBe(code);
   }
 });
 
-describe("team application submission failures through the SDK", () => {
-  const problemHeaders = {
-    "content-type": "application/problem+json",
-    "cache-control": "no-store",
-    vary: "Origin",
-  };
+describe("team application submission failures over RPC", () => {
+  // The RPC client keeps the first fetch it reads, so one stub answers every test of this file.
+  let native: ReturnType<typeof stubNativeBackend>;
 
-  // Effect memoizes the first global fetch it reads, so one stub answers through this binding.
-  let respond: () => Response = () => {
-    throw new Error("No backend response was arranged");
-  };
+  beforeAll(() => {
+    vi.stubEnv("API_URL", "http://api.test");
+    native = stubNativeBackend();
+  });
 
-  function problemResponse(
-    code: NativeProblemCode,
-    status: number,
-    headers: Readonly<Record<string, string>> = {},
-  ): Response {
-    return Response.json(makeNativeProblem(code, status), {
-      status,
-      headers: { ...problemHeaders, ...headers },
-    });
-  }
+  afterAll(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
 
-  async function submitAgainst(next: () => Response): Promise<PublicTeamApplicationActionData> {
+  async function submitAgainst(backend: NativeBackend): Promise<PublicTeamApplicationActionData> {
     const submission = completeSubmission();
 
-    respond = next;
+    native.answer(backend);
 
-    return createHomepageApiClient()
-      ["team-applications"].submitTeamApplication({
-        params: { teamId: PublicTeamApplicationIntake.fields.teamId.make("team-it") },
-        headers: { "idempotency-key": submission.commandId },
-        payload: submission.payload,
-      })
-      .then(
-        () => {
-          throw new Error("Unexpected team application success");
-        },
-        (cause) => failedPublicTeamApplication(submission, cause),
-      );
+    return callHomepageNative((client) =>
+      client["team-applications.submitTeamApplication"]({
+        teamId: PublicTeamApplicationIntake.fields.teamId.make("team-it"),
+        idempotencyKey: submission.commandId,
+        request: submission.payload,
+      }),
+    ).then(
+      () => {
+        throw new Error("Unexpected team application success");
+      },
+      (cause) => failedPublicTeamApplication(submission, cause),
+    );
   }
 
   function rejectedKey(result: PublicTeamApplicationActionData): string {
@@ -195,89 +181,62 @@ describe("team application submission failures through the SDK", () => {
     return result.failure.commandId;
   }
 
-  beforeEach(() => {
-    const fetch: typeof globalThis.fetch = async () => respond();
+  it("sends the key and the decoded fields as the submission payload", async () => {
+    await submitAgainst((call) => nativeRpcProblem(call, "internal.error"));
 
-    vi.stubEnv("API_URL", "http://api.test");
-    vi.stubGlobal("fetch", fetch);
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
-    vi.unstubAllGlobals();
+    expect(native.calls.at(-1)).toMatchObject({
+      tag: "team-applications.submitTeamApplication",
+      payload: {
+        teamId: "team-it",
+        idempotencyKey: submittedCommandId,
+        request: { name: "Ada Applicant", motivation: "Jeg vil bidra." },
+      },
+    });
   });
 
   it("ends the form for a closed intake and for an unknown team", async () => {
     await expect(
-      submitAgainst(() => problemResponse("team-application.intake-closed", 409)),
+      submitAgainst((call) => nativeRpcProblem(call, "team-application.intake-closed")),
     ).resolves.toMatchObject({ outcome: "closed" });
-    await expect(submitAgainst(() => problemResponse("resource.not-found", 404))).resolves.toEqual({
-      outcome: "not-found",
-    });
+    await expect(
+      submitAgainst((call) => nativeRpcProblem(call, "resource.not-found")),
+    ).resolves.toEqual({ outcome: "not-found" });
   });
 
-  it("maps validation pointers to their fields and keeps the draft and key", async () => {
-    const result = await submitAgainst(() =>
-      Response.json(
-        {
-          ...makeNativeProblem("validation.failed", 422),
-          validation: {
-            errors: [
-              { pointer: "/fieldOfStudy", code: "invalid", message: "The value is invalid." },
-              { pointer: "/email", code: "missing", message: "A required value is missing." },
-            ],
-            truncated: false,
-          },
-        },
-        { status: 422, headers: problemHeaders },
-      ),
+  it("issues a new key after a conflict that binds the key to another request", async () => {
+    const key = rejectedKey(
+      await submitAgainst((call) => nativeRpcProblem(call, "idempotency.digest-conflict")),
     );
 
-    if (result.outcome !== "rejected")
-      throw new Error(`Expected a rejection, got ${result.outcome}`);
-
-    expect(Object.keys(result.failure.error.fieldErrors).sort()).toEqual(["email", "fieldOfStudy"]);
-    expect(result.failure.commandId).toBe(submittedCommandId);
-    expect(result.failure.values).toMatchObject({ name: "Ada Applicant" });
-  });
-
-  it("issues a new key after each conflict that binds the key to another request", async () => {
-    const conflicts = [
-      () => problemResponse("idempotency.digest-conflict", 409),
-      () => problemResponse("idempotency-key.invalid", 400),
-    ];
-
-    for (const respond of conflicts) {
-      const key = rejectedKey(await submitAgainst(respond));
-
-      expect(key).not.toBe(submittedCommandId);
-      expect(Schema.is(IdempotencyKey)(key)).toBe(true);
-    }
+    expect(key).not.toBe(submittedCommandId);
+    expect(Schema.is(IdempotencyKey)(key)).toBe(true);
   });
 
   it("confirms a replay whose stored response expired, without a reference or a new form", async () => {
     await expect(
-      submitAgainst(() => problemResponse("idempotency.response-expired", 409)),
+      submitAgainst((call) => nativeRpcProblem(call, "idempotency.response-expired")),
     ).resolves.toEqual({ outcome: "received", receipt: null });
   });
 
   it("retries the same key while the request is in flight or the service is unreachable", async () => {
-    const retries = [
-      () => problemResponse("idempotency.in-flight", 409, { "retry-after": "1" }),
-      () => {
-        throw new TypeError("Network unavailable");
-      },
-    ];
+    const inFlight = await submitAgainst((call) => nativeRpcProblem(call, "idempotency.in-flight"));
 
-    for (const respond of retries) {
-      expect(rejectedKey(await submitAgainst(respond))).toBe(submittedCommandId);
-    }
+    expect(rejectedKey(inFlight)).toBe(submittedCommandId);
+
+    const unreachable = await submitAgainst(() => {
+      throw new TypeError("Network unavailable");
+    });
+
+    expect(rejectedKey(unreachable)).toBe(submittedCommandId);
+
+    if (unreachable.outcome !== "rejected") throw new Error("Expected a rejection");
+
+    expect(unreachable.failure.error._tag).toBe("Network");
+    expect(unreachable.failure.error.status).toBe(503);
   });
 
   it("answers a rate-limited submission with 429 and keeps the draft and the key", async () => {
-    const result = await submitAgainst(() =>
-      problemResponse("rate-limit.exceeded", 429, { "retry-after": "60" }),
-    );
+    const result = await submitAgainst((call) => nativeRpcProblem(call, "rate-limit.exceeded"));
 
     if (result.outcome !== "rejected")
       throw new Error(`Expected a rejection, got ${result.outcome}`);

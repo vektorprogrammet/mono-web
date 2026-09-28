@@ -1,17 +1,11 @@
-import { Schema } from "effect";
-import AxeBuilder from "@axe-core/playwright";
+import { Option, Schema } from "effect";
+import { auditSettledPage } from "./settled-axe.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { IdempotencyKey } from "@vektorprogrammet/http-api";
-import { createPromiseClient } from "@vektorprogrammet/sdk";
-import {
-  expect,
-  test,
-  type APIResponse,
-  type APIRequestContext,
-  type Page,
-  type Request,
-} from "@playwright/test";
+import { DepartmentId } from "@vektorprogrammet/domain";
+import { IdempotencyKey, isNativeRpcPath } from "@vektorprogrammet/rpc";
+import { nativeScriptClient, type ScriptCallResult } from "@vektorprogrammet/rpc/script";
+import { expect, test, type Page, type Request } from "@playwright/test";
 
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5185";
 
@@ -29,13 +23,38 @@ const requiredEnvironment = (name: string): string => {
   return value;
 };
 
-const responseBody = async (response: APIResponse): Promise<Schema.Json> => {
+const native = nativeScriptClient(API_ORIGIN);
+
+/** The JSON evidence of one RPC answer: its value, or its problem body. */
+const answerBody = <A>(result: ScriptCallResult<A>): Schema.Json => {
   try {
-    return Schema.decodeUnknownSync(Schema.Json)(await response.json());
+    return Schema.decodeUnknownSync(Schema.Json)(
+      result.ok ? result.value : "problem" in result ? result.problem : result.defect,
+    );
   } catch {
     return null;
   }
 };
+
+/** An own-profile answer names its person, bare or beside its entity tag. */
+const ProfileAnswer = Schema.Union([
+  Schema.Struct({ personId: Schema.String }),
+  Schema.Struct({ profile: Schema.Struct({ personId: Schema.String }) }),
+]);
+
+/** The native operations that the public Foldkit catalogs read. */
+const publicCatalogTags = new Set([
+  "organization.listDepartments",
+  "organization.listTeams",
+  "organization.listFieldOfStudies",
+]);
+
+/** The native RPC request that one browser request body carries. */
+const RpcRequestBody = Schema.fromJsonString(Schema.Struct({ tag: Schema.String }));
+
+/** The tag of the native RPC that one browser request body carries, if any. */
+const rpcTagOf = (body: string | null): string | undefined =>
+  body === null ? undefined : Option.getOrUndefined(Schema.decodeOption(RpcRequestBody)(body))?.tag;
 
 type AuthenticatedPersona = {
   readonly cookie: string;
@@ -45,7 +64,6 @@ type AuthenticatedPersona = {
 
 const authenticate = async (
   page: Page,
-  request: APIRequestContext,
   emailEnvironment: string,
   passwordEnvironment: string,
   personIdEnvironment: string,
@@ -82,20 +100,24 @@ const authenticate = async (
 
   const cookie = sessionCookies.map(({ name, value }) => `${name}=${value}`).join("; ");
 
-  const sessionResponse = await request.get(`${API_ORIGIN}/api/session`, {
-    headers: { Cookie: cookie },
-  });
+  const headers = { cookie, origin: DASHBOARD_ORIGIN };
+  const sessionResult = await native.call(headers, (client) => client["system.readSession"]());
 
-  expect(sessionResponse.status()).toBe(200);
-  expect(await responseBody(sessionResponse)).toMatchObject({ current: true });
+  expect(sessionResult.status).toBe(200);
+  expect(answerBody(sessionResult)).toMatchObject({ current: true });
 
-  const profileResponse = await request.get(`${API_ORIGIN}/api/profile`, {
-    headers: { Cookie: cookie },
-  });
+  const profileResult = await native.call(headers, (client) =>
+    client["profile.readOwnProfile"](),
+  );
 
-  expect(profileResponse.status()).toBe(200);
+  expect(profileResult.status).toBe(200);
   const expectedPersonId = requiredEnvironment(personIdEnvironment);
-  expect(await responseBody(profileResponse)).toMatchObject({ personId: expectedPersonId });
+
+  const profile = Option.getOrUndefined(
+    Schema.decodeUnknownOption(ProfileAnswer)(profileResult.ok ? profileResult.value : undefined),
+  );
+
+  expect(profile === undefined ? undefined : "profile" in profile ? profile.profile.personId : profile.personId).toBe(expectedPersonId);
 
   return {
     cookie,
@@ -125,12 +147,15 @@ const observePage = (
 ): void => {
   page.on("request", (request) => {
     const url = new URL(request.url());
+    const tag = rpcTagOf(request.postData());
 
     if (
-      request.method() === "GET" &&
-      ["/api/departments", "/api/teams", "/api/field-of-studies"].includes(url.pathname)
+      request.method() === "POST" &&
+      isNativeRpcPath(url.pathname) &&
+      tag !== undefined &&
+      publicCatalogTags.has(tag)
     ) {
-      nativePublicRequests.push(`${request.method()} ${url.pathname}`);
+      nativePublicRequests.push(`${request.method()} ${url.pathname} ${tag}`);
     }
 
     const legacy = legacyOrganizationRequest(request);
@@ -143,9 +168,10 @@ const observePage = (
 test.describe("Native Organization administration", () => {
   test.skip(!REAL_NATIVE_ORGANIZATION_E2E, "run through the disposable native Organization runner");
 
+  test.afterAll(() => native.dispose());
+
   test("creates native records, proves counterexamples, and renders fresh Foldkit catalogs", async ({
     browser,
-    request,
   }) => {
     test.setTimeout(120_000);
     const evidencePath = requiredEnvironment("ORGANIZATION_E2E_BROWSER_EVIDENCE_PATH");
@@ -168,7 +194,6 @@ test.describe("Native Organization administration", () => {
 
       const adminSession = await authenticate(
         adminPage,
-        request,
         "ORGANIZATION_E2E_ADMIN_EMAIL",
         "ORGANIZATION_E2E_ADMIN_PASSWORD",
         "ORGANIZATION_E2E_ADMIN_PERSON_ID",
@@ -178,18 +203,21 @@ test.describe("Native Organization administration", () => {
 
       const memberSession = await authenticate(
         memberPage,
-        request,
         "ORGANIZATION_E2E_MEMBER_EMAIL",
         "ORGANIZATION_E2E_MEMBER_PASSWORD",
         "ORGANIZATION_E2E_MEMBER_PERSON_ID",
       );
 
-      const publicClient = createPromiseClient(API_ORIGIN);
+      const publicHeaders = { origin: DASHBOARD_ORIGIN };
+      const adminHeaders = { cookie: adminSession.cookie, origin: DASHBOARD_ORIGIN };
+      const memberHeaders = { cookie: memberSession.cookie, origin: DASHBOARD_ORIGIN };
 
-      const adminClient = createPromiseClient(API_ORIGIN, {
-        cookie: adminSession.cookie,
-        origin: DASHBOARD_ORIGIN,
-      });
+      /** The value of an RPC answer that the journey requires to succeed. */
+      const required = <A>(result: ScriptCallResult<A>, operation: string): A => {
+        if (!result.ok) throw new Error(`${operation} failed: ${JSON.stringify(answerBody(result))}`);
+
+        return result.value;
+      };
 
       const departmentKey = IdempotencyKey.make("organization-department-create-0052");
 
@@ -211,20 +239,19 @@ test.describe("Native Organization administration", () => {
         departmentId: null,
       };
 
-      const departmentResult = await adminClient.organization.createDepartment({
-        headers: { "idempotency-key": departmentKey },
-        payload: departmentPayload,
-      });
+      const departmentResult = await native.call(adminHeaders, (client) =>
+        client["organization.createDepartment"]({
+          idempotencyKey: departmentKey,
+          request: departmentPayload,
+        }),
+      );
 
-      const departmentsAfterCreateResult = await publicClient.organization.listDepartments({
-        headers: {},
-      });
+      const createdDepartmentBody = required(departmentResult, "createDepartment");
 
-      if (departmentsAfterCreateResult.body === undefined) {
-        throw new Error("listDepartments returned 304 without cache validators");
-      }
-
-      const departmentsAfterCreate = departmentsAfterCreateResult.body;
+      const departmentsAfterCreate = required(
+        await native.call(publicHeaders, (client) => client["organization.listDepartments"]()),
+        "listDepartments",
+      );
 
       const createdDepartment = departmentsAfterCreate.find(
         (department) => department.name === departmentPayload.name,
@@ -248,80 +275,72 @@ test.describe("Native Organization administration", () => {
         active: true,
       };
 
-      await adminClient.organization.createTeam({
-        headers: { "idempotency-key": teamKey },
-        payload: teamPayload,
-      });
-      await adminClient.organization.createFieldOfStudy({
-        headers: { "idempotency-key": fieldKey },
-        payload: fieldPayload,
-      });
+      const teamResult = await native.call(adminHeaders, (client) =>
+        client["organization.createTeam"]({ idempotencyKey: teamKey, request: teamPayload }),
+      );
 
-      const unknownReferenceResponse = await request.post(`${API_ORIGIN}/api/teams`, {
-        headers: {
-          Cookie: adminSession.cookie,
-          Origin: DASHBOARD_ORIGIN,
-          "Content-Type": "application/json",
-          "Idempotency-Key": "organization-team-unknown-department-0052",
-        },
-        data: {
-          ...teamPayload,
-          departmentId: "department-does-not-exist-0052",
-        },
-      });
+      required(teamResult, "createTeam");
 
-      expect(unknownReferenceResponse.status()).toBe(422);
-      const unknownReferenceBody = await responseBody(unknownReferenceResponse);
+      const fieldResult = await native.call(adminHeaders, (client) =>
+        client["organization.createFieldOfStudy"]({ idempotencyKey: fieldKey, request: fieldPayload }),
+      );
+
+      required(fieldResult, "createFieldOfStudy");
+
+      const unknownReferenceResponse = await native.call(adminHeaders, (client) =>
+        client["organization.createTeam"]({
+          idempotencyKey: IdempotencyKey.make("organization-team-unknown-department-0052"),
+          request: {
+            ...teamPayload,
+            departmentId: DepartmentId.make("department-does-not-exist-0052"),
+          },
+        }),
+      );
+
+      expect(unknownReferenceResponse.status).toBe(422);
+      const unknownReferenceBody = answerBody(unknownReferenceResponse);
       expect(unknownReferenceBody).toMatchObject({
         status: 422,
         code: "organization.invalid-reference",
         type: "urn:vektorprogrammet:problem:v0.2:organization.invalid-reference",
       });
 
-      const memberDeniedResponse = await request.post(`${API_ORIGIN}/api/departments`, {
-        headers: {
-          Cookie: memberSession.cookie,
-          Origin: DASHBOARD_ORIGIN,
-          "Content-Type": "application/json",
-          "Idempotency-Key": "organization-member-denied-0052",
-        },
-        data: departmentPayload,
-      });
+      const memberDeniedResponse = await native.call(memberHeaders, (client) =>
+        client["organization.createDepartment"]({
+          idempotencyKey: IdempotencyKey.make("organization-member-denied-0052"),
+          request: departmentPayload,
+        }),
+      );
 
-      expect(memberDeniedResponse.status()).toBe(403);
-      const memberDeniedBody = await responseBody(memberDeniedResponse);
+      expect(memberDeniedResponse.status).toBe(403);
+      const memberDeniedBody = answerBody(memberDeniedResponse);
       expect(memberDeniedBody).toMatchObject({
         status: 403,
         code: "authority.denied",
         type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
       });
 
-      const exactReplayResponse = await request.post(`${API_ORIGIN}/api/departments`, {
-        headers: {
-          Cookie: adminSession.cookie,
-          Origin: DASHBOARD_ORIGIN,
-          "Content-Type": "application/json",
-          "Idempotency-Key": departmentKey,
-        },
-        data: departmentPayload,
-      });
+      const exactReplayResponse = await native.call(adminHeaders, (client) =>
+        client["organization.createDepartment"]({
+          idempotencyKey: departmentKey,
+          request: departmentPayload,
+        }),
+      );
 
-      expect(exactReplayResponse.status()).toBe(201);
-      const exactReplayBody = await responseBody(exactReplayResponse);
-      expect(exactReplayBody).toEqual(departmentResult.body);
+      expect(exactReplayResponse.status).toBe(200);
+      const exactReplayBody = answerBody(exactReplayResponse);
+      expect(exactReplayBody).toEqual(answerBody(departmentResult));
+      expect(exactReplayResponse.ok && exactReplayResponse.value).toEqual(createdDepartmentBody);
 
-      const changedReplayResponse = await request.post(`${API_ORIGIN}/api/departments`, {
-        headers: {
-          Cookie: adminSession.cookie,
-          Origin: DASHBOARD_ORIGIN,
-          "Content-Type": "application/json",
-          "Idempotency-Key": departmentKey,
-        },
-        data: { ...departmentPayload, name: "Et annet navn" },
-      });
+      const changedReplayResponse = await native.call(adminHeaders, (client) =>
+        client["organization.createDepartment"]({
+          idempotencyKey: departmentKey,
+          request: { ...departmentPayload, name: "Et annet navn" },
+        }),
+      );
 
-      expect(changedReplayResponse.status()).toBe(409);
-      const changedReplayBody = await responseBody(changedReplayResponse);
+      expect(changedReplayResponse.status).toBe(409);
+      const changedReplayBody = answerBody(changedReplayResponse);
       expect(changedReplayBody).toMatchObject({
         status: 409,
         code: "idempotency.digest-conflict",
@@ -329,26 +348,14 @@ test.describe("Native Organization administration", () => {
       });
 
       const [freshDepartmentsResult, freshTeamsResult, freshFieldsResult] = await Promise.all([
-        publicClient.organization.listDepartments({ headers: {} }),
-        publicClient.organization.listTeams({ headers: {} }),
-        publicClient.organization.listFieldOfStudies({ headers: {} }),
+        native.call(publicHeaders, (client) => client["organization.listDepartments"]()),
+        native.call(publicHeaders, (client) => client["organization.listTeams"]()),
+        native.call(publicHeaders, (client) => client["organization.listFieldOfStudies"]()),
       ]);
 
-      if (freshDepartmentsResult.body === undefined) {
-        throw new Error("listDepartments returned 304 without cache validators");
-      }
-
-      if (freshTeamsResult.body === undefined) {
-        throw new Error("listTeams returned 304 without cache validators");
-      }
-
-      if (freshFieldsResult.body === undefined) {
-        throw new Error("listFieldOfStudies returned 304 without cache validators");
-      }
-
-      const freshDepartments = freshDepartmentsResult.body;
-      const freshTeams = freshTeamsResult.body;
-      const freshFields = freshFieldsResult.body;
+      const freshDepartments = required(freshDepartmentsResult, "listDepartments");
+      const freshTeams = required(freshTeamsResult, "listTeams");
+      const freshFields = required(freshFieldsResult, "listFieldOfStudies");
       expect(freshDepartments).toContainEqual(
         expect.objectContaining({
           departmentId: createdDepartment.departmentId,
@@ -383,10 +390,10 @@ test.describe("Native Organization administration", () => {
       await teamChoice.selectOption(teamValue);
       await expect(teamChoice).toHaveValue(teamValue);
 
-      const teamAccessibility = await new AxeBuilder({ page: adminPage }).analyze();
+      const teamAccessibility = await auditSettledPage(adminPage);
 
-      teamAccessibilityViolations = teamAccessibility.violations.length;
-      expect(teamAccessibility.violations).toEqual([]);
+      teamAccessibilityViolations = teamAccessibility.length;
+      expect(teamAccessibility).toEqual([]);
 
       const fieldPage = await adminContext.newPage();
       observePage(fieldPage, nativePublicRequests, legacyBrowserRequests, pageErrors);
@@ -398,12 +405,12 @@ test.describe("Native Organization administration", () => {
 
       await expect(fieldTable.getByRole("rowheader", { name: fieldPayload.name })).toBeVisible();
 
-      const fieldAccessibility = await new AxeBuilder({ page: fieldPage })
-        .include('section[aria-labelledby="organization-catalog-title"]')
-        .analyze();
+      const fieldAccessibility = await auditSettledPage(fieldPage, {
+        include: ['section[aria-labelledby="organization-catalog-title"]'],
+      });
 
-      fieldAccessibilityViolations = fieldAccessibility.violations.length;
-      expect(fieldAccessibility.violations).toEqual([]);
+      fieldAccessibilityViolations = fieldAccessibility.length;
+      expect(fieldAccessibility).toEqual([]);
 
       expect(legacyBrowserRequests).toEqual([]);
       expect(pageErrors).toEqual([]);
@@ -416,35 +423,35 @@ test.describe("Native Organization administration", () => {
             administrator: {
               nativeLogin: true,
               sessionCookieNames: adminSession.sessionCookieNames,
-              apiSessionPath: "/api/session",
-              personBindingPath: "/api/profile",
+              apiSessionRpc: "system.readSession",
+              personBindingRpc: "profile.readOwnProfile",
               personId: adminSession.sessionPersonId,
             },
             member: {
               nativeLogin: true,
               sessionCookieNames: memberSession.sessionCookieNames,
-              apiSessionPath: "/api/session",
-              personBindingPath: "/api/profile",
+              apiSessionRpc: "system.readSession",
+              personBindingRpc: "profile.readOwnProfile",
               personId: memberSession.sessionPersonId,
             },
           },
           acceptedCreates: {
-            department: { idempotencyKey: departmentKey, status: 201 },
-            team: { idempotencyKey: teamKey, status: 201 },
-            fieldOfStudy: { idempotencyKey: fieldKey, status: 201 },
+            department: { idempotencyKey: departmentKey, status: departmentResult.status },
+            team: { idempotencyKey: teamKey, status: teamResult.status },
+            fieldOfStudy: { idempotencyKey: fieldKey, status: fieldResult.status },
           },
           counterexamples: {
             unknownDepartment: {
-              status: unknownReferenceResponse.status(),
+              status: unknownReferenceResponse.status,
               response: unknownReferenceBody,
             },
             memberDenied: {
-              status: memberDeniedResponse.status(),
+              status: memberDeniedResponse.status,
               response: memberDeniedBody,
             },
-            exactReplay: { status: exactReplayResponse.status(), response: exactReplayBody },
+            exactReplay: { status: exactReplayResponse.status, response: exactReplayBody },
             changedReplay: {
-              status: changedReplayResponse.status(),
+              status: changedReplayResponse.status,
               response: changedReplayBody,
             },
           },

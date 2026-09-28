@@ -10,9 +10,8 @@
  * Usage: bun --no-env-file tools/e2e/golden-team-application.ts
  * Faults: GOLDEN_TEAM_APPLICATION_FAULT=after-submitted|interrupt-after-submitted
  */
-import { join } from "node:path";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
-import { Crypto, Effect, Exit, FileSystem, Path, Scope, Stdio, Terminal } from "effect";
+import { Crypto, Effect, Exit, FileSystem, Path, Schema, Scope, Stdio, Terminal } from "effect";
 import type { ChildProcessSpawner } from "effect/unstable/process";
 import {
   runTeamApplicationBrowser,
@@ -41,20 +40,27 @@ const homepageHost = "p000.vektor.phibkro.org";
 
 const steps = teamApplicationCheckpoints.map(({ step }) => step);
 
+/** The JSON text of an environment value. */
+const jsonText = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+
+/** The indented JSON text of an artifact. */
+const prettyJsonText = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown, { space: 2 }));
+
 /** Digests every file below one build output directory for `browser-build.json`. */
 const buildInventory = (context: GoldenContext, directory: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const root = join(context.root, directory);
+    const path = yield* Path.Path;
+    const root = path.join(context.root, directory);
     const names = (yield* fs.readDirectory(root, { recursive: true })).sort();
 
     const files = yield* Effect.forEach(names, (name) =>
       Effect.gen(function* () {
-        const path = join(root, name);
+        const file = path.join(root, name);
 
-        if ((yield* fs.stat(path)).type !== "File") return [];
+        if ((yield* fs.stat(file)).type !== "File") return [];
 
-        const bytes = yield* fs.readFile(path);
+        const bytes = yield* fs.readFile(file);
 
         return [{ bytes: bytes.length, path: name, sha256: sha256Hex(bytes) }];
       }),
@@ -77,8 +83,7 @@ const journey: GoldenJourney = {
     "apps/homepage",
     "packages/domain",
     "packages/database",
-    "packages/http-api",
-    "packages/sdk",
+    "packages/rpc",
     "tools/e2e",
   ],
   steps,
@@ -89,6 +94,7 @@ const journey: GoldenJourney = {
   body: (context) =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
 
       const [postgresPort = 0, apiPort = 0, dashboardPort = 0, homepagePort = 0, providerPort = 0] =
         yield* context.reservePorts(5);
@@ -118,7 +124,7 @@ const journey: GoldenJourney = {
 
       for (const directory of ["receipt-staging", "receipt-committed"])
         yield* fs
-          .makeDirectory(join(context.privateRoot, directory), { mode: 0o700 })
+          .makeDirectory(path.join(context.privateRoot, directory), { mode: 0o700 })
           .pipe(Effect.mapError(failure("receipt roots")));
 
       const backendEnvironment = {
@@ -129,12 +135,12 @@ const journey: GoldenJourney = {
         BACKEND_PG_URL: database.url,
         BETTER_AUTH_SECRET: authSecret,
         NATIVE_IDENTITY_DEPLOYMENT: "local",
-        NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([origins.dashboard]),
+        NATIVE_IDENTITY_TRUSTED_ORIGINS: jsonText([origins.dashboard]),
         OAUTH_CANONICAL_ORIGIN: origins.backend,
         OAUTH_DASHBOARD_ORIGIN: origins.dashboard,
         OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
-        RECEIPT_STAGING_ROOT: join(context.privateRoot, "receipt-staging"),
-        RECEIPT_COMMITTED_ROOT: join(context.privateRoot, "receipt-committed"),
+        RECEIPT_STAGING_ROOT: path.join(context.privateRoot, "receipt-staging"),
+        RECEIPT_COMMITTED_ROOT: path.join(context.privateRoot, "receipt-committed"),
         PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
         PASSWORD_RESET_DELIVERY_MODE: "disabled",
         RECEIPT_DELIVERY_MODE: "disabled",
@@ -166,7 +172,7 @@ const journey: GoldenJourney = {
           env: {
             ...backendEnvironment,
             IDENTITY_SEED_PG_URL: database.url,
-            IDENTITY_SEED_PERSONS: JSON.stringify(identitySeedPersons(fixture)),
+            IDENTITY_SEED_PERSONS: jsonText(identitySeedPersons(fixture)),
           },
         },
         "180 seconds",
@@ -203,18 +209,7 @@ const journey: GoldenJourney = {
 
       let backendScope = yield* bootBackend;
 
-      yield* context.run(
-        {
-          label: "sdk-build",
-          command: "bun",
-          args: ["--no-env-file", "run", "--cwd", "packages/sdk", "build"],
-          cwd: context.root,
-          env: context.environment,
-        },
-        "180 seconds",
-      );
-
-      const dashboardRoot = join(context.root, "apps/dashboard");
+      const dashboardRoot = path.join(context.root, "apps/dashboard");
 
       const dashboardEnvironment = {
         ...context.environment,
@@ -239,7 +234,7 @@ const journey: GoldenJourney = {
         "600 seconds",
       );
 
-      const homepageRoot = join(context.root, "apps/homepage");
+      const homepageRoot = path.join(context.root, "apps/homepage");
 
       // The Cloudflare plugin serializes preview variables at build time; process
       // variables are included only on request. The inherited set is the allow-list.
@@ -267,12 +262,12 @@ const journey: GoldenJourney = {
 
       yield* fs
         .writeFileString(
-          join(context.artifacts, "browser-build.json"),
-          JSON.stringify(
-            { revision: context.revision, sourceTree: context.sourceTree, builds },
-            null,
-            2,
-          ),
+          path.join(context.artifacts, "browser-build.json"),
+          prettyJsonText({
+            revision: context.revision,
+            sourceTree: context.sourceTree,
+            builds,
+          }),
           { mode: 0o600 },
         )
         .pipe(Effect.mapError(failure("browser-build")));

@@ -5,7 +5,7 @@
   "globalPassThroughEnv": ["VEKTORPROGRAMMET_HEAVY_LOCK"],
   "tasks": {
     "build": {
-      "dependsOn": ["^build", "generate"],
+      "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "outputs": ["dist/**"]
     },
@@ -16,14 +16,7 @@
       "dependsOn": ["^lint"]
     },
     "check-types": {
-      "dependsOn": ["^check-types", "generate"]
-    },
-    "api:spec": {
-      "cache": false
-    },
-    "generate": {
-      "dependsOn": ["^generate"],
-      "outputs": ["openapi.json", "native-api-operations.json"]
+      "dependsOn": ["^check-types"]
     },
     "dev": {
       "cache": false,

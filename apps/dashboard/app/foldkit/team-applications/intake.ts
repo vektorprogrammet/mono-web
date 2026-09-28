@@ -1,4 +1,4 @@
-import type { TeamApplicationIntakeMergePatch } from "@vektorprogrammet/http-api";
+import type { TeamApplicationIntakeMergePatch } from "@vektorprogrammet/rpc";
 import { Data, Option, type Types } from "effect";
 import type { IntakeDraft, TeamApplicationIntake } from "./model";
 import { instantFromOsloDateTimeLocal, osloDateTimeLocalFromInstant } from "./oslo-time";

@@ -1,4 +1,4 @@
-import type { IdempotencyKey } from "@vektorprogrammet/http-api";
+import type { IdempotencyKey } from "@vektorprogrammet/rpc";
 import { Runtime } from "foldkit";
 import type { TeamApplicationsOperations } from "./browser-client";
 import { commandsFor } from "./command";

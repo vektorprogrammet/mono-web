@@ -1,6 +1,6 @@
-import { ArticleId, ArticleSlug, type ContentWorkspace } from "@vektorprogrammet/http-api"
-import { DepartmentId } from "@vektorprogrammet/http-api"
-import { StrongETag } from "@vektorprogrammet/http-api";
+import { ArticleId, ArticleSlug, type ContentWorkspace } from "@vektorprogrammet/rpc"
+import { DepartmentId } from "@vektorprogrammet/domain"
+import { StrongETag } from "@vektorprogrammet/rpc";
 import { describe, expect, it } from "vitest";
 import { ChangedDepartmentFilter, RetriedWorkspace, LoadedWorkspace, FailedWorkspace, SelectedArticle, LoadedArticleDetail, EditedField, SubmittedRevise, SucceededSave, SubmittedPublish, SubmittedUnpublish, FailedCommand, DismissedBanner } from "./message";
 import { init, type Model, ContentFailure, ContentWorkspaceData } from "./model";

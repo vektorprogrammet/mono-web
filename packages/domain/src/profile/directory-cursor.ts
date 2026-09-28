@@ -45,7 +45,7 @@ export const decodeDirectoryCursor = (
 
     return { lastName, firstName, personId };
   }).pipe(
-    Effect.mapError(
-      () => new ProfileDecodeError({ message: "malformed Profile directory cursor" }),
+    Effect.mapError(() =>
+      ProfileDecodeError.make({ message: "malformed Profile directory cursor" }),
     ),
   );

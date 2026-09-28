@@ -1,7 +1,7 @@
 import { Option } from "effect";
 import { data, useActionData, useLoaderData, useNavigation } from "react-router";
 import { PublicTeamApplicationForm } from "~/components/public-team-application-form";
-import { createHomepageApiClient } from "~/lib/api.server";
+import { callHomepageNative } from "~/lib/api.server";
 import {
   decodeTeamApplicationTeamId,
   failedPublicTeamApplication,
@@ -55,11 +55,11 @@ export async function loader({ params }: Route.LoaderArgs) {
   if (Option.isNone(teamId)) return pageResponse({ state: "not-found" });
 
   try {
-    const result = await createHomepageApiClient()["team-applications"].readTeamApplicationIntake({
-      params: { teamId: teamId.value },
-    });
+    const intake = await callHomepageNative((client) =>
+      client["team-applications.readTeamApplicationIntake"]({ teamId: teamId.value }),
+    );
 
-    return pageResponse(publicTeamApplicationPage(result.body));
+    return pageResponse(publicTeamApplicationPage(intake));
   } catch (cause) {
     return pageResponse(publicTeamApplicationPageFailure(cause));
   }
@@ -82,28 +82,26 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   if (!parsed.ok) return outcomeResponse({ outcome: "rejected", failure: parsed.failure });
 
-  const applications = createHomepageApiClient()["team-applications"];
-
-  const outcome = await applications
-    .submitTeamApplication({
-      params: { teamId: teamId.value },
-      headers: { "idempotency-key": parsed.value.commandId },
-      payload: parsed.value.payload,
-    })
-    .then(
-      (result) => receivedPublicTeamApplication(result.body),
-      (cause) => failedPublicTeamApplication(parsed.value, cause),
-    );
+  const outcome = await callHomepageNative((client) =>
+    client["team-applications.submitTeamApplication"]({
+      teamId: teamId.value,
+      idempotencyKey: parsed.value.commandId,
+      request: parsed.value.payload,
+    }),
+  ).then(
+    (confirmation) => receivedPublicTeamApplication(confirmation),
+    (cause) => failedPublicTeamApplication(parsed.value, cause),
+  );
 
   if (outcome.outcome !== "received") return outcomeResponse(outcome);
 
   // The application is stored. A failed name read only leaves the name out of the confirmation.
-  const teamName = await applications
-    .readTeamApplicationIntake({ params: { teamId: teamId.value } })
-    .then(
-      (intake) => intake.body.teamName,
-      () => undefined,
-    );
+  const teamName = await callHomepageNative((client) =>
+    client["team-applications.readTeamApplicationIntake"]({ teamId: teamId.value }),
+  ).then(
+    (intake) => intake.teamName,
+    () => undefined,
+  );
 
   return outcomeResponse({ ...outcome, teamName });
 }

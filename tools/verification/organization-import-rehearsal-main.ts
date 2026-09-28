@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import type * as GeneratedSdkModule from "../../packages/sdk/src/effect-client.js";
 import { addressesAnyRoute, legacyRoutes } from "../../apps/dashboard/e2e/request-routes.js";
-import { SessionResponse } from "@vektorprogrammet/http-api";
+import { isNativeRpcPath } from "@vektorprogrammet/rpc";
+import { nativeScriptClient, type ScriptCallResult } from "@vektorprogrammet/rpc/script";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { randomBytes } from "node:crypto";
@@ -85,6 +85,7 @@ import {
   Effect,
   Layer,
   ManagedRuntime,
+  Match,
   Option,
   Redacted,
   Result,
@@ -95,7 +96,7 @@ import type { SqlError } from "effect/unstable/sql/SqlError";
 import {
   backendHttpHandler,
   decodeBackendConfig,
-  ExternalNativeApiRouterLive,
+  ExternalNativeRpcRouterLive,
   nativeRouterWebHandler,
   type BackendConfig,
 } from "@vektorprogrammet/backend";
@@ -108,6 +109,7 @@ import {
 import {
   OrganizationImportRehearsalArtifactSchema,
   NATIVE_BROWSER_JOURNEY_REQUIREMENTS,
+  nativeBrowserJourneyRequirementOfRpc,
   SPEC_0067,
   SPEC_0067_PREREQUISITES,
   decodeFrozenOrganizationSnapshot,
@@ -195,8 +197,6 @@ const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 
 const dashboardRoot = join(repositoryRoot, "apps/dashboard");
 
-const sdkRoot = join(repositoryRoot, "packages/sdk");
-
 const dashboardPort = 5_174;
 
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
@@ -217,8 +217,6 @@ export const ORGANIZATION_IMPORT_DASHBOARD_BUILD_ARGUMENTS = ["run", "build"] as
 export const ORGANIZATION_IMPORT_DASHBOARD_SERVE_ARGUMENTS = ["server.mjs"] as const;
 
 export const ORGANIZATION_IMPORT_GENERATED_OUTPUT_PATHS = [
-  "packages/sdk/dist",
-  "packages/sdk/tsconfig.tsbuildinfo",
   "apps/dashboard/.react-router",
   "apps/dashboard/build",
 ] as const;
@@ -467,6 +465,8 @@ const makeChildToolEnvironment = (runnerTempRoot: string): NodeJS.ProcessEnv => 
     "PATH",
     "LANG",
     "LC_ALL",
+    // A machine without Playwright's own browser names its Chromium, as the golden harness allows.
+    "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH",
     "NIX_SSL_CERT_FILE",
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
@@ -992,6 +992,42 @@ const requestBodyBytes = async (request: IncomingMessage): Promise<Buffer> => {
   return Buffer.concat(chunks);
 };
 
+/** The native RPC request that one request body carries. */
+const RpcRequestBody = Schema.fromJsonString(Schema.Struct({ tag: Schema.String }));
+
+/** The tag of the native RPC that one request body carries, if any. */
+const rpcTagOf = (bytes: Buffer): string | undefined =>
+  Option.getOrUndefined(Schema.decodeOption(RpcRequestBody)(bytes.toString("utf8")))?.tag;
+
+/** The answer that ends one RPC request: a success, or one failure's problem status. */
+const RpcAnswer = Schema.fromJsonString(
+  Schema.Tuple([
+    Schema.Struct({
+      exit: Schema.Union([
+        Schema.TaggedStruct("Success", { value: Schema.Unknown }),
+        Schema.TaggedStruct("Failure", {
+          cause: Schema.Tuple([Schema.Struct({ error: Schema.Struct({ status: Schema.Int }) })]),
+        }),
+      ]),
+    }),
+  ]),
+);
+
+/**
+ * The status that one RPC answer had under the HTTP contract: 200 for a success, and the registry
+ * status of the problem that a failure carries. An RPC always answers 200 over HTTP.
+ */
+const rpcAnswerStatus = (bytes: Buffer): number =>
+  Option.match(Schema.decodeOption(RpcAnswer)(bytes.toString("utf8")), {
+    onNone: () => 502,
+    onSome: ([{ exit }]) =>
+      Match.value(exit).pipe(
+        Match.tag("Success", () => 200),
+        Match.tag("Failure", ({ cause: [{ error }] }) => error.status),
+        Match.exhaustive,
+      ),
+  });
+
 const startRecordingProxy = async (
   targetOrigin: string,
   dashboardAllowedOrigin: string,
@@ -1001,8 +1037,18 @@ const startRecordingProxy = async (
   const records: ProxyRequestObservation[] = [];
 
   const server: HttpServer = createHttpServer(async (request, response) => {
-    const method = request.method ?? "GET";
-    const path = new URL(request.url ?? "/", targetOrigin).pathname;
+    const transportMethod = request.method ?? "GET";
+    const transportPath = new URL(request.url ?? "/", targetOrigin).pathname;
+    const requestBytes = await requestBodyBytes(request);
+
+    // A native RPC of the journey is recorded as the read it serves: the route that it replaced.
+    const rpcRequirement =
+      transportMethod === "POST" && isNativeRpcPath(transportPath)
+        ? nativeBrowserJourneyRequirementOfRpc(rpcTagOf(requestBytes))
+        : undefined;
+
+    const method = rpcRequirement === undefined ? transportMethod : "GET";
+    const path = rpcRequirement?.path ?? transportPath;
     const cookie = request.headers.cookie ?? "";
 
     const sessionCookieAuth = cookie
@@ -1042,7 +1088,6 @@ const startRecordingProxy = async (
       return;
     }
 
-    const requestBytes = await requestBodyBytes(request);
     const headers = new Headers();
 
     for (const [name, value] of Object.entries(request.headers)) {
@@ -1062,14 +1107,21 @@ const startRecordingProxy = async (
 
     try {
       const upstream = await guard.fetchLoopback(new URL(request.url ?? "/", targetOrigin), {
-        method,
+        method: transportMethod,
         headers,
-        body: method === "GET" || method === "HEAD" ? undefined : requestBytes,
+        body: transportMethod === "GET" || transportMethod === "HEAD" ? undefined : requestBytes,
         redirect: "manual",
       });
 
       const responseBytes = Buffer.from(await upstream.arrayBuffer());
-      records.push({ method, path, status: upstream.status, sessionCookieAuth, requestSource });
+
+      records.push({
+        method,
+        path,
+        status: rpcRequirement === undefined ? upstream.status : rpcAnswerStatus(responseBytes),
+        sessionCookieAuth,
+        requestSource,
+      });
       response.statusCode = upstream.status;
 
       for (const [name, value] of upstream.headers.entries()) {
@@ -1116,6 +1168,25 @@ const startRecordingProxy = async (
     },
   };
 };
+
+const JsonText = Schema.fromJsonString(Schema.Unknown);
+
+/** A decoded RPC value as the JSON that its answer carried. */
+const jsonOf = <A>(value: A): Schema.Json =>
+  Schema.decodeSync(Schema.fromJsonString(Schema.Json))(Schema.encodeSync(JsonText)(value));
+
+/** An own-profile answer names its person, bare or beside its entity tag. */
+const ProfileAnswer = Schema.Union([
+  Schema.Struct({ personId: Schema.String }),
+  Schema.Struct({ profile: Schema.Struct({ personId: Schema.String }) }),
+]);
+
+/** The person that an own-profile answer names, if it names one. */
+const profilePersonId = (value: Schema.Json): string | undefined =>
+  Option.match(Schema.decodeUnknownOption(ProfileAnswer)(value), {
+    onNone: () => undefined,
+    onSome: (profile) => ("profile" in profile ? profile.profile.personId : profile.personId),
+  });
 
 const sanitizeProjection = (value: Schema.Json): Schema.Json => {
   if (Arr.isArray<Schema.Json>(value)) return value.map(sanitizeProjection);
@@ -1180,13 +1251,6 @@ const importResultEvidence = (result: OrganizationImportResult) => {
     provenance: organizationImportProvenanceEvidence(result),
   };
 };
-
-const decodeJsonResponse = async (
-  response: Response,
-): Promise<{ readonly status: number; readonly body: Schema.Json }> => ({
-  status: response.status,
-  body: Schema.decodeUnknownSync(Schema.Json)(await response.json()),
-});
 
 const sanitizeFailure = (cause: unknown, sensitiveValues: ReadonlyArray<string>): string => {
   let message = cause instanceof Error ? cause.message : String(cause);
@@ -1462,7 +1526,8 @@ const makeRehearsalRuntime = (
   const routerLayer = HttpRouter.layer;
   const httpLayer = Layer.merge(platformLayer, routerLayer);
 
-  const nativeApiLayer = ExternalNativeApiRouterLive(config, {
+  const nativeApiLayer = ExternalNativeRpcRouterLive({
+    config,
     now: () => SPEC_0067.authorizationInstant,
   }).pipe(
     HttpRouter.provideRequest(Layer.merge(servicesLayer, requestPlatformLayer)),
@@ -1642,7 +1707,7 @@ const runRehearsal = async (
     await mkdir(childToolEnvironment.TMPDIR!, { recursive: true });
     await mkdir(childToolEnvironment.XDG_CACHE_HOME!, { recursive: true });
 
-    for (const root of [sdkRoot, dashboardRoot]) {
+    for (const root of [dashboardRoot]) {
       for (const name of [".env", ".env.local", ".env.development", ".env.development.local"]) {
         assert.equal(
           await pathExists(join(root, name)),
@@ -2063,65 +2128,102 @@ const runRehearsal = async (
     guard.addHttp(dashboardOrigin, "dashboard-loopback");
     const cookieHeader = `${SPEC_0067.sessionCookieName}=${sessionCookie}`;
 
-    const fetchObservation = async (
+    const native = nativeScriptClient(backendOrigin);
+    const anonymousHeaders = { origin: dashboardOrigin };
+    const administratorHeaders = { cookie: cookieHeader, origin: dashboardOrigin };
+
+    /** One native read, recorded as the route that its RPC replaced, with its answer as JSON. */
+    const observe = async <A>(
       path: string,
       authenticated: boolean,
+      call: Promise<ScriptCallResult<A>>,
     ): Promise<{ readonly status: number; readonly body: Schema.Json }> => {
-      const response = await guard.fetchLoopback(`${backendOrigin}${path}`, {
-        headers: authenticated ? { cookie: cookieHeader } : undefined,
-      });
+      const result = await call;
 
-      const decoded = await decodeJsonResponse(response);
       backendRequests.push({
         method: "GET",
         path,
-        status: decoded.status,
+        status: result.status,
         sessionCookieAuth: authenticated,
       });
 
-      return decoded;
+      return {
+        status: result.status,
+        body: jsonOf(result.ok ? result.value : "problem" in result ? result.problem : null),
+      };
     };
 
-    const departmentsHttp = await fetchObservation("/api/departments", false);
-    const teamsHttp = await fetchObservation("/api/teams", false);
-    const sessionHttp = await fetchObservation("/api/session", true);
-    const missingSessionHttp = await fetchObservation("/api/session", false);
-    const profileHttp = await fetchObservation("/api/profile", true);
-    const peopleHttp = await fetchObservation("/api/people", true);
-    assert.equal(departmentsHttp.status, 200, "GET /api/departments did not return 200");
-    assert.equal(teamsHttp.status, 200, "GET /api/teams did not return 200");
-    assert.equal(sessionHttp.status, 200, "authenticated GET /api/session did not return 200");
-    assert.equal(
-      missingSessionHttp.status,
-      401,
-      "unauthenticated GET /api/session did not return 401",
+    const departmentsRpc = await observe(
+      "/api/departments",
+      false,
+      native.call(anonymousHeaders, (client) => client["organization.listDepartments"]()),
     );
-    assert.equal(profileHttp.status, 200, "authenticated GET /api/profile did not return 200");
-    assert.equal(peopleHttp.status, 200, "GET /api/people did not return 200");
 
-    const sessionProjection = Schema.decodeUnknownSync(SessionResponse)(sessionHttp.body, {
-      onExcessProperty: "error",
-    });
+    const teamsRpc = await observe(
+      "/api/teams",
+      false,
+      native.call(anonymousHeaders, (client) => client["organization.listTeams"]()),
+    );
 
+    const sessionRpc = await observe(
+      "/api/session",
+      true,
+      native.call(administratorHeaders, (client) => client["system.readSession"]()),
+    );
+
+    const missingSessionRpc = await observe(
+      "/api/session",
+      false,
+      native.call(anonymousHeaders, (client) => client["system.readSession"]()),
+    );
+
+    const profileRpc = await observe(
+      "/api/profile",
+      true,
+      native.call(administratorHeaders, (client) => client["profile.readOwnProfile"]()),
+    );
+
+    const peopleRpc = await observe(
+      "/api/people",
+      true,
+      native.call(administratorHeaders, (client) => client["directory.listPeople"]()),
+    );
+
+    await native.dispose();
+    assert.equal(departmentsRpc.status, 200, "organization.listDepartments did not succeed");
+    assert.equal(teamsRpc.status, 200, "organization.listTeams did not succeed");
+    assert.equal(sessionRpc.status, 200, "an authenticated system.readSession did not succeed");
+    assert.equal(
+      missingSessionRpc.status,
+      401,
+      "an unauthenticated system.readSession did not answer 401",
+    );
+    assert.equal(profileRpc.status, 200, "an authenticated profile.readOwnProfile did not succeed");
+    assert.equal(peopleRpc.status, 200, "directory.listPeople did not succeed");
+
+    const sessionProjection = sessionRpc.body;
+
+    assert.ok(
+      Predicate.isObjectOrArray(sessionProjection) && !Array.isArray(sessionProjection),
+      "system.readSession must answer one session",
+    );
     assert.equal(sessionProjection.current, true);
     assert.equal(sessionProjection.expiresAt, SPEC_0067.sessionExpiresAt);
     assert.equal(sessionProjection.personId, SPEC_0067.administratorPersonId);
     assert.ok(
       Predicate.isString(sessionProjection.sessionId) && sessionProjection.sessionId !== "",
     );
-    assert.ok(
-      profileHttp.body !== null &&
-        (profileHttp.body === null || Predicate.isObjectOrArray(profileHttp.body)) &&
-        "personId" in profileHttp.body &&
-        profileHttp.body.personId === SPEC_0067.administratorPersonId,
-      "GET /api/profile must bind the session to the administrator PersonId",
+    assert.equal(
+      profilePersonId(profileRpc.body),
+      SPEC_0067.administratorPersonId,
+      "profile.readOwnProfile must bind the session to the administrator PersonId",
     );
     assert.ok(
-      missingSessionHttp.body !== null &&
-        (missingSessionHttp.body === null || Predicate.isObjectOrArray(missingSessionHttp.body)) &&
-        "code" in missingSessionHttp.body &&
-        missingSessionHttp.body.code === "credential.missing",
-      "unauthenticated GET /api/session must return the RFC 9457 missing-credential problem",
+      missingSessionRpc.body !== null &&
+        Predicate.isObjectOrArray(missingSessionRpc.body) &&
+        "code" in missingSessionRpc.body &&
+        missingSessionRpc.body.code === "credential.missing",
+      "an unauthenticated system.readSession must answer the missing-credential problem",
     );
 
     const processEnvironment: NodeJS.ProcessEnv = {
@@ -2136,41 +2238,25 @@ const runRehearsal = async (
 
     delete processEnvironment.API_MODE;
     delete processEnvironment.VITE_API_MODE;
-    await runCommand("bun", ["run", "build"], {
-      cwd: sdkRoot,
-      env: processEnvironment,
-      label: "spec 0067 SDK build",
-      observations: processObservations,
-      processEffects,
-    });
 
-    // The SDK output is built during this rehearsal, so it cannot be imported before the build.
-    const sdk: typeof GeneratedSdkModule = await import(
-      new URL("../../packages/sdk/dist/effect-client.js", import.meta.url).href
-    );
-
-    const client = sdk.createEffectClient(proxy.origin, {
-      cookie: cookieHeader,
-      fetch: guard.fetchLoopback,
-    });
-
-    const departmentsSdk = await Effect.runPromise(
-      client.organization.listDepartments({ headers: {} }),
-    );
-
-    const teamsSdk = await Effect.runPromise(client.organization.listTeams({ headers: {} }));
-    const peopleSdk = await Effect.runPromise(client.directory.listPeople());
-    assert.ok(departmentsSdk.body !== undefined, "SDK departments response must contain a body");
-    assert.ok(teamsSdk.body !== undefined, "SDK teams response must contain a body");
-    assert.deepEqual(departmentsSdk.body, departmentsHttp.body);
-    assert.deepEqual(teamsSdk.body, teamsHttp.body);
-    assert.deepEqual(peopleSdk.body, peopleHttp.body);
+    const departments = departmentsRpc.body;
+    const teams = teamsRpc.body;
+    assert.ok(Array.isArray(departments), "organization.listDepartments must answer a list");
+    assert.ok(Array.isArray(teams), "organization.listTeams must answer a list");
     assert.deepEqual(
-      departmentsSdk.body.map(({ departmentId, name }) => ({ departmentId, name })),
+      departments.map((department) =>
+        Predicate.isObjectOrArray(department) && !Array.isArray(department)
+          ? { departmentId: department.departmentId, name: department.name }
+          : department,
+      ),
       [{ departmentId: "6701", name: "Spec 0067 Department" }],
     );
     assert.deepEqual(
-      teamsSdk.body.map(({ teamId, departmentId, name }) => ({ teamId, departmentId, name })),
+      teams.map((team) =>
+        Predicate.isObjectOrArray(team) && !Array.isArray(team)
+          ? { teamId: team.teamId, departmentId: team.departmentId, name: team.name }
+          : team,
+      ),
       [{ teamId: "6711", departmentId: "6701", name: "Spec 0067 Team" }],
     );
     artifactCore.http = Schema.decodeUnknownSync(
@@ -2180,12 +2266,13 @@ const runRehearsal = async (
         status: "Observed",
         backendRequests,
         strictNative: {
-          departments: sanitizeProjection(departmentsSdk.body),
-          teams: sanitizeProjection(teamsSdk.body),
-          session: sanitizeProjection(sessionHttp.body),
-          missingSession: sanitizeProjection(missingSessionHttp.body),
-          administratorDirectory: sanitizeProjection(peopleSdk.body),
+          departments: sanitizeProjection(departments),
+          teams: sanitizeProjection(teams),
+          session: sanitizeProjection(sessionRpc.body),
+          missingSession: sanitizeProjection(missingSessionRpc.body),
+          administratorDirectory: sanitizeProjection(peopleRpc.body),
         },
+        // The typed native RPC client decoded every read with its contract schema.
         sdkDecoded: true,
         fixtureMode: false,
       },
@@ -2324,7 +2411,6 @@ const runRehearsal = async (
         "playwright-results",
       ),
       ORGANIZATION_IMPORT_REHEARSAL_AUTHORIZATION_INSTANT: SPEC_0067.authorizationInstant,
-      ORGANIZATION_IMPORT_REHEARSAL_SDK_EFFECT_PATH: join(sdkRoot, "dist/effect-client.js"),
       ORGANIZATION_IMPORT_REHEARSAL_NATIVE_API_PATHS: JSON.stringify(NATIVE_BROWSER_JOURNEY_PATHS),
     };
 

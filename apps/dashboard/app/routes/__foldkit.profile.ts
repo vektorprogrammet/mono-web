@@ -1,9 +1,9 @@
-import { IdempotencyKey } from "@vektorprogrammet/http-api";
+import { IdempotencyKey } from "@vektorprogrammet/rpc";
 import { Schema as S } from "effect";
 import { data } from "react-router";
 import { toProfileBridgeFailure, ProfileBridgeFailure } from "../foldkit/profile/bridge";
 import { ProfileCommand, ProfileInput } from "../foldkit/profile/model";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/__foldkit.profile";
 
@@ -64,25 +64,20 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
-  const { commandId, etag, ...payload } = command;
-  const client = createAuthenticatedClient(cookie, request);
+  const { commandId, etag, ...patch } = command;
 
   try {
-    const result = await client.profile.updateOwnProfile({
-      headers: {
-        "idempotency-key": IdempotencyKey.make(commandId),
-        "if-match": etag,
-      },
-      payload,
-    });
-
-    return data(
-      S.decodeSync(ProfileInput)(
-        { profile: result.body, etag: result.headers.etag },
-        { onExcessProperty: "error" },
-      ),
-      { headers: responseHeaders },
+    const result = await callNative(cookie, request, (client) =>
+      client["profile.updateOwnProfile"]({
+        idempotencyKey: IdempotencyKey.make(commandId),
+        ifMatch: etag,
+        request: patch,
+      }),
     );
+
+    return data(S.decodeSync(ProfileInput)(result, { onExcessProperty: "error" }), {
+      headers: responseHeaders,
+    });
   } catch (error) {
     const failure = toProfileBridgeFailure(error);
 

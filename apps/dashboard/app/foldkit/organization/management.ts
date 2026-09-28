@@ -3,9 +3,8 @@ import { Predicate, DateTime, Effect, Schema as S, Option, Match, Struct, flow }
 import { Command, Runtime, Update } from "foldkit";
 import { taggedStruct } from "foldkit/schema";
 import type { Html, HtmlBuilder } from "foldkit/html";
-import { AppointmentManagement, OrganizationLifecycleCommand, IdempotencyKey } from "@vektorprogrammet/http-api";
-import { createEffectClient } from "@vektorprogrammet/sdk/effect";
-import { resolveBrowserApiUrl } from "../../lib/browser-api";
+import { AppointmentManagement, OrganizationLifecycleCommand, IdempotencyKey } from "@vektorprogrammet/rpc";
+import { callBrowserNative } from "../../lib/browser-native";
 import { nativeProblemFrom } from "../../lib/native-problem";
 import "./styles.css";
 
@@ -161,33 +160,14 @@ const parseClassifyTeam = S.decodeUnknownOption(OrganizationLifecycleCommand.cas
 const parseRecogniseDepartment = S.decodeUnknownOption(OrganizationLifecycleCommand.cases.RecogniseDepartment.mapFields(Struct.omit(["_tag"])));
 
 export const embedAppointmentManagement=(container:HTMLElement):(()=>void)=>{
-  const client=createEffectClient(resolveBrowserApiUrl(import.meta.env.VITE_API_URL,globalThis.location.origin));
-
   const Load=Command.define("LoadAppointmentManagement",{args:{requestId:S.Int},messages:[Loaded,LoadFailed],execute:({requestId})=>Effect.gen(function* () {
-    const {body}=yield* client.organization.readAppointmentManagement();
+    const body=yield* callBrowserNative((client)=>client["organization.readAppointmentManagement"]());
     const now=DateTime.formatIso(yield* DateTime.now);
 
     return Loaded({requestId,snapshot:body,commandId:crypto.randomUUID(),now});
   }).pipe(Effect.catch(error=>Effect.succeed(LoadFailed({requestId,message:failureMessage(error)}))))});
 
-  // The pinned HttpApi client distributes a union payload over whole requests.
-  // Narrow only at this transport boundary; the domain owns all transitions.
-  const execute=Effect.fn("organization.executeLifecycle")(function* (command:OrganizationLifecycleCommand) {
-    const headers={"idempotency-key":IdempotencyKey.make(command.commandId)};
-
-    return yield* Match.value(command).pipe(
-Match.tag("Appoint", (command) => {return client.organization.executeLifecycle({headers,payload:command});}),
-Match.tag("ReviseAppointment", (command) => {return client.organization.executeLifecycle({headers,payload:command});}),
-Match.tag("EndAppointment", (command) => {return client.organization.executeLifecycle({headers,payload:command});}),
-Match.tag("SuspendAppointment", (command) => {return client.organization.executeLifecycle({headers,payload:command});}),
-Match.tag("ReinstateAppointment", (command) => {return client.organization.executeLifecycle({headers,payload:command});}),
-Match.tag("CreateNationalBoard", (command) => {return client.organization.executeLifecycle({headers,payload:command});}),
-Match.tag("ChangeAccountAccess", (command) => {return client.organization.executeLifecycle({headers,payload:command});}),
-Match.tag("ClassifyTeam", (command) => {return client.organization.executeLifecycle({headers,payload:command});}),
-Match.tag("RecogniseDepartment", (command) => {return client.organization.executeLifecycle({headers,payload:command});}),
-Match.exhaustive
-);
-  });
+  const execute=(command:OrganizationLifecycleCommand)=>callBrowserNative((client)=>client["organization.executeLifecycle"]({idempotencyKey:IdempotencyKey.make(command.commandId),request:command}));
 
   const Save=Command.define("SaveOrganizationLifecycle",{args:{requestId:S.Int,command:OrganizationLifecycleCommand},messages:[Saved,Failed],execute:({requestId,command})=>execute(command).pipe(
     Effect.map(()=>Saved({requestId,commandId:crypto.randomUUID()})),

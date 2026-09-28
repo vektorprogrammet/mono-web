@@ -2,7 +2,7 @@ import { Predicate } from "effect";
 import { Schema as S } from "effect";
 import { useLoaderData } from "react-router";
 import { requireAuth } from "../lib/auth.server";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import type { Route } from "./+types/dashboard._index";
 
 /**
@@ -20,18 +20,15 @@ export type LandingSummary = S.Schema.Type<typeof LandingSummary>;
 
 export async function loader({ request }: Route.LoaderArgs): Promise<{ summary: LandingSummary }> {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
 
   try {
-    const result = await client.profile.readOwnProfile({ headers: {} });
-
-    if (result.body === undefined) {
-      throw new Error("Profile read returned 304 without cache validators");
-    }
+    const { profile } = await callNative(cookie, request, (client) =>
+      client["profile.readOwnProfile"](),
+    );
 
     return {
       summary: LandingSummary.cases.Available.make({
-        name: `${result.body.firstName} ${result.body.lastName}`,
+        name: `${profile.firstName} ${profile.lastName}`,
       }),
     };
   } catch {

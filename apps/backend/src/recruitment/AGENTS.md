@@ -3,7 +3,7 @@
 # apps/backend/src/recruitment
 
 This folder holds the Recruitment bounded context in `apps/backend/src`.
-The backend layer holds HTTP handlers, delivery workers, and provider adapters that the native process composes. It keeps response receipts and preconditions in the transport, and provider I/O after commit.
+The backend layer holds RPC handlers, delivery workers, and provider adapters that the native process composes. It keeps command receipts and preconditions in the transport, and provider I/O after commit.
 
 The Recruitment context in other folders:
 
@@ -70,11 +70,10 @@ No `exports` entry of [apps/backend/package.json](../../package.json) points int
 
 The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../../../docs/constructs.md) indexes them all.
 
-- [`authorizeInvitationOperation`](../../../../docs/constructs/http-problem.md#authorizeinvitationoperation) (http-problem): Authorizes the holder of an invitation's response capability.
-- [`interviewAuthorizationInTransaction`](../../../../docs/constructs/http-problem.md#interviewauthorizationintransaction) (http-problem): Resolves the current person and authorizes one interview inside the caller's transaction; a rejected credential is answered from the request's evidence.
-- [`readRecruitmentBody`](../../../../docs/constructs/http-problem.md#readrecruitmentbody) (http-problem): Every recruitment request body is one bounded `application/json` document.
-- [`recruitmentProblems`](../../../../docs/constructs/http-problem.md#recruitmentproblems) (http-problem): The one answer for every recruitment failure.
-- [`raceProblems`](../../../../docs/constructs/http-problem.md#raceproblems) (http-problem): A failure that lost a serialization or deadlock race answers transaction.conflict, whatever failure carried it.
+- [`authorizeInvitationOperation`](../../../../docs/constructs/rpc-problem.md#authorizeinvitationoperation) (rpc-problem): Authorizes the holder of an invitation's response capability.
+- [`interviewAuthorizationInTransaction`](../../../../docs/constructs/rpc-problem.md#interviewauthorizationintransaction) (rpc-problem): Resolves the current person and authorizes one interview inside the caller's transaction; a rejected credential is answered from the request's evidence.
+- [`recruitmentProblems`](../../../../docs/constructs/rpc-problem.md#recruitmentproblems) (rpc-problem): The one answer for every recruitment failure.
+- [`raceProblems`](../../../../docs/constructs/rpc-problem.md#raceproblems) (rpc-problem): A failure that lost a serialization or deadlock race answers transaction.conflict, whatever failure carried it.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

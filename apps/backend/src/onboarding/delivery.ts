@@ -1,5 +1,6 @@
 import { Database } from "@vektorprogrammet/database";
 import { Crypto, Effect, Schema } from "effect";
+import { dual } from "effect/Function";
 import { ContactEmail } from "@vektorprogrammet/domain/contact";
 import { deliverJson, type HttpDeliveryConfig } from "../delivery/http.js";
 import { pollForever } from "../worker-support.js";
@@ -26,18 +27,18 @@ export const onboardingDeliveryConfig = (
     const endpoint = new URL(env.ONBOARDING_DELIVERY_URL!);
     const origin = new URL(env.OAUTH_DASHBOARD_ORIGIN!);
 
-    if (origin.pathname !== "/" || origin.search || origin.hash) throw new Error();
+    if (origin.pathname !== "/" || origin.search !== "" || origin.hash !== "") throw new Error();
     const claimUrl = new URL("/konto-aktivering", origin);
-    const token = env.ONBOARDING_DELIVERY_TOKEN!;
+    const token = env.ONBOARDING_DELIVERY_TOKEN;
     const timeout = Number(env.ONBOARDING_DELIVERY_TIMEOUT_MS);
     const sender = Schema.decodeUnknownSync(ContactEmail)(env.ONBOARDING_DELIVERY_SENDER);
 
     for (const url of [endpoint, claimUrl])
       if (
-        url.username ||
-        url.password ||
-        url.search ||
-        url.hash ||
+        url.username !== "" ||
+        url.password !== "" ||
+        url.search !== "" ||
+        url.hash !== "" ||
         !(
           url.protocol === "https:" ||
           (url.protocol === "http:" && ["127.0.0.1", "[::1]"].includes(url.hostname))
@@ -45,7 +46,13 @@ export const onboardingDeliveryConfig = (
       )
         throw new Error();
 
-    if (!token?.trim() || !Number.isInteger(timeout) || timeout < 1 || timeout > 30000)
+    if (
+      token === undefined ||
+      token.trim() === "" ||
+      !Number.isInteger(timeout) ||
+      timeout < 1 ||
+      timeout > 30000
+    )
       throw new Error();
 
     return {
@@ -58,8 +65,7 @@ export const onboardingDeliveryConfig = (
   }
 };
 
-/** One durable queue, explicit operator retry; receiver must deduplicate deliveryId. */
-export const drainOnboardingDelivery = (
+const drainOnboardingDeliveryOnce = (
   applicationId: string,
   config: OnboardingDeliveryConfig | undefined,
 ) =>
@@ -67,7 +73,7 @@ export const drainOnboardingDelivery = (
     Effect.gen(function* () {
       yield* expireOnboardingSecrets;
 
-      if (!config) return "Pending" as const;
+      if (config === undefined) return "Pending" as const;
       const claimId = yield* Crypto.Crypto.use((crypto) => crypto.randomUUIDv4).pipe(Effect.orDie);
 
       const selected = yield* sql<{
@@ -79,7 +85,7 @@ export const drainOnboardingDelivery = (
 
       const row = selected[0];
 
-      if (!row) return "BusyOrComplete" as const;
+      if (row === undefined) return "BusyOrComplete" as const;
       const url = new URL(config.claimUrl);
       url.hash = row.secret;
 
@@ -97,7 +103,7 @@ export const drainOnboardingDelivery = (
         envelope: unknown;
       }>`UPDATE public.applicant_account_delivery SET envelope=${sql.json(envelope)} WHERE invitation_id=${row.invitationId} AND claim_id=${claimId} AND state='Claimed' RETURNING envelope`;
 
-      if (!saved.length) return "BusyOrComplete" as const;
+      if (saved.length === 0) return "BusyOrComplete" as const;
 
       const delivered = yield* deliverJson(
         yield* Schema.decodeUnknownEffect(Schema.Json)(saved[0]!.envelope),
@@ -111,17 +117,27 @@ export const drainOnboardingDelivery = (
         const acknowledged =
           yield* sql`UPDATE public.applicant_account_delivery SET state='Delivered',secret=NULL,envelope=NULL,claim_id=NULL,claimed_at=NULL WHERE invitation_id=${row.invitationId} AND claim_id=${claimId} AND state='Claimed' RETURNING invitation_id`;
 
-        if (!acknowledged.length) return "BusyOrComplete" as const;
+        if (acknowledged.length === 0) return "BusyOrComplete" as const;
       } else {
         const retried =
           yield* sql`UPDATE public.applicant_account_delivery SET state='Pending',claim_id=NULL,claimed_at=NULL WHERE invitation_id=${row.invitationId} AND claim_id=${claimId} AND state='Claimed' RETURNING invitation_id`;
 
-        if (!retried.length) return "BusyOrComplete" as const;
+        if (retried.length === 0) return "BusyOrComplete" as const;
       }
 
       return delivered ? ("Delivered" as const) : ("Pending" as const);
     }),
   );
+
+type OnboardingDeliveryDrain = ReturnType<typeof drainOnboardingDeliveryOnce>;
+
+/** One durable queue, explicit operator retry; receiver must deduplicate deliveryId. */
+export const drainOnboardingDelivery: {
+  (
+    config: OnboardingDeliveryConfig | undefined,
+  ): (applicationId: string) => OnboardingDeliveryDrain;
+  (applicationId: string, config: OnboardingDeliveryConfig | undefined): OnboardingDeliveryDrain;
+} = dual(2, drainOnboardingDeliveryOnce);
 
 export const expireOnboardingSecrets = Database.use(
   (sql) =>

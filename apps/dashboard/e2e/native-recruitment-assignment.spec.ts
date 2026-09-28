@@ -1,5 +1,5 @@
 import { Predicate } from "effect";
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.js";
 import { expect, test, type Page } from "@playwright/test";
 
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5174";
@@ -88,10 +88,10 @@ test.describe("Native recruitment applicant assignment", () => {
       "readAssignmentBoard",
     ]);
 
-    const accessibility = await new AxeBuilder({ page })
-      .include('section[aria-labelledby="fr-page-title"]')
-      .analyze();
+    const accessibility = await auditSettledPage(page, {
+      include: ['section[aria-labelledby="fr-page-title"]'],
+    });
 
-    expect(accessibility.violations).toEqual([]);
+    expect(accessibility).toEqual([]);
   });
 });

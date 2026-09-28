@@ -1,8 +1,15 @@
 import { Schema } from "effect";
+import { dual } from "effect/Function";
 import { reachedDepartments, ReachedDepartments } from "../authz/reach.js";
 import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
 import type { OrganizationPersonAuthority } from "../organization/authority.js";
-import { School, SchoolCapacityPlan, SchoolId, SchoolDirectoryDepartmentSchema } from "./schema.js";
+import {
+  School,
+  SchoolCapacityPlan,
+  SchoolId,
+  SchoolDirectoryDepartmentSchema,
+  type SchoolJson,
+} from "./schema.js";
 
 const Reason = Schema.String.check(
   Schema.makeFilter((value) => value.trim().length > 0),
@@ -63,6 +70,24 @@ export const SchoolCommand = Schema.TaggedUnion({
 });
 
 export type SchoolCommand = typeof SchoolCommand.Type;
+
+/** Type-only brand. Only the Schools adapter that resolves current authority builds this evidence. */
+declare const SchoolCommandAuthorizationBrand: unique symbol;
+
+/**
+ * Proof that a person may run one school command, resolved with its locks inside the command's
+ * transaction. The command runs from it: `executeCommand` takes no other command or person, and
+ * resolves no authority again. Valid only in the transaction that resolved it.
+ */
+export interface SchoolCommandAuthorization {
+  readonly [SchoolCommandAuthorizationBrand]: "SchoolCommandAuthorization";
+  readonly personId: PersonId;
+  readonly command: SchoolCommand;
+  /** The locked school that the command changes; null for `CreateSchool`. */
+  readonly school: SchoolJson | null;
+  /** The departments whose administration authorized the command. */
+  readonly departments: ReadonlyArray<DepartmentId>;
+}
 
 export const SchoolCommandResult = Schema.Struct({
   schoolId: SchoolId,
@@ -128,15 +153,18 @@ export class SchoolCommandFailure extends Schema.TaggedError<SchoolCommandFailur
  * An empty association set needs reach over the whole organization; otherwise every department
  * of the set must be reached with `schools.administer`.
  */
-export const canManageSchoolDepartments = (
-  authority: OrganizationPersonAuthority,
-  departments: ReadonlyArray<DepartmentId>,
-): boolean => {
-  const reached = reachedDepartments(authority, "schools.administer");
+export const canManageSchoolDepartments: {
+  (departments: ReadonlyArray<DepartmentId>): (authority: OrganizationPersonAuthority) => boolean;
+  (authority: OrganizationPersonAuthority, departments: ReadonlyArray<DepartmentId>): boolean;
+} = dual(
+  2,
+  (authority: OrganizationPersonAuthority, departments: ReadonlyArray<DepartmentId>): boolean => {
+    const reached = reachedDepartments(authority, "schools.administer");
 
-  return (
-    ReachedDepartments.$is("All")(reached) ||
-    (departments.length > 0 &&
-      departments.every((department) => reached.departmentIds.includes(department)))
-  );
-};
+    return (
+      ReachedDepartments.$is("All")(reached) ||
+      (departments.length > 0 &&
+        departments.every((department) => reached.departmentIds.includes(department)))
+    );
+  },
+);

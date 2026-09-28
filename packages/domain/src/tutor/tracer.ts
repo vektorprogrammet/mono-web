@@ -1,4 +1,5 @@
 import { Array, Schema, Data, Effect } from "effect";
+import { dual } from "effect/Function";
 import {
   type ConductInterviewV1,
   decodeConductInterviewV1,
@@ -294,93 +295,99 @@ const observationFor = (
   descriptor,
 });
 
-export const conductInterview = (
-  state: TutorState,
-  input: Schema.Json,
-): Effect.Effect<ConductInterviewResult, TutorFailure> =>
-  Effect.gen(function* () {
-    const command = yield* decodeConductInterviewV1(input);
-    const commandBytes = canonicalJson(command);
-    const receipt = state.receipts.find((candidate) => candidate.commandId === command.commandId);
+export const conductInterview: {
+  (input: Schema.Json): (state: TutorState) => Effect.Effect<ConductInterviewResult, TutorFailure>;
+  (state: TutorState, input: Schema.Json): Effect.Effect<ConductInterviewResult, TutorFailure>;
+} = dual(
+  2,
+  (state: TutorState, input: Schema.Json): Effect.Effect<ConductInterviewResult, TutorFailure> =>
+    Effect.gen(function* () {
+      const command = yield* decodeConductInterviewV1(input);
+      const commandBytes = canonicalJson(command);
+      const receipt = state.receipts.find((candidate) => candidate.commandId === command.commandId);
 
-    if (receipt !== undefined) {
-      if (receipt.commandBytes === commandBytes) {
-        return ConductInterviewResult.DuplicateResult({
-          state,
-          observation: receipt.observation,
-          observationBytes: receipt.observationBytes,
+      if (receipt !== undefined) {
+        if (receipt.commandBytes === commandBytes) {
+          return ConductInterviewResult.DuplicateResult({
+            state,
+            observation: receipt.observation,
+            observationBytes: receipt.observationBytes,
+          });
+        }
+
+        return yield* new DuplicateCommandConflict({ commandId: command.commandId });
+      }
+
+      const folded = yield* foldEvents(state.events);
+
+      if (!streamEqual(state.stream, folded.stream)) {
+        return yield* new StreamMismatch({ detail: "STATE_STREAM" });
+      }
+
+      if (!streamEqual(command.stream, folded.stream)) {
+        return yield* new StreamMismatch({ detail: "COMMAND_STREAM" });
+      }
+
+      if (command.correlationId !== folded.correlationId) {
+        return yield* new StreamMismatch({ detail: "COMMAND_CORRELATION" });
+      }
+
+      if (command.expectedVersion !== folded.events.length) {
+        return yield* new StaleState({
+          expectedVersion: command.expectedVersion,
+          currentVersion: folded.events.length,
         });
       }
 
-      return yield* new DuplicateCommandConflict({ commandId: command.commandId });
-    }
+      if (folded.nextEventType === "Terminal") {
+        return yield* new InvalidTransition({
+          reasonCode: "TERMINAL_CONDUCTED",
+          lawRef: "T-INT-2",
+        });
+      }
 
-    const folded = yield* foldEvents(state.events);
+      if (folded.nextEventType !== "InterviewConducted") {
+        return yield* new InvalidTransition({
+          reasonCode: "CONDUCT_REQUIRES_ACCEPTED",
+          lawRef: "T-INT-1",
+        });
+      }
 
-    if (!streamEqual(state.stream, folded.stream)) {
-      return yield* new StreamMismatch({ detail: "STATE_STREAM" });
-    }
+      const event = conductEvent(command, folded);
+      const nextEvents = [...folded.events, event];
+      const nextFolded = yield* foldEvents(nextEvents);
+      const projection = projectFoldedState(nextFolded);
 
-    if (!streamEqual(command.stream, folded.stream)) {
-      return yield* new StreamMismatch({ detail: "COMMAND_STREAM" });
-    }
+      const descriptor: Descriptor = {
+        descriptorVersion: 1,
+        kind: "InterviewConductedDescriptor",
+        sourceEventId: event.eventId,
+        causationId: command.commandId,
+        correlationId: command.correlationId,
+        idempotencyKey: `post-commit:${event.eventId}`,
+      };
 
-    if (command.correlationId !== folded.correlationId) {
-      return yield* new StreamMismatch({ detail: "COMMAND_CORRELATION" });
-    }
+      const observation = observationFor(command, event, projection, descriptor);
+      const observationBytes = canonicalJson(observation);
 
-    if (command.expectedVersion !== folded.events.length) {
-      return yield* new StaleState({
-        expectedVersion: command.expectedVersion,
-        currentVersion: folded.events.length,
+      const nextState: TutorState = {
+        stream: nextFolded.stream,
+        events: nextFolded.events,
+        receipts: [
+          ...state.receipts,
+          {
+            commandId: command.commandId,
+            commandBytes,
+            observationBytes,
+            observation,
+          },
+        ],
+      };
+
+      return ConductInterviewResult.AcceptedResult({
+        state: nextState,
+        observation,
+        observationBytes,
       });
-    }
-
-    if (folded.nextEventType === "Terminal") {
-      return yield* new InvalidTransition({ reasonCode: "TERMINAL_CONDUCTED", lawRef: "T-INT-2" });
-    }
-
-    if (folded.nextEventType !== "InterviewConducted") {
-      return yield* new InvalidTransition({
-        reasonCode: "CONDUCT_REQUIRES_ACCEPTED",
-        lawRef: "T-INT-1",
-      });
-    }
-
-    const event = conductEvent(command, folded);
-    const nextEvents = [...folded.events, event];
-    const nextFolded = yield* foldEvents(nextEvents);
-    const projection = projectFoldedState(nextFolded);
-
-    const descriptor: Descriptor = {
-      descriptorVersion: 1,
-      kind: "InterviewConductedDescriptor",
-      sourceEventId: event.eventId,
-      causationId: command.commandId,
-      correlationId: command.correlationId,
-      idempotencyKey: `post-commit:${event.eventId}`,
-    };
-
-    const observation = observationFor(command, event, projection, descriptor);
-    const observationBytes = canonicalJson(observation);
-
-    const nextState: TutorState = {
-      stream: nextFolded.stream,
-      events: nextFolded.events,
-      receipts: [
-        ...state.receipts,
-        {
-          commandId: command.commandId,
-          commandBytes,
-          observationBytes,
-          observation,
-        },
-      ],
-    };
-
-    return ConductInterviewResult.AcceptedResult({
-      state: nextState,
-      observation,
-      observationBytes,
-    });
-  });
+    }),
+);

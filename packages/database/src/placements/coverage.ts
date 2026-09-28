@@ -1,4 +1,5 @@
-import { Match, Effect, Schema } from "effect";
+import { Match, Effect, Schema, Predicate } from "effect";
+import { dual } from "effect/Function";
 import type * as Statement from "effect/unstable/sql/Statement";
 import { Database, type DatabaseOperations } from "../service.js";
 import {
@@ -25,7 +26,7 @@ const fail = (code: PlacementFailure["code"], status: PlacementFailure["status"]
 const decode = <A>(schema: Schema.ConstraintDecoder<A, never>) =>
   Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" });
 
-export const readSchoolServiceCommitments = (
+const readSchoolServiceCommitmentsImpl = (
   sql: DatabaseOperations,
   scope: PlacementScope,
   personId?: PersonId,
@@ -72,6 +73,18 @@ export const readSchoolServiceCommitments = (
 
     return yield* decode(Schema.Array(SchoolServiceCommitment))(rows);
   });
+
+export const readSchoolServiceCommitments: {
+  (
+    scope: PlacementScope,
+    personId?: PersonId,
+  ): (sql: DatabaseOperations) => ReturnType<typeof readSchoolServiceCommitmentsImpl>;
+  (
+    sql: DatabaseOperations,
+    scope: PlacementScope,
+    personId?: PersonId,
+  ): ReturnType<typeof readSchoolServiceCommitmentsImpl>;
+} = dual((args) => Predicate.isObject(args[1]), readSchoolServiceCommitmentsImpl);
 
 const ensureCoverageScope = (sql: DatabaseOperations, scope: PlacementScope) =>
   Effect.gen(function* () {
@@ -264,7 +277,7 @@ const writeAudit = (
 ) =>
   sql`INSERT INTO public.school_service_coverage_audit(department_id,semester_id,actor_person_id,action,occurred_at,snapshot) VALUES(${scope.departmentId},${scope.semesterId},${actor},${action},${now},${sql.json(snapshot)})`;
 
-export const readOwnCoverage = (scope: PlacementScope, personId: PersonId) =>
+const readOwnCoverageImpl = (scope: PlacementScope, personId: PersonId) =>
   Database.use((sql) =>
     Effect.gen(function* () {
       yield* ensureCoverageScope(sql, scope);
@@ -342,6 +355,11 @@ export const readOwnCoverage = (scope: PlacementScope, personId: PersonId) =>
       });
     }),
   );
+
+export const readOwnCoverage: {
+  (personId: PersonId): (scope: PlacementScope) => ReturnType<typeof readOwnCoverageImpl>;
+  (scope: PlacementScope, personId: PersonId): ReturnType<typeof readOwnCoverageImpl>;
+} = dual(2, readOwnCoverageImpl);
 
 export const readCoverageBoard = (scope: PlacementScope) =>
   Database.use((sql) =>
@@ -494,7 +512,7 @@ const withdrawCoverage = (
     });
   });
 
-export const mutateOwnCoverage = (
+const mutateOwnCoverageImpl = (
   scope: PlacementScope,
   command: OwnCoverageCommand,
   actor: PersonId,
@@ -525,6 +543,22 @@ export const mutateOwnCoverage = (
       return yield* readOwnCoverage(scope, actor);
     }),
   );
+
+export const mutateOwnCoverage: {
+  (
+    command: OwnCoverageCommand,
+    actor: PersonId,
+    now: string,
+    ids: { readonly absenceId: string; readonly coverageId: string },
+  ): (scope: PlacementScope) => ReturnType<typeof mutateOwnCoverageImpl>;
+  (
+    scope: PlacementScope,
+    command: OwnCoverageCommand,
+    actor: PersonId,
+    now: string,
+    ids: { readonly absenceId: string; readonly coverageId: string },
+  ): ReturnType<typeof mutateOwnCoverageImpl>;
+} = dual(5, mutateOwnCoverageImpl);
 
 const decideService = (
   sql: DatabaseOperations,
@@ -625,7 +659,7 @@ const decideService = (
     });
   });
 
-export const mutateCoverageBoard = (
+const mutateCoverageBoardImpl = (
   scope: PlacementScope,
   command: CoverageCommand,
   actor: PersonId,
@@ -658,3 +692,27 @@ export const mutateCoverageBoard = (
       return yield* readCoverageBoard(scope);
     }),
   );
+
+export const mutateCoverageBoard: {
+  (
+    command: CoverageCommand,
+    actor: PersonId,
+    now: string,
+    ids: {
+      readonly absenceId: string;
+      readonly coverageId: string;
+      readonly occurrenceId: string;
+    },
+  ): (scope: PlacementScope) => ReturnType<typeof mutateCoverageBoardImpl>;
+  (
+    scope: PlacementScope,
+    command: CoverageCommand,
+    actor: PersonId,
+    now: string,
+    ids: {
+      readonly absenceId: string;
+      readonly coverageId: string;
+      readonly occurrenceId: string;
+    },
+  ): ReturnType<typeof mutateCoverageBoardImpl>;
+} = dual(5, mutateCoverageBoardImpl);

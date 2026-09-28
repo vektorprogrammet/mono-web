@@ -8,6 +8,7 @@ import type { CertificateIssue } from "@vektorprogrammet/domain/placements";
 import { Context, Data, Effect, FileSystem, Layer, Path, Result } from "effect";
 import { sha256Hex } from "../http-semantics.js";
 import { parseTrueType, type TrueTypeFont, type TrueTypeSubset } from "./true-type.js";
+import { dual } from "effect/Function";
 
 /** A text on the certificate that no glyph of the embedded fonts covers. */
 export class CertificateUnprintable extends Data.TaggedError("CertificateUnprintable")<{
@@ -21,7 +22,7 @@ export interface CertificateFaces {
 }
 
 export class CertificateFonts extends Context.Service<CertificateFonts, CertificateFaces>()(
-  "@vektorprogrammet/backend/CertificateFonts",
+  "@vektorprogrammet/backend/placements/certificate-pdf/CertificateFonts",
 ) {}
 
 /** Reads and parses the certificate fonts once, when the process composes its handlers. */
@@ -340,11 +341,7 @@ const faceObjects = (
   ];
 };
 
-/**
- * Renders one issue: the assistant, the department, every included semester with its schools
- * and confirmed days, the issuer's name and seat title, and the issue date.
- */
-export const renderCertificatePdf = (
+const renderCertificatePdfWith = (
   issue: CertificateIssue,
   faces: CertificateFaces,
 ): Result.Result<Uint8Array<ArrayBuffer>, CertificateUnprintable> =>
@@ -499,3 +496,17 @@ export const renderCertificatePdf = (
       ...pages,
     ]);
   });
+
+/**
+ * Renders one issue: the assistant, the department, every included semester with its schools
+ * and confirmed days, the issuer's name and seat title, and the issue date.
+ */
+export const renderCertificatePdf: {
+  (
+    faces: CertificateFaces,
+  ): (issue: CertificateIssue) => Result.Result<Uint8Array<ArrayBuffer>, CertificateUnprintable>;
+  (
+    issue: CertificateIssue,
+    faces: CertificateFaces,
+  ): Result.Result<Uint8Array<ArrayBuffer>, CertificateUnprintable>;
+} = dual(2, renderCertificatePdfWith);

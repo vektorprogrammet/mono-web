@@ -11,7 +11,8 @@
  * by hand below the end marker, and `just guides write` keeps them. A folder's README stays the
  * human guide; the generated part links to it.
  */
-import { posix } from "node:path";
+import { dual } from "effect/Function";
+import { repositoryPath } from "./repository-path.js";
 import type { Finding } from "./check.js";
 import {
   type BoundedContext,
@@ -62,7 +63,9 @@ const guideFiles = new Set([guideFile, linkFile]);
 /** Every folder that needs a guide: each app, package, and tool, and each context folder. */
 const readGuides = (repository: Repository, model: ContextModel): ReadonlyArray<Guide> => {
   // A folder that holds nothing but its guide needs none.
-  const contents = repository.paths.filter((path) => !guideFiles.has(posix.basename(path)));
+  const contents = repository.paths.filter(
+    (path) => !guideFiles.has(repositoryPath.basename(path)),
+  );
 
   const contexts = new Map(
     model.contexts.map((context) => [contextFolderName(context.name), context.name]),
@@ -164,7 +167,7 @@ const contextLink = (rendering: Rendering, context: string): string => {
 
   return target === undefined
     ? context
-    : `[${context}](${posix.relative(rendering.guide.directory, `${target.directory}/${guideFile}`)})`;
+    : `[${context}](${repositoryPath.relative(rendering.guide.directory, `${target.directory}/${guideFile}`)})`;
 };
 
 const contextSection = (rendering: Rendering, context: BoundedContext): ReadonlyArray<string> => {
@@ -196,7 +199,7 @@ const contextSection = (rendering: Rendering, context: BoundedContext): Readonly
     })),
   ].filter((item) => item.aggregates.length > 0);
 
-  const cml = posix.relative(rendering.guide.directory, contextMap);
+  const cml = repositoryPath.relative(rendering.guide.directory, contextMap);
 
   return [
     `## Bounded context: ${context.name}`,
@@ -279,8 +282,8 @@ const entryPointSection = (rendering: Rendering): ReadonlyArray<string> => {
     name === undefined || manifest?.exports === undefined
       ? []
       : entryPoints(manifest.exports).flatMap(({ subpath, target }) => {
-          const path = posix.join(owner, target);
-          const module = posix.relative(directory, path);
+          const path = repositoryPath.join(owner, target);
+          const module = repositoryPath.relative(directory, path);
 
           return path.startsWith(`${directory}/`)
             ? [
@@ -292,7 +295,7 @@ const entryPointSection = (rendering: Rendering): ReadonlyArray<string> => {
             : [];
         });
 
-  const manifestLink = posix.relative(directory, `${owner}/package.json`);
+  const manifestLink = repositoryPath.relative(directory, `${owner}/package.json`);
 
   return [
     "## Entry points",
@@ -324,11 +327,11 @@ const constructSection = (rendering: Rendering): ReadonlyArray<string> => {
   return [
     "## Constructs",
     "",
-    `The shared constructs defined here. Each name links to its contract; [${constructPages.index}](${posix.relative(directory, constructPages.index)}) indexes them all.`,
+    `The shared constructs defined here. Each name links to its contract; [${constructPages.index}](${repositoryPath.relative(directory, constructPages.index)}) indexes them all.`,
     "",
     ...owned.map(
       (construct) =>
-        `- [${code(construct.name)}](${posix.relative(directory, rendering.contracts.get(construct) ?? constructPages.index)}) (${construct.category}): ${construct.summary}`,
+        `- [${code(construct.name)}](${repositoryPath.relative(directory, rendering.contracts.get(construct) ?? constructPages.index)}) (${construct.category}): ${construct.summary}`,
     ),
     "",
   ];
@@ -368,7 +371,7 @@ const folderIntro = (rendering: Rendering, folder: ContextFolder): ReadonlyArray
           "",
           ...others.map(
             (guide) =>
-              `- [${guide.directory}](${posix.relative(rendering.guide.directory, `${guide.directory}/${guideFile}`)})`,
+              `- [${guide.directory}](${repositoryPath.relative(rendering.guide.directory, `${guide.directory}/${guideFile}`)})`,
           ),
         ]),
   ];
@@ -394,7 +397,7 @@ const contextFolderSection = (rendering: Rendering): ReadonlyArray<string> => {
       ? [
           "## Context folders",
           "",
-          `Each folder of ${code(posix.relative(directory, layer))} holds a bounded context of [${contextMap}](${posix.relative(directory, contextMap)}), the shared kernel, or code that the layout declaration excepts. Each has its own guide.`,
+          `Each folder of ${code(repositoryPath.relative(directory, layer))} holds a bounded context of [${contextMap}](${repositoryPath.relative(directory, contextMap)}), the shared kernel, or code that the layout declaration excepts. Each has its own guide.`,
           "",
           table(
             ["Folder", "Bounded context", "Guide"],
@@ -404,7 +407,7 @@ const contextFolderSection = (rendering: Rendering): ReadonlyArray<string> => {
                     [
                       code(folder.name),
                       folder.name === sharedKernel ? "shared kernel" : (folder.context ?? "none"),
-                      `[${guideFile}](${posix.relative(directory, `${folderDirectory}/${guideFile}`)})`,
+                      `[${guideFile}](${repositoryPath.relative(directory, `${folderDirectory}/${guideFile}`)})`,
                     ],
                   ]
                 : [],
@@ -447,7 +450,10 @@ const renderGuide = (rendering: Rendering): Section => {
 };
 
 /** The complete text of a guide: the generated part, then what is written by hand. */
-export const guideText = (current: string | undefined, section: Section): string => {
+export const guideText: {
+  (section: Section): (current: string | undefined) => string;
+  (current: string | undefined, section: Section): string;
+} = dual(2, (current: string | undefined, section: Section): string => {
   const fresh = spliceSections(emptySection(section), [section]).text;
 
   if (current === undefined) return fresh;
@@ -455,7 +461,7 @@ export const guideText = (current: string | undefined, section: Section): string
   const spliced = spliceSections(current, [section]);
 
   return spliced.missing.length === 0 ? spliced.text : `${fresh}\n${current}`;
-};
+});
 
 export interface GuideSet {
   readonly guides: ReadonlyArray<Guide>;
@@ -463,27 +469,32 @@ export interface GuideSet {
 }
 
 /** Every guide and its generated part. */
-export const renderGuides = (
-  repository: Repository,
-  model: ContextModel,
-  constructs: ReadonlyArray<Construct>,
-): GuideSet => {
-  const guides = readGuides(repository, model);
-  const contracts = contractLinks(constructs);
+export const renderGuides: {
+  (model: ContextModel, constructs: ReadonlyArray<Construct>): (repository: Repository) => GuideSet;
+  (repository: Repository, model: ContextModel, constructs: ReadonlyArray<Construct>): GuideSet;
+} = dual(
+  3,
+  (repository: Repository, model: ContextModel, constructs: ReadonlyArray<Construct>): GuideSet => {
+    const guides = readGuides(repository, model);
+    const contracts = contractLinks(constructs);
 
-  return {
-    guides,
-    sections: new Map(
-      guides.map((guide) => [
-        guide.directory,
-        renderGuide({ guide, guides, model, constructs, contracts, repository }),
-      ]),
-    ),
-  };
-};
+    return {
+      guides,
+      sections: new Map(
+        guides.map((guide) => [
+          guide.directory,
+          renderGuide({ guide, guides, model, constructs, contracts, repository }),
+        ]),
+      ),
+    };
+  },
+);
 
 /** Missing guides and links, stale generated parts, and guides of folders that need none. */
-export const checkGuides = (repository: Repository, set: GuideSet): ReadonlyArray<Finding> => {
+export const checkGuides: {
+  (set: GuideSet): (repository: Repository) => ReadonlyArray<Finding>;
+  (repository: Repository, set: GuideSet): ReadonlyArray<Finding>;
+} = dual(2, (repository: Repository, set: GuideSet): ReadonlyArray<Finding> => {
   const paths = new Set(repository.paths);
   const findings: Array<Finding> = [];
 
@@ -524,8 +535,8 @@ export const checkGuides = (repository: Repository, set: GuideSet): ReadonlyArra
 
   for (const path of repository.paths)
     if (
-      posix.basename(path) === guideFile &&
-      !directories.has(posix.dirname(path)) &&
+      repositoryPath.basename(path) === guideFile &&
+      !directories.has(repositoryPath.dirname(path)) &&
       !repository.links.has(path) &&
       repository.read(path).startsWith('[//]: # "guide: generated ')
     )
@@ -535,4 +546,4 @@ export const checkGuides = (repository: Repository, set: GuideSet): ReadonlyArra
       });
 
   return findings;
-};
+});

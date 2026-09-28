@@ -89,7 +89,7 @@ export interface IdentityOperations {
 }
 
 export class Identity extends Context.Service<Identity, IdentityOperations>()(
-  "@vektorprogrammet/domain/Identity",
+  "@vektorprogrammet/domain/identity/service/Identity",
 ) {}
 
 export type { IdentityFailure };

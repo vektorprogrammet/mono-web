@@ -50,10 +50,10 @@ journeyClock(reference: string): JourneyClock
 - Inputs: `reference: string`
 - Output: `JourneyClock`
 - Errors: none
-- Throws: An `Error` when `reference` is not an instant that `Date.parse` reads.
+- Throws: An `Error` when `reference` is not an instant that `DateTime.make` reads.
 - Requirements: none
 - Side effects: none
-- Source: [tools/e2e/journey-clock.ts:50](../../tools/e2e/journey-clock.ts#L50)
+- Source: [tools/e2e/journey-clock.ts:51](../../tools/e2e/journey-clock.ts#L51)
 
 **How it works**
 
@@ -84,10 +84,10 @@ admissionJourneyClock(): JourneyClock
 - Inputs: none
 - Output: `JourneyClock`
 - Errors: none
-- Throws: An `Error` when `ADMISSION_FIXED_NOW` is set to text that `Date.parse` does not read.
+- Throws: An `Error` when `ADMISSION_FIXED_NOW` is set to text that `DateTime.make` does not read.
 - Requirements: none
 - Side effects: Reads `ADMISSION_FIXED_NOW` from the environment, and the current time when it is unset.
-- Source: [tools/e2e/journey-clock.ts:89](../../tools/e2e/journey-clock.ts#L89)
+- Source: [tools/e2e/journey-clock.ts:92](../../tools/e2e/journey-clock.ts#L92)
 
 **How it works**
 
@@ -155,7 +155,7 @@ postgresProgram(program: PostgresProgram): string
 - Throws: An `Error` that names the selected major and what `PATH` provides, when the first `postgres` on `PATH` is missing or of another major.
 - Requirements: none
 - Side effects: Reads `PATH` and runs `postgres --version` at the first resolution of the process.
-- Source: [tools/postgres/index.ts:178](../../tools/postgres/index.ts#L178)
+- Source: [tools/postgres/index.ts:258](../../tools/postgres/index.ts#L258)
 
 **How it works**
 
@@ -190,7 +190,7 @@ postgresVersion(): string
 - Throws: An `Error` when the first `postgres` on `PATH` is missing or of another major, as `postgresProgram` throws.
 - Requirements: none
 - Side effects: Reads `PATH` and runs `postgres --version` at the first resolution of the process.
-- Source: [tools/postgres/index.ts:203](../../tools/postgres/index.ts#L203)
+- Source: [tools/postgres/index.ts:283](../../tools/postgres/index.ts#L283)
 
 **How it works**
 
@@ -221,7 +221,7 @@ loopbackPortFree(port: number): Promise<boolean>
 - Errors: none
 - Requirements: none
 - Side effects: Binds `port` on loopback for the moment of the probe.
-- Source: [tools/postgres/index.ts:260](../../tools/postgres/index.ts#L260)
+- Source: [tools/postgres/index.ts:383](../../tools/postgres/index.ts#L383)
 
 **How it works**
 
@@ -255,7 +255,7 @@ reserveLoopbackPorts(count: number): Promise<ReadonlyArray<number>>
 - Throws: Rejects with an `Error` when no port of the range is free.
 - Requirements: none
 - Side effects: Binds each drawn port on loopback for the moment of its probe, and keeps the reserved ports in the process, so that no later reservation returns them.
-- Source: [tools/postgres/index.ts:309](../../tools/postgres/index.ts#L309)
+- Source: [tools/postgres/index.ts:425](../../tools/postgres/index.ts#L425)
 
 **How it works**
 
@@ -290,7 +290,7 @@ startDisposablePostgres(options: DisposablePostgresOptions = {}): Promise<Dispos
 - Throws: Rejects with an `Error` that carries the server log, when `initdb`, the server, or `createdb` fails, or when the server accepts no connection within 60 seconds. It removes the cluster first.
 - Requirements: none
 - Side effects: Creates the cluster directory, starts the server and its sentinel, and binds a loopback port and a Unix socket until `stop`.
-- Source: [tools/postgres/index.ts:525](../../tools/postgres/index.ts#L525)
+- Source: [tools/postgres/index.ts:985](../../tools/postgres/index.ts#L985)
 
 **How it works**
 
@@ -319,6 +319,9 @@ Runs `use` against the database `database` of a fresh cluster, which `startDispo
 
 ```ts
 withDisposablePostgres<A>(
+  use: (databaseUrl: Redacted.Redacted<string>) => Promise<A>
+): (database: string) => Promise<A>
+withDisposablePostgres<A>(
   database: string,
   use: (databaseUrl: Redacted.Redacted<string>) => Promise<A>
 ): Promise<A>
@@ -332,12 +335,12 @@ withDisposablePostgres<A>(
 - Throws: Rejects when the cluster does not start, as `startDisposablePostgres` rejects, and with the failure of `use`.
 - Requirements: none
 - Side effects: Starts and removes a disposable cluster, as `startDisposablePostgres` does.
-- Source: [tools/postgres/index.ts:755](../../tools/postgres/index.ts#L755)
+- Source: [tools/postgres/index.ts:1013](../../tools/postgres/index.ts#L1013)
 
 **How it works**
 
 `use` receives the connection URL of `database` as a `Redacted` value, so a log of it shows no
-URL. The cluster stops in a `finally`, so the promise settles as `use` settled, after the
+URL. The cluster stops after `use` settles, so the promise settles as `use` settled, after the
 cluster is gone.
 
 **Use**

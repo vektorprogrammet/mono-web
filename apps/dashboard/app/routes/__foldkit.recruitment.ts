@@ -3,7 +3,7 @@ import { Match } from "effect";
 import { data } from "react-router";
 import { recruitmentFailureFromSdk, RecruitmentBridgeFailure } from "../foldkit/recruitment/bridge";
 import { readRecruitmentBridgeOperation } from "../foldkit/recruitment/request.server";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/__foldkit.recruitment";
 
@@ -46,85 +46,93 @@ export async function action({ request }: Route.ActionArgs) {
     }
 
     const operation = decodedRequest.operation;
-    const recruitment = createAuthenticatedClient(cookie, request).recruitment;
 
     switch (operation.operation) {
-      case "readAssignmentBoard": {
-        const result = await recruitment.readAssignmentBoard({ query: operation.query });
-
-        return data(result.body, { headers: responseHeaders });
-      }
-
-      case "createApplicationInterview": {
-        const result = await recruitment.createApplicationInterview({
-          params: operation.params,
-          headers: operation.headers,
-          payload: operation.payload,
-        });
-
-        return data(result.body, { headers: responseHeaders });
-      }
-
-      case "readSchedulingBoard": {
-        const result = await recruitment.readSchedulingBoard();
-
-        return data(result.body, { headers: responseHeaders });
-      }
-
-      case "scheduleInterview": {
-        const result = await recruitment.scheduleInterview({
-          params: operation.params,
-          headers: operation.headers,
-          payload: operation.payload,
-        });
-
-        return data(result.body, { headers: responseHeaders });
-      }
-
-      case "readInterviewConduct": {
-        const result = await recruitment.readInterviewConduct({
-          params: operation.params,
-          headers: operation.headers,
-        });
-
-        if (result.body === undefined) {
-          throw new Error("Interview conduct response did not include a body");
-        }
-
+      case "readAssignmentBoard":
         return data(
-          { detail: result.body, etag: result.headers.etag },
+          await callNative(cookie, request, (client) =>
+            client["recruitment.readAssignmentBoard"](operation.query),
+          ),
           { headers: responseHeaders },
         );
+
+      case "createApplicationInterview": {
+        const created = await callNative(cookie, request, (client) =>
+          client["recruitment.createApplicationInterview"]({
+            applicationId: operation.params.applicationId,
+            idempotencyKey: operation.headers["idempotency-key"],
+            request: operation.payload,
+          }),
+        );
+
+        return data(created.interview, { headers: responseHeaders });
       }
 
-      case "finalizeInterview": {
-        const result = await recruitment.finalizeInterview({
-          params: operation.params,
-          headers: operation.headers,
-          payload: operation.payload,
-        });
+      case "readSchedulingBoard":
+        return data(
+          await callNative(cookie, request, (client) => client["recruitment.readSchedulingBoard"]()),
+          { headers: responseHeaders },
+        );
 
-        return data(result.body, { headers: responseHeaders });
+      case "scheduleInterview": {
+        const scheduled = await callNative(cookie, request, (client) =>
+          client["recruitment.scheduleInterview"]({
+            interviewId: operation.params.interviewId,
+            idempotencyKey: operation.headers["idempotency-key"],
+            ifMatch: operation.headers["if-match"],
+            request: operation.payload,
+          }),
+        );
+
+        return data(scheduled.result, { headers: responseHeaders });
+      }
+
+      case "readInterviewConduct":
+        return data(
+          await callNative(cookie, request, (client) =>
+            client["recruitment.readInterviewConduct"]({
+              interviewId: operation.params.interviewId,
+            }),
+          ),
+          { headers: responseHeaders },
+        );
+
+      case "finalizeInterview": {
+        const finalized = await callNative(cookie, request, (client) =>
+          client["recruitment.finalizeInterview"]({
+            interviewId: operation.params.interviewId,
+            idempotencyKey: operation.headers["idempotency-key"],
+            ifMatch: operation.headers["if-match"],
+            request: operation.payload,
+          }),
+        );
+
+        return data(finalized.result, { headers: responseHeaders });
       }
 
       case "correctInterviewAssessment": {
-        const result = await recruitment.correctInterviewAssessment({
-          params: operation.params,
-          headers: operation.headers,
-          payload: operation.payload,
-        });
+        const corrected = await callNative(cookie, request, (client) =>
+          client["recruitment.correctInterviewAssessment"]({
+            interviewId: operation.params.interviewId,
+            idempotencyKey: operation.headers["idempotency-key"],
+            ifMatch: operation.headers["if-match"],
+            request: operation.payload,
+          }),
+        );
 
-        return data(result.body, { headers: responseHeaders });
+        return data(corrected.result, { headers: responseHeaders });
       }
 
       case "cancelInterview": {
-        const result = await recruitment.cancelInterview({
-          params: operation.params,
-          headers: operation.headers,
-          payload: operation.payload,
-        });
+        const cancelled = await callNative(cookie, request, (client) =>
+          client["recruitment.cancelInterview"]({
+            interviewId: operation.params.interviewId,
+            idempotencyKey: operation.headers["idempotency-key"],
+            ifMatch: operation.headers["if-match"],
+          }),
+        );
 
-        return data(result.body, { headers: responseHeaders });
+        return data(cancelled.result, { headers: responseHeaders });
       }
     }
   } catch (error) {

@@ -1,4 +1,4 @@
-import type { UserProfileResponse } from "@vektorprogrammet/http-api";
+import type { UserProfileResponse } from "@vektorprogrammet/rpc";
 
 export interface ProfileView {
   readonly firstName: string;

@@ -1,5 +1,6 @@
 import type { DepartmentId, PersonId } from "./schema.js";
 import { compareRfc3339Instants } from "../time.js";
+import { dual } from "effect/Function";
 
 /** Pure rendering of scoped recipient facts and canonical Profile contacts. */
 
@@ -28,12 +29,24 @@ export interface MailingList {
 }
 
 /** Half-open intervals overlap only when both starts precede the other end. */
-export const membershipCoversSemester = (
-  membership: { readonly startAt: string; readonly endAt: string | null },
-  semester: { readonly startAt: string; readonly endAt: string },
-): boolean =>
-  compareRfc3339Instants(membership.startAt, semester.endAt) < 0 &&
-  (membership.endAt === null || compareRfc3339Instants(semester.startAt, membership.endAt) < 0);
+export const membershipCoversSemester: {
+  (semester: {
+    readonly startAt: string;
+    readonly endAt: string;
+  }): (membership: { readonly startAt: string; readonly endAt: string | null }) => boolean;
+  (
+    membership: { readonly startAt: string; readonly endAt: string | null },
+    semester: { readonly startAt: string; readonly endAt: string },
+  ): boolean;
+} = dual(
+  2,
+  (
+    membership: { readonly startAt: string; readonly endAt: string | null },
+    semester: { readonly startAt: string; readonly endAt: string },
+  ): boolean =>
+    compareRfc3339Instants(membership.startAt, semester.endAt) < 0 &&
+    (membership.endAt === null || compareRfc3339Instants(semester.startAt, membership.endAt) < 0),
+);
 
 const mergeFirstSeen = (
   assistants: ReadonlyArray<PersonId>,

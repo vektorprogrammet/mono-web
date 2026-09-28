@@ -1,7 +1,7 @@
 import { Predicate } from "effect";
 import { managementView } from "./management-view";
-import { DepartmentId } from "@vektorprogrammet/http-api";
-import type { SchoolDirectory, SchoolDirectoryEntry } from "@vektorprogrammet/http-api";
+import { DepartmentId } from "@vektorprogrammet/domain";
+import type { SchoolDirectory, SchoolDirectoryEntry } from "@vektorprogrammet/rpc";
 import { Input, Select } from "@foldkit/ui";
 import { AsyncData } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";

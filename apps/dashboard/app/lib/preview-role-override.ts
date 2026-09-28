@@ -1,6 +1,6 @@
 import { Schema as S } from "effect";
 import { Option } from "effect";
-import type { UserRoleSchema } from "@vektorprogrammet/http-api";
+import type { UserRoleSchema } from "@vektorprogrammet/rpc";
 
 /**
  * Client-side role override for preview/devtools ONLY.

@@ -11,7 +11,6 @@ export const topLevelDirectories = {
   tools: "Development, verification, and migration tools",
   infra: "Worker preview deployment configuration",
   docs: "Intended system, architecture, operations, and active specifications",
-  patches: "Dependency patches that `patchedDependencies` in package.json applies",
   ".github": "Checks, Tests, Docs, and preview workflows and their actions",
   ".claude": "Claude Code settings and project rules",
   ".agents": "Agent skills of the repository: the Effect house overlay",
@@ -64,8 +63,7 @@ export const packageDirectories = {
   "apps/homepage": "Public React application",
   "packages/domain": "Business values, transitions, failures, and authority",
   "packages/database": "PostgreSQL schema, persistence, locks, audit, and outbox",
-  "packages/http-api": "HTTP contracts, middleware declarations, and OpenAPI",
-  "packages/sdk": "Generated native API client",
+  "packages/rpc": "The native RPC contract, its credential middlewares, problems, and client",
   "tools/acceptance": "Local API and browser acceptance probes of single journeys",
   "tools/conventions":
     "Layout, guide, construct, and Effect exception checks and their generated files",
@@ -149,21 +147,21 @@ export const contextLayers = {
   "apps/backend/src": {
     admission: {
       context: "Admissions",
-      reason: "HTTP handlers of admission periods and applications.",
+      reason: "RPC handlers of admission periods and applications.",
     },
     application: { context: "Admissions", reason: "Application effects and their worker." },
     directory: { context: "People", reason: "The people directory read." },
-    "http-api": {
+    rpc: {
       reason:
-        "Transport shared by every context: problems, rate limits, JSON reading, receipt transactions.",
+        "Transport shared by every context: credential middlewares, problems, rate limits, command receipts.",
     },
     mail: { context: "Delivery", reason: "Mail provider adapters behind the Delivery mail port." },
     onboarding,
     "password-recovery": { context: "Identity", reason: "The password recovery worker." },
-    profile: { context: "People", reason: "Profile HTTP handlers under their older name." },
-    receipt: { context: "Economy", reason: "Expense claim HTTP handlers and private files." },
+    profile: { context: "People", reason: "Profile RPC handlers under their older name." },
+    receipt: { context: "Economy", reason: "Expense claim RPC handlers and private files." },
     "team-application": teamApplication,
-    test: { reason: "Native HTTP composition for backend tests." },
+    test: { reason: "Native RPC composition for backend tests." },
   },
   "apps/dashboard/app/foldkit": {
     dashboard: { reason: "The application shell: navigation and the routes to each context page." },
@@ -187,9 +185,9 @@ export const contextLayerRoles = {
   "packages/database/src":
     "The persistence layer holds PostgreSQL adapters and service Layers. They keep state, revision, command receipts, audit, and outbox writes in the caller's transaction, and own SQL projections, joins, ordering, scope, and storage codecs.",
   "apps/backend/src":
-    "The backend layer holds HTTP handlers, delivery workers, and provider adapters that the native process composes. It keeps response receipts and preconditions in the transport, and provider I/O after commit.",
+    "The backend layer holds RPC handlers, delivery workers, and provider adapters that the native process composes. It keeps command receipts and preconditions in the transport, and provider I/O after commit.",
   "apps/dashboard/app/foldkit":
-    "The dashboard layer holds authenticated journeys: one Foldkit Model per workflow renders server-owned facts and submits commands through the generated SDK.",
+    "The dashboard layer holds authenticated journeys: one Foldkit Model per workflow renders server-owned facts and submits commands through the RPC client.",
 } satisfies Readonly<Record<keyof typeof contextLayers, string>>;
 
 /**

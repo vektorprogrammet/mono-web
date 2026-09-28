@@ -1,16 +1,21 @@
 // Oxlint override globs do not support extglob, and an override that matches no file fails
 // silently: the Effect domain groups once used `!(…)` patterns and no core rule ever ran.
-import { correctness, effectNative, recommended } from "@effect/tsgo/oxlint-presets";
+import { correctness, effectNative, presets, recommended } from "@effect/tsgo/oxlint-presets";
 import { describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
+import { Effect } from "effect";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import config from "../../../oxlint.config.ts";
+import { ConventionsPlatform } from "../src/cli.js";
 import { repositoryRoot } from "../src/repository.js";
 
-const root = repositoryRoot(import.meta.dir);
+const tracked = await Effect.runPromise(
+  Effect.gen(function* () {
+    const root = yield* repositoryRoot(import.meta.dir);
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
-const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" })
-  .split("\0")
-  .filter((path) => path.length > 0);
+    return yield* spawner.string(ChildProcess.make("git", ["ls-files", "-z"], { cwd: root }));
+  }).pipe(Effect.provide(ConventionsPlatform)),
+).then((listed) => listed.split("\0").filter((path) => path.length > 0));
 
 const overrides = config.overrides ?? [];
 
@@ -57,14 +62,14 @@ describe("oxlint override globs", () => {
 describe("Effect domain groups", () => {
   test("core sources receive their role's rules", () => {
     expect(effectRulesFor("packages/domain/src/probe.ts")).toContain("effect/no-ambient-authority");
-    expect(effectRulesFor("packages/sdk/src/probe.ts")).toContain("effect/no-ambient-authority");
+    expect(effectRulesFor("packages/rpc/src/client.ts")).toContain("effect/no-ambient-authority");
     expect(effectRulesFor("packages/database/src/probe.ts")).toContain("effect/no-ambient-console");
     expect(effectRulesFor("apps/backend/src/probe.ts")).toContain("effect/no-ambient-console");
   });
 
   test("core sources run the strict rules, and the adapters decode external data", () => {
     expect(effectRulesFor("packages/domain/src/probe.ts")).toContain("effect/no-untyped-throw");
-    expect(effectRulesFor("packages/sdk/src/probe.ts")).toContain(
+    expect(effectRulesFor("packages/rpc/src/client.ts")).toContain(
       "effect/no-native-promise-control-flow",
     );
     expect(effectRulesFor("packages/database/src/probe.ts")).toContain(
@@ -124,48 +129,100 @@ const settingsFor = (path: string) =>
   );
 
 describe("Effect language-service rules", () => {
-  const presetRules = [
-    ...new Set([recommended, correctness].flatMap((preset) => Object.keys(preset.rules ?? {}))),
-  ];
+  // Every rule of every preset the package ships, so an upgrade that adds a rule or a category
+  // is an error at once, not a rule that never runs.
+  const shippedRules = [
+    ...new Set(Object.values(presets).flatMap((preset) => Object.keys(preset.rules ?? {}))),
+  ].sort();
 
-  const nativeRules = Object.keys(effectNative.rules ?? {}).sort();
+  // The React applications keep the recommended and correctness rules, less effectNative.
+  const reactApplicationRules = new Set(
+    [recommended, correctness]
+      .flatMap((preset) => Object.keys(preset.rules ?? {}))
+      .filter((rule) => !Object.hasOwn(effectNative.rules ?? {}, rule)),
+  );
 
   const notErrorsAt = (path: string) => {
     const settings = settingsFor(path);
 
-    return presetRules
-      .filter((rule) => {
-        const setting = settings.get(rule);
+    return shippedRules.filter((rule) => {
+      const setting = settings.get(rule);
 
-        return (Array.isArray(setting) ? setting[0] : setting) !== "error";
-      })
-      .sort();
+      return (Array.isArray(setting) ? setting[0] : setting) !== "error";
+    });
   };
 
-  test("are errors in core Effect code, the effectNative rules included", () => {
-    expect(notErrorsAt("packages/domain/src/probe.ts")).toEqual([]);
-    expect(notErrorsAt("packages/database/src/probe.test.ts")).toEqual([]);
-    expect(notErrorsAt("packages/http-api/src/probe.ts")).toEqual([]);
-    expect(notErrorsAt("apps/backend/src/probe.ts")).toEqual([]);
+  test("the package ships the presets the configuration names", () => {
+    expect(Object.keys(presets).sort()).toEqual([
+      "antipattern",
+      "correctness",
+      "effectNative",
+      "recommended",
+      "style",
+    ]);
   });
 
-  test("are errors elsewhere, except the effectNative rules", () => {
-    expect(notErrorsAt("apps/dashboard/app/probe.tsx")).toEqual(nativeRules);
-    expect(notErrorsAt("packages/sdk/src/probe.ts")).toEqual(nativeRules);
-    expect(notErrorsAt("tools/e2e/probe.ts")).toEqual(nativeRules);
+  test("are all errors outside the React applications and the entry points", () => {
+    for (const path of [
+      "packages/domain/src/probe.ts",
+      "packages/database/src/probe.ts",
+      "packages/rpc/src/probe.ts",
+      "apps/backend/src/probe.ts",
+      "apps/docs/src/probe.tsx",
+      "tools/scripts/probe.ts",
+      "tools/conventions/src/probe.ts",
+    ]) {
+      expect({ path, notErrors: notErrorsAt(path) }).toEqual({ path, notErrors: [] });
+    }
   });
 
-  test("are relaxed by no override", () => {
-    const relaxed = overrides.flatMap((override) =>
-      Object.entries(override.rules ?? {}).some(
-        ([rule, setting]) =>
-          rule.startsWith("effecttsgo/") &&
-          (Array.isArray(setting) ? setting[0] : setting) !== "error",
-      )
-        ? override.files
-        : [],
-    );
+  test("leave only Effect.provide to the entry points", () => {
+    for (const path of [
+      "packages/database/src/probe.test.ts",
+      "packages/database/src/probe-main.ts",
+      "apps/backend/src/main.ts",
+      "apps/backend/src/test/probe.ts",
+      "tools/acceptance/probe.ts",
+      "tools/verification/probe.ts",
+      "tools/e2e/probe.ts",
+    ]) {
+      expect({ path, notErrors: notErrorsAt(path) }).toEqual({
+        path,
+        notErrors: ["effecttsgo/strict-effect-provide"],
+      });
+    }
+  });
 
-    expect(relaxed).toEqual([]);
+  test("keep the recommended and correctness rules in the React applications", () => {
+    const off = shippedRules.filter((rule) => !reactApplicationRules.has(rule));
+
+    for (const path of [
+      "apps/dashboard/app/probe.tsx",
+      "apps/dashboard/e2e/probe.spec.ts",
+      "apps/homepage/src/probe.tsx",
+    ]) {
+      expect({ path, notErrors: notErrorsAt(path) }).toEqual({ path, notErrors: off });
+    }
+  });
+
+  test("are relaxed only for the React applications, and Effect.provide for the entry points", () => {
+    const relaxations = overrides.flatMap((override) => {
+      const rules = Object.entries(override.rules ?? {})
+        .filter(
+          ([rule, setting]) =>
+            rule.startsWith("effecttsgo/") &&
+            (Array.isArray(setting) ? setting[0] : setting) !== "error",
+        )
+        .map(([rule]) => rule);
+
+      return rules.length === 0 ? [] : [{ files: override.files, rules }];
+    });
+
+    expect(relaxations.map(({ files }) => files.includes("apps/dashboard/**"))).toEqual([
+      false,
+      true,
+    ]);
+    expect(relaxations[0]?.rules).toEqual(["effecttsgo/strict-effect-provide"]);
+    expect(relaxations[1]?.files).toEqual(["apps/homepage/**", "apps/dashboard/**"]);
   });
 });

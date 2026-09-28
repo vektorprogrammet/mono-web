@@ -2,7 +2,7 @@
 
 [//]: # "constructs: generated from the @construct tags and their JSDoc by just constructs write; do not edit"
 
-Reads native HTTP requests and writes their representations: bounded JSON, preconditions, idempotency keys, entity tags, and cache headers. The [index](../constructs.md) lists every category.
+Derives the transport facts that commands keep across the cutover from HTTP: command identities, request digests, preconditions, and entity tags. The [index](../constructs.md) lists every category.
 
 ## `encodePathIdentity`
 
@@ -18,7 +18,7 @@ encodePathIdentity(identity: string): string
 - Throws: The `Problem` request.malformed when `identity` is not a string of Unicode scalar values, such as one with a lone surrogate.
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-semantics.ts:381](../../apps/backend/src/http-semantics.ts#L381)
+- Source: [apps/backend/src/http-semantics.ts:393](../../apps/backend/src/http-semantics.ts#L393)
 
 **How it works**
 
@@ -44,6 +44,7 @@ identity with this.
 Fills a route template with its encoded identities; a missing identity is a malformed request.
 
 ```ts
+normalizeTarget(identities: Readonly<Record<string, string>>): (routeTemplate: string) => string
 normalizeTarget(routeTemplate: string, identities: Readonly<Record<string, string>>): string
 ```
 
@@ -55,7 +56,7 @@ normalizeTarget(routeTemplate: string, identities: Readonly<Record<string, strin
 - Throws: The `Problem` request.malformed when `identities` lacks a name of the template, or an identity is not a string of Unicode scalar values.
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-semantics.ts:413](../../apps/backend/src/http-semantics.ts#L413)
+- Source: [apps/backend/src/http-semantics.ts:425](../../apps/backend/src/http-semantics.ts#L425)
 
 **How it works**
 
@@ -88,7 +89,7 @@ deriveHttpIdentity(identity: NativeIdempotencyIdentity): DerivedHttpIdentity
 - Throws: The `Problem` request.malformed when the subject, operation id, or target is outside its grammar, and idempotency-key.invalid when the key is.
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-semantics.ts:463](../../apps/backend/src/http-semantics.ts#L463)
+- Source: [apps/backend/src/http-semantics.ts:476](../../apps/backend/src/http-semantics.ts#L476)
 
 **How it works**
 

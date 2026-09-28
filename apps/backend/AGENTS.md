@@ -17,7 +17,6 @@ Each folder of `src` holds a bounded context of [docs/model/contexts.cml](../../
 | `content`           | Content          | [AGENTS.md](src/content/AGENTS.md)           |
 | `delivery`          | Delivery         | [AGENTS.md](src/delivery/AGENTS.md)          |
 | `directory`         | People           | [AGENTS.md](src/directory/AGENTS.md)         |
-| `http-api`          | none             | [AGENTS.md](src/http-api/AGENTS.md)          |
 | `mail`              | Delivery         | [AGENTS.md](src/mail/AGENTS.md)              |
 | `onboarding`        | Recruitment      | [AGENTS.md](src/onboarding/AGENTS.md)        |
 | `organization`      | Organization     | [AGENTS.md](src/organization/AGENTS.md)      |
@@ -26,7 +25,7 @@ Each folder of `src` holds a bounded context of [docs/model/contexts.cml](../../
 | `profile`           | People           | [AGENTS.md](src/profile/AGENTS.md)           |
 | `receipt`           | Economy          | [AGENTS.md](src/receipt/AGENTS.md)           |
 | `recruitment`       | Recruitment      | [AGENTS.md](src/recruitment/AGENTS.md)       |
-| `schools`           | Schools          | [AGENTS.md](src/schools/AGENTS.md)           |
+| `rpc`               | none             | [AGENTS.md](src/rpc/AGENTS.md)               |
 | `social-events`     | SocialEvents     | [AGENTS.md](src/social-events/AGENTS.md)     |
 | `team-application`  | TeamApplications | [AGENTS.md](src/team-application/AGENTS.md)  |
 | `test`              | none             | [AGENTS.md](src/test/AGENTS.md)              |

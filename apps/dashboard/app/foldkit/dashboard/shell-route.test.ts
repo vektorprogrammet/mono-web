@@ -1,34 +1,67 @@
+import { PersonId } from "@vektorprogrammet/domain/organization";
+import { OwnProfileResource, StrongETag, type NativeProblemCode } from "@vektorprogrammet/rpc";
+import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { conditionalReadHeaders, nativeProblemResponse, nativeSessionResponse, sessionCookie } from "../../../test/native-http";
+import {
+  isNativeRpcRequest,
+  nativeRpcProblem,
+  nativeRpcSuccess,
+  nativeSession,
+  readNativeRpcCall,
+} from "../../../test/native-rpc";
+import { sessionCookie } from "../../../test/native-http";
 
 vi.hoisted(() => vi.stubEnv("API_URL", "http://api.test"));
 
 import { dashboardShellVisibility } from "./shell";
 import { loadDashboardShell } from "./shell.server";
 
-const profile = { personId: "person-1", firstName: "Ada", lastName: "Lovelace", email: "ada@example.invalid", phone: "+47 12345678", role: "ROLE_TEAM_MEMBER", nameRevision: 0, contactRevision: 0 };
+const ownProfile = Schema.encodeSync(Schema.toCodecJson(OwnProfileResource))(
+  OwnProfileResource.make({
+    profile: {
+      personId: PersonId.make("person-1"),
+      firstName: "Ada",
+      lastName: "Lovelace",
+      email: "ada@example.invalid",
+      phone: "+47 12345678",
+      role: "ROLE_TEAM_MEMBER",
+      nameRevision: 0,
+      contactRevision: 0,
+    },
+    etag: StrongETag.make('"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"'),
+  }),
+);
 
-const requests: Request[] = [];
+/** Every backend request, as an RPC tag or an HTTP path. */
+const requests: string[] = [];
 
-let profileResponse = () => Response.json(profile, { headers: conditionalReadHeaders });
+let profileProblem: NativeProblemCode | undefined;
 
 const load = () => loadDashboardShell(new Request("http://dashboard.test/dashboard/skoler", { headers: { cookie: sessionCookie } }));
 
 beforeEach(() => {
   requests.length = 0;
-  profileResponse = () => Response.json(profile, { headers: conditionalReadHeaders });
+  profileProblem = undefined;
   vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
-    const request = new Request(input, init);
-    requests.push(request);
-    const path = new URL(request.url).pathname;
+    if (!isNativeRpcRequest(input)) {
+      const path = new URL(new Request(input, init).url).pathname;
+      requests.push(path);
 
-    if (path === "/api/session") return nativeSessionResponse();
+      return Response.json({ user: { name: "Member Session", email: "member@example.invalid" } });
+    }
 
-    if (path === "/api/auth/get-session") return Response.json({ user: { name: "Member Session", email: "member@example.invalid" } });
+    const call = await readNativeRpcCall(input, init);
+    requests.push(call.tag);
 
-    if (path === "/api/auth/sign-out") return new Response(null, { status: 204 });
+    if (call.tag === "system.readSession") return nativeRpcSuccess(call, nativeSession);
 
-    return profileResponse();
+    if (call.tag === "profile.readOwnProfile") {
+      return profileProblem === undefined
+        ? nativeRpcSuccess(call, ownProfile)
+        : nativeRpcProblem(call, profileProblem);
+    }
+
+    return nativeRpcSuccess(call, null);
   }));
 });
 
@@ -36,23 +69,23 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("parent dashboard authority gate", () => {
   it("keeps an authenticated authority-denied actor in a shell with session identity", async () => {
-    profileResponse = () => nativeProblemResponse("authority.denied");
+    profileProblem = "authority.denied";
     await expect(load()).resolves.toEqual({ user: { name: "Member Session", email: "member@example.invalid" }, isAdmin: false, hasOrganizationContext: false });
-    expect(requests.map(request => new URL(request.url).pathname)).toContain("/api/auth/get-session");
-    expect(requests.some(request => new URL(request.url).pathname === "/api/auth/sign-out")).toBe(false);
+    expect(requests).toContain("/api/auth/get-session");
+    expect(requests).not.toContain("system.deleteSession");
   });
   it("returns a canonical profile identity for an active team member", async () => {
     await expect(load()).resolves.toEqual({ user: { name: "Ada Lovelace", email: "ada@example.invalid" }, isAdmin: false, hasOrganizationContext: true });
-    expect(requests.some(request => new URL(request.url).pathname === "/api/auth/get-session")).toBe(false);
+    expect(requests).toEqual(["system.readSession", "profile.readOwnProfile"]);
   });
   it("redirects only an unauthorized profile request as expired", async () => {
-    profileResponse = () => nativeProblemResponse("credential.invalid");
+    profileProblem = "credential.invalid";
     await expect(load()).rejects.toMatchObject({ status: 302 });
   });
   it("surfaces a profile infrastructure failure without dropping the session", async () => {
-    profileResponse = () => nativeProblemResponse("profile.unavailable");
+    profileProblem = "profile.unavailable";
     await expect(load()).rejects.toMatchObject({ status: 503 });
-    expect(requests.some(request => new URL(request.url).pathname === "/api/auth/sign-out")).toBe(false);
+    expect(requests).not.toContain("system.deleteSession");
   });
 });
 

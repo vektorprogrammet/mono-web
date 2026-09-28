@@ -1,5 +1,5 @@
-import { StrongETag } from "@vektorprogrammet/http-api";
-import { Problem } from "@vektorprogrammet/http-api/http-semantics";
+import { StrongETag } from "@vektorprogrammet/rpc";
+import { Problem } from "@vektorprogrammet/rpc/problem";
 import { Effect } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import {
@@ -401,14 +401,24 @@ describe("native HTTP semantics", () => {
       ).toThrow("unsupported");
     }
 
-    const request = new Request("https://api.example.invalid/api/profile", {
-      method: "OPTIONS",
-      headers: {
-        "access-control-request-headers": "Content-Type, If-Match",
-      },
-    });
+    const preflightAsking = (headers: string) =>
+      new Request("https://api.example.invalid/api/rpc", {
+        method: "OPTIONS",
+        headers: { "access-control-request-headers": headers },
+      });
 
-    expect(allowsNativePreflightHeaders(request)).toBe(true);
+    expect(allowsNativePreflightHeaders(preflightAsking("Content-Type, Authorization"))).toBe(true);
+
+    // An RPC carries its precondition, idempotency key, and capability in the payload.
+    for (const header of [
+      "If-Match",
+      "If-None-Match",
+      "Idempotency-Key",
+      "X-Recruitment-Invitation-Capability",
+    ]) {
+      expect(allowsNativePreflightHeaders(preflightAsking(`Content-Type, ${header}`))).toBe(false);
+    }
+
     const preflight = trustedPreflightResponse(policy.trustedOrigins[0]!, ["PATCH", "GET"]);
     expect(preflight.headers.get("access-control-allow-methods")).toBe("GET, HEAD, PATCH, OPTIONS");
     expect(preflight.headers.get("vary")).toBe(

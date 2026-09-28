@@ -1,4 +1,5 @@
 import { Effect, Option, Schema } from "effect";
+import { dual } from "effect/Function";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import { certificateIssuerBasis, Delegation, IssuerBasis } from "@vektorprogrammet/domain/authz";
@@ -28,7 +29,7 @@ import {
 import { PersonId } from "@vektorprogrammet/domain/organization";
 
 const decodeError = (operation: string, cause: unknown) =>
-  new OrganizationDecodeError({ operation, message: String(cause) });
+  OrganizationDecodeError.make({ operation, message: String(cause) });
 
 export type OrganizationAuthorityRowLockMode = "None" | "ForShare";
 
@@ -63,21 +64,29 @@ export const lockOrganizationAdministratorSet = (sql: DatabaseOperations) =>
  *
  * @construct sql-lock
  */
-export const lockPersonAuthorization = (
-  sql: DatabaseOperations,
-  personId: PersonId,
-): Effect.Effect<void, OrganizationPersistenceError> =>
-  lockAdvisory(sql, AdvisoryLockKey.personAuthorization(personId)).pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(
-        new OrganizationPersistenceError({
-          operation: "lock person authorization",
-          message: String(cause),
-          cause,
-        }),
+export const lockPersonAuthorization: {
+  (
+    personId: PersonId,
+  ): (sql: DatabaseOperations) => Effect.Effect<void, OrganizationPersistenceError>;
+  (sql: DatabaseOperations, personId: PersonId): Effect.Effect<void, OrganizationPersistenceError>;
+} = dual(
+  2,
+  (
+    sql: DatabaseOperations,
+    personId: PersonId,
+  ): Effect.Effect<void, OrganizationPersistenceError> =>
+    lockAdvisory(sql, AdvisoryLockKey.personAuthorization(personId)).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(
+          OrganizationPersistenceError.make({
+            operation: "lock person authorization",
+            message: String(cause),
+            cause,
+          }),
+        ),
       ),
     ),
-  );
+);
 
 const OrganizationAuthorityPersonRowSchema = Schema.Struct({ personId: PersonId });
 
@@ -94,38 +103,51 @@ export type OrganizationAuthorityWriteFailure =
  * The unlocked person lookup is repeated under the advisory and row locks so
  * a delete/reinsert cannot move the authority to another person.
  */
-export const lockOrganizationGlobalAdministratorGrantForWrite = (
-  sql: DatabaseOperations,
-  grantId: OrganizationGlobalAdministratorGrant["grantId"],
-  expectedRevision: number,
-): Effect.Effect<OrganizationGlobalAdministratorGrant, OrganizationAuthorityWriteFailure> =>
-  Effect.gen(function* () {
-    yield* lockOrganizationAdministratorSet(sql);
+export const lockOrganizationGlobalAdministratorGrantForWrite: {
+  (
+    grantId: OrganizationGlobalAdministratorGrant["grantId"],
+    expectedRevision: number,
+  ): (
+    sql: DatabaseOperations,
+  ) => Effect.Effect<OrganizationGlobalAdministratorGrant, OrganizationAuthorityWriteFailure>;
+  (
+    sql: DatabaseOperations,
+    grantId: OrganizationGlobalAdministratorGrant["grantId"],
+    expectedRevision: number,
+  ): Effect.Effect<OrganizationGlobalAdministratorGrant, OrganizationAuthorityWriteFailure>;
+} = dual(
+  3,
+  (
+    sql: DatabaseOperations,
+    grantId: OrganizationGlobalAdministratorGrant["grantId"],
+    expectedRevision: number,
+  ): Effect.Effect<OrganizationGlobalAdministratorGrant, OrganizationAuthorityWriteFailure> =>
+    Effect.gen(function* () {
+      yield* lockOrganizationAdministratorSet(sql);
 
-    const observedRows = yield* sql<OrganizationAuthorityPersonRow>`
+      const observedRows = yield* sql<OrganizationAuthorityPersonRow>`
       SELECT person_id AS "personId"
       FROM public.organization_global_administrator_grants
       WHERE grant_id = ${grantId}
     `;
 
-    const observed = yield* Schema.decodeEffect(Schema.Array(OrganizationAuthorityPersonRowSchema))(
-      observedRows,
-      { onExcessProperty: "error" },
-    ).pipe(
-      Effect.mapError((cause) =>
-        decodeError("decode Organization global-administrator grant person", cause),
-      ),
-    );
+      const observed = yield* Schema.decodeEffect(
+        Schema.Array(OrganizationAuthorityPersonRowSchema),
+      )(observedRows, { onExcessProperty: "error" }).pipe(
+        Effect.mapError((cause) =>
+          decodeError("decode Organization global-administrator grant person", cause),
+        ),
+      );
 
-    const observedPerson = observed[0]?.personId;
+      const observedPerson = observed[0]?.personId;
 
-    if (observedPerson === undefined) {
-      return yield* new OrganizationAuthorityRecordNotFound({ grantId });
-    }
+      if (observedPerson === undefined) {
+        return yield* OrganizationAuthorityRecordNotFound.make({ grantId });
+      }
 
-    yield* lockPersonAuthorization(sql, observedPerson);
+      yield* lockPersonAuthorization(sql, observedPerson);
 
-    const lockedRows = yield* sql<OrganizationGlobalAdministratorGrant>`
+      const lockedRows = yield* sql<OrganizationGlobalAdministratorGrant>`
       SELECT
         grant_id AS "grantId",
         person_id AS "personId",
@@ -140,35 +162,36 @@ export const lockOrganizationGlobalAdministratorGrantForWrite = (
       FOR UPDATE
     `;
 
-    const locked = yield* Schema.decodeEffect(
-      Schema.Array(OrganizationGlobalAdministratorGrantSchema),
-    )(lockedRows, { onExcessProperty: "error" }).pipe(
-      Effect.mapError((cause) =>
-        decodeError("decode locked Organization global-administrator grant", cause),
-      ),
-    );
+      const locked = yield* Schema.decodeEffect(
+        Schema.Array(OrganizationGlobalAdministratorGrantSchema),
+      )(lockedRows, { onExcessProperty: "error" }).pipe(
+        Effect.mapError((cause) =>
+          decodeError("decode locked Organization global-administrator grant", cause),
+        ),
+      );
 
-    const grant = locked[0];
+      const grant = locked[0];
 
-    if (
-      grant === undefined ||
-      grant.personId !== observedPerson ||
-      grant.revision !== expectedRevision
-    ) {
-      return yield* new OrganizationAuthorityWriteConflict({ grantId, expectedRevision });
-    }
+      if (
+        grant === undefined ||
+        grant.personId !== observedPerson ||
+        grant.revision !== expectedRevision
+      ) {
+        return yield* OrganizationAuthorityWriteConflict.make({ grantId, expectedRevision });
+      }
 
-    return grant;
-  }).pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(
-        new OrganizationPersistenceError({
-          operation: "lock Organization global-administrator grant",
-          message: String(cause),
-        }),
+      return grant;
+    }).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(
+          OrganizationPersistenceError.make({
+            operation: "lock Organization global-administrator grant",
+            message: String(cause),
+          }),
+        ),
       ),
     ),
-  );
+);
 
 export const createOrganizationGlobalAdministratorGrant = (
   input: typeof CreateOrganizationGlobalAdministratorGrantInputSchema.Encoded,
@@ -223,7 +246,7 @@ export const createOrganizationGlobalAdministratorGrant = (
       .pipe(
         Effect.catchTag("SqlError", (cause) =>
           Effect.fail(
-            new OrganizationPersistenceError({
+            OrganizationPersistenceError.make({
               operation: "create Organization global-administrator grant",
               message: String(cause),
             }),
@@ -282,7 +305,7 @@ export const endOrganizationGlobalAdministratorGrant = (
           `;
 
           if (updated.length !== 1) {
-            return yield* new OrganizationAuthorityWriteConflict({
+            return yield* OrganizationAuthorityWriteConflict.make({
               grantId: command.grantId,
               expectedRevision: command.expectedRevision,
             });
@@ -294,7 +317,7 @@ export const endOrganizationGlobalAdministratorGrant = (
       .pipe(
         Effect.catchTag("SqlError", (cause) =>
           Effect.fail(
-            new OrganizationPersistenceError({
+            OrganizationPersistenceError.make({
               operation: "end Organization global-administrator grant",
               message: String(cause),
             }),
@@ -338,7 +361,7 @@ export const removeOrganizationGlobalAdministratorGrant = (
           `;
 
           if (removed.length !== 1) {
-            return yield* new OrganizationAuthorityWriteConflict({
+            return yield* OrganizationAuthorityWriteConflict.make({
               grantId: command.grantId,
               expectedRevision: command.expectedRevision,
             });
@@ -350,7 +373,7 @@ export const removeOrganizationGlobalAdministratorGrant = (
       .pipe(
         Effect.catchTag("SqlError", (cause) =>
           Effect.fail(
-            new OrganizationPersistenceError({
+            OrganizationPersistenceError.make({
               operation: "remove Organization global-administrator grant",
               message: String(cause),
             }),
@@ -376,23 +399,47 @@ const OrganizationAuthorityFactsSchema = Schema.Struct({
  * person's teams. `ForShare` locks every row that the decision reads and is command-safe only
  * when the supplied SQL client is the state-transition transaction client.
  */
-export const resolveOrganizationPersonAuthorityWithSql = (
-  sql: DatabaseOperations,
-  personId: PersonId,
-  authorizationInstant: OrganizationAuthorityInstant,
-  lockMode: OrganizationAuthorityRowLockMode,
-): Effect.Effect<
-  OrganizationPersonAuthority,
-  OrganizationDecodeError | OrganizationPersistenceError
-> =>
-  Effect.gen(function* () {
-    const evaluatedAt = yield* Schema.decodeEffect(OrganizationAuthorityInstantSchema)(
-      authorizationInstant,
-    ).pipe(Effect.mapError((cause) => decodeError("decode Organization authority instant", cause)));
+export const resolveOrganizationPersonAuthorityWithSql: {
+  (
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+    lockMode: OrganizationAuthorityRowLockMode,
+  ): (
+    sql: DatabaseOperations,
+  ) => Effect.Effect<
+    OrganizationPersonAuthority,
+    OrganizationDecodeError | OrganizationPersistenceError
+  >;
+  (
+    sql: DatabaseOperations,
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+    lockMode: OrganizationAuthorityRowLockMode,
+  ): Effect.Effect<
+    OrganizationPersonAuthority,
+    OrganizationDecodeError | OrganizationPersistenceError
+  >;
+} = dual(
+  4,
+  (
+    sql: DatabaseOperations,
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+    lockMode: OrganizationAuthorityRowLockMode,
+  ): Effect.Effect<
+    OrganizationPersonAuthority,
+    OrganizationDecodeError | OrganizationPersistenceError
+  > =>
+    Effect.gen(function* () {
+      const evaluatedAt = yield* Schema.decodeEffect(OrganizationAuthorityInstantSchema)(
+        authorizationInstant,
+      ).pipe(
+        Effect.mapError((cause) => decodeError("decode Organization authority instant", cause)),
+      );
 
-    const shared = lockMode === "ForShare";
+      const shared = lockMode === "ForShare";
 
-    const globalAdministrator = yield* sql`
+      const globalAdministrator = yield* sql`
       WITH locked_global_administrator_grants AS MATERIALIZED (
         SELECT grant_id, start_at, end_at
         FROM public.organization_global_administrator_grants AS administrator_grant
@@ -414,7 +461,7 @@ export const resolveOrganizationPersonAuthorityWithSql = (
       FROM locked_global_administrator_grants
     `;
 
-    const memberships = yield* sql`
+      const memberships = yield* sql`
       SELECT
         membership.membership_id AS "membershipId",
         team.team_id AS "teamId",
@@ -439,7 +486,7 @@ export const resolveOrganizationPersonAuthorityWithSql = (
       ${shared ? sql`FOR SHARE OF membership, team, department` : sql``}
     `;
 
-    const nationalBoardSeats = yield* sql`
+      const nationalBoardSeats = yield* sql`
       SELECT
         membership.membership_id AS "membershipId",
         membership.board_id AS "boardId",
@@ -455,7 +502,7 @@ export const resolveOrganizationPersonAuthorityWithSql = (
       ${shared ? sql`FOR SHARE OF membership` : sql``}
     `;
 
-    const delegations = yield* sql`
+      const delegations = yield* sql`
       SELECT
         delegation.delegation_id AS "delegationId",
         delegation.name,
@@ -483,42 +530,44 @@ export const resolveOrganizationPersonAuthorityWithSql = (
       ${shared ? sql`FOR SHARE OF delegation` : sql``}
     `;
 
-    const facts = yield* Schema.decodeUnknownEffect(OrganizationAuthorityFactsSchema)(
-      { globalAdministrator, memberships, nationalBoardSeats, delegations },
-      { onExcessProperty: "error" },
-    ).pipe(Effect.mapError((cause) => decodeError("decode Organization person authority", cause)));
-
-    const status = facts.globalAdministrator[0];
-
-    if (status === undefined || facts.globalAdministrator.length !== 1) {
-      return yield* decodeError(
-        "decode Organization person authority",
-        "authority projection returned no single global-administrator status",
+      const facts = yield* Schema.decodeUnknownEffect(OrganizationAuthorityFactsSchema)(
+        { globalAdministrator, memberships, nationalBoardSeats, delegations },
+        { onExcessProperty: "error" },
+      ).pipe(
+        Effect.mapError((cause) => decodeError("decode Organization person authority", cause)),
       );
-    }
 
-    return {
-      personId,
-      evaluatedAt,
-      globalAdministrator: status.globalAdministrator,
-      memberships: facts.memberships,
-      nationalBoardSeats: facts.nationalBoardSeats,
-      delegations: facts.delegations,
-    };
-  }).pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(
-        new OrganizationPersistenceError({
-          operation: "resolve Organization person authority",
-          message: String(cause),
-          cause,
-        }),
+      const status = facts.globalAdministrator[0];
+
+      if (status === undefined || facts.globalAdministrator.length !== 1) {
+        return yield* decodeError(
+          "decode Organization person authority",
+          "authority projection returned no single global-administrator status",
+        );
+      }
+
+      return {
+        personId,
+        evaluatedAt,
+        globalAdministrator: status.globalAdministrator,
+        memberships: facts.memberships,
+        nationalBoardSeats: facts.nationalBoardSeats,
+        delegations: facts.delegations,
+      };
+    }).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(
+          OrganizationPersistenceError.make({
+            operation: "resolve Organization person authority",
+            message: String(cause),
+            cause,
+          }),
+        ),
       ),
     ),
-  );
+);
 
-/** Existing service projection; receipt commands use the caller-SQL form. */
-export const resolveOrganizationPersonAuthority = (
+const resolveOrganizationPersonAuthorityImpl = (
   personId: PersonId,
   authorizationInstant: OrganizationAuthorityInstant,
 ) =>
@@ -533,8 +582,18 @@ export const resolveOrganizationPersonAuthority = (
     );
   });
 
-/** Read projection for a caller-owned repeatable-read, read-only snapshot. */
-export const resolveOrganizationPersonAuthorityForRead = (
+/** Existing service projection; receipt commands use the caller-SQL form. */
+export const resolveOrganizationPersonAuthority: {
+  (
+    authorizationInstant: OrganizationAuthorityInstant,
+  ): (personId: PersonId) => ReturnType<typeof resolveOrganizationPersonAuthorityImpl>;
+  (
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+  ): ReturnType<typeof resolveOrganizationPersonAuthorityImpl>;
+} = dual(2, resolveOrganizationPersonAuthorityImpl);
+
+const resolveOrganizationPersonAuthorityForReadImpl = (
   personId: PersonId,
   authorizationInstant: OrganizationAuthorityInstant,
 ) =>
@@ -549,6 +608,17 @@ export const resolveOrganizationPersonAuthorityForRead = (
     );
   });
 
+/** Read projection for a caller-owned repeatable-read, read-only snapshot. */
+export const resolveOrganizationPersonAuthorityForRead: {
+  (
+    authorizationInstant: OrganizationAuthorityInstant,
+  ): (personId: PersonId) => ReturnType<typeof resolveOrganizationPersonAuthorityForReadImpl>;
+  (
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+  ): ReturnType<typeof resolveOrganizationPersonAuthorityForReadImpl>;
+} = dual(2, resolveOrganizationPersonAuthorityForReadImpl);
+
 /** A department with the facts that decide which board governs it. */
 export const GovernedDepartmentRow = Schema.Struct({
   departmentId: DepartmentId,
@@ -562,36 +632,57 @@ export type GovernedDepartmentRow = typeof GovernedDepartmentRow.Type;
  * The active departments, or one department, with their independence. `ForShare` keeps the
  * independence of the read departments fixed until the caller's transaction ends.
  */
-export const readGovernedDepartmentsWithSql = (
-  sql: DatabaseOperations,
-  departmentId: DepartmentId | null,
-  lockMode: OrganizationAuthorityRowLockMode,
-): Effect.Effect<
-  ReadonlyArray<GovernedDepartmentRow>,
-  OrganizationDecodeError | OrganizationPersistenceError
-> =>
-  sql`
+export const readGovernedDepartmentsWithSql: {
+  (
+    departmentId: DepartmentId | null,
+    lockMode: OrganizationAuthorityRowLockMode,
+  ): (
+    sql: DatabaseOperations,
+  ) => Effect.Effect<
+    ReadonlyArray<GovernedDepartmentRow>,
+    OrganizationDecodeError | OrganizationPersistenceError
+  >;
+  (
+    sql: DatabaseOperations,
+    departmentId: DepartmentId | null,
+    lockMode: OrganizationAuthorityRowLockMode,
+  ): Effect.Effect<
+    ReadonlyArray<GovernedDepartmentRow>,
+    OrganizationDecodeError | OrganizationPersistenceError
+  >;
+} = dual(
+  3,
+  (
+    sql: DatabaseOperations,
+    departmentId: DepartmentId | null,
+    lockMode: OrganizationAuthorityRowLockMode,
+  ): Effect.Effect<
+    ReadonlyArray<GovernedDepartmentRow>,
+    OrganizationDecodeError | OrganizationPersistenceError
+  > =>
+    sql`
     SELECT department_id AS "departmentId", name, independent
     FROM public.organization_departments
     WHERE active AND (${departmentId}::text IS NULL OR department_id = ${departmentId})
     ORDER BY name, department_id
     ${lockMode === "ForShare" ? sql`FOR SHARE` : sql``}
   `.pipe(
-    Effect.flatMap((rows) =>
-      Schema.decodeUnknownEffect(Schema.Array(GovernedDepartmentRow))(rows, {
-        onExcessProperty: "error",
-      }).pipe(Effect.mapError((cause) => decodeError("decode governed departments", cause))),
-    ),
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(
-        new OrganizationPersistenceError({
-          operation: "read governed departments",
-          message: String(cause),
-          cause,
-        }),
+      Effect.flatMap((rows) =>
+        Schema.decodeUnknownEffect(Schema.Array(GovernedDepartmentRow))(rows, {
+          onExcessProperty: "error",
+        }).pipe(Effect.mapError((cause) => decodeError("decode governed departments", cause))),
+      ),
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(
+          OrganizationPersistenceError.make({
+            operation: "read governed departments",
+            message: String(cause),
+            cause,
+          }),
+        ),
       ),
     ),
-  );
+);
 
 const SeatFactsRow = Schema.Struct({
   issuerName: Schema.String,
@@ -603,26 +694,46 @@ const SeatFactsRow = Schema.Struct({
  * The issuer that a certificate of the department names for this authority: the person's name
  * and the title of the seat, or the grant, that authorizes them. None without a basis.
  */
-export const certificateIssuerWithSql = (
-  sql: DatabaseOperations,
-  authority: OrganizationPersonAuthority,
-  department: GovernedDepartmentRow,
-): Effect.Effect<
-  Option.Option<CertificateIssuer>,
-  OrganizationDecodeError | OrganizationPersistenceError
-> =>
-  Effect.gen(function* () {
-    const basis = certificateIssuerBasis(authority, department);
+export const certificateIssuerWithSql: {
+  (
+    authority: OrganizationPersonAuthority,
+    department: GovernedDepartmentRow,
+  ): (
+    sql: DatabaseOperations,
+  ) => Effect.Effect<
+    Option.Option<CertificateIssuer>,
+    OrganizationDecodeError | OrganizationPersistenceError
+  >;
+  (
+    sql: DatabaseOperations,
+    authority: OrganizationPersonAuthority,
+    department: GovernedDepartmentRow,
+  ): Effect.Effect<
+    Option.Option<CertificateIssuer>,
+    OrganizationDecodeError | OrganizationPersistenceError
+  >;
+} = dual(
+  3,
+  (
+    sql: DatabaseOperations,
+    authority: OrganizationPersonAuthority,
+    department: GovernedDepartmentRow,
+  ): Effect.Effect<
+    Option.Option<CertificateIssuer>,
+    OrganizationDecodeError | OrganizationPersistenceError
+  > =>
+    Effect.gen(function* () {
+      const basis = certificateIssuerBasis(authority, department);
 
-    if (Option.isNone(basis)) return Option.none();
+      if (Option.isNone(basis)) return Option.none();
 
-    const membershipId = IssuerBasis.$match(basis.value, {
-      BoardSeat: ({ membershipId }): string | null => membershipId,
-      DerivedSeat: ({ membershipId }) => membershipId,
-      GlobalAdministrator: () => null,
-    });
+      const membershipId = IssuerBasis.$match(basis.value, {
+        BoardSeat: ({ membershipId }): string | null => membershipId,
+        DerivedSeat: ({ membershipId }) => membershipId,
+        GlobalAdministrator: () => null,
+      });
 
-    const rows = yield* sql`
+      const rows = yield* sql`
       SELECT
         profile.first_name || ' ' || profile.last_name AS "issuerName",
         membership.position_name AS position,
@@ -635,44 +746,48 @@ export const certificateIssuerWithSql = (
       WHERE profile.person_id = ${authority.personId}
     `;
 
-    const [facts] = yield* Schema.decodeUnknownEffect(Schema.Array(SeatFactsRow))(rows, {
-      onExcessProperty: "error",
-    }).pipe(Effect.mapError((cause) => decodeError("decode certificate issuer seat", cause)));
+      const [facts] = yield* Schema.decodeUnknownEffect(Schema.Array(SeatFactsRow))(rows, {
+        onExcessProperty: "error",
+      }).pipe(Effect.mapError((cause) => decodeError("decode certificate issuer seat", cause)));
 
-    if (facts === undefined || (membershipId !== null && facts.unitName === null))
-      return yield* decodeError("decode certificate issuer seat", "the authorizing seat is absent");
+      if (facts === undefined || (membershipId !== null && facts.unitName === null))
+        return yield* decodeError(
+          "decode certificate issuer seat",
+          "the authorizing seat is absent",
+        );
 
-    const unitName = facts.unitName ?? "";
+      const unitName = facts.unitName ?? "";
 
-    const title = issuerSeatTitle(
-      IssuerBasis.$match(basis.value, {
-        BoardSeat: () =>
-          IssuerSeatFacts.BoardSeat({ position: facts.position, boardName: unitName }),
-        DerivedSeat: () =>
-          IssuerSeatFacts.DerivedSeat({ position: facts.position, teamName: unitName }),
-        GlobalAdministrator: () => IssuerSeatFacts.GlobalAdministrator(),
-      }),
-    );
-
-    return Option.some(
-      yield* Schema.decodeEffect(CertificateIssuer)(
-        {
-          personId: authority.personId,
-          name: facts.issuerName,
-          seatTitle: title,
-          basis: basis.value._tag,
-        },
-        { onExcessProperty: "error" },
-      ).pipe(Effect.mapError((cause) => decodeError("decode certificate issuer", cause))),
-    );
-  }).pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(
-        new OrganizationPersistenceError({
-          operation: "read certificate issuer seat",
-          message: String(cause),
-          cause,
+      const title = issuerSeatTitle(
+        IssuerBasis.$match(basis.value, {
+          BoardSeat: () =>
+            IssuerSeatFacts.BoardSeat({ position: facts.position, boardName: unitName }),
+          DerivedSeat: () =>
+            IssuerSeatFacts.DerivedSeat({ position: facts.position, teamName: unitName }),
+          GlobalAdministrator: () => IssuerSeatFacts.GlobalAdministrator(),
         }),
+      );
+
+      return Option.some(
+        yield* Schema.decodeEffect(CertificateIssuer)(
+          {
+            personId: authority.personId,
+            name: facts.issuerName,
+            seatTitle: title,
+            basis: basis.value._tag,
+          },
+          { onExcessProperty: "error" },
+        ).pipe(Effect.mapError((cause) => decodeError("decode certificate issuer", cause))),
+      );
+    }).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(
+          OrganizationPersistenceError.make({
+            operation: "read certificate issuer seat",
+            message: String(cause),
+            cause,
+          }),
+        ),
       ),
     ),
-  );
+);

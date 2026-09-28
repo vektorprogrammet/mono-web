@@ -1,9 +1,14 @@
 
-import { StrongETag } from "@vektorprogrammet/http-api";
 import { Schema as S, flow } from "effect";
 import { data } from "react-router";
-import { contentBridgeFailure, type ContentBridgeErrorTag, ContentBridgeActionSchema } from "../foldkit/content/bridge";
-import { createAuthenticatedClient } from "../lib/api.server";
+import {
+  contentBridgeFailure,
+  type ContentBridgeErrorTag,
+  ContentArticleObservationSchema,
+  ContentBridgeActionSchema,
+  ContentWorkspaceBootstrapSchema,
+} from "../foldkit/content/bridge";
+import { callNative } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import { nativeFailureFrom } from "../lib/native-problem";
 import type { Route } from "./+types/__foldkit.content";
@@ -78,18 +83,11 @@ const tagFrom = flow(nativeFailureFrom, (error): ContentBridgeErrorTag => {
   return "ContentPersistenceError";
 });
 
-const articleObservation = <
-  A extends {
-    readonly body: unknown;
-    readonly headers: { readonly etag: StrongETag };
-  },
->(
-  result: A,
-) => {
-  if (result.body === undefined) throw new Error("Content response did not include a body");
-
-  return { body: result.body, etag: result.headers.etag };
-};
+/** The article and its entity tag, as the browser client reads them from the bridge. */
+const articleObservation = (resource: {
+  readonly article: typeof ContentArticleObservationSchema.Type["body"];
+  readonly etag: typeof ContentArticleObservationSchema.Type["etag"];
+}) => S.encodeSync(ContentArticleObservationSchema)({ body: resource.article, etag: resource.etag });
 
 export async function loader({ request }: Route.LoaderArgs) {
   let cookie: string;
@@ -106,24 +104,18 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   try {
-    const client = createAuthenticatedClient(cookie, request);
-
-    const [workspaceResult, departmentsResult] = await Promise.all([
-      client.content.readContentWorkspace({ query: {} }),
-      client.organization.listDepartments({ headers: {} }),
+    const [workspace, departments] = await Promise.all([
+      callNative(cookie, request, (client) => client["content.readContentWorkspace"]({})),
+      callNative(cookie, request, (client) => client["organization.listDepartments"]()),
     ]);
 
-    if (workspaceResult.body === undefined || departmentsResult.body === undefined) {
-      throw new Error("Content workspace response did not include a body");
-    }
-
     return data(
-      {
-        workspace: workspaceResult.body,
-        knownDepartments: departmentsResult.body
+      S.encodeSync(ContentWorkspaceBootstrapSchema)({
+        workspace,
+        knownDepartments: departments
           .filter((department) => department.active)
           .map(({ departmentId, name }) => ({ departmentId, name })),
-      },
+      }),
       { headers: responseHeaders },
     );
   } catch (error) {
@@ -165,43 +157,49 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   try {
-    const client = createAuthenticatedClient(cookie, request);
-
     switch (command.operation) {
-      case "readArticle":
+      case "readArticle": {
+        const { articleId } = command;
+
         return data(
           articleObservation(
-            await client.content.readArticle({
-              params: { articleId: command.articleId },
-              headers: {},
-            }),
+            await callNative(cookie, request, (client) =>
+              client["content.readArticle"]({ articleId }),
+            ),
           ),
           { headers: responseHeaders },
         );
+      }
+
       case "createDraft": {
-        const { operation: _, commandId, ...payload } = command;
+        const { operation: _, commandId, ...article } = command;
 
         return data(
           articleObservation(
-            await client.content.createArticle({
-              headers: { "idempotency-key": commandId },
-              payload,
-            }),
+            await callNative(cookie, request, (client) =>
+              client["content.createArticle"]({
+                idempotencyKey: commandId,
+                request: article,
+              }),
+            ),
           ),
           { headers: responseHeaders },
         );
       }
 
       case "reviseDraft": {
-        const { operation: _, commandId, articleId, etag, ...payload } = command;
+        const { operation: _, commandId, articleId, etag, ...patch } = command;
 
         return data(
           articleObservation(
-            await client.content.reviseArticle({
-              params: { articleId },
-              headers: { "idempotency-key": commandId, "if-match": etag },
-              payload,
-            }),
+            await callNative(cookie, request, (client) =>
+              client["content.reviseArticle"]({
+                articleId,
+                idempotencyKey: commandId,
+                ifMatch: etag,
+                request: patch,
+              }),
+            ),
           ),
           { headers: responseHeaders },
         );
@@ -209,24 +207,24 @@ export async function action({ request }: Route.ActionArgs) {
 
       case "publish":
       case "unpublish": {
-        const current = await client.content.readArticle({
-          params: { articleId: command.articleId },
-          headers: {},
-        });
+        const { articleId, commandId, operation } = command;
 
-        const method =
-          command.operation === "publish"
-            ? client.content.publishArticle
-            : client.content.unpublishArticle;
+        // The transition runs under the entity tag of the article as the server reads it now.
+        const current = await callNative(cookie, request, (client) =>
+          client["content.readArticle"]({ articleId }),
+        );
 
-        await method({
-          params: { articleId: command.articleId },
-          headers: {
-            "idempotency-key": command.commandId,
-            "if-match": current.headers.etag,
-          },
-          payload: {},
-        });
+        const transition = {
+          articleId,
+          idempotencyKey: commandId,
+          ifMatch: current.etag,
+        };
+
+        await callNative(cookie, request, (client) =>
+          operation === "publish"
+            ? client["content.publishArticle"](transition)
+            : client["content.unpublishArticle"](transition),
+        );
 
         return data({}, { headers: responseHeaders });
       }

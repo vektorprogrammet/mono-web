@@ -1,4 +1,4 @@
-import AxeBuilder from "@axe-core/playwright";
+import { auditSettledPage } from "./settled-axe.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
@@ -22,14 +22,7 @@ const signIn = async (
 };
 
 const axe = async (page: Page) => {
-  const result = await new AxeBuilder({ page }).analyze();
-  expect(
-    result.violations.map((v) => ({
-      id: v.id,
-      impact: v.impact,
-      targets: v.nodes.map((n) => n.target),
-    })),
-  ).toEqual([]);
+  expect(await auditSettledPage(page)).toEqual([]);
 };
 
 test("0099 applicant claims an invited account then requests affiliation and receives a placement", async ({

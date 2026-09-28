@@ -17,7 +17,7 @@ const AdvisoryLockKey: AdvisoryLockKeys
 - Errors: none
 - Requirements: none
 - Side effects: none: it builds key text, and `lockAdvisory` takes the lock.
-- Source: [packages/database/src/advisory-lock.ts:125](../../packages/database/src/advisory-lock.ts#L125)
+- Source: [packages/database/src/advisory-lock.ts:126](../../packages/database/src/advisory-lock.ts#L126)
 
 **How it works**
 
@@ -46,21 +46,25 @@ Waits for the advisory lock on `key` until the current transaction ends.
 
 ```ts
 lockAdvisory(
+  key: AdvisoryLockKey,
+  mode?: AdvisoryLockMode
+): (sql: DatabaseOperations) => Effect.Effect<void, SqlError>
+lockAdvisory(
   sql: DatabaseOperations,
   key: AdvisoryLockKey,
-  mode: AdvisoryLockMode = "exclusive"
+  mode?: AdvisoryLockMode
 ): Effect.Effect<void, SqlError>
 ```
 
 - Inputs:
   - `sql: DatabaseOperations`
   - `key: AdvisoryLockKey`
-  - `mode: AdvisoryLockMode = "exclusive"`
+  - `mode?: AdvisoryLockMode`
 - Output: `Effect.Effect<void, SqlError>`
 - Errors: `SqlError`
 - Requirements: none
 - Side effects: Holds a PostgreSQL advisory lock until the transaction ends, and waits while another transaction holds a conflicting one.
-- Source: [packages/database/src/advisory-lock.ts:203](../../packages/database/src/advisory-lock.ts#L203)
+- Source: [packages/database/src/advisory-lock.ts:204](../../packages/database/src/advisory-lock.ts#L204)
 
 **How it works**
 
@@ -89,6 +93,9 @@ Serializes one person's protected command with person-keyed authority writers.
 
 ```ts
 lockPersonAuthorization(
+  personId: PersonId
+): (sql: DatabaseOperations) => Effect.Effect<void, OrganizationPersistenceError>
+lockPersonAuthorization(
   sql: DatabaseOperations,
   personId: PersonId
 ): Effect.Effect<void, OrganizationPersistenceError>
@@ -101,7 +108,7 @@ lockPersonAuthorization(
 - Errors: `OrganizationPersistenceError`
 - Requirements: none
 - Side effects: Holds the person's advisory lock until the transaction ends, and waits while another transaction holds it.
-- Source: [packages/database/src/organization/authority-postgres.ts:66](../../packages/database/src/organization/authority-postgres.ts#L66)
+- Source: [packages/database/src/organization/authority-postgres.ts:67](../../packages/database/src/organization/authority-postgres.ts#L67)
 
 **How it works**
 

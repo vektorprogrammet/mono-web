@@ -1,8 +1,8 @@
 import { Predicate, Match } from "effect";
-import { interviewRecommendations } from "@vektorprogrammet/http-api"
+import { interviewRecommendations } from "@vektorprogrammet/domain/recruitment";
 import type { RecruitmentInterviewConductObservation,
 RecruitmentInterviewQuestionSnapshot,
-RecruitmentSchedulingInterview, } from "@vektorprogrammet/http-api"
+RecruitmentSchedulingInterview, } from "@vektorprogrammet/rpc"
 import { Button, Dialog, Input } from "@foldkit/ui";
 import { AsyncData, FieldValidation } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
@@ -250,7 +250,7 @@ const interviewCard = (
 
 const successfulBoard = (
   model: ReadyModel,
-  board: typeof SchedulingBoard.Type,
+  board: SchedulingBoard,
   h: HtmlBuilder<Message>,
 ): Html =>
   h.section(

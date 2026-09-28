@@ -1,4 +1,6 @@
 import { Predicate } from "effect";
+import { replacedAnswer, replacedRequest } from "./native-rpc-ledger.ts";
+import { isNativeRpcPath } from "./native-operations.ts";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
@@ -250,6 +252,15 @@ const startProxy = async (targetOrigin) => {
       responseHasCapability: false,
     };
 
+    const rpc = isNativeRpcPath(path) ? replacedRequest(parseJson(requestBytes)) : undefined;
+
+    // A native RPC is recorded as the HTTP route it replaced.
+    if (rpc !== undefined) {
+      record.rpcTag = rpc.tag;
+      record.method = rpc.method;
+      record.path = rpc.path;
+    }
+
     records.push(record);
 
     try {
@@ -275,6 +286,16 @@ const startProxy = async (targetOrigin) => {
 
       if (upstream.status >= 400) record.responseBody = responseBytes.toString();
       record.status = upstream.status;
+
+      // An RPC answers 200; its problem keeps the registry status and body of its code.
+      const answer = rpc === undefined ? undefined : replacedAnswer(parseJson(responseBytes));
+
+      if (answer !== undefined) {
+        record.status = answer.status;
+        record.responseBody =
+          answer.status >= 400 ? JSON.stringify(answer.responseJson) : undefined;
+      }
+
       response.statusCode = upstream.status;
       record.responseHasCapability = hasObjectKey(parseJson(responseBytes), "responseCapability");
 
@@ -379,11 +400,6 @@ const main = async () => {
     );
     await waitForHttp(`${backendOrigin}/health`, backend, "native backend");
     proxy = await startProxy(backendOrigin);
-    await run("bun", ["run", "--cwd", "packages/sdk", "build"], {
-      cwd: repositoryRoot,
-      env: backendEnvironment,
-      label: "native SDK build",
-    });
 
     const dashboardEnvironment = {
       ...baseEnvironment,

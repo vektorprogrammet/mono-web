@@ -1,7 +1,7 @@
 import { Predicate } from "effect";
-import type { ArticleId, ContentWorkspace } from "@vektorprogrammet/http-api"
-import type { DepartmentId } from "@vektorprogrammet/http-api"
-import type { StrongETag } from "@vektorprogrammet/http-api";
+import type { ArticleId, ContentWorkspace } from "@vektorprogrammet/rpc"
+import type { DepartmentId } from "@vektorprogrammet/domain"
+import type { StrongETag } from "@vektorprogrammet/rpc";
 import { Match as M } from "effect";
 import { Command, Update } from "foldkit";
 import type { Message } from "./message";

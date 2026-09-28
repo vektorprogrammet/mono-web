@@ -1,6 +1,6 @@
 import { RecruitmentInvitationResponseMessageSchema,
-RecruitmentInvitationResponseObservationSchema, } from "@vektorprogrammet/http-api"
-import { StrongETag } from "@vektorprogrammet/http-api";
+RecruitmentInvitationResponseObservationSchema, } from "@vektorprogrammet/rpc"
+import { StrongETag } from "@vektorprogrammet/rpc";
 import { Schema as S, Match } from "effect";
 
 export const InvitationInteractionIdSchema = S.String.check(S.isPattern(/^[a-f0-9]{32}$/));

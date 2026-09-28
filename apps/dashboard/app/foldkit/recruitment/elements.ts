@@ -1,4 +1,4 @@
-import { IdempotencyKey } from "@vektorprogrammet/http-api";
+import { IdempotencyKey } from "@vektorprogrammet/rpc";
 import { createBrowserRecruitmentClient } from "./browser-client";
 import { embedRecruitment } from "./main";
 

@@ -2,6 +2,7 @@ import { Effect, Encoding, Result, Schema } from "effect";
 import { isRfc3339Instant } from "../time.js";
 import { TeamApplicationInvalidCursor } from "./errors.js";
 import { TeamApplicationId } from "./schema.js";
+import { dual } from "effect/Function";
 
 /** Fixed staff page size. */
 export const TEAM_APPLICATION_PAGE_SIZE = 50;
@@ -56,21 +57,32 @@ export const decodeTeamApplicationCursor = (
     const [, timestamp, applicationId] = yield* Schema.decodeEffect(CursorTuple)(text);
 
     return { timestamp, applicationId };
-  }).pipe(Effect.mapError(() => new TeamApplicationInvalidCursor()));
+  }).pipe(Effect.mapError(() => TeamApplicationInvalidCursor.make({})));
 
 /** Keeps one page and encodes the last kept row when a further row was read. */
-export const teamApplicationPage = <A>(
-  rows: ReadonlyArray<A>,
-  position: (row: A) => TeamApplicationCursorPosition,
-): TeamApplicationPage<A> => {
-  if (rows.length <= TEAM_APPLICATION_PAGE_SIZE) return { items: rows };
+export const teamApplicationPage: {
+  <A>(
+    position: (row: A) => TeamApplicationCursorPosition,
+  ): (rows: ReadonlyArray<A>) => TeamApplicationPage<A>;
+  <A>(
+    rows: ReadonlyArray<A>,
+    position: (row: A) => TeamApplicationCursorPosition,
+  ): TeamApplicationPage<A>;
+} = dual(
+  2,
+  <A>(
+    rows: ReadonlyArray<A>,
+    position: (row: A) => TeamApplicationCursorPosition,
+  ): TeamApplicationPage<A> => {
+    if (rows.length <= TEAM_APPLICATION_PAGE_SIZE) return { items: rows };
 
-  const last = position(rows[TEAM_APPLICATION_PAGE_SIZE - 1]!);
+    const last = position(rows[TEAM_APPLICATION_PAGE_SIZE - 1]!);
 
-  return {
-    items: rows.slice(0, TEAM_APPLICATION_PAGE_SIZE),
-    nextCursor: Encoding.encodeBase64(
-      JSON.stringify(["team-application-v1", last.timestamp, last.applicationId]),
-    ),
-  };
-};
+    return {
+      items: rows.slice(0, TEAM_APPLICATION_PAGE_SIZE),
+      nextCursor: Encoding.encodeBase64(
+        JSON.stringify(["team-application-v1", last.timestamp, last.applicationId]),
+      ),
+    };
+  },
+);

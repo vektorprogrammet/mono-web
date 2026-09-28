@@ -2,7 +2,7 @@ import {
   DepartmentJsonSchema,
   TeamApplicationIntakeListItem,
   TeamJsonSchema,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { contactDepartmentSlug } from "../src/lib/contact-message";

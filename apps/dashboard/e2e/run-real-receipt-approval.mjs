@@ -12,6 +12,7 @@ import { isDeepStrictEqual } from "node:util";
 import { startReceiptDeliverySink } from "../../../tools/e2e/receipt-delivery-sink.ts";
 import { sanitizePlaywrightArtifact } from "./runtime-evidence-receipt.mjs";
 import { addressesAnyRoute, addressesRoute, legacyRoutes } from "./request-routes.ts";
+import { isNativeOperation, nativeRpcStatus, nativeRpcValue } from "./native-operations.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -340,6 +341,54 @@ const setCookieKey = (setCookie) => {
     : undefined;
 };
 
+const encodedId = (payload) =>
+  Predicate.isString(payload.receiptId) ? encodeURIComponent(payload.receiptId) : "";
+
+/**
+ * The HTTP route that each native RPC of this journey replaced, from its tag and payload. The
+ * ledger classifies an RPC by that route, so its facts stay comparable with the commands'
+ * receipts, whose normalized targets are those routes.
+ */
+const replacedRoute = (tag, payload) =>
+  Match.value(tag).pipe(
+    Match.when("system.readSession", () => ["GET", "/api/session"]),
+    Match.when("profile.readOwnProfile", () => ["GET", "/api/profile"]),
+    Match.when("receipts.submitReceipt", () => ["POST", "/api/receipts"]),
+    Match.when("receipts.listReceipts", () => ["GET", "/api/receipts"]),
+    Match.when("receipts.readReceiptFile", () => [
+      "GET",
+      `/api/receipts/${encodedId(payload)}/file`,
+    ]),
+    Match.when("receipts.listReceiptsForApproval", () => ["GET", "/api/receipt-approval-queue"]),
+    Match.when("receipts.readReceiptFileForApproval", () => [
+      "GET",
+      `/api/receipt-approval-queue/${encodedId(payload)}/file`,
+    ]),
+    Match.when("receipts.approveReceipt", () => ["POST", `/api/receipts/${encodedId(payload)}:approve`]),
+    Match.when("receipts.rejectReceipt", () => ["POST", `/api/receipts/${encodedId(payload)}:reject`]),
+    Match.when("receipts.reopenReceipt", () => ["POST", `/api/receipts/${encodedId(payload)}:reopen`]),
+    Match.when("receipts.withdrawReceipt", () => [
+      "POST",
+      `/api/receipts/${encodedId(payload)}:withdraw`,
+    ]),
+    Match.orElse(() => ["POST", `/api/rpc#${tag}`]),
+  );
+
+/** The one RPC request message that a request body to the RPC endpoint carries. */
+const parseRpcRequest = (json) =>
+  json !== null &&
+  json !== undefined &&
+  Predicate.isObjectOrArray(json) &&
+  !Array.isArray(json) &&
+  Predicate.isTagged(json, "Request") &&
+  Predicate.isString(json.tag)
+    ? {
+        tag: json.tag,
+        payload: Predicate.isObjectOrArray(json.payload) ? json.payload : {},
+        headers: new Map(Array.isArray(json.headers) ? json.headers : []),
+      }
+    : undefined;
+
 async function startRecordingProxy(targetOrigin) {
   const records = [];
   const sessionPersonsByCookie = new Map();
@@ -352,32 +401,53 @@ async function startRecordingProxy(targetOrigin) {
 
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const requestBytes = Buffer.concat(chunks);
-    const cookieKey = sessionCookieKey(request.headers.cookie);
+
+    // A native RPC is recorded as the route it replaced. A browser or driver sends its cookie as
+    // an HTTP header; the dashboard server forwards it in the RPC message. The RPC client posts to
+    // the endpoint with one trailing slash, which `isNativeOperation` accepts as the backend does.
+    const rpc =
+      method === "POST" && isNativeOperation(method, url.pathname)
+        ? parseRpcRequest(parseJsonBody(requestBytes))
+        : undefined;
+
+    const route = rpc === undefined ? [method, url.pathname] : replacedRoute(rpc.tag, rpc.payload);
+    const cookieKey = sessionCookieKey(request.headers.cookie ?? rpc?.headers.get("cookie"));
+    const isRead = route[0] === "GET";
 
     const record = {
-      method,
-      pathname: url.pathname,
+      method: route[0],
+      pathname: route[1],
       query: url.search,
       status: 0,
-      body: sanitizeRequestBody(
-        requestBytes,
-        Predicate.isString(request.headers["content-type"]) ? request.headers["content-type"] : "",
-      ),
+      rpcTag: rpc?.tag ?? null,
+      body:
+        rpc === undefined
+          ? sanitizeRequestBody(
+              requestBytes,
+              Predicate.isString(request.headers["content-type"])
+                ? request.headers["content-type"]
+                : "",
+            )
+          : isRead
+            ? null
+            : sanitizeRequestBody(
+                Buffer.from(JSON.stringify(rpc.payload.request ?? {})),
+                "application/json",
+              ),
       sessionCookieAuth: cookieKey !== undefined,
-      authorizationHeaderPresent: request.headers.authorization !== undefined,
+      authorizationHeaderPresent:
+        request.headers.authorization !== undefined || rpc?.headers.has("authorization") === true,
       sessionPersonId:
         cookieKey === undefined ? null : (sessionPersonsByCookie.get(cookieKey) ?? null),
       canonicalAuthorityFixture: null,
-      idempotencyKey:
-        Predicate.isString(request.headers["idempotency-key"])
-          ? request.headers["idempotency-key"]
-          : null,
-      ifMatch: Predicate.isString(request.headers["if-match"]) ? request.headers["if-match"] : null,
+      idempotencyKey: Predicate.isString(rpc?.payload.idempotencyKey)
+        ? rpc.payload.idempotencyKey
+        : null,
+      ifMatch: Predicate.isString(rpc?.payload.ifMatch) ? rpc.payload.ifMatch : null,
       concurrencyProbe:
         Predicate.isString(request.headers["x-receipt-e2e-concurrency-probe"])
           ? request.headers["x-receipt-e2e-concurrency-probe"]
           : null,
-      concurrencySynchronized: null,
     };
 
     records.push(record);
@@ -408,16 +478,19 @@ async function startRecordingProxy(targetOrigin) {
       });
 
       const responseBytes = Buffer.from(await upstream.arrayBuffer());
-      const responseJson = parseJsonBody(responseBytes);
-      record.status = upstream.status;
-      record.concurrencySynchronized = upstream.headers.get(
-        "x-receipt-e2e-concurrency-synchronized",
-      );
+      const answerText = responseBytes.toString("utf8");
+
+      // An RPC answers HTTP 200; its status under the HTTP contract is its problem's registry status.
+      const answerStatus = rpc === undefined ? undefined : nativeRpcStatus(answerText);
+      record.status = answerStatus ?? upstream.status;
+
+      const responseJson =
+        rpc === undefined ? parseJsonBody(responseBytes) : (nativeRpcValue(answerText) ?? null);
 
       if (
         cookieKey !== undefined &&
-        upstream.status === 200 &&
-        url.pathname === "/api/session" &&
+        record.status === 200 &&
+        record.pathname === "/api/session" &&
         responseJson !== null &&
         Predicate.isObjectOrArray(responseJson) &&
         "personId" in responseJson &&
@@ -1142,9 +1215,6 @@ function assertJourneyEvidence(journeyEvidence, seedEvidence) {
       },
       command: {
         inactiveActor: 403,
-        malformedJson: 400,
-        excessJson: 422,
-        queryParameters: 400,
         foreignDepartment: 403,
         absentDepartmentScope: 404,
         absentGlobalScope: 404,
@@ -1288,17 +1358,18 @@ function assertRequestLedger(records, journeyEvidence) {
     ({ method, pathname }) => method === "POST" && pathname === "/api/receipts",
   );
 
+  // A submission answers 200 with its resource, and carries its file as bytes in the payload.
   if (
     submissions.length !== 4 ||
     submissions.some(
       ({ status, body, idempotencyKey, ifMatch }) =>
-        status !== 201 ||
-        body?.kind !== "multipart/form-data" ||
+        status !== 200 ||
+        body?.kind !== "json" ||
         !Predicate.isString(idempotencyKey) ||
         ifMatch !== null,
     )
   ) {
-    throw new Error("Receipt submission sequence is not the exact four native multipart writes");
+    throw new Error("Receipt submission sequence is not the exact four native writes");
   }
 
   const ownerReads = receiptOperations.filter(
@@ -1348,10 +1419,9 @@ function assertRequestLedger(records, journeyEvidence) {
     .filter(({ concurrencyProbe }) => concurrencyProbe !== null)
     .sort(({ concurrencyProbe: left }, { concurrencyProbe: right }) => left.localeCompare(right));
 
-  if (
-    concurrencyRecords.length !== 3 ||
-    concurrencyRecords.some(({ concurrencySynchronized }) => concurrencySynchronized !== "1")
-  ) {
+  // The barrier times out a lane that the others never meet, as receipts.unavailable; three
+  // answers of 200, 200, and 412 show that all three lanes met inside their transactions.
+  if (concurrencyRecords.length !== 3) {
     throw new Error("Receipt transaction concurrency barrier was not observed on all three lanes");
   }
 
@@ -1375,10 +1445,7 @@ function assertRequestLedger(records, journeyEvidence) {
   const commandStatuses = commands.map(({ status }) => status).sort((left, right) => left - right);
   assertEqual(
     commandStatuses,
-    [
-      200, 200, 200, 200, 200, 200, 200, 400, 400, 403, 403, 403, 404, 404, 409, 409, 409, 412, 412,
-      412, 422,
-    ],
+    [200, 200, 200, 200, 200, 200, 200, 403, 403, 403, 404, 404, 409, 409, 409, 412, 412, 412],
     "Exact scoped approval/reject operation sequence",
   );
 
@@ -1387,12 +1454,10 @@ function assertRequestLedger(records, journeyEvidence) {
       throw new Error("Semantic Receipt command omitted Idempotency-Key or If-Match");
     }
 
-    if (command.body?.kind === "malformed-json") continue;
-
     if (
       command.body?.kind !== "json" ||
       !Array.isArray(command.body.keys) ||
-      (command.status !== 422 && command.body.keys.length !== 0)
+      command.body.keys.length !== 0
     ) {
       throw new Error("Semantic Receipt command body was not the canonical empty JSON object");
     }

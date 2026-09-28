@@ -86,7 +86,7 @@ export default defineConfig(({ command, isPreview }) => {
     preview: {
       allowedHosts: ["p000.vektor.phibkro.org"],
     },
-    // Workspace packages such as the SDK resolve to source; the plugins append Vite's default conditions.
+    // No workspace export map uses this condition since the SDK was removed; the plugins append Vite's default conditions.
     resolve: {
       alias: {
         "~": "/src",

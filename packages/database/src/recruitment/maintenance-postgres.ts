@@ -1,4 +1,5 @@
 import { DateTime, Effect, Predicate, Schema } from "effect";
+import { dual } from "effect/Function";
 import { SqlSchema } from "effect/unstable/sql";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
@@ -20,6 +21,7 @@ import {
   InterviewStaffing,
   InterviewStaffingHistory,
   InterviewStaffingManagement,
+  type RecruitmentMaintenanceAuthorization,
   RecruitmentMaintenanceCommand,
   RecruitmentMaintenanceResult,
   RecruitmentMaintenanceFailure,
@@ -37,10 +39,10 @@ import { sealInterviewInvitationEnvelopes } from "./outbox.js";
 import { sealInterviewResponseEnvelopes } from "./response-outbox.js";
 
 const fail = (code: RecruitmentMaintenanceFailure["code"]) =>
-  new RecruitmentMaintenanceFailure({ code });
+  RecruitmentMaintenanceFailure.make({ code });
 
 const persistence = (cause: unknown) =>
-  new RecruitmentPersistenceError({
+  RecruitmentPersistenceError.make({
     operation: "recruitment maintenance",
     message: String(cause),
     cause,
@@ -234,21 +236,33 @@ const authorizeWithSql = Effect.fn("Recruitment.authorizeMaintenance")(function*
   yield* lockAdvisory(sql, AdvisoryLockKey.recruitmentInterview(command.interviewId));
 });
 
-export const authorizeMaintenance = (command: RecruitmentMaintenanceCommand, personId: PersonId) =>
+const authorizeMaintenanceImpl = (command: RecruitmentMaintenanceCommand, personId: PersonId) =>
   Effect.gen(function* () {
     const sql = yield* Database;
     const decoded = yield* decodeCommand(command).pipe(Effect.mapError(() => fail("Invalid")));
     yield* authorizeWithSql(sql, decoded, personId);
+
+    // SAFETY: the one constructor of the evidence brand; authorizeWithSql above is what it proves.
+    return { personId, command: decoded } as RecruitmentMaintenanceAuthorization;
   }).pipe(mapFailure);
 
-export const maintainRecruitment = (input: RecruitmentMaintenanceCommand, personId: PersonId) =>
+export const authorizeMaintenance: {
+  (
+    personId: PersonId,
+  ): (command: RecruitmentMaintenanceCommand) => ReturnType<typeof authorizeMaintenanceImpl>;
+  (
+    command: RecruitmentMaintenanceCommand,
+    personId: PersonId,
+  ): ReturnType<typeof authorizeMaintenanceImpl>;
+} = dual(2, authorizeMaintenanceImpl);
+
+export const maintainRecruitment = (authorization: RecruitmentMaintenanceAuthorization) =>
   Effect.gen(function* () {
-    const command = yield* decodeCommand(input).pipe(Effect.mapError(() => fail("Invalid")));
+    const { command, personId } = authorization;
     const sql = yield* Database;
 
     return yield* sql.withTransaction(
       Effect.gen(function* () {
-        yield* authorizeWithSql(sql, command, personId);
         yield* lockAdvisory(
           sql,
           AdvisoryLockKey.recruitmentMaintenanceCommand(personId, command.commandId),
@@ -260,7 +274,7 @@ export const maintainRecruitment = (input: RecruitmentMaintenanceCommand, person
           result: unknown;
         }>`SELECT command_digest AS digest,result_json AS result FROM public.recruitment_maintenance_command_receipts WHERE actor_person_id=${personId} AND command_id=${command.commandId}`;
 
-        if (receipts[0]) {
+        if (receipts[0] !== undefined) {
           if (receipts[0].digest !== digest) return yield* fail("Conflict");
 
           return yield* Schema.decodeUnknownEffect(RecruitmentMaintenanceResult)(
@@ -274,7 +288,7 @@ export const maintainRecruitment = (input: RecruitmentMaintenanceCommand, person
           yield* sealInterviewResponseEnvelopes(command.interviewId);
           const before = (yield* staffingRows(sql, null, command.interviewId, true))[0];
 
-          if (!before) return yield* fail("NotFound");
+          if (before === undefined) return yield* fail("NotFound");
 
           if (before.terminal) return yield* fail("Terminal");
 

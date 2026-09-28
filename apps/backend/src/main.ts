@@ -48,10 +48,9 @@ import {
 } from "./placements/notification.js";
 import {
   backendHttpHandler,
-  ExternalNativeApiRouterLive,
+  ExternalNativeRpcRouterLive,
   internalBackendHttpHandler,
-  InternalNativeApiRouterLive,
-  nativeHttpRouterConfig,
+  InternalNativeRpcRouterLive,
   nativeRouterWebHandler,
 } from "./router.js";
 
@@ -150,21 +149,19 @@ const backendServicesLayer = Layer.mergeAll(
 
 const httpPlatformLayer = Layer.mergeAll(platformLayer, BunHttpPlatform.layer, Etag.layer);
 
-const httpRouterLayer = HttpRouter.layer.pipe(
-  Layer.provide(Layer.succeed(HttpRouter.RouterConfig)(nativeHttpRouterConfig)),
-);
+const httpLayer = Layer.merge(httpPlatformLayer, HttpRouter.layer);
 
-const httpLayer = Layer.merge(httpPlatformLayer, httpRouterLayer);
-
-const nativeApiLayer = (
-  ingress === "external" ? ExternalNativeApiRouterLive(config) : InternalNativeApiRouterLive(config)
+const nativeRpcLayer = (
+  ingress === "external"
+    ? ExternalNativeRpcRouterLive({ config })
+    : InternalNativeRpcRouterLive({ config })
 ).pipe(
   HttpRouter.provideRequest(Layer.merge(backendServicesLayer, platformLayer)),
   Layer.provide(backendServicesLayer),
   Layer.provide(httpLayer),
 );
 
-const backendLayer = Layer.mergeAll(backendServicesLayer, httpLayer, nativeApiLayer);
+const backendLayer = Layer.mergeAll(backendServicesLayer, httpLayer, nativeRpcLayer);
 
 const runtime = ManagedRuntime.make(backendLayer);
 

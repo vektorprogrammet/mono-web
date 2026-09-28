@@ -1,5 +1,5 @@
-import { RecruitmentInvitationResponseMessageSchema } from "@vektorprogrammet/http-api"
-import { StrongETag } from "@vektorprogrammet/http-api";
+import { RecruitmentInvitationResponseMessageSchema } from "@vektorprogrammet/rpc"
+import { StrongETag } from "@vektorprogrammet/rpc";
 import { Effect, Schema as S } from "effect";
 import { Command } from "foldkit";
 import type { InvitationResponseClient } from "./browser-client";

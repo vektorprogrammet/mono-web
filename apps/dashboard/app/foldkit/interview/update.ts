@@ -1,6 +1,6 @@
 import { Predicate } from "effect";
-import { containsRecruitmentInvitationCapabilitySequence,
-RecruitmentInvitationResponseMessageSchema, } from "@vektorprogrammet/http-api"
+import { containsRecruitmentInvitationCapabilitySequence } from "@vektorprogrammet/domain/recruitment";
+import { RecruitmentInvitationResponseMessageSchema } from "@vektorprogrammet/rpc"
 import { Match as M, Schema as S } from "effect";
 import { AsyncData, FieldValidation, Update } from "foldkit";
 import type { InterviewCommands } from "./command";

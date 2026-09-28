@@ -1,7 +1,7 @@
 import { Effect } from "effect";
-import { SocialEventId, SocialEventObservedAt } from "@vektorprogrammet/http-api"
-import { DepartmentId, SemesterId } from "@vektorprogrammet/http-api"
-import { IdempotencyKey } from "@vektorprogrammet/http-api";
+import { SocialEventId, SocialEventObservedAt } from "@vektorprogrammet/rpc"
+import { DepartmentId, SemesterId } from "@vektorprogrammet/domain/organization"
+import { IdempotencyKey } from "@vektorprogrammet/rpc";
 import { describe, expect, it } from "vitest";
 import type { SocialEventsCommandFactories } from "./command";
 import { LoadedList, LoadedScope, SubmittedCreate, SucceededCreate } from "./message";

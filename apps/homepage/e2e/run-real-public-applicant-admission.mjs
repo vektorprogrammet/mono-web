@@ -1,8 +1,7 @@
 import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
-import {
-  AdmissionPeriodManagementItem,
-  AdmissionsSubmitApplicationProblem,
-} from "@vektorprogrammet/http-api";
+import { CreateAdmissionPeriodRequest, SubmitApplicationRequest } from "@vektorprogrammet/rpc";
+import { IdempotencyKey } from "@vektorprogrammet/rpc/problem";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
 import { Predicate, Schema } from "effect";
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -395,34 +394,40 @@ async function signInLeader() {
 }
 
 async function createOpenPeriod(leaderCookie) {
-  const response = await fetch(`${backendOrigin}/api/admission-periods`, {
-    method: "POST",
-    headers: {
-      cookie: leaderCookie,
-      origin: staffOrigin,
-      "content-type": "application/json",
-      "idempotency-key": randomUUID(),
-    },
-    body: JSON.stringify({ semesterId, startAt: openStart, endAt: openEnd, departmentId }),
-  });
+  const native = nativeScriptClient(backendOrigin);
 
-  if (response.status !== 201) {
-    throw new Error(`Admission period creation answered ${response.status}`);
+  try {
+    const answer = await native.call({ cookie: leaderCookie, origin: staffOrigin }, (client) =>
+      client["admissions.createAdmissionPeriod"]({
+        idempotencyKey: IdempotencyKey.make(randomUUID()),
+        request: decodeStrict(CreateAdmissionPeriodRequest)({
+          semesterId,
+          startAt: openStart,
+          endAt: openEnd,
+          departmentId,
+        }),
+      }),
+    );
+
+    if (!answer.ok) {
+      throw new Error(`Admission period creation answered ${answer.status} ${answer.code}`);
+    }
+
+    const period = answer.value;
+
+    if (
+      period.departmentId !== departmentId ||
+      period.semesterId !== semesterId ||
+      period.startAt !== openStart ||
+      period.endAt !== openEnd
+    ) {
+      throw new Error("Admission period creation returned another period");
+    }
+
+    return period;
+  } finally {
+    await native.dispose();
   }
-
-  const period = decodeStrict(AdmissionPeriodManagementItem)(await response.json());
-
-  if (
-    period.departmentId !== departmentId ||
-    period.semesterId !== semesterId ||
-    period.startAt !== openStart ||
-    period.endAt !== openEnd ||
-    response.headers.get("etag") !== period.etag
-  ) {
-    throw new Error("Admission period creation returned another period");
-  }
-
-  return period;
 }
 
 async function runOutboxDelivery(environment) {
@@ -586,7 +591,7 @@ function assertDurableEvidence(postgres, lifecycle, delivery, persistenceFailure
     lifecycle.rejections.duplicate.code !== "application.duplicate" ||
     lifecycle.rejections.replayConflict.code !== "idempotency.digest-conflict" ||
     lifecycle.rejections.rateLimited?.code !== "rate-limit.exceeded" ||
-    lifecycle.rejections.bodyLimit.code !== "request.too-large" ||
+    lifecycle.rejections.bodyLimit.rejectedBeforeHandler !== true ||
     persistenceFailure.code !== "idempotency.unavailable" ||
     postgres.audits.some(
       (audit) =>
@@ -642,39 +647,45 @@ function assertDurableEvidence(postgres, lifecycle, delivery, persistenceFailure
  * browser application's availability, so only the outage can reject it.
  */
 async function exercisePostgresFailure(postgres, availability) {
-  const response = await postgres.outage(() =>
-    fetch(`${backendOrigin}/api/applications`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "idempotency-key": randomUUID() },
-      body: JSON.stringify({
-        departmentId,
-        firstName: "Persistence Failure",
-        lastName: "Canary",
-        phone: "+47 933 33 333",
-        email: "persistence-failure-0039@example.invalid",
-        gender: 1,
-        fieldOfStudyId,
-        yearOfStudy: 4,
-        availability,
-      }),
-    }),
-  );
+  const native = nativeScriptClient(backendOrigin);
 
-  if (
-    response.status !== 503 ||
-    response.headers.get("content-type") !== "application/problem+json" ||
-    response.headers.get("retry-after") !== "5"
-  ) {
-    throw new Error(`PostgreSQL failure answered ${response.status} instead of a 503 problem`);
+  try {
+    const request = decodeStrict(SubmitApplicationRequest)({
+      departmentId,
+      firstName: "Persistence Failure",
+      lastName: "Canary",
+      phone: "+47 933 33 333",
+      email: "persistence-failure-0039@example.invalid",
+      gender: 1,
+      fieldOfStudyId,
+      yearOfStudy: 4,
+      availability,
+    });
+
+    const answer = await postgres.outage(() =>
+      native.call({}, (client) =>
+        client["admissions.submitApplication"]({
+          idempotencyKey: IdempotencyKey.make(randomUUID()),
+          request,
+        }),
+      ),
+    );
+
+    // The RPC problem carries the registry status of its code; no Retry-After header reaches it.
+    if (answer.ok || answer.status !== 503) {
+      throw new Error(
+        `PostgreSQL failure answered ${answer.ok ? "a success" : answer.code} instead of a 503 problem`,
+      );
+    }
+
+    if (answer.code !== "idempotency.unavailable") {
+      throw new Error(`PostgreSQL failure answered ${answer.code}`);
+    }
+
+    return { status: answer.status, code: answer.code };
+  } finally {
+    await native.dispose();
   }
-
-  const problem = decodeStrict(AdmissionsSubmitApplicationProblem)(await response.json());
-
-  if (problem.code !== "idempotency.unavailable") {
-    throw new Error(`PostgreSQL failure answered ${problem.code}`);
-  }
-
-  return { status: response.status, code: problem.code };
 }
 
 function startBackend(environment) {

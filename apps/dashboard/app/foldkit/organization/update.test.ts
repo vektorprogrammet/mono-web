@@ -1,7 +1,7 @@
 import { Predicate } from "effect";
 import { DepartmentJsonSchema,
 FieldOfStudyJsonSchema,
-TeamJsonSchema, } from "@vektorprogrammet/http-api"
+TeamJsonSchema, } from "@vektorprogrammet/rpc"
 import { Effect, Schema as S } from "effect";
 import { AsyncData } from "foldkit";
 import { describe, expect, it } from "vitest";

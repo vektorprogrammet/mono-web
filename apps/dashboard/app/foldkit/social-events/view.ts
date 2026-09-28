@@ -1,5 +1,6 @@
 import { Predicate } from "effect";
-import { IdempotencyKey, DepartmentId, SemesterId } from "@vektorprogrammet/http-api";
+import { DepartmentId, SemesterId } from "@vektorprogrammet/domain/organization";
+import { IdempotencyKey } from "@vektorprogrammet/rpc";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import {
   ChangedDescription,

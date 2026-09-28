@@ -31,7 +31,7 @@ Make these shapes type errors or check failures, not review findings.
 - Background work runs as `Effect.forkScoped` inside a `Layer`, or in `FiberSet`, `FiberMap`, or `FiberHandle`. `Effect.forkDaemon` and `Effect.forkDetach` are banned outside composition roots.
 - `Effect.run*` is allowed only in composition roots and the registered runtime bridge (enforced partly today, by `no-premature-execution` and tsgo `run-effect-inside-effect`).
 - A `Fiber` value is not stored in a variable or field; use the scoped collections.
-- Shared mutable state uses `Ref`, `SynchronizedRef`, or the `Tx*` STM types. `let` is banned in core code (`packages/domain`, `packages/database`, `packages/http-api`, `apps/backend`) and in Foldkit update code. A local accumulator becomes a fold.
+- Shared mutable state uses `Ref`, `SynchronizedRef`, or the `Tx*` STM types. `let` is banned in core code (`packages/domain`, `packages/database`, `packages/rpc`, `apps/backend`) and in Foldkit update code. A local accumulator becomes a fold.
 
 ## Evidence (measured on `9cb12743`)
 

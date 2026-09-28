@@ -1,4 +1,4 @@
-import { IdempotencyKey } from "@vektorprogrammet/http-api";
+import { IdempotencyKey } from "@vektorprogrammet/rpc";
 import { Option, Schema as S } from "effect";
 import { createBrowserTeamApplicationsClient } from "./browser-client";
 import { embedTeamApplications } from "./main";

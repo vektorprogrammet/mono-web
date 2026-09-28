@@ -1,12 +1,30 @@
-import { StrongETag } from "@vektorprogrammet/http-api";
+import { InvitationResponseResource, StrongETag } from "@vektorprogrammet/rpc";
+import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InvitationBridgeFailureSchema, INVITATION_INTERACTION_HEADER } from "../foldkit/interview/bridge";
 
 vi.hoisted(() => vi.stubEnv("API_URL", "http://api.test"));
 
-import { conditionalReadHeaders, nativeProblemResponse } from "../../test/native-http";
+import {
+  nativeRpcProblem,
+  nativeRpcSuccess,
+  readNativeRpcCall,
+  type NativeRpcCall,
+} from "../../test/native-rpc";
 
 const transport = vi.fn<typeof fetch>();
+
+/** Every RPC call that the bridge sent, in order. */
+const calls: NativeRpcCall[] = [];
+
+/** Answers every RPC call with `answer`, and records the call. */
+const answerWith = (answer: (call: NativeRpcCall) => Response) =>
+  transport.mockImplementation(async (input, init) => {
+    const call = await readNativeRpcCall(input, init);
+    calls.push(call);
+
+    return answer(call);
+  });
 
 
 import {
@@ -27,6 +45,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe("server-held recruitment invitation bridge", () => {
   beforeEach(() => {
     transport.mockReset();
+    calls.length = 0;
     vi.stubGlobal("fetch", transport);
   });
 
@@ -205,7 +224,7 @@ describe("server-held recruitment invitation bridge", () => {
     expect(cancelled).toBe(true);
   });
 
-  it("rejects missing, malformed, and unknown interaction bindings before creating the SDK", async () => {
+  it("rejects missing, malformed, and unknown interaction bindings before any RPC", async () => {
     const readOperation = { operation: "readInvitationResponse" } as const;
     const validUnknownInteractionId = "c".repeat(32);
 
@@ -240,7 +259,7 @@ describe("server-held recruitment invitation bridge", () => {
     for (const [request, expectedTag, expectedStatus] of cases) {
       const failure = await runOperation(request, readOperation).then(
         () => {
-          throw new Error("An invalid interaction binding reached the SDK");
+          throw new Error("An invalid interaction binding reached the backend");
         },
         bridgeFailureFrom,
       );
@@ -269,7 +288,14 @@ describe("server-held recruitment invitation bridge", () => {
       etag,
     };
 
-    transport.mockResolvedValue(Response.json(resource.observation, { headers: conditionalReadHeaders }));
+    answerWith((call) =>
+      nativeRpcSuccess(
+        call,
+        Schema.encodeSync(Schema.toCodecJson(InvitationResponseResource))(
+          Schema.decodeUnknownSync(InvitationResponseResource)(resource),
+        ),
+      ),
+    );
 
 
     const requestedCookie = createInvitationCapabilityCookie(
@@ -294,18 +320,18 @@ describe("server-held recruitment invitation bridge", () => {
     await expect(runOperation(request, { operation: "readInvitationResponse" })).resolves.toEqual(
       resource,
     );
-    const [input, init] = transport.mock.calls[0]!;
-    const nativeRequest = new Request(input, init);
-    expect(nativeRequest.headers.get("X-Recruitment-Invitation-Capability")).toBe(requestedCapability);
-    expect(nativeRequest.headers.get("Cookie")).toBeNull();
-    expect(nativeRequest.url).not.toContain(requestedCapability);
+    const [call] = calls;
+    expect(call?.tag).toBe("recruitment.readInvitationResponse");
+    expect(call?.payload).toEqual({ capability: requestedCapability });
+    expect(call?.headers.get("Cookie")).toBeNull();
+    expect(call?.url).not.toContain(requestedCapability);
   });
 
   it("returns no representation for a successful native mutation", async () => {
     const interactionId = "f".repeat(32);
     const capability = "F".repeat(43);
 
-    transport.mockResolvedValue(new Response(null, { status: 204, headers: { "cache-control": "no-store", vary: "Origin", etag } }));
+    answerWith((call) => nativeRpcSuccess(call, { etag }));
 
 
     const cookie = createInvitationCapabilityCookie(interactionId, capability, "/interview").split(
@@ -323,15 +349,13 @@ describe("server-held recruitment invitation bridge", () => {
     await expect(runOperation(request, { operation: "confirmInvitation", etag })).resolves.toBe(
       undefined,
     );
-    const [input, init] = transport.mock.calls[0]!;
-    const nativeRequest = new Request(input, init);
-    expect(nativeRequest.url).toBe("http://api.test/api/recruitment/invitation-response:confirm");
-    expect(nativeRequest.headers.get("idempotency-key")).toBeNull();
-    expect(nativeRequest.headers.get("if-match")).toBe(etag);
-    expect(await nativeRequest.json()).toEqual({});
+    const [call] = calls;
+    expect(call?.tag).toBe("recruitment.confirmInvitation");
+    expect(call?.payload).toEqual({ capability, ifMatch: etag });
+    expect(call?.headers.get("Cookie")).toBeNull();
   });
 
-  it("projects only safe SDK problems and stable statuses", async () => {
+  it("projects only safe RPC problems and stable statuses", async () => {
     const interactionId = "a".repeat(32);
 
     const cookie = createInvitationCapabilityCookie(interactionId, "A".repeat(43), "/interview").split(
@@ -346,13 +370,14 @@ describe("server-held recruitment invitation bridge", () => {
     const cases = [
       ["resource.not-found", "InvitationNotFound", 404],
       ["invitation.already-responded", "InvitationAlreadyResponded", 409],
-      ["request.malformed", "InvitationDecodeError", 422],
+      // The confirmation declares no request.malformed, so the RPC client refuses it as a defect.
+      ["request.malformed", "InvitationUnavailable", 503],
       ["precondition.failed", "InvitationUnavailable", 503],
       ["dependency.unavailable", "InvitationUnavailable", 503],
     ] as const;
 
     for (const [code, bridgeTag, status] of cases) {
-      transport.mockResolvedValueOnce(nativeProblemResponse(code));
+      answerWith((call) => nativeRpcProblem(call, code));
 
       const failure = await runOperation(request, { operation: "confirmInvitation", etag }).then(
         () => {

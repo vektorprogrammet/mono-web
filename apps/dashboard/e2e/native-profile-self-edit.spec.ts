@@ -1,5 +1,7 @@
-import { Schema, Predicate } from "effect";
-import AxeBuilder from "@axe-core/playwright";
+import { IdempotencyKey, type NativeRpcClient, StrongETag } from "@vektorprogrammet/rpc";
+import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
+import { type Effect, Predicate, Schema } from "effect";
+import { auditSettledPage } from "./settled-axe.js";
 import { writeFile } from "node:fs/promises";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { addressesAnyRoute, legacyRoutes } from "./request-routes.js";
@@ -119,9 +121,9 @@ const profileValues = (page: Page) =>
   ]);
 
 const assertAxe = async (page: Page, results: Record<string, number>, state: string) => {
-  const accessibility = await new AxeBuilder({ page }).analyze();
+  const accessibility = await auditSettledPage(page);
 
-  const blockingViolations = accessibility.violations.filter(
+  const blockingViolations = accessibility.filter(
     (violation) => violation.impact === "serious" || violation.impact === "critical",
   );
 
@@ -129,12 +131,45 @@ const assertAxe = async (page: Page, results: Record<string, number>, state: str
   results[state] = blockingViolations.length;
 };
 
+const nativeScript = nativeScriptClient(apiOrigin);
+
+type NativeClient = NativeRpcClient["Service"];
+
+/** Calls one RPC as `context`, whose Better Auth cookie is set, or anonymously without one. */
+const callAs = async <A, E>(
+  context: BrowserContext | undefined,
+  rpc: (client: NativeClient) => Effect.Effect<A, E>,
+) => {
+  const cookies = context === undefined ? [] : await context.cookies(apiOrigin);
+  const cookie = cookies.map(({ name, value }) => `${name}=${value}`).join("; ");
+
+  return nativeScript.call(
+    cookie === "" ? { origin: dashboardOrigin } : { cookie, origin: dashboardOrigin },
+    rpc,
+  );
+};
+
+const readOwnProfile = (client: NativeClient) => client["profile.readOwnProfile"]();
+
+type ProfilePatch = Parameters<NativeClient["profile.updateOwnProfile"]>[0]["request"];
+
+const updateOwnProfile =
+  (idempotencyKey: string, ifMatch: StrongETag, request: ProfilePatch) => (client: NativeClient) =>
+    client["profile.updateOwnProfile"]({
+      idempotencyKey: IdempotencyKey.make(idempotencyKey),
+      ifMatch,
+      request,
+    });
+
+const anyTag = StrongETag.make('"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"');
+
+test.afterAll(() => nativeScript.dispose());
+
 test.describe("Native Profile self-edit (spec 0064)", () => {
   test.skip(!realRun, "run through the disposable PostgreSQL Profile runner");
 
   test("proves one authenticated edit, stale conflict, strict HTTP, replay, and confinement", async ({
     browser,
-    request,
   }) => {
     test.setTimeout(240_000);
     const requests: LedgerEntry[] = [];
@@ -146,28 +181,15 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
     let context: BrowserContext | undefined;
 
     try {
-      const unauthenticatedGet = await request.get(`${apiOrigin}/api/profile`);
+      const unauthenticatedGet = await callAs(undefined, readOwnProfile);
 
-      const unauthenticatedPatch = await request.patch(`${apiOrigin}/api/profile`, {
-        headers: {
-          "content-type": "application/merge-patch+json",
-          "idempotency-key": "profile-unauthenticated-0064",
-          "if-match": '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"',
-          Origin: dashboardOrigin,
-        },
-        data: {},
-      });
+      const unauthenticatedPatch = await callAs(
+        undefined,
+        updateOwnProfile("profile-unauthenticated-0064", anyTag, {}),
+      );
 
-      expect(unauthenticatedGet.status()).toBe(401);
-      expect(await unauthenticatedGet.json()).toMatchObject({
-        status: 401,
-        code: "credential.missing",
-      });
-      expect(unauthenticatedPatch.status()).toBe(401);
-      expect(await unauthenticatedPatch.json()).toMatchObject({
-        status: 401,
-        code: "credential.missing",
-      });
+      expect(unauthenticatedGet).toMatchObject({ status: 401, code: "credential.missing" });
+      expect(unauthenticatedPatch).toMatchObject({ status: 401, code: "credential.missing" });
       observations.unauthenticated = { get: 401, patch: 401, problemDetails: true };
 
       const opened = await openContext(browser, requests, responses);
@@ -259,33 +281,27 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
       await assertAxe(page, accessibility, "success");
       observations.browserCommit = { values: after, freshRead: true, statusSemantics: true };
 
-      const afterRead = await context.request.get(`${apiOrigin}/api/profile`);
-      expect(afterRead.status()).toBe(200);
-      const afterEtag = afterRead.headers().etag;
+      const afterRead = await callAs(context, readOwnProfile);
+
+      if (!afterRead.ok) throw new Error(`profile.readOwnProfile answered ${afterRead.code}`);
+
+      const afterEtag = afterRead.value.etag;
       expect(afterEtag).toMatch(/^"vkr2\./u);
 
-      const malformed = await context.request.patch(`${apiOrigin}/api/profile`, {
-        headers: {
-          "content-type": "application/merge-patch+json",
-          "idempotency-key": "profile-malformed-0064",
-          "if-match": afterEtag,
-          Origin: dashboardOrigin,
-        },
-        data: {
-          firstName: after.firstName,
-          lastName: after.lastName,
-          email: after.email,
-          phone: after.phone,
-          role: "ROLE_TEAM_MEMBER",
-        },
-      });
+      // The RPC payload schema admits only profile fields, so a patch that the contract cannot
+      // apply is one that changes nothing or deletes a field.
+      const malformed = await callAs(
+        context,
+        updateOwnProfile("profile-malformed-0064", afterEtag, {}),
+      );
 
-      expect(malformed.status()).toBe(422);
-      expect(await malformed.json()).toMatchObject({
-        status: 422,
-        code: "validation.failed",
-        type: "urn:vektorprogrammet:problem:v0.2:validation.failed",
-      });
+      const deletion = await callAs(
+        context,
+        updateOwnProfile("profile-deletion-0064-", afterEtag, { phone: null }),
+      );
+
+      expect(malformed).toMatchObject({ status: 422, code: "validation.no-change" });
+      expect(deletion).toMatchObject({ status: 422, code: "validation.field-not-deletable" });
       observations.malformed = { status: 422, problemDetails: true, mutation: false };
 
       const controlledPatch = {
@@ -295,21 +311,17 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
         phone: "+47 9000 0003",
       };
 
-      const controlled = await context.request.patch(`${apiOrigin}/api/profile`, {
-        headers: {
-          "content-type": "application/merge-patch+json",
-          "idempotency-key": "profile-controlled-0064",
-          "if-match": afterEtag,
-          Origin: dashboardOrigin,
-        },
-        data: controlledPatch,
-      });
+      const controlled = await callAs(
+        context,
+        updateOwnProfile("profile-controlled-0064", afterEtag, controlledPatch),
+      );
 
-      expect(controlled.status()).toBe(200);
-      const controlledBody = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))((await controlled.json()));
+      if (!controlled.ok) throw new Error(`profile.updateOwnProfile answered ${controlled.code}`);
+
+      const controlledBody = controlled.value.profile;
       expect(controlledBody.nameRevision).toBe(2);
       expect(controlledBody.contactRevision).toBe(2);
-      const controlledEtag = controlled.headers().etag;
+      const controlledEtag = controlled.value.etag;
       expect(controlledEtag).toMatch(/^"vkr2\./u);
       observations.controlledConcurrentWrite = { status: 200, revisions: [2, 2] };
 
@@ -329,8 +341,7 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
         controlledPatch.email,
         controlledPatch.phone,
       ]);
-      const postConflictValues = { ...controlledBody };
-      delete postConflictValues.role;
+      const { role: _role, ...postConflictValues } = controlledBody;
       observations.postConflictReload = {
         values: postConflictValues,
         revisions: [2, 2],
@@ -343,36 +354,35 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
         phone: "+47 9000 0004",
       };
 
-      const httpHeaders = {
-        "content-type": "application/merge-patch+json",
-        "idempotency-key": "profile-http-conflict-0064",
-        "if-match": controlledEtag,
-        Origin: dashboardOrigin,
-      };
+      const httpWinner = await callAs(
+        context,
+        updateOwnProfile("profile-http-conflict-0064", controlledEtag, httpPatch),
+      );
 
-      const httpWinner = await context.request.patch(`${apiOrigin}/api/profile`, {
-        headers: httpHeaders,
-        data: httpPatch,
-      });
+      expect(httpWinner.status).toBe(200);
 
-      expect(httpWinner.status()).toBe(200);
+      const httpConflictChanged = await callAs(
+        context,
+        updateOwnProfile("profile-http-conflict-0064", controlledEtag, {
+          ...httpPatch,
+          firstName: "Ada HTTP Different",
+        }),
+      );
 
-      const httpConflictChanged = await context.request.patch(`${apiOrigin}/api/profile`, {
-        headers: httpHeaders,
-        data: { ...httpPatch, firstName: "Ada HTTP Different" },
-      });
-
-      expect(httpConflictChanged.status()).toBe(409);
-      expect(await httpConflictChanged.json()).toMatchObject({
+      expect(httpConflictChanged).toMatchObject({
         status: 409,
         code: "idempotency.digest-conflict",
-        type: "urn:vektorprogrammet:problem:v0.2:idempotency.digest-conflict",
+        problem: { type: "urn:vektorprogrammet:problem:v0.2:idempotency.digest-conflict" },
       });
       observations.sameIdConflict = { status: 409, problemDetails: true, dataUnchanged: true };
 
-      const authenticatedGet = await context.request.get(`${apiOrigin}/api/profile`);
-      expect(authenticatedGet.status()).toBe(200);
-      const authenticatedBody = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))((await authenticatedGet.json()));
+      const authenticatedGet = await callAs(context, readOwnProfile);
+
+      if (!authenticatedGet.ok) {
+        throw new Error(`profile.readOwnProfile answered ${authenticatedGet.code}`);
+      }
+
+      const authenticatedBody = authenticatedGet.value.profile;
       expect(Object.keys(authenticatedBody).sort()).toEqual([
         "contactRevision",
         "email",
@@ -389,7 +399,7 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
         get: 200,
         patch: 200,
         responseFields: Object.keys(authenticatedBody).sort(),
-        sdkRoutes: ["/api/profile"],
+        rpcTags: ["profile.readOwnProfile", "profile.updateOwnProfile"],
       };
 
       await inputs[0].focus();

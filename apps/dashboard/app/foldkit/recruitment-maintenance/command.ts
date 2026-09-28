@@ -1,8 +1,7 @@
 import { Effect, Match, Schema as S } from "effect";
 import { Command } from "foldkit";
-import { IdempotencyKey, RecruitmentMaintenanceCommand } from "@vektorprogrammet/http-api";
-import { createEffectClient } from "@vektorprogrammet/sdk/effect";
-import { resolveBrowserApiUrl } from "../../lib/browser-api";
+import { IdempotencyKey, RecruitmentMaintenanceCommand } from "@vektorprogrammet/rpc";
+import { callBrowserNative } from "../../lib/browser-native";
 import { nativeProblemFrom } from "../../lib/native-problem";
 import { Mode } from "./model";
 import {
@@ -22,10 +21,6 @@ export interface MaintenanceCommands {
 }
 
 export const commandsFor = (): MaintenanceCommands => {
-  const client = createEffectClient(
-    resolveBrowserApiUrl(import.meta.env.VITE_API_URL, globalThis.location.origin),
-  );
-
   const Load = Command.define("LoadRecruitmentMaintenance", {
     args: { mode: Mode, requestId: S.Int },
     messages: [SucceededQuestionnaires, SucceededStaffing, FailedLoad],
@@ -34,14 +29,18 @@ export const commandsFor = (): MaintenanceCommands => {
         const commandId = crypto.randomUUID();
 
         if (mode === "Questionnaires") {
-          const result = yield* client.recruitment.readQuestionnaires();
+          const data = yield* callBrowserNative((client) =>
+            client["recruitment.readQuestionnaires"](),
+          );
 
-          return SucceededQuestionnaires({ requestId, data: result.body, commandId });
+          return SucceededQuestionnaires({ requestId, data, commandId });
         }
 
-        const result = yield* client.recruitment.readInterviewStaffing();
+        const data = yield* callBrowserNative((client) =>
+          client["recruitment.readInterviewStaffing"](),
+        );
 
-        return SucceededStaffing({ requestId, data: result.body, commandId });
+        return SucceededStaffing({ requestId, data, commandId });
       }).pipe(
         Effect.catch((error) =>
           Effect.succeed(
@@ -58,13 +57,13 @@ export const commandsFor = (): MaintenanceCommands => {
     args: { command: RecruitmentMaintenanceCommand },
     messages: [SucceededSave, FailedSave],
     execute: ({ command }) =>
-      client.recruitment
-        .maintainRecruitment({
-          payload: command,
-          headers: { "idempotency-key": IdempotencyKey.make(command.commandId) },
-        })
-        .pipe(
-          Effect.map(({ body }) => SucceededSave({ commandId: command.commandId, result: body })),
+      callBrowserNative((client) =>
+        client["recruitment.maintainRecruitment"]({
+          idempotencyKey: IdempotencyKey.make(command.commandId),
+          request: command,
+        }),
+      ).pipe(
+          Effect.map((result) => SucceededSave({ commandId: command.commandId, result })),
           Effect.catch((error) => {
             const problem = nativeProblemFrom(error);
 

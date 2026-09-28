@@ -3,7 +3,7 @@ import type {
   TeamApplicationId,
   TeamApplicationListResponse,
   TeamApplicationResource,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 import { Option, Predicate } from "effect";
 import { AsyncData } from "foldkit";
 import type { ChildAttribute, Html, HtmlBuilder } from "foldkit/html";

@@ -25,8 +25,8 @@ export const SocialEventsLive = Layer.effect(
         readSocialEventListPostgres(input).pipe(Effect.provideService(Database, database)),
       validateScope: (scope) =>
         validateSocialEventScopePostgres(scope).pipe(Effect.provideService(Database, database)),
-      create: (command) =>
-        createSocialEventPostgres(command).pipe(Effect.provideService(Database, database)),
+      create: (creator, command) =>
+        createSocialEventPostgres(creator, command).pipe(Effect.provideService(Database, database)),
     });
   }),
 );

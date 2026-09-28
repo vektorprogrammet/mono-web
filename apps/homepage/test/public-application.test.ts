@@ -1,13 +1,15 @@
 import { createServer } from "node:http";
-import { createPromiseClient } from "@vektorprogrammet/sdk";
-import { makeNativeProblem } from "@vektorprogrammet/http-api";
+import { SubmitApplication } from "@vektorprogrammet/rpc";
+import { Problem } from "@vektorprogrammet/rpc/problem";
+import { Rpc } from "effect/unstable/rpc";
 import { describe, expect, it } from "vitest";
+import { callHomepageNative } from "../src/lib/api.server";
 import {
   mapPublicApplicationError,
   parsePublicApplicationForm,
 } from "../src/lib/public-application";
 import { languageOptions, positionOptions } from "../src/lib/public-application-choices";
-import { Predicate } from "effect";
+import { Exit, Predicate, Schema } from "effect";
 
 
 const privateCanaries = [
@@ -96,7 +98,7 @@ describe("public application form boundary", () => {
     }
   });
 
-  it("rejects excess and duplicate form members before the SDK call", () => {
+  it("rejects excess and duplicate form members before the RPC call", () => {
     const excess = completeForm();
     excess.set("applicantId", "browser-owned-identity");
     const duplicate = completeForm();
@@ -275,14 +277,30 @@ expect(observedFailure4).toEqual({ message: "Søknaden kunne ikke sendes. Prøv 
 });
 
 
-it("preserves a duplicate-application denial through the real HTTP and generated SDK boundary", async () => {
+/** One RPC answer on the JSON wire: the exit of one request. */
+const WireExit = Schema.TaggedStruct("Exit", { requestId: Schema.Unknown, exit: Schema.Unknown });
+
+it("preserves a duplicate-application denial through the real RPC client boundary", async () => {
   const parsed = parsePublicApplicationForm(completeForm());
 
   if (!parsed.ok) throw new Error("Invalid application fixture");
 
-  const server = createServer((_request, response) => {
-    response.writeHead(409, { "Content-Type": "application/problem+json", "Cache-Control": "no-store", Vary: "Origin" });
-    response.end(JSON.stringify(makeNativeProblem("application.duplicate", 409)));
+  // The backend answers the RPC with the declared problem, encoded as its exit schema encodes it.
+  const failureExit = Schema.encodeSync(Schema.toCodecJson(Rpc.exitSchema(SubmitApplication)))(
+    Exit.fail(Problem.make("application.duplicate")),
+  );
+
+  const server = createServer((request, response) => {
+    const chunks: Array<Buffer> = [];
+
+    request.on("data", (chunk: Buffer) => chunks.push(chunk));
+    request.on("end", () => {
+      const message: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const requestId = Predicate.hasProperty(message, "id") ? message.id : null;
+
+      response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+      response.end(JSON.stringify([WireExit.make({ requestId, exit: failureExit })]));
+    });
   });
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -291,11 +309,12 @@ it("preserves a duplicate-application denial through the real HTTP and generated
     const address = server.address();
 
     if (address === null || Predicate.isString(address)) throw new Error("Expected a loopback TCP listener");
-    const client = createPromiseClient(`http://127.0.0.1:${address.port}`);
+    const { commandId, payload } = parsed.value;
 
-    const failure = await client.admissions.submitApplication({
-      headers: { "idempotency-key": parsed.value.commandId }, payload: parsed.value.payload,
-    }).then(() => { throw new Error("Unexpected application success"); }, mapPublicApplicationError);
+    const failure = await callHomepageNative(
+      (client) => client["admissions.submitApplication"]({ idempotencyKey: commandId, request: payload }),
+      { explicitOrigin: `http://127.0.0.1:${address.port}` },
+    ).then(() => { throw new Error("Unexpected application success"); }, mapPublicApplicationError);
 
     expect(failure._tag).toBe("application.duplicate");
     expect(failure.resetCommandId).toBeUndefined();
@@ -303,4 +322,3 @@ it("preserves a duplicate-application denial through the real HTTP and generated
     await new Promise<void>((resolve, reject) => server.close((cause) => cause ? reject(cause) : resolve()));
   }
 });
-

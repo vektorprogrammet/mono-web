@@ -13,7 +13,7 @@ export default mergeConfig(
       "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     ),
   },
-  // Workspace packages such as the SDK resolve to source; Vitest appends its default conditions.
+  // No workspace export map uses this condition since the SDK was removed; Vitest appends its default conditions.
   resolve: { conditions: ["@vektorprogrammet/source"] },
   ssr: { resolve: { conditions: ["@vektorprogrammet/source"] } },
   test: {

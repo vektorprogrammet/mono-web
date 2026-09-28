@@ -4,7 +4,7 @@ import {
   QuestionnaireManagement,
   InterviewStaffingManagement,
   RecruitmentInterviewQuestionKindSchema,
-} from "@vektorprogrammet/http-api";
+} from "@vektorprogrammet/rpc";
 
 export const Mode = S.Literals(["Questionnaires", "Staffing"]);
 

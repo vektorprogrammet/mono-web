@@ -5,6 +5,7 @@ import { noChainedTypeAssertionsRule } from "./rules/no-chained-type-assertions.
 import { noConditionalEmptyObjectSpreadRule } from "./rules/no-conditional-empty-object-spread.ts";
 import { noKnownValueWideningRule } from "./rules/no-known-value-widening.ts";
 import { noDevServerRule } from "./rules/no-dev-server.ts";
+import { noRpcPathComparisonRule } from "./rules/no-rpc-path-comparison.ts";
 import { noGitHistoryRule } from "./rules/no-git-history.ts";
 import { noHandRolledPostgresRule } from "./rules/no-hand-rolled-postgres.ts";
 import { noLeadershipReachRule } from "./rules/no-leadership-reach.ts";
@@ -22,6 +23,7 @@ import { noForbiddenTermInSymbolNamesRule } from "./rules/no-shape-in-symbol-nam
 import { noUnknownParametersRule } from "./rules/no-unknown-parameters.ts";
 import { noUnknownReturnsRule } from "./rules/no-unknown-returns.ts";
 import { noUnkeyedCommandRowRule } from "./rules/no-unkeyed-command-row.ts";
+import { noUnsettledAxeRule } from "./rules/no-unsettled-axe.ts";
 import { noUnknownTypeAliasesRule } from "./rules/no-unknown-type-aliases.ts";
 import { noUnsafeDictionaryTypeRule } from "./rules/no-unsafe-dictionary-type.ts";
 import { noWidenThenAssertRule } from "./rules/no-widen-then-assert.ts";
@@ -38,6 +40,7 @@ const antiSlopPlugin = eslintCompatPlugin({
     "no-chained-type-assertions": noChainedTypeAssertionsRule,
     "no-conditional-empty-object-spread": noConditionalEmptyObjectSpreadRule,
     "no-dev-server": noDevServerRule,
+    "no-rpc-path-comparison": noRpcPathComparisonRule,
     "no-json-text-parameter": noJsonTextParameterRule,
     "no-git-history": noGitHistoryRule,
     "no-hand-rolled-postgres": noHandRolledPostgresRule,
@@ -55,6 +58,7 @@ const antiSlopPlugin = eslintCompatPlugin({
     "no-shape-in-symbol-names": noForbiddenTermInSymbolNamesRule,
     "no-unknown-parameters": noUnknownParametersRule,
     "no-unkeyed-command-row": noUnkeyedCommandRowRule,
+    "no-unsettled-axe": noUnsettledAxeRule,
     "no-unknown-returns": noUnknownReturnsRule,
     "no-unknown-type-aliases": noUnknownTypeAliasesRule,
     "no-widen-then-assert": noWidenThenAssertRule,

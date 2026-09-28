@@ -78,7 +78,7 @@ const fileIdentity = (
 };
 
 const fileFailure = (effectId: string, fileRef: string): ReceiptFileNotStaged =>
-  new ReceiptFileNotStaged({ effectId, fileRef });
+  ReceiptFileNotStaged.make({ effectId, fileRef });
 
 const failedOperation =
   (operation: ReceiptFileStoreError["operation"]) => (cause: PlatformError.PlatformError) =>
@@ -109,7 +109,7 @@ export interface ReceiptFileStore {
 export class ReceiptFileStoreResource extends Context.Service<
   ReceiptFileStoreResource,
   ReceiptFileStore
->()("@vektorprogrammet/backend/ReceiptFileStore") {}
+>()("@vektorprogrammet/backend/receipt/filesystem/ReceiptFileStoreResource") {}
 
 /** Private receipt files under two local roots, through the platform FileSystem and Path. */
 export const makeReceiptFileStore = (config: ReceiptFileStoreConfig) =>
@@ -194,7 +194,7 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig) =>
           ),
         );
 
-        if (recorded !== digest) return yield* new ReceiptFileEffectConflict({ effectId });
+        if (recorded !== digest) return yield* ReceiptFileEffectConflict.make({ effectId });
       });
 
     // Streams the upload into the open temporary file; bytes past the limit fail validation.
@@ -221,7 +221,7 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig) =>
               byteLength += chunk.value.byteLength;
 
               if (byteLength > maxFileBytes) {
-                return yield* new ReceiptDecodeError({
+                return yield* ReceiptDecodeError.make({
                   message: "receipt file exceeds configured limit",
                 });
               }
@@ -323,7 +323,7 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig) =>
           if (staged === "matching") return;
 
           if (staged === "different") {
-            return yield* new ReceiptFileIdentityConflict({
+            return yield* ReceiptFileIdentityConflict.make({
               effectId: "stage",
               objectKey: file.objectKey,
             });
@@ -334,7 +334,7 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig) =>
           if (committed === "matching") return;
 
           if (committed === "different") {
-            return yield* new ReceiptFileIdentityConflict({
+            return yield* ReceiptFileIdentityConflict.make({
               effectId: "stage",
               objectKey: file.objectKey,
             });
@@ -352,7 +352,7 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig) =>
           if (promotion && failNextPromotionEffectId === request.effectId) {
             failNextPromotionEffectId = undefined;
 
-            return yield* new ReceiptFileInjectedFailure({ effectId: request.effectId });
+            return yield* ReceiptFileInjectedFailure.make({ effectId: request.effectId });
           }
 
           const stagingPath = yield* pathFor(config.stagingRoot, request.file.fileRef);
@@ -360,7 +360,7 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig) =>
           const committed = yield* inspectFile(committedPath, request.file);
 
           if (committed === "different") {
-            return yield* new ReceiptFileIdentityConflict({
+            return yield* ReceiptFileIdentityConflict.make({
               effectId: request.effectId,
               objectKey: request.file.objectKey,
             });

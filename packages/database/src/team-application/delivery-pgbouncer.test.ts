@@ -26,7 +26,7 @@ import { TeamApplicationsLive } from "./index.js";
  * transaction may run on another server connection, and a transaction holds one.
  */
 class Pooler extends Context.Service<Pooler, DisposablePgBouncer>()(
-  "team-application/delivery-pgbouncer.test/Pooler",
+  "@vektorprogrammet/database/team-application/delivery-pgbouncer.test/Pooler",
 ) {}
 
 /**
