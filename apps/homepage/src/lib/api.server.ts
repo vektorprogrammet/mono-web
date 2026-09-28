@@ -5,7 +5,7 @@
  */
 import {
   NativeRpcClient,
-  nativeRpcServerClientLayer,
+  nativeRpcClientLayer,
   withForwardedHeaders,
 } from "@vektorprogrammet/rpc/client";
 import { type Effect, ManagedRuntime } from "effect";
@@ -27,7 +27,7 @@ const nativeRuntime = (origin: string) => {
 
   if (existing !== undefined) return existing;
 
-  const runtime = ManagedRuntime.make(nativeRpcServerClientLayer(origin));
+  const runtime = ManagedRuntime.make(nativeRpcClientLayer(origin));
 
   runtimes.set(origin, runtime);
 

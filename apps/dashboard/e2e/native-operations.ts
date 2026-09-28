@@ -7,7 +7,7 @@
  * prove that a journey sends no legacy, provider, recovery, or token request, rather than listing
  * such routes by name.
  */
-import { NativeProblem, NativeRpcs, nativeRpcPath } from "@vektorprogrammet/rpc";
+import { isNativeRpcPath, NativeProblem, NativeRpcs } from "@vektorprogrammet/rpc";
 import { Array as Arr, Match, Option, Predicate, Schema } from "effect";
 
 /** One RPC request message, as the JSON serialization of the RPC client sends it over HTTP. */
@@ -115,13 +115,8 @@ export const nativeRpcStatus = (body: string): number | undefined => {
       );
 };
 
-/**
- * Whether a request path is the RPC endpoint. The RPC client prepends the endpoint URL to an empty
- * request URL, so it posts to `/api/rpc/`; a probe or script client posts to `/api/rpc`. A recorder
- * asks this rather than comparing the path with one spelling.
- */
-export const isNativeRpcPath = (pathname: string): boolean =>
-  pathname === nativeRpcPath || pathname === `${nativeRpcPath}/`;
+/** Whether a request path addresses the RPC endpoint, with or without its trailing slash. */
+export { isNativeRpcPath };
 
 /**
  * Whether a request is an operation of the native contract: an RPC of `NativeRpcs` at the RPC

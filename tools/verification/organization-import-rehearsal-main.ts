@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { addressesAnyRoute, legacyRoutes } from "../../apps/dashboard/e2e/request-routes.js";
-import { nativeRpcPath } from "@vektorprogrammet/rpc";
+import { isNativeRpcPath } from "@vektorprogrammet/rpc";
 import { nativeScriptClient, type ScriptCallResult } from "@vektorprogrammet/rpc/script";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
@@ -1041,7 +1041,7 @@ const startRecordingProxy = async (
 
     // A native RPC of the journey is recorded as the read it serves: the route that it replaced.
     const rpcRequirement =
-      transportMethod === "POST" && transportPath === nativeRpcPath
+      transportMethod === "POST" && isNativeRpcPath(transportPath)
         ? nativeBrowserJourneyRequirementOfRpc(rpcTagOf(requestBytes))
         : undefined;
 

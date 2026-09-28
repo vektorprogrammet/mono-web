@@ -20,7 +20,7 @@ isNativeRequest(method: string, pathname: string, body?: string): boolean
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [apps/dashboard/e2e/native-operations.ts:173](../../apps/dashboard/e2e/native-operations.ts#L173)
+- Source: [apps/dashboard/e2e/native-operations.ts:172](../../apps/dashboard/e2e/native-operations.ts#L172)
 
 **How it works**
 

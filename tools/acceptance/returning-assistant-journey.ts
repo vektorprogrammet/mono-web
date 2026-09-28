@@ -1,5 +1,5 @@
 import { type RecruitmentInvitationDeliveryResult } from "../../packages/database/src/recruitment/index.js";
-import { nativeRpcPath } from "../../packages/rpc/src/api.js";
+import { isNativeRpcPath, nativeRpcPath } from "../../packages/rpc/src/api.js";
 import { IdempotencyKey, NativeProblem } from "../../packages/rpc/src/problem.js";
 import { nativeScriptClient } from "../../packages/rpc/src/script-client.js";
 import {
@@ -661,7 +661,7 @@ export const runReturningAssistantBrowserJourney = async ({
 
       if (
         url.pathname.includes("/dashboard/tidligere-assistenter") ||
-        url.pathname === nativeRpcPath ||
+        isNativeRpcPath(url.pathname) ||
         url.pathname.includes("/api/auth/")
       ) {
         responses.push(`request ${request.method()} ${url.pathname}`);
@@ -676,7 +676,7 @@ export const runReturningAssistantBrowserJourney = async ({
 
       if (
         !url.pathname.includes("/dashboard/tidligere-assistenter") &&
-        url.pathname !== nativeRpcPath &&
+        !isNativeRpcPath(url.pathname) &&
         !url.pathname.includes("/api/auth/")
       )
         return;

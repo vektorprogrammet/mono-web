@@ -3,7 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { DepartmentId } from "@vektorprogrammet/domain";
-import { IdempotencyKey, nativeRpcPath } from "@vektorprogrammet/rpc";
+import { IdempotencyKey, isNativeRpcPath } from "@vektorprogrammet/rpc";
 import { nativeScriptClient, type ScriptCallResult } from "@vektorprogrammet/rpc/script";
 import { expect, test, type Page, type Request } from "@playwright/test";
 
@@ -151,7 +151,7 @@ const observePage = (
 
     if (
       request.method() === "POST" &&
-      url.pathname === nativeRpcPath &&
+      isNativeRpcPath(url.pathname) &&
       tag !== undefined &&
       publicCatalogTags.has(tag)
     ) {

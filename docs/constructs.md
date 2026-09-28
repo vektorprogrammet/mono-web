@@ -21,6 +21,8 @@ Tag a construct only when at least 2 modules outside its own module and the test
   - [`requireDepartmentReach`](constructs/authority-evidence.md#requiredepartmentreach): Checks that a resolved authority reaches one department with a capability, and returns the evidence that a department-scoped command requires.
   - [`requireOrganizationAdministrator`](constructs/authority-evidence.md#requireorganizationadministrator): Checks that a resolved authority holds active global administration, and returns the evidence that the Organization administration commands require.
   - [`requireTeamInterestScope`](constructs/authority-evidence.md#requireteaminterestscope): Checks what team interest a resolved authority may read, narrowed to one requested department, and returns the scope that the listing requires.
+- [rpc-transport](constructs/rpc-transport.md): Addresses the native RPC endpoints over HTTP, as the ingress serves them and every recorder matches them.
+  - [`isNativeRpcPath`](constructs/rpc-transport.md#isnativerpcpath): Whether a request path addresses the native RPC endpoint.
 - [rpc-problem](constructs/rpc-problem.md): Answers a native RPC with a declared problem: failure mapping, credential classification, authorization, command outcomes, and the defect boundary.
   - [`authorizeAdmissionPerson`](constructs/rpc-problem.md#authorizeadmissionperson): Evaluates one admission person AccessSpec.
   - [`returningAuthorization`](constructs/rpc-problem.md#returningauthorization): Resolves the current person and authorizes one returning-assistant operation on that person's own profile.

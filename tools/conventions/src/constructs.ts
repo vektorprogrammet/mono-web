@@ -43,6 +43,8 @@ export const constructCategories = {
     "Derives the transport facts that commands keep across the cutover from HTTP: command identities, request digests, preconditions, and entity tags.",
   "authority-evidence":
     "Checks a resolved authority and returns the evidence that a command which needs that authority takes; nothing else constructs it.",
+  "rpc-transport":
+    "Addresses the native RPC endpoints over HTTP, as the ingress serves them and every recorder matches them.",
   "rpc-problem":
     "Answers a native RPC with a declared problem: failure mapping, credential classification, authorization, command outcomes, and the defect boundary.",
   "sql-lock": "Transaction-scoped PostgreSQL advisory locks under registered keys.",

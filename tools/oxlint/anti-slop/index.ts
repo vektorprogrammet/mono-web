@@ -5,6 +5,7 @@ import { noChainedTypeAssertionsRule } from "./rules/no-chained-type-assertions.
 import { noConditionalEmptyObjectSpreadRule } from "./rules/no-conditional-empty-object-spread.ts";
 import { noKnownValueWideningRule } from "./rules/no-known-value-widening.ts";
 import { noDevServerRule } from "./rules/no-dev-server.ts";
+import { noRpcPathComparisonRule } from "./rules/no-rpc-path-comparison.ts";
 import { noGitHistoryRule } from "./rules/no-git-history.ts";
 import { noHandRolledPostgresRule } from "./rules/no-hand-rolled-postgres.ts";
 import { noLeadershipReachRule } from "./rules/no-leadership-reach.ts";
@@ -38,6 +39,7 @@ const antiSlopPlugin = eslintCompatPlugin({
     "no-chained-type-assertions": noChainedTypeAssertionsRule,
     "no-conditional-empty-object-spread": noConditionalEmptyObjectSpreadRule,
     "no-dev-server": noDevServerRule,
+    "no-rpc-path-comparison": noRpcPathComparisonRule,
     "no-json-text-parameter": noJsonTextParameterRule,
     "no-git-history": noGitHistoryRule,
     "no-hand-rolled-postgres": noHandRolledPostgresRule,

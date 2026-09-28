@@ -290,6 +290,8 @@ export default defineConfig({
     "anti-slop/no-reduce-accumulator-copy": "error",
     "anti-slop/no-reflect-apply": "error",
     "anti-slop/no-reflect-get": "error",
+    // The RPC client posts with a trailing slash and a probe without; paths go through the predicates.
+    "anti-slop/no-rpc-path-comparison": "error",
     "anti-slop/no-runtime-typeof": "error",
     "anti-slop/no-shape-in-symbol-names": "error",
     "anti-slop/no-unknown-parameters": "error",
@@ -352,6 +354,11 @@ export default defineConfig({
         "packages/database/src/schema-calendar-arithmetic.test.ts",
       ],
       rules: { "anti-slop/no-zoneless-calendar-interval": "off" },
+    },
+    {
+      // The definition of the RPC endpoint predicates compares the paths it names.
+      files: ["packages/rpc/src/api.ts"],
+      rules: { "anti-slop/no-rpc-path-comparison": "off" },
     },
     {
       // Unit leadership decides authority only through the reach interpreter (O8-11).

@@ -6,6 +6,8 @@ import { RECEIPT_FILE_MAX_BYTES } from "@vektorprogrammet/domain/receipt";
 import {
   InternalNativeRpcs,
   internalNativeRpcPath,
+  isInternalNativeRpcPath,
+  isNativeRpcPath,
   NativeRpcs,
   nativeRpcPath,
 } from "@vektorprogrammet/rpc";
@@ -71,10 +73,6 @@ const methodNotAllowed = (methods: ReadonlyArray<string>): Response => {
   return response;
 };
 
-/** Whether `pathname` addresses the RPC endpoint; the client may add a trailing slash. */
-const isNativeRpcPath = (pathname: string): boolean =>
-  pathname === nativeRpcPath || pathname === `${nativeRpcPath}/`;
-
 /** The HTTP methods of each native path: the RPC endpoint and the health probe. */
 export const nativePreflightMethodsForPath = (pathname: string): ReadonlyArray<string> =>
   isNativeRpcPath(pathname) ? ["POST"] : pathname === "/health" ? ["GET"] : [];
@@ -127,9 +125,6 @@ const restrictRpcMessageHeaders = (body: Schema.Json): Schema.Json => {
  */
 export const nativeRpcMaxBodyBytes = Math.ceil((RECEIPT_FILE_MAX_BYTES * 4) / 3) + 1024 * 1024;
 
-const isInternalRpcPath = (pathname: string): boolean =>
-  pathname === internalNativeRpcPath || pathname === `${internalNativeRpcPath}/`;
-
 /**
  * The RPC request, read within `nativeRpcMaxBodyBytes`, parsed without duplicate members, and with
  * its message headers restricted; any other request unchanged. A body over the bound is
@@ -137,7 +132,7 @@ const isInternalRpcPath = (pathname: string): boolean =>
  * could disagree on which of two members wins, so the ingress admits neither reading.
  */
 const restrictedNativeRequest = (request: Request, pathname: string) =>
-  request.method !== "POST" || !(isNativeRpcPath(pathname) || isInternalRpcPath(pathname))
+  request.method !== "POST" || !(isNativeRpcPath(pathname) || isInternalNativeRpcPath(pathname))
     ? Effect.succeed(request)
     : readBoundedJson(request, nativeRpcMaxBodyBytes).pipe(
         Effect.map((body) => {

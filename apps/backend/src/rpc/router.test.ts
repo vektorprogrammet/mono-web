@@ -8,11 +8,7 @@ import { HttpRouter } from "effect/unstable/http";
 import { RpcClient } from "effect/unstable/rpc";
 import { backendTestConfig } from "../../test/config.js";
 import { backendHttpHandler, nativeRpcMaxBodyBytes } from "../router.js";
-import {
-  backendTestRouterLayer,
-  makeBackendTestRpc,
-  testAuthHandler,
-} from "../test/native-rpc.js";
+import { backendTestRouterLayer, makeBackendTestRpc, testAuthHandler } from "../test/native-rpc.js";
 
 // The identity engine rejects every session, as it does a forged or expired one.
 const rejectingIdentity = Layer.mock(Identity, {

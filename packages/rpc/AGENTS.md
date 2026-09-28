@@ -18,6 +18,7 @@ Package `@vektorprogrammet/rpc`.
 
 The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../docs/constructs.md) indexes them all.
 
+- [`isNativeRpcPath`](../../docs/constructs/rpc-transport.md#isnativerpcpath) (rpc-transport): Whether a request path addresses the native RPC endpoint.
 - [`problemUnion`](../../docs/constructs/rpc-problem.md#problemunion) (rpc-problem): Creates the closed Problem Details union of one RPC.
 - [`Problem`](../../docs/constructs/rpc-problem.md#problem) (rpc-problem): One RFC 9457 failure in an Effect error channel.
 - [`isProblem`](../../docs/constructs/rpc-problem.md#isproblem) (rpc-problem): Narrows a caught value to a `Problem`, also one that another copy of this module created.

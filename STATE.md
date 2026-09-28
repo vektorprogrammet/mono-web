@@ -111,6 +111,10 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
   the dashboard maps a command's `transaction.conflict` to its unknown-error branch (`receipt-view.ts`).
 - `apps/homepage/src/lib/public-application.ts` lists its problem codes by hand and omits `header.malformed`.
   The homepage problem mappers (`mapPublicApplicationError`, `publicTeamApplicationPageFailure`, `failedPublicTeamApplication`) still accept a plain problem-shaped object besides `Problem`; the dashboard reads problems only through `nativeProblemFrom`.
+- RPC transport gaps. A payload that fails its schema is answered by the RPC server as a defect before any middleware, so `ProblemBoundary` neither reports it nor answers a problem code (`effect/unstable/rpc/RpcServer.ts`, `sendRequestDefect`).
+  A route that returns one web `Response` built outside the request reads a locked body on its second answer and crashes the process (the health route did until 0c52d63); no rule rejects the form.
+  `makeBackendTestRpc` (`apps/backend/src/test/native-rpc.ts`) builds a router per request, unlike `apps/backend/src/main.ts`, so a defect of state shared across requests passes its tests; `backendTestRouterLayer` serves several requests on one router.
+  `nativeUserChallenges` and `nativeCookieChallenge` in `apps/backend/src/rpc/credential.ts` build `WWW-Authenticate` challenges that no RPC answer carries.
 - Instants: domain fields still use `Rfc3339InstantSchema`, not `Instant` (`packages/domain/src/time.ts`).
 - Authorization evidence ([specification](docs/specs/authz-evidence.md)): nine branded evidence types, each with one constructor, gate the commands of Organization, onboarding, admission outcomes, placements, schools, recruitment maintenance, certificates, team applications, and social events.
   Receipts (`packages/database/src/receipt/postgres.ts`, `authorizeReceiptMutation`) still export a constructible `ReceiptMutationAuthorization`, and content (`apps/backend/src/content/http-access.ts`) keeps a handler gate in front of the adapter's own check.

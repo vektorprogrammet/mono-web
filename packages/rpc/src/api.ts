@@ -31,6 +31,40 @@ export const nativeRpcPath = "/api/rpc";
 /** The path that serves `InternalNativeRpcs`, on the internal ingress only. */
 export const internalNativeRpcPath = "/internal/rpc";
 
+/**
+ * Whether a request path addresses the native RPC endpoint.
+ *
+ * @remarks
+ * The RPC client joins the endpoint URL with an empty request URL, so it posts to the path with one
+ * trailing slash (`/api/rpc/`); a probe that builds its own request posts to `/api/rpc`. The
+ * ingress serves both, and every recorder and filter asks this predicate, so no check matches one
+ * spelling and silently misses the other.
+ *
+ * @sideEffects none
+ *
+ * @example
+ * ```ts
+ * if (request.method === "POST" && isNativeRpcPath(new URL(request.url).pathname)) record(body);
+ * ```
+ *
+ * @avoid `pathname === nativeRpcPath` or `pathname === "/api/rpc"`: every call of the RPC client
+ * misses it. `anti-slop/no-rpc-path-comparison` rejects both.
+ *
+ * @param pathname - The path of a request URL, without its query.
+ * @returns `true` for `/api/rpc` and `/api/rpc/`.
+ *
+ * @construct rpc-transport
+ */
+export const isNativeRpcPath = (pathname: string): boolean =>
+  pathname === nativeRpcPath || pathname === `${nativeRpcPath}/`;
+
+/**
+ * Whether a request path addresses the internal RPC endpoint, as `isNativeRpcPath` does for the
+ * external one.
+ */
+export const isInternalNativeRpcPath = (pathname: string): boolean =>
+  pathname === internalNativeRpcPath || pathname === `${internalNativeRpcPath}/`;
+
 export class NativeRpcs extends RpcGroup.make()
   .merge(
     AdmissionOutcomesRpcs,

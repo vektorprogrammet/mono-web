@@ -252,9 +252,10 @@ test.describe("Native Schools directory (spec 0061)", () => {
         },
       );
 
+      // An answer that is no RPC exit records null, which the expectation below rejects.
       const emptyDepartment = {
-        status: nativeRpcStatus(emptyDepartmentText),
-        body: nativeRpcValue(emptyDepartmentText),
+        status: nativeRpcStatus(emptyDepartmentText) ?? null,
+        body: nativeRpcValue(emptyDepartmentText) ?? null,
       };
 
       expect(emptyDepartment).toEqual({

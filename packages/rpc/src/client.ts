@@ -17,20 +17,6 @@ export class NativeRpcClient extends Context.Service<
   Effect.Success<typeof makeClient>
 >()("@vektorprogrammet/rpc/client/NativeRpcClient") {}
 
-const clientLayer = (origin: string, requestInit: globalThis.RequestInit) =>
-  Layer.effect(NativeRpcClient)(makeClient).pipe(
-    Layer.provide(
-      RpcClient.layerProtocolHttp({ url: new URL(nativeRpcPath, origin).href }).pipe(
-        Layer.provide(RpcSerialization.layerJson),
-        Layer.provide(
-          FetchHttpClient.layer.pipe(
-            Layer.provide(Layer.succeed(FetchHttpClient.RequestInit)(requestInit)),
-          ),
-        ),
-      ),
-    ),
-  );
-
 /**
  * The client of the backend at `origin`.
  *
@@ -38,19 +24,29 @@ const clientLayer = (origin: string, requestInit: globalThis.RequestInit) =>
  * A browser sends its session cookie itself (`credentials: "include"`). A server that calls on a
  * person's behalf, such as a dashboard loader, forwards that person's `Cookie` or `Authorization`
  * header per call with `RpcClient.withHeaders`, never through this layer, so one client never
- * carries one person's credential into another person's call.
+ * carries one person's credential into another person's call. Those headers travel inside the RPC
+ * request message, so the client follows no redirect: the RPC endpoint never redirects, and a
+ * followed 307 or 308 would resend the message, credential or contact secret included, to the
+ * redirect target. A redirect answer fails the call.
  */
 export const nativeRpcClientLayer = (origin: string): Layer.Layer<NativeRpcClient> =>
-  clientLayer(origin, { credentials: "include" });
-
-/**
- * The client of the backend at `origin` for a server whose calls carry a secret, such as the
- * homepage's contact form. It follows no redirect: the RPC endpoint never redirects, and a followed
- * redirect would repeat the request message, with the headers of its RPC, to the redirect target.
- * A redirect answer fails the call.
- */
-export const nativeRpcServerClientLayer = (origin: string): Layer.Layer<NativeRpcClient> =>
-  clientLayer(origin, { redirect: "manual" });
+  Layer.effect(NativeRpcClient)(makeClient).pipe(
+    Layer.provide(
+      RpcClient.layerProtocolHttp({ url: new URL(nativeRpcPath, origin).href }).pipe(
+        Layer.provide(RpcSerialization.layerJson),
+        Layer.provide(
+          FetchHttpClient.layer.pipe(
+            Layer.provide(
+              Layer.succeed(FetchHttpClient.RequestInit)({
+                credentials: "include",
+                redirect: "manual",
+              }),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 
 /** Runs `effect` with `headers` added to every RPC it sends. */
 export const withForwardedHeaders =
