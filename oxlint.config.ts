@@ -169,6 +169,7 @@ const effectConfig = {
         "apps/backend/src/main.ts",
         "apps/backend/src/**/*-main.ts",
         "tools/acceptance/password-recovery-check.ts",
+        "tools/acceptance/recommendation-check.ts",
         "tools/e2e/golden-harness.ts",
         "tools/e2e/golden-harness-self-test.ts",
         "tools/e2e/legacy-candidate-native-journey.ts",

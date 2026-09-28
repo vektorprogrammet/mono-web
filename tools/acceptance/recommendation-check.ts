@@ -63,11 +63,14 @@ import {
 } from "../../packages/domain/src/recruitment/index.js";
 import { deliverJson } from "../../apps/backend/src/delivery/http.js";
 import { NotificationGateway } from "../../packages/domain/src/notification/service.js";
-import { Array as Arr, Option, Predicate, Schema } from "effect";
+import { Array as Arr, Effect, Layer, Option, Predicate, Redacted, Schema } from "effect";
+import * as BunServices from "@effect/platform-bun/BunServices";
+import process from "node:process";
+import { type JourneyStepFailed, surfaceStepFailure } from "./journey-step.ts";
 import { PublicApplicationIdSchema } from "../../packages/domain/src/application/schema.js";
 import { nativeScriptClient } from "../../packages/rpc/src/script-client.js";
 import { replacedFetch } from "../../apps/dashboard/e2e/native-rpc-ledger.ts";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient, type HttpClient } from "effect/unstable/http";
 
 const root = new URL("../../", import.meta.url).pathname;
 
@@ -77,7 +80,22 @@ const uiRequire = createRequire(new URL("../../apps/dashboard/package.json", imp
 
 const { Pool } = dbRequire("pg");
 
-const { Effect, Layer, Redacted } = dbRequire("effect");
+/**
+ * Runs one Effect program of the journey helpers with the Bun platform and a fetch HTTP client.
+ * A failed driver step rejects with the error that the driver raised.
+ */
+const runJourneyEffect = <A, E>(
+  effect: Effect.Effect<
+    A,
+    E | JourneyStepFailed,
+    BunServices.BunServices | HttpClient.HttpClient
+  >,
+): Promise<A> =>
+  Effect.runPromise(
+    surfaceStepFailure(effect).pipe(
+      Effect.provide(Layer.mergeAll(BunServices.layer, FetchHttpClient.layer)),
+    ),
+  );
 
 const fixtureKeys = {
   invalid0: "invalid-recommendation-0101-0",
@@ -454,8 +472,7 @@ const deliverRecruitmentInvitationOnce = async ({
   return Effect.runPromise(
     Effect.scoped(
       deliverNextRecruitmentInvitation(claimId, now()).pipe(
-        Effect.provide(gateway),
-        Effect.provide(authorityLayers),
+        Effect.provide(Layer.merge(gateway, authorityLayers)),
       ),
     ),
   );
@@ -524,7 +541,7 @@ try {
   ).rows[0].value;
 
   recordGate("previous-schema history fixture migrated");
-  correctionPre0039Fixture = await seedInterviewCorrectionPre0039Fixture({ pool });
+  correctionPre0039Fixture = await runJourneyEffect(seedInterviewCorrectionPre0039Fixture({ pool }));
   recordGate("seeded 0105 pre-0039 correction rows from existing native base");
   run(
     "bun",
@@ -548,7 +565,7 @@ try {
   );
 
   if (coInterviewerMode) {
-    coInterviewerFixture = await seedCoInterviewerCorrection0106Fixture({ pool });
+    coInterviewerFixture = await runJourneyEffect(seedCoInterviewerCorrection0106Fixture({ pool }));
     recordGate(
       "seeded synthetic 0106 co-interviewer designation after the canonical migration chain",
     );
@@ -612,7 +629,7 @@ try {
   await link("maybe", "recommendation-other-0101");
 
   if (applicantProgressMode) {
-    await seedApplicantProgress0107(pool);
+    await runJourneyEffect(seedApplicantProgress0107(pool));
     recordGate("seeded synthetic current-semester applicant progress states");
     secrets.push(
       applicantProgressUnlinkedIdentity.email,
@@ -642,7 +659,9 @@ try {
     "immutable historical row survived actual0037 upgrade without invented recommendation",
   );
   assert.ok(correctionPre0039Fixture);
-  await assertInterviewCorrectionPre0039Preserved(pool, correctionPre0039Fixture);
+  await runJourneyEffect(
+    assertInterviewCorrectionPre0039Preserved({ connection: pool, fixture: correctionPre0039Fixture }),
+  );
   recordGate(
     "0039/0040 upgrades preserved original interview/schedule/invitation/conduct/lifecycle rows",
   );
@@ -702,7 +721,7 @@ try {
        WHERE membership_id='membership-native-conduct-leader-0063'`,
     );
 
-    const journey = await runApplicantProgress0107({
+    const journey = await runJourneyEffect(runApplicantProgress0107({
       pool,
       page,
       cookie,
@@ -711,7 +730,7 @@ try {
       artifacts,
       errors,
       audit: (journeyPage) => auditPage(journeyPage, "applicant-progress"),
-    });
+    }));
 
     recordGate("observed applicant-owned progress through the real browser/API/PostgreSQL path");
 
@@ -2057,7 +2076,7 @@ try {
       DROP FUNCTION public.test_correction_audit_failure();
     `);
     stage("synthetic audit failure rolls back correction assessment, aggregate, receipt and audit");
-    await assertInterviewCorrectionIntegrity(pool, correctionId);
+    await runJourneyEffect(assertInterviewCorrectionIntegrity({ pool, interviewId: correctionId }));
     recordGate(
       "direct SQL correction integrity rejects immutable mutations, invalid predecessor, aggregate mismatch, and cross-command receipt/audit tuples without writes",
     );

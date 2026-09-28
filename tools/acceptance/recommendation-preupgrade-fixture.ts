@@ -1,4 +1,4 @@
-import { Record as Rec, Schema } from "effect";
+import { Effect, Record as Rec, Schema } from "effect";
 import assert from "node:assert/strict";
 
 import type { Pool, PoolClient } from "pg";
@@ -15,6 +15,7 @@ import {
   sha256Hex,
 } from "../../packages/domain/src/shared-kernel/index.js";
 import type { PostgresQueryable } from "./postgres-observation.js";
+import { committed, step, withPoolClient } from "./journey-step.ts";
 
 const leaderPersonId = "journey-conduct-leader-0063";
 
@@ -149,19 +150,21 @@ export const coInterviewerCorrection0106IdentitySeeds = [
 
 export type CoInterviewerCorrection0106Fixture = typeof coInterviewerCorrection0106Fixture;
 
-const clone = async (
+const clone = Effect.fnUntraced(function* (
   client: PoolClient,
   table: string,
   where: string,
   overrides: Schema.JsonObject,
-): Promise<void> => {
-  await client.query(
-    `INSERT INTO public.${table}
+) {
+  yield* step(() =>
+    client.query(
+      `INSERT INTO public.${table}
        SELECT (jsonb_populate_record(NULL::public.${table}, to_jsonb(source) || $1::jsonb)).*
        FROM public.${table} source WHERE ${where}`,
-    [JSON.stringify(overrides)],
+      [canonicalJson(overrides)],
+    ),
   );
-};
+});
 
 const lifecycleRows = (interviewId: string) => {
   if (interviewId === fixtureIds.cancelled) {
@@ -223,46 +226,51 @@ const lifecycleRows = (interviewId: string) => {
   };
 };
 
-const insertLifecycleRows = async (client: PoolClient, interviewId: string): Promise<void> => {
+const insertLifecycleRows = Effect.fnUntraced(function* (client: PoolClient, interviewId: string) {
   const row = lifecycleRows(interviewId);
   const digest = sha256Hex(canonicalJsonBytes(row.command));
-  await client.query(
-    `INSERT INTO public.recruitment_interview_lifecycle_command_receipts
+  yield* step(() =>
+    client.query(
+      `INSERT INTO public.recruitment_interview_lifecycle_command_receipts
       (command_id, command_sha256, command_json, observation_json, kind, interview_id, resulting_revision, committed_at)
      VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, $7, $8)`,
-    [
-      row.command.commandId,
-      digest,
-      canonicalJson(row.command),
-      canonicalJson(row.observation),
-      row.kind,
-      interviewId,
-      row.resultingRevision,
-      row.occurredAt,
-    ],
+      [
+        row.command.commandId,
+        digest,
+        canonicalJson(row.command),
+        canonicalJson(row.observation),
+        row.kind,
+        interviewId,
+        row.resultingRevision,
+        row.occurredAt,
+      ],
+    ),
   );
-  await client.query(
-    `INSERT INTO public.recruitment_interview_lifecycle_audit
+  yield* step(() =>
+    client.query(
+      `INSERT INTO public.recruitment_interview_lifecycle_audit
       (command_id, interview_id, kind, actor_person_id, resulting_revision, occurred_at)
      VALUES ($1, $2, $3, $4, $5, $6)`,
-    [
-      row.command.commandId,
-      interviewId,
-      row.kind,
-      leaderPersonId,
-      row.resultingRevision,
-      row.occurredAt,
-    ],
+      [
+        row.command.commandId,
+        interviewId,
+        row.kind,
+        leaderPersonId,
+        row.resultingRevision,
+        row.occurredAt,
+      ],
+    ),
   );
-};
+});
 
 const recordIds = Object.values(fixtureIds);
 
-export const readInterviewCorrectionPre0039Snapshot = async (
+export const readInterviewCorrectionPre0039Snapshot = Effect.fnUntraced(function* (
   connection: PostgresQueryable,
-): Promise<InterviewCorrectionPre0039Snapshot> => {
-  const result = await connection.query(
-    `SELECT
+) {
+  const result = yield* step(() =>
+    connection.query(
+      `SELECT
        COALESCE((SELECT jsonb_agg(to_jsonb(entry) - 'co_interviewer_person_id' ORDER BY entry.interview_id)
                  FROM public.recruitment_interviews entry WHERE entry.interview_id = ANY($1::text[])), '[]'::jsonb) AS interviews,
        COALESCE((SELECT jsonb_agg(to_jsonb(entry) ORDER BY entry.interview_id)
@@ -281,238 +289,257 @@ export const readInterviewCorrectionPre0039Snapshot = async (
                  FROM public.recruitment_interview_lifecycle_command_receipts entry WHERE entry.interview_id = ANY($1::text[])), '[]'::jsonb) AS "lifecycleReceipts",
        COALESCE((SELECT jsonb_agg(to_jsonb(entry) ORDER BY entry.interview_id, entry.command_id)
                  FROM public.recruitment_interview_lifecycle_audit entry WHERE entry.interview_id = ANY($1::text[])), '[]'::jsonb) AS "lifecycleAudits"`,
-    [recordIds],
+      [recordIds],
+    ),
   );
 
   assert.equal(result.rows.length, 1);
 
-  return Schema.decodeUnknownSync(InterviewCorrectionPre0039SnapshotSchema)(result.rows[0]);
-};
+  return yield* Schema.decodeUnknownEffect(InterviewCorrectionPre0039SnapshotSchema)(
+    result.rows[0],
+  );
+});
 
-export const seedInterviewCorrectionPre0039Fixture = async ({
+export const seedInterviewCorrectionPre0039Fixture = Effect.fnUntraced(function* ({
   pool,
 }: {
   readonly pool: Pool;
-}): Promise<InterviewCorrectionPre0039Fixture> => {
-  const base = await pool.query(
-    `SELECT count(*)::int AS count FROM public.recruitment_interviews WHERE interview_id = $1`,
-    [baseInterviewId],
+}) {
+  const base = yield* step(() =>
+    pool.query(
+      `SELECT count(*)::int AS count FROM public.recruitment_interviews WHERE interview_id = $1`,
+      [baseInterviewId],
+    ),
   );
 
   assert.equal(base.rows[0]?.count, 1, "native conduct seed must run before the 0105 fixture");
-  const client = await pool.connect();
+  yield* withPoolClient(pool, (client) =>
+    committed(
+      client,
+      Effect.gen(function* () {
+        for (const key of Rec.keys(fixtureIds)) {
+          const interviewId = fixtureIds[key];
 
-  try {
-    await client.query("BEGIN");
-
-    try {
-      for (const key of Rec.keys(fixtureIds)) {
-        const interviewId = fixtureIds[key];
-
-        if (key === "historicalNull") continue;
-        const applicantId = fixtureApplicants[key];
-        const applicationId = fixtureApplications[key];
-        const invitationId = fixtureInvitations[key];
-        await clone(
-          client,
-          "admission_applicants",
-          "applicant_id='applicant-native-conduct-a-0063'",
-          {
-            applicant_id: applicantId,
-            email: `${key}.correction@example.invalid`,
-            normalized_email: `${key}.correction@example.invalid`,
-            first_name: `Correction ${key}`,
-          },
-        );
-        await clone(
-          client,
-          "admission_applications",
-          "application_id='application-native-conduct-a-0063'",
-          {
+          if (key === "historicalNull") continue;
+          const applicantId = fixtureApplicants[key];
+          const applicationId = fixtureApplications[key];
+          const invitationId = fixtureInvitations[key];
+          yield* clone(
+            client,
+            "admission_applicants",
+            "applicant_id='applicant-native-conduct-a-0063'",
+            {
+              applicant_id: applicantId,
+              email: `${key}.correction@example.invalid`,
+              normalized_email: `${key}.correction@example.invalid`,
+              first_name: `Correction ${key}`,
+            },
+          );
+          yield* clone(
+            client,
+            "admission_applications",
+            "application_id='application-native-conduct-a-0063'",
+            {
+              application_id: applicationId,
+              applicant_id: applicantId,
+            },
+          );
+          yield* clone(client, "recruitment_interviews", `interview_id='${baseInterviewId}'`, {
+            interview_id: interviewId,
             application_id: applicationId,
-            applicant_id: applicantId,
-          },
-        );
-        await clone(client, "recruitment_interviews", `interview_id='${baseInterviewId}'`, {
-          interview_id: interviewId,
-          application_id: applicationId,
-        });
-        await clone(
-          client,
-          "recruitment_interview_schedules",
-          `interview_id='${baseInterviewId}'`,
-          {
-            interview_id: interviewId,
-          },
-        );
-        await clone(
-          client,
-          "recruitment_invitations",
-          "invitation_id='invitation-native-conduct-a-0063'",
-          {
-            invitation_id: invitationId,
-            interview_id: interviewId,
-            capability_sha256: `${({ explicit: "e", historicalNull: "a", unfinished: "b", cancelled: "c" } as const)[key]}${"f".repeat(63)}`,
-          },
-        );
-        await clone(
-          client,
-          "recruitment_invitation_response_audit",
-          "invitation_id='invitation-native-conduct-a-0063'",
-          {
-            invitation_id: invitationId,
-            interview_id: interviewId,
-          },
-        );
-        await clone(
-          client,
-          "recruitment_interview_question_snapshots",
-          `interview_id='${baseInterviewId}'`,
-          {
-            interview_id: interviewId,
-          },
-        );
-      }
+          });
+          yield* clone(
+            client,
+            "recruitment_interview_schedules",
+            `interview_id='${baseInterviewId}'`,
+            {
+              interview_id: interviewId,
+            },
+          );
+          yield* clone(
+            client,
+            "recruitment_invitations",
+            "invitation_id='invitation-native-conduct-a-0063'",
+            {
+              invitation_id: invitationId,
+              interview_id: interviewId,
+              capability_sha256: `${({ explicit: "e", historicalNull: "a", unfinished: "b", cancelled: "c" } as const)[key]}${"f".repeat(63)}`,
+            },
+          );
+          yield* clone(
+            client,
+            "recruitment_invitation_response_audit",
+            "invitation_id='invitation-native-conduct-a-0063'",
+            {
+              invitation_id: invitationId,
+              interview_id: interviewId,
+            },
+          );
+          yield* clone(
+            client,
+            "recruitment_interview_question_snapshots",
+            `interview_id='${baseInterviewId}'`,
+            {
+              interview_id: interviewId,
+            },
+          );
+        }
 
-      await client.query(
-        `INSERT INTO public.recruitment_interview_conducts
+        yield* step(() =>
+          client.query(
+            `INSERT INTO public.recruitment_interview_conducts
           (interview_id, answers, explanatory_power, role_model, suitability, recommendation,
            finalized_by_person_id, finalized_at, interview_revision)
          VALUES ($1, $3::jsonb, 4, 5, 6, 'Ja', $2, $4, 2)`,
-        [
-          fixtureIds.explicit,
-          leaderPersonId,
-          canonicalJson(fixtureAnswers),
-          fixtureTimestamps.explicitFinalizedAt,
-        ],
-      );
-      await client.query(
-        `UPDATE public.recruitment_interviews SET revision = 2 WHERE interview_id = $1`,
-        [fixtureIds.explicit],
-      );
-      await client.query(
-        `UPDATE public.recruitment_interviews SET revision = 2 WHERE interview_id = $1`,
-        [fixtureIds.cancelled],
-      );
-      await client.query(
-        `INSERT INTO public.recruitment_interview_cancellations
+            [
+              fixtureIds.explicit,
+              leaderPersonId,
+              canonicalJson(fixtureAnswers),
+              fixtureTimestamps.explicitFinalizedAt,
+            ],
+          ),
+        );
+        yield* step(() =>
+          client.query(
+            `UPDATE public.recruitment_interviews SET revision = 2 WHERE interview_id = $1`,
+            [fixtureIds.explicit],
+          ),
+        );
+        yield* step(() =>
+          client.query(
+            `UPDATE public.recruitment_interviews SET revision = 2 WHERE interview_id = $1`,
+            [fixtureIds.cancelled],
+          ),
+        );
+        yield* step(() =>
+          client.query(
+            `INSERT INTO public.recruitment_interview_cancellations
           (interview_id, cancelled_by_person_id, cancelled_at, interview_revision)
          VALUES ($1, $2, $3, 2)`,
-        [fixtureIds.cancelled, leaderPersonId, fixtureTimestamps.cancelledAt],
-      );
-      await insertLifecycleRows(client, fixtureIds.explicit);
-      await insertLifecycleRows(client, fixtureIds.cancelled);
-      await client.query("COMMIT");
-    } catch (cause) {
-      await client.query("ROLLBACK");
-      throw cause;
-    }
-  } finally {
-    client.release();
-  }
+            [fixtureIds.cancelled, leaderPersonId, fixtureTimestamps.cancelledAt],
+          ),
+        );
+        yield* insertLifecycleRows(client, fixtureIds.explicit);
+        yield* insertLifecycleRows(client, fixtureIds.cancelled);
+      }),
+    ),
+  );
 
-  const before0039 = await readInterviewCorrectionPre0039Snapshot(pool);
+  const before0039 = yield* readInterviewCorrectionPre0039Snapshot(pool);
   assert.equal(before0039.conducts.length, 2);
   assert.equal(before0039.cancellations.length, 1);
   assert.equal(before0039.lifecycleReceipts.length, 2);
   assert.equal(before0039.lifecycleAudits.length, 2);
 
   return { ids: interviewCorrectionPre0039Fixture, before0039 };
-};
+});
 
-export const assertInterviewCorrectionPre0039Preserved = async (
-  connection: PostgresQueryable,
-  fixture: InterviewCorrectionPre0039Fixture,
-): Promise<void> => {
-  const after0039 = await readInterviewCorrectionPre0039Snapshot(connection);
+export const assertInterviewCorrectionPre0039Preserved = Effect.fnUntraced(function* ({
+  connection,
+  fixture,
+}: {
+  readonly connection: PostgresQueryable;
+  readonly fixture: InterviewCorrectionPre0039Fixture;
+}) {
+  const after0039 = yield* readInterviewCorrectionPre0039Snapshot(connection);
   assert.deepEqual(
     after0039,
     fixture.before0039,
     "migration changed pre-existing recruitment records",
   );
-};
+});
 
-export const seedCoInterviewerCorrection0106Fixture = async ({
+export const seedCoInterviewerCorrection0106Fixture = Effect.fnUntraced(function* ({
   pool,
 }: {
   readonly pool: Pool;
-}): Promise<CoInterviewerCorrection0106Fixture> => {
+}) {
   const fixture = coInterviewerCorrection0106Fixture;
-  const client = await pool.connect();
-
-  try {
-    await client.query("BEGIN");
-
-    try {
-      const identities = await client.query(
-        `SELECT person_id AS "personId"
+  yield* withPoolClient(pool, (client) =>
+    committed(
+      client,
+      Effect.gen(function* () {
+        const identities = yield* step(() =>
+          client.query(
+            `SELECT person_id AS "personId"
            FROM public.person_profiles
           WHERE person_id = ANY($1::text[])
           ORDER BY person_id`,
-        [[fixture.coInterviewer.personId, fixture.unassignedMember.personId].sort()],
-      );
+            [[fixture.coInterviewer.personId, fixture.unassignedMember.personId].sort()],
+          ),
+        );
 
-      assert.deepEqual(
-        identities.rows.map((row) => row.personId),
-        [fixture.coInterviewer.personId, fixture.unassignedMember.personId].sort(),
-        "0106 identity seed must create both ordinary native Persons before designation",
-      );
+        assert.deepEqual(
+          identities.rows.map((row) => row.personId),
+          [fixture.coInterviewer.personId, fixture.unassignedMember.personId].sort(),
+          "0106 identity seed must create both ordinary native Persons before designation",
+        );
 
-      const sourceMembership = await client.query(
-        `SELECT membership.membership_id AS "membershipId", membership.person_id AS "personId",
+        const sourceMembership = yield* step(() =>
+          client.query(
+            `SELECT membership.membership_id AS "membershipId", membership.person_id AS "personId",
                 membership.is_team_leader AS "isTeamLeader", membership.is_suspended AS "isSuspended",
                 membership.end_at AS "endAt", team.team_id AS "teamId",
                 team.department_id AS "departmentId"
            FROM public.organization_memberships AS membership
            JOIN public.organization_teams AS team USING(team_id)
           WHERE membership.membership_id = $1`,
-        [fixture.primaryMembershipId],
-      );
+            [fixture.primaryMembershipId],
+          ),
+        );
 
-      assert.deepEqual(sourceMembership.rows, [
-        {
-          membershipId: fixture.primaryMembershipId,
-          personId: fixture.primaryPersonId,
-          isTeamLeader: false,
-          isSuspended: false,
-          endAt: null,
-          teamId: fixture.teamId,
-          departmentId: fixture.departmentId,
-        },
-      ]);
+        assert.deepEqual(sourceMembership.rows, [
+          {
+            membershipId: fixture.primaryMembershipId,
+            personId: fixture.primaryPersonId,
+            isTeamLeader: false,
+            isSuspended: false,
+            endAt: null,
+            teamId: fixture.teamId,
+            departmentId: fixture.departmentId,
+          },
+        ]);
 
-      const existingMemberships = await client.query(
-        `SELECT membership_id AS "membershipId"
+        const existingMemberships = yield* step(() =>
+          client.query(
+            `SELECT membership_id AS "membershipId"
            FROM public.organization_memberships
           WHERE membership_id = ANY($1::text[])
           ORDER BY membership_id`,
-        [[fixture.coInterviewer.membershipId, fixture.unassignedMember.membershipId].sort()],
-      );
-
-      assert.equal(existingMemberships.rows.length, 0, "0106 fixture memberships must be fresh");
-
-      for (const person of [fixture.coInterviewer, fixture.unassignedMember]) {
-        await clone(client, "person_contact_profiles", `person_id='${fixture.primaryPersonId}'`, {
-          person_id: person.personId,
-          email: person.email,
-        });
-        await clone(
-          client,
-          "organization_memberships",
-          `membership_id='${fixture.primaryMembershipId}'`,
-          {
-            membership_id: person.membershipId,
-            person_id: person.personId,
-            is_team_leader: false,
-            position_id: "member",
-            is_suspended: false,
-            revision: 0,
-          },
+            [[fixture.coInterviewer.membershipId, fixture.unassignedMember.membershipId].sort()],
+          ),
         );
-      }
 
-      await client.query(
-        `INSERT INTO public.admission_period_departments
+        assert.equal(existingMemberships.rows.length, 0, "0106 fixture memberships must be fresh");
+
+        for (const person of [fixture.coInterviewer, fixture.unassignedMember]) {
+          yield* clone(
+            client,
+            "person_contact_profiles",
+            `person_id='${fixture.primaryPersonId}'`,
+            {
+              person_id: person.personId,
+              email: person.email,
+            },
+          );
+          yield* clone(
+            client,
+            "organization_memberships",
+            `membership_id='${fixture.primaryMembershipId}'`,
+            {
+              membership_id: person.membershipId,
+              person_id: person.personId,
+              is_team_leader: false,
+              position_id: "member",
+              is_suspended: false,
+              revision: 0,
+            },
+          );
+        }
+
+        yield* step(() =>
+          client.query(
+            `INSERT INTO public.admission_period_departments
            SELECT (jsonb_populate_record(
              NULL::public.admission_period_departments,
              to_jsonb(department) || jsonb_build_object('department_id', $1::text)
@@ -520,70 +547,72 @@ export const seedCoInterviewerCorrection0106Fixture = async ({
              FROM public.admission_period_departments AS department
             WHERE department.department_id=$2
            ON CONFLICT (department_id) DO NOTHING`,
-        [fixture.differentDepartmentId, fixture.departmentId],
-      );
+            [fixture.differentDepartmentId, fixture.departmentId],
+          ),
+        );
 
-      const candidates = await client.query(
-        `SELECT interview_id AS "interviewId", interviewer_person_id AS "interviewerPersonId",
+        const candidates = yield* step(() =>
+          client.query(
+            `SELECT interview_id AS "interviewId", interviewer_person_id AS "interviewerPersonId",
                 co_interviewer_person_id AS "coInterviewerPersonId"
            FROM public.recruitment_interviews
           WHERE interview_id = ANY($1::text[])
           ORDER BY interview_id`,
-        [[fixture.targetInterviewId, fixture.selfLinkRaceInterviewId].sort()],
-      );
-
-      assert.equal(
-        candidates.rows.length,
-        2,
-        "0106 fixture needs completed and self-link race interviews",
-      );
-
-      for (const row of candidates.rows) {
-        assert.equal(row.interviewerPersonId, fixture.primaryPersonId);
-        assert.equal(
-          row.coInterviewerPersonId,
-          null,
-          "pre-0040 fixture rows must remain undesignated before the synthetic 0106 designation",
+            [[fixture.targetInterviewId, fixture.selfLinkRaceInterviewId].sort()],
+          ),
         );
-      }
 
-      const designated = await client.query(
-        `UPDATE public.recruitment_interviews
+        assert.equal(
+          candidates.rows.length,
+          2,
+          "0106 fixture needs completed and self-link race interviews",
+        );
+
+        for (const row of candidates.rows) {
+          assert.equal(row.interviewerPersonId, fixture.primaryPersonId);
+          assert.equal(
+            row.coInterviewerPersonId,
+            null,
+            "pre-0040 fixture rows must remain undesignated before the synthetic 0106 designation",
+          );
+        }
+
+        const designated = yield* step(() =>
+          client.query(
+            `UPDATE public.recruitment_interviews
             SET co_interviewer_person_id=$1
           WHERE interview_id = ANY($2::text[])
           RETURNING interview_id AS "interviewId", co_interviewer_person_id AS "coInterviewerPersonId"`,
-        [
-          fixture.coInterviewer.personId,
-          [fixture.targetInterviewId, fixture.selfLinkRaceInterviewId],
-        ],
-      );
+            [
+              fixture.coInterviewer.personId,
+              [fixture.targetInterviewId, fixture.selfLinkRaceInterviewId],
+            ],
+          ),
+        );
 
-      assert.deepEqual(
-        designated.rows.sort((left, right) =>
-          String(left.interviewId).localeCompare(String(right.interviewId)),
-        ),
-        [fixture.targetInterviewId, fixture.selfLinkRaceInterviewId].sort().map((interviewId) => ({
-          interviewId,
-          coInterviewerPersonId: fixture.coInterviewer.personId,
-        })),
-      );
-      await clone(
-        client,
-        "recruitment_interview_conducts",
-        `interview_id='${fixtureIds.explicit}'`,
-        {
-          interview_id: fixture.selfLinkRaceInterviewId,
-          interview_revision: 1,
-        },
-      );
-      await client.query("COMMIT");
-    } catch (cause) {
-      await client.query("ROLLBACK");
-      throw cause;
-    }
-  } finally {
-    client.release();
-  }
+        assert.deepEqual(
+          designated.rows.sort((left, right) =>
+            String(left.interviewId).localeCompare(String(right.interviewId)),
+          ),
+          [fixture.targetInterviewId, fixture.selfLinkRaceInterviewId]
+            .sort()
+            .map((interviewId) => ({
+              interviewId,
+              coInterviewerPersonId: fixture.coInterviewer.personId,
+            })),
+        );
+        yield* clone(
+          client,
+          "recruitment_interview_conducts",
+          `interview_id='${fixtureIds.explicit}'`,
+          {
+            interview_id: fixture.selfLinkRaceInterviewId,
+            interview_revision: 1,
+          },
+        );
+      }),
+    ),
+  );
 
   return fixture;
-};
+});

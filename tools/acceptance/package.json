@@ -1,0 +1,10 @@
+{
+  "name": "@monoweb/acceptance",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@effect/platform-bun": "catalog:effect-v4",
+    "effect": "catalog:effect-v4"
+  }
+}

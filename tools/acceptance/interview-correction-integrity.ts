@@ -6,7 +6,9 @@ import {
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import { Predicate, Schema } from "effect";
+import { Effect, Predicate, Schema } from "effect";
+import { canonicalJson } from "../../packages/domain/src/shared-kernel/index.js";
+import { type JourneyStepFailed, rolledBack, step, withPoolClient } from "./journey-step.ts";
 
 type CorrectionSeed = Readonly<{
   predecessorRevision: number;
@@ -26,61 +28,73 @@ type PersistedSnapshot = Readonly<{
   audit: ReadonlyArray<PostgresObservation>;
 }>;
 
-type DatabaseError = Readonly<{
-  message?: unknown;
-  constraint?: unknown;
-}>;
+// pg's DatabaseError always carries `constraint`, undefined when no constraint failed.
+const DatabaseError = Schema.Struct({
+  message: Schema.String,
+  constraint: Schema.optional(Schema.String),
+});
 
 export type InterviewCorrectionIntegrityOptions = Readonly<{
+  pool: Pool;
+  interviewId: string;
   expectedCorrectedByPersonId?: string;
   expectedCoInterviewerPersonId?: string | null;
 }>;
 
 const freshId = (prefix: string) => `${prefix}-${randomBytes(12).toString("hex")}`;
 
-const queryRows = async (client: PostgresQueryable, text: string, values: unknown[] = []) =>
-  decodePostgresObservations((await client.query(text, values)).rows);
+const queryRows = Effect.fnUntraced(function* (
+  client: PostgresQueryable,
+  text: string,
+  values: unknown[] = [],
+) {
+  return decodePostgresObservations((yield* step(() => client.query(text, values))).rows);
+});
 
-const readSnapshot = async (pool: Pool, interviewId: string): Promise<PersistedSnapshot> => ({
-  aggregate: await queryRows(
-    pool,
-    `SELECT interview_id, revision, co_interviewer_person_id
+const readSnapshot = Effect.fnUntraced(function* (pool: Pool, interviewId: string) {
+  const snapshot: PersistedSnapshot = {
+    aggregate: yield* queryRows(
+      pool,
+      `SELECT interview_id, revision, co_interviewer_person_id
        FROM public.recruitment_interviews
       WHERE interview_id=$1`,
-    [interviewId],
-  ),
-  assessments: await queryRows(
-    pool,
-    `SELECT interview_id, predecessor_revision, resulting_revision, answers,
+      [interviewId],
+    ),
+    assessments: yield* queryRows(
+      pool,
+      `SELECT interview_id, predecessor_revision, resulting_revision, answers,
             explanatory_power, role_model, suitability, recommendation,
             corrected_by_person_id, corrected_at, command_id
        FROM public.recruitment_interview_correction_assessments
       WHERE interview_id=$1
       ORDER BY resulting_revision`,
-    [interviewId],
-  ),
-  receipts: await queryRows(
-    pool,
-    `SELECT command_id, command_sha256, command_json, observation_json,
+      [interviewId],
+    ),
+    receipts: yield* queryRows(
+      pool,
+      `SELECT command_id, command_sha256, command_json, observation_json,
             interview_id, predecessor_revision, resulting_revision, committed_at
        FROM public.recruitment_interview_correction_command_receipts
       WHERE interview_id=$1
       ORDER BY resulting_revision, command_id`,
-    [interviewId],
-  ),
-  audit: await queryRows(
-    pool,
-    `SELECT command_id, interview_id, actor_person_id, predecessor_revision,
+      [interviewId],
+    ),
+    audit: yield* queryRows(
+      pool,
+      `SELECT command_id, interview_id, actor_person_id, predecessor_revision,
             resulting_revision, occurred_at
        FROM public.recruitment_interview_correction_audit
       WHERE interview_id=$1
       ORDER BY resulting_revision, command_id`,
-    [interviewId],
-  ),
+      [interviewId],
+    ),
+  };
+
+  return snapshot;
 });
 
-const readCorrectionSeed = async (pool: Pool, interviewId: string): Promise<CorrectionSeed> => {
-  const rows = await queryRows(
+const readCorrectionSeed = Effect.fnUntraced(function* (pool: Pool, interviewId: string) {
+  const rows = yield* queryRows(
     pool,
     `SELECT predecessor_revision AS "predecessorRevision",
             resulting_revision AS "resultingRevision", answers,
@@ -107,7 +121,7 @@ const readCorrectionSeed = async (pool: Pool, interviewId: string): Promise<Corr
   );
   assert.ok(Predicate.isString(row.correctedByPersonId));
 
-  return {
+  const seed: CorrectionSeed = {
     predecessorRevision: row.predecessorRevision,
     resultingRevision: row.resultingRevision,
     answers: row.answers,
@@ -117,10 +131,12 @@ const readCorrectionSeed = async (pool: Pool, interviewId: string): Promise<Corr
     recommendation: row.recommendation,
     correctedByPersonId: row.correctedByPersonId,
   };
-};
 
-const readCommandIds = async (pool: Pool, interviewId: string) => {
-  const rows = await queryRows(
+  return seed;
+});
+
+const readCommandIds = Effect.fnUntraced(function* (pool: Pool, interviewId: string) {
+  const rows = yield* queryRows(
     pool,
     `SELECT command_id AS "commandId"
        FROM public.recruitment_interview_correction_assessments
@@ -131,38 +147,32 @@ const readCommandIds = async (pool: Pool, interviewId: string) => {
   );
 
   assert.equal(rows.length, 1);
-  assert.ok(Predicate.isString(rows[0]!.commandId));
+  const commandId = rows[0]!.commandId;
+  assert.ok(Predicate.isString(commandId));
 
-  return Schema.decodeSync(Schema.String)(rows[0]!.commandId);
-};
+  return commandId;
+});
 
-const assertRejectedAndUnchanged = async <A>(
+const assertRejectedAndUnchanged = Effect.fnUntraced(function* (
   pool: Pool,
   interviewId: string,
   label: string,
-  mutation: (client: PoolClient) => Promise<A>,
+  mutation: (client: PoolClient) => Effect.Effect<unknown, JourneyStepFailed>,
   expected: { message?: RegExp; constraint?: string },
-) => {
-  const before = await readSnapshot(pool, interviewId);
-  const client = await pool.connect();
-  let failure: DatabaseError | undefined;
+) {
+  const before = yield* readSnapshot(pool, interviewId);
 
-  try {
-    await client.query("BEGIN");
-
-    try {
-      await mutation(client);
-    } catch (cause) {
-      // pg's DatabaseError always carries `constraint`, undefined when no constraint failed.
-      failure = Schema.decodeUnknownSync(
-        Schema.Struct({ message: Schema.String, constraint: Schema.optional(Schema.String) }),
-      )(cause);
-    }
-
-    await client.query("ROLLBACK");
-  } finally {
-    client.release();
-  }
+  const failure = yield* withPoolClient(pool, (client) =>
+    rolledBack(
+      client,
+      mutation(client).pipe(
+        Effect.as(undefined),
+        Effect.catchTag("JourneyStepFailed", (failed) =>
+          Schema.decodeUnknownEffect(DatabaseError)(failed.cause),
+        ),
+      ),
+    ),
+  );
 
   assert.ok(failure, `${label} unexpectedly succeeded`);
   assert.ok(Predicate.isString(failure.message), `${label} did not return a database error`);
@@ -176,80 +186,85 @@ const assertRejectedAndUnchanged = async <A>(
   }
 
   assert.deepEqual(
-    await readSnapshot(pool, interviewId),
+    yield* readSnapshot(pool, interviewId),
     before,
     `${label} changed persisted state`,
   );
-};
+});
 
-const insertAssessment = async (
+const insertAssessment = Effect.fnUntraced(function* (
   client: PoolClient,
   interviewId: string,
   seed: CorrectionSeed,
   commandId: string,
   predecessorRevision: number,
   resultingRevision: number,
-) => {
-  await client.query(
-    `INSERT INTO public.recruitment_interview_correction_assessments
+) {
+  yield* step(() =>
+    client.query(
+      `INSERT INTO public.recruitment_interview_correction_assessments
       (interview_id, predecessor_revision, resulting_revision, answers,
        explanatory_power, role_model, suitability, recommendation,
        corrected_by_person_id, corrected_at, command_id)
      VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'),$10)`,
-    [
-      interviewId,
-      predecessorRevision,
-      resultingRevision,
-      JSON.stringify(seed.answers),
-      seed.explanatoryPower,
-      seed.roleModel,
-      seed.suitability,
-      seed.recommendation,
-      seed.correctedByPersonId,
-      commandId,
-    ],
+      [
+        interviewId,
+        predecessorRevision,
+        resultingRevision,
+        canonicalJson(seed.answers),
+        seed.explanatoryPower,
+        seed.roleModel,
+        seed.suitability,
+        seed.recommendation,
+        seed.correctedByPersonId,
+        commandId,
+      ],
+    ),
   );
-};
+});
 
-const alignAggregateForCandidate = async (
+const alignAggregateForCandidate = Effect.fnUntraced(function* (
   client: PoolClient,
   interviewId: string,
   resultingRevision: number,
-) => {
-  await client.query(
-    `UPDATE public.recruitment_interviews
+) {
+  yield* step(() =>
+    client.query(
+      `UPDATE public.recruitment_interviews
         SET revision=$2
       WHERE interview_id=$1`,
-    [interviewId, resultingRevision],
+      [interviewId, resultingRevision],
+    ),
   );
-};
+});
 
-const insertReceipt = async (
+const insertReceipt = Effect.fnUntraced(function* (
   client: PoolClient,
   commandId: string,
   interviewId: string,
   predecessorRevision: number,
   resultingRevision: number,
-) => {
-  await client.query(
-    `INSERT INTO public.recruitment_interview_correction_command_receipts
+) {
+  yield* step(() =>
+    client.query(
+      `INSERT INTO public.recruitment_interview_correction_command_receipts
       (command_id, command_sha256, command_json, observation_json, interview_id,
        predecessor_revision, resulting_revision, committed_at)
      VALUES ($1, repeat('a', 64), '{}'::jsonb, '{}'::jsonb, $2, $3, $4, date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'))`,
-    [commandId, interviewId, predecessorRevision, resultingRevision],
+      [commandId, interviewId, predecessorRevision, resultingRevision],
+    ),
   );
-};
+});
 
-export async function assertInterviewCorrectionIntegrity(
-  pool: Pool,
-  interviewId: string,
-  options: InterviewCorrectionIntegrityOptions = {},
-): Promise<void> {
-  const seed = await readCorrectionSeed(pool, interviewId);
-  const commandId = await readCommandIds(pool, interviewId);
+export const assertInterviewCorrectionIntegrity = Effect.fnUntraced(function* (
+  options: InterviewCorrectionIntegrityOptions,
+) {
+  const { pool, interviewId } = options;
+  const seed = yield* readCorrectionSeed(pool, interviewId);
+  const commandId = yield* readCommandIds(pool, interviewId);
   const currentRevision = seed.resultingRevision;
   const candidateRevision = currentRevision + 1;
-  const baseline = await readSnapshot(pool, interviewId);
+  const baseline = yield* readSnapshot(pool, interviewId);
   assert.equal(baseline.aggregate.length, 1, "the corrected interview aggregate must exist");
   assert.equal(baseline.aggregate[0]!.revision, currentRevision);
 
@@ -268,7 +283,7 @@ export async function assertInterviewCorrectionIntegrity(
       "latest correction must retain the expected actor",
     );
 
-    const audit = await queryRows(
+    const audit = yield* queryRows(
       pool,
       `SELECT actor_person_id
          FROM public.recruitment_interview_correction_audit
@@ -279,89 +294,101 @@ export async function assertInterviewCorrectionIntegrity(
     assert.deepEqual(audit, [{ actor_person_id: options.expectedCorrectedByPersonId }]);
   }
 
-  await assertRejectedAndUnchanged(
+  yield* assertRejectedAndUnchanged(
     pool,
     interviewId,
     "assessment update immutability",
     (client) =>
-      client.query(
-        `UPDATE public.recruitment_interview_correction_assessments
+      step(() =>
+        client.query(
+          `UPDATE public.recruitment_interview_correction_assessments
             SET recommendation = CASE recommendation WHEN 'Ja' THEN 'Nei' ELSE 'Ja' END
           WHERE interview_id=$1 AND resulting_revision=$2`,
-        [interviewId, currentRevision],
+          [interviewId, currentRevision],
+        ),
       ),
     { message: /corrections are immutable/i },
   );
-  await assertRejectedAndUnchanged(
+  yield* assertRejectedAndUnchanged(
     pool,
     interviewId,
     "assessment delete immutability",
     (client) =>
-      client.query(
-        `DELETE FROM public.recruitment_interview_correction_assessments
+      step(() =>
+        client.query(
+          `DELETE FROM public.recruitment_interview_correction_assessments
           WHERE interview_id=$1 AND resulting_revision=$2`,
-        [interviewId, currentRevision],
+          [interviewId, currentRevision],
+        ),
       ),
     { message: /corrections are immutable/i },
   );
-  await assertRejectedAndUnchanged(
+  yield* assertRejectedAndUnchanged(
     pool,
     interviewId,
     "receipt update immutability",
     (client) =>
-      client.query(
-        `UPDATE public.recruitment_interview_correction_command_receipts
+      step(() =>
+        client.query(
+          `UPDATE public.recruitment_interview_correction_command_receipts
             SET observation_json='{}'::jsonb
           WHERE command_id=$1`,
-        [commandId],
+          [commandId],
+        ),
       ),
     { message: /corrections are immutable/i },
   );
-  await assertRejectedAndUnchanged(
+  yield* assertRejectedAndUnchanged(
     pool,
     interviewId,
     "receipt delete immutability",
     (client) =>
-      client.query(
-        `DELETE FROM public.recruitment_interview_correction_command_receipts
+      step(() =>
+        client.query(
+          `DELETE FROM public.recruitment_interview_correction_command_receipts
           WHERE command_id=$1`,
-        [commandId],
+          [commandId],
+        ),
       ),
     { message: /corrections are immutable/i },
   );
-  await assertRejectedAndUnchanged(
+  yield* assertRejectedAndUnchanged(
     pool,
     interviewId,
     "audit update immutability",
     (client) =>
-      client.query(
-        `UPDATE public.recruitment_interview_correction_audit
+      step(() =>
+        client.query(
+          `UPDATE public.recruitment_interview_correction_audit
             SET occurred_at=date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')
           WHERE command_id=$1`,
-        [commandId],
+          [commandId],
+        ),
       ),
     { message: /corrections are immutable/i },
   );
-  await assertRejectedAndUnchanged(
+  yield* assertRejectedAndUnchanged(
     pool,
     interviewId,
     "audit delete immutability",
     (client) =>
-      client.query(
-        `DELETE FROM public.recruitment_interview_correction_audit
+      step(() =>
+        client.query(
+          `DELETE FROM public.recruitment_interview_correction_audit
           WHERE command_id=$1`,
-        [commandId],
+          [commandId],
+        ),
       ),
     { message: /corrections are immutable/i },
   );
 
-  await assertRejectedAndUnchanged(
+  yield* assertRejectedAndUnchanged(
     pool,
     interviewId,
     "skipped correction predecessor",
-    async (client) => {
-      await alignAggregateForCandidate(client, interviewId, candidateRevision);
-      await insertAssessment(
+    Effect.fnUntraced(function* (client) {
+      yield* alignAggregateForCandidate(client, interviewId, candidateRevision);
+      yield* insertAssessment(
         client,
         interviewId,
         seed,
@@ -369,10 +396,10 @@ export async function assertInterviewCorrectionIntegrity(
         currentRevision - 1,
         candidateRevision,
       );
-    },
+    }),
     { message: /predecessor must be the current effective revision/i },
   );
-  await assertRejectedAndUnchanged(
+  yield* assertRejectedAndUnchanged(
     pool,
     interviewId,
     "aggregate revision mismatch",
@@ -388,14 +415,14 @@ export async function assertInterviewCorrectionIntegrity(
     { message: /aggregate revision must match correction revision/i },
   );
 
-  await assertRejectedAndUnchanged(
+  yield* assertRejectedAndUnchanged(
     pool,
     interviewId,
     "receipt assessment tuple mismatch",
-    async (client) => {
+    Effect.fnUntraced(function* (client) {
       const candidateCommandId = freshId("integrity-receipt");
-      await alignAggregateForCandidate(client, interviewId, candidateRevision);
-      await insertAssessment(
+      yield* alignAggregateForCandidate(client, interviewId, candidateRevision);
+      yield* insertAssessment(
         client,
         interviewId,
         seed,
@@ -403,25 +430,25 @@ export async function assertInterviewCorrectionIntegrity(
         currentRevision,
         candidateRevision,
       );
-      await insertReceipt(
+      yield* insertReceipt(
         client,
         candidateCommandId,
         interviewId,
         seed.predecessorRevision,
         seed.resultingRevision,
       );
-    },
+    }),
     { constraint: "correction_receipt_assessment_chain_fk" },
   );
 
-  await assertRejectedAndUnchanged(
+  yield* assertRejectedAndUnchanged(
     pool,
     interviewId,
     "audit receipt tuple mismatch",
-    async (client) => {
+    Effect.fnUntraced(function* (client) {
       const candidateCommandId = freshId("integrity-audit");
-      await alignAggregateForCandidate(client, interviewId, candidateRevision);
-      await insertAssessment(
+      yield* alignAggregateForCandidate(client, interviewId, candidateRevision);
+      yield* insertAssessment(
         client,
         interviewId,
         seed,
@@ -429,27 +456,29 @@ export async function assertInterviewCorrectionIntegrity(
         currentRevision,
         candidateRevision,
       );
-      await insertReceipt(
+      yield* insertReceipt(
         client,
         candidateCommandId,
         interviewId,
         currentRevision,
         candidateRevision,
       );
-      await client.query(
-        `INSERT INTO public.recruitment_interview_correction_audit
+      yield* step(() =>
+        client.query(
+          `INSERT INTO public.recruitment_interview_correction_audit
           (command_id, interview_id, actor_person_id, predecessor_revision,
            resulting_revision, occurred_at)
          VALUES ($1,$2,$3,$4,$5,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))`,
-        [
-          candidateCommandId,
-          interviewId,
-          seed.correctedByPersonId,
-          seed.predecessorRevision,
-          seed.resultingRevision,
-        ],
+          [
+            candidateCommandId,
+            interviewId,
+            seed.correctedByPersonId,
+            seed.predecessorRevision,
+            seed.resultingRevision,
+          ],
+        ),
       );
-    },
+    }),
     { constraint: "correction_audit_receipt_chain_fk" },
   );
-}
+});
