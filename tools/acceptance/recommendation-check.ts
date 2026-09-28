@@ -66,6 +66,7 @@ import { NotificationGateway } from "../../packages/domain/src/notification/serv
 import { Array as Arr, Predicate, Schema } from "effect";
 import { PublicApplicationIdSchema } from "../../packages/domain/src/application/schema.js";
 import { nativeScriptClient } from "../../packages/rpc/src/script-client.js";
+import { replacedFetch } from "../../apps/dashboard/e2e/native-rpc-ledger.ts";
 import { FetchHttpClient } from "effect/unstable/http";
 
 const root = new URL("../../", import.meta.url).pathname;
@@ -645,7 +646,6 @@ try {
   recordGate(
     "0039/0040 upgrades preserved original interview/schedule/invitation/conduct/lifecycle rows",
   );
-  run("bun", ["run", "build"], env, join(root, "packages/sdk"));
   run("bun", ["run", "build"], env, join(root, "apps/dashboard"));
   start("bun", ["server.mjs"], env, join(root, "apps/dashboard"));
   await ready(async () => (await fetch(`${ui}/login`)).ok);
@@ -1179,33 +1179,29 @@ try {
     throw new ReturningTargetedComplete({ returningStages, reportEvidence });
   }
 
+  // Each call is the RPC that replaced the route, answered as that route's HTTP response.
   const get = (id: string) =>
-    fetch(`${api}/api/recruitment/interviews/${id}`, { headers: { cookie, origin: ui } });
+    replacedFetch({
+      origin: api,
+      tag: "recruitment.readInterviewConduct",
+      payload: { interviewId: id },
+      headers: { cookie, origin: ui },
+    });
 
   const post = (id: string, body: Schema.Json, key: string, etag: string) =>
-    fetch(`${api}/api/recruitment/interviews/${id}:finalize`, {
-      method: "POST",
-      headers: {
-        cookie,
-        origin: ui,
-        "content-type": "application/json",
-        "idempotency-key": key,
-        "if-match": etag,
-      },
-      body: JSON.stringify(body),
+    replacedFetch({
+      origin: api,
+      tag: "recruitment.finalizeInterview",
+      payload: { interviewId: id, idempotencyKey: key, ifMatch: etag, request: body },
+      headers: { cookie, origin: ui },
     });
 
   const correctPost = (id: string, body: Schema.Json, key: string, etag: string) =>
-    fetch(`${api}/api/recruitment/interviews/${id}:correct`, {
-      method: "POST",
-      headers: {
-        cookie,
-        origin: ui,
-        "content-type": "application/json",
-        "idempotency-key": key,
-        "if-match": etag,
-      },
-      body: JSON.stringify(body),
+    replacedFetch({
+      origin: api,
+      tag: "recruitment.correctInterviewAssessment",
+      payload: { interviewId: id, idempotencyKey: key, ifMatch: etag, request: body },
+      headers: { cookie, origin: ui },
     });
 
   const open = async (p: any, name: string) => {
@@ -2354,8 +2350,12 @@ try {
     );
   }
 
-  const applicantResponse = await fetch(`${api}/api/recruitment/invitation-response`, {
-    headers: { "x-recruitment-invitation-capability": invitationCapability, origin: ui },
+  // The capability travels in the payload, with no session beside it.
+  const applicantResponse = await replacedFetch({
+    origin: api,
+    tag: "recruitment.readInvitationResponse",
+    payload: { capability: invitationCapability },
+    headers: { origin: ui },
   });
 
   assert.equal(applicantResponse.status, 200);
@@ -2399,20 +2399,16 @@ try {
     403,
   );
 
-  const selfCancel = await fetch(
-    `${api}/api/recruitment/interviews/interview-recommendation-self:cancel`,
-    {
-      method: "POST",
-      headers: {
-        cookie,
-        origin: ui,
-        "content-type": "application/json",
-        "if-match": etag,
-        "idempotency-key": fixtureKeys.selfCancel,
-      },
-      body: "{}",
+  const selfCancel = await replacedFetch({
+    origin: api,
+    tag: "recruitment.cancelInterview",
+    payload: {
+      interviewId: "interview-recommendation-self",
+      idempotencyKey: fixtureKeys.selfCancel,
+      ifMatch: etag,
     },
-  );
+    headers: { cookie, origin: ui },
+  });
 
   assert.equal(selfCancel.status, 403);
   assert.deepEqual(await effectSnapshot(), effectsAfterInterviewCompletions);
@@ -2428,10 +2424,11 @@ try {
     [onboardingToken],
   );
 
-  const onboardingProjection = await fetch(`${api}/api/onboarding/claim`, {
-    method: "POST",
-    headers: { cookie, origin: ui, "content-type": "application/json" },
-    body: JSON.stringify({ mode: "ExistingAccount", token: onboardingToken }),
+  const onboardingProjection = await replacedFetch({
+    origin: api,
+    tag: "onboarding.claim",
+    payload: { mode: "ExistingAccount", token: onboardingToken },
+    headers: { cookie, origin: ui },
   });
 
   assert.equal(onboardingProjection.status, 200);

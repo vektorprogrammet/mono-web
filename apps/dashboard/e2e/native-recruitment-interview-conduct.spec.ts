@@ -1,4 +1,4 @@
-import { CancelInterviewResponse, ConductObservation } from "@vektorprogrammet/rpc";
+import { CancelInterviewResponse } from "@vektorprogrammet/rpc";
 import { RecruitmentBridgeFailure } from "../app/foldkit/recruitment/bridge";
 import { ApplicantProgressResponseSchema } from "@vektorprogrammet/rpc";
 import { nativeScriptClient } from "@vektorprogrammet/rpc/script";
@@ -433,16 +433,26 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
       ).toBeVisible();
       await expect(cardFor(independentPage, applicantB)).toHaveCount(0);
 
-      const retainedConductResponse = await independentContext.request.get(
-        `${apiOrigin}/api/recruitment/interviews/${cancellation.interviewId}`,
-        { headers: { origin: dashboardOrigin } },
+      // The leader reads the conduct RPC with the session that the independent context holds.
+      const independentCookie = (await independentContext.cookies(dashboardOrigin))
+        .map(({ name, value }) => `${name}=${value}`)
+        .join("; ");
+
+      const conductClient = nativeScriptClient(apiOrigin);
+
+      const retainedConductResponse = await conductClient.call(
+        { cookie: independentCookie, origin: dashboardOrigin },
+        (client) =>
+          client["recruitment.readInterviewConduct"]({ interviewId: cancellation.interviewId }),
       );
 
-      expect(retainedConductResponse.status()).toBe(200);
+      await conductClient.dispose();
+      expect(retainedConductResponse.status).toBe(200);
 
-      const retainedConduct = Schema.decodeUnknownSync(ConductObservation)(
-        await retainedConductResponse.json(),
-      );
+      if (!retainedConductResponse.ok)
+        throw new Error(`retained conduct: ${retainedConductResponse.code}`);
+
+      const retainedConduct = retainedConductResponse.value.detail;
 
       expect(retainedConduct.interviewId).toBe(cancellation.interviewId);
       expect(retainedConduct.cancellationState).toBe("Cancelled");

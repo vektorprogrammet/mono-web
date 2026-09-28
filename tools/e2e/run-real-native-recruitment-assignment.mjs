@@ -12,12 +12,12 @@ import {
   databaseSchemaRevision,
 } from "@vektorprogrammet/database/migrations";
 import { Predicate } from "effect";
+import { replacedAnswer, replacedRequest } from "../../apps/dashboard/e2e/native-rpc-ledger.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 const dashboardRoot = fileURLToPath(new URL("../../apps/dashboard/", import.meta.url));
 
-const sdkRoot = fileURLToPath(new URL("../../packages/sdk/", import.meta.url));
 
 const recruitmentAssignmentMigration = {
   id: 10,
@@ -408,6 +408,25 @@ const startRecordingProxy = async (targetOrigin) => {
       responseEtag: null,
     };
 
+    const rpc = path === "/api/rpc" ? replacedRequest(requestJson) : undefined;
+
+    // A native RPC is recorded as the HTTP route it replaced, with the facts of its message.
+    if (rpc !== undefined) {
+      record.rpcTag = rpc.tag;
+      record.method = rpc.method;
+      record.path = rpc.path;
+      record.pathAndQuery =
+        rpc.tag === "recruitment.readAssignmentBoard" && Predicate.isString(rpc.payload.status)
+          ? `${rpc.path}?status=${rpc.payload.status}`
+          : rpc.path;
+      record.idempotencyKey = rpc.idempotencyKey;
+      record.ifMatch = rpc.ifMatch;
+      record.requestJson = rpc.requestJson;
+      record.sessionCookieAuth ||= hasNamedCookie(rpc.messageHeaders.cookie, sessionCookieNames);
+      record.jwtCookieAuth ||= hasNamedCookie(rpc.messageHeaders.cookie, new Set(["jwt_token"]));
+      record.authorizationHeaderPresent ||= rpc.messageHeaders.authorization !== undefined;
+    }
+
     records.push(record);
 
     try {
@@ -441,6 +460,17 @@ const startRecordingProxy = async (targetOrigin) => {
       if (upstream.status >= 400) record.responseFailure = parseJsonBody(responseBytes);
       record.responseJson = parseJsonBody(responseBytes) ?? null;
       record.responseEtag = upstream.headers.get("etag");
+
+      const answer = rpc === undefined ? undefined : replacedAnswer(record.responseJson);
+
+      if (answer !== undefined) {
+        record.status = answer.status;
+        record.responseJson = answer.responseJson;
+        record.responseEtag = answer.responseEtag;
+
+        if (answer.status >= 400) record.responseFailure = answer.responseJson;
+      }
+
       response.statusCode = upstream.status;
 
       for (const [name, value] of upstream.headers.entries()) {
@@ -769,11 +799,6 @@ const main = async () => {
       RECRUITMENT_E2E_LEADER_PERSON_ID: leaderPersonId,
     };
 
-    await run("bun", ["run", "build"], {
-      cwd: sdkRoot,
-      env: journeyEnvironment,
-      label: "native recruitment SDK build",
-    });
 
     // The dev server optimizes newly discovered dependencies and reloads the page, which
     // aborts in-flight module imports under the browser. The journey serves the build.
@@ -844,7 +869,8 @@ const main = async () => {
 
     const requiredTransportTail = [
       ["GET", `${boardPath}?status=new`, 200],
-      ["POST", createPath, 201],
+      // An RPC command answers 200; the 201 and Location were HTTP transport facts.
+      ["POST", createPath, 200],
       ["GET", `${boardPath}?status=new`, 200],
       ["GET", `${boardPath}?status=all`, 200],
     ];
