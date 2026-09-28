@@ -70,7 +70,7 @@ export class TeamApplicationDeliveryQueue extends Context.Service<
     readonly store: PersistedQueue.PersistedQueueStore["Service"];
     readonly maxAttempts: number;
   }
->()("@vektorprogrammet/database/team-application/TeamApplicationDeliveryQueue") {}
+>()("@vektorprogrammet/database/team-application/outbox/TeamApplicationDeliveryQueue") {}
 
 /**
  * Builds a queue store on the caller's Database, so an offer joins the caller's
