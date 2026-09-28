@@ -109,7 +109,7 @@ export const makePasswordRecovery = (
         url !==
         `${config.oauth.canonicalOrigin}/api/auth/reset-password/${token}?callbackURL=${encodeURIComponent(callback)}`
       ) {
-        return yield* new IdentityEngineError({
+        return yield* IdentityEngineError.make({
           operation: "sendResetPassword",
           message: "Recovery callback mismatch",
         });
@@ -146,7 +146,7 @@ export const makePasswordRecovery = (
           const [row] = verification.rows;
 
           if (verification.rows.length !== 1 || row === undefined) {
-            return yield* new IdentityEngineError({
+            return yield* IdentityEngineError.make({
               operation: "sendResetPassword",
               message: "Recovery verification missing",
             });
@@ -188,7 +188,7 @@ export const makePasswordRecovery = (
 
       if (state === undefined) {
         return Effect.fail(
-          new IdentityEngineError({
+          IdentityEngineError.make({
             operation: "sendResetPassword",
             message: "Recovery requires an owned request",
           }),
@@ -208,7 +208,7 @@ export const makePasswordRecovery = (
           }).pipe(
             Effect.andThen(
               Effect.fail(
-                new IdentityEngineError({
+                IdentityEngineError.make({
                   operation: "sendResetPassword",
                   message: "Recovery enqueue unavailable",
                 }),
@@ -245,7 +245,7 @@ export const makePasswordRecovery = (
         return Effect.tryPromise({
           try: () => engineHandler(request),
           catch: (cause) =>
-            new IdentityEngineError({
+            IdentityEngineError.make({
               operation: "handler",
               message: cause instanceof Error ? cause.message : "identity engine failure",
             }),
@@ -296,7 +296,7 @@ export const makePasswordRecovery = (
         const response = yield* Effect.tryPromise({
           try: () => local.run(state, () => engineHandler(request)),
           catch: (cause) =>
-            new IdentityEngineError({
+            IdentityEngineError.make({
               operation: "handler",
               message: cause instanceof Error ? cause.message : "identity engine failure",
             }),

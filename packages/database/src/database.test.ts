@@ -3856,21 +3856,21 @@ describe("DatabaseTest", () => {
           NotificationGateway.of({
             deliverInterviewCompletionReceipt: (request) =>
               Effect.fail(
-                new RecruitmentNotificationDeliveryError({
+                RecruitmentNotificationDeliveryError.make({
                   effectId: request.effectId,
                   message: "Recording delivery failed",
                 }),
               ),
             deliverInterviewInvitation: (request) =>
               Effect.fail(
-                new RecruitmentNotificationDeliveryError({
+                RecruitmentNotificationDeliveryError.make({
                   effectId: request.effectId,
                   message: "Recording delivery failed",
                 }),
               ),
             deliverInterviewInvitationResponse: (request) =>
               Effect.fail(
-                new RecruitmentNotificationDeliveryError({
+                RecruitmentNotificationDeliveryError.make({
                   effectId: request.effectId,
                   message: "Recording delivery failed",
                 }),
@@ -5314,7 +5314,7 @@ describe("claim-fenced outbox delivery", () => {
                   loseClaim.pipe(
                     Effect.andThen(
                       Effect.fail(
-                        new PublicApplicationEffectDeliveryError({ effectId: request.effectId }),
+                        PublicApplicationEffectDeliveryError.make({ effectId: request.effectId }),
                       ),
                     ),
                   ),

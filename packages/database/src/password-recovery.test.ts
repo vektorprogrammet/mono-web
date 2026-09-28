@@ -19,7 +19,7 @@ const config: AuthEngineConfig = {
   secureCookies: false,
 } as const;
 
-const context = new IdentityRequestContext({
+const context = IdentityRequestContext.make({
   requestCorrelation: "focused-recovery",
   sourceIp: null,
   userAgent: null,
