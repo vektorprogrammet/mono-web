@@ -1,4 +1,4 @@
-import { type RecruitmentInvitationDeliveryResult } from "../../packages/database/src/recruitment/index.js";
+import type { RecruitmentInvitationDeliveryResult } from "../../packages/database/src/recruitment/outbox.js";
 import { isNativeRpcPath, nativeRpcPath } from "../../packages/rpc/src/api.js";
 import { IdempotencyKey, NativeProblem } from "../../packages/rpc/src/problem.js";
 import { nativeScriptClient } from "../../packages/rpc/src/script-client.js";
@@ -13,10 +13,8 @@ import {
 } from "../../packages/domain/src/recruitment/schema.js";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import type { Pool } from "pg";
-import type { Browser, Locator, Page } from "@playwright/test";
+import type { Pool, PoolClient } from "pg";
+import type { Browser, Locator, Page, Route } from "@playwright/test";
 import { AdmissionFieldOfStudyId } from "../../packages/domain/src/admission-period/schema.js";
 import { publicApplicationCommandDigest } from "../../packages/domain/src/application/digest.js";
 import { ReturningAssistantRegistrationInputSchema } from "../../packages/domain/src/application/returning.js";
@@ -30,9 +28,58 @@ import {
   PublicApplicationYearOfStudySchema,
 } from "../../packages/domain/src/application/schema.js";
 import { DepartmentId } from "../../packages/domain/src/organization/schema.js";
-import { Match, Predicate, Schema } from "effect";
+import {
+  type Cause,
+  Data,
+  Effect,
+  Exit,
+  FileSystem,
+  Match,
+  Option,
+  Path,
+  type PlatformError,
+  Predicate,
+  Schema,
+} from "effect";
+import { HttpClient, HttpClientRequest } from "effect/unstable/http";
+import type { ChildProcessSpawner } from "effect/unstable/process";
+import type { AcceptanceCommandFailed } from "./acceptance-process.ts";
+import { indentedJsonText } from "./acceptance-process.ts";
+import { committed, firstSetCookie, jsonText, step, thrownBy } from "./journey-step.ts";
 import { admissionJourneyClock } from "../e2e/journey-clock.ts";
 import { replacedFetch } from "../../apps/dashboard/e2e/native-rpc-ledger.ts";
+
+/** Runs a command to completion and answers its standard output. */
+export type RunCommand = (
+  command: string,
+  args: ReadonlyArray<string>,
+  env?: Readonly<Record<string, string | undefined>>,
+  cwd?: string,
+) => Effect.Effect<
+  string,
+  AcceptanceCommandFailed | PlatformError.PlatformError,
+  ChildProcessSpawner.ChildProcessSpawner
+>;
+
+/** A statement of the returning seed that failed, named by its label. */
+class ReturningSeedFailed extends Data.TaggedError("ReturningSeedFailed")<{
+  readonly message: string;
+  readonly cause: unknown;
+}> {}
+
+/** A browser action of the returning journey that failed, with the evidence of its phase written. */
+class ReturningBrowserActionFailed extends Data.TaggedError("ReturningBrowserActionFailed")<{
+  readonly message: string;
+  readonly cause: unknown;
+}> {}
+
+/** The name of a thrown error. */
+const errorName = (error: Error): string => error.name;
+
+const decodeJsonOption = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
+
+/** The value of a JSON text, decoded through Schema. */
+const decodeJsonText = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
 
 /** One RPC request on the JSON wire, as a browser sends it without the typed client. */
 const WireRequest = Schema.TaggedStruct("Request", {
@@ -182,7 +229,6 @@ const negativeProbePersons = [
   },
 ] as const;
 
-
 /**
  * One recruitment RPC as the page's browser context would send it: with the context's cookies and
  * the dashboard origin, answered as the HTTP response of the route that the RPC replaced.
@@ -229,120 +275,131 @@ export const returningAssistantFixture = {
   applicationId,
 };
 
-export const seedReturningAssistant = async ({
+export const seedReturningAssistant = Effect.fnUntraced(function* ({
   pool,
   run,
   env,
   root,
 }: {
   readonly pool: Pool;
-  readonly run: (command: string, args: string[], env?: NodeJS.ProcessEnv, cwd?: string) => string;
-  readonly env: NodeJS.ProcessEnv;
+  readonly run: RunCommand;
+  readonly env: Readonly<Record<string, string | undefined>>;
   readonly root: string;
-}) => {
-  run(
+}) {
+  const path = yield* Path.Path;
+
+  yield* run(
     "bun",
     ["run", "identity:seed"],
     {
       ...env,
       IDENTITY_SEED_PG_URL: env.JOURNEY_SEED_PG_URL,
       NATIVE_IDENTITY_TRUSTED_ORIGINS: env.NATIVE_IDENTITY_TRUSTED_ORIGINS,
-      IDENTITY_SEED_PERSONS: JSON.stringify([person, ...negativeProbePersons]),
+      IDENTITY_SEED_PERSONS: yield* jsonText([person, ...negativeProbePersons]),
       BETTER_AUTH_SECRET: env.BETTER_AUTH_SECRET,
     },
-    join(root, "packages/database"),
+    path.join(root, "packages/database"),
   );
-  const client = await pool.connect();
 
-  const seedQuery = async (label: string, text: string, values?: unknown[]) => {
-    try {
-      return values === undefined ? await client.query(text) : await client.query(text, values);
-    } catch (cause) {
-      throw new Error(
-        `returning seed ${label}: ${cause instanceof Error ? cause.message : String(cause)}`,
-        { cause },
-      );
-    }
-  };
+  yield* Effect.acquireUseRelease(
+    step(() => pool.connect()),
+    (client: PoolClient) => {
+      const seedQuery = (label: string, text: string, values?: unknown[]) =>
+        step(() => (values === undefined ? client.query(text) : client.query(text, values))).pipe(
+          Effect.mapError(
+            (failed) =>
+              new ReturningSeedFailed({
+                message: `returning seed ${label}: ${failed.cause instanceof Error ? failed.cause.message : String(failed.cause)}`,
+                cause: failed.cause,
+              }),
+          ),
+        );
 
-  try {
-    await client.query("BEGIN");
-    await seedQuery(
-      "next semester",
-      `INSERT INTO public.admission_period_semesters(semester_id,start_at,end_at,revision)
+      return committed(
+        client,
+        Effect.gen(function* () {
+          yield* seedQuery(
+            "next semester",
+            `INSERT INTO public.admission_period_semesters(semester_id,start_at,end_at,revision)
        VALUES($1,$2,$3,0)
        ON CONFLICT (semester_id) DO NOTHING`,
-      [nextSemesterId, nextPeriodStartAt, nextPeriodEndAt],
-    );
-    await seedQuery(
-      "next admission period",
-      `INSERT INTO public.admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,revision,last_command_id)
+            [nextSemesterId, nextPeriodStartAt, nextPeriodEndAt],
+          );
+          yield* seedQuery(
+            "next admission period",
+            `INSERT INTO public.admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,revision,last_command_id)
        VALUES($1,$2,$3,$4,$5,0,'returning-next-period-seed-0104')
        ON CONFLICT (admission_period_id) DO NOTHING`,
-      [nextAdmissionPeriodId, departmentId, nextSemesterId, nextPeriodStartAt, nextPeriodEndAt],
-    );
-    await seedQuery(
-      "historical department",
-      `INSERT INTO public.organization_departments(department_id,name,short_name,email,city,active,revision)
+            [
+              nextAdmissionPeriodId,
+              departmentId,
+              nextSemesterId,
+              nextPeriodStartAt,
+              nextPeriodEndAt,
+            ],
+          );
+          yield* seedQuery(
+            "historical department",
+            `INSERT INTO public.organization_departments(department_id,name,short_name,email,city,active,revision)
        VALUES($1,'Returning History','RH','returning-history@example.invalid','History City',true,0)
        ON CONFLICT (department_id) DO NOTHING`,
-      [historicalDepartmentId],
-    );
-    await seedQuery(
-      "foreign department",
-      `INSERT INTO public.organization_departments(department_id,name,short_name,email,city,active,revision)
+            [historicalDepartmentId],
+          );
+          yield* seedQuery(
+            "foreign department",
+            `INSERT INTO public.organization_departments(department_id,name,short_name,email,city,active,revision)
        VALUES($1,'Returning Foreign','RF','returning-foreign@example.invalid','Foreign City',true,0)
        ON CONFLICT (department_id) DO NOTHING`,
-      [foreignDepartmentId],
-    );
-    await seedQuery(
-      "foreign team",
-      `INSERT INTO public.organization_teams(team_id,department_id,name)
+            [foreignDepartmentId],
+          );
+          yield* seedQuery(
+            "foreign team",
+            `INSERT INTO public.organization_teams(team_id,department_id,name)
        VALUES($1,$2,'Returning Foreign Team')
        ON CONFLICT (team_id) DO NOTHING`,
-      [foreignTeamId, foreignDepartmentId],
-    );
-    await seedQuery(
-      "historical semester",
-      `INSERT INTO public.admission_period_semesters(semester_id,start_at,end_at,revision)
+            [foreignTeamId, foreignDepartmentId],
+          );
+          yield* seedQuery(
+            "historical semester",
+            `INSERT INTO public.admission_period_semesters(semester_id,start_at,end_at,revision)
        VALUES($1,'2025-01-01T00:00:00Z','2025-06-30T23:59:59.999Z',0)
        ON CONFLICT (semester_id) DO NOTHING`,
-      [historicalSemesterId],
-    );
-    await seedQuery(
-      "volunteer affiliation",
-      `INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision)
+            [historicalSemesterId],
+          );
+          yield* seedQuery(
+            "volunteer affiliation",
+            `INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision)
        VALUES($1,$2,'Active',1) ON CONFLICT DO NOTHING`,
-      [person.personId, departmentId],
-    );
-    await seedQuery(
-      "volunteer affiliation audit",
-      `INSERT INTO public.organization_volunteer_affiliation_audit(person_id,department_id,revision,action,actor_person_id,occurred_at)
+            [person.personId, departmentId],
+          );
+          yield* seedQuery(
+            "volunteer affiliation audit",
+            `INSERT INTO public.organization_volunteer_affiliation_audit(person_id,department_id,revision,action,actor_person_id,occurred_at)
        VALUES($1,$2,1,'Establish','journey-conduct-leader-0063','2026-01-04T00:00:00Z') ON CONFLICT DO NOTHING`,
-      [person.personId, departmentId],
-    );
-    await seedQuery(
-      "applicant",
-      `INSERT INTO public.admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study,activation_digest)
+            [person.personId, departmentId],
+          );
+          yield* seedQuery(
+            "applicant",
+            `INSERT INTO public.admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study,activation_digest)
        VALUES($1,'rita.returning@example.invalid','rita.returning@example.invalid','Rita','Tilbake','90000104',0,$2,2,$3) ON CONFLICT DO NOTHING`,
-      [applicantId, fieldOfStudyId, originalActivationDigest],
-    );
-    await seedQuery(
-      "application",
-      `INSERT INTO public.admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at,revision)
+            [applicantId, fieldOfStudyId, originalActivationDigest],
+          );
+          yield* seedQuery(
+            "application",
+            `INSERT INTO public.admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at,revision)
        VALUES($1,$2,$3,$4,$5,2,$6,0) ON CONFLICT DO NOTHING`,
-      [
-        applicationId,
-        applicantId,
-        admissionPeriodId,
-        departmentId,
-        fieldOfStudyId,
-        applicationSubmittedAt,
-      ],
-    );
-    await seedQuery(
-      "original public receipt",
-      `INSERT INTO public.admission_application_command_receipts(
+            [
+              applicationId,
+              applicantId,
+              admissionPeriodId,
+              departmentId,
+              fieldOfStudyId,
+              applicationSubmittedAt,
+            ],
+          );
+          yield* seedQuery(
+            "original public receipt",
+            `INSERT INTO public.admission_application_command_receipts(
          command_id,command_sha256,command_json,observation_json,application_id,committed_at
        ) VALUES(
          $1::text,$2::text,
@@ -361,254 +418,254 @@ export const seedReturningAssistant = async ({
          jsonb_build_object('_tag','Submitted','commandId',$1::text,'applicationId',$11::text),
          $11::text,$12
        ) ON CONFLICT DO NOTHING`,
-      [
-        originalPublicCommandId,
-        originalPublicCommandDigest,
-        departmentId,
-        originalPublicCommand.firstName,
-        originalPublicCommand.lastName,
-        originalPublicCommand.phone,
-        originalPublicCommand.email,
-        originalPublicCommand.gender,
-        fieldOfStudyId,
-        originalPublicCommand.yearOfStudy,
-        applicationId,
-        applicationSubmittedAt,
-      ],
-    );
-    await seedQuery(
-      "original public audit",
-      `INSERT INTO public.admission_application_audit(
+            [
+              originalPublicCommandId,
+              originalPublicCommandDigest,
+              departmentId,
+              originalPublicCommand.firstName,
+              originalPublicCommand.lastName,
+              originalPublicCommand.phone,
+              originalPublicCommand.email,
+              originalPublicCommand.gender,
+              fieldOfStudyId,
+              originalPublicCommand.yearOfStudy,
+              applicationId,
+              applicationSubmittedAt,
+            ],
+          );
+          yield* seedQuery(
+            "original public audit",
+            `INSERT INTO public.admission_application_audit(
          command_id,application_id,applicant_id,action,application_revision,occurred_at
        ) VALUES($1,$2,$3,'PublicApplicationSubmitted',0,$4)
        ON CONFLICT DO NOTHING`,
-      [originalPublicCommandId, applicationId, applicantId, applicationSubmittedAt],
-    );
-    await seedQuery(
-      "invitation",
-      `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at)
+            [originalPublicCommandId, applicationId, applicantId, applicationSubmittedAt],
+          );
+          yield* seedQuery(
+            "invitation",
+            `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at)
        VALUES($1,$2,$3,$4,$5,'Claimed','journey-conduct-leader-0063',$6) ON CONFLICT DO NOTHING`,
-      [
-        invitationId,
-        applicationId,
-        applicantId,
-        createHash("sha256").update(invitationId).digest("hex"),
-        accountClaimExpiresAt,
-        accountClaimIssuedAt,
-      ],
-    );
-    await seedQuery(
-      "account link",
-      `INSERT INTO public.applicant_account_links(applicant_id,person_id,linked_at,invitation_id)
+            [
+              invitationId,
+              applicationId,
+              applicantId,
+              createHash("sha256").update(invitationId).digest("hex"),
+              accountClaimExpiresAt,
+              accountClaimIssuedAt,
+            ],
+          );
+          yield* seedQuery(
+            "account link",
+            `INSERT INTO public.applicant_account_links(applicant_id,person_id,linked_at,invitation_id)
        VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
-      [applicantId, person.personId, accountLinkedAt, invitationId],
-    );
+            [applicantId, person.personId, accountLinkedAt, invitationId],
+          );
 
-    const negativeApplicants = [
-      {
-        applicantId: "applicant-returning-no-placement-0104",
-        personId: negativeProbePersons[0].personId,
-        email: negativeProbePersons[0].email,
-        field: fieldOfStudyId,
-        applicationId: "application-returning-no-placement-0104",
-      },
-      {
-        applicantId: "applicant-returning-invalid-study-0104",
-        personId: negativeProbePersons[3].personId,
-        email: negativeProbePersons[3].email,
-        field: fieldOfStudyId,
-        applicationId: "application-returning-invalid-study-0104",
-      },
-      {
-        applicantId: "applicant-returning-multi-a-0104",
-        personId: negativeProbePersons[2].personId,
-        email: "returning.multi-a@example.invalid",
-        field: fieldOfStudyId,
-        applicationId: "application-returning-multi-a-0104",
-      },
-      {
-        applicantId: "applicant-returning-multi-b-0104",
-        personId: negativeProbePersons[2].personId,
-        email: "returning.multi-b@example.invalid",
-        field: fieldOfStudyId,
-        applicationId: "application-returning-multi-b-0104",
-      },
-    ] as const;
+          const negativeApplicants = [
+            {
+              applicantId: "applicant-returning-no-placement-0104",
+              personId: negativeProbePersons[0].personId,
+              email: negativeProbePersons[0].email,
+              field: fieldOfStudyId,
+              applicationId: "application-returning-no-placement-0104",
+            },
+            {
+              applicantId: "applicant-returning-invalid-study-0104",
+              personId: negativeProbePersons[3].personId,
+              email: negativeProbePersons[3].email,
+              field: fieldOfStudyId,
+              applicationId: "application-returning-invalid-study-0104",
+            },
+            {
+              applicantId: "applicant-returning-multi-a-0104",
+              personId: negativeProbePersons[2].personId,
+              email: "returning.multi-a@example.invalid",
+              field: fieldOfStudyId,
+              applicationId: "application-returning-multi-a-0104",
+            },
+            {
+              applicantId: "applicant-returning-multi-b-0104",
+              personId: negativeProbePersons[2].personId,
+              email: "returning.multi-b@example.invalid",
+              field: fieldOfStudyId,
+              applicationId: "application-returning-multi-b-0104",
+            },
+          ] as const;
 
-    for (const [index, negative] of negativeApplicants.entries()) {
-      await seedQuery(
-        `negative applicant ${index}`,
-        `INSERT INTO public.admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study,activation_digest)
+          for (const [index, negative] of negativeApplicants.entries()) {
+            yield* seedQuery(
+              `negative applicant ${index}`,
+              `INSERT INTO public.admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study,activation_digest)
          VALUES($1,$2,$2,'Negative','Probe','9000010${index}',0,$3,2,NULL) ON CONFLICT DO NOTHING`,
-        [negative.applicantId, negative.email, negative.field],
-      );
-      await seedQuery(
-        `negative application ${index}`,
-        `INSERT INTO public.admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at,revision)
+              [negative.applicantId, negative.email, negative.field],
+            );
+            yield* seedQuery(
+              `negative application ${index}`,
+              `INSERT INTO public.admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at,revision)
          VALUES($1,$2,$3,$4,$5,2,$6,0) ON CONFLICT DO NOTHING`,
-        [
-          negative.applicationId,
-          negative.applicantId,
-          admissionPeriodId,
-          departmentId,
-          negative.field,
-          applicationSubmittedAt,
-        ],
-      );
-      const negativeInvitation = `invitation-returning-negative-${index}-0104`;
-      await seedQuery(
-        `negative invitation ${index}`,
-        `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at)
+              [
+                negative.applicationId,
+                negative.applicantId,
+                admissionPeriodId,
+                departmentId,
+                negative.field,
+                applicationSubmittedAt,
+              ],
+            );
+            const negativeInvitation = `invitation-returning-negative-${index}-0104`;
+            yield* seedQuery(
+              `negative invitation ${index}`,
+              `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at)
          VALUES($1,$2,$3,$4,$5,'Claimed','journey-conduct-leader-0063',$6) ON CONFLICT DO NOTHING`,
-        [
-          negativeInvitation,
-          negative.applicationId,
-          negative.applicantId,
-          createHash("sha256").update(negativeInvitation).digest("hex"),
-          accountClaimExpiresAt,
-          accountClaimIssuedAt,
-        ],
-      );
-      await seedQuery(
-        `negative account link ${index}`,
-        `INSERT INTO public.applicant_account_links(applicant_id,person_id,linked_at,invitation_id)
+              [
+                negativeInvitation,
+                negative.applicationId,
+                negative.applicantId,
+                createHash("sha256").update(negativeInvitation).digest("hex"),
+                accountClaimExpiresAt,
+                accountClaimIssuedAt,
+              ],
+            );
+            yield* seedQuery(
+              `negative account link ${index}`,
+              `INSERT INTO public.applicant_account_links(applicant_id,person_id,linked_at,invitation_id)
          VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
-        [negative.applicantId, negative.personId, accountLinkedAt, negativeInvitation],
-      );
-    }
+              [negative.applicantId, negative.personId, accountLinkedAt, negativeInvitation],
+            );
+          }
 
-    await seedQuery(
-      "no-placement affiliation",
-      `INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision)
+          yield* seedQuery(
+            "no-placement affiliation",
+            `INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision)
        VALUES($1,$2,'Active',1) ON CONFLICT DO NOTHING`,
-      [negativeProbePersons[0].personId, departmentId],
-    );
-    await seedQuery(
-      "invalid-study affiliation",
-      `INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision)
+            [negativeProbePersons[0].personId, departmentId],
+          );
+          yield* seedQuery(
+            "invalid-study affiliation",
+            `INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision)
        VALUES($1,$2,'Active',1) ON CONFLICT DO NOTHING`,
-      [negativeProbePersons[3].personId, departmentId],
-    );
-    await seedQuery(
-      "school",
-      `INSERT INTO public.schools_directory_schools(name,contact_person,email,phone,language,active,revision)
+            [negativeProbePersons[3].personId, departmentId],
+          );
+          yield* seedQuery(
+            "school",
+            `INSERT INTO public.schools_directory_schools(name,contact_person,email,phone,language,active,revision)
        VALUES('Returning School','School Contact','school-returning@example.invalid','+47 900000106','Norwegian',true,0) ON CONFLICT DO NOTHING`,
-    );
+          );
 
-    const school = await seedQuery(
-      "school lookup",
-      "SELECT school_id FROM public.schools_directory_schools WHERE name='Returning School'",
-    );
+          const school = yield* seedQuery(
+            "school lookup",
+            "SELECT school_id FROM public.schools_directory_schools WHERE name='Returning School'",
+          );
 
-    assert.equal(school.rows.length, 1);
-    await seedQuery(
-      "school department",
-      "INSERT INTO public.schools_directory_departments(school_id,department_id,revision) VALUES($1,$2,0) ON CONFLICT DO NOTHING",
-      [school.rows[0].school_id, departmentId],
-    );
-    await seedQuery(
-      "historical school department",
-      "INSERT INTO public.schools_directory_departments(school_id,department_id,revision) VALUES($1,$2,0) ON CONFLICT DO NOTHING",
-      [school.rows[0].school_id, historicalDepartmentId],
-    );
-    await seedQuery(
-      "historical volunteer affiliation",
-      `INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision)
+          assert.equal(school.rows.length, 1);
+          yield* seedQuery(
+            "school department",
+            "INSERT INTO public.schools_directory_departments(school_id,department_id,revision) VALUES($1,$2,0) ON CONFLICT DO NOTHING",
+            [school.rows[0].school_id, departmentId],
+          );
+          yield* seedQuery(
+            "historical school department",
+            "INSERT INTO public.schools_directory_departments(school_id,department_id,revision) VALUES($1,$2,0) ON CONFLICT DO NOTHING",
+            [school.rows[0].school_id, historicalDepartmentId],
+          );
+          yield* seedQuery(
+            "historical volunteer affiliation",
+            `INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision)
        VALUES($1,$2,'Inactive',1) ON CONFLICT DO NOTHING`,
-      [person.personId, historicalDepartmentId],
-    );
-    await seedQuery(
-      "historical placement",
-      `INSERT INTO public.assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision)
+            [person.personId, historicalDepartmentId],
+          );
+          yield* seedQuery(
+            "historical placement",
+            `INSERT INTO public.assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision)
        VALUES($1,$2,$3,$4,$5,'Tuesday',4,'1',false,2) ON CONFLICT DO NOTHING`,
-      [
-        `placement-${"0".repeat(64)}`,
-        person.personId,
-        historicalDepartmentId,
-        historicalSemesterId,
-        school.rows[0].school_id,
-      ],
-    );
-    await seedQuery(
-      "placement",
-      `INSERT INTO public.assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision)
+            [
+              `placement-${"0".repeat(64)}`,
+              person.personId,
+              historicalDepartmentId,
+              historicalSemesterId,
+              school.rows[0].school_id,
+            ],
+          );
+          yield* seedQuery(
+            "placement",
+            `INSERT INTO public.assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision)
        VALUES($1,$2,$3,$4,$5,'Monday',4,'1',true,1) ON CONFLICT DO NOTHING`,
-      [placementId, person.personId, departmentId, semesterId, school.rows[0].school_id],
-    );
-    await seedQuery(
-      "invalid-study placement",
-      `INSERT INTO public.assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision)
+            [placementId, person.personId, departmentId, semesterId, school.rows[0].school_id],
+          );
+          yield* seedQuery(
+            "invalid-study placement",
+            `INSERT INTO public.assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision)
        VALUES($1,$2,$3,$4,$5,'Monday',4,'1',true,1) ON CONFLICT DO NOTHING`,
-      [
-        `placement-${"b".repeat(64)}`,
-        negativeProbePersons[3].personId,
-        departmentId,
-        semesterId,
-        school.rows[0].school_id,
-      ],
-    );
-    await seedQuery(
-      "placement audit",
-      `INSERT INTO public.assistant_placement_audit(placement_id,revision,actor_person_id,occurred_at,action,snapshot)
+            [
+              `placement-${"b".repeat(64)}`,
+              negativeProbePersons[3].personId,
+              departmentId,
+              semesterId,
+              school.rows[0].school_id,
+            ],
+          );
+          yield* seedQuery(
+            "placement audit",
+            `INSERT INTO public.assistant_placement_audit(placement_id,revision,actor_person_id,occurred_at,action,snapshot)
        VALUES($1::text,1,$2::text,$6,'Create',jsonb_build_object('placementId',$1::text,'personId',$2::text,'departmentId',$3::text,'semesterId',$4::text,'schoolId',$5::text,'day','Monday','workdays',4,'block','1','active',true,'revision',1)) ON CONFLICT DO NOTHING`,
-      [
-        placementId,
-        person.personId,
-        departmentId,
-        semesterId,
-        school.rows[0].school_id,
-        placementCreatedAt,
-      ],
-    );
-    await seedQuery(
-      "historical placement audit",
-      `INSERT INTO public.assistant_placement_audit(placement_id,revision,actor_person_id,occurred_at,action,snapshot)
+            [
+              placementId,
+              person.personId,
+              departmentId,
+              semesterId,
+              school.rows[0].school_id,
+              placementCreatedAt,
+            ],
+          );
+          yield* seedQuery(
+            "historical placement audit",
+            `INSERT INTO public.assistant_placement_audit(placement_id,revision,actor_person_id,occurred_at,action,snapshot)
        VALUES
        ($1,1,'journey-conduct-leader-0063','2025-01-04T00:00:00Z','Create',jsonb_build_object('placementId',$1::text,'personId',$2::text,'departmentId',$3::text,'semesterId',$4::text,'schoolId',$5::text,'day','Tuesday','workdays',4,'block','1','active',true,'revision',1)),
        ($1,2,'journey-conduct-leader-0063','2025-06-30T00:00:00Z','Remove',jsonb_build_object('placementId',$1::text,'personId',$2::text,'departmentId',$3::text,'semesterId',$4::text,'schoolId',$5::text,'day','Tuesday','workdays',4,'block','1','active',false,'revision',2))
        ON CONFLICT DO NOTHING`,
-      [
-        `placement-${"0".repeat(64)}`,
-        person.personId,
-        historicalDepartmentId,
-        historicalSemesterId,
-        school.rows[0].school_id,
-      ],
-    );
-    await seedQuery(
-      "interview",
-      `INSERT INTO public.recruitment_interviews(interview_id,application_id,department_id,interviewer_person_id,interview_schema_id,assigned_by_person_id,assigned_at,revision)
+            [
+              `placement-${"0".repeat(64)}`,
+              person.personId,
+              historicalDepartmentId,
+              historicalSemesterId,
+              school.rows[0].school_id,
+            ],
+          );
+          yield* seedQuery(
+            "interview",
+            `INSERT INTO public.recruitment_interviews(interview_id,application_id,department_id,interviewer_person_id,interview_schema_id,assigned_by_person_id,assigned_at,revision)
        VALUES('interview-returning-0104',$1,$2,'journey-returning-assistant-0104','interview-schema-native-conduct-0063','journey-conduct-leader-0063',$3,1) ON CONFLICT DO NOTHING`,
-      [applicationId, departmentId, interviewAssignedAt],
-    );
-    await seedQuery(
-      "question snapshots",
-      `INSERT INTO public.recruitment_interview_question_snapshots(interview_id,question_id,ordinal,prompt,help_text,kind,alternatives)
+            [applicationId, departmentId, interviewAssignedAt],
+          );
+          yield* seedQuery(
+            "question snapshots",
+            `INSERT INTO public.recruitment_interview_question_snapshots(interview_id,question_id,ordinal,prompt,help_text,kind,alternatives)
        SELECT 'interview-returning-0104',question_id,ordinal,prompt,help_text,kind,alternatives
        FROM public.recruitment_interview_schema_questions
        WHERE interview_schema_id='interview-schema-native-conduct-0063'
        ON CONFLICT DO NOTHING`,
-    );
-    await seedQuery(
-      "interview conduct",
-      `INSERT INTO public.recruitment_interview_conducts(interview_id,answers,explanatory_power,role_model,suitability,finalized_by_person_id,finalized_at,interview_revision,recommendation)
+          );
+          yield* seedQuery(
+            "interview conduct",
+            `INSERT INTO public.recruitment_interview_conducts(interview_id,answers,explanatory_power,role_model,suitability,finalized_by_person_id,finalized_at,interview_revision,recommendation)
        VALUES('interview-returning-0104','[]'::jsonb,8,8,8,'journey-conduct-leader-0063',$1,1,'Ja') ON CONFLICT DO NOTHING`,
-      [interviewFinalizedAt],
-    );
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+            [interviewFinalizedAt],
+          );
+        }),
+      );
+    },
+    (client) => Effect.sync(() => client.release()),
+  );
 
-  const counts = await pool.query(
-    `SELECT (SELECT count(*)::int FROM public.applicant_account_links WHERE person_id=$1) links,
+  const counts = yield* step(() =>
+    pool.query(
+      `SELECT (SELECT count(*)::int FROM public.applicant_account_links WHERE person_id=$1) links,
             (SELECT count(*)::int FROM public.assistant_placements WHERE person_id=$1) placements,
             (SELECT count(*)::int FROM public.organization_departments WHERE department_id=$2) foreign_departments,
             (SELECT count(*)::int FROM public.organization_teams WHERE team_id=$3 AND department_id=$2) foreign_teams`,
-    [person.personId, foreignDepartmentId, foreignTeamId],
+      [person.personId, foreignDepartmentId, foreignTeamId],
+    ),
   );
 
   assert.deepEqual(counts.rows[0], {
@@ -617,9 +674,12 @@ export const seedReturningAssistant = async ({
     foreign_departments: 1,
     foreign_teams: 1,
   });
-};
+});
 
-export const runReturningAssistantBrowserJourney = async ({
+export const runReturningAssistantBrowserJourney = Effect.fnUntraced(function* <
+  AuditError,
+  DeliveryError,
+>({
   browser,
   page,
   pool,
@@ -640,22 +700,34 @@ export const runReturningAssistantBrowserJourney = async ({
   readonly api: string;
   readonly ui: string;
   readonly artifacts: string;
-  readonly auditPage: (page: Page, state: string) => Promise<void>;
+  readonly auditPage: (page: Page, state: string) => Effect.Effect<unknown, AuditError>;
   readonly errors: string[];
   readonly stage?: (name: string) => void;
   readonly coordinatorEmail: string;
   readonly coordinatorPassword: string;
   readonly readInvitationCapability?: (interviewId: string) => string | undefined;
-  readonly deliverRecruitmentInvitation?: (claimId: string) => Promise<RecruitmentInvitationDeliveryResult>;
-}) => {
+  readonly deliverRecruitmentInvitation?: (
+    claimId: string,
+  ) => Effect.Effect<RecruitmentInvitationDeliveryResult, DeliveryError>;
+}) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   const trace: Array<Schema.JsonObject> = [];
 
-  try {
+  /** Writes the journey trace, indented by two spaces as the evidence files are. */
+  const writeTrace = Effect.gen(function* () {
+    yield* fs.writeFileString(
+      path.join(artifacts, "returning-registration-trace.json"),
+      yield* indentedJsonText(trace),
+    );
+  });
+
+  yield* Effect.gen(function* () {
     stage?.("returning:browser.newContext");
-    const context = await browser.newContext();
+    const context = yield* step(() => browser.newContext());
     const responses: string[] = [];
     stage?.("returning:browser.newPage");
-    const returning = await context.newPage();
+    const returning = yield* step(() => context.newPage());
     returning.on("request", (request) => {
       const url = new URL(request.url());
 
@@ -671,7 +743,7 @@ export const runReturningAssistantBrowserJourney = async ({
       if (frame === returning.mainFrame())
         responses.push(`navigation ${new URL(frame.url()).pathname}`);
     });
-    returning.on("response", async (response) => {
+    returning.on("response", (response) => {
       const url = new URL(response.url());
 
       if (
@@ -680,49 +752,65 @@ export const runReturningAssistantBrowserJourney = async ({
         !url.pathname.includes("/api/auth/")
       )
         return;
-      let code = "unknown";
 
-      if (url.pathname.endsWith(".data")) {
-        const body = await response.text().catch(() => "");
+      const note = (code: string) =>
+        responses.push(`response ${response.status()} ${url.pathname} code=${code}`);
 
-        try {
-          const value: unknown = JSON.parse(body);
+      if (!url.pathname.endsWith(".data")) {
+        note("unknown");
 
-          if (
-            value !== null &&
-            (value === null || Predicate.isObjectOrArray(value)) &&
-            "code" in value &&
-            Predicate.isString(value.code)
-          )
-            code = value.code;
-        } catch {}
+        return;
       }
 
-      responses.push(`response ${response.status()} ${url.pathname} code=${code}`);
+      return response
+        .text()
+        .catch(() => "")
+        .then((body) => {
+          const value = decodeJsonOption(body);
+
+          note(
+            Option.isSome(value) &&
+              Predicate.isObjectOrArray(value.value) &&
+              "code" in value.value &&
+              Predicate.isString(value.value.code)
+              ? value.value.code
+              : "unknown",
+          );
+        });
     });
     returning.on("pageerror", (error: Error) => errors.push(`returning:${error.message}`));
 
-    const captureReturningFailure = async (phase: string, cause: unknown): Promise<never> => {
-      const markup = await returning.content().catch(() => "<unavailable>");
-      await writeFile(
-        join(artifacts, `returning-${phase}-failure.html`),
+    const captureReturningFailure = Effect.fnUntraced(function* (
+      phase: string,
+      failure: Cause.Cause<unknown>,
+    ) {
+      const cause = thrownBy(failure);
+      const markup = yield* step(() => returning.content().catch(() => "<unavailable>"));
+      yield* fs.writeFileString(
+        path.join(artifacts, `returning-${phase}-failure.html`),
         markup.replaceAll(person.email, "[redacted]"),
       );
-      await returning.screenshot({
-        path: join(artifacts, `returning-${phase}-failure.png`),
-        fullPage: true,
+      yield* step(() =>
+        returning.screenshot({
+          path: path.join(artifacts, `returning-${phase}-failure.png`),
+          fullPage: true,
+        }),
+      );
+      const kind = cause.name;
+      const causeMessage = cause.message;
+      yield* writeTrace;
+
+      return yield* new ReturningBrowserActionFailed({
+        message: `returning ${phase} failed phase=browser-action kind=${kind} cause=${causeMessage} url=${returning.url()} responses=${responses.join(" | ")}`,
+        cause,
       });
-      const kind = cause instanceof Error ? cause.name : Object.prototype.toString.call(cause);
-      const causeMessage = cause instanceof Error ? cause.message : String(cause);
-      await writeFile(
-        join(artifacts, "returning-registration-trace.json"),
-        JSON.stringify(trace, null, 2),
-      );
-      throw new Error(
-        `returning ${phase} failed phase=browser-action kind=${kind} cause=${causeMessage} url=${returning.url()} responses=${responses.join(" | ")}`,
-        { cause },
-      );
-    };
+    });
+
+    /** Runs a browser action; its failure is captured as the evidence of the phase, then fails. */
+    const capturedAs =
+      (phase: string) =>
+      <A, E, R>(action: Effect.Effect<A, E, R>) =>
+        action.pipe(Effect.catchCause((failure) => captureReturningFailure(phase, failure)));
 
     returning.on("request", (request) => {
       const url = new URL(request.url());
@@ -750,51 +838,64 @@ export const runReturningAssistantBrowserJourney = async ({
     const destination = "/dashboard/tidligere-assistenter";
     stage?.("returning:login");
 
-    try {
-      await returning.goto(`${ui}/login?redirectTo=${encodeURIComponent(destination)}`);
-      await returning.getByLabel("E-post", { exact: true }).fill(person.email);
-      await returning.getByLabel("Passord", { exact: true }).fill(person.password);
-      await returning
-        .getByRole("button", { name: "Logg inn", exact: true })
-        .click({ noWaitAfter: true });
-      await returning.waitForURL(/\/dashboard\/tidligere-assistenter$/);
-    } catch (cause) {
-      await captureReturningFailure("login", cause);
-    }
+    yield* Effect.gen(function* () {
+      yield* step(() =>
+        returning.goto(`${ui}/login?redirectTo=${encodeURIComponent(destination)}`),
+      );
+      yield* step(() => returning.getByLabel("E-post", { exact: true }).fill(person.email));
+      yield* step(() => returning.getByLabel("Passord", { exact: true }).fill(person.password));
+      yield* step(() =>
+        returning
+          .getByRole("button", { name: "Logg inn", exact: true })
+          .click({ noWaitAfter: true }),
+      );
+      yield* step(() => returning.waitForURL(/\/dashboard\/tidligere-assistenter$/));
+    }).pipe(capturedAs("login"));
 
-    const cookieHeader = (await context.cookies())
+    const cookieHeader = (yield* step(() => context.cookies()))
       .map((cookie) => `${cookie.name}=${cookie.value}`)
       .join("; ");
 
     const native = nativeScriptClient(api);
 
     /** The browser context's current session, sent from the dashboard origin. */
-    const sessionHeaders = async () => ({
-      cookie: (await context.cookies()).map((cookie) => `${cookie.name}=${cookie.value}`).join("; "),
-      origin: ui,
+    const sessionHeaders = Effect.fnUntraced(function* () {
+      return {
+        cookie: (yield* step(() => context.cookies()))
+          .map((cookie) => `${cookie.name}=${cookie.value}`)
+          .join("; "),
+        origin: ui,
+      };
     });
 
     const readOptions = (headers: Readonly<Record<string, string>>) =>
       native.call(headers, (client) => client["admissions.readReturningAssistantOptions"]());
 
     /** Registers as the browser context's person; the request decodes through the contract. */
-    const register = async (
+    const register = Effect.fnUntraced(function* (
       idempotencyKey: string,
       data: typeof ReturningAssistantRegistrationInputSchema.Encoded,
-    ) => {
-      const request = Schema.decodeSync(ReturningAssistantRegistrationInputSchema)(data);
+    ) {
+      const request = yield* Schema.decodeEffect(ReturningAssistantRegistrationInputSchema)(data);
 
-      return native.call(await sessionHeaders(), (client) =>
-        client["admissions.registerReturningAssistant"]({
-          idempotencyKey: IdempotencyKey.make(idempotencyKey),
-          request,
-        }),
+      const headers = yield* sessionHeaders();
+
+      return yield* step(() =>
+        native.call(headers, (client) =>
+          client["admissions.registerReturningAssistant"]({
+            idempotencyKey: IdempotencyKey.make(idempotencyKey),
+            request,
+          }),
+        ),
       );
-    };
+    });
 
-    const optionsAnswer = await readOptions({ origin: ui, cookie: cookieHeader });
+    const optionsAnswer = yield* step(() => readOptions({ origin: ui, cookie: cookieHeader }));
 
-    const waitForDashboardAction = async (periodId: string, trigger: () => Promise<void>) => {
+    const waitForDashboardAction = Effect.fnUntraced(function* <E, R>(
+      periodId: string,
+      trigger: () => Effect.Effect<void, E, R>,
+    ) {
       const responsePromise = returning.waitForResponse(
         (response) => {
           const url = new URL(response.url());
@@ -813,9 +914,9 @@ export const runReturningAssistantBrowserJourney = async ({
         { timeout: 30_000 },
       );
 
-      await trigger();
-      const response = await responsePromise;
-      await response.finished();
+      yield* trigger();
+      const response = yield* step(() => responsePromise);
+      yield* step(() => response.finished());
       assert.equal(response.status(), 200);
       const body = new URLSearchParams(response.request().postData() ?? "");
 
@@ -826,104 +927,109 @@ export const runReturningAssistantBrowserJourney = async ({
         expectedRevision: body.get("expectedRevision"),
         commandId: body.get("commandId"),
       };
-    };
+    });
 
-    const waitForActionReady = async (form: Locator) => {
+    const waitForActionReady = Effect.fnUntraced(function* (form: Locator) {
       for (let attempt = 0; attempt < 100; attempt += 1) {
         if (
-          (await form.locator('button[type="submit"]').isEnabled()) &&
-          (await form.getAttribute("data-pending")) === "false"
+          (yield* step(() => form.locator('button[type="submit"]').isEnabled())) === true &&
+          (yield* step(() => form.getAttribute("data-pending"))) === "false"
         )
           return;
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        yield* Effect.sleep("100 millis");
       }
 
       throw new Error("returning form did not become ready for action");
-    };
+    });
 
     responses.push(`context.request options ${optionsAnswer.status}`);
 
-    const negativeMutationSnapshot = async (personId: string) =>
-      (
-        await pool.query(
+    const negativeMutationSnapshot = Effect.fnUntraced(function* (personId: string) {
+      return (yield* step(() =>
+        pool.query(
           `SELECT
          (SELECT count(*)::int FROM public.applicant_account_links WHERE person_id=$1) AS links,
          (SELECT count(*)::int FROM public.admission_applications a JOIN public.applicant_account_links l USING(applicant_id) WHERE l.person_id=$1) AS applications,
          (SELECT count(*)::int FROM public.admission_returning_registrations WHERE person_id=$1) AS registrations`,
           [personId],
-        )
-      ).rows[0];
+        ),
+      )).rows[0];
+    });
 
-    const probeNegativeOptions = async (
+    const probeNegativeOptions = Effect.fnUntraced(function* (
       gate: string,
       probePerson: (typeof negativeProbePersons)[number],
       expectedStatus: number,
-    ) => {
-      let signIn = await fetch(`${api}/api/auth/sign-in/email`, {
-        method: "POST",
-        headers: { origin: ui, "content-type": "application/json" },
-        body: JSON.stringify({ email: probePerson.email, password: probePerson.password }),
-      });
+    ) {
+      const signInRequest = HttpClientRequest.post(`${api}/api/auth/sign-in/email`).pipe(
+        HttpClientRequest.setHeaders({ origin: ui }),
+        HttpClientRequest.bodyText(
+          yield* jsonText({ email: probePerson.email, password: probePerson.password }),
+          "application/json",
+        ),
+      );
+
+      let signIn = yield* HttpClient.execute(signInRequest);
 
       for (let retry = 0; signIn.status === 429 && retry < 30; retry += 1) {
-        const cooldown = Promise.withResolvers<void>();
-        setTimeout(cooldown.resolve, 1_000);
-        await cooldown.promise;
-        signIn = await fetch(`${api}/api/auth/sign-in/email`, {
-          method: "POST",
-          headers: { origin: ui, "content-type": "application/json" },
-          body: JSON.stringify({ email: probePerson.email, password: probePerson.password }),
-        });
+        yield* Effect.sleep("1 second");
+        signIn = yield* HttpClient.execute(signInRequest);
       }
 
       assert.equal(signIn.status, 200, `${gate} sign-in`);
-      const cookie = signIn.headers.get("set-cookie")?.match(/^([^=;]+=[^;]+)/u)?.[1];
+      const cookie = firstSetCookie(signIn);
       assert.ok(cookie, `${gate} session cookie`);
-      const before = await negativeMutationSnapshot(probePerson.personId);
+      const before = yield* negativeMutationSnapshot(probePerson.personId);
 
-      const answer = await readOptions({ origin: ui, cookie });
-      const body = JSON.stringify(answer);
+      const answer = yield* step(() => readOptions({ origin: ui, cookie }));
+      const body = yield* jsonText(answer);
       assert.equal(answer.status, expectedStatus, `${gate} status body=${body}`);
-      const after = await negativeMutationSnapshot(probePerson.personId);
+      const after = yield* negativeMutationSnapshot(probePerson.personId);
 
-      if (JSON.stringify(after) !== JSON.stringify(before))
+      if ((yield* jsonText(after)) !== (yield* jsonText(before)))
         throw new Error(
-          `${gate} must not mutate before=${JSON.stringify(before)} after=${JSON.stringify(after)}`,
+          `${gate} must not mutate before=${yield* jsonText(before)} after=${yield* jsonText(after)}`,
         );
       trace.push({ phase: "negative-gate", gate, status: answer.status, body });
-    };
+    });
 
-    await probeNegativeOptions("no-placement-despite-affiliation", negativeProbePersons[0], 404);
-    await probeNegativeOptions("missing-applicant-person-link", negativeProbePersons[1], 404);
-    await probeNegativeOptions("multiple-applicant-person-links", negativeProbePersons[2], 409);
-    await pool.query(
-      "UPDATE public.admission_period_fields_of_study SET active=false WHERE field_of_study_id=$1",
-      [fieldOfStudyId],
+    yield* probeNegativeOptions("no-placement-despite-affiliation", negativeProbePersons[0], 404);
+    yield* probeNegativeOptions("missing-applicant-person-link", negativeProbePersons[1], 404);
+    yield* probeNegativeOptions("multiple-applicant-person-links", negativeProbePersons[2], 409);
+    yield* step(() =>
+      pool.query(
+        "UPDATE public.admission_period_fields_of_study SET active=false WHERE field_of_study_id=$1",
+        [fieldOfStudyId],
+      ),
     );
 
-    try {
-      await probeNegativeOptions("inactive-study-mapping", negativeProbePersons[3], 409);
-    } finally {
-      await pool.query(
-        "UPDATE public.admission_period_fields_of_study SET active=true WHERE field_of_study_id=$1",
-        [fieldOfStudyId],
-      );
-    }
+    yield* probeNegativeOptions("inactive-study-mapping", negativeProbePersons[3], 409).pipe(
+      Effect.ensuring(
+        step(() =>
+          pool.query(
+            "UPDATE public.admission_period_fields_of_study SET active=true WHERE field_of_study_id=$1",
+            [fieldOfStudyId],
+          ),
+        ).pipe(Effect.orDie),
+      ),
+    );
 
-    const mappingKey = await pool.query(
-      `SELECT to_jsonb(array_agg(a.attname::text ORDER BY k.ordinality)) AS columns
+    const mappingKey = yield* step(() =>
+      pool.query(
+        `SELECT to_jsonb(array_agg(a.attname::text ORDER BY k.ordinality)) AS columns
      FROM pg_index i
      CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ordinality)
      JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum
      WHERE i.indrelid='public.admission_period_fields_of_study'::regclass AND i.indisprimary
      GROUP BY i.indexrelid`,
+      ),
     );
 
     const expectedMappingKey = [{ columns: ["field_of_study_id"] }];
 
-    if (JSON.stringify(mappingKey.rows) !== JSON.stringify(expectedMappingKey))
+    if ((yield* jsonText(mappingKey.rows)) !== (yield* jsonText(expectedMappingKey)))
       throw new Error(
-        `ambiguous-study-mapping structural key mismatch actual=${JSON.stringify(mappingKey.rows)} expected=${JSON.stringify(expectedMappingKey)}`,
+        `ambiguous-study-mapping structural key mismatch actual=${yield* jsonText(mappingKey.rows)} expected=${yield* jsonText(expectedMappingKey)}`,
       );
     trace.push({
       phase: "negative-gate",
@@ -932,35 +1038,40 @@ export const runReturningAssistantBrowserJourney = async ({
     });
 
     // The browser calls the RPC with its own session cookie, across origins, as CORS admits it.
-    const browserOptions = await returning.evaluate(
-      async ({ endpoint, message }) => {
-        const response = await fetch(endpoint, {
-          method: "POST",
-          credentials: "include",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(message),
-        });
-
-        return { status: response.status, answer: await response.json() };
-      },
-      {
-        endpoint: `${api}${nativeRpcPath}`,
-        message: WireRequest.make({
-          id: "1",
-          tag: "admissions.readReturningAssistantOptions",
-          payload: null,
-          headers: [],
-        }),
-      },
+    const browserOptions = yield* step(() =>
+      returning.evaluate(
+        // Playwright serializes this callback and runs it in the browser page, whose fetch the
+        // probe exercises; no Effect service reaches that runtime.
+        ({ endpoint, message }) =>
+          // oxlint-disable-next-line effecttsgo/global-fetch -- EX-0013: the callback runs in the browser page, where the probe exercises the page's own fetch.
+          fetch(endpoint, {
+            method: "POST",
+            credentials: "include",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(message),
+          }).then((response) =>
+            response.json().then((answer) => ({ status: response.status, answer })),
+          ),
+        {
+          endpoint: `${api}${nativeRpcPath}`,
+          message: WireRequest.make({
+            id: "1",
+            tag: "admissions.readReturningAssistantOptions",
+            payload: null,
+            headers: [],
+          }),
+        },
+      ),
     );
 
     assert.equal(browserOptions.status, 200);
     // Decoding fails unless the answer is one successful exit.
-    Schema.decodeUnknownSync(WireSuccess)(browserOptions.answer);
+    yield* Schema.decodeUnknownEffect(WireSuccess)(browserOptions.answer);
     trace.push({ phase: "options-probe", status: browserOptions.status });
 
-    const originalCustody = await pool.query(
-      `SELECT
+    const originalCustody = yield* step(() =>
+      pool.query(
+        `SELECT
        to_jsonb(application) - 'year_of_study' - 'revision' AS application_immutable,
        to_jsonb(applicant) - 'activation_digest' AS applicant_profile,
        applicant.activation_digest,
@@ -983,12 +1094,13 @@ export const runReturningAssistantBrowserJourney = async ({
      FROM public.admission_applications application
      JOIN public.admission_applicants applicant USING(applicant_id)
      WHERE application.application_id=$1`,
-      [applicationId],
+        [applicationId],
+      ),
     );
 
     assert.equal(originalCustody.rows.length, 1);
 
-    const originalCustodyRow = Schema.decodeUnknownSync(
+    const originalCustodyRow = yield* Schema.decodeUnknownEffect(
       Schema.Struct({
         activation_digest: Schema.String,
         public_receipts: Schema.Array(Schema.Json),
@@ -1003,22 +1115,28 @@ export const runReturningAssistantBrowserJourney = async ({
     let form = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
     stage?.("returning:form");
 
-    try {
-      await form
-        .getByRole("combobox", { name: "Opptaksperiode" })
-        .selectOption(nextAdmissionPeriodId);
-      await form.getByRole("combobox", { name: "Studieår" }).selectOption("4");
-      await form.getByLabel("Mandag", { exact: true }).check();
-      await form.getByLabel("Torsdag", { exact: true }).check();
-      await form.getByRole("combobox", { name: "Stillingslengde" }).selectOption("8");
-      await form.getByRole("combobox", { name: "Semesterblokk" }).selectOption("block-1");
-      await form.getByRole("combobox", { name: "Språk" }).selectOption("Norsk og engelsk");
-      await form.getByLabel("Ønsket skole (valgfritt)", { exact: true }).fill("Returning School");
-      await form.getByLabel("Jeg er interessert i teamarbeid", { exact: true }).check();
-      await form.locator(`input[name="teamIds"][value="${teamId}"]`).check();
-    } catch (cause) {
-      await captureReturningFailure("form", cause);
-    }
+    yield* Effect.gen(function* () {
+      yield* step(() =>
+        form.getByRole("combobox", { name: "Opptaksperiode" }).selectOption(nextAdmissionPeriodId),
+      );
+      yield* step(() => form.getByRole("combobox", { name: "Studieår" }).selectOption("4"));
+      yield* step(() => form.getByLabel("Mandag", { exact: true }).check());
+      yield* step(() => form.getByLabel("Torsdag", { exact: true }).check());
+      yield* step(() => form.getByRole("combobox", { name: "Stillingslengde" }).selectOption("8"));
+      yield* step(() =>
+        form.getByRole("combobox", { name: "Semesterblokk" }).selectOption("block-1"),
+      );
+      yield* step(() =>
+        form.getByRole("combobox", { name: "Språk" }).selectOption("Norsk og engelsk"),
+      );
+      yield* step(() =>
+        form.getByLabel("Ønsket skole (valgfritt)", { exact: true }).fill("Returning School"),
+      );
+      yield* step(() =>
+        form.getByLabel("Jeg er interessert i teamarbeid", { exact: true }).check(),
+      );
+      yield* step(() => form.locator(`input[name="teamIds"][value="${teamId}"]`).check());
+    }).pipe(capturedAs("form"));
 
     let submit = form.locator('button[type="submit"]');
     let droppedResponse = false;
@@ -1044,23 +1162,25 @@ export const runReturningAssistantBrowserJourney = async ({
       teamIds: [teamId],
     } as const;
 
-    const anonymousBefore = await negativeMutationSnapshot(person.personId);
+    const anonymousBefore = yield* negativeMutationSnapshot(person.personId);
 
-    const anonymous = await readOptions({ origin: ui });
+    const anonymous = yield* step(() => readOptions({ origin: ui }));
 
     assert.equal(anonymous.status, 401);
-    assert.deepEqual(await negativeMutationSnapshot(person.personId), anonymousBefore);
+    assert.deepEqual(yield* negativeMutationSnapshot(person.personId), anonymousBefore);
     trace.push({ phase: "negative-gate", gate: "anonymous-options", status: anonymous.status });
 
-    const foreignTeam = await pool.query(
-      "SELECT team_id FROM public.organization_teams WHERE department_id<>$1 ORDER BY team_id LIMIT 1",
-      [departmentId],
+    const foreignTeam = yield* step(() =>
+      pool.query(
+        "SELECT team_id FROM public.organization_teams WHERE department_id<>$1 ORDER BY team_id LIMIT 1",
+        [departmentId],
+      ),
     );
 
     assert.equal(foreignTeam.rows.length, 1);
-    const wrongTeamBefore = await negativeMutationSnapshot(person.personId);
+    const wrongTeamBefore = yield* negativeMutationSnapshot(person.personId);
 
-    const wrongTeam = await register("returning-wrong-team-0104", {
+    const wrongTeam = yield* register("returning-wrong-team-0104", {
       ...firstPayload,
       commandId: "returning-wrong-team-0104",
       teamInterest: true,
@@ -1070,43 +1190,28 @@ export const runReturningAssistantBrowserJourney = async ({
     assert.ok(!wrongTeam.ok);
     assert.equal(wrongTeam.status, 403);
     assert.equal(wrongTeam.code, "returning.team-scope-denied");
-    assert.deepEqual(await negativeMutationSnapshot(person.personId), wrongTeamBefore);
+    assert.deepEqual(yield* negativeMutationSnapshot(person.personId), wrongTeamBefore);
     trace.push({
       phase: "negative-gate",
       gate: "cross-department-team",
       status: wrongTeam.status,
       code: wrongTeam.code,
     });
-    let resolveFirstAction!: () => void;
-    let rejectFirstAction!: (cause: unknown) => void;
-    let resolveSecondAction!: () => void;
-    let rejectSecondAction!: (cause: unknown) => void;
+    // The route handler below settles these; the journey awaits them as steps.
+    const firstActionSettled = Promise.withResolvers<void>();
+    const secondActionSettled = Promise.withResolvers<void>();
 
-    const firstActionSettled = new Promise<void>((resolve, reject) => {
-      resolveFirstAction = resolve;
-      rejectFirstAction = reject;
-    });
+    const intercept = (route: Route): Promise<void> => {
+      if (route.request().method() !== "POST") return route.continue();
 
-    const secondActionSettled = new Promise<void>((resolve, reject) => {
-      resolveSecondAction = resolve;
-      rejectSecondAction = reject;
-    });
+      interceptedActions += 1;
+      const formData = new URLSearchParams(route.request().postData() ?? "");
+      const commandKey = formData.get("commandId");
+      const expectedRevision = formData.get("expectedRevision");
+      const phase = droppedResponse ? "retry" : "first";
+      stage?.(`returning:mutation:${phase}:request`);
 
-    await returning.route("**/dashboard/tidligere-assistenter*", async (route) => {
-      try {
-        if (route.request().method() !== "POST") {
-          await route.continue();
-
-          return;
-        }
-
-        interceptedActions += 1;
-        const formData = new URLSearchParams(route.request().postData() ?? "");
-        const commandKey = formData.get("commandId");
-        const expectedRevision = formData.get("expectedRevision");
-        const phase = droppedResponse ? "retry" : "first";
-        stage?.(`returning:mutation:${phase}:request`);
-        const response = await route.fetch({ timeout: 30_000 });
+      return route.fetch({ timeout: 30_000 }).then((response) => {
         stage?.(`returning:mutation:${phase}:response`);
         const status = response.status();
         trace.push({
@@ -1128,40 +1233,50 @@ export const runReturningAssistantBrowserJourney = async ({
 
           if (status < 200 || status >= 300) routeFailure = `first action status ${status}`;
           trace.push({ phase: "first-delivery", transport: "aborted", fetchedStatus: status });
-          await response.body();
-          await route.abort("failed");
-          resolveFirstAction();
 
-          return;
+          return response
+            .body()
+            .then(() => route.abort("failed"))
+            .then(() => firstActionSettled.resolve());
         }
 
         if (commandKey !== firstCommandKey || expectedRevision !== firstExpectedRevision)
           routeFailure = "retry payload identity changed";
 
         if (status < 200 || status >= 300) routeFailure = `retry action status ${status}`;
-        await route.fulfill({ response });
-        resolveSecondAction();
-      } catch (cause) {
-        routeFailure = `intercepted ${interceptedActions === 1 ? "first" : "retry"} action failed`;
-        (interceptedActions === 1 ? rejectFirstAction : rejectSecondAction)(cause);
-      }
-    });
+
+        return route.fulfill({ response }).then(() => secondActionSettled.resolve());
+      });
+    };
+
+    yield* step(() =>
+      returning.route("**/dashboard/tidligere-assistenter*", (route) =>
+        Promise.resolve()
+          .then(() => intercept(route))
+          .catch((cause: unknown) => {
+            routeFailure = `intercepted ${interceptedActions === 1 ? "first" : "retry"} action failed`;
+            (interceptedActions === 1 ? firstActionSettled : secondActionSettled).reject(cause);
+          }),
+      ),
+    );
     stage?.("returning:mutation");
     let firstCommittedRow: unknown;
 
-    try {
+    yield* Effect.gen(function* () {
       stage?.("returning:mutation:first:click");
-      await submit.click();
+      yield* step(() => submit.click());
       stage?.("returning:mutation:first:await");
-      await firstActionSettled;
+      yield* step(() => firstActionSettled.promise);
       stage?.("returning:mutation:first:settled");
 
-      const firstCommittedBeforeRetry = await pool.query(
-        `SELECT *
+      const firstCommittedBeforeRetry = yield* step(() =>
+        pool.query(
+          `SELECT *
        FROM public.admission_returning_registrations
        WHERE person_id=$1 AND admission_period_id=$2
        ORDER BY revision`,
-        [person.personId, nextAdmissionPeriodId],
+          [person.personId, nextAdmissionPeriodId],
+        ),
       );
 
       assert.ok(firstCommandKey);
@@ -1171,200 +1286,232 @@ export const runReturningAssistantBrowserJourney = async ({
       stage?.("returning:mutation:recovery");
       const recovery = returning.getByRole("button", { name: "Prøv igjen", exact: true });
 
-      const hasRecoveryControl = await recovery
-        .waitFor({ state: "visible", timeout: 5_000 })
-        .then(() => true)
-        .catch(() => false);
+      const hasRecoveryControl = yield* step(() =>
+        recovery
+          .waitFor({ state: "visible", timeout: 5_000 })
+          .then(() => true)
+          .catch(() => false),
+      );
 
       const firstRequest = trace.find((entry) => entry.phase === "first");
       assert.ok(firstRequest && Array.isArray(firstRequest.form));
 
-      const assertRecoveredIntent = async () => {
+      const assertRecoveredIntent = Effect.fnUntraced(function* () {
         let lastError: unknown;
 
         for (let attempt = 0; attempt < 50; attempt += 1) {
-          try {
-            const restoredEntries = await form.evaluate((node) => {
-              if (!(node instanceof HTMLFormElement))
-                throw new Error("Expected the returning-assistant form");
+          const outcome = yield* Effect.exit(
+            Effect.gen(function* () {
+              const restoredEntries = yield* step(() =>
+                form.evaluate((node) => {
+                  if (!(node instanceof HTMLFormElement))
+                    throw new Error("Expected the returning-assistant form");
 
-              return [...new FormData(node)].map(([name, value]) => [name, String(value)]);
-            }, undefined);
-
-            if (JSON.stringify(restoredEntries) !== JSON.stringify(firstRequest.form))
-              throw new Error(
-                `recovered form intent mismatch actual=${JSON.stringify(restoredEntries)} expected=${JSON.stringify(firstRequest.form)}`,
-              );
-            const recoveredCommandId = await form.locator('input[name="commandId"]').inputValue();
-
-            if (recoveredCommandId !== firstCommandKey)
-              throw new Error(
-                `recovered command id mismatch actual=${recoveredCommandId} expected=${firstCommandKey}`,
+                  return [...new FormData(node)].map(([name, value]) => [name, String(value)]);
+                }, undefined),
               );
 
-            const recoveredRevision = await form
-              .locator('input[name="expectedRevision"]')
-              .inputValue();
+              if ((yield* jsonText(restoredEntries)) !== (yield* jsonText(firstRequest.form)))
+                throw new Error(
+                  `recovered form intent mismatch actual=${yield* jsonText(restoredEntries)} expected=${yield* jsonText(firstRequest.form)}`,
+                );
 
-            if (recoveredRevision !== firstExpectedRevision)
-              throw new Error(
-                `recovered base revision mismatch actual=${recoveredRevision} expected=${firstExpectedRevision}`,
+              const recoveredCommandId = yield* step(() =>
+                form.locator('input[name="commandId"]').inputValue(),
               );
 
-            return;
-          } catch (cause) {
-            lastError = cause;
-            await new Promise((resolve) => setTimeout(resolve, 100));
-          }
+              if (recoveredCommandId !== firstCommandKey)
+                throw new Error(
+                  `recovered command id mismatch actual=${recoveredCommandId} expected=${firstCommandKey}`,
+                );
+
+              const recoveredRevision = yield* step(() =>
+                form.locator('input[name="expectedRevision"]').inputValue(),
+              );
+
+              if (recoveredRevision !== firstExpectedRevision)
+                throw new Error(
+                  `recovered base revision mismatch actual=${recoveredRevision} expected=${firstExpectedRevision}`,
+                );
+            }),
+          );
+
+          if (Exit.isSuccess(outcome)) return;
+          lastError = thrownBy(outcome.cause);
+          yield* Effect.sleep("100 millis");
         }
 
         throw lastError;
-      };
+      });
 
-      if (hasRecoveryControl) await recovery.click();
+      if (hasRecoveryControl === true) yield* step(() => recovery.click());
       form = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
-      await form.waitFor({ state: "visible" });
+      yield* step(() => form.waitFor({ state: "visible" }));
       submit = form.locator('button[type="submit"]');
-      await submit.waitFor({ state: "visible" });
-      assert.equal(await submit.isEnabled(), true);
-      assert.equal(await form.getAttribute("data-pending"), "false");
-      await assertRecoveredIntent();
+      yield* step(() => submit.waitFor({ state: "visible" }));
+      assert.equal(yield* step(() => submit.isEnabled()), true);
+      assert.equal(yield* step(() => form.getAttribute("data-pending")), "false");
+      yield* assertRecoveredIntent();
       stage?.("returning:retry");
       stage?.("returning:mutation:retry:click");
-      await submit.click();
+      yield* step(() => submit.click());
       stage?.("returning:mutation:retry:await");
-      await secondActionSettled;
-    } catch (cause) {
-      await captureReturningFailure("submit", cause);
-    }
+      yield* step(() => secondActionSettled.promise);
+    }).pipe(capturedAs("submit"));
 
     assert.equal(interceptedActions, 2);
     assert.equal(droppedResponse, true);
     assert.equal(routeFailure, undefined);
 
-    const captureCommitted = async (phase: string, periodId: string) => {
-      const committed = await pool.query(
-        `SELECT *
+    const captureCommitted = Effect.fnUntraced(function* (phase: string, periodId: string) {
+      const committed = yield* step(() =>
+        pool.query(
+          `SELECT *
        FROM public.admission_returning_registrations
        WHERE person_id=$1 AND admission_period_id=$2
        ORDER BY revision`,
-        [person.personId, periodId],
+          [person.personId, periodId],
+        ),
       );
 
       trace.push({ phase, sqlCommitted: committed.rows });
-      await writeFile(
-        join(artifacts, "returning-registration-trace.json"),
-        JSON.stringify(trace, null, 2),
-      );
-    };
+      yield* writeTrace;
+    });
 
-    const afterRetryCommitted = await pool.query(
-      `SELECT *
+    const afterRetryCommitted = yield* step(() =>
+      pool.query(
+        `SELECT *
      FROM public.admission_returning_registrations
      WHERE person_id=$1 AND admission_period_id=$2
      ORDER BY revision`,
-      [person.personId, nextAdmissionPeriodId],
+        [person.personId, nextAdmissionPeriodId],
+      ),
     );
 
     assert.equal(afterRetryCommitted.rows.length, 1);
     assert.deepEqual(afterRetryCommitted.rows[0], firstCommittedRow);
-    await returning.unroute("**/dashboard/tidligere-assistenter*");
-    await returning.reload();
+    yield* step(() => returning.unroute("**/dashboard/tidligere-assistenter*"));
+    yield* step(() => returning.reload());
     const reloaded = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
-    await expectValue(
+    yield* expectValue(
       reloaded.getByRole("combobox", { name: "Opptaksperiode" }),
       nextAdmissionPeriodId,
     );
-    await expectValue(reloaded.getByRole("combobox", { name: "Studieår" }), "4");
-    await expectValue(reloaded.getByRole("combobox", { name: "Stillingslengde" }), "8");
-    await expectValue(reloaded.getByRole("combobox", { name: "Semesterblokk" }), "block-1");
-    await expectValue(reloaded.getByRole("combobox", { name: "Språk" }), "Norsk og engelsk");
-    assert.equal(await reloaded.getByLabel("Mandag", { exact: true }).isChecked(), true);
-    assert.equal(await reloaded.getByLabel("Torsdag", { exact: true }).isChecked(), true);
+    yield* expectValue(reloaded.getByRole("combobox", { name: "Studieår" }), "4");
+    yield* expectValue(reloaded.getByRole("combobox", { name: "Stillingslengde" }), "8");
+    yield* expectValue(reloaded.getByRole("combobox", { name: "Semesterblokk" }), "block-1");
+    yield* expectValue(reloaded.getByRole("combobox", { name: "Språk" }), "Norsk og engelsk");
     assert.equal(
-      await reloaded.getByLabel("Ønsket skole (valgfritt)", { exact: true }).inputValue(),
+      yield* step(() => reloaded.getByLabel("Mandag", { exact: true }).isChecked()),
+      true,
+    );
+    assert.equal(
+      yield* step(() => reloaded.getByLabel("Torsdag", { exact: true }).isChecked()),
+      true,
+    );
+    assert.equal(
+      yield* step(() =>
+        reloaded.getByLabel("Ønsket skole (valgfritt)", { exact: true }).inputValue(),
+      ),
       "Returning School",
     );
-    await reloaded
-      .getByRole("combobox", { name: "Opptaksperiode" })
-      .selectOption(admissionPeriodId);
-    await returning.waitForURL(
-      new RegExp(`/dashboard/tidligere-assistenter\\?admissionPeriodId=${admissionPeriodId}$`),
+    yield* step(() =>
+      reloaded.getByRole("combobox", { name: "Opptaksperiode" }).selectOption(admissionPeriodId),
+    );
+    yield* step(() =>
+      returning.waitForURL(
+        new RegExp(`/dashboard/tidligere-assistenter\\?admissionPeriodId=${admissionPeriodId}$`),
+      ),
     );
 
     for (
       let attempt = 0;
       attempt < 100 &&
-      !(await reloaded.getByRole("combobox", { name: "Opptaksperiode" }).isEnabled());
+      (yield* step(() =>
+        reloaded.getByRole("combobox", { name: "Opptaksperiode" }).isEnabled(),
+      )) !== true;
       attempt += 1
     )
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    await reloaded.getByRole("combobox", { name: "Studieår" }).selectOption("2");
-    await reloaded.getByLabel("Torsdag", { exact: true }).uncheck();
-    await reloaded.getByRole("combobox", { name: "Stillingslengde" }).selectOption("4");
-    await reloaded.getByRole("combobox", { name: "Semesterblokk" }).selectOption("all");
-    await reloaded.getByRole("combobox", { name: "Språk" }).selectOption("Norsk og engelsk");
-    await reloaded.getByLabel("Ønsket skole (valgfritt)", { exact: true }).fill("");
-    await reloaded.getByLabel("Jeg er interessert i teamarbeid", { exact: true }).uncheck();
-    await reloaded.locator(`input[name="teamIds"][value="${teamId}"]`).uncheck();
+      yield* Effect.sleep("100 millis");
+    yield* step(() => reloaded.getByRole("combobox", { name: "Studieår" }).selectOption("2"));
+    yield* step(() => reloaded.getByLabel("Torsdag", { exact: true }).uncheck());
+    yield* step(() =>
+      reloaded.getByRole("combobox", { name: "Stillingslengde" }).selectOption("4"),
+    );
+    yield* step(() =>
+      reloaded.getByRole("combobox", { name: "Semesterblokk" }).selectOption("all"),
+    );
+    yield* step(() =>
+      reloaded.getByRole("combobox", { name: "Språk" }).selectOption("Norsk og engelsk"),
+    );
+    yield* step(() => reloaded.getByLabel("Ønsket skole (valgfritt)", { exact: true }).fill(""));
+    yield* step(() =>
+      reloaded.getByLabel("Jeg er interessert i teamarbeid", { exact: true }).uncheck(),
+    );
+    yield* step(() => reloaded.locator(`input[name="teamIds"][value="${teamId}"]`).uncheck());
 
-    const nativePost = await waitForDashboardAction(admissionPeriodId, async () => {
-      await waitForActionReady(reloaded);
-      await reloaded.locator('button[type="submit"]').click();
-    });
+    const nativePost = yield* waitForDashboardAction(
+      admissionPeriodId,
+      Effect.fnUntraced(function* () {
+        yield* waitForActionReady(reloaded);
+        yield* step(() => reloaded.locator('button[type="submit"]').click());
+      }),
+    );
 
     assert.equal(nativePost.admissionPeriodId, admissionPeriodId);
     assert.equal(nativePost.expectedRevision, "0");
 
-    try {
-      await assertStatus(reloaded, "Registreringen er lagret.");
-    } catch (cause) {
-      await captureReturningFailure("existing-registration-status", cause);
-    }
+    yield* assertStatus(reloaded, "Registreringen er lagret.").pipe(
+      capturedAs("existing-registration-status"),
+    );
 
-    await captureCommitted("existing-period-after-registration", admissionPeriodId);
+    yield* captureCommitted("existing-period-after-registration", admissionPeriodId);
 
-    await returning.reload();
+    yield* step(() => returning.reload());
     const existing = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
-    await expectValue(
+    yield* expectValue(
       existing.getByRole("combobox", { name: "Opptaksperiode" }),
       admissionPeriodId,
     );
-    await expectValue(existing.getByRole("combobox", { name: "Studieår" }), "2");
-    await expectValue(existing.getByRole("combobox", { name: "Stillingslengde" }), "4");
-    await expectValue(existing.getByRole("combobox", { name: "Semesterblokk" }), "all");
-    await expectValue(existing.getByRole("combobox", { name: "Språk" }), "Norsk og engelsk");
-    await existing.getByRole("combobox", { name: "Studieår" }).selectOption("3");
-    await existing.getByRole("combobox", { name: "Språk" }).selectOption("Engelsk");
+    yield* expectValue(existing.getByRole("combobox", { name: "Studieår" }), "2");
+    yield* expectValue(existing.getByRole("combobox", { name: "Stillingslengde" }), "4");
+    yield* expectValue(existing.getByRole("combobox", { name: "Semesterblokk" }), "all");
+    yield* expectValue(existing.getByRole("combobox", { name: "Språk" }), "Norsk og engelsk");
+    yield* step(() => existing.getByRole("combobox", { name: "Studieår" }).selectOption("3"));
+    yield* step(() => existing.getByRole("combobox", { name: "Språk" }).selectOption("Engelsk"));
 
-    const updatePost = await waitForDashboardAction(admissionPeriodId, async () => {
-      await waitForActionReady(existing);
-      await existing.getByRole("button", { name: "Lagre endringer" }).click();
-    });
+    const updatePost = yield* waitForDashboardAction(
+      admissionPeriodId,
+      Effect.fnUntraced(function* () {
+        yield* waitForActionReady(existing);
+        yield* step(() => existing.getByRole("button", { name: "Lagre endringer" }).click());
+      }),
+    );
 
     assert.equal(updatePost.admissionPeriodId, admissionPeriodId);
     assert.equal(updatePost.expectedRevision, "1");
 
-    try {
-      await assertStatus(existing, "Registreringen er lagret.");
-    } catch (cause) {
-      await captureReturningFailure("update-status", cause);
-    }
+    yield* assertStatus(existing, "Registreringen er lagret.").pipe(capturedAs("update-status"));
 
-    await captureCommitted("existing-period-after-update", admissionPeriodId);
-    await returning.reload();
+    yield* captureCommitted("existing-period-after-update", admissionPeriodId);
+    yield* step(() => returning.reload());
     const updated = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
-    await expectValue(updated.getByRole("combobox", { name: "Opptaksperiode" }), admissionPeriodId);
+    yield* expectValue(
+      updated.getByRole("combobox", { name: "Opptaksperiode" }),
+      admissionPeriodId,
+    );
     stage?.("returning:period-history");
     const periodSelector = updated.getByRole("combobox", { name: "Opptaksperiode" });
 
-    const waitForPeriodUrl = async (periodId: string) => {
-      await returning.waitForURL(
-        new RegExp(`/dashboard/tidligere-assistenter\\?admissionPeriodId=${periodId}$`),
+    const waitForPeriodUrl = Effect.fnUntraced(function* (periodId: string) {
+      yield* step(() =>
+        returning.waitForURL(
+          new RegExp(`/dashboard/tidligere-assistenter\\?admissionPeriodId=${periodId}$`),
+        ),
       );
-    };
+    });
 
-    const waitForPeriodForm = async (periodId: string) => {
+    const waitForPeriodForm = Effect.fnUntraced(function* (periodId: string) {
       let actual = "";
 
       for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -1373,82 +1520,92 @@ export const runReturningAssistantBrowserJourney = async ({
         });
 
         const selector = candidate.getByRole("combobox", { name: "Opptaksperiode" });
-        actual = await selector.inputValue();
+        actual = yield* step(() => selector.inputValue());
 
-        if (actual === periodId && (await selector.isEnabled())) return candidate;
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        if (actual === periodId && (yield* step(() => selector.isEnabled())) === true)
+          return candidate;
+        yield* Effect.sleep("100 millis");
       }
 
       throw new Error(
-        `period form did not settle actual=${JSON.stringify(actual)} expected=${JSON.stringify(periodId)}`,
+        `period form did not settle actual=${yield* jsonText(actual)} expected=${yield* jsonText(periodId)}`,
       );
-    };
+    });
 
-    await periodSelector.selectOption(nextAdmissionPeriodId);
-    await waitForPeriodUrl(nextAdmissionPeriodId);
-    let periodForm = await waitForPeriodForm(nextAdmissionPeriodId);
-    await expectValue(
+    yield* step(() => periodSelector.selectOption(nextAdmissionPeriodId));
+    yield* waitForPeriodUrl(nextAdmissionPeriodId);
+    let periodForm = yield* waitForPeriodForm(nextAdmissionPeriodId);
+    yield* expectValue(
       periodForm.getByRole("combobox", { name: "Opptaksperiode" }),
       nextAdmissionPeriodId,
     );
-    await expectValue(periodForm.locator('input[name="expectedRevision"]'), "1");
-    await expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "4");
-    await expectValue(periodForm.getByRole("combobox", { name: "Stillingslengde" }), "8");
-    await periodSelector.selectOption(admissionPeriodId);
-    await waitForPeriodUrl(admissionPeriodId);
-    periodForm = await waitForPeriodForm(admissionPeriodId);
-    await expectValue(
+    yield* expectValue(periodForm.locator('input[name="expectedRevision"]'), "1");
+    yield* expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "4");
+    yield* expectValue(periodForm.getByRole("combobox", { name: "Stillingslengde" }), "8");
+    yield* step(() => periodSelector.selectOption(admissionPeriodId));
+    yield* waitForPeriodUrl(admissionPeriodId);
+    periodForm = yield* waitForPeriodForm(admissionPeriodId);
+    yield* expectValue(
       periodForm.getByRole("combobox", { name: "Opptaksperiode" }),
       admissionPeriodId,
     );
-    await expectValue(periodForm.locator('input[name="expectedRevision"]'), "2");
-    await expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "3");
-    await expectValue(periodForm.getByRole("combobox", { name: "Språk" }), "Engelsk");
-    await returning.goBack();
-    await waitForPeriodUrl(nextAdmissionPeriodId);
-    periodForm = await waitForPeriodForm(nextAdmissionPeriodId);
-    await expectValue(
+    yield* expectValue(periodForm.locator('input[name="expectedRevision"]'), "2");
+    yield* expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "3");
+    yield* expectValue(periodForm.getByRole("combobox", { name: "Språk" }), "Engelsk");
+    yield* step(() => returning.goBack());
+    yield* waitForPeriodUrl(nextAdmissionPeriodId);
+    periodForm = yield* waitForPeriodForm(nextAdmissionPeriodId);
+    yield* expectValue(
       periodForm.getByRole("combobox", { name: "Opptaksperiode" }),
       nextAdmissionPeriodId,
     );
-    await expectValue(periodForm.locator('input[name="expectedRevision"]'), "1");
-    await expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "4");
-    await returning.goForward();
-    await waitForPeriodUrl(admissionPeriodId);
-    periodForm = await waitForPeriodForm(admissionPeriodId);
-    await expectValue(
+    yield* expectValue(periodForm.locator('input[name="expectedRevision"]'), "1");
+    yield* expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "4");
+    yield* step(() => returning.goForward());
+    yield* waitForPeriodUrl(admissionPeriodId);
+    periodForm = yield* waitForPeriodForm(admissionPeriodId);
+    yield* expectValue(
       periodForm.getByRole("combobox", { name: "Opptaksperiode" }),
       admissionPeriodId,
     );
-    await expectValue(periodForm.locator('input[name="expectedRevision"]'), "2");
-    await periodSelector.selectOption(nextAdmissionPeriodId);
-    await waitForPeriodUrl(nextAdmissionPeriodId);
-    periodForm = await waitForPeriodForm(nextAdmissionPeriodId);
-    await expectValue(
+    yield* expectValue(periodForm.locator('input[name="expectedRevision"]'), "2");
+    yield* step(() => periodSelector.selectOption(nextAdmissionPeriodId));
+    yield* waitForPeriodUrl(nextAdmissionPeriodId);
+    periodForm = yield* waitForPeriodForm(nextAdmissionPeriodId);
+    yield* expectValue(
       periodForm.getByRole("combobox", { name: "Opptaksperiode" }),
       nextAdmissionPeriodId,
     );
-    await expectValue(periodForm.locator('input[name="expectedRevision"]'), "1");
-    await expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "4");
+    yield* expectValue(periodForm.locator('input[name="expectedRevision"]'), "1");
+    yield* expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "4");
     stage?.("returning:registration-conflict");
-    assert.equal(await periodForm.locator('input[name="expectedRevision"]').inputValue(), "1");
-    assert.equal(await periodForm.locator('input[name="commandId"]').inputValue(), "");
-    await periodForm.getByRole("combobox", { name: "Studieår" }).selectOption("5");
-    const staleContext = await browser.newContext({ storageState: await context.storageState() });
-    const staleReturning = await staleContext.newPage();
+    assert.equal(
+      yield* step(() => periodForm.locator('input[name="expectedRevision"]').inputValue()),
+      "1",
+    );
+    assert.equal(yield* step(() => periodForm.locator('input[name="commandId"]').inputValue()), "");
+    yield* step(() => periodForm.getByRole("combobox", { name: "Studieår" }).selectOption("5"));
+    const staleStorageState = yield* step(() => context.storageState());
+    const staleContext = yield* step(() => browser.newContext({ storageState: staleStorageState }));
+    const staleReturning = yield* step(() => staleContext.newPage());
 
-    try {
-      await staleReturning.goto(
-        `${ui}/dashboard/tidligere-assistenter?admissionPeriodId=${encodeURIComponent(nextAdmissionPeriodId)}`,
+    yield* Effect.gen(function* () {
+      yield* step(() =>
+        staleReturning.goto(
+          `${ui}/dashboard/tidligere-assistenter?admissionPeriodId=${encodeURIComponent(nextAdmissionPeriodId)}`,
+        ),
       );
 
       const staleForm = staleReturning.getByRole("form", {
         name: "Registrer som tidligere assistent",
       });
 
-      await staleForm.waitFor({ state: "visible" });
-      assert.equal(await staleForm.locator('input[name="expectedRevision"]').inputValue(), "1");
-      await staleForm.getByRole("combobox", { name: "Studieår" }).selectOption("5");
+      yield* step(() => staleForm.waitFor({ state: "visible" }));
+      assert.equal(
+        yield* step(() => staleForm.locator('input[name="expectedRevision"]').inputValue()),
+        "1",
+      );
+      yield* step(() => staleForm.getByRole("combobox", { name: "Studieår" }).selectOption("5"));
 
       const staleSaveResponsePromise = staleReturning.waitForResponse(
         (response) => {
@@ -1470,22 +1627,24 @@ export const runReturningAssistantBrowserJourney = async ({
         { timeout: 30_000 },
       );
 
-      await staleForm.getByRole("button", { name: "Lagre endringer" }).click();
-      const staleSaveResponse = await staleSaveResponsePromise;
-      await staleSaveResponse.finished();
+      yield* step(() => staleForm.getByRole("button", { name: "Lagre endringer" }).click());
+      const staleSaveResponse = yield* step(() => staleSaveResponsePromise);
+      yield* step(() => staleSaveResponse.finished());
       assert.equal(staleSaveResponse.status(), 200);
       const staleSavePost = new URLSearchParams(staleSaveResponse.request().postData() ?? "");
       assert.equal(staleSavePost.get("expectedRevision"), "1");
       assert.ok(Predicate.isString(staleSavePost.get("commandId")));
       assert.notEqual(staleSavePost.get("commandId"), "");
 
-      const afterStaleSave = await pool.query(
-        `SELECT revision,year_of_study
+      const afterStaleSave = yield* step(() =>
+        pool.query(
+          `SELECT revision,year_of_study
        FROM public.admission_returning_registrations
        WHERE person_id=$1 AND admission_period_id=$2
        ORDER BY revision DESC
        LIMIT 1`,
-        [person.personId, nextAdmissionPeriodId],
+          [person.personId, nextAdmissionPeriodId],
+        ),
       );
 
       assert.deepEqual(afterStaleSave.rows, [{ revision: 2, year_of_study: 5 }]);
@@ -1510,10 +1669,10 @@ export const runReturningAssistantBrowserJourney = async ({
         { timeout: 30_000 },
       );
 
-      await waitForActionReady(periodForm);
-      await periodForm.getByRole("button", { name: "Lagre endringer" }).click();
-      const staleDraftResponse = await staleDraftResponsePromise;
-      await staleDraftResponse.finished();
+      yield* waitForActionReady(periodForm);
+      yield* step(() => periodForm.getByRole("button", { name: "Lagre endringer" }).click());
+      const staleDraftResponse = yield* step(() => staleDraftResponsePromise);
+      yield* step(() => staleDraftResponse.finished());
       assert.equal(staleDraftResponse.status(), 412);
       const staleDraftPost = new URLSearchParams(staleDraftResponse.request().postData() ?? "");
       const staleDraftCommandId = staleDraftPost.get("commandId");
@@ -1521,11 +1680,19 @@ export const runReturningAssistantBrowserJourney = async ({
       assert.ok(Predicate.isString(staleDraftCommandId));
       assert.notEqual(staleDraftCommandId, "");
       assert.notEqual(staleDraftCommandId, staleSavePost.get("commandId"));
-      await periodForm.getByRole("alert").filter({ hasText: "Alternativene er endret." }).waitFor();
-      assert.equal(await periodForm.locator('input[name="expectedRevision"]').inputValue(), "1");
-      assert.equal(await periodForm.getByRole("combobox", { name: "Studieår" }).inputValue(), "5");
+      yield* step(() =>
+        periodForm.getByRole("alert").filter({ hasText: "Alternativene er endret." }).waitFor(),
+      );
       assert.equal(
-        await periodForm.locator('input[name="commandId"]').inputValue(),
+        yield* step(() => periodForm.locator('input[name="expectedRevision"]').inputValue()),
+        "1",
+      );
+      assert.equal(
+        yield* step(() => periodForm.getByRole("combobox", { name: "Studieår" }).inputValue()),
+        "5",
+      );
+      assert.equal(
+        yield* step(() => periodForm.locator('input[name="commandId"]').inputValue()),
         staleDraftCommandId,
       );
       trace.push({
@@ -1534,52 +1701,70 @@ export const runReturningAssistantBrowserJourney = async ({
         status: 412,
         expectedRevision: staleDraftPost.get("expectedRevision"),
         commandId: staleDraftPost.get("commandId"),
-        draftYearOfStudy: await periodForm.getByRole("combobox", { name: "Studieår" }).inputValue(),
+        draftYearOfStudy: yield* step(() =>
+          periodForm.getByRole("combobox", { name: "Studieår" }).inputValue(),
+        ),
       });
-      await periodForm.getByRole("button", { name: "Forkast lagret utkast" }).click();
-      await returning.waitForLoadState("domcontentloaded");
+      yield* step(() => periodForm.getByRole("button", { name: "Forkast lagret utkast" }).click());
+      yield* step(() => returning.waitForLoadState("domcontentloaded"));
       periodForm = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
-      await periodForm.waitFor({ state: "visible" });
-      await expectValue(periodForm.locator('input[name="expectedRevision"]'), "2");
-      await expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "5");
-      const recoveredCommandId = await periodForm.locator('input[name="commandId"]').inputValue();
+      yield* step(() => periodForm.waitFor({ state: "visible" }));
+      yield* expectValue(periodForm.locator('input[name="expectedRevision"]'), "2");
+      yield* expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "5");
+
+      const recoveredCommandId = yield* step(() =>
+        periodForm.locator('input[name="commandId"]').inputValue(),
+      );
+
       assert.equal(recoveredCommandId, "");
 
-      const recoveredPost = await waitForDashboardAction(nextAdmissionPeriodId, async () => {
-        await waitForActionReady(periodForm);
-        await periodForm.getByRole("button", { name: "Lagre endringer" }).click();
-      });
+      const recoveredPost = yield* waitForDashboardAction(
+        nextAdmissionPeriodId,
+        Effect.fnUntraced(function* () {
+          yield* waitForActionReady(periodForm);
+          yield* step(() => periodForm.getByRole("button", { name: "Lagre endringer" }).click());
+        }),
+      );
 
       assert.equal(recoveredPost.expectedRevision, "2");
       assert.notEqual(recoveredPost.commandId, staleDraftPost.get("commandId"));
-      await assertStatus(periodForm, "Registreringen er lagret.");
-    } finally {
-      await staleReturning.close();
-      await staleContext.close();
-    }
+      yield* assertStatus(periodForm, "Registreringen er lagret.");
+    }).pipe(
+      Effect.ensuring(
+        step(() => staleReturning.close()).pipe(
+          Effect.andThen(step(() => staleContext.close())),
+          Effect.orDie,
+        ),
+      ),
+    );
 
-    const nextPeriodRevision = await pool.query(
-      `SELECT revision,year_of_study
+    const nextPeriodRevision = yield* step(() =>
+      pool.query(
+        `SELECT revision,year_of_study
      FROM public.admission_returning_registrations
      WHERE person_id=$1 AND admission_period_id=$2
      ORDER BY revision DESC
      LIMIT 1`,
-      [person.personId, nextAdmissionPeriodId],
+        [person.personId, nextAdmissionPeriodId],
+      ),
     );
 
     assert.deepEqual(nextPeriodRevision.rows, [{ revision: 3, year_of_study: 5 }]);
     // Audit the settled form. The status appears while the fetcher still revalidates, so the
     // submit button is disabled and then fades in; Axe must not read its colors mid-transition.
-    await waitForActionReady(periodForm);
-    await periodForm
-      .locator('button[type="submit"]')
-      .evaluate((button) =>
-        Promise.all(button.getAnimations().map((animation) => animation.finished)),
-      );
-    await auditPage(returning, "returning-registration");
+    yield* waitForActionReady(periodForm);
+    yield* step(() =>
+      periodForm
+        .locator('button[type="submit"]')
+        .evaluate((button) =>
+          Promise.all(button.getAnimations().map((animation) => animation.finished)),
+        ),
+    );
+    yield* auditPage(returning, "returning-registration");
 
-    const finalCustody = await pool.query(
-      `SELECT
+    const finalCustody = yield* step(() =>
+      pool.query(
+        `SELECT
        to_jsonb(application) - 'year_of_study' - 'revision' AS application_immutable,
        to_jsonb(applicant) - 'activation_digest' AS applicant_profile,
        applicant.activation_digest,
@@ -1602,18 +1787,21 @@ export const runReturningAssistantBrowserJourney = async ({
      FROM public.admission_applications application
      JOIN public.admission_applicants applicant USING(applicant_id)
      WHERE application.application_id=$1`,
-      [applicationId],
+        [applicationId],
+      ),
     );
 
     const finalCustodyRow = finalCustody.rows[0];
     assert.ok(finalCustodyRow);
     assert.equal(finalCustodyRow.activation_digest, originalActivationDigest);
     assert.ok(
-      Schema.decodeUnknownSync(Schema.Array(Schema.Json))(finalCustodyRow.public_receipts).length >
-        0,
+      (yield* Schema.decodeUnknownEffect(Schema.Array(Schema.Json))(
+        finalCustodyRow.public_receipts,
+      )).length > 0,
     );
     assert.ok(
-      Schema.decodeUnknownSync(Schema.Array(Schema.Json))(finalCustodyRow.public_audit).length > 0,
+      (yield* Schema.decodeUnknownEffect(Schema.Array(Schema.Json))(finalCustodyRow.public_audit))
+        .length > 0,
     );
     assert.deepEqual(finalCustody.rows, originalCustody.rows);
     trace.push({
@@ -1622,54 +1810,78 @@ export const runReturningAssistantBrowserJourney = async ({
       status: "observed",
     });
 
-    const nextInterviews = await pool.query(
-      `SELECT count(*)::int AS count
+    const nextInterviews = yield* step(() =>
+      pool.query(
+        `SELECT count(*)::int AS count
      FROM public.recruitment_interviews interview
      JOIN public.admission_applications application USING(application_id)
      WHERE application.admission_period_id=$1`,
-      [nextAdmissionPeriodId],
+        [nextAdmissionPeriodId],
+      ),
     );
 
     assert.deepEqual(nextInterviews.rows, [{ count: 0 }]);
     trace.push({ phase: "negative-gate", gate: "new-period-no-new-interview", status: "observed" });
 
-    const ordinaryConduct = await pool.query(
-      `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
+    const ordinaryConduct = yield* step(() =>
+      pool.query(
+        `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
      FROM public.recruitment_interview_conducts c
      WHERE c.interview_id='interview-native-conduct-a-0063'`,
+      ),
     );
 
     if (ordinaryConduct.rows.length === 0) {
-      await page.goto(`${ui}/dashboard/intervjuer`);
-      await page.getByRole("heading", { name: "Planlegg intervjuer", exact: true }).waitFor();
+      yield* step(() => page.goto(`${ui}/dashboard/intervjuer`));
+      yield* step(() =>
+        page.getByRole("heading", { name: "Planlegg intervjuer", exact: true }).waitFor(),
+      );
       const ordinaryCard = page.getByRole("article").filter({ hasText: "Sofie Gjennomfører" });
-      await ordinaryCard.getByRole("button", { name: "Åpne intervju", exact: true }).click();
-      await page
-        .getByRole("heading", { name: "Intervju med Sofie Gjennomfører", exact: true })
-        .waitFor();
-      await page
-        .locator("#question-interview-schema-native-conduct-0063-q0")
-        .fill("Jeg vil forklare matematikk tydelig.");
-      await page.locator("#question-interview-schema-native-conduct-0063-q1-1").check();
-      await page.locator("#question-interview-schema-native-conduct-0063-q2-0").check();
-      await page.locator("#question-interview-schema-native-conduct-0063-q3-0").check();
+      yield* step(() =>
+        ordinaryCard.getByRole("button", { name: "Åpne intervju", exact: true }).click(),
+      );
+      yield* step(() =>
+        page
+          .getByRole("heading", { name: "Intervju med Sofie Gjennomfører", exact: true })
+          .waitFor(),
+      );
+      yield* step(() =>
+        page
+          .locator("#question-interview-schema-native-conduct-0063-q0")
+          .fill("Jeg vil forklare matematikk tydelig."),
+      );
+      yield* step(() =>
+        page.locator("#question-interview-schema-native-conduct-0063-q1-1").check(),
+      );
+      yield* step(() =>
+        page.locator("#question-interview-schema-native-conduct-0063-q2-0").check(),
+      );
+      yield* step(() =>
+        page.locator("#question-interview-schema-native-conduct-0063-q3-0").check(),
+      );
 
       for (const axis of ["explanatoryPower", "roleModel", "suitability"])
-        await page.locator(`#score-${axis}`).selectOption("8");
-      await page.locator("#interviewer-recommendation").selectOption("Ja");
-      await page.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
-      await page
-        .getByRole("dialog")
-        .getByRole("button", { name: "Fullfør intervju", exact: true })
-        .press("Enter");
-      await page.getByText("Intervjuet er fullført.", { exact: true }).waitFor();
-      await page.reload();
+        yield* step(() => page.locator(`#score-${axis}`).selectOption("8"));
+      yield* step(() => page.locator("#interviewer-recommendation").selectOption("Ja"));
+      yield* step(() =>
+        page.getByRole("button", { name: "Fullfør intervju", exact: true }).click(),
+      );
+      yield* step(() =>
+        page
+          .getByRole("dialog")
+          .getByRole("button", { name: "Fullfør intervju", exact: true })
+          .press("Enter"),
+      );
+      yield* step(() => page.getByText("Intervjuet er fullført.", { exact: true }).waitFor());
+      yield* step(() => page.reload());
     }
 
-    const ordinaryAfter = await pool.query(
-      `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
+    const ordinaryAfter = yield* step(() =>
+      pool.query(
+        `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
      FROM public.recruitment_interview_conducts c
      WHERE c.interview_id='interview-native-conduct-a-0063'`,
+      ),
     );
 
     assert.deepEqual(ordinaryAfter.rows, [
@@ -1728,18 +1940,19 @@ export const runReturningAssistantBrowserJourney = async ({
       },
     ] as const;
 
-    const concurrentDetails = await Promise.all(
-      concurrentRevisions.map(async ({ idempotencyKey, payload }) => {
-        const answer = await register(idempotencyKey, payload);
-
-        return { idempotencyKey, payload, status: answer.status, answer };
-      }),
+    const concurrentDetails = yield* Effect.all(
+      concurrentRevisions.map(({ idempotencyKey, payload }) =>
+        register(idempotencyKey, payload).pipe(
+          Effect.map((answer) => ({ idempotencyKey, payload, status: answer.status, answer })),
+        ),
+      ),
+      { concurrency: "unbounded" },
     );
 
     assert.deepEqual(
       concurrentDetails.map(({ status }) => status).sort((left, right) => left - right),
       [200, 412],
-      JSON.stringify(concurrentDetails),
+      yield* jsonText(concurrentDetails),
     );
 
     const concurrentWinner = concurrentDetails.find(({ status }) => status === 200);
@@ -1758,9 +1971,11 @@ export const runReturningAssistantBrowserJourney = async ({
       loser: concurrentLoser.idempotencyKey,
     });
 
-    const concurrentRows = await pool.query(
-      "SELECT revision FROM public.admission_returning_registrations WHERE person_id=$1 AND admission_period_id=$2 ORDER BY revision",
-      [person.personId, admissionPeriodId],
+    const concurrentRows = yield* step(() =>
+      pool.query(
+        "SELECT revision FROM public.admission_returning_registrations WHERE person_id=$1 AND admission_period_id=$2 ORDER BY revision",
+        [person.personId, admissionPeriodId],
+      ),
     );
 
     assert.deepEqual(concurrentRows.rows, [{ revision: 1 }, { revision: 2 }, { revision: 3 }]);
@@ -1786,19 +2001,22 @@ export const runReturningAssistantBrowserJourney = async ({
 
     stage?.("returning:next-period-assignment");
 
-    const nextApplication = await pool.query(
-      `SELECT application_id
+    const nextApplication = yield* step(() =>
+      pool.query(
+        `SELECT application_id
      FROM public.admission_applications
      WHERE applicant_id=$1 AND admission_period_id=$2`,
-      [applicantId, nextAdmissionPeriodId],
+        [applicantId, nextAdmissionPeriodId],
+      ),
     );
 
-    const nextApplicationId = Schema.decodeUnknownSync(Schema.String)(
+    const nextApplicationId = yield* Schema.decodeUnknownEffect(Schema.String)(
       nextApplication.rows[0].application_id,
     );
 
-    const assignmentActorContextBefore = await pool.query(
-      `SELECT
+    const assignmentActorContextBefore = yield* step(() =>
+      pool.query(
+        `SELECT
          membership.membership_id,
          membership.person_id,
          membership.team_id,
@@ -1814,11 +2032,13 @@ export const runReturningAssistantBrowserJourney = async ({
        JOIN public.organization_departments department USING (department_id)
        WHERE membership.person_id=$1
        ORDER BY membership.membership_id`,
-      ["journey-conduct-leader-0063"],
+        ["journey-conduct-leader-0063"],
+      ),
     );
 
-    const assignmentPeriodContextBefore = await pool.query(
-      `SELECT
+    const assignmentPeriodContextBefore = yield* step(() =>
+      pool.query(
+        `SELECT
          p.admission_period_id,
          p.department_id,
          p.start_at,
@@ -1831,7 +2051,8 @@ export const runReturningAssistantBrowserJourney = async ({
        JOIN public.admission_period_semesters s USING (semester_id)
        WHERE p.department_id=$1
        ORDER BY p.admission_period_id`,
-      [departmentId],
+        [departmentId],
+      ),
     );
 
     assert.equal(nextApplication.rows.length, 1);
@@ -1849,9 +2070,11 @@ export const runReturningAssistantBrowserJourney = async ({
         payload: { applicationId: nextApplicationId, idempotencyKey, request: assignmentPayload },
       });
 
-    const ambiguousAssignment = await assign(page, "returning-next-assignment-ambiguous-0104");
+    const ambiguousAssignment = yield* step(() =>
+      assign(page, "returning-next-assignment-ambiguous-0104"),
+    );
 
-    const ambiguousBodyText = await ambiguousAssignment.text();
+    const ambiguousBodyText = yield* step(() => ambiguousAssignment.text());
     trace.push({
       phase: "assignment-response",
       status: ambiguousAssignment.status(),
@@ -1861,12 +2084,15 @@ export const runReturningAssistantBrowserJourney = async ({
     });
     assert.equal(ambiguousAssignment.status(), 403, ambiguousBodyText);
 
-    const ambiguousBody = Schema.decodeUnknownSync(NativeProblem)(JSON.parse(ambiguousBodyText));
+    const ambiguousBody = yield* Schema.decodeUnknownEffect(NativeProblem)(
+      yield* decodeJsonText(ambiguousBodyText),
+    );
 
     assert.equal(ambiguousBody.code, "authority.denied");
 
-    const assignmentPeriodContext = await pool.query(
-      `SELECT
+    const assignmentPeriodContext = yield* step(() =>
+      pool.query(
+        `SELECT
        p.admission_period_id,
        p.start_at,
        p.end_at,
@@ -1878,7 +2104,8 @@ export const runReturningAssistantBrowserJourney = async ({
      JOIN public.admission_period_semesters s USING (semester_id)
      WHERE p.department_id=$1
      ORDER BY p.admission_period_id`,
-      [departmentId],
+        [departmentId],
+      ),
     );
 
     trace.push({
@@ -1896,13 +2123,16 @@ export const runReturningAssistantBrowserJourney = async ({
     });
     // Model the legitimate semester transition: the old period ends at a valid
     // instant and remains closed while the next period becomes authoritative.
-    await pool.query("UPDATE public.admission_periods SET end_at=$1 WHERE admission_period_id=$2", [
-      conductPeriodClosedEndAt,
-      admissionPeriodId,
-    ]);
+    yield* step(() =>
+      pool.query("UPDATE public.admission_periods SET end_at=$1 WHERE admission_period_id=$2", [
+        conductPeriodClosedEndAt,
+        admissionPeriodId,
+      ]),
+    );
 
-    const postClosePeriodContext = await pool.query(
-      `SELECT
+    const postClosePeriodContext = yield* step(() =>
+      pool.query(
+        `SELECT
        p.admission_period_id,
        p.start_at,
        p.end_at,
@@ -1914,7 +2144,8 @@ export const runReturningAssistantBrowserJourney = async ({
      JOIN public.admission_period_semesters s USING (semester_id)
      WHERE p.department_id=$1
      ORDER BY p.admission_period_id`,
-      [departmentId],
+        [departmentId],
+      ),
     );
 
     assert.deepEqual(
@@ -1933,8 +2164,9 @@ export const runReturningAssistantBrowserJourney = async ({
     // Department administration (O8-11): an active, unsuspended leadership of the department's
     // board (Styret) while the department is independent. An ordinary team leader acts only
     // within its own team.
-    const resolvedCoordinator = await pool.query(
-      `SELECT
+    const resolvedCoordinator = yield* step(() =>
+      pool.query(
+        `SELECT
        membership.person_id,
        membership.team_id,
        membership.is_team_leader,
@@ -1957,7 +2189,8 @@ export const runReturningAssistantBrowserJourney = async ({
        AND department.independent
        AND department.active
      ORDER BY membership.membership_id`,
-      ["report-coordinator-0103"],
+        ["report-coordinator-0103"],
+      ),
     );
 
     assert.deepEqual(resolvedCoordinator.rows, [
@@ -1983,31 +2216,38 @@ export const runReturningAssistantBrowserJourney = async ({
       postClosePeriodContext: postClosePeriodContext.rows,
     });
     const assignmentCommandId = "returning-next-assignment-0104";
-    const coordinatorContext = await browser.newContext();
+    const coordinatorContext = yield* step(() => browser.newContext());
     let assignmentStatus!: number;
     let assignmentBodyText!: string;
     let assignmentETag!: string;
     let nextInterviewId!: string;
 
-    try {
+    yield* Effect.gen(function* () {
       stage?.("returning:next-period-assignment:coordinator-login");
-      const coordinatorPage = await coordinatorContext.newPage();
-      await coordinatorPage.goto(`${ui}/login`);
-      await coordinatorPage.getByLabel("E-post", { exact: true }).fill(coordinatorEmail);
-      await coordinatorPage.getByLabel("Passord", { exact: true }).fill(coordinatorPassword);
-      await coordinatorPage.getByRole("button", { name: "Logg inn", exact: true }).click();
-      await coordinatorPage.waitForURL(/\/dashboard\/?$/);
+      const coordinatorPage = yield* step(() => coordinatorContext.newPage());
+      yield* step(() => coordinatorPage.goto(`${ui}/login`));
+      yield* step(() =>
+        coordinatorPage.getByLabel("E-post", { exact: true }).fill(coordinatorEmail),
+      );
+      yield* step(() =>
+        coordinatorPage.getByLabel("Passord", { exact: true }).fill(coordinatorPassword),
+      );
+      yield* step(() =>
+        coordinatorPage.getByRole("button", { name: "Logg inn", exact: true }).click(),
+      );
+      yield* step(() => coordinatorPage.waitForURL(/\/dashboard\/?$/));
 
-      const assignmentResponse = await assign(coordinatorPage, assignmentCommandId);
+      const assignmentResponse = yield* step(() => assign(coordinatorPage, assignmentCommandId));
 
       assignmentStatus = assignmentResponse.status();
-      assignmentBodyText = await assignmentResponse.text();
+      assignmentBodyText = yield* step(() => assignmentResponse.text());
       assignmentETag = assignmentResponse.headers()["etag"] ?? "";
 
       // An RPC command answers 200; the 201 was an HTTP transport fact.
       if (assignmentStatus !== 200) {
-        const assignmentActorContext = await pool.query(
-          `SELECT
+        const assignmentActorContext = yield* step(() =>
+          pool.query(
+            `SELECT
            membership.person_id,
            membership.team_id,
            membership.start_at,
@@ -2022,7 +2262,8 @@ export const runReturningAssistantBrowserJourney = async ({
          JOIN public.organization_departments department USING (department_id)
          WHERE membership.person_id=$1
          ORDER BY membership.membership_id`,
-          ["report-coordinator-0103"],
+            ["report-coordinator-0103"],
+          ),
         );
 
         trace.push({
@@ -2036,19 +2277,21 @@ export const runReturningAssistantBrowserJourney = async ({
         throw new Error(`next assignment failed ${assignmentStatus} ${assignmentBodyText}`);
       }
 
-      const assignmentBody = Schema.decodeUnknownSync(RecruitmentInterviewResource)(
-        JSON.parse(assignmentBodyText),
+      const assignmentBody = yield* Schema.decodeUnknownEffect(RecruitmentInterviewResource)(
+        yield* decodeJsonText(assignmentBodyText),
       );
 
       assert.equal(assignmentBody.applicationId, nextApplicationId);
       assert.ok(Predicate.isString(assignmentBody.interviewId));
       nextInterviewId = assignmentBody.interviewId!;
 
-      const assignmentRow = await pool.query(
-        `SELECT interview_id,application_id,interviewer_person_id,revision
+      const assignmentRow = yield* step(() =>
+        pool.query(
+          `SELECT interview_id,application_id,interviewer_person_id,revision
        FROM public.recruitment_interviews
        WHERE interview_id=$1`,
-        [nextInterviewId],
+          [nextInterviewId],
+        ),
       );
 
       assert.deepEqual(assignmentRow.rows, [
@@ -2063,25 +2306,27 @@ export const runReturningAssistantBrowserJourney = async ({
       assert.ok(assignmentETag);
       const assignedETag = assignmentETag;
 
-      const scheduleResponse = await pageRpc(coordinatorPage, {
-        api,
-        ui,
-        tag: "recruitment.scheduleInterview",
-        payload: {
-          interviewId: nextInterviewId,
-          idempotencyKey: "returning-next-schedule-0104",
-          ifMatch: assignedETag,
-          request: {
-            scheduledAt: nextInterviewScheduledAt,
-            room: "Returning Room 0104",
-            campus: "Gløshaugen",
-            mapLink: "https://maps.example.invalid/returning-next-0104",
-            message: "Vi ser frem til intervjuet.",
+      const scheduleResponse = yield* step(() =>
+        pageRpc(coordinatorPage, {
+          api,
+          ui,
+          tag: "recruitment.scheduleInterview",
+          payload: {
+            interviewId: nextInterviewId,
+            idempotencyKey: "returning-next-schedule-0104",
+            ifMatch: assignedETag,
+            request: {
+              scheduledAt: nextInterviewScheduledAt,
+              room: "Returning Room 0104",
+              campus: "Gløshaugen",
+              mapLink: "https://maps.example.invalid/returning-next-0104",
+              message: "Vi ser frem til intervjuet.",
+            },
           },
-        },
-      });
+        }),
+      );
 
-      const scheduleBodyText = await scheduleResponse.text();
+      const scheduleBodyText = yield* step(() => scheduleResponse.text());
 
       if (scheduleResponse.status() !== 200) {
         throw new Error(
@@ -2089,8 +2334,8 @@ export const runReturningAssistantBrowserJourney = async ({
         );
       }
 
-      const scheduleBody = Schema.decodeUnknownSync(ScheduleInterviewResponse)(
-        JSON.parse(scheduleBodyText),
+      const scheduleBody = yield* Schema.decodeUnknownEffect(ScheduleInterviewResponse)(
+        yield* decodeJsonText(scheduleBodyText),
       );
 
       assert.equal(scheduleBody.interviewId, nextInterviewId);
@@ -2107,15 +2352,13 @@ export const runReturningAssistantBrowserJourney = async ({
         scheduledAt: scheduleBody.schedule.scheduledAt,
         responseState: scheduleBody.responseState,
       });
-    } finally {
-      await coordinatorContext.close();
-    }
+    }).pipe(Effect.ensuring(step(() => coordinatorContext.close()).pipe(Effect.orDie)));
 
     const deliverRecruitmentInvitationOnce = deliverRecruitmentInvitation;
     assert.ok(deliverRecruitmentInvitationOnce);
     stage?.("returning:next-period-invitation-delivery");
 
-    const delivery = await deliverRecruitmentInvitationOnce(
+    const delivery = yield* deliverRecruitmentInvitationOnce(
       "returning-next-invitation-delivery-0104",
     );
 
@@ -2124,9 +2367,11 @@ export const runReturningAssistantBrowserJourney = async ({
     if (!Predicate.isTagged(delivery, "Delivered") || delivery.claim === undefined)
       throw new Error(`next invitation delivery did not complete: ${delivery._tag}`);
 
-    const deliveredInvitationOutbox = await pool.query(
-      "SELECT status,attempts FROM public.recruitment_invitation_outbox WHERE effect_id=$1",
-      [delivery.claim.effectId],
+    const deliveredInvitationOutbox = yield* step(() =>
+      pool.query(
+        "SELECT status,attempts FROM public.recruitment_invitation_outbox WHERE effect_id=$1",
+        [delivery.claim.effectId],
+      ),
     );
 
     assert.deepEqual(deliveredInvitationOutbox.rows, [{ status: "Delivered", attempts: 1 }]);
@@ -2144,8 +2389,7 @@ export const runReturningAssistantBrowserJourney = async ({
     for (let attempt = 0; attempt < 120 && invitationCapability === undefined; attempt += 1) {
       invitationCapability = invitationCapabilityReader(nextInterviewId);
 
-      if (invitationCapability === undefined)
-        await new Promise((resolve) => setTimeout(resolve, 250));
+      if (invitationCapability === undefined) yield* Effect.sleep("250 millis");
     }
 
     assert.ok(invitationCapability);
@@ -2161,9 +2405,9 @@ export const runReturningAssistantBrowserJourney = async ({
         headers: { origin: ui },
       });
 
-    const invitationPendingResponse = await readInvitation();
+    const invitationPendingResponse = yield* step(() => readInvitation());
 
-    const invitationPendingText = await invitationPendingResponse.text();
+    const invitationPendingText = yield* step(() => invitationPendingResponse.text());
 
     if (invitationPendingResponse.status !== 200) {
       throw new Error(
@@ -2171,9 +2415,9 @@ export const runReturningAssistantBrowserJourney = async ({
       );
     }
 
-    const invitationPending = Schema.decodeUnknownSync(
+    const invitationPending = yield* Schema.decodeUnknownEffect(
       RecruitmentInvitationResponseObservationSchema,
-    )(JSON.parse(invitationPendingText));
+    )(yield* decodeJsonText(invitationPendingText));
 
     const invitationETag = invitationPendingResponse.headers.get("etag");
     assert.ok(invitationETag);
@@ -2185,14 +2429,16 @@ export const runReturningAssistantBrowserJourney = async ({
       responseMessage: null,
     });
 
-    const invitationConfirmResponse = await replacedFetch({
-      origin: api,
-      tag: "recruitment.confirmInvitation",
-      payload: { capability: invitationCapability, ifMatch: invitationETag },
-      headers: { origin: ui },
-    });
+    const invitationConfirmResponse = yield* step(() =>
+      replacedFetch({
+        origin: api,
+        tag: "recruitment.confirmInvitation",
+        payload: { capability: invitationCapability, ifMatch: invitationETag },
+        headers: { origin: ui },
+      }),
+    );
 
-    const invitationConfirmText = await invitationConfirmResponse.text();
+    const invitationConfirmText = yield* step(() => invitationConfirmResponse.text());
 
     // The confirmation answers the invitation's new tag with 200, where HTTP answered 204.
     if (invitationConfirmResponse.status !== 200) {
@@ -2201,13 +2447,13 @@ export const runReturningAssistantBrowserJourney = async ({
       );
     }
 
-    const invitationAcceptedResponse = await readInvitation();
+    const invitationAcceptedResponse = yield* step(() => readInvitation());
 
     assert.equal(invitationAcceptedResponse.status, 200);
 
-    const invitationAccepted = Schema.decodeUnknownSync(
+    const invitationAccepted = yield* Schema.decodeUnknownEffect(
       RecruitmentInvitationResponseObservationSchema,
-    )(JSON.parse(await invitationAcceptedResponse.text()));
+    )(yield* decodeJsonText(yield* step(() => invitationAcceptedResponse.text())));
 
     assert.deepEqual(invitationAccepted, {
       scheduledAt: nextInterviewScheduledAt,
@@ -2232,15 +2478,15 @@ export const runReturningAssistantBrowserJourney = async ({
         payload: { interviewId: nextInterviewId },
       });
 
-    const conductResponse = await readConduct();
+    const conductResponse = yield* step(() => readConduct());
 
     assert.equal(conductResponse.status(), 200);
     const conductETag = conductResponse.headers()["etag"];
     assert.ok(conductETag);
 
-    const conductBefore = Schema.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)(
-      JSON.parse(await conductResponse.text()),
-    );
+    const conductBefore = yield* Schema.decodeUnknownEffect(
+      RecruitmentInterviewConductObservationSchema,
+    )(yield* decodeJsonText(yield* step(() => conductResponse.text())));
 
     assert.equal(conductBefore.interviewId, nextInterviewId);
     assert.equal(conductBefore.applicationId, nextApplicationId);
@@ -2264,23 +2510,25 @@ export const runReturningAssistantBrowserJourney = async ({
 
     const finalizeKey = "returning-native-finalize-0104";
 
-    const finalizeResponse = await pageRpc(page, {
-      api,
-      ui,
-      tag: "recruitment.finalizeInterview",
-      payload: {
-        interviewId: nextInterviewId,
-        idempotencyKey: finalizeKey,
-        ifMatch: conductETag,
-        request: {
-          answers: finalizeAnswers,
-          score: { explanatoryPower: 9, roleModel: 9, suitability: 9 },
-          recommendation: "Kanskje",
+    const finalizeResponse = yield* step(() =>
+      pageRpc(page, {
+        api,
+        ui,
+        tag: "recruitment.finalizeInterview",
+        payload: {
+          interviewId: nextInterviewId,
+          idempotencyKey: finalizeKey,
+          ifMatch: conductETag,
+          request: {
+            answers: finalizeAnswers,
+            score: { explanatoryPower: 9, roleModel: 9, suitability: 9 },
+            recommendation: "Kanskje",
+          },
         },
-      },
-    });
+      }),
+    );
 
-    const finalizeBodyText = await finalizeResponse.text();
+    const finalizeBodyText = yield* step(() => finalizeResponse.text());
 
     if (finalizeResponse.status() !== 200) {
       throw new Error(
@@ -2288,8 +2536,8 @@ export const runReturningAssistantBrowserJourney = async ({
       );
     }
 
-    const finalizeBody = Schema.decodeUnknownSync(FinalizeInterviewResponse)(
-      JSON.parse(finalizeBodyText),
+    const finalizeBody = yield* Schema.decodeUnknownEffect(FinalizeInterviewResponse)(
+      yield* decodeJsonText(finalizeBodyText),
     );
 
     assert.equal(finalizeBody.interviewId, nextInterviewId);
@@ -2297,13 +2545,13 @@ export const runReturningAssistantBrowserJourney = async ({
     assert.equal(finalizeBody.completionState, "Completed");
     assert.equal(finalizeBody.cancellationState, "NotCancelled");
 
-    const conductAfterResponse = await readConduct();
+    const conductAfterResponse = yield* step(() => readConduct());
 
     assert.equal(conductAfterResponse.status(), 200);
 
-    const conductAfter = Schema.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)(
-      JSON.parse(await conductAfterResponse.text()),
-    );
+    const conductAfter = yield* Schema.decodeUnknownEffect(
+      RecruitmentInterviewConductObservationSchema,
+    )(yield* decodeJsonText(yield* step(() => conductAfterResponse.text())));
 
     assert.equal(conductAfterResponse.headers()["etag"] !== conductETag, true);
     assert.equal(conductAfter.answers.length, 4);
@@ -2323,30 +2571,36 @@ export const runReturningAssistantBrowserJourney = async ({
       scoreTotal: 27,
     });
 
-    const finalizedConduct = await pool.query(
-      `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
+    const finalizedConduct = yield* step(() =>
+      pool.query(
+        `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
      FROM public.recruitment_interview_conducts c
      WHERE c.interview_id=$1`,
-      [nextInterviewId],
+        [nextInterviewId],
+      ),
     );
 
     assert.deepEqual(finalizedConduct.rows, [
       { recommendation: "Kanskje", explanatory_power: 9, role_model: 9, suitability: 9 },
     ]);
 
-    const preservedConduct = await pool.query(
-      `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
+    const preservedConduct = yield* step(() =>
+      pool.query(
+        `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
      FROM public.recruitment_interview_conducts c
      WHERE c.interview_id='interview-returning-0104'`,
+      ),
     );
 
     assert.deepEqual(preservedConduct.rows, [
       { recommendation: "Ja", explanatory_power: 8, role_model: 8, suitability: 8 },
     ]);
 
-    const registrations = await pool.query(
-      "SELECT admission_period_id,revision,year_of_study,monday_unavailable,tuesday_unavailable,wednesday_unavailable,thursday_unavailable,friday_unavailable,position_weeks,preferred_group,language,preferred_school,team_interest,team_ids FROM public.admission_returning_registrations WHERE person_id=$1 ORDER BY admission_period_id,revision",
-      [person.personId],
+    const registrations = yield* step(() =>
+      pool.query(
+        "SELECT admission_period_id,revision,year_of_study,monday_unavailable,tuesday_unavailable,wednesday_unavailable,thursday_unavailable,friday_unavailable,position_weeks,preferred_group,language,preferred_school,team_interest,team_ids FROM public.admission_returning_registrations WHERE person_id=$1 ORDER BY admission_period_id,revision",
+        [person.personId],
+      ),
     );
 
     assert.deepEqual(registrations.rows, [
@@ -2433,8 +2687,9 @@ export const runReturningAssistantBrowserJourney = async ({
       },
     ]);
 
-    const provenance = await pool.query(
-      `SELECT DISTINCT
+    const provenance = yield* step(() =>
+      pool.query(
+        `SELECT DISTINCT
        r.admission_period_id,
        r.department_id AS registration_department_id,
        r.semester_id AS registration_semester_id,
@@ -2445,7 +2700,8 @@ export const runReturningAssistantBrowserJourney = async ({
      JOIN public.assistant_placements p ON p.placement_id=r.placement_id
      WHERE r.person_id=$1
      ORDER BY r.admission_period_id`,
-      [person.personId],
+        [person.personId],
+      ),
     );
 
     assert.deepEqual(provenance.rows, [
@@ -2480,90 +2736,112 @@ export const runReturningAssistantBrowserJourney = async ({
       expectedRevision: Number(firstExpectedRevision),
     };
 
-    const nextRevisionBeforeReplay = await pool.query(
-      "SELECT count(*)::int AS count FROM public.admission_returning_registrations WHERE person_id=$1 AND admission_period_id=$2",
-      [person.personId, nextAdmissionPeriodId],
+    const nextRevisionBeforeReplay = yield* step(() =>
+      pool.query(
+        "SELECT count(*)::int AS count FROM public.admission_returning_registrations WHERE person_id=$1 AND admission_period_id=$2",
+        [person.personId, nextAdmissionPeriodId],
+      ),
     );
 
-    const exactReplay = await register(firstCommandKey, firstReplayPayload);
+    const replayKey = firstCommandKey;
+    const exactReplay = yield* register(replayKey, firstReplayPayload);
 
     assert.equal(exactReplay.status, 200);
 
-    const nextRevisionAfterReplay = await pool.query(
-      "SELECT count(*)::int AS count FROM public.admission_returning_registrations WHERE person_id=$1 AND admission_period_id=$2",
-      [person.personId, nextAdmissionPeriodId],
+    const nextRevisionAfterReplay = yield* step(() =>
+      pool.query(
+        "SELECT count(*)::int AS count FROM public.admission_returning_registrations WHERE person_id=$1 AND admission_period_id=$2",
+        [person.personId, nextAdmissionPeriodId],
+      ),
     );
 
     assert.deepEqual(nextRevisionAfterReplay.rows, nextRevisionBeforeReplay.rows);
-    const closedBefore = await negativeMutationSnapshot(person.personId);
-    await pool.query("UPDATE public.admission_periods SET end_at=$1 WHERE admission_period_id=$2", [
-      nextPeriodClosedEndAt,
-      nextAdmissionPeriodId,
-    ]);
+    const closedBefore = yield* negativeMutationSnapshot(person.personId);
+    yield* step(() =>
+      pool.query("UPDATE public.admission_periods SET end_at=$1 WHERE admission_period_id=$2", [
+        nextPeriodClosedEndAt,
+        nextAdmissionPeriodId,
+      ]),
+    );
 
-    try {
-      const closedReplay = await register(firstCommandKey, firstReplayPayload);
+    yield* Effect.gen(function* () {
+      const closedReplay = yield* register(replayKey, firstReplayPayload);
 
       assert.equal(closedReplay.status, 409);
-      assert.deepEqual(await negativeMutationSnapshot(person.personId), closedBefore);
+      assert.deepEqual(yield* negativeMutationSnapshot(person.personId), closedBefore);
       trace.push({ phase: "negative-gate", gate: "closed-period", status: closedReplay.status });
-    } finally {
-      await pool.query(
-        "UPDATE public.admission_periods SET end_at=$1 WHERE admission_period_id=$2",
-        [nextPeriodEndAt, nextAdmissionPeriodId],
-      );
-    }
+    }).pipe(
+      Effect.ensuring(
+        step(() =>
+          pool.query("UPDATE public.admission_periods SET end_at=$1 WHERE admission_period_id=$2", [
+            nextPeriodEndAt,
+            nextAdmissionPeriodId,
+          ]),
+        ).pipe(Effect.orDie),
+      ),
+    );
 
-    const returningOutbox = await pool.query(
-      "SELECT effect_id,status,attempts FROM public.admission_application_outbox WHERE origin='ReturningAssistant' ORDER BY effect_id",
+    const returningOutbox = yield* step(() =>
+      pool.query(
+        "SELECT effect_id,status,attempts FROM public.admission_application_outbox WHERE origin='ReturningAssistant' ORDER BY effect_id",
+      ),
     );
 
     assert.equal(returningOutbox.rows.length, 18);
-    const revokedBefore = await negativeMutationSnapshot(person.personId);
+    const revokedBefore = yield* negativeMutationSnapshot(person.personId);
 
-    const session = await pool.query(
-      'SELECT count(*)::int AS count FROM auth.session WHERE "userId"=$1',
-      [person.personId],
+    const session = yield* step(() =>
+      pool.query('SELECT count(*)::int AS count FROM auth.session WHERE "userId"=$1', [
+        person.personId,
+      ]),
     );
 
     assert.equal(session.rows[0].count, 1);
-    await pool.query('DELETE FROM auth.session WHERE "userId"=$1', [person.personId]);
+    yield* step(() => pool.query('DELETE FROM auth.session WHERE "userId"=$1', [person.personId]));
 
-    const revokedReplay = await register(firstCommandKey, firstReplayPayload);
+    const revokedReplay = yield* register(replayKey, firstReplayPayload);
 
     assert.equal(revokedReplay.status, 401);
-    await native.dispose();
-    assert.deepEqual(await negativeMutationSnapshot(person.personId), revokedBefore);
+    yield* step(() => native.dispose());
+    assert.deepEqual(yield* negativeMutationSnapshot(person.personId), revokedBefore);
     trace.push({
       phase: "negative-gate",
       gate: "stale-revoked-auth",
       status: revokedReplay.status,
     });
     stage?.("returning:report");
-    const reportContext = await browser.newContext();
-    const reportPage = await reportContext.newPage();
+    const reportContext = yield* step(() => browser.newContext());
+    const reportPage = yield* step(() => reportContext.newPage());
 
-    try {
-      await reportPage.goto(`${ui}/login`);
-      await reportPage.getByLabel("E-post", { exact: true }).fill(coordinatorEmail);
-      await reportPage.getByLabel("Passord", { exact: true }).fill(coordinatorPassword);
-      await reportPage.getByRole("button", { name: "Logg inn", exact: true }).click();
-      await reportPage.waitForURL(/\/dashboard\/?$/);
+    yield* Effect.gen(function* () {
+      yield* step(() => reportPage.goto(`${ui}/login`));
+      yield* step(() => reportPage.getByLabel("E-post", { exact: true }).fill(coordinatorEmail));
+      yield* step(() =>
+        reportPage.getByLabel("Passord", { exact: true }).fill(coordinatorPassword),
+      );
+      yield* step(() => reportPage.getByRole("button", { name: "Logg inn", exact: true }).click());
+      yield* step(() => reportPage.waitForURL(/\/dashboard\/?$/));
 
-      const reportRows = async (periodId: string) => {
-        await reportPage.goto(
-          `${ui}/dashboard/intervjuer/rapport?admissionPeriodId=${encodeURIComponent(periodId)}`,
+      const reportRows = Effect.fnUntraced(function* (periodId: string) {
+        yield* step(() =>
+          reportPage.goto(
+            `${ui}/dashboard/intervjuer/rapport?admissionPeriodId=${encodeURIComponent(periodId)}`,
+          ),
         );
-        await reportPage.getByRole("heading", { level: 1, name: "Fullførte intervjuer" }).waitFor();
+        yield* step(() =>
+          reportPage.getByRole("heading", { level: 1, name: "Fullførte intervjuer" }).waitFor(),
+        );
 
-        return reportPage
-          .locator("tbody tr")
-          .evaluateAll((rows) =>
-            rows.map((row) => (row.textContent ?? "").replace(/\s+/gu, " ").trim()),
-          );
-      };
+        return yield* step(() =>
+          reportPage
+            .locator("tbody tr")
+            .evaluateAll((rows) =>
+              rows.map((row) => (row.textContent ?? "").replace(/\s+/gu, " ").trim()),
+            ),
+        );
+      });
 
-      const currentReportRows = await reportRows(admissionPeriodId);
+      const currentReportRows = yield* reportRows(admissionPeriodId);
       const currentRita = currentReportRows.find((row) => row.includes("Rita Tilbake"));
       assert.ok(currentRita);
       assert.match(currentRita, /Tilbakevendende/u);
@@ -2580,23 +2858,25 @@ export const runReturningAssistantBrowserJourney = async ({
         currentReportRows.some((row) => row.includes("Olav Konflikt")),
         false,
       );
-      await reportPage.reload();
+      yield* step(() => reportPage.reload());
       assert.equal(
-        (
-          await reportPage
+        (yield* step(() =>
+          reportPage
             .locator("tbody tr")
             .evaluateAll((rows) =>
               rows.map((row) => (row.textContent ?? "").replace(/\s+/gu, " ").trim()),
-            )
-        ).find((row) => row.includes("Rita Tilbake")),
+            ),
+        )).find((row) => row.includes("Rita Tilbake")),
         currentRita,
       );
-      await auditPage(reportPage, "returning-report-existing-period");
-      await reportPage.screenshot({
-        path: join(artifacts, "returning-report-existing-period.png"),
-        fullPage: true,
-      });
-      const nextReportRows = await reportRows(nextAdmissionPeriodId);
+      yield* auditPage(reportPage, "returning-report-existing-period");
+      yield* step(() =>
+        reportPage.screenshot({
+          path: path.join(artifacts, "returning-report-existing-period.png"),
+          fullPage: true,
+        }),
+      );
+      const nextReportRows = yield* reportRows(nextAdmissionPeriodId);
       assert.equal(nextReportRows.length, 1);
       const nextRita = nextReportRows[0]!;
       assert.match(nextRita, /Rita Tilbake/u);
@@ -2604,36 +2884,35 @@ export const runReturningAssistantBrowserJourney = async ({
       assert.match(nextRita, /Kanskje/u);
       assert.match(nextRita, /9/u);
       assert.match(nextRita, /27/u);
-      await reportPage.reload();
+      yield* step(() => reportPage.reload());
 
-      const reloadedNextRows = await reportPage
-        .locator("tbody tr")
-        .evaluateAll((rows) =>
-          rows.map((row) => (row.textContent ?? "").replace(/\s+/gu, " ").trim()),
-        );
+      const reloadedNextRows = yield* step(() =>
+        reportPage
+          .locator("tbody tr")
+          .evaluateAll((rows) =>
+            rows.map((row) => (row.textContent ?? "").replace(/\s+/gu, " ").trim()),
+          ),
+      );
 
       assert.deepEqual(reloadedNextRows, nextReportRows);
-      await auditPage(reportPage, "returning-report-next-period-finalized");
-      await reportPage.screenshot({
-        path: join(artifacts, "returning-report-next-period-finalized.png"),
-        fullPage: true,
-      });
-    } finally {
-      await reportContext.close();
-    }
-  } finally {
+      yield* auditPage(reportPage, "returning-report-next-period-finalized");
+      yield* step(() =>
+        reportPage.screenshot({
+          path: path.join(artifacts, "returning-report-next-period-finalized.png"),
+          fullPage: true,
+        }),
+      );
+    }).pipe(Effect.ensuring(step(() => reportContext.close()).pipe(Effect.orDie)));
+  }).pipe(
     // Retain the complete journey trace on both successful helper return and
     // failure, before the outer report/effect gates can run or fail.
-    await writeFile(
-      join(artifacts, "returning-registration-trace.json"),
-      JSON.stringify(trace, null, 2),
-    );
-  }
+    Effect.ensuring(writeTrace.pipe(Effect.orDie)),
+  );
 
   return { trace };
-};
+});
 
-export const runReturningAssistantLoginProbe = async ({
+export const runReturningAssistantLoginProbe = Effect.fnUntraced(function* ({
   browser,
   pool,
   ui,
@@ -2643,28 +2922,32 @@ export const runReturningAssistantLoginProbe = async ({
   readonly pool: Pool;
   readonly ui: string;
   readonly artifacts: string;
-}) => {
-  const context = await browser.newContext();
-  const probe = await context.newPage();
+}) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const context = yield* step(() => browser.newContext());
+  const probe = yield* step(() => context.newPage());
   const events: string[] = [];
 
-  const dbSnapshot = async (label: string) => ({
-    label,
-    activity: (
-      await pool.query(
-        `SELECT pid,state,wait_event_type,wait_event,left(query,240) AS query
+  const dbSnapshot = Effect.fnUntraced(function* (label: string) {
+    return {
+      label,
+      activity: (yield* step(() =>
+        pool.query(
+          `SELECT pid,state,wait_event_type,wait_event,left(query,240) AS query
          FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()
          ORDER BY pid`,
-      )
-    ).rows,
-    locks: (
-      await pool.query(
-        `SELECT a.pid,l.locktype,l.mode,l.granted,left(a.query,240) AS query
+        ),
+      )).rows,
+      locks: (yield* step(() =>
+        pool.query(
+          `SELECT a.pid,l.locktype,l.mode,l.granted,left(a.query,240) AS query
          FROM pg_stat_activity a JOIN pg_locks l ON l.pid=a.pid
          WHERE a.datname=current_database() AND a.pid<>pg_backend_pid()
          ORDER BY a.pid,l.locktype,l.mode`,
-      )
-    ).rows,
+        ),
+      )).rows,
+    };
   });
 
   probe.on("request", (request) => {
@@ -2681,40 +2964,48 @@ export const runReturningAssistantLoginProbe = async ({
   });
   probe.on("console", (message) => events.push(`console ${message.type()}`));
   probe.on("pageerror", (error) => events.push(`pageerror ${error.message}`));
-  const before = await dbSnapshot("before-login");
-  await probe.goto(
-    `${ui}/login?redirectTo=${encodeURIComponent("/dashboard/tidligere-assistenter")}`,
+  const before = yield* dbSnapshot("before-login");
+  yield* step(() =>
+    probe.goto(`${ui}/login?redirectTo=${encodeURIComponent("/dashboard/tidligere-assistenter")}`),
   );
-  await probe.getByLabel("E-post", { exact: true }).fill(person.email);
-  await probe.getByLabel("Passord", { exact: true }).fill(person.password);
-  await probe.screenshot({ path: join(artifacts, "returning-login-before.png"), fullPage: true });
+  yield* step(() => probe.getByLabel("E-post", { exact: true }).fill(person.email));
+  yield* step(() => probe.getByLabel("Passord", { exact: true }).fill(person.password));
+  yield* step(() =>
+    probe.screenshot({ path: path.join(artifacts, "returning-login-before.png"), fullPage: true }),
+  );
   let click = "not-started";
 
-  try {
-    await probe.getByRole("button", { name: "Logg inn", exact: true }).click({
-      timeout: 10_000,
-      noWaitAfter: true,
-    });
-    click = "resolved";
-  } catch (cause) {
-    click = `error:${cause instanceof Error ? cause.name : Object.prototype.toString.call(cause)}`;
-  }
+  const clickOutcome = yield* Effect.exit(
+    step(() =>
+      probe.getByRole("button", { name: "Logg inn", exact: true }).click({
+        timeout: 10_000,
+        noWaitAfter: true,
+      }),
+    ),
+  );
 
-  const afterClick = await dbSnapshot("after-click");
+  click = Exit.isSuccess(clickOutcome)
+    ? "resolved"
+    : `error:${clickOutcome.cause.pipe(thrownBy, errorName)}`;
+
+  const afterClick = yield* dbSnapshot("after-click");
   let navigation = "not-started";
 
-  try {
-    await probe.waitForURL(/\/dashboard\/tidligere-assistenter$/, { timeout: 10_000 });
-    navigation = "dashboard";
-  } catch (cause) {
-    navigation = `error:${cause instanceof Error ? cause.name : Object.prototype.toString.call(cause)}`;
-  }
+  const navigationOutcome = yield* Effect.exit(
+    step(() => probe.waitForURL(/\/dashboard\/tidligere-assistenter$/, { timeout: 10_000 })),
+  );
 
-  const afterNavigation = await dbSnapshot("after-navigation");
-  await probe.screenshot({ path: join(artifacts, "returning-login-after.png"), fullPage: true });
-  const html = await probe.content().catch(() => "<unavailable>");
-  await writeFile(
-    join(artifacts, "returning-login-probe.html"),
+  navigation = Exit.isSuccess(navigationOutcome)
+    ? "dashboard"
+    : `error:${navigationOutcome.cause.pipe(thrownBy, errorName)}`;
+
+  const afterNavigation = yield* dbSnapshot("after-navigation");
+  yield* step(() =>
+    probe.screenshot({ path: path.join(artifacts, "returning-login-after.png"), fullPage: true }),
+  );
+  const html = yield* step(() => probe.content().catch(() => "<unavailable>"));
+  yield* fs.writeFileString(
+    path.join(artifacts, "returning-login-probe.html"),
     html.replaceAll(person.email, "[redacted]").replaceAll(person.password, "[redacted]"),
   );
 
@@ -2728,22 +3019,25 @@ export const runReturningAssistantLoginProbe = async ({
     url: probe.url(),
   };
 
-  await writeFile(join(artifacts, "returning-login-probe.json"), JSON.stringify(result, null, 2));
-  await context.close();
+  yield* fs.writeFileString(
+    path.join(artifacts, "returning-login-probe.json"),
+    yield* indentedJsonText(result),
+  );
+  yield* step(() => context.close());
 
   return result;
-};
+});
 
-const assertStatus = async (form: Locator, expected: string) => {
-  await form.getByRole("status").filter({ hasText: expected }).waitFor();
-};
+const assertStatus = Effect.fnUntraced(function* (form: Locator, expected: string) {
+  yield* step(() => form.getByRole("status").filter({ hasText: expected }).waitFor());
+});
 
-const expectValue = async (field: Locator, expected: string) => {
-  const actual = await field.inputValue();
+const expectValue = Effect.fnUntraced(function* (field: Locator, expected: string) {
+  const actual = yield* step(() => field.inputValue());
 
   if (actual !== expected) {
     throw new Error(
-      `field value mismatch actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`,
+      `field value mismatch actual=${yield* jsonText(actual)} expected=${yield* jsonText(expected)}`,
     );
   }
-};
+});

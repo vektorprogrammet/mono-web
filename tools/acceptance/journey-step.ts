@@ -1,4 +1,4 @@
-import { Effect, FileSystem, type PlatformError, Schema } from "effect";
+import { Cause, Effect, FileSystem, type PlatformError, Schema } from "effect";
 import { dual } from "effect/Function";
 import type { HttpClientResponse } from "effect/unstable/http";
 
@@ -31,6 +31,18 @@ export const surfaceStepFailure = <A, E, R>(
   effect.pipe(
     Effect.catchIf(Schema.is(JourneyStepFailed), (failed) => Effect.die(failed.cause)),
   ) as Effect.Effect<A, Exclude<E, JourneyStepFailed>, R>;
+
+/**
+ * The error that a failed program threw or failed with: the original rejection of a failed step, or
+ * else the squashed failure or defect, as a `catch` block of the driver code would have received it.
+ * A thrown value that is no error is wrapped in one whose message is its string and cause the value.
+ */
+export const thrownBy = (cause: Cause.Cause<unknown>): Error => {
+  const squashed = Cause.squash(cause);
+  const thrown = Schema.is(JourneyStepFailed)(squashed) ? squashed.cause : squashed;
+
+  return thrown instanceof Error ? thrown : new Error(String(thrown), { cause: thrown });
+};
 
 /** A connection that a pool lends and takes back, as `pg` `PoolClient` does. */
 interface LentConnection {
