@@ -1,3 +1,4 @@
+import { dual } from "effect/Function";
 import type { PgPoolConfig } from "@effect/sql-pg/PgClient";
 import * as Migrator from "effect/unstable/sql/Migrator";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -331,7 +332,7 @@ const upgradedLegacyReceiptSchema = (database: PgPoolConfig) =>
     return yield* receiptSchemaDefinition(sql);
   }).pipe(Effect.provide(sharedPgLayer(database)));
 
-export const runReceiptFileProof = (
+const runReceiptFileProofImpl = (
   fileSnapshot: Effect.Effect<ReceiptFileRecordingSnapshot>,
   failNextFileEffect: (effectId: string) => Effect.Effect<void>,
   auxiliaryEffectIds: Effect.Effect<ReadonlyArray<string>>,
@@ -793,3 +794,19 @@ export const runReceiptFileProof = (
 
     return evidence;
   });
+
+export const runReceiptFileProof: {
+  (
+    failNextFileEffect: (effectId: string) => Effect.Effect<void>,
+    auxiliaryEffectIds: Effect.Effect<ReadonlyArray<string>>,
+    legacyUpgradeDatabase: PgPoolConfig,
+  ): (
+    fileSnapshot: Effect.Effect<ReceiptFileRecordingSnapshot>,
+  ) => ReturnType<typeof runReceiptFileProofImpl>;
+  (
+    fileSnapshot: Effect.Effect<ReceiptFileRecordingSnapshot>,
+    failNextFileEffect: (effectId: string) => Effect.Effect<void>,
+    auxiliaryEffectIds: Effect.Effect<ReadonlyArray<string>>,
+    legacyUpgradeDatabase: PgPoolConfig,
+  ): ReturnType<typeof runReceiptFileProofImpl>;
+} = dual(4, runReceiptFileProofImpl);

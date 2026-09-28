@@ -1,3 +1,4 @@
+import { dual } from "effect/Function";
 import { DateTime, Effect, Predicate, Schema } from "effect";
 import { SqlSchema } from "effect/unstable/sql";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
@@ -25,10 +26,10 @@ import {
   resolveOrganizationPersonAuthorityWithSql,
 } from "../organization/authority-postgres.js";
 
-const fail = (code: SchoolCommandFailure["code"]) => new SchoolCommandFailure({ code });
+const fail = (code: SchoolCommandFailure["code"]) => SchoolCommandFailure.make({ code });
 
 const persistence = (cause: unknown) =>
-  new SchoolsPersistenceError({
+  SchoolsPersistenceError.make({
     operation: "school administration",
     message: String(cause),
     cause,
@@ -116,7 +117,7 @@ const authorizeWithSql = Effect.fn("Schools.authorizeCommand")(function* (
     yield* sql`SELECT department_id FROM organization_departments WHERE department_id=${command.departmentId} FOR SHARE`;
   const school = (yield* schoolRows(sql, command.schoolId, true))[0];
 
-  if (!school) return yield* fail("NotFound");
+  if (school === undefined) return yield* fail("NotFound");
   const departments = yield* departmentsFor(sql, school.schoolId);
 
   if (
@@ -151,7 +152,7 @@ const mapFailure = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     }),
   );
 
-export const authorizeSchoolCommand = (command: SchoolCommand, personId: PersonId) =>
+const authorizeSchoolCommandImpl = (command: SchoolCommand, personId: PersonId) =>
   Effect.gen(function* () {
     const sql = yield* Database;
     const decoded = yield* decodeCommand(command).pipe(Effect.mapError(() => fail("Invalid")));
@@ -160,6 +161,11 @@ export const authorizeSchoolCommand = (command: SchoolCommand, personId: PersonI
     // SAFETY: the one constructor of the evidence brand; authorizeWithSql above is what it proves.
     return { personId, command: decoded, school, departments } as SchoolCommandAuthorization;
   }).pipe(mapFailure);
+
+export const authorizeSchoolCommand: {
+  (personId: PersonId): (command: SchoolCommand) => ReturnType<typeof authorizeSchoolCommandImpl>;
+  (command: SchoolCommand, personId: PersonId): ReturnType<typeof authorizeSchoolCommandImpl>;
+} = dual(2, authorizeSchoolCommandImpl);
 
 export const readSchoolManagement = (personId: PersonId) =>
   Effect.gen(function* () {
@@ -242,7 +248,7 @@ export const executeSchoolCommand = (authorized: SchoolCommandAuthorization) =>
           result: unknown;
         }>`SELECT command_digest AS digest,result_json AS result FROM schools_command_receipts WHERE actor_person_id=${personId} AND command_id=${command.commandId}`;
 
-        if (receipts[0]) {
+        if (receipts[0] !== undefined) {
           if (receipts[0].digest !== digest) return yield* fail("Conflict");
 
           return yield* Schema.decodeUnknownEffect(SchoolCommandResult)(receipts[0].result);
@@ -357,7 +363,7 @@ export const executeSchoolCommand = (authorized: SchoolCommandAuthorization) =>
             before = existing ?? null;
 
             if (Predicate.isTagged(command, "CreateCapacity")) {
-              if (existing) return yield* fail("CapacityExists");
+              if (existing !== undefined) return yield* fail("CapacityExists");
 
               const rows = yield* sql<{
                 capacityId: number;
@@ -369,7 +375,7 @@ export const executeSchoolCommand = (authorized: SchoolCommandAuthorization) =>
               );
               revision = 0;
             } else {
-              if (!existing) return yield* fail("NotFound");
+              if (existing === undefined) return yield* fail("NotFound");
 
               if (existing.revision !== command.expectedRevision) return yield* fail("Stale");
               capacityId = existing.capacityId;

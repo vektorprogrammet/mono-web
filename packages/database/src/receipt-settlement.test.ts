@@ -51,18 +51,17 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
       "records immutable evidence once with CAS, replay, reference, authority, and queue boundaries",
       () =>
         Effect.gen(function* () {
-          const evidence = yield* Effect.gen(function* () {
-            const database = yield* Database;
-            const economy = yield* Economy;
+          const database = yield* Database;
+          const economy = yield* Economy;
 
-            yield* database`
+          yield* database`
       INSERT INTO public.person_profiles (person_id, first_name, last_name)
       VALUES
         (${ownerPersonId}, 'Settlement', 'Owner'),
         (${settlerPersonId}, 'Settlement', 'Settler'),
         (${deniedPersonId}, 'Settlement', 'Denied')
     `;
-            yield* database`
+          yield* database`
       INSERT INTO public.organization_departments (
         department_id, name, short_name, email, city
       ) VALUES (
@@ -70,11 +69,11 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
         'settlement-test@example.invalid', 'Bergen'
       )
     `;
-            yield* database`
+          yield* database`
       INSERT INTO public.organization_teams (team_id, department_id, name)
       VALUES ('settlement-test-team', ${departmentId}, 'Settlement Test Team')
     `;
-            yield* database`
+          yield* database`
       INSERT INTO public.organization_memberships (
         membership_id, person_id, team_id, start_at
       ) VALUES
@@ -83,7 +82,7 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
         ('settlement-test-denied-membership', ${deniedPersonId},
           'settlement-test-team', '2038-01-01T00:00:00.000Z')
     `;
-            yield* database`
+          yield* database`
       INSERT INTO public.economy_receipt_settlement_grants (
         settlement_grant_id, person_id, scope, department_id, start_at
       ) VALUES (
@@ -91,7 +90,7 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
         '2038-01-01T00:00:00.000Z'
       )
     `;
-            yield* database`
+          yield* database`
       INSERT INTO public.economy_receipts (
         receipt_id, visual_id, owner_person_id, department_id, amount_ore,
         currency, description, receipt_date, submitted_at, status, approved_at,
@@ -125,131 +124,131 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
           'application/pdf', 128, ${"e".repeat(64)}, 0)
     `;
 
-            const recorded = yield* economy.recordReceiptSettlement(
-              command("settlement-test-command-1", "settlement-test-receipt-1", 0, "reference-1"),
-              principal(settlerPersonId),
-            );
+          const recorded = yield* economy.recordReceiptSettlement(
+            command("settlement-test-command-1", "settlement-test-receipt-1", 0, "reference-1"),
+            principal(settlerPersonId),
+          );
 
-            const immutableUpdate = yield* Effect.exit(database`
+          const immutableUpdate = yield* Effect.exit(database`
       UPDATE public.economy_receipt_settlements
       SET external_reference = 'mutated-reference'
       WHERE settlement_id = ${recorded.settlement.settlementId}
     `);
 
-            const replay = yield* economy.recordReceiptSettlement(
-              command("settlement-test-command-1", "settlement-test-receipt-1", 0, "reference-1"),
+          const replay = yield* economy.recordReceiptSettlement(
+            command("settlement-test-command-1", "settlement-test-receipt-1", 0, "reference-1"),
+            principal(settlerPersonId),
+          );
+
+          const changedReplay = yield* Effect.flip(
+            economy.recordReceiptSettlement(
+              command(
+                "settlement-test-command-1",
+                "settlement-test-receipt-1",
+                0,
+                "changed-reference",
+              ),
               principal(settlerPersonId),
-            );
+            ),
+          );
 
-            const changedReplay = yield* Effect.flip(
-              economy.recordReceiptSettlement(
-                command(
-                  "settlement-test-command-1",
-                  "settlement-test-receipt-1",
-                  0,
-                  "changed-reference",
+          const duplicateReference = yield* Effect.flip(
+            economy.recordReceiptSettlement(
+              command("settlement-test-command-2", "settlement-test-receipt-2", 0, "reference-1"),
+              principal(settlerPersonId),
+            ),
+          );
+
+          const staleRevision = yield* Effect.flip(
+            economy.recordReceiptSettlement(
+              command("settlement-test-command-3", "settlement-test-receipt-3", 0, "reference-3"),
+              principal(settlerPersonId),
+            ),
+          );
+
+          const unapproved = yield* Effect.flip(
+            economy.recordReceiptSettlement(
+              command("settlement-test-command-4", "settlement-test-receipt-5", 0, "reference-5"),
+              principal(settlerPersonId),
+            ),
+          );
+
+          const concealedAuthority = yield* Effect.flip(
+            economy.recordReceiptSettlement(
+              command("settlement-test-command-5", "settlement-test-receipt-2", 0, "reference-2"),
+              principal(deniedPersonId),
+            ),
+          );
+
+          const concurrent = yield* Effect.all(
+            [
+              economy
+                .recordReceiptSettlement(
+                  command(
+                    "settlement-test-command-6a",
+                    "settlement-test-receipt-4",
+                    0,
+                    "reference-4a",
+                  ),
+                  principal(settlerPersonId),
+                )
+                .pipe(
+                  Effect.match({
+                    onFailure: (error) => ({ _tag: "Failure" as const, error }),
+                    onSuccess: (value) => ({ _tag: "Success" as const, value }),
+                  }),
                 ),
-                principal(settlerPersonId),
-              ),
-            );
-
-            const duplicateReference = yield* Effect.flip(
-              economy.recordReceiptSettlement(
-                command("settlement-test-command-2", "settlement-test-receipt-2", 0, "reference-1"),
-                principal(settlerPersonId),
-              ),
-            );
-
-            const staleRevision = yield* Effect.flip(
-              economy.recordReceiptSettlement(
-                command("settlement-test-command-3", "settlement-test-receipt-3", 0, "reference-3"),
-                principal(settlerPersonId),
-              ),
-            );
-
-            const unapproved = yield* Effect.flip(
-              economy.recordReceiptSettlement(
-                command("settlement-test-command-4", "settlement-test-receipt-5", 0, "reference-5"),
-                principal(settlerPersonId),
-              ),
-            );
-
-            const concealedAuthority = yield* Effect.flip(
-              economy.recordReceiptSettlement(
-                command("settlement-test-command-5", "settlement-test-receipt-2", 0, "reference-2"),
-                principal(deniedPersonId),
-              ),
-            );
-
-            const concurrent = yield* Effect.all(
-              [
-                economy
-                  .recordReceiptSettlement(
-                    command(
-                      "settlement-test-command-6a",
-                      "settlement-test-receipt-4",
-                      0,
-                      "reference-4a",
-                    ),
-                    principal(settlerPersonId),
-                  )
-                  .pipe(
-                    Effect.match({
-                      onFailure: (error) => ({ _tag: "Failure" as const, error }),
-                      onSuccess: (value) => ({ _tag: "Success" as const, value }),
-                    }),
+              economy
+                .recordReceiptSettlement(
+                  command(
+                    "settlement-test-command-6b",
+                    "settlement-test-receipt-4",
+                    0,
+                    "reference-4b",
                   ),
-                economy
-                  .recordReceiptSettlement(
-                    command(
-                      "settlement-test-command-6b",
-                      "settlement-test-receipt-4",
-                      0,
-                      "reference-4b",
-                    ),
-                    principal(settlerPersonId),
-                  )
-                  .pipe(
-                    Effect.match({
-                      onFailure: (error) => ({ _tag: "Failure" as const, error }),
-                      onSuccess: (value) => ({ _tag: "Success" as const, value }),
-                    }),
-                  ),
-              ],
-              { concurrency: "unbounded" },
-            );
+                  principal(settlerPersonId),
+                )
+                .pipe(
+                  Effect.match({
+                    onFailure: (error) => ({ _tag: "Failure" as const, error }),
+                    onSuccess: (value) => ({ _tag: "Success" as const, value }),
+                  }),
+                ),
+            ],
+            { concurrency: "unbounded" },
+          );
 
-            const queue = yield* economy.listReceiptsForSettlement(
-              settlerPersonId,
-              authorizationInstant,
-            );
+          const queue = yield* economy.listReceiptsForSettlement(
+            settlerPersonId,
+            authorizationInstant,
+          );
 
-            const owned = yield* economy.listOwnedReceipts(ownerPersonId);
+          const owned = yield* economy.listOwnedReceipts(ownerPersonId);
 
-            const finance = yield* economy.readReceiptSettlementForFinance(
-              "settlement-test-receipt-1",
-              settlerPersonId,
-              authorizationInstant,
-            );
+          const finance = yield* economy.readReceiptSettlementForFinance(
+            "settlement-test-receipt-1",
+            settlerPersonId,
+            authorizationInstant,
+          );
 
-            const outbox = yield* database<{
-              readonly effectType: string;
-              readonly commandId: string;
-              readonly ordinal: number;
-              readonly status: string;
-              readonly attempts: number;
-            }>`
+          const outbox = yield* database<{
+            readonly effectType: string;
+            readonly commandId: string;
+            readonly ordinal: number;
+            readonly status: string;
+            readonly attempts: number;
+          }>`
       SELECT effect_type AS "effectType", command_id AS "commandId", ordinal, status, attempts
       FROM public.economy_receipt_outbox
       WHERE command_id = 'settlement-test-command-1'
     `;
 
-            const audit = yield* database<{
-              readonly commandId: string;
-              readonly action: string;
-              readonly actorPersonId: string;
-              readonly receiptRevision: number;
-            }>`
+          const audit = yield* database<{
+            readonly commandId: string;
+            readonly action: string;
+            readonly actorPersonId: string;
+            readonly receiptRevision: number;
+          }>`
       SELECT
         command_id AS "commandId",
         action,
@@ -259,7 +258,7 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
       WHERE command_id = 'settlement-test-command-1'
     `;
 
-            yield* database`
+          yield* database`
       INSERT INTO public.economy_receipts (
         receipt_id, visual_id, owner_person_id, department_id, amount_ore, currency,
         description, receipt_date, submitted_at, status, approved_at, payment_account_ciphertext,
@@ -273,59 +272,58 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
       WHERE receipt_id = 'settlement-test-receipt-1'
     `;
 
-            const firstPage = yield* economy.listReceiptsForSettlement(
-              settlerPersonId,
-              authorizationInstant,
-            );
+          const firstPage = yield* economy.listReceiptsForSettlement(
+            settlerPersonId,
+            authorizationInstant,
+          );
 
-            if (firstPage.nextCursor === undefined)
-              throw new Error("Settlement page lost continuation");
-            yield* economy.recordReceiptSettlement(
-              command("settlement-page-command", "settlement-page-000", 0, "page-reference"),
-              principal(settlerPersonId),
-            );
+          if (firstPage.nextCursor === undefined)
+            throw new Error("Settlement page lost continuation");
+          yield* economy.recordReceiptSettlement(
+            command("settlement-page-command", "settlement-page-000", 0, "page-reference"),
+            principal(settlerPersonId),
+          );
 
-            const nextPage = yield* economy.listReceiptsForSettlement(
-              settlerPersonId,
-              authorizationInstant,
-              firstPage.nextCursor,
-            );
+          const nextPage = yield* economy.listReceiptsForSettlement(
+            settlerPersonId,
+            authorizationInstant,
+            firstPage.nextCursor,
+          );
 
-            const deniedPage = yield* economy.listReceiptsForSettlement(
-              deniedPersonId,
-              authorizationInstant,
-              firstPage.nextCursor,
-            );
+          const deniedPage = yield* economy.listReceiptsForSettlement(
+            deniedPersonId,
+            authorizationInstant,
+            firstPage.nextCursor,
+          );
 
-            const pagination = {
-              first: firstPage.items.map((row) => row.receiptId),
-              next: nextPage.items.map((row) => row.receiptId),
-              nextCursor: nextPage.nextCursor,
-              denied: deniedPage,
-            };
+          const pagination = {
+            first: firstPage.items.map((row) => row.receiptId),
+            next: nextPage.items.map((row) => row.receiptId),
+            nextCursor: nextPage.nextCursor,
+            denied: deniedPage,
+          };
 
-            return {
-              pagination,
-              recorded,
-              replay,
-              immutableUpdate: immutableUpdate._tag,
-              changedReplay: changedReplay._tag,
-              duplicateReference: duplicateReference._tag,
-              staleRevision: staleRevision._tag,
-              unapproved: unapproved._tag,
-              concealedAuthority: concealedAuthority._tag,
-              concurrent: concurrent.map((result) =>
-                Predicate.isTagged(result, "Success") ? "Accepted" : result.error._tag,
-              ),
-              queue: queue.items.map(({ receiptId }) => receiptId),
-              ownerSettlement: owned.items.find(
-                ({ receiptId }) => receiptId === "settlement-test-receipt-1",
-              )?.settlement,
-              finance,
-              outbox,
-              audit,
-            };
-          });
+          const evidence = {
+            pagination,
+            recorded,
+            replay,
+            immutableUpdate: immutableUpdate._tag,
+            changedReplay: changedReplay._tag,
+            duplicateReference: duplicateReference._tag,
+            staleRevision: staleRevision._tag,
+            unapproved: unapproved._tag,
+            concealedAuthority: concealedAuthority._tag,
+            concurrent: concurrent.map((result) =>
+              Predicate.isTagged(result, "Success") ? "Accepted" : result.error._tag,
+            ),
+            queue: queue.items.map(({ receiptId }) => receiptId),
+            ownerSettlement: owned.items.find(
+              ({ receiptId }) => receiptId === "settlement-test-receipt-1",
+            )?.settlement,
+            finance,
+            outbox,
+            audit,
+          };
 
           expect(evidence.pagination.first).toEqual(
             Array.from(

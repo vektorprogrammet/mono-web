@@ -24,9 +24,8 @@ layer(schoolsLayer, { excludeTestServices: true, timeout: "15 seconds" })(
       "replays the ordered application manifest through the final revision without changing rows",
       () =>
         Effect.gen(function* () {
-          const evidence = yield* Effect.gen(function* () {
-            const database = yield* Database;
-            yield* database`
+          const database = yield* Database;
+          yield* database`
           INSERT INTO public.schools_directory_schools (
             name, contact_person, email, phone, language, active
           ) VALUES (
@@ -34,12 +33,12 @@ layer(schoolsLayer, { excludeTestServices: true, timeout: "15 seconds" })(
             'Norwegian', TRUE
           )
         `;
-            yield* database.migrate;
+          yield* database.migrate;
 
-            const migrationRows = yield* database<{
-              readonly migrationId: number;
-              readonly name: string;
-            }>`
+          const migrationRows = yield* database<{
+            readonly migrationId: number;
+            readonly name: string;
+          }>`
           SELECT
             migration.migration_id AS "migrationId",
             migration.name AS "name"
@@ -47,23 +46,22 @@ layer(schoolsLayer, { excludeTestServices: true, timeout: "15 seconds" })(
           WHERE migration.migration_id = 19
         `;
 
-            const schoolRows = yield* database<{ readonly count: string }>`
+          const schoolRows = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS "count"
           FROM public.schools_directory_schools AS school
           WHERE school.name = 'Replay School'
         `;
 
-            yield* database`
+          yield* database`
           DELETE FROM public.schools_directory_schools AS school
           WHERE school.name = 'Replay School'
         `;
 
-            return {
-              revision: database.schemaRevision,
-              migrationRows,
-              schoolCount: schoolRows[0]?.count,
-            };
-          });
+          const evidence = {
+            revision: database.schemaRevision,
+            migrationRows,
+            schoolCount: schoolRows[0]?.count,
+          };
 
           expect(evidence).toEqual({
             revision: databaseSchemaRevision,
@@ -78,9 +76,8 @@ layer(schoolsLayer, { excludeTestServices: true, timeout: "15 seconds" })(
       "enforces both association foreign keys and restricts deleting associated departments and schools",
       () =>
         Effect.gen(function* () {
-          const evidence = yield* Effect.gen(function* () {
-            const database = yield* Database;
-            yield* database`
+          const database = yield* Database;
+          yield* database`
           INSERT INTO organization_departments (
             department_id, name, short_name, email, city
           ) VALUES (
@@ -89,7 +86,7 @@ layer(schoolsLayer, { excludeTestServices: true, timeout: "15 seconds" })(
           )
         `;
 
-            const schools = yield* database<{ readonly schoolId: string }>`
+          const schools = yield* database<{ readonly schoolId: string }>`
           INSERT INTO public.schools_directory_schools (
             name, contact_person, email, phone, language, active
           ) VALUES (
@@ -99,68 +96,67 @@ layer(schoolsLayer, { excludeTestServices: true, timeout: "15 seconds" })(
           RETURNING school_id::text AS "schoolId"
         `;
 
-            const schoolId = schools[0]!.schoolId;
-            yield* database`
+          const schoolId = schools[0]!.schoolId;
+          yield* database`
           INSERT INTO public.schools_directory_departments (school_id, department_id)
           VALUES (${schoolId}::bigint, 'schools-fk-department')
         `;
 
-            const missingSchoolFailure = yield* Effect.flip(
-              database`
+          const missingSchoolFailure = yield* Effect.flip(
+            database`
             INSERT INTO public.schools_directory_departments (school_id, department_id)
             VALUES (9007199254740991, 'schools-fk-department')
           `,
-            );
+          );
 
-            const missingDepartmentFailure = yield* Effect.flip(
-              database`
+          const missingDepartmentFailure = yield* Effect.flip(
+            database`
             INSERT INTO public.schools_directory_departments (school_id, department_id)
             VALUES (${schoolId}::bigint, 'schools-missing-department')
           `,
-            );
+          );
 
-            const restrictFailure = yield* Effect.flip(
-              database`
+          const restrictFailure = yield* Effect.flip(
+            database`
             DELETE FROM organization_departments AS department
             WHERE department.department_id = 'schools-fk-department'
           `,
-            );
+          );
 
-            const restrictSchoolFailure = yield* Effect.flip(
-              database`
+          const restrictSchoolFailure = yield* Effect.flip(
+            database`
             DELETE FROM public.schools_directory_schools AS school
             WHERE school.school_id = ${schoolId}::bigint
           `,
-            );
+          );
 
-            const associations = yield* database<{ readonly count: string }>`
+          const associations = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS "count"
           FROM public.schools_directory_departments AS association
           WHERE association.school_id = ${schoolId}::bigint
         `;
 
-            yield* database`
+          yield* database`
           DELETE FROM public.schools_directory_departments AS association
           WHERE association.school_id = ${schoolId}::bigint
         `;
-            yield* database`
+          yield* database`
           DELETE FROM public.schools_directory_schools AS school
           WHERE school.school_id = ${schoolId}::bigint
         `;
 
-            yield* database`
+          yield* database`
           DELETE FROM organization_departments AS department
           WHERE department.department_id = 'schools-fk-department'
         `;
 
-            return {
-              missingSchoolTag: missingSchoolFailure._tag,
-              missingDepartmentTag: missingDepartmentFailure._tag,
-              restrictTag: restrictFailure._tag,
-              restrictSchoolTag: restrictSchoolFailure._tag,
-              associationCount: associations[0]?.count,
-            };
-          });
+          const evidence = {
+            missingSchoolTag: missingSchoolFailure._tag,
+            missingDepartmentTag: missingDepartmentFailure._tag,
+            restrictTag: restrictFailure._tag,
+            restrictSchoolTag: restrictSchoolFailure._tag,
+            associationCount: associations[0]?.count,
+          };
 
           expect(evidence).toEqual({
             missingSchoolTag: "SqlError",
@@ -176,11 +172,10 @@ layer(schoolsLayer, { excludeTestServices: true, timeout: "15 seconds" })(
       "runs the named journey against the canonical non-locking Organization projection",
       () =>
         Effect.gen(function* () {
-          const directory = yield* Effect.gen(function* () {
-            const database = yield* Database;
-            const departmentId = DepartmentId.make("schools-journey-pglite");
-            const personId = PersonId.make("schools-journey-pglite-person");
-            yield* database`
+          const database = yield* Database;
+          const departmentId = DepartmentId.make("schools-journey-pglite");
+          const personId = PersonId.make("schools-journey-pglite-person");
+          yield* database`
           INSERT INTO organization_departments (
             department_id, name, short_name, email, city
           ) VALUES (
@@ -188,15 +183,15 @@ layer(schoolsLayer, { excludeTestServices: true, timeout: "15 seconds" })(
             'schools-journey-pglite@example.invalid', 'Oslo'
           )
         `;
-            yield* database`
+          yield* database`
           INSERT INTO organization_teams (team_id, department_id, name)
           VALUES ('schools-journey-pglite-team', ${departmentId}, 'Journey Team')
         `;
-            yield* database`
+          yield* database`
           INSERT INTO person_profiles (person_id, first_name, last_name)
           VALUES (${personId}, 'Schools', 'Journey')
         `;
-            yield* database`
+          yield* database`
           INSERT INTO organization_memberships (
             membership_id, person_id, team_id, start_at, position_id
           ) VALUES (
@@ -208,7 +203,7 @@ layer(schoolsLayer, { excludeTestServices: true, timeout: "15 seconds" })(
           )
         `;
 
-            const inserted = yield* database<{ readonly schoolId: string }>`
+          const inserted = yield* database<{ readonly schoolId: string }>`
           INSERT INTO public.schools_directory_schools (
             name, contact_person, email, phone, language, active
           ) VALUES (
@@ -218,40 +213,37 @@ layer(schoolsLayer, { excludeTestServices: true, timeout: "15 seconds" })(
           RETURNING school_id::text AS "schoolId"
         `;
 
-            yield* database`
+          yield* database`
           INSERT INTO public.schools_directory_departments (school_id, department_id)
           VALUES (${inserted[0]!.schoolId}::bigint, ${departmentId})
         `;
 
-            const directory = yield* readSchoolsDirectory(
-              personId,
-              OrganizationAuthorityInstantSchema.make("2032-01-01T00:00:00.000Z"),
-              {},
-            );
+          const directory = yield* readSchoolsDirectory(
+            personId,
+            OrganizationAuthorityInstantSchema.make("2032-01-01T00:00:00.000Z"),
+            {},
+          );
 
-            yield* database`
+          yield* database`
           DELETE FROM public.schools_directory_departments AS association
           WHERE association.school_id = ${inserted[0]!.schoolId}::bigint
         `;
-            yield* database`
+          yield* database`
           DELETE FROM public.schools_directory_schools AS school
           WHERE school.school_id = ${inserted[0]!.schoolId}::bigint
         `;
-            yield* database`
+          yield* database`
           DELETE FROM organization_memberships AS membership
           WHERE membership.membership_id = 'schools-journey-pglite-membership'
         `;
-            yield* database`
+          yield* database`
           DELETE FROM organization_teams AS team
           WHERE team.team_id = 'schools-journey-pglite-team'
         `;
-            yield* database`
+          yield* database`
           DELETE FROM organization_departments AS department
           WHERE department.department_id = ${departmentId}
         `;
-
-            return directory;
-          });
 
           expect(directory).toEqual({
             activeSchools: [
@@ -278,12 +270,11 @@ layer(schoolsLayer, { excludeTestServices: true, timeout: "15 seconds" })(
 
     it.effect("returns one deterministic full directory and intersects visible departments", () =>
       Effect.gen(function* () {
-        const evidence = yield* Effect.gen(function* () {
-          const database = yield* Database;
-          const schools = yield* Schools;
-          const departmentA = DepartmentId.make("schools-full-a");
-          const departmentB = DepartmentId.make("schools-full-b");
-          yield* database`
+        const database = yield* Database;
+        const schools = yield* Schools;
+        const departmentA = DepartmentId.make("schools-full-a");
+        const departmentB = DepartmentId.make("schools-full-b");
+        yield* database`
           INSERT INTO organization_departments (
             department_id, name, short_name, email, city
           ) VALUES
@@ -297,11 +288,11 @@ layer(schoolsLayer, { excludeTestServices: true, timeout: "15 seconds" })(
             )
         `;
 
-          const inserted = yield* database<{
-            readonly schoolId: string;
-            readonly email: string;
-            readonly name: string;
-          }>`
+        const inserted = yield* database<{
+          readonly schoolId: string;
+          readonly email: string;
+          readonly name: string;
+        }>`
           INSERT INTO public.schools_directory_schools (
             name, contact_person, email, phone, language, active
           ) VALUES
@@ -331,11 +322,11 @@ layer(schoolsLayer, { excludeTestServices: true, timeout: "15 seconds" })(
             name AS "name"
         `;
 
-          const idByEmail = new Map(
-            inserted.map((row) => [row.email, Number(row.schoolId)] as const),
-          );
+        const idByEmail = new Map(
+          inserted.map((row) => [row.email, Number(row.schoolId)] as const),
+        );
 
-          yield* database`
+        yield* database`
           INSERT INTO public.schools_directory_departments (school_id, department_id)
           VALUES
             (${idByEmail.get("alpha-a@example.invalid")}::bigint, ${departmentA}),
@@ -345,60 +336,59 @@ layer(schoolsLayer, { excludeTestServices: true, timeout: "15 seconds" })(
             (${idByEmail.get("zulu@example.invalid")}::bigint, ${departmentA})
         `;
 
-          const directory = yield* schools.listDirectory({
-            scope: SchoolDirectoryScopeSchema.cases.All.make({}),
-          });
-
-          const scoped = yield* schools.listDirectory({
-            scope: SchoolDirectoryScopeSchema.cases.DepartmentIds.make({
-              departmentIds: [departmentA, departmentB],
-            }),
-          });
-
-          const shared = scoped.activeSchools.find(
-            (school) => school.email === "shared@example.invalid",
-          );
-
-          const narrowed = yield* schools.listDirectory({
-            scope: SchoolDirectoryScopeSchema.cases.DepartmentIds.make({
-              departmentIds: [departmentA, departmentB],
-            }),
-            departmentId: departmentA,
-          });
-
-          const narrowedShared = narrowed.activeSchools.find(
-            (school) => school.email === "shared@example.invalid",
-          );
-
-          const exceededScopeTag = yield* Effect.flip(
-            schools.listDirectory({
-              scope: SchoolDirectoryScopeSchema.cases.DepartmentIds.make({
-                departmentIds: [departmentA],
-              }),
-              departmentId: departmentB,
-            }),
-          ).pipe(Effect.map((failure) => failure._tag));
-
-          const fullSchoolIds = [
-            ...directory.activeSchools.map((school) => school.schoolId),
-            ...directory.inactiveSchools.map((school) => school.schoolId),
-          ];
-
-          return {
-            fullActiveEmails: directory.activeSchools.map((school) => school.email),
-            fullInactiveEmails: directory.inactiveSchools.map((school) => school.email),
-            fullSchoolCount: fullSchoolIds.length,
-            uniqueFullSchoolIds: new Set(fullSchoolIds).size,
-            sharedDepartments: shared?.departments,
-            narrowedSharedDepartments: narrowedShared?.departments,
-            scopedActiveEmails: scoped.activeSchools.map((school) => school.email),
-            scopedInactiveEmails: scoped.inactiveSchools.map((school) => school.email),
-            adminOnlyDepartments: directory.activeSchools.find(
-              (school) => school.email === "admin-only@example.invalid",
-            )?.departments,
-            exceededScopeTag,
-          };
+        const directory = yield* schools.listDirectory({
+          scope: SchoolDirectoryScopeSchema.cases.All.make({}),
         });
+
+        const scoped = yield* schools.listDirectory({
+          scope: SchoolDirectoryScopeSchema.cases.DepartmentIds.make({
+            departmentIds: [departmentA, departmentB],
+          }),
+        });
+
+        const shared = scoped.activeSchools.find(
+          (school) => school.email === "shared@example.invalid",
+        );
+
+        const narrowed = yield* schools.listDirectory({
+          scope: SchoolDirectoryScopeSchema.cases.DepartmentIds.make({
+            departmentIds: [departmentA, departmentB],
+          }),
+          departmentId: departmentA,
+        });
+
+        const narrowedShared = narrowed.activeSchools.find(
+          (school) => school.email === "shared@example.invalid",
+        );
+
+        const exceededScopeTag = yield* Effect.flip(
+          schools.listDirectory({
+            scope: SchoolDirectoryScopeSchema.cases.DepartmentIds.make({
+              departmentIds: [departmentA],
+            }),
+            departmentId: departmentB,
+          }),
+        ).pipe(Effect.map((failure) => failure._tag));
+
+        const fullSchoolIds = [
+          ...directory.activeSchools.map((school) => school.schoolId),
+          ...directory.inactiveSchools.map((school) => school.schoolId),
+        ];
+
+        const evidence = {
+          fullActiveEmails: directory.activeSchools.map((school) => school.email),
+          fullInactiveEmails: directory.inactiveSchools.map((school) => school.email),
+          fullSchoolCount: fullSchoolIds.length,
+          uniqueFullSchoolIds: new Set(fullSchoolIds).size,
+          sharedDepartments: shared?.departments,
+          narrowedSharedDepartments: narrowedShared?.departments,
+          scopedActiveEmails: scoped.activeSchools.map((school) => school.email),
+          scopedInactiveEmails: scoped.inactiveSchools.map((school) => school.email),
+          adminOnlyDepartments: directory.activeSchools.find(
+            (school) => school.email === "admin-only@example.invalid",
+          )?.departments,
+          exceededScopeTag,
+        };
 
         expect(evidence).toEqual({
           fullActiveEmails: [

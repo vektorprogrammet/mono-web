@@ -35,7 +35,7 @@ import {
 import { Database, type DatabaseOperations } from "../service.js";
 
 const fail = (code: OrganizationLifecycleFailure["code"]) =>
-  new OrganizationLifecycleFailure({ code });
+  OrganizationLifecycleFailure.make({ code });
 
 const decode = <S extends Schema.Top>(schema: S) =>
   flow(
@@ -48,7 +48,7 @@ const isLifecycleFailure = Schema.is(OrganizationLifecycleFailure);
 const failure = (cause: unknown) =>
   isLifecycleFailure(cause)
     ? cause
-    : new OrganizationLifecycleFailure({ code: "Unavailable", cause });
+    : OrganizationLifecycleFailure.make({ code: "Unavailable", cause });
 
 const DelegationTeamRow = Schema.Struct({
   teamId: TeamId,
@@ -208,7 +208,7 @@ export const executeDelegation = Effect.fn("executeDelegation")(function* (
         }>`SELECT command_digest AS digest, result_json AS result
           FROM organization_delegation_history WHERE command_id = ${command.commandId}`)[0];
 
-        if (receipt) {
+        if (receipt !== undefined) {
           if (receipt.digest !== digest) return yield* fail("Conflict");
 
           return yield* decode(DelegationResult)(receipt.result);

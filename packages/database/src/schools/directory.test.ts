@@ -134,23 +134,21 @@ layer(suiteSeed.pipe(Layer.provideMerge(suiteLayer)), {
 
   it.effect("rejects an Organization projection evaluated at another instant", () =>
     Effect.gen(function* () {
-      const failure = yield* Effect.gen(function* () {
-        const organization = yield* Organization;
+      const organization = yield* Organization;
 
-        const wrongInstant = Organization.of({
-          ...organization,
-          resolvePersonAuthorityForRead: (resolvedPersonId, instant) =>
-            organization
-              .resolvePersonAuthorityForRead(resolvedPersonId, instant)
-              .pipe(Effect.map((projection) => ({ ...projection, evaluatedAt: otherInstant }))),
-        });
-
-        return yield* Effect.flip(
-          readSchoolsDirectory(personId, authorizationInstant, {}).pipe(
-            Effect.provideService(Organization, wrongInstant),
-          ),
-        );
+      const wrongInstant = Organization.of({
+        ...organization,
+        resolvePersonAuthorityForRead: (resolvedPersonId, instant) =>
+          organization
+            .resolvePersonAuthorityForRead(resolvedPersonId, instant)
+            .pipe(Effect.map((projection) => ({ ...projection, evaluatedAt: otherInstant }))),
       });
+
+      const failure = yield* Effect.flip(
+        readSchoolsDirectory(personId, authorizationInstant, {}).pipe(
+          Effect.provideService(Organization, wrongInstant),
+        ),
+      );
 
       expect(failure._tag).toBe("SchoolsDecodeError");
     }),

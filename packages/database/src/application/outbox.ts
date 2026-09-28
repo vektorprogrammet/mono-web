@@ -1,3 +1,4 @@
+import { dual } from "effect/Function";
 import { Database } from "../service.js";
 import {
   markOutboxDelivered,
@@ -70,7 +71,7 @@ export const PublicApplicationOutboxDeliveryResult =
   Data.taggedEnum<PublicApplicationOutboxDeliveryResult>();
 
 const persistenceError = (operation: string): PublicApplicationPersistenceError =>
-  new PublicApplicationPersistenceError({
+  PublicApplicationPersistenceError.make({
     operation,
     message: "public application persistence failed",
   });
@@ -80,24 +81,44 @@ const applicationOutbox: OutboxTable = {
   terminalPayload: "Scrub",
 };
 
-export const claimNextPublicApplicationOutbox = (
-  claimId: string,
-  claimedAt: string,
-): Effect.Effect<
-  ClaimedPublicApplicationOutbox | undefined,
-  PublicApplicationPersistenceError | OutboxClaimLost,
-  Database
-> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
+export const claimNextPublicApplicationOutbox: {
+  (
+    claimedAt: string,
+  ): (
+    claimId: string,
+  ) => Effect.Effect<
+    ClaimedPublicApplicationOutbox | undefined,
+    PublicApplicationPersistenceError | OutboxClaimLost,
+    Database
+  >;
+  (
+    claimId: string,
+    claimedAt: string,
+  ): Effect.Effect<
+    ClaimedPublicApplicationOutbox | undefined,
+    PublicApplicationPersistenceError | OutboxClaimLost,
+    Database
+  >;
+} = dual(
+  2,
+  (
+    claimId: string,
+    claimedAt: string,
+  ): Effect.Effect<
+    ClaimedPublicApplicationOutbox | undefined,
+    PublicApplicationPersistenceError | OutboxClaimLost,
+    Database
+  > =>
+    Effect.gen(function* () {
+      const sql = yield* Database;
 
-    const quarantine = (effectId: string, failureTag: string) =>
-      quarantineOutboxClaim(sql, applicationOutbox, { effectId, claimId }, failureTag);
+      const quarantine = (effectId: string, failureTag: string) =>
+        quarantineOutboxClaim(sql, applicationOutbox, { effectId, claimId }, failureTag);
 
-    return yield* sql
-      .withTransaction(
-        Effect.gen(function* () {
-          const rows = yield* sql<ClaimedOutboxRow>`
+      return yield* sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const rows = yield* sql<ClaimedOutboxRow>`
             WITH candidate AS (
               SELECT outbox.effect_id
               FROM admission_application_outbox AS outbox
@@ -129,54 +150,54 @@ export const claimNextPublicApplicationOutbox = (
               claimed.payload_json, claimed.origin
           `;
 
-          const row = rows[0];
+            const row = rows[0];
 
-          if (row === undefined) return undefined;
+            if (row === undefined) return undefined;
 
-          const decoded = yield* Schema.decodeUnknownEffect(PublicApplicationOutboxRequestSchema)(
-            row.payload_json,
-            { onExcessProperty: "error" },
-          ).pipe(
-            Effect.match({
-              onFailure: () => ({ _tag: "Invalid" as const }),
-              onSuccess: (request) => ({ _tag: "Valid" as const, request }),
-            }),
-          );
+            const decoded = yield* Schema.decodeUnknownEffect(PublicApplicationOutboxRequestSchema)(
+              row.payload_json,
+              { onExcessProperty: "error" },
+            ).pipe(
+              Effect.match({
+                onFailure: () => ({ _tag: "Invalid" as const }),
+                onSuccess: (request) => ({ _tag: "Valid" as const, request }),
+              }),
+            );
 
-          if (Predicate.isTagged(decoded, "Invalid")) {
-            yield* quarantine(row.effect_id, "InvalidPublicApplicationEffectPayload");
+            if (Predicate.isTagged(decoded, "Invalid")) {
+              yield* quarantine(row.effect_id, "InvalidPublicApplicationEffectPayload");
 
-            return undefined;
-          }
+              return undefined;
+            }
 
-          const request = decoded.request;
-          const requestOrigin = "origin" in request ? request.origin : undefined;
+            const request = decoded.request;
+            const requestOrigin = "origin" in request ? request.origin : undefined;
 
-          const effectTypeMatchesOrdinal =
-            (row.ordinal === 0 && row.effect_type === "SendApplicantActivationOrConfirmation") ||
-            (row.ordinal === 1 && row.effect_type === "CreateAdmissionSubscription") ||
-            (row.ordinal === 2 && row.effect_type === "WriteApplicationAudit");
+            const effectTypeMatchesOrdinal =
+              (row.ordinal === 0 && row.effect_type === "SendApplicantActivationOrConfirmation") ||
+              (row.ordinal === 1 && row.effect_type === "CreateAdmissionSubscription") ||
+              (row.ordinal === 2 && row.effect_type === "WriteApplicationAudit");
 
-          if (
-            !effectTypeMatchesOrdinal ||
-            request.effectId !== row.effect_id ||
-            request._tag !== row.effect_type ||
-            request.applicationId !== row.application_id ||
-            request.applicantId !== row.applicant_id ||
-            request.commandId !== row.command_id ||
-            (row.origin === "ReturningAssistant"
-              ? requestOrigin !== "ReturningAssistant"
-              : requestOrigin !== undefined)
-          ) {
-            yield* quarantine(row.effect_id, "InvalidPublicApplicationEffectEnvelope");
+            if (
+              !effectTypeMatchesOrdinal ||
+              request.effectId !== row.effect_id ||
+              request._tag !== row.effect_type ||
+              request.applicationId !== row.application_id ||
+              request.applicantId !== row.applicant_id ||
+              request.commandId !== row.command_id ||
+              (row.origin === "ReturningAssistant"
+                ? requestOrigin !== "ReturningAssistant"
+                : requestOrigin !== undefined)
+            ) {
+              yield* quarantine(row.effect_id, "InvalidPublicApplicationEffectEnvelope");
 
-            return undefined;
-          }
+              return undefined;
+            }
 
-          let identities: ReadonlyArray<CanonicalOutboxIdentityRow>;
+            let identities: ReadonlyArray<CanonicalOutboxIdentityRow>;
 
-          if (row.origin === "ReturningAssistant") {
-            identities = yield* sql<CanonicalOutboxIdentityRow>`
+            if (row.origin === "ReturningAssistant") {
+              identities = yield* sql<CanonicalOutboxIdentityRow>`
               SELECT applicant.email,
                 NULL::text AS application_activation_digest,
                 registration.department_id,
@@ -195,8 +216,8 @@ export const claimNextPublicApplicationOutbox = (
                 AND registration.application_id = ${row.application_id}
                 AND registration.applicant_id = ${row.applicant_id}
             `;
-          } else {
-            identities = yield* sql<CanonicalOutboxIdentityRow>`
+            } else {
+              identities = yield* sql<CanonicalOutboxIdentityRow>`
               SELECT applicant.email,
                 application.activation_digest AS application_activation_digest,
                 application.department_id,
@@ -215,70 +236,72 @@ export const claimNextPublicApplicationOutbox = (
               WHERE applicant.applicant_id = ${row.applicant_id}
                 AND application.application_id = ${row.application_id}
             `;
-          }
+            }
 
-          const identity = identities[0];
+            const identity = identities[0];
 
-          if (identity === undefined) {
-            yield* quarantine(row.effect_id, "InvalidPublicApplicationEffectAuthority");
+            if (identity === undefined) {
+              yield* quarantine(row.effect_id, "InvalidPublicApplicationEffectAuthority");
 
-            return undefined;
-          }
+              return undefined;
+            }
 
-          const requestPersonId = "personId" in request ? request.personId : undefined;
+            const requestPersonId = "personId" in request ? request.personId : undefined;
 
-          const requestRegistrationId =
-            "registrationId" in request ? request.registrationId : undefined;
+            const requestRegistrationId =
+              "registrationId" in request ? request.registrationId : undefined;
 
-          const transactionMatchesCanonicalState =
-            identity.receipt_application_id === row.application_id &&
-            identity.audit_application_id === row.application_id &&
-            identity.audit_applicant_id === row.applicant_id &&
-            (row.origin !== "ReturningAssistant" ||
-              (identity.linked_person_id !== null &&
-                identity.linked_registration_id !== null &&
-                requestPersonId === identity.linked_person_id &&
-                requestRegistrationId === identity.linked_registration_id &&
-                requestOrigin === "ReturningAssistant"));
+            const transactionMatchesCanonicalState =
+              identity.receipt_application_id === row.application_id &&
+              identity.audit_application_id === row.application_id &&
+              identity.audit_applicant_id === row.applicant_id &&
+              (row.origin !== "ReturningAssistant" ||
+                (identity.linked_person_id !== null &&
+                  identity.linked_registration_id !== null &&
+                  requestPersonId === identity.linked_person_id &&
+                  requestRegistrationId === identity.linked_registration_id &&
+                  requestOrigin === "ReturningAssistant"));
 
-          const requestMatchesCanonicalState = Predicate.isTagged(
-            request,
-            "SendApplicantActivationOrConfirmation",
-          )
-            ? request.email === identity.email &&
-              (!("activationToken" in request) || request.activationToken === undefined
-                ? identity.application_activation_digest === null
-                : publicApplicationActivationDigest(request.activationToken) ===
-                  identity.application_activation_digest)
-            : Predicate.isTagged(request, "CreateAdmissionSubscription")
-              ? request.email === identity.email && request.departmentId === identity.department_id
-              : request.action ===
-                (row.origin === "ReturningAssistant"
-                  ? "ReturningAssistantRegistered"
-                  : "PublicApplicationSubmitted");
+            const requestMatchesCanonicalState = Predicate.isTagged(
+              request,
+              "SendApplicantActivationOrConfirmation",
+            )
+              ? request.email === identity.email &&
+                (!("activationToken" in request) || request.activationToken === undefined
+                  ? identity.application_activation_digest === null
+                  : publicApplicationActivationDigest(request.activationToken) ===
+                    identity.application_activation_digest)
+              : Predicate.isTagged(request, "CreateAdmissionSubscription")
+                ? request.email === identity.email &&
+                  request.departmentId === identity.department_id
+                : request.action ===
+                  (row.origin === "ReturningAssistant"
+                    ? "ReturningAssistantRegistered"
+                    : "PublicApplicationSubmitted");
 
-          if (!transactionMatchesCanonicalState || !requestMatchesCanonicalState) {
-            yield* quarantine(row.effect_id, "InvalidPublicApplicationEffectAuthority");
+            if (!transactionMatchesCanonicalState || !requestMatchesCanonicalState) {
+              yield* quarantine(row.effect_id, "InvalidPublicApplicationEffectAuthority");
 
-            return undefined;
-          }
+              return undefined;
+            }
 
-          return {
-            effectId: row.effect_id,
-            commandId: row.command_id,
-            ordinal: row.ordinal,
-            attempts: row.attempts,
-            claimId,
-            request,
-          };
-        }),
-      )
-      .pipe(
-        Effect.catchTag("SqlError", () =>
-          Effect.fail(persistenceError("claim application outbox")),
-        ),
-      );
-  });
+            return {
+              effectId: row.effect_id,
+              commandId: row.command_id,
+              ordinal: row.ordinal,
+              attempts: row.attempts,
+              claimId,
+              request,
+            };
+          }),
+        )
+        .pipe(
+          Effect.catchTag("SqlError", () =>
+            Effect.fail(persistenceError("claim application outbox")),
+          ),
+        );
+    }),
+);
 
 export const completePublicApplicationOutbox = (
   claim: ClaimedPublicApplicationOutbox,
@@ -287,13 +310,26 @@ export const completePublicApplicationOutbox = (
     Effect.catchTag("SqlError", () => Effect.fail(persistenceError("complete application outbox"))),
   );
 
-export const failPublicApplicationOutbox = (
-  claim: ClaimedPublicApplicationOutbox,
-  failureTag: string,
-): Effect.Effect<void, PublicApplicationPersistenceError | OutboxClaimLost, Database> =>
-  Database.use((sql) => markOutboxFailed(sql, applicationOutbox, claim, failureTag)).pipe(
-    Effect.catchTag("SqlError", () => Effect.fail(persistenceError("fail application outbox"))),
-  );
+export const failPublicApplicationOutbox: {
+  (
+    failureTag: string,
+  ): (
+    claim: ClaimedPublicApplicationOutbox,
+  ) => Effect.Effect<void, PublicApplicationPersistenceError | OutboxClaimLost, Database>;
+  (
+    claim: ClaimedPublicApplicationOutbox,
+    failureTag: string,
+  ): Effect.Effect<void, PublicApplicationPersistenceError | OutboxClaimLost, Database>;
+} = dual(
+  2,
+  (
+    claim: ClaimedPublicApplicationOutbox,
+    failureTag: string,
+  ): Effect.Effect<void, PublicApplicationPersistenceError | OutboxClaimLost, Database> =>
+    Database.use((sql) => markOutboxFailed(sql, applicationOutbox, claim, failureTag)).pipe(
+      Effect.catchTag("SqlError", () => Effect.fail(persistenceError("fail application outbox"))),
+    ),
+);
 
 export const releasePublicApplicationOutbox = (
   claim: ClaimedPublicApplicationOutbox,
@@ -318,44 +354,68 @@ export const recoverAllStalePublicApplicationOutbox = (
     ),
   );
 
-export const deliverNextPublicApplicationOutbox = (
-  claimId: string,
-  claimedAt: string,
-  interpreter: PublicApplicationEffectInterpreter,
-): Effect.Effect<
-  PublicApplicationOutboxDeliveryResult,
-  PublicApplicationPersistenceError,
-  Database
-> =>
-  Effect.acquireUseRelease(
-    claimNextPublicApplicationOutbox(claimId, claimedAt),
-    (
-      claim,
-    ): Effect.Effect<
-      PublicApplicationOutboxDeliveryResult,
-      PublicApplicationPersistenceError | OutboxClaimLost,
-      Database
-    > => {
-      if (claim === undefined) return Effect.succeed(PublicApplicationOutboxDeliveryResult.Idle());
+export const deliverNextPublicApplicationOutbox: {
+  (
+    claimedAt: string,
+    interpreter: PublicApplicationEffectInterpreter,
+  ): (
+    claimId: string,
+  ) => Effect.Effect<
+    PublicApplicationOutboxDeliveryResult,
+    PublicApplicationPersistenceError,
+    Database
+  >;
+  (
+    claimId: string,
+    claimedAt: string,
+    interpreter: PublicApplicationEffectInterpreter,
+  ): Effect.Effect<
+    PublicApplicationOutboxDeliveryResult,
+    PublicApplicationPersistenceError,
+    Database
+  >;
+} = dual(
+  3,
+  (
+    claimId: string,
+    claimedAt: string,
+    interpreter: PublicApplicationEffectInterpreter,
+  ): Effect.Effect<
+    PublicApplicationOutboxDeliveryResult,
+    PublicApplicationPersistenceError,
+    Database
+  > =>
+    Effect.acquireUseRelease(
+      claimNextPublicApplicationOutbox(claimId, claimedAt),
+      (
+        claim,
+      ): Effect.Effect<
+        PublicApplicationOutboxDeliveryResult,
+        PublicApplicationPersistenceError | OutboxClaimLost,
+        Database
+      > => {
+        if (claim === undefined)
+          return Effect.succeed(PublicApplicationOutboxDeliveryResult.Idle());
 
-      return interpreter.deliver(claim.request, claim.ordinal, claim.attempts).pipe(
-        Effect.matchEffect({
-          onFailure: (failure) =>
-            failPublicApplicationOutbox(claim, failure._tag).pipe(
-              Effect.as(
-                PublicApplicationOutboxDeliveryResult.Failed({ claim, failureTag: failure._tag }),
+        return interpreter.deliver(claim.request, claim.ordinal, claim.attempts).pipe(
+          Effect.matchEffect({
+            onFailure: (failure) =>
+              failPublicApplicationOutbox(claim, failure._tag).pipe(
+                Effect.as(
+                  PublicApplicationOutboxDeliveryResult.Failed({ claim, failureTag: failure._tag }),
+                ),
               ),
-            ),
-          onSuccess: (evidence) =>
-            completePublicApplicationOutbox(claim).pipe(
-              Effect.as(PublicApplicationOutboxDeliveryResult.Delivered({ claim, evidence })),
-            ),
-        }),
-      );
-    },
-    (claim) => (claim === undefined ? Effect.void : releasePublicApplicationOutbox(claim)),
-  ).pipe(
-    Effect.catchTag("OutboxClaimLost", ({ effectId }) =>
-      Effect.succeed(PublicApplicationOutboxDeliveryResult.ClaimLost({ effectId })),
+            onSuccess: (evidence) =>
+              completePublicApplicationOutbox(claim).pipe(
+                Effect.as(PublicApplicationOutboxDeliveryResult.Delivered({ claim, evidence })),
+              ),
+          }),
+        );
+      },
+      (claim) => (claim === undefined ? Effect.void : releasePublicApplicationOutbox(claim)),
+    ).pipe(
+      Effect.catchTag("OutboxClaimLost", ({ effectId }) =>
+        Effect.succeed(PublicApplicationOutboxDeliveryResult.ClaimLost({ effectId })),
+      ),
     ),
-  );
+);
