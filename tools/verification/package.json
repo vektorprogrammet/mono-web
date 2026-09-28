@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "vitest run --no-file-parallelism",
-    "check-types": "tsc --noEmit",
+    "check-types": "tsc --noEmit && tsc --noEmit -p tsconfig.bun.json",
     "rehearsal:organization-import": "bun run organization-import-rehearsal-main.ts",
     "rehearsal:receipt-import": "bun run receipt-import-rehearsal.ts",
     "rehearsal:account-cohort": "bun run identity-cohort-rehearsal.ts",
