@@ -152,7 +152,9 @@ const httpPlatformLayer = Layer.mergeAll(platformLayer, BunHttpPlatform.layer, E
 const httpLayer = Layer.merge(httpPlatformLayer, HttpRouter.layer);
 
 const nativeRpcLayer = (
-  ingress === "external" ? ExternalNativeRpcRouterLive(config) : InternalNativeRpcRouterLive(config)
+  ingress === "external"
+    ? ExternalNativeRpcRouterLive({ config })
+    : InternalNativeRpcRouterLive({ config })
 ).pipe(
   HttpRouter.provideRequest(Layer.merge(backendServicesLayer, platformLayer)),
   Layer.provide(backendServicesLayer),

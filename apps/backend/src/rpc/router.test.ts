@@ -3,14 +3,15 @@ import { Identity, IdentitySessionNotFound } from "@vektorprogrammet/domain/iden
 import { isProblem } from "@vektorprogrammet/rpc/problem";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { SemesterId } from "@vektorprogrammet/domain";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import { RpcClient } from "effect/unstable/rpc";
 import { backendTestConfig } from "../../test/config.js";
-import { makeBackendTestRpc } from "../test/native-rpc.js";
+import { backendHttpHandler } from "../router.js";
+import { makeBackendTestRpc, testAuthHandler } from "../test/native-rpc.js";
 
 // The identity engine rejects every session, as it does a forged or expired one.
 const rejectingIdentity = Layer.mock(Identity, {
-  resolveSession: () => Effect.fail(new IdentitySessionNotFound({})),
+  resolveSession: () => Effect.fail(IdentitySessionNotFound.make({})),
 });
 
 const backend = makeBackendTestRpc(backendTestConfig, rejectingIdentity);
@@ -79,5 +80,48 @@ it.effect("an RPC from an untrusted origin answers origin.denied before any hand
 
     expect(response.status).toBe(403);
     expect(yield* Effect.promise(() => response.json())).toMatchObject({ code: "origin.denied" });
+  }),
+);
+
+it.effect("the ingress drops message headers that would forge an ingress fact", () =>
+  Effect.gen(function* () {
+    const received: Array<string> = [];
+
+    const recordingNative = (request: Request) =>
+      Effect.promise(() => request.text()).pipe(
+        Effect.map((body) => {
+          received.push(body);
+
+          return new Response("[]", { headers: { "content-type": "application/json" } });
+        }),
+      );
+
+    const ingress = backendHttpHandler(
+      recordingNative,
+      testAuthHandler,
+      backendTestConfig.sessionBoundary,
+    );
+
+    // RPC wire text: one request message with forged ingress headers, and one ack.
+    const sent =
+      '[{"_tag":"Request","id":"1","tag":"social-events.readScope","payload":null,"headers":' +
+      '[["cookie","better-auth.session_token=forwarded"],["cf-connecting-ip","203.0.113.9"],' +
+      '["User-Agent","forged"],["x-vektor-request-id","forged"]]},{"_tag":"Ack","requestId":"1"}]';
+
+    const expected =
+      '[{"_tag":"Request","id":"1","tag":"social-events.readScope","payload":null,"headers":' +
+      '[["cookie","better-auth.session_token=forwarded"]]},{"_tag":"Ack","requestId":"1"}]';
+
+    yield* ingress(
+      new Request("http://native-rpc.test/api/rpc", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: sent,
+      }),
+    );
+
+    const wire = Schema.decodeEffect(Schema.fromJsonString(Schema.Json));
+
+    expect(yield* Effect.forEach(received, (body) => wire(body))).toEqual([yield* wire(expected)]);
   }),
 );

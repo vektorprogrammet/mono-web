@@ -134,7 +134,7 @@ export const makeBackendTestRpc = (
   authHandler: BackendAuthHandler = testAuthHandler,
   options: BackendHttpOptions = {},
 ) => {
-  const routerLayer = ExternalNativeRpcRouterLive(config, options).pipe(
+  const routerLayer = ExternalNativeRpcRouterLive({ ...options, config }).pipe(
     Layer.provideMerge(completeServices(services)),
     Layer.provideMerge(platform),
   );

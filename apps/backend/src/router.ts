@@ -1,5 +1,6 @@
 import { BlockList, isIP } from "node:net";
 import { databaseHealth, type AuthEngineService } from "@vektorprogrammet/database";
+import { CONTACT_BACKEND_HEADER, CONTACT_IP_HEADER } from "@vektorprogrammet/domain/contact";
 import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import {
   InternalNativeRpcs,
@@ -8,12 +9,12 @@ import {
   nativeRpcPath,
 } from "@vektorprogrammet/rpc";
 import { Problem, problemBody, problemHeaders } from "@vektorprogrammet/rpc/problem";
-import { Effect, Layer, Predicate, type Schema } from "effect";
+import { Effect, Layer, Option, Predicate, Schema } from "effect";
+import { dual } from "effect/Function";
 import { HttpEffect, HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import { AdmissionsRpcHandlers } from "./admission/rpc.js";
 import { AdmissionOutcomesRpcHandlers } from "./admission/outcome-rpc.js";
-import type { BackendConfig } from "./config.js";
 import { ContactRpcHandlers } from "./contact/rpc.js";
 import { ContentRpcHandlers } from "./content/rpc.js";
 import { DirectoryRpcHandlers } from "./directory/rpc.js";
@@ -67,9 +68,84 @@ const methodNotAllowed = (methods: ReadonlyArray<string>): Response => {
   return response;
 };
 
+/** Whether `pathname` addresses the RPC endpoint; the client may add a trailing slash. */
+const isNativeRpcPath = (pathname: string): boolean =>
+  pathname === nativeRpcPath || pathname === `${nativeRpcPath}/`;
+
 /** The HTTP methods of each native path: the RPC endpoint and the health probe. */
 export const nativePreflightMethodsForPath = (pathname: string): ReadonlyArray<string> =>
-  pathname === nativeRpcPath ? ["POST"] : pathname === "/health" ? ["GET"] : [];
+  isNativeRpcPath(pathname) ? ["POST"] : pathname === "/health" ? ["GET"] : [];
+
+/**
+ * The headers a caller may set inside an RPC message. The RPC server lays message headers over
+ * the HTTP headers, so any other message header could forge an ingress fact: the source address,
+ * the user agent, or the request correlation of an audit record. A server that calls for a person
+ * forwards that person's credential, and the homepage its contact secret and the visitor address,
+ * which only the contact RPC reads behind its secret.
+ */
+const callerMessageHeaders: ReadonlySet<string> = new Set([
+  "authorization",
+  "cookie",
+  CONTACT_BACKEND_HEADER,
+  CONTACT_IP_HEADER,
+]);
+
+// A request message: its tag and headers, and every other member unchanged.
+const RpcRequestMessage = Schema.StructWithRest(
+  Schema.TaggedStruct("Request", {
+    headers: Schema.Array(Schema.Tuple([Schema.String, Schema.String])),
+  }),
+  [Schema.Record(Schema.String, Schema.Json)],
+);
+
+const decodeRpcRequestMessage = Schema.decodeUnknownOption(RpcRequestMessage);
+
+const RpcJsonBody = Schema.fromJsonString(Schema.Json);
+
+/**
+ * Keeps only the caller message headers of every RPC request message in a JSON body, so the
+ * handlers see every other header from the HTTP request alone. A body that is not JSON passes
+ * unchanged: the RPC server rejects it.
+ */
+export const restrictRpcMessageHeaders = (body: string): string => {
+  const decoded = Schema.decodeOption(RpcJsonBody)(body);
+
+  if (Option.isNone(decoded)) return body;
+
+  const restrict = (message: Schema.Json): Schema.Json =>
+    Option.match(decodeRpcRequestMessage(message), {
+      onNone: () => message,
+      onSome: (request) => ({
+        ...request,
+        headers: request.headers.filter(([name]) => callerMessageHeaders.has(name.toLowerCase())),
+      }),
+    });
+
+  const value = decoded.value;
+
+  return JSON.stringify(Array.isArray(value) ? value.map(restrict) : restrict(value));
+};
+
+const isInternalRpcPath = (pathname: string): boolean =>
+  pathname === internalNativeRpcPath || pathname === `${internalNativeRpcPath}/`;
+
+/** The RPC request with its message headers restricted; any other request unchanged. */
+const restrictedNativeRequest = (request: Request, pathname: string) =>
+  request.method !== "POST" || !(isNativeRpcPath(pathname) || isInternalRpcPath(pathname))
+    ? Effect.succeed(request)
+    : Effect.promise(() => request.text()).pipe(
+        Effect.map((body) => {
+          const headers = new Headers(request.headers);
+
+          headers.delete("content-length");
+
+          return new Request(request.url, {
+            method: request.method,
+            headers,
+            body: restrictRpcMessageHeaders(body),
+          });
+        }),
+      );
 
 /**
  * Answers one web request. A failure is either rendered as a response or dies, and the server
@@ -129,11 +205,8 @@ const notFound = HttpRouter.use((router) =>
  * The external native routes: every native RPC at `nativeRpcPath`, and the health probe. The
  * handlers of each context take the same options; the composition root builds them once.
  */
-export const ExternalNativeRpcRouterLive = (
-  config: BackendConfig,
-  options: BackendHttpOptions = {},
-) => {
-  const rpcOptions: NativeRpcOptions = { ...options, config };
+export const ExternalNativeRpcRouterLive = (rpcOptions: NativeRpcOptions) => {
+  const config = rpcOptions.config;
 
   const handlers = Layer.mergeAll(
     AdmissionOutcomesRpcHandlers(rpcOptions),
@@ -168,16 +241,15 @@ export const ExternalNativeRpcRouterLive = (
 };
 
 /** The isolated internal RPC routes for an explicitly selected ingress. */
-export const InternalNativeRpcRouterLive = (
-  config: BackendConfig,
-  options: BackendHttpOptions = {},
-) => {
+export const InternalNativeRpcRouterLive = (rpcOptions: NativeRpcOptions) => {
+  const config = rpcOptions.config;
+
   const rpcRoute = RpcServer.layerHttp({
     group: InternalNativeRpcs,
     path: internalNativeRpcPath,
     protocol: "http",
   }).pipe(
-    Layer.provide(InternalReceiptsRpcHandlers({ ...options, config })),
+    Layer.provide(InternalReceiptsRpcHandlers(rpcOptions)),
     Layer.provide(nativeRpcCredentialLayer(config.contact)),
     Layer.provide(ProblemBoundaryLive),
     Layer.provide(RpcSerialization.layerJson),
@@ -296,65 +368,68 @@ export const nativeRouterWebHandler = (router: HttpRouter.HttpRouter): BackendHt
  * Explicit external boundary around the native RPC handler. Better Auth and the OAuth routes are
  * the only external path families outside `NativeRpcs` and the health probe.
  */
-export const backendHttpHandler =
+export const backendHttpHandler: {
+  (
+    authHandler: BackendAuthHandler,
+    sessionBoundary: NativeSessionBoundaryPolicy,
+  ): (nativeHandler: BackendHttpHandler) => BackendHttpHandler;
+  (
+    nativeHandler: BackendHttpHandler,
+    authHandler: BackendAuthHandler,
+    sessionBoundary: NativeSessionBoundaryPolicy,
+  ): BackendHttpHandler;
+} = dual(
+  3,
   (
     nativeHandler: BackendHttpHandler,
     authHandler: BackendAuthHandler,
     sessionBoundary: NativeSessionBoundaryPolicy,
   ): BackendHttpHandler =>
-  (request) =>
-    Effect.gen(function* () {
-      const prepared = prepareIdentityBoundaryRequest(request);
-      const pathname = new URL(prepared.request.url).pathname;
-      const oauthNamespace = isOAuthProviderNamespace(pathname);
+    (request) =>
+      Effect.gen(function* () {
+        const prepared = prepareIdentityBoundaryRequest(request);
+        const pathname = new URL(prepared.request.url).pathname;
+        const oauthNamespace = isOAuthProviderNamespace(pathname);
 
-      if (oauthNamespace && prepared.request.method === "OPTIONS") {
-        return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
-      }
-
-      const oauthRouteKey = `${prepared.request.method} ${pathname}`;
-
-      if (oauthNamespace && !externalOAuthRoutes.has(oauthRouteKey)) {
-        return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
-      }
-
-      if (oauthNamespace) {
-        if (
-          pathname === "/api/auth/oauth2/authorize" &&
-          !(yield* authorizationRequestAccepted(prepared.request, authHandler))
-        ) {
-          return invalidAuthorizationRequest();
-        }
-
-        if (authHandler.oauthHandler === undefined) {
+        if (oauthNamespace && prepared.request.method === "OPTIONS") {
           return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
         }
 
-        return yield* authHandler.oauthHandler(prepared.request, prepared.context);
-      }
+        const oauthRouteKey = `${prepared.request.method} ${pathname}`;
 
-      const credentialFlow =
-        (prepared.request.method === "POST" &&
-          (pathname === "/api/auth/request-password-reset" ||
-            pathname === "/api/auth/reset-password")) ||
-        (prepared.request.method === "GET" && /^\/api\/auth\/reset-password\/[^/]+$/.test(pathname))
-          ? ("PasswordRecovery" as const)
-          : undefined;
+        if (oauthNamespace && !externalOAuthRoutes.has(oauthRouteKey)) {
+          return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
+        }
 
-      const decision = decideTrustedOrigin(sessionBoundary, prepared.request);
-      const acceptedOrigin = Predicate.isTagged(decision, "Allowed") ? decision.origin : null;
+        if (oauthNamespace) {
+          if (
+            pathname === "/api/auth/oauth2/authorize" &&
+            !(yield* authorizationRequestAccepted(prepared.request, authHandler))
+          ) {
+            return invalidAuthorizationRequest();
+          }
 
-      if (Predicate.isTagged(decision, "Rejected")) {
-        // The audit is best effort: whatever its outcome, the origin is rejected.
-        yield* Effect.ignoreCause(
-          authHandler.recordTrustedOriginRejection(prepared.context, credentialFlow),
-        );
+          if (authHandler.oauthHandler === undefined) {
+            return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
+          }
 
-        return originRejected();
-      }
+          return yield* authHandler.oauthHandler(prepared.request, prepared.context);
+        }
 
-      if (prepared.request.method === "OPTIONS") {
-        if (acceptedOrigin === null) {
+        const credentialFlow =
+          (prepared.request.method === "POST" &&
+            (pathname === "/api/auth/request-password-reset" ||
+              pathname === "/api/auth/reset-password")) ||
+          (prepared.request.method === "GET" &&
+            /^\/api\/auth\/reset-password\/[^/]+$/.test(pathname))
+            ? ("PasswordRecovery" as const)
+            : undefined;
+
+        const decision = decideTrustedOrigin(sessionBoundary, prepared.request);
+        const acceptedOrigin = Predicate.isTagged(decision, "Allowed") ? decision.origin : null;
+
+        if (Predicate.isTagged(decision, "Rejected")) {
+          // The audit is best effort: whatever its outcome, the origin is rejected.
           yield* Effect.ignoreCause(
             authHandler.recordTrustedOriginRejection(prepared.context, credentialFlow),
           );
@@ -362,98 +437,121 @@ export const backendHttpHandler =
           return originRejected();
         }
 
-        const requestedMethod = prepared.request.headers.get("access-control-request-method");
+        if (prepared.request.method === "OPTIONS") {
+          if (acceptedOrigin === null) {
+            yield* Effect.ignoreCause(
+              authHandler.recordTrustedOriginRejection(prepared.context, credentialFlow),
+            );
 
-        const preflight = decideNativePreflight({
-          pathname,
-          requestedMethod,
-          headersAllowed: allowsNativePreflightHeaders(prepared.request),
-          methodsForPath: nativePreflightMethodsForPath,
-        });
+            return originRejected();
+          }
 
-        if (Predicate.isTagged(preflight, "HeaderMalformed")) {
-          return withTrustedOriginCors(
-            problemWebResponse(Problem.make("header.malformed")),
-            acceptedOrigin,
-          );
-        }
+          const requestedMethod = prepared.request.headers.get("access-control-request-method");
 
-        if (Predicate.isTagged(preflight, "MethodNotAllowed")) {
-          return withTrustedOriginCors(methodNotAllowed(preflight.methods), acceptedOrigin);
-        }
+          const preflight = decideNativePreflight({
+            pathname,
+            requestedMethod,
+            headersAllowed: allowsNativePreflightHeaders(prepared.request),
+            methodsForPath: nativePreflightMethodsForPath,
+          });
 
-        if (Predicate.isTagged(preflight, "Ready")) {
-          return trustedPreflightResponse(acceptedOrigin, preflight.methods);
-        }
-
-        if (
-          Predicate.isTagged(preflight, "RouteNotFound") &&
-          (pathname === "/api/auth/" || pathname.startsWith("/api/auth/"))
-        ) {
-          if (!allowsNativePreflightHeaders(prepared.request)) {
+          if (Predicate.isTagged(preflight, "HeaderMalformed")) {
             return withTrustedOriginCors(
               problemWebResponse(Problem.make("header.malformed")),
               acceptedOrigin,
             );
           }
 
-          const authResponse = yield* authHandler.handler(prepared.request, prepared.context);
+          if (Predicate.isTagged(preflight, "MethodNotAllowed")) {
+            return withTrustedOriginCors(methodNotAllowed(preflight.methods), acceptedOrigin);
+          }
 
-          return authResponse.status >= 200 && authResponse.status < 300
-            ? trustedPreflightResponse(acceptedOrigin, [preflight.requestedMethod])
-            : withTrustedOriginCors(authResponse, acceptedOrigin);
-        }
+          if (Predicate.isTagged(preflight, "Ready")) {
+            return trustedPreflightResponse(acceptedOrigin, preflight.methods);
+          }
 
-        return withTrustedOriginCors(
-          problemWebResponse(Problem.make("resource.not-found")),
-          acceptedOrigin,
-        );
-      }
+          if (
+            Predicate.isTagged(preflight, "RouteNotFound") &&
+            (pathname === "/api/auth/" || pathname.startsWith("/api/auth/"))
+          ) {
+            if (!allowsNativePreflightHeaders(prepared.request)) {
+              return withTrustedOriginCors(
+                problemWebResponse(Problem.make("header.malformed")),
+                acceptedOrigin,
+              );
+            }
 
-      const response =
-        pathname === "/api/auth/" || pathname.startsWith("/api/auth/")
-          ? yield* authHandler.handler(prepared.request, prepared.context)
-          : yield* nativeHandler(prepared.request);
+            const authResponse = yield* authHandler.handler(prepared.request, prepared.context);
 
-      return withTrustedOriginCors(response, acceptedOrigin);
-    }).pipe(Effect.orDie);
+            return authResponse.status >= 200 && authResponse.status < 300
+              ? trustedPreflightResponse(acceptedOrigin, [preflight.requestedMethod])
+              : withTrustedOriginCors(authResponse, acceptedOrigin);
+          }
 
-/** Independent internal ingress: native internal API plus one non-fallthrough OAuth route. */
-export const internalBackendHttpHandler = (
-  nativeHandler: BackendHttpHandler,
-  authHandler: BackendAuthHandler,
-  allowedSourceNetworks: ReadonlyArray<string>,
-): BackendHttpHandler => {
-  const allowedSources = sourceNetworkList(allowedSourceNetworks);
-
-  return (request) =>
-    Effect.gen(function* () {
-      const prepared = prepareIdentityBoundaryRequest(request);
-      const pathname = new URL(prepared.request.url).pathname;
-
-      if (isOAuthProviderNamespace(pathname)) {
-        if (prepared.request.method !== "POST" || pathname !== "/api/auth/oauth2/introspect") {
-          return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
-        }
-
-        const sourceIp = prepared.context.sourceIp;
-        const family = sourceIp === null ? 0 : isIP(sourceIp);
-
-        if (
-          sourceIp === null ||
-          (family !== 4 && family !== 6) ||
-          !allowedSources.check(sourceIp, family === 4 ? "ipv4" : "ipv6") ||
-          authHandler.oauthIntrospectionHandler === undefined
-        ) {
-          return Response.json(
-            { active: false },
-            { status: 200, headers: { "cache-control": "no-store", pragma: "no-cache" } },
+          return withTrustedOriginCors(
+            problemWebResponse(Problem.make("resource.not-found")),
+            acceptedOrigin,
           );
         }
 
-        return yield* authHandler.oauthIntrospectionHandler(prepared.request, prepared.context);
-      }
+        const response =
+          pathname === "/api/auth/" || pathname.startsWith("/api/auth/")
+            ? yield* authHandler.handler(prepared.request, prepared.context)
+            : yield* nativeHandler(yield* restrictedNativeRequest(prepared.request, pathname));
 
-      return yield* nativeHandler(prepared.request);
-    }).pipe(Effect.orDie);
-};
+        return withTrustedOriginCors(response, acceptedOrigin);
+      }).pipe(Effect.orDie),
+);
+
+/** Independent internal ingress: native internal API plus one non-fallthrough OAuth route. */
+export const internalBackendHttpHandler: {
+  (
+    authHandler: BackendAuthHandler,
+    allowedSourceNetworks: ReadonlyArray<string>,
+  ): (nativeHandler: BackendHttpHandler) => BackendHttpHandler;
+  (
+    nativeHandler: BackendHttpHandler,
+    authHandler: BackendAuthHandler,
+    allowedSourceNetworks: ReadonlyArray<string>,
+  ): BackendHttpHandler;
+} = dual(
+  3,
+  (
+    nativeHandler: BackendHttpHandler,
+    authHandler: BackendAuthHandler,
+    allowedSourceNetworks: ReadonlyArray<string>,
+  ): BackendHttpHandler => {
+    const allowedSources = sourceNetworkList(allowedSourceNetworks);
+
+    return (request) =>
+      Effect.gen(function* () {
+        const prepared = prepareIdentityBoundaryRequest(request);
+        const pathname = new URL(prepared.request.url).pathname;
+
+        if (isOAuthProviderNamespace(pathname)) {
+          if (prepared.request.method !== "POST" || pathname !== "/api/auth/oauth2/introspect") {
+            return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
+          }
+
+          const sourceIp = prepared.context.sourceIp;
+          const family = sourceIp === null ? 0 : isIP(sourceIp);
+
+          if (
+            sourceIp === null ||
+            (family !== 4 && family !== 6) ||
+            !allowedSources.check(sourceIp, family === 4 ? "ipv4" : "ipv6") ||
+            authHandler.oauthIntrospectionHandler === undefined
+          ) {
+            return Response.json(
+              { active: false },
+              { status: 200, headers: { "cache-control": "no-store", pragma: "no-cache" } },
+            );
+          }
+
+          return yield* authHandler.oauthIntrospectionHandler(prepared.request, prepared.context);
+        }
+
+        return yield* nativeHandler(yield* restrictedNativeRequest(prepared.request, pathname));
+      }).pipe(Effect.orDie);
+  },
+);
