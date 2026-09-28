@@ -4,6 +4,7 @@
  * @since 0.1.0
  */
 import { Context, Effect, type PlatformError } from "effect";
+import { dual } from "effect/Function";
 
 export interface DomainFileSystemOperations {
   readonly readTextFile: (path: string) => Effect.Effect<string, PlatformError.PlatformError>;
@@ -37,17 +38,31 @@ export const readTextFile = (
 ): Effect.Effect<string, PlatformError.PlatformError, DomainFileSystem> =>
   DomainFileSystem.use((fileSystem) => fileSystem.readTextFile(path));
 
-export const joinPath = (
-  directory: string,
-  file: string,
-): Effect.Effect<string, never, DomainFileSystem> =>
-  DomainFileSystem.use((fileSystem) => Effect.succeed(fileSystem.joinPath(directory, file)));
+export const joinPath: {
+  (file: string): (directory: string) => Effect.Effect<string, never, DomainFileSystem>;
+  (directory: string, file: string): Effect.Effect<string, never, DomainFileSystem>;
+} = dual(
+  2,
+  (directory: string, file: string): Effect.Effect<string, never, DomainFileSystem> =>
+    DomainFileSystem.use((fileSystem) => Effect.succeed(fileSystem.joinPath(directory, file))),
+);
 
-export const writeTextFile = (
-  path: string,
-  contents: string,
-): Effect.Effect<void, PlatformError.PlatformError, DomainFileSystem> =>
-  DomainFileSystem.use((fileSystem) => fileSystem.writeTextFile(path, contents));
+export const writeTextFile: {
+  (
+    contents: string,
+  ): (path: string) => Effect.Effect<void, PlatformError.PlatformError, DomainFileSystem>;
+  (
+    path: string,
+    contents: string,
+  ): Effect.Effect<void, PlatformError.PlatformError, DomainFileSystem>;
+} = dual(
+  2,
+  (
+    path: string,
+    contents: string,
+  ): Effect.Effect<void, PlatformError.PlatformError, DomainFileSystem> =>
+    DomainFileSystem.use((fileSystem) => fileSystem.writeTextFile(path, contents)),
+);
 
 export const makeTempDirectory = (
   prefix: string,

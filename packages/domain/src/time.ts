@@ -1,4 +1,5 @@
 import { DateTime, Option, Schema, SchemaTransformation } from "effect";
+import { dual } from "effect/Function";
 
 const Rfc3339InstantPattern =
   /^(\d{4})-(\d{2})-(\d{2})T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(?:\.\d{1,3})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
@@ -36,12 +37,15 @@ export const isRfc3339Instant = (value: string): boolean => {
   );
 };
 
-export const compareRfc3339Instants = (left: string, right: string): -1 | 0 | 1 => {
+export const compareRfc3339Instants: {
+  (right: string): (left: string) => -1 | 0 | 1;
+  (left: string, right: string): -1 | 0 | 1;
+} = dual(2, (left: string, right: string): -1 | 0 | 1 => {
   const leftMilliseconds = DateTime.toEpochMillis(DateTime.makeUnsafe(left));
   const rightMilliseconds = DateTime.toEpochMillis(DateTime.makeUnsafe(right));
 
   return leftMilliseconds < rightMilliseconds ? -1 : leftMilliseconds > rightMilliseconds ? 1 : 0;
-};
+});
 
 export const normalizeRfc3339Instant = (value: string): string =>
   DateTime.formatIso(DateTime.makeUnsafe(value));

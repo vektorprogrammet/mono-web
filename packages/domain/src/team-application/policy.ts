@@ -1,4 +1,5 @@
 import { Data, DateTime, Predicate, Schema } from "effect";
+import { dual } from "effect/Function";
 import { allow, deny, type Decision } from "../authz/decision.js";
 import { leadsUnit } from "../authz/reach.js";
 import { ContactEmail } from "../contact/schema.js";
@@ -20,10 +21,10 @@ export const TeamApplicationIntakeState = Data.taggedEnum<TeamApplicationIntakeS
  * instant itself is closed. The mailbox is the team email, or the department email when
  * the team has none; an undeliverable team email does not fall back to the department.
  */
-export const evaluateTeamApplicationIntake = (
-  facts: TeamApplicationIntakeFacts,
-  now: DateTime.Utc,
-): TeamApplicationIntakeState => {
+export const evaluateTeamApplicationIntake: {
+  (now: DateTime.Utc): (facts: TeamApplicationIntakeFacts) => TeamApplicationIntakeState;
+  (facts: TeamApplicationIntakeFacts, now: DateTime.Utc): TeamApplicationIntakeState;
+} = dual(2, (facts: TeamApplicationIntakeFacts, now: DateTime.Utc): TeamApplicationIntakeState => {
   const mailbox = facts.teamEmail ?? facts.departmentEmail;
 
   return facts.teamActive &&
@@ -33,13 +34,15 @@ export const evaluateTeamApplicationIntake = (
     Schema.is(ContactEmail)(mailbox)
     ? TeamApplicationIntakeState.Open({ mailbox })
     : TeamApplicationIntakeState.Closed();
-};
+});
 
 /** Public reads, staff reads, and submission all derive `open` from one evaluation. */
-export const isTeamApplicationIntakeOpen = (
-  facts: TeamApplicationIntakeFacts,
-  now: DateTime.Utc,
-): boolean => Predicate.isTagged(evaluateTeamApplicationIntake(facts, now), "Open");
+export const isTeamApplicationIntakeOpen: {
+  (now: DateTime.Utc): (facts: TeamApplicationIntakeFacts) => boolean;
+  (facts: TeamApplicationIntakeFacts, now: DateTime.Utc): boolean;
+} = dual(2, (facts: TeamApplicationIntakeFacts, now: DateTime.Utc): boolean =>
+  Predicate.isTagged(evaluateTeamApplicationIntake(facts, now), "Open"),
+);
 
 /**
  * Maps the Organization projection to one team's staff actor. The unit's current leader
@@ -47,23 +50,26 @@ export const isTeamApplicationIntakeOpen = (
  * already excludes ended, suspended, and inactive-team or inactive-department memberships.
  * Global administration grants no implicit access.
  */
-export const mapOrganizationAuthorityToTeamApplicationActor = (
-  authority: OrganizationPersonAuthority,
-  teamId: TeamId,
-): Decision<TeamApplicationActor> => {
-  if (leadsUnit(authority, teamId)) {
-    return allow<TeamApplicationActor>(
-      TeamApplicationActor.cases.TeamLeader.make({ personId: authority.personId, teamId }),
-    );
-  }
+export const mapOrganizationAuthorityToTeamApplicationActor: {
+  (teamId: TeamId): (authority: OrganizationPersonAuthority) => Decision<TeamApplicationActor>;
+  (authority: OrganizationPersonAuthority, teamId: TeamId): Decision<TeamApplicationActor>;
+} = dual(
+  2,
+  (authority: OrganizationPersonAuthority, teamId: TeamId): Decision<TeamApplicationActor> => {
+    if (leadsUnit(authority, teamId)) {
+      return allow<TeamApplicationActor>(
+        TeamApplicationActor.cases.TeamLeader.make({ personId: authority.personId, teamId }),
+      );
+    }
 
-  const memberships = authority.memberships.filter((membership) => membership.teamId === teamId);
+    const memberships = authority.memberships.filter((membership) => membership.teamId === teamId);
 
-  if (memberships.some((membership) => membership.active)) {
-    return allow<TeamApplicationActor>(
-      TeamApplicationActor.cases.TeamMember.make({ personId: authority.personId, teamId }),
-    );
-  }
+    if (memberships.some((membership) => membership.active)) {
+      return allow<TeamApplicationActor>(
+        TeamApplicationActor.cases.TeamMember.make({ personId: authority.personId, teamId }),
+      );
+    }
 
-  return deny<TeamApplicationActor>(memberships.length > 0 ? "AuthorityInactive" : "NotInScope");
-};
+    return deny<TeamApplicationActor>(memberships.length > 0 ? "AuthorityInactive" : "NotInScope");
+  },
+);

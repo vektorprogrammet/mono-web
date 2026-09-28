@@ -7,6 +7,7 @@
  */
 
 import { Data, flow, Match, Predicate, Result, Schema, SchemaAST, SchemaIssue } from "effect";
+import { dual } from "effect/Function";
 
 export type SchemaFailureCode =
   | "ROW_NOT_OBJECT"
@@ -346,29 +347,50 @@ export const decodeGlobalMembership = flow(
       : decoded,
 );
 
-export const decodeRows = <A>(
-  value: Schema.Json,
-  file: string,
-  decoder: (value: Schema.Json) => DecodeResult<A>,
-): Result.Result<
-  { readonly rows: ReadonlyArray<A>; readonly failures: ReadonlyArray<DecodeFailure> },
-  SchemaInputError
-> => {
-  if (!Array.isArray(value)) return Result.fail(new SchemaInputError({ file }));
-  const rowsInput = value;
+export const decodeRows: {
+  <A>(
+    file: string,
+    decoder: (value: Schema.Json) => DecodeResult<A>,
+  ): (
+    value: Schema.Json,
+  ) => Result.Result<
+    { readonly rows: ReadonlyArray<A>; readonly failures: ReadonlyArray<DecodeFailure> },
+    SchemaInputError
+  >;
+  <A>(
+    value: Schema.Json,
+    file: string,
+    decoder: (value: Schema.Json) => DecodeResult<A>,
+  ): Result.Result<
+    { readonly rows: ReadonlyArray<A>; readonly failures: ReadonlyArray<DecodeFailure> },
+    SchemaInputError
+  >;
+} = dual(
+  3,
+  <A>(
+    value: Schema.Json,
+    file: string,
+    decoder: (value: Schema.Json) => DecodeResult<A>,
+  ): Result.Result<
+    { readonly rows: ReadonlyArray<A>; readonly failures: ReadonlyArray<DecodeFailure> },
+    SchemaInputError
+  > => {
+    if (!Array.isArray(value)) return Result.fail(new SchemaInputError({ file }));
+    const rowsInput = value;
 
-  const rows: A[] = [];
-  const failures: DecodeFailure[] = [];
+    const rows: A[] = [];
+    const failures: DecodeFailure[] = [];
 
-  for (let index = 0; index < rowsInput.length; index += 1) {
-    const decoded = decoder(rowsInput[index]);
+    for (let index = 0; index < rowsInput.length; index += 1) {
+      const decoded = decoder(rowsInput[index]);
 
-    if (decoded.ok) {
-      rows.push(decoded.value);
-    } else {
-      failures.push({ file, index, ...decoded.failure });
+      if (decoded.ok) {
+        rows.push(decoded.value);
+      } else {
+        failures.push({ file, index, ...decoded.failure });
+      }
     }
-  }
 
-  return Result.succeed({ rows, failures });
-};
+    return Result.succeed({ rows, failures });
+  },
+);

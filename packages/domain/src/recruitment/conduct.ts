@@ -1,4 +1,5 @@
 import { Predicate, Effect, Schema } from "effect";
+import { dual } from "effect/Function";
 import { isRfc3339Instant } from "../time.js";
 import {
   RecruitmentConductValidationError,
@@ -233,121 +234,151 @@ const validateScore = (
     ),
   );
 
-export const finalizeInterview = (
-  state: RecruitmentConductState,
-  command: FinalizeInterviewCommand,
-  actor: RecruitmentConductActor,
-  now: string,
-): Effect.Effect<FinalizeTransition, ConductFailure> =>
-  Effect.gen(function* () {
-    if (!isRfc3339Instant(now)) return yield* invalid(state, "invalid finalization instant");
-    yield* checkBase(state, actor, command.expectedRevision);
+export const finalizeInterview: {
+  (
+    command: FinalizeInterviewCommand,
+    actor: RecruitmentConductActor,
+    now: string,
+  ): (state: RecruitmentConductState) => Effect.Effect<FinalizeTransition, ConductFailure>;
+  (
+    state: RecruitmentConductState,
+    command: FinalizeInterviewCommand,
+    actor: RecruitmentConductActor,
+    now: string,
+  ): Effect.Effect<FinalizeTransition, ConductFailure>;
+} = dual(
+  4,
+  (
+    state: RecruitmentConductState,
+    command: FinalizeInterviewCommand,
+    actor: RecruitmentConductActor,
+    now: string,
+  ): Effect.Effect<FinalizeTransition, ConductFailure> =>
+    Effect.gen(function* () {
+      if (!isRfc3339Instant(now)) return yield* invalid(state, "invalid finalization instant");
+      yield* checkBase(state, actor, command.expectedRevision);
 
-    if (state.invitationResponse !== "Accepted") {
-      return yield* RecruitmentInvitationNotAccepted.make({
+      if (state.invitationResponse !== "Accepted") {
+        return yield* RecruitmentInvitationNotAccepted.make({
+          interviewId: state.interview.interviewId,
+          responseState: state.invitationResponse ?? "Absent",
+        });
+      }
+
+      if (state.conduct !== null)
+        return yield* RecruitmentInterviewAlreadyFinalized.make({
+          interviewId: state.interview.interviewId,
+        });
+
+      if (state.cancellation !== null)
+        return yield* RecruitmentInterviewAlreadyCancelled.make({
+          interviewId: state.interview.interviewId,
+        });
+      const answers = yield* validateAnswers(state, command.answers);
+      yield* validateScore(state, command.score);
+
+      if (!interviewRecommendations.includes(command.recommendation))
+        return yield* invalid(state, "an explicit interviewer recommendation is required");
+      const revision = state.revision + 1;
+
+      const conduct = RecruitmentInterviewConduct.make({
         interviewId: state.interview.interviewId,
-        responseState: state.invitationResponse ?? "Absent",
-      });
-    }
-
-    if (state.conduct !== null)
-      return yield* RecruitmentInterviewAlreadyFinalized.make({
-        interviewId: state.interview.interviewId,
-      });
-
-    if (state.cancellation !== null)
-      return yield* RecruitmentInterviewAlreadyCancelled.make({
-        interviewId: state.interview.interviewId,
-      });
-    const answers = yield* validateAnswers(state, command.answers);
-    yield* validateScore(state, command.score);
-
-    if (!interviewRecommendations.includes(command.recommendation))
-      return yield* invalid(state, "an explicit interviewer recommendation is required");
-    const revision = state.revision + 1;
-
-    const conduct = RecruitmentInterviewConduct.make({
-      interviewId: state.interview.interviewId,
-      answers,
-      score: command.score,
-      recommendation: command.recommendation,
-      finalizedByPersonId: actor.personId,
-      finalizedAt: now,
-      interviewRevision: revision,
-    });
-
-    const observation = yield* Schema.decodeEffect(FinalizeInterviewObservationSchema)(
-      FinalizeInterviewObservationSchema.make({
-        commandId: command.commandId,
-        interviewId: state.interview.interviewId,
-        interviewRevision: revision,
+        answers,
+        score: command.score,
+        recommendation: command.recommendation,
+        finalizedByPersonId: actor.personId,
         finalizedAt: now,
-        completionState: "Completed",
-        cancellationState: "NotCancelled",
-        notificationState: "Pending",
-      }),
-      { onExcessProperty: "error" },
-    ).pipe(
-      Effect.mapError((cause) =>
-        RecruitmentConductValidationError.make({
-          interviewId: state.interview.interviewId,
-          message: String(cause),
-        }),
-      ),
-    );
-
-    return { observation, state: { ...state, conduct, revision } };
-  });
-
-export const cancelInterview = (
-  state: RecruitmentConductState,
-  command: CancelInterviewCommand,
-  actor: RecruitmentConductActor,
-  now: string,
-): Effect.Effect<CancelTransition, ConductFailure> =>
-  Effect.gen(function* () {
-    if (!isRfc3339Instant(now)) return yield* invalid(state, "invalid cancellation instant");
-    yield* checkBase(state, actor, command.expectedRevision);
-
-    if (state.conduct !== null)
-      return yield* RecruitmentInterviewAlreadyFinalized.make({
-        interviewId: state.interview.interviewId,
-      });
-
-    if (state.cancellation !== null)
-      return yield* RecruitmentInterviewAlreadyCancelled.make({
-        interviewId: state.interview.interviewId,
-      });
-    const revision = state.revision + 1;
-
-    const cancellation = RecruitmentInterviewCancellation.make({
-      interviewId: state.interview.interviewId,
-      cancelledByPersonId: actor.personId,
-      cancelledAt: now,
-      interviewRevision: revision,
-    });
-
-    const observation = yield* Schema.decodeEffect(CancelInterviewObservationSchema)(
-      CancelInterviewObservationSchema.make({
-        commandId: command.commandId,
-        interviewId: state.interview.interviewId,
         interviewRevision: revision,
-        cancelledAt: now,
-        completionState: "NotCompleted",
-        cancellationState: "Cancelled",
-      }),
-      { onExcessProperty: "error" },
-    ).pipe(
-      Effect.mapError((cause) =>
-        RecruitmentConductValidationError.make({
-          interviewId: state.interview.interviewId,
-          message: String(cause),
-        }),
-      ),
-    );
+      });
 
-    return { observation, state: { ...state, cancellation, revision } };
-  });
+      const observation = yield* Schema.decodeEffect(FinalizeInterviewObservationSchema)(
+        FinalizeInterviewObservationSchema.make({
+          commandId: command.commandId,
+          interviewId: state.interview.interviewId,
+          interviewRevision: revision,
+          finalizedAt: now,
+          completionState: "Completed",
+          cancellationState: "NotCancelled",
+          notificationState: "Pending",
+        }),
+        { onExcessProperty: "error" },
+      ).pipe(
+        Effect.mapError((cause) =>
+          RecruitmentConductValidationError.make({
+            interviewId: state.interview.interviewId,
+            message: String(cause),
+          }),
+        ),
+      );
+
+      return { observation, state: { ...state, conduct, revision } };
+    }),
+);
+
+export const cancelInterview: {
+  (
+    command: CancelInterviewCommand,
+    actor: RecruitmentConductActor,
+    now: string,
+  ): (state: RecruitmentConductState) => Effect.Effect<CancelTransition, ConductFailure>;
+  (
+    state: RecruitmentConductState,
+    command: CancelInterviewCommand,
+    actor: RecruitmentConductActor,
+    now: string,
+  ): Effect.Effect<CancelTransition, ConductFailure>;
+} = dual(
+  4,
+  (
+    state: RecruitmentConductState,
+    command: CancelInterviewCommand,
+    actor: RecruitmentConductActor,
+    now: string,
+  ): Effect.Effect<CancelTransition, ConductFailure> =>
+    Effect.gen(function* () {
+      if (!isRfc3339Instant(now)) return yield* invalid(state, "invalid cancellation instant");
+      yield* checkBase(state, actor, command.expectedRevision);
+
+      if (state.conduct !== null)
+        return yield* RecruitmentInterviewAlreadyFinalized.make({
+          interviewId: state.interview.interviewId,
+        });
+
+      if (state.cancellation !== null)
+        return yield* RecruitmentInterviewAlreadyCancelled.make({
+          interviewId: state.interview.interviewId,
+        });
+      const revision = state.revision + 1;
+
+      const cancellation = RecruitmentInterviewCancellation.make({
+        interviewId: state.interview.interviewId,
+        cancelledByPersonId: actor.personId,
+        cancelledAt: now,
+        interviewRevision: revision,
+      });
+
+      const observation = yield* Schema.decodeEffect(CancelInterviewObservationSchema)(
+        CancelInterviewObservationSchema.make({
+          commandId: command.commandId,
+          interviewId: state.interview.interviewId,
+          interviewRevision: revision,
+          cancelledAt: now,
+          completionState: "NotCompleted",
+          cancellationState: "Cancelled",
+        }),
+        { onExcessProperty: "error" },
+      ).pipe(
+        Effect.mapError((cause) =>
+          RecruitmentConductValidationError.make({
+            interviewId: state.interview.interviewId,
+            message: String(cause),
+          }),
+        ),
+      );
+
+      return { observation, state: { ...state, cancellation, revision } };
+    }),
+);
 
 export interface CorrectionTransition {
   readonly observation: CorrectInterviewAssessmentObservation;
@@ -355,74 +386,89 @@ export interface CorrectionTransition {
   readonly state: RecruitmentConductState;
 }
 
-export const correctInterviewAssessment = (
-  state: RecruitmentConductState,
-  command: CorrectInterviewAssessmentCommand,
-  actor: RecruitmentConductActor,
-  now: string,
-): Effect.Effect<CorrectionTransition, ConductFailure> =>
-  Effect.gen(function* () {
-    if (!isRfc3339Instant(now)) return yield* invalid(state, "invalid correction instant");
-    yield* checkBase(state, actor, command.expectedRevision);
+export const correctInterviewAssessment: {
+  (
+    command: CorrectInterviewAssessmentCommand,
+    actor: RecruitmentConductActor,
+    now: string,
+  ): (state: RecruitmentConductState) => Effect.Effect<CorrectionTransition, ConductFailure>;
+  (
+    state: RecruitmentConductState,
+    command: CorrectInterviewAssessmentCommand,
+    actor: RecruitmentConductActor,
+    now: string,
+  ): Effect.Effect<CorrectionTransition, ConductFailure>;
+} = dual(
+  4,
+  (
+    state: RecruitmentConductState,
+    command: CorrectInterviewAssessmentCommand,
+    actor: RecruitmentConductActor,
+    now: string,
+  ): Effect.Effect<CorrectionTransition, ConductFailure> =>
+    Effect.gen(function* () {
+      if (!isRfc3339Instant(now)) return yield* invalid(state, "invalid correction instant");
+      yield* checkBase(state, actor, command.expectedRevision);
 
-    if (state.cancellation !== null)
-      return yield* RecruitmentInterviewAlreadyCancelled.make({
-        interviewId: state.interview.interviewId,
-      });
-
-    if (state.conduct === null)
-      return yield* RecruitmentConductValidationError.make({
-        interviewId: state.interview.interviewId,
-        message: "the interview is not completed",
-      });
-    const answers = yield* validateAnswers(state, command.answers);
-    yield* validateScore(state, command.score);
-
-    if (!interviewRecommendations.includes(command.recommendation))
-      return yield* invalid(state, "an explicit interviewer recommendation is required");
-    const resultingRevision = state.revision + 1;
-
-    const correction = yield* Schema.decodeEffect(RecruitmentInterviewCorrectionSchema)(
-      {
-        interviewId: state.interview.interviewId,
-        predecessorRevision: state.revision,
-        resultingRevision,
-        answers,
-        score: command.score,
-        recommendation: command.recommendation,
-        correctedByPersonId: actor.personId,
-        correctedAt: now,
-        commandId: command.commandId,
-      },
-      { onExcessProperty: "error" },
-    ).pipe(
-      Effect.mapError((cause) =>
-        RecruitmentConductValidationError.make({
+      if (state.cancellation !== null)
+        return yield* RecruitmentInterviewAlreadyCancelled.make({
           interviewId: state.interview.interviewId,
-          message: String(cause),
-        }),
-      ),
-    );
+        });
 
-    const observation = yield* Schema.decodeEffect(CorrectInterviewAssessmentObservationSchema)(
-      CorrectInterviewAssessmentObservationSchema.make({
-        commandId: command.commandId,
-        interviewId: state.interview.interviewId,
-        predecessorRevision: state.revision,
-        resultingRevision,
-      }),
-      { onExcessProperty: "error" },
-    ).pipe(
-      Effect.mapError((cause) =>
-        RecruitmentConductValidationError.make({
+      if (state.conduct === null)
+        return yield* RecruitmentConductValidationError.make({
           interviewId: state.interview.interviewId,
-          message: String(cause),
-        }),
-      ),
-    );
+          message: "the interview is not completed",
+        });
+      const answers = yield* validateAnswers(state, command.answers);
+      yield* validateScore(state, command.score);
 
-    return { observation, correction, state: { ...state, revision: resultingRevision } };
-  });
+      if (!interviewRecommendations.includes(command.recommendation))
+        return yield* invalid(state, "an explicit interviewer recommendation is required");
+      const resultingRevision = state.revision + 1;
+
+      const correction = yield* Schema.decodeEffect(RecruitmentInterviewCorrectionSchema)(
+        {
+          interviewId: state.interview.interviewId,
+          predecessorRevision: state.revision,
+          resultingRevision,
+          answers,
+          score: command.score,
+          recommendation: command.recommendation,
+          correctedByPersonId: actor.personId,
+          correctedAt: now,
+          commandId: command.commandId,
+        },
+        { onExcessProperty: "error" },
+      ).pipe(
+        Effect.mapError((cause) =>
+          RecruitmentConductValidationError.make({
+            interviewId: state.interview.interviewId,
+            message: String(cause),
+          }),
+        ),
+      );
+
+      const observation = yield* Schema.decodeEffect(CorrectInterviewAssessmentObservationSchema)(
+        CorrectInterviewAssessmentObservationSchema.make({
+          commandId: command.commandId,
+          interviewId: state.interview.interviewId,
+          predecessorRevision: state.revision,
+          resultingRevision,
+        }),
+        { onExcessProperty: "error" },
+      ).pipe(
+        Effect.mapError((cause) =>
+          RecruitmentConductValidationError.make({
+            interviewId: state.interview.interviewId,
+            message: String(cause),
+          }),
+        ),
+      );
+
+      return { observation, correction, state: { ...state, revision: resultingRevision } };
+    }),
+);
 
 export const recruitmentInterviewAnswerIsValid = (
   value: unknown,

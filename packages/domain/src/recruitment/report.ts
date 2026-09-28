@@ -7,6 +7,7 @@ import {
   RecruitmentInterviewId,
   RecruitmentInterviewScoreSchema,
 } from "./schema.js";
+import { dual } from "effect/Function";
 
 export const InterviewReportFilter = Schema.Literals([
   "all",
@@ -65,7 +66,7 @@ export const interviewScoreTotal = (
   row: Pick<InterviewReportRow, "explanatoryPower" | "roleModel" | "suitability">,
 ) => row.explanatoryPower + row.roleModel + row.suitability;
 
-export const orderInterviewReport = (
+const orderInterviewReportImpl = (
   rows: ReadonlyArray<InterviewReportRow>,
   query: InterviewReportQuery,
 ) => {
@@ -96,3 +97,13 @@ export const orderInterviewReport = (
       return primary * direction || compareText(left.interviewId, right.interviewId);
     });
 };
+
+export const orderInterviewReport: {
+  (
+    query: InterviewReportQuery,
+  ): (rows: ReadonlyArray<InterviewReportRow>) => ReturnType<typeof orderInterviewReportImpl>;
+  (
+    rows: ReadonlyArray<InterviewReportRow>,
+    query: InterviewReportQuery,
+  ): ReturnType<typeof orderInterviewReportImpl>;
+} = dual(2, orderInterviewReportImpl);

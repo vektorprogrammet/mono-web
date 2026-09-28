@@ -2,6 +2,7 @@ import { Effect, Encoding, Result, Schema } from "effect";
 import { ReceiptDecodeError } from "./errors.js";
 import { ReceiptId } from "./schema.js";
 import { isRfc3339Instant } from "../time.js";
+import { dual } from "effect/Function";
 
 export const RECEIPT_PAGE_SIZE = 50;
 
@@ -58,13 +59,16 @@ export const decodeReceiptCursor = (
     return { timestamp, receiptId };
   }).pipe(Effect.mapError(() => ReceiptDecodeError.make({ message: "invalid receipt cursor" })));
 
-export const receiptPage = <A>(
-  rows: ReadonlyArray<A>,
-  position: (row: A) => ReceiptCursorPosition,
-): ReceiptPage<A> =>
-  rows.length <= RECEIPT_PAGE_SIZE
-    ? { items: rows }
-    : {
-        items: rows.slice(0, RECEIPT_PAGE_SIZE),
-        nextCursor: encodeReceiptCursor(position(rows[RECEIPT_PAGE_SIZE - 1]!)),
-      };
+export const receiptPage: {
+  <A>(position: (row: A) => ReceiptCursorPosition): (rows: ReadonlyArray<A>) => ReceiptPage<A>;
+  <A>(rows: ReadonlyArray<A>, position: (row: A) => ReceiptCursorPosition): ReceiptPage<A>;
+} = dual(
+  2,
+  <A>(rows: ReadonlyArray<A>, position: (row: A) => ReceiptCursorPosition): ReceiptPage<A> =>
+    rows.length <= RECEIPT_PAGE_SIZE
+      ? { items: rows }
+      : {
+          items: rows.slice(0, RECEIPT_PAGE_SIZE),
+          nextCursor: encodeReceiptCursor(position(rows[RECEIPT_PAGE_SIZE - 1]!)),
+        },
+);

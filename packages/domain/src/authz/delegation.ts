@@ -6,6 +6,7 @@
  * time-bounded delegation of one capability in one area.
  */
 import { Match, Record, Result, Schema } from "effect";
+import { dual } from "effect/Function";
 import { DepartmentId, PersonId, TeamId } from "../organization/schema.js";
 import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
 
@@ -229,21 +230,28 @@ export const DelegationView = Schema.Struct({
 
 export type DelegationView = typeof DelegationView.Type;
 
-export const delegationStateAt = (
-  delegation: Pick<Delegation, "startAt" | "endAt">,
-  now: string,
-): DelegationState =>
-  delegation.endAt !== null && compareRfc3339Instants(delegation.endAt, now) <= 0
-    ? "Ended"
-    : compareRfc3339Instants(delegation.startAt, now) > 0
-      ? "Future"
-      : "Current";
+export const delegationStateAt: {
+  (now: string): (delegation: Pick<Delegation, "startAt" | "endAt">) => DelegationState;
+  (delegation: Pick<Delegation, "startAt" | "endAt">, now: string): DelegationState;
+} = dual(
+  2,
+  (delegation: Pick<Delegation, "startAt" | "endAt">, now: string): DelegationState =>
+    delegation.endAt !== null && compareRfc3339Instants(delegation.endAt, now) <= 0
+      ? "Ended"
+      : compareRfc3339Instants(delegation.startAt, now) > 0
+        ? "Future"
+        : "Current",
+);
 
 /** Active from its start, inclusive, until its end, exclusive. */
-export const delegationActiveAt = (
-  delegation: Pick<Delegation, "startAt" | "endAt">,
-  instant: string,
-): boolean => delegationStateAt(delegation, instant) === "Current";
+export const delegationActiveAt: {
+  (instant: string): (delegation: Pick<Delegation, "startAt" | "endAt">) => boolean;
+  (delegation: Pick<Delegation, "startAt" | "endAt">, instant: string): boolean;
+} = dual(
+  2,
+  (delegation: Pick<Delegation, "startAt" | "endAt">, instant: string): boolean =>
+    delegationStateAt(delegation, instant) === "Current",
+);
 
 /** The facts of the delegated team that its delegations depend on. */
 export interface DelegationTeam {
@@ -255,12 +263,15 @@ export interface DelegationTeam {
 }
 
 /** A team's area: its home department, or the whole organization for a national team. */
-export const teamAreaCovers = (
-  team: Pick<DelegationTeam, "departmentId" | "teamScope">,
-  area: DelegationArea,
-): boolean =>
-  team.teamScope === "National" ||
-  (DelegationArea.guards.Department(area) && area.departmentId === team.departmentId);
+export const teamAreaCovers: {
+  (area: DelegationArea): (team: Pick<DelegationTeam, "departmentId" | "teamScope">) => boolean;
+  (team: Pick<DelegationTeam, "departmentId" | "teamScope">, area: DelegationArea): boolean;
+} = dual(
+  2,
+  (team: Pick<DelegationTeam, "departmentId" | "teamScope">, area: DelegationArea): boolean =>
+    team.teamScope === "National" ||
+    (DelegationArea.guards.Department(area) && area.departmentId === team.departmentId),
+);
 
 /**
  * Whether a delegation can confer its capability on the members of this team: the registry
@@ -268,29 +279,40 @@ export const teamAreaCovers = (
  * area lies inside the team's area. Evaluated again at every decision, so a reclassified team or a
  * changed registry fails closed.
  */
-export const delegationConforms = (
-  delegation: Pick<Delegation, "capability" | "area" | "holders">,
-  team: Pick<DelegationTeam, "departmentId" | "teamScope" | "unitKind">,
-): boolean => {
-  const rule = ORGANIZATION_CAPABILITIES[delegation.capability].delegation;
+export const delegationConforms: {
+  (
+    team: Pick<DelegationTeam, "departmentId" | "teamScope" | "unitKind">,
+  ): (delegation: Pick<Delegation, "capability" | "area" | "holders">) => boolean;
+  (
+    delegation: Pick<Delegation, "capability" | "area" | "holders">,
+    team: Pick<DelegationTeam, "departmentId" | "teamScope" | "unitKind">,
+  ): boolean;
+} = dual(
+  2,
+  (
+    delegation: Pick<Delegation, "capability" | "area" | "holders">,
+    team: Pick<DelegationTeam, "departmentId" | "teamScope" | "unitKind">,
+  ): boolean => {
+    const rule = ORGANIZATION_CAPABILITIES[delegation.capability].delegation;
 
-  return (
-    team.unitKind === "Team" &&
-    teamAreaCovers(team, delegation.area) &&
-    Match.value(rule).pipe(
-      Match.when("TeamArea", () => true),
-      Match.when("National", () => DelegationArea.guards.Organization(delegation.area)),
-      Match.when(
-        "NationalLeaders",
-        () =>
-          DelegationArea.guards.Organization(delegation.area) &&
-          delegation.holders === "LeadersOnly",
-      ),
-      Match.when("Never", () => false),
-      Match.exhaustive,
-    )
-  );
-};
+    return (
+      team.unitKind === "Team" &&
+      teamAreaCovers(team, delegation.area) &&
+      Match.value(rule).pipe(
+        Match.when("TeamArea", () => true),
+        Match.when("National", () => DelegationArea.guards.Organization(delegation.area)),
+        Match.when(
+          "NationalLeaders",
+          () =>
+            DelegationArea.guards.Organization(delegation.area) &&
+            delegation.holders === "LeadersOnly",
+        ),
+        Match.when("Never", () => false),
+        Match.exhaustive,
+      )
+    );
+  },
+);
 
 const command = { commandId: Text, reason: Text };
 
@@ -366,58 +388,79 @@ const invalid = () => Result.fail(DelegationTransitionFailure.make({ code: "Inva
  * whose area covers the requested area and a capability that the registry delegates there.
  * Ending never extends a delegation and never ends it before now.
  */
-export const transitionDelegation = (
-  current: Delegation | undefined,
-  command: DelegationCommand,
-  input: {
-    readonly delegationId: DelegationId;
-    readonly team: DelegationTeam | undefined;
-    readonly now: string;
-  },
-): Result.Result<Delegation, DelegationTransitionFailure> =>
-  Match.value(command).pipe(
-    Match.withReturnType<Result.Result<Delegation, DelegationTransitionFailure>>(),
-    Match.tag("IssueDelegation", (command) => {
-      if (current !== undefined) return invalid();
+export const transitionDelegation: {
+  (
+    command: DelegationCommand,
+    input: {
+      readonly delegationId: DelegationId;
+      readonly team: DelegationTeam | undefined;
+      readonly now: string;
+    },
+  ): (current: Delegation | undefined) => Result.Result<Delegation, DelegationTransitionFailure>;
+  (
+    current: Delegation | undefined,
+    command: DelegationCommand,
+    input: {
+      readonly delegationId: DelegationId;
+      readonly team: DelegationTeam | undefined;
+      readonly now: string;
+    },
+  ): Result.Result<Delegation, DelegationTransitionFailure>;
+} = dual(
+  3,
+  (
+    current: Delegation | undefined,
+    command: DelegationCommand,
+    input: {
+      readonly delegationId: DelegationId;
+      readonly team: DelegationTeam | undefined;
+      readonly now: string;
+    },
+  ): Result.Result<Delegation, DelegationTransitionFailure> =>
+    Match.value(command).pipe(
+      Match.withReturnType<Result.Result<Delegation, DelegationTransitionFailure>>(),
+      Match.tag("IssueDelegation", (command) => {
+        if (current !== undefined) return invalid();
 
-      if (input.team === undefined)
-        return Result.fail(DelegationTransitionFailure.make({ code: "NotFound" }));
+        if (input.team === undefined)
+          return Result.fail(DelegationTransitionFailure.make({ code: "NotFound" }));
 
-      if (
-        !input.team.active ||
-        !delegationConforms(command, input.team) ||
-        (command.endAt !== null && compareRfc3339Instants(command.startAt, command.endAt) >= 0)
-      )
-        return invalid();
+        if (
+          !input.team.active ||
+          !delegationConforms(command, input.team) ||
+          (command.endAt !== null && compareRfc3339Instants(command.startAt, command.endAt) >= 0)
+        )
+          return invalid();
 
-      return Result.succeed({
-        delegationId: input.delegationId,
-        name: command.name,
-        teamId: command.teamId,
-        capability: command.capability,
-        area: command.area,
-        holders: command.holders,
-        startAt: command.startAt,
-        endAt: command.endAt,
-        revision: 0,
-      });
-    }),
-    Match.tag("EndDelegation", (command) => {
-      if (current === undefined)
-        return Result.fail(DelegationTransitionFailure.make({ code: "NotFound" }));
+        return Result.succeed({
+          delegationId: input.delegationId,
+          name: command.name,
+          teamId: command.teamId,
+          capability: command.capability,
+          area: command.area,
+          holders: command.holders,
+          startAt: command.startAt,
+          endAt: command.endAt,
+          revision: 0,
+        });
+      }),
+      Match.tag("EndDelegation", (command) => {
+        if (current === undefined)
+          return Result.fail(DelegationTransitionFailure.make({ code: "NotFound" }));
 
-      if (current.revision !== command.expectedRevision)
-        return Result.fail(DelegationTransitionFailure.make({ code: "Stale" }));
+        if (current.revision !== command.expectedRevision)
+          return Result.fail(DelegationTransitionFailure.make({ code: "Stale" }));
 
-      if (
-        delegationStateAt(current, input.now) === "Ended" ||
-        compareRfc3339Instants(command.endAt, input.now) < 0 ||
-        compareRfc3339Instants(command.endAt, current.startAt) <= 0 ||
-        (current.endAt !== null && compareRfc3339Instants(command.endAt, current.endAt) > 0)
-      )
-        return invalid();
+        if (
+          delegationStateAt(current, input.now) === "Ended" ||
+          compareRfc3339Instants(command.endAt, input.now) < 0 ||
+          compareRfc3339Instants(command.endAt, current.startAt) <= 0 ||
+          (current.endAt !== null && compareRfc3339Instants(command.endAt, current.endAt) > 0)
+        )
+          return invalid();
 
-      return Result.succeed({ ...current, endAt: command.endAt, revision: current.revision + 1 });
-    }),
-    Match.exhaustive,
-  );
+        return Result.succeed({ ...current, endAt: command.endAt, revision: current.revision + 1 });
+      }),
+      Match.exhaustive,
+    ),
+);

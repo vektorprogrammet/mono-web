@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { dual } from "effect/Function";
 import { reachedDepartments, ReachedDepartments } from "../authz/reach.js";
 import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
 import type { OrganizationPersonAuthority } from "../organization/authority.js";
@@ -152,15 +153,18 @@ export class SchoolCommandFailure extends Schema.TaggedError<SchoolCommandFailur
  * An empty association set needs reach over the whole organization; otherwise every department
  * of the set must be reached with `schools.administer`.
  */
-export const canManageSchoolDepartments = (
-  authority: OrganizationPersonAuthority,
-  departments: ReadonlyArray<DepartmentId>,
-): boolean => {
-  const reached = reachedDepartments(authority, "schools.administer");
+export const canManageSchoolDepartments: {
+  (departments: ReadonlyArray<DepartmentId>): (authority: OrganizationPersonAuthority) => boolean;
+  (authority: OrganizationPersonAuthority, departments: ReadonlyArray<DepartmentId>): boolean;
+} = dual(
+  2,
+  (authority: OrganizationPersonAuthority, departments: ReadonlyArray<DepartmentId>): boolean => {
+    const reached = reachedDepartments(authority, "schools.administer");
 
-  return (
-    ReachedDepartments.$is("All")(reached) ||
-    (departments.length > 0 &&
-      departments.every((department) => reached.departmentIds.includes(department)))
-  );
-};
+    return (
+      ReachedDepartments.$is("All")(reached) ||
+      (departments.length > 0 &&
+        departments.every((department) => reached.departmentIds.includes(department)))
+    );
+  },
+);

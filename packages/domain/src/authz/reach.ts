@@ -4,6 +4,7 @@
  * asks this module; no other product code reads a leadership flag.
  */
 import { Data, Match, Option, Order, Result } from "effect";
+import { dual } from "effect/Function";
 import type { OrganizationPersonAuthority } from "../organization/authority.js";
 import type { DepartmentId, MembershipId, PersonId, TeamId } from "../organization/schema.js";
 import {
@@ -38,7 +39,10 @@ export type ReachTarget = Data.TaggedEnum<{
 export const ReachTarget = Data.taggedEnum<ReachTarget>();
 
 /** Containment: the organization covers everything, a department its units, a team itself. */
-export const scopeCovers = (scope: ReachScope, target: ReachTarget): boolean =>
+export const scopeCovers: {
+  (target: ReachTarget): (scope: ReachScope) => boolean;
+  (scope: ReachScope, target: ReachTarget): boolean;
+} = dual(2, (scope: ReachScope, target: ReachTarget): boolean =>
   Match.value(scope).pipe(
     Match.tag("Organization", () => true),
     Match.tag(
@@ -49,29 +53,41 @@ export const scopeCovers = (scope: ReachScope, target: ReachTarget): boolean =>
     ),
     Match.tag("Team", ({ teamId }) => ReachTarget.$is("Team")(target) && target.teamId === teamId),
     Match.exhaustive,
-  );
+  ),
+);
 
 /**
  * The active delegations of a capability that reach this person: an active membership of the
  * delegated team, the leaders only for a leaders-only delegation, and a delegation that still
  * conforms to the registry and to the team's current area.
  */
-export const delegationsReaching = (
-  authority: OrganizationPersonAuthority,
-  capability: OrganizationCapability,
-): ReadonlyArray<Delegation> =>
-  authority.delegations.filter(
-    (delegation) =>
-      delegation.capability === capability &&
-      delegationActiveAt(delegation, authority.evaluatedAt) &&
-      authority.memberships.some(
-        (membership) =>
-          membership.teamId === delegation.teamId &&
-          membership.active &&
-          (delegation.holders === "AllMembers" || membership.unitLeader) &&
-          delegationConforms(delegation, membership),
-      ),
-  );
+export const delegationsReaching: {
+  (
+    capability: OrganizationCapability,
+  ): (authority: OrganizationPersonAuthority) => ReadonlyArray<Delegation>;
+  (
+    authority: OrganizationPersonAuthority,
+    capability: OrganizationCapability,
+  ): ReadonlyArray<Delegation>;
+} = dual(
+  2,
+  (
+    authority: OrganizationPersonAuthority,
+    capability: OrganizationCapability,
+  ): ReadonlyArray<Delegation> =>
+    authority.delegations.filter(
+      (delegation) =>
+        delegation.capability === capability &&
+        delegationActiveAt(delegation, authority.evaluatedAt) &&
+        authority.memberships.some(
+          (membership) =>
+            membership.teamId === delegation.teamId &&
+            membership.active &&
+            (delegation.holders === "AllMembers" || membership.unitLeader) &&
+            delegationConforms(delegation, membership),
+        ),
+    ),
+);
 
 /** Why a person holds a capability in a scope. */
 export type ReachBasis = "GlobalAdministrator" | "TeamLeader" | "BoardLeader" | "Delegation";
@@ -133,16 +149,40 @@ const reachesOf = (
  * independent; the national board's leader and a global administrator act everywhere; a
  * delegation acts in its area.
  */
-export const reachScopes = (
-  authority: OrganizationPersonAuthority,
-  capability: OrganizationCapability,
-): ReadonlyArray<ReachScope> => reachesOf(authority, capability).map(({ scope }) => scope);
+export const reachScopes: {
+  (
+    capability: OrganizationCapability,
+  ): (authority: OrganizationPersonAuthority) => ReadonlyArray<ReachScope>;
+  (
+    authority: OrganizationPersonAuthority,
+    capability: OrganizationCapability,
+  ): ReadonlyArray<ReachScope>;
+} = dual(
+  2,
+  (
+    authority: OrganizationPersonAuthority,
+    capability: OrganizationCapability,
+  ): ReadonlyArray<ReachScope> => reachesOf(authority, capability).map(({ scope }) => scope),
+);
 
-export const reaches = (
-  authority: OrganizationPersonAuthority,
-  capability: OrganizationCapability,
-  target: ReachTarget,
-): boolean => reachScopes(authority, capability).some((scope) => scopeCovers(scope, target));
+export const reaches: {
+  (
+    capability: OrganizationCapability,
+    target: ReachTarget,
+  ): (authority: OrganizationPersonAuthority) => boolean;
+  (
+    authority: OrganizationPersonAuthority,
+    capability: OrganizationCapability,
+    target: ReachTarget,
+  ): boolean;
+} = dual(
+  3,
+  (
+    authority: OrganizationPersonAuthority,
+    capability: OrganizationCapability,
+    target: ReachTarget,
+  ): boolean => reachScopes(authority, capability).some((scope) => scopeCovers(scope, target)),
+);
 
 /** Type-only brand. No module exports a value of it, so only {@link requireDepartmentReach} builds the evidence. */
 declare const DepartmentReachBrand: unique symbol;
@@ -191,23 +231,46 @@ export class DepartmentReachDenied extends Data.TaggedError("DepartmentReachDeni
  *
  * @construct authority-evidence
  */
-export const requireDepartmentReach = <C extends OrganizationCapability>(
-  /** The person's authority, resolved from current facts inside the command transaction. */
-  authority: OrganizationPersonAuthority,
-  /** The capability that the command needs. */
-  capability: C,
-  /** The department that the command acts in. */
-  departmentId: DepartmentId,
-): /** Evidence for the department, or the typed denial. */
-Result.Result<DepartmentReach<C>, DepartmentReachDenied> =>
-  reaches(authority, capability, ReachTarget.Department({ departmentId }))
-    ? Result.succeed(
-        // SAFETY: the one constructor of the evidence brand; the reach check above is what it proves.
-        { personId: authority.personId, capability, departmentId } as DepartmentReach<C>,
-      )
-    : Result.fail(
-        new DepartmentReachDenied({ personId: authority.personId, capability, departmentId }),
-      );
+export const requireDepartmentReach: {
+  <C extends OrganizationCapability>(
+    /** The capability that the command needs. */
+    capability: C,
+    /** The department that the command acts in. */
+    departmentId: DepartmentId,
+  ): (
+    /** The person's authority, resolved from current facts inside the command transaction. */
+    authority: OrganizationPersonAuthority,
+  ) => /** Evidence for the department, or the typed denial. */
+  Result.Result<DepartmentReach<C>, DepartmentReachDenied>;
+  <C extends OrganizationCapability>(
+    /** The person's authority, resolved from current facts inside the command transaction. */
+    authority: OrganizationPersonAuthority,
+    /** The capability that the command needs. */
+    capability: C,
+    /** The department that the command acts in. */
+    departmentId: DepartmentId,
+  ): /** Evidence for the department, or the typed denial. */
+  Result.Result<DepartmentReach<C>, DepartmentReachDenied>;
+} = dual(
+  3,
+  <C extends OrganizationCapability>(
+    /** The person's authority, resolved from current facts inside the command transaction. */
+    authority: OrganizationPersonAuthority,
+    /** The capability that the command needs. */
+    capability: C,
+    /** The department that the command acts in. */
+    departmentId: DepartmentId,
+  ): /** Evidence for the department, or the typed denial. */
+  Result.Result<DepartmentReach<C>, DepartmentReachDenied> =>
+    reaches(authority, capability, ReachTarget.Department({ departmentId }))
+      ? Result.succeed(
+          // SAFETY: the one constructor of the evidence brand; the reach check above is what it proves.
+          { personId: authority.personId, capability, departmentId } as DepartmentReach<C>,
+        )
+      : Result.fail(
+          new DepartmentReachDenied({ personId: authority.personId, capability, departmentId }),
+        ),
+);
 
 /** The departments that the person reaches as a whole. */
 export type ReachedDepartments = Data.TaggedEnum<{
@@ -217,38 +280,57 @@ export type ReachedDepartments = Data.TaggedEnum<{
 
 export const ReachedDepartments = Data.taggedEnum<ReachedDepartments>();
 
-export const reachedDepartments = (
-  authority: OrganizationPersonAuthority,
-  capability: OrganizationCapability,
-): ReachedDepartments => {
-  const scopes = reachScopes(authority, capability);
+export const reachedDepartments: {
+  (
+    capability: OrganizationCapability,
+  ): (authority: OrganizationPersonAuthority) => ReachedDepartments;
+  (authority: OrganizationPersonAuthority, capability: OrganizationCapability): ReachedDepartments;
+} = dual(
+  2,
+  (
+    authority: OrganizationPersonAuthority,
+    capability: OrganizationCapability,
+  ): ReachedDepartments => {
+    const scopes = reachScopes(authority, capability);
 
-  if (scopes.some(ReachScope.$is("Organization"))) return ReachedDepartments.All();
+    if (scopes.some(ReachScope.$is("Organization"))) return ReachedDepartments.All();
 
-  const departmentIds = new Set<DepartmentId>();
+    const departmentIds = new Set<DepartmentId>();
 
-  for (const scope of scopes) {
-    if (ReachScope.$is("Department")(scope)) departmentIds.add(scope.departmentId);
-  }
+    for (const scope of scopes) {
+      if (ReachScope.$is("Department")(scope)) departmentIds.add(scope.departmentId);
+    }
 
-  return ReachedDepartments.Departments({
-    departmentIds: [...departmentIds].sort((left, right) => left.localeCompare(right)),
-  });
-};
+    return ReachedDepartments.Departments({
+      departmentIds: [...departmentIds].sort((left, right) => left.localeCompare(right)),
+    });
+  },
+);
 
 /** The teams that the person reaches through a team scope (a team leader's own team). */
-export const reachedTeams = (
-  authority: OrganizationPersonAuthority,
-  capability: OrganizationCapability,
-): ReadonlyArray<TeamId> => {
-  const teamIds = new Set<TeamId>();
+export const reachedTeams: {
+  (
+    capability: OrganizationCapability,
+  ): (authority: OrganizationPersonAuthority) => ReadonlyArray<TeamId>;
+  (
+    authority: OrganizationPersonAuthority,
+    capability: OrganizationCapability,
+  ): ReadonlyArray<TeamId>;
+} = dual(
+  2,
+  (
+    authority: OrganizationPersonAuthority,
+    capability: OrganizationCapability,
+  ): ReadonlyArray<TeamId> => {
+    const teamIds = new Set<TeamId>();
 
-  for (const scope of reachScopes(authority, capability)) {
-    if (ReachScope.$is("Team")(scope)) teamIds.add(scope.teamId);
-  }
+    for (const scope of reachScopes(authority, capability)) {
+      if (ReachScope.$is("Team")(scope)) teamIds.add(scope.teamId);
+    }
 
-  return [...teamIds].sort((left, right) => left.localeCompare(right));
-};
+    return [...teamIds].sort((left, right) => left.localeCompare(right));
+  },
+);
 
 /**
  * Whether a board leadership or a delegation gives the person a capability beyond a single team.
@@ -262,10 +344,14 @@ export const holdsDepartmentReach = (authority: OrganizationPersonAuthority): bo
   );
 
 /** Whether the person currently leads this unit (a team, or a department board). */
-export const leadsUnit = (authority: OrganizationPersonAuthority, teamId: TeamId): boolean =>
+export const leadsUnit: {
+  (teamId: TeamId): (authority: OrganizationPersonAuthority) => boolean;
+  (authority: OrganizationPersonAuthority, teamId: TeamId): boolean;
+} = dual(2, (authority: OrganizationPersonAuthority, teamId: TeamId): boolean =>
   authority.memberships.some(
     (membership) => membership.teamId === teamId && membership.active && membership.unitLeader,
-  );
+  ),
+);
 
 /** Whether the person currently leads an ordinary team. */
 export const leadsAnyTeam = (authority: OrganizationPersonAuthority): boolean =>
@@ -355,45 +441,56 @@ export interface GovernedDepartment {
  * An appointed seat comes before a derived seat, and a seat before the grant, so the certificate
  * names the seat. Anyone else, a team leader without such a seat included, has no basis.
  */
-export const certificateIssuerBasis = (
-  authority: OrganizationPersonAuthority,
-  department: GovernedDepartment,
-): Option.Option<IssuerBasis> => {
-  const appointed = department.independent
-    ? authority.memberships
-        .filter(
-          (membership) =>
-            membership.active &&
-            membership.unitKind === "DepartmentBoard" &&
-            membership.departmentId === department.departmentId,
-        )
-        .toSorted(byMembership)
-    : authority.nationalBoardSeats.filter((seat) => seat.active).toSorted(byMembership);
+export const certificateIssuerBasis: {
+  (
+    department: GovernedDepartment,
+  ): (authority: OrganizationPersonAuthority) => Option.Option<IssuerBasis>;
+  (
+    authority: OrganizationPersonAuthority,
+    department: GovernedDepartment,
+  ): Option.Option<IssuerBasis>;
+} = dual(
+  2,
+  (
+    authority: OrganizationPersonAuthority,
+    department: GovernedDepartment,
+  ): Option.Option<IssuerBasis> => {
+    const appointed = department.independent
+      ? authority.memberships
+          .filter(
+            (membership) =>
+              membership.active &&
+              membership.unitKind === "DepartmentBoard" &&
+              membership.departmentId === department.departmentId,
+          )
+          .toSorted(byMembership)
+      : authority.nationalBoardSeats.filter((seat) => seat.active).toSorted(byMembership);
 
-  const seat = appointed[0];
+    const seat = appointed[0];
 
-  if (seat !== undefined)
-    return Option.some(IssuerBasis.BoardSeat({ membershipId: seat.membershipId }));
+    if (seat !== undefined)
+      return Option.some(IssuerBasis.BoardSeat({ membershipId: seat.membershipId }));
 
-  const derived = derivedBoardSeats(
-    authority.memberships.map((membership) => ({ ...membership, personId: authority.personId })),
-  ).find((candidate) =>
-    SeatBoard.$match(candidate.board, {
-      DepartmentBoard: ({ departmentId }) =>
-        department.independent && departmentId === department.departmentId,
-      NationalBoard: () => !department.independent,
-    }),
-  );
-
-  if (derived !== undefined)
-    return Option.some(
-      IssuerBasis.DerivedSeat({
-        membershipId: derived.sourceMembershipId,
-        teamId: derived.sourceTeamId,
+    const derived = derivedBoardSeats(
+      authority.memberships.map((membership) => ({ ...membership, personId: authority.personId })),
+    ).find((candidate) =>
+      SeatBoard.$match(candidate.board, {
+        DepartmentBoard: ({ departmentId }) =>
+          department.independent && departmentId === department.departmentId,
+        NationalBoard: () => !department.independent,
       }),
     );
 
-  return authority.globalAdministrator === "Active"
-    ? Option.some(IssuerBasis.GlobalAdministrator())
-    : Option.none();
-};
+    if (derived !== undefined)
+      return Option.some(
+        IssuerBasis.DerivedSeat({
+          membershipId: derived.sourceMembershipId,
+          teamId: derived.sourceTeamId,
+        }),
+      );
+
+    return authority.globalAdministrator === "Active"
+      ? Option.some(IssuerBasis.GlobalAdministrator())
+      : Option.none();
+  },
+);

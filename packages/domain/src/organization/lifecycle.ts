@@ -1,4 +1,5 @@
 import { Match, Result, Schema } from "effect";
+import { dual } from "effect/Function";
 import { TeamScope, UnitKind } from "../authz/delegation.js";
 import { AccountAccess } from "../identity/access.js";
 import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
@@ -181,15 +182,26 @@ export class OrganizationLifecycleFailure extends Schema.TaggedError<Organizatio
 ) {}
 
 /** Temporal validity is derived; suspension is an independent persisted state. */
-export const appointmentStateAt = (
-  appointment: Pick<Appointment, "suspended" | "startAt" | "endAt">,
-  now: string,
-): Appointment["state"] =>
-  appointment.endAt !== null && compareRfc3339Instants(appointment.endAt, now) <= 0
-    ? "Ended"
-    : compareRfc3339Instants(appointment.startAt, now) > 0
-      ? "Future"
-      : "Current";
+export const appointmentStateAt: {
+  (
+    now: string,
+  ): (appointment: Pick<Appointment, "suspended" | "startAt" | "endAt">) => Appointment["state"];
+  (
+    appointment: Pick<Appointment, "suspended" | "startAt" | "endAt">,
+    now: string,
+  ): Appointment["state"];
+} = dual(
+  2,
+  (
+    appointment: Pick<Appointment, "suspended" | "startAt" | "endAt">,
+    now: string,
+  ): Appointment["state"] =>
+    appointment.endAt !== null && compareRfc3339Instants(appointment.endAt, now) <= 0
+      ? "Ended"
+      : compareRfc3339Instants(appointment.startAt, now) > 0
+        ? "Future"
+        : "Current",
+);
 
 export type AppointmentCommand = Exclude<
   OrganizationLifecycleCommand,
@@ -210,73 +222,92 @@ export class AppointmentTransitionFailure extends Schema.TaggedError<Appointment
 ) {}
 
 /** One exhaustive machine owns all appointment state transitions. */
-export const transitionAppointment = (
-  current: Appointment | undefined,
-  command: AppointmentCommand,
-  appointmentId: string,
-  now: string,
-): Result.Result<Appointment, AppointmentTransitionFailure> =>
-  Match.value(command).pipe(
-    Match.withReturnType<Result.Result<Appointment, AppointmentTransitionFailure>>(),
-    Match.tag("Appoint", (command) =>
-      current !== undefined
-        ? Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }))
-        : Result.succeed({
-            appointmentId,
-            personId: command.personId,
-            target: command.target,
-            position: command.position,
-            leadership: command.leadership,
-            startAt: command.startAt,
-            endAt: command.endAt,
-            suspended: false,
-            revision: 0,
-            state: "Future",
-          }),
-    ),
-    Match.orElse((command) => {
-      if (current === undefined)
-        return Result.fail(AppointmentTransitionFailure.make({ code: "NotFound" }));
+export const transitionAppointment: {
+  (
+    command: AppointmentCommand,
+    appointmentId: string,
+    now: string,
+  ): (current: Appointment | undefined) => Result.Result<Appointment, AppointmentTransitionFailure>;
+  (
+    current: Appointment | undefined,
+    command: AppointmentCommand,
+    appointmentId: string,
+    now: string,
+  ): Result.Result<Appointment, AppointmentTransitionFailure>;
+} = dual(
+  4,
+  (
+    current: Appointment | undefined,
+    command: AppointmentCommand,
+    appointmentId: string,
+    now: string,
+  ): Result.Result<Appointment, AppointmentTransitionFailure> =>
+    Match.value(command).pipe(
+      Match.withReturnType<Result.Result<Appointment, AppointmentTransitionFailure>>(),
+      Match.tag("Appoint", (command) =>
+        current !== undefined
+          ? Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }))
+          : Result.succeed({
+              appointmentId,
+              personId: command.personId,
+              target: command.target,
+              position: command.position,
+              leadership: command.leadership,
+              startAt: command.startAt,
+              endAt: command.endAt,
+              suspended: false,
+              revision: 0,
+              state: "Future",
+            }),
+      ),
+      Match.orElse((command) => {
+        if (current === undefined)
+          return Result.fail(AppointmentTransitionFailure.make({ code: "NotFound" }));
 
-      if (current.revision !== command.expectedRevision)
-        return Result.fail(AppointmentTransitionFailure.make({ code: "Stale" }));
+        if (current.revision !== command.expectedRevision)
+          return Result.fail(AppointmentTransitionFailure.make({ code: "Stale" }));
 
-      return Match.value(command).pipe(
-        Match.withReturnType<Result.Result<Appointment, AppointmentTransitionFailure>>(),
-        Match.tag("ReviseAppointment", (command) =>
-          Result.succeed({
-            ...current,
-            position: command.position,
-            leadership: command.leadership,
-            startAt: command.startAt,
-            endAt: command.endAt,
-            revision: current.revision + 1,
-          }),
-        ),
-        Match.tag("EndAppointment", (command) =>
-          current.endAt !== null && compareRfc3339Instants(current.endAt, now) <= 0
-            ? Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }))
-            : Result.succeed({ ...current, endAt: command.endAt, revision: current.revision + 1 }),
-        ),
-        Match.tag("SuspendAppointment", () =>
-          current.suspended
-            ? Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }))
-            : Result.succeed({ ...current, suspended: true, revision: current.revision + 1 }),
-        ),
-        Match.tag("ReinstateAppointment", () =>
-          !current.suspended
-            ? Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }))
-            : Result.succeed({ ...current, suspended: false, revision: current.revision + 1 }),
-        ),
-        Match.exhaustive,
-      );
-    }),
-    Result.flatMap((next) =>
-      next.endAt !== null && compareRfc3339Instants(next.endAt, next.startAt) <= 0
-        ? Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }))
-        : Result.succeed({ ...next, state: appointmentStateAt(next, now) }),
+        return Match.value(command).pipe(
+          Match.withReturnType<Result.Result<Appointment, AppointmentTransitionFailure>>(),
+          Match.tag("ReviseAppointment", (command) =>
+            Result.succeed({
+              ...current,
+              position: command.position,
+              leadership: command.leadership,
+              startAt: command.startAt,
+              endAt: command.endAt,
+              revision: current.revision + 1,
+            }),
+          ),
+          Match.tag("EndAppointment", (command) =>
+            current.endAt !== null && compareRfc3339Instants(current.endAt, now) <= 0
+              ? Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }))
+              : Result.succeed({
+                  ...current,
+                  endAt: command.endAt,
+                  revision: current.revision + 1,
+                }),
+          ),
+          Match.tag("SuspendAppointment", () =>
+            current.suspended
+              ? Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }))
+              : Result.succeed({ ...current, suspended: true, revision: current.revision + 1 }),
+          ),
+          Match.tag("ReinstateAppointment", () =>
+            !current.suspended
+              ? Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }))
+              : Result.succeed({ ...current, suspended: false, revision: current.revision + 1 }),
+          ),
+          Match.exhaustive,
+        );
+      }),
+      Result.flatMap((next) =>
+        next.endAt !== null && compareRfc3339Instants(next.endAt, next.startAt) <= 0
+          ? Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }))
+          : Result.succeed({ ...next, state: appointmentStateAt(next, now) }),
+      ),
     ),
-  );
+);
 
 type ClassifyTeamCommand = Extract<OrganizationLifecycleCommand, { readonly _tag: "ClassifyTeam" }>;
 
@@ -289,43 +320,71 @@ type RecogniseDepartmentCommand = Extract<
  * A department has at most one board, a board works for its own department, and a repeated
  * classification needs replay, not a new transition.
  */
-export const transitionTeamClassification = (
-  current: TeamClassification,
-  command: ClassifyTeamCommand,
-  anotherBoardInDepartment: boolean,
-): Result.Result<TeamClassification, AppointmentTransitionFailure> => {
-  if (current.revision !== command.expectedRevision)
-    return Result.fail(AppointmentTransitionFailure.make({ code: "Stale" }));
+export const transitionTeamClassification: {
+  (
+    command: ClassifyTeamCommand,
+    anotherBoardInDepartment: boolean,
+  ): (
+    current: TeamClassification,
+  ) => Result.Result<TeamClassification, AppointmentTransitionFailure>;
+  (
+    current: TeamClassification,
+    command: ClassifyTeamCommand,
+    anotherBoardInDepartment: boolean,
+  ): Result.Result<TeamClassification, AppointmentTransitionFailure>;
+} = dual(
+  3,
+  (
+    current: TeamClassification,
+    command: ClassifyTeamCommand,
+    anotherBoardInDepartment: boolean,
+  ): Result.Result<TeamClassification, AppointmentTransitionFailure> => {
+    if (current.revision !== command.expectedRevision)
+      return Result.fail(AppointmentTransitionFailure.make({ code: "Stale" }));
 
-  if (
-    (command.unitKind === "DepartmentBoard" &&
-      (command.teamScope === "National" || anotherBoardInDepartment)) ||
-    (command.unitKind === current.unitKind && command.teamScope === current.teamScope)
-  )
-    return Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }));
+    if (
+      (command.unitKind === "DepartmentBoard" &&
+        (command.teamScope === "National" || anotherBoardInDepartment)) ||
+      (command.unitKind === current.unitKind && command.teamScope === current.teamScope)
+    )
+      return Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }));
 
-  return Result.succeed({
-    ...current,
-    unitKind: command.unitKind,
-    teamScope: command.teamScope,
-    revision: current.revision + 1,
-  });
-};
+    return Result.succeed({
+      ...current,
+      unitKind: command.unitKind,
+      teamScope: command.teamScope,
+      revision: current.revision + 1,
+    });
+  },
+);
 
 /** Recognising or withdrawing independence; a repeated state needs replay. */
-export const transitionDepartmentRecognition = (
-  current: DepartmentRecognition,
-  command: RecogniseDepartmentCommand,
-): Result.Result<DepartmentRecognition, AppointmentTransitionFailure> => {
-  if (current.revision !== command.expectedRevision)
-    return Result.fail(AppointmentTransitionFailure.make({ code: "Stale" }));
+export const transitionDepartmentRecognition: {
+  (
+    command: RecogniseDepartmentCommand,
+  ): (
+    current: DepartmentRecognition,
+  ) => Result.Result<DepartmentRecognition, AppointmentTransitionFailure>;
+  (
+    current: DepartmentRecognition,
+    command: RecogniseDepartmentCommand,
+  ): Result.Result<DepartmentRecognition, AppointmentTransitionFailure>;
+} = dual(
+  2,
+  (
+    current: DepartmentRecognition,
+    command: RecogniseDepartmentCommand,
+  ): Result.Result<DepartmentRecognition, AppointmentTransitionFailure> => {
+    if (current.revision !== command.expectedRevision)
+      return Result.fail(AppointmentTransitionFailure.make({ code: "Stale" }));
 
-  if (command.independent === current.independent)
-    return Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }));
+    if (command.independent === current.independent)
+      return Result.fail(AppointmentTransitionFailure.make({ code: "Invalid" }));
 
-  return Result.succeed({
-    ...current,
-    independent: command.independent,
-    revision: current.revision + 1,
-  });
-};
+    return Result.succeed({
+      ...current,
+      independent: command.independent,
+      revision: current.revision + 1,
+    });
+  },
+);

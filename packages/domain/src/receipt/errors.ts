@@ -1,4 +1,5 @@
 import { Match, Schema } from "effect";
+import { dual } from "effect/Function";
 import type { DecisionReason } from "../authz/decision.js";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { Rfc3339InstantSchema } from "../time.js";
@@ -114,18 +115,31 @@ export class FailedComposedRequirement extends Schema.TaggedError<FailedComposed
  * failures. Tests may call this helper with typed stub Decisions; doing so
  * does not declare parameter or requirement effects in the persisted registry.
  */
-export const receiptCompositionFailure = (
-  reason: DecisionReason,
-  personId: PersonId,
-  capabilityId: ReceiptComposedCapability,
-): AmbiguousParameterFill | FailedComposedRequirement | undefined =>
-  Match.value(reason).pipe(
-    Match.when("Ambiguous", () => AmbiguousParameterFill.make({ personId, capabilityId })),
-    Match.when("RequirementFailed", () =>
-      FailedComposedRequirement.make({ personId, capabilityId }),
+export const receiptCompositionFailure: {
+  (
+    personId: PersonId,
+    capabilityId: ReceiptComposedCapability,
+  ): (reason: DecisionReason) => AmbiguousParameterFill | FailedComposedRequirement | undefined;
+  (
+    reason: DecisionReason,
+    personId: PersonId,
+    capabilityId: ReceiptComposedCapability,
+  ): AmbiguousParameterFill | FailedComposedRequirement | undefined;
+} = dual(
+  3,
+  (
+    reason: DecisionReason,
+    personId: PersonId,
+    capabilityId: ReceiptComposedCapability,
+  ): AmbiguousParameterFill | FailedComposedRequirement | undefined =>
+    Match.value(reason).pipe(
+      Match.when("Ambiguous", () => AmbiguousParameterFill.make({ personId, capabilityId })),
+      Match.when("RequirementFailed", () =>
+        FailedComposedRequirement.make({ personId, capabilityId }),
+      ),
+      Match.orElse(() => undefined),
     ),
-    Match.orElse(() => undefined),
-  );
+);
 
 export const ReceiptAuthorityOperationSchema = Schema.Literals([
   "Submission",

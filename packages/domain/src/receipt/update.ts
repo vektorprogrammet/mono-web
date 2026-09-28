@@ -1,4 +1,5 @@
 import { Data, Match, flow, Predicate, Effect, Schema, Struct } from "effect";
+import { dual } from "effect/Function";
 import { DepartmentId } from "../organization/schema.js";
 import {
   InactiveActor,
@@ -380,15 +381,28 @@ const decodeReceiptDecisionContext = flow(
   Effect.mapError((cause) => ReceiptDecodeError.make({ message: String(cause) })),
 );
 
-export const decideReceipt = (
-  existing: Receipt | undefined,
-  input: Schema.Json,
-  context: ReceiptDecisionContext,
-): Effect.Effect<ReceiptDecision, ReceiptFailure> =>
-  decodeReceiptCommand(input).pipe(
-    Effect.flatMap((command) =>
-      decodeReceiptDecisionContext(context).pipe(
-        Effect.flatMap((decodedContext) => decideCommand(existing, command, decodedContext)),
+export const decideReceipt: {
+  (
+    input: Schema.Json,
+    context: ReceiptDecisionContext,
+  ): (existing: Receipt | undefined) => Effect.Effect<ReceiptDecision, ReceiptFailure>;
+  (
+    existing: Receipt | undefined,
+    input: Schema.Json,
+    context: ReceiptDecisionContext,
+  ): Effect.Effect<ReceiptDecision, ReceiptFailure>;
+} = dual(
+  3,
+  (
+    existing: Receipt | undefined,
+    input: Schema.Json,
+    context: ReceiptDecisionContext,
+  ): Effect.Effect<ReceiptDecision, ReceiptFailure> =>
+    decodeReceiptCommand(input).pipe(
+      Effect.flatMap((command) =>
+        decodeReceiptDecisionContext(context).pipe(
+          Effect.flatMap((decodedContext) => decideCommand(existing, command, decodedContext)),
+        ),
       ),
     ),
-  );
+);

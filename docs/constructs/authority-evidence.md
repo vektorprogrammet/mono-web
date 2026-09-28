@@ -9,22 +9,15 @@ Checks a resolved authority and returns the evidence that a command which needs 
 Checks that a resolved authority reaches one department with a capability, and returns the evidence that a department-scoped command requires.
 
 ```ts
-requireDepartmentReach<C extends OrganizationCapability>(
-  authority: OrganizationPersonAuthority,
-  capability: C,
-  departmentId: DepartmentId
-): Result.Result<DepartmentReach<C>, DepartmentReachDenied>
+const requireDepartmentReach: { <C extends OrganizationCapability>(capability: C, departmentId: DepartmentId): (authority: OrganizationPersonAuthority) => Result.Result<DepartmentReach<C>, DepartmentReachDenied>; <C extends OrganizationCapability>(authority: OrganizationPersonAuthority, capability: C, departmentId: DepartmentId): Result.Result<DepartmentReach<C>, DepartmentReachDenied> }
 ```
 
-- Inputs:
-  - `authority: OrganizationPersonAuthority`
-  - `capability: C`
-  - `departmentId: DepartmentId`
-- Output: `Result.Result<DepartmentReach<C>, DepartmentReachDenied>`
-- Errors: `DepartmentReachDenied`
+- Inputs: none
+- Output: `{ <C extends OrganizationCapability>(capability: C, departmentId: DepartmentId): (authority: OrganizationPersonAuthority) => Result.Result<DepartmentReach<C>, DepartmentReachDenied>; <C extends OrganizationCapability>(authority: OrganizationPersonAuthority, capability: C, departmentId: DepartmentId): Result.Result<DepartmentReach<C>, DepartmentReachDenied> }`
+- Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/domain/src/authz/reach.ts:194](../../packages/domain/src/authz/reach.ts#L194)
+- Source: [packages/domain/src/authz/reach.ts:234](../../packages/domain/src/authz/reach.ts#L234)
 
 **How it works**
 
@@ -63,7 +56,7 @@ requireOrganizationAdministrator(
 - Errors: `OrganizationRoleDenied`
 - Requirements: none
 - Side effects: none
-- Source: [packages/domain/src/organization/authority.ts:271](../../packages/domain/src/organization/authority.ts#L271)
+- Source: [packages/domain/src/organization/authority.ts:285](../../packages/domain/src/organization/authority.ts#L285)
 
 **How it works**
 
@@ -90,20 +83,15 @@ require the evidence here.
 Checks what team interest a resolved authority may read, narrowed to one requested department, and returns the scope that the listing requires.
 
 ```ts
-requireTeamInterestScope(
-  authority: OrganizationPersonAuthority,
-  input: { readonly requested: DepartmentId | undefined; readonly departments: ReadonlyArray<DepartmentId> }
-): Result.Result<TeamInterestReadScope, TeamInterestScopeDenied>
+const requireTeamInterestScope: { (input: { readonly requested: DepartmentId | undefined; readonly departments: ReadonlyArray<DepartmentId> }): (authority: OrganizationPersonAuthority) => Result.Result<TeamInterestReadScope, TeamInterestScopeDenied>; (authority: OrganizationPersonAuthority, input: { readonly requested: DepartmentId | undefined; readonly departments: ReadonlyArray<DepartmentId> }): Result.Result<TeamInterestReadScope, TeamInterestScopeDenied> }
 ```
 
-- Inputs:
-  - `authority: OrganizationPersonAuthority`
-  - `input: { readonly requested: DepartmentId | undefined; readonly departments: ReadonlyArray<DepartmentId> }`
-- Output: `Result.Result<TeamInterestReadScope, TeamInterestScopeDenied>`
-- Errors: `TeamInterestScopeDenied`
+- Inputs: none
+- Output: `{ (input: { readonly requested: DepartmentId | undefined; readonly departments: ReadonlyArray<DepartmentId> }): (authority: OrganizationPersonAuthority) => Result.Result<TeamInterestReadScope, TeamInterestScopeDenied>; (authority: OrganizationPersonAuthority, input: { readonly requested: DepartmentId | undefined; readonly departments: ReadonlyArray<DepartmentId> }): Result.Result<TeamInterestReadScope, TeamInterestScopeDenied> }`
+- Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/domain/src/organization/authority.ts:366](../../packages/domain/src/organization/authority.ts#L366)
+- Source: [packages/domain/src/organization/authority.ts:380](../../packages/domain/src/organization/authority.ts#L380)
 
 **How it works**
 

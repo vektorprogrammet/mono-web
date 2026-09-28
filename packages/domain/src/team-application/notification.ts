@@ -1,4 +1,5 @@
 import { Data, Schema } from "effect";
+import { dual } from "effect/Function";
 import { ContactEmail } from "../contact/schema.js";
 import { TeamId } from "../organization/schema.js";
 import { TeamApplicationCommandId, TeamApplicationId, type TeamApplication } from "./schema.js";
@@ -42,74 +43,91 @@ export interface TeamApplicationNotification {
  * Renders the applicant receipt and the team notification. The receipt replies to
  * the team mailbox; the team notification replies to the applicant.
  */
-export const teamApplicationNotifications = (
-  commandId: TeamApplicationCommandId,
-  application: TeamApplication,
-  teamName: string,
-  teamMailbox: typeof ContactEmail.Type,
-): readonly [TeamApplicationNotification, TeamApplicationNotification] => {
-  const team = teamName.replace(/\p{Cc}+/gu, " ");
+export const teamApplicationNotifications: {
+  (
+    application: TeamApplication,
+    teamName: string,
+    teamMailbox: typeof ContactEmail.Type,
+  ): (
+    commandId: TeamApplicationCommandId,
+  ) => readonly [TeamApplicationNotification, TeamApplicationNotification];
+  (
+    commandId: TeamApplicationCommandId,
+    application: TeamApplication,
+    teamName: string,
+    teamMailbox: typeof ContactEmail.Type,
+  ): readonly [TeamApplicationNotification, TeamApplicationNotification];
+} = dual(
+  4,
+  (
+    commandId: TeamApplicationCommandId,
+    application: TeamApplication,
+    teamName: string,
+    teamMailbox: typeof ContactEmail.Type,
+  ): readonly [TeamApplicationNotification, TeamApplicationNotification] => {
+    const team = teamName.replace(/\p{Cc}+/gu, " ");
 
-  const identity = {
-    commandId,
-    teamId: application.teamId,
-    applicationId: application.applicationId,
-  };
+    const identity = {
+      commandId,
+      teamId: application.teamId,
+      applicationId: application.applicationId,
+    };
 
-  const receiptId = `${commandId}:SendTeamApplicationReceipt`;
-  const notificationId = `${commandId}:NotifyTeamOfApplication`;
+    const receiptId = `${commandId}:SendTeamApplicationReceipt`;
+    const notificationId = `${commandId}:NotifyTeamOfApplication`;
 
-  return [
-    {
-      request: TeamApplicationOutboxRequest.cases.SendTeamApplicationReceipt.make({
-        ...identity,
-        effectId: receiptId,
-      }),
-      envelope: {
-        deliveryId: receiptId,
-        recipient: application.email,
-        replyTo: teamMailbox,
-        subject: `Søknad til ${team} mottatt`,
-        text: [
-          "Vi har mottatt søknaden din på vektorprogrammet.no.",
-          "Leder i teamet vil ta kontakt med deg snart.",
-          "",
-          "Vi gleder oss til å møte deg!",
-          `Vennlig hilsen ${team}, Vektorprogrammet`,
-        ].join("\n"),
+    return [
+      {
+        request: TeamApplicationOutboxRequest.cases.SendTeamApplicationReceipt.make({
+          ...identity,
+          effectId: receiptId,
+        }),
+        envelope: {
+          deliveryId: receiptId,
+          recipient: application.email,
+          replyTo: teamMailbox,
+          subject: `Søknad til ${team} mottatt`,
+          text: [
+            "Vi har mottatt søknaden din på vektorprogrammet.no.",
+            "Leder i teamet vil ta kontakt med deg snart.",
+            "",
+            "Vi gleder oss til å møte deg!",
+            `Vennlig hilsen ${team}, Vektorprogrammet`,
+          ].join("\n"),
+        },
       },
-    },
-    {
-      request: TeamApplicationOutboxRequest.cases.NotifyTeamOfApplication.make({
-        ...identity,
-        effectId: notificationId,
-      }),
-      envelope: {
-        deliveryId: notificationId,
-        recipient: teamMailbox,
-        replyTo: application.email,
-        subject: `Ny søker til ${team}`,
-        text: [
-          "Dere har fått en ny søker.",
-          "",
-          `Navn: ${application.name}`,
-          `E-post: ${application.email}`,
-          `Telefon: ${application.phone}`,
-          `Studieår: ${application.yearOfStudy}`,
-          `Linje: ${application.fieldOfStudy}`,
-          "",
-          "Om søkeren:",
-          application.biography,
-          "",
-          "Motivasjon:",
-          application.motivation,
-          "",
-          "Se søknaden i kontrollpanelet.",
-        ].join("\n"),
+      {
+        request: TeamApplicationOutboxRequest.cases.NotifyTeamOfApplication.make({
+          ...identity,
+          effectId: notificationId,
+        }),
+        envelope: {
+          deliveryId: notificationId,
+          recipient: teamMailbox,
+          replyTo: application.email,
+          subject: `Ny søker til ${team}`,
+          text: [
+            "Dere har fått en ny søker.",
+            "",
+            `Navn: ${application.name}`,
+            `E-post: ${application.email}`,
+            `Telefon: ${application.phone}`,
+            `Studieår: ${application.yearOfStudy}`,
+            `Linje: ${application.fieldOfStudy}`,
+            "",
+            "Om søkeren:",
+            application.biography,
+            "",
+            "Motivasjon:",
+            application.motivation,
+            "",
+            "Se søknaden i kontrollpanelet.",
+          ].join("\n"),
+        },
       },
-    },
-  ];
-};
+    ];
+  },
+);
 
 export type TeamApplicationOutboxDelivery = Data.TaggedEnum<{
   /** No notification was taken within the wait. */

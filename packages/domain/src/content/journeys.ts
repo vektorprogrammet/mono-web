@@ -13,8 +13,9 @@ import type {
   UnpublishArticleInput,
 } from "./schema.js";
 import { ContentManagement } from "./service.js";
+import { dual } from "effect/Function";
 
-export const runContentWorkspace = (
+const runContentWorkspaceImpl = (
   personId: PersonId,
   authorizationInstant: OrganizationAuthorityInstant,
   query: ContentWorkspaceQuery,
@@ -27,7 +28,19 @@ export const runContentWorkspace = (
     return yield* content.readWorkspace({ personId, authorizationInstant }, query);
   });
 
-export const runContentArticleDetail = (
+export const runContentWorkspace: {
+  (
+    authorizationInstant: OrganizationAuthorityInstant,
+    query: ContentWorkspaceQuery,
+  ): (personId: PersonId) => ReturnType<typeof runContentWorkspaceImpl>;
+  (
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+    query: ContentWorkspaceQuery,
+  ): ReturnType<typeof runContentWorkspaceImpl>;
+} = dual(3, runContentWorkspaceImpl);
+
+const runContentArticleDetailImpl = (
   personId: PersonId,
   authorizationInstant: OrganizationAuthorityInstant,
   articleId: ArticleId,
@@ -40,13 +53,25 @@ export const runContentArticleDetail = (
     return yield* content.readArticleDetail(articleId, { personId, authorizationInstant });
   });
 
+export const runContentArticleDetail: {
+  (
+    authorizationInstant: OrganizationAuthorityInstant,
+    articleId: ArticleId,
+  ): (personId: PersonId) => ReturnType<typeof runContentArticleDetailImpl>;
+  (
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+    articleId: ArticleId,
+  ): ReturnType<typeof runContentArticleDetailImpl>;
+} = dual(3, runContentArticleDetailImpl);
+
 export type ContentManagementCommand =
   | { readonly _tag: "CreateDraft"; readonly command: CreateArticleDraftInput }
   | { readonly _tag: "ReviseDraft"; readonly command: ReviseArticleDraftInput }
   | { readonly _tag: "Publish"; readonly command: PublishArticleInput }
   | { readonly _tag: "Unpublish"; readonly command: UnpublishArticleInput };
 
-export const runPublicationTransition = (
+const runPublicationTransitionImpl = (
   personId: PersonId,
   authorizationInstant: OrganizationAuthorityInstant,
   input: ContentManagementCommand,
@@ -64,6 +89,18 @@ export const runPublicationTransition = (
       Match.exhaustive,
     );
   });
+
+export const runPublicationTransition: {
+  (
+    authorizationInstant: OrganizationAuthorityInstant,
+    input: ContentManagementCommand,
+  ): (personId: PersonId) => ReturnType<typeof runPublicationTransitionImpl>;
+  (
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+    input: ContentManagementCommand,
+  ): ReturnType<typeof runPublicationTransitionImpl>;
+} = dual(3, runPublicationTransitionImpl);
 
 export type PublicNewsRead =
   | {

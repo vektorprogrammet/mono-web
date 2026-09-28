@@ -1,4 +1,5 @@
 import { flow, Option, Predicate, Result, Schema } from "effect";
+import { dual } from "effect/Function";
 import { normalizeRfc3339Instant } from "../time.js";
 import { canonicalJson } from "../shared-kernel/index.js";
 import {
@@ -110,59 +111,62 @@ const uniqueNamedRows = (rows: ReadonlyArray<Schema.Json>) => {
   return valid.filter((row) => counts.get(row.id) === 1);
 };
 
-export const organizationOccurrenceSourceDigest = (
-  snapshot: ReviewedOrganizationSnapshot,
-  occurrence: OrganizationSourceOccurrence,
-): string => {
-  const row = rawObject(occurrence.row);
+export const organizationOccurrenceSourceDigest: {
+  (occurrence: OrganizationSourceOccurrence): (snapshot: ReviewedOrganizationSnapshot) => string;
+  (snapshot: ReviewedOrganizationSnapshot, occurrence: OrganizationSourceOccurrence): string;
+} = dual(
+  2,
+  (snapshot: ReviewedOrganizationSnapshot, occurrence: OrganizationSourceOccurrence): string => {
+    const row = rawObject(occurrence.row);
 
-  const unit =
-    (occurrence.sourceKind === "TeamMembership" ? snapshot.teams : snapshot.boards).find(
-      (raw) =>
-        idText(rawObject(raw).id) ===
-        idText(occurrence.sourceKind === "TeamMembership" ? row.teamId : row.boardId),
-    ) ?? null;
+    const unit =
+      (occurrence.sourceKind === "TeamMembership" ? snapshot.teams : snapshot.boards).find(
+        (raw) =>
+          idText(rawObject(raw).id) ===
+          idText(occurrence.sourceKind === "TeamMembership" ? row.teamId : row.boardId),
+      ) ?? null;
 
-  const position =
-    occurrence.sourceKind === "TeamMembership" && row.positionId != null
-      ? (snapshot.positions.find((raw) => idText(rawObject(raw).id) === idText(row.positionId)) ??
-        null)
-      : null;
+    const position =
+      occurrence.sourceKind === "TeamMembership" && row.positionId != null
+        ? (snapshot.positions.find((raw) => idText(rawObject(raw).id) === idText(row.positionId)) ??
+          null)
+        : null;
 
-  const personMapping =
-    snapshot.mappings.persons.find(
-      (mapping) => mapping.sourceUserId === `legacy-user:${idText(row.userId)}`,
-    ) ?? null;
+    const personMapping =
+      snapshot.mappings.persons.find(
+        (mapping) => mapping.sourceUserId === `legacy-user:${idText(row.userId)}`,
+      ) ?? null;
 
-  const departmentMapping =
-    snapshot.mappings.departments.find(
-      (mapping) =>
-        mapping.sourceDepartmentId === `legacy-department:${idText(rawObject(unit).departmentId)}`,
-    ) ?? null;
+    const departmentMapping =
+      snapshot.mappings.departments.find(
+        (mapping) =>
+          mapping.sourceDepartmentId ===
+          `legacy-department:${idText(rawObject(unit).departmentId)}`,
+      ) ?? null;
 
-  return organizationEvidenceDigest({
-    sourceKind: occurrence.sourceKind,
-    sourceId: occurrence.sourceId,
-    row: occurrence.row,
-    sourceRowDigest: occurrence.sourceRowDigest,
-    review:
-      snapshot.review.memberships.find(
-        (review) =>
-          review.sourceKind === occurrence.sourceKind && review.sourceId === occurrence.sourceId,
-      ) ?? null,
-    asOf: snapshot.review.asOf,
-    attestedBy: snapshot.review.attestedBy,
-    evidenceRef: snapshot.review.evidenceRef,
-    transformationRevision: snapshot.transformationRevision,
-    personMapping,
-    departmentMapping,
-    unit,
-    position,
-  });
-};
+    return organizationEvidenceDigest({
+      sourceKind: occurrence.sourceKind,
+      sourceId: occurrence.sourceId,
+      row: occurrence.row,
+      sourceRowDigest: occurrence.sourceRowDigest,
+      review:
+        snapshot.review.memberships.find(
+          (review) =>
+            review.sourceKind === occurrence.sourceKind && review.sourceId === occurrence.sourceId,
+        ) ?? null,
+      asOf: snapshot.review.asOf,
+      attestedBy: snapshot.review.attestedBy,
+      evidenceRef: snapshot.review.evidenceRef,
+      transformationRevision: snapshot.transformationRevision,
+      personMapping,
+      departmentMapping,
+      unit,
+      position,
+    });
+  },
+);
 
-/** Accepted identity evidence is resolved before the shared classifier sees any membership. */
-export const classifyReviewedOrganization = (
+const classifyReviewedOrganizationImpl = (
   snapshot: ReviewedOrganizationSnapshot,
   acceptedPersons: Readonly<Record<string, string>>,
   departments: ReadonlyArray<LegacyDepartmentRow>,
@@ -441,3 +445,18 @@ export const classifyReviewedOrganization = (
     ),
   };
 };
+
+/** Accepted identity evidence is resolved before the shared classifier sees any membership. */
+export const classifyReviewedOrganization: {
+  (
+    acceptedPersons: Readonly<Record<string, string>>,
+    departments: ReadonlyArray<LegacyDepartmentRow>,
+  ): (
+    snapshot: ReviewedOrganizationSnapshot,
+  ) => ReturnType<typeof classifyReviewedOrganizationImpl>;
+  (
+    snapshot: ReviewedOrganizationSnapshot,
+    acceptedPersons: Readonly<Record<string, string>>,
+    departments: ReadonlyArray<LegacyDepartmentRow>,
+  ): ReturnType<typeof classifyReviewedOrganizationImpl>;
+} = dual(3, classifyReviewedOrganizationImpl);
