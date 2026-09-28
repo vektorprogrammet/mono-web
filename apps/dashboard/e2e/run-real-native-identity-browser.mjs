@@ -300,7 +300,7 @@ const startRecordingBoundary = async (targetOrigin) => {
         request: findAuthorityData(requestBytes.toString("utf8")),
         response: [],
       },
-      legacyOrProvider: !isNativeRequest(method, target.pathname),
+      legacyOrProvider: !isNativeRequest(method, target.pathname, requestBytes.toString("utf8")),
       status: 0,
       durationMs: 0,
       responseByteLength: 0,

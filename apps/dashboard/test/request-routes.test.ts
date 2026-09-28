@@ -1,21 +1,51 @@
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { isNativeOperation, isNativeRequest } from "../e2e/native-operations.ts";
+import { isNativeOperation, isNativeRequest, nativeRpcTag } from "../e2e/native-operations.ts";
 import { addressesRoute } from "../e2e/request-routes.ts";
 
-/** Better Auth session identifier from hosted run 36224459581; its "jwT" is random. */
-const hostedRunSessionId = "wm97nHEWTDO8UArCXrVpni919bgIjwTB";
+/** The RPC request message that the client posts for one RPC. */
+const RpcRequest = Schema.TaggedStruct("Request", {
+  id: Schema.Finite,
+  tag: Schema.String,
+  payload: Schema.Json,
+  headers: Schema.Array(Schema.Tuple([Schema.String, Schema.String])),
+});
+
+const Ack = Schema.TaggedStruct("Ack", { requestId: Schema.Finite });
+
+const rpcBody = (tag: string, payload: Schema.Json = {}) =>
+  Schema.encodeSync(Schema.fromJsonString(RpcRequest))(
+    RpcRequest.make({ id: 0, tag, payload, headers: [] }),
+  );
 
 describe("journey request route classification", () => {
-  it("keeps a native request native whatever random value fills its path parameter", () => {
-    expect(isNativeRequest("DELETE", `/api/sessions/${hostedRunSessionId}`)).toBe(true);
-    expect(isNativeRequest("DELETE", "/api/sessions/reset-token-jwt-verification")).toBe(true);
+  it("keeps an RPC of the contract native, whatever its payload holds", () => {
+    const sessionId = "wm97nHEWTDO8UArCXrVpni919bgIjwTB";
+    const body = rpcBody("system.deleteOwnedSession", { idempotencyKey: "k", sessionId });
+
+    expect(isNativeRequest("POST", "/api/rpc", body)).toBe(true);
+    expect(isNativeRequest("POST", "/api/rpc/", body)).toBe(true);
+    expect(isNativeRequest("POST", "/api/rpc")).toBe(true);
+    expect(isNativeRequest("GET", "/health")).toBe(true);
   });
 
-  it("matches the method, the literal text beside a parameter, and one whole segment", () => {
-    expect(isNativeOperation("POST", "/api/receipts/receipt_1:approve")).toBe(true);
-    expect(isNativeOperation("GET", `/api/sessions/${hostedRunSessionId}`)).toBe(false);
-    expect(isNativeOperation("POST", "/api/receipts/receipt_1:approved")).toBe(false);
-    expect(isNativeOperation("DELETE", `/api/sessions/${hostedRunSessionId}/extra`)).toBe(false);
+  it("matches the method, the whole endpoint path, and a tag of the contract", () => {
+    expect(isNativeOperation("POST", "/api/rpc", rpcBody("profile.readOwnProfile"))).toBe(true);
+    expect(isNativeOperation("GET", "/api/rpc", rpcBody("profile.readOwnProfile"))).toBe(false);
+    expect(isNativeOperation("POST", "/api/rpcs", rpcBody("profile.readOwnProfile"))).toBe(false);
+    expect(isNativeOperation("POST", "/api/rpc/extra", rpcBody("profile.readOwnProfile"))).toBe(
+      false,
+    );
+    expect(isNativeOperation("POST", "/api/rpc", rpcBody("legacy.login"))).toBe(false);
+    expect(isNativeOperation("POST", "/api/rpc", "not json")).toBe(false);
+    expect(isNativeOperation("POST", "/api/session")).toBe(false);
+  });
+
+  it("reads the RPC tag from the request body", () => {
+    expect(nativeRpcTag(rpcBody("system.readSession"))).toBe("system.readSession");
+    const ack = Schema.encodeSync(Schema.fromJsonString(Ack))(Ack.make({ requestId: 0 }));
+
+    expect(nativeRpcTag(ack)).toBeUndefined();
   });
 
   it("keeps the email sign-in and leaves the native surface for every other identity route", () => {
