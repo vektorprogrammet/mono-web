@@ -133,7 +133,19 @@ with the reason in Missing capabilities.
 
 | RPC tag | Replaces | Transport facts | Credentials | Status |
 | --- | --- | --- | --- | --- |
-| `contact.submitContactMessage` | POST `/api/contact-messages` | contact ip header | contactBackend | todo |
+| `contact.submitContactMessage` | POST `/api/contact-messages` | contact ip header | contactBackend | ported |
+
+Notes (contact):
+
+- The visitor address still travels in the `x-vektor-contact-ip` header, now as a header of the RPC
+  message beside the deployment secret; the handler decodes it and answers `header.malformed` for a
+  noncanonical address, before quota. The per-visitor quota (five attempts per fixed hour) is kept.
+- A message that fails the `ContactMessage` schema no longer answers `validation.failed`: the RPC
+  server fails the request as a defect before the handler, and no quota is consumed. The homepage
+  decodes the form with the same schema first, so its form still shows its own message.
+- An extra member, such as an injected `to`, is stripped by the payload decoding instead of rejected;
+  the recipient stays the department's address. `request.too-large` (64 KiB body limit) is gone.
+- `rate-limit.exceeded` no longer carries `Retry-After`; success answers no value instead of 201.
 
 ### content (`packages/rpc/src/content.ts`)
 
@@ -208,8 +220,23 @@ with the reason in Missing capabilities.
 
 | RPC tag | Replaces | Transport facts | Credentials | Status |
 | --- | --- | --- | --- | --- |
-| `profile.readOwnProfile` | GET `/api/profile` | ifMatch; if-none-match (dropped) | cookieHeader, oauthUserBearer | todo |
-| `profile.updateOwnProfile` | PATCH `/api/profile` | idempotencyKey; ifMatch; merge patch | cookieHeader, oauthUserBearer | todo |
+| `profile.readOwnProfile` | GET `/api/profile` | ifMatch; if-none-match (dropped) | cookieHeader, oauthUserBearer | ported |
+| `profile.updateOwnProfile` | PATCH `/api/profile` | idempotencyKey; ifMatch; merge patch | cookieHeader, oauthUserBearer | ported |
+
+Notes (profile):
+
+- Both RPCs answer `OwnProfileResource`, the profile beside its strong entity tag, which
+  `profile.updateOwnProfile` takes as `ifMatch`. The read drops `If-None-Match`/304 and also the
+  read-side `If-Match` (412 on a GET); no client sent either.
+- The merge patch is the `request` field (`ProfileMergePatch`): an absent member keeps its value, no
+  member answers `validation.no-change`, a `null` member `validation.field-not-deletable`, as before.
+  A patch value that fails its field schema, or an unknown member, no longer answers
+  `validation.failed` with the whole request: the RPC server fails the payload as a defect, and an
+  unknown member is stripped. The dashboard decodes the form with the same fields first and never
+  showed server field pointers.
+- The update's command receipt keeps the HTTP capsule byte for byte (profile JSON body, `etag`
+  header), so a retry that straddles the cutover replays its first answer; `commandOutcome` is not
+  used because the success schema is not the stored body.
 
 ### receipts (`packages/rpc/src/receipts.ts`)
 
@@ -262,13 +289,25 @@ with the reason in Missing capabilities.
 
 | RPC tag | Replaces | Transport facts | Credentials | Status |
 | --- | --- | --- | --- | --- |
-| `system.deleteOwnedSession` | DELETE `/api/sessions/{sessionId}` | idempotencyKey | cookieHeader | todo |
-| `system.deleteSession` | DELETE `/api/session` | idempotencyKey | cookieHeader | todo |
-| `system.health` | GET `/health` | - | none | todo |
-| `system.listSessions` | GET `/api/sessions` | - | cookieHeader | todo |
-| `system.readSession` | GET `/api/session` | - | cookieHeader | todo |
-| `system.revokeAllSessions` | POST `/api/sessions:revoke-all` | idempotencyKey | cookieHeader | todo |
-| `system.revokeOtherSessions` | POST `/api/sessions:revoke-others` | idempotencyKey | cookieHeader | todo |
+| `system.deleteOwnedSession` | DELETE `/api/sessions/{sessionId}` | idempotencyKey | cookieHeader | ported |
+| `system.deleteSession` | DELETE `/api/session` | idempotencyKey | cookieHeader | ported |
+| `system.health` | GET `/health` | - | none | dropped |
+| `system.listSessions` | GET `/api/sessions` | - | cookieHeader | ported |
+| `system.readSession` | GET `/api/session` | - | cookieHeader | ported |
+| `system.revokeAllSessions` | POST `/api/sessions:revoke-all` | idempotencyKey | cookieHeader | ported |
+| `system.revokeOtherSessions` | POST `/api/sessions:revoke-others` | idempotencyKey | cookieHeader | ported |
+
+Notes (system):
+
+- `system.health` is dropped as an RPC: `router.ts` serves `GET /health` as plain HTTP, because
+  infrastructure probes it.
+- The session commands answer no value instead of 204. Their receipts keep the HTTP no-content
+  capsule, so a retry that straddles the cutover replays; `normalizedTarget` stays the old path,
+  including the handler's own `/api/sessions::revoke-others` and `/api/sessions::revoke-all`.
+- The audit context of a revocation (correlation, source IP, user agent) is read from the RPC
+  `headers`, which merge the headers of the RPC message over the HTTP headers: a caller can set
+  `cf-connecting-ip`, `user-agent`, and `x-vektorprogrammet-request-correlation` in the message.
+  The HTTP ingress set the correlation header; the RPC message now overrides it (lead: see hand-back).
 
 ### team-applications (`packages/rpc/src/team-application.ts`)
 
