@@ -13,15 +13,16 @@ import {
 } from "@/lib/receipt-view";
 import {
   IdempotencyKey,
+  ReceiptCursor,
   ReceiptId,
   RecordReceiptSettlementRequest,
   StrongETag,
   type IdempotencyKey as IdempotencyKeyValue,
   type StrongETag as StrongETagValue,
 } from "@vektorprogrammet/rpc";
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import { Link, useActionData, useLoaderData, useNavigation } from "react-router";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/dashboard.utlegg.oppgjor._index";
 
@@ -153,15 +154,30 @@ function parseSettlementCommand(form: FormData): SettlementCommandParseResult {
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
-  const cursor = new URL(request.url).searchParams.get("cursor") ?? undefined;
+  const cursorText = new URL(request.url).searchParams.get("cursor");
+
+  // A cursor that no list issued names no page; the backend never sees it.
+  const cursor =
+    cursorText === null
+      ? Option.some(undefined)
+      : Schema.decodeOption(ReceiptCursor)(cursorText);
+
+  if (Option.isNone(cursor)) {
+    const error: ReceiptUiError = ReceiptUiError.ReceiptDecodeError({
+      message: "Kontroller feltene og prøv igjen.",
+    });
+
+    return { nextCursor: undefined, receipts: [], error };
+  }
 
   try {
-    const result = await client.receipts.listReceiptsForSettlement({ query: { cursor } });
+    const result = await callNative(cookie, request, (client) =>
+      client["receipts.listReceiptsForSettlement"]({ cursor: cursor.value }),
+    );
 
     return {
-      receipts: result.body.items.map(mapSettlementReceiptView),
-      nextCursor: result.body.nextCursor,
+      receipts: result.items.map(mapSettlementReceiptView),
+      nextCursor: result.nextCursor,
       error: undefined,
     };
   } catch (error) {
@@ -179,7 +195,6 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
   const form = await request.formData();
 
   if (readFormText(form, "_intent") !== "settle") {
@@ -199,18 +214,18 @@ export async function action({ request }: Route.ActionArgs) {
   const command = parsed.value;
 
   try {
-    const result = await client.receipts.settleReceipt({
-      params: { receiptId: command.receiptId },
-      headers: {
-        "idempotency-key": command.commandId,
-        "if-match": command.etag,
-      },
-      payload: command.payload,
-    });
+    const result = await callNative(cookie, request, (client) =>
+      client["receipts.settleReceipt"]({
+        receiptId: command.receiptId,
+        idempotencyKey: command.commandId,
+        ifMatch: command.etag,
+        request: command.payload,
+      }),
+    );
 
     const actionNotice: ReceiptSettlementNotice = {
       commandId: command.commandId,
-      settlement: mapReceiptSettlementEvidenceView(result.body),
+      settlement: mapReceiptSettlementEvidenceView(result),
     };
 
     return { success: true as const, actionNotice };

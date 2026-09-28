@@ -1,7 +1,7 @@
-import { Predicate, Schema, flow } from "effect";
-import { ReceiptId } from "@vektorprogrammet/rpc"
+import { Schema, flow } from "effect";
+import { ReceiptId, type ReceiptFileContent } from "@vektorprogrammet/rpc";
 
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import { nativeFailureFrom } from "../lib/native-problem";
 import type { Route } from "./+types/dashboard.utlegg.$receiptId.file";
@@ -16,15 +16,6 @@ const fileExtensionByContentType = {
   "image/png": "png",
   "application/pdf": "pdf",
 } as const;
-
-type ReceiptFileHeaders = {
-  readonly "cache-control"?: unknown;
-  readonly "content-disposition"?: unknown;
-  readonly "content-length"?: unknown;
-  readonly "content-type"?: unknown;
-  readonly "x-content-type-options"?: unknown;
-  readonly vary?: unknown;
-};
 
 type ReceiptFileFailureStatus = 401 | 403 | 404 | 503;
 
@@ -76,51 +67,20 @@ const authenticatedFailureStatus = flow(nativeFailureFrom, (error): 401 | 503 =>
   return 503;
 });
 
-function receiptFileResponseHeaders(
-  headers: ReceiptFileHeaders,
-  bytes: Uint8Array,
-): Headers | undefined {
-  const contentType = headers["content-type"];
-  const contentLength = headers["content-length"];
-  const contentDisposition = headers["content-disposition"];
-  const contentTypeOptions = headers["x-content-type-options"];
-  const cacheControl = headers["cache-control"];
-  const vary = headers.vary;
-
-  if (
-    !Predicate.isString(contentType) ||
-    (contentType !== "image/jpeg" &&
-      contentType !== "image/png" &&
-      contentType !== "application/pdf") ||
-    !Predicate.isString(contentLength) ||
-    !Predicate.isString(contentDisposition) ||
-    !Predicate.isString(contentTypeOptions) ||
-    !Predicate.isString(cacheControl) ||
-    !Predicate.isString(vary)
-  ) {
-    return undefined;
-  }
-
-  const extension = fileExtensionByContentType[contentType];
-
-  if (
-    !/^[1-9]\d*$/u.test(contentLength) ||
-    Number(contentLength) !== bytes.byteLength ||
-    contentDisposition !== `inline; filename="receipt.${extension}"` ||
-    contentTypeOptions !== "nosniff" ||
-    cacheControl !== "private, no-store" ||
-    vary !== "Origin"
-  ) {
-    return undefined;
-  }
+/**
+ * The private headers of one receipt file, derived from its stored media type: the browser gets
+ * the same answer that the backend's HTTP route gave, at the same dashboard URL.
+ */
+function receiptFileResponseHeaders(file: ReceiptFileContent): Headers | undefined {
+  if (file.bytes.byteLength === 0) return undefined;
 
   return new Headers({
-    "cache-control": cacheControl,
-    "content-disposition": contentDisposition,
-    "content-length": contentLength,
-    "content-type": contentType,
-    vary,
-    "x-content-type-options": contentTypeOptions,
+    "cache-control": "private, no-store",
+    "content-disposition": `inline; filename="receipt.${fileExtensionByContentType[file.contentType]}"`,
+    "content-length": String(file.bytes.byteLength),
+    "content-type": file.contentType,
+    vary: "Origin",
+    "x-content-type-options": "nosniff",
   });
 }
 
@@ -142,21 +102,18 @@ export async function loader({ request, params }: Route.LoaderArgs): Promise<Res
   }
 
   try {
-    const result = await createAuthenticatedClient(
-      cookie,
-      request,
-    ).receipts.readReceiptFileForApproval({
-      params: { receiptId },
-    });
+    const result = await callNative(cookie, request, (client) =>
+      client["receipts.readReceiptFileForApproval"]({ receiptId }),
+    );
 
-    const headers = receiptFileResponseHeaders(result.headers, result.body);
+    const headers = receiptFileResponseHeaders(result);
 
     if (headers === undefined) return privateFailure(503);
 
     const responseBytes =
-      result.body.buffer instanceof ArrayBuffer
-        ? new Uint8Array(result.body.buffer, result.body.byteOffset, result.body.byteLength)
-        : Uint8Array.from(result.body);
+      result.bytes.buffer instanceof ArrayBuffer
+        ? new Uint8Array(result.bytes.buffer, result.bytes.byteOffset, result.bytes.byteLength)
+        : Uint8Array.from(result.bytes);
 
     return new Response(responseBytes, { headers });
   } catch (error) {

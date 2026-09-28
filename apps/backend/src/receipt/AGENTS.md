@@ -65,8 +65,8 @@ No downstream context.
 
 The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../../../docs/constructs.md) indexes them all.
 
-- [`receiptProblems`](../../../../docs/constructs/http-problem.md#receiptproblems) (http-problem): The one answer for every receipt failure other than a rejected credential, including an unavailable store, Identity, or E2E barrier.
-- [`receiptCredentialProblems`](../../../../docs/constructs/http-problem.md#receiptcredentialproblems) (http-problem): A credential rejected inside a receipt handler is answered from the request's own evidence.
+- [`receiptProblems`](../../../../docs/constructs/rpc-problem.md#receiptproblems) (rpc-problem): The one answer for every receipt failure other than a rejected credential, including an unavailable store, Identity, or E2E barrier.
+- [`receiptCredentialProblems`](../../../../docs/constructs/rpc-problem.md#receiptcredentialproblems) (rpc-problem): A credential rejected inside a receipt handler is answered from the request's own evidence.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

@@ -16,10 +16,10 @@ import {
   type ReceiptUiErrorField,
 } from "@/lib/receipt-view";
 import {
-  RECEIPT_FILE_MAX_BYTES,
-  ReceiptFileTooLarge,
+  ReceiptCursor,
   ReceiptId,
-  readBoundedReceiptForm,
+  type ReceiptFileUpload,
+  type SubmitReceiptRequest,
 } from "@vektorprogrammet/rpc";
 import {
   IdempotencyKey,
@@ -27,10 +27,15 @@ import {
   type IdempotencyKey as IdempotencyKeyValue,
   type StrongETag as StrongETagValue,
 } from "@vektorprogrammet/rpc";
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import { data, useActionData, useLoaderData, useNavigation } from "react-router";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { callNative } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
+import {
+  RECEIPT_FILE_MAX_BYTES,
+  ReceiptFileTooLarge,
+  readBoundedReceiptForm,
+} from "../lib/receipt-upload.server";
 import type { Route } from "./+types/dashboard.mine-utlegg._index";
 
 const MAX_AMOUNT_ORE = 9_007_199_254_740_991n;
@@ -237,31 +242,42 @@ function parseReceiptFile(form: FormData, required: boolean): ParseResult<File |
   return { value: fileValue };
 }
 
-function receiptMultipartPayload(
-  fields: ParsedReceiptFields["payload"],
-  file: File | undefined,
-): FormData {
-  const payload = new FormData();
-  payload.set("description", fields.description);
-  payload.set("amountOre", String(fields.amountOre));
-  payload.set("receiptDate", fields.receiptDate);
-
-  if (file !== undefined) payload.set("file", file);
-
-  return payload;
+/** The bytes of a form file, which the RPC payload carries as base64 text. */
+async function receiptFileUpload(file: File): Promise<ReceiptFileUpload> {
+  return { contentType: file.type, bytes: new Uint8Array(await file.arrayBuffer()) };
 }
+
+async function receiptPayload(
+  fields: ParsedReceiptFields["payload"],
+  file: File,
+): Promise<SubmitReceiptRequest> {
+  return { ...fields, file: await receiptFileUpload(file) };
+}
+
+const decodeCursor = Schema.decodeOption(ReceiptCursor);
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
-  const cursor = new URL(request.url).searchParams.get("cursor") ?? undefined;
+  const cursorText = new URL(request.url).searchParams.get("cursor");
+  const cursor = cursorText === null ? Option.some(undefined) : decodeCursor(cursorText);
+
+  // A cursor that no list issued names no page; the backend never sees it.
+  if (Option.isNone(cursor)) {
+    return {
+      nextCursor: undefined,
+      receipts: [],
+      error: receiptDecodeError("Kontroller feltene og prøv igjen."),
+    };
+  }
 
   try {
-    const result = await client.receipts.listReceipts({ query: { cursor } });
+    const result = await callNative(cookie, request, (client) =>
+      client["receipts.listReceipts"]({ cursor: cursor.value }),
+    );
 
     return {
-      receipts: result.body.items.map(mapOwnedReceiptView),
-      nextCursor: result.body.nextCursor,
+      receipts: result.items.map(mapOwnedReceiptView),
+      nextCursor: result.nextCursor,
       error: undefined,
     };
   } catch (error) {
@@ -279,7 +295,6 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie, request);
 
   const read = await readReceiptForm(request);
   const { form } = read;
@@ -336,16 +351,16 @@ export async function action({ request }: Route.ActionArgs) {
     }
 
     try {
-      const result = await client.receipts.submitReceipt({
-        query: {},
-        headers: { "idempotency-key": commandId },
-        payload: receiptMultipartPayload(fields.value.payload, file.value),
-      });
+      const submitRequest = await receiptPayload(fields.value.payload, file.value);
+
+      const result = await callNative(cookie, request, (client) =>
+        client["receipts.submitReceipt"]({ idempotencyKey: commandId, request: submitRequest }),
+      );
 
       const submission: ReceiptSubmissionNotice = {
         commandId: commandIdText,
-        receiptId: result.body.receiptId,
-        etag: result.body.etag,
+        receiptId: result.receiptId,
+        etag: result.etag,
       };
 
       return { success: true as const, intent, submission };
@@ -409,22 +424,30 @@ export async function action({ request }: Route.ActionArgs) {
     }
 
     try {
-      const result = await client.receipts.reviseReceipt({
-        params: { receiptId: identity.value.receiptId },
-        headers: {
-          "idempotency-key": commandId,
-          "if-match": identity.value.etag,
-        },
-        payload: receiptMultipartPayload(fields.value.payload, replacementFile.value),
-      });
+      const replacement =
+        replacementFile.value === undefined
+          ? undefined
+          : await receiptFileUpload(replacementFile.value);
+
+      const result = await callNative(cookie, request, (client) =>
+        client["receipts.reviseReceipt"]({
+          receiptId: identity.value.receiptId,
+          idempotencyKey: commandId,
+          ifMatch: identity.value.etag,
+          request:
+            replacement === undefined
+              ? fields.value.payload
+              : { ...fields.value.payload, file: replacement },
+        }),
+      );
 
       const mutationNotice: ReceiptOwnerMutationNotice = {
         intent,
         commandId: commandIdText,
-        receiptId: result.body.receiptId,
-        status: result.body.status,
-        revision: result.body.revision,
-        etag: result.body.etag,
+        receiptId: result.receiptId,
+        status: result.status,
+        revision: result.revision,
+        etag: result.etag,
       };
 
       return { success: true as const, intent, mutationNotice };
@@ -469,22 +492,21 @@ export async function action({ request }: Route.ActionArgs) {
     }
 
     try {
-      const result = await client.receipts.withdrawReceipt({
-        params: { receiptId: identity.value.receiptId },
-        headers: {
-          "idempotency-key": commandId,
-          "if-match": identity.value.etag,
-        },
-        payload: {},
-      });
+      const result = await callNative(cookie, request, (client) =>
+        client["receipts.withdrawReceipt"]({
+          receiptId: identity.value.receiptId,
+          idempotencyKey: commandId,
+          ifMatch: identity.value.etag,
+        }),
+      );
 
       const mutationNotice: ReceiptOwnerMutationNotice = {
         intent,
         commandId: commandIdText,
-        receiptId: result.body.receiptId,
-        status: result.body.status,
-        revision: result.body.revision,
-        etag: result.body.etag,
+        receiptId: result.receiptId,
+        status: result.status,
+        revision: result.revision,
+        etag: result.etag,
       };
 
       return { success: true as const, intent, mutationNotice };

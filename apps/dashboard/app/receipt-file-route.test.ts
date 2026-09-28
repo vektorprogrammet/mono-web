@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { nativeProblemResponse, nativeSessionResponse, routeArgs, sessionCookie } from "../test/native-http";
+import { routeArgs, sessionCookie } from "../test/native-http";
+import {
+  type NativeRpcCall,
+  nativeRpcProblem,
+  nativeRpcSuccess,
+  nativeSession,
+  readNativeRpcCall,
+} from "../test/native-rpc";
 
 vi.hoisted(() => vi.stubEnv("API_URL", "http://api.test"));
 
@@ -16,16 +23,33 @@ const privateFileHeaders = {
   "x-content-type-options": "nosniff",
 };
 
-const requests: Request[] = [];
+/** The RPC calls other than the session check. */
+const calls: NativeRpcCall[] = [];
 
-let fileResponse = () => new Response(fileBytes, { headers: privateFileHeaders });
+/** The receipt RPCs among them; an expired session also signs out. */
+const receiptCalls = () => calls.filter((call) => call.tag.startsWith("receipts."));
 
-let sessionResponse = nativeSessionResponse;
+type Answer = (call: NativeRpcCall) => Response;
 
-const load = (receiptId = "receipt-approval-file") => loader(routeArgs(
-  new Request(`http://dashboard.test/dashboard/utlegg/${receiptId}/file`, { headers: { cookie: sessionCookie } }),
-  { receiptId },
-));
+/** A file success, encoded as the RPC server encodes `ReceiptFileContent`: bytes as base64. */
+const fileAnswer =
+  (contentType: string, bytes: Uint8Array): Answer =>
+  (call) =>
+    nativeRpcSuccess(call, { contentType, bytes: Buffer.from(bytes).toString("base64") });
+
+let answerFile: Answer = fileAnswer("image/png", fileBytes);
+
+let answerSession: Answer = (call) => nativeRpcSuccess(call, nativeSession);
+
+const load = (receiptId = "receipt-approval-file") =>
+  loader(
+    routeArgs(
+      new Request(`http://dashboard.test/dashboard/utlegg/${receiptId}/file`, {
+        headers: { cookie: sessionCookie },
+      }),
+      { receiptId },
+    ),
+  );
 
 const expectPrivateFailure = async (response: Response, status: number) => {
   expect(response.status).toBe(status);
@@ -37,63 +61,76 @@ const expectPrivateFailure = async (response: Response, status: number) => {
 };
 
 beforeEach(() => {
-  requests.length = 0;
-  sessionResponse = nativeSessionResponse;
-  fileResponse = () => new Response(fileBytes, { headers: privateFileHeaders });
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
-    const request = new Request(input, init);
-    requests.push(request);
+  calls.length = 0;
+  answerSession = (call) => nativeRpcSuccess(call, nativeSession);
+  answerFile = fileAnswer("image/png", fileBytes);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>(async (input, init) => {
+      const call = await readNativeRpcCall(input, init);
 
-    return new URL(request.url).pathname === "/api/session" ? sessionResponse() : fileResponse();
-  }));
+      if (call.tag === "system.readSession") return answerSession(call);
+      calls.push(call);
+
+      return answerFile(call);
+    }),
+  );
 });
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("receipt approval file resource route", () => {
-  it("forwards the session and exact private bytes through the same-origin route", async () => {
+  it("forwards the session and answers the exact private bytes at the same-origin route", async () => {
     const response = await load();
     expect(response.status).toBe(200);
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(fileBytes);
     expect(Object.fromEntries(response.headers)).toEqual(privateFileHeaders);
-    const upstream = requests.find(request => new URL(request.url).pathname.endsWith("/file"));
-    expect(upstream?.headers.get("cookie")).toBe(sessionCookie);
+    expect(calls.map((call) => [call.tag, call.payload, call.headers.get("cookie")])).toEqual([
+      ["receipts.readReceiptFileForApproval", { receiptId: "receipt-approval-file" }, sessionCookie],
+    ]);
   });
-  it("denies an expired session before fetching private bytes", async () => {
-    sessionResponse = () => nativeProblemResponse("credential.invalid");
+
+  it("denies an expired session before reading private bytes", async () => {
+    answerSession = (call) => nativeRpcProblem(call, "credential.invalid");
     await expectPrivateFailure(await load(), 401);
-    expect(requests.some(request => new URL(request.url).pathname.endsWith("/file"))).toBe(false);
+    expect(receiptCalls()).toEqual([]);
   });
-  it("conceals invalid receipt paths without a file request", async () => {
+
+  it("conceals invalid receipt paths without a file read", async () => {
     await expectPrivateFailure(await load(""), 404);
-    expect(requests.some(request => new URL(request.url).pathname.endsWith("/file"))).toBe(false);
+    expect(receiptCalls()).toEqual([]);
   });
+
   it.each([
-    ["credential.invalid", 401], ["authority.denied", 403], ["origin.denied", 403],
-    ["resource.not-found", 404], ["receipts.unavailable", 503],
+    ["credential.invalid", 401],
+    ["authority.denied", 403],
+    ["resource.not-found", 404],
+    ["receipts.unavailable", 503],
   ] as const)("maps %s without exposing its problem body", async (code, status) => {
-    fileResponse = () => nativeProblemResponse(code);
+    answerFile = (call) => nativeRpcProblem(call, code);
     await expectPrivateFailure(await load(), status);
   });
-  it("conceals malformed upstream problem bodies", async () => {
-    fileResponse = () => Response.json({ code: "credential.invalid", secret: "private-detail" }, { status: 401 });
+
+  it("conceals an answer outside the contract", async () => {
+    answerFile = fileAnswer("text/html", fileBytes);
     await expectPrivateFailure(await load(), 503);
   });
-  it.each([["image/jpeg", "jpg"], ["application/pdf", "pdf"]] as const)("preserves %s media metadata", async (contentType, extension) => {
-    fileResponse = () => new Response(fileBytes, { headers: {
-      ...privateFileHeaders, "content-disposition": `inline; filename="receipt.${extension}"`, "content-type": contentType,
-    } });
+
+  it.each([
+    ["image/jpeg", "jpg"],
+    ["application/pdf", "pdf"],
+  ] as const)("keeps the %s media type in its headers", async (contentType, extension) => {
+    answerFile = fileAnswer(contentType, fileBytes);
     const response = await load();
     expect(response.headers.get("content-type")).toBe(contentType);
-    expect(response.headers.get("content-disposition")).toBe(`inline; filename="receipt.${extension}"`);
+    expect(response.headers.get("content-disposition")).toBe(
+      `inline; filename="receipt.${extension}"`,
+    );
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(fileBytes);
   });
-  it("withholds bytes when upstream headers violate the private-file contract", async () => {
-    fileResponse = () => new Response(fileBytes, { headers: { ...privateFileHeaders, "content-disposition": "attachment; filename=receipt.png" } });
-    await expectPrivateFailure(await load(), 503);
-  });
-  it("rejects an empty body even with a matching zero length", async () => {
-    fileResponse = () => new Response(null, { headers: { ...privateFileHeaders, "content-length": "0" } });
+
+  it("withholds an empty file", async () => {
+    answerFile = fileAnswer("image/png", new Uint8Array());
     await expectPrivateFailure(await load(), 503);
   });
 });
