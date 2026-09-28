@@ -236,6 +236,14 @@
         "vitest": "catalog:effect-v4",
       },
     },
+    "tools/acceptance": {
+      "name": "@monoweb/acceptance",
+      "version": "0.1.0",
+      "dependencies": {
+        "@effect/platform-bun": "catalog:effect-v4",
+        "effect": "catalog:effect-v4",
+      },
+    },
     "tools/conventions": {
       "name": "@monoweb/conventions",
       "version": "0.1.0",
@@ -752,6 +760,8 @@
     "@mermaid-js/parser": ["@mermaid-js/parser@1.2.1", "", { "dependencies": { "@chevrotain/types": "~11.1.2" } }, "sha512-n12NohV3mrUyUL2o93IgG/ifeW9FTyeJn3zDxkhwa8MJ9Fxg3HQMlA3RiGmD/3UnJvheztkjjQAjA2T4LmUcpw=="],
 
     "@modelcontextprotocol/sdk": ["@modelcontextprotocol/sdk@1.30.1", "", { "dependencies": { "@hono/node-server": "^1.19.9 || ^2.0.5", "ajv": "^8.17.1", "ajv-formats": "^3.0.1", "content-type": "^1.0.5", "cors": "^2.8.5", "cross-spawn": "^7.0.5", "eventsource": "^3.0.2", "eventsource-parser": "^3.0.0", "express": "^5.2.1", "express-rate-limit": "^8.2.1", "hono": "^4.11.4", "jose": "^6.1.3", "json-schema-typed": "^8.0.2", "pkce-challenge": "^5.0.0", "raw-body": "^3.0.0", "zod": "^3.25 || ^4.0", "zod-to-json-schema": "^3.25.1" }, "peerDependencies": { "@cfworker/json-schema": "^4.1.1" }, "optionalPeers": ["@cfworker/json-schema"] }, "sha512-H2HxLvC3HDNybePJaLdSrU1hhUK5iQw+WvV1b01myFyI7sdVGe1u/IPTE5D9fGCiJDVtgMV/lmFkQXLmQyIFYA=="],
+
+    "@monoweb/acceptance": ["@monoweb/acceptance@workspace:tools/acceptance"],
 
     "@monoweb/conventions": ["@monoweb/conventions@workspace:tools/conventions"],
 
