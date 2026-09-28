@@ -220,24 +220,21 @@ const interpretReceiptOutbox = (
   void,
   ReceiptFileFailure | ReceiptAuxiliaryEffectConflict | ReceiptDeliveryUnavailable,
   ReceiptFileService | ReceiptAuxiliaryEffects
-> => {
-  return Match.value(request).pipe(
-    Match.tag("PromoteReceiptFile", "DeleteReceiptFile", (request) => {
-      return ReceiptFileService.use(({ apply }) => apply(request));
-    }),
+> =>
+  Match.value(request).pipe(
+    Match.tag("PromoteReceiptFile", "DeleteReceiptFile", (request) =>
+      ReceiptFileService.use(({ apply }) => apply(request)),
+    ),
     Match.tag(
       "NotifyEconomyReceiptSubmitted",
       "NotifyReceiptApproved",
       "NotifyReceiptRejected",
       "NotifyReceiptSettled",
       "WriteReceiptAudit",
-      (request) => {
-        return ReceiptAuxiliaryEffects.use(({ apply }) => apply(request, claimId));
-      },
+      (request) => ReceiptAuxiliaryEffects.use(({ apply }) => apply(request, claimId)),
     ),
     Match.exhaustive,
   );
-};
 
 export const deliverNextReceiptOutbox = (
   claimId: string,

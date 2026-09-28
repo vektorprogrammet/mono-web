@@ -85,19 +85,17 @@ export const readSchoolsDirectory = (
           if (departmentId !== undefined) {
             yield* organization.readDepartment(departmentId).pipe(
               Effect.asVoid,
-              Effect.mapError((cause) => {
-                return Match.value(cause).pipe(
-                  Match.tag("DepartmentNotFound", () => {
-                    return SchoolsDepartmentNotFound.make({ departmentId });
-                  }),
-                  Match.tag("OrganizationPersistenceError", (cause) => {
-                    return persistenceError("read Schools directory department", cause);
-                  }),
-                  Match.orElse((cause) => {
-                    return decodeError("read Schools directory department", cause);
-                  }),
-                );
-              }),
+              Effect.mapError((cause) =>
+                Match.value(cause).pipe(
+                  Match.tag("DepartmentNotFound", () =>
+                    SchoolsDepartmentNotFound.make({ departmentId }),
+                  ),
+                  Match.tag("OrganizationPersistenceError", (cause) =>
+                    persistenceError("read Schools directory department", cause),
+                  ),
+                  Match.orElse((cause) => decodeError("read Schools directory department", cause)),
+                ),
+              ),
             );
 
             if (
