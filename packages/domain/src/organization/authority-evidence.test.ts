@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from "@effect/vitest";
+import { expect, expectTypeOf, it } from "@effect/vitest";
 import { Effect, Predicate, Result, Schema } from "effect";
 import { Arbitrary } from "effect/unstable/arbitrary";
 import {
@@ -63,8 +63,9 @@ const authority = Arbitrary.map(
 
 const propertyOptions = { arbitrary: { seed: 28092026, runs: 200 } } as const;
 
-describe("requireOrganizationAdministrator", () => {
-  it.effect("returns evidence for an active global administrator and a denial for the others", () =>
+it.effect(
+  "requireOrganizationAdministrator returns evidence for an active global administrator and a denial for the others",
+  () =>
     Effect.gen(function* () {
       const administrator = yield* Effect.fromResult(
         requireOrganizationAdministrator(fixtures.administrator),
@@ -89,42 +90,41 @@ describe("requireOrganizationAdministrator", () => {
         expect(failure.requiredRole).toBe("OrganizationAdministrator");
       }
     }),
-  );
+);
 
-  it.prop(
-    "grants evidence exactly for an active grant, for the same person, in agreement with the actor mapping",
-    { authority },
-    ({ authority }) => {
-      const result = requireOrganizationAdministrator(authority);
-      const actor = mapOrganizationAuthorityToOrganizationActor(authority);
+it.prop(
+  "requireOrganizationAdministrator grants evidence exactly for an active grant, for the same person, in agreement with the actor mapping",
+  { authority },
+  ({ authority }) => {
+    const result = requireOrganizationAdministrator(authority);
+    const actor = mapOrganizationAuthorityToOrganizationActor(authority);
 
-      expect(Result.isSuccess(result)).toBe(authority.globalAdministrator === "Active");
-      expect(Result.isSuccess(result)).toBe(Predicate.isTagged(actor, "OrganizationAdministrator"));
+    expect(Result.isSuccess(result)).toBe(authority.globalAdministrator === "Active");
+    expect(Result.isSuccess(result)).toBe(Predicate.isTagged(actor, "OrganizationAdministrator"));
 
-      if (Result.isSuccess(result)) {
-        expect(result.success.actor).toEqual(actor);
-      } else {
-        expect(result.failure.actorPersonId).toBe(authority.personId);
-      }
-    },
-    propertyOptions,
-  );
+    if (Result.isSuccess(result)) {
+      expect(result.success.actor).toEqual(actor);
+    } else {
+      expect(result.failure.actorPersonId).toBe(authority.personId);
+    }
+  },
+  propertyOptions,
+);
 
-  it("is the only way to satisfy an administration command", () => {
-    type Administrator = Parameters<OrganizationOperations["createDepartment"]>[1];
+it("requireOrganizationAdministrator evidence is the only way to satisfy an administration command", () => {
+  type Administrator = Parameters<OrganizationOperations["createDepartment"]>[1];
 
-    expectTypeOf<
-      Parameters<OrganizationOperations["createTeam"]>[1]
-    >().toEqualTypeOf<Administrator>();
-    expectTypeOf<
-      Parameters<OrganizationOperations["createFieldOfStudy"]>[1]
-    >().toEqualTypeOf<Administrator>();
-    expectTypeOf<OrganizationAdministratorEvidence>().toExtend<Administrator>();
+  expectTypeOf<
+    Parameters<OrganizationOperations["createTeam"]>[1]
+  >().toEqualTypeOf<Administrator>();
+  expectTypeOf<
+    Parameters<OrganizationOperations["createFieldOfStudy"]>[1]
+  >().toEqualTypeOf<Administrator>();
+  expectTypeOf<OrganizationAdministratorEvidence>().toExtend<Administrator>();
 
-    // Negative controls: an actor, a member, or a literal of the evidence's visible shape is not evidence.
-    expectTypeOf<OrganizationActor>().not.toExtend<Administrator>();
-    expectTypeOf<OrganizationAdministrator>().not.toExtend<Administrator>();
-    expectTypeOf<OrganizationMember>().not.toExtend<Administrator>();
-    expectTypeOf<{ readonly actor: OrganizationAdministrator }>().not.toExtend<Administrator>();
-  });
+  // Negative controls: an actor, a member, or a literal of the evidence's visible shape is not evidence.
+  expectTypeOf<OrganizationActor>().not.toExtend<Administrator>();
+  expectTypeOf<OrganizationAdministrator>().not.toExtend<Administrator>();
+  expectTypeOf<OrganizationMember>().not.toExtend<Administrator>();
+  expectTypeOf<{ readonly actor: OrganizationAdministrator }>().not.toExtend<Administrator>();
 });

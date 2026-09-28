@@ -72,18 +72,39 @@ What stays:
 - The authorization-rules proof observes `requireOrganizationAdministrator`, with the same
   observed tags as before.
 
-## Falsifiers
+## Falsifiers and pilot results
 
-1. A call of a create command with an object literal, an `OrganizationMember`, or an
-   `OrganizationActor` fails to type check (`@ts-expect-error` negative controls in
-   `packages/domain/src/organization/authority.test.ts`).
-2. For every `OrganizationPersonAuthority` that `Arbitrary.schema` generates, evidence exists
-   exactly when `globalAdministrator` is `Active`, it names the same person, and it agrees with
-   `mapOrganizationAuthorityToOrganizationActor` (property test).
-3. A member who calls the create endpoints still receives `authority.denied`, and nothing is
-   written (existing backend and PostgreSQL tests).
-4. Stryker, run over the pilot module, leaves no surviving mutant in
-   `requireOrganizationAdministrator`.
+Measured on the pilot commit, with PostgreSQL 18 and `effect` 4.0.0-rc.116.
+
+1. A create command rejects an `OrganizationActor`, an `OrganizationAdministrator`, an
+   `OrganizationMember`, and a literal `{ actor }` at the type level: `expectTypeOf(...).not.toExtend`
+   negative controls in `packages/domain/src/organization/authority-evidence.test.ts`, which
+   `check-types` compiles. The compiler also found a forged administrator literal in
+   `packages/database/runtime/organization-postgres-proof-main.ts`, now minted from an authority.
+2. Property test (`it.prop`, seed 28092026, 200 runs): evidence exists exactly when
+   `globalAdministrator` is `Active`, for the same person, in agreement with
+   `mapOrganizationAuthorityToOrganizationActor`, while memberships and board seats vary through
+   `Arbitrary.schema`. `Arbitrary.schema(OrganizationPersonAuthoritySchema)` itself exhausts on the
+   RFC 3339 instant filter (0 runs, 501 discards), so the instant and delegations come from the
+   fixtures.
+3. Backend organization tests (14) and database organization tests (45) pass on PostgreSQL. The
+   PGlite test now asserts the stored `actor_json` shape. The authorization-rules proof output is
+   identical before and after, except process ids and timestamps.
+4. Stryker 10.0.0, `coverageAnalysis: off`, over `requireOrganizationAdministrator` and its
+   neighbours in `authority.ts`: 18 of 18 mutants killed.
+5. Hand-applied mutants of `authorizeCreate`: granting no scope fails 2 backend tests. Always
+   granting the global scope passes every test, and is equivalent: a member is still answered
+   `authority.denied`, now by the missing evidence instead of the AccessSpec.
+
+Stryker 10 with Vitest 5 does not see failures of tests nested in `describe`: the same assertion
+killed every mutant at top level and none inside a `describe`. Its score overstates survivors in
+such suites. The pilot test file is flat for this reason. Check the runner version for this before
+Stryker joins the checks.
+
+Invocation, from `packages/domain`, with Stryker installed outside the catalog and its `vitest`
+resolved to the repository's copy: a Vitest config that includes `src/organization/**/*.test.ts`,
+and a Stryker config with `testRunner: "vitest"`, `inPlace: true`, `concurrency: 1`,
+`coverageAnalysis: "off"`, and `mutate: ["src/organization/authority.ts:<range>"]`.
 
 ## Rollout, after operator approval
 
