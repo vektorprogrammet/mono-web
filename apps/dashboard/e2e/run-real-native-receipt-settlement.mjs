@@ -17,6 +17,7 @@ import { nativeRpcPath } from "@vektorprogrammet/rpc";
 import { dashboardMount } from "../dashboard-base.ts";
 import { journeyClock } from "../../../tools/e2e/journey-clock.ts";
 import {
+  isNativeOperation,
   isNativeRequest,
   nativeRpcOutcome,
   nativeRpcRequestBody,
@@ -382,7 +383,13 @@ async function startRecordingProxy(targetOrigin) {
 
       // A native RPC is recorded as the route it replaced, with its key, precondition, request,
       // and answer from the RPC messages. The dashboard server forwards the cookie in the message.
-      const rpc = url.pathname === nativeRpcPath ? parseRpcRequest(parseJson(requestBody)) : undefined;
+      // The RPC client posts to the endpoint with one trailing slash, which `isNativeOperation`
+      // accepts as the backend does.
+      const rpc =
+        request.method === "POST" && isNativeOperation(request.method, url.pathname)
+          ? parseRpcRequest(parseJson(requestBody))
+          : undefined;
+
       const answer = rpc === undefined ? undefined : rpcAnswer(upstreamBody.toString("utf8"));
 
       const [method, pathname] =

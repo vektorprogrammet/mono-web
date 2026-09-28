@@ -12,7 +12,7 @@ import { isDeepStrictEqual } from "node:util";
 import { startReceiptDeliverySink } from "../../../tools/e2e/receipt-delivery-sink.ts";
 import { sanitizePlaywrightArtifact } from "./runtime-evidence-receipt.mjs";
 import { addressesAnyRoute, addressesRoute, legacyRoutes } from "./request-routes.ts";
-import { nativeRpcStatus, nativeRpcValue } from "./native-operations.ts";
+import { isNativeOperation, nativeRpcStatus, nativeRpcValue } from "./native-operations.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -403,8 +403,13 @@ async function startRecordingProxy(targetOrigin) {
     const requestBytes = Buffer.concat(chunks);
 
     // A native RPC is recorded as the route it replaced. A browser or driver sends its cookie as
-    // an HTTP header; the dashboard server forwards it in the RPC message.
-    const rpc = url.pathname === "/api/rpc" ? parseRpcRequest(parseJsonBody(requestBytes)) : undefined;
+    // an HTTP header; the dashboard server forwards it in the RPC message. The RPC client posts to
+    // the endpoint with one trailing slash, which `isNativeOperation` accepts as the backend does.
+    const rpc =
+      method === "POST" && isNativeOperation(method, url.pathname)
+        ? parseRpcRequest(parseJsonBody(requestBytes))
+        : undefined;
+
     const route = rpc === undefined ? [method, url.pathname] : replacedRoute(rpc.tag, rpc.payload);
     const cookieKey = sessionCookieKey(request.headers.cookie ?? rpc?.headers.get("cookie"));
     const isRead = route[0] === "GET";
