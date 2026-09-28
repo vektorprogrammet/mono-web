@@ -1,5 +1,5 @@
 import { ArticleId, ContentWorkspaceSchema, type ContentWorkspace } from "@vektorprogrammet/rpc"
-import { DepartmentId } from "@vektorprogrammet/rpc"
+import { DepartmentId } from "@vektorprogrammet/domain"
 import { StrongETag } from "@vektorprogrammet/rpc";
 import { Schema as S } from "effect";
 import { AsyncData } from "foldkit";
