@@ -72,9 +72,10 @@ export function route(source: string) {
 
 /** The source's first-level heading. */
 export function title(source: string) {
-  const heading = /^# (.+)$/m.exec(readFileSync(resolve(repositoryRoot, source), "utf8"));
+  const heading = /^# (.+)$/m.exec(readFileSync(resolve(repositoryRoot, source), "utf8"))?.[1];
 
-  if (!heading?.[1]) throw new Error(`${source} has no first-level heading.`);
+  if (heading === undefined || heading === "")
+    throw new Error(`${source} has no first-level heading.`);
 
-  return heading[1].trim();
+  return heading.trim();
 }
