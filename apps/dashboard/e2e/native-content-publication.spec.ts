@@ -527,6 +527,10 @@ test.describe("Native Content publication (spec 0062)", () => {
         (request) => request.pathname === "/dashboard/content",
       );
 
+      const bridgeResponses = browserResponses.filter(
+        (response) => response.pathname === "/dashboard/content",
+      );
+
       const nativeContentRequests = browserRequests.filter((request) =>
         request.pathname.startsWith("/api/content/articles"),
       );
@@ -542,6 +546,15 @@ test.describe("Native Content publication (spec 0062)", () => {
       expect(publicRequests.some((request) => request.pathname === "/nyheter")).toBe(true);
       expect(publicRequests.some((request) => request.pathname.startsWith("/nyhet/"))).toBe(true);
       expect(bridgeRequests.length).toBeGreaterThanOrEqual(3);
+      expect(bridgeResponses.length).toBeGreaterThan(0);
+      expect(bridgeResponses).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ method: "GET", status: 503 }),
+          expect.objectContaining({ method: "GET", status: 200 }),
+          expect.objectContaining({ method: "POST", status: 409 }),
+          expect.objectContaining({ method: "POST", status: 200 }),
+        ]),
+      );
       expect(nativeContentRequests).toEqual([
         expect.objectContaining({ method: "GET", pathname: "/api/content/articles/5" }),
         expect.objectContaining({
@@ -570,9 +583,7 @@ test.describe("Native Content publication (spec 0062)", () => {
         browser: "Chromium",
         realSessionCookie: true,
         bridgeRequests,
-        bridgeResponses: browserResponses.filter((response) =>
-          response.pathname.startsWith("/content"),
-        ),
+        bridgeResponses,
         publicRequests,
         nativeContentRequests,
         observations,
