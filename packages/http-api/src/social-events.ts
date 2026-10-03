@@ -8,6 +8,7 @@ import {
   SocialEventScope,
   SocialEventScopeResource,
 } from "@vektorprogrammet/domain";
+import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec } from "./access.js";
 import { operationAnnotations, PersonSecurity } from "./common.js";
@@ -32,8 +33,8 @@ export {
   SocialEventScopeResource,
 };
 
-/** The list query reuses exactly the domain scope fields. */
-export const SocialEventScopeQuery = SocialEventScope.fields;
+/** The exported query schema reuses the domain scope fields without new wire members. */
+export const SocialEventScopeQuery = Schema.Struct(SocialEventScope.fields);
 
 export const SocialEventsReadScopeCodes = [
   "request.malformed",

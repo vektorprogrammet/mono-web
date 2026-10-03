@@ -1,8 +1,8 @@
 import type { HttpAccessAnnotationSpec } from "@effx/runtime";
 import { SocialEventScope } from "@vektorprogrammet/domain/social-events";
-import { Context, Schema } from "effect";
+import { Context, Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { AccessSpecAnnotation, personNativeAccess } from "../src/access.js";
+import { AccessSpecAnnotation, personNativeAccess, reflectAccessSpec } from "../src/access.js";
 import {
   CreatedMutationResponseHeaders,
   createdMutationResponse,
@@ -78,13 +78,13 @@ const access = (
 
 describe("SocialEvents effx contract preparation", () => {
   it("uses exactly the domain scope fields for the existing list query", () => {
-    expect(SocialEventScopeQuery).toBe(SocialEventScope.fields);
-    expect(Object.keys(SocialEventScopeQuery)).toEqual(["departmentId", "semesterId"]);
+    expect(SocialEventScopeQuery.fields).toEqual(SocialEventScope.fields);
+    expect(Object.keys(SocialEventScopeQuery.fields)).toEqual(["departmentId", "semesterId"]);
 
-    const query = ListSocialEventsEndpoint.query;
+    expect(ListSocialEventsEndpoint.query).toBeDefined();
 
-    if (query === undefined) throw new TypeError("the social-events list query is missing");
-    const decodeQuery = Schema.decodeUnknownSync(query, { onExcessProperty: "error" });
+    // HttpApiEndpoint normalizes the query schema; the exported source retains its fields.
+    const decodeQuery = Schema.decodeUnknownSync(SocialEventScopeQuery, { onExcessProperty: "error" });
     expect(decodeQuery({ departmentId: "1", semesterId: "2026-autumn" })).toEqual({
       departmentId: "1",
       semesterId: "2026-autumn",
@@ -151,7 +151,7 @@ describe("SocialEvents effx contract preparation", () => {
       expect(Context.get(socialEventsAccessAnnotations(declared), AccessSpecAnnotation)).toEqual(
         expected,
       );
-      expect(Context.get(endpoint.annotations, AccessSpecAnnotation)).toEqual(expected);
+      expect(Option.getOrThrow(reflectAccessSpec(endpoint))).toEqual(expected);
     }
   });
 
@@ -177,6 +177,8 @@ describe("SocialEvents effx contract preparation", () => {
   it("rejects copied resolvers and any widened authority, credential or concealment", () => {
     const read = access("social-events.read-scope", SocialEventsScopeResolver, "SnapshotRead");
 
+    const excessInput = { extra: "unexpected" };
+
     for (const altered of [
       { ...read, canonicalScopeResolver: { id: SocialEventsScopeResolver.id } },
       { ...read, capabilities: TestCapability.make({ capability: "social-events.read-by-id" }) },
@@ -191,7 +193,7 @@ describe("SocialEvents effx contract preparation", () => {
       { ...read, principalKinds: ["ServicePrincipal"] as const },
       { ...read, requirements: [{ id: "social-events.owner" }] },
       { ...read, concealment: TestNotFound.make({ stages: ["Requirement"] }) },
-      { ...read, extra: "unexpected" },
+      { ...read, ...excessInput },
     ] satisfies ReadonlyArray<HttpAccessAnnotationSpec>) {
       expect(() => socialEventsAccessAnnotations(altered)).toThrow();
     }
