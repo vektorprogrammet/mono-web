@@ -26,6 +26,12 @@ seed:
 docs script="dev":
     bun run --cwd apps/docs "$1"
 
+# Generate the Profile contract and raw backend binding once effx supports --emit.
+[group('develop')]
+effx-profile:
+    bun x effx build --project packages/http-api/tsconfig.effx.json --strict-access --emit=contract
+    bun x effx build --project apps/backend/tsconfig.effx.json --strict-access --emit=handlers
+
 # Build every package through Turbo. Arguments go to Turbo.
 [group('develop')]
 build *args:

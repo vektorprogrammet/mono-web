@@ -23,7 +23,7 @@
     },
     "generate": {
       "dependsOn": ["^generate"],
-      "outputs": ["openapi.json", "native-api-operations.json"]
+      "outputs": ["openapi.json", "native-api-operations.json", ".effx/**"]
     },
     "dev": {
       "cache": false,
