@@ -78,6 +78,16 @@ The golden fault modes are expected failures that prove cleanup, not successful 
 Other implemented journeys have local observations without a retained record: identity, OAuth, password recovery, profile, directory, team interest,
 admission periods, public applications, interview scheduling and conduct, onboarding, placement rosters, content, contact, and social events.
 
+### Content repair-first acceptance (2026-10-03)
+
+At clean `e87a1c2b18300453fa01595d0fd901cf0b96cae6`, three independent real-PostgreSQL/backend regressions went red before their separate source fixes. They preceded every effx Content declaration. The integrated focused suites passed: Content database workspace/slug/public reads, four files and 19 tests; backend public ETags/shared conditional response plus Profile/Schools/SocialEvents, six files and 25 tests; domain slug projection, one test. All three jobs ran under `just measure` and exited 0.
+
+- **Workspace visibility:** committed red test `58aae63e` observed a foreign department's unpublished working title in a scoped editor workspace. Fix `60b429af` applies the same `canReviseDraft` rule as detail/revision reads; authorized publisher and global administrator retain their rows. Enforced by `packages/database/src/content/workspace-visibility-postgres.test.ts` with disposable PostgreSQL (`postgres.ts:225-239`).
+- **Public validators:** committed red test `2aa9f2e8` saw the old `304` and ETag after department links changed. Fix `e87a1c2b` hashes the strictly encoded public listing/detail bytes and passes them to the one conditional-response helper; its original body path retains lazy 304, 200 and 412 behavior. Real-PG `apps/backend/src/content/http-news-etag.postgres.test.ts` and deterministic `apps/backend/src/http-api/conditional-json.test.ts` enforce this. Shared ETag derivation and Profile/Schools/SocialEvents HTTP handler source SHA-256s stayed unchanged; full browser regressions remain a later gate.
+- **Slug bound:** committed red test `c396f76d` observed a failed insert for a title whose transliteration exceeded 255 characters. Fix `9c92e455` bounds the first slug and reserves room for collision suffixes while preserving short slugs and atomic domain receipt/audit writes. Enforced by `packages/database/src/content/slug-postgres.test.ts` on disposable PostgreSQL and `packages/domain/src/content/projection.test.ts`.
+
+These are local repair checks, not the complete `just e2e content-publication` journey or full repository `just check`/`just test` at an effx-generated Content commit. The operator's `main`, production, and providers remain unchanged. The journal and homepage error mapping in `fix/content-teams-review-0926` are excluded (`docs/specs/0014-content-migration.md` in effx).
+
 ### Historical backup rehearsal
 
 The rehearsal used the private 2024-08-22 backup through a SELECT-only MariaDB account and a separate PostgreSQL target.
