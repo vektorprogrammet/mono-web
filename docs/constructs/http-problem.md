@@ -1366,7 +1366,7 @@ problemUnion<const Codes extends readonly [NativeProblemCode, ...ReadonlyArray<N
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/http-api/src/http-semantics.ts:1150](../../packages/http-api/src/http-semantics.ts#L1150)
+- Source: [packages/http-api/src/http-semantics.ts:1153](../../packages/http-api/src/http-semantics.ts#L1153)
 
 **How it works**
 
@@ -1422,7 +1422,7 @@ class Problem<const Code extends NativeProblemCode = NativeProblemCode> extends 
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/http-api/src/http-semantics.ts:1269](../../packages/http-api/src/http-semantics.ts#L1269)
+- Source: [packages/http-api/src/http-semantics.ts:1272](../../packages/http-api/src/http-semantics.ts#L1272)
 
 **How it works**
 
@@ -1459,7 +1459,7 @@ isProblem(u: unknown): u is Problem
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/http-api/src/http-semantics.ts:1372](../../packages/http-api/src/http-semantics.ts#L1372)
+- Source: [packages/http-api/src/http-semantics.ts:1375](../../packages/http-api/src/http-semantics.ts#L1375)
 
 **How it works**
 
@@ -1491,7 +1491,7 @@ problemBody(problem: Problem): ProblemWireRecord
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/http-api/src/http-semantics.ts:1401](../../packages/http-api/src/http-semantics.ts#L1401)
+- Source: [packages/http-api/src/http-semantics.ts:1404](../../packages/http-api/src/http-semantics.ts#L1404)
 
 **How it works**
 
@@ -1531,7 +1531,7 @@ makeNativeProblem<Code extends NativeProblemCode>(
 - Throws: An `Error` when `expectedStatus` differs from the status that the registry freezes for `code`.
 - Requirements: none
 - Side effects: none
-- Source: [packages/http-api/src/http-semantics.ts:1590](../../packages/http-api/src/http-semantics.ts#L1590)
+- Source: [packages/http-api/src/http-semantics.ts:1593](../../packages/http-api/src/http-semantics.ts#L1593)
 
 **How it works**
 
