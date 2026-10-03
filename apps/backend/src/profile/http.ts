@@ -199,14 +199,20 @@ const readJsonPatch = (request: Request) =>
     return patch;
   });
 
-const readOwnProfile = (request: Request, input: ProfileApiHttpOptions) => {
+type ProfileAuthorizer = typeof authorizePerson;
+
+const readOwnProfile = (
+  request: Request,
+  input: ProfileApiHttpOptions,
+  authorize: ProfileAuthorizer,
+) => {
   const presentation = personPresentation(request);
 
   return Effect.gen(function* () {
     const actor = yield* input.resolveActor(request).pipe(Effect.flatMap(profileActor));
     const now = DateTime.formatIso(yield* DateTime.now);
 
-    yield* authorizePerson(
+    yield* authorize(
       {
         spec: Option.getOrThrow(reflectAccessSpec(ReadOwnProfileEndpoint)),
         request,
@@ -242,7 +248,7 @@ const readOwnProfile = (request: Request, input: ProfileApiHttpOptions) => {
   );
 };
 
-const updateOwnProfile = (request: Request) =>
+const updateOwnProfile = (request: Request, authorize: ProfileAuthorizer) =>
   Effect.gen(function* () {
     const idempotencyKey = yield* idempotencyKeyOf(request);
     const ifMatch = yield* requiredIfMatchOf(request);
@@ -256,7 +262,7 @@ const updateOwnProfile = (request: Request) =>
         const resolved = yield* resolveRequestPersonAuthorityInTransaction(request);
         const actor = yield* profileActor(resolved.authority);
 
-        yield* authorizePerson(
+        yield* authorize(
           {
             spec: Option.getOrThrow(reflectAccessSpec(UpdateOwnProfileEndpoint)),
             credential: resolved.credential,
@@ -347,8 +353,10 @@ export const ProfileApiHandlers = (input: ProfileApiHttpOptions) =>
     Effect.succeed(
       handlers
         .handleRaw("readOwnProfile", ({ request }) =>
-          webHandler(request, (webRequest) => readOwnProfile(webRequest, input)),
+          webHandler(request, (webRequest) => readOwnProfile(webRequest, input, authorizePerson)),
         )
-        .handleRaw("updateOwnProfile", ({ request }) => webHandler(request, updateOwnProfile)),
+        .handleRaw("updateOwnProfile", ({ request }) =>
+          webHandler(request, (webRequest) => updateOwnProfile(webRequest, authorizePerson)),
+        ),
     ),
   );
