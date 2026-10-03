@@ -304,6 +304,12 @@ export default defineConfig({
         ],
       },
     },
+    {
+      // Date labels on server and in the browser name a zone, so a publication across local
+      // midnight never hydrates to a different calendar day.
+      files: ["apps/homepage/src/**", "apps/dashboard/app/**"],
+      rules: { "anti-slop/no-implicit-date-time-zone": "error" },
+    },
     // Source-import exemptions. Each entry names why an export-map import is not yet possible.
     {
       // No package manifest: Bun's isolated linker gives these scripts no workspace dependencies.

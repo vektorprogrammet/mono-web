@@ -38,15 +38,18 @@ const statusClass = (status: InvitationResponseObservation["responseState"]): st
   }
 };
 
+const osloDateTime = new Intl.DateTimeFormat("nb-NO", {
+  dateStyle: "long",
+  timeStyle: "short",
+  timeZone: "Europe/Oslo",
+});
+
 const formatInstant = (instant: string): string => {
   const parsed = new Date(instant);
 
   if (!Number.isFinite(parsed.getTime())) return instant;
 
-  return new Intl.DateTimeFormat("nb-NO", {
-    dateStyle: "long",
-    timeStyle: "short",
-  }).format(parsed);
+  return osloDateTime.format(parsed);
 };
 
 const fieldError = (id: string, field: Model["responseMessage"], h: HtmlBuilder<Message>): Html =>

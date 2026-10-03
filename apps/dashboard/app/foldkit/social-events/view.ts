@@ -22,6 +22,7 @@ const dateTimeFormatter = new Intl.DateTimeFormat("nb-NO", {
   dateStyle: "medium",
   timeStyle: "short",
   hourCycle: "h23",
+  timeZone: "Europe/Oslo",
 });
 
 const dateFormatter = new Intl.DateTimeFormat("nb-NO", {

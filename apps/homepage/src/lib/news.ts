@@ -28,9 +28,11 @@ export const NEWS_TEASER_COUNT = 5;
 
 export const NEWS_PAGE_SIZE = 10;
 
-/** A publication instant’s date in the visitor’s local (Norwegian) calendar. */
+const newsDateFormatter = new Intl.DateTimeFormat("nb-NO", { timeZone: "Europe/Oslo" });
+
+/** A publication instant’s date in the visitor’s Norwegian calendar. */
 export const formatNewsDate = (publishedAt: string): string =>
-  new Date(publishedAt).toLocaleDateString("nb-NO");
+  newsDateFormatter.format(new Date(publishedAt));
 
 /** Sticky-first first-five slice of the SAME listing read (law: teaser). */
 export const teaserFrom = (listing: PublishedNewsListing): readonly PublishedNewsSummary[] =>

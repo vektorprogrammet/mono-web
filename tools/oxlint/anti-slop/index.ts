@@ -7,6 +7,7 @@ import { noKnownValueWideningRule } from "./rules/no-known-value-widening.ts";
 import { noDevServerRule } from "./rules/no-dev-server.ts";
 import { noGitHistoryRule } from "./rules/no-git-history.ts";
 import { noHandRolledPostgresRule } from "./rules/no-hand-rolled-postgres.ts";
+import { noImplicitDateTimeZoneRule } from "./rules/no-implicit-date-time-zone.ts";
 import { noLeadershipReachRule } from "./rules/no-leadership-reach.ts";
 import { noJsonTextParameterRule } from "./rules/no-json-text-parameter.ts";
 import { noLiteralWindowInstantRule } from "./rules/no-literal-window-instant.ts";
@@ -41,6 +42,7 @@ const antiSlopPlugin = eslintCompatPlugin({
     "no-json-text-parameter": noJsonTextParameterRule,
     "no-git-history": noGitHistoryRule,
     "no-hand-rolled-postgres": noHandRolledPostgresRule,
+    "no-implicit-date-time-zone": noImplicitDateTimeZoneRule,
     "no-known-value-widening": noKnownValueWideningRule,
     "no-leadership-reach": noLeadershipReachRule,
     "no-module-mocking": noModuleMockingRule,

@@ -21,6 +21,7 @@ import type { ReadyModel, Model } from "./model";
 const dateTime = new Intl.DateTimeFormat("nb-NO", {
   dateStyle: "medium",
   timeStyle: "short",
+  timeZone: "Europe/Oslo",
 });
 
 type AssignmentBoard = RecruitmentAssignmentBoard;
