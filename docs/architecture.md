@@ -140,6 +140,12 @@ capability groups:
 - Private file storage
 - Notification delivery
 
+ContentManagement allocates an immutable slug at draft creation in its PostgreSQL
+transaction. The title transliterates to lowercase ASCII; a long slug is cut
+to 255 characters and a numeric collision suffix replaces its tail. Allocation
+checks both drafts and published versions; the article, receipt, and audit
+commit together, or none do.
+
 A service contract uses domain commands, facts, failures, and observations. It does
 not expose database rows or transport objects.
 The [Placements service](../packages/domain/src/placements/service.ts) owns complete commands

@@ -2,6 +2,7 @@ import { type DepartmentId, PersonId } from "../organization/schema.js";
 import type { ContentActor } from "./actor.js";
 import { canPublishContent, canReviseDraft } from "./actor.js";
 import {
+  ARTICLE_SLUG_MAX_LENGTH,
   ArticleVersionNumber,
   ArticleId,
   ArticleSlug,
@@ -181,15 +182,30 @@ export const slugifyTitle = (title: string): string =>
     .replace(/-{2,}/g, "-")
     .replace(/^-+|-+$/g, "");
 
+/** A hyphen and the 16 decimal digits of the largest safe integer. */
+const SLUG_SUFFIX_ROOM = 17;
+
+/** The prefix shared by the unsuffixed slug and every deduplicated suffix. */
+export const slugCollisionPrefix = (base: string): string =>
+  base.slice(0, ARTICLE_SLUG_MAX_LENGTH - SLUG_SUFFIX_ROOM).replace(/-+$/u, "");
+
 /**
- * Deterministic deduplication against every existing slug: append `-2`,
- * `-3`, … until free. Pure over the taken-slug set.
+ * Deterministic deduplication against every existing slug. Transliteration can
+ * lengthen a title; a suffix replaces the tail rather than exceeding the
+ * database and ArticleSlug's 255-character bound. Short slugs are unchanged.
  */
 export const dedupeSlug = (base: string, takenSlugs: ReadonlySet<string>): string => {
-  if (!takenSlugs.has(base)) return base;
-  let counter = 2;
+  const first =
+    base.length <= ARTICLE_SLUG_MAX_LENGTH
+      ? base
+      : base.slice(0, ARTICLE_SLUG_MAX_LENGTH).replace(/-+$/u, "");
 
-  while (takenSlugs.has(`${base}-${counter}`)) counter += 1;
+  if (!takenSlugs.has(first)) return first;
 
-  return `${base}-${counter}`;
+  for (let counter = 2; ; counter += 1) {
+    const suffix = `-${counter}`;
+    const candidate = `${base.slice(0, ARTICLE_SLUG_MAX_LENGTH - suffix.length).replace(/-+$/u, "")}${suffix}`;
+
+    if (!takenSlugs.has(candidate)) return candidate;
+  }
 };

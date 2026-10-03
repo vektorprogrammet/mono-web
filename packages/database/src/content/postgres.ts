@@ -57,7 +57,7 @@ import {
   type UnpublishArticleInput,
   type UnpublishObservation,
 } from "@vektorprogrammet/domain/content";
-import { dedupeSlug, slugifyTitle } from "@vektorprogrammet/domain/content";
+import { dedupeSlug, slugCollisionPrefix, slugifyTitle } from "@vektorprogrammet/domain/content";
 import { sanitizeArticleBodyHtml } from "@vektorprogrammet/domain/content";
 
 const decodeError = (operation: string, cause: unknown): ContentDecodeError =>
@@ -681,9 +681,9 @@ const replaceArticleDepartments = (
 };
 
 /**
- * Creates one draft. The slug is generated from the title with the legacy
- * transliteration and deduplicated inside the creation transaction; unique
- * across drafts and all published versions.
+ * Creates one draft. Its transliterated slug is bounded to 255 characters and
+ * deduplicated inside the creation transaction against drafts and all
+ * published versions; receipt and audit commit with the article.
  */
 export const createDraftPostgres = (input: {
   readonly command: CreateArticleDraftInput;
@@ -748,11 +748,13 @@ export const createDraftPostgres = (input: {
             return yield* new ContentSlugConflict({});
           }
 
+          const collisionPattern = `${slugCollisionPrefix(baseSlug)}%`;
+
           const taken = new Set<string>(
             (yield* database<{ readonly slug: string }>`
-                SELECT slug FROM public.content_articles WHERE slug LIKE ${`${baseSlug}%`}
+                SELECT slug FROM public.content_articles WHERE slug LIKE ${collisionPattern}
                 UNION ALL
-                SELECT slug FROM public.content_article_versions WHERE slug LIKE ${`${baseSlug}%`}
+                SELECT slug FROM public.content_article_versions WHERE slug LIKE ${collisionPattern}
               `.pipe(
               Effect.catchTag("SqlError", (cause) =>
                 Effect.fail(persistenceError("read existing slugs", cause)),
