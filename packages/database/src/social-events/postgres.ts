@@ -62,7 +62,7 @@ const decodeError = (operation: string, cause: unknown): SocialEventDecodeError 
   new SocialEventDecodeError({ operation, message: String(cause) });
 
 const persistenceError = (operation: string, cause: unknown): SocialEventPersistenceError =>
-  new SocialEventPersistenceError({ operation, message: String(cause) });
+  new SocialEventPersistenceError({ operation, message: String(cause), cause });
 
 const decodeSnapshotInstant = (operation: string) =>
   flow(

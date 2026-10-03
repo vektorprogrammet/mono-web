@@ -8,6 +8,7 @@ export class SocialEventDecodeError extends Data.TaggedError("SocialEventDecodeE
 export class SocialEventPersistenceError extends Data.TaggedError("SocialEventPersistenceError")<{
   readonly operation: string;
   readonly message: string;
+  readonly cause: unknown;
 }> {}
 
 /** The selected canonical department or semester does not exist. */
