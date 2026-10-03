@@ -1,22 +1,22 @@
 import {
   ApproveReceiptEndpoint,
   ContentArticleDetailSchema,
-  CreateArticleEndpoint,
+  createArticle,
   CreateArticleRequest,
   IdempotencyKey,
   isProblem,
   PersonSecurity,
   Problem,
-  PublishArticleEndpoint,
-  ReadArticleEndpoint,
-  ReadContentWorkspaceEndpoint,
+  publishArticle,
+  readArticle,
+  readContentWorkspace,
   ReadSessionEndpoint,
   ReceiptId,
-  ReviseArticleEndpoint,
+  reviseArticle,
   SessionResponse,
   SessionSecurity,
   StrongETag,
-  UnpublishArticleEndpoint,
+  unpublishArticle,
 } from "@vektorprogrammet/http-api";
 import { assert, describe, expectTypeOf, it } from "@effect/vitest";
 import { Array, Effect, Layer, Order, Redacted, Ref, Schema } from "effect";
@@ -228,12 +228,12 @@ describe("generated content SDK", () => {
 
         const api = HttpApi.make("sdk-content").add(
           HttpApiGroup.make("content").add(
-            ReadContentWorkspaceEndpoint,
-            ReadArticleEndpoint,
-            CreateArticleEndpoint,
-            ReviseArticleEndpoint,
-            PublishArticleEndpoint,
-            UnpublishArticleEndpoint,
+            readContentWorkspace,
+            readArticle,
+            createArticle,
+            reviseArticle,
+            publishArticle,
+            unpublishArticle,
           ),
         );
 

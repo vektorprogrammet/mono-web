@@ -158,42 +158,6 @@ command.pipe(admissionProblems(request, "dependency.unavailable"));
 Mapping an admission failure in a handler: the answers of the admission endpoints drift
 apart. Pipe the handler's effect through this, with the endpoint's unavailable problem.
 
-## `authorizeContentOperation`
-
-Evaluates a content endpoint's AccessSpec for one person with the content grant scope.
-
-```ts
-authorizeContentOperation(
-  input: { readonly endpoint: ContentEndpoint; readonly personId: PersonId; readonly authorizationInstant: string; readonly credential?: Extract<CredentialOutcome, { readonly _tag: "Accepted" }>; readonly request?: Request; readonly resolution: CanonicalScopeResolution<Schema.JsonObject>; readonly presentation: CredentialPresentation }
-): Effect.Effect<void, Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">>
-```
-
-- Inputs: `input: { readonly endpoint: ContentEndpoint; readonly personId: PersonId; readonly authorizationInstant: string; readonly credential?: Extract<CredentialOutcome, { readonly _tag: "Accepted" }>; readonly request?: Request; readonly resolution: CanonicalScopeResolution<Schema.JsonObject>; readonly presentation: CredentialPresentation }`
-- Output: `Effect.Effect<void, Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">>`
-- Errors: `Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">`
-- Requirements: none
-- Side effects: none
-- Source: [apps/backend/src/content/http-access.ts:43](../../apps/backend/src/content/http-access.ts#L43)
-
-**How it works**
-
-It runs `authorizePerson` with the endpoint's AccessSpec, the content domain as the grant scope,
-and `resolution` at `authorizationInstant`. A command passes the credential that its
-transaction resolved; a read passes the request, from which the credential is derived. Content
-access reveals every denial, so `unreachable("resource.not-found")` removes the concealment
-answer.
-
-**Use**
-
-```ts
-yield* authorizeContentOperation({ endpoint: ReviseArticleEndpoint, credential: actor.credential, personId: actor.personId, authorizationInstant, resolution, presentation });
-```
-
-**Avoid**
-
-Granting a content operation from a role check in the handler: the AccessSpec of the
-contract then stops being the authority for the endpoint. Evaluate it with this.
-
 ## `contentProblems`
 
 The one answer for every content domain failure.

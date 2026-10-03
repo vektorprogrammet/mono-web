@@ -1,6 +1,6 @@
 import { Capability, Concealment, type HttpAccessAnnotationSpec, type ProblemRegistry } from "@effx/runtime";
 import { Context, Option, Schema } from "effect";
-import { OpenApi } from "effect/unstable/httpapi";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { describe, expect, it } from "vitest";
 import { AccessSpecAnnotation, reflectAccessSpec } from "../src/access.js";
 import { ExternalNativeApi } from "../src/api.js";
@@ -17,20 +17,22 @@ import {
   ContentArticleParams,
   ContentDepartmentQuery,
   ContentNewsSlugParams,
-  CreateArticleEndpoint,
-  ListNewsEndpoint,
   NewsArticleExample,
   NewsListingExample,
   NewsVersionQuery,
   PublishedNewsArticleResponse,
   PublishedNewsListingResponse,
-  PublishArticleEndpoint,
-  ReadArticleEndpoint,
-  ReadContentWorkspaceEndpoint,
-  ReadNewsArticleEndpoint,
-  ReviseArticleEndpoint,
-  UnpublishArticleEndpoint,
 } from "../src/content.js";
+import {
+  createArticle,
+  listNews,
+  publishArticle,
+  readArticle,
+  readContentWorkspace,
+  readNewsArticle,
+  reviseArticle,
+  unpublishArticle,
+} from "../.effx/generated/content-contract.js";
 import {
   ContentCreateArticleCodes,
   ContentCreateArticleProblem,
@@ -59,17 +61,17 @@ import {
 } from "../src/http-semantics.js";
 
 const staffCases = [
-  { endpoint: ReadContentWorkspaceEndpoint, capability: "content.read-workspace", resolver: ContentArticlesResolver, requirements: [], time: "SnapshotRead" },
-  { endpoint: CreateArticleEndpoint, capability: "content.create-article", resolver: ContentArticleCreateResolver, requirements: [], time: "Transaction" },
-  { endpoint: ReadArticleEndpoint, capability: "content.read-article", resolver: ContentArticleByIdResolver, requirements: [], time: "SnapshotRead" },
-  { endpoint: ReviseArticleEndpoint, capability: "content.revise-article", resolver: ContentArticleByIdResolver, requirements: ["content.revisable"], time: "Transaction" },
-  { endpoint: PublishArticleEndpoint, capability: "content.publish-article", resolver: ContentArticleByIdResolver, requirements: ["content.publishable"], time: "Transaction" },
-  { endpoint: UnpublishArticleEndpoint, capability: "content.publish-article", resolver: ContentArticleByIdResolver, requirements: ["content.unpublishable"], time: "Transaction" },
+  { endpoint: readContentWorkspace, capability: "content.read-workspace", resolver: ContentArticlesResolver, requirements: [], time: "SnapshotRead" },
+  { endpoint: createArticle, capability: "content.create-article", resolver: ContentArticleCreateResolver, requirements: [], time: "Transaction" },
+  { endpoint: readArticle, capability: "content.read-article", resolver: ContentArticleByIdResolver, requirements: [], time: "SnapshotRead" },
+  { endpoint: reviseArticle, capability: "content.revise-article", resolver: ContentArticleByIdResolver, requirements: ["content.revisable"], time: "Transaction" },
+  { endpoint: publishArticle, capability: "content.publish-article", resolver: ContentArticleByIdResolver, requirements: ["content.publishable"], time: "Transaction" },
+  { endpoint: unpublishArticle, capability: "content.publish-article", resolver: ContentArticleByIdResolver, requirements: ["content.unpublishable"], time: "Transaction" },
 ] as const;
 
 const publicCases = [
-  { endpoint: ListNewsEndpoint, resolver: ContentPublicNewsResolver },
-  { endpoint: ReadNewsArticleEndpoint, resolver: ContentPublicNewsBySlugResolver },
+  { endpoint: listNews, resolver: ContentPublicNewsResolver },
+  { endpoint: readNewsArticle, resolver: ContentPublicNewsBySlugResolver },
 ] as const;
 
 type ContentResolverSymbol =
@@ -104,18 +106,18 @@ const publicAccess = (resolver: ContentResolverSymbol): HttpAccessAnnotationSpec
 });
 
 const problemCases = [
-  [ContentReadContentWorkspaceCodes, ContentReadContentWorkspaceProblem, "ContentReadContentWorkspaceProblem"],
-  [ContentCreateArticleCodes, ContentCreateArticleProblem, "ContentCreateArticleProblem"],
-  [ContentReadArticleCodes, ContentReadArticleProblem, "ContentReadArticleProblem"],
-  [ContentReviseArticleCodes, ContentReviseArticleProblem, "ContentReviseArticleProblem"],
-  [ContentPublishArticleCodes, ContentPublishArticleProblem, "ContentPublishArticleProblem"],
-  [ContentUnpublishArticleCodes, ContentUnpublishArticleProblem, "ContentUnpublishArticleProblem"],
-  [ContentListNewsCodes, ContentListNewsProblem, "ContentListNewsProblem"],
-  [ContentReadNewsArticleCodes, ContentReadNewsArticleProblem, "ContentReadNewsArticleProblem"],
+  [readContentWorkspace, ContentReadContentWorkspaceCodes, ContentReadContentWorkspaceProblem, "ContentReadContentWorkspaceProblem"],
+  [createArticle, ContentCreateArticleCodes, ContentCreateArticleProblem, "ContentCreateArticleProblem"],
+  [readArticle, ContentReadArticleCodes, ContentReadArticleProblem, "ContentReadArticleProblem"],
+  [reviseArticle, ContentReviseArticleCodes, ContentReviseArticleProblem, "ContentReviseArticleProblem"],
+  [publishArticle, ContentPublishArticleCodes, ContentPublishArticleProblem, "ContentPublishArticleProblem"],
+  [unpublishArticle, ContentUnpublishArticleCodes, ContentUnpublishArticleProblem, "ContentUnpublishArticleProblem"],
+  [listNews, ContentListNewsCodes, ContentListNewsProblem, "ContentListNewsProblem"],
+  [readNewsArticle, ContentReadNewsArticleCodes, ContentReadNewsArticleProblem, "ContentReadNewsArticleProblem"],
 ] as const;
 
-describe("Content effx source preparation", () => {
-  it("reuses actual Struct query and route parameter schemas on the handwritten endpoints", () => {
+describe("generated Content contract", () => {
+  it("reuses actual Struct query and route parameter schemas on generated endpoints", () => {
     expect(Schema.decodeSync(ContentDepartmentQuery)({})).toEqual({});
     expect(Schema.decodeSync(ContentDepartmentQuery)({ department: "1" })).toEqual({ department: "1" });
     expect(Schema.decodeSync(NewsVersionQuery)({ version: 1 })).toEqual({ version: 1 });
@@ -123,6 +125,9 @@ describe("Content effx source preparation", () => {
     expect(Schema.decodeSync(ContentArticleParams)({ articleId: 1 })).toEqual({ articleId: 1 });
     expect(Schema.decodeSync(ContentNewsSlugParams)({ slug: "penerimaan-anggota-2026" })).toEqual({ slug: "penerimaan-anggota-2026" });
 
+    expect(readContentWorkspace.query).toBeDefined();
+    expect(listNews.query).toBeDefined();
+    expect(readNewsArticle.query).toBeDefined();
     // HttpApiEndpoint normalizes query and path schemas to string-tree codecs;
     // their object identity is intentionally not the identity of the input Struct.
     const spec = OpenApi.fromApi(ExternalNativeApi);
@@ -152,6 +157,29 @@ describe("Content effx source preparation", () => {
     const headers = { "cache-control": "public, max-age=60, s-maxage=300, must-revalidate", vary: "Origin", etag: `"vkr2.${"A".repeat(43)}"` };
     expect(Schema.decodeUnknownSync(PublicConditionalResponseHeaders)(headers)).toEqual(headers);
     expect(() => Schema.decodeUnknownSync(ProfileReadResponseHeaders)(headers)).toThrow();
+
+    const publicProbe = HttpApiEndpoint.get("publicProbe", "/public-probe", {
+      success: publicConditionalResponses(Schema.String),
+    });
+
+    const privateProbe = HttpApiEndpoint.get("privateProbe", "/private-probe", {
+      success: privateConditionalResponses(Schema.String),
+    });
+
+    const headerSchemas = (endpoint: { readonly success: ReadonlySet<Schema.Top> }) =>
+      [...endpoint.success].map((response) =>
+        HttpApiSchema.isWithHeaders(response) ? response.headers.ast : undefined,
+      );
+
+    for (const [endpoint, expected] of [
+      [listNews, publicProbe],
+      [readNewsArticle, publicProbe],
+      [readArticle, privateProbe],
+    ] as const) {
+      expect(endpoint.success.size).toBe(2);
+      expect(headerSchemas(endpoint)).toEqual(headerSchemas(expected));
+    }
+
   });
 
   it("preserves annotated public success identifiers, descriptions and examples", () => {
@@ -168,14 +196,45 @@ describe("Content effx source preparation", () => {
     expect(PublishedNewsArticleResponse).toBeDefined();
   });
 
-  it("derives every exact ordered closed problem union from its one exported tuple", () => {
+  it("derives generated HTTP problem codes, statuses, and headers from each closed tuple", () => {
     const registry: ProblemRegistry = nativeProblems;
+    const actualSpec = OpenApi.fromApi(ExternalNativeApi);
 
-    for (const [codes, union, identifier] of problemCases) {
+    const operations = new Map(
+      Object.values(actualSpec.paths).flatMap((path) =>
+        (["get", "post", "patch"] as const).flatMap((method) => {
+          const operation = path[method];
+
+          return operation === undefined ? [] : [[operation.operationId, operation] as const];
+        }),
+      ),
+    );
+
+    for (const [endpoint, codes, union, identifier] of problemCases) {
       expect(union.members.map((member) => member.fields.code.literal)).toEqual(codes);
-      expect(registry(identifier, codes)).toHaveLength(
-        new Set(codes.map((code) => NativeProblemRegistry[code].status)).size,
+
+      const expectedEndpoint = HttpApiEndpoint.get("problemProbe", "/problem-probe", {
+        error: registry(identifier, codes),
+      });
+
+      const expectedSpec = OpenApi.fromApi(
+        HttpApi.make("problem-probe").add(HttpApiGroup.make("problem-probe").add(expectedEndpoint)),
       );
+
+      const actualOperation = operations.get("content." + endpoint.identifier);
+      const expectedOperation = expectedSpec.paths["/problem-probe"]?.get;
+      expect(actualOperation).toBeDefined();
+
+      for (const status of new Set(codes.map((code) => NativeProblemRegistry[code].status))) {
+        expect(actualOperation?.responses[status]).toEqual(
+          expectedOperation?.responses[status],
+        );
+      }
+
+      expect(actualSpec.components.schemas[identifier]).toEqual(
+        expectedSpec.components.schemas[identifier],
+      );
+      expect(endpoint.error.size).toBe(new Set(codes.map((code) => NativeProblemRegistry[code].status)).size);
     }
 
     expect(() => registry("UnknownContentProblem", ["not-a-native-problem"])).toThrow();

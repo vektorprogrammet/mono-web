@@ -12,14 +12,26 @@ import {
 } from "@vektorprogrammet/domain/content";
 import { IdentityActor } from "@vektorprogrammet/domain/identity";
 import { DepartmentId, Organization, PersonId } from "@vektorprogrammet/domain/organization";
-import { ContentApi, ExternalNativeApi } from "@vektorprogrammet/http-api";
-import { NativeProblem } from "@vektorprogrammet/http-api/http-semantics";
-import { DateTime, Effect, Layer, Schema } from "effect";
-import { OpenApi } from "effect/unstable/httpapi";
+import {
+  ContentApi,
+  ExternalNativeApi,
+  RequestSchemaErrorMiddleware,
+} from "@vektorprogrammet/http-api";
+import { NativeProblem, Problem } from "@vektorprogrammet/http-api/http-semantics";
+import { DateTime, Effect, Exit, Layer, Schema } from "effect";
+import { HttpApi, HttpApiBuilder, OpenApi } from "effect/unstable/httpapi";
 import { describe, expect, it } from "@effect/vitest";
+import { ContentApiHandlers as GeneratedContentApiHandlers } from "../../.effx/generated/content-handlers.js";
 import { jsonText } from "../http-api/problem.js";
-import { makeContentManagementTestHttp, makePublicNewsTestHttp } from "../test/native-http.js";
+import { NativeHttpApiMiddlewareLive } from "../http-api/transport.js";
+import {
+  makeContentManagementTestHttp,
+  makePublicNewsTestHttp,
+  testFetch,
+} from "../test/native-http.js";
+import { contentGuards, makeContentRawHandlers } from "./http.js";
 import { contentOperationId } from "./http-context.js";
+import { CurrentContentAccess } from "./http-access.js";
 
 /** Checks a problem response and decodes its body with the contract's problem schema. */
 const expectProblem = (response: Response, status: number, code: string) =>
@@ -132,6 +144,71 @@ describe("native content HTTP boundary", () => {
       endpoints.map((endpoint) => `${endpoint.method} ${endpoint.path}`),
     );
   });
+
+  it.live("invokes both generated Anonymous guards before public news storage", () =>
+    Effect.gen(function* () {
+      const seen: Array<string> = [];
+
+      const deny = (operation: string) =>
+        Effect.sync(() => {
+          seen.push(operation);
+        }).pipe(Effect.andThen(Effect.fail(Problem.make("precondition.failed"))));
+
+      const guards = {
+        ...contentGuards,
+        "content.listNews": () => deny("content.listNews"),
+        "content.readNewsArticle": () => deny("content.readNewsArticle"),
+      };
+
+      const http = testFetch(
+        HttpApiBuilder.layer(
+          HttpApi.make("external-native-api")
+            .add(ContentApi)
+            .middleware(RequestSchemaErrorMiddleware),
+        ).pipe(
+          Layer.provide(
+            GeneratedContentApiHandlers({
+              raw: makeContentRawHandlers(
+                () => Effect.die("unexpected staff actor"),
+                1_048_576,
+                guards,
+              ),
+              guards,
+            }),
+          ),
+          Layer.provide(NativeHttpApiMiddlewareLive),
+        ),
+        Layer.empty,
+      );
+
+      for (const [path, operation] of [
+        ["/api/news", "content.listNews"],
+        ["/api/news/an-article?version=1", "content.readNewsArticle"],
+      ] as const) {
+        seen.length = 0;
+        const response = yield* http(new Request("http://backend.test" + path));
+        yield* expectProblem(response, 412, "precondition.failed");
+        expect(seen).toEqual([operation]);
+      }
+    }),
+  );
+
+  it.effect("fails as a defect when a generated guard has no matching request frame", () =>
+    Effect.gen(function* () {
+      expect(Exit.hasDies(yield* Effect.exit(contentGuards["content.listNews"]()))).toBe(true);
+
+      const wrongOperation = contentGuards["content.listNews"]().pipe(
+        Effect.provideService(CurrentContentAccess, {
+          kind: "Public",
+          operation: "content.readNewsArticle",
+          resolution: { selection: "ExactlyOne", contexts: [] },
+          now: "2030-01-01T00:00:00.000Z",
+        }),
+      );
+
+      expect(Exit.hasDies(yield* Effect.exit(wrongOperation))).toBe(true);
+    }),
+  );
 
   it.live("answers owned domain failures with the problems their operations declare", () =>
     Effect.gen(function* () {

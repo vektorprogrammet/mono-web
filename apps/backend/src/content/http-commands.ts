@@ -21,13 +21,13 @@ import type { Organization } from "@vektorprogrammet/domain/organization";
 import type { Profile } from "@vektorprogrammet/domain/profile";
 import {
   ArticleMergePatch,
-  CreateArticleEndpoint,
+  createArticle as createArticleEndpoint,
   CreateArticleRequest,
-  PublishArticleEndpoint,
+  publishArticle as publishArticleEndpoint,
   PublishArticleRequest,
   PublishArticleResponse,
-  ReviseArticleEndpoint,
-  UnpublishArticleEndpoint,
+  reviseArticle as reviseArticleEndpoint,
+  unpublishArticle as unpublishArticleEndpoint,
   UnpublishArticleRequest,
   UnpublishArticleResponse,
 } from "@vektorprogrammet/http-api";
@@ -60,10 +60,11 @@ import {
   semanticRequestDigest,
   type CanonicalSemanticRequest,
 } from "../http-semantics.js";
-import { articleContext, authorizeContentOperation } from "./http-access.js";
+import { articleContext, CurrentContentAccess } from "./http-access.js";
 import {
   authorizedActorInTransaction,
   contentOperationId,
+  type ContentAuthorizer,
   type ContentEndpoint,
   type TransactionalAuthorizedContentActor,
 } from "./http-context.js";
@@ -127,7 +128,11 @@ const executeCommand = <EPrepare, EExecute, R>(
     return yield* commandOutcomeResponse(outcome);
   });
 
-export const createArticle = (request: Request, maxBodyBytes: number) => {
+export const createArticle = <EA, RA>(
+  request: Request,
+  maxBodyBytes: number,
+  authorize: ContentAuthorizer<EA, RA>,
+) => {
   const presentation = personPresentation(request);
 
   return Effect.gen(function* () {
@@ -138,7 +143,7 @@ export const createArticle = (request: Request, maxBodyBytes: number) => {
     return yield* executeCommand(
       request,
       presentation,
-      CreateArticleEndpoint,
+      createArticleEndpoint,
       "/api/content/articles",
       {},
       { body },
@@ -146,25 +151,26 @@ export const createArticle = (request: Request, maxBodyBytes: number) => {
         Effect.gen(function* () {
           const actor = yield* authorizedActorInTransaction(request);
 
-          yield* authorizeContentOperation({
-            endpoint: CreateArticleEndpoint,
-            credential: actor.credential,
-            personId: actor.personId,
-            authorizationInstant: actor.authorizationInstant,
-            resolution: {
-              selection: "ExactlyOne",
-              contexts: [
-                {
-                  domainId: DomainId.make("content"),
-                  departmentId: null,
-                  resource: null,
-                  facts: {},
-                  authorityVersion: AuthorityVersion.make(actor.authorizationInstant),
-                },
-              ],
-            },
-            presentation,
-          });
+          yield* authorize().pipe(
+            Effect.provideService(CurrentContentAccess, {
+              kind: "StaffCommand",
+              operation: "content.createArticle",
+              request,
+              actor,
+              resolution: {
+                selection: "ExactlyOne",
+                contexts: [
+                  {
+                    domainId: DomainId.make("content"),
+                    departmentId: null,
+                    resource: null,
+                    facts: {},
+                    authorityVersion: AuthorityVersion.make(actor.authorizationInstant),
+                  },
+                ],
+              },
+            }),
+          );
 
           return {
             actor,
@@ -221,7 +227,12 @@ export const createArticle = (request: Request, maxBodyBytes: number) => {
   );
 };
 
-export const reviseArticle = (request: Request, articleId: ArticleId, maxBodyBytes: number) => {
+export const reviseArticle = <EA, RA>(
+  request: Request,
+  articleId: ArticleId,
+  maxBodyBytes: number,
+  authorize: ContentAuthorizer<EA, RA>,
+) => {
   const presentation = personPresentation(request);
 
   return Effect.gen(function* () {
@@ -243,7 +254,7 @@ export const reviseArticle = (request: Request, articleId: ArticleId, maxBodyByt
     return yield* executeCommand(
       request,
       presentation,
-      ReviseArticleEndpoint,
+      reviseArticleEndpoint,
       "/api/content/articles/{articleId}",
       { articleId: String(articleId) },
       semanticMutationRequest(patch, ifMatch),
@@ -261,19 +272,20 @@ export const reviseArticle = (request: Request, articleId: ArticleId, maxBodyByt
             readContentAuthorityHttpSourcesPostgres(actor.personId),
           ]);
 
-          yield* authorizeContentOperation({
-            endpoint: ReviseArticleEndpoint,
-            credential: actor.credential,
-            personId: actor.personId,
-            authorizationInstant: actor.authorizationInstant,
-            resolution: {
-              selection: "ExactlyOne",
-              contexts: [
-                articleContext(current, source.createdByPersonId, actor.authorizationInstant),
-              ],
-            },
-            presentation,
-          });
+          yield* authorize().pipe(
+            Effect.provideService(CurrentContentAccess, {
+              kind: "StaffCommand",
+              operation: "content.reviseArticle",
+              request,
+              actor,
+              resolution: {
+                selection: "ExactlyOne",
+                contexts: [
+                  articleContext(current, source.createdByPersonId, actor.authorizationInstant),
+                ],
+              },
+            }),
+          );
 
           const currentETag = deriveStrongETag({
             representationKind: "ContentArticleDetailSchema",
@@ -331,17 +343,18 @@ export const reviseArticle = (request: Request, articleId: ArticleId, maxBodyByt
   );
 };
 
-export const lifecycleArticle = (
+export const lifecycleArticle = <EA, RA>(
   request: Request,
   articleId: ArticleId,
   operation: "Publish" | "Unpublish",
   maxBodyBytes: number,
+  authorize: ContentAuthorizer<EA, RA>,
 ) => {
   const presentation = personPresentation(request);
 
   return Effect.gen(function* () {
     yield* requireNoQuery(request);
-    const endpoint = operation === "Publish" ? PublishArticleEndpoint : UnpublishArticleEndpoint;
+    const endpoint = operation === "Publish" ? publishArticleEndpoint : unpublishArticleEndpoint;
     const wireSchema = operation === "Publish" ? PublishArticleRequest : UnpublishArticleRequest;
     const rawBody = yield* readJsonBody(request, JSON_BODY, maxBodyBytes);
     const body = yield* decodeRequest(wireSchema)(rawBody);
@@ -371,19 +384,21 @@ export const lifecycleArticle = (
             readContentAuthorityHttpSourcesPostgres(actor.personId),
           ]);
 
-          yield* authorizeContentOperation({
-            endpoint,
-            credential: actor.credential,
-            personId: actor.personId,
-            authorizationInstant: actor.authorizationInstant,
-            resolution: {
-              selection: "ExactlyOne",
-              contexts: [
-                articleContext(current, source.createdByPersonId, actor.authorizationInstant),
-              ],
-            },
-            presentation,
-          });
+          yield* authorize().pipe(
+            Effect.provideService(CurrentContentAccess, {
+              kind: "StaffCommand",
+              operation:
+                operation === "Publish" ? "content.publishArticle" : "content.unpublishArticle",
+              request,
+              actor,
+              resolution: {
+                selection: "ExactlyOne",
+                contexts: [
+                  articleContext(current, source.createdByPersonId, actor.authorizationInstant),
+                ],
+              },
+            }),
+          );
 
           const currentETag = deriveStrongETag({
             representationKind: "ContentArticleDetailSchema",

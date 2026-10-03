@@ -1055,7 +1055,7 @@ export const ReceiptsReopenReceiptProblem = problemUnion("ReceiptsReopenReceiptP
   "receipt.invalid-transition",
 ]);
 
-/** The ordered codes for the current and effx content.readContentWorkspace contracts. */
+/** The ordered codes for generated content.readContentWorkspace. */
 export const ContentReadContentWorkspaceCodes = [
   "request.malformed",
   "header.malformed",
@@ -1073,7 +1073,7 @@ export const ContentReadContentWorkspaceProblem = problemUnion(
   ContentReadContentWorkspaceCodes,
 );
 
-/** The ordered codes for the current and effx content.createArticle contracts. */
+/** The ordered codes for generated content.createArticle. */
 export const ContentCreateArticleCodes = [
   "request.malformed",
   "header.malformed",
@@ -1102,7 +1102,7 @@ export const ContentCreateArticleProblem = problemUnion(
   ContentCreateArticleCodes,
 );
 
-/** The ordered codes for the current and effx content.readArticle contracts. */
+/** The ordered codes for generated content.readArticle. */
 export const ContentReadArticleCodes = [
   "request.malformed",
   "header.malformed",
@@ -1122,7 +1122,7 @@ export const ContentReadArticleProblem = problemUnion(
   ContentReadArticleCodes,
 );
 
-/** The ordered codes for the current and effx content.reviseArticle contracts. */
+/** The ordered codes for generated content.reviseArticle. */
 export const ContentReviseArticleCodes = [
   "request.malformed",
   "header.malformed",
@@ -1157,7 +1157,7 @@ export const ContentReviseArticleProblem = problemUnion(
   ContentReviseArticleCodes,
 );
 
-/** The ordered codes for the current and effx content.publishArticle contracts. */
+/** The ordered codes for generated content.publishArticle. */
 export const ContentPublishArticleCodes = [
   "request.malformed",
   "header.malformed",
@@ -1189,7 +1189,7 @@ export const ContentPublishArticleProblem = problemUnion(
   ContentPublishArticleCodes,
 );
 
-/** The ordered codes for the current and effx content.unpublishArticle contracts. */
+/** The ordered codes for generated content.unpublishArticle. */
 export const ContentUnpublishArticleCodes = [
   "request.malformed",
   "header.malformed",
@@ -1221,7 +1221,7 @@ export const ContentUnpublishArticleProblem = problemUnion(
   ContentUnpublishArticleCodes,
 );
 
-/** The ordered codes for the current and effx content.listNews contracts. */
+/** The ordered codes for generated content.listNews. */
 export const ContentListNewsCodes = [
   "request.malformed",
   "header.malformed",
@@ -1236,7 +1236,7 @@ export const ContentListNewsCodes = [
 /** Problems for `content.listNews`. */
 export const ContentListNewsProblem = problemUnion("ContentListNewsProblem", ContentListNewsCodes);
 
-/** The ordered codes for the current and effx content.readNewsArticle contracts. */
+/** The ordered codes for generated content.readNewsArticle. */
 export const ContentReadNewsArticleCodes = [
   "request.malformed",
   "header.malformed",

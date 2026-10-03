@@ -21,6 +21,9 @@ export interface ContentRequestActor {
   readonly authorizationInstant: string;
 }
 
+/** A generated authorizer remains a lazy Effect until the original access point. */
+export type ContentAuthorizer<E, R> = () => Effect.Effect<unknown, E, R>;
+
 export type ContentRequestActorResolver<E, R> = (
   request: Request,
 ) => Effect.Effect<ContentRequestActor, E, R>;

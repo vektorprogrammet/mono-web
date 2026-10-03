@@ -23,17 +23,9 @@ import {
   type PublishedNewsListing,
 } from "@vektorprogrammet/domain/content";
 import type { DepartmentId } from "@vektorprogrammet/domain/organization";
-import {
-  ListNewsEndpoint,
-  ReadArticleEndpoint,
-  ReadContentWorkspaceEndpoint,
-  ReadNewsArticleEndpoint,
-  reflectAccessSpec,
-} from "@vektorprogrammet/http-api";
-import { Effect, Option } from "effect";
+import { Effect } from "effect";
 import { currentInstant } from "../authority.js";
 import {
-  authorizeAnonymous,
   conditionalJson,
   personPresentation,
   requireNoQuery,
@@ -42,15 +34,20 @@ import {
   jsonText,
 } from "../http-api/problem.js";
 import { deriveStrongETag, PRIVATE_NO_STORE, PUBLIC_CACHE_CONTROL } from "../http-semantics.js";
-import { articleContext, authorizeContentOperation } from "./http-access.js";
-import { authorizedActor, type ContentRequestActorResolver } from "./http-context.js";
+import { articleContext, CurrentContentAccess } from "./http-access.js";
+import {
+  authorizedActor,
+  type ContentAuthorizer,
+  type ContentRequestActorResolver,
+} from "./http-context.js";
 import { departmentQuery, versionFromQuery } from "./http-decode.js";
 import { contentActorProblems, contentProblems } from "./http-problem.js";
 
-export const readContentWorkspace = <E, R>(
+export const readContentWorkspace = <E, R, EA, RA>(
   request: Request,
   department: DepartmentId | undefined,
   resolveActor: ContentRequestActorResolver<E, R>,
+  authorize: ContentAuthorizer<EA, RA>,
 ) => {
   const presentation = personPresentation(request);
 
@@ -58,25 +55,26 @@ export const readContentWorkspace = <E, R>(
     const query = yield* departmentQuery(request, department);
     const actor = yield* authorizedActor(request, resolveActor, presentation);
 
-    yield* authorizeContentOperation({
-      endpoint: ReadContentWorkspaceEndpoint,
-      request,
-      personId: actor.personId,
-      authorizationInstant: actor.authorizationInstant,
-      resolution: {
-        selection: "AllMatching",
-        contexts: [
-          {
-            domainId: DomainId.make("content"),
-            departmentId: query.departmentId ?? null,
-            resource: null,
-            facts: {},
-            authorityVersion: AuthorityVersion.make(actor.authorizationInstant),
-          },
-        ],
-      },
-      presentation,
-    });
+    yield* authorize().pipe(
+      Effect.provideService(CurrentContentAccess, {
+        kind: "StaffRead",
+        operation: "content.readContentWorkspace",
+        request,
+        actor,
+        resolution: {
+          selection: "AllMatching",
+          contexts: [
+            {
+              domainId: DomainId.make("content"),
+              departmentId: query.departmentId ?? null,
+              resource: null,
+              facts: {},
+              authorityVersion: AuthorityVersion.make(actor.authorizationInstant),
+            },
+          ],
+        },
+      }),
+    );
 
     const workspace = yield* runContentWorkspace(actor.personId, actor.authorizationInstant, query);
     const body = yield* strictOutput(ContentWorkspaceSchema)(workspace);
@@ -93,10 +91,11 @@ export const readContentWorkspace = <E, R>(
   );
 };
 
-export const readArticle = <E, R>(
+export const readArticle = <E, R, EA, RA>(
   request: Request,
   articleId: ArticleId,
   resolveActor: ContentRequestActorResolver<E, R>,
+  authorize: ContentAuthorizer<EA, RA>,
 ) => {
   const presentation = personPresentation(request);
 
@@ -110,17 +109,18 @@ export const readArticle = <E, R>(
       readContentAuthorityHttpSourcesPostgres(actor.personId),
     ]);
 
-    yield* authorizeContentOperation({
-      endpoint: ReadArticleEndpoint,
-      request,
-      personId: actor.personId,
-      authorizationInstant: actor.authorizationInstant,
-      resolution: {
-        selection: "ExactlyOne",
-        contexts: [articleContext(detail, source.createdByPersonId, actor.authorizationInstant)],
-      },
-      presentation,
-    });
+    yield* authorize().pipe(
+      Effect.provideService(CurrentContentAccess, {
+        kind: "StaffRead",
+        operation: "content.readArticle",
+        request,
+        actor,
+        resolution: {
+          selection: "ExactlyOne",
+          contexts: [articleContext(detail, source.createdByPersonId, actor.authorizationInstant)],
+        },
+      }),
+    );
 
     const output = yield* strictOutput(ContentArticleDetailSchema)(detail);
 
@@ -153,25 +153,33 @@ export const readArticle = <E, R>(
   );
 };
 
-export const listNews = (request: Request, department: DepartmentId | undefined) =>
+export const listNews = <EA, RA>(
+  request: Request,
+  department: DepartmentId | undefined,
+  authorize: ContentAuthorizer<EA, RA>,
+) =>
   Effect.gen(function* () {
     const query = yield* departmentQuery(request, department);
+    const now = yield* currentInstant(undefined);
 
-    yield* authorizeAnonymous(
-      Option.getOrThrow(reflectAccessSpec(ListNewsEndpoint)),
-      {
-        selection: "AllMatching",
-        contexts: [
-          {
-            domainId: DomainId.make("content"),
-            departmentId: query.departmentId ?? null,
-            resource: null,
-            facts: {},
-            authorityVersion: AuthorityVersion.make("public-news"),
-          },
-        ],
-      },
-      yield* currentInstant(undefined),
+    yield* authorize().pipe(
+      Effect.provideService(CurrentContentAccess, {
+        kind: "Public",
+        operation: "content.listNews",
+        resolution: {
+          selection: "AllMatching",
+          contexts: [
+            {
+              domainId: DomainId.make("content"),
+              departmentId: query.departmentId ?? null,
+              resource: null,
+              facts: {},
+              authorityVersion: AuthorityVersion.make("public-news"),
+            },
+          ],
+        },
+        now,
+      }),
     );
 
     const listing = yield* readPublicNews(
@@ -205,28 +213,36 @@ export const listNews = (request: Request, department: DepartmentId | undefined)
     unreachable("content.article-not-found"),
   );
 
-export const readNewsArticle = (request: Request, slug: string) =>
+export const readNewsArticle = <EA, RA>(
+  request: Request,
+  slug: string,
+  authorize: ContentAuthorizer<EA, RA>,
+) =>
   Effect.gen(function* () {
     const versionNumber = yield* versionFromQuery(request);
+    const now = yield* currentInstant(undefined);
 
-    yield* authorizeAnonymous(
-      Option.getOrThrow(reflectAccessSpec(ReadNewsArticleEndpoint)),
-      {
-        selection: "ExactlyOne",
-        contexts: [
-          {
-            domainId: DomainId.make("content"),
-            departmentId: null,
-            resource: {
-              kind: ResourceKind.make("content-article"),
-              id: ResourceId.make(slug),
+    yield* authorize().pipe(
+      Effect.provideService(CurrentContentAccess, {
+        kind: "Public",
+        operation: "content.readNewsArticle",
+        resolution: {
+          selection: "ExactlyOne",
+          contexts: [
+            {
+              domainId: DomainId.make("content"),
+              departmentId: null,
+              resource: {
+                kind: ResourceKind.make("content-article"),
+                id: ResourceId.make(slug),
+              },
+              facts: {},
+              authorityVersion: AuthorityVersion.make("public-news"),
             },
-            facts: {},
-            authorityVersion: AuthorityVersion.make("public-news"),
-          },
-        ],
-      },
-      yield* currentInstant(undefined),
+          ],
+        },
+        now,
+      }),
     );
 
     const article = yield* readPublicNews(PublicNewsRead.Article({ slug, versionNumber }));

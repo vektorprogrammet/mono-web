@@ -267,7 +267,7 @@ const testRouterFetch = (
   );
 };
 
-const testFetch = (
+export const testFetch = (
   app: Layer.Layer<never, never, TestApplicationRequirement>,
   services: TestServiceLayer,
 ) => backendHttpHandler(testRouterFetch(app, services), testAuthHandler, testSessionBoundary);

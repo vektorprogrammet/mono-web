@@ -1,13 +1,13 @@
 import {
   ListDepartmentsEndpoint,
-  ListNewsEndpoint,
   ListTeamApplicationIntakesEndpoint,
   ListTeamsEndpoint,
   ReadApplicationCatalogEndpoint,
-  ReadNewsArticleEndpoint,
   ReadTeamApplicationIntakeEndpoint,
   SubmitContactMessageEndpoint,
   SubmitTeamApplicationEndpoint,
+  listNews,
+  readNewsArticle,
 } from "@vektorprogrammet/http-api";
 import type { HttpApiEndpoint, HttpApiSchema } from "effect/unstable/httpapi";
 
@@ -21,11 +21,11 @@ type EndpointBody<Endpoint extends HttpApiEndpoint.Constraint> = Exclude<
 
 export type HomepageDepartment = EndpointBody<typeof ListDepartmentsEndpoint>[number];
 
-export type PublishedNewsListing = EndpointBody<typeof ListNewsEndpoint>;
+export type PublishedNewsListing = EndpointBody<typeof listNews>;
 
 export type PublishedNewsSummary = PublishedNewsListing["articles"][number];
 
-export type PublishedNewsArticle = EndpointBody<typeof ReadNewsArticleEndpoint>;
+export type PublishedNewsArticle = EndpointBody<typeof readNewsArticle>;
 
 export type PublicApplicationCatalog = EndpointBody<typeof ReadApplicationCatalogEndpoint>;
 
@@ -37,7 +37,7 @@ export type ContactMessageHeaders = HttpApiEndpoint.Headers<
   typeof SubmitContactMessageEndpoint
 >["Type"];
 
-export type NewsArticleSlug = HttpApiEndpoint.Params<typeof ReadNewsArticleEndpoint>["Type"]["slug"];
+export type NewsArticleSlug = HttpApiEndpoint.Params<typeof readNewsArticle>["Type"]["slug"];
 
 export type HomepageTeam = EndpointBody<typeof ListTeamsEndpoint>[number];
 

@@ -22,7 +22,6 @@ Tag a construct only when at least 2 modules outside its own module and the test
   - [`returningAuthorization`](constructs/http-problem.md#returningauthorization): Resolves the current person and authorizes one returning-assistant operation on that person's own profile.
   - [`admissionActorForAuthority`](constructs/http-problem.md#admissionactorforauthority): The admission actor of one department scope.
   - [`admissionProblems`](constructs/http-problem.md#admissionproblems): The one answer for every admission failure.
-  - [`authorizeContentOperation`](constructs/http-problem.md#authorizecontentoperation): Evaluates a content endpoint's AccessSpec for one person with the content grant scope.
   - [`contentProblems`](constructs/http-problem.md#contentproblems): The one answer for every content domain failure.
   - [`contentActorProblems`](constructs/http-problem.md#contentactorproblems): A staff person rejected after ingress is answered from the credential the request presented.
   - [`problemWebResponse`](constructs/http-problem.md#problemwebresponse): Renders one problem outside HttpApi encoding, with the encoder's body and headers.

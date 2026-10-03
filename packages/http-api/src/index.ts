@@ -29,6 +29,8 @@ export * from "../.effx/generated/profile-contract.js";
 
 export * from "../.effx/generated/directory-contract.js";
 
+export * from "../.effx/generated/content-contract.js";
+
 export * from "../.effx/generated/social-events-contract.js";
 
 export * from "./receipts.js";
