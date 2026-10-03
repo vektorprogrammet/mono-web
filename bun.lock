@@ -6,6 +6,7 @@
       "name": "monoweb",
       "devDependencies": {
         "@effect/tsgo": "0.36.4",
+        "@effx/cli": "file:tools/effx-dist/effx-cli-0.1.0-dd3be1c479c0fdb2853985c7b6202a75aca72e0e.tgz",
         "@oxlint/plugins": "1.77.0",
         "@phibkro/oxlint-effect-plugin": "0.1.0",
         "@types/bun": "1.3.10",
@@ -227,6 +228,7 @@
       "name": "@vektorprogrammet/http-api",
       "version": "0.2.0",
       "dependencies": {
+        "@effx/runtime": "file:../../tools/effx-dist/effx-runtime-0.1.0-dd3be1c479c0fdb2853985c7b6202a75aca72e0e.tgz",
         "@vektorprogrammet/domain": "workspace:*",
         "effect": "catalog:effect-v4",
       },
@@ -542,6 +544,10 @@
     "@effect/tsgo-win32-x64": ["@effect/tsgo-win32-x64@0.36.4", "", { "os": "win32", "cpu": "x64" }, "sha512-q4j1q0ESYxxookjA0ECz/84DEH2MsP51K0aZb3uXKfxagHDASPoWDcVu4BJTcwrK5kdZzvw9QrCPjAXe9WZqng=="],
 
     "@effect/vitest": ["@effect/vitest@4.0.0-rc.116", "", { "peerDependencies": { "effect": "^4.0.0-rc.116", "vitest": ">=5.0.0 <6.0.0" } }, "sha512-q42ue4hAa5AcPBwqi8rvMvR1Jstr+JjsyyxEBUoBk+WWm8otnqFxQ+XbWslW1QSwdg5+2Fdgd7z59IValt9Oiw=="],
+
+    "@effx/cli": ["@effx/cli@tools/effx-dist/effx-cli-0.1.0-dd3be1c479c0fdb2853985c7b6202a75aca72e0e.tgz", { "dependencies": { "@typescript/typescript6": "6.0.2" }, "bin": { "effx": "dist/effx.js" } }, "sha512-gClVFl6eIoaYGnuqyN0QFum1aNiE0L7DoOYsvuIVZBQD/m4sXNMWTosMM0nMlRKZ4k/LVMhLcqkOlmheW1M1vQ=="],
+
+    "@effx/runtime": ["@effx/runtime@../../tools/effx-dist/effx-runtime-0.1.0-dd3be1c479c0fdb2853985c7b6202a75aca72e0e.tgz", { "peerDependencies": { "effect": ">=4.0.0-rc.116 <5" } }, "sha512-XtYgKqmqc3h6blfxNd7uMsJEAicAQ6NZUaUE2bgWs0SHL1nFX0+QAzdT9blkMqDDPHLvvZaykPKuvnEbCzjzHA=="],
 
     "@electric-sql/pglite": ["@electric-sql/pglite@0.5.8", "", {}, "sha512-n9tsbUOhwx2epK1V0ZG9Ar4SHWUju04dhmzZXiSBXwBoleOvIfals33NAaWgagQVAL4Rbvx/Ptsu3P+pA09f6Q=="],
 
@@ -1399,6 +1405,8 @@
 
     "@types/ws": ["@types/ws@8.18.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg=="],
 
+    "@typescript/old": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
     "@typescript/typescript-aix-ppc64": ["@typescript/typescript-aix-ppc64@7.0.2", "", { "os": "aix", "cpu": "ppc64" }, "sha512-MTKKkWB7p/0E9xi1d1tHtZ5PiLkGEMIq88pK2CubZjOsLtYTLqhgIgi6zepFa+9GHZ6h05NMCkQxGKiPXMxXtQ=="],
 
     "@typescript/typescript-darwin-arm64": ["@typescript/typescript-darwin-arm64@7.0.2", "", { "os": "darwin", "cpu": "arm64" }, "sha512-gowzar9MwS/aRWp6f3a4KUqzRjAZjOsmGNCM6LcTgXum+dBfgsBVMN+AgvOCCbguXyick6LJhpBszxMebJ8syA=="],
@@ -1438,6 +1446,8 @@
     "@typescript/typescript-win32-arm64": ["@typescript/typescript-win32-arm64@7.0.2", "", { "os": "win32", "cpu": "arm64" }, "sha512-Gyl1Vy6OsWesLzmq+EP0Fb7b4Nid5232AvcA2SFcdYreldpNtYFFofPjnt62y9hQy7VTaZp65ICJjuAQRaVcIQ=="],
 
     "@typescript/typescript-win32-x64": ["@typescript/typescript-win32-x64@7.0.2", "", { "os": "win32", "cpu": "x64" }, "sha512-0BQ3HkAHHlKLSp1qRvf3SUhGpGsDuhB/jgFw75guyqbxJqEaS0Cw/VFO8i2nHglJUzQCRtMMR/IBAKE3ETMC4g=="],
+
+    "@typescript/typescript6": ["@typescript/typescript6@6.0.2", "", { "dependencies": { "@typescript/old": "npm:typescript@^6" }, "bin": { "tsc6": "bin/tsc6" } }, "sha512-mbCddXd+jm7hfx7w2YU64/Av4/NqqeG3GoRZgxPcgoTxYjhrcfJRw9ULch71SS4G+Q3bOXFhRvPqjguN0Hyp5w=="],
 
     "@typescript/vfs": ["@typescript/vfs@1.6.5", "", { "dependencies": { "debug": "^4.4.3" }, "peerDependencies": { "typescript": "*" } }, "sha512-gobLHQLmvQGJInFk31NvgMd1uYzRXsd8qgnOssyLD055R2QPnw1ubRbBQ4+T+5qC7IQVuYXdvNDE2G7tMDVHgw=="],
 

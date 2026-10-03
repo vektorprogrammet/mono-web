@@ -69,6 +69,7 @@ export const packageDirectories = {
   "tools/acceptance": "Local API and browser acceptance probes of single journeys",
   "tools/conventions":
     "Layout, guide, construct, and Effect exception checks and their generated files",
+  "tools/effx-dist": "Pinned effx runtime and CLI distribution artifacts",
   "tools/e2e": "Golden journeys, local journey drivers, and legacy migration commands",
   "tools/oxlint": "Project Oxlint rules",
   "tools/placements-docs": "Placements API reference generation and checks",
