@@ -9,7 +9,7 @@ import {
   SocialEventScopeResource,
 } from "@vektorprogrammet/domain";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
-import { annotateAccessSpec, personNativeAccess } from "./access.js";
+import { annotateAccessSpec } from "./access.js";
 import { operationAnnotations, PersonSecurity } from "./common.js";
 import {
   createdMutationResponse,
@@ -17,7 +17,9 @@ import {
   IdempotencyHeaders,
   privateReadResponse,
   problemUnion,
+  type NativeProblemCode,
 } from "./http-semantics.js";
+import { socialEventsPersonAccess } from "./social-events-effx-adapters.js";
 
 export {
   CreateSocialEventRequest,
@@ -30,7 +32,10 @@ export {
   SocialEventScopeResource,
 };
 
-export const SocialEventsReadScopeProblem = problemUnion("SocialEventsReadScopeProblem", [
+/** The list query reuses exactly the domain scope fields. */
+export const SocialEventScopeQuery = SocialEventScope.fields;
+
+export const SocialEventsReadScopeCodes = [
   "request.malformed",
   "header.malformed",
   "authority.denied",
@@ -38,9 +43,14 @@ export const SocialEventsReadScopeProblem = problemUnion("SocialEventsReadScopeP
   "internal.error",
   "dependency.unavailable",
   "organization.unavailable",
-]);
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
 
-export const SocialEventsListProblem = problemUnion("SocialEventsListProblem", [
+export const SocialEventsReadScopeProblem = problemUnion(
+  "SocialEventsReadScopeProblem",
+  SocialEventsReadScopeCodes,
+);
+
+export const SocialEventsListCodes = [
   "request.malformed",
   "header.malformed",
   "authority.denied",
@@ -49,9 +59,14 @@ export const SocialEventsListProblem = problemUnion("SocialEventsListProblem", [
   "internal.error",
   "dependency.unavailable",
   "organization.unavailable",
-]);
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
 
-export const SocialEventsCreateProblem = problemUnion("SocialEventsCreateProblem", [
+export const SocialEventsListProblem = problemUnion(
+  "SocialEventsListProblem",
+  SocialEventsListCodes,
+);
+
+export const SocialEventsCreateCodes = [
   "request.malformed",
   "header.malformed",
   "authority.denied",
@@ -69,7 +84,12 @@ export const SocialEventsCreateProblem = problemUnion("SocialEventsCreateProblem
   "organization.unavailable",
   "idempotency.unavailable",
   "transaction.conflict",
-]);
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
+export const SocialEventsCreateProblem = problemUnion(
+  "SocialEventsCreateProblem",
+  SocialEventsCreateCodes,
+);
 
 /** @since 0.2.0 @category Endpoints */
 export const ReadSocialEventScopeEndpoint = HttpApiEndpoint.get(
@@ -82,14 +102,7 @@ export const ReadSocialEventScopeEndpoint = HttpApiEndpoint.get(
 )
   .middleware(PersonSecurity)
   .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      personNativeAccess({
-        capability: "social-events.read-scope",
-        canonicalScopeResolver: "social-events.scope",
-        decisionTime: "SnapshotRead",
-      }),
-    ),
+    annotateAccessSpec(endpoint, socialEventsPersonAccess("social-events.read-scope")),
   )
   .annotateMerge(
     operationAnnotations(
@@ -100,21 +113,12 @@ export const ReadSocialEventScopeEndpoint = HttpApiEndpoint.get(
 
 /** @since 0.2.0 @category Endpoints */
 export const ListSocialEventsEndpoint = HttpApiEndpoint.get("list", "/api/social-events", {
-  query: SocialEventScope.fields,
+  query: SocialEventScopeQuery,
   success: privateReadResponse(SocialEventListResource),
   error: endpointProblemResponses(SocialEventsListProblem),
 })
   .middleware(PersonSecurity)
-  .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      personNativeAccess({
-        capability: "social-events.read",
-        canonicalScopeResolver: "social-events.list",
-        decisionTime: "SnapshotRead",
-      }),
-    ),
-  )
+  .pipe((endpoint) => annotateAccessSpec(endpoint, socialEventsPersonAccess("social-events.read")))
   .annotateMerge(
     operationAnnotations(
       "List social events",
@@ -131,14 +135,7 @@ export const CreateSocialEventEndpoint = HttpApiEndpoint.post("create", "/api/so
 })
   .middleware(PersonSecurity)
   .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      personNativeAccess({
-        capability: "social-events.create",
-        canonicalScopeResolver: "social-events.create",
-        decisionTime: "Transaction",
-      }),
-    ),
+    annotateAccessSpec(endpoint, socialEventsPersonAccess("social-events.create")),
   )
   .annotateMerge(
     operationAnnotations("Create social event", "Creates or replays one social event command."),

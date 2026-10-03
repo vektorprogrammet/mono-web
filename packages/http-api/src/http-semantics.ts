@@ -180,13 +180,16 @@ export const noStoreReadResponse = <S extends Schema.Top>(success: S) =>
 export const internalNoStoreResponse = <S extends Schema.Top>(success: S) =>
   HttpApiSchema.WithHeaders(success, { "cache-control": NoStore });
 
+/** The no-store, entity-tagged and located headers of a successful resource creation. */
+export const CreatedMutationResponseHeaders = Schema.Struct({
+  ...externalHeaders(NoStore),
+  etag: StrongETag,
+  location: OriginRelativeLocation,
+});
+
 /** Successful resource creation response. */
 export const createdMutationResponse = <S extends Schema.Top>(success: S) =>
-  HttpApiSchema.WithHeaders(success, {
-    ...externalHeaders(NoStore),
-    etag: StrongETag,
-    location: OriginRelativeLocation,
-  });
+  HttpApiSchema.WithHeaders(success, CreatedMutationResponseHeaders);
 
 /** The same no-store response headers as every mutable entity representation. */
 export const EntityMutationResponseHeaders = Schema.Struct({
