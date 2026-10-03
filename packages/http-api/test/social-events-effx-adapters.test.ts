@@ -2,6 +2,11 @@ import type { HttpAccessAnnotationSpec } from "@effx/runtime";
 import { SocialEventScope } from "@vektorprogrammet/domain/social-events";
 import { Context, Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import {
+  create as CreateSocialEventEndpoint,
+  list as ListSocialEventsEndpoint,
+  readScope as ReadSocialEventScopeEndpoint,
+} from "../.effx/generated/social-events-contract.js";
 import { AccessSpecAnnotation, personNativeAccess, reflectAccessSpec } from "../src/access.js";
 import {
   CreatedMutationResponseHeaders,
@@ -10,9 +15,6 @@ import {
   privateReadResponse,
 } from "../src/http-semantics.js";
 import {
-  CreateSocialEventEndpoint,
-  ListSocialEventsEndpoint,
-  ReadSocialEventScopeEndpoint,
   SocialEventScopeQuery,
   SocialEventsCreateCodes,
   SocialEventsCreateProblem,

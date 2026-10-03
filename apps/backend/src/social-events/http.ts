@@ -25,11 +25,11 @@ import {
   type OrganizationAuthorityRowLockMode,
 } from "@vektorprogrammet/database/organization";
 import {
-  CreateSocialEventEndpoint,
+  create as createEndpoint,
   CreateSocialEventRequest,
   ExternalNativeApi,
-  ListSocialEventsEndpoint,
-  ReadSocialEventScopeEndpoint,
+  list as listEndpoint,
+  readScope as readScopeEndpoint,
   SocialEventListResource,
   SocialEventResource,
   SocialEventScope,
@@ -38,7 +38,12 @@ import {
 } from "@vektorprogrammet/http-api";
 import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Context, Effect, Option, Predicate, Schema } from "effect";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import type { HttpApiGroup } from "effect/unstable/httpapi";
+import {
+  SocialEventsApiHandlers as GeneratedSocialEventsApiHandlers,
+  type SocialEventsGuards,
+  type SocialEventsRawHandlers,
+} from "../../.effx/generated/social-events-handlers.js";
 import {
   resolveRequestCredentialInTransaction,
   type OrganizationResolutionError,
@@ -76,10 +81,11 @@ const socialEventScopeQueryKeys = {
   semesterId: true,
 } as const;
 
-type Endpoint =
-  | typeof ReadSocialEventScopeEndpoint
-  | typeof ListSocialEventsEndpoint
-  | typeof CreateSocialEventEndpoint;
+type Endpoint = typeof readScopeEndpoint | typeof listEndpoint | typeof createEndpoint;
+
+type SocialEventsEndpoints = HttpApiGroup.Endpoints<
+  (typeof ExternalNativeApi)["groups"]["social-events"]
+>;
 
 type SocialEventAccessContext = CanonicalResourceContext<Record<string, never>>;
 
@@ -187,14 +193,13 @@ const socialEventGuard = (endpoint: Endpoint, capability: CapabilityTypeId) =>
     return yield* authorize({ request, endpoint, capability, ...frame });
   });
 
-const makeSocialEventsGuards = () => ({
-  "social-events.readScope": () =>
-    socialEventGuard(ReadSocialEventScopeEndpoint, SOCIAL_EVENTS_READ_SCOPE_CAPABILITY),
-  "social-events.list": () =>
-    socialEventGuard(ListSocialEventsEndpoint, SOCIAL_EVENTS_READ_CAPABILITY),
-  "social-events.create": () =>
-    socialEventGuard(CreateSocialEventEndpoint, SOCIAL_EVENTS_CREATE_CAPABILITY),
-});
+const makeSocialEventsGuards = () =>
+  ({
+    "social-events.create": () => socialEventGuard(createEndpoint, SOCIAL_EVENTS_CREATE_CAPABILITY),
+    "social-events.list": () => socialEventGuard(listEndpoint, SOCIAL_EVENTS_READ_CAPABILITY),
+    "social-events.readScope": () =>
+      socialEventGuard(readScopeEndpoint, SOCIAL_EVENTS_READ_SCOPE_CAPABILITY),
+  }) satisfies SocialEventsGuards<SocialEventsEndpoints>;
 
 type SocialEventAuthorizer = () => ReturnType<typeof socialEventGuard>;
 
@@ -436,30 +441,26 @@ const create = (
 export const SocialEventsApiHandlers = (options: SocialEventsApiHttpOptions) => {
   const guards = makeSocialEventsGuards();
 
-  return HttpApiBuilder.group(ExternalNativeApi, "social-events", (handlers) =>
-    Effect.succeed(
-      handlers
-        .handleRaw("readScope", ({ request }) =>
-          webHandler(request, (webRequest) =>
-            readScope(webRequest, options, guards["social-events.readScope"]).pipe(
-              Effect.provideService(CurrentRawWebRequest, webRequest),
-            ),
-          ),
-        )
-        .handleRaw("list", ({ request }) =>
-          webHandler(request, (webRequest) =>
-            list(webRequest, options, guards["social-events.list"]).pipe(
-              Effect.provideService(CurrentRawWebRequest, webRequest),
-            ),
-          ),
-        )
-        .handleRaw("create", ({ request }) =>
-          webHandler(request, (webRequest) =>
-            create(webRequest, options, guards["social-events.create"]).pipe(
-              Effect.provideService(CurrentRawWebRequest, webRequest),
-            ),
-          ),
+  const raw = {
+    create: ({ request }, authorize) =>
+      webHandler(request, (webRequest) =>
+        create(webRequest, options, authorize).pipe(
+          Effect.provideService(CurrentRawWebRequest, webRequest),
         ),
-    ),
-  );
+      ),
+    list: ({ request }, authorize) =>
+      webHandler(request, (webRequest) =>
+        list(webRequest, options, authorize).pipe(
+          Effect.provideService(CurrentRawWebRequest, webRequest),
+        ),
+      ),
+    readScope: ({ request }, authorize) =>
+      webHandler(request, (webRequest) =>
+        readScope(webRequest, options, authorize).pipe(
+          Effect.provideService(CurrentRawWebRequest, webRequest),
+        ),
+      ),
+  } satisfies SocialEventsRawHandlers<SocialEventsEndpoints, typeof guards>;
+
+  return GeneratedSocialEventsApiHandlers({ raw, guards });
 };

@@ -228,7 +228,8 @@
       "scope": {
         "files": [
           "packages/http-api/src/profile.effx.ts",
-          "packages/http-api/src/directory.effx.ts"
+          "packages/http-api/src/directory.effx.ts",
+          "packages/http-api/src/social-events.effx.ts"
         ],
         "symbols": [
           "ReadOwnProfile",
@@ -236,19 +237,23 @@
           "ListPeople",
           "ListSchools",
           "ReadSchoolManagement",
-          "ExecuteSchoolCommand"
+          "ExecuteSchoolCommand",
+          "SocialEventsGroup",
+          "ReadSocialEventScope",
+          "ListSocialEvents",
+          "CreateSocialEvent"
         ]
       },
-      "reason": "The effx Profile and Directory declarations are source metadata, not constructed domain tagged values. The compiler lowers literal Http.Access tagged records into IR without executing either file.",
-      "missingCapability": "The installed effx source collector accepts a literal Http.Access capabilities/concealment record, but rejects Schema.TaggedStruct(...).make with EFFX1102. The lint rule cannot distinguish this source annotation from hand-written domain tagged construction.",
+      "reason": "The effx Profile, Directory and SocialEvents declarations are source metadata, not constructed domain tagged values. The compiler lowers literal Http.Access tagged records into IR without executing these files.",
+      "missingCapability": "The installed effx source collector accepts literal Http.Access capabilities/concealment records (including group defaults), but rejects Schema.TaggedStruct(...).make with EFFX1102. The lint rule cannot distinguish these source annotations from hand-written domain tagged construction.",
       "nativeAlternatives": [
         "Schema.TaggedStruct(...).make constructs the correct tagged value for TypeScript and lint, but the effx collector rejects its CallExpression before interpreting access metadata.",
         "The domain CapabilityExpressionSchema constructor makes a different nested AccessSpec shape, and the effx collector also rejects that call.",
         "An exported const holding a tagged constructor call is followed to its initializer by the collector, which rejects the same call."
       ],
       "verification": [
-        "The unified effx Profile and Directory recipe must lower all literal access records with no EFFX1102 and emit their exact AccessSpec annotations.",
-        "just exceptions checks each scoped suppression against this entry; just check, just e2e schools and just e2e profile remain the final contract and runtime gates."
+        "The unified effx Profile, Directory and SocialEvents recipe must lower all literal access records with no EFFX1102 and emit their exact AccessSpec annotations.",
+        "just exceptions checks each scoped suppression against this entry; just check, just e2e social-events, just e2e schools and just e2e profile remain the final contract and runtime gates."
       ],
       "owner": "packages/http-api",
       "examinedWith": { "effect": "4.0.0-rc.116", "@phibkro/oxlint-effect-plugin": "0.1.0" },
