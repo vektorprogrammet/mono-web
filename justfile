@@ -26,7 +26,7 @@ seed:
 docs script="dev":
     bun run --cwd apps/docs "$1"
 
-# Generate Profile and Directory contracts and raw backend bindings from one project IR.
+# Generate Profile, Directory, and SocialEvents contracts and raw backend bindings from one project IR.
 [group('develop')]
 effx-native:
     bun x effx build --project packages/http-api/tsconfig.effx.json --strict-access --emit=contract
