@@ -138,32 +138,32 @@ const externalHeaders = <CacheControl extends Schema.Top>(cacheControl: CacheCon
   vary: OriginVary,
 });
 
-const conditionalReadResponses = <S extends Schema.Top, CacheControl extends Schema.Top>(
-  success: S,
-  cacheControl: CacheControl,
-) => {
-  const headers = {
-    ...externalHeaders(cacheControl),
-    etag: StrongETag,
-  };
+const conditionalReadHeaders = <CacheControl extends Schema.Top>(cacheControl: CacheControl) =>
+  Schema.Struct({ ...externalHeaders(cacheControl), etag: StrongETag });
 
-  return [
+/** The same private response headers on Profile GET 200 and 304. */
+export const ProfileReadResponseHeaders = conditionalReadHeaders(PrivateNoStore);
+
+const conditionalReadResponses = <S extends Schema.Top, H extends Schema.Top>(
+  success: S,
+  headers: H,
+) =>
+  [
     HttpApiSchema.WithHeaders(success, headers),
     HttpApiSchema.WithHeaders(HttpApiSchema.NoContent.pipe(HttpApiSchema.status(304)), headers),
   ] as const;
-};
 
 /** Public conditional response with the fixed five-minute shared cache policy. */
 export const publicConditionalResponses = <S extends Schema.Top>(success: S) =>
-  conditionalReadResponses(success, PublicCache);
+  conditionalReadResponses(success, conditionalReadHeaders(PublicCache));
 
 /** Public conditional response whose TTL is bounded by the next admission boundary. */
 export const dynamicAdmissionConditionalResponses = <S extends Schema.Top>(success: S) =>
-  conditionalReadResponses(success, DynamicAdmissionCache);
+  conditionalReadResponses(success, conditionalReadHeaders(DynamicAdmissionCache));
 
 /** Credential-selected conditional response that is never stored. */
 export const privateConditionalResponses = <S extends Schema.Top>(success: S) =>
-  conditionalReadResponses(success, PrivateNoStore);
+  conditionalReadResponses(success, ProfileReadResponseHeaders);
 
 /** Credential-selected non-conditional read response. */
 export const privateReadResponse = <S extends Schema.Top>(success: S) =>
@@ -185,12 +185,15 @@ export const createdMutationResponse = <S extends Schema.Top>(success: S) =>
     location: OriginRelativeLocation,
   });
 
+/** The same no-store response headers as every mutable entity representation. */
+export const ProfileMutationResponseHeaders = Schema.Struct({
+  ...externalHeaders(NoStore),
+  etag: StrongETag,
+});
+
 /** Successful mutation response carrying a current mutable representation. */
 export const entityMutationResponse = <S extends Schema.Top>(success: S) =>
-  HttpApiSchema.WithHeaders(success, {
-    ...externalHeaders(NoStore),
-    etag: StrongETag,
-  });
+  HttpApiSchema.WithHeaders(success, ProfileMutationResponseHeaders);
 
 /** Successful mutation response carrying the bytes of a generated document and its entity tag. */
 export const documentMutationResponse = (contentType: string) =>

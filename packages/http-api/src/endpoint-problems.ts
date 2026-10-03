@@ -1,5 +1,12 @@
 /** Generated from the frozen 0080.1 endpoint-specific Problem Details table. */
-import { problemUnion } from "./http-semantics.js";
+import { Schema, Struct } from "effect";
+import {
+  endpointProblemResponses,
+  NativeProblemRegistry,
+  problemUnion,
+  type NativeProblemCode,
+  type ProblemResponse,
+} from "./http-semantics.js";
 
 /** Problems for `system.health`. */
 export const SystemHealthProblem = problemUnion("SystemHealthProblem", [
@@ -88,8 +95,8 @@ export const SystemRevokeAllSessionsProblem = problemUnion("SystemRevokeAllSessi
   "idempotency.unavailable",
 ]);
 
-/** Problems for `profile.readOwnProfile`. */
-export const ProfileReadOwnProfileProblem = problemUnion("ProfileReadOwnProfileProblem", [
+/** The Profile read problem codes are shared by the current and effx contracts. */
+export const ProfileReadOwnProfileCodes = [
   "request.malformed",
   "header.malformed",
   "precondition.invalid",
@@ -99,10 +106,16 @@ export const ProfileReadOwnProfileProblem = problemUnion("ProfileReadOwnProfileP
   "internal.error",
   "profile.not-found",
   "profile.unavailable",
-]);
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
 
-/** Problems for `profile.updateOwnProfile`. */
-export const ProfileUpdateOwnProfileProblem = problemUnion("ProfileUpdateOwnProfileProblem", [
+/** Problems for `profile.readOwnProfile`. */
+export const ProfileReadOwnProfileProblem = problemUnion(
+  "ProfileReadOwnProfileProblem",
+  ProfileReadOwnProfileCodes,
+);
+
+/** The Profile mutation problem codes are shared by the current and effx contracts. */
+export const ProfileUpdateOwnProfileCodes = [
   "request.malformed",
   "header.malformed",
   "authority.denied",
@@ -124,7 +137,31 @@ export const ProfileUpdateOwnProfileProblem = problemUnion("ProfileUpdateOwnProf
   "profile.not-found",
   "profile.unavailable",
   "idempotency.unavailable",
-]);
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
+/** Problems for `profile.updateOwnProfile`. */
+export const ProfileUpdateOwnProfileProblem = problemUnion(
+  "ProfileUpdateOwnProfileProblem",
+  ProfileUpdateOwnProfileCodes,
+);
+
+const nativeProblemCode = Schema.Literals(Struct.keys(NativeProblemRegistry));
+
+const decodeProblemCodes = Schema.decodeUnknownSync(
+  Schema.TupleWithRest(Schema.Tuple([nativeProblemCode]), [nativeProblemCode]),
+);
+
+/** Derives response schemas from the one native problem registry and a declared code tuple. */
+export function profileProblems<
+  const Codes extends readonly [NativeProblemCode, ...NativeProblemCode[]],
+>(identifier: string, codes: Codes): ReadonlyArray<ProblemResponse<Codes[number]>>;
+export function profileProblems(
+  identifier: string,
+  codes: ReadonlyArray<string>,
+): ReadonlyArray<Schema.Top>;
+export function profileProblems(identifier: string, codes: ReadonlyArray<string>) {
+  return endpointProblemResponses(problemUnion(identifier, decodeProblemCodes(codes)));
+}
 
 /** Problems for `organization.listDepartments`. */
 export const OrganizationListDepartmentsProblem = problemUnion(
