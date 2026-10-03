@@ -4,6 +4,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["src", "scripts", "test"],
-  "exclude": ["src/profile.effx.ts"]
+  "include": ["src", "scripts", "test"]
 }

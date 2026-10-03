@@ -1,6 +1,3 @@
-// Excluded from tsconfig until effx supplies declaration-only operations, Http.Group,
-// and lowering of the exported `as const satisfies` problem-code tuples.
-import { Schema } from "effect";
 import { Http, Operation } from "@effx/runtime";
 import { PersonSecurity } from "./common.js";
 import {
@@ -17,13 +14,14 @@ import {
 import { UserProfileResponse } from "./profile.js";
 import { ProfileCurrentPerson, profileAccessAnnotations } from "./profile-effx-adapters.js";
 import { ProfileMergePatch } from "./v2-schemas.js";
+import { ExternalNativeApi } from "./api.js";
 
-export const ProfileGroup = Http.Group({
-  root: "external-native-api",
+export const ProfileGroup = Http.group({
+  root: ExternalNativeApi,
   group: "profile",
   title: "Profile",
   description: "Authenticated self-service profile API.",
-  override: { "x-displayName": "Profile" },
+  displayName: "Profile",
 });
 
 export const ReadOwnProfile = Operation.query({
@@ -37,6 +35,7 @@ export const ReadOwnProfile = Operation.query({
     group: "profile",
     headers: ConditionalReadHeaders,
     success: UserProfileResponse,
+    status: 200,
     responseHeaders: ProfileReadResponseHeaders,
     conditional: true,
     middleware: [PersonSecurity],
@@ -56,12 +55,12 @@ export const ReadOwnProfile = Operation.query({
     exposure: "External",
     acceptedCredentials: ["BetterAuthCookie", "OAuthUserBearer"],
     principalKinds: ["Person"],
-    capabilities: Schema.TaggedStruct("One", { capability: Schema.String }).make({
-      capability: "profile.read-self",
-    }),
+    // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- EX-0011: effx lowers source metadata literals.
+    capabilities: { _tag: "One", capability: "profile.read-self" },
     requirements: [{ id: "profile.owner" }],
     canonicalScopeResolver: ProfileCurrentPerson,
-    concealment: Schema.TaggedStruct("Reveal", {}).make({}),
+    // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- EX-0011: effx lowers source metadata literals.
+    concealment: { _tag: "Reveal" },
     decisionTime: "SnapshotRead",
   })
   .declare();
@@ -79,6 +78,7 @@ export const UpdateOwnProfile = Operation.command({
     payload: ProfileMergePatch,
     mediaType: "application/merge-patch+json",
     success: UserProfileResponse,
+    status: 200,
     responseHeaders: ProfileMutationResponseHeaders,
     middleware: [PersonSecurity],
     metadata: {
@@ -98,12 +98,12 @@ export const UpdateOwnProfile = Operation.command({
     exposure: "External",
     acceptedCredentials: ["BetterAuthCookie", "OAuthUserBearer"],
     principalKinds: ["Person"],
-    capabilities: Schema.TaggedStruct("One", { capability: Schema.String }).make({
-      capability: "profile.update-self",
-    }),
+    // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- EX-0011: effx lowers source metadata literals.
+    capabilities: { _tag: "One", capability: "profile.update-self" },
     requirements: [{ id: "profile.owner" }],
     canonicalScopeResolver: ProfileCurrentPerson,
-    concealment: Schema.TaggedStruct("Reveal", {}).make({}),
+    // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- EX-0011: effx lowers source metadata literals.
+    concealment: { _tag: "Reveal" },
     decisionTime: "Transaction",
   })
   .declare();

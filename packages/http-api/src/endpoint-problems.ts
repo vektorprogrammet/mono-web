@@ -151,17 +151,19 @@ const decodeProblemCodes = Schema.decodeUnknownSync(
   Schema.TupleWithRest(Schema.Tuple([nativeProblemCode]), [nativeProblemCode]),
 );
 
-/** Derives response schemas from the one native problem registry and a declared code tuple. */
-export function profileProblems<
+function deriveProfileProblems<
   const Codes extends readonly [NativeProblemCode, ...NativeProblemCode[]],
 >(identifier: string, codes: Codes): ReadonlyArray<ProblemResponse<Codes[number]>>;
-export function profileProblems(
+function deriveProfileProblems(
   identifier: string,
   codes: ReadonlyArray<string>,
 ): ReadonlyArray<Schema.Top>;
-export function profileProblems(identifier: string, codes: ReadonlyArray<string>) {
+function deriveProfileProblems(identifier: string, codes: ReadonlyArray<string>) {
   return endpointProblemResponses(problemUnion(identifier, decodeProblemCodes(codes)));
 }
+
+/** Derives response schemas from the one native problem registry and a declared code tuple. */
+export const profileProblems = deriveProfileProblems;
 
 /** Problems for `organization.listDepartments`. */
 export const OrganizationListDepartmentsProblem = problemUnion(

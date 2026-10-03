@@ -5,6 +5,7 @@
     "rootDir": "../..",
     "types": ["node"]
   },
+  "effx": { "projectRoot": "../.." },
   "files": ["src/profile.effx.ts"],
   "include": []
 }

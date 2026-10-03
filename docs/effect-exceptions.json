@@ -221,6 +221,28 @@
       "owner": "packages/sdk",
       "examinedWith": { "effect": "4.0.0-rc.116", "typescript": "7.0.2" },
       "retirementTrigger": "An Effect release whose HttpApiEndpoint.ClientRequest takes the whole union as the payload of a union endpoint. Then remove the patch and its patchedDependencies entry, delete this entry and the comments that name it, and keep the type test, which then checks the release."
+    },
+    {
+      "id": "EX-0011",
+      "rules": ["FX002", "FX012", "anti-slop-effect/no-manual-tagged-construction"],
+      "scope": {
+        "files": ["packages/http-api/src/profile.effx.ts"],
+        "symbols": ["ReadOwnProfile", "UpdateOwnProfile"]
+      },
+      "reason": "The effx Profile declaration is source metadata, not a constructed domain tagged value. Its compiler lowers literal Http.Access tagged records into IR without executing the file.",
+      "missingCapability": "The installed effx source collector accepts a literal Http.Access capabilities/concealment record, but rejects Schema.TaggedStruct(...).make with EFFX1102. The lint rule cannot distinguish this source annotation from hand-written domain tagged construction.",
+      "nativeAlternatives": [
+        "Schema.TaggedStruct(...).make constructs the correct tagged value for TypeScript and lint, but the effx collector rejects its CallExpression before interpreting access metadata.",
+        "The domain CapabilityExpressionSchema constructor makes a different nested AccessSpec shape, and the effx collector also rejects that call.",
+        "An exported const holding a tagged constructor call is followed to its initializer by the collector, which rejects the same call."
+      ],
+      "verification": [
+        "just effx-profile must lower both literal access records with no EFFX1102 and emit their exact AccessSpec annotation.",
+        "just exceptions checks each scoped suppression against this entry; just check and just e2e profile remain the final contract and runtime gates."
+      ],
+      "owner": "packages/http-api",
+      "examinedWith": { "effect": "4.0.0-rc.116", "@phibkro/oxlint-effect-plugin": "0.1.0" },
+      "retirementTrigger": "Effx lowers Schema.TaggedStruct constructors or another native tagged source form to equivalent AccessContract IR. Replace the literals, remove four suppressions, and delete this entry."
     }
   ]
 }
