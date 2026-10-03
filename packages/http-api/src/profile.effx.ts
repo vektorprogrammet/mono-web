@@ -12,7 +12,11 @@ import {
   ProfileMutationResponseHeaders,
 } from "./http-semantics.js";
 import { UserProfileResponse } from "./profile.js";
-import { ProfileCurrentPerson, profileAccessAnnotations } from "./profile-effx-adapters.js";
+import {
+  ProfileCurrentPerson,
+  profileAccessAnnotations,
+  profileOperationAnnotations,
+} from "./profile-effx-adapters.js";
 import { ProfileMergePatch } from "./v2-schemas.js";
 import { ExternalNativeApi } from "./api.js";
 
@@ -40,6 +44,7 @@ export const ReadOwnProfile = Operation.query({
     conditional: true,
     middleware: [PersonSecurity],
     metadata: {
+      annotator: profileOperationAnnotations,
       operationId: "profile.readOwnProfile",
       summary: "Read own profile",
       description: "Returns the profile selected by the current session.",
@@ -82,6 +87,7 @@ export const UpdateOwnProfile = Operation.command({
     responseHeaders: ProfileMutationResponseHeaders,
     middleware: [PersonSecurity],
     metadata: {
+      annotator: profileOperationAnnotations,
       operationId: "profile.updateOwnProfile",
       summary: "Update own profile",
       description:

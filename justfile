@@ -26,7 +26,7 @@ seed:
 docs script="dev":
     bun run --cwd apps/docs "$1"
 
-# Generate the Profile contract and raw backend binding once effx supports --emit.
+# Generate the Profile contract and raw backend bindings from the same declaration.
 [group('develop')]
 effx-profile:
     bun x effx build --project packages/http-api/tsconfig.effx.json --strict-access --emit=contract
