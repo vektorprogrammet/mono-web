@@ -1055,23 +1055,26 @@ export const ReceiptsReopenReceiptProblem = problemUnion("ReceiptsReopenReceiptP
   "receipt.invalid-transition",
 ]);
 
+/** The ordered codes for the current and effx content.readContentWorkspace contracts. */
+export const ContentReadContentWorkspaceCodes = [
+  "request.malformed",
+  "header.malformed",
+  "authority.denied",
+  "origin.denied",
+  "internal.error",
+  "content.department-not-found",
+  "content.integrity-error",
+  "content.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
 /** Problems for `content.readContentWorkspace`. */
 export const ContentReadContentWorkspaceProblem = problemUnion(
   "ContentReadContentWorkspaceProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "authority.denied",
-    "origin.denied",
-    "internal.error",
-    "content.department-not-found",
-    "content.integrity-error",
-    "content.unavailable",
-  ],
+  ContentReadContentWorkspaceCodes,
 );
 
-/** Problems for `content.createArticle`. */
-export const ContentCreateArticleProblem = problemUnion("ContentCreateArticleProblem", [
+/** The ordered codes for the current and effx content.createArticle contracts. */
+export const ContentCreateArticleCodes = [
   "request.malformed",
   "header.malformed",
   "authority.denied",
@@ -1091,10 +1094,16 @@ export const ContentCreateArticleProblem = problemUnion("ContentCreateArticlePro
   "content.department-not-found",
   "content.integrity-error",
   "content.unavailable",
-]);
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
 
-/** Problems for `content.readArticle`. */
-export const ContentReadArticleProblem = problemUnion("ContentReadArticleProblem", [
+/** Problems for `content.createArticle`. */
+export const ContentCreateArticleProblem = problemUnion(
+  "ContentCreateArticleProblem",
+  ContentCreateArticleCodes,
+);
+
+/** The ordered codes for the current and effx content.readArticle contracts. */
+export const ContentReadArticleCodes = [
   "request.malformed",
   "header.malformed",
   "precondition.invalid",
@@ -1105,10 +1114,16 @@ export const ContentReadArticleProblem = problemUnion("ContentReadArticleProblem
   "content.article-not-found",
   "content.integrity-error",
   "content.unavailable",
-]);
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
 
-/** Problems for `content.reviseArticle`. */
-export const ContentReviseArticleProblem = problemUnion("ContentReviseArticleProblem", [
+/** Problems for `content.readArticle`. */
+export const ContentReadArticleProblem = problemUnion(
+  "ContentReadArticleProblem",
+  ContentReadArticleCodes,
+);
+
+/** The ordered codes for the current and effx content.reviseArticle contracts. */
+export const ContentReviseArticleCodes = [
   "request.malformed",
   "header.malformed",
   "authority.denied",
@@ -1134,10 +1149,48 @@ export const ContentReviseArticleProblem = problemUnion("ContentReviseArticlePro
   "content.department-not-found",
   "content.integrity-error",
   "content.unavailable",
-]);
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
+/** Problems for `content.reviseArticle`. */
+export const ContentReviseArticleProblem = problemUnion(
+  "ContentReviseArticleProblem",
+  ContentReviseArticleCodes,
+);
+
+/** The ordered codes for the current and effx content.publishArticle contracts. */
+export const ContentPublishArticleCodes = [
+  "request.malformed",
+  "header.malformed",
+  "authority.denied",
+  "origin.denied",
+  "idempotency-key.invalid",
+  "idempotency.in-flight",
+  "idempotency.digest-conflict",
+  "idempotency.response-expired",
+  "transaction.conflict",
+  "request.too-large",
+  "media-type.unsupported",
+  "validation.failed",
+  "precondition.invalid",
+  "precondition.failed",
+  "precondition.required",
+  "internal.error",
+  "dependency.unavailable",
+  "idempotency.unavailable",
+  "content.article-not-found",
+  "content.lifecycle-conflict",
+  "content.integrity-error",
+  "content.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
 
 /** Problems for `content.publishArticle`. */
-export const ContentPublishArticleProblem = problemUnion("ContentPublishArticleProblem", [
+export const ContentPublishArticleProblem = problemUnion(
+  "ContentPublishArticleProblem",
+  ContentPublishArticleCodes,
+);
+
+/** The ordered codes for the current and effx content.unpublishArticle contracts. */
+export const ContentUnpublishArticleCodes = [
   "request.malformed",
   "header.malformed",
   "authority.denied",
@@ -1160,36 +1213,16 @@ export const ContentPublishArticleProblem = problemUnion("ContentPublishArticleP
   "content.lifecycle-conflict",
   "content.integrity-error",
   "content.unavailable",
-]);
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
 
 /** Problems for `content.unpublishArticle`. */
-export const ContentUnpublishArticleProblem = problemUnion("ContentUnpublishArticleProblem", [
-  "request.malformed",
-  "header.malformed",
-  "authority.denied",
-  "origin.denied",
-  "idempotency-key.invalid",
-  "idempotency.in-flight",
-  "idempotency.digest-conflict",
-  "idempotency.response-expired",
-  "transaction.conflict",
-  "request.too-large",
-  "media-type.unsupported",
-  "validation.failed",
-  "precondition.invalid",
-  "precondition.failed",
-  "precondition.required",
-  "internal.error",
-  "dependency.unavailable",
-  "idempotency.unavailable",
-  "content.article-not-found",
-  "content.lifecycle-conflict",
-  "content.integrity-error",
-  "content.unavailable",
-]);
+export const ContentUnpublishArticleProblem = problemUnion(
+  "ContentUnpublishArticleProblem",
+  ContentUnpublishArticleCodes,
+);
 
-/** Problems for `content.listNews`. */
-export const ContentListNewsProblem = problemUnion("ContentListNewsProblem", [
+/** The ordered codes for the current and effx content.listNews contracts. */
+export const ContentListNewsCodes = [
   "request.malformed",
   "header.malformed",
   "precondition.invalid",
@@ -1198,10 +1231,13 @@ export const ContentListNewsProblem = problemUnion("ContentListNewsProblem", [
   "content.department-not-found",
   "content.integrity-error",
   "content.unavailable",
-]);
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
 
-/** Problems for `content.readNewsArticle`. */
-export const ContentReadNewsArticleProblem = problemUnion("ContentReadNewsArticleProblem", [
+/** Problems for `content.listNews`. */
+export const ContentListNewsProblem = problemUnion("ContentListNewsProblem", ContentListNewsCodes);
+
+/** The ordered codes for the current and effx content.readNewsArticle contracts. */
+export const ContentReadNewsArticleCodes = [
   "request.malformed",
   "header.malformed",
   "precondition.invalid",
@@ -1210,7 +1246,13 @@ export const ContentReadNewsArticleProblem = problemUnion("ContentReadNewsArticl
   "content.article-not-found",
   "content.integrity-error",
   "content.unavailable",
-]);
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
+/** Problems for `content.readNewsArticle`. */
+export const ContentReadNewsArticleProblem = problemUnion(
+  "ContentReadNewsArticleProblem",
+  ContentReadNewsArticleCodes,
+);
 
 /** Problems for `internal.readReceiptEvidence`. */
 export const InternalReadReceiptEvidenceProblem = problemUnion(

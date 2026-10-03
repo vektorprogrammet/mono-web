@@ -58,9 +58,9 @@ export type { ContentWorkspace };
  * @since 0.1.0
  * @category Schemas
  */
-export const ContentDepartmentQuery = {
+export const ContentDepartmentQuery = Schema.Struct({
   department: Schema.optional(DepartmentId),
-};
+});
 
 /**
  * Optional positive published-version selector.
@@ -68,9 +68,15 @@ export const ContentDepartmentQuery = {
  * @since 0.1.0
  * @category Schemas
  */
-export const NewsVersionQuery = {
+export const NewsVersionQuery = Schema.Struct({
   version: Schema.optional(Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(1)))),
-};
+});
+
+/** The article identity carried by the staff detail and mutation routes. */
+export const ContentArticleParams = Schema.Struct({ articleId: ArticleId });
+
+/** The slug identity carried by the public article route. */
+export const ContentNewsSlugParams = Schema.Struct({ slug: ArticleSlug });
 
 export const WorkspaceEntryExample = {
   articleId: ArticleId.make(1),
@@ -127,6 +133,20 @@ export const NewsArticleExample = {
   bodyHtml: "<p>Informasi penerimaan anggota baru tahun 2026.</p>",
   previousVersions: [],
 } as const;
+
+/** The annotated public listing representation used by 200 and its conditional contract. */
+export const PublishedNewsListingResponse = PublishedNewsListingSchema.annotate({
+  identifier: "PublishedNewsListing",
+  description: "Current public news listing.",
+  examples: [NewsListingExample],
+});
+
+/** The annotated public article representation used by 200 and its conditional contract. */
+export const PublishedNewsArticleResponse = PublishedNewsArticleSchema.annotate({
+  identifier: "PublishedNewsArticle",
+  description: "One published news article.",
+  examples: [NewsArticleExample],
+});
 
 /** @since 0.1.0 @category Endpoints */
 export const ReadContentWorkspaceEndpoint = HttpApiEndpoint.get(
@@ -185,14 +205,12 @@ export const CreateArticleEndpoint = HttpApiEndpoint.post(
     ),
   );
 
-const ArticleParams = { articleId: ArticleId };
-
 /** @since 0.1.0 @category Endpoints */
 export const ReadArticleEndpoint = HttpApiEndpoint.get(
   "readArticle",
   "/api/content/articles/:articleId",
   {
-    params: ArticleParams,
+    params: ContentArticleParams,
     headers: ConditionalReadHeaders,
     success: privateConditionalResponses(ContentArticleDetailSchema),
     error: endpointProblemResponses(ContentReadArticleProblem),
@@ -218,7 +236,7 @@ export const ReviseArticleEndpoint = HttpApiEndpoint.patch(
   "reviseArticle",
   "/api/content/articles/:articleId",
   {
-    params: ArticleParams,
+    params: ContentArticleParams,
     headers: IdempotencyIfMatchHeaders,
     payload: ArticleMergePatch.pipe(
       HttpApiSchema.asJson({ contentType: "application/merge-patch+json" }),
@@ -251,7 +269,7 @@ export const PublishArticleEndpoint = HttpApiEndpoint.post(
   "publishArticle",
   "/api/content/articles/:articleId:publish",
   {
-    params: ArticleParams,
+    params: ContentArticleParams,
     headers: IdempotencyIfMatchHeaders,
     payload: PublishArticleRequest,
     success: entityMutationResponse(PublishArticleResponse),
@@ -279,7 +297,7 @@ export const UnpublishArticleEndpoint = HttpApiEndpoint.post(
   "unpublishArticle",
   "/api/content/articles/:articleId:unpublish",
   {
-    params: ArticleParams,
+    params: ContentArticleParams,
     headers: IdempotencyIfMatchHeaders,
     payload: UnpublishArticleRequest,
     success: entityMutationResponse(UnpublishArticleResponse),
@@ -309,13 +327,7 @@ export const UnpublishArticleEndpoint = HttpApiEndpoint.post(
 export const ListNewsEndpoint = HttpApiEndpoint.get("listNews", "/api/news", {
   query: ContentDepartmentQuery,
   headers: ConditionalReadHeaders,
-  success: publicConditionalResponses(
-    PublishedNewsListingSchema.annotate({
-      identifier: "PublishedNewsListing",
-      description: "Current public news listing.",
-      examples: [NewsListingExample],
-    }),
-  ),
+  success: publicConditionalResponses(PublishedNewsListingResponse),
   error: endpointProblemResponses(ContentListNewsProblem),
 })
   .pipe((endpoint) => annotateAccessSpec(endpoint, anonymousNativeAccess("content.public-news")))
@@ -325,16 +337,10 @@ export const ListNewsEndpoint = HttpApiEndpoint.get("listNews", "/api/news", {
 
 /** @since 0.1.0 @category Endpoints */
 export const ReadNewsArticleEndpoint = HttpApiEndpoint.get("readNewsArticle", "/api/news/:slug", {
-  params: { slug: ArticleSlug },
+  params: ContentNewsSlugParams,
   query: NewsVersionQuery,
   headers: ConditionalReadHeaders,
-  success: publicConditionalResponses(
-    PublishedNewsArticleSchema.annotate({
-      identifier: "PublishedNewsArticle",
-      description: "One published news article.",
-      examples: [NewsArticleExample],
-    }),
-  ),
+  success: publicConditionalResponses(PublishedNewsArticleResponse),
   error: endpointProblemResponses(ContentReadNewsArticleProblem),
 })
   .pipe((endpoint) =>

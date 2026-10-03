@@ -155,7 +155,7 @@ const conditionalReadResponses = <S extends Schema.Top, H extends Schema.Top>(
 
 /** Public conditional response with the fixed five-minute shared cache policy. */
 export const publicConditionalResponses = <S extends Schema.Top>(success: S) =>
-  conditionalReadResponses(success, conditionalReadHeaders(PublicCache));
+  conditionalReadResponses(success, PublicConditionalResponseHeaders);
 
 /** Public conditional response whose TTL is bounded by the next admission boundary. */
 export const dynamicAdmissionConditionalResponses = <S extends Schema.Top>(success: S) =>
@@ -1618,3 +1618,6 @@ export const nativeCookieChallenge = 'VektorSession realm="native-api"';
 
 /** The one credential an invitation-capability endpoint accepts: its capability header. */
 export const invitationCapabilityChallenge = 'RecruitmentInvitationCapability realm="native-api"';
+
+/** The same public cache response headers on news GET 200 and 304. */
+export const PublicConditionalResponseHeaders = conditionalReadHeaders(PublicCache);
