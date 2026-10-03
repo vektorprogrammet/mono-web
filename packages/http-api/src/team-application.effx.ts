@@ -102,7 +102,7 @@ export const ListTeamApplicationIntakes = Operation.query({
     middleware: [],
     metadata: {
       summary: "List team application intakes",
-      description: "Returns the intake state of at most 250 active teams.",
+      description: "Returns the intake state of at most 500 active teams.",
     },
   })
   .http.problems({
