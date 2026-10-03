@@ -1,4 +1,4 @@
-import { Http, Operation } from "@effx/runtime";
+import { Capability, Concealment, Http, Operation } from "@effx/runtime";
 import { PersonSecurity, nativeOperationAnnotations } from "./common.js";
 import {
   ProfileReadOwnProfileCodes,
@@ -56,12 +56,10 @@ export const ReadOwnProfile = Operation.query({
     exposure: "External",
     acceptedCredentials: ["BetterAuthCookie", "OAuthUserBearer"],
     principalKinds: ["Person"],
-    // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- EX-0011: effx lowers source metadata literals.
-    capabilities: { _tag: "One", capability: "profile.read-self" },
+    capabilities: Capability.one("profile.read-self"),
     requirements: [{ id: "profile.owner" }],
     canonicalScopeResolver: ProfileCurrentPerson,
-    // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- EX-0011: effx lowers source metadata literals.
-    concealment: { _tag: "Reveal" },
+    concealment: Concealment.reveal,
     decisionTime: "SnapshotRead",
   })
   .declare();
@@ -100,12 +98,10 @@ export const UpdateOwnProfile = Operation.command({
     exposure: "External",
     acceptedCredentials: ["BetterAuthCookie", "OAuthUserBearer"],
     principalKinds: ["Person"],
-    // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- EX-0011: effx lowers source metadata literals.
-    capabilities: { _tag: "One", capability: "profile.update-self" },
+    capabilities: Capability.one("profile.update-self"),
     requirements: [{ id: "profile.owner" }],
     canonicalScopeResolver: ProfileCurrentPerson,
-    // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- EX-0011: effx lowers source metadata literals.
-    concealment: { _tag: "Reveal" },
+    concealment: Concealment.reveal,
     decisionTime: "Transaction",
   })
   .declare();

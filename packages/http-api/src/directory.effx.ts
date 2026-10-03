@@ -1,4 +1,4 @@
-import { Http, Operation } from "@effx/runtime";
+import { Capability, Concealment, Http, Operation } from "@effx/runtime";
 import {
   SchoolCommand,
   SchoolCommandResult,
@@ -68,12 +68,10 @@ export const ListPeople = Operation.query({
     exposure: "External",
     acceptedCredentials: ["BetterAuthCookie", "OAuthUserBearer"],
     principalKinds: ["Person"],
-    // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- EX-0011: effx lowers source metadata literals.
-    capabilities: { _tag: "One", capability: "profile.read-directory" },
+    capabilities: Capability.one("profile.read-directory"),
     requirements: [],
     canonicalScopeResolver: PeopleDirectoryResolver,
-    // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- EX-0011: effx lowers source metadata literals.
-    concealment: { _tag: "Reveal" },
+    concealment: Concealment.reveal,
     decisionTime: "SnapshotRead",
   })
   .declare();
@@ -109,12 +107,10 @@ export const ListSchools = Operation.query({
     exposure: "External",
     acceptedCredentials: ["BetterAuthCookie", "OAuthUserBearer"],
     principalKinds: ["Person"],
-    // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- EX-0011: effx lowers source metadata literals.
-    capabilities: { _tag: "One", capability: "schools.read-directory" },
+    capabilities: Capability.one("schools.read-directory"),
     requirements: [],
     canonicalScopeResolver: SchoolsDirectoryResolver,
-    // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- EX-0011: effx lowers source metadata literals.
-    concealment: { _tag: "Reveal" },
+    concealment: Concealment.reveal,
     decisionTime: "SnapshotRead",
   })
   .declare();
@@ -149,12 +145,10 @@ export const ReadSchoolManagement = Operation.query({
     exposure: "External",
     acceptedCredentials: ["BetterAuthCookie", "OAuthUserBearer"],
     principalKinds: ["Person"],
-    // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- EX-0011: effx lowers source metadata literals.
-    capabilities: { _tag: "One", capability: "schools.manage" },
+    capabilities: Capability.one("schools.manage"),
     requirements: [],
     canonicalScopeResolver: SchoolsManagementResolver,
-    // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- EX-0011: effx lowers source metadata literals.
-    concealment: { _tag: "Reveal" },
+    concealment: Concealment.reveal,
     decisionTime: "SnapshotRead",
   })
   .declare();
@@ -192,12 +186,10 @@ export const ExecuteSchoolCommand = Operation.command({
     exposure: "External",
     acceptedCredentials: ["BetterAuthCookie", "OAuthUserBearer"],
     principalKinds: ["Person"],
-    // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- EX-0011: effx lowers source metadata literals.
-    capabilities: { _tag: "One", capability: "schools.manage" },
+    capabilities: Capability.one("schools.manage"),
     requirements: [],
     canonicalScopeResolver: SchoolsManagementResolver,
-    // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- EX-0011: effx lowers source metadata literals.
-    concealment: { _tag: "Reveal" },
+    concealment: Concealment.reveal,
     decisionTime: "Transaction",
   })
   .declare();

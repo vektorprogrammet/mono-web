@@ -1,4 +1,4 @@
-import { Http, Operation } from "@effx/runtime";
+import { Capability, Concealment, Http, Operation } from "@effx/runtime";
 import { ExternalNativeApi } from "./api.js";
 import { PersonSecurity, nativeOperationAnnotations } from "./common.js";
 import { nativeProblems } from "./endpoint-problems.js";
@@ -39,8 +39,7 @@ export const SocialEventsGroup = Http.group({
       exposure: "External",
       acceptedCredentials: ["BetterAuthCookie", "OAuthUserBearer"],
       principalKinds: ["Person"],
-      // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- EX-0011: effx lowers source metadata literals.
-      concealment: { _tag: "Reveal" },
+      concealment: Concealment.reveal,
     },
   },
 });
@@ -65,8 +64,7 @@ export const ReadSocialEventScope = Operation.query({
     codes: SocialEventsReadScopeCodes,
   })
   .http.access({
-    // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- EX-0011: effx lowers source metadata literals.
-    capabilities: { _tag: "One", capability: "social-events.read-scope" },
+    capabilities: Capability.one("social-events.read-scope"),
     requirements: [],
     canonicalScopeResolver: SocialEventsScopeResolver,
     decisionTime: "SnapshotRead",
@@ -94,8 +92,7 @@ export const ListSocialEvents = Operation.query({
     codes: SocialEventsListCodes,
   })
   .http.access({
-    // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- EX-0011: effx lowers source metadata literals.
-    capabilities: { _tag: "One", capability: "social-events.read" },
+    capabilities: Capability.one("social-events.read"),
     requirements: [],
     canonicalScopeResolver: SocialEventsListResolver,
     decisionTime: "SnapshotRead",
@@ -123,8 +120,7 @@ export const CreateSocialEvent = Operation.command({
     codes: SocialEventsCreateCodes,
   })
   .http.access({
-    // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- EX-0011: effx lowers source metadata literals.
-    capabilities: { _tag: "One", capability: "social-events.create" },
+    capabilities: Capability.one("social-events.create"),
     requirements: [],
     canonicalScopeResolver: SocialEventsCreateResolver,
     decisionTime: "Transaction",
