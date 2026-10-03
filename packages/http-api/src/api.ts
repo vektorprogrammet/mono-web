@@ -12,7 +12,7 @@ import { AdmissionOutcomesApi } from "./admission-outcomes.js";
 import { ContentApi } from "./content.js";
 import { DirectoryApi } from "./directory.js";
 import { OrganizationApi } from "./organization.js";
-import { ProfileApi } from "./profile.js";
+import { ProfileApi } from "../.effx/generated/profile-contract.js";
 import { InternalReceiptsApi, ReceiptsApi } from "./receipts.js";
 import { RecruitmentApi } from "./recruitment.js";
 import { SocialEventsApi } from "./social-events.js";

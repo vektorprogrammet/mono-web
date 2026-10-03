@@ -22,7 +22,7 @@
     "build": "tsc -p tsconfig.json",
     "check-types": "tsc -p tsconfig.json --noEmit && tsc --noEmit -p tsconfig.test.json",
     "lint": "oxlint",
-    "test": "vitest run"
+    "test": "bun run generate && vitest run"
   },
   "dependencies": {
     "@vektorprogrammet/http-api": "workspace:*",

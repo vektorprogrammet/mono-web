@@ -25,6 +25,8 @@ export * from "./organization.js";
 
 export * from "./profile.js";
 
+export * from "../.effx/generated/profile-contract.js";
+
 export * from "./receipts.js";
 
 export * from "./receipt-upload.js";

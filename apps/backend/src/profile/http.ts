@@ -19,8 +19,8 @@ import {
 import {
   ExternalNativeApi,
   ProfileMergePatch,
-  ReadOwnProfileEndpoint,
-  UpdateOwnProfileEndpoint,
+  readOwnProfile as readOwnProfileEndpoint,
+  updateOwnProfile as updateOwnProfileEndpoint,
   UserProfileResponse,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
@@ -29,8 +29,14 @@ import {
   makeNativeValidationError,
   Problem,
 } from "@vektorprogrammet/http-api/http-semantics";
-import { DateTime, Effect, Option, Predicate, Schema } from "effect";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { Context, DateTime, Effect, Option, Predicate, Schema } from "effect";
+import type { HttpServerRequest } from "effect/unstable/http";
+import type { HttpApiGroup } from "effect/unstable/httpapi";
+import {
+  ProfileApiHandlers as GeneratedProfileApiHandlers,
+  type ProfileGuards,
+  type ProfileRawHandlers,
+} from "../../.effx/generated/profile-handlers.js";
 import {
   profileRoleFrom,
   resolveRequestPersonAuthorityInTransaction,
@@ -199,28 +205,83 @@ const readJsonPatch = (request: Request) =>
     return patch;
   });
 
-type ProfileAuthorizer = typeof authorizePerson;
+/** The converted Web Request belongs to this raw handler invocation, never to process state. */
+const CurrentProfileWebRequest = Context.Reference<Request | undefined>(
+  "@vektorprogrammet/backend/profile/current-web-request",
+  { defaultValue: () => undefined },
+);
 
-const readOwnProfile = (
-  request: Request,
-  input: ProfileApiHttpOptions,
-  authorize: ProfileAuthorizer,
-) => {
+const currentProfileWebRequest = Effect.gen(function* () {
+  const request = yield* CurrentProfileWebRequest;
+
+  return request === undefined
+    ? yield* Effect.die(new TypeError("Profile guard ran outside its raw request"))
+    : request;
+});
+
+type ProfileEndpoints = HttpApiGroup.Endpoints<(typeof ExternalNativeApi)["groups"]["profile"]>;
+
+const makeProfileGuards = (input: ProfileApiHttpOptions) =>
+  ({
+    "profile.readOwnProfile": (_nativeRequest: HttpServerRequest.HttpServerRequest) =>
+      Effect.gen(function* () {
+        const request = yield* currentProfileWebRequest;
+        const presentation = personPresentation(request);
+
+        const actor = yield* input
+          .resolveActor(request)
+          .pipe(Effect.flatMap(profileActor), profileProblems(presentation));
+
+        const now = DateTime.formatIso(yield* DateTime.now);
+
+        yield* authorizePerson(
+          {
+            spec: Option.getOrThrow(reflectAccessSpec(readOwnProfileEndpoint)),
+            request,
+            ...ownProfileAuthorization(actor),
+            now,
+          },
+          presentation,
+        ).pipe(unreachable("resource.not-found"));
+
+        return actor;
+      }),
+    "profile.updateOwnProfile": (_nativeRequest: HttpServerRequest.HttpServerRequest) =>
+      Effect.gen(function* () {
+        const request = yield* currentProfileWebRequest;
+        const presentation = personPresentation(request);
+
+        const resolved = yield* resolveRequestPersonAuthorityInTransaction(request).pipe(
+          profileProblems(presentation),
+        );
+
+        const actor = yield* profileActor(resolved.authority).pipe(profileProblems(presentation));
+
+        yield* authorizePerson(
+          {
+            spec: Option.getOrThrow(reflectAccessSpec(updateOwnProfileEndpoint)),
+            credential: resolved.credential,
+            ...ownProfileAuthorization(actor),
+            now: resolved.authorizationInstant,
+          },
+          presentation,
+        ).pipe(unreachable("resource.not-found"));
+
+        return actor;
+      }),
+  }) satisfies ProfileGuards<ProfileEndpoints>;
+
+type ProfileGuardRecord = ReturnType<typeof makeProfileGuards>;
+
+type ProfileReadAuthorizer = () => ReturnType<ProfileGuardRecord["profile.readOwnProfile"]>;
+
+type ProfileUpdateAuthorizer = () => ReturnType<ProfileGuardRecord["profile.updateOwnProfile"]>;
+
+const readOwnProfile = (request: Request, authorize: ProfileReadAuthorizer) => {
   const presentation = personPresentation(request);
 
   return Effect.gen(function* () {
-    const actor = yield* input.resolveActor(request).pipe(Effect.flatMap(profileActor));
-    const now = DateTime.formatIso(yield* DateTime.now);
-
-    yield* authorize(
-      {
-        spec: Option.getOrThrow(reflectAccessSpec(ReadOwnProfileEndpoint)),
-        request,
-        ...ownProfileAuthorization(actor),
-        now,
-      },
-      presentation,
-    );
+    const actor = yield* authorize();
 
     const source = yield* readProfileSource(actor.personId);
     const profile = source.profile;
@@ -248,7 +309,7 @@ const readOwnProfile = (
   );
 };
 
-const updateOwnProfile = (request: Request, authorize: ProfileAuthorizer) =>
+const updateOwnProfile = (request: Request, authorize: ProfileUpdateAuthorizer) =>
   Effect.gen(function* () {
     const idempotencyKey = yield* idempotencyKeyOf(request);
     const ifMatch = yield* requiredIfMatchOf(request);
@@ -259,18 +320,7 @@ const updateOwnProfile = (request: Request, authorize: ProfileAuthorizer) =>
     // Failures are mapped once, after the executor, which adds its own receipt failures.
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
-        const resolved = yield* resolveRequestPersonAuthorityInTransaction(request);
-        const actor = yield* profileActor(resolved.authority);
-
-        yield* authorize(
-          {
-            spec: Option.getOrThrow(reflectAccessSpec(UpdateOwnProfileEndpoint)),
-            credential: resolved.credential,
-            ...ownProfileAuthorization(actor),
-            now: resolved.authorizationInstant,
-          },
-          presentation,
-        );
+        const actor = yield* authorize();
 
         const currentSource = yield* readProfileSource(actor.personId);
         const current = currentSource.profile;
@@ -347,16 +397,24 @@ const updateOwnProfile = (request: Request, authorize: ProfileAuthorizer) =>
     return yield* commandOutcomeResponse(outcome);
   });
 
-/** Native HttpApi implementations for self-service profile endpoints. */
-export const ProfileApiHandlers = (input: ProfileApiHttpOptions) =>
-  HttpApiBuilder.group(ExternalNativeApi, "profile", (handlers) =>
-    Effect.succeed(
-      handlers
-        .handleRaw("readOwnProfile", ({ request }) =>
-          webHandler(request, (webRequest) => readOwnProfile(webRequest, input, authorizePerson)),
-        )
-        .handleRaw("updateOwnProfile", ({ request }) =>
-          webHandler(request, (webRequest) => updateOwnProfile(webRequest, authorizePerson)),
+/** Native Profile handlers bind the generated group to the existing raw Web response path. */
+export const ProfileApiHandlers = (input: ProfileApiHttpOptions) => {
+  const guards = makeProfileGuards(input);
+
+  const raw = {
+    readOwnProfile: ({ request }, authorize) =>
+      webHandler(request, (webRequest) =>
+        readOwnProfile(webRequest, authorize).pipe(
+          Effect.provideService(CurrentProfileWebRequest, webRequest),
         ),
-    ),
-  );
+      ),
+    updateOwnProfile: ({ request }, authorize) =>
+      webHandler(request, (webRequest) =>
+        updateOwnProfile(webRequest, authorize).pipe(
+          Effect.provideService(CurrentProfileWebRequest, webRequest),
+        ),
+      ),
+  } satisfies ProfileRawHandlers<ProfileEndpoints, typeof guards>;
+
+  return GeneratedProfileApiHandlers({ raw, guards });
+};
