@@ -578,6 +578,11 @@ Supporting contracts include:
 This list defines scope, not implementation status. [STATE.md](../STATE.md#next) records incomplete maintenance and acceptance.
 School-directory reads do not grant school, contact, association, or capacity mutation authority.
 
+Editorial workspaces show only working copies the actor may revise: an active scoped editor
+sees own unpublished drafts in their departments, a publisher sees working copies in their
+publishing departments, and a global administrator sees all. Public news reads the immutable
+published version, not later unpublished changes to the working copy.
+
 The public site contains the assistant application, team pages with team
 applications, and the contact form. It also shows sponsors and news. Assistants sign
 in to the dashboard to read their placement, submit and read their expense claims,

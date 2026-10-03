@@ -222,19 +222,15 @@ export const readWorkspacePostgres = (input: {
             drafts.map((draft) => draft.articleId),
           );
 
-          // Visibility law: editors see own drafts plus all published
-          // articles; leaders and administrators see everything in scope.
-          const visibleDrafts = drafts.filter((draft) => {
-            if (Predicate.isTagged(decision.value, "ContentAdministrator")) return true;
-
-            if (draft.currentVersionNumber !== null) return true;
-
-            return canReviseDraft(decision.value, {
+          // Working copies belong in the workspace only when the actor can read
+          // their editable detail. Public readers use immutable versions instead.
+          const visibleDrafts = drafts.filter((draft) =>
+            canReviseDraft(decision.value, {
               createdByPersonId: draft.createdByPersonId,
               currentVersionNumber: draft.currentVersionNumber,
               departmentIds: departmentIdsByArticle.get(draft.articleId) ?? [],
-            });
-          });
+            }),
+          );
 
           const scoped =
             filterDepartmentId === undefined
@@ -287,11 +283,8 @@ export const readWorkspacePostgres = (input: {
               sticky: draft.sticky,
               updatedAt: draft.updatedAt,
               departmentIds,
-              canRevise: canReviseDraft(decision.value, {
-                createdByPersonId: draft.createdByPersonId,
-                currentVersionNumber: draft.currentVersionNumber,
-                departmentIds,
-              }),
+              // Every entry passed canReviseDraft above.
+              canRevise: true,
               canPublish: canPublishContent(decision.value, departmentIds),
               authorDisplayName: namesByPerson.get(draft.createdByPersonId)!,
             };
