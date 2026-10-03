@@ -1,4 +1,4 @@
-import type { HttpAccessAnnotationSpec } from "@effx/runtime";
+import type { HttpAccessAnnotationSpec, HttpOperationMetadata } from "@effx/runtime";
 import { Schema } from "effect";
 import { type SCOPE_RESOLVER_IDS } from "@vektorprogrammet/domain/authz";
 import { accessSpecAnnotations, personNativeAccess } from "./access.js";
@@ -68,7 +68,5 @@ export const profileAccessAnnotations = (input: HttpAccessAnnotationSpec) => {
 };
 
 /** Reuses the native operation provenance transform for generated Profile endpoints. */
-export const profileOperationAnnotations = (metadata: {
-  readonly summary: string;
-  readonly description: string;
-}) => operationAnnotations(metadata.summary, metadata.description);
+export const profileOperationAnnotations = (metadata: HttpOperationMetadata) =>
+  operationAnnotations(metadata.summary, metadata.description);

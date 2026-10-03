@@ -211,7 +211,7 @@ export const NativeOperationProvenance = {
  * @since 0.1.0
  * @category Annotations
  */
-export const operationAnnotations = (summary: string, description: string) =>
+export const operationAnnotations = (summary?: string, description?: string) =>
   OpenApi.annotations({
     summary,
     description,
