@@ -56,6 +56,7 @@ beforeEach(() => {
 import { loadNewsArticle, loadNewsListing, loadNewsTeaser } from "../src/lib/news.server";
 import {
   applyDepartmentFilter,
+  formatNewsDate,
   paginateNewsListing,
   resolveDepartmentFilter,
 } from "../src/lib/news";
@@ -81,6 +82,16 @@ afterEach(() => {
 });
 
 describe("news loaders", () => {
+  it("keeps the published news date stable when UTC server and Oslo browser cross midnight", () => {
+    const publishedAt = "2026-10-03T22:30:00.000Z";
+    vi.stubEnv("TZ", "UTC");
+    const serverDate = formatNewsDate(publishedAt);
+    vi.stubEnv("TZ", "Europe/Oslo");
+    const browserDate = formatNewsDate(publishedAt);
+    expect(serverDate).toBe(browserDate);
+    expect(serverDate).toBe("4.10.2026");
+  });
+
   it("performs a fresh read per render — two calls hit the API twice", async () => {
     apiState.listResult = { articles: [summary()] };
     await loadNewsListing();

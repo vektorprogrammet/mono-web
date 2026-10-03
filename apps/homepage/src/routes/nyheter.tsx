@@ -1,5 +1,5 @@
 import { Link, useLoaderData } from "react-router";
-import { NEWS_PAGE_SIZE, paginateNewsListing } from "~/lib/news";
+import { NEWS_PAGE_SIZE, formatNewsDate, paginateNewsListing } from "~/lib/news";
 import { loadNewsListing } from "~/lib/news.server";
 
 export async function loader({ request }: { request: Request }) {
@@ -56,7 +56,7 @@ export default function Nyheter() {
               </Link>
               <p className="text-muted-foreground text-sm">
                 {article.authorDisplayName} ·{" "}
-                {new Date(article.publishedAt).toLocaleDateString("nb-NO")}
+                {formatNewsDate(article.publishedAt)}
               </p>
             </li>
           ))}

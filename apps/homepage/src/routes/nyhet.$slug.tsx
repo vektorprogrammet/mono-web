@@ -1,4 +1,5 @@
 import { Link, useLoaderData } from "react-router";
+import { formatNewsDate } from "~/lib/news";
 import { loadNewsArticle } from "~/lib/news.server";
 
 export async function loader({
@@ -27,7 +28,7 @@ export default function Nyhet() {
           <h1 className="font-bold text-3xl">{article.title}</h1>
           <p className="text-muted-foreground text-sm">
             {article.authorDisplayName} ·{" "}
-            {new Date(article.publishedAt).toLocaleDateString("nb-NO")}
+            {formatNewsDate(article.publishedAt)}
           </p>
           {/* bodyHtml is sanitized at every backend write before it can reach
             a published immutable version (spec law 6 / DoD 15). */}
@@ -44,7 +45,7 @@ export default function Nyhet() {
                 <li key={version.versionNumber}>
                   <Link to={version.urlPath} className="text-sm hover:underline">
                     Versjon {version.versionNumber} ·{" "}
-                    {new Date(version.publishedAt).toLocaleDateString("nb-NO")}
+                    {formatNewsDate(version.publishedAt)}
                   </Link>
                 </li>
               ))}
