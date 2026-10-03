@@ -165,9 +165,12 @@ export const dynamicAdmissionConditionalResponses = <S extends Schema.Top>(succe
 export const privateConditionalResponses = <S extends Schema.Top>(success: S) =>
   conditionalReadResponses(success, ProfileReadResponseHeaders);
 
+/** The same private no-store headers as every credential-scoped read. */
+export const PrivateReadResponseHeaders = Schema.Struct(externalHeaders(PrivateNoStore));
+
 /** Credential-selected non-conditional read response. */
 export const privateReadResponse = <S extends Schema.Top>(success: S) =>
-  HttpApiSchema.WithHeaders(success, externalHeaders(PrivateNoStore));
+  HttpApiSchema.WithHeaders(success, PrivateReadResponseHeaders);
 
 /** Anonymous or health response that is not cacheable. */
 export const noStoreReadResponse = <S extends Schema.Top>(success: S) =>
@@ -186,14 +189,14 @@ export const createdMutationResponse = <S extends Schema.Top>(success: S) =>
   });
 
 /** The same no-store response headers as every mutable entity representation. */
-export const ProfileMutationResponseHeaders = Schema.Struct({
+export const EntityMutationResponseHeaders = Schema.Struct({
   ...externalHeaders(NoStore),
   etag: StrongETag,
 });
 
 /** Successful mutation response carrying a current mutable representation. */
 export const entityMutationResponse = <S extends Schema.Top>(success: S) =>
-  HttpApiSchema.WithHeaders(success, ProfileMutationResponseHeaders);
+  HttpApiSchema.WithHeaders(success, EntityMutationResponseHeaders);
 
 /** Successful mutation response carrying the bytes of a generated document and its entity tag. */
 export const documentMutationResponse = (contentType: string) =>

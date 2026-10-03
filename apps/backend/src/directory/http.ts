@@ -10,12 +10,18 @@ import {
 import { Profile, type ProfileFailure } from "@vektorprogrammet/domain/profile";
 import {
   ExternalNativeApi,
-  ListPeopleEndpoint,
+  listPeople as listPeopleEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Predicate, Effect, Option, Schema } from "effect";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import type { HttpServerRequest } from "effect/unstable/http";
+import type { HttpApiGroup } from "effect/unstable/httpapi";
+import {
+  DirectoryApiHandlers as GeneratedDirectoryApiHandlers,
+  type DirectoryGuards,
+  type DirectoryRawHandlers,
+} from "../../.effx/generated/directory-handlers.js";
 import type { OrganizationResolutionError } from "../authority.js";
 import { genericContext } from "../native-operation.js";
 import {
@@ -25,8 +31,16 @@ import {
   unreachable,
   webHandler,
 } from "../http-api/problem.js";
-import { listSchools, type SchoolsApiHttpOptions } from "../schools/http.js";
+import { CurrentRawWebRequest, currentRawWebRequest } from "../http-api/raw-web-request.js";
 import {
+  authorizeSchoolsDirectory,
+  listSchools,
+  schoolsCredentialProblems,
+  schoolsProblems,
+  type SchoolsApiHttpOptions,
+} from "../schools/http.js";
+import {
+  authorizeSchoolManagement,
   readSchoolManagementHttp,
   executeSchoolCommandHttp,
 } from "../schools/administration-http.js";
@@ -113,16 +127,11 @@ const directoryCredentialProblems = (presentation: CredentialPresentation) =>
     IdentityEngineError: unavailable,
   });
 
-const listPeople = (request: Request, input: DirectoryApiHttpOptions) => {
+const authorizePeopleDirectory = (request: Request, input: DirectoryApiHttpOptions) => {
   const presentation = personPresentation(request);
 
   return Effect.gen(function* () {
-    if (new URL(request.url).search !== "") {
-      return yield* Problem.make("directory.cursor-malformed");
-    }
-
-    // One captured authorizationInstant drives the gate and every row
-    // derivation; Profile and Organization read one database snapshot.
+    // One captured authorizationInstant drives the gate and every row derivation.
     const authority = yield* input.resolveAuthority(request);
     const decision = resolveDirectoryGateScope(authority);
 
@@ -158,13 +167,35 @@ const listPeople = (request: Request, input: DirectoryApiHttpOptions) => {
       {
         request,
         personId: authority.personId,
-        spec: Option.getOrThrow(reflectAccessSpec(ListPeopleEndpoint)),
+        spec: Option.getOrThrow(reflectAccessSpec(listPeopleEndpoint)),
         resolution: { selection: "AllMatching", contexts },
         grantScopes,
         now: authority.evaluatedAt,
       },
       presentation,
     );
+
+    return { authority, scope };
+  }).pipe(
+    directoryProblems,
+    directoryCredentialProblems(presentation),
+    // A revealing AccessSpec answers every authority failure as a denial, never as 404.
+    unreachable("resource.not-found"),
+  );
+};
+
+const listPeople = (
+  request: Request,
+  authorize: () => ReturnType<typeof authorizePeopleDirectory>,
+) => {
+  const presentation = personPresentation(request);
+
+  return Effect.gen(function* () {
+    if (new URL(request.url).search !== "") {
+      return yield* Problem.make("directory.cursor-malformed");
+    }
+
+    const { authority, scope } = yield* authorize();
 
     const response = yield* Effect.gen(function* () {
       const organization = yield* Organization;
@@ -222,25 +253,72 @@ const listPeople = (request: Request, input: DirectoryApiHttpOptions) => {
   );
 };
 
-/** Native HttpApi implementation for the people and school directories. */
+type DirectoryEndpoints = HttpApiGroup.Endpoints<(typeof ExternalNativeApi)["groups"]["directory"]>;
+
+const schoolManagementGuard = (mutation: boolean) =>
+  Effect.gen(function* () {
+    const request = yield* currentRawWebRequest;
+    const presentation = personPresentation(request);
+
+    return yield* authorizeSchoolManagement(request, mutation, presentation).pipe(
+      schoolsProblems,
+      schoolsCredentialProblems(presentation),
+    );
+  });
+
+const makeDirectoryGuards = (input: DirectoryApiHttpOptions, schools: SchoolsApiHttpOptions) =>
+  ({
+    "directory.executeSchoolCommand": (_nativeRequest: HttpServerRequest.HttpServerRequest) =>
+      schoolManagementGuard(true),
+    "directory.listPeople": (_nativeRequest: HttpServerRequest.HttpServerRequest) =>
+      Effect.gen(function* () {
+        const request = yield* currentRawWebRequest;
+
+        return yield* authorizePeopleDirectory(request, input);
+      }),
+    "directory.listSchools": (_nativeRequest: HttpServerRequest.HttpServerRequest) =>
+      Effect.gen(function* () {
+        const request = yield* currentRawWebRequest;
+
+        return yield* authorizeSchoolsDirectory(request, schools);
+      }),
+    "directory.readSchoolManagement": (_nativeRequest: HttpServerRequest.HttpServerRequest) =>
+      schoolManagementGuard(false),
+  }) satisfies DirectoryGuards<DirectoryEndpoints>;
+
+/** One complete generated Directory group keeps People, Schools and their separate authority. */
 export const DirectoryApiHandlers = (
   input: DirectoryApiHttpOptions,
   schools: SchoolsApiHttpOptions,
-) =>
-  HttpApiBuilder.group(ExternalNativeApi, "directory", (handlers) =>
-    Effect.succeed(
-      handlers
-        .handleRaw("readSchoolManagement", ({ request }) =>
-          webHandler(request, readSchoolManagementHttp),
-        )
-        .handleRaw("executeSchoolCommand", ({ request }) =>
-          webHandler(request, executeSchoolCommandHttp),
-        )
-        .handleRaw("listPeople", ({ request }) =>
-          webHandler(request, (webRequest) => listPeople(webRequest, input)),
-        )
-        .handleRaw("listSchools", ({ request }) =>
-          webHandler(request, (webRequest) => listSchools(webRequest, schools)),
+) => {
+  const guards = makeDirectoryGuards(input, schools);
+
+  const raw = {
+    executeSchoolCommand: ({ request }, authorize) =>
+      webHandler(request, (webRequest) =>
+        executeSchoolCommandHttp(webRequest, authorize).pipe(
+          Effect.provideService(CurrentRawWebRequest, webRequest),
         ),
-    ),
-  );
+      ),
+    listPeople: ({ request }, authorize) =>
+      webHandler(request, (webRequest) =>
+        listPeople(webRequest, authorize).pipe(
+          Effect.provideService(CurrentRawWebRequest, webRequest),
+        ),
+      ),
+    listSchools: ({ request }, authorize) =>
+      webHandler(request, (webRequest) =>
+        listSchools(webRequest, authorize).pipe(
+          Effect.provideService(CurrentRawWebRequest, webRequest),
+        ),
+      ),
+    readSchoolManagement: ({ request }, authorize) =>
+      webHandler(request, (webRequest) =>
+        readSchoolManagementHttp(webRequest, authorize).pipe(
+          Effect.provideService(CurrentRawWebRequest, webRequest),
+        ),
+      ),
+  } satisfies DirectoryRawHandlers<DirectoryEndpoints, typeof guards>;
+
+  return GeneratedDirectoryApiHandlers({ raw, guards });
+};

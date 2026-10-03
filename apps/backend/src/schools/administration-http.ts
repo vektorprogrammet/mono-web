@@ -8,9 +8,10 @@ import {
 } from "@vektorprogrammet/domain/schools";
 import { Scope } from "@vektorprogrammet/domain/authz";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
+import type { PersonId } from "@vektorprogrammet/domain/organization";
 import {
-  ReadSchoolManagementEndpoint,
-  ExecuteSchoolCommandEndpoint,
+  readSchoolManagement as readSchoolManagementEndpoint,
+  executeSchoolCommand as executeSchoolCommandEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import type { CredentialPresentation } from "@vektorprogrammet/http-api/http-semantics";
@@ -33,7 +34,7 @@ import { schoolsCredentialProblems, schoolsProblems } from "./http.js";
 
 const operationId = "directory.executeSchoolCommand";
 
-const authorizeTransport = Effect.fn("Schools.authorizeTransport")(function* (
+export const authorizeSchoolManagement = Effect.fn("Schools.authorizeTransport")(function* (
   request: Request,
   mutation: boolean,
   presentation: CredentialPresentation,
@@ -46,7 +47,7 @@ const authorizeTransport = Effect.fn("Schools.authorizeTransport")(function* (
   yield* authorizePerson(
     {
       spec: Option.getOrThrow(
-        reflectAccessSpec(mutation ? ExecuteSchoolCommandEndpoint : ReadSchoolManagementEndpoint),
+        reflectAccessSpec(mutation ? executeSchoolCommandEndpoint : readSchoolManagementEndpoint),
       ),
       credential: resolved.credential,
       personId,
@@ -63,12 +64,15 @@ const authorizeTransport = Effect.fn("Schools.authorizeTransport")(function* (
   return personId;
 });
 
-export const readSchoolManagementHttp = (request: Request) => {
+export const readSchoolManagementHttp = <E, R>(
+  request: Request,
+  authorize: () => Effect.Effect<PersonId, E, R>,
+) => {
   const presentation = personPresentation(request);
 
   return Effect.gen(function* () {
     yield* requireNoQuery(request);
-    const personId = yield* authorizeTransport(request, false, presentation);
+    const personId = yield* authorize();
     const snapshot = yield* Schools.use((schools) => schools.readManagement(personId));
     const encoded = yield* Schema.encodeEffect(SchoolManagement)(snapshot);
 
@@ -82,7 +86,10 @@ export const readSchoolManagementHttp = (request: Request) => {
   }).pipe(schoolsProblems, schoolsCredentialProblems(presentation));
 };
 
-export const executeSchoolCommandHttp = (request: Request) => {
+export const executeSchoolCommandHttp = <E, R>(
+  request: Request,
+  authorize: () => Effect.Effect<PersonId, E, R>,
+) => {
   const presentation = personPresentation(request);
 
   return Effect.gen(function* () {
@@ -101,7 +108,7 @@ export const executeSchoolCommandHttp = (request: Request) => {
     // Domain and credential failures are mapped after the executor, whose retry reads their causes.
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
-        const personId = yield* authorizeTransport(request, true, presentation);
+        const personId = yield* authorize();
         yield* Schools.use((schools) => schools.authorizeCommand(command, personId));
 
         const identity = yield* httpIdentity({

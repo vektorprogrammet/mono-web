@@ -353,6 +353,8 @@ const temporaryRoot = await mkdtemp(join(tmpdir(), "native-schools-directory-006
 
 const browserEvidencePath = join(temporaryRoot, "browser-evidence.json");
 
+const managementEvidencePath = join(temporaryRoot, "management-evidence.json");
+
 let postgres;
 
 let backend;
@@ -584,6 +586,62 @@ try {
   );
   assert.equal(process.env.VITE_API_MODE, undefined, "fixture mode must not be enabled");
 
+  const managementBrowser = await runAsync(
+    "node",
+    [
+      "./node_modules/@playwright/test/cli.js",
+      "test",
+      "e2e/native-school-management.spec.ts",
+      "--project=chromium",
+      "--reporter=line",
+      "--workers=1",
+      "--retries=0",
+    ],
+    {
+      cwd: dashboardRoot,
+      env: {
+        ...dashboardEnvironment,
+        REAL_NATIVE_IDENTITY_E2E: "1",
+        SCHOOLS_E2E_MANAGEMENT_EVIDENCE_PATH: managementEvidencePath,
+      },
+      label: "Native Schools management Chromium journey",
+    },
+  );
+
+  const managementEvidence = JSON.parse(await readFile(managementEvidencePath, "utf8"));
+  assert.equal(managementEvidence.specId, "0011");
+  assert.equal(managementEvidence.passed, true);
+
+  const managementRequests = ledger.filter(
+    (entry) =>
+      entry.pathname === "/api/schools/management" ||
+      entry.pathname === "/api/schools/commands",
+  );
+
+  const writes = managementRequests.filter(
+    (entry) => entry.pathname === "/api/schools/commands",
+  );
+
+  assert.ok(managementRequests.some((entry) => entry.method === "GET" && entry.status === 200));
+  assert.ok(writes.filter((entry) => entry.status === 200).length >= 5);
+
+  for (const status of [403, 409, 412]) {
+    assert.ok(writes.some((entry) => entry.status === status), `missing School command ${status}`);
+  }
+
+  for (const entry of writes) {
+    assert.equal(entry.method, "POST");
+    assert.equal(entry.sessionCookieAuth, true);
+    assert.equal(entry.authorizationHeaderPresent, false);
+    assert.equal(entry.ifMatch, null);
+    assert.ok(entry.idempotencyKey !== null);
+  }
+
+  assert.deepEqual(
+    ledger.filter((entry) => addressesAnyRoute(entry.pathname, legacyRoutes)),
+    [],
+  );
+
   const evidence = {
     specId: "0061",
     passed: true,
@@ -591,15 +649,18 @@ try {
     proof: proofEvidence,
     seed: seedEvidence,
     browser: browserEvidence,
+    management: managementEvidence,
     requestLedger: {
       browserPath: "/api/schools",
       backendPath: "/api/schools",
       schoolsRequests,
       forcedFailures: forcedFailures.length,
+      managementRequests,
       forwardedSuccesses: forwardedSuccesses.length,
       legacyRequests: [],
       fixtureRequests: [],
     },
+    managementPlaywrightTail: managementBrowser.stdout.trim().split("\n").slice(-8),
     playwrightTail: browser.stdout.trim().split("\n").slice(-8),
   };
 

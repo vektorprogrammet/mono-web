@@ -1,22 +1,18 @@
 import { Http, Operation } from "@effx/runtime";
-import { PersonSecurity } from "./common.js";
+import { PersonSecurity, nativeOperationAnnotations } from "./common.js";
 import {
   ProfileReadOwnProfileCodes,
   ProfileUpdateOwnProfileCodes,
-  profileProblems,
+  nativeProblems,
 } from "./endpoint-problems.js";
 import {
   ConditionalReadHeaders,
   IdempotencyIfMatchHeaders,
   ProfileReadResponseHeaders,
-  ProfileMutationResponseHeaders,
+  EntityMutationResponseHeaders,
 } from "./http-semantics.js";
 import { UserProfileResponse } from "./profile.js";
-import {
-  ProfileCurrentPerson,
-  profileAccessAnnotations,
-  profileOperationAnnotations,
-} from "./profile-effx-adapters.js";
+import { ProfileCurrentPerson, profileAccessAnnotations } from "./profile-effx-adapters.js";
 import { ProfileMergePatch } from "./v2-schemas.js";
 import { ExternalNativeApi } from "./api.js";
 
@@ -44,14 +40,14 @@ export const ReadOwnProfile = Operation.query({
     conditional: true,
     middleware: [PersonSecurity],
     metadata: {
-      annotator: profileOperationAnnotations,
+      annotator: nativeOperationAnnotations,
       operationId: "profile.readOwnProfile",
       summary: "Read own profile",
       description: "Returns the profile selected by the current session.",
     },
   })
   .http.problems({
-    registry: profileProblems,
+    registry: nativeProblems,
     identifier: "ProfileReadOwnProfileProblem",
     codes: ProfileReadOwnProfileCodes,
   })
@@ -84,10 +80,10 @@ export const UpdateOwnProfile = Operation.command({
     mediaType: "application/merge-patch+json",
     success: UserProfileResponse,
     status: 200,
-    responseHeaders: ProfileMutationResponseHeaders,
+    responseHeaders: EntityMutationResponseHeaders,
     middleware: [PersonSecurity],
     metadata: {
-      annotator: profileOperationAnnotations,
+      annotator: nativeOperationAnnotations,
       operationId: "profile.updateOwnProfile",
       summary: "Update own profile",
       description:
@@ -95,7 +91,7 @@ export const UpdateOwnProfile = Operation.command({
     },
   })
   .http.problems({
-    registry: profileProblems,
+    registry: nativeProblems,
     identifier: "ProfileUpdateOwnProfileProblem",
     codes: ProfileUpdateOwnProfileCodes,
   })

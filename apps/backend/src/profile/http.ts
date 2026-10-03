@@ -29,7 +29,7 @@ import {
   makeNativeValidationError,
   Problem,
 } from "@vektorprogrammet/http-api/http-semantics";
-import { Context, DateTime, Effect, Option, Predicate, Schema } from "effect";
+import { DateTime, Effect, Option, Predicate, Schema } from "effect";
 import type { HttpServerRequest } from "effect/unstable/http";
 import type { HttpApiGroup } from "effect/unstable/httpapi";
 import {
@@ -59,6 +59,7 @@ import {
   unreachable,
   webHandler,
 } from "../http-api/problem.js";
+import { CurrentRawWebRequest, currentRawWebRequest } from "../http-api/raw-web-request.js";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
   deriveProfileStrongETag,
@@ -205,27 +206,13 @@ const readJsonPatch = (request: Request) =>
     return patch;
   });
 
-/** The converted Web Request belongs to this raw handler invocation, never to process state. */
-const CurrentProfileWebRequest = Context.Reference<Request | undefined>(
-  "@vektorprogrammet/backend/profile/current-web-request",
-  { defaultValue: () => undefined },
-);
-
-const currentProfileWebRequest = Effect.gen(function* () {
-  const request = yield* CurrentProfileWebRequest;
-
-  return request === undefined
-    ? yield* Effect.die(new TypeError("Profile guard ran outside its raw request"))
-    : request;
-});
-
 type ProfileEndpoints = HttpApiGroup.Endpoints<(typeof ExternalNativeApi)["groups"]["profile"]>;
 
 const makeProfileGuards = (input: ProfileApiHttpOptions) =>
   ({
     "profile.readOwnProfile": (_nativeRequest: HttpServerRequest.HttpServerRequest) =>
       Effect.gen(function* () {
-        const request = yield* currentProfileWebRequest;
+        const request = yield* currentRawWebRequest;
         const presentation = personPresentation(request);
 
         const actor = yield* input
@@ -248,7 +235,7 @@ const makeProfileGuards = (input: ProfileApiHttpOptions) =>
       }),
     "profile.updateOwnProfile": (_nativeRequest: HttpServerRequest.HttpServerRequest) =>
       Effect.gen(function* () {
-        const request = yield* currentProfileWebRequest;
+        const request = yield* currentRawWebRequest;
         const presentation = personPresentation(request);
 
         const resolved = yield* resolveRequestPersonAuthorityInTransaction(request).pipe(
@@ -405,13 +392,13 @@ export const ProfileApiHandlers = (input: ProfileApiHttpOptions) => {
     readOwnProfile: ({ request }, authorize) =>
       webHandler(request, (webRequest) =>
         readOwnProfile(webRequest, authorize).pipe(
-          Effect.provideService(CurrentProfileWebRequest, webRequest),
+          Effect.provideService(CurrentRawWebRequest, webRequest),
         ),
       ),
     updateOwnProfile: ({ request }, authorize) =>
       webHandler(request, (webRequest) =>
         updateOwnProfile(webRequest, authorize).pipe(
-          Effect.provideService(CurrentProfileWebRequest, webRequest),
+          Effect.provideService(CurrentRawWebRequest, webRequest),
         ),
       ),
   } satisfies ProfileRawHandlers<ProfileEndpoints, typeof guards>;

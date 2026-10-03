@@ -1,4 +1,4 @@
-import { DepartmentId, SchoolManagement, SchoolCommandResult } from "@vektorprogrammet/http-api";
+import { DepartmentId, SchoolManagement, SchoolCommand, SchoolCommandResult } from "@vektorprogrammet/http-api";
 import { SchoolId, type SchoolDirectory } from "@vektorprogrammet/http-api";
 import { Tabs } from "@foldkit/ui";
 import { Effect, Predicate, Schema } from "effect";
@@ -11,6 +11,8 @@ import {
   SelectedManagedSchool,
   SubmittedSchool,
   SucceededManagement,
+  FailedSchoolCommand,
+  RetriedSchoolCommand,
   SucceededSchoolCommand,
   FailedDirectory,
   GotDirectoryTabMessage,
@@ -19,12 +21,25 @@ import {
   SucceededDirectory,
   UpdatedSearch,
 } from "./message";
-import { SchoolDirectoryData, init, SchoolDirectoryFailure } from "./model";
+import { SchoolDirectoryData, init, SchoolDirectoryFailure, SchoolMutation, type Model } from "./model";
 import { updateFor } from "./update";
 
 const departmentA = DepartmentId.make("department-a");
 
 const departmentB = DepartmentId.make("department-b");
+
+const newSchoolCommand = () =>
+  SchoolCommand.cases.CreateSchool.make({
+    commandId: "school-management-identity-retry-0061",
+    reason: "Opprette skolen",
+    name: "Prøveskolen",
+    contactPerson: "Kontakt Test",
+    email: "test@proveskolen.example.invalid",
+    phone: "+47 900 00 601",
+    language: "Norwegian",
+    active: true,
+    departmentIds: [departmentA],
+  });
 
 const directory: SchoolDirectory = {
   activeSchools: [
@@ -259,4 +274,80 @@ describe("Foldkit Schools directory transitions", () => {
       }),
     );
   });
+
+  it("retries an uncertain School write with the original command identity but not a conflict", () => {
+    const command = newSchoolCommand();
+
+    const management = Schema.decodeSync(SchoolManagement)({
+      departments: [{ departmentId: departmentA, name: "Avdeling A" }],
+      semesters: [],
+      schools: [],
+      history: [],
+    });
+
+    const pending: Model = {
+      ...init(),
+      management,
+      managementStatus: "Ready",
+      mutation: SchoolMutation.cases.Pending.make({ command }),
+    };
+
+    const { model: failed } = update(
+      pending,
+      FailedSchoolCommand({ command, conflict: false, message: "Prøv samme forespørsel" }),
+    );
+
+    const { model: retried, commands: retryCommands = [] } = update(failed, RetriedSchoolCommand());
+
+    expect(Predicate.isTagged(retried.mutation, "Pending")).toBe(true);
+
+    if (!Predicate.isTagged(retried.mutation, "Pending"))
+      throw new Error("The original school write must remain pending");
+    expect(retried.mutation.command.commandId).toBe(command.commandId);
+    expect(retried.mutation.command).toEqual(command);
+    expect(retryCommands).toHaveLength(1);
+    expect(retryCommands[0]?.args).toEqual({ command });
+
+    const { model: conflict } = update(
+      pending,
+      FailedSchoolCommand({ command, conflict: true, message: "Last inn på nytt" }),
+    );
+
+    expect(Predicate.isTagged(conflict.mutation, "Conflict")).toBe(true);
+    expect(update(conflict, RetriedSchoolCommand()).commands).toEqual([]);
+    expect(conflict.schoolForm).toEqual(pending.schoolForm);
+  });
+
+  it("does not invoke any School client while constructing or discarding its Commands", () => {
+    let calls = 0;
+
+    const probe: SchoolsDirectoryClient = {
+      directory: {
+        listSchools: () => {
+          calls += 1;
+
+          return Effect.succeed(directory);
+        },
+        readManagement: () => {
+          calls += 1;
+
+          return Effect.die("management must remain suspended");
+        },
+        executeCommand: () => {
+          calls += 1;
+
+          return Effect.die("mutation must remain suspended");
+        },
+      },
+    };
+
+    const inert = commandsFor(probe);
+
+    inert.LoadDirectory({ requestId: 1, department: null });
+    inert.LoadManagement({ requestId: 1 });
+    inert.SaveSchool({ command: newSchoolCommand() });
+
+    expect(calls).toBe(0);
+  });
+
 });

@@ -315,7 +315,7 @@ export const executeSchoolCommand = (input: SchoolCommand, personId: PersonId) =
                   Effect.mapError((cause) =>
                     Predicate.isTagged(cause.reason, "ConstraintError") &&
                     Predicate.hasProperty(cause.reason.cause, "code") &&
-                    cause.reason.cause.code === "23503"
+                    (cause.reason.cause.code === "23503" || cause.reason.cause.code === "23001")
                       ? fail("AssociationInUse")
                       : cause,
                   ),

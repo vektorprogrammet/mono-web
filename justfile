@@ -26,9 +26,9 @@ seed:
 docs script="dev":
     bun run --cwd apps/docs "$1"
 
-# Generate the Profile contract and raw backend bindings from the same declaration.
+# Generate Profile and Directory contracts and raw backend bindings from one project IR.
 [group('develop')]
-effx-profile:
+effx-native:
     bun x effx build --project packages/http-api/tsconfig.effx.json --strict-access --emit=contract
     bun x effx build --project apps/backend/tsconfig.effx.json --strict-access --emit=handlers
 
@@ -49,7 +49,7 @@ land branch:
 
 # Check layout, constructs, guides, Effect exceptions, source safety, format, lint, types, and the HTTP contract. Arguments go to Turbo.
 [group('check')]
-check *args: layout constructs guides exceptions source-safety (format "--check") lint
+check *args: effx-native layout constructs guides exceptions source-safety (format "--check") lint
     bun x turbo check-types "$@"
 
 # Check the repository layout and its generated sections: the README and AGENTS.md tables and the hosted journey legs; `just layout write` renders them.
@@ -94,7 +94,7 @@ lint-files *args:
 
 # Lint the full tree after generating React Router route types, a heavy job (AGENTS.md#verification-and-resources).
 [group('check')]
-lint *args=".":
+lint *args=".": effx-native
     bun run --cwd apps/dashboard typegen
     bun run --cwd apps/homepage typegen
     just lint-files "$@"

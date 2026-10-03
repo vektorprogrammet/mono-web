@@ -226,10 +226,20 @@
       "id": "EX-0011",
       "rules": ["FX002", "FX012", "anti-slop-effect/no-manual-tagged-construction"],
       "scope": {
-        "files": ["packages/http-api/src/profile.effx.ts"],
-        "symbols": ["ReadOwnProfile", "UpdateOwnProfile"]
+        "files": [
+          "packages/http-api/src/profile.effx.ts",
+          "packages/http-api/src/directory.effx.ts"
+        ],
+        "symbols": [
+          "ReadOwnProfile",
+          "UpdateOwnProfile",
+          "ListPeople",
+          "ListSchools",
+          "ReadSchoolManagement",
+          "ExecuteSchoolCommand"
+        ]
       },
-      "reason": "The effx Profile declaration is source metadata, not a constructed domain tagged value. Its compiler lowers literal Http.Access tagged records into IR without executing the file.",
+      "reason": "The effx Profile and Directory declarations are source metadata, not constructed domain tagged values. The compiler lowers literal Http.Access tagged records into IR without executing either file.",
       "missingCapability": "The installed effx source collector accepts a literal Http.Access capabilities/concealment record, but rejects Schema.TaggedStruct(...).make with EFFX1102. The lint rule cannot distinguish this source annotation from hand-written domain tagged construction.",
       "nativeAlternatives": [
         "Schema.TaggedStruct(...).make constructs the correct tagged value for TypeScript and lint, but the effx collector rejects its CallExpression before interpreting access metadata.",
@@ -237,12 +247,12 @@
         "An exported const holding a tagged constructor call is followed to its initializer by the collector, which rejects the same call."
       ],
       "verification": [
-        "just effx-profile must lower both literal access records with no EFFX1102 and emit their exact AccessSpec annotation.",
-        "just exceptions checks each scoped suppression against this entry; just check and just e2e profile remain the final contract and runtime gates."
+        "The unified effx Profile and Directory recipe must lower all literal access records with no EFFX1102 and emit their exact AccessSpec annotations.",
+        "just exceptions checks each scoped suppression against this entry; just check, just e2e schools and just e2e profile remain the final contract and runtime gates."
       ],
       "owner": "packages/http-api",
       "examinedWith": { "effect": "4.0.0-rc.116", "@phibkro/oxlint-effect-plugin": "0.1.0" },
-      "retirementTrigger": "Effx lowers Schema.TaggedStruct constructors or another native tagged source form to equivalent AccessContract IR. Replace the literals, remove four suppressions, and delete this entry."
+      "retirementTrigger": "Effx lowers Schema.TaggedStruct constructors or another native tagged source form to equivalent AccessContract IR. Replace the literals, remove scoped suppressions, and delete this entry."
     }
   ]
 }

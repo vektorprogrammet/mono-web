@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   NativeProblemRegistry,
   ProfileReadResponseHeaders,
-  ProfileMutationResponseHeaders,
+  EntityMutationResponseHeaders,
   privateConditionalResponses,
   entityMutationResponse,
 } from "../src/http-semantics.js";
@@ -13,7 +13,7 @@ import {
   ProfileUpdateOwnProfileCodes,
   ProfileReadOwnProfileProblem,
   ProfileUpdateOwnProfileProblem,
-  profileProblems,
+  nativeProblems,
 } from "../src/endpoint-problems.js";
 import { AccessSpecAnnotation, personNativeAccess } from "../src/access.js";
 import { ProfileCurrentPerson, profileAccessAnnotations } from "../src/profile-effx-adapters.js";
@@ -42,7 +42,7 @@ describe("Profile effx contract adapters", () => {
 
     expect(success.headers).toBe(ProfileReadResponseHeaders);
     expect(notModified.headers).toBe(ProfileReadResponseHeaders);
-    expect(mutation.headers).toBe(ProfileMutationResponseHeaders);
+    expect(mutation.headers).toBe(EntityMutationResponseHeaders);
   });
 
   it("derives each existing problem union from the same exported code tuple", () => {
@@ -97,7 +97,7 @@ describe("Profile effx contract adapters", () => {
   });
 
   it("validates broad problem codes while retaining the narrow tuple return type", () => {
-    const registry: ProblemRegistry = profileProblems;
+    const registry: ProblemRegistry = nativeProblems;
 
     const expectedStatuses = new Set(
       ProfileReadOwnProfileCodes.map((code) => NativeProblemRegistry[code].status),

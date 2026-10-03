@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+import type { HttpOperationMetadata } from "@effx/runtime";
 import { HttpApiMiddleware, HttpApiSecurity, OpenApi } from "effect/unstable/httpapi";
 import { problemStatusResponse, problemUnion } from "./http-semantics.js";
 
@@ -220,3 +221,7 @@ export const operationAnnotations = (summary?: string, description?: string) =>
       "x-vektorprogrammet-provenance": NativeOperationProvenance,
     }),
   });
+
+/** Forwards effx operation metadata to the one native OpenAPI provenance transform. */
+export const nativeOperationAnnotations = (metadata: HttpOperationMetadata) =>
+  operationAnnotations(metadata.summary, metadata.description);

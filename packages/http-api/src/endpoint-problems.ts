@@ -151,19 +151,19 @@ const decodeProblemCodes = Schema.decodeUnknownSync(
   Schema.TupleWithRest(Schema.Tuple([nativeProblemCode]), [nativeProblemCode]),
 );
 
-function deriveProfileProblems<
+function deriveNativeProblems<
   const Codes extends readonly [NativeProblemCode, ...NativeProblemCode[]],
 >(identifier: string, codes: Codes): ReadonlyArray<ProblemResponse<Codes[number]>>;
-function deriveProfileProblems(
+function deriveNativeProblems(
   identifier: string,
   codes: ReadonlyArray<string>,
 ): ReadonlyArray<Schema.Top>;
-function deriveProfileProblems(identifier: string, codes: ReadonlyArray<string>) {
+function deriveNativeProblems(identifier: string, codes: ReadonlyArray<string>) {
   return endpointProblemResponses(problemUnion(identifier, decodeProblemCodes(codes)));
 }
 
 /** Derives response schemas from the one native problem registry and a declared code tuple. */
-export const profileProblems = deriveProfileProblems;
+export const nativeProblems = deriveNativeProblems;
 
 /** Problems for `organization.listDepartments`. */
 export const OrganizationListDepartmentsProblem = problemUnion(
@@ -298,8 +298,8 @@ export const OrganizationCreateFieldOfStudyProblem = problemUnion(
   ],
 );
 
-/** Problems for `directory.listPeople`. */
-export const DirectoryListPeopleProblem = problemUnion("DirectoryListPeopleProblem", [
+/** The People directory problem codes remain its one endpoint-owned list. */
+export const DirectoryListPeopleCodes = [
   "request.malformed",
   "header.malformed",
   "authority.denied",
@@ -307,10 +307,15 @@ export const DirectoryListPeopleProblem = problemUnion("DirectoryListPeopleProbl
   "internal.error",
   "directory.cursor-malformed",
   "directory.unavailable",
-]);
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
 
-/** Problems for `directory.listSchools`. */
-export const DirectoryListSchoolsProblem = problemUnion("DirectoryListSchoolsProblem", [
+export const DirectoryListPeopleProblem = problemUnion(
+  "DirectoryListPeopleProblem",
+  DirectoryListPeopleCodes,
+);
+
+/** The Schools directory problem codes remain its one endpoint-owned list. */
+export const DirectoryListSchoolsCodes = [
   "request.malformed",
   "header.malformed",
   "authority.denied",
@@ -318,7 +323,41 @@ export const DirectoryListSchoolsProblem = problemUnion("DirectoryListSchoolsPro
   "internal.error",
   "schools.invalid-department",
   "schools.unavailable",
-]);
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
+export const DirectoryListSchoolsProblem = problemUnion(
+  "DirectoryListSchoolsProblem",
+  DirectoryListSchoolsCodes,
+);
+
+/** Management read and command share the frozen Schools administration problem set. */
+export const SchoolAdministrationCodes = [
+  "authority.denied",
+  "origin.denied",
+  "request.malformed",
+  "request.too-large",
+  "media-type.unsupported",
+  "header.malformed",
+  "idempotency-key.invalid",
+  "idempotency.in-flight",
+  "idempotency.digest-conflict",
+  "idempotency.response-expired",
+  "transaction.conflict",
+  "resource.not-found",
+  "precondition.failed",
+  "schools.invalid-command",
+  "schools.association-in-use",
+  "schools.inactive",
+  "schools.capacity-exists",
+  "schools.unavailable",
+  "idempotency.unavailable",
+  "internal.error",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
+export const SchoolAdministrationProblem = problemUnion(
+  "SchoolAdministrationProblem",
+  SchoolAdministrationCodes,
+);
 
 /** Problems for `admissions.listOpenAdmissionPeriods`. */
 export const AdmissionsListOpenAdmissionPeriodsProblem = problemUnion(

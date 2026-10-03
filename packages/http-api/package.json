@@ -9,7 +9,7 @@
     "./http-semantics": "./src/http-semantics.ts"
   },
   "scripts": {
-    "generate": "bun run scripts/generate-openapi.ts",
+    "generate": "bun x effx build --project tsconfig.effx.json --strict-access --emit=contract && bun run scripts/generate-openapi.ts",
     "check-types": "tsc --noEmit",
     "build": "tsc --noEmit",
     "lint": "oxlint",

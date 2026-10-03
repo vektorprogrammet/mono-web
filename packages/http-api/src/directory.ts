@@ -1,7 +1,4 @@
-/**
- * Public HTTP contracts for the people and school directories.
- *
- */
+/** Public schemas for the generated people and school directory contracts. */
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import {
   SchoolCommand,
@@ -15,17 +12,6 @@ import {
   type SchoolDirectoryEntry,
 } from "@vektorprogrammet/domain/schools";
 import { Schema } from "effect";
-import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
-import { annotateAccessSpec, personNativeAccess } from "./access.js";
-import { operationAnnotations, PersonSecurity } from "./common.js";
-import { DirectoryListPeopleProblem, DirectoryListSchoolsProblem } from "./endpoint-problems.js";
-import {
-  endpointProblemResponses,
-  privateReadResponse,
-  IdempotencyHeaders,
-  entityMutationResponse,
-  problemUnion,
-} from "./http-semantics.js";
 
 export { SchoolDirectoryDepartmentSchema, SchoolDirectorySchema, SchoolId };
 
@@ -96,25 +82,8 @@ export const PeopleDirectoryResponse = Schema.Struct({
   ],
 });
 
-/** @since 0.1.0 @category Endpoints */
-export const ListPeopleEndpoint = HttpApiEndpoint.get("listPeople", "/api/people", {
-  success: privateReadResponse(PeopleDirectoryResponse),
-  error: endpointProblemResponses(DirectoryListPeopleProblem),
-})
-  .middleware(PersonSecurity)
-  .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      personNativeAccess({
-        capability: "profile.read-directory",
-        canonicalScopeResolver: "profile.people-directory",
-        decisionTime: "SnapshotRead",
-      }),
-    ),
-  )
-  .annotateMerge(
-    operationAnnotations("List people", "Returns the people directory within the caller's scope."),
-  );
+/** Semantic input for directory reads that accept no request body or query. */
+export const EmptyDirectoryInput = Schema.Struct({});
 
 export const SchoolDirectoryExample = {
   activeSchools: [
@@ -132,129 +101,14 @@ export const SchoolDirectoryExample = {
   inactiveSchools: [],
 } as const;
 
-/** @since 0.1.0 @category Endpoints */
-export const ListSchoolsEndpoint = HttpApiEndpoint.get("listSchools", "/api/schools", {
-  query: { department: Schema.optional(DepartmentId) },
-  success: privateReadResponse(
-    SchoolDirectorySchema.annotate({
-      identifier: "SchoolDirectory",
-      description: "Active and inactive school directory entries.",
-      examples: [SchoolDirectoryExample],
-    }),
-  ),
-  error: endpointProblemResponses(DirectoryListSchoolsProblem),
-})
-  .middleware(PersonSecurity)
-  .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      personNativeAccess({
-        capability: "schools.read-directory",
-        canonicalScopeResolver: "schools.directory",
-        decisionTime: "SnapshotRead",
-      }),
-    ),
-  )
-  .annotateMerge(
-    operationAnnotations("List schools", "Returns the native school directory in authority scope."),
-  );
+/** The sole optional wire query member; the backend retains strict multiplicity checks. */
+export const SchoolsDirectoryQuery = Schema.Struct({ department: Schema.optional(DepartmentId) });
 
-/**
- * Scoped people and school directory endpoints.
- *
- * @since 0.1.0
- * @category Groups
- */
+/** Preserves the public SchoolDirectory schema identifier and documented example. */
+export const SchoolDirectoryResponse = SchoolDirectorySchema.annotate({
+  identifier: "SchoolDirectory",
+  description: "Active and inactive school directory entries.",
+  examples: [SchoolDirectoryExample],
+});
+
 export { SchoolCommand, SchoolCommandResult, SchoolManagement };
-
-const SchoolAdministrationProblem = problemUnion("SchoolAdministrationProblem", [
-  "authority.denied",
-  "origin.denied",
-  "request.malformed",
-  "request.too-large",
-  "media-type.unsupported",
-  "header.malformed",
-  "idempotency-key.invalid",
-  "idempotency.in-flight",
-  "idempotency.digest-conflict",
-  "idempotency.response-expired",
-  "transaction.conflict",
-  "resource.not-found",
-  "precondition.failed",
-  "schools.invalid-command",
-  "schools.association-in-use",
-  "schools.inactive",
-  "schools.capacity-exists",
-  "schools.unavailable",
-  "idempotency.unavailable",
-  "internal.error",
-]);
-
-export const ReadSchoolManagementEndpoint = HttpApiEndpoint.get(
-  "readSchoolManagement",
-  "/api/schools/management",
-  {
-    success: privateReadResponse(SchoolManagement),
-    error: endpointProblemResponses(SchoolAdministrationProblem),
-  },
-)
-  .middleware(PersonSecurity)
-  .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      personNativeAccess({
-        capability: "schools.manage",
-        canonicalScopeResolver: "schools.management",
-        decisionTime: "SnapshotRead",
-      }),
-    ),
-  )
-  .annotateMerge(
-    operationAnnotations(
-      "Manage schools",
-      "Returns authorized school facts, capacity plans, options, and history.",
-    ),
-  );
-
-export const ExecuteSchoolCommandEndpoint = HttpApiEndpoint.post(
-  "executeSchoolCommand",
-  "/api/schools/commands",
-  {
-    headers: IdempotencyHeaders,
-    payload: SchoolCommand,
-    success: entityMutationResponse(SchoolCommandResult),
-    error: endpointProblemResponses(SchoolAdministrationProblem),
-  },
-)
-  .middleware(PersonSecurity)
-  .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      personNativeAccess({
-        capability: "schools.manage",
-        canonicalScopeResolver: "schools.management",
-        decisionTime: "Transaction",
-      }),
-    ),
-  )
-  .annotateMerge(
-    operationAnnotations(
-      "Maintain schools",
-      "Applies one scoped school or capacity command with an explicit observed revision and atomic history.",
-    ),
-  );
-
-export class DirectoryApi extends HttpApiGroup.make("directory")
-  .add(
-    ListPeopleEndpoint,
-    ListSchoolsEndpoint,
-    ReadSchoolManagementEndpoint,
-    ExecuteSchoolCommandEndpoint,
-  )
-  .annotateMerge(
-    OpenApi.annotations({
-      title: "Directories",
-      description: "Scoped people and school directories.",
-      override: { "x-displayName": "Directories" },
-    }),
-  ) {}

@@ -10,7 +10,7 @@ import { ContactApi } from "./contact.js";
 import { AdmissionsApi } from "./admissions.js";
 import { AdmissionOutcomesApi } from "./admission-outcomes.js";
 import { ContentApi } from "./content.js";
-import { DirectoryApi } from "./directory.js";
+import { DirectoryApi } from "../.effx/generated/directory-contract.js";
 import { OrganizationApi } from "./organization.js";
 import { ProfileApi } from "../.effx/generated/profile-contract.js";
 import { InternalReceiptsApi, ReceiptsApi } from "./receipts.js";

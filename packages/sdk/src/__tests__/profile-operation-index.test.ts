@@ -1,4 +1,5 @@
 import {
+  DirectoryApi,
   ExternalNativeApi,
   InternalNativeApi,
   NativeApiReleaseName,
@@ -35,7 +36,7 @@ const operationTuples = <Id extends string, Groups extends HttpApiGroup.Constrai
     )
     .toSorted((left, right) => left.operationId.localeCompare(right.operationId));
 
-describe("generated Profile operation index", () => {
+describe("generated native operation index", () => {
   it("is the exact external API projection, without internal operations", () => {
     const projected = operationTuples(ExternalNativeApi);
     const ids = projected.map((operation) => operation.operationId);
@@ -50,6 +51,7 @@ describe("generated Profile operation index", () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(projected).toHaveLength(107);
     expect(projected.filter((operation) => operation.group === "profile")).toHaveLength(2);
+    expect(projected.filter((operation) => operation.group === "directory")).toHaveLength(4);
     expect(ids.every((id) => !internalIds.has(id))).toBe(true);
     expect(operationIndex.release).toEqual({
       name: NativeApiReleaseName,
@@ -67,5 +69,25 @@ describe("generated Profile operation index", () => {
     expect(endpointKeys).toEqual(["readOwnProfile", "updateOwnProfile"]);
     expect(Object.keys(createEffectClient(undefined).profile).toSorted()).toEqual(endpointKeys);
     expect(Object.keys(createPromiseClient(undefined).profile).toSorted()).toEqual(endpointKeys);
+  });
+
+  it("keeps the generated People and Schools directory, both clients and the index in lockstep", () => {
+    const directoryOnly = operationTuples(HttpApi.make("directory-index-test").add(DirectoryApi));
+
+    const indexed = operationIndex.operations.filter(
+      (operation) => operation.group === "directory",
+    );
+
+    const endpointKeys = Object.keys(DirectoryApi.endpoints).toSorted();
+
+    expect(indexed).toEqual(directoryOnly);
+    expect(endpointKeys).toEqual([
+      "executeSchoolCommand",
+      "listPeople",
+      "listSchools",
+      "readSchoolManagement",
+    ]);
+    expect(Object.keys(createEffectClient(undefined).directory).toSorted()).toEqual(endpointKeys);
+    expect(Object.keys(createPromiseClient(undefined).directory).toSorted()).toEqual(endpointKeys);
   });
 });

@@ -1,6 +1,6 @@
 import { Scene } from "foldkit/test";
 import { commandsFor } from "./command";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { updateFor } from "./update";
 
 const config = {
@@ -16,7 +16,7 @@ const config = {
   view,
 };
 
-import { DepartmentId } from "@vektorprogrammet/http-api";
+import { DepartmentId, SchoolManagement } from "@vektorprogrammet/http-api";
 import { SchoolId, type SchoolDirectory } from "@vektorprogrammet/http-api";
 import { describe, expect, it } from "vitest";
 import { SchoolDirectoryData, init, type Model, SchoolDirectoryFailure } from "./model";
@@ -112,4 +112,62 @@ describe("Foldkit Schools directory view", () => {
       Scene.expect(Scene.role("button", { name: "Prøv igjen" })).toBeEnabled(),
     );
   });
+
+  it("shows scoped capacity and history without granting shared-school edits", () => {
+    const data = Schema.decodeSync(SchoolManagement)({
+      departments: [{ departmentId: department, name: "Avdeling A" }],
+      semesters: [{ semesterId: "school-semester-a", name: "Høst" }],
+      schools: [{
+        school: {
+          schoolId: 1,
+          name: "Alfaskolen",
+          contactPerson: "Ada Lovelace",
+          email: "ada@example.invalid",
+          phone: "+47 111 11 111",
+          language: "Norwegian",
+          active: true,
+          revision: 2,
+        },
+        departmentIds: [department],
+        canEditShared: false,
+        capacityDepartmentIds: [department],
+        capacities: [],
+      }],
+      history: [{
+        commandId: "school-management-scoped-history-0061",
+        schoolId: 1,
+        capacityId: null,
+        departmentId: department,
+        actorPersonId: "school-management-actor-0061",
+        action: "CreateSchool",
+        reason: "Skolen ble registrert",
+        recordedAt: "2031-09-15T12:00:00.000Z",
+        revision: 0,
+      }],
+    });
+
+    Scene.scene(
+      config,
+      Scene.given({
+        ...readyModel(),
+        management: data,
+        managementStatus: "Ready",
+        managementOpen: true,
+        selectedSchool: SchoolId.make(1),
+      }),
+      Scene.expect(Scene.role("heading", { name: "Skoleadministrasjon" })).toBeVisible(),
+      Scene.expect(Scene.role("button", { name: "Lagre kapasitet" })).toBeEnabled(),
+      Scene.expectAll(Scene.all.role("button", { name: "Lagre skole" })).toBeEmpty(),
+      Scene.expect(Scene.role("region", { name: "Skolehistorikk" })).toContainText("Skolen ble registrert"),
+    );
+  });
+
+  it("does not render management controls for a directory-only reader", () => {
+    Scene.scene(
+      config,
+      Scene.given({ ...readyModel(), managementStatus: "Denied" }),
+      Scene.expectAll(Scene.all.role("button", { name: "Administrer skoler" })).toBeEmpty(),
+    );
+  });
+
 });

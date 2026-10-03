@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { admissionJourneyClock } from "../../../tools/e2e/journey-clock.ts";
 
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
 
@@ -10,6 +11,12 @@ const databaseRequire = createRequire(
 );
 
 const { Pool } = databaseRequire("pg");
+
+const { fromNow: fromJourneyNow } = admissionJourneyClock();
+
+const semesterStartAt = fromJourneyNow(-30);
+
+const semesterEndAt = fromJourneyNow(150);
 
 const postgresUrl = process.env.SCHOOLS_E2E_PG_URL;
 
@@ -42,6 +49,13 @@ export const schoolsJourneyPersons = {
     lastName: "Administrator",
     email: "administrator.schools.0061@example.invalid",
     password: "schools-admin-0061-password",
+  },
+  boardLeaderAlpha: {
+    personId: "schools-e2e-0061-board-leader-alpha",
+    firstName: "Bodil",
+    lastName: "Styreleder",
+    email: "board-leader.schools.0061@example.invalid",
+    password: "schools-leader-0061-password",
   },
   twoDepartmentMember: {
     personId: "schools-e2e-0061-two-departments",
@@ -92,6 +106,7 @@ const membershipIds = [
   "schools-e2e-0061-membership-two-beta",
   "schools-e2e-0061-membership-one-alpha",
   "schools-e2e-0061-membership-ended-alpha",
+  "schools-e2e-0061-membership-leader-alpha",
 ];
 
 const identitySeed = spawnSync("bun", ["run", "identity:seed"], {
@@ -138,11 +153,11 @@ try {
 
   await client.query(
     `INSERT INTO organization_departments (
-      department_id, name, short_name, email, city, active, revision
+      department_id, name, short_name, email, city, active, independent, revision
     ) VALUES
-      ($1, 'Avdeling Alfa', 'ALFA', 'alpha.schools.0061@example.invalid', 'Oslo', TRUE, 0),
-      ($2, 'Avdeling Beta', 'BETA', 'beta.schools.0061@example.invalid', 'Bergen', TRUE, 0),
-      ($3, 'Avdeling Uten Skole', 'TOM', 'empty.schools.0061@example.invalid', 'Tromsø', TRUE, 0)`,
+      ($1, 'Avdeling Alfa', 'ALFA', 'alpha.schools.0061@example.invalid', 'Oslo', TRUE, TRUE, 0),
+      ($2, 'Avdeling Beta', 'BETA', 'beta.schools.0061@example.invalid', 'Bergen', TRUE, FALSE, 0),
+      ($3, 'Avdeling Uten Skole', 'TOM', 'empty.schools.0061@example.invalid', 'Tromsø', TRUE, FALSE, 0)`,
     [
       schoolsJourneyDepartments.alpha,
       schoolsJourneyDepartments.beta,
@@ -150,11 +165,15 @@ try {
     ],
   );
   await client.query(
-    `INSERT INTO organization_teams (team_id, department_id, name, active, revision)
+    `INSERT INTO organization_teams (team_id, department_id, name, kind, active, revision)
      VALUES
-       ($1, $2, 'Team Alfa', TRUE, 0),
-       ($3, $4, 'Team Beta', TRUE, 0)`,
+       ($1, $2, 'Styret Alfa', 'DepartmentBoard', TRUE, 0),
+       ($3, $4, 'Team Beta', 'Team', TRUE, 0)`,
     [teamIds[0], schoolsJourneyDepartments.alpha, teamIds[1], schoolsJourneyDepartments.beta],
+  );
+  await client.query(
+    "INSERT INTO admission_period_semesters (semester_id, start_at, end_at) VALUES ($1, $2, $3)",
+    ["schools-e2e-0061-semester", semesterStartAt, semesterEndAt],
   );
   await client.query(
     `INSERT INTO person_contact_profiles (person_id, email, phone, revision)
@@ -183,7 +202,8 @@ try {
       ($4, $2, $5, NULL, '2020-01-01T00:00:00.000Z', NULL, 'member', FALSE, FALSE, 0),
       ($6, $7, $3, NULL, '2020-01-01T00:00:00.000Z', NULL, 'member', FALSE, FALSE, 0),
       ($8, $9, $3, NULL, '2020-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z',
-       'member', FALSE, FALSE, 0)`,
+       'member', FALSE, FALSE, 0),
+      ($10, $11, $3, NULL, '2020-01-01T00:00:00.000Z', NULL, 'member', TRUE, FALSE, 0)`,
     [
       membershipIds[0],
       schoolsJourneyPersons.twoDepartmentMember.personId,
@@ -194,6 +214,8 @@ try {
       schoolsJourneyPersons.oneDepartmentMember.personId,
       membershipIds[3],
       schoolsJourneyPersons.endedOnlyMember.personId,
+      membershipIds[4],
+      schoolsJourneyPersons.boardLeaderAlpha.personId,
     ],
   );
   await client.query(
@@ -256,9 +278,9 @@ try {
   );
 
   assert.deepEqual(evidence.rows[0], {
-    persons: 5,
+    persons: 6,
     departments: 3,
-    memberships: 4,
+    memberships: 5,
     schools: 6,
     active_schools: 4,
     inactive_schools: 2,

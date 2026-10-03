@@ -11,7 +11,7 @@ import {
   type SchoolDirectoryQuery,
 } from "@vektorprogrammet/domain/schools";
 import type { OrganizationAuthorityInstant, PersonId } from "@vektorprogrammet/domain/organization";
-import { ListSchoolsEndpoint, reflectAccessSpec } from "@vektorprogrammet/http-api";
+import { listSchools as listSchoolsEndpoint, reflectAccessSpec } from "@vektorprogrammet/http-api";
 import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Match, Option, Schema } from "effect";
 import {
@@ -106,8 +106,8 @@ const decodeQuery = (
   }).pipe(Effect.mapError(() => Problem.make("request.malformed")));
 };
 
-/** Native Schools directory adapter. It owns transport only, never SQL or authority policy. */
-export const listSchools = (request: Request, options: SchoolsApiHttpOptions) => {
+/** Resolve the directory query before identity, then authorize this exact Web request. */
+export const authorizeSchoolsDirectory = (request: Request, options: SchoolsApiHttpOptions) => {
   const presentation = personPresentation(request);
 
   return Effect.gen(function* () {
@@ -116,7 +116,7 @@ export const listSchools = (request: Request, options: SchoolsApiHttpOptions) =>
 
     yield* authorizePerson(
       {
-        spec: Option.getOrThrow(reflectAccessSpec(ListSchoolsEndpoint)),
+        spec: Option.getOrThrow(reflectAccessSpec(listSchoolsEndpoint)),
         request,
         personId: actor.personId,
         resolution: {
@@ -135,6 +135,25 @@ export const listSchools = (request: Request, options: SchoolsApiHttpOptions) =>
       presentation,
     );
 
+    return { actor, query };
+  }).pipe(
+    schoolsProblems,
+    schoolsCredentialProblems(presentation),
+    // A revealing AccessSpec never conceals a Schools directory denial.
+    unreachable("resource.not-found"),
+  );
+};
+
+/** Native Schools directory adapter. It owns transport only, never SQL or authority policy. */
+export const listSchools = (
+  request: Request,
+  authorize: () => ReturnType<typeof authorizeSchoolsDirectory>,
+) => {
+  const presentation = personPresentation(request);
+
+  return Effect.gen(function* () {
+    const { actor, query } = yield* authorize();
+
     const directory = yield* readSchoolsDirectory(
       actor.personId,
       actor.authorizationInstant,
@@ -146,10 +165,5 @@ export const listSchools = (request: Request, options: SchoolsApiHttpOptions) =>
     });
 
     return privateJsonResponse(response);
-  }).pipe(
-    schoolsProblems,
-    schoolsCredentialProblems(presentation),
-    // A revealing AccessSpec answers every authority failure as a denial, never as 404.
-    unreachable("resource.not-found"),
-  );
+  }).pipe(schoolsProblems, schoolsCredentialProblems(presentation));
 };

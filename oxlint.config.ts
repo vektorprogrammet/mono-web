@@ -132,6 +132,7 @@ const effectConfig = {
         "apps/dashboard/app/lib/preview-*.test.ts",
         "apps/dashboard/app/foldkit/content/view.test.ts",
         "apps/dashboard/app/foldkit/dated-school-service/view.test.ts",
+        "apps/dashboard/app/foldkit/schools/runtime.test.ts",
       ],
       role: "test",
       platform: "browser",
