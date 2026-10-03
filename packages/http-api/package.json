@@ -16,7 +16,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@effx/runtime": "file:../../tools/effx-dist/effx-runtime-0.1.0-efdc19a3c3b77ce8528fbeb5632b9c2118d4b771.tgz",
+    "@effx/runtime": "file:../../tools/effx-dist/effx-runtime-0.1.0-cbea7c7440a3b177b3e04b6ab4b3a9c686a6b026.tgz",
     "@vektorprogrammet/domain": "workspace:*",
     "effect": "catalog:effect-v4"
   },

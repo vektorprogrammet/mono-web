@@ -1,7 +1,7 @@
 {
-  "commit": "efdc19a3c3b77ce8528fbeb5632b9c2118d4b771",
+  "commit": "cbea7c7440a3b177b3e04b6ab4b3a9c686a6b026",
   "sha256s": {
-    "effx-runtime-0.1.0-efdc19a3c3b77ce8528fbeb5632b9c2118d4b771.tgz": "5d6fd55ee888023a70b7043cfcce35341f65a3448960b922b3280355c40a74ce",
-    "effx-cli-0.1.0-efdc19a3c3b77ce8528fbeb5632b9c2118d4b771.tgz": "d92f33fd5316cc1a1df4470a221a97a00933bff59accb790af06daf54d80471c"
+    "effx-runtime-0.1.0-cbea7c7440a3b177b3e04b6ab4b3a9c686a6b026.tgz": "7a2a4d26e5003ecfab13ddf783a8c8be5304945ab678d2eeb191a294b3ecd909",
+    "effx-cli-0.1.0-cbea7c7440a3b177b3e04b6ab4b3a9c686a6b026.tgz": "6d0ecfdc6e511199c127bfc3cbaccd9279407bd6efdca411e7a10f5be828698f"
   }
 }
