@@ -468,7 +468,8 @@ export const requireCurrentETag = (
  * precondition.invalid. An If-Match without the current strong tag fails with
  * precondition.failed. An If-None-Match that names the current tag, or `*`, answers a bodyless 304
  * with the tag, the cache policy, and `Vary: Origin`. Otherwise it answers 200 with the JSON text
- * of `body` and the same headers.
+ * of `body`, or the pre-encoded `encodedBody`, and the same headers. Callers that pass
+ * `encodedBody` must derive the validator from those exact bytes after strict public decoding.
  *
  * @sideEffects none
  *
@@ -482,13 +483,17 @@ export const requireCurrentETag = (
  *
  * @construct http-problem
  */
-export const conditionalJson = (input: {
-  readonly request: Request;
-  readonly body: unknown;
-  readonly etag: StrongETag;
-  readonly cacheControl: string;
-  readonly contentType: "application/json" | "application/json; charset=utf-8";
-}): Effect.Effect<Response, Problem<"precondition.failed"> | Problem<"precondition.invalid">> =>
+export const conditionalJson = (
+  input: {
+    readonly request: Request;
+    readonly etag: StrongETag;
+    readonly cacheControl: string;
+    readonly contentType: "application/json" | "application/json; charset=utf-8";
+  } & (
+    | { readonly body: unknown; readonly encodedBody?: never }
+    | { readonly body?: never; readonly encodedBody: string }
+  ),
+): Effect.Effect<Response, Problem<"precondition.failed"> | Problem<"precondition.invalid">> =>
   Effect.gen(function* () {
     const conditions = yield* semanticProblem(
       () => ({
@@ -512,7 +517,7 @@ export const conditionalJson = (input: {
       });
     }
 
-    return new Response(yield* jsonText(input.body), {
+    return new Response(input.encodedBody ?? (yield* jsonText(input.body)), {
       status: 200,
       headers: {
         "cache-control": input.cacheControl,

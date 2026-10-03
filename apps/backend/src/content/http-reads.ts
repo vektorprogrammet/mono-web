@@ -2,8 +2,6 @@
 import {
   readContentArticleHttpSourcePostgres,
   readContentAuthorityHttpSourcesPostgres,
-  readPublishedNewsArticleHttpSourcePostgres,
-  readPublishedNewsCollectionHttpSourcesPostgres,
 } from "@vektorprogrammet/database/content";
 import {
   AuthorityVersion,
@@ -180,11 +178,10 @@ export const listNews = (request: Request, department: DepartmentId | undefined)
       PublicNewsRead.Listing({ departmentId: query.departmentId }),
     );
 
-    const [body, sources] = yield* Effect.all([
-      // SAFETY: a listing read answers the listing.
-      strictOutput(PublishedNewsListingSchema)(listing as PublishedNewsListing),
-      readPublishedNewsCollectionHttpSourcesPostgres(query.departmentId),
-    ]);
+    // SAFETY: a listing read answers the listing. Strict decoding fixes the public shape
+    // before its serialized bytes become both the validator source and the response.
+    const body = yield* strictOutput(PublishedNewsListingSchema)(listing as PublishedNewsListing);
+    const encodedBody = yield* jsonText(body);
 
     const identity =
       query.departmentId === undefined ? "/api/news" : `/api/news?department=${query.departmentId}`;
@@ -192,17 +189,12 @@ export const listNews = (request: Request, department: DepartmentId | undefined)
     const etag = deriveStrongETag({
       representationKind: "PublishedNewsListing",
       resourceIdentity: identity,
-      version: sources.map((source) => [
-        source.articleId,
-        source.currentVersionNumber,
-        source.publishedAt,
-        source.authorProfileRevision,
-      ]),
+      version: encodedBody,
     });
 
     return yield* conditionalJson({
       request,
-      body,
+      encodedBody,
       etag,
       cacheControl: PUBLIC_CACHE_CONTROL,
       contentType: "application/json",
@@ -239,11 +231,9 @@ export const readNewsArticle = (request: Request, slug: string) =>
 
     const article = yield* readPublicNews(PublicNewsRead.Article({ slug, versionNumber }));
 
-    const [body, source] = yield* Effect.all([
-      // SAFETY: an article read answers the article.
-      strictOutput(PublishedNewsArticleSchema)(article as PublishedNewsArticle),
-      readPublishedNewsArticleHttpSourcePostgres(slug, versionNumber),
-    ]);
+    // SAFETY: an article read answers the article. Hash exactly the bytes sent to clients.
+    const body = yield* strictOutput(PublishedNewsArticleSchema)(article as PublishedNewsArticle);
+    const encodedBody = yield* jsonText(body);
 
     const etag = deriveStrongETag({
       representationKind: "PublishedNewsArticle",
@@ -251,18 +241,12 @@ export const readNewsArticle = (request: Request, slug: string) =>
         versionNumber === undefined
           ? `/api/news/${slug}`
           : `/api/news/${slug}?version=${versionNumber}`,
-      version: [
-        source.articleId,
-        source.currentVersionNumber,
-        source.selectedVersionNumber,
-        source.publishedAt,
-        source.authorProfileRevision,
-      ],
+      version: encodedBody,
     });
 
     return yield* conditionalJson({
       request,
-      body,
+      encodedBody,
       etag,
       cacheControl: PUBLIC_CACHE_CONTROL,
       contentType: "application/json",

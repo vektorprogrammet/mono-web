@@ -662,16 +662,16 @@ Answers a conditional JSON read after authority and concealment: the representat
 
 ```ts
 conditionalJson(
-  input: { readonly request: Request; readonly body: unknown; readonly etag: StrongETag; readonly cacheControl: string; readonly contentType: "application/json" | "application/json; charset=utf-8" }
+  input: { readonly request: Request; readonly etag: StrongETag; readonly cacheControl: string; readonly contentType: "application/json" | "application/json; charset=utf-8" } & (| { readonly body: unknown; readonly encodedBody?: never } | { readonly body?: never; readonly encodedBody: string })
 ): Effect.Effect<Response, Problem<"precondition.failed"> | Problem<"precondition.invalid">>
 ```
 
-- Inputs: `input: { readonly request: Request; readonly body: unknown; readonly etag: StrongETag; readonly cacheControl: string; readonly contentType: "application/json" | "application/json; charset=utf-8" }`
+- Inputs: `input: { readonly request: Request; readonly etag: StrongETag; readonly cacheControl: string; readonly contentType: "application/json" | "application/json; charset=utf-8" } & (| { readonly body: unknown; readonly encodedBody?: never } | { readonly body?: never; readonly encodedBody: string })`
 - Output: `Effect.Effect<Response, Problem<"precondition.failed"> | Problem<"precondition.invalid">>`
 - Errors: `Problem<"precondition.failed"> | Problem<"precondition.invalid">`
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:485](../../apps/backend/src/http-api/problem.ts#L485)
+- Source: [apps/backend/src/http-api/problem.ts:486](../../apps/backend/src/http-api/problem.ts#L486)
 
 **How it works**
 
@@ -679,7 +679,8 @@ It parses If-Match and If-None-Match, and a field outside their grammar fails wi
 precondition.invalid. An If-Match without the current strong tag fails with
 precondition.failed. An If-None-Match that names the current tag, or `*`, answers a bodyless 304
 with the tag, the cache policy, and `Vary: Origin`. Otherwise it answers 200 with the JSON text
-of `body` and the same headers.
+of `body`, or the pre-encoded `encodedBody`, and the same headers. Callers that pass
+`encodedBody` must derive the validator from those exact bytes after strict public decoding.
 
 **Use**
 
@@ -710,7 +711,7 @@ personPresentation(
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:549](../../apps/backend/src/http-api/problem.ts#L549)
+- Source: [apps/backend/src/http-api/problem.ts:554](../../apps/backend/src/http-api/problem.ts#L554)
 
 **How it works**
 
@@ -747,7 +748,7 @@ isSerializationConflict(cause: unknown, depth: number = 0): boolean
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:580](../../apps/backend/src/http-api/problem.ts#L580)
+- Source: [apps/backend/src/http-api/problem.ts:585](../../apps/backend/src/http-api/problem.ts#L585)
 
 **How it works**
 
@@ -779,7 +780,7 @@ requestInvalid(): Problem<"validation.failed">
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:609](../../apps/backend/src/http-api/problem.ts#L609)
+- Source: [apps/backend/src/http-api/problem.ts:614](../../apps/backend/src/http-api/problem.ts#L614)
 
 **How it works**
 
@@ -813,7 +814,7 @@ decodeRequest<S extends Schema.ConstraintDecoder<unknown, never>>(
 - Errors: none
 - Requirements: none
 - Side effects: none of its own; it runs the decoding services of `schema`.
-- Source: [apps/backend/src/http-api/problem.ts:632](../../apps/backend/src/http-api/problem.ts#L632)
+- Source: [apps/backend/src/http-api/problem.ts:637](../../apps/backend/src/http-api/problem.ts#L637)
 
 **How it works**
 
@@ -847,7 +848,7 @@ strictOutput<S extends Schema.ConstraintDecoder<unknown, never>>(
 - Errors: none
 - Requirements: none
 - Side effects: none of its own; it runs the decoding services of `schema`.
-- Source: [apps/backend/src/http-api/problem.ts:663](../../apps/backend/src/http-api/problem.ts#L663)
+- Source: [apps/backend/src/http-api/problem.ts:668](../../apps/backend/src/http-api/problem.ts#L668)
 
 **How it works**
 
@@ -879,7 +880,7 @@ const commandReceiptProblems: ProblemMapper<NativeHttpReceiptInvalid | NativeHtt
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:698](../../apps/backend/src/http-api/problem.ts#L698)
+- Source: [apps/backend/src/http-api/problem.ts:703](../../apps/backend/src/http-api/problem.ts#L703)
 
 **How it works**
 
@@ -913,7 +914,7 @@ commandOutcomeResponse(
 - Errors: `| Problem<"idempotency.in-flight"> | Problem<"idempotency.digest-conflict"> | Problem<"idempotency.response-expired">`
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:727](../../apps/backend/src/http-api/problem.ts#L727)
+- Source: [apps/backend/src/http-api/problem.ts:732](../../apps/backend/src/http-api/problem.ts#L732)
 
 **How it works**
 
@@ -954,7 +955,7 @@ authorizeAnonymous(
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:766](../../apps/backend/src/http-api/problem.ts#L766)
+- Source: [apps/backend/src/http-api/problem.ts:771](../../apps/backend/src/http-api/problem.ts#L771)
 
 **How it works**
 
@@ -991,7 +992,7 @@ authorizePerson(
 - Errors: `| Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing"> | Problem<"resource.not-found">`
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:799](../../apps/backend/src/http-api/problem.ts#L799)
+- Source: [apps/backend/src/http-api/problem.ts:804](../../apps/backend/src/http-api/problem.ts#L804)
 
 **How it works**
 
@@ -1030,7 +1031,7 @@ unreachable<const Code extends NativeProblemCode>(
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/http-api/problem.ts:841](../../apps/backend/src/http-api/problem.ts#L841)
+- Source: [apps/backend/src/http-api/problem.ts:846](../../apps/backend/src/http-api/problem.ts#L846)
 
 **How it works**
 
@@ -1063,7 +1064,7 @@ const ProblemBoundaryLive: Layer.Layer<never, never, HttpRouter.HttpRouter>
 - Errors: none
 - Requirements: `HttpRouter.HttpRouter`
 - Side effects: Reports each cause that it answers through `ErrorReporter`.
-- Source: [apps/backend/src/http-api/problem.ts:884](../../apps/backend/src/http-api/problem.ts#L884)
+- Source: [apps/backend/src/http-api/problem.ts:889](../../apps/backend/src/http-api/problem.ts#L889)
 
 **How it works**
 
