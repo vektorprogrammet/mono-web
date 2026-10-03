@@ -10,6 +10,6 @@ export const currentRawWebRequest = Effect.gen(function* () {
   const request = yield* CurrentRawWebRequest;
 
   return request === undefined
-    ? yield* Effect.die(new TypeError("Directory/Profile guard ran outside its raw request"))
+    ? yield* Effect.die(new TypeError("Native API guard ran outside its raw request"))
     : request;
 });

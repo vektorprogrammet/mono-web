@@ -5,6 +5,7 @@ import {
   NativeApiReleaseName,
   NativeApiReleaseVersion,
   ProfileApi,
+  SocialEventsApi,
 } from "@vektorprogrammet/http-api";
 import { describe, expect, it } from "@effect/vitest";
 import { HttpApi, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
@@ -89,5 +90,26 @@ describe("generated native operation index", () => {
     ]);
     expect(Object.keys(createEffectClient(undefined).directory).toSorted()).toEqual(endpointKeys);
     expect(Object.keys(createPromiseClient(undefined).directory).toSorted()).toEqual(endpointKeys);
+  });
+
+  it("keeps all three SocialEvents operations, both clients and the index in lockstep", () => {
+    const socialEventsOnly = operationTuples(
+      HttpApi.make("social-events-index-test").add(SocialEventsApi),
+    );
+
+    const indexed = operationIndex.operations.filter(
+      (operation) => operation.group === "social-events",
+    );
+
+    const endpointKeys = Object.keys(SocialEventsApi.endpoints).toSorted();
+
+    expect(indexed).toEqual(socialEventsOnly);
+    expect(endpointKeys).toEqual(["create", "list", "readScope"]);
+    expect(Object.keys(createEffectClient(undefined)["social-events"]).toSorted()).toEqual(
+      endpointKeys,
+    );
+    expect(Object.keys(createPromiseClient(undefined)["social-events"]).toSorted()).toEqual(
+      endpointKeys,
+    );
   });
 });

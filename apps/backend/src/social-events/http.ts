@@ -37,7 +37,7 @@ import {
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
-import { Effect, Option, Predicate, Schema } from "effect";
+import { Context, Effect, Option, Predicate, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
   resolveRequestCredentialInTransaction,
@@ -60,6 +60,7 @@ import {
   webHandler,
   jsonText,
 } from "../http-api/problem.js";
+import { CurrentRawWebRequest, currentRawWebRequest } from "../http-api/raw-web-request.js";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
   deriveStrongETag,
@@ -81,6 +82,17 @@ type Endpoint =
   | typeof CreateSocialEventEndpoint;
 
 type SocialEventAccessContext = CanonicalResourceContext<Record<string, never>>;
+
+interface SocialEventAccessFrame {
+  readonly authorization: TransactionPersonAuthority;
+  readonly context: SocialEventAccessContext;
+}
+
+/** The current transaction owns the authority snapshot used by a generated guard. */
+const CurrentSocialEventAccess = Context.Reference<SocialEventAccessFrame | undefined>(
+  "@vektorprogrammet/backend/social-events/current-access",
+  { defaultValue: () => undefined },
+);
 
 export type SocialEventTransactionStage =
   | "before-authority-snapshot"
@@ -163,6 +175,29 @@ type AuthorizationProblem =
   | Problem<"credential.invalid">
   | Problem<"authority.denied">;
 
+const socialEventGuard = (endpoint: Endpoint, capability: CapabilityTypeId) =>
+  Effect.gen(function* () {
+    const request = yield* currentRawWebRequest;
+    const frame = yield* CurrentSocialEventAccess;
+
+    if (frame === undefined) {
+      return yield* Effect.die(new TypeError("SocialEvents guard ran outside its transaction"));
+    }
+
+    return yield* authorize({ request, endpoint, capability, ...frame });
+  });
+
+const makeSocialEventsGuards = () => ({
+  "social-events.readScope": () =>
+    socialEventGuard(ReadSocialEventScopeEndpoint, SOCIAL_EVENTS_READ_SCOPE_CAPABILITY),
+  "social-events.list": () =>
+    socialEventGuard(ListSocialEventsEndpoint, SOCIAL_EVENTS_READ_CAPABILITY),
+  "social-events.create": () =>
+    socialEventGuard(CreateSocialEventEndpoint, SOCIAL_EVENTS_CREATE_CAPABILITY),
+});
+
+type SocialEventAuthorizer = () => ReturnType<typeof socialEventGuard>;
+
 const runTransactionHook = (
   options: SocialEventsApiHttpOptions,
   request: Request,
@@ -244,19 +279,22 @@ const snapshotRead = (
     Effect.catchTag("SqlError", () => Effect.fail(Problem.make("internal.error"))),
   );
 
-const readScope = (request: Request, options: SocialEventsApiHttpOptions) =>
+const readScope = (
+  request: Request,
+  options: SocialEventsApiHttpOptions,
+  authorize: SocialEventAuthorizer,
+) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
 
     return yield* snapshotRead(request, options, "readScope", (observedAt, authorization) =>
       Effect.gen(function* () {
-        yield* authorize({
-          request,
-          endpoint: ReadSocialEventScopeEndpoint,
-          capability: SOCIAL_EVENTS_READ_SCOPE_CAPABILITY,
-          authorization,
-          context: socialEventScopeAccessContext(authorization.authority),
-        });
+        yield* authorize().pipe(
+          Effect.provideService(CurrentSocialEventAccess, {
+            authorization,
+            context: socialEventScopeAccessContext(authorization.authority),
+          }),
+        );
 
         const body = yield* SocialEvents.use((events) =>
           events.readScope({ authority: authorization.authority, observedAt }),
@@ -270,19 +308,25 @@ const readScope = (request: Request, options: SocialEventsApiHttpOptions) =>
     );
   });
 
-const list = (request: Request, options: SocialEventsApiHttpOptions) =>
+const list = (
+  request: Request,
+  options: SocialEventsApiHttpOptions,
+  authorize: SocialEventAuthorizer,
+) =>
   Effect.gen(function* () {
     const scope = yield* strictScope(request);
 
     return yield* snapshotRead(request, options, "list", (observedAt, authorization) =>
       Effect.gen(function* () {
-        yield* authorize({
-          request,
-          endpoint: ListSocialEventsEndpoint,
-          capability: SOCIAL_EVENTS_READ_CAPABILITY,
-          authorization,
-          context: socialEventDepartmentAccessContext(authorization.authority, scope.departmentId),
-        });
+        yield* authorize().pipe(
+          Effect.provideService(CurrentSocialEventAccess, {
+            authorization,
+            context: socialEventDepartmentAccessContext(
+              authorization.authority,
+              scope.departmentId,
+            ),
+          }),
+        );
         yield* SocialEvents.use(({ validateScope }) => validateScope(scope));
 
         const body = yield* SocialEvents.use(({ readList }) => readList({ ...scope, observedAt }));
@@ -292,7 +336,11 @@ const list = (request: Request, options: SocialEventsApiHttpOptions) =>
     );
   });
 
-const create = (request: Request, options: SocialEventsApiHttpOptions) =>
+const create = (
+  request: Request,
+  options: SocialEventsApiHttpOptions,
+  authorize: SocialEventAuthorizer,
+) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
 
@@ -320,13 +368,12 @@ const create = (request: Request, options: SocialEventsApiHttpOptions) =>
         const authorization = yield* resolveSocialEventAuthority(request, observedAt, "ForShare");
         yield* runTransactionHook(options, request, "create", "after-authority-snapshot");
         yield* runTransactionHook(options, request, "create", "before-create-authorization");
-        yield* authorize({
-          request,
-          endpoint: CreateSocialEventEndpoint,
-          capability: SOCIAL_EVENTS_CREATE_CAPABILITY,
-          authorization,
-          context: socialEventDepartmentAccessContext(authorization.authority, body.departmentId),
-        });
+        yield* authorize().pipe(
+          Effect.provideService(CurrentSocialEventAccess, {
+            authorization,
+            context: socialEventDepartmentAccessContext(authorization.authority, body.departmentId),
+          }),
+        );
         yield* runTransactionHook(options, request, "create", "after-create-authorization");
         yield* SocialEvents.use(({ validateScope }) =>
           validateScope({ departmentId: body.departmentId, semesterId: body.semesterId }),
@@ -386,18 +433,33 @@ const create = (request: Request, options: SocialEventsApiHttpOptions) =>
   });
 
 /** Native HttpApi handlers for the frozen social-event surface. */
-export const SocialEventsApiHandlers = (options: SocialEventsApiHttpOptions) =>
-  HttpApiBuilder.group(ExternalNativeApi, "social-events", (handlers) =>
+export const SocialEventsApiHandlers = (options: SocialEventsApiHttpOptions) => {
+  const guards = makeSocialEventsGuards();
+
+  return HttpApiBuilder.group(ExternalNativeApi, "social-events", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("readScope", ({ request }) =>
-          webHandler(request, (webRequest) => readScope(webRequest, options)),
+          webHandler(request, (webRequest) =>
+            readScope(webRequest, options, guards["social-events.readScope"]).pipe(
+              Effect.provideService(CurrentRawWebRequest, webRequest),
+            ),
+          ),
         )
         .handleRaw("list", ({ request }) =>
-          webHandler(request, (webRequest) => list(webRequest, options)),
+          webHandler(request, (webRequest) =>
+            list(webRequest, options, guards["social-events.list"]).pipe(
+              Effect.provideService(CurrentRawWebRequest, webRequest),
+            ),
+          ),
         )
         .handleRaw("create", ({ request }) =>
-          webHandler(request, (webRequest) => create(webRequest, options)),
+          webHandler(request, (webRequest) =>
+            create(webRequest, options, guards["social-events.create"]).pipe(
+              Effect.provideService(CurrentRawWebRequest, webRequest),
+            ),
+          ),
         ),
     ),
   );
+};
