@@ -1,4 +1,5 @@
 import {
+  ContentApi,
   DirectoryApi,
   ExternalNativeApi,
   InternalNativeApi,
@@ -53,6 +54,7 @@ describe("generated native operation index", () => {
     expect(projected).toHaveLength(107);
     expect(projected.filter((operation) => operation.group === "profile")).toHaveLength(2);
     expect(projected.filter((operation) => operation.group === "directory")).toHaveLength(4);
+    expect(projected.filter((operation) => operation.group === "content")).toHaveLength(8);
     expect(ids.every((id) => !internalIds.has(id))).toBe(true);
     expect(operationIndex.release).toEqual({
       name: NativeApiReleaseName,
@@ -111,5 +113,25 @@ describe("generated native operation index", () => {
     expect(Object.keys(createPromiseClient(undefined)["social-events"]).toSorted()).toEqual(
       endpointKeys,
     );
+  });
+
+  it("keeps all eight staff and public Content operations in both clients and the index", () => {
+    const contentOnly = operationTuples(HttpApi.make("content-index-test").add(ContentApi));
+    const indexed = operationIndex.operations.filter((operation) => operation.group === "content");
+    const endpointKeys = Object.keys(ContentApi.endpoints).toSorted();
+
+    expect(indexed).toEqual(contentOnly);
+    expect(endpointKeys).toEqual([
+      "createArticle",
+      "listNews",
+      "publishArticle",
+      "readArticle",
+      "readContentWorkspace",
+      "readNewsArticle",
+      "reviseArticle",
+      "unpublishArticle",
+    ]);
+    expect(Object.keys(createEffectClient(undefined).content).toSorted()).toEqual(endpointKeys);
+    expect(Object.keys(createPromiseClient(undefined).content).toSorted()).toEqual(endpointKeys);
   });
 });
