@@ -12,7 +12,7 @@
   },
   "devDependencies": {
     "@effect/tsgo": "0.36.4",
-    "@effx/cli": "file:tools/effx-dist/effx-cli-0.1.0-cbea7c7440a3b177b3e04b6ab4b3a9c686a6b026.tgz",
+    "@effx/cli": "file:tools/effx-dist/effx-cli-0.1.0-f3c6bf8ae6205b9b60a449d01faed63744beb765.tgz",
     "@oxlint/plugins": "1.77.0",
     "@phibkro/oxlint-effect-plugin": "0.1.0",
     "@types/bun": "1.3.10",

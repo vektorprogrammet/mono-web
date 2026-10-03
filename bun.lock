@@ -6,7 +6,7 @@
       "name": "monoweb",
       "devDependencies": {
         "@effect/tsgo": "0.36.4",
-        "@effx/cli": "file:tools/effx-dist/effx-cli-0.1.0-cbea7c7440a3b177b3e04b6ab4b3a9c686a6b026.tgz",
+        "@effx/cli": "file:tools/effx-dist/effx-cli-0.1.0-f3c6bf8ae6205b9b60a449d01faed63744beb765.tgz",
         "@oxlint/plugins": "1.77.0",
         "@phibkro/oxlint-effect-plugin": "0.1.0",
         "@types/bun": "1.3.10",
@@ -228,7 +228,7 @@
       "name": "@vektorprogrammet/http-api",
       "version": "0.2.0",
       "dependencies": {
-        "@effx/runtime": "file:../../tools/effx-dist/effx-runtime-0.1.0-cbea7c7440a3b177b3e04b6ab4b3a9c686a6b026.tgz",
+        "@effx/runtime": "file:../../tools/effx-dist/effx-runtime-0.1.0-f3c6bf8ae6205b9b60a449d01faed63744beb765.tgz",
         "@vektorprogrammet/domain": "workspace:*",
         "effect": "catalog:effect-v4",
       },
@@ -545,9 +545,9 @@
 
     "@effect/vitest": ["@effect/vitest@4.0.0-rc.116", "", { "peerDependencies": { "effect": "^4.0.0-rc.116", "vitest": ">=5.0.0 <6.0.0" } }, "sha512-q42ue4hAa5AcPBwqi8rvMvR1Jstr+JjsyyxEBUoBk+WWm8otnqFxQ+XbWslW1QSwdg5+2Fdgd7z59IValt9Oiw=="],
 
-    "@effx/cli": ["@effx/cli@tools/effx-dist/effx-cli-0.1.0-cbea7c7440a3b177b3e04b6ab4b3a9c686a6b026.tgz", { "dependencies": { "@typescript/typescript6": "6.0.2" }, "bin": { "effx": "dist/effx.js" } }, "sha512-lpatKG4eDjcfrIIX8PliwMUzBfLmzVFGmN7GkEYyEPUEikX5AXu0PlKRMVbrp5yv5uHo6VwlHpSatWHpSTFaOQ=="],
+    "@effx/cli": ["@effx/cli@tools/effx-dist/effx-cli-0.1.0-f3c6bf8ae6205b9b60a449d01faed63744beb765.tgz", { "dependencies": { "@typescript/typescript6": "6.0.2" }, "bin": { "effx": "dist/effx.js" } }, "sha512-cbpl9ezxLdpTxKmFQPJARgC+nuKlh9OOv/MUbuUfInS+bVPNb4Bpkz9x1kWBzpaGVTUYf2iCxzIp7F18bGKYXQ=="],
 
-    "@effx/runtime": ["@effx/runtime@../../tools/effx-dist/effx-runtime-0.1.0-cbea7c7440a3b177b3e04b6ab4b3a9c686a6b026.tgz", { "peerDependencies": { "effect": ">=4.0.0-rc.116 <5" } }, "sha512-2WXJr6qYF/i6WT4jrT1ktMs0sDDTylF/dzrCTiGYsknqycGbeFnS/XqaZceyL79rx4Rrt3oyyPglQ1AZFlAz+A=="],
+    "@effx/runtime": ["@effx/runtime@../../tools/effx-dist/effx-runtime-0.1.0-f3c6bf8ae6205b9b60a449d01faed63744beb765.tgz", { "peerDependencies": { "effect": ">=4.0.0-rc.116 <5" } }, "sha512-2WXJr6qYF/i6WT4jrT1ktMs0sDDTylF/dzrCTiGYsknqycGbeFnS/XqaZceyL79rx4Rrt3oyyPglQ1AZFlAz+A=="],
 
     "@electric-sql/pglite": ["@electric-sql/pglite@0.5.8", "", {}, "sha512-n9tsbUOhwx2epK1V0ZG9Ar4SHWUju04dhmzZXiSBXwBoleOvIfals33NAaWgagQVAL4Rbvx/Ptsu3P+pA09f6Q=="],
 
