@@ -1,7 +1,7 @@
 import { DateTime, Match } from "effect";
 import type { Instant } from "../time.js";
 import type { ApplicationAdmissionEvidence } from "./evidence.js";
-import { effectiveAdmissionOutcome, type AdmissionOutcome } from "./outcome.js";
+import type { AdmissionOutcome } from "./outcome.js";
 
 /**
  * Admission standing of the application's own period and semester at one instant.
@@ -42,10 +42,8 @@ export const admissionStanding = (
   return Match.value(evidence.basis).pipe(
     Match.when("Returning", () => (evidence.returningRegistered ? evidence.outcome : null)),
     Match.when("Unreviewed", () => null),
-    Match.orElse((basis) =>
-      evidence.interviewCompleted && !evidence.interviewCancelled
-        ? effectiveAdmissionOutcome(basis, evidence.outcome)
-        : null,
+    Match.orElse(() =>
+      evidence.interviewCompleted && !evidence.interviewCancelled ? evidence.outcome : null,
     ),
   );
 };

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { DateTime, Effect, Schema } from "effect";
 import { ApplicationAdmissionEvidence } from "./evidence.js";
+import { admissionStanding } from "./standing.js";
 
 const encoded = {
   applicationId: "evidence-application",
@@ -78,6 +79,66 @@ describe("canonical application admission evidence boundary", () => {
 
           expect(error._tag).toBe("SchemaError");
         }),
+    );
+  }
+});
+
+describe("canonical evidence standing", () => {
+  for (const changes of [
+    { basis: "Ja", outcome: "Admitted", decisionClosed: false },
+    { basis: "Nei", outcome: "Rejected", decisionClosed: false },
+    { basis: "Kanskje", outcome: null, decisionClosed: false },
+    { basis: "Kanskje", outcome: "Rejected", decisionClosed: true },
+    {
+      basis: "Returning",
+      outcome: "Admitted",
+      returningRegistered: true,
+      interviewCompleted: false,
+    },
+    { basis: "Unreviewed", outcome: "Rejected", interviewCompleted: false },
+  ]) {
+    it.effect("uses canonical outcome for " + changes.basis, () =>
+      Effect.gen(function* () {
+        const evidence = yield* decode({ ...encoded, ...changes });
+        const at = DateTime.makeUnsafe("2031-09-15T12:00:00.000Z");
+
+        expect(admissionStanding(evidence, at)).toBe(changes.outcome);
+      }),
+    );
+  }
+
+  for (const changes of [
+    { interviewCompleted: false },
+    { interviewCancelled: true },
+    { basis: "Returning", returningRegistered: false },
+    { basis: "Unreviewed" },
+  ]) {
+    it.effect(
+      "refuses unclosed ineligible evidence " +
+        Schema.encodeSync(Schema.UnknownFromJsonString)(changes),
+      () =>
+        Effect.gen(function* () {
+          const evidence = yield* decode({ ...encoded, decisionClosed: false, ...changes });
+
+          expect(
+            admissionStanding(evidence, DateTime.makeUnsafe("2031-09-15T12:00:00.000Z")),
+          ).toBeNull();
+        }),
+    );
+  }
+
+  for (const at of [
+    "2031-08-31T23:59:59.999Z",
+    "2031-10-01T00:00:00.000Z",
+    "2031-07-31T23:59:59.999Z",
+    "2032-01-01T00:00:00.000Z",
+  ]) {
+    it.effect("own period and semester bounds refuse " + at, () =>
+      Effect.gen(function* () {
+        const evidence = yield* decode(encoded);
+
+        expect(admissionStanding(evidence, DateTime.makeUnsafe(at))).toBeNull();
+      }),
     );
   }
 });
