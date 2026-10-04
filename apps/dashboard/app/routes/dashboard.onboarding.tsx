@@ -10,8 +10,12 @@ import { formText } from "../lib/form-text";
 import { nativeProblemFrom } from "../lib/native-problem";
 import type { Route } from "./+types/dashboard.onboarding";
 
+const privateHeaders = { "cache-control": "private, no-store" } as const;
+
+export const headers = () => privateHeaders;
+
 const privateData = <T,>(value: T, status = 200) =>
-  data(value, { status, headers: { "cache-control": "private, no-store" } });
+  data(value, { status, headers: privateHeaders });
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
