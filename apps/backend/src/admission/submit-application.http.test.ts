@@ -16,7 +16,7 @@ import {
   PublicApplicationConfirmationSchema,
 } from "@vektorprogrammet/http-api";
 import { makeNativeValidationError } from "@vektorprogrammet/http-api/http-semantics";
-import { Deferred, Effect, Fiber, Layer, Schedule, Schema } from "effect";
+import { Deferred, Effect, Fiber, Layer, Predicate, Schedule, Schema } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { backendDatabase } from "../../test/database.js";
 import { decodeBackendConfig } from "../config.js";
@@ -358,7 +358,9 @@ const linkedOwner = PersonId.make("same-email-linked-owner");
 
 const historicalApplicant = Database.use((sql) =>
   Effect.gen(function* () {
-    yield* sql`INSERT INTO admission_periods (admission_period_id,department_id,semester_id,start_at,end_at,last_command_id) VALUES ('period-prior','department-http','semester-http','2031-08-01','2031-09-01','prior-period-created')`;
+    // A department has at most one admission period per semester.
+    yield* sql`INSERT INTO admission_period_semesters (semester_id,start_at,end_at) VALUES ('semester-prior','2031-01-01','2031-09-01')`;
+    yield* sql`INSERT INTO admission_periods (admission_period_id,department_id,semester_id,start_at,end_at,last_command_id) VALUES ('period-prior','department-http','semester-prior','2031-08-01','2031-09-01','prior-period-created')`;
     yield* sql`INSERT INTO admission_period_fields_of_study (field_of_study_id,department_id,name) VALUES ('field-prior','department-http','Physics')`;
     yield* sql`INSERT INTO admission_applicants (applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study,activation_digest) VALUES ('linked-applicant','ada@example.invalid','ada@example.invalid','Original','Owner','91111111',1,'field-prior',1,${"a".repeat(64)})`;
     yield* sql`INSERT INTO admission_applications (application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at) VALUES ('prior-application','linked-applicant','period-prior','department-http','field-prior',1,'2031-08-15')`;
@@ -370,6 +372,23 @@ const historicalApplicant = Database.use((sql) =>
     yield* sql`INSERT INTO recruitment_interview_schemas (interview_schema_id,name,question_count) VALUES ('prior-schema','Historical questionnaire',1)`;
     yield* sql`INSERT INTO recruitment_interview_schema_questions (interview_schema_id,question_id,ordinal,prompt,kind,alternatives) VALUES ('prior-schema','prior-question',0,'Why?','text','[]'::jsonb)`;
     yield* sql`INSERT INTO recruitment_interviews (interview_id,application_id,department_id,interviewer_person_id,interview_schema_id,assigned_by_person_id,assigned_at) VALUES ('prior-interview','prior-application','department-http',${linkedOwner},'prior-schema',${linkedOwner},'2031-08-16')`;
+  }),
+).pipe(
+  // Preserve the typed SQL failure; report metadata, never row details or tokens.
+  Effect.tapError((error) => {
+    const cause = error.reason.cause;
+
+    return Effect.logError("Historical linked-identity fixture SQL failed", {
+      reason: error.reason._tag,
+      sqlState:
+        Predicate.hasProperty(cause, "code") && Predicate.isString(cause.code)
+          ? cause.code
+          : undefined,
+      constraint:
+        Predicate.hasProperty(cause, "constraint") && Predicate.isString(cause.constraint)
+          ? cause.constraint
+          : undefined,
+    });
   }),
 );
 
