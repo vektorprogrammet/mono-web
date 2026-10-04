@@ -16,7 +16,7 @@ import {
 } from "../postgres/index.ts";
 import { Predicate, Schema, Struct } from "effect";
 import { RecruitmentInterviewConductObservationSchema } from "../../packages/domain/src/recruitment/schema.js";
-import { FinalizeInterviewResponse } from "../../packages/http-api/src/v2-schemas.js";
+import { FinalizeInterviewRequest, FinalizeInterviewResponse } from "../../packages/http-api/src/v2-schemas.js";
 import { NativeProblem } from "../../packages/http-api/src/http-semantics.js";
 import { journeyClock } from "../e2e/journey-clock.ts";
 import { seedOnboardingAuthority } from "../../apps/dashboard/e2e/onboarding-authority-fixture.mjs";
@@ -368,12 +368,15 @@ try {
     assert.ok(etag);
     assert.equal(detail.questions.length, 8);
 
-    const finalized = Schema.decodeUnknownSync(FinalizeInterviewResponse)(await expectStatus(await request(path + ":finalize", leader, {
-      expectedRevision: detail.revision,
+    const finalization = Schema.makeSync(FinalizeInterviewRequest)({
       answers: detail.questions.map((question) => ({ questionId: question.questionId, answer: "Work through a concrete example with the pupil." })),
       score: { explanatoryPower: 7, roleModel: 8, suitability: 9 },
       recommendation: "Ja",
-    }, etag), 200));
+    });
+
+    const finalized = Schema.decodeUnknownSync(FinalizeInterviewResponse)(await expectStatus(await request(
+      path + ":finalize", leader, Schema.encodeSync(FinalizeInterviewRequest)(finalization), etag,
+    ), 200));
 
     assert.equal(finalized.completionState, "Completed");
     assert.equal(finalized.cancellationState, "NotCancelled");
