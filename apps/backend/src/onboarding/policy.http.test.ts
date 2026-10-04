@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import { Database, IdentitySnapshot } from "@vektorprogrammet/database";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { commandOnboarding } from "@vektorprogrammet/database/onboarding";
+import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
 import {
   observePostgresStatements,
   type PostgresStatementObserver,
@@ -17,7 +18,18 @@ import {
   OnboardingApi,
   RequestSchemaErrorMiddleware,
 } from "@vektorprogrammet/http-api";
-import { Cause, DateTime, Deferred, Effect, Exit, Fiber, Layer, Match, Schema } from "effect";
+import {
+  Cause,
+  Context,
+  DateTime,
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  Match,
+  Schema,
+} from "effect";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { backendDatabase } from "../../test/database.js";
 import { jsonText } from "../http-api/problem.js";
@@ -140,6 +152,34 @@ const decodeProblem = Schema.decodeUnknownEffect(Schema.fromJsonString(NativePro
 
 const decodeIdempotencyKey = Schema.decodeUnknownEffect(IdempotencyKey);
 
+const decodePostgresTarget = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    host: Schema.String,
+    port: Schema.Int,
+    database: Schema.String,
+    username: Schema.String,
+  }),
+);
+
+const awaitBarrier = Effect.fnUntraced(function* <A, E>(
+  barrier: Deferred.Deferred<void>,
+  worker: Fiber.Fiber<A, E>,
+  milestone: string,
+) {
+  yield* Effect.raceFirst(
+    Deferred.await(barrier),
+    Fiber.join(worker).pipe(
+      Effect.flatMap(() =>
+        Effect.sync(() =>
+          assert.fail(
+            `Worker completed before ${milestone}; the SQL/provider barrier was not reached`,
+          ),
+        ),
+      ),
+    ),
+  );
+});
+
 const fixture = Effect.fnUntraced(function* (
   options: {
     transport?: boolean;
@@ -149,7 +189,24 @@ const fixture = Effect.fnUntraced(function* (
     now?: () => string;
   } = {},
 ) {
-  const sql = yield* database.run(Database);
+  let sql = yield* database.run(Database);
+
+  if (options.observer !== undefined) {
+    const rows =
+      yield* sql`SELECT current_setting('unix_socket_directories') AS host, current_setting('port')::integer AS port, current_database() AS database, current_user AS username`;
+
+    const target = yield* decodePostgresTarget(rows[0]);
+    // The test Scope owns this pool. One lock/dispatch owner, one competing
+    // request and one observation query may run; the one-connection seed pool
+    // cannot exercise a PostgreSQL wait or read while dispatch is held.
+
+    const context = yield* Layer.build(
+      DatabaseRuntimeLive({ ...target, maxConnections: 3 }).pipe(Layer.orDie),
+    );
+
+    sql = Context.get(context, Database);
+  }
+
   const instant = DateTime.formatIso(yield* database.run(postgresNow));
   let calls = 0;
 
@@ -579,7 +636,8 @@ describe("R3/R4 transaction lifetime and authority", () => {
           const f = yield* fixture({
             now: () => instant,
             observer: (execution, text) =>
-              text.includes("admission_applicants") && text.includes("FOR UPDATE")
+              text.includes("SELECT applicant_id FROM public.admission_applicants") &&
+              text.includes("FOR UPDATE")
                 ? Deferred.succeed(waiting, undefined).pipe(Effect.andThen(execution))
                 : execution,
           });
@@ -598,9 +656,9 @@ describe("R3/R4 transaction lifetime and authority", () => {
             ),
           );
 
-          yield* Deferred.await(acquired);
+          yield* awaitBarrier(acquired, owner, "applicant lock acquisition");
           const command = yield* Effect.forkChild(f.send("Issue", etag));
-          yield* Deferred.await(waiting);
+          yield* awaitBarrier(waiting, command, "Issue applicant FOR UPDATE");
 
           const edge =
             boundary === "period"
@@ -739,7 +797,7 @@ describe("R3/R4 transaction lifetime and authority", () => {
         yield* invitation();
         const etag = yield* etagOf(f);
         const retry = yield* Effect.forkChild(f.send("RetryDelivery", etag));
-        yield* Deferred.await(dispatch);
+        yield* awaitBarrier(dispatch, retry, "postcommit delivery claim UPDATE");
         const capsule = yield* receipts;
         assert.strictEqual(capsule.length, 1);
         assert.strictEqual(capsule[0]?.status, 200);
