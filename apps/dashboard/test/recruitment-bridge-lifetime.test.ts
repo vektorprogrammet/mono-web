@@ -2,7 +2,7 @@
 import { createServer, type ServerResponse } from "node:http";
 import { assert, describe, it } from "@effect/vitest";
 import { Window } from "happy-dom";
-import { Deferred, Effect, Exit, Fiber, Predicate, Schema } from "effect";
+import { Deferred, Effect, Exit, Fiber, Option, Predicate, Schema } from "effect";
 import { Command, Runtime } from "foldkit";
 import { createBrowserRecruitmentClient } from "../app/foldkit/recruitment/browser-client";
 import { commandsFor as recruitmentCommands } from "../app/foldkit/recruitment/command";
@@ -133,68 +133,112 @@ describe("R8 real delayed browser bridge cancellation", () => {
     it.live(`${scenario.name}: custom host disposal aborts the network and releases the in-flight Command`, () =>
       Effect.scoped(Effect.gen(function* () {
         const bridge = yield* delayedBridge(scenario.body);
+        const started = yield* Deferred.make<void>();
         const finalized = yield* Deferred.make<void>();
+        const restored = yield* Deferred.make<void>();
         const completed: string[] = [];
+
+        const waitReceipt = Effect.fnUntraced(function* (receipt: Deferred.Deferred<void>, milestone: string) {
+          const observed = yield* Deferred.await(receipt).pipe(Effect.interruptible, Effect.timeoutOption("1 second"));
+          assert.isTrue(Option.isSome(observed), milestone);
+        });
 
         const command = Command.mapMessage(
           Command.mapEffect(scenario.build(), (effect) => effect.pipe(
             Effect.tap((message) => Effect.sync(() => { completed.push(message._tag); })),
             Effect.ensuring(Deferred.succeed(finalized, undefined)),
+            (work) => Deferred.succeed(started, undefined).pipe(Effect.andThen(work)),
           )),
           () => Completed.make({}),
         );
-        // Node owns the loopback server; Happy DOM supplies the explicit simulated host boundary.
 
+        // Node owns the socket. Happy DOM owns this explicit simulated host;
+        // Foldkit's document-based renderer must use the same realm as its nodes.
         const dom = yield* Effect.acquireRelease(
-          Effect.sync(() => new Window()),
-          (window) => Effect.promise(() => window.happyDOM.cancelAsync()),
+          Effect.sync(() => {
+            const window = new Window();
+            const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+            Object.defineProperty(globalThis, "document", { configurable: true, value: window.document });
+
+            return { window, originalDocument };
+          }),
+          Effect.fnUntraced(function* ({ window, originalDocument }) {
+            yield* Effect.sync(() => {
+              if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
+              else Reflect.deleteProperty(globalThis, "document");
+            });
+            yield* Effect.promise(() => window.happyDOM.cancelAsync());
+          }),
         );
 
-        // SAFETY: Happy DOM's node classes implement the DOM operations Foldkit uses here,
-        // but its independent declarations are not lib.dom's nominal host types. The real
-        // embed/dispose probe exercises this boundary. Remove the intersection when Happy DOM
-        // exports lib.dom-compatible HTMLElement types; no Effect channel or decoded value is cast.
-        const document = dom.document;
-        const MutationObserver = dom.MutationObserver;
+        const document = dom.window.document;
+        const MutationObserver = dom.window.MutationObserver;
+
+        const hostElement = yield* Effect.acquireRelease(
+          Effect.sync(() => {
+            const element = document.createElement("section");
+            document.body.append(element);
+
+            return element;
+          }),
+          (element) => Effect.sync(() => element.remove()),
+        );
+
         const container = document.createElement("div");
-        document.body.append(container);
+        // Runtime rejects an anonymous container before it starts init Commands.
+        container.id = "r8-" + scenario.name;
+        hostElement.append(container);
+        yield* Effect.acquireRelease(
+          Effect.sync(() => {
+            const observer = new MutationObserver(() => {
+              if (hostElement.firstChild === container && container.textContent === "") {
+                Deferred.doneUnsafe(restored, Effect.void);
+              }
+            });
+
+            observer.observe(hostElement, { childList: true, subtree: true });
+
+            return observer;
+          }),
+          (observer) => Effect.sync(() => observer.disconnect()),
+        );
 
         const handle = yield* Effect.acquireRelease(
           Effect.sync(() => Runtime.embed(Runtime.makeElement({
             Model: Schema.Int,
-            // SAFETY: this owned Happy DOM element supplies the standard DOM operations used by Foldkit.
+            // SAFETY: the owned Happy DOM node implements Foldkit's DOM ABI;
+            // its independent declarations are not lib.dom's nominal types.
             container: container as typeof container & HTMLElement,
             init: () => ({ model: 0, commands: [command] }),
             update: (model: number) => ({ model: model + 1, commands: [] }),
             view: (model, h) => h.div([], [String(model)]),
             devTools: false, slow: false,
+            crash: { report: ({ error }) => { Deferred.doneUnsafe(started, Effect.die(error)); } },
           }))),
-          (host) => Effect.sync(() => { host.dispose(); container.remove(); }),
+          Effect.fnUntraced(function* (host) {
+            host.dispose();
+
+            // dispose signals interruption; it does not await runtime teardown.
+            // Never remove its container while the renderer still owns it.
+            if (hostElement.firstChild !== container || container.textContent !== "") {
+              yield* waitReceipt(restored, "Runtime disposal did not restore its host container");
+            }
+          }),
         );
 
-        const response = yield* Deferred.await(bridge.accepted);
+        yield* waitReceipt(started, "Runtime did not start the real Command");
+        const response = yield* Deferred.await(bridge.accepted).pipe(Effect.timeout("1 second"));
         yield* Effect.sync(() => { handle.dispose(); handle.dispose(); });
-        yield* Deferred.await(finalized).pipe(Effect.timeout("2 seconds"));
+        yield* waitReceipt(finalized, "Host disposal did not finalize the in-flight Command");
+        assert.strictEqual(bridge.signals.length, 1);
         assert.isTrue(bridge.signals[0]?.aborted === true);
-        yield* Deferred.await(bridge.disconnected).pipe(Effect.timeout("2 seconds"));
+        yield* waitReceipt(bridge.disconnected, "Host disposal did not abort the real HTTP socket");
         yield* bridge.release(response);
-        yield* Deferred.await(bridge.networkSettled);
+        yield* waitReceipt(bridge.networkSettled, "Foreign HTTP operation did not settle");
         assert.deepStrictEqual(completed, []);
-        yield* Effect.callback<void>((resume) => {
-          if (container.textContent === "") {
-            resume(Effect.void);
-
-            return;
-          }
-
-          const observer = new MutationObserver(() => {
-            if (container.textContent === "") resume(Effect.void);
-          });
-
-          observer.observe(container, { childList: true, subtree: true });
-
-          return Effect.sync(() => observer.disconnect());
-        }).pipe(Effect.timeout("2 seconds"));
+        yield* waitReceipt(restored, "Runtime did not finish restoring the host DOM");
+        assert.strictEqual(hostElement.firstChild, container);
+        assert.strictEqual(container.textContent, "");
       })),
     );
 
