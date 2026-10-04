@@ -2,7 +2,7 @@ import {
   listDepartments,
   listTeams,
   ReadApplicationCatalogEndpoint,
-  SubmitContactMessageEndpoint,
+  submitContactMessage,
   listNews,
   listTeamApplicationIntakes,
   readNewsArticle,
@@ -30,11 +30,11 @@ export type PublishedNewsArticle = EndpointBody<typeof readNewsArticle>;
 export type PublicApplicationCatalog = EndpointBody<typeof ReadApplicationCatalogEndpoint>;
 
 export type ContactMessagePayload = HttpApiEndpoint.Payload<
-  typeof SubmitContactMessageEndpoint
+  typeof submitContactMessage
 >["Type"];
 
 export type ContactMessageHeaders = HttpApiEndpoint.Headers<
-  typeof SubmitContactMessageEndpoint
+  typeof submitContactMessage
 >["Type"];
 
 export type NewsArticleSlug = HttpApiEndpoint.Params<typeof readNewsArticle>["Type"]["slug"];
