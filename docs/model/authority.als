@@ -59,10 +59,13 @@ module authority
  * its applicant. The interview recommendation derives the outcome: Ja gives Admitted whether or
  * not the applicant has an effective placement, and Nei gives Rejected; nobody overrides either.
  * Kanskje, and a returning assistant without an interview, take one explicit decision, Admitted or
- * Rejected, from a holder of DecideAdmissionOutcome over the application: a board leader, or the
- * recruitment team by delegation. A holder of AnnounceAdmissionOutcome over the application,
- * coordinator(department), announces the outcome once, by delegation to Skolekoordinering or as a
- * board leader. The announcement is terminal: neither the outcome, the decision nor the requests
+ * Rejected. Deciding and announcing are two access actions that only a delegation confers: the
+ * decision through the existing admissions.outcomes delegation (ManageAdmissionOutcomes) to a
+ * recruitment team (Rekruttering), the announcement through the existing placements.coordinate
+ * delegation (CoordinatePlacements) to a school coordination team (Skolekoordinering), each held
+ * by a current member of that team. Board leadership and team membership alone confer neither,
+ * and no new persisted capability exists. The announcement is made once and is terminal: neither
+ * the outcome, the decision nor the requests
  * behind them change afterwards, whatever happens to a placement. Rejected needs no effective
  * placement of the applicant in the application's department and semester, and no placement of
  * that applicant becomes effective after a Rejected announcement. The SQL scope lock between the
@@ -97,6 +100,11 @@ sig Department extends Scope {}
 sig Independent in Department {}
 -- a team has a home department (within) and a scope: its home, or national
 sig Team extends Scope { teamScope: one Scope }
+-- the recruitment (Rekruttering) and school coordination (Skolekoordinering) teams of a department. The
+-- kind gives no authority; only a delegation to the team does. It decides which delegation backs the
+-- two steps of an admission outcome.
+sig Rekruttering, Skolekoordinering in Team {}
+fact outcomeTeamsAreDistinct { no Rekruttering & Skolekoordinering }
 sig Styret extends Scope {}            -- the board of one department
 one sig Hovedstyret extends Scope {}   -- the national board
 sig Semester {}
@@ -310,18 +318,18 @@ one sig ReadTeamApplications, ManageTeamApplications,
         AssessInterview, CorrectAssessment, ReadOwnReceipt, ReadOwnProgress, ReadOwnPlacement,
         SubmitReceipt, ApproveReceipt, SettleReceipt, ManageDelegations, RecordDaysServed, IssueCertificates,
         ClaimNewAccount, ClaimExistingAccount, RespondToInvitation,
-        DecideAdmissionOutcome, AnnounceAdmissionOutcome extends Action {}
+        DecideAdmissionOutcome, AnnounceAdmissionOutcome, ManageAdmissionOutcomes extends Action {}
 
--- organisational administration of a department (from Hovedstyret: of every department). It includes
--- the two steps of an admission outcome: the decision for Kanskje and returning applications, and the
--- announcement of the outcome. A delegation carries each separately.
+-- organisational administration of a department (from Hovedstyret: of every department)
 fun DepartmentAdministration: set Action {
   ManageAppointments + MaintainInterviewStaffing + ScheduleInterview + CoordinatePlacements + ReportAbsence
-  + RecordDaysServed + DecideAdmissionOutcome + AnnounceAdmissionOutcome
+  + RecordDaysServed
 }
--- what a delegation may give a team: department administration, and receipt approval and
--- settlement (the national delegation to the economy team)
-fun Delegable: set Action { DepartmentAdministration + ApproveReceipt + SettleReceipt }
+-- what a delegation may give a team: department administration, the existing admissions.outcomes
+-- capability, and receipt approval and settlement (the national delegation to the economy team).
+-- DecideAdmissionOutcome and AnnounceAdmissionOutcome are access actions that a delegation backs
+-- (backingCapability); no delegation names them
+fun Delegable: set Action { DepartmentAdministration + ManageAdmissionOutcomes + ApproveReceipt + SettleReceipt }
 -- system administration: only the principal-side global-administrator grant confers it
 fun SystemAdministration: set Action { ChangeAccountAccess + AdministerGrants + MaintainQuestionnaires }
 -- the actions that change nothing
@@ -375,6 +383,11 @@ pred leadersAdministerTheirDepartment {
 -- legacy "department leader" did
 pred styretMembersAdministerTheDepartment {
   Capabilities.table = intendedCapabilities + BoardMember -> DepartmentAdministration
+  reachFollowsTheUnit
+}
+-- MUTANT (Y8): a board's leader holds the two outcome steps by leadership alone
+pred boardLeadersHoldOutcomeAuthority {
+  Capabilities.table = intendedCapabilities + BoardLeader -> (DecideAdmissionOutcome + AnnounceAdmissionOutcome)
   reachFollowsTheUnit
 }
 
@@ -659,10 +672,28 @@ pred delegationActive[g: Delegation] {
   (no g.dfinish or lt[Clock.now, g.dfinish] or DelegationOutlivesItsEnd in Broken.rule)   -- MUTANT (M3)
 }
 
+-- the delegated capability that backs an access action: the decision rides the admissions.outcomes
+-- delegation and the announcement the placements.coordinate delegation; every other action is its own
+-- MUTANT (Y8): the two backings are crossed
+fun backingCapability[a: Action]: set Action {
+  (a = DecideAdmissionOutcome) =>
+    (((OutcomeBackingCrossed in Broken.rule) => CoordinatePlacements else ManageAdmissionOutcomes))
+  else ((a = AnnounceAdmissionOutcome) =>
+    (((OutcomeBackingCrossed in Broken.rule) => ManageAdmissionOutcomes else CoordinatePlacements))
+  else a)
+}
+-- the delegated team must be the recruitment team for the decision and the school coordination team
+-- for the announcement
+-- MUTANT (Y8): any team that holds the backing delegation decides or announces
+pred outcomeStepTeamFits[a: Action, t: Scope] {
+  (OutcomeStepsByAnyTeam in Broken.rule) or
+    ((a = DecideAdmissionOutcome implies t in Rekruttering) and (a = AnnounceAdmissionOutcome implies t in Skolekoordinering))
+}
+
 -- the scopes where a team role holds action a through an active delegation
 fun delegatedReach[r: Role, a: Action]: set Scope {
   { s: Scope | r.type in Member + Leader and some g: Delegation |
-      delegationActive[g] and g.capability = a
+      delegationActive[g] and g.capability = backingCapability[a] and outcomeStepTeamFits[a, g.team]
       and (g in LeaderDelegation implies r.type = Leader)
       and (g.team = r.scope or (DelegationToDepartmentTeams in Broken.rule and g.team.within = r.scope.within))   -- MUTANT (M1)
       and s = ((DelegationReachesEveryDepartment in Broken.rule) => Organization else g.area) }               -- MUTANT (M2)
@@ -935,7 +966,8 @@ one sig ReachByPositionLabel, MachinesRunAsOperator, StaleLeadership, CascadingE
         HovedstyretIssuesNoCertificates, ClaimByBearer, DeciderAnnounces, AnnouncerDecides,
         AnnounceUnscoped, JaUnplacedIsSubstitute, JaNeiOverridden, UndecidedAnnounced,
         UnplacedAdmittedDenied, PlacedRejectedAnnounced, PlacementAfterRejection,
-        FinalOutcomeRewritten extends Mutant {}
+        FinalOutcomeRewritten, BoardLeaderHoldsOutcomeAuthority, OutcomeStepsByAnyTeam,
+        OutcomeBackingCrossed extends Mutant {}
 
 pred anyEventWith[m: lone Mutant] {
   tick or skip or (some g: Grant | endGrant[g]) or (some g: Delegation | endDelegation[g])
@@ -955,7 +987,8 @@ pred policyWith[m: lone Mutant] {
   Broken.rule = m
   (m = LeadersReachTheirDepartment) => leadersAdministerTheirDepartment
     else ((m = StyretMembersAdministerTheDepartment) => styretMembersAdministerTheDepartment
-    else (capabilityTable and ((m = ReachByPositionLabel) => reachFollowsThePositionLabel else reachFollowsTheUnit)))
+    else ((m = BoardLeaderHoldsOutcomeAuthority) => boardLeadersHoldOutcomeAuthority
+    else (capabilityTable and ((m = ReachByPositionLabel) => reachFollowsThePositionLabel else reachFollowsTheUnit))))
   (m = LeadershipFlagBesidePosition) => leadershipFlagBesidePosition else typeFollowsPosition
   (m = HovedstyretSeatCarriesSystemAdministration) => hovedstyretSeatsCarrySystemAdministration
     else noExtraCapabilities
@@ -1089,19 +1122,19 @@ pred teamRolesStayInTheirTeam {
 -- (M1) a delegation serves only the members of the team that it names
 pred delegationServesOnlyItsTeam {
   always all r: Effective, a: Action | some delegatedReach[r, a] implies
-    some g: Delegation | g.team = r.scope and g.capability = a
+    some g: Delegation | g.team = r.scope and g.capability = backingCapability[a]
 }
 
 -- (M2) a delegation reaches only the area that it names
 pred delegationReachesOnlyItsArea {
   always all r: Effective, a: Action, s: Scope | covers[delegatedReach[r, a], s] implies
-    some g: Delegation | g.capability = a and covers[g.area, s]
+    some g: Delegation | g.capability = backingCapability[a] and covers[g.area, s]
 }
 
 -- (M3) a delegation confers nothing outside its interval
 pred delegationConfersNothingOutsideItsInterval {
   always all r: Effective, a: Action | some delegatedReach[r, a] implies
-    some g: Delegation | g.capability = a and lte[g.dstart, Clock.now] and (no g.dfinish or lt[Clock.now, g.dfinish])
+    some g: Delegation | g.capability = backingCapability[a] and lte[g.dstart, Clock.now] and (no g.dfinish or lt[Clock.now, g.dfinish])
 }
 
 -- (K1) a Styret role never reaches another department
@@ -1283,6 +1316,19 @@ pred finalOutcomeIsTerminal {
   always all a: Application | some a.announced implies
     (a.announced' = a.announced and a.announcedBy' = a.announcedBy
       and a.decision' = a.decision and a.decidedBy' = a.decidedBy)
+}
+
+-- (Y8) neither board leadership nor team membership alone decides or announces: a permitted decision
+--      rides an active admissions.outcomes delegation to a recruitment team, and a permitted
+--      announcement an active placements.coordinate delegation to a school coordination team, held
+--      by a current member of that team
+pred outcomeStepsNeedTheirTeamsDelegation {
+  always all q: Request |
+    (permitted[q] and q.action in DecideAdmissionOutcome + AnnounceAdmissionOutcome) implies
+      some r: witnesses[Binding.boundPerson[Resolution.chosen[q]], q.action, q.target] |
+        some g: Delegation | delegationActive[g] and g.team = r.scope
+          and ((q.action = DecideAdmissionOutcome and g.capability = ManageAdmissionOutcomes and g.team in Rekruttering)
+            or (q.action = AnnounceAdmissionOutcome and g.capability = CoordinatePlacements and g.team in Skolekoordinering))
 }
 
 -- sanity: the events keep every role interval ordered
@@ -1528,6 +1574,17 @@ assert Y7_FinalOutcomeIsTerminal_mutantRewritten {
   policyWith[FinalOutcomeRewritten] implies finalOutcomeIsTerminal
 }
 
+assert Y8_OutcomeStepsNeedTheirTeamsDelegation { policy implies outcomeStepsNeedTheirTeamsDelegation }
+assert Y8_OutcomeStepsNeedTheirTeamsDelegation_mutantBoardLeader {
+  policyWith[BoardLeaderHoldsOutcomeAuthority] implies outcomeStepsNeedTheirTeamsDelegation
+}
+assert Y8_OutcomeStepsNeedTheirTeamsDelegation_mutantAnyTeam {
+  policyWith[OutcomeStepsByAnyTeam] implies outcomeStepsNeedTheirTeamsDelegation
+}
+assert Y8_OutcomeStepsNeedTheirTeamsDelegation_mutantCrossedBacking {
+  policyWith[OutcomeBackingCrossed] implies outcomeStepsNeedTheirTeamsDelegation
+}
+
 assert S_IntervalsStayOrdered { policy implies intervalsStayOrdered }
 
 --------------------------------------------------------------------------------------------
@@ -1703,19 +1760,27 @@ pred scenarioAdmittedThenPlaced {
     eventually (a.announced = Admitted and not hasActivePlacement[a]
       and eventually (hasActivePlacement[a] and a.announced = Admitted))
 }
--- a member of a delegated team decides, and the decide capability does not announce
+-- a member of the recruitment team decides through the admissions.outcomes delegation, and that does not announce
 pred scenarioDeciderDoesNotAnnounce {
   policy
-  some r: Effective, g: Delegation, a: Application | r.type = Member and r.scope = g.team and delegationActive[g]
-    and g.capability = DecideAdmissionOutcome and r in witnesses[r.holder, DecideAdmissionOutcome, a]
+  some r: Effective, g: Delegation, a: Application | r.type = Member and r.scope = g.team and g.team in Rekruttering
+    and delegationActive[g] and g.capability = ManageAdmissionOutcomes
+    and r in witnesses[r.holder, DecideAdmissionOutcome, a]
     and not rolePermit[r.holder, AnnounceAdmissionOutcome, a]
 }
--- a member of a delegated team announces, and the announce capability does not decide
+-- a member of the school coordination team announces through the placements.coordinate delegation, and that does not decide
 pred scenarioCoordinatorDoesNotDecide {
   policy
-  some r: Effective, g: Delegation, a: Application | r.type = Member and r.scope = g.team and delegationActive[g]
-    and g.capability = AnnounceAdmissionOutcome and r in witnesses[r.holder, AnnounceAdmissionOutcome, a]
+  some r: Effective, g: Delegation, a: Application | r.type = Member and r.scope = g.team and g.team in Skolekoordinering
+    and delegationActive[g] and g.capability = CoordinatePlacements
+    and r in witnesses[r.holder, AnnounceAdmissionOutcome, a]
     and not rolePermit[r.holder, DecideAdmissionOutcome, a]
+}
+-- a board leader reaches the application's department and holds neither outcome step by leadership
+pred scenarioBoardLeaderAloneDoesNeither {
+  policy
+  some r: Effective, a: Application | r.type = BoardLeader and r in witnesses[r.holder, ManageDelegations, a]
+    and not rolePermit[r.holder, DecideAdmissionOutcome, a] and not rolePermit[r.holder, AnnounceAdmissionOutcome, a]
 }
 
 --------------------------------------------------------------------------------------------
@@ -1856,6 +1921,11 @@ check Y6_UnplacedAdmittedIsNeverDenied_mutantDenied for 3 but 8 Scope, 6 Role, 3
 check Y7_FinalOutcomeIsTerminal for 3 but 8 Scope, 6 Role, 3 Instant, 5 steps expect 0
 check Y7_FinalOutcomeIsTerminal_mutantRewritten for 3 but 8 Scope, 6 Role, 3 Instant, 5 steps expect 1
 
+check Y8_OutcomeStepsNeedTheirTeamsDelegation for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 0
+check Y8_OutcomeStepsNeedTheirTeamsDelegation_mutantBoardLeader for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
+check Y8_OutcomeStepsNeedTheirTeamsDelegation_mutantAnyTeam for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
+check Y8_OutcomeStepsNeedTheirTeamsDelegation_mutantCrossedBacking for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
+
 run scenarioLeadershipHandover for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
 run scenarioHovedstyretSeatIsNotAdministrator for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
 run scenarioStyretSeatStaysInItsDepartment for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
@@ -1885,3 +1955,4 @@ run scenarioDecisionThenAnnouncement for 3 but 8 Scope, 6 Role, 3 Instant, 5 ste
 run scenarioAdmittedThenPlaced for 3 but 8 Scope, 6 Role, 3 Instant, 5 steps expect 1
 run scenarioDeciderDoesNotAnnounce for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
 run scenarioCoordinatorDoesNotDecide for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
+run scenarioBoardLeaderAloneDoesNeither for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1

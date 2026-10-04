@@ -647,7 +647,7 @@ Examples:
   correction capability is active.
 - A receipt owner can read their own file.
 - A board member can issue certificates for the department of the board, and a seat on Hovedstyret for a department that is not independent.
-- A board leader of a department, or a team that holds a delegation from the board leader, decides or announces an admission outcome there. Deciding and announcing are separate capabilities: the recruitment team decides only Kanskje and returning cases, the school coordination team announces, and a delegation of one capability gives no access to the other.
+- A member of the recruitment team decides an admission outcome through its admissions delegation, and a member of the school coordination team announces it through its placement coordination delegation. Deciding and announcing are separate actions: board leadership alone confers neither, membership of another team confers neither, and a delegation of one gives no access to the other.
 - A team leader acts within the team. A title alone gives no authority.
 
 A delegation lets one team act in one area. It has a name, and it names the team, one capability, the area, and a time range.
@@ -655,7 +655,7 @@ The area is the home department of the team. For a national team, the area can b
 While the delegation is current, the current members of the team hold that capability in that area.
 A delegation can instead reach only the current leaders of the team.
 Where this document names board leaders for a capability, a current delegation of that capability also qualifies.
-A delegation can give department administration, receipt approval, or receipt settlement. It never gives system administration or the management of delegations.
+A delegation can give department administration, the admissions outcome capability, receipt approval, or receipt settlement. It never gives system administration or the management of delegations.
 The board leader of the governing board of a team creates and ends the delegations of that team. A global administrator can also create and end them.
 A delegation is current from its start until its end; the end instant is excluded. Ending a delegation never extends it and never ends it before now.
 A delegation stays in force only while its team's area still covers its area: a team that becomes a board, or a national team that becomes local, holds nothing through its earlier delegations.

@@ -62,8 +62,10 @@
  * - An admission outcome is Admitted or Rejected. A Ja recommendation derives Admitted, with or
  *   without a school placement, and a Nei recommendation derives Rejected; nobody overrides either.
  *   A Kanskje recommendation, and a returning assistant without an interview, imply no outcome: the
- *   recruitment team decides Admitted or Rejected explicitly. Placement is a separate decision.
- *   Skolekoordinering announces each outcome once; the announcement is final. A Rejected outcome
+ *   recruitment team decides Admitted or Rejected explicitly, through its admissions.outcomes
+ *   delegation. Placement is a separate decision. Skolekoordinering announces each outcome once,
+ *   through its placements.coordinate delegation; the announcement is final. Board leadership and
+ *   team membership alone confer neither step. A Rejected outcome
  *   requires no active placement of the person in the department and semester.
  * - General Assembly vote weights are a derived report: active members plus 100 per department, split
  *   among its attending members, at most 25 per member.
@@ -581,7 +583,7 @@ BoundedContext AccessControl implements IdentityAndAccess {
     }
   }
 
-  "A delegation is explicit, named and time-bounded: team T holds capability C in area A. The area is the team's home department or, for a national team, a department or the whole organization. While it is active, it gives C in A to the current members of T. invariant: the interval is half-open. invariant: the area lies inside the team's scope. invariant: a delegation carries department administration, receipt approval or receipt settlement, never system administration or delegation management. invariant: ending a delegation removes only the authority that it gave. invariant: a delegation reaches every current member of the team, or only its current leaders; a settlement delegation reaches the leaders only. There are no roles by team kind."
+  "A delegation is explicit, named and time-bounded: team T holds capability C in area A. The area is the team's home department or, for a national team, a department or the whole organization. While it is active, it gives C in A to the current members of T. invariant: the interval is half-open. invariant: the area lies inside the team's scope. invariant: a delegation carries department administration, the admissions.outcomes capability, receipt approval or receipt settlement, never system administration or delegation management. invariant: the actions admissions.outcomes.decide and admissions.outcomes.announce are backed by an admissions.outcomes delegation to the recruitment team and a placements.coordinate delegation to the school coordination team; no delegation names them and no board leadership implies them. invariant: ending a delegation removes only the authority that it gave. invariant: a delegation reaches every current member of the team, or only its current leaders; a settlement delegation reaches the leaders only. There are no roles by team kind: the kind of a team only decides which delegation backs those two actions."
   Aggregate Delegations {
     Entity Delegation {
       aggregateRoot
@@ -1293,9 +1295,9 @@ BoundedContext Admissions implements VolunteerRecruitment {
       def void submitApplication(ApplicantId applicantId, AdmissionPeriodId admissionPeriodId, int yearOfStudy) : write [ -> ApplicationSubmitted ];
       "capability: admissions.applications.revise; requirement: the applicant's linked Person (returning registration); a correction path for department managers, if kept, has its own specification; scope: own application; decisionTime: Transaction"
       def void reviseYearOfStudy(int yearOfStudy, int expectedRevision) : write [ ApplicationSubmitted -> ApplicationSubmitted ];
-      "capability: admissions.outcomes.announce; requirement: coordinator(department); scope: application-department; decisionTime: Transaction. The outcome is derived and not an argument: Ja gives Admitted with or without a placement, Nei gives Rejected, and a Kanskje or returning application needs its explicit decision first. Rejected requires no active placement of the person in the application's department and semester. School coordination announces the outcome once; the announcement is final."
+      "capability: admissions.outcomes.announce; requirement: an active delegation of placements.coordinate whose area covers the application's department, to the school coordination team (Skolekoordinering) on which the person holds a current appointment; neither board leadership nor membership of another team confers it; scope: application-department; decisionTime: Transaction. The outcome is derived and not an argument: Ja gives Admitted with or without a placement, Nei gives Rejected, and a Kanskje or returning application needs its explicit decision first. Rejected requires no active placement of the person in the application's department and semester. School coordination announces the outcome once; the announcement is final."
       def void announceOutcome(int expectedRevision) : write [ ApplicationSubmitted -> OutcomeAnnounced ];
-      "capability: admissions.outcomes.decide; requirement: board.leader covering departmentId, delegated to the recruitment team; scope: application-department; decisionTime: Transaction. Only a Kanskje recommendation or a returning assistant without an interview takes a decision: the recruitment team decides Admitted or Rejected. A Ja or Nei recommendation takes none, and an announced outcome takes none."
+      "capability: admissions.outcomes.decide; requirement: an active delegation of admissions.outcomes whose area covers the application's department, to the recruitment team (Rekruttering) on which the person holds a current appointment; neither board leadership nor membership of another team confers it; scope: application-department; decisionTime: Transaction. Only a Kanskje recommendation or a returning assistant without an interview takes a decision: the recruitment team decides Admitted or Rejected. A Ja or Nei recommendation takes none, and an announced outcome takes none."
       def void decideOutcome(@AdmissionOutcome outcome, int expectedRevision) : write [ ApplicationSubmitted -> ApplicationSubmitted ];
     }
     ValueObject ApplicationId {
