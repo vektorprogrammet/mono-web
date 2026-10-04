@@ -235,6 +235,13 @@ const approvedSqlSourceDigests = new Map<string, string>([
     "packages/database/migrations/0082-admission-outcome-mail.sql",
     "sha256:cf0c122e49bd6ee714f20f01e6dba92bcddfae2faa85022baddb91cc90a63ccb",
   ],
+  // Reviewed: historical citation rows derive only existing outcomes and announcement instants.
+  // The trigger records NEW decision evidence and versions the application fence. Literals name
+  // lifecycle states, provenance, operations, and refusal messages, never credentials or people.
+  [
+    "packages/database/migrations/0083-application-decision-correction-fence.sql",
+    "sha256:57661d1b13cdd43212d4bdbb3100767e66656368ecb7c480a0023ad93b2398a4",
+  ],
   // Reviewed: the UPDATE derives an application key from its existing applicant row; no stored
   // submission or identity link is replaced. Other literals are trigger operations and errors.
   [
