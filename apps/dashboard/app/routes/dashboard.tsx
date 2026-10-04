@@ -199,8 +199,8 @@ const mainLinks = [
         url: href("/onboarding"),
       },
       {
-        title: "Vikarer",
-        url: href("/vikarer"),
+        title: "Opptaksutfall",
+        url: href("/opptaksutfall"),
       },
       {
         title: "Skoler",
