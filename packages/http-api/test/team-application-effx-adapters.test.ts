@@ -45,13 +45,15 @@ import {
   TeamApplicationsGroup,
 } from "../src/team-application.effx.js";
 import {
-  DeleteTeamApplicationEndpoint,
-  ListTeamApplicationIntakesEndpoint,
-  ListTeamApplicationsEndpoint,
-  ReadTeamApplicationEndpoint,
-  ReadTeamApplicationIntakeEndpoint,
-  ReviseTeamApplicationIntakeEndpoint,
-  SubmitTeamApplicationEndpoint,
+  deleteTeamApplication,
+  listTeamApplicationIntakes,
+  listTeamApplications,
+  readTeamApplication,
+  readTeamApplicationIntake,
+  reviseTeamApplicationIntake,
+  submitTeamApplication,
+} from "../.effx/generated/team-applications-contract.js";
+import {
   TeamApplicationsDeleteProblem,
   TeamApplicationsListIntakesProblem,
   TeamApplicationsReadIntakeProblem,
@@ -70,7 +72,7 @@ const annotation = (declaration: typeof ReadTeamApplicationIntake, name: string)
 const cases = [
   {
     declaration: ReadTeamApplicationIntake,
-    endpoint: ReadTeamApplicationIntakeEndpoint,
+    endpoint: readTeamApplicationIntake,
     codes: TeamApplicationsReadIntakeCodes,
     problem: TeamApplicationsReadIntakeProblem,
     problemName: "TeamApplicationsReadIntakeProblem",
@@ -78,7 +80,7 @@ const cases = [
   },
   {
     declaration: ListTeamApplicationIntakes,
-    endpoint: ListTeamApplicationIntakesEndpoint,
+    endpoint: listTeamApplicationIntakes,
     codes: TeamApplicationsListIntakesCodes,
     problem: TeamApplicationsListIntakesProblem,
     problemName: "TeamApplicationsListIntakesProblem",
@@ -86,7 +88,7 @@ const cases = [
   },
   {
     declaration: SubmitTeamApplication,
-    endpoint: SubmitTeamApplicationEndpoint,
+    endpoint: submitTeamApplication,
     codes: TeamApplicationsSubmitCodes,
     problem: TeamApplicationsSubmitProblem,
     problemName: "TeamApplicationsSubmitProblem",
@@ -94,7 +96,7 @@ const cases = [
   },
   {
     declaration: ListTeamApplications,
-    endpoint: ListTeamApplicationsEndpoint,
+    endpoint: listTeamApplications,
     codes: TeamApplicationsStaffReadCodes,
     problem: TeamApplicationsStaffReadProblem,
     problemName: "TeamApplicationsStaffReadProblem",
@@ -102,7 +104,7 @@ const cases = [
   },
   {
     declaration: ReadTeamApplication,
-    endpoint: ReadTeamApplicationEndpoint,
+    endpoint: readTeamApplication,
     codes: TeamApplicationsStaffReadCodes,
     problem: TeamApplicationsStaffReadProblem,
     problemName: "TeamApplicationsStaffReadProblem",
@@ -110,7 +112,7 @@ const cases = [
   },
   {
     declaration: DeleteTeamApplication,
-    endpoint: DeleteTeamApplicationEndpoint,
+    endpoint: deleteTeamApplication,
     codes: TeamApplicationsDeleteCodes,
     problem: TeamApplicationsDeleteProblem,
     problemName: "TeamApplicationsDeleteProblem",
@@ -118,7 +120,7 @@ const cases = [
   },
   {
     declaration: ReviseTeamApplicationIntake,
-    endpoint: ReviseTeamApplicationIntakeEndpoint,
+    endpoint: reviseTeamApplicationIntake,
     codes: TeamApplicationsReviseIntakeCodes,
     problem: TeamApplicationsReviseIntakeProblem,
     problemName: "TeamApplicationsReviseIntakeProblem",

@@ -36,8 +36,7 @@ export const TeamApplicationListQuery = Schema.Struct({
 /** The public reads and bodyless deletion share the existing no-store/Vary headers. */
 export const TeamApplicationsNoStoreResponseHeaders = noStoreReadResponse(Schema.Void).headers;
 
-// These tuples mirror the still-mounted handwritten unions. The adapter test compares their
-// members in wire order until the seven-operation cutover removes the old declarations.
+/** One ordered code tuple per problem union, consumed by native schemas and effx declarations. */
 export const TeamApplicationsReadIntakeCodes = [
   "request.malformed",
   "header.malformed",
