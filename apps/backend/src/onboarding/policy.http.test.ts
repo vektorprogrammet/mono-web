@@ -76,9 +76,19 @@ const delivery: OnboardingDeliveryConfig = {
 
 const applicationId = PublicApplicationIdSchema.make("onboarding-policy-application");
 
+const decodePostgresInstant = Schema.decodeUnknownEffect(Schema.DateTimeUtcFromString);
+
+// PostgreSQL owns expiry and claim age. Derive fixture and handler instants from
+// that clock, not the it.effect TestClock or a fresh HTTP runtime's clock.
+const postgresNow = Database.use((sql) =>
+  sql`SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS instant`.pipe(
+    Effect.flatMap((rows) => decodePostgresInstant(rows[0]?.instant)),
+  ),
+);
+
 const seed = Database.use((sql) =>
   Effect.gen(function* () {
-    const now = yield* DateTime.now;
+    const now = yield* postgresNow;
     const start = DateTime.formatIso(DateTime.subtract(now, { days: 1 }));
     const end = DateTime.formatIso(DateTime.add(now, { days: 1 }));
     yield* sql`INSERT INTO organization_departments(department_id,name,short_name,email,city) VALUES(${departmentId},'Policy','POL','policy@example.invalid','Policy'),('policy-other','Other','OTH','other@example.invalid','Other')`;
@@ -140,6 +150,7 @@ const fixture = Effect.fnUntraced(function* (
   } = {},
 ) {
   const sql = yield* database.run(Database);
+  const instant = DateTime.formatIso(yield* database.run(postgresNow));
   let calls = 0;
 
   const client = HttpClient.make((...args) => {
@@ -167,7 +178,10 @@ const fixture = Effect.fnUntraced(function* (
   );
 
   const http = makeOnboardingTestHttp(
-    { now: options.now, delivery: options.transport === false ? undefined : delivery },
+    {
+      now: options.now ?? (() => instant),
+      delivery: options.transport === false ? undefined : delivery,
+    },
     services,
     client,
   );
@@ -218,7 +232,7 @@ const evidence = Effect.fnUntraced(function* (
   yield* database.run(
     Database.use((sql) =>
       Effect.gen(function* () {
-        const now = DateTime.formatIso(yield* DateTime.now);
+        const now = DateTime.formatIso(yield* postgresNow);
         yield* sql`INSERT INTO recruitment_interviews(interview_id,application_id,department_id,interviewer_person_id,interview_schema_id,assigned_by_person_id,assigned_at,revision) VALUES('policy-interview',${applicationId},${departmentId},${actor},'policy-questionnaire',${actor},${now},1)`;
 
         if (completed && recommendation !== undefined)
@@ -249,7 +263,7 @@ const invitation = Effect.fnUntraced(function* (
   yield* database.run(
     Database.use((sql) =>
       Effect.gen(function* () {
-        const now = yield* DateTime.now;
+        const now = yield* postgresNow;
         const issued = DateTime.formatIso(DateTime.subtract(now, { days: 2 }));
 
         const expires = DateTime.formatIso(
@@ -390,7 +404,7 @@ describe("R3 onboarding admitted standing", () => {
           yield* database.run(
             Database.use((sql) =>
               Effect.gen(function* () {
-                const now = yield* DateTime.now;
+                const now = yield* postgresNow;
                 const before = DateTime.formatIso(DateTime.subtract(now, { days: 2 }));
                 const ended = DateTime.formatIso(DateTime.subtract(now, { days: 1 }));
                 const after = DateTime.formatIso(DateTime.add(now, { days: 1 }));
@@ -557,7 +571,7 @@ describe("R3/R4 transaction lifetime and authority", () => {
       "Issue re-evaluates " + boundary + " eligibility after a real applicant lock wait",
       () =>
         Effect.gen(function* () {
-          let instant = DateTime.formatIso(yield* database.run(DateTime.now));
+          let instant = DateTime.formatIso(yield* database.run(postgresNow));
           const waiting = yield* Deferred.make<void>();
           const acquired = yield* Deferred.make<void>();
           const release = yield* Deferred.make<void>();
@@ -607,7 +621,7 @@ describe("R3/R4 transaction lifetime and authority", () => {
     "Issue retry rechecks standing at the new transaction instant",
     () =>
       Effect.gen(function* () {
-        let instant = DateTime.formatIso(yield* database.run(DateTime.now));
+        let instant = DateTime.formatIso(yield* database.run(postgresNow));
         let injected = false;
         const raw = yield* database.run(Database);
 
@@ -763,7 +777,7 @@ describe("R3/R4 transaction lifetime and authority", () => {
                     departmentId,
                     command: { applicationId, action: "Issue" },
                     actor,
-                    now: DateTime.formatIso(yield* DateTime.now),
+                    now: DateTime.formatIso(yield* postgresNow),
                     invitationId: "policy-replacement",
                     token,
                     digest: "b".repeat(64),
