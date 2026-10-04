@@ -365,7 +365,8 @@ test("admission outcomes: Rekruttering decides, the coordinator announces, templ
       readOnly.getByRole("button", { name: "Lagre utfall" }),
       readOnly.getByRole("button", { name: "Kunngjør utfall" }),
       readOnly.getByText(applicant("maybe").name),
-      readOnly.getByText("@example.invalid", { exact: false }),
+      // An applicant's address (the fixture's `*.outcomes@` mailboxes), not the member's own profile card.
+      readOnly.getByText(".outcomes@example.invalid", { exact: false }),
       readOnly.getByRole("list", { name: "Vikarer på vakt" }),
     ])
       await expect(hidden).toHaveCount(0);
@@ -414,7 +415,8 @@ test("admission outcomes: Rekruttering decides, the coordinator announces, templ
     const announceBoard = coordinatorPage.getByRole("region", { name: "Kunngjøring", exact: true });
     await expect(announceBoard).toBeVisible();
     await expect(coordinatorPage.getByRole("button", { name: "Lagre utfall" })).toHaveCount(0);
-    await expect(coordinatorPage.getByText("@example.invalid", { exact: false })).toHaveCount(0);
+    await expect(coordinatorPage.getByText(".outcomes@example.invalid", { exact: false })).toHaveCount(0);
+    await expect(announceBoard.getByText("@example.invalid", { exact: false })).toHaveCount(0);
     await expect(announceForm(coordinatorPage, "maybe")).toBeVisible();
     await axe(coordinatorPage, "coordinator announce board");
     gates.push("the coordinator announces from a board that shows no e-mail or phone");
