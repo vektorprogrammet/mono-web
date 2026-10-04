@@ -150,6 +150,10 @@ describe("R8 real delayed browser bridge cancellation", () => {
           (window) => Effect.promise(() => window.happyDOM.cancelAsync()),
         );
 
+        // SAFETY: Happy DOM's node classes implement the DOM operations Foldkit uses here,
+        // but its independent declarations are not lib.dom's nominal host types. The real
+        // embed/dispose probe exercises this boundary. Remove the intersection when Happy DOM
+        // exports lib.dom-compatible HTMLElement types; no Effect channel or decoded value is cast.
         const document = dom.document;
         const MutationObserver = dom.MutationObserver;
         const container = document.createElement("div");
@@ -158,7 +162,8 @@ describe("R8 real delayed browser bridge cancellation", () => {
         const handle = yield* Effect.acquireRelease(
           Effect.sync(() => Runtime.embed(Runtime.makeElement({
             Model: Schema.Int,
-            container,
+            // SAFETY: this owned Happy DOM element supplies the standard DOM operations used by Foldkit.
+            container: container as typeof container & HTMLElement,
             init: () => ({ model: 0, commands: [command] }),
             update: (model: number) => ({ model: model + 1, commands: [] }),
             view: (model, h) => h.div([], [String(model)]),
