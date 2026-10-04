@@ -18,9 +18,9 @@ export const goldenSteps = [
   "substitute-commitment",
   "substitute-absence",
   "coverer-ineligible",
-  "outcome-recorded",
   "outcome-stale",
-  "on-call-read",
+  "outcome-recorded",
+  "announce-denied",
   "wrong-owner",
   "coverage-recorded",
   "coverage-replaced",
@@ -56,7 +56,7 @@ const assertReservations = (step, facts, expected) =>
 const substituteWrites = {
   "substitute-commitment": ["placements.commandBoard"],
   "substitute-absence": ["placements.commandOwnCoverage"],
-  "outcome-recorded": ["admissionOutcomes.recordOutcome", "admissionOutcomes.recordOutcome"],
+  "outcome-recorded": ["admissionOutcomes.announceOutcome", "admissionOutcomes.announceOutcome"],
   "coverage-recorded": ["placements.commandOwnCoverage"],
   "coverage-replaced": ["placements.commandCoverageBoard"],
   "coverage-withdrawn": ["placements.commandCoverageBoard"],
@@ -64,8 +64,8 @@ const substituteWrites = {
   "substitute-completed": ["placements.commandCoverageBoard"],
 };
 
-// A substitute is an admission outcome. The system records the absence and who covered it;
-// the people involved agree on cover outside the system.
+// The system records the absence and who covered it; the people involved agree on cover outside
+// the system. An admitted assistant without a placement is an assistant who can cover.
 const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
   const {
     volunteerId,
@@ -93,7 +93,7 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
   ])
     assert.deepEqual(facts[name], baseline[name], `${step} must not change ${name}`);
 
-  // The candidate needs no affiliation or placement: the admission outcome alone puts them on call.
+  // The candidate needs no affiliation or placement: the announced Admitted outcome alone makes them an eligible coverer.
   assert.ok(!facts.affiliations.some((row) => row.person_id === candidateId));
   const [scheduled] = baseline.commitments;
   assert.equal(facts.commitments.length, 2);
@@ -167,18 +167,20 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
       ],
     );
 
-  // Admission management records the outcome; the highest revision of each application rules.
+  // The coordinator announces the interview-derived outcome. Ja derives Admitted with the
+  // provenance Recommendation and no human decider; the highest revision of each application rules.
   assert.deepEqual(
-    facts.admissionOutcomes.map(({ application_id, revision, outcome, decided_by_person_id }) => [
+    facts.admissionOutcomes.map(({ application_id, revision, outcome, provenance, decided_by_person_id }) => [
       application_id,
       revision,
       outcome,
+      provenance,
       decided_by_person_id,
     ]),
     reached("outcome-recorded")
       ? [
-          [applicationId, 1, "Substitute", leaderId],
-          [secondApplicationId, 1, "Substitute", leaderId],
+          [applicationId, 1, "Admitted", "Recommendation", null],
+          [secondApplicationId, 1, "Admitted", "Recommendation", null],
         ]
       : [],
   );
@@ -403,12 +405,18 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
   for (const receipt of added) {
     assert.equal(receipt.state, "Complete");
     const body = JSON.parse(receipt.body);
+
+    if (receipt.operation_id === "admissionOutcomes.announceOutcome") {
+      assert.equal(body.outcome, "Admitted");
+      assert.match(body.etag, /^".+"$/);
+
+      continue;
+    }
+
     assert.deepEqual([body.departmentId, body.semesterId], [departmentId, semesterId]);
     assert.match(body.etag, /^".+"$/);
 
-    if (receipt.operation_id === "admissionOutcomes.recordOutcome")
-      assert.deepEqual([body.outcome, body.revision], ["Substitute", 1]);
-    else if (receipt.operation_id === "placements.commandBoard")
+    if (receipt.operation_id === "placements.commandBoard")
       assert.ok(body.commitments.some((row) => row.commitmentId === commitment.commitment_id));
     else
       assert.deepEqual(

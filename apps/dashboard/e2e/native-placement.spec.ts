@@ -1,5 +1,4 @@
 import AxeBuilder from "@axe-core/playwright";
-import type { AdmissionOutcomeCommand } from "@vektorprogrammet/domain/admissions";
 import type {
   CoverageCommand,
   OwnCoverageCommand,
@@ -117,17 +116,8 @@ const readOwnCoverage = async (page: Page) => {
   return response.json();
 };
 
-/** Admission management reads one application's outcome entry with its version. */
-const readOutcome = async (page: Page, applicationId: string) => {
-  const response = await page.request.get(
-    `${manifest.backendOrigin}/api/admission-outcomes/${applicationId}`,
-    { headers: { origin: manifest.dashboardOrigin } },
-  );
-
-  expect(response.status()).toBe(200);
-
-  return response.json();
-};
+/** The announcement carries no data: the interview and the committed history determine the outcome. */
+type AnnounceOutcomeCommand = Record<string, never>;
 
 test("0096 placement, 0110 school-service, and 0111 coverage journeys persist with explicit authority", async ({
   browser,
@@ -983,7 +973,7 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     actor: Page,
     path: string,
     etag: string,
-    payload: CoverageCommand | OwnCoverageCommand | PlacementCommand | AdmissionOutcomeCommand,
+    payload: CoverageCommand | OwnCoverageCommand | PlacementCommand | AnnounceOutcomeCommand,
     check: string,
     expected: number,
     expectedCode?: string,
@@ -1267,7 +1257,7 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     const [absence] = (await readCoverageBoard(page)).absences;
     await checkpoint("substitute-absence");
 
-    // Before any admission outcome nobody is on call, so the volunteer cannot name the applicant.
+    // Before the coordinator announces an admission outcome nobody outside the roster can cover.
     const slot = `Skole Beta, ${manifest.substituteServiceDate}, bolk 2`;
     await self.reload();
 
@@ -1278,7 +1268,7 @@ test("golden school-service continuous functional journey", async ({ browser }) 
 
     await expect(ownAbsence).toContainText("Ingen dekning er registrert.");
     await expect(ownAbsence).toContainText(
-      "Ingen assistenter eller vikarer kan registreres som dekning i valgt semester.",
+      "Ingen assistenter kan registreres som dekning i valgt semester.",
     );
     const unrecordedView = await readOwnCoverage(self);
     expect(unrecordedView.coverers).toEqual([]);
@@ -1291,102 +1281,84 @@ test("golden school-service continuous functional journey", async ({ browser }) 
         absenceId: absence.absenceId,
         coveringPersonId: manifest.candidateId,
       },
-      "an applicant without the Substitute outcome cannot cover",
+      "an applicant without an announced Admitted outcome cannot cover",
       422,
       "coverage.coverer-ineligible",
     );
     await checkpoint("coverer-ineligible");
 
-    const openOutcomes = async (actor: Page) => {
-      await actor.goto(`${manifest.dashboardOrigin}/dashboard/vikarer`);
-      await actor
-        .getByRole("combobox", { name: "Avdeling", exact: true })
-        .selectOption(manifest.departmentId);
-      await actor
-        .getByRole("combobox", { name: "Semester", exact: true })
-        .selectOption(manifest.semesterId);
-      await actor.getByRole("button", { name: "Vis vikarer", exact: true }).click();
-      await expect(actor).toHaveURL(/\/dashboard\/vikarer\?(?=.*departmentId=)(?=.*semesterId=)/);
-      await expect(
-        actor.getByRole("heading", { name: "Vikarer på vakt", exact: true }),
-      ).toBeVisible();
-    };
+    // The coordinator announces the interview-derived outcome of both applicants. A stale
+    // version and a department member announce nothing.
+    const staleAnnounceEtag = `"vkr2.${"A".repeat(43)}"`;
 
-    const onCall = [
-      "Kari Kandidat, kari.kandidat@example.invalid, 90000111",
-      "Vera Vikar, vera.vikar@example.invalid, 90000222",
-    ];
-
-    // A second leader session opens the outcomes before they change; its later save must be refused.
-    await openOutcomes(stalePage);
-
-    const staleOutcome = stalePage.getByRole("form", {
-      name: "Opptaksutfall: Kari Kandidat",
-      exact: true,
-    });
-
-    await expect(staleOutcome.getByRole("combobox", { name: "Utfall", exact: true })).toHaveValue(
-      "",
-    );
-    const unrecordedOutcome = await readOutcome(page, manifest.applicationId);
-    await openOutcomes(page);
-    await expect(
-      page.getByText("Ingen vikarer på vakt i valgt semester.", { exact: true }),
-    ).toBeVisible();
-
-    for (const name of ["Kari Kandidat", "Vera Vikar"]) {
-      const outcome = page.getByRole("form", { name: `Opptaksutfall: ${name}`, exact: true });
-      await outcome.getByRole("combobox", { name: "Utfall", exact: true }).selectOption("Substitute");
-      await submitOn(page, outcome, "Lagre utfall", "vikarer");
-      await expect(outcome.getByRole("status")).toHaveText("Utfallet er lagret.");
-    }
-
-    await page.reload();
-    await expect(
-      page.getByRole("list", { name: "Vikarer på vakt", exact: true }).getByRole("listitem"),
-    ).toHaveText(onCall);
-    await checkpoint("outcome-recorded");
+    const announcePath = (applicationId: string) =>
+      `/api/admission-outcomes/${applicationId}:announce`;
 
     await rejected(
       page,
-      `/api/admission-outcomes/${manifest.applicationId}:record`,
-      unrecordedOutcome.etag,
-      { outcome: "Rejected" },
-      "a stale admission outcome version cannot overwrite",
+      announcePath(manifest.applicationId),
+      staleAnnounceEtag,
+      {},
+      "a stale admission outcome version cannot announce",
       412,
       "precondition.failed",
     );
-    await staleOutcome
-      .getByRole("combobox", { name: "Utfall", exact: true })
-      .selectOption("Rejected");
-    await submitOn(stalePage, staleOutcome, "Lagre utfall", "vikarer", 412);
-    await expect(staleOutcome.getByRole("alert")).toContainText("Oversikten er endret");
     await checkpoint("outcome-stale");
 
-    // A department member reads who is on call and how to reach them, and decides nothing.
+    // The coordinator's announce projection of the board names each entry and its current version.
+    const announceEtag = async (actor: Page, applicationId: string) => {
+      const response = await actor.request.get(
+        `${manifest.backendOrigin}/api/admission-outcomes?${scope}`,
+        { headers: { origin: manifest.dashboardOrigin } },
+      );
+
+      expect(response.status()).toBe(200);
+
+      const board: { entries: ReadonlyArray<{ applicationId: string; etag: string }> } =
+        await response.json();
+
+      const entry = board.entries.find((candidate) => candidate.applicationId === applicationId);
+
+      if (entry === undefined) throw new Error(`The announce projection omits ${applicationId}`);
+
+      return entry.etag;
+    };
+
+    for (const applicationId of [manifest.applicationId, manifest.secondApplicationId]) {
+      const announced = await page.request.post(
+        `${manifest.backendOrigin}${announcePath(applicationId)}`,
+        {
+          headers: {
+            origin: manifest.dashboardOrigin,
+            "if-match": await announceEtag(page, applicationId),
+            "idempotency-key": crypto.randomUUID(),
+          },
+          data: {},
+        },
+      );
+
+      expect(announced.status(), await announced.text()).toBe(200);
+      http.push({
+        check: "the coordinator announces an interview-derived outcome",
+        status: 200,
+        boundary: "authenticated-http",
+      });
+    }
+
+    await checkpoint("outcome-recorded");
+
     const member = await session();
     await signIn(member, manifest.persons.member);
-    await openOutcomes(member);
-    await expect(
-      member.getByRole("list", { name: "Vikarer på vakt", exact: true }).getByRole("listitem"),
-    ).toHaveText(onCall);
-    await expect(
-      member.getByText("Avtal dekning direkte med vikaren, for eksempel i Slack."),
-    ).toBeVisible();
-    await expect(member.getByRole("heading", { name: "Opptaksutfall", exact: true })).toHaveCount(
-      0,
-    );
-    await expect(member.getByRole("form", { name: /^Opptaksutfall:/ })).toHaveCount(0);
     await rejected(
       member,
-      `/api/admission-outcomes/${manifest.applicationId}:record`,
-      (await readOutcome(page, manifest.applicationId)).etag,
-      { outcome: "Rejected" },
-      "a department member records no admission outcome",
+      announcePath(manifest.applicationId),
+      staleAnnounceEtag,
+      {},
+      "a department member announces no admission outcome",
       403,
       "authority.denied",
     );
-    await checkpoint("on-call-read");
+    await checkpoint("announce-denied");
 
     const candidate = await session();
     await signIn(candidate, manifest.persons.candidate);

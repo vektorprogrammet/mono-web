@@ -167,6 +167,68 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 let pool: InstanceType<typeof Pool>;
 
+/**
+ * Seeds the finalized interview of one application with the recommendation Ja. The coordinator's
+ * announcement then derives Admitted from it: Ja is neither decided nor overridden by anyone, and
+ * no school placement is needed.
+ */
+const seedJaInterview = async (
+  applicationId: string,
+  departmentId: string,
+  interviewerId: string,
+  label: string,
+) => {
+  const interviewId = `coverage-interview-${label}`;
+  const invitationId = `coverage-interview-invitation-${label}`;
+
+  await pool.query(
+    `INSERT INTO recruitment_interview_schemas(interview_schema_id,name,question_count,active,revision)
+     VALUES ('coverage-interview-schema','Coverage',0,true,0) ON CONFLICT DO NOTHING`,
+  );
+  await pool.query(
+    `INSERT INTO recruitment_interviews(interview_id,application_id,department_id,interviewer_person_id,interview_schema_id,assigned_by_person_id,assigned_at,revision)
+     VALUES ($1,$2,$3,$4,'coverage-interview-schema',$4,date_trunc('milliseconds',now(),'UTC')-interval '264 hours',1)`,
+    [interviewId, applicationId, departmentId, interviewerId],
+  );
+  await pool.query(
+    `INSERT INTO recruitment_interview_schedules(interview_id,scheduled_at,room,campus,map_link,message,scheduled_by_person_id,committed_at,schedule_revision)
+     VALUES ($1,date_trunc('milliseconds',now(),'UTC')-interval '120 hours','A-101','Gløshaugen','https://example.invalid/map','Velkommen',$2,date_trunc('milliseconds',now(),'UTC')-interval '240 hours',1)`,
+    [interviewId, interviewerId],
+  );
+  await pool.query(
+    `INSERT INTO recruitment_invitations(invitation_id,interview_id,schedule_revision,capability_sha256,response_state,created_at)
+     VALUES ($1,$2,1,$3,'Pending',date_trunc('milliseconds',now(),'UTC')-interval '240 hours')`,
+    [invitationId, interviewId, createHash("sha256").update(invitationId).digest("hex")],
+  );
+
+  const connection = await pool.connect();
+
+  try {
+    await connection.query("BEGIN");
+    await connection.query(
+      `UPDATE recruitment_invitations SET response_state='Accepted',responded_at=date_trunc('milliseconds',now(),'UTC')-interval '216 hours',response_revision=1
+       WHERE invitation_id=$1`,
+      [invitationId],
+    );
+    await connection.query(
+      `INSERT INTO recruitment_invitation_response_audit(invitation_id,interview_id,schedule_revision,response_revision,response_state,response_message,responded_at)
+       VALUES ($1,$2,1,1,'Accepted',NULL,date_trunc('milliseconds',now(),'UTC')-interval '216 hours')`,
+      [invitationId, interviewId],
+    );
+    await connection.query(
+      `INSERT INTO recruitment_interview_conducts(interview_id,answers,explanatory_power,role_model,suitability,finalized_by_person_id,finalized_at,interview_revision,recommendation)
+       VALUES ($1,'[]'::jsonb,7,8,9,$2,date_trunc('milliseconds',now(),'UTC')-interval '120 hours'+interval '1 hour',2,'Ja')`,
+      [interviewId, interviewerId],
+    );
+    await connection.query("COMMIT");
+  } catch (error) {
+    await connection.query("ROLLBACK");
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
 let evidence: Schema.JsonObject | undefined;
 
 let notificationServer: HttpServer | undefined;
@@ -487,7 +549,7 @@ try {
     };
 
     // Golden prerequisites only: a second applicant to name as cover, and a department member
-    // who reads the on-call list. Neither has an admission outcome before the journey records one.
+    // who reads the board. Neither has an admission outcome before the coordinator announces one.
     const secondSubstitute = {
       personId: "journey-coverage-second-substitute-0111",
       firstName: "Vera",
@@ -626,6 +688,18 @@ try {
       (964,'Skole Inaktiv','Kontakt','inactive@example.invalid','synthetic','Norwegian',false,0);
     INSERT INTO schools_directory_departments(school_id,department_id,revision) VALUES (961,'${departmentId}',0),(962,'${departmentId}',0),(963,'${wrongDepartmentId}',0),(964,'${departmentId}',0);
   `);
+    }
+
+    // Each coverage applicant interviewed with the recommendation Ja, so that the coordinator's
+    // announcement derives Admitted without a school placement.
+    if (!recruitment) {
+      for (const [applicationId, label] of mode === "--golden-school-service"
+        ? [
+            ["golden-application", "first"],
+            ["golden-second-application", "second"],
+          ]
+        : [["application-coverage-0111", "first"]])
+        await seedJaInterview(applicationId, departmentId, leaderId, label);
     }
 
     const credentialSnapshot = async () =>
@@ -1165,7 +1239,7 @@ try {
     assert.equal((await expectStatus(await request(otherPath, leader), 200)).placements.length, 0);
     // The API cohort begins from a confirmed roster; the browser independently
     // confirms a two-person roster through the placement/service journey.
-    // The substitute requests no affiliation: her admission outcome alone puts her on call.
+    // The admitted applicant requests no affiliation: her Admitted outcome alone makes her an eligible coverer.
     const wrongAffiliation = await expectStatus(await request(ownPath, wrong), 200);
     assert.equal(wrongAffiliation.status, "Absent");
     assert.equal(
@@ -1601,33 +1675,42 @@ try {
         "coverage.coverer-ineligible",
       );
 
-    // Admission management records the Substitute outcome; the applicant is then on call.
+    // The interview recommended Ja. The coordinator announces it: Ja derives Admitted without a
+    // school placement, and the admitted assistant can then cover.
     const coverageApplicationId = "application-coverage-0111";
 
-    const outcomeEntry = Schema.decodeUnknownSync(
+    const announceProjection = Schema.decodeUnknownSync(
       Schema.Struct({
-        outcome: Schema.NullOr(Schema.String),
-        revision: Schema.Int,
-        etag: Schema.String,
+        entries: Schema.Array(Schema.Struct({ applicationId: Schema.String, etag: Schema.String })),
       }),
     )(
       await expectStatus(
-        await request(`/api/admission-outcomes/${coverageApplicationId}`, leader),
+        await request(`/api/admission-outcomes?${new URLSearchParams(query).toString()}`, leader),
         200,
       ),
     );
 
-    assert.deepEqual([outcomeEntry.outcome, outcomeEntry.revision], [null, 0]);
+    const announceEntry = announceProjection.entries.find(
+      (entry) => entry.applicationId === coverageApplicationId,
+    );
 
-    const onCall = (
-      await sdk.admissionOutcomes.recordOutcome({
-        params: { applicationId: PublicApplicationIdSchema.make(coverageApplicationId) },
-        headers: idempotencyHeaders(outcomeEntry.etag),
-        payload: { outcome: "Substitute" },
-      })
-    ).body;
+    assert.ok(announceEntry);
+    await sdk.admissionOutcomes.announceOutcome({
+      params: { applicationId: PublicApplicationIdSchema.make(coverageApplicationId) },
+      headers: idempotencyHeaders(announceEntry.etag),
+      payload: {},
+    });
 
-    assert.deepEqual([onCall.outcome, onCall.revision], ["Substitute", 1]);
+    const announcedOutcomes = (
+      await pool.query(
+        `SELECT revision,outcome,provenance FROM admission_application_outcomes WHERE application_id=$1 ORDER BY revision`,
+        [coverageApplicationId],
+      )
+    ).rows;
+
+    assert.deepEqual(announcedOutcomes, [
+      { revision: 1, outcome: "Admitted", provenance: "Recommendation" },
+    ]);
 
     const onCallCoverer = {
       personId: substitute.personId,
@@ -2406,7 +2489,10 @@ try {
 
     const apiCoverageEvidence = {
       proposalId: apiCoverageProposalId,
-      admissionOutcome: { applicationId: coverageApplicationId, revision: onCall.revision },
+      admissionOutcome: {
+        applicationId: coverageApplicationId,
+        revision: announcedOutcomes[0].revision,
+      },
       coveredAbsenceId: coveredAbsence.absenceId,
       uncoveredAbsenceId: uncoveredAbsence.absenceId,
       coverageId: coveringRecord.coverageId,
@@ -2866,7 +2952,7 @@ try {
           "placements.commandOwnCoverage",
           "placements.readCoverageBoard",
           "placements.commandCoverageBoard",
-          "admissionOutcomes.recordOutcome",
+          "admissionOutcomes.announceOutcome",
         ],
         coverageGates: [
           "anonymous, wrong-scope, owner, roster/date, coverer, ETag, and idempotency boundaries",
