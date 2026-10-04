@@ -690,9 +690,30 @@ try {
   `);
     }
 
-    // Each coverage applicant interviewed with the recommendation Ja, so that the coordinator's
-    // announcement derives Admitted without a school placement.
+    // The announcing coordinator holds an explicit Skolekoordinering delegation of
+    // placements.coordinate in the department, not only board leadership.
+    // Each coverage applicant also has an interview with the recommendation Ja, so that the
+    // coordinator's announcement derives Admitted without a school placement.
     if (!recruitment) {
+      await pool.query(
+        `INSERT INTO organization_teams(team_id,department_id,name,kind,active,revision)
+         VALUES ('coverage-skolekoordinering',$1,'Skolekoordinering','Team',true,0)`,
+        [departmentId],
+      );
+      await pool.query(
+        `INSERT INTO organization_memberships(membership_id,person_id,team_id,deleted_team_name,start_at,end_at,position_id,is_team_leader,is_suspended,revision)
+         VALUES ('coverage-skolekoordinering-member',$1,'coverage-skolekoordinering',NULL,date_trunc('milliseconds',now(),'UTC')-interval '24 hours',NULL,'member',false,false,0)`,
+        [leaderId],
+      );
+      await pool.query(
+        `INSERT INTO organization_delegations(delegation_id,name,team_id,capability,area,area_department_id,holders,start_at)
+         VALUES ($1,'Skolekoordinering fordeler assistenter','coverage-skolekoordinering','placements.coordinate','Department',$2,'AllMembers',date_trunc('milliseconds',now(),'UTC')-interval '24 hours')`,
+        [
+          `delegation-${createHash("sha256").update("coverage-coordinate").digest("hex")}`,
+          departmentId,
+        ],
+      );
+
       for (const [applicationId, label] of mode === "--golden-school-service"
         ? [
             ["golden-application", "first"],
