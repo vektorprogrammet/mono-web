@@ -15,6 +15,9 @@ import {
   startDisposablePostgres,
 } from "../postgres/index.ts";
 import { Predicate, Schema, Struct } from "effect";
+import { RecruitmentInterviewConductObservationSchema } from "@vektorprogrammet/domain/recruitment";
+import { FinalizeInterviewResponse, NativeProblem } from "@vektorprogrammet/http-api";
+import { journeyClock } from "../e2e/journey-clock.ts";
 import { seedOnboardingAuthority } from "../../apps/dashboard/e2e/onboarding-authority-fixture.mjs";
 
 const root = new URL("../../", import.meta.url).pathname;
@@ -312,8 +315,71 @@ try {
   const boardPath = "/api/onboarding?departmentId=" + departmentId;
   const board = async () => expectStatus(await request(boardPath, leader), 200);
 
-  const submit = async (email: string, firstName: string) =>
-    expectStatus(
+  // Seed assigned/scheduled/accepted context; the existing HTTP command writes the actual
+  // completed assessment, immutable answers, receipt, audit and completion outbox.
+  const completeInterview = async (applicationId: string) => {
+    const observed = Schema.decodeUnknownSync(Schema.Struct({ now: Schema.String }))(
+      (await pool.query(`SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS now`)).rows[0],
+    );
+
+    const clock = journeyClock(observed.now);
+    const interviewId = applicationId + "-onboarding-interview";
+    const invitationId = interviewId + "-invitation";
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `INSERT INTO recruitment_interviews(interview_id,application_id,department_id,interviewer_person_id,interview_schema_id,assigned_by_person_id,assigned_at,revision)
+          VALUES($1,$2,$3,$4,'interview-schema-native-journey-0049',$4,$5,1)`,
+        [interviewId, applicationId, departmentId, leaderId, clock.now],
+      );
+      await client.query(
+        `INSERT INTO recruitment_interview_question_snapshots(interview_id,question_id,ordinal,prompt,help_text,kind,alternatives)
+          SELECT $1,question_id,ordinal,prompt,help_text,kind,alternatives FROM recruitment_interview_schema_questions
+          WHERE interview_schema_id='interview-schema-native-journey-0049'`, [interviewId],
+      );
+      await client.query(
+        `INSERT INTO recruitment_interview_schedules(interview_id,scheduled_at,room,campus,message,scheduled_by_person_id,committed_at,schedule_revision)
+          VALUES($1,$2,'A1','Synthetic campus','Welcome',$3,$2,1)`, [interviewId, clock.now, leaderId],
+      );
+      await client.query(
+        `INSERT INTO recruitment_invitations(invitation_id,interview_id,schedule_revision,capability_sha256,response_state,response_revision,responded_at,created_at)
+          VALUES($1,$2,1,$3,'Accepted',1,$4,$4)`,
+        [invitationId, interviewId, createHash("sha256").update(invitationId).digest("hex"), clock.now],
+      );
+      await client.query(
+        `INSERT INTO recruitment_invitation_response_audit(invitation_id,interview_id,schedule_revision,response_revision,response_state,responded_at)
+          VALUES($1,$2,1,1,'Accepted',$3)`, [invitationId, interviewId, clock.now],
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    const path = "/api/recruitment/interviews/" + encodeURIComponent(interviewId);
+    const response = await request(path, leader);
+    const detail = Schema.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)(await expectStatus(response, 200));
+    const etag = response.headers.get("etag");
+    assert.ok(etag);
+    assert.equal(detail.questions.length, 8);
+
+    const finalized = Schema.decodeUnknownSync(FinalizeInterviewResponse)(await expectStatus(await request(path + ":finalize", leader, {
+      expectedRevision: detail.revision,
+      answers: detail.questions.map((question) => ({ questionId: question.questionId, answer: "Work through a concrete example with the pupil." })),
+      score: { explanatoryPower: 7, roleModel: 8, suitability: 9 },
+      recommendation: "Ja",
+    }, etag), 200));
+
+    assert.equal(finalized.completionState, "Completed");
+    assert.equal(finalized.cancellationState, "NotCancelled");
+  };
+
+  const submit = async (email: string, firstName: string) => {
+    const application = await expectStatus(
       await request("/api/applications", undefined, {
         departmentId,
         firstName,
@@ -336,6 +402,23 @@ try {
       }),
       201,
     );
+
+    const unreviewedBoard = await board();
+    assert.equal(unreviewedBoard.items.find((item: { applicationId: string }) => item.applicationId === application.applicationId)?.canIssue, false);
+    const mailBefore = mail.size;
+
+    const denied = Schema.decodeUnknownSync(NativeProblem)(await expectStatus(
+      await request(boardPath, leader, { applicationId: application.applicationId, action: "Issue" }, unreviewedBoard.etag),
+      409,
+    ));
+
+    assert.equal(denied.code, "onboarding.not-admitted");
+    assert.equal(mail.size, mailBefore);
+    await completeInterview(application.applicationId);
+    assert.equal((await board()).items.find((item: { applicationId: string }) => item.applicationId === application.applicationId)?.canIssue, true);
+
+    return application;
+  };
 
   const browserApplication = await submit(persons.applicant.email, "Onboarding");
   let revokedReplayObserved = false;

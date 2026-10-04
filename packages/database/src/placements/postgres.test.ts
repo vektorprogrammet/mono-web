@@ -33,7 +33,7 @@ import {
   readCoverageBoard,
   readOwnCoverage,
 } from "./coverage.js";
-import { Effect, Exit } from "effect";
+import { DateTime, Effect, Exit } from "effect";
 import { TestClock } from "effect/testing";
 import { DatabaseTestLive } from "../test-support/platform.js";
 
@@ -59,8 +59,42 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
             sql.withTransaction(
               Effect.gen(function* () {
                 yield* sql`INSERT INTO organization_departments(department_id,name,short_name,email,city) VALUES(${scope.departmentId},'Placement department','PD','placement@example.invalid','Trondheim')`;
-                yield* sql`INSERT INTO admission_period_semesters(semester_id,start_at,end_at) VALUES(${scope.semesterId},'2024-08-01T00:00:00Z','2024-12-31T00:00:00Z')`;
+                const at = DateTime.makeUnsafe(now);
+                yield* sql`INSERT INTO admission_period_semesters(semester_id,start_at,end_at) VALUES(${scope.semesterId},${DateTime.formatIso(DateTime.add(at, { days: -30 }))},${DateTime.formatIso(DateTime.add(at, { days: 30 }))})`;
                 yield* sql`INSERT INTO person_profiles(person_id,first_name,last_name) VALUES(${volunteer},'Vera','Volunteer'),(${coordinator},'Cora','Coordinator')`;
+                // Request requires this person's own current admitted application, not account existence.
+                const opensAt = DateTime.formatIso(DateTime.add(at, { days: -30 }));
+                const closesAt = DateTime.formatIso(DateTime.add(at, { days: 30 }));
+                const applicationId = scope.departmentId + "-application";
+                const applicantId = scope.departmentId + "-applicant";
+                const periodId = scope.departmentId + "-period";
+                const fieldId = scope.departmentId + "-field";
+                yield* sql`INSERT INTO admission_period_departments(department_id,name) VALUES(${scope.departmentId},'Synthetic placement admission')`;
+                yield* sql`INSERT INTO admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,last_command_id) VALUES(${periodId},${scope.departmentId},${scope.semesterId},${opensAt},${closesAt},'placement-seed')`;
+                yield* sql`INSERT INTO admission_period_fields_of_study(field_of_study_id,department_id,name) VALUES(${fieldId},${scope.departmentId},'Math')`;
+                yield* sql`INSERT INTO admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study) VALUES(${applicantId},${scope.departmentId + "@example.invalid"},${scope.departmentId + "@example.invalid"},'Vera','Volunteer','12345678',0,${fieldId},2)`;
+                yield* sql`INSERT INTO admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at) VALUES(${applicationId},${applicantId},${periodId},${scope.departmentId},${fieldId},2,${opensAt})`;
+                const interviewId = applicationId + "-interview";
+                const schemaId = applicationId + "-schema";
+
+                const assignedAt = DateTime.formatIso(
+                  DateTime.add(DateTime.makeUnsafe(now), { hours: -2 }),
+                );
+
+                const scheduledAt = DateTime.formatIso(
+                  DateTime.add(DateTime.makeUnsafe(now), { hours: -1 }),
+                );
+
+                yield* sql`INSERT INTO recruitment_interview_schemas(interview_schema_id,name,question_count) VALUES(${schemaId},'Synthetic onboarding interview',1)`;
+                yield* sql`INSERT INTO recruitment_interview_schema_questions(interview_schema_id,question_id,ordinal,prompt,kind,alternatives) VALUES(${schemaId},'explanation',0,'Explain how you would help a pupil.','text','[]'::jsonb)`;
+                yield* sql`INSERT INTO recruitment_interviews(interview_id,application_id,department_id,interviewer_person_id,interview_schema_id,assigned_by_person_id,assigned_at,revision) VALUES(${interviewId},${applicationId},${scope.departmentId},${coordinator},${schemaId},${coordinator},${assignedAt},2)`;
+                yield* sql`INSERT INTO recruitment_interview_question_snapshots(interview_id,question_id,ordinal,prompt,kind,alternatives) SELECT ${interviewId},question_id,ordinal,prompt,kind,alternatives FROM recruitment_interview_schema_questions WHERE interview_schema_id=${schemaId}`;
+                yield* sql`INSERT INTO recruitment_interview_schedules(interview_id,scheduled_at,room,campus,message,scheduled_by_person_id,committed_at,schedule_revision) VALUES(${interviewId},${scheduledAt},'A1','Synthetic campus','Welcome',${coordinator},${assignedAt},1)`;
+                yield* sql`INSERT INTO recruitment_invitations(invitation_id,interview_id,schedule_revision,capability_sha256,response_state,response_revision,responded_at,created_at) VALUES(${interviewId + "-invitation"},${interviewId},1,repeat(md5(${interviewId}),2),'Accepted',1,${assignedAt},${assignedAt})`;
+                yield* sql`INSERT INTO recruitment_invitation_response_audit(invitation_id,interview_id,schedule_revision,response_revision,response_state,responded_at) VALUES(${interviewId + "-invitation"},${interviewId},1,1,'Accepted',${assignedAt})`;
+                yield* sql`INSERT INTO recruitment_interview_conducts(interview_id,answers,explanatory_power,role_model,suitability,finalized_by_person_id,finalized_at,interview_revision,recommendation) VALUES(${interviewId},'[{"questionId":"explanation","answer":"Work through a concrete example with the pupil."}]'::jsonb,7,8,9,${coordinator},${now},2,'Ja')`;
+                yield* sql`INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES(${applicationId + "-account-invitation"},${applicationId},${applicantId},repeat('b',64),${closesAt},'Claimed',${coordinator},${now})`;
+                yield* sql`INSERT INTO applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES(${applicantId},${volunteer},${now},${applicationId + "-account-invitation"})`;
 
                 const schools = yield* sql<{
                   schoolId: number;
