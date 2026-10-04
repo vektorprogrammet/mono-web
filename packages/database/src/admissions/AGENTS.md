@@ -62,9 +62,11 @@ Responsibilities:
 
 ## Entry points
 
-| Import                                  | Module               |
-| --------------------------------------- | -------------------- |
-| `@vektorprogrammet/database/admissions` | [index.ts](index.ts) |
+| Import                                                         | Module                                                 |
+| -------------------------------------------------------------- | ------------------------------------------------------ |
+| `@vektorprogrammet/database/admissions`                        | [index.ts](index.ts)                                   |
+| `@vektorprogrammet/database/admissions/outcome-mail-queue`     | [outcome-mail-queue.ts](outcome-mail-queue.ts)         |
+| `@vektorprogrammet/database/admissions/outcome-template-store` | [outcome-template-store.ts](outcome-template-store.ts) |
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

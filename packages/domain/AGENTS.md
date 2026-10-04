@@ -50,6 +50,7 @@ Each folder of `src` holds a bounded context of [docs/model/contexts.cml](../../
 | `@vektorprogrammet/domain/application`                     | [src/application/index.ts](src/application/index.ts)                                                       |
 | `@vektorprogrammet/domain/admission-period`                | [src/admission-period/index.ts](src/admission-period/index.ts)                                             |
 | `@vektorprogrammet/domain/admissions`                      | [src/admissions/index.ts](src/admissions/index.ts)                                                         |
+| `@vektorprogrammet/domain/admissions/template`             | [src/admissions/template.ts](src/admissions/template.ts)                                                   |
 | `@vektorprogrammet/domain/organization`                    | [src/organization/index.ts](src/organization/index.ts)                                                     |
 | `@vektorprogrammet/domain/content`                         | [src/content/index.ts](src/content/index.ts)                                                               |
 | `@vektorprogrammet/domain/social-events`                   | [src/social-events/index.ts](src/social-events/index.ts)                                                   |

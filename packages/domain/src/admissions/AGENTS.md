@@ -62,9 +62,10 @@ Responsibilities:
 
 ## Entry points
 
-| Import                                | Module               |
-| ------------------------------------- | -------------------- |
-| `@vektorprogrammet/domain/admissions` | [index.ts](index.ts) |
+| Import                                         | Module                     |
+| ---------------------------------------------- | -------------------------- |
+| `@vektorprogrammet/domain/admissions`          | [index.ts](index.ts)       |
+| `@vektorprogrammet/domain/admissions/template` | [template.ts](template.ts) |
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

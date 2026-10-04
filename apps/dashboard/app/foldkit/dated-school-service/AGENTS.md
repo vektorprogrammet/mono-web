@@ -15,7 +15,7 @@ The Placements context in other folders:
 
 From [docs/model/contexts.cml](../../../../../docs/model/contexts.cml).
 
-Assistant supply (affiliation), semester placements, school demand, automatically drafted and reviewed proposals, confirmed rosters, dated school-service commitments, absences with a record of who covered each lesson date, days served and certificates, and immutable service outcomes and history. Substitutes and assistants arrange cover in Slack; the system records the result.
+Assistant supply (affiliation), semester placements, school demand, automatically drafted and reviewed proposals, confirmed rosters, dated school-service commitments, absences with a record of which assistant covered each lesson date, days served and certificates, and immutable service outcomes and history. Assistants arrange cover in Slack; the system records the result.
 
 Responsibilities:
 
