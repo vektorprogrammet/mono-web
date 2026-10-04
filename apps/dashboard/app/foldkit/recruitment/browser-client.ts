@@ -1,6 +1,7 @@
 import type { RecruitmentAssignmentBoard,
 RecruitmentAssignmentBoardQuery, } from "@vektorprogrammet/http-api"
 import { Effect, Schema as S } from "effect";
+import type { AbortableRequestInit } from "../../lib/browser-request";
 import {
   CancelInterviewInputSchema,
   CorrectInterviewAssessmentInputSchema,
@@ -94,17 +95,27 @@ const bridgeRequest = <A>(
       Effect.mapError(() => recruitmentNetworkFailure),
     );
 
-    const response = yield* Effect.tryPromise({
-      try: () => fetch(`${import.meta.env.BASE_URL}recruitment`, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "content-type": "application/json", accept: "application/json" },
-        body,
-      }),
+    // Keep fetch and body consumption owned by the Command fiber until both settle.
+    // Abort stops browser work, not a server transaction that already committed.
+    const { response, payload } = yield* Effect.tryPromise({
+      try: async (signal) => {
+        const response = await fetch(
+          `${import.meta.env.BASE_URL}recruitment`,
+          {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "content-type": "application/json", accept: "application/json" },
+            body,
+            signal,
+          } satisfies AbortableRequestInit,
+        );
+
+        const payload = await response.json().catch(() => null);
+
+        return { response, payload };
+      },
       catch: () => recruitmentNetworkFailure,
     });
-
-    const payload = yield* Effect.promise(() => response.json().catch(() => null));
 
     if (!response.ok) {
       const failure = yield* S.decodeUnknownEffect(RecruitmentBridgeFailure)(payload, {
