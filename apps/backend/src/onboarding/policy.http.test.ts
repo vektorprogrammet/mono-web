@@ -28,6 +28,7 @@ import {
   Fiber,
   Layer,
   Match,
+  Predicate,
   Schema,
 } from "effect";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
@@ -929,18 +930,48 @@ describe("R3 Returning rule stays separate", () => {
     "admitted Returning registration retains account link and refuses Issue",
     () =>
       Effect.gen(function* () {
-        const f = yield* fixture();
-        yield* invitation("Cancelled", "fresh", "Claimed");
-        yield* f.sql`INSERT INTO applicant_account_links VALUES('policy-applicant',${actor},date_trunc('milliseconds',clock_timestamp(),'UTC'),'policy-invitation')`;
+        const f = yield* Effect.gen(function* () {
+          const f = yield* fixture();
+          yield* invitation("Cancelled", "fresh", "Claimed");
+          yield* f.sql`INSERT INTO applicant_account_links VALUES('policy-applicant',${actor},date_trunc('milliseconds',clock_timestamp(),'UTC'),'policy-invitation')`;
 
-        const school =
-          yield* f.sql`INSERT INTO schools_directory_schools(name,contact_person,email,phone,language,active) VALUES('Previous school','Contact','school@example.invalid','12345678','Norwegian',true) RETURNING school_id::double precision AS school_id`;
+          const school =
+            yield* f.sql`INSERT INTO schools_directory_schools(name,contact_person,email,phone,language,active) VALUES('Previous school','Contact','school@example.invalid','12345678','Norwegian',true) RETURNING school_id::double precision AS school_id`;
 
-        const schoolId = yield* Schema.decodeUnknownEffect(SchoolId)(school[0]?.school_id);
-        yield* f.sql`INSERT INTO schools_directory_departments(school_id,department_id) VALUES(${schoolId},${departmentId})`;
-        yield* f.sql`INSERT INTO assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision) VALUES(${"placement-" + digest},${actor},${departmentId},'policy-other-semester',${schoolId},'Friday',4,'1',false,2)`;
-        yield* f.sql`INSERT INTO admission_returning_registrations(registration_id,application_id,applicant_id,person_id,placement_id,department_id,semester_id,admission_period_id,revision,command_id,year_of_study,monday_unavailable,tuesday_unavailable,wednesday_unavailable,thursday_unavailable,friday_unavailable,position_weeks,preferred_group,language,preferred_school,team_interest,team_ids,registered_at) VALUES(${"returning-registration-" + digest},${applicationId},'policy-applicant',${actor},${"placement-" + digest},${departmentId},'policy-semester','policy-period',1,'returning-policy',2,false,false,false,false,false,4,'all','Norsk',NULL,false,'[]'::jsonb,date_trunc('milliseconds',clock_timestamp(),'UTC'))`;
-        yield* decide("Admitted");
+          const schoolId = yield* Schema.decodeUnknownEffect(SchoolId)(school[0]?.school_id);
+          yield* f.sql`INSERT INTO schools_directory_departments(school_id,department_id) VALUES(${schoolId},${departmentId})`;
+          // The historical placement's composite affiliation FK remains required
+          // even when that placement and its affiliation are no longer active.
+          yield* f.sql`INSERT INTO organization_volunteer_affiliations(person_id,department_id,status,revision) VALUES(${actor},${departmentId},'Inactive',2)`;
+          yield* f.sql`INSERT INTO assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision) VALUES(${"placement-" + digest},${actor},${departmentId},'policy-other-semester',${schoolId},'Friday',4,'1',false,2)`;
+          yield* f.sql`INSERT INTO admission_returning_registrations(registration_id,application_id,applicant_id,person_id,placement_id,department_id,semester_id,admission_period_id,revision,command_id,year_of_study,monday_unavailable,tuesday_unavailable,wednesday_unavailable,thursday_unavailable,friday_unavailable,position_weeks,preferred_group,language,preferred_school,team_interest,team_ids,registered_at) VALUES(${"returning-registration-" + digest},${applicationId},'policy-applicant',${actor},${"placement-" + digest},${departmentId},'policy-semester','policy-period',1,'returning-policy',2,false,false,false,false,false,4,'all','Norsk',NULL,false,'[]'::jsonb,date_trunc('milliseconds',clock_timestamp(),'UTC'))`;
+          yield* decide("Admitted");
+
+          return f;
+        }).pipe(
+          Effect.catchTag("SqlError", (error) => {
+            // Never print PostgreSQL detail, row values, SQL parameters or the
+            // full cause. Fixture failures are not evidence of an Issue refusal.
+            const cause = error.reason.cause;
+
+            const sqlState =
+              Predicate.hasProperty(cause, "code") && Predicate.isString(cause.code)
+                ? cause.code
+                : "unavailable";
+
+            const constraint =
+              Predicate.hasProperty(cause, "constraint") && Predicate.isString(cause.constraint)
+                ? cause.constraint
+                : "unavailable";
+
+            return Effect.sync(() =>
+              assert.fail(
+                `Invalid Returning fixture: SQLSTATE ${sqlState}, constraint ${constraint}`,
+              ),
+            );
+          }),
+        );
+
         const before = yield* snapshot;
         const result = yield* f.send("Issue", yield* etagOf(f));
         assert.strictEqual(result.status, 409);
