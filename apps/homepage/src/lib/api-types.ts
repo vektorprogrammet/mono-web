@@ -1,6 +1,6 @@
 import {
-  ListDepartmentsEndpoint,
-  ListTeamsEndpoint,
+  listDepartments,
+  listTeams,
   ReadApplicationCatalogEndpoint,
   SubmitContactMessageEndpoint,
   listNews,
@@ -19,7 +19,7 @@ type EndpointBody<Endpoint extends HttpApiEndpoint.Constraint> = Exclude<
   void
 >;
 
-export type HomepageDepartment = EndpointBody<typeof ListDepartmentsEndpoint>[number];
+export type HomepageDepartment = EndpointBody<typeof listDepartments>[number];
 
 export type PublishedNewsListing = EndpointBody<typeof listNews>;
 
@@ -39,7 +39,7 @@ export type ContactMessageHeaders = HttpApiEndpoint.Headers<
 
 export type NewsArticleSlug = HttpApiEndpoint.Params<typeof readNewsArticle>["Type"]["slug"];
 
-export type HomepageTeam = EndpointBody<typeof ListTeamsEndpoint>[number];
+export type HomepageTeam = EndpointBody<typeof listTeams>[number];
 
 export type HomepageTeamIntake = EndpointBody<typeof listTeamApplicationIntakes>[number];
 
