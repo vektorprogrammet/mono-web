@@ -10,6 +10,19 @@ Production uses the legacy PHP application. Production replacement is not author
 The legacy source is in the [vektorprogrammet](https://github.com/vektorprogrammet/vektorprogrammet) repository; the former `apps/server` continues there as branch `modernize/mono-web-server` (`908368a8`), with the same tree (`023b85bd`) as mono-web `b6438cb2`. The removal commit is `ea124143`; its parent `1277be8b` still contains `apps/server`.
 Local implementation and acceptance do not authorize production, provider, or source-data actions.
 
+Recruitment migration 0029 is operator-approved for local implementation at effx
+`b88523d2a8ffcbde5c19008d649da653c26ee475`, under `docs/specs/0029-recruitment-migration.md`.
+This branch starts from the accepted Admissions integration `815a28f8`.
+R1–R8 tests are written and committed before repairs; heavy execution awaits explicit operator custody.
+The mixed onboarding group uses one app-owned complete callback: generated raw-handler and guard
+types bind Recruitment-owned `readBoard` and `command`; Identity-owned `claim` stays handwritten.
+The pinned compiler’s two-endpoint factory leaves `claim` unhandled (TS2322). Do not use that factory
+for the mixed group or change the compiler. **Retirement trigger:** when Identity migrates `claim`,
+generate the complete onboarding group and remove this transitional app-owned callback.
+The isolated reproducer is retained outside the product tree at
+`/srv/share/projects/effx-recruitment-0029-evidence/compiler/mixed-onboarding/`;
+`observed.json` records build exit 0 and type-check exit 1, not product-test acceptance.
+
 Operator decisions:
 
 - The backend is a portable Bun process with PostgreSQL, not a Cloudflare Worker.
