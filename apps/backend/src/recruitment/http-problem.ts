@@ -10,6 +10,7 @@ import type {
 import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { type Cause, Effect, Match } from "effect";
 import {
+  commandReceiptProblems,
   type CredentialCases,
   isSerializationConflict,
   type OutageCases,
@@ -190,6 +191,19 @@ export const maintenanceProblems = problemMapper<
   RecruitmentInterviewNotFound: () => Problem.make("resource.not-found"),
   IdentityEngineError: () => Problem.make("recruitment.unavailable"),
 });
+
+/**
+ * The ordered failure pipeline for every maintenance command. Apply it only after the native
+ * executor's serialization-once retry: classify the remaining raw race before any mapper can
+ * replace its cause with an outage problem. Success, defects, interruption and requirements
+ * pass through unchanged; the endpoint's existing receipt and maintenance problems stay typed.
+ */
+export const maintenanceCommandProblems = (presentation: CredentialPresentation) => {
+  const recruitment = recruitmentProblems(presentation, "recruitment.unavailable");
+
+  return <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(raceProblems, commandReceiptProblems, maintenanceProblems, recruitment);
+};
 
 /** Problems only choosing a department's one open admission period answers. */
 export const admissionPeriodProblems = [

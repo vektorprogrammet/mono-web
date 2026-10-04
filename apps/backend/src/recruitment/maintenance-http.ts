@@ -20,7 +20,6 @@ import { genericContext } from "../native-operation.js";
 import {
   authorizePerson,
   commandOutcomeResponse,
-  commandReceiptProblems,
   idempotencyKeyOf,
   personPresentation,
   requireNoQuery,
@@ -39,6 +38,7 @@ import {
   admissionPeriodProblems,
   assignmentProblems,
   conductProblems,
+  maintenanceCommandProblems,
   maintenanceProblems,
   recruitmentProblems,
   schedulingProblems,
@@ -192,9 +192,7 @@ export const maintainRecruitmentHttp = (request: Request) =>
 
     return yield* commandOutcomeResponse(outcome);
   }).pipe(
-    commandReceiptProblems,
-    maintenanceProblems,
-    recruitmentProblems(personPresentation(request), "recruitment.unavailable"),
+    maintenanceCommandProblems(personPresentation(request)),
     // Maintenance answers no assignment, scheduling, conduct, or invitation problem.
     unreachable(
       ...admissionPeriodProblems,
