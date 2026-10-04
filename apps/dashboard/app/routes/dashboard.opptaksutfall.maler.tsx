@@ -3,6 +3,7 @@ import {
   OutcomeTemplateDraft,
   OutcomeTemplateKind,
   type OutcomeTemplateResource,
+  type StrongETag,
 } from "@vektorprogrammet/http-api";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import {
@@ -57,7 +58,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const client = createAuthenticatedClient(cookie, request);
   const query = new URL(request.url).searchParams;
   const departmentId = query.get("departmentId") ?? "";
-  const kind = Schema.decodeUnknownOption(OutcomeTemplateKind)(query.get("kind"));
+  const kind = Option.getOrNull(Schema.decodeUnknownOption(OutcomeTemplateKind)(query.get("kind")));
 
   // The department list is the departments of the outcome board. A person without one may
   // still edit the global default, so a refusal here is an empty list, not an error.
@@ -66,9 +67,9 @@ export async function loader({ request }: Route.LoaderArgs) {
     () => [],
   );
 
-  const selection = { departmentId, kind: Option.getOrElse(kind, () => ""), departments };
+  const selection = { departmentId, kind, departments };
 
-  if (Option.isNone(kind)) return privateData({ ...selection, resource: null, error: null });
+  if (kind === null) return privateData({ ...selection, resource: null, error: null });
 
   try {
     const result = await client.admissionOutcomes.readOutcomeTemplates({
@@ -144,7 +145,7 @@ export async function action({ request }: Route.ActionArgs) {
       readonly message: string;
       readonly conflict?: boolean;
       readonly rendered?: { readonly subject: string; readonly html: string; readonly text: string };
-      readonly etag?: string;
+      readonly etag?: StrongETag;
     },
     status = 200,
   ) =>
@@ -588,7 +589,7 @@ export default function OutcomeTemplates() {
             id="template-kind"
             name="kind"
             required
-            defaultValue={kind}
+            defaultValue={kind ?? ""}
             className={selectClass}
           >
             <option value="" disabled>
@@ -610,7 +611,7 @@ export default function OutcomeTemplates() {
       )}
       {navigation.state !== "idle" && <p role="status">Henter malen …</p>}
       {!resource && !error && <p>Velg avdeling og variant for å se malen.</p>}
-      {resource && entry && kind !== "" && (
+      {resource && entry && kind !== null && (
         <TemplateWorkspace
           key={`${departmentId}-${kind}`}
           departmentId={departmentId}
