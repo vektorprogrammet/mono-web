@@ -20,8 +20,13 @@ positive fixtures are integrated locally. Their staged hooks passed. Runtime gre
 authority-model execution, upgrade proof on both supported PostgreSQL majors, and aggregate gates
 remain unverified. No Recruitment generated-contract cutover or repaired parity baseline is claimed.
 Migrations 0083 and 0084 are registered through `just migration-hashes write`. The source-safety
-test accepts their exact reviewed bytes and rejects a one-byte appended space. Heavy execution
-requires a new operator custody grant.
+test accepts their exact reviewed bytes and rejects a one-byte appended space. The operator
+abolished the single heavy-job slot. Before each heavy job, retain two resource readings
+10 seconds apart: load below nproc, MemAvailable at least 25% of RAM, and no swap growth.
+Retain top RSS/CPU processes and heavy-job attribution beside each job’s evidence. If
+admission fails, wait 60 seconds and repeat. After 15 minutes, report the resource holders.
+Memory pressure prevents another heavy job. The measured lead execution skips the obsolete
+exclusive-flock admission under this explicit operator rule, without claiming lock ownership.
 The e04 mixed-onboarding module fails type-checking because its subset factory leaves `claim`
 unhandled (TS2322). No built-in option emits its raw/guard types without that factory. The
 operator approved a typed completion continuation: the generated factory registers `readBoard`
