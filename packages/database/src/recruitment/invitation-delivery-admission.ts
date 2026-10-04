@@ -66,13 +66,13 @@ const admitInvitationDelivery = Effect.fnUntraced(function* (
 });
 
 /** Owns the admission proof and dispatches once, after its transaction has committed. */
-export const dispatchInvitationDelivery = Effect.fnUntraced(function* <A, E, R>(
+export const dispatchInvitationDelivery = Effect.fnUntraced(function* <A, I, E, R>(
   sql: DatabaseOperations,
   table: OutboxTable,
   claim: InvitationClaim,
   deliver: Effect.Effect<A, E, R>,
-  invalidated: A,
-): Effect.fn.Return<A, E | SqlError | Schema.SchemaError | OutboxClaimLost, R> {
+  invalidated: I,
+): Effect.fn.Return<A | I, E | SqlError | Schema.SchemaError | OutboxClaimLost, R> {
   const admitted = yield* admitInvitationDelivery(sql, table, claim);
 
   return admitted === undefined ? invalidated : yield* deliver;
