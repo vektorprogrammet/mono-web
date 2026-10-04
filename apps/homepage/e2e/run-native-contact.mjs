@@ -391,6 +391,16 @@ const response = await mf.dispatchFetch(`http://p000.vektor.phibkro.org${req.url
       redirect: "error",
     });
 
+  const assertBodylessContactCreated = async (response) => {
+    assert.equal(response.status, 201);
+    assert.equal(response.headers.get("content-type"), null);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.equal(response.headers.get("vary"), "Origin");
+    assert.equal(response.headers.get("etag"), null);
+    assert.equal(response.headers.get("location"), null);
+    assert.equal((await response.arrayBuffer()).byteLength, 0);
+  };
+
   const count = async () =>
     Number(
       (await pool.query("SELECT coalesce(sum(attempts),0) AS n FROM public.contact_rate_windows"))
@@ -446,12 +456,15 @@ const response = await mf.dispatchFetch(`http://p000.vektor.phibkro.org${req.url
   records.length = 0;
   checkpoint("fixed expiry does not slide and expired window resets");
   const concurrent = await Promise.all(Array.from({ length: 12 }, () => post()));
-  assert.equal(concurrent.filter((r) => r.status === 201).length, 5);
-  assert.equal(concurrent.filter((r) => r.status === 429).length, 7);
+  const admitted = concurrent.filter((response) => response.status === 201);
+  assert.equal(admitted.length, 5);
+  assert.equal(concurrent.filter((response) => response.status === 429).length, 7);
+
+  for (const response of admitted) await assertBodylessContactCreated(response);
   assert.equal(records.length, 5);
-  assert.equal((await post(message, "192.0.2.2")).status, 201);
+  await assertBodylessContactCreated(await post(message, "192.0.2.2"));
   await clear();
-  checkpoint("atomic concurrency admits5/rejects7; separate visitor has quota");
+  checkpoint("atomic concurrency admits5/rejects7; separate visitor has quota; native 201 is bodyless/no-store/Vary");
   mode = "reject";
   const beforeReject = records.length;
   assert.equal((await post()).status, 503);
