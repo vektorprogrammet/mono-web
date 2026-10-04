@@ -592,7 +592,12 @@ try {
       leaderScopes.semesters.some((item: { semesterId: string }) => item.semesterId === semesterId),
     ),
   );
-  assert.deepEqual(await scopeDepartments(member), [departmentId]);
+  await expectProblem(
+    await request(scopesPath, member),
+    403,
+    "authority.denied",
+    "an ordinary member holds neither decide nor announce authority, so no scope is readable",
+  );
   assert.deepEqual(await scopeDepartments(other), [otherDepartmentId]);
   assert.deepEqual(await scopeDepartments(coordinator), [departmentId]);
   assert.deepEqual(
@@ -604,10 +609,12 @@ try {
   );
   assert.deepEqual(
     await scopeDepartments(leader),
-    [otherDepartmentId, departmentId],
-    "every department membership is evaluated",
+    [departmentId],
+    "a plain membership of another department's team confers no scope there",
   );
-  gates.push("scopes list only the departments each person may read, from every membership");
+  gates.push(
+    "scopes list only the departments where a person decides or announces: an ordinary member (403) and a plain membership elsewhere confer none, and a delegated coordinator sees only its own",
+  );
 
   const submission = {
     departmentId,
