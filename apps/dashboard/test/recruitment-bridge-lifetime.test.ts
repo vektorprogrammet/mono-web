@@ -89,7 +89,7 @@ const delayedBridge = Effect.fnUntraced(function* (body: string, pathname: strin
         value: (input: Parameters<typeof browserFetch>[0], init?: Parameters<typeof browserFetch>[1]) => {
           signals.push(init?.signal);
 
-          const url = Predicate.isString(input) ? input : input instanceof URL ? input.href : input.url;
+          const url = Predicate.isString(input) ? input : "url" in input ? input.url : input.href;
 
           return browserFetch(new URL(url, origin).href, init).then(
             (response) => {

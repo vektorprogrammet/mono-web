@@ -198,7 +198,10 @@ export const updateFor =
 
           const endsAt = decodeInstant(model.correctionEndsAt);
 
-          const command =
+          const command: Option.Option<
+            | typeof RecruitmentMaintenanceCommand.cases.CloseAssessmentCorrection.Type
+            | typeof RecruitmentMaintenanceCommand.cases.ReopenAssessmentCorrection.Type
+          > =
             model.correctionAction === "Close"
               ? RecruitmentMaintenanceCommand.cases.CloseAssessmentCorrection.makeOption(common)
               : Option.isSome(endsAt)
