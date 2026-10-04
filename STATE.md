@@ -16,9 +16,15 @@ This branch starts from the accepted Admissions integration `815a28f8`.
 R1–R8 have accepted red evidence at handwritten revisions aee83078 and 06ba6607.
 The evidence remains outside the product tree in `/srv/share/projects/effx-recruitment-0029-evidence/red/`.
 All isolated repair sources, correction-window UI, model controls, upgrade proofs, and eligible
-positive fixtures are integrated locally. Their staged hooks passed. Runtime green acceptance,
-authority-model execution, upgrade proof on both supported PostgreSQL majors, and aggregate gates
-remain unverified. No Recruitment generated-contract cutover or repaired parity baseline is claimed.
+positive fixtures are integrated locally. Their staged hooks passed. Focused backend controls
+passed 103/103 at `191b7ad3`; real bridge POST cancellation controls passed 14/14 at `83d2a804`.
+The actual built onboarding journey passed all ten browser cases at `1f59263a`, with no skips,
+unexpected failures or flaky cases. These are synthetic loopback observations, not provider proof.
+Evidence is retained outside the product tree in `/srv/share/projects/effx-recruitment-0029-evidence/green-suites.json`.
+The 194-command authority-model run is still supervised; whole-tree aggregate gates are not
+accepted. The latest aggregate reached database type checking and found dispatcher result and
+maintenance row-absence channel errors, now under isolated repair. No Recruitment generated-contract
+cutover or repaired parity baseline is claimed.
 Migrations 0083 and 0084 are registered through `just migration-hashes write`. The source-safety
 test accepts their exact reviewed bytes and rejects a one-byte appended space. The operator’s
 direct instruction was: “Forgoe the heavy job slot in place of checking the machine status for
@@ -26,7 +32,7 @@ what resources are taken” (2026-10-04, `history://Main:253-255`). The director
 admission procedure: two readings 10 seconds apart, load below nproc, MemAvailable at least
 25% of RAM, and no swap growth. Retain top RSS/CPU processes and heavy-job attribution beside
 each job’s evidence. If admission fails, wait 60 seconds and repeat. After 15 minutes, report
-the resource holders. Memory pressure prevents another heavy job. Measured lead execution
+the resource holders. Admit each heavy job from its retained resource observations. Measured lead execution
 skips obsolete exclusive-flock admission under that quoted instruction, without claiming lock ownership.
 The e04 mixed-onboarding module fails type-checking because its subset factory leaves `claim`
 unhandled (TS2322). No built-in option emits its raw/guard types without that factory. The
