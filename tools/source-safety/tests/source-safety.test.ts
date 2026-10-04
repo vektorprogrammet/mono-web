@@ -143,10 +143,7 @@ describe("SQL", () => {
       expect(unsafeSqlSourceTextReason(migrationText)).toBe("UNSAFE_SOURCE");
       expect(sourceTextSafetyReason(migrationPath, migration)).toBeNull();
       expect(
-        sourceTextSafetyReason(
-          migrationPath,
-          new TextEncoder().encode(`${migrationText}\n-- digest drift\n`),
-        ),
+        sourceTextSafetyReason(migrationPath, new TextEncoder().encode(`${migrationText} `)),
       ).toBe("UNSAFE_SOURCE");
     }
   });

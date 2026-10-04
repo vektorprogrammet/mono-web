@@ -235,6 +235,12 @@ const approvedSqlSourceDigests = new Map<string, string>([
     "packages/database/migrations/0082-admission-outcome-mail.sql",
     "sha256:cf0c122e49bd6ee714f20f01e6dba92bcddfae2faa85022baddb91cc90a63ccb",
   ],
+  // Reviewed: the UPDATE derives an application key from its existing applicant row; no stored
+  // submission or identity link is replaced. Other literals are trigger operations and errors.
+  [
+    "packages/database/migrations/0084-application-email-period-ownership.sql",
+    "sha256:30b4f35b9edd8e15b41597707484e79c17114fd761a85e40a2d2267be98c8106",
+  ],
 ]);
 
 const envSourcePathPattern = /(?:^|\/)\.env(?:$|[.-])/i;
