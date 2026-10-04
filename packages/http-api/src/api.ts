@@ -6,7 +6,7 @@ import { PlacementsApi } from "./placements.js";
  * @since 0.1.0
  */
 import { HttpApi, OpenApi } from "effect/unstable/httpapi";
-import { ContactApi } from "./contact.js";
+import { ContactApi } from "../.effx/generated/contact-contract.js";
 import { AdmissionsApi } from "./admissions.js";
 import { AdmissionOutcomesApi } from "./admission-outcomes.js";
 import { ContentApi } from "../.effx/generated/content-contract.js";

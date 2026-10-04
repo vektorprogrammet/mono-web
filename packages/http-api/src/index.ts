@@ -60,6 +60,8 @@ export * from "./v2-schemas.js";
 
 export * from "./contact.js";
 
+export { ContactApi, submitContactMessage } from "../.effx/generated/contact-contract.js";
+
 export * from "./placements.js";
 
 export * from "./social-events.js";
