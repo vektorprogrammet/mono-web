@@ -1,9 +1,15 @@
-import { Input, Select, Textarea } from "@foldkit/ui";
+import { Dialog, Input, Select, Textarea } from "@foldkit/ui";
 import { Option, Predicate, Schema } from "effect";
+import { correctionWindowDescription } from "./correction-window";
 import { RecruitmentInterviewQuestionKindSchema } from "@vektorprogrammet/http-api";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Model } from "./model";
 import {
+  OpenedCorrectionWindow,
+  ChangedCorrectionReason,
+  ChangedCorrectionEndsAt,
+  SubmittedCorrectionWindow,
+  GotCorrectionDialogMessage,
   SelectedRecord,
   ChangedName,
   ChangedActive,
@@ -30,8 +36,10 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
   const questionnaires = model.mode === "Questionnaires";
   const pending = Predicate.isTagged(model.mutation, "Pending");
 
-  const locked =
+  const mutationLocked =
     model.status !== "Ready" || ["Pending", "Failed", "Conflict"].includes(model.mutation._tag);
+
+  const locked = mutationLocked || model.correctionDialog.isOpen;
 
   const title = questionnaires ? "Intervjuskjema" : "Intervjubemanning";
 
@@ -63,6 +71,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
     labelText: string,
     value: string,
     onInput: (value: string) => Message,
+    disabled = locked,
   ) =>
     Textarea.view(
       {
@@ -72,7 +81,10 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
         toView: ({ textarea, label }) =>
           h.div(
             [h.Class("rm-field")],
-            [h.label(label, [labelText]), h.textarea([...textarea, h.Disabled(locked), h.Rows(3)])],
+            [
+              h.label(label, [labelText]),
+              h.textarea([...textarea, h.Disabled(disabled), h.Rows(3)]),
+            ],
           ),
       },
       h,
@@ -451,6 +463,137 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
         )
       : h.p([], ["Velg et intervju for å endre bemanningen."]);
 
+  const correctionWindow = selectedInterview
+    ? h.section(
+        [h.Key(selectedInterview.interviewId), h.AriaLabel("Rettingsvindu")],
+        [
+          h.h2([], ["Rettingsvindu"]),
+          h.p([], [correctionWindowDescription(selectedInterview.assessmentCorrection)]),
+          h.p([], [`Vinduversjon ${selectedInterview.assessmentCorrection.sequence}`]),
+          h.p(
+            [],
+            [
+              "Serveren avgjør tilgangen ved lagring. Retting endrer ikke en lukket opptaksbeslutning eller et kunngjort utfall.",
+            ],
+          ),
+          h.div(
+            [h.Class("rm-actions")],
+            [
+              button(
+                "Gjenåpne retting",
+                OpenedCorrectionWindow({ action: "Reopen" }),
+                locked || !selectedInterview.assessmentCorrection.canReopen,
+              ),
+              button(
+                "Lukk rettingsvindu",
+                OpenedCorrectionWindow({ action: "Close" }),
+                locked || !selectedInterview.assessmentCorrection.canClose,
+              ),
+            ],
+          ),
+        ],
+      )
+    : h.empty;
+
+  const correctionDialog = h.submodel({
+    slotId: model.correctionDialog.id,
+    model: model.correctionDialog,
+    view: Dialog.view,
+    viewInputs: {
+      hasDescription: true,
+      toView: ({ dialog, backdrop, panel, title, description, initialFocus, isVisible }) =>
+        h.dialog(
+          [...dialog, h.Class("rm-dialog")],
+          isVisible && model.correctionAction !== null
+            ? [
+                h.div([...backdrop, h.Class("rm-dialog__backdrop")]),
+                h.div(
+                  [...panel, h.Class("rm-dialog__panel")],
+                  [
+                    h.h2(title, [
+                      model.correctionAction === "Reopen"
+                        ? "Gjenåpne retting"
+                        : "Lukk rettingsvindu",
+                    ]),
+                    h.p(description, [
+                      "Begrunnelsen og den viste vinduversjonen lagres i revisjonssporet. Den som åpner vinduet, kan ikke rette under sitt eget vindu. Sluttidspunktet må være innen søkerens eget semester.",
+                    ]),
+                    h.p([], [`Vinduversjon ${model.correctionSequence}`]),
+                    h.form(
+                      [h.OnSubmit(SubmittedCorrectionWindow()), h.AriaBusy(pending)],
+                      [
+                        textarea(
+                          "rm-correction-reason",
+                          "Begrunnelse for rettingsvindu",
+                          model.correctionReason,
+                          (value) => ChangedCorrectionReason({ value }),
+                          mutationLocked,
+                        ),
+                        model.correctionAction === "Reopen"
+                          ? Input.view(
+                              {
+                                id: "rm-correction-ends-at",
+                                value: model.correctionEndsAt,
+                                onInput: (value) => ChangedCorrectionEndsAt({ value }),
+                                isDisabled: mutationLocked,
+                                toView: ({ input, label, description }) =>
+                                  h.div(
+                                    [h.Class("rm-field")],
+                                    [
+                                      h.label(label, ["Sluttidspunkt (med tidssone)"]),
+                                      h.input(input),
+                                      h.p(description, [
+                                        "RFC 3339 med sekunder og tidssone, for eksempel 2031-09-14T15:00:00+02:00. Serveren kontrollerer semestergrensen; ingen lokal klokke gir tilgang.",
+                                      ]),
+                                    ],
+                                  ),
+                              },
+                              h,
+                            )
+                          : h.empty,
+                        ...notice,
+                        h.div(
+                          [h.Class("rm-actions")],
+                          [
+                            h.button(
+                              [
+                                ...initialFocus,
+                                h.Type("button"),
+                                h.Disabled(pending),
+                                h.OnClick(
+                                  GotCorrectionDialogMessage({
+                                    message: Dialog.Message.RequestedClose(),
+                                  }),
+                                ),
+                              ],
+                              ["Tilbake"],
+                            ),
+                            h.button(
+                              [h.Type("submit"), h.Disabled(mutationLocked)],
+                              [
+                                model.correctionAction === "Reopen"
+                                  ? "Bekreft gjenåpning"
+                                  : "Bekreft lukking",
+                              ],
+                            ),
+                            button(
+                              "Last gjeldende versjon (erstatter utkast)",
+                              RefreshedMaintenance(),
+                              pending || model.status === "Loading",
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ]
+            : [],
+        ),
+    },
+    toMessage: (message) => GotCorrectionDialogMessage({ message }),
+  });
+
   return h.section(
     [h.Class("recruitment-maintenance")],
     [
@@ -463,7 +606,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
             : "Endre hovedintervjuer og medintervjuer samlet før intervjuet fullføres eller avlyses.",
         ],
       ),
-      ...notice,
+      ...(model.correctionDialog.isOpen ? [] : notice),
       h.div(
         [h.Class("rm-actions")],
         [
@@ -507,6 +650,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
                   (id) => SelectedRecord({ id }),
                 ),
             form,
+            correctionWindow,
             h.section(
               [h.AriaLabel("Vedlikeholdshistorikk")],
               [
@@ -517,6 +661,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
               ],
             ),
           ]),
+      correctionDialog,
     ],
   );
 };

@@ -1,5 +1,5 @@
 import { Predicate } from "effect";
-import type { RecruitmentInterviewQuestionSnapshot } from "@vektorprogrammet/http-api"
+import type { RecruitmentInterviewQuestionSnapshot } from "@vektorprogrammet/http-api";
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Dialog } from "@foldkit/ui";
 import { Match as M, Option, Schema as S } from "effect";
@@ -168,7 +168,10 @@ const successFeedback = (
   }
 };
 
-const reconcileCommittedSchedule = (model: ReadyModel, board: typeof SchedulingBoard.Type): Update.Return<Model, Message> => {
+const reconcileCommittedSchedule = (
+  model: ReadyModel,
+  board: typeof SchedulingBoard.Type,
+): Update.Return<Model, Message> => {
   const scheduledInterview = board.interviews.find(
     (interview) => interview.interviewId === model.selectedInterviewId,
   );
@@ -176,11 +179,12 @@ const reconcileCommittedSchedule = (model: ReadyModel, board: typeof SchedulingB
   if (
     scheduledInterview === undefined ||
     scheduledInterview.schedule === null ||
-    scheduledInterview.schedule.scheduleRevision <= (model.scheduleInterview?.schedule?.scheduleRevision ?? 0) ||
+    scheduledInterview.schedule.scheduleRevision <=
+      (model.scheduleInterview?.schedule?.scheduleRevision ?? 0) ||
     scheduledInterview.notificationState === null
   ) {
-    return ({ model: 
-      {
+    return {
+      model: {
         ...model,
         board: SchedulingBoardData.Success({ data: board }),
         isScheduling: false,
@@ -190,19 +194,25 @@ const reconcileCommittedSchedule = (model: ReadyModel, board: typeof SchedulingB
         scheduleError:
           "Planen er lagret, men intervjuet er ikke tilgjengelig i den oppdaterte oversikten. Utkastet er beholdt.",
         feedback: null,
-      }, commands: [] });
+      },
+      commands: [],
+    };
   }
 
-  const { model: scheduleDialog, commands: dialogCommands = [] } = Dialog.close(model.scheduleDialog);
+  const { model: scheduleDialog, commands: dialogCommands = [] } = Dialog.close(
+    model.scheduleDialog,
+  );
 
-  return ({ model: 
-    {
+  return {
+    model: {
       ...clearSchedule(model),
       scheduleDialog,
       board: SchedulingBoardData.Success({ data: board }),
       feedback: successFeedback(scheduledInterview.notificationState),
       commandSequence: model.commandSequence + 1,
-    }, commands: mapDialogCommands(dialogCommands) });
+    },
+    commands: mapDialogCommands(dialogCommands),
+  };
 };
 
 export const updateFor =
@@ -215,13 +225,28 @@ export const updateFor =
     CancelInterview,
   }: SchedulingCommands) =>
   (model: Model, message: Message): Update.Return<Model, Message> => {
-    if (!Predicate.isTagged(model, "Ready")) return ({ model: model, commands: [] });
+    if (!Predicate.isTagged(model, "Ready")) return { model: model, commands: [] };
 
-    const boardRefreshing = Predicate.isTagged(model.board, "Refreshing") || Predicate.isTagged(model.board, "Loading");
+    const boardRefreshing =
+      Predicate.isTagged(model.board, "Refreshing") || Predicate.isTagged(model.board, "Loading");
+
     const scheduleBusy = model.isScheduling || model.scheduleAttempt !== null || boardRefreshing;
     const draftLocked = scheduleBusy || model.scheduleCommitted;
+    const conductObservation = AsyncData.getData(model.conduct);
 
-    if (draftLocked && (Predicate.isTagged(message, "UpdatedScheduledAt") || Predicate.isTagged(message, "UpdatedRoom") || Predicate.isTagged(message, "UpdatedCampus") || Predicate.isTagged(message, "UpdatedMapLink") || Predicate.isTagged(message, "UpdatedMessage"))) {
+    const conductEditable =
+      Option.isSome(conductObservation) &&
+      (conductObservation.value.canFinalize ||
+        conductObservation.value.assessmentCorrection.canCorrect);
+
+    if (
+      draftLocked &&
+      (Predicate.isTagged(message, "UpdatedScheduledAt") ||
+        Predicate.isTagged(message, "UpdatedRoom") ||
+        Predicate.isTagged(message, "UpdatedCampus") ||
+        Predicate.isTagged(message, "UpdatedMapLink") ||
+        Predicate.isTagged(message, "UpdatedMessage"))
+    ) {
       return { model, commands: [] };
     }
 
@@ -233,141 +258,218 @@ export const updateFor =
           const requestId = model.boardRequestId + 1;
           const data = AsyncData.getData(model.board);
 
-          return { model: {
-            ...model,
-            board: Option.isSome(data) ? SchedulingBoardData.Refreshing({ data: data.value }) : SchedulingBoardData.Loading(),
-            boardRequestId: requestId,
-            feedback: null,
-          }, commands: [LoadSchedulingBoard({ requestId })] };
+          return {
+            model: {
+              ...model,
+              board: Option.isSome(data)
+                ? SchedulingBoardData.Refreshing({ data: data.value })
+                : SchedulingBoardData.Loading(),
+              boardRequestId: requestId,
+              feedback: null,
+            },
+            commands: [LoadSchedulingBoard({ requestId })],
+          };
         },
         SucceededLoadSchedulingBoard: ({ requestId, board }) => {
           if (requestId !== model.boardRequestId) return { model, commands: [] };
 
           if (model.scheduleCommitted) return reconcileCommittedSchedule(model, board);
-          const recovering = model.scheduleAttempt === null && model.scheduleFailure?._tag === "Conflict";
-          const current = board.interviews.find((interview) => interview.interviewId === model.scheduleInterview?.interviewId);
-          const eligible = current !== undefined && (current.schedule === null || current.responseState === "RequestedNewTime");
 
-          return { model: {
-            ...model,
-            board: SchedulingBoardData.Success({ data: board }),
-            scheduleInterview: recovering && current !== undefined ? current : model.scheduleInterview,
-            scheduleFailure: recovering && eligible ? null : model.scheduleFailure,
-            scheduleError: recovering
-              ? current !== undefined && (current.schedule === null || current.responseState === "RequestedNewTime")
-                ? "Oversikten er oppdatert. Kontroller utkastet før du lagrer på nytt."
-                : "Intervjuet kan ikke planlegges på nytt. Utkastet er beholdt."
-              : model.scheduleError,
-            commandSequence: recovering && eligible ? model.commandSequence + 1 : model.commandSequence,
-            feedback: null,
-          }, commands: [] };
+          const recovering =
+            model.scheduleAttempt === null && model.scheduleFailure?._tag === "Conflict";
+
+          const current = board.interviews.find(
+            (interview) => interview.interviewId === model.scheduleInterview?.interviewId,
+          );
+
+          const eligible =
+            current !== undefined &&
+            (current.schedule === null || current.responseState === "RequestedNewTime");
+
+          return {
+            model: {
+              ...model,
+              board: SchedulingBoardData.Success({ data: board }),
+              scheduleInterview:
+                recovering && current !== undefined ? current : model.scheduleInterview,
+              scheduleFailure: recovering && eligible ? null : model.scheduleFailure,
+              scheduleError: recovering
+                ? current !== undefined &&
+                  (current.schedule === null || current.responseState === "RequestedNewTime")
+                  ? "Oversikten er oppdatert. Kontroller utkastet før du lagrer på nytt."
+                  : "Intervjuet kan ikke planlegges på nytt. Utkastet er beholdt."
+                : model.scheduleError,
+              commandSequence:
+                recovering && eligible ? model.commandSequence + 1 : model.commandSequence,
+              feedback: null,
+            },
+            commands: [],
+          };
         },
         FailedLoadSchedulingBoard: ({ requestId, message: failureMessage }) => {
           if (requestId !== model.boardRequestId) return { model, commands: [] };
           const data = AsyncData.getData(model.board);
 
-          return { model: {
-            ...model,
-            board: Option.isSome(data)
-              ? SchedulingBoardData.Stale({ data: data.value, error: failureMessage })
-              : SchedulingBoardData.Failure({ error: failureMessage }),
-            scheduleError: model.scheduleInterview === null ? model.scheduleError : failureMessage,
-            feedback: null,
-          }, commands: [] };
+          return {
+            model: {
+              ...model,
+              board: Option.isSome(data)
+                ? SchedulingBoardData.Stale({ data: data.value, error: failureMessage })
+                : SchedulingBoardData.Failure({ error: failureMessage }),
+              scheduleError:
+                model.scheduleInterview === null ? model.scheduleError : failureMessage,
+              feedback: null,
+            },
+            commands: [],
+          };
         },
         OpenedSchedule: ({ interviewId }) => {
-          if (model.isScheduling || model.isConducting || model.scheduleAttempt !== null || boardRefreshing) return ({ model: model, commands: [] });
+          if (
+            model.isScheduling ||
+            model.isConducting ||
+            model.scheduleAttempt !== null ||
+            boardRefreshing
+          )
+            return { model: model, commands: [] };
           const board = AsyncData.getData(model.board);
 
-          if (Option.isNone(board)) return ({ model: model, commands: [] });
+          if (Option.isNone(board)) return { model: model, commands: [] };
 
           const interview = board.value.interviews.find(
             (candidate) => candidate.interviewId === interviewId,
           );
 
-          if (interview === undefined || (interview.schedule !== null && interview.responseState !== "RequestedNewTime")) return ({ model: model, commands: [] });
-          const { model: scheduleDialog, commands: dialogCommands = [] } = Dialog.open(model.scheduleDialog);
+          if (
+            interview === undefined ||
+            (interview.schedule !== null && interview.responseState !== "RequestedNewTime")
+          )
+            return { model: model, commands: [] };
 
-          return ({ model: 
-            {
+          const { model: scheduleDialog, commands: dialogCommands = [] } = Dialog.open(
+            model.scheduleDialog,
+          );
+
+          return {
+            model: {
               ...clearSchedule(model),
               scheduleDialog,
               selectedInterviewId: interviewId,
               scheduleInterview: interview,
               feedback: null,
               commandSequence: model.commandSequence + 1,
-            }, commands: mapDialogCommands(dialogCommands) });
+            },
+            commands: mapDialogCommands(dialogCommands),
+          };
         },
         ClosedSchedule: () => {
-          if (model.isScheduling || model.isConducting || model.scheduleAttempt !== null || boardRefreshing) return ({ model: model, commands: [] });
-          const { model: scheduleDialog, commands: dialogCommands = [] } = Dialog.close(model.scheduleDialog);
+          if (
+            model.isScheduling ||
+            model.isConducting ||
+            model.scheduleAttempt !== null ||
+            boardRefreshing
+          )
+            return { model: model, commands: [] };
 
-          return ({ model: 
-            {
+          const { model: scheduleDialog, commands: dialogCommands = [] } = Dialog.close(
+            model.scheduleDialog,
+          );
+
+          return {
+            model: {
               ...clearSchedule(model),
               scheduleDialog,
               commandSequence: model.commandSequence + 1,
-            }, commands: mapDialogCommands(dialogCommands) });
+            },
+            commands: mapDialogCommands(dialogCommands),
+          };
         },
-        UpdatedScheduledAt: ({ value }) => ({ model: 
-          {
+        UpdatedScheduledAt: ({ value }) => ({
+          model: {
             ...model,
             scheduledAt: FieldValidation.validate(scheduledAtRules)(value),
             scheduleError: null,
             feedback: null,
             commandSequence: model.commandSequence + 1,
-          }, commands: [] }),
-        UpdatedRoom: ({ value }) => ({ model: 
-          {
+          },
+          commands: [],
+        }),
+        UpdatedRoom: ({ value }) => ({
+          model: {
             ...model,
             room: FieldValidation.validate(roomRules)(value),
             scheduleError: null,
             feedback: null,
             commandSequence: model.commandSequence + 1,
-          }, commands: [] }),
-        UpdatedCampus: ({ value }) => ({ model: 
-          {
+          },
+          commands: [],
+        }),
+        UpdatedCampus: ({ value }) => ({
+          model: {
             ...model,
             campus: FieldValidation.validate(campusRules)(value),
             scheduleError: null,
             feedback: null,
             commandSequence: model.commandSequence + 1,
-          }, commands: [] }),
-        UpdatedMapLink: ({ value }) => ({ model: 
-          {
+          },
+          commands: [],
+        }),
+        UpdatedMapLink: ({ value }) => ({
+          model: {
             ...model,
             mapLink: FieldValidation.validate(mapLinkRules)(value),
             scheduleError: null,
             feedback: null,
             commandSequence: model.commandSequence + 1,
-          }, commands: [] }),
-        UpdatedMessage: ({ value }) => ({ model: 
-          {
+          },
+          commands: [],
+        }),
+        UpdatedMessage: ({ value }) => ({
+          model: {
             ...model,
             message: FieldValidation.validate(messageRules)(value),
             scheduleError: null,
             feedback: null,
             commandSequence: model.commandSequence + 1,
-          }, commands: [] }),
+          },
+          commands: [],
+        }),
         SubmittedSchedule: () => {
-          if (model.isScheduling || model.scheduleCommitted || boardRefreshing || model.scheduleInterview === null) return { model, commands: [] };
+          if (
+            model.isScheduling ||
+            model.scheduleCommitted ||
+            boardRefreshing ||
+            model.scheduleInterview === null
+          )
+            return { model, commands: [] };
           const requestId = model.boardRequestId + 1;
 
           if (model.scheduleAttempt !== null) {
-            return { model: { ...model, isScheduling: true, boardRequestId: requestId, scheduleError: null },
-              commands: [ScheduleInterview({ requestId, input: model.scheduleAttempt })] };
+            return {
+              model: {
+                ...model,
+                isScheduling: true,
+                boardRequestId: requestId,
+                scheduleError: null,
+              },
+              commands: [ScheduleInterview({ requestId, input: model.scheduleAttempt })],
+            };
           }
 
           if (model.scheduleFailure?._tag === "Conflict") return { model, commands: [] };
           const interview = model.scheduleInterview;
 
-          if (interview === undefined || (interview.schedule !== null && interview.responseState !== "RequestedNewTime")) {
-            return ({ model: 
-              {
+          if (
+            interview === undefined ||
+            (interview.schedule !== null && interview.responseState !== "RequestedNewTime")
+          ) {
+            return {
+              model: {
                 ...model,
                 scheduleError:
                   "Intervjuet er ikke lenger tilgjengelig for planlegging. Hent oversikten på nytt.",
-              }, commands: [] });
+              },
+              commands: [],
+            };
           }
 
           const scheduledAt = FieldValidation.validate(scheduledAtRules)(model.scheduledAt.value);
@@ -384,8 +486,8 @@ export const updateFor =
             FieldValidation.isValid(messageRules)(scheduleMessage);
 
           if (!fieldsAreValid) {
-            return ({ model: 
-              {
+            return {
+              model: {
                 ...model,
                 scheduledAt,
                 room,
@@ -394,7 +496,9 @@ export const updateFor =
                 message: scheduleMessage,
                 scheduleError: "Kontroller feltene og prøv igjen.",
                 feedback: null,
-              }, commands: [] });
+              },
+              commands: [],
+            };
           }
 
           let input;
@@ -420,8 +524,8 @@ export const updateFor =
               { onExcessProperty: "error" },
             );
           } catch {
-            return ({ model: 
-              {
+            return {
+              model: {
                 ...model,
                 scheduledAt,
                 room,
@@ -430,11 +534,13 @@ export const updateFor =
                 message: scheduleMessage,
                 scheduleError: "Kontroller feltene og prøv igjen.",
                 feedback: null,
-              }, commands: [] });
+              },
+              commands: [],
+            };
           }
 
-          return ({ model: 
-            {
+          return {
+            model: {
               ...model,
               scheduledAt,
               room,
@@ -447,33 +553,40 @@ export const updateFor =
               scheduleError: null,
               feedback: null,
               boardRequestId: requestId,
-            }, commands: [ScheduleInterview({ requestId, input })] });
+            },
+            commands: [ScheduleInterview({ requestId, input })],
+          };
         },
         SucceededSchedule: ({ requestId, board }) => {
-          if (requestId !== model.boardRequestId || !model.isScheduling) return ({ model: model, commands: [] });
+          if (requestId !== model.boardRequestId || !model.isScheduling)
+            return { model: model, commands: [] };
 
           return reconcileCommittedSchedule(model, board);
         },
         FailedSchedule: ({ requestId, failure, outcome }) =>
           requestId !== model.boardRequestId || !model.isScheduling
-            ? ({ model: model, commands: [] })
-            : ({ model: 
-                {
+            ? { model: model, commands: [] }
+            : {
+                model: {
                   ...model,
                   isScheduling: false,
                   scheduleAttempt: outcome === "Unknown" ? model.scheduleAttempt : null,
                   scheduleCommitted: outcome === "Committed",
                   scheduleFailure: failure,
-                  scheduleError: outcome === "Committed"
-                    ? "Planen er lagret, men oversikten kunne ikke hentes. Hent oppdatert oversikt uten å lagre på nytt."
-                    : schedulingFailureMessage(failure),
+                  scheduleError:
+                    outcome === "Committed"
+                      ? "Planen er lagret, men oversikten kunne ikke hentes. Hent oppdatert oversikt uten å lagre på nytt."
+                      : schedulingFailureMessage(failure),
                   feedback: null,
-                }, commands: [] }),
+                },
+                commands: [],
+              },
         OpenedConduct: ({ interviewId }) => {
-          if (model.isScheduling || model.isConducting || model.scheduleAttempt !== null) return ({ model: model, commands: [] });
+          if (model.isScheduling || model.isConducting || model.scheduleAttempt !== null)
+            return { model: model, commands: [] };
           const board = AsyncData.getData(model.board);
 
-          if (Option.isNone(board)) return ({ model: model, commands: [] });
+          if (Option.isNone(board)) return { model: model, commands: [] };
 
           const interview = board.value.interviews.find(
             (candidate) => candidate.interviewId === interviewId,
@@ -484,26 +597,28 @@ export const updateFor =
             interview.schedule === null ||
             interview.responseState !== "Accepted"
           ) {
-            return ({ model: model, commands: [] });
+            return { model: model, commands: [] };
           }
 
           const requestId = model.conductRequestId + 1;
           const generation = model.conductGeneration + 1;
 
-          return ({ model: 
-            {
+          return {
+            model: {
               ...clearConduct(model),
               selectedInterviewId: interviewId,
               conduct: ConductData.Loading(),
               conductRequestId: requestId,
               conductGeneration: generation,
               commandSequence: model.commandSequence + 1,
-            }, commands: [ReadInterviewConduct({ requestId, generation, interviewId })] });
+            },
+            commands: [ReadInterviewConduct({ requestId, generation, interviewId })],
+          };
         },
         ClosedConduct: () => {
-          if (model.isConducting) return ({ model: model, commands: [] });
+          if (model.isConducting) return { model: model, commands: [] };
 
-          return ({ model: clearConduct(model), commands: [] });
+          return { model: clearConduct(model), commands: [] };
         },
         SucceededConduct: ({ requestId, generation, interviewId, detail, etag }) => {
           if (
@@ -511,11 +626,11 @@ export const updateFor =
             generation !== model.conductGeneration ||
             interviewId !== model.selectedInterviewId
           ) {
-            return ({ model: model, commands: [] });
+            return { model: model, commands: [] };
           }
 
-          return ({ model: 
-            {
+          return {
+            model: {
               ...model,
               conduct: ConductData.Success({ data: detail }),
               conductEtag: etag,
@@ -541,42 +656,48 @@ export const updateFor =
                     },
               conductFeedback: null,
               conductValidationFeedback: null,
-            }, commands: [] });
+            },
+            commands: [],
+          };
         },
         FailedConduct: ({ requestId, generation, interviewId, failure }) =>
           requestId !== model.conductRequestId ||
           generation !== model.conductGeneration ||
           interviewId !== model.selectedInterviewId
-            ? ({ model: model, commands: [] })
-            : ({ model: 
-                {
+            ? { model: model, commands: [] }
+            : {
+                model: {
                   ...model,
                   conduct: ConductData.Failure({ error: failure }),
                   conductFeedback: failure,
-                }, commands: [] }),
+                },
+                commands: [],
+              },
         ChangedAnswer: ({ questionId, answer }) => {
           const current = AsyncData.getData(model.conduct);
 
           if (
             Option.isNone(current) ||
             model.isConducting ||
+            !conductEditable ||
+            model.pendingConductAction !== null ||
             Predicate.isTagged(model.conduct, "Refreshing")
           )
-            return ({ model: model, commands: [] });
+            return { model: model, commands: [] };
 
           const question = current.value.questions.find(
             (candidate) => candidate.questionId === questionId,
           );
 
-          if (question === undefined) return ({ model: model, commands: [] });
+          if (question === undefined) return { model: model, commands: [] };
 
           const answerErrors = model.answerErrors.filter(
             (error) => error.questionId !== questionId,
           );
 
           if (!validAnswer(question, answer)) {
-            return ({ model: 
-              {
+            return {
+              model: {
                 ...model,
                 conductGeneration: model.conductGeneration + 1,
                 answerErrors: [
@@ -584,11 +705,13 @@ export const updateFor =
                   { questionId, message: "Velg et gyldig svaralternativ." },
                 ],
                 conductValidationFeedback: "Kontroller svarene før du fullfører intervjuet.",
-              }, commands: [] });
+              },
+              commands: [],
+            };
           }
 
-          return ({ model: 
-            {
+          return {
+            model: {
               ...model,
               conductGeneration: model.conductGeneration + 1,
               answers: [
@@ -599,28 +722,34 @@ export const updateFor =
               conductValidationFeedback: null,
               conductFeedback: null,
               commandSequence: model.commandSequence + 1,
-            }, commands: [] });
+            },
+            commands: [],
+          };
         },
         ChangedRecommendation: ({ value }) =>
           model.isConducting ||
+          !conductEditable ||
           model.pendingConductAction !== null ||
           Predicate.isTagged(model.conduct, "Refreshing")
-            ? ({ model: model, commands: [] })
-            : ({ model: 
-                {
+            ? { model: model, commands: [] }
+            : {
+                model: {
                   ...model,
                   recommendation: value,
                   conductGeneration: model.conductGeneration + 1,
                   commandSequence: model.commandSequence + 1,
                   conductValidationFeedback: null,
-                }, commands: [] }),
+                },
+                commands: [],
+              },
         ChangedScore: ({ axis, value }) =>
           model.isConducting ||
+          !conductEditable ||
           model.pendingConductAction !== null ||
           Predicate.isTagged(model.conduct, "Refreshing")
-            ? ({ model: model, commands: [] })
-            : ({ model: 
-                {
+            ? { model: model, commands: [] }
+            : {
+                model: {
                   ...model,
                   score: {
                     ...model.score,
@@ -629,18 +758,24 @@ export const updateFor =
                   conductValidationFeedback: null,
                   conductFeedback: null,
                   commandSequence: model.commandSequence + 1,
-                }, commands: [] }),
+                },
+                commands: [],
+              },
         SubmittedFinalize: () => {
-          if (model.isConducting || model.pendingConductAction !== null) return ({ model: model, commands: [] });
+          if (model.isConducting || model.pendingConductAction !== null)
+            return { model: model, commands: [] };
           const current = AsyncData.getData(model.conduct);
 
           if (
             Option.isNone(current) ||
             current.value.cancellationState === "Cancelled" ||
-            (current.value.completionState !== "Completed" && !current.value.canFinalize)
+            !conductEditable ||
+            Predicate.isTagged(model.conduct, "Refreshing")
           ) {
-            return ({ model: 
-              { ...model, conductValidationFeedback: "Intervjuet kan ikke endres nå." }, commands: [] });
+            return {
+              model: { ...model, conductValidationFeedback: "Intervjuet kan ikke endres nå." },
+              commands: [],
+            };
           }
 
           const answerErrors = current.value.questions.flatMap((question) => {
@@ -666,27 +801,34 @@ export const updateFor =
             !FieldValidation.isValid(scoreRules)(score.roleModel) ||
             !FieldValidation.isValid(scoreRules)(score.suitability)
           ) {
-            return ({ model: 
-              {
+            return {
+              model: {
                 ...model,
                 answerErrors,
                 score,
                 conductValidationFeedback:
                   "Svar på alle spørsmål, velg alle tre scorer og en anbefaling.",
-              }, commands: [] });
+              },
+              commands: [],
+            };
           }
 
-          const { model: conductDialog, commands: dialogCommands = [] } = Dialog.open(model.conductDialog);
+          const { model: conductDialog, commands: dialogCommands = [] } = Dialog.open(
+            model.conductDialog,
+          );
 
-          return ({ model: 
-            {
+          return {
+            model: {
               ...model,
               score,
               answerErrors: [],
-              pendingConductAction: current.value.completionState === "Completed" ? "Correct" : "Finalize",
+              pendingConductAction:
+                current.value.completionState === "Completed" ? "Correct" : "Finalize",
               conductDialog,
               conductValidationFeedback: null,
-            }, commands: conductDialogCommands(dialogCommands) });
+            },
+            commands: conductDialogCommands(dialogCommands),
+          };
         },
         SubmittedCancel: () => {
           const current = AsyncData.getData(model.conduct);
@@ -699,22 +841,40 @@ export const updateFor =
             current.value.completionState === "Completed" ||
             current.value.cancellationState === "Cancelled"
           ) {
-            return ({ model: { ...model, conductValidationFeedback: "Intervjuet kan ikke avlyses nå." }, commands: [] });
+            return {
+              model: { ...model, conductValidationFeedback: "Intervjuet kan ikke avlyses nå." },
+              commands: [],
+            };
           }
 
-          const { model: conductDialog, commands: dialogCommands = [] } = Dialog.open(model.conductDialog);
+          const { model: conductDialog, commands: dialogCommands = [] } = Dialog.open(
+            model.conductDialog,
+          );
 
-          return ({ model: 
-            { ...model, pendingConductAction: "Cancel", conductDialog }, commands: conductDialogCommands(dialogCommands) });
+          return {
+            model: { ...model, pendingConductAction: "Cancel", conductDialog },
+            commands: conductDialogCommands(dialogCommands),
+          };
         },
         ConfirmedFinalize: () => {
-          if ((model.pendingConductAction !== "Finalize" && model.pendingConductAction !== "Correct") || model.selectedInterviewId === null) {
-            return ({ model: model, commands: [] });
+          if (
+            (model.pendingConductAction !== "Finalize" &&
+              model.pendingConductAction !== "Correct") ||
+            model.selectedInterviewId === null
+          ) {
+            return { model: model, commands: [] };
           }
 
           const current = AsyncData.getData(model.conduct);
 
-          if (Option.isNone(current) || model.conductEtag === null) return ({ model: model, commands: [] });
+          if (
+            Option.isNone(current) ||
+            model.conductEtag === null ||
+            !conductEditable ||
+            model.isConducting ||
+            Predicate.isTagged(model.conduct, "Refreshing")
+          )
+            return { model, commands: [] };
 
           const score = {
             explanatoryPower: Number(model.score.explanatoryPower.value),
@@ -738,68 +898,78 @@ export const updateFor =
 
             command =
               model.pendingConductAction === "Correct"
-                ? CorrectInterviewAssessment({ requestId, generation: model.conductGeneration, interviewId: model.selectedInterviewId, input: S.decodeUnknownSync(CorrectInterviewAssessmentInputSchema)(
-                    {
-                      ...base,
-                      payload: {
-                        expectedRevision: current.value.revision,
-                        answers: model.answers,
-                        score,
-                        recommendation: model.recommendation,
+                ? CorrectInterviewAssessment({
+                    requestId,
+                    generation: model.conductGeneration,
+                    interviewId: model.selectedInterviewId,
+                    input: S.decodeUnknownSync(CorrectInterviewAssessmentInputSchema)(
+                      {
+                        ...base,
+                        payload: {
+                          expectedRevision: current.value.revision,
+                          answers: model.answers,
+                          score,
+                          recommendation: model.recommendation,
+                        },
                       },
-                    },
-                    { onExcessProperty: "error" },
-                  ) })
-                : FinalizeInterview({ requestId, generation: model.conductGeneration, interviewId: model.selectedInterviewId, input: S.decodeUnknownSync(FinalizeInterviewInputSchema)(
-                    {
-                      ...base,
-                      payload: {
-                        answers: model.answers,
-                        score,
-                        recommendation: model.recommendation,
+                      { onExcessProperty: "error" },
+                    ),
+                  })
+                : FinalizeInterview({
+                    requestId,
+                    generation: model.conductGeneration,
+                    interviewId: model.selectedInterviewId,
+                    input: S.decodeUnknownSync(FinalizeInterviewInputSchema)(
+                      {
+                        ...base,
+                        payload: {
+                          answers: model.answers,
+                          score,
+                          recommendation: model.recommendation,
+                        },
                       },
-                    },
-                    { onExcessProperty: "error" },
-                  ) });
-
+                      { onExcessProperty: "error" },
+                    ),
+                  });
           } catch {
-            return ({ model: 
-              { ...model, conductValidationFeedback: "Kontroller svarene og prøv igjen." }, commands: [] });
+            return {
+              model: { ...model, conductValidationFeedback: "Kontroller svarene og prøv igjen." },
+              commands: [],
+            };
           }
 
+          const { model: conductDialog, commands: dialogCommands = [] } = Dialog.close(
+            model.conductDialog,
+          );
 
-          const { model: conductDialog, commands: dialogCommands = [] } = Dialog.close(model.conductDialog);
-
-          return ({ model: 
-            {
+          return {
+            model: {
               ...model,
               conductDialog,
               pendingConductAction: null,
               isConducting: true,
               conductRequestId: requestId,
               conductFeedback: null,
-            }, commands: [
-              ...conductDialogCommands(dialogCommands),
-              command,
-
-            ] });
+            },
+            commands: [...conductDialogCommands(dialogCommands), command],
+          };
         },
         ConfirmedCancel: () => {
           if (model.pendingConductAction !== "Cancel" || model.selectedInterviewId === null) {
-            return ({ model: model, commands: [] });
+            return { model: model, commands: [] };
           }
 
           const current = AsyncData.getData(model.conduct);
           const board = AsyncData.getData(model.board);
 
-          const interview =
-            Option.isSome(board)
-              ? board.value.interviews.find(
-                  (candidate) => candidate.interviewId === model.selectedInterviewId,
-                )
-              : undefined;
+          const interview = Option.isSome(board)
+            ? board.value.interviews.find(
+                (candidate) => candidate.interviewId === model.selectedInterviewId,
+              )
+            : undefined;
 
-          if (Option.isNone(current) || interview === undefined) return ({ model: model, commands: [] });
+          if (Option.isNone(current) || interview === undefined)
+            return { model: model, commands: [] };
           let input;
 
           try {
@@ -817,21 +987,28 @@ export const updateFor =
               { onExcessProperty: "error" },
             );
           } catch {
-            return ({ model: { ...model, conductValidationFeedback: "Intervjuet kunne ikke avlyses." }, commands: [] });
+            return {
+              model: { ...model, conductValidationFeedback: "Intervjuet kunne ikke avlyses." },
+              commands: [],
+            };
           }
 
           const requestId = model.conductRequestId + 1;
-          const { model: conductDialog, commands: dialogCommands = [] } = Dialog.close(model.conductDialog);
 
-          return ({ model: 
-            {
+          const { model: conductDialog, commands: dialogCommands = [] } = Dialog.close(
+            model.conductDialog,
+          );
+
+          return {
+            model: {
               ...model,
               conductDialog,
               pendingConductAction: null,
               isConducting: true,
               conductRequestId: requestId,
               conductFeedback: null,
-            }, commands: [
+            },
+            commands: [
               ...conductDialogCommands(dialogCommands),
               CancelInterview({
                 requestId,
@@ -839,7 +1016,8 @@ export const updateFor =
                 interviewId: model.selectedInterviewId,
                 input,
               }),
-            ] });
+            ],
+          };
         },
         SucceededFinalize: ({ requestId, generation, interviewId }) => {
           if (
@@ -848,7 +1026,7 @@ export const updateFor =
             interviewId !== model.selectedInterviewId ||
             !model.isConducting
           ) {
-            return ({ model: model, commands: [] });
+            return { model: model, commands: [] };
           }
 
           const conductRequestId = requestId + 1;
@@ -856,30 +1034,30 @@ export const updateFor =
           const current = AsyncData.getData(model.conduct);
           const board = AsyncData.getData(model.board);
 
-          return ({ model: 
-            {
+          return {
+            model: {
               ...model,
-              conduct:
-                Option.isSome(current)
-                  ? ConductData.Refreshing({ data: current.value })
-                  : ConductData.Loading(),
+              conduct: Option.isSome(current)
+                ? ConductData.Refreshing({ data: current.value })
+                : ConductData.Loading(),
               conductRequestId,
-              board:
-                Option.isSome(board)
-                  ? SchedulingBoardData.Refreshing({ data: board.value })
-                  : SchedulingBoardData.Loading(),
+              board: Option.isSome(board)
+                ? SchedulingBoardData.Refreshing({ data: board.value })
+                : SchedulingBoardData.Loading(),
               boardRequestId,
               isConducting: false,
               conductFeedback: null,
               conductValidationFeedback: null,
-            }, commands: [
+            },
+            commands: [
               ReadInterviewConduct({
                 requestId: conductRequestId,
                 generation,
                 interviewId,
               }),
               LoadSchedulingBoard({ requestId: boardRequestId }),
-            ] });
+            ],
+          };
         },
         SucceededCorrection: ({ requestId, generation, interviewId }) => {
           if (
@@ -888,7 +1066,7 @@ export const updateFor =
             interviewId !== model.selectedInterviewId ||
             !model.isConducting
           ) {
-            return ({ model: model, commands: [] });
+            return { model: model, commands: [] };
           }
 
           const conductRequestId = requestId + 1;
@@ -896,26 +1074,26 @@ export const updateFor =
           const current = AsyncData.getData(model.conduct);
           const board = AsyncData.getData(model.board);
 
-          return ({ model: 
-            {
+          return {
+            model: {
               ...model,
-              conduct:
-                Option.isSome(current)
-                  ? ConductData.Refreshing({ data: current.value })
-                  : ConductData.Loading(),
+              conduct: Option.isSome(current)
+                ? ConductData.Refreshing({ data: current.value })
+                : ConductData.Loading(),
               conductRequestId,
               conductFeedback: null,
               conductValidationFeedback: null,
-              board:
-                Option.isSome(board)
-                  ? SchedulingBoardData.Refreshing({ data: board.value })
-                  : SchedulingBoardData.Loading(),
+              board: Option.isSome(board)
+                ? SchedulingBoardData.Refreshing({ data: board.value })
+                : SchedulingBoardData.Loading(),
               boardRequestId,
               isConducting: false,
-            }, commands: [
+            },
+            commands: [
               ReadInterviewConduct({ requestId: conductRequestId, generation, interviewId }),
               LoadSchedulingBoard({ requestId: boardRequestId }),
-            ] });
+            ],
+          };
         },
         SucceededCancel: ({ requestId, generation, interviewId }) => {
           if (
@@ -924,34 +1102,35 @@ export const updateFor =
             interviewId !== model.selectedInterviewId ||
             !model.isConducting
           ) {
-            return ({ model: model, commands: [] });
+            return { model: model, commands: [] };
           }
 
           const conductRequestId = requestId + 1;
           const boardRequestId = model.boardRequestId + 1;
           const current = AsyncData.getData(model.conduct);
 
-          return ({ model: 
-            {
+          return {
+            model: {
               ...model,
-              conduct:
-                Option.isSome(current)
-                  ? ConductData.Refreshing({ data: current.value })
-                  : ConductData.Loading(),
+              conduct: Option.isSome(current)
+                ? ConductData.Refreshing({ data: current.value })
+                : ConductData.Loading(),
               conductRequestId,
               board: SchedulingBoardData.Loading(),
               boardRequestId,
               isConducting: false,
               conductFeedback: null,
               conductValidationFeedback: null,
-            }, commands: [
+            },
+            commands: [
               ReadInterviewConduct({
                 requestId: conductRequestId,
                 generation,
                 interviewId,
               }),
               LoadSchedulingBoard({ requestId: boardRequestId }),
-            ] });
+            ],
+          };
         },
         FailedCorrection: ({ requestId, generation, interviewId, failure }) => {
           if (
@@ -960,20 +1139,22 @@ export const updateFor =
             interviewId !== model.selectedInterviewId ||
             !model.isConducting
           ) {
-            return ({ model: model, commands: [] });
+            return { model: model, commands: [] };
           }
 
           return Predicate.isTagged(failure, "Conflict")
-            ? ({ model: 
-                {
+            ? {
+                model: {
                   ...model,
                   isConducting: false,
                   pendingConductAction: null,
                   conductFeedback: failure,
                   conductValidationFeedback:
                     "Intervjuet er endret. Utkastet er beholdt; åpne intervjuet på nytt for å hente gjeldende versjon.",
-                }, commands: [] })
-            : ({ model: { ...model, isConducting: false, conductFeedback: failure }, commands: [] });
+                },
+                commands: [],
+              }
+            : { model: { ...model, isConducting: false, conductFeedback: failure }, commands: [] };
         },
         FailedFinalize: ({ requestId, generation, interviewId, failure }) => {
           if (
@@ -982,20 +1163,22 @@ export const updateFor =
             interviewId !== model.selectedInterviewId ||
             !model.isConducting
           ) {
-            return ({ model: model, commands: [] });
+            return { model: model, commands: [] };
           }
 
           return Predicate.isTagged(failure, "Conflict")
-            ? ({ model: 
-                {
+            ? {
+                model: {
                   ...model,
                   isConducting: false,
                   pendingConductAction: null,
                   conductFeedback: failure,
                   conductValidationFeedback:
                     "Intervjuet er endret. Utkastet er beholdt; åpne intervjuet på nytt for å hente gjeldende versjon.",
-                }, commands: [] })
-            : ({ model: { ...model, isConducting: false, conductFeedback: failure }, commands: [] });
+                },
+                commands: [],
+              }
+            : { model: { ...model, isConducting: false, conductFeedback: failure }, commands: [] };
         },
         FailedCancel: ({ requestId, generation, interviewId, failure }) => {
           if (
@@ -1004,50 +1187,65 @@ export const updateFor =
             interviewId !== model.selectedInterviewId ||
             !model.isConducting
           ) {
-            return ({ model: model, commands: [] });
+            return { model: model, commands: [] };
           }
 
           return Predicate.isTagged(failure, "Conflict")
-            ? ({ model: clearConduct(model, failure), commands: [] })
-            : ({ model: { ...model, isConducting: false, conductFeedback: failure }, commands: [] });
+            ? { model: clearConduct(model, failure), commands: [] }
+            : { model: { ...model, isConducting: false, conductFeedback: failure }, commands: [] };
         },
         ClosedConductConfirmation: () => {
-          if (model.isConducting) return ({ model: model, commands: [] });
-          const { model: conductDialog, commands: dialogCommands = [] } = Dialog.close(model.conductDialog);
+          if (model.isConducting) return { model: model, commands: [] };
 
-          return ({ model: 
-            { ...model, conductDialog, pendingConductAction: null }, commands: conductDialogCommands(dialogCommands) });
+          const { model: conductDialog, commands: dialogCommands = [] } = Dialog.close(
+            model.conductDialog,
+          );
+
+          return {
+            model: { ...model, conductDialog, pendingConductAction: null },
+            commands: conductDialogCommands(dialogCommands),
+          };
         },
         GotConductDialogMessage: ({ message: dialogMessage }) => {
-          if (model.isConducting && Predicate.isTagged(dialogMessage, "RequestedClose")) return ({ model: model, commands: [] });
+          if (model.isConducting && Predicate.isTagged(dialogMessage, "RequestedClose"))
+            return { model: model, commands: [] };
 
-          const { model: conductDialog, commands: dialogCommands = [], outMessage: output } = Dialog.update(
-            model.conductDialog,
-            dialogMessage,
-          );
+          const {
+            model: conductDialog,
+            commands: dialogCommands = [],
+            outMessage: output,
+          } = Dialog.update(model.conductDialog, dialogMessage);
 
-          return ({ model: 
-            output !== undefined && Predicate.isTagged(output, "Closed")
-              ? { ...model, conductDialog, pendingConductAction: null }
-              : { ...model, conductDialog }, commands: conductDialogCommands(dialogCommands) });
+          return {
+            model:
+              output !== undefined && Predicate.isTagged(output, "Closed")
+                ? { ...model, conductDialog, pendingConductAction: null }
+                : { ...model, conductDialog },
+            commands: conductDialogCommands(dialogCommands),
+          };
         },
         GotScheduleDialogMessage: ({ message: dialogMessage }) => {
-          if (scheduleBusy && Predicate.isTagged(dialogMessage, "RequestedClose")) return ({ model: model, commands: [] });
+          if (scheduleBusy && Predicate.isTagged(dialogMessage, "RequestedClose"))
+            return { model: model, commands: [] };
 
-          const { model: scheduleDialog, commands: dialogCommands = [], outMessage: output } = Dialog.update(
-            model.scheduleDialog,
-            dialogMessage,
-          );
+          const {
+            model: scheduleDialog,
+            commands: dialogCommands = [],
+            outMessage: output,
+          } = Dialog.update(model.scheduleDialog, dialogMessage);
 
           const next = { ...model, scheduleDialog };
 
-          return ({ model: 
-            output !== undefined && Predicate.isTagged(output, "Closed")
-              ? {
-                  ...clearSchedule(next),
-                  commandSequence: model.commandSequence + 1,
-                }
-              : next, commands: mapDialogCommands(dialogCommands) });
+          return {
+            model:
+              output !== undefined && Predicate.isTagged(output, "Closed")
+                ? {
+                    ...clearSchedule(next),
+                    commandSequence: model.commandSequence + 1,
+                  }
+                : next,
+            commands: mapDialogCommands(dialogCommands),
+          };
         },
       }),
     );

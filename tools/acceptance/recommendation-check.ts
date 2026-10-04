@@ -65,6 +65,15 @@ import { deliverJson } from "../../apps/backend/src/delivery/http.js";
 import { NotificationGateway } from "../../packages/domain/src/notification/service.js";
 import { Array as Arr, Predicate, Schema } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
+import { admissionJourneyClock } from "../e2e/journey-clock.ts";
+import {
+  AdmissionOutcomeResource,
+  AdmissionOutcomeAnnounceResource,
+  NativeProblem,
+  RecruitmentInterviewConductObservationSchema,
+  RecruitmentMaintenanceCommand,
+  RecruitmentMaintenanceResult,
+} from "@vektorprogrammet/http-api";
 
 const root = new URL("../../", import.meta.url).pathname;
 
@@ -488,8 +497,8 @@ try {
     OAUTH_DASHBOARD_ORIGIN: ui,
     OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     PUBLIC_APPLICATION_EFFECT_MODE: effectMode,
-  PASSWORD_RESET_DELIVERY_MODE: "disabled",
-  RECEIPT_DELIVERY_MODE: "disabled",
+    PASSWORD_RESET_DELIVERY_MODE: "disabled",
+    RECEIPT_DELIVERY_MODE: "disabled",
 
     API_URL: api,
     VITE_API_URL: api,
@@ -2063,6 +2072,314 @@ try {
     recordGate(
       "direct SQL correction integrity rejects immutable mutations, invalid predecessor, aggregate mismatch, and cross-command receipt/audit tuples without writes",
     );
+    // R2: use a separate existing completed fixture, leaving the history/replay probes above intact.
+    const windowInterviewId = "interview-correction-explicit-0105";
+    const windowApplicationId = "application-correction-explicit-0105";
+    const windowActor = "report-coordinator-0103";
+    const windowGrant = "correction-window-announcement-grant-0029";
+    const windowEnd = admissionJourneyClock().fromNow(1);
+
+    const readWindowDetail = async () => {
+      const response = await get(windowInterviewId);
+      assert.equal(response.status, 200);
+
+      return Schema.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)(
+        await response.json(),
+      );
+    };
+
+    const openWindowInterview = async (target: any) => {
+      const detail = await readWindowDetail();
+      const name = `${detail.applicant.firstName} ${detail.applicant.lastName}`.trim();
+      await target.goto(`${ui}/dashboard/intervjuer`);
+      await target
+        .getByRole("article")
+        .filter({ hasText: name })
+        .getByRole("button", { name: "Åpne intervju", exact: true })
+        .click();
+      await target.getByRole("heading", { name: `Intervju med ${name}` }).waitFor();
+    };
+
+    const windowSnapshot = async () =>
+      (
+        await pool.query(
+          `SELECT
+        (SELECT jsonb_agg(to_jsonb(row) ORDER BY revision) FROM public.admission_application_outcomes row WHERE application_id=$1) AS outcomes,
+        (SELECT to_jsonb(row) FROM public.admission_outcome_announcements row WHERE application_id=$1) AS announcement,
+        (SELECT jsonb_agg(jsonb_build_object('effectId',effect_id,'kind',kind,'template',template_revision_id,'payload',payload_json) ORDER BY effect_id) FROM public.admission_outcome_outbox WHERE application_id=$1) AS mail`,
+          [windowApplicationId],
+        )
+      ).rows[0];
+    // Synthetic fixture designation: the opener is also the assigned co-interviewer.
+
+    await pool.query(
+      "UPDATE public.recruitment_interviews SET co_interviewer_person_id=$1 WHERE interview_id=$2",
+      [windowActor, windowInterviewId],
+    );
+    const windowContext = await browser.newContext();
+    const windowPage = await windowContext.newPage();
+    windowPage.on("pageerror", () => errors.push("correction-window-pageerror"));
+
+    try {
+      await windowPage.goto(`${ui}/login`);
+      await windowPage
+        .getByLabel("E-post", { exact: true })
+        .fill("coordinator.report@example.invalid");
+      await windowPage.getByLabel("Passord", { exact: true }).fill(password);
+      await windowPage.getByRole("button", { name: "Logg inn", exact: true }).click();
+      await windowPage.waitForURL(/\/dashboard\/?$/);
+      const windowCookies = await windowContext.cookies();
+
+      const windowCookie = windowCookies
+        .map((entry: any) => `${entry.name}=${entry.value}`)
+        .join("; ");
+
+      secrets.push(...windowCookies.map((entry: any) => entry.value));
+      await pool.query(
+        "INSERT INTO public.organization_global_administrator_grants(grant_id,person_id,start_at) VALUES($1,$2,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))",
+        [windowGrant, windowActor],
+      );
+
+      const outcomeRead = await fetch(`${api}/api/admission-outcomes/${windowApplicationId}`, {
+        headers: { cookie: windowCookie, origin: ui },
+      });
+
+      assert.equal(outcomeRead.status, 200);
+      const outcome = Schema.decodeUnknownSync(AdmissionOutcomeResource)(await outcomeRead.json());
+      assert.equal(outcome.basis, "Ja");
+
+      const announced = await fetch(
+        `${api}/api/admission-outcomes/${windowApplicationId}:announce`,
+        {
+          method: "POST",
+          headers: {
+            cookie: windowCookie,
+            origin: ui,
+            "content-type": "application/json",
+            "if-match": outcome.etag,
+            "idempotency-key": "correction-window-announce-0029",
+          },
+          body: "{}",
+        },
+      );
+
+      assert.equal(announced.status, 200, await announced.clone().text());
+      assert.equal(
+        Schema.decodeUnknownSync(AdmissionOutcomeAnnounceResource)(await announced.json()).outcome,
+        "Admitted",
+      );
+      await pool.query(
+        "DELETE FROM public.organization_global_administrator_grants WHERE grant_id=$1",
+        [windowGrant],
+      );
+      const frozen = await windowSnapshot();
+      const closed = await readWindowDetail();
+      assert.equal(closed.assessmentCorrection._tag, "Closed");
+      assert.equal(closed.assessmentCorrection.canCorrect, false);
+      await openWindowInterview(page);
+      assert.equal(
+        await page.getByRole("button", { name: "Rett intervju", exact: true }).isDisabled(),
+        true,
+      );
+      assert.equal(await page.locator("#interviewer-recommendation").isDisabled(), true);
+      await windowPage.goto(`${ui}/dashboard/intervjubemanning`);
+      await windowPage.getByLabel("Velg intervju", { exact: true }).selectOption(windowInterviewId);
+      const staleWindowPage = await windowContext.newPage();
+
+      try {
+        await staleWindowPage.goto(`${ui}/dashboard/intervjubemanning`);
+        await staleWindowPage
+          .getByLabel("Velg intervju", { exact: true })
+          .selectOption(windowInterviewId);
+        await windowPage
+          .getByRole("button", { name: "Gjenåpne retting", exact: true })
+          .press("Enter");
+
+        const windowDialog = windowPage.getByRole("dialog", {
+          name: "Gjenåpne retting",
+          exact: true,
+        });
+
+        await windowDialog.waitFor();
+        await windowDialog
+          .getByLabel("Begrunnelse for rettingsvindu", { exact: true })
+          .fill("Synthetic audited correction window");
+        await windowDialog
+          .getByLabel("Sluttidspunkt (med tidssone)", { exact: true })
+          .fill(windowEnd);
+        assert.deepEqual(await auditPage(windowPage, "correction-window-dialog"), []);
+        await windowPage.setViewportSize({ width: 390, height: 844 });
+        assert.ok(
+          (await windowPage
+            .locator("html")
+            .evaluate((element: HTMLElement) => element.scrollWidth)) <=
+            windowPage.viewportSize().width,
+        );
+        assert.deepEqual(await auditPage(windowPage, "correction-window-dialog-mobile"), []);
+        await windowPage.setViewportSize({ width: 1280, height: 900 });
+        const windowAttempts: Array<{ body: string; key: string | undefined }> = [];
+        await windowPage.route("**/api/recruitment/maintenance/commands", async (route: any) => {
+          const request = route.request();
+
+          if (request.method() !== "POST") return route.continue();
+
+          const command = Schema.decodeUnknownSync(RecruitmentMaintenanceCommand)(
+            request.postDataJSON(),
+          );
+
+          assert.ok(Predicate.isTagged(command, "ReopenAssessmentCorrection"));
+          assert.equal(command.expectedSequence, closed.assessmentCorrection.sequence);
+          windowAttempts.push({
+            body: request.postData(),
+            key: request.headers()["idempotency-key"],
+          });
+          const response = await route.fetch();
+          assert.equal(response.status(), 200);
+          assert.equal(
+            Schema.decodeUnknownSync(RecruitmentMaintenanceResult)(await response.json())._tag,
+            "AssessmentCorrectionReopened",
+          );
+
+          if (windowAttempts.length === 1) await route.abort("failed");
+          else await route.fulfill({ response });
+        });
+        await windowDialog
+          .getByRole("button", { name: "Bekreft gjenåpning", exact: true })
+          .press("Enter");
+        await windowDialog
+          .getByRole("button", { name: "Prøv samme forespørsel igjen", exact: true })
+          .waitFor();
+        assert.equal(
+          await windowDialog.getByLabel("Begrunnelse for rettingsvindu").inputValue(),
+          "Synthetic audited correction window",
+        );
+        assert.equal(
+          await windowDialog.getByLabel("Sluttidspunkt (med tidssone)").inputValue(),
+          windowEnd,
+        );
+        await windowDialog
+          .getByRole("button", { name: "Prøv samme forespørsel igjen", exact: true })
+          .press("Enter");
+        await windowDialog.waitFor({ state: "hidden" });
+        await windowPage.unroute("**/api/recruitment/maintenance/commands");
+        assert.equal(windowAttempts.length, 2);
+        assert.deepEqual(
+          windowAttempts[1],
+          windowAttempts[0],
+          "lost window response retries identical command/idempotency key",
+        );
+        await staleWindowPage
+          .getByRole("button", { name: "Gjenåpne retting", exact: true })
+          .press("Enter");
+
+        const staleDialog = staleWindowPage.getByRole("dialog", {
+          name: "Gjenåpne retting",
+          exact: true,
+        });
+
+        await staleDialog.getByLabel("Begrunnelse for rettingsvindu").fill("Retained stale reason");
+        await staleDialog.getByLabel("Sluttidspunkt (med tidssone)").fill(windowEnd);
+
+        const staleResponse = staleWindowPage.waitForResponse(
+          (response: any) =>
+            response.request().method() === "POST" &&
+            new URL(response.url()).pathname === "/api/recruitment/maintenance/commands",
+        );
+
+        await staleDialog
+          .getByRole("button", { name: "Bekreft gjenåpning", exact: true })
+          .press("Enter");
+        const refused = await staleResponse;
+        assert.equal(refused.status(), 412);
+        assert.equal(
+          Schema.decodeUnknownSync(NativeProblem)(await refused.json()).code,
+          "precondition.failed",
+        );
+        await staleDialog.getByRole("alert").waitFor();
+        assert.equal(
+          await staleDialog.getByLabel("Begrunnelse for rettingsvindu").inputValue(),
+          "Retained stale reason",
+        );
+        assert.equal(
+          await staleDialog
+            .getByRole("button", { name: "Bekreft gjenåpning", exact: true })
+            .isDisabled(),
+          true,
+        );
+        stage(
+          "R2 window keyboard/mobile/Axe, exact lost-response replay and stale-sequence refusal preserve draft",
+        );
+      } finally {
+        await staleWindowPage.close();
+      }
+
+      await openWindowInterview(windowPage);
+      assert.equal(
+        await windowPage.getByRole("button", { name: "Rett intervju", exact: true }).isDisabled(),
+        true,
+        "assigned co-interviewer opener cannot correct",
+      );
+      await openWindowInterview(page);
+      assert.equal(
+        await page.getByRole("button", { name: "Rett intervju", exact: true }).isEnabled(),
+        true,
+      );
+      await fill(page);
+      await page.locator("#interviewer-recommendation").selectOption("Nei");
+      await page.getByRole("button", { name: "Rett intervju", exact: true }).press("Enter");
+      const correctedResponse = waitForRecruitmentOperation(page, "correctInterviewAssessment");
+      await page
+        .getByRole("dialog")
+        .getByRole("button", { name: "Rett intervju", exact: true })
+        .press("Enter");
+      assert.equal((await correctedResponse).status(), 200);
+      await page.getByRole("dialog").waitFor({ state: "hidden" });
+      assert.equal((await readWindowDetail()).recommendation, "Nei");
+      assert.deepEqual(
+        await windowSnapshot(),
+        frozen,
+        "later assessment never changes cited final outcome or announcement mail",
+      );
+      await windowPage.goto(`${ui}/dashboard/intervjubemanning`);
+      await windowPage.getByLabel("Velg intervju", { exact: true }).selectOption(windowInterviewId);
+      await windowPage
+        .getByRole("button", { name: "Lukk rettingsvindu", exact: true })
+        .press("Enter");
+
+      const closeDialog = windowPage.getByRole("dialog", {
+        name: "Lukk rettingsvindu",
+        exact: true,
+      });
+
+      await closeDialog.getByLabel("Begrunnelse for rettingsvindu").fill("Synthetic audited close");
+
+      const closeResponse = windowPage.waitForResponse(
+        (response: any) =>
+          response.request().method() === "POST" &&
+          new URL(response.url()).pathname === "/api/recruitment/maintenance/commands",
+      );
+
+      await closeDialog
+        .getByRole("button", { name: "Bekreft lukking", exact: true })
+        .press("Enter");
+      assert.equal((await closeResponse).status(), 200);
+      await closeDialog.waitFor({ state: "hidden" });
+      const afterClose = await readWindowDetail();
+      assert.equal(afterClose.assessmentCorrection._tag, "Closed");
+      assert.equal(afterClose.assessmentCorrection.canCorrect, false);
+      assert.ok(afterClose.assessmentCorrection.sequence > closed.assessmentCorrection.sequence);
+      assert.deepEqual(await windowSnapshot(), frozen);
+      stage(
+        "R2 scoped staffing opens and closes existing maintenance variants; opener exclusion and frozen outcome hold through real UI",
+      );
+    } finally {
+      await pool.query(
+        "DELETE FROM public.organization_global_administrator_grants WHERE grant_id=$1",
+        [windowGrant],
+      );
+      await windowContext.close();
+    }
+
     await writeFile(
       join(artifacts, "correction-targeted-evidence.json"),
       JSON.stringify(
@@ -2625,27 +2942,33 @@ try {
   ).rows;
 
   const beforeLifecycle = Schema.decodeUnknownSync(
-    Schema.StructWithRest(Schema.Struct({
-      conducts: Schema.Json,
-      receipts: Schema.Array(
-        Schema.StructWithRest(Schema.Struct({ command_id: Schema.String, kind: Schema.String }), [
-          Schema.Record(Schema.String, Schema.Json),
-        ]),
-      ),
-      audit: Schema.Json,
-    }), [Schema.Record(Schema.String, Schema.Json)]),
+    Schema.StructWithRest(
+      Schema.Struct({
+        conducts: Schema.Json,
+        receipts: Schema.Array(
+          Schema.StructWithRest(Schema.Struct({ command_id: Schema.String, kind: Schema.String }), [
+            Schema.Record(Schema.String, Schema.Json),
+          ]),
+        ),
+        audit: Schema.Json,
+      }),
+      [Schema.Record(Schema.String, Schema.Json)],
+    ),
   )(JSON.parse(lifecycleBeforeCorrections));
 
   const afterLifecycle = Schema.decodeUnknownSync(
-    Schema.StructWithRest(Schema.Struct({
-      conducts: Schema.Json,
-      receipts: Schema.Array(
-        Schema.StructWithRest(Schema.Struct({ command_id: Schema.String, kind: Schema.String }), [
-          Schema.Record(Schema.String, Schema.Json),
-        ]),
-      ),
-      audit: Schema.Json,
-    }), [Schema.Record(Schema.String, Schema.Json)]),
+    Schema.StructWithRest(
+      Schema.Struct({
+        conducts: Schema.Json,
+        receipts: Schema.Array(
+          Schema.StructWithRest(Schema.Struct({ command_id: Schema.String, kind: Schema.String }), [
+            Schema.Record(Schema.String, Schema.Json),
+          ]),
+        ),
+        audit: Schema.Json,
+      }),
+      [Schema.Record(Schema.String, Schema.Json)],
+    ),
   )(JSON.parse(await lifecycleSnapshot()));
 
   assert.deepEqual(afterLifecycle.conducts, beforeLifecycle.conducts);

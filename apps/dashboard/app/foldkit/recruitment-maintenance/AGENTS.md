@@ -69,3 +69,21 @@ No `exports` entry of [apps/dashboard/package.json](../../../package.json) point
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 
 [//]: # "guide: end"
+
+## Correction windows
+
+Staffing rows carry the server-owned `assessmentCorrection` observation. The existing
+Staffing workflow opens and closes a correction window through the existing maintenance
+command. A terminal interview disables staffing changes, not window controls. Use only
+`canReopen` and `canClose` to show those controls; roles and client time grant nothing.
+
+The Dialog owns focus, Escape handling, background isolation, and mount cleanup. Keep
+its Commands lifted with `Command.mapMessages` and its view in `h.submodel`. A pending
+save blocks dismissal and editing. An uncertain save keeps the whole decoded command,
+command id, reason, end time, and observed sequence for an exact retry. A known refusal
+keeps the draft but requires an explicit reload. A new edit after an uncertain save
+uses `PrepareEdit` to obtain a new command id. Only a successful reload replaces drafts.
+
+Decode the end input once with the domain `Instant` schema. Validate the command with
+the existing maintenance variant; do not copy its reason or sequence validator. The
+server checks current scope, sequence, semester, and separation of duties at commit.

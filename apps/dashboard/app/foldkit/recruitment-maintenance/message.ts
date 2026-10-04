@@ -1,4 +1,6 @@
 import { Schema as S } from "effect";
+import { Dialog } from "@foldkit/ui";
+import { CorrectionWindowAction } from "./model";
 import { taggedStruct } from "foldkit/schema";
 import {
   QuestionnaireManagement,
@@ -68,6 +70,20 @@ export const CompletedPrepareEdit = taggedStruct("CompletedPrepareEdit", { comma
 
 export const RefreshedMaintenance = taggedStruct("RefreshedMaintenance", {});
 
+export const OpenedCorrectionWindow = taggedStruct("OpenedCorrectionWindow", {
+  action: CorrectionWindowAction,
+});
+
+export const ChangedCorrectionReason = taggedStruct("ChangedCorrectionReason", { value: S.String });
+
+export const ChangedCorrectionEndsAt = taggedStruct("ChangedCorrectionEndsAt", { value: S.String });
+
+export const SubmittedCorrectionWindow = taggedStruct("SubmittedCorrectionWindow", {});
+
+export const GotCorrectionDialogMessage = taggedStruct("GotCorrectionDialogMessage", {
+  message: Dialog.Message,
+});
+
 export const SucceededQuestionnaires = taggedStruct("SucceededQuestionnaires", {
   requestId: S.Int,
   data: QuestionnaireManagement,
@@ -94,6 +110,11 @@ export const FailedSave = taggedStruct("FailedSave", {
 });
 
 export const Message = S.Union([
+  OpenedCorrectionWindow,
+  ChangedCorrectionReason,
+  ChangedCorrectionEndsAt,
+  SubmittedCorrectionWindow,
+  GotCorrectionDialogMessage,
   SelectedRecord,
   ChangedName,
   ChangedActive,

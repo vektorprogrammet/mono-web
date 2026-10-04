@@ -1,14 +1,33 @@
 import { Match, Option, Predicate, Schema } from "effect";
+import { Dialog } from "@foldkit/ui";
+import { Instant } from "@vektorprogrammet/domain/time";
+import { Command } from "foldkit";
 import { RecruitmentMaintenanceCommand, PersonId } from "@vektorprogrammet/http-api";
 import type { Update } from "foldkit";
 import type { MaintenanceCommands } from "./command";
-import type { Message } from "./message";
+import { GotCorrectionDialogMessage, type Message } from "./message";
 import { Mutation, type Model } from "./model";
+
+const decodeInstant = Schema.decodeUnknownOption(Instant);
+
+const dialogCommands = (commands: ReadonlyArray<Command.Command<Dialog.Message>>) =>
+  Command.mapMessages(commands, (message) => GotCorrectionDialogMessage({ message }));
 
 const selectedFields = (
   model: Model,
   id: string,
-): Pick<Model, "selectedId" | "expectedRevision" | "draft" | "primary" | "co" | "reason"> => {
+): Pick<
+  Model,
+  | "selectedId"
+  | "expectedRevision"
+  | "draft"
+  | "primary"
+  | "co"
+  | "reason"
+  | "correctionAction"
+  | "correctionReason"
+  | "correctionEndsAt"
+> => {
   const questionnaire = model.questionnaires?.questionnaires.find(
     (entry) => entry.interviewSchemaId === id,
   );
@@ -35,6 +54,9 @@ const selectedFields = (
     primary: interview?.interviewerPersonId ?? "",
     co: interview?.coInterviewerPersonId ?? "",
     reason: "",
+    correctionAction: null,
+    correctionReason: "",
+    correctionEndsAt: "",
   };
 };
 
@@ -57,7 +79,7 @@ export const updateFor =
     const unchanged = { model, commands: [] };
 
     const edit = (next: Partial<Model>): Update.Return<Model, Message> =>
-      locked
+      locked || model.correctionDialog.isOpen
         ? unchanged
         : { model: { ...model, ...next, mutation: Mutation.cases.Idle.make({}) }, commands: [] };
 
@@ -66,6 +88,144 @@ export const updateFor =
     return Match.value(message).pipe(
       Match.withReturnType<Update.Return<Model, Message>>(),
       Match.tagsExhaustive({
+        OpenedCorrectionWindow: ({ action }) => {
+          if (locked || model.correctionDialog.isOpen || model.mode !== "Staffing")
+            return unchanged;
+
+          const selected = model.staffing?.interviews.find(
+            (entry) => entry.interviewId === model.selectedId,
+          );
+
+          if (
+            !selected ||
+            !(action === "Reopen"
+              ? selected.assessmentCorrection.canReopen
+              : selected.assessmentCorrection.canClose)
+          )
+            return unchanged;
+          const opened = Dialog.open(model.correctionDialog);
+
+          const retained =
+            model.correctionAction === action &&
+            model.correctionSequence === selected.assessmentCorrection.sequence;
+
+          return {
+            model: {
+              ...model,
+              correctionDialog: opened.model,
+              correctionAction: action,
+              correctionSequence: selected.assessmentCorrection.sequence,
+              correctionReason: retained ? model.correctionReason : "",
+              correctionEndsAt: retained ? model.correctionEndsAt : "",
+              mutation: Mutation.cases.Idle.make({}),
+            },
+            commands: dialogCommands(opened.commands ?? []),
+          };
+        },
+        ChangedCorrectionReason: ({ value }) =>
+          locked || !model.correctionDialog.isOpen
+            ? unchanged
+            : {
+                model: {
+                  ...model,
+                  correctionReason: value,
+                  mutation: Mutation.cases.Idle.make({}),
+                },
+                commands: [],
+              },
+        ChangedCorrectionEndsAt: ({ value }) =>
+          locked || !model.correctionDialog.isOpen || model.correctionAction !== "Reopen"
+            ? unchanged
+            : {
+                model: {
+                  ...model,
+                  correctionEndsAt: value,
+                  mutation: Mutation.cases.Idle.make({}),
+                },
+                commands: [],
+              },
+        GotCorrectionDialogMessage: ({ message }) => {
+          if (
+            Predicate.isTagged(model.mutation, "Pending") &&
+            Predicate.isTagged(message, "RequestedClose")
+          )
+            return unchanged;
+          const next = Dialog.update(model.correctionDialog, message);
+
+          return {
+            model: { ...model, correctionDialog: next.model },
+            commands: dialogCommands(next.commands ?? []),
+          };
+        },
+        SubmittedCorrectionWindow: () => {
+          if (
+            locked ||
+            !model.correctionDialog.isOpen ||
+            model.correctionAction === null ||
+            model.mode !== "Staffing"
+          )
+            return unchanged;
+
+          const selected = model.staffing?.interviews.find(
+            (entry) => entry.interviewId === model.selectedId,
+          );
+
+          if (
+            !selected ||
+            selected.assessmentCorrection.sequence !== model.correctionSequence ||
+            !(model.correctionAction === "Reopen"
+              ? selected.assessmentCorrection.canReopen
+              : selected.assessmentCorrection.canClose)
+          ) {
+            return {
+              model: {
+                ...model,
+                mutation: Mutation.cases.Invalid.make({
+                  message:
+                    "Serveren tillater ikke denne endringen i den viste versjonen. Last gjeldende versjon.",
+                }),
+              },
+              commands: [],
+            };
+          }
+
+          const common = {
+            commandId: model.commandId,
+            interviewId: selected.interviewId,
+            reason: model.correctionReason,
+            expectedSequence: model.correctionSequence,
+          };
+
+          const endsAt = decodeInstant(model.correctionEndsAt);
+
+          const command =
+            model.correctionAction === "Close"
+              ? RecruitmentMaintenanceCommand.cases.CloseAssessmentCorrection.makeOption(common)
+              : Option.isSome(endsAt)
+                ? RecruitmentMaintenanceCommand.cases.ReopenAssessmentCorrection.makeOption({
+                    ...common,
+                    endsAt: endsAt.value,
+                  })
+                : Option.none();
+
+          if (Option.isNone(command)) {
+            return {
+              model: {
+                ...model,
+                mutation: Mutation.cases.Invalid.make({
+                  message:
+                    "Skriv en begrunnelse (maks 2000 tegn) og, ved gjenåpning, et gyldig sluttidspunkt med tidssone.",
+                }),
+              },
+              commands: [],
+            };
+          }
+
+          return {
+            model: { ...model, mutation: Mutation.cases.Pending.make({ command: command.value }) },
+            commands: [commands.Save({ command: command.value })],
+          };
+        },
         SelectedRecord: (message) => edit(selectedFields(model, message.id)),
         ChangedName: (message) => edit({ draft: { ...model.draft, name: message.value } }),
         ChangedActive: (message) => edit({ draft: { ...model.draft, active: message.value } }),
@@ -196,14 +356,24 @@ export const updateFor =
           if (Predicate.isTagged(model.mutation, "Pending") || model.status === "Loading")
             return unchanged;
           const requestId = model.requestId + 1;
+          const closed = Dialog.close(model.correctionDialog);
 
           return {
-            model: { ...model, status: "Loading", requestId },
-            commands: [commands.Load({ mode: model.mode, requestId })],
+            model: {
+              ...model,
+              correctionDialog: closed.model,
+              correctionAction: null,
+              status: "Loading",
+              requestId,
+            },
+            commands: [
+              ...dialogCommands(closed.commands ?? []),
+              commands.Load({ mode: model.mode, requestId }),
+            ],
           };
         },
         SucceededQuestionnaires: (message) => {
-          if (message.requestId !== model.requestId) return unchanged;
+          if (message.requestId !== model.requestId || model.status !== "Loading") return unchanged;
           const next = { ...model, questionnaires: message.data };
 
           return {
@@ -220,7 +390,7 @@ export const updateFor =
           };
         },
         SucceededStaffing: (message) => {
-          if (message.requestId !== model.requestId) return unchanged;
+          if (message.requestId !== model.requestId || model.status !== "Loading") return unchanged;
           const next = { ...model, staffing: message.data };
 
           return {
@@ -237,7 +407,7 @@ export const updateFor =
           };
         },
         FailedLoad: (message) =>
-          message.requestId !== model.requestId
+          message.requestId !== model.requestId || model.status !== "Loading"
             ? unchanged
             : { model: { ...model, status: message.denied ? "Denied" : "Failed" }, commands: [] },
         SucceededSave: (message) => {
@@ -246,20 +416,59 @@ export const updateFor =
             message.commandId !== model.mutation.command.commandId
           )
             return unchanged;
+
+          const correlated = Match.value(model.mutation.command).pipe(
+            Match.tag(
+              "ReopenAssessmentCorrection",
+              (command) =>
+                Predicate.isTagged(message.result, "AssessmentCorrectionReopened") &&
+                message.result.interviewId === command.interviewId,
+            ),
+            Match.tag(
+              "CloseAssessmentCorrection",
+              (command) =>
+                Predicate.isTagged(message.result, "AssessmentCorrectionClosed") &&
+                message.result.interviewId === command.interviewId,
+            ),
+            Match.tag(
+              "ChangeInterviewStaffing",
+              (command) =>
+                Predicate.isTagged(message.result, "InterviewStaffingChanged") &&
+                message.result.interviewId === command.interviewId,
+            ),
+            Match.tag(
+              "ReviseQuestionnaire",
+              (command) =>
+                Predicate.isTagged(message.result, "QuestionnaireSaved") &&
+                message.result.interviewSchemaId === command.interviewSchemaId,
+            ),
+            Match.tag("CreateQuestionnaire", () =>
+              Predicate.isTagged(message.result, "QuestionnaireSaved"),
+            ),
+            Match.exhaustive,
+          );
+
+          if (!correlated) return unchanged;
           const requestId = model.requestId + 1;
+          const closed = Dialog.close(model.correctionDialog);
 
           return {
             model: {
               ...model,
+              correctionDialog: closed.model,
               selectedId: Predicate.isTagged(message.result, "QuestionnaireSaved")
                 ? message.result.interviewSchemaId
                 : message.result.interviewId,
-              expectedRevision: message.result.revision,
+              expectedRevision:
+                "revision" in message.result ? message.result.revision : model.expectedRevision,
               mutation: Mutation.cases.Saved.make({}),
               status: "Loading",
               requestId,
             },
-            commands: [commands.Load({ mode: model.mode, requestId })],
+            commands: [
+              ...dialogCommands(closed.commands ?? []),
+              commands.Load({ mode: model.mode, requestId }),
+            ],
           };
         },
         FailedSave: (message) => {
@@ -308,6 +517,8 @@ export const updateFor =
                 commands: [],
               },
         SubmittedMaintenance: () => {
+          if (model.correctionDialog.isOpen) return unchanged;
+
           if (locked) return unchanged;
           const common = { commandId: model.commandId, reason: model.reason };
 

@@ -1,12 +1,15 @@
 import { Predicate, Match } from "effect";
-import { interviewRecommendations } from "@vektorprogrammet/http-api"
-import type { RecruitmentInterviewConductObservation,
-RecruitmentInterviewQuestionSnapshot,
-RecruitmentSchedulingInterview, } from "@vektorprogrammet/http-api"
+import { interviewRecommendations } from "@vektorprogrammet/http-api";
+import type {
+  RecruitmentInterviewConductObservation,
+  RecruitmentInterviewQuestionSnapshot,
+  RecruitmentSchedulingInterview,
+} from "@vektorprogrammet/http-api";
 import { Button, Dialog, Input } from "@foldkit/ui";
 import { AsyncData, FieldValidation } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { SchedulingBoard, RecruitmentBridgeFailure } from "../recruitment/bridge";
+import { correctionWindowDescription } from "../recruitment-maintenance/correction-window";
 import {
   ChangedAnswer,
   ChangedScore,
@@ -183,7 +186,11 @@ const interviewCard = (
   const isScheduled = interview.schedule !== null;
 
   return h.article(
-    [h.Key(interview.interviewId), h.Class("fs-interview"), h.AriaLabelledBy(`fs-applicant-${index}`)],
+    [
+      h.Key(interview.interviewId),
+      h.Class("fs-interview"),
+      h.AriaLabelledBy(`fs-applicant-${index}`),
+    ],
     [
       h.div(
         [h.Class("fs-interview__header")],
@@ -229,11 +236,18 @@ const interviewCard = (
               ],
             )
           : interview.responseState === "RequestedNewTime"
-            ? h.div([h.Class("fs-card-actions")], [actionButton(
-                "Velg nytt tidspunkt", OpenedSchedule({ interviewId: interview.interviewId }),
-                model.isScheduling || model.isConducting || model.scheduleAttempt !== null,
-                "fs-button fs-button--primary fs-button--compact", h,
-              )])
+            ? h.div(
+                [h.Class("fs-card-actions")],
+                [
+                  actionButton(
+                    "Velg nytt tidspunkt",
+                    OpenedSchedule({ interviewId: interview.interviewId }),
+                    model.isScheduling || model.isConducting || model.scheduleAttempt !== null,
+                    "fs-button fs-button--primary fs-button--compact",
+                    h,
+                  ),
+                ],
+              )
             : h.empty
         : h.div(
             [h.Class("fs-card-actions")],
@@ -348,11 +362,17 @@ const boardView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
 
 const scheduleDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html => {
   const interview = model.scheduleInterview;
-  const refreshing = Predicate.isTagged(model.board, "Refreshing") || Predicate.isTagged(model.board, "Loading");
+
+  const refreshing =
+    Predicate.isTagged(model.board, "Refreshing") || Predicate.isTagged(model.board, "Loading");
+
   const busy = model.isScheduling || model.scheduleAttempt !== null || refreshing;
   const locked = busy || model.scheduleCommitted;
   const needsRefresh = model.scheduleFailure?._tag === "Conflict" && model.scheduleAttempt === null;
-  const canSchedule = interview !== null && (interview.schedule === null || interview.responseState === "RequestedNewTime");
+
+  const canSchedule =
+    interview !== null &&
+    (interview.schedule === null || interview.responseState === "RequestedNewTime");
 
   const applicantName =
     interview === null
@@ -379,7 +399,12 @@ const scheduleDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                       [h.Class("fs-dialog__heading")],
                       [
                         h.p([h.Class("fs-eyebrow")], ["Intervjuplan"]),
-                        h.h2([...title], [`${interview.schedule === null ? "Planlegg intervju" : "Velg nytt tidspunkt"} med ${applicantName}`]),
+                        h.h2(
+                          [...title],
+                          [
+                            `${interview.schedule === null ? "Planlegg intervju" : "Velg nytt tidspunkt"} med ${applicantName}`,
+                          ],
+                        ),
                         h.p(
                           [...description],
                           ["Tid, sted og melding lagres før invitasjonen legges i kø."],
@@ -394,13 +419,29 @@ const scheduleDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                           [model.scheduleError],
                         ),
                     model.scheduleAttempt !== null && !model.isScheduling
-                      ? h.p([h.Role("status")], ["Utfallet er ikke bekreftet. Utkastet er låst. Prøv samme forespørsel igjen før du endrer planen."])
+                      ? h.p(
+                          [h.Role("status")],
+                          [
+                            "Utfallet er ikke bekreftet. Utkastet er låst. Prøv samme forespørsel igjen før du endrer planen.",
+                          ],
+                        )
                       : h.empty,
                     model.scheduleCommitted
-                      ? h.p([h.Role("status")], ["Lagringen er bekreftet. Hent oversikten på nytt, eller lukk og forkast det beholdte utkastet. Ingen ny forespørsel blir sendt."])
+                      ? h.p(
+                          [h.Role("status")],
+                          [
+                            "Lagringen er bekreftet. Hent oversikten på nytt, eller lukk og forkast det beholdte utkastet. Ingen ny forespørsel blir sendt.",
+                          ],
+                        )
                       : h.empty,
                     model.scheduleCommitted || needsRefresh || model.scheduleError !== null
-                      ? actionButton(refreshing ? "Henter oversikten …" : "Hent oppdatert oversikt", RequestedBoardRefresh(), model.isScheduling || refreshing, "fs-button fs-button--secondary", h)
+                      ? actionButton(
+                          refreshing ? "Henter oversikten …" : "Hent oppdatert oversikt",
+                          RequestedBoardRefresh(),
+                          model.isScheduling || refreshing,
+                          "fs-button fs-button--secondary",
+                          h,
+                        )
                       : h.empty,
                     h.form(
                       [
@@ -495,14 +536,29 @@ const scheduleDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                               "fs-button fs-button--secondary",
                               h,
                             ),
-                            Button.view({
-                              type: "submit",
-                              isDisabled: model.scheduleCommitted || model.isScheduling || refreshing || (model.scheduleAttempt === null && (needsRefresh || !canSchedule)),
-                              toView: ({ button }) => h.button([...button, h.Class("fs-button fs-button--primary")], [
-                                model.isScheduling ? "Lagrer og henter ny oversikt …"
-                                  : model.scheduleAttempt !== null ? "Prøv samme forespørsel igjen" : "Lagre og legg i kø",
-                              ]),
-                            }, h),
+                            Button.view(
+                              {
+                                type: "submit",
+                                isDisabled:
+                                  model.scheduleCommitted ||
+                                  model.isScheduling ||
+                                  refreshing ||
+                                  (model.scheduleAttempt === null &&
+                                    (needsRefresh || !canSchedule)),
+                                toView: ({ button }) =>
+                                  h.button(
+                                    [...button, h.Class("fs-button fs-button--primary")],
+                                    [
+                                      model.isScheduling
+                                        ? "Lagrer og henter ny oversikt …"
+                                        : model.scheduleAttempt !== null
+                                          ? "Prøv samme forespørsel igjen"
+                                          : "Lagre og legg i kø",
+                                    ],
+                                  ),
+                              },
+                              h,
+                            ),
                           ],
                         ),
                       ],
@@ -559,68 +615,68 @@ const questionView = (
     ...(describedBy === undefined ? [] : [h.AriaDescribedBy(describedBy)]),
   ];
 
-  const controls =
-    Match.value(question).pipe(
-Match.when({ kind: "text" }, (question) => ([
-          h.label([h.For(`question-${question.questionId}`), h.Class("fs-label")], ["Svar"]),
-          h.textarea(
-            [
+  const controls = Match.value(question).pipe(
+    Match.when({ kind: "text" }, (question) => [
+      h.label([h.For(`question-${question.questionId}`), h.Class("fs-label")], ["Svar"]),
+      h.textarea([
+        ...inputAttrs,
+        h.Id(`question-${question.questionId}`),
+        h.Class("fs-input min-h-28 resize-y"),
+        h.Value(answerValue),
+        h.OnInput((value) => ChangedAnswer({ questionId: question.questionId, answer: value })),
+      ]),
+    ]),
+    Match.when({ kind: "check" }, (question) =>
+      question.alternatives.map((alternative, index) =>
+        h.label(
+          [h.Key(alternative), h.Class("fs-option flex min-h-11 items-center gap-3 py-2")],
+          [
+            h.input([
               ...inputAttrs,
-              h.Id(`question-${question.questionId}`),
-              h.Class("fs-input min-h-28 resize-y"),
-              h.Value(answerValue),
-              h.OnInput((value) =>
-                ChangedAnswer({ questionId: question.questionId, answer: value }),
+              h.Id(`question-${question.questionId}-${index}`),
+              h.Type("checkbox"),
+              h.Value(alternative),
+              h.Checked(selectedValues.includes(alternative)),
+              h.OnChange((checked) =>
+                ChangedAnswer({
+                  questionId: question.questionId,
+                  answer: checked
+                    ? [...selectedValues, alternative]
+                    : selectedValues.filter((value) => value !== alternative),
+                }),
               ),
-            ],
-          ),
-        ])),
-Match.when({ kind: "check" }, (question) => (question.alternatives.map((alternative, index) =>
-            h.label(
-              [h.Key(alternative), h.Class("fs-option flex min-h-11 items-center gap-3 py-2")],
-              [
-                h.input([
-                  ...inputAttrs,
-                  h.Id(`question-${question.questionId}-${index}`),
-                  h.Type("checkbox"),
-                  h.Value(alternative),
-                  h.Checked(selectedValues.includes(alternative)),
-                  h.OnChange((checked) =>
-                    ChangedAnswer({
-                      questionId: question.questionId,
-                      answer: checked
-                        ? [...selectedValues, alternative]
-                        : selectedValues.filter((value) => value !== alternative),
-                    }),
-                  ),
-                ]),
-                alternative,
-              ],
-            ),
-          ))),
-Match.orElse((question) => (question.alternatives.map((alternative, index) =>
-            h.label(
-              [h.Key(alternative), h.Class("fs-option flex min-h-11 items-center gap-3 py-2")],
-              [
-                h.input([
-                  ...inputAttrs,
-                  h.Id(`question-${question.questionId}-${index}`),
-                  h.Type(question.kind === "radio" ? "radio" : "radio"),
-                  h.Value(alternative),
-                  h.Checked(answerValue === alternative),
-                  h.OnChange(() =>
-                    ChangedAnswer({ questionId: question.questionId, answer: alternative }),
-                  ),
-                ]),
-                alternative,
-              ],
-            ),
-          )))
-);
+            ]),
+            alternative,
+          ],
+        ),
+      ),
+    ),
+    Match.orElse((question) =>
+      question.alternatives.map((alternative, index) =>
+        h.label(
+          [h.Key(alternative), h.Class("fs-option flex min-h-11 items-center gap-3 py-2")],
+          [
+            h.input([
+              ...inputAttrs,
+              h.Id(`question-${question.questionId}-${index}`),
+              h.Type(question.kind === "radio" ? "radio" : "radio"),
+              h.Value(alternative),
+              h.Checked(answerValue === alternative),
+              h.OnChange(() =>
+                ChangedAnswer({ questionId: question.questionId, answer: alternative }),
+              ),
+            ]),
+            alternative,
+          ],
+        ),
+      ),
+    ),
+  );
 
   return h.fieldset(
     [
       h.Class("fs-question fs-field min-w-0"),
+      h.Key(question.questionId),
       h.AriaLabelledBy(`question-${question.questionId}-legend`),
     ],
     [
@@ -655,7 +711,9 @@ const scoreView = (model: ReadyModel, isTerminal: boolean, h: HtmlBuilder<Messag
               h.Id("interviewer-recommendation"),
               h.Class("fs-input"),
               h.Value(model.recommendation ?? ""),
-              h.Disabled(model.isConducting || Predicate.isTagged(model.conduct, "Refreshing") || isTerminal),
+              h.Disabled(
+                model.isConducting || Predicate.isTagged(model.conduct, "Refreshing") || isTerminal,
+              ),
               h.OnChange((value) =>
                 ChangedRecommendation({
                   value: interviewRecommendations.find((choice) => choice === value) ?? null,
@@ -687,7 +745,11 @@ const scoreView = (model: ReadyModel, isTerminal: boolean, h: HtmlBuilder<Messag
                 h.Id(`score-${axis}`),
                 h.Class("fs-input"),
                 h.Value(field.value),
-                h.Disabled(model.isConducting || Predicate.isTagged(model.conduct, "Refreshing") || isTerminal),
+                h.Disabled(
+                  model.isConducting ||
+                    Predicate.isTagged(model.conduct, "Refreshing") ||
+                    isTerminal,
+                ),
                 h.OnChange((value) => ChangedScore({ axis, value })),
               ],
               [
@@ -845,6 +907,10 @@ const conductSuccessView = (
         ? "Cancelled"
         : null;
 
+  const readOnly =
+    !(detail.canFinalize || detail.assessmentCorrection.canCorrect) ||
+    model.pendingConductAction !== null;
+
   return h.section(
     [h.Class("fs-conduct fs-board mt-4 grid gap-6 p-4"), h.AriaLabelledBy("fs-conduct-title")],
     [
@@ -862,10 +928,10 @@ const conductSuccessView = (
             [h.Class("fs-status fs-status--scheduled")],
             [
               Match.value(terminal).pipe(
-Match.when("Completed", () => ("Fullført")),
-Match.when("Cancelled", () => ("Avlyst")),
-Match.orElse(() => ("Klar til gjennomføring"))
-),
+                Match.when("Completed", () => "Fullført"),
+                Match.when("Cancelled", () => "Avlyst"),
+                Match.orElse(() => "Klar til gjennomføring"),
+              ),
             ],
           ),
         ],
@@ -882,16 +948,26 @@ Match.orElse(() => ("Klar til gjennomføring"))
         ],
       ),
       completionDetailsView(detail, h),
+      h.section(
+        [h.AriaLabel("Rettingsvindu")],
+        [
+          h.h3([], ["Retting av vurdering"]),
+          h.p([], [correctionWindowDescription(detail.assessmentCorrection)]),
+          h.p([], [`Vinduversjon ${detail.assessmentCorrection.sequence}`]),
+          h.p(
+            [],
+            [
+              "Serveren avgjør tilgangen ved lagring. Retting erstatter ikke en lukket opptaksbeslutning eller et kunngjort utfall.",
+            ],
+          ),
+        ],
+      ),
       detail.history.length === 0 ? h.empty : correctionHistoryView(detail, h),
       h.div(
         [h.Class("fs-conduct__questions grid gap-6")],
-        detail.questions.map((question) =>
-          questionView(question, model, detail.cancellationState === "Cancelled", h),
-        ),
+        detail.questions.map((question) => questionView(question, model, readOnly, h)),
       ),
-      terminal === null || terminal === "Completed"
-        ? scoreView(model, detail.cancellationState === "Cancelled", h)
-        : h.empty,
+      terminal === null || terminal === "Completed" ? scoreView(model, readOnly, h) : h.empty,
       model.conductValidationFeedback === null
         ? h.empty
         : h.p(
@@ -914,14 +990,14 @@ Match.orElse(() => ("Klar til gjennomføring"))
                 actionButton(
                   "Fullfør intervju",
                   SubmittedFinalize(),
-                  false,
+                  !detail.canFinalize || Predicate.isTagged(model.conduct, "Refreshing"),
                   "fs-button fs-button--primary",
                   h,
                 ),
                 actionButton(
                   "Avlys intervju",
                   SubmittedCancel(),
-                  false,
+                  !detail.canCancel || Predicate.isTagged(model.conduct, "Refreshing"),
                   "fs-button fs-button--secondary",
                   h,
                 ),
@@ -938,7 +1014,8 @@ Match.orElse(() => ("Klar til gjennomføring"))
                   actionButton(
                     "Rett intervju",
                     SubmittedFinalize(),
-                    false,
+                    !detail.assessmentCorrection.canCorrect ||
+                      Predicate.isTagged(model.conduct, "Refreshing"),
                     "fs-button fs-button--primary",
                     h,
                   ),
@@ -955,12 +1032,22 @@ Match.orElse(() => ("Klar til gjennomføring"))
 
 const conductFailureMessage = (failure: RecruitmentBridgeFailure): string => {
   return Match.value(failure).pipe(
-Match.tag("Unauthorized", "Forbidden", () => {return "Du har ikke tilgang til intervjuet.";}),
-Match.tag("NotFound", () => {return "Intervjuet finnes ikke lenger.";}),
-Match.tag("Conflict", () => {return "Intervjuet er endret. Velg intervjuet på nytt.";}),
-Match.tag("Validation", () => {return "Intervjuet inneholdt ugyldige data.";}),
-Match.orElse(() => {return "Intervjuet er midlertidig utilgjengelig. Prøv igjen senere.";})
-);
+    Match.tag("Unauthorized", "Forbidden", () => {
+      return "Du har ikke tilgang til intervjuet.";
+    }),
+    Match.tag("NotFound", () => {
+      return "Intervjuet finnes ikke lenger.";
+    }),
+    Match.tag("Conflict", () => {
+      return "Intervjuet er endret. Velg intervjuet på nytt.";
+    }),
+    Match.tag("Validation", () => {
+      return "Intervjuet inneholdt ugyldige data.";
+    }),
+    Match.orElse(() => {
+      return "Intervjuet er midlertidig utilgjengelig. Prøv igjen senere.";
+    }),
+  );
 };
 
 const conductDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
@@ -982,20 +1069,34 @@ const conductDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                       [...title],
                       [
                         Match.value(model).pipe(
-Match.when({ pendingConductAction: "Finalize" }, () => ("Fullfør intervjuet?")),
-Match.when({ pendingConductAction: "Correct" }, () => ("Rette intervjuet?")),
-Match.orElse(() => ("Avlys intervjuet?"))
-),
+                          Match.when(
+                            { pendingConductAction: "Finalize" },
+                            () => "Fullfør intervjuet?",
+                          ),
+                          Match.when(
+                            { pendingConductAction: "Correct" },
+                            () => "Rette intervjuet?",
+                          ),
+                          Match.orElse(() => "Avlys intervjuet?"),
+                        ),
                       ],
                     ),
                     h.p(
                       [...description],
                       [
                         Match.value(model).pipe(
-Match.when({ pendingConductAction: "Finalize" }, () => ("Svarene og scorene lagres som endelig resultat.")),
-Match.when({ pendingConductAction: "Correct" }, () => ("Den nye vurderingen lagres som en ny versjon.")),
-Match.orElse(() => ("Intervjuet markeres som avlyst. Dette kan ikke angres."))
-),
+                          Match.when(
+                            { pendingConductAction: "Finalize" },
+                            () => "Svarene og scorene lagres som endelig resultat.",
+                          ),
+                          Match.when(
+                            { pendingConductAction: "Correct" },
+                            () => "Den nye vurderingen lagres som en ny versjon.",
+                          ),
+                          Match.orElse(
+                            () => "Intervjuet markeres som avlyst. Dette kan ikke angres.",
+                          ),
+                        ),
                       ],
                     ),
                     h.div(
@@ -1025,10 +1126,16 @@ Match.orElse(() => ("Intervjuet markeres som avlyst. Dette kan ikke angres."))
                                 ],
                                 [
                                   Match.value(model).pipe(
-Match.when({ pendingConductAction: "Finalize" }, () => ("Fullfør intervju")),
-Match.when({ pendingConductAction: "Correct" }, () => ("Rett intervju")),
-Match.orElse(() => ("Avlys intervju"))
-),
+                                    Match.when(
+                                      { pendingConductAction: "Finalize" },
+                                      () => "Fullfør intervju",
+                                    ),
+                                    Match.when(
+                                      { pendingConductAction: "Correct" },
+                                      () => "Rett intervju",
+                                    ),
+                                    Match.orElse(() => "Avlys intervju"),
+                                  ),
                                 ],
                               ),
                           },

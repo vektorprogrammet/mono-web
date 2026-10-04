@@ -1,4 +1,4 @@
-import { Effect, Match, Schema as S } from "effect";
+import { Effect, Match, Predicate, Schema as S } from "effect";
 import { Command } from "foldkit";
 import { IdempotencyKey, RecruitmentMaintenanceCommand } from "@vektorprogrammet/http-api";
 import { createEffectClient } from "@vektorprogrammet/sdk/effect";
@@ -68,9 +68,18 @@ export const commandsFor = (): MaintenanceCommands => {
           Effect.catch((error) => {
             const problem = nativeProblemFrom(error);
 
+            const windowCommand =
+              Predicate.isTagged(command, "ReopenAssessmentCorrection") ||
+              Predicate.isTagged(command, "CloseAssessmentCorrection");
+
             const message = Match.value(problem?.code).pipe(
               Match.when("authority.denied", () => "Du har ikke tilgang til denne endringen."),
               Match.when("credential.invalid", () => "Økten er utløpt. Logg inn på nytt."),
+              Match.when("resource.not-found", () =>
+                windowCommand
+                  ? "Intervjuet finnes ikke lenger. Utkastet er beholdt; last gjeldende versjon."
+                  : "Lagringen kunne ikke bekreftes. Utkastet er beholdt. Prøv samme forespørsel igjen.",
+              ),
               Match.when(
                 "precondition.failed",
                 () =>
@@ -81,17 +90,19 @@ export const commandsFor = (): MaintenanceCommands => {
                 () =>
                   "Velg to ulike, aktive medlemmer i intervjuets avdeling. Søkeren kan ikke være intervjuer.",
               ),
-              Match.when(
-                "recruitment.terminal",
-                () => "Intervjuet er fullført eller avlyst. Bemanningen kan ikke endres.",
+              Match.when("recruitment.terminal", () =>
+                windowCommand
+                  ? "Serveren avviste endringen: rettingsvindu krever et fullført, ikke avlyst intervju innen søkerens semester. Utkastet er beholdt."
+                  : "Intervjuet er fullført eller avlyst. Bemanningen kan ikke endres.",
               ),
               Match.when(
                 "recruitment.empty-active-questionnaire",
                 () => "Et aktivt intervjuskjema må ha minst ett gyldig spørsmål.",
               ),
-              Match.when(
-                "recruitment.invalid-command",
-                () => "Kontroller spørsmål, svaralternativer og begrunnelse.",
+              Match.when("recruitment.invalid-command", () =>
+                windowCommand
+                  ? "Serveren avviste rettingsvinduet. Kontroller begrunnelse og sluttidspunkt innen søkerens eget semester. Utkastet er beholdt."
+                  : "Kontroller spørsmål, svaralternativer og begrunnelse.",
               ),
               Match.when(
                 "idempotency.digest-conflict",
@@ -108,7 +119,17 @@ export const commandsFor = (): MaintenanceCommands => {
                 commandId: command.commandId,
                 message,
                 conflict:
-                  problem?.status === 412 || problem?.code === "idempotency.digest-conflict",
+                  problem?.status === 412 ||
+                  problem?.code === "idempotency.digest-conflict" ||
+                  (windowCommand &&
+                    problem !== undefined &&
+                    [
+                      "authority.denied",
+                      "credential.invalid",
+                      "resource.not-found",
+                      "recruitment.terminal",
+                      "recruitment.invalid-command",
+                    ].includes(problem.code)),
               }),
             );
           }),

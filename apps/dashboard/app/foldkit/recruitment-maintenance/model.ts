@@ -1,4 +1,5 @@
 import { Schema as S } from "effect";
+import { Dialog } from "@foldkit/ui";
 import {
   RecruitmentMaintenanceCommand,
   QuestionnaireManagement,
@@ -9,6 +10,8 @@ import {
 export const Mode = S.Literals(["Questionnaires", "Staffing"]);
 
 export type Mode = typeof Mode.Type;
+
+export const CorrectionWindowAction = S.Literals(["Reopen", "Close"]);
 
 export const DraftQuestion = S.Struct({
   questionId: S.String,
@@ -44,6 +47,11 @@ export const Model = S.Struct({
   primary: S.String,
   co: S.String,
   reason: S.String,
+  correctionDialog: Dialog.Model,
+  correctionAction: S.NullOr(CorrectionWindowAction),
+  correctionReason: S.String,
+  correctionEndsAt: S.String,
+  correctionSequence: S.Int.check(S.isGreaterThanOrEqualTo(0)),
   nextQuestion: S.Int,
   commandId: S.String,
   mutation: Mutation,
@@ -63,6 +71,11 @@ export const init = (mode: Mode): Model => ({
   primary: "",
   co: "",
   reason: "",
+  correctionDialog: Dialog.init({ id: "recruitment-correction-window" }),
+  correctionAction: null,
+  correctionReason: "",
+  correctionEndsAt: "",
+  correctionSequence: 0,
   nextQuestion: 0,
   commandId: "",
   mutation: Mutation.cases.Idle.make({}),
