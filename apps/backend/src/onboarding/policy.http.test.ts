@@ -103,7 +103,9 @@ const seed = Database.use((sql) =>
     const now = yield* postgresNow;
     const start = DateTime.formatIso(DateTime.subtract(now, { days: 1 }));
     const end = DateTime.formatIso(DateTime.add(now, { days: 1 }));
-    yield* sql`INSERT INTO organization_departments(department_id,name,short_name,email,city) VALUES(${departmentId},'Policy','POL','policy@example.invalid','Policy'),('policy-other','Other','OTH','other@example.invalid','Other')`;
+    // These are recognized independent departments: their classified board
+    // leaders govern their own department, never the other department.
+    yield* sql`INSERT INTO organization_departments(department_id,name,short_name,email,city,independent) VALUES(${departmentId},'Policy','POL','policy@example.invalid','Policy',true),('policy-other','Other','OTH','other@example.invalid','Other',true)`;
     yield* sql`INSERT INTO admission_period_departments(department_id,name) VALUES(${departmentId},'Policy')`;
     yield* sql`INSERT INTO admission_period_semesters VALUES('policy-semester',${start},${end}),('policy-other-semester',${start},${end})`;
     yield* sql`INSERT INTO admission_periods VALUES('policy-period',${departmentId},'policy-semester',${start},${end},0,'seed')`;
