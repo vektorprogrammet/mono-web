@@ -1457,7 +1457,7 @@ async function main() {
     for (const record of [...lifecycleCommands, ...delegationCommands]) {
       if (!record.sessionCookieAuth || record.authorizationHeaderPresent || record.ifMatch !== null ||
         !Predicate.isString(record.idempotencyKey) || record.requestContentType?.split(";", 1)[0] !== "application/json" ||
-        record.responseCacheControl !== "private, no-store") {
+        record.responseCacheControl !== "no-store") {
         throw new Error(`${record.method} ${record.path} bypassed the native authenticated command contract`);
       }
 
@@ -1480,8 +1480,8 @@ async function main() {
 
     for (const record of mailing) {
       if (record.method !== "GET" || !record.sessionCookieAuth || record.authorizationHeaderPresent ||
-        record.responseCacheControl !== "private, no-store") {
-        throw new Error("Mailing recipient read was not private and cookie authenticated");
+        record.responseCacheControl !== (record.status === 200 ? "private, no-store" : "no-store")) {
+        throw new Error("Mailing recipient read or problem escaped scoped cookie/no-store semantics");
       }
 
       if (record.status === 403) assertProblemResponse(record, { status: 403, code: "authority.denied" });

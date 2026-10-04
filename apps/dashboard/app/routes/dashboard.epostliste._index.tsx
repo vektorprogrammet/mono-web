@@ -8,6 +8,8 @@ import { nativeProblemFrom } from "../lib/native-problem";
 import { semesterLabel } from "../lib/semester-label";
 import type { Route } from "./+types/dashboard.epostliste._index";
 
+const responseHeaders = { "Cache-Control": "private, no-store" } as const;
+
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
@@ -31,7 +33,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
     return data(
       { scopes, department, semester, type, emails, error: null },
-      { headers: { "Cache-Control": "private, no-store" } },
+      { headers: responseHeaders },
     );
   } catch (cause) {
     const problem = nativeProblemFrom(cause);
@@ -50,10 +52,12 @@ export async function loader({ request }: Route.LoaderArgs) {
 
     return data(
       { scopes, department, semester, type, emails: null, error },
-      { status: problem?.status ?? 503, headers: { "Cache-Control": "private, no-store" } },
+      { status: problem?.status ?? 503, headers: responseHeaders },
     );
   }
 }
+
+export const headers = () => responseHeaders;
 
 export default function Epostliste() {
   const { scopes, department, semester, type, emails, error } = useLoaderData<typeof loader>();
