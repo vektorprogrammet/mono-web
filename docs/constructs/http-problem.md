@@ -930,7 +930,7 @@ stays the one authority. A denial dies with the HTTP status of the evaluation.
 **Use**
 
 ```ts
-yield* authorizeAnonymous(Option.getOrThrow(reflectAccessSpec(ReadTeamApplicationIntakeEndpoint)), resolution, instant);
+yield* authorizeAnonymous(Option.getOrThrow(reflectAccessSpec(readTeamApplicationIntake)), resolution, instant);
 ```
 
 **Avoid**
