@@ -6,14 +6,14 @@ import { Deferred, Effect, Exit, Fiber, Option, Predicate, Schema } from "effect
 import { Command, Runtime } from "foldkit";
 import { createBrowserRecruitmentClient } from "../app/foldkit/recruitment/browser-client";
 import { commandsFor as recruitmentCommands } from "../app/foldkit/recruitment/command";
+import { SucceededLoadBoard } from "../app/foldkit/recruitment/message";
 import { createBrowserInterviewClient } from "../app/foldkit/interview/browser-client";
 import { commandsFor as interviewCommands } from "../app/foldkit/interview/command";
+import { SucceededReadInvitationResponse } from "../app/foldkit/interview/message";
 import { RecruitmentAssignmentBoardSchema, StrongETag } from "@vektorprogrammet/http-api";
 import { InvitationResponseResourceSchema } from "../app/foldkit/interview/bridge";
 
 const Completed = Schema.TaggedStruct("Completed", {});
-
-const nativeFetch = globalThis.fetch.bind(globalThis);
 
 const etag = StrongETag.make(`"vkr2.${"A".repeat(43)}"`);
 
@@ -29,14 +29,23 @@ const invitation = Schema.decodeSync(InvitationResponseResourceSchema)({
 
 // This is a URL adapter, not a fetch stub: every request uses a real loopback socket.
 // The server holds the response until the test releases it; no delay or polling signals success.
-const delayedBridge = Effect.fnUntraced(function* (body: string) {
+const delayedBridge = Effect.fnUntraced(function* (body: string, pathname: string) {
   const accepted = yield* Deferred.make<ServerResponse>();
   const disconnected = yield* Deferred.make<void>();
   const networkSettled = yield* Deferred.make<void>();
-  const signals: Array<AbortSignal | null | undefined> = [];
+  const signals: Array<NonNullable<Parameters<Window["fetch"]>[1]>["signal"]> = [];
 
   const server = yield* Effect.acquireRelease(
-    Effect.sync(() => createServer((_request, response) => {
+    Effect.sync(() => createServer((request, response) => {
+      // Never mistake an unrelated CORS preflight for the Command-owned POST.
+      if (request.method !== "POST" || request.url !== pathname) {
+        Deferred.doneUnsafe(accepted, Effect.die(`Unexpected bridge request: ${request.method} ${request.url}`));
+        response.writeHead(400);
+        response.end();
+
+        return;
+      }
+
       response.once("close", () => {
         if (!response.writableEnded) Deferred.doneUnsafe(disconnected, Effect.void);
       });
@@ -57,32 +66,48 @@ const delayedBridge = Effect.fnUntraced(function* (body: string) {
 
   if (address === null || Predicate.isString(address)) return yield* Effect.die("missing loopback address");
   const origin = `http://127.0.0.1:${address.port}`;
-  const originalFetch = globalThis.fetch;
+  const originalFetch = Object.getOwnPropertyDescriptor(globalThis, "fetch");
+
+  const browserWindow = yield* Effect.acquireRelease(
+    Effect.sync(() => new Window({ url: origin + "/dashboard/interview-response/redacted/" })),
+    (owned) => Effect.promise(() => owned.happyDOM.close()),
+  );
+
   const originalLocation = Object.getOwnPropertyDescriptor(globalThis, "location");
+  const browserFetch = browserWindow.fetch.bind(browserWindow);
   yield* Effect.acquireRelease(
     Effect.sync(() => {
+      // Replacing only globalThis.location left fetch's Window at localhost.
+      // Happy DOM then held an OPTIONS preflight with its own, unrelated signal
+      // (Fetch.compliesWithCrossOriginPolicy), invalidating the old R8 witness.
+      // This fixture owns both the same-origin page URL and its real fetch.
       Object.defineProperty(globalThis, "location", {
-        configurable: true, value: new URL(origin + "/dashboard/interview-response/redacted/"),
+        configurable: true, value: browserWindow.location,
       });
-      globalThis.fetch = (input, init) => {
-        signals.push(init?.signal);
+      Object.defineProperty(globalThis, "fetch", {
+        configurable: true,
+        value: (input: Parameters<typeof browserFetch>[0], init?: Parameters<typeof browserFetch>[1]) => {
+          signals.push(init?.signal);
 
-        const url = Predicate.isString(input) ? input : input instanceof URL ? input.href : input.url;
+          const url = Predicate.isString(input) ? input : input instanceof URL ? input.href : input.url;
 
-        return nativeFetch(new URL(url, origin), init).then(
-          (response) => {
-            Deferred.doneUnsafe(networkSettled, Effect.void);
+          return browserFetch(new URL(url, origin).href, init).then(
+            (response) => {
+              Deferred.doneUnsafe(networkSettled, Effect.void);
 
-            return response;
-          },
-          (error) => { Deferred.doneUnsafe(networkSettled, Effect.void); throw error; },
-        );
-      };
+              return response;
+            },
+            (error) => { Deferred.doneUnsafe(networkSettled, Effect.void); throw error; },
+          );
+        },
+      });
     }),
     () => Effect.sync(() => {
-      globalThis.fetch = originalFetch;
+      if (originalFetch) Object.defineProperty(globalThis, "fetch", originalFetch);
+      else Reflect.deleteProperty(globalThis, "fetch");
 
       if (originalLocation) Object.defineProperty(globalThis, "location", originalLocation);
+      else Reflect.deleteProperty(globalThis, "location");
     }),
   );
 
@@ -95,18 +120,41 @@ const delayedBridge = Effect.fnUntraced(function* (body: string) {
   };
 });
 
-const cases: ReadonlyArray<{ name: string; body: string; build: () => Command.Command<{ readonly _tag: string }> }> = [
+const cases: ReadonlyArray<{
+  name: string;
+  pathname: string;
+  body: string;
+  expectedMessage: { readonly _tag: string };
+  build: () => Command.Command<{ readonly _tag: string }>;
+}> = [
   { name: "recruitment", body: Schema.encodeSync(Schema.fromJsonString(RecruitmentAssignmentBoardSchema))(board),
+    pathname: "/recruitment", expectedMessage: SucceededLoadBoard({ requestId: 17, board }),
     build: () => recruitmentCommands(createBrowserRecruitmentClient()).LoadAssignmentBoard({ status: "all", requestId: 17 }) },
   { name: "interview", body: Schema.encodeSync(Schema.fromJsonString(InvitationResponseResourceSchema))(invitation),
+    pathname: "/dashboard/interview", expectedMessage: SucceededReadInvitationResponse({ requestId: 17, ...invitation }),
     build: () => interviewCommands(createBrowserInterviewClient("a".repeat(32))).ReadInvitationResponse({ requestId: 17 }) },
 ];
 
 describe("R8 real delayed browser bridge cancellation", () => {
   for (const scenario of cases) {
+    it.live(`${scenario.name}: the real POST completes with its decoded success Message`, () =>
+      Effect.scoped(Effect.gen(function* () {
+        const bridge = yield* delayedBridge(scenario.body, scenario.pathname);
+        const fiber = yield* Effect.forkScoped(scenario.build().effect);
+        const response = yield* Deferred.await(bridge.accepted).pipe(Effect.timeout("2 seconds"));
+        assert.strictEqual(bridge.signals.length, 1);
+        assert.isFalse(bridge.signals[0]?.aborted === true);
+        yield* bridge.release(response);
+        const message = yield* Fiber.join(fiber).pipe(Effect.timeout("2 seconds"));
+        yield* Deferred.await(bridge.networkSettled);
+        assert.deepStrictEqual(message, scenario.expectedMessage);
+        assert.isFalse(yield* Deferred.isDone(bridge.disconnected));
+      })),
+    );
+
     it.live(`${scenario.name}: scoped interruption aborts the socket, finalizes and suppresses late messages`, () =>
       Effect.scoped(Effect.gen(function* () {
-        const bridge = yield* delayedBridge(scenario.body);
+        const bridge = yield* delayedBridge(scenario.body, scenario.pathname);
         const finalized = yield* Deferred.make<void>();
         const messages: string[] = [];
         const command = scenario.build();
@@ -132,7 +180,7 @@ describe("R8 real delayed browser bridge cancellation", () => {
 
     it.live(`${scenario.name}: custom host disposal aborts the network and releases the in-flight Command`, () =>
       Effect.scoped(Effect.gen(function* () {
-        const bridge = yield* delayedBridge(scenario.body);
+        const bridge = yield* delayedBridge(scenario.body, scenario.pathname);
         const started = yield* Deferred.make<void>();
         const finalized = yield* Deferred.make<void>();
         const restored = yield* Deferred.make<void>();
@@ -245,7 +293,7 @@ describe("R8 real delayed browser bridge cancellation", () => {
 
     it.live(`${scenario.name}: a late loopback response after interruption never produces a Message`, () =>
       Effect.scoped(Effect.gen(function* () {
-        const bridge = yield* delayedBridge(scenario.body);
+        const bridge = yield* delayedBridge(scenario.body, scenario.pathname);
         const messages: string[] = [];
         const finalized = yield* Deferred.make<void>();
 
@@ -266,7 +314,7 @@ describe("R8 real delayed browser bridge cancellation", () => {
 
     it.live(`${scenario.name}: constructing and discarding the real Command starts no network work`, () =>
       Effect.scoped(Effect.gen(function* () {
-        const bridge = yield* delayedBridge(scenario.body);
+        const bridge = yield* delayedBridge(scenario.body, scenario.pathname);
         const discarded = scenario.build();
         assert.strictEqual(discarded.args?.requestId, 17);
         assert.deepStrictEqual(bridge.signals, []);
