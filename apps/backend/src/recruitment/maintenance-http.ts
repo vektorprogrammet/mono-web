@@ -15,6 +15,7 @@ import {
   MaintainRecruitmentEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
+import { Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { resolveRequestCredentialInTransaction } from "../authority.js";
 import { genericContext } from "../native-operation.js";
 import {
@@ -133,7 +134,11 @@ export const maintainRecruitmentHttp = (request: Request) =>
       onExcessProperty: "error",
     }).pipe(Effect.mapError(() => new RecruitmentMaintenanceFailure({ code: "Invalid" })));
 
-    const encodedCommand = yield* Schema.encodeEffect(RecruitmentMaintenanceCommand)(command);
+    // The command is already decoded; failure to encode its digest is a server contract fault.
+    const encodedCommand = yield* Schema.encodeEffect(RecruitmentMaintenanceCommand)(command).pipe(
+      Effect.mapError(() => Problem.make("internal.error")),
+    );
+
     const key = yield* idempotencyKeyOf(request);
 
     if (key !== command.commandId)
