@@ -10,8 +10,8 @@ Production uses the legacy PHP application. Production replacement is not author
 The legacy source is in the [vektorprogrammet](https://github.com/vektorprogrammet/vektorprogrammet) repository; the former `apps/server` continues there as branch `modernize/mono-web-server` (`908368a8`), with the same tree (`023b85bd`) as mono-web `b6438cb2`. The removal commit is `ea124143`; its parent `1277be8b` still contains `apps/server`.
 Local implementation and acceptance do not authorize production, provider, or source-data actions.
 
-Recruitment migration 0029 is operator-approved for local implementation at effx
-`b88523d2a8ffcbde5c19008d649da653c26ee475`, under `docs/specs/0029-recruitment-migration.md`.
+Recruitment migration 0029 has operator approval reported by the director; exact words not
+preserved. This is not verified direct operator approval. Effx commit `b88523d2a8ffcbde5c19008d649da653c26ee475` records the report under `docs/specs/0029-recruitment-migration.md`.
 This branch starts from the accepted Admissions integration `815a28f8`.
 R1–R8 have accepted red evidence at handwritten revisions aee83078 and 06ba6607.
 The evidence remains outside the product tree in `/srv/share/projects/effx-recruitment-0029-evidence/red/`.
@@ -20,16 +20,17 @@ positive fixtures are integrated locally. Their staged hooks passed. Runtime gre
 authority-model execution, upgrade proof on both supported PostgreSQL majors, and aggregate gates
 remain unverified. No Recruitment generated-contract cutover or repaired parity baseline is claimed.
 Migrations 0083 and 0084 are registered through `just migration-hashes write`. The source-safety
-test accepts their exact reviewed bytes and rejects a one-byte appended space. The operator
-abolished the single heavy-job slot. Before each heavy job, retain two resource readings
-10 seconds apart: load below nproc, MemAvailable at least 25% of RAM, and no swap growth.
-Retain top RSS/CPU processes and heavy-job attribution beside each job’s evidence. If
-admission fails, wait 60 seconds and repeat. After 15 minutes, report the resource holders.
-Memory pressure prevents another heavy job. The measured lead execution skips the obsolete
-exclusive-flock admission under this explicit operator rule, without claiming lock ownership.
+test accepts their exact reviewed bytes and rejects a one-byte appended space. The operator’s
+direct instruction was: “Forgoe the heavy job slot in place of checking the machine status for
+what resources are taken” (2026-10-04, `history://Main:253-255`). The director supplied the
+admission procedure: two readings 10 seconds apart, load below nproc, MemAvailable at least
+25% of RAM, and no swap growth. Retain top RSS/CPU processes and heavy-job attribution beside
+each job’s evidence. If admission fails, wait 60 seconds and repeat. After 15 minutes, report
+the resource holders. Memory pressure prevents another heavy job. Measured lead execution
+skips obsolete exclusive-flock admission under that quoted instruction, without claiming lock ownership.
 The e04 mixed-onboarding module fails type-checking because its subset factory leaves `claim`
 unhandled (TS2322). No built-in option emits its raw/guard types without that factory. The
-operator approved a typed completion continuation: the generated factory registers `readBoard`
+director approved a typed completion continuation: the generated factory registers `readBoard`
 and `command`, then requires the handwritten `claim` completion before a group layer exists.
 A missing claim must be a compile error. The successor package passes spec 0029’s re-vendor
 gate, including unchanged regeneration of all nine earlier groups. The onboarding cutover
@@ -40,6 +41,17 @@ the transitional handwritten completion.
 The isolated reproducer is retained outside the product tree at
 `/srv/share/projects/effx-recruitment-0029-evidence/compiler/mixed-onboarding/`;
 `observed.json` records build exit 0 and type-check exit 1, not product-test acceptance.
+
+### Attribution correction (2026-10-04)
+
+Earlier Recruitment state and evidence labels credited director decisions to the operator.
+The continuation, re-vendor conditions and later R2 confirmation came from the director through
+`agent://Main`. Rulings 1–7 retain the distinct label: “operator approval reported by the
+director; exact words not preserved”. Their direct approval is not verified. The operator’s
+resource instruction is quoted in this record, while its numeric admission thresholds came
+from the director. Earlier commits and raw evidence remain unchanged. The dated evidence
+correction at `/srv/share/projects/effx-recruitment-0029-evidence/attribution-correction-2026-10-04.md`
+records those distinctions without altering test results or product behavior.
 
 Operator decisions:
 
