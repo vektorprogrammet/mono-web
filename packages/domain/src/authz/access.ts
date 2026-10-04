@@ -203,6 +203,7 @@ export const REQUIREMENT_IDS = [
   "profile.owner",
   "organization.single-department-administrator",
   "organization.single-department-member",
+  "admissions.department-coordinator",
   "onboarding.claim-token",
   "recruitment.interviewer-eligible",
   "recruitment.assigned-interviewer-or-administrator",
@@ -260,6 +261,7 @@ export const SCOPE_RESOLVER_IDS = [
   "recruitment.maintenance",
   "admissions.application-outcomes",
   "admissions.outcome-templates",
+  "admissions.outcome-announcement",
   "placements.explicit-department",
   "onboarding.application-department",
   "onboarding.claim",
@@ -643,6 +645,12 @@ export const REQUIREMENT_TYPES = {
     GenericRequirementContextSchema,
     personListedBy("departmentMemberPersonIds"),
   ),
+  // The school coordinator of the application's department, resolved from current authority.
+  "admissions.department-coordinator": registration(
+    ["admissions.outcome-announcement"],
+    GenericRequirementContextSchema,
+    personListedBy("departmentCoordinatorPersonIds"),
+  ),
   // The claim link is usable: the invitation it names is open, unexpired, and not yet linked.
   "onboarding.claim-token": registration(
     ["onboarding.claim"],
@@ -795,6 +803,7 @@ const resolverRequirements: Partial<
   "identity.session-by-id": ["sessions.owner"],
   "profile.current-person": ["profile.owner"],
   "onboarding.claim": ["onboarding.claim-token"],
+  "admissions.outcome-announcement": ["admissions.department-coordinator"],
   "recruitment.invitation-response-by-capability": ["recruitment.invitation-pending"],
   "recruitment.application-assignments": ["organization.single-department-administrator"],
   "recruitment.interview-report": ["organization.single-department-administrator"],

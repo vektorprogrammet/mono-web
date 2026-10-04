@@ -12,6 +12,10 @@ import {
 } from "../src/access.js";
 import { HealthEndpoint } from "../src/system.js";
 import {
+  AdmissionOutcomeBoardResource,
+  AdmissionOutcomeCommand,
+  AdmissionOutcomeCommandProblem,
+  AdmissionOutcomeProblem,
   NativeProblemRegistry,
   PeopleDirectoryResponse,
   ProfileMergePatch,
@@ -123,6 +127,17 @@ const person = (
     decisionTime,
   });
 
+/** The decider and the school coordinator read the scopes and the board; either capability grants it. */
+const outcomeReadAccess: VektorAccessProjection = {
+  ...person("admissions.outcomes.read", "admissions.application-outcomes", [], "SnapshotRead"),
+  capabilities: {
+    any: [
+      CapabilityTypeId.make("admissions.outcomes.read"),
+      CapabilityTypeId.make("admissions.outcomes.announce"),
+    ],
+  },
+};
+
 const receiptSettlement = (
   resolver: "receipts.settlement-queue" | "receipts.by-id",
   decisionTime: "SnapshotRead" | "Transaction",
@@ -185,13 +200,13 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     "GET",
     "/api/admission-outcomes/scopes",
     "admissionOutcomes.listScopes",
-    person("admissions.outcomes.read", "admissions.application-outcomes", [], "SnapshotRead"),
+    outcomeReadAccess,
   ],
   [
     "GET",
     "/api/admission-outcomes",
     "admissionOutcomes.readOutcomes",
-    person("admissions.outcomes.read", "admissions.application-outcomes", [], "SnapshotRead"),
+    outcomeReadAccess,
   ],
   [
     "GET",
@@ -201,9 +216,38 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
   ],
   [
     "POST",
-    "/api/admission-outcomes/:applicationId:record",
-    "admissionOutcomes.recordOutcome",
+    "/api/admission-outcomes/:applicationId:decide",
+    "admissionOutcomes.decideOutcome",
     person("admissions.outcomes.decide", "admissions.application-outcomes", [], "Transaction"),
+  ],
+  [
+    "POST",
+    "/api/admission-outcomes/:applicationId:announce",
+    "admissionOutcomes.announceOutcome",
+    person(
+      "admissions.outcomes.announce",
+      "admissions.outcome-announcement",
+      ["admissions.department-coordinator"],
+      "Transaction",
+    ),
+  ],
+  [
+    "GET",
+    "/api/admission-outcomes/templates",
+    "admissionOutcomes.readOutcomeTemplates",
+    person("admissions.outcome-templates.read", "admissions.outcome-templates", [], "SnapshotRead"),
+  ],
+  [
+    "POST",
+    "/api/admission-outcomes/templates/:kind:preview",
+    "admissionOutcomes.previewOutcomeTemplate",
+    person("admissions.outcome-templates.edit", "admissions.outcome-templates", [], "SnapshotRead"),
+  ],
+  [
+    "PUT",
+    "/api/admission-outcomes/templates/:kind",
+    "admissionOutcomes.saveOutcomeTemplate",
+    person("admissions.outcome-templates.edit", "admissions.outcome-templates", [], "Transaction"),
   ],
 
   [
@@ -931,6 +975,7 @@ const publicConditionalOperations = [
 
 const privateConditionalOperations = [
   "admissionOutcomes.readOutcome",
+  "admissionOutcomes.readOutcomeTemplates",
   "profile.readOwnProfile",
   "admissions.listAdmissionPeriods",
   "recruitment.readInvitationResponse",
@@ -958,7 +1003,9 @@ const entityMutationOperations = [
   "placements.commandBoard",
   "placements.commandOwnCoverage",
   "placements.commandCoverageBoard",
-  "admissionOutcomes.recordOutcome",
+  "admissionOutcomes.decideOutcome",
+  "admissionOutcomes.announceOutcome",
+  "admissionOutcomes.saveOutcomeTemplate",
   "profile.updateOwnProfile",
   "admissions.reviseAdmissionPeriod",
   "recruitment.scheduleInterview",
@@ -1021,6 +1068,7 @@ const privateReadOperations = [
   "placements.readCoverageBoard",
   "admissionOutcomes.listScopes",
   "admissionOutcomes.readOutcomes",
+  "admissionOutcomes.previewOutcomeTemplate",
   "system.readSession",
   "system.listSessions",
   "organization.listTeamInterest",
@@ -1559,5 +1607,23 @@ describe("frozen v0.2 boundary schemas", () => {
     expect(() =>
       Schema.decodeUnknownSync(ProfileUpdateOwnProfileProblem)(validationCore, strict),
     ).toThrow();
+  });
+
+  it("closes admission outcomes on two values and appends the new problems to commands only", () => {
+    const final = {
+      ...NativeProblemRegistry["admission-outcome.final"],
+      code: "admission-outcome.final",
+    } as const;
+
+    const substitute = { outcome: "Substitute" };
+
+    expect(Schema.decodeSync(AdmissionOutcomeCommandProblem)(final, strict)).toEqual(final);
+    expect(() => Schema.decodeUnknownSync(AdmissionOutcomeProblem)(final, strict)).toThrow();
+    expect(Schema.decodeSync(AdmissionOutcomeCommand)({ outcome: "Rejected" }, strict)).toEqual({
+      outcome: "Rejected",
+    });
+    expect(() => Schema.decodeUnknownSync(AdmissionOutcomeCommand)(substitute, strict)).toThrow();
+    // The board has the two projections of the decider and the coordinator, and no member list.
+    expect(Object.keys(AdmissionOutcomeBoardResource.cases)).toEqual(["Decide", "Announce"]);
   });
 });

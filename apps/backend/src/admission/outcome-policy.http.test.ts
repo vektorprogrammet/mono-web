@@ -106,13 +106,15 @@ const seed = Database.use((sql) =>
     yield* sql`INSERT INTO admission_period_semesters VALUES('outcome-previous','2031-08-01T00:00:00Z','2031-12-31T00:00:00Z'),(${semesterId},'2032-01-01T00:00:00Z','2032-06-30T00:00:00Z')`;
     yield* sql`INSERT INTO admission_periods VALUES('outcome-period',${departmentId},${semesterId},'2031-11-01T00:00:00Z','2031-12-01T00:00:00Z',0,'outcome-seed')`;
     yield* sql`INSERT INTO admission_period_fields_of_study VALUES('outcome-field',${departmentId},'Matematikk',true)`;
-    yield* sql`INSERT INTO person_profiles(person_id,first_name,last_name) VALUES('recruiter','Rolf','Rekruttering'),('coordinator','Kari','Koordinator'),('member','Mia','Medlem'),('outsider','Olga','Oslo'),('admin','Ada','Admin'),('boardmember','Bjorn','Styre')`;
+    yield* sql`INSERT INTO person_profiles(person_id,first_name,last_name) VALUES('recruiter','Rolf','Rekruttering'),('coordinator','Kari','Koordinator'),('member','Mia','Medlem'),('outsider','Olga','Oslo'),('admin','Ada','Admin'),('boardmember','Bjorn','Styre'),('boardleader','Berit','Styreleder')`;
     yield* sql`INSERT INTO organization_global_administrator_grants(grant_id,person_id,start_at) VALUES('outcome-admin-grant','admin','2020-01-01T00:00:00.000Z')`;
 
     yield* sql`INSERT INTO organization_memberships(membership_id,person_id,team_id,start_at,is_team_leader) VALUES('outcome-m-recruiter','recruiter','outcome-recruitment','2020-01-01T00:00:00Z',false),('outcome-m-coordinator','coordinator','outcome-coordination','2020-01-01T00:00:00Z',true),('outcome-m-member','member','outcome-evaluation','2020-01-01T00:00:00Z',false),('outcome-m-outsider','outsider','outcome-other-coordination','2020-01-01T00:00:00Z',true)`;
     // A plain national board seat: board membership alone confers no template or announce authority.
     yield* sql`INSERT INTO organization_national_boards(board_id,name) VALUES('outcome-board','Hovedstyret')`;
     yield* sql`INSERT INTO organization_memberships(membership_id,person_id,board_id,position_name,start_at,is_team_leader) VALUES('outcome-m-board','boardmember','outcome-board','Styremedlem','2020-01-01T00:00:00Z',false)`;
+    // A national board leader holds neither delegation: a board leadership alone decides and announces nothing.
+    yield* sql`INSERT INTO organization_memberships(membership_id,person_id,board_id,position_name,start_at,is_team_leader) VALUES('outcome-m-board-leader','boardleader','outcome-board','Styreleder','2020-01-01T00:00:00Z',true)`;
     // Rekruttering decides outcomes and Skolekoordinering coordinates placements, each by an explicit delegation.
     yield* sql`INSERT INTO organization_delegations(delegation_id,name,team_id,capability,area,area_department_id,holders,start_at) VALUES(${`delegation-${digest("outcome-decide")}`},'Rekruttering avgjor utfall','outcome-recruitment','admissions.outcomes','Department',${departmentId},'AllMembers','2020-01-01T00:00:00Z'),(${`delegation-${digest("outcome-coordinate")}`},'Skolekoordinering fordeler assistenter','outcome-coordination','placements.coordinate','Department',${departmentId},'AllMembers','2020-01-01T00:00:00Z'),(${`delegation-${digest("outcome-other-coordinate")}`},'Skolekoordinering Oslo','outcome-other-coordination','placements.coordinate','Department',${otherDepartmentId},'AllMembers','2020-01-01T00:00:00Z')`;
 
@@ -521,6 +523,30 @@ describe("admission outcomes are Admitted or Rejected over HTTP and PostgreSQL",
       expect(board.text).not.toContain("@example.invalid");
     }),
   );
+
+  it.live(
+    "denies a national board leader who holds no Rekruttering or coordinator delegation",
+    () =>
+      Effect.gen(function* () {
+        const { send, command, outcomeRoute, decisionEtag, outcomes } = fixture();
+
+        const decided = yield* command(
+          "POST",
+          outcomeRoute("maybe", ":decide"),
+          "boardleader",
+          { outcome: "Admitted" },
+          yield* decisionEtag("maybe"),
+          "decide-board-leader",
+        );
+
+        expect(yield* refusal(decided, [403])).toBe("authority.denied");
+        expect(yield* outcomes("maybe")).toEqual([]);
+
+        const board = yield* send(`/api/admission-outcomes?${scope}`, "boardleader");
+
+        expect(yield* refusal(board, [403])).toBe("authority.denied");
+      }),
+  );
 });
 
 const departmentName = "Trondheim";
@@ -589,7 +615,7 @@ describe("announcing an outcome over HTTP and PostgreSQL", () => {
     }),
   );
 
-  for (const person of ["recruiter", "member", "outsider", "boardmember"]) {
+  for (const person of ["recruiter", "member", "outsider", "boardmember", "boardleader"]) {
     it.live(`denies the announcement to ${person}, who is not the department coordinator`, () =>
       Effect.gen(function* () {
         const { announce, envelopes } = fixture();
@@ -1115,7 +1141,9 @@ describe("outcome mail templates over HTTP and PostgreSQL", () => {
       const attempts = [
         { person: "coordinator", path: `${templates}/Rejected` },
         { person: "boardmember", path: `${templates}/Rejected` },
+        { person: "boardleader", path: `${templates}/Rejected` },
         { person: "boardmember", path: `${templates}/Rejected?departmentId=${departmentId}` },
+        { person: "boardleader", path: `${templates}/Rejected?departmentId=${departmentId}` },
         { person: "member", path: `${templates}/Rejected?departmentId=${departmentId}` },
         { person: "outsider", path: `${templates}/Rejected?departmentId=${departmentId}` },
         { person: "recruiter", path: `${templates}/Rejected?departmentId=${departmentId}` },
@@ -1198,7 +1226,7 @@ describe("outcome mail templates over HTTP and PostgreSQL", () => {
 
       // A coordinator delegated for another department, a plain national board seat, a member and
       // Rekruttering hold no authority here, even with the current ETag of the department.
-      for (const person of ["outsider", "boardmember", "member", "recruiter"]) {
+      for (const person of ["outsider", "boardmember", "boardleader", "member", "recruiter"]) {
         const denied = yield* command(
           "PUT",
           `${templates}/Rejected?departmentId=${departmentId}`,
@@ -1211,7 +1239,7 @@ describe("outcome mail templates over HTTP and PostgreSQL", () => {
         expect(yield* refusal(denied, [403]), person).toBe("authority.denied");
       }
 
-      for (const person of ["outsider", "boardmember"]) {
+      for (const person of ["outsider", "boardmember", "boardleader"]) {
         expect(yield* refusal(yield* send(department, person), [403]), person).toBe(
           "authority.denied",
         );

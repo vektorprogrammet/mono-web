@@ -622,7 +622,7 @@ export const admissionCacheControl = (
   return `public, max-age=${ttl}, s-maxage=${ttl}, must-revalidate`;
 };
 
-const methodOrder = ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"] as const;
+const methodOrder = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] as const;
 
 /** Produces the path-specific Allow value in the frozen order. */
 export const allowHeader = (methods: ReadonlyArray<string>): string => {

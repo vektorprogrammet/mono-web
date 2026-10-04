@@ -1,35 +1,31 @@
-import { Database } from "@vektorprogrammet/database";
-import type { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
   AdmissionOutcomeCommand,
   AdmissionOutcomeScope,
   AdmissionOutcomeScopes,
   Admissions,
   admissionOutcomePermission,
-  onCallSubstitutes,
+  canAnnounceAdmissionOutcome,
   type AdmissionOutcomeEntry,
-  type AdmissionOutcomeOperationFailure,
 } from "@vektorprogrammet/domain/admissions";
 import { Scope } from "@vektorprogrammet/domain/authz";
-import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
-import type { OrganizationPersistenceError } from "@vektorprogrammet/domain/organization";
 import {
+  AdmissionOutcomeAnnounceCommand,
+  AdmissionOutcomeAnnounceResource,
   AdmissionOutcomeBoardResource,
   AdmissionOutcomeResource,
+  AnnounceAdmissionOutcomeEndpoint,
+  DecideAdmissionOutcomeEndpoint,
   ExternalNativeApi,
   ListAdmissionOutcomeScopesEndpoint,
   ReadAdmissionOutcomeEndpoint,
   ReadAdmissionOutcomesEndpoint,
-  RecordAdmissionOutcomeEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
-import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
-import { Effect, Option, type Schema } from "effect";
+import { Problem } from "@vektorprogrammet/http-api/http-semantics";
+import { Effect, Match, Option } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { isSqlError, type SqlError } from "effect/unstable/sql/SqlError";
 import {
   resolveRequestPersonAuthorityInTransaction,
-  type OrganizationResolutionError,
   type TransactionPersonAuthority,
 } from "../authority.js";
 import {
@@ -40,9 +36,7 @@ import {
   decodeRequest,
   httpIdentity,
   idempotencyKeyOf,
-  isSerializationConflict,
   personPresentation,
-  problemMapper,
   readJsonBody,
   requireCurrentETag,
   requiredIfMatchOf,
@@ -60,9 +54,16 @@ import {
   semanticRequestDigest,
 } from "../http-semantics.js";
 import { genericContext } from "../native-operation.js";
+import {
+  MAX_MUTATION_BYTES,
+  outcomeJson,
+  outcomeProblems,
+  outcomeSnapshotRead,
+} from "./outcome-http-support.js";
+import { renderOutcomeMail } from "./template-render.js";
+import { OutcomeTemplateHandlers } from "./outcome-template-http.js";
 
-const MAX_MUTATION_BYTES = 8192;
-
+/** Rekruttering's view of one application, with the ETag of its current state. */
 const outcomeResource = (entry: AdmissionOutcomeEntry) => ({
   ...entry,
   etag: deriveStrongETag({
@@ -72,61 +73,54 @@ const outcomeResource = (entry: AdmissionOutcomeEntry) => ({
   }),
 });
 
-const json = (body: Schema.Json) =>
-  new Response(JSON.stringify(body), {
-    headers: {
-      "content-type": "application/json",
-      "cache-control": PRIVATE_NO_STORE,
-      vary: "Origin",
-    },
-  });
-
-/** A lost serialization or deadlock race may be retried; any other storage failure may not. */
-const persistenceProblem = (failure: OrganizationPersistenceError | SqlError) =>
-  isSerializationConflict(failure)
-    ? Problem.make("transaction.conflict")
-    : Problem.make("internal.error");
-
-/**
- * The one answer for every admission outcome and person-authority failure. A person
- * credential rejected inside the transaction is answered from the request's evidence.
- */
-const outcomeProblems = (presentation: CredentialPresentation) =>
-  problemMapper<
-    | AdmissionOutcomeOperationFailure
-    | UnauthenticatedActor
-    | IdentityEngineError
-    | OrganizationResolutionError
-  >()({
-    AdmissionOutcomeFailure: (failure) => Problem.make(failure.code),
-    AdmissionOutcomePersistenceError: (failure) => Problem.make(failure.code),
-    UnauthenticatedActor: () => Problem.unauthenticated(presentation),
-    IdentityEngineError: () => Problem.make("internal.error"),
-    OrganizationDecodeError: () => Problem.make("internal.error"),
-    OrganizationPersistenceError: persistenceProblem,
-  });
+/** The school coordinator's view: the safe fields, and an ETag that every change of the entry moves. */
+const announceResource = (entry: AdmissionOutcomeEntry) => ({
+  applicationId: entry.applicationId,
+  firstName: entry.firstName,
+  lastName: entry.lastName,
+  state: entry.state,
+  outcome: entry.outcome,
+  placed: entry.placed,
+  etag: deriveStrongETag({
+    representationKind: "AdmissionOutcomeAnnounceResource",
+    resourceIdentity: entry.applicationId,
+    version: JSON.stringify(entry),
+  }),
+});
 
 type Endpoint =
   | typeof ListAdmissionOutcomeScopesEndpoint
   | typeof ReadAdmissionOutcomesEndpoint
   | typeof ReadAdmissionOutcomeEndpoint
-  | typeof RecordAdmissionOutcomeEndpoint;
+  | typeof DecideAdmissionOutcomeEndpoint
+  | typeof AnnounceAdmissionOutcomeEndpoint;
+
+/** Who an operation needs: the board is open to either, a command to its own authority. */
+type Requirement = "Either" | "Decide" | "Announce";
 
 /**
- * Grants the department's admission outcome permission, then evaluates the declared AccessSpec.
+ * Resolves what the person holds in the department now, refuses a person who lacks the operation's
+ * authority, then evaluates the declared AccessSpec. A plain department member holds neither.
  */
 const authorize = (
   request: Request,
   endpoint: Endpoint,
   departmentId: AdmissionOutcomeEntry["departmentId"],
-  decide: boolean,
+  requirement: Requirement,
   auth: TransactionPersonAuthority,
 ) =>
   Effect.gen(function* () {
-    const permission = admissionOutcomePermission(auth.authority, departmentId);
+    const decide = admissionOutcomePermission(auth.authority, departmentId) === "Decide";
+    const announce = canAnnounceAdmissionOutcome(auth.authority, departmentId);
 
-    if (permission === "Denied" || (decide && permission !== "Decide"))
-      return yield* Problem.make("authority.denied");
+    const permitted = Match.value(requirement).pipe(
+      Match.when("Decide", () => decide),
+      Match.when("Announce", () => announce),
+      Match.when("Either", () => decide || announce),
+      Match.exhaustive,
+    );
+
+    if (!permitted) return yield* Problem.make("authority.denied");
 
     yield* authorizePerson(
       {
@@ -140,6 +134,7 @@ const authorize = (
               domainId: "admissions",
               departmentId,
               authorityVersion: auth.authorizationInstant,
+              facts: { departmentCoordinatorPersonIds: announce ? [auth.authority.personId] : [] },
             }),
           ],
         },
@@ -149,33 +144,17 @@ const authorize = (
       personPresentation(request),
     );
 
-    return permission;
+    return { decide, announce };
   });
 
 export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
   const personAuthority = (request: Request) =>
     resolveRequestPersonAuthorityInTransaction(request, { now: input.now });
 
-  /**
-   * Runs one read in a REPEATABLE READ snapshot, which resolves the credential
-   * and authority on the same connection, and answers its failures.
-   */
-  const snapshotRead = <A, E, R>(request: Request, effect: Effect.Effect<A, E, R>) =>
-    Database.use((sql) =>
-      sql.withTransaction(
-        Effect.gen(function* () {
-          yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`;
-
-          return yield* effect;
-        }),
-      ),
-    ).pipe(
-      Effect.catchIf(isSqlError, (failure) => Effect.fail(persistenceProblem(failure))),
-      outcomeProblems(personPresentation(request)),
-    );
+  const templates = OutcomeTemplateHandlers(input);
 
   const listScopes = (request: Request) =>
-    snapshotRead(
+    outcomeSnapshotRead(
       request,
       Effect.gen(function* () {
         yield* requireNoQuery(request);
@@ -191,16 +170,16 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
             request,
             ListAdmissionOutcomeScopesEndpoint,
             department.departmentId,
-            false,
+            "Either",
             auth,
           );
 
-        return json(yield* strictOutput(AdmissionOutcomeScopes)(scopes));
+        return yield* outcomeJson(yield* strictOutput(AdmissionOutcomeScopes)(scopes));
       }),
     );
 
   const readOutcomes = (request: Request) =>
-    snapshotRead(
+    outcomeSnapshotRead(
       request,
       Effect.gen(function* () {
         const parameters = new URL(request.url).searchParams;
@@ -215,11 +194,11 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
         const scope = yield* decodeRequest(AdmissionOutcomeScope)(Object.fromEntries(parameters));
         const auth = yield* personAuthority(request);
 
-        const permission = yield* authorize(
+        const { decide, announce } = yield* authorize(
           request,
           ReadAdmissionOutcomesEndpoint,
           scope.departmentId,
-          false,
+          "Either",
           auth,
         );
 
@@ -227,18 +206,19 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
           admissions.readAdmissionOutcomes(scope),
         );
 
-        return json(
+        return yield* outcomeJson(
           yield* strictOutput(AdmissionOutcomeBoardResource)(
-            permission === "Decide"
+            decide
               ? AdmissionOutcomeBoardResource.cases.Decide.make({
                   ...scope,
                   admissionPeriodId,
+                  canAnnounce: announce,
                   entries: entries.map(outcomeResource),
                 })
-              : AdmissionOutcomeBoardResource.cases.ReadOnly.make({
+              : AdmissionOutcomeBoardResource.cases.Announce.make({
                   ...scope,
                   admissionPeriodId,
-                  substitutes: onCallSubstitutes(entries),
+                  entries: entries.map(announceResource),
                 }),
           ),
         );
@@ -246,7 +226,7 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
     );
 
   const readOutcome = (request: Request, applicationId: AdmissionOutcomeEntry["applicationId"]) =>
-    snapshotRead(
+    outcomeSnapshotRead(
       request,
       Effect.gen(function* () {
         yield* requireNoQuery(request);
@@ -256,7 +236,7 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
         );
 
         const auth = yield* personAuthority(request);
-        yield* authorize(request, ReadAdmissionOutcomeEndpoint, entry.departmentId, true, auth);
+        yield* authorize(request, ReadAdmissionOutcomeEndpoint, entry.departmentId, "Decide", auth);
         const resource = yield* strictOutput(AdmissionOutcomeResource)(outcomeResource(entry));
 
         return yield* conditionalJson({
@@ -269,7 +249,7 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
       }),
     );
 
-  const recordOutcome = (request: Request, applicationId: AdmissionOutcomeEntry["applicationId"]) =>
+  const decideOutcome = (request: Request, applicationId: AdmissionOutcomeEntry["applicationId"]) =>
     Effect.gen(function* () {
       yield* requireNoQuery(request);
 
@@ -282,7 +262,7 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
       const command = yield* decodeRequest(AdmissionOutcomeCommand)(body);
       const ifMatch = yield* requiredIfMatchOf(request);
       const idempotencyKey = yield* idempotencyKeyOf(request);
-      const operationId = "admissionOutcomes.recordOutcome";
+      const operationId = "admissionOutcomes.decideOutcome";
 
       // Failures are answered after the executor, which rolls the whole command back on any of them.
       const outcome = yield* executeNativeHttpCommandPostgres(
@@ -295,16 +275,16 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
 
           yield* authorize(
             request,
-            RecordAdmissionOutcomeEndpoint,
+            DecideAdmissionOutcomeEndpoint,
             selected.departmentId,
-            true,
+            "Decide",
             auth,
           );
 
           const identity = yield* httpIdentity({
             credentialSubject: `Person:${auth.authority.personId}`,
             qualifiedOperationId: operationId,
-            normalizedTarget: normalizeTarget("/api/admission-outcomes/{applicationId}:record", {
+            normalizedTarget: normalizeTarget("/api/admission-outcomes/{applicationId}:decide", {
               applicationId,
             }),
             idempotencyKey,
@@ -318,7 +298,7 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
             },
             execute: Effect.gen(function* () {
               const changed = yield* Admissions.use((admissions) =>
-                admissions.recordAdmissionOutcome(
+                admissions.decideAdmissionOutcome(
                   {
                     applicationId,
                     command,
@@ -347,6 +327,87 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
       return yield* commandOutcomeResponse(outcome);
     });
 
+  const announceOutcome = (
+    request: Request,
+    applicationId: AdmissionOutcomeEntry["applicationId"],
+  ) =>
+    Effect.gen(function* () {
+      yield* requireNoQuery(request);
+
+      const body = yield* readJsonBody(
+        request,
+        /^application\/json(?:\s*;|$)/u,
+        MAX_MUTATION_BYTES,
+      );
+
+      yield* decodeRequest(AdmissionOutcomeAnnounceCommand)(body);
+      const ifMatch = yield* requiredIfMatchOf(request);
+      const idempotencyKey = yield* idempotencyKeyOf(request);
+      const operationId = "admissionOutcomes.announceOutcome";
+
+      // The coordinator's authority is resolved here, in the committing transaction, also on a replay.
+      const outcome = yield* executeNativeHttpCommandPostgres(
+        Effect.gen(function* () {
+          const selected = yield* Admissions.use((admissions) =>
+            admissions.readAdmissionOutcome(applicationId),
+          );
+
+          const auth = yield* personAuthority(request);
+
+          yield* authorize(
+            request,
+            AnnounceAdmissionOutcomeEndpoint,
+            selected.departmentId,
+            "Announce",
+            auth,
+          );
+
+          const identity = yield* httpIdentity({
+            credentialSubject: `Person:${auth.authority.personId}`,
+            qualifiedOperationId: operationId,
+            normalizedTarget: normalizeTarget("/api/admission-outcomes/{applicationId}:announce", {
+              applicationId,
+            }),
+            idempotencyKey,
+          });
+
+          return {
+            identity: {
+              identitySha256: identity.identitySha256,
+              requestSha256: semanticRequestDigest(semanticMutationRequest(body, ifMatch)),
+              operationId,
+            },
+            execute: Effect.gen(function* () {
+              const announced = yield* Admissions.use((admissions) =>
+                admissions.announceAdmissionOutcome(
+                  {
+                    applicationId,
+                    actor: auth.authority.personId,
+                    now: auth.authorizationInstant,
+                  },
+                  (current) => requireCurrentETag(announceResource(current).etag, ifMatch),
+                  renderOutcomeMail,
+                ),
+              );
+
+              const resource = yield* strictOutput(AdmissionOutcomeAnnounceResource)(
+                announceResource(announced),
+              );
+
+              return {
+                status: 200,
+                mediaType: "application/json",
+                headers: { "content-type": "application/json", etag: resource.etag },
+                bodyBytes: new TextEncoder().encode(yield* jsonText(resource)),
+              };
+            }),
+          };
+        }),
+      ).pipe(outcomeProblems(personPresentation(request)), commandReceiptProblems);
+
+      return yield* commandOutcomeResponse(outcome);
+    });
+
   return HttpApiBuilder.group(ExternalNativeApi, "admissionOutcomes", (handlers) =>
     Effect.succeed(
       handlers
@@ -355,8 +416,24 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
         .handleRaw("readOutcome", ({ request, params }) =>
           webHandler(request, (webRequest) => readOutcome(webRequest, params.applicationId)),
         )
-        .handleRaw("recordOutcome", ({ request, params }) =>
-          webHandler(request, (webRequest) => recordOutcome(webRequest, params.applicationId)),
+        .handleRaw("decideOutcome", ({ request, params }) =>
+          webHandler(request, (webRequest) => decideOutcome(webRequest, params.applicationId)),
+        )
+        .handleRaw("announceOutcome", ({ request, params }) =>
+          webHandler(request, (webRequest) => announceOutcome(webRequest, params.applicationId)),
+        )
+        .handleRaw("readOutcomeTemplates", ({ request }) =>
+          webHandler(request, templates.readOutcomeTemplates),
+        )
+        .handleRaw("previewOutcomeTemplate", ({ request, params }) =>
+          webHandler(request, (webRequest) =>
+            templates.previewOutcomeTemplate(webRequest, params.kind),
+          ),
+        )
+        .handleRaw("saveOutcomeTemplate", ({ request, params }) =>
+          webHandler(request, (webRequest) =>
+            templates.saveOutcomeTemplate(webRequest, params.kind),
+          ),
         ),
     ),
   );

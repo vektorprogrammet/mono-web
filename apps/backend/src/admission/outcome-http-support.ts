@@ -1,0 +1,88 @@
+/** What the admission outcome handlers and the outcome template handlers share. */
+import { Database } from "@vektorprogrammet/database";
+import type { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
+import type { AdmissionOutcomeOperationFailure } from "@vektorprogrammet/domain/admissions";
+import type {
+  OutcomeMailRenderFailure,
+  OutcomeTemplateFailure,
+  OutcomeTemplatePersistenceError,
+} from "@vektorprogrammet/domain/admissions/template";
+import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
+import type { OrganizationPersistenceError } from "@vektorprogrammet/domain/organization";
+import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
+import { Effect } from "effect";
+import { isSqlError, type SqlError } from "effect/unstable/sql/SqlError";
+import type { OrganizationResolutionError } from "../authority.js";
+import {
+  isSerializationConflict,
+  jsonText,
+  personPresentation,
+  problemMapper,
+} from "../http-api/problem.js";
+import { PRIVATE_NO_STORE } from "../http-semantics.js";
+
+/** The largest JSON body of an outcome command. */
+export const MAX_MUTATION_BYTES = 8192;
+
+/** A private, never stored JSON answer. */
+export const outcomeJson = <A>(body: A) =>
+  Effect.map(
+    jsonText(body),
+    (text) =>
+      new Response(text, {
+        headers: {
+          "content-type": "application/json",
+          "cache-control": PRIVATE_NO_STORE,
+          vary: "Origin",
+        },
+      }),
+  );
+
+/** A lost serialization or deadlock race may be retried; any other storage failure may not. */
+export const persistenceProblem = (failure: OrganizationPersistenceError | SqlError) =>
+  isSerializationConflict(failure)
+    ? Problem.make("transaction.conflict")
+    : Problem.make("internal.error");
+
+/**
+ * The one answer for every admission outcome, outcome template and person-authority failure. A
+ * person credential rejected inside the transaction is answered from the request's evidence.
+ */
+export const outcomeProblems = (presentation: CredentialPresentation) =>
+  problemMapper<
+    | AdmissionOutcomeOperationFailure
+    | OutcomeTemplateFailure
+    | OutcomeTemplatePersistenceError
+    | OutcomeMailRenderFailure
+    | UnauthenticatedActor
+    | IdentityEngineError
+    | OrganizationResolutionError
+  >()({
+    AdmissionOutcomeFailure: (failure) => Problem.make(failure.code),
+    AdmissionOutcomePersistenceError: (failure) => Problem.make(failure.code),
+    OutcomeTemplateFailure: (failure) => Problem.make(failure.code),
+    OutcomeTemplatePersistenceError: (failure) => Problem.make(failure.code),
+    OutcomeMailRenderFailure: () => Problem.make("internal.error"),
+    UnauthenticatedActor: () => Problem.unauthenticated(presentation),
+    IdentityEngineError: () => Problem.make("internal.error"),
+    OrganizationDecodeError: () => Problem.make("internal.error"),
+    OrganizationPersistenceError: persistenceProblem,
+  });
+
+/**
+ * Runs one read in a REPEATABLE READ snapshot, which resolves the credential and authority on
+ * the same connection, and answers its failures.
+ */
+export const outcomeSnapshotRead = <A, E, R>(request: Request, effect: Effect.Effect<A, E, R>) =>
+  Database.use((sql) =>
+    sql.withTransaction(
+      Effect.gen(function* () {
+        yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`;
+
+        return yield* effect;
+      }),
+    ),
+  ).pipe(
+    Effect.catchIf(isSqlError, (failure) => Effect.fail(persistenceProblem(failure))),
+    outcomeProblems(personPresentation(request)),
+  );
