@@ -9,6 +9,7 @@ import {
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import { IdentityActor, IdentitySessionNotFound } from "@vektorprogrammet/domain/identity";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
+import { SchoolId } from "@vektorprogrammet/domain/schools";
 import {
   IdempotencyKey,
   NativeProblem,
@@ -21,6 +22,7 @@ import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { backendDatabase } from "../../test/database.js";
 import { jsonText } from "../http-api/problem.js";
 import { testFetch } from "../test/native-http.js";
+import { TestPlatform } from "../test/platform.js";
 import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
 import { NativeHttpApiMiddlewareLive } from "../http-api/transport.js";
 import { OnboardingApiHandlers } from "./http.js";
@@ -806,11 +808,21 @@ describe("R3/R4 transaction lifetime and authority", () => {
           database.run(
             drainOnboardingDelivery(applicationId, delivery).pipe(
               Effect.provideService(HttpClient.HttpClient, f.client),
+              Effect.provide(TestPlatform),
             ),
           ),
         );
 
-        yield* Deferred.await(sending);
+        yield* Effect.raceFirst(
+          Deferred.await(sending),
+          Fiber.join(worker).pipe(
+            Effect.flatMap((result) =>
+              Effect.sync(() =>
+                assert.fail(`Delivery worker exited before provider dispatch: ${result}`),
+              ),
+            ),
+          ),
+        );
         yield* Fiber.interrupt(worker);
         yield* Deferred.await(released);
         const exit = yield* Fiber.await(worker);
@@ -848,9 +860,9 @@ describe("R3 Returning rule stays separate", () => {
         yield* f.sql`INSERT INTO applicant_account_links VALUES('policy-applicant',${actor},date_trunc('milliseconds',clock_timestamp(),'UTC'),'policy-invitation')`;
 
         const school =
-          yield* f.sql`INSERT INTO schools_directory_schools(name,contact_person,email,phone,language,active) VALUES('Previous school','Contact','school@example.invalid','12345678','Norwegian',true) RETURNING school_id`;
+          yield* f.sql`INSERT INTO schools_directory_schools(name,contact_person,email,phone,language,active) VALUES('Previous school','Contact','school@example.invalid','12345678','Norwegian',true) RETURNING school_id::double precision AS school_id`;
 
-        const schoolId = yield* Schema.decodeUnknownEffect(Schema.Finite)(school[0]?.school_id);
+        const schoolId = yield* Schema.decodeUnknownEffect(SchoolId)(school[0]?.school_id);
         yield* f.sql`INSERT INTO schools_directory_departments(school_id,department_id) VALUES(${schoolId},${departmentId})`;
         yield* f.sql`INSERT INTO assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision) VALUES(${"placement-" + digest},${actor},${departmentId},'policy-other-semester',${schoolId},'Friday',4,'1',false,2)`;
         yield* f.sql`INSERT INTO admission_returning_registrations(registration_id,application_id,applicant_id,person_id,placement_id,department_id,semester_id,admission_period_id,revision,command_id,year_of_study,monday_unavailable,tuesday_unavailable,wednesday_unavailable,thursday_unavailable,friday_unavailable,position_weeks,preferred_group,language,preferred_school,team_interest,team_ids,registered_at) VALUES(${"returning-registration-" + digest},${applicationId},'policy-applicant',${actor},${"placement-" + digest},${departmentId},'policy-semester','policy-period',1,'returning-policy',2,false,false,false,false,false,4,'all','Norsk',NULL,false,'[]'::jsonb,date_trunc('milliseconds',clock_timestamp(),'UTC'))`;
