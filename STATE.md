@@ -22,11 +22,15 @@ remain unverified. No Recruitment generated-contract cutover or repaired parity 
 Migrations 0083 and 0084 are registered through `just migration-hashes write`. The source-safety
 test accepts their exact reviewed bytes and rejects a one-byte appended space. Heavy execution
 requires a new operator custody grant.
-The mixed onboarding group uses one app-owned complete callback: generated raw-handler and guard
-types bind Recruitment-owned `readBoard` and `command`; Identity-owned `claim` stays handwritten.
-The pinned compiler’s two-endpoint factory leaves `claim` unhandled (TS2322). Do not use that factory
-for the mixed group or change the compiler. **Retirement trigger:** when Identity migrates `claim`,
-generate the complete onboarding group and remove this transitional app-owned callback.
+The mixed onboarding group will retain one app-owned complete callback. Generated raw-handler
+and guard types will bind Recruitment-owned `readBoard` and `command`; Identity-owned `claim`
+stays handwritten. The e04 compiler emits those types with a self-invalid subset factory
+(TS2322). It has no built-in types-only option. A type-only import does not make that module
+valid. The operator authorized a generator fix and successor package through spec 0029’s
+re-vendor gate: all nine earlier groups must regenerate unchanged before the cutover. No
+compiler upgrade, suppression, output edit, or new root shim is applied here.
+**Retirement trigger:** when Identity migrates `claim`, generate the complete onboarding group
+and remove the transitional app-owned callback.
 The isolated reproducer is retained outside the product tree at
 `/srv/share/projects/effx-recruitment-0029-evidence/compiler/mixed-onboarding/`;
 `observed.json` records build exit 0 and type-check exit 1, not product-test acceptance.
