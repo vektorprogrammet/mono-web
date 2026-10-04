@@ -416,7 +416,7 @@ export const NativeProblemRegistry = {
     title: "Ineligible covering person",
     status: 422,
     detail:
-      "The covering person must be a placed assistant or a substitute on call in this department and semester, and not the absent person.",
+      "The covering person must be a placed assistant or an admitted assistant in this department and semester, and not the absent person.",
   },
   "coverage.coverer-unavailable": {
     type: "urn:vektorprogrammet:problem:v0.2:coverage.coverer-unavailable",
@@ -462,6 +462,44 @@ export const NativeProblemRegistry = {
     detail: "Another transaction changed the selected state. Refresh before retrying.",
   },
 
+  "admission-outcome.undecided": {
+    type: "urn:vektorprogrammet:problem:v0.2:admission-outcome.undecided",
+    title: "Admission outcome not decided",
+    status: 409,
+    detail: "This application needs a Rekruttering decision before its outcome can be announced.",
+  },
+  "admission-outcome.placement-active": {
+    type: "urn:vektorprogrammet:problem:v0.2:admission-outcome.placement-active",
+    title: "Rejection conflicts with a placement",
+    status: 409,
+    detail:
+      "An applicant with an active placement in this department and semester cannot be rejected.",
+  },
+  "admission-outcome.final": {
+    type: "urn:vektorprogrammet:problem:v0.2:admission-outcome.final",
+    title: "Admission outcome already announced",
+    status: 409,
+    detail: "The outcome of this application is announced and final.",
+  },
+  "admission-outcome.derived": {
+    type: "urn:vektorprogrammet:problem:v0.2:admission-outcome.derived",
+    title: "Admission outcome derived from the interview",
+    status: 422,
+    detail: "The interview recommendation determines this outcome; it cannot be decided manually.",
+  },
+  "admission-outcome.unreviewed": {
+    type: "urn:vektorprogrammet:problem:v0.2:admission-outcome.unreviewed",
+    title: "Application not reviewed",
+    status: 422,
+    detail:
+      "The application has neither a finalized interview nor a returning assistant registration.",
+  },
+  "admission-outcome.template-invalid": {
+    type: "urn:vektorprogrammet:problem:v0.2:admission-outcome.template-invalid",
+    title: "Invalid outcome message template",
+    status: 422,
+    detail: "The template is not a valid closed outcome message document.",
+  },
   "admission-period.already-exists": {
     type: "urn:vektorprogrammet:problem:v0.2:admission-period.already-exists",
     title: "Admission period already exists",
