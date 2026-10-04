@@ -135,7 +135,7 @@ const ConductAssessmentExample = CorrectionHistoryOriginalSchema.make({
   finalizedAt: "2026-09-12T15:00:00.000Z",
 });
 
-const ConductObservationExample: typeof RecruitmentInterviewConductObservationSchema.Encoded = {
+const ConductObservationExample = Schema.decodeSync(RecruitmentInterviewConductObservationSchema)({
   interviewId: RecruitmentInterviewId.make("interview-1"),
   applicationId: PublicApplicationIdSchema.make("app-0080"),
   applicant: {
@@ -185,7 +185,7 @@ const ConductObservationExample: typeof RecruitmentInterviewConductObservationSc
   }),
   canFinalize: false,
   canCancel: false,
-};
+});
 
 import * as Schema from "effect/Schema";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
