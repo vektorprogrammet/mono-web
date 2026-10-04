@@ -33,6 +33,17 @@ export * from "../.effx/generated/content-contract.js";
 
 export * from "../.effx/generated/social-events-contract.js";
 
+export {
+  deleteTeamApplication,
+  listTeamApplicationIntakes,
+  listTeamApplications,
+  readTeamApplication,
+  readTeamApplicationIntake,
+  reviseTeamApplicationIntake,
+  submitTeamApplication,
+  TeamApplicationsApi,
+} from "../.effx/generated/team-applications-contract.js";
+
 export * from "./receipts.js";
 
 export * from "./receipt-upload.js";

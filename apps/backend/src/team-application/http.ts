@@ -4,6 +4,7 @@ import {
   ResourceId,
   ResourceKind,
   Scope,
+  type CanonicalScopeResolution,
   type CredentialOutcome,
 } from "@vektorprogrammet/domain/authz";
 import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
@@ -24,17 +25,18 @@ import {
   type TeamApplicationSubmitFailure,
 } from "@vektorprogrammet/domain/team-application";
 import {
-  DeleteTeamApplicationEndpoint,
+  deleteTeamApplication,
   ExternalNativeApi,
-  ListTeamApplicationIntakesEndpoint,
-  ListTeamApplicationsEndpoint,
-  ReadTeamApplicationEndpoint,
-  ReadTeamApplicationIntakeEndpoint,
+  listTeamApplicationIntakes,
+  listTeamApplications,
+  readTeamApplication,
+  readTeamApplicationIntake,
   reflectAccessSpec,
-  ReviseTeamApplicationIntakeEndpoint,
-  SubmitTeamApplicationEndpoint,
+  reviseTeamApplicationIntake,
+  submitTeamApplication,
   TeamApplicationInput,
   TeamApplicationIntakeMergePatch,
+  TeamApplicationsApi,
 } from "@vektorprogrammet/http-api";
 import {
   type CredentialPresentation,
@@ -42,8 +44,14 @@ import {
   type NativeValidationError,
   Problem,
 } from "@vektorprogrammet/http-api/http-semantics";
-import { Effect, Option, Predicate, Schema } from "effect";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { Context, Effect, Option, Predicate, Schema } from "effect";
+import { HttpServerRequest } from "effect/unstable/http";
+import type { HttpApiGroup } from "effect/unstable/httpapi";
+import {
+  TeamApplicationsApiHandlers as GeneratedTeamApplicationsApiHandlers,
+  type TeamApplicationsGuards,
+  type TeamApplicationsRawHandlers,
+} from "../../.effx/generated/team-applications-handlers.js";
 import { currentInstant, resolveRequestCredentialInTransaction } from "../authority.js";
 import type { TeamApplicationApiConfig } from "../config.js";
 import {
@@ -91,11 +99,44 @@ interface StaffPrincipal {
   readonly principal: TeamApplicationPrincipal;
 }
 
+type TeamApplicationsEndpoints = HttpApiGroup.Endpoints<
+  (typeof ExternalNativeApi)["groups"]["team-applications"]
+>;
+
+type TeamApplicationsEndpoint = HttpApiGroup.Endpoints<typeof TeamApplicationsApi>;
+
 type StaffEndpoint =
-  | typeof ListTeamApplicationsEndpoint
-  | typeof ReadTeamApplicationEndpoint
-  | typeof DeleteTeamApplicationEndpoint
-  | typeof ReviseTeamApplicationIntakeEndpoint;
+  | typeof listTeamApplications
+  | typeof readTeamApplication
+  | typeof deleteTeamApplication
+  | typeof reviseTeamApplicationIntake;
+
+const teamOperationId = (endpoint: TeamApplicationsEndpoint) =>
+  `${TeamApplicationsApi.identifier}.${endpoint.identifier}` as const;
+
+/** A guard reads only the decision created for this raw request at the original access point. */
+type TeamApplicationAccessFrame =
+  | {
+      readonly kind: "Public";
+      readonly operation: ReturnType<typeof teamOperationId>;
+      readonly source: HttpServerRequest.HttpServerRequest;
+      readonly resolution: CanonicalScopeResolution<Schema.JsonObject>;
+      readonly now: string;
+    }
+  | {
+      readonly kind: "Staff";
+      readonly operation: ReturnType<typeof teamOperationId>;
+      readonly source: HttpServerRequest.HttpServerRequest;
+      readonly request: Request;
+      readonly staff: StaffPrincipal;
+      readonly actor: TeamApplicationActor;
+      readonly selection: "ExactlyOne" | "AllMatching";
+    };
+
+const CurrentTeamApplicationAccess = Context.Reference<TeamApplicationAccessFrame | undefined>(
+  "@vektorprogrammet/backend/team-application/current-access",
+  { defaultValue: () => undefined },
+);
 
 /** The one answer for every team-application domain failure. */
 const teamApplicationProblems = problemMapper<
@@ -211,6 +252,79 @@ const authorizeStaff = (
     presentation,
   );
 
+/** Public authority is evaluated by the generated callback, never at raw-handler entry. */
+const publicGuard = (
+  endpoint:
+    | typeof readTeamApplicationIntake
+    | typeof listTeamApplicationIntakes
+    | typeof submitTeamApplication,
+  source: HttpServerRequest.HttpServerRequest,
+) =>
+  Effect.gen(function* () {
+    const frame = yield* CurrentTeamApplicationAccess;
+
+    if (
+      frame === undefined ||
+      frame.kind !== "Public" ||
+      frame.operation !== teamOperationId(endpoint) ||
+      frame.source !== source
+    ) {
+      return yield* Effect.die(
+        new TypeError("TeamApplications public guard has no matching request decision"),
+      );
+    }
+
+    return yield* authorizeAnonymous(
+      Option.getOrThrow(reflectAccessSpec(endpoint)),
+      frame.resolution,
+      frame.now,
+    );
+  });
+
+/** Staff authority uses the actor resolved in this request's read snapshot or write prepare. */
+const staffGuard = (endpoint: StaffEndpoint, source: HttpServerRequest.HttpServerRequest) =>
+  Effect.gen(function* () {
+    const frame = yield* CurrentTeamApplicationAccess;
+
+    if (
+      frame === undefined ||
+      frame.kind !== "Staff" ||
+      frame.operation !== teamOperationId(endpoint) ||
+      frame.source !== source
+    ) {
+      return yield* Effect.die(
+        new TypeError("TeamApplications staff guard has no matching request decision"),
+      );
+    }
+
+    return yield* authorizeStaff(
+      endpoint,
+      frame.staff,
+      frame.actor,
+      frame.selection,
+      personPresentation(frame.request),
+    );
+  });
+
+const teamApplicationGuards = {
+  "team-applications.deleteTeamApplication": (request) =>
+    staffGuard(deleteTeamApplication, request),
+  "team-applications.listTeamApplicationIntakes": (request) =>
+    publicGuard(listTeamApplicationIntakes, request),
+  "team-applications.listTeamApplications": (request) => staffGuard(listTeamApplications, request),
+  "team-applications.readTeamApplication": (request) => staffGuard(readTeamApplication, request),
+  "team-applications.readTeamApplicationIntake": (request) =>
+    publicGuard(readTeamApplicationIntake, request),
+  "team-applications.reviseTeamApplicationIntake": (request) =>
+    staffGuard(reviseTeamApplicationIntake, request).pipe(unreachable("resource.not-found")),
+  "team-applications.submitTeamApplication": (request) =>
+    publicGuard(submitTeamApplication, request),
+} satisfies TeamApplicationsGuards<TeamApplicationsEndpoints>;
+
+type Authorize<Operation extends keyof typeof teamApplicationGuards> = () => ReturnType<
+  (typeof teamApplicationGuards)[Operation]
+>;
+
 const snapshotRead = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Database.use((sql) =>
     sql.withTransaction(
@@ -247,25 +361,34 @@ const submissionErrors = (body: Schema.Json): ReadonlyArray<NativeValidationErro
   return errors;
 };
 
-const readIntake = (request: Request, teamId: TeamId) =>
+const readIntake = (
+  request: Request,
+  source: HttpServerRequest.HttpServerRequest,
+  teamId: TeamId,
+  authorize: Authorize<"team-applications.readTeamApplicationIntake">,
+) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
     const instant = yield* currentInstant(undefined);
 
-    yield* authorizeAnonymous(
-      Option.getOrThrow(reflectAccessSpec(ReadTeamApplicationIntakeEndpoint)),
-      {
-        selection: "ExactlyOne",
-        contexts: [
-          genericContext({
-            domainId: "team-applications",
-            resourceKind: "organization-team",
-            resourceId: teamId,
-            authorityVersion: `team-application-intake:${instant}`,
-          }),
-        ],
-      },
-      instant,
+    yield* authorize().pipe(
+      Effect.provideService(CurrentTeamApplicationAccess, {
+        kind: "Public",
+        operation: teamOperationId(readTeamApplicationIntake),
+        source,
+        resolution: {
+          selection: "ExactlyOne",
+          contexts: [
+            genericContext({
+              domainId: "team-applications",
+              resourceKind: "organization-team",
+              resourceId: teamId,
+              authorityVersion: `team-application-intake:${instant}`,
+            }),
+          ],
+        },
+        now: instant,
+      }),
     );
 
     // A public read runs no serializable transaction, so it cannot lose a conflict.
@@ -277,23 +400,31 @@ const readIntake = (request: Request, teamId: TeamId) =>
     return json(intake, NO_STORE);
   });
 
-const listIntakes = (request: Request) =>
+const listIntakes = (
+  request: Request,
+  source: HttpServerRequest.HttpServerRequest,
+  authorize: Authorize<"team-applications.listTeamApplicationIntakes">,
+) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
     const instant = yield* currentInstant(undefined);
 
-    yield* authorizeAnonymous(
-      Option.getOrThrow(reflectAccessSpec(ListTeamApplicationIntakesEndpoint)),
-      {
-        selection: "AllMatching",
-        contexts: [
-          genericContext({
-            domainId: "team-applications",
-            authorityVersion: `team-application-intakes:${instant}`,
-          }),
-        ],
-      },
-      instant,
+    yield* authorize().pipe(
+      Effect.provideService(CurrentTeamApplicationAccess, {
+        kind: "Public",
+        operation: teamOperationId(listTeamApplicationIntakes),
+        source,
+        resolution: {
+          selection: "AllMatching",
+          contexts: [
+            genericContext({
+              domainId: "team-applications",
+              authorityVersion: `team-application-intakes:${instant}`,
+            }),
+          ],
+        },
+        now: instant,
+      }),
     );
 
     const intakes = yield* TeamApplications.use((service) => service.listPublicIntakes).pipe(
@@ -304,7 +435,13 @@ const listIntakes = (request: Request) =>
     return json(intakes, NO_STORE);
   });
 
-const submit = (request: Request, teamId: TeamId, config: TeamApplicationApiConfig) =>
+const submit = (
+  request: Request,
+  source: HttpServerRequest.HttpServerRequest,
+  teamId: TeamId,
+  config: TeamApplicationApiConfig,
+  authorize: Authorize<"team-applications.submitTeamApplication">,
+) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
 
@@ -331,27 +468,31 @@ const submit = (request: Request, teamId: TeamId, config: TeamApplicationApiConf
 
     const idempotencyKey = yield* idempotencyKeyOf(request);
 
-    const operationId = "team-applications.submitTeamApplication";
+    const operationId = teamOperationId(submitTeamApplication);
 
     // Domain failures are mapped after the executor, whose retry reads their causes.
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const instant = yield* currentInstant(undefined);
 
-        yield* authorizeAnonymous(
-          Option.getOrThrow(reflectAccessSpec(SubmitTeamApplicationEndpoint)),
-          {
-            selection: "ExactlyOne",
-            contexts: [
-              genericContext({
-                domainId: "team-applications",
-                resourceKind: "organization-team",
-                resourceId: teamId,
-                authorityVersion: `team-application-create:${instant}`,
-              }),
-            ],
-          },
-          instant,
+        yield* authorize().pipe(
+          Effect.provideService(CurrentTeamApplicationAccess, {
+            kind: "Public",
+            operation: operationId,
+            source,
+            resolution: {
+              selection: "ExactlyOne",
+              contexts: [
+                genericContext({
+                  domainId: "team-applications",
+                  resourceKind: "organization-team",
+                  resourceId: teamId,
+                  authorityVersion: `team-application-create:${instant}`,
+                }),
+              ],
+            },
+            now: instant,
+          }),
         );
 
         const identity = yield* httpIdentity({
@@ -403,7 +544,12 @@ const cursorQuery = (request: Request) =>
       : Effect.succeed(parameters.get("cursor") ?? undefined);
   });
 
-const listApplications = (request: Request, teamId: TeamId) => {
+const listApplications = (
+  request: Request,
+  source: HttpServerRequest.HttpServerRequest,
+  teamId: TeamId,
+  authorize: Authorize<"team-applications.listTeamApplications">,
+) => {
   const presentation = personPresentation(request);
 
   return snapshotRead(
@@ -416,12 +562,16 @@ const listApplications = (request: Request, teamId: TeamId) => {
         service.listApplications(staff.principal, teamId, cursor),
       ).pipe(teamApplicationProblems, unreachable("transaction.conflict"));
 
-      yield* authorizeStaff(
-        ListTeamApplicationsEndpoint,
-        staff,
-        page.actor,
-        "AllMatching",
-        presentation,
+      yield* authorize().pipe(
+        Effect.provideService(CurrentTeamApplicationAccess, {
+          kind: "Staff",
+          operation: teamOperationId(listTeamApplications),
+          source,
+          request,
+          staff,
+          actor: page.actor,
+          selection: "AllMatching",
+        }),
       );
 
       const body = {
@@ -440,7 +590,12 @@ const listApplications = (request: Request, teamId: TeamId) => {
   ).pipe(staffCredentialProblems(presentation));
 };
 
-const readApplication = (request: Request, applicationId: TeamApplicationId) => {
+const readApplication = (
+  request: Request,
+  source: HttpServerRequest.HttpServerRequest,
+  applicationId: TeamApplicationId,
+  authorize: Authorize<"team-applications.readTeamApplication">,
+) => {
   const presentation = personPresentation(request);
 
   return snapshotRead(
@@ -453,12 +608,16 @@ const readApplication = (request: Request, applicationId: TeamApplicationId) => 
         service.readApplication(staff.principal, applicationId),
       ).pipe(teamApplicationProblems, unreachable("transaction.conflict"));
 
-      yield* authorizeStaff(
-        ReadTeamApplicationEndpoint,
-        staff,
-        view.actor,
-        "ExactlyOne",
-        presentation,
+      yield* authorize().pipe(
+        Effect.provideService(CurrentTeamApplicationAccess, {
+          kind: "Staff",
+          operation: teamOperationId(readTeamApplication),
+          source,
+          request,
+          staff,
+          actor: view.actor,
+          selection: "ExactlyOne",
+        }),
       );
 
       return json(
@@ -473,14 +632,19 @@ const readApplication = (request: Request, applicationId: TeamApplicationId) => 
   ).pipe(staffCredentialProblems(presentation));
 };
 
-const deleteApplication = (request: Request, applicationId: TeamApplicationId) =>
+const deleteApplication = (
+  request: Request,
+  source: HttpServerRequest.HttpServerRequest,
+  applicationId: TeamApplicationId,
+  authorize: Authorize<"team-applications.deleteTeamApplication">,
+) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
 
     const idempotencyKey = yield* idempotencyKeyOf(request);
     const presentation = personPresentation(request);
 
-    const operationId = "team-applications.deleteTeamApplication";
+    const operationId = teamOperationId(deleteTeamApplication);
 
     // Domain and credential failures are mapped after the executor, whose retry reads their causes.
     const outcome = yield* executeNativeHttpCommandPostgres(
@@ -495,12 +659,16 @@ const deleteApplication = (request: Request, applicationId: TeamApplicationId) =
           ),
         );
 
-        yield* authorizeStaff(
-          DeleteTeamApplicationEndpoint,
-          staff,
-          actor,
-          "ExactlyOne",
-          presentation,
+        yield* authorize().pipe(
+          Effect.provideService(CurrentTeamApplicationAccess, {
+            kind: "Staff",
+            operation: operationId,
+            source,
+            request,
+            staff,
+            actor,
+            selection: "ExactlyOne",
+          }),
         );
 
         const identity = yield* httpIdentity({
@@ -539,7 +707,12 @@ const deleteApplication = (request: Request, applicationId: TeamApplicationId) =
     return yield* commandOutcomeResponse(outcome);
   });
 
-const reviseIntake = (request: Request, teamId: TeamId) =>
+const reviseIntake = (
+  request: Request,
+  source: HttpServerRequest.HttpServerRequest,
+  teamId: TeamId,
+  authorize: Authorize<"team-applications.reviseTeamApplicationIntake">,
+) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
 
@@ -578,7 +751,7 @@ const reviseIntake = (request: Request, teamId: TeamId) =>
     const idempotencyKey = yield* idempotencyKeyOf(request);
     const presentation = personPresentation(request);
 
-    const operationId = "team-applications.reviseTeamApplicationIntake";
+    const operationId = teamOperationId(reviseTeamApplicationIntake);
 
     // Domain and credential failures are mapped after the executor, whose retry reads their causes.
     const outcome = yield* executeNativeHttpCommandPostgres(
@@ -593,12 +766,16 @@ const reviseIntake = (request: Request, teamId: TeamId) =>
           ),
         );
 
-        yield* authorizeStaff(
-          ReviseTeamApplicationIntakeEndpoint,
-          staff,
-          actor,
-          "ExactlyOne",
-          presentation,
+        yield* authorize().pipe(
+          Effect.provideService(CurrentTeamApplicationAccess, {
+            kind: "Staff",
+            operation: operationId,
+            source,
+            request,
+            staff,
+            actor,
+            selection: "ExactlyOne",
+          }),
         );
 
         const identity = yield* httpIdentity({
@@ -650,29 +827,40 @@ const reviseIntake = (request: Request, teamId: TeamId) =>
     return yield* commandOutcomeResponse(outcome);
   });
 
+/** Each raw endpoint runs its generated guard at the original domain decision point. */
+const makeTeamApplicationsRawHandlers = (config: TeamApplicationApiConfig) =>
+  ({
+    deleteTeamApplication: ({ request, params }, authorize) =>
+      webHandler(request, (webRequest) =>
+        deleteApplication(webRequest, request, params.applicationId, authorize),
+      ),
+    listTeamApplicationIntakes: ({ request }, authorize) =>
+      webHandler(request, (webRequest) => listIntakes(webRequest, request, authorize)),
+    listTeamApplications: ({ request, params }, authorize) =>
+      webHandler(request, (webRequest) =>
+        listApplications(webRequest, request, params.teamId, authorize),
+      ),
+    readTeamApplication: ({ request, params }, authorize) =>
+      webHandler(request, (webRequest) =>
+        readApplication(webRequest, request, params.applicationId, authorize),
+      ),
+    readTeamApplicationIntake: ({ request, params }, authorize) =>
+      webHandler(request, (webRequest) =>
+        readIntake(webRequest, request, params.teamId, authorize),
+      ),
+    reviseTeamApplicationIntake: ({ request, params }, authorize) =>
+      webHandler(request, (webRequest) =>
+        reviseIntake(webRequest, request, params.teamId, authorize),
+      ),
+    submitTeamApplication: ({ request, params }, authorize) =>
+      webHandler(request, (webRequest) =>
+        submit(webRequest, request, params.teamId, config, authorize),
+      ),
+  }) satisfies TeamApplicationsRawHandlers<TeamApplicationsEndpoints, typeof teamApplicationGuards>;
+
 /** Native HttpApi handlers for public team intake and staff review. */
 export const TeamApplicationsApiHandlers = (config: TeamApplicationApiConfig) =>
-  HttpApiBuilder.group(ExternalNativeApi, "team-applications", (handlers) =>
-    Effect.succeed(
-      handlers
-        .handleRaw("readTeamApplicationIntake", ({ request, params }) =>
-          webHandler(request, (webRequest) => readIntake(webRequest, params.teamId)),
-        )
-        .handleRaw("listTeamApplicationIntakes", ({ request }) => webHandler(request, listIntakes))
-        .handleRaw("submitTeamApplication", ({ request, params }) =>
-          webHandler(request, (webRequest) => submit(webRequest, params.teamId, config)),
-        )
-        .handleRaw("listTeamApplications", ({ request, params }) =>
-          webHandler(request, (webRequest) => listApplications(webRequest, params.teamId)),
-        )
-        .handleRaw("readTeamApplication", ({ request, params }) =>
-          webHandler(request, (webRequest) => readApplication(webRequest, params.applicationId)),
-        )
-        .handleRaw("deleteTeamApplication", ({ request, params }) =>
-          webHandler(request, (webRequest) => deleteApplication(webRequest, params.applicationId)),
-        )
-        .handleRaw("reviseTeamApplicationIntake", ({ request, params }) =>
-          webHandler(request, (webRequest) => reviseIntake(webRequest, params.teamId)),
-        ),
-    ),
-  );
+  GeneratedTeamApplicationsApiHandlers({
+    raw: makeTeamApplicationsRawHandlers(config),
+    guards: teamApplicationGuards,
+  });

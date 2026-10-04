@@ -760,7 +760,7 @@ export const commandOutcomeResponse = (
  *
  * @example
  * ```ts
- * yield* authorizeAnonymous(Option.getOrThrow(reflectAccessSpec(ReadTeamApplicationIntakeEndpoint)), resolution, instant);
+ * yield* authorizeAnonymous(Option.getOrThrow(reflectAccessSpec(readTeamApplicationIntake)), resolution, instant);
  * ```
  *
  * @avoid Skipping the evaluation because the operation is public: the declared AccessSpec and the
