@@ -247,7 +247,7 @@ const authorizeWithSql = Effect.fn("Recruitment.authorizeMaintenance")(function*
       Result: Schema.Struct({ applicationId: PublicApplicationIdSchema }),
       execute: (id) =>
         sql`SELECT application_id AS "applicationId" FROM public.recruitment_interviews WHERE interview_id=${id}`,
-    })(command.interviewId);
+    })(command.interviewId).pipe(Effect.catchTag("NoSuchElementError", () => fail("NotFound")));
 
     yield* lockApplicationDecisionWithSql(sql, application.applicationId);
   }
@@ -360,7 +360,9 @@ export const maintainRecruitment = (command: RecruitmentMaintenanceCommand, pers
               Result: Schema.Struct({ applicationId: PublicApplicationIdSchema }),
               execute: (id) =>
                 sql`SELECT application_id AS "applicationId" FROM public.recruitment_interviews WHERE interview_id=${id}`,
-            })(command.interviewId);
+            })(command.interviewId).pipe(
+              Effect.catchTag("NoSuchElementError", () => fail("NotFound")),
+            );
 
             const evidence = yield* readApplicationAdmissionEvidenceWithSql(
               sql,
