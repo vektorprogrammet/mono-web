@@ -23,9 +23,11 @@ import {
   RecruitmentInvitationId,
   RecruitmentInvitationTransition,
   RecruitmentMaintenanceResult,
+  InterviewStaffingManagement,
   RecruitmentScheduleCommandId,
 } from "@vektorprogrammet/domain/recruitment";
 import {
+  ConductObservation,
   CorrectInterviewAssessmentRequest,
   CorrectInterviewAssessmentResponse,
   NativeProblem,
@@ -262,7 +264,7 @@ const fixture = <E = never>(
   };
 
   /** A second session on the fixture database, outside the handler's single connection. */
-  const competitor = Effect.gen(function* () {
+  const competitor = Effect.fnUntraced(function* (maxConnections = 1) {
     const [target] = yield* database.run(
       Database.use(
         (sql) =>
@@ -277,13 +279,14 @@ const fixture = <E = never>(
 
     if (target === undefined) throw new Error("Missing PostgreSQL connection configuration");
 
-    return DatabaseRuntimeLive({ ...target, maxConnections: 1 }).pipe(Layer.orDie);
+    return DatabaseRuntimeLive({ ...target, maxConnections }).pipe(Layer.orDie);
   });
 
   return {
     database,
     request,
     competitor,
+    clock,
     setNow: (instant: string) => {
       now = instant;
     },
@@ -308,7 +311,7 @@ describe("recruitment commands over HTTP and PostgreSQL", () => {
         revision: 2,
       });
 
-      const competing = yield* competitor;
+      const competing = yield* competitor();
       const rowHeld = yield* Deferred.make<void>();
 
       // The concurrent transaction commits only after the command waits on its
@@ -407,7 +410,7 @@ describe("recruitment commands over HTTP and PostgreSQL", () => {
 });
 
 // Spec 0029 R2: these commands must remain on the existing maintenance operation.
-// Raw wire variants deliberately expose the missing baseline schema; no future imports.
+// Raw wire variants exercise the maintenance request boundary, not a second command surface.
 const coPersonId = PersonId.make("commands-co");
 
 const adminPersonId = PersonId.make("commands-admin");
@@ -439,7 +442,7 @@ type CorrectionFixture = ReturnType<typeof fixture>;
 const runDomain = <A, E>(
   f: CorrectionFixture,
   program: Effect.Effect<A, E, Admissions | Recruitment | Database>,
-) => f.database.run(program.pipe(Effect.provide(domain)));
+) => f.database.run(program.pipe(Effect.provide(domain.pipe(Layer.provideMerge(f.clock)))));
 
 const outcomeEntry = Admissions.use((service) => service.readAdmissionOutcome(applicationId));
 
@@ -458,7 +461,7 @@ const commitAnnouncement = Effect.fnUntraced(function* (f: CorrectionFixture) {
   );
 });
 
-const correct = Effect.fnUntraced(function* (
+const correctionRequest = Effect.fnUntraced(function* (
   f: CorrectionFixture,
   personId = interviewerPersonId,
   recommendation: CorrectInterviewAssessmentRequest["recommendation"] = "Nei",
@@ -470,22 +473,34 @@ const correct = Effect.fnUntraced(function* (
   const etag = conduct.headers.get("etag");
   expect(etag).not.toBeNull();
 
+  return {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": key.padEnd(22, "0"),
+      "if-match": etag ?? "",
+    },
+    body: yield* Schema.encodeEffect(Schema.fromJsonString(CorrectInterviewAssessmentRequest))({
+      expectedRevision: revision,
+      answers: questionIds.map((questionId) => ({ questionId, answer: "R2 correction" })),
+      score: { explanatoryPower: 7, roleModel: 8, suitability: 9 },
+      recommendation,
+    }),
+  };
+});
+
+const correct = Effect.fnUntraced(function* (
+  f: CorrectionFixture,
+  personId = interviewerPersonId,
+  recommendation: CorrectInterviewAssessmentRequest["recommendation"] = "Nei",
+  key = "r2-correction",
+  revision = 2,
+) {
+  const init = yield* correctionRequest(f, personId, recommendation, key, revision);
+
   return yield* f.request(
     "/api/recruitment/interviews/" + interviewId + ":correct",
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": key.padEnd(22, "0"),
-        "if-match": etag ?? "",
-      },
-      body: yield* Schema.encodeEffect(Schema.fromJsonString(CorrectInterviewAssessmentRequest))({
-        expectedRevision: revision,
-        answers: questionIds.map((questionId) => ({ questionId, answer: "R2 correction" })),
-        score: { explanatoryPower: 7, roleModel: 8, suitability: 9 },
-        recommendation,
-      }),
-    },
+    init,
     personId,
   );
 });
@@ -679,7 +694,10 @@ describe("R2 correction closure and frozen admission evidence", () => {
   it.live("denies a known-self interviewer correction before receipt replay", () =>
     Effect.gen(function* () {
       const f = fixture(correctionActors);
-      expect((yield* correct(f, interviewerPersonId, "Kanskje", "r2-self")).status).toBe(200);
+      const init = yield* correctionRequest(f, interviewerPersonId, "Kanskje", "r2-self");
+      expect(
+        (yield* f.request("/api/recruitment/interviews/" + interviewId + ":correct", init)).status,
+      ).toBe(200);
       yield* f.database.run(
         Database.use((sql) =>
           sql`INSERT INTO applicant_account_invitations
@@ -691,15 +709,11 @@ describe("R2 correction closure and frozen admission evidence", () => {
         ),
       );
 
-      const response = yield* f.request("/api/recruitment/interviews/" + interviewId + ":correct", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "idempotency-key": "r2-self".padEnd(22, "0"),
-          "if-match": '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"',
-        },
-        body: correctionBody,
-      });
+      // Replay the exact committed request: only the current identity fact changed.
+      const response = yield* f.request(
+        "/api/recruitment/interviews/" + interviewId + ":correct",
+        init,
+      );
 
       expect(response.status).toBe(403);
       expect((yield* f.database.run(persistedCorrection))?.corrections).toBe(1);
@@ -713,18 +727,114 @@ describe("R2 correction closure and frozen admission evidence", () => {
         yield* commitAnnouncement(f);
         const reopened = yield* decodeMaintenance(yield* maintenance(f, reopenWire()));
         expect(reopened._tag).toBe("AssessmentCorrectionReopened");
-        toMatchObject({ sequence: 1 });
+        expect(reopened).toMatchObject({ sequence: 1 });
         expect((yield* maintenance(f, reopenWire("r2-overlap", 1))).status).toBe(409);
         expect((yield* maintenance(f, closeWire(2, "r2-stale-close"))).status).toBe(409);
         const closed = yield* decodeMaintenance(yield* maintenance(f, closeWire()));
         expect(closed._tag).toBe("AssessmentCorrectionClosed");
-        toMatchObject({ sequence: 1 });
+        expect(closed).toMatchObject({ sequence: 1 });
         expect((yield* correct(f)).status).toBe(409);
         expect((yield* maintenance(f, reopenWire("r2-stale-open", 0))).status).toBe(409);
         const second = yield* decodeMaintenance(yield* maintenance(f, reopenWire("r2-second", 1)));
         expect(second._tag).toBe("AssessmentCorrectionReopened");
-        toMatchObject({ sequence: 2 });
+        expect(second).toMatchObject({ sequence: 2 });
       }),
+  );
+
+  it.live(
+    "normalizes a reopened Instant through conduct and staffing reads and exact receipt replay",
+    () =>
+      Effect.gen(function* () {
+        const f = fixture(correctionActors);
+        yield* commitAnnouncement(f);
+        const wire = reopenWire("r2-normalized", 0, "2031-09-16T14:00:00.000+02:00");
+        const response = yield* maintenance(f, wire);
+        expect(response.headers.get("etag")).not.toBeNull();
+        const reopened = yield* decodeMaintenance(response);
+        expect(reopened).toMatchObject({ sequence: 1 });
+
+        const conduct = yield* f.request("/api/recruitment/interviews/" + interviewId);
+        expect(conduct.status).toBe(200);
+
+        const observation = yield* Schema.decodeUnknownEffect(ConductObservation)(
+          yield* Effect.promise(() => conduct.json()),
+          { onExcessProperty: "error" },
+        );
+
+        expect(observation.assessmentCorrection._tag).toBe("Open");
+
+        if (!("endsAt" in observation.assessmentCorrection))
+          return yield* Effect.die("Missing reopened correction instant");
+        expect(DateTime.formatIso(observation.assessmentCorrection.endsAt)).toBe(
+          "2031-09-16T12:00:00.000Z",
+        );
+
+        const staffing = yield* f.request(
+          "/api/recruitment/interview-staffing",
+          {},
+          leaderPersonId,
+        );
+
+        expect(staffing.status).toBe(200);
+
+        const management = yield* Schema.decodeUnknownEffect(InterviewStaffingManagement)(
+          yield* Effect.promise(() => staffing.json()),
+          { onExcessProperty: "error" },
+        );
+
+        expect(management.interviews[0]?.assessmentCorrection).toEqual({
+          ...observation.assessmentCorrection,
+          canCorrect: false,
+          canClose: true,
+        });
+
+        // Equivalent wire spellings identify the same normalized command, not a second window.
+        expect(
+          yield* decodeMaintenance(
+            yield* maintenance(f, reopenWire("r2-normalized", 0, "2031-09-16T12:00:00.000Z")),
+          ),
+        ).toEqual(reopened);
+        expect(
+          yield* f.database.run(
+            Database.use(
+              (sql) => sql`SELECT
+                (SELECT count(*)::integer FROM recruitment_assessment_correction_windows) AS windows,
+                (SELECT count(*)::integer FROM recruitment_assessment_correction_window_audit) AS audits,
+                (SELECT count(*)::integer FROM recruitment_maintenance_command_receipts) AS receipts`,
+            ),
+          ),
+        ).toEqual([{ windows: 1, audits: 1, receipts: 1 }]);
+      }),
+  );
+
+  it.live("rejects a missing or malformed reopen Instant before storing any receipt", () =>
+    Effect.gen(function* () {
+      const f = fixture(correctionActors);
+      yield* commitAnnouncement(f);
+      const commandId = "r2-missing-instant".padEnd(22, "0");
+
+      const missing = {
+        commandId,
+        body:
+          '{"_tag":"ReopenAssessmentCorrection",' +
+          wireJson({
+            commandId,
+            interviewId,
+            expectedSequence: 0,
+            reason: "A correction window requires an explicit instant",
+          }).slice(1),
+      };
+
+      for (const wire of [
+        missing,
+        reopenWire("r2-invalid-instant", 0, "not-an-instant"),
+        reopenWire("r2-missing-offset", 0, "2031-09-16T12:00:00.000"),
+      ]) {
+        yield* assertProblemStatus(yield* maintenance(f, wire), 422);
+      }
+
+      expect((yield* f.database.run(persistedCorrection))?.httpReceipts).toBe(0);
+    }),
   );
 
   for (const endsAt of ["2032-01-01T00:00:00.000Z", "2032-01-01T00:00:00.001Z"]) {
@@ -864,7 +974,7 @@ describe("R2 decision fence, refusal and interruption", () => {
       const f = fixture(correctionActors);
       // Initialize before acquiring the independent connection.
       yield* f.database.run(persistedCorrection);
-      const competing = yield* f.competitor;
+      const competing = yield* f.competitor();
       const snapshotRead = yield* Deferred.make<void>();
       const decisionCommitted = yield* Deferred.make<void>();
 
@@ -904,7 +1014,10 @@ describe("R2 decision fence, refusal and interruption", () => {
       Effect.gen(function* () {
         const f = fixture(correctionActors);
         yield* f.database.run(persistedCorrection);
-        const competing = yield* f.competitor;
+        const competing = yield* f.competitor();
+        // Native pg cancellation uses a second connection from the same pool.
+        const correctionSession = yield* f.competitor(2);
+        const observer = yield* f.competitor();
         const held = yield* Deferred.make<void>();
         const release = yield* Deferred.make<void>();
 
@@ -919,10 +1032,15 @@ describe("R2 decision fence, refusal and interruption", () => {
         ).pipe(Effect.provide(competing), Effect.forkChild);
 
         yield* Deferred.await(held);
-        const waiter = yield* runDomain(f, applyFencedCorrection).pipe(Effect.forkChild);
 
-        // Observe the database's wait milestone, not elapsed time. The holder's
-        // connection stays usable inside its transaction while the other waits.
+        const waiter = yield* applyFencedCorrection.pipe(
+          Effect.provide(
+            domain.pipe(Layer.provideMerge(correctionSession), Layer.provideMerge(f.clock)),
+          ),
+          Effect.forkChild,
+        );
+
+        // The observer has its own connection, independent of holder and waiter.
         // On the unfenced baseline the correction completes instead of waiting.
         const observed = yield* Effect.race(
           Fiber.await(waiter).pipe(Effect.as("completed" as const)),
@@ -931,7 +1049,7 @@ describe("R2 decision fence, refusal and interruption", () => {
           ).pipe(
             Effect.repeat({ until: (rows) => rows.length > 0 }),
             Effect.as("waiting" as const),
-            Effect.provide(competing),
+            Effect.provide(observer),
           ),
         );
 
@@ -941,7 +1059,13 @@ describe("R2 decision fence, refusal and interruption", () => {
         expect(Exit.isFailure(interrupted) && Cause.hasInterrupts(interrupted.cause)).toBe(true);
         yield* Deferred.succeed(release, undefined);
         yield* Fiber.join(holder);
-        expect((yield* f.database.run(persistedCorrection))?.corrections).toBe(0);
+        expect(yield* f.database.run(persistedCorrection)).toEqual({
+          corrections: 0,
+          correctionReceipts: 0,
+          audits: 0,
+          httpReceipts: 0,
+          revision: 2,
+        });
         // A new command after releasing both owners proves the connection/fence is usable.
         expect((yield* correct(f)).status).toBe(200);
       }),

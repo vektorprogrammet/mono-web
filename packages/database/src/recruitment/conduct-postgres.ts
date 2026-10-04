@@ -708,7 +708,7 @@ const observation = (
       state.cancellation === null;
 
     return yield* decode(
-      RecruitmentInterviewConductObservationSchema,
+      Schema.toType(RecruitmentInterviewConductObservationSchema),
       "conduct observation",
     )({
       interviewId: state.interview.interviewId,

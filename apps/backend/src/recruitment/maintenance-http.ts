@@ -179,7 +179,7 @@ export const maintainRecruitmentHttp = (request: Request) =>
                   resourceIdentity: Predicate.isTagged(result, "QuestionnaireSaved")
                     ? result.interviewSchemaId
                     : result.interviewId,
-                  version: result.revision,
+                  version: "revision" in result ? result.revision : result.sequence,
                 }),
               },
               bodyBytes: new TextEncoder().encode(yield* jsonText(encoded)),

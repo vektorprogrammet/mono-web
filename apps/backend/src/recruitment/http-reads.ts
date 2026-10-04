@@ -318,7 +318,7 @@ export const readInterviewConduct = <R>(
       ),
     ).pipe(Effect.catchTag("SqlError", () => Effect.fail(Problem.make("internal.error"))));
 
-    const output = yield* strictOutput(ConductObservation)(snapshot.observation);
+    const output = yield* strictOutput(Schema.toType(ConductObservation))(snapshot.observation);
 
     // The observation fits its own schema, so encoding it cannot fail.
     const encoded = yield* Schema.encodeEffect(Schema.toCodecJson(ConductObservation))(output).pipe(

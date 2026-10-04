@@ -286,15 +286,6 @@ export const interviewAuthorizationInTransaction = <R>(
       }),
     );
 
-    if (endpoint === CorrectInterviewAssessmentEndpoint)
-      yield* Recruitment.use((service) =>
-        service.authorizeAssessmentCorrection(interviewId, {
-          actor,
-          now: authorization.authorizationInstant,
-          authorizationInstant: authorization.authorizationInstant,
-        }),
-      );
-
     const resource = {
       kind: ResourceKind.make("recruitment-interview"),
       id: ResourceId.make(interviewId),
@@ -314,6 +305,16 @@ export const interviewAuthorizationInTransaction = <R>(
       },
       personPresentation(request),
     );
+
+    // Endpoint authority precedes lifecycle refusal, and both precede receipt replay.
+    if (endpoint === CorrectInterviewAssessmentEndpoint)
+      yield* Recruitment.use((service) =>
+        service.authorizeAssessmentCorrection(interviewId, {
+          actor,
+          now: authorization.authorizationInstant,
+          authorizationInstant: authorization.authorizationInstant,
+        }),
+      );
 
     return {
       actor,

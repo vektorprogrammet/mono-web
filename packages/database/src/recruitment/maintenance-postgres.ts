@@ -64,10 +64,6 @@ const mapFailure = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     }),
   );
 
-const decodeCommand = Schema.decodeUnknownEffect(RecruitmentMaintenanceCommand, {
-  onExcessProperty: "error",
-});
-
 /** Every interview in scope for staffing: `null` for the whole organization. */
 const staffingScope = (authority: OrganizationPersonAuthority) => {
   const reached = reachedDepartments(authority, "recruitment.interviews");
@@ -214,7 +210,7 @@ export const readInterviewStaffing = (personId: PersonId) =>
       FROM public.recruitment_staffing_history WHERE ${scope === null ? sql`TRUE` : sql.in("department_id", scope)} ORDER BY recorded_at DESC,interview_id,revision DESC`,
         })(undefined);
 
-        return yield* Schema.decodeEffect(InterviewStaffingManagement)({
+        return yield* Schema.decodeEffect(Schema.toType(InterviewStaffingManagement))({
           interviews,
           candidates,
           history,
@@ -297,13 +293,12 @@ const authorizeWithSql = Effect.fn("Recruitment.authorizeMaintenance")(function*
 export const authorizeMaintenance = (command: RecruitmentMaintenanceCommand, personId: PersonId) =>
   Effect.gen(function* () {
     const sql = yield* Database;
-    const decoded = yield* decodeCommand(command).pipe(Effect.mapError(() => fail("Invalid")));
-    yield* authorizeWithSql(sql, decoded, personId);
+    // The request boundary owns decoding, including endsAt's Instant transformation.
+    yield* authorizeWithSql(sql, command, personId);
   }).pipe(mapFailure);
 
-export const maintainRecruitment = (input: RecruitmentMaintenanceCommand, personId: PersonId) =>
+export const maintainRecruitment = (command: RecruitmentMaintenanceCommand, personId: PersonId) =>
   Effect.gen(function* () {
-    const command = yield* decodeCommand(input).pipe(Effect.mapError(() => fail("Invalid")));
     const sql = yield* Database;
 
     return yield* sql.withTransaction(
