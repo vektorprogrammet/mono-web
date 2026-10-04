@@ -118,6 +118,8 @@ it.effect(
       ).toEqual({});
 
       for (const schema of [ApplicantRecord.update, ApplicantRecord.jsonUpdate]) {
+        expect(yield* Schema.decodeEffect(schema)({}, { onExcessProperty: "error" })).toEqual({});
+
         for (const change of [
           { id: "another-applicant" },
           { normalizedEmail: "another@example.invalid" },
@@ -129,6 +131,7 @@ it.effect(
           { fieldOfStudyId: "another-field" },
           { yearOfStudy: 4 },
           { activationDigest: "a".repeat(64) },
+          { [Symbol("statement-field")]: "another-statement" },
         ]) {
           const refused = yield* Effect.flip(
             Schema.decodeEffect(schema)(change, {

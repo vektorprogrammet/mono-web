@@ -161,7 +161,12 @@ export class ApplicantRecord extends Model.Class<ApplicantRecord>("ApplicantReco
     jsonCreate: PublicApplicationYearOfStudySchema,
   }),
   activationDigest: Schema.NullOr(Sha256Schema).pipe(Model.FieldOnly(["select", "insert"])),
-}) {}
+}) {
+  // An empty Struct accepts any object. The immutable variants permit only the empty no-op.
+  static override readonly update = super.update.check(Schema.isMaxProperties(0));
+
+  static override readonly jsonUpdate = super.jsonUpdate.check(Schema.isMaxProperties(0));
+}
 
 /** Model-derived non-email applicant boundary used by effect payload construction. */
 export const ApplicantSchema = ApplicantRecord.json;
