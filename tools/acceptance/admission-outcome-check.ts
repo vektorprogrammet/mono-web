@@ -460,7 +460,7 @@ try {
   for (let n = 0; ; n++) {
     try {
       if ((await fetch(`${backendOrigin}/health`)).ok) break;
-    } catch {}
+    } catch { }
 
     if (n > 150) throw Error("backend startup failed");
     await sleep(200);
@@ -1087,12 +1087,19 @@ try {
     ),
   );
   assert.deepEqual(await envelopesOf(jaId), jaMail, "a queued envelope cannot be rewritten");
+
+  // The finality of an announcement, not a stale precondition: the decision is sent with the
+  // fresh ETag of the board, so only the announced state can refuse it, as admission-outcome.final.
+  const decisionEtag = async (id: string) =>
+    entryOf((await read(boardPath(openSemesterId), leader)).entries, id)?.etag;
+
   await expectProblem(
-    await request(decideOf(jaId), leader, { outcome: "Admitted" }, announcedBody.etag),
-    [409, 422],
-    /^admission-outcome\./u,
+    await request(decideOf(jaId), leader, { outcome: "Admitted" }, await decisionEtag(jaId)),
+    409,
+    "admission-outcome.final",
     "an announced outcome is not decided again",
   );
+  assert.deepEqual(await outcomeHistory(jaId), [{ revision: 1, outcome: "Admitted", decidedBy: null }]);
   gates.push(
     "Ja is announced as Admitted once without a decision: one final envelope, an exact replay and a second announcement add none",
   );
@@ -1131,6 +1138,13 @@ try {
   assert.ok(racedStatuses.some((status) => status === 409 || status === 412), `refused announcement ${racedStatuses.join(",")}`);
   assert.equal((await envelopesOf(maybeId)).length, 1, "one winner queues one envelope");
   assert.deepEqual(await outcomeHistory(maybeId), rejectedHistory, "announcing a decided Kanskje appends no outcome");
+  await expectProblem(
+    await request(decideOf(maybeId), leader, { outcome: "Admitted" }, await decisionEtag(maybeId)),
+    409,
+    "admission-outcome.final",
+    "an announced Kanskje decision is not changed",
+  );
+  assert.deepEqual(await outcomeHistory(maybeId), rejectedHistory, "a refused change appends no revision");
   gates.push("of two concurrent announcements exactly one applies and queues one envelope");
 
   // Templates: department authority, and nothing changes in this department.
