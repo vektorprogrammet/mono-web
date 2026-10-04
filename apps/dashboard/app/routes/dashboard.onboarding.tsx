@@ -7,6 +7,7 @@ import { Button } from "../components/ui/button";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import { formText } from "../lib/form-text";
+import { nativeProblemFrom } from "../lib/native-problem";
 import type { Route } from "./+types/dashboard.onboarding";
 
 const privateData = <T,>(value: T, status = 200) =>
@@ -16,8 +17,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
 
-  const departments = (await client.placements.listScopes()).body.departments.filter(
-    (d) => d.canManage,
+  const candidates = (await client.placements.listScopes()).body.departments.map(
+    ({ departmentId, name }) => ({ departmentId, name }),
   );
 
   const departmentId = new URL(request.url).searchParams.get("departmentId") ?? "";
@@ -29,6 +30,25 @@ export async function loader({ request }: Route.LoaderArgs) {
         })
       ).body
     : null;
+
+  const departments: typeof candidates = [];
+
+  // Candidate labels carry no onboarding authority. Only this native read uses its current
+  // board/global/delegated issuance rule; commands recheck that rule when committing.
+  // Probe the existing finite candidate list serially, and reuse the selected board read.
+  for (const candidate of candidates) {
+    if (candidate.departmentId !== board?.departmentId) {
+      try {
+        await client.onboarding.readBoard({ query: { departmentId: candidate.departmentId } });
+      } catch (cause) {
+        if (nativeProblemFrom(cause)?.code === "authority.denied") continue;
+
+        throw cause;
+      }
+    }
+
+    departments.push(candidate);
+  }
 
   return privateData({ departments, departmentId, board });
 }
@@ -55,10 +75,14 @@ export async function action({ request }: Route.ActionArgs) {
       commandId: formText(form, "commandId"),
       message: "Endringen er lagret. Leveringsstatus vises i oversikten.",
     });
-  } catch {
+  } catch (cause) {
+    const problem = nativeProblemFrom(cause);
+
+    if (!problem) throw cause;
+
     return privateData(
-      { ok: false, message: "Endringen kunne ikke lagres. Last oversikten på nytt og prøv igjen." },
-      409,
+      { ok: false, code: problem.code, message: problem.detail },
+      problem.status,
     );
   }
 }
@@ -120,7 +144,7 @@ function InvitationForm({
         <legend className="sr-only">
           Invitasjon for {item.firstName} {item.lastName}
         </legend>
-        <Button name="action" value="Issue">
+        <Button name="action" value="Issue" disabled={!item.canIssue}>
           {item.state === "Absent" ? "Inviter" : "Send ny invitasjon"}
         </Button>
         <Button name="action" value="Revoke" variant="outline">
