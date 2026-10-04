@@ -22,15 +22,16 @@ remain unverified. No Recruitment generated-contract cutover or repaired parity 
 Migrations 0083 and 0084 are registered through `just migration-hashes write`. The source-safety
 test accepts their exact reviewed bytes and rejects a one-byte appended space. Heavy execution
 requires a new operator custody grant.
-The mixed onboarding group will retain one app-owned complete callback. Generated raw-handler
-and guard types will bind Recruitment-owned `readBoard` and `command`; Identity-owned `claim`
-stays handwritten. The e04 compiler emits those types with a self-invalid subset factory
-(TS2322). It has no built-in types-only option. A type-only import does not make that module
-valid. The operator authorized a generator fix and successor package through spec 0029’s
-re-vendor gate: all nine earlier groups must regenerate unchanged before the cutover. No
-compiler upgrade, suppression, output edit, or new root shim is applied here.
-**Retirement trigger:** when Identity migrates `claim`, generate the complete onboarding group
-and remove the transitional app-owned callback.
+The e04 mixed-onboarding module fails type-checking because its subset factory leaves `claim`
+unhandled (TS2322). No built-in option emits its raw/guard types without that factory. The
+operator approved a typed completion continuation: the generated factory registers `readBoard`
+and `command`, then requires the handwritten `claim` completion before a group layer exists.
+A missing claim must be a compile error. The successor package passes spec 0029’s re-vendor
+gate, including unchanged regeneration of all nine earlier groups. The onboarding cutover
+alone remains parked until then. Independent Recruitment work continues after repair green
+acceptance. No compiler upgrade, suppression, output edit, or new root shim is applied here.
+**Retirement trigger:** after Identity migrates `claim`, the complete generated group replaces
+the transitional handwritten completion.
 The isolated reproducer is retained outside the product tree at
 `/srv/share/projects/effx-recruitment-0029-evidence/compiler/mixed-onboarding/`;
 `observed.json` records build exit 0 and type-check exit 1, not product-test acceptance.
