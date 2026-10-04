@@ -339,6 +339,13 @@ Rules:
 - Accessibility, mobile layout, keyboard use, and failure recovery are part of the
   journey contract.
 
+Recruitment and invitation-response bridges forward the executing Effect’s AbortSignal into
+fetch. Their RequestInit requires a non-null signal, with compile-only positive and negative
+controls. Response-body consumption shares the same cancellation lifetime. Foldkit Command
+fibers retain their embedded runtime as the lifetime owner. EmbedHandle disposal interrupts
+the owned browser requests. Abort does not prove rollback of a server command that already
+committed.
+
 ## Runtime composition
 
 `apps/backend/src/main.ts` is the Bun composition root. It provides concrete

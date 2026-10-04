@@ -13,7 +13,15 @@ Local implementation and acceptance do not authorize production, provider, or so
 Recruitment migration 0029 is operator-approved for local implementation at effx
 `b88523d2a8ffcbde5c19008d649da653c26ee475`, under `docs/specs/0029-recruitment-migration.md`.
 This branch starts from the accepted Admissions integration `815a28f8`.
-R1–R8 tests are written and committed before repairs; heavy execution awaits explicit operator custody.
+R1–R8 have accepted red evidence at handwritten revisions aee83078 and 06ba6607.
+The evidence remains outside the product tree in `/srv/share/projects/effx-recruitment-0029-evidence/red/`.
+All isolated repair sources, correction-window UI, model controls, upgrade proofs, and eligible
+positive fixtures are integrated locally. Their staged hooks passed. Runtime green acceptance,
+authority-model execution, upgrade proof on both supported PostgreSQL majors, and aggregate gates
+remain unverified. No Recruitment generated-contract cutover or repaired parity baseline is claimed.
+Migrations 0083 and 0084 are registered through `just migration-hashes write`. The source-safety
+test accepts their exact reviewed bytes and rejects a one-byte appended space. Heavy execution
+requires a new operator custody grant.
 The mixed onboarding group uses one app-owned complete callback: generated raw-handler and guard
 types bind Recruitment-owned `readBoard` and `command`; Identity-owned `claim` stays handwritten.
 The pinned compiler’s two-endpoint factory leaves `claim` unhandled (TS2322). Do not use that factory
