@@ -64,5 +64,6 @@ export const SubmitContactMessage = Operation.command({
     requirements: [],
     canonicalScopeResolver: ContactDepartmentRecipientResolver,
     decisionTime: "SnapshotRead",
+    snapshotDecisionForCommand: true,
   })
   .declare();
