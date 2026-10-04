@@ -240,7 +240,7 @@ const approvedSqlSourceDigests = new Map<string, string>([
   // lifecycle states, provenance, operations, and refusal messages, never credentials or people.
   [
     "packages/database/migrations/0083-application-decision-correction-fence.sql",
-    "sha256:57661d1b13cdd43212d4bdbb3100767e66656368ecb7c480a0023ad93b2398a4",
+    "sha256:8c0b6ebb3103fc44c049b6d45543ef22b6d8ccd048b026b9b430232f5bad75f3",
   ],
   // Reviewed: the UPDATE derives an application key from its existing applicant row; no stored
   // submission or identity link is replaced. Other literals are trigger operations and errors.

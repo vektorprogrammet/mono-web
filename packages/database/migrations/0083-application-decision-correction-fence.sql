@@ -108,7 +108,7 @@ FOR EACH ROW EXECUTE FUNCTION public.freeze_recruitment_maintenance_evidence();
 -- Common owner for every decision-sensitive write. Existing chain and finality
 -- guards remain; this backstop runs first and gives them a current fenced snapshot.
 CREATE FUNCTION public.guard_application_decision_write() RETURNS trigger LANGUAGE plpgsql AS $$
-DECLARE application text; evidence record; window record; semester_end timestamptz;
+DECLARE application text; evidence record; correction_window record; semester_end timestamptz;
 BEGIN
   IF TG_TABLE_NAME IN ('admission_application_outcomes','admission_outcome_announcements') THEN
     application:=NEW.application_id;
@@ -143,9 +143,9 @@ BEGIN
       RAISE EXCEPTION 'Only a non-self assigned interviewer can correct';
     END IF;
     IF evidence.decision_closed THEN
-      SELECT * INTO window FROM public.recruitment_assessment_correction_windows w WHERE w.interview_id=NEW.interview_id ORDER BY sequence DESC LIMIT 1;
-      IF window IS NULL OR window.closed_at IS NOT NULL OR window.opened_by=NEW.corrected_by_person_id
-        OR NEW.corrected_at<window.opened_at OR NEW.corrected_at>=window.ends_at THEN
+      SELECT * INTO correction_window FROM public.recruitment_assessment_correction_windows w WHERE w.interview_id=NEW.interview_id ORDER BY sequence DESC LIMIT 1;
+      IF correction_window IS NULL OR correction_window.closed_at IS NOT NULL OR correction_window.opened_by=NEW.corrected_by_person_id
+        OR NEW.corrected_at<correction_window.opened_at OR NEW.corrected_at>=correction_window.ends_at THEN
         RAISE EXCEPTION 'A current independent correction window is required';
       END IF;
     END IF;
@@ -158,9 +158,9 @@ BEGIN
     SELECT end_at INTO semester_end FROM public.admission_period_semesters WHERE semester_id=evidence.semester_id;
     IF NEW.ends_at>semester_end THEN RAISE EXCEPTION 'Window cannot outlive own semester'; END IF;
     IF TG_OP='INSERT' THEN
-      SELECT * INTO window FROM public.recruitment_assessment_correction_windows w WHERE w.interview_id=NEW.interview_id ORDER BY sequence DESC LIMIT 1;
-      IF NEW.sequence<>COALESCE(window.sequence,0)+1 OR NEW.closed_at IS NOT NULL
-        OR (window.closed_at IS NULL AND NEW.opened_at<window.ends_at) THEN RAISE EXCEPTION 'Window sequence or overlap'; END IF;
+      SELECT * INTO correction_window FROM public.recruitment_assessment_correction_windows w WHERE w.interview_id=NEW.interview_id ORDER BY sequence DESC LIMIT 1;
+      IF NEW.sequence<>COALESCE(correction_window.sequence,0)+1 OR NEW.closed_at IS NOT NULL
+        OR (correction_window.closed_at IS NULL AND NEW.opened_at<correction_window.ends_at) THEN RAISE EXCEPTION 'Window sequence or overlap'; END IF;
     ELSE
       IF OLD.closed_at IS NOT NULL OR NEW.closed_at IS NULL
         OR (to_jsonb(NEW)-'closed_at'-'closed_by'-'close_reason')<>(to_jsonb(OLD)-'closed_at'-'closed_by'-'close_reason') THEN
