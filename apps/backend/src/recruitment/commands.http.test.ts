@@ -629,7 +629,13 @@ describe("R2 correction closure and frozen admission evidence", () => {
     Effect.gen(function* () {
       const f = fixture(correctionActors);
       yield* decideMaybe(f);
-      expect((yield* correct(f, coPersonId, "Nei", "r2-after-decision", 3)).status).toBe(409);
+
+      for (const personId of [interviewerPersonId, coPersonId]) {
+        expect(
+          (yield* correct(f, personId, "Nei", "r2-after-decision-" + personId, 3)).status,
+        ).toBe(409);
+      }
+
       expect(yield* runDomain(f, outcomeEntry)).toMatchObject({
         basis: "Kanskje",
         outcome: "Admitted",
@@ -966,7 +972,7 @@ describe("R2 decision fence, refusal and interruption", () => {
           yield* assertProblemStatus(yield* maintenance(f, reopenWire()), 409);
           yield* assertProblemStatus(
             yield* correct(f, interviewerPersonId, "Nei", "r2-incomplete", cancelled ? 2 : 1),
-            409,
+            cancelled ? 409 : 422,
           );
           expect((yield* f.database.run(persistedCorrection))?.corrections).toBe(0);
         }),
@@ -1084,7 +1090,7 @@ describe("R2 frozen standing consumers and Returning closure", () => {
         });
         yield* assertProblemStatus(
           yield* correct(f, interviewerPersonId, "Nei", "r2-returning-correct", 1),
-          409,
+          422,
         );
         yield* assertProblemStatus(yield* maintenance(f, reopenWire()), 409);
         expect(yield* runDomain(f, outcomeEntry)).toEqual(decided);
@@ -1114,6 +1120,8 @@ describe("R2 frozen standing consumers and Returning closure", () => {
         );
 
         expect(Exit.isSuccess(result)).toBe(basis === "Ja");
+
+        if (Exit.isFailure(result)) expect(Cause.hasFails(result.cause)).toBe(true);
         expect(yield* runDomain(f, outcomeEntry)).toMatchObject({
           basis,
           outcome: basis === "Ja" ? "Admitted" : "Rejected",
@@ -1151,6 +1159,8 @@ describe("R2 frozen standing consumers and Returning closure", () => {
         );
 
         expect(Exit.isSuccess(result)).toBe(basis === "Ja");
+
+        if (Exit.isFailure(result)) expect(Cause.hasFails(result.cause)).toBe(true);
         expect(yield* runDomain(f, outcomeEntry)).toMatchObject({
           basis,
           outcome: basis === "Ja" ? "Admitted" : "Rejected",
@@ -1158,4 +1168,65 @@ describe("R2 frozen standing consumers and Returning closure", () => {
       }),
     );
   }
+});
+
+describe("R2 scoped reopen authority and explicit-decision citation", () => {
+  for (const scope of ["own", "other"] as const) {
+    it.live("staffing delegation reopens and closes only its " + scope + " department", () =>
+      Effect.gen(function* () {
+        const f = fixture(
+          correctionActors.pipe(
+            Effect.andThen(
+              Database.use((sql) =>
+                Effect.gen(function* () {
+                  yield* sql`INSERT INTO organization_departments (department_id,name,short_name,email,city)
+          VALUES ('r2-other-department','Other','OTH','other@example.invalid','Bergen')`;
+                  yield* sql`INSERT INTO organization_delegations (delegation_id,name,team_id,capability,area,area_department_id,holders,start_at)
+          VALUES (${"delegation-" + "a".repeat(64)},'Correction review','commands-team','recruitment.interviews','Department',
+          ${scope === "own" ? departmentId : "r2-other-department"},'AllMembers','2031-01-01')`;
+                }),
+              ),
+            ),
+          ),
+        );
+
+        yield* commitAnnouncement(f);
+        const response = yield* maintenance(f, reopenWire(), unrelatedPersonId);
+
+        if (scope === "other") {
+          yield* assertProblemStatus(response, 403);
+        } else {
+          yield* decodeMaintenance(response);
+          yield* decodeMaintenance(yield* maintenance(f, closeWire(), unrelatedPersonId));
+        }
+      }),
+    );
+  }
+
+  it.live(
+    "reopened Kanskje assessment does not change the first explicit unannounced decision",
+    () =>
+      Effect.gen(function* () {
+        const f = fixture(correctionActors);
+        const firstDecision = yield* decideMaybe(f);
+        yield* decodeMaintenance(yield* maintenance(f, reopenWire()));
+        expect((yield* correct(f, coPersonId, "Nei", "r2-frozen-maybe", 3)).status).toBe(200);
+        expect(yield* runDomain(f, outcomeEntry)).toEqual(firstDecision);
+        expect(yield* commitAnnouncement(f)).toMatchObject({
+          outcome: "Admitted",
+          basis: "Kanskje",
+          state: "OutcomeAnnounced",
+        });
+      }),
+  );
+  it.live("reopen must end strictly after its committing instant", () =>
+    Effect.gen(function* () {
+      const f = fixture(correctionActors);
+      yield* commitAnnouncement(f);
+      yield* assertProblemStatus(
+        yield* maintenance(f, reopenWire("r2-empty-window", 0, "2031-09-15T12:05:00.000Z")),
+        422,
+      );
+    }),
+  );
 });
