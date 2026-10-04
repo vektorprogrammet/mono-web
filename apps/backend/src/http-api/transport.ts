@@ -26,6 +26,7 @@ import {
   resolveRequestCredentialAtInstant,
   resolveRequestPerson,
 } from "../authority.js";
+import { ContactBackendAdmission } from "../contact/admission.js";
 import type { ContactConfig } from "../contact/config.js";
 import { classifyCredential, problemWebResponse } from "./problem.js";
 
@@ -280,7 +281,7 @@ const contactSsrSecurityLayer = (contact: ContactConfig | undefined) => {
 
         // A request without the header presented no credential; a wrong token presented an invalid one.
         return supplied.length === expected.length && timingSafeEqual(supplied, expected)
-          ? httpEffect
+          ? httpEffect.pipe(Effect.provideService(ContactBackendAdmission, true))
           : Effect.flatMap(HttpServerRequest.HttpServerRequest, (request) =>
               Effect.fail(
                 Problem.unauthenticated(

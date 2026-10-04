@@ -2,11 +2,12 @@ import { backendDatabase } from "../../test/database.js";
 import { Database } from "@vektorprogrammet/database";
 import { Organization } from "@vektorprogrammet/domain/organization";
 import { NativeProblem } from "@vektorprogrammet/http-api/http-semantics";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Exit, Layer, Schema } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { decodeBackendConfig } from "../config.js";
 import { makeBackendTestHttp } from "../test/native-http.js";
 import { contactConfig } from "./config.js";
+import { ContactBackendAdmission, requireContactBackendAdmission } from "./admission.js";
 
 const unexpectedOrganizationAccess = () => Effect.die("unexpected organization access");
 
@@ -165,6 +166,16 @@ describe("native contact trust boundary", () => {
       }
 
       expect(yield* ingress.consumedWindows()).toEqual([{ count: 0 }]);
+    }),
+  );
+
+  it.effect("defers to the ingress admission and dies without it", () =>
+    Effect.gen(function* () {
+      expect(Exit.hasDies(yield* Effect.exit(requireContactBackendAdmission))).toBe(true);
+
+      yield* requireContactBackendAdmission.pipe(
+        Effect.provideService(ContactBackendAdmission, true),
+      );
     }),
   );
 });

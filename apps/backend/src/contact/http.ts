@@ -11,7 +11,13 @@ import { ExternalNativeApi } from "@vektorprogrammet/http-api";
 import { Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Layer, Match } from "effect";
 import { HttpClient } from "effect/unstable/http";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import type { HttpApiGroup } from "effect/unstable/httpapi";
+import {
+  ContactApiHandlers as GeneratedContactApiHandlers,
+  type ContactGuards,
+  type ContactRawHandlers,
+} from "../../.effx/generated/contact-handlers.js";
+import { requireContactBackendAdmission } from "./admission.js";
 import type { ContactConfig } from "./config.js";
 import { deliverJson } from "../delivery/http.js";
 import {
@@ -57,16 +63,27 @@ const deliveryFor = (config: ContactConfig) =>
     ),
   );
 
+/** The generated guard runs where the raw handler asks for it, never at handler entry. */
+type ContactEndpoints = HttpApiGroup.Endpoints<(typeof ExternalNativeApi)["groups"]["contact"]>;
+
+const contactGuards = {
+  "contact.submitContactMessage": () => requireContactBackendAdmission,
+} satisfies ContactGuards<ContactEndpoints>;
+
+type Authorize = () => typeof requireContactBackendAdmission;
+
 /**
  * The public contact form. ContactSSR security admits only the homepage
  * server's token and the endpoint schema admits only a canonical visitor
- * address, so the handler starts at the message itself.
+ * address, so the handler starts at the message itself. The generated guard
+ * then requires that ingress admission after strict decoding and before the
+ * quota commits.
  */
 export const ContactApiHandlers = (config: ContactConfig | undefined) => {
   const services =
     config === undefined ? undefined : Layer.merge(ContactQuotaLive, deliveryFor(config));
 
-  const submit = (request: Request, ip: ContactVisitorIp) =>
+  const submit = (request: Request, ip: ContactVisitorIp, authorize: Authorize) =>
     Effect.gen(function* () {
       // Without configuration the ingress admits every request, and nothing can be delivered.
       if (services === undefined) return yield* Problem.make("contact.unavailable");
@@ -74,6 +91,8 @@ export const ContactApiHandlers = (config: ContactConfig | undefined) => {
       const input = yield* readJsonBody(request, /^application\/json(?:\s*;|$)/iu, 65_536);
 
       const message = yield* decodeRequest(ContactMessage)(input);
+
+      yield* authorize();
 
       yield* submitContact(message, ip).pipe(Effect.provide(services), contactProblems);
 
@@ -83,9 +102,12 @@ export const ContactApiHandlers = (config: ContactConfig | undefined) => {
       });
     });
 
-  return HttpApiBuilder.group(ExternalNativeApi, "contact", (handlers) =>
-    handlers.handleRaw("submitContactMessage", ({ request, headers }) =>
-      webHandler(request, (webRequest) => submit(webRequest, headers[CONTACT_IP_HEADER])),
-    ),
-  );
+  const raw = {
+    submitContactMessage: ({ request, headers }, authorize) =>
+      webHandler(request, (webRequest) =>
+        submit(webRequest, headers[CONTACT_IP_HEADER], authorize),
+      ),
+  } satisfies ContactRawHandlers<ContactEndpoints, typeof contactGuards>;
+
+  return GeneratedContactApiHandlers({ raw, guards: contactGuards });
 };
