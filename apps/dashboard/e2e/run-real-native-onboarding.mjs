@@ -207,6 +207,7 @@ try {
       "--project=chromium",
       "--workers=1",
       "--retries=0",
+      ...(process.env.PLAYWRIGHT_GREP ? ["--grep", process.env.PLAYWRIGHT_GREP] : []),
       process.env.PLAYWRIGHT_JSON_OUTPUT_NAME ? "--reporter=line,json" : "--reporter=line",
     ],
     dashboardRoot,
