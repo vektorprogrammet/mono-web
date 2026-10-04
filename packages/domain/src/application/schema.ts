@@ -112,7 +112,10 @@ export const PublicApplicationInstantSchema = Rfc3339InstantSchema;
 
 export type PublicApplicationInstant = typeof PublicApplicationInstantSchema.Type;
 
-const ApplicantRecordVariants = Model.Class<ApplicantRecord>("ApplicantRecord")({
+const ImmutableApplicantStatementUpdate = Schema.Struct({}).check(Schema.isMaxProperties(0));
+
+/** An immutable, unverified submission statement, not a mutable Person profile. */
+export class ApplicantRecord extends Model.Class<ApplicantRecord>("ApplicantRecord")({
   id: Model.Field({
     select: ApplicantIdSchema,
     insert: ApplicantIdSchema,
@@ -160,27 +163,14 @@ const ApplicantRecordVariants = Model.Class<ApplicantRecord>("ApplicantRecord")(
     jsonCreate: PublicApplicationYearOfStudySchema,
   }),
   activationDigest: Schema.NullOr(Sha256Schema).pipe(Model.FieldOnly(["select", "insert"])),
-});
-
-const NoApplicantStatementProperties = Schema.isMaxProperties(0);
-
-const ImmutableApplicantUpdate = ApplicantRecordVariants.update.check(
-  NoApplicantStatementProperties,
-);
-
-const ImmutableApplicantJsonUpdate = ApplicantRecordVariants.jsonUpdate.check(
-  NoApplicantStatementProperties,
-);
-
-/** An immutable, unverified submission statement, not a mutable Person profile. */
-export class ApplicantRecord extends ApplicantRecordVariants {
+}) {
   // Accessors shadow Model’s readonly variant properties without transpiled field assignment.
   static override get update() {
-    return ImmutableApplicantUpdate;
+    return ImmutableApplicantStatementUpdate;
   }
 
   static override get jsonUpdate() {
-    return ImmutableApplicantJsonUpdate;
+    return ImmutableApplicantStatementUpdate;
   }
 }
 
