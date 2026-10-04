@@ -1,16 +1,21 @@
 import { Effect, Option, Predicate, Schema } from "effect";
 import { SqlSchema } from "effect/unstable/sql";
-import type { OrganizationPersonAuthority } from "@vektorprogrammet/domain/organization";
+import type { OrganizationPersonAuthority, PersonId } from "@vektorprogrammet/domain/organization";
+import type { OutcomeMailRenderer } from "@vektorprogrammet/domain/admissions/template";
 import {
+  AdmissionOutcome,
   AdmissionOutcomeEntry,
   AdmissionOutcomeFailure,
   AdmissionOutcomePersistenceError,
   AdmissionOutcomeScope,
   AdmissionOutcomeScopes,
   admissionOutcomePermission,
+  canAnnounceAdmissionOutcome,
+  effectiveAdmissionOutcome,
   type AdmissionsOperations,
 } from "@vektorprogrammet/domain/admissions";
 import { Database, type DatabaseOperations } from "../service.js";
+import { OutcomeMailQueueFailure, queueOutcomeMail } from "./outcome-mail-queue.js";
 
 const findDepartments = SqlSchema.findAll({
   Request: Schema.Void,
@@ -38,7 +43,9 @@ const findSemesters = SqlSchema.findAll({
 
 const readScopes = Effect.fnUntraced(function* (authority: OrganizationPersonAuthority) {
   const departments = (yield* findDepartments()).filter(
-    (department) => admissionOutcomePermission(authority, department.departmentId) !== "Denied",
+    (department) =>
+      admissionOutcomePermission(authority, department.departmentId) === "Decide" ||
+      canAnnounceAdmissionOutcome(authority, department.departmentId),
   );
 
   if (departments.length === 0)
@@ -47,8 +54,17 @@ const readScopes = Effect.fnUntraced(function* (authority: OrganizationPersonAut
   return { departments, semesters: yield* findSemesters() };
 });
 
-/** Canonical application and applicant fields stay in their owning tables; the outcome is the highest revision. */
-const readEntries = SqlSchema.findAll({
+/**
+ * Canonical application and applicant fields stay in their owning tables. The rows carry the
+ * highest recorded revision as `outcome`; `readEntries` turns it into the effective outcome.
+ *
+ * The basis is the effective recommendation of the application's one interview
+ * (`recruitment_interview_effective_assessments`: a correction replaces the conduct), else a
+ * returning-assistant registration, else nothing. `placed` is an active
+ * `assistant_placements` row of the account-linked person in the application's department and
+ * semester. The revision counts the recorded revisions and the announcement.
+ */
+const readRows = SqlSchema.findAll({
   Request: Schema.Union([
     Schema.Struct({ applicationId: AdmissionOutcomeEntry.fields.applicationId }),
     AdmissionOutcomeScope,
@@ -65,19 +81,53 @@ const readEntries = SqlSchema.findAll({
     SELECT application.application_id AS "applicationId", application.admission_period_id AS "admissionPeriodId",
       period.department_id AS "departmentId", period.semester_id AS "semesterId",
       applicant.first_name AS "firstName", applicant.last_name AS "lastName", applicant.email, applicant.phone,
-      application.year_of_study AS "yearOfStudy", current.outcome, COALESCE(current.revision, 0) AS revision
+      application.year_of_study AS "yearOfStudy",
+      CASE
+        WHEN interview.recommendation IS NOT NULL THEN interview.recommendation
+        WHEN EXISTS (
+          SELECT 1 FROM public.admission_returning_registrations AS registration
+          WHERE registration.application_id = application.application_id
+        ) THEN 'Returning'
+        ELSE 'Unreviewed'
+      END AS basis,
+      CASE WHEN announcement.application_id IS NULL THEN 'ApplicationSubmitted'
+        ELSE 'OutcomeAnnounced' END AS state,
+      current.outcome,
+      EXISTS (
+        SELECT 1 FROM public.applicant_account_links AS link
+        INNER JOIN public.assistant_placements AS placement ON placement.person_id = link.person_id
+        WHERE link.applicant_id = application.applicant_id
+          AND placement.department_id = period.department_id
+          AND placement.semester_id = period.semester_id AND placement.active
+      ) AS placed,
+      COALESCE(current.revision, 0) + CASE WHEN announcement.application_id IS NULL THEN 0 ELSE 1 END AS revision
     FROM public.admission_applications AS application
     INNER JOIN public.admission_periods AS period ON period.admission_period_id = application.admission_period_id
       AND period.department_id = application.department_id
     INNER JOIN public.admission_applicants AS applicant ON applicant.applicant_id = application.applicant_id
     LEFT JOIN LATERAL (
+      SELECT assessment.recommendation FROM public.recruitment_interviews AS recruitment_interview
+      INNER JOIN public.recruitment_interview_effective_assessments AS assessment
+        ON assessment.interview_id = recruitment_interview.interview_id
+      WHERE recruitment_interview.application_id = application.application_id
+    ) AS interview ON true
+    LEFT JOIN LATERAL (
       SELECT outcome.outcome, outcome.revision FROM public.admission_application_outcomes AS outcome
       WHERE outcome.application_id = application.application_id
       ORDER BY outcome.revision DESC LIMIT 1
     ) AS current ON true
+    LEFT JOIN public.admission_outcome_announcements AS announcement
+      ON announcement.application_id = application.application_id
     WHERE ${where} ORDER BY applicant.last_name, applicant.first_name, application.application_id`;
     }),
 });
+
+const readEntries = (selection: Parameters<typeof readRows>[0]) =>
+  readRows(selection).pipe(
+    Effect.map((rows) =>
+      rows.map((row) => ({ ...row, outcome: effectiveAdmissionOutcome(row.basis, row.outcome) })),
+    ),
+  );
 
 const readEntry = (applicationId: AdmissionOutcomeEntry["applicationId"]) =>
   readEntries({ applicationId }).pipe(
@@ -109,11 +159,133 @@ const findPeriod = SqlSchema.findOneOption({
     ),
 });
 
+const findApplicationDepartment = SqlSchema.findOneOption({
+  Request: AdmissionOutcomeEntry.fields.applicationId,
+  Result: Schema.Struct({ departmentId: AdmissionOutcomeEntry.fields.departmentId }),
+  execute: (applicationId) =>
+    Database.use(
+      (sql) => sql`
+    SELECT department_id AS "departmentId" FROM public.admission_applications
+    WHERE application_id = ${applicationId}`,
+    ),
+});
+
+const findLatestRevision = SqlSchema.findOneOption({
+  Request: AdmissionOutcomeEntry.fields.applicationId,
+  Result: Schema.Struct({ outcome: AdmissionOutcome, revision: Schema.Int }),
+  execute: (applicationId) =>
+    Database.use(
+      (sql) => sql`
+    SELECT outcome, revision FROM public.admission_application_outcomes
+    WHERE application_id = ${applicationId} ORDER BY revision DESC LIMIT 1`,
+    ),
+});
+
+/** The schools of the person's active placements in the application's department and semester. */
+const findPlacementSchoolName = SqlSchema.findOne({
+  Request: AdmissionOutcomeEntry.fields.applicationId,
+  Result: Schema.Struct({ schoolName: Schema.NullOr(Schema.String) }),
+  execute: (applicationId) =>
+    Database.use(
+      (sql) => sql`
+    SELECT string_agg(DISTINCT school.name, ', ' ORDER BY school.name) AS "schoolName"
+    FROM public.admission_applications AS application
+    INNER JOIN public.admission_periods AS period ON period.admission_period_id = application.admission_period_id
+    INNER JOIN public.applicant_account_links AS link ON link.applicant_id = application.applicant_id
+    INNER JOIN public.assistant_placements AS placement ON placement.person_id = link.person_id
+      AND placement.department_id = period.department_id AND placement.semester_id = period.semester_id
+      AND placement.active
+    INNER JOIN public.schools_directory_schools AS school ON school.school_id = placement.school_id
+    WHERE application.application_id = ${applicationId}`,
+    ),
+});
+
+/**
+ * Appends the next outcome revision and answers its number. A decider makes a `Decision`; no
+ * decider makes the `Recommendation` that an interview derived. The database checks that pair.
+ */
+const appendRevision = (
+  applicationId: AdmissionOutcomeEntry["applicationId"],
+  outcome: AdmissionOutcome,
+  decider: PersonId | null,
+  now: string,
+) =>
+  Effect.gen(function* () {
+    const latest = yield* findLatestRevision(applicationId);
+    const revision = Option.match(latest, { onNone: () => 0, onSome: (row) => row.revision }) + 1;
+
+    yield* Database.use(
+      (sql) => sql`INSERT INTO public.admission_application_outcomes
+        (application_id, revision, outcome, decided_by_person_id, decided_at, provenance)
+        VALUES (${applicationId}, ${revision}, ${outcome}, ${decider}, ${now},
+          ${decider === null ? "Recommendation" : "Decision"})`,
+    );
+
+    return revision;
+  });
+
 const serializationConflict = (cause: unknown, depth = 0): boolean =>
   depth < 8 &&
   Predicate.isObjectOrArray(cause) &&
   (("code" in cause && (cause.code === "40001" || cause.code === "40P01")) ||
     ("cause" in cause && serializationConflict(cause.cause, depth + 1)));
+
+const persistenceFailure = (cause: unknown) => {
+  const conflict = serializationConflict(cause);
+
+  return new AdmissionOutcomePersistenceError({
+    code: conflict ? "transaction.conflict" : "internal.error",
+    status: conflict ? 409 : 500,
+    cause,
+  });
+};
+
+const refuse = (code: AdmissionOutcomeFailure["code"], status: AdmissionOutcomeFailure["status"]) =>
+  new AdmissionOutcomeFailure({ code, status });
+
+/**
+ * Takes the lock that serializes this application's outcome with placement writes of the same
+ * department, then the application row. The department row lock is the scope lock that
+ * `lockPlacementDepartment` takes first in every placement command (`placements/postgres.ts`),
+ * so a `Rejected` decision or announcement and a placement create contend on it in either
+ * order. Take it before reading placements or outcomes: a waiting statement then reads the
+ * committed result of its rival.
+ */
+const lockOutcomeScope = (applicationId: AdmissionOutcomeEntry["applicationId"]) =>
+  Effect.gen(function* () {
+    const application = yield* findApplicationDepartment(applicationId);
+
+    if (Option.isNone(application)) return yield* refuse("resource.not-found", 404);
+
+    const department = yield* Database.use(
+      (sql) =>
+        sql`SELECT department_id FROM public.organization_departments WHERE department_id = ${application.value.departmentId} FOR UPDATE`,
+    );
+
+    if (department.length === 0) return yield* refuse("scope.invalid", 422);
+
+    yield* Database.use(
+      (sql) =>
+        sql`SELECT application_id FROM public.admission_applications WHERE application_id = ${applicationId} FOR UPDATE`,
+    );
+  });
+
+/**
+ * Queues the one mail envelope of an announcement in the caller's transaction. A storage
+ * failure is a persistence failure; a failure of `render` propagates unchanged.
+ */
+const queueAnnouncementMail = <E, R>(
+  database: DatabaseOperations,
+  input: Parameters<typeof queueOutcomeMail>[0],
+  render: OutcomeMailRenderer<E, R>,
+): Effect.Effect<void, AdmissionOutcomePersistenceError | E, Exclude<R, Database>> =>
+  queueOutcomeMail(input, render).pipe(
+    Effect.provideService(Database, database),
+    Effect.asVoid,
+    Effect.mapError((error) =>
+      error instanceof OutcomeMailQueueFailure ? persistenceFailure(error.cause) : error,
+    ),
+  );
 
 /**
  * The admission outcome operations of the Admissions service over the captured Database.
@@ -126,21 +298,15 @@ export const admissionOutcomeOperations = (
   | "listAdmissionOutcomeScopes"
   | "readAdmissionOutcomes"
   | "readAdmissionOutcome"
-  | "recordAdmissionOutcome"
+  | "decideAdmissionOutcome"
+  | "announceAdmissionOutcome"
 > => {
   const run = <A, E>(effect: Effect.Effect<A, E, Database>) =>
     effect.pipe(
       Effect.provideService(Database, database),
-      Effect.mapError((cause) => {
-        if (cause instanceof AdmissionOutcomeFailure) return cause;
-        const conflict = serializationConflict(cause);
-
-        return new AdmissionOutcomePersistenceError({
-          code: conflict ? "transaction.conflict" : "internal.error",
-          status: conflict ? 409 : 500,
-          cause,
-        });
-      }),
+      Effect.mapError((cause) =>
+        cause instanceof AdmissionOutcomeFailure ? cause : persistenceFailure(cause),
+      ),
     );
 
   return {
@@ -161,30 +327,85 @@ export const admissionOutcomeOperations = (
         }),
       ),
     readAdmissionOutcome: (applicationId) => run(readEntry(applicationId)),
-    recordAdmissionOutcome: ({ applicationId, command, actor, now }, checkPrecondition) =>
+    decideAdmissionOutcome: ({ applicationId, command, actor, now }, checkPrecondition) =>
       Effect.gen(function* () {
-        yield* run(
-          Database.use(
-            (sql) =>
-              sql`SELECT application_id FROM public.admission_applications WHERE application_id = ${applicationId} FOR UPDATE`,
-          ),
-        );
+        yield* run(lockOutcomeScope(applicationId));
         const current = yield* run(readEntry(applicationId));
         yield* checkPrecondition(current);
 
+        if (current.state === "OutcomeAnnounced")
+          return yield* refuse("admission-outcome.final", 409);
+
+        if (current.basis === "Ja" || current.basis === "Nei")
+          return yield* refuse("admission-outcome.derived", 422);
+
+        if (current.basis === "Unreviewed")
+          return yield* refuse("admission-outcome.unreviewed", 422);
+
         if (current.outcome === command.outcome) return current;
 
-        return yield* run(
-          Effect.gen(function* () {
-            yield* Database.use(
-              (sql) => sql`INSERT INTO public.admission_application_outcomes
-              (application_id, revision, outcome, decided_by_person_id, decided_at)
-              VALUES (${applicationId}, ${current.revision + 1}, ${command.outcome}, ${actor}, ${now})`,
-            );
+        if (command.outcome === "Rejected" && current.placed)
+          return yield* refuse("admission-outcome.placement-active", 409);
 
-            return yield* readEntry(applicationId);
+        return yield* run(
+          appendRevision(applicationId, command.outcome, actor, now).pipe(
+            Effect.andThen(readEntry(applicationId)),
+          ),
+        );
+      }),
+    announceAdmissionOutcome: ({ applicationId, actor, now }, checkPrecondition, render) =>
+      Effect.gen(function* () {
+        yield* run(lockOutcomeScope(applicationId));
+        const current = yield* run(readEntry(applicationId));
+        yield* checkPrecondition(current);
+
+        if (current.state === "OutcomeAnnounced")
+          return yield* refuse("admission-outcome.final", 409);
+
+        const outcome = current.outcome;
+
+        if (outcome === null)
+          return yield* refuse(
+            current.basis === "Unreviewed"
+              ? "admission-outcome.unreviewed"
+              : "admission-outcome.undecided",
+            current.basis === "Unreviewed" ? 422 : 409,
+          );
+
+        if (outcome === "Rejected" && current.placed)
+          return yield* refuse("admission-outcome.placement-active", 409);
+
+        const schoolName =
+          outcome === "Admitted" && current.placed
+            ? (yield* run(findPlacementSchoolName(applicationId))).schoolName
+            : null;
+
+        yield* run(
+          Effect.gen(function* () {
+            // An interview derives Ja and Nei: the derived outcome becomes the final revision
+            // unless the latest one already says it. It has no human decider.
+            const latest = yield* findLatestRevision(applicationId);
+
+            const finalRevision =
+              Option.isSome(latest) && latest.value.outcome === outcome
+                ? latest.value.revision
+                : yield* appendRevision(applicationId, outcome, null, now);
+
+            yield* Database.use(
+              (sql) => sql`INSERT INTO public.admission_outcome_announcements
+              (application_id, outcome, outcome_revision, announced_by_person_id, announced_at)
+              VALUES (${applicationId}, ${outcome}, ${finalRevision}, ${actor}, ${now})`,
+            );
           }),
         );
+
+        yield* queueAnnouncementMail(
+          database,
+          { applicationId, outcome, schoolName: schoolName ?? undefined },
+          render,
+        );
+
+        return yield* run(readEntry(applicationId));
       }),
   };
 };

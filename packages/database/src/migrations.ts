@@ -628,6 +628,11 @@ export const databaseMigrationDefinitions = [
     name: "days-served-and-certificates",
     url: new URL("../migrations/0080-days-served-and-certificates.sql", import.meta.url),
   },
+  {
+    id: "81_admission-outcome-policy",
+    name: "admission-outcome-policy",
+    url: new URL("../migrations/0081-admission-outcome-policy.sql", import.meta.url),
+  },
 ] as const;
 
 /**

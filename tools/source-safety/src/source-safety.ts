@@ -221,6 +221,13 @@ const approvedSqlSourceDigests = new Map<string, string>([
     "packages/database/migrations/0078-team-application-persisted-queue.sql",
     "sha256:74f7316d14a71b0c6169d0d151df905ba4838cdeec36053e8e7895795a079b65",
   ],
+  // Reviewed: the INSERT ... SELECT appends one Admitted revision after each current Substitute
+  // from existing rows, with no decider. The only literals are outcome and provenance names, and
+  // date_trunc's 'milliseconds' unit and 'UTC' zone.
+  [
+    "packages/database/migrations/0081-admission-outcome-policy.sql",
+    "sha256:793e964b7a9a9afa67e7e89384fb0206aabf5b6fe1adbc5a5f56f98803b87dcb",
+  ],
 ]);
 
 const envSourcePathPattern = /(?:^|\/)\.env(?:$|[.-])/i;
