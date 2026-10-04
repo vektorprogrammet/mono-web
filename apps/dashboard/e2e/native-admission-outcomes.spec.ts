@@ -46,11 +46,10 @@ const announceForm = (page: Page, key: string) =>
 
 const saved = (form: Locator) => form.getByRole("status").filter({ hasText: "Utfallet er lagret." });
 
-const announcedItem = (page: Page, key: string) =>
-  page
-    .getByRole("listitem")
-    .filter({ hasText: applicant(key).name })
-    .filter({ hasText: "Kunngjort:" });
+const announcedText = (form: Locator) => form.getByText("Kunngjort:", { exact: false });
+
+const announced = (form: Locator) =>
+  form.getByRole("status").filter({ hasText: "Utfallet er kunngjort." });
 
 const isOutcomeAction = (url: string) => new URL(url).pathname.endsWith("/opptaksutfall.data");
 
@@ -98,9 +97,9 @@ const authorTemplate = async (page: Page, kind: string, label: string) => {
   await page.keyboard.press("ControlOrMeta+a");
   await page.keyboard.press("Backspace");
   await append(page, subject, "Opptaksresultat - ");
-  await placeholderButton(page, "Avdeling").click();
+  await page.getByRole("button", { name: "Avdeling i emnet", exact: true }).click();
   await append(page, subject, ", ");
-  await placeholderButton(page, "Semester").click();
+  await page.getByRole("button", { name: "Semester i emnet", exact: true }).click();
   await append(page, subject, `: Egendefinert ${label}`);
 
   await body.focus();
@@ -423,7 +422,7 @@ test("admission outcomes: Rekruttering decides, the coordinator announces, templ
     await expect(staleAnnounce.getByRole("alert")).toContainText(
       "Oversikten er endret av noen andre.",
     );
-    await expect(announcedItem(staleCoordinatorPage, "maybe")).toHaveCount(0);
+    await expect(announcedText(announceForm(staleCoordinatorPage, "maybe"))).toHaveCount(0);
     gates.push("a stale coordinator tab is refused with the conflict alert (412) and announces nothing");
 
     const announceOnce = async (
@@ -452,8 +451,9 @@ test("admission outcomes: Rekruttering decides, the coordinator announces, templ
         await coordinatorPage.keyboard.press("Enter");
       } else await button.click();
 
-      await expect(announcedItem(coordinatorPage, key)).toBeVisible();
-      await expect(form).toHaveCount(0);
+      await expect(announcedText(form)).toBeVisible();
+      await expect(announced(form)).toBeVisible();
+      await expect(button).toHaveCount(0);
 
       coordinatorPage.off("request", countRequest);
 
@@ -478,7 +478,7 @@ test("admission outcomes: Rekruttering decides, the coordinator announces, templ
       const refused = announceForm(coordinatorPage, key);
       await refused.getByRole("button", { name: "Kunngjør utfall", exact: true }).click();
       await expect(refused.getByRole("alert")).toBeVisible();
-      await expect(announcedItem(coordinatorPage, key)).toHaveCount(0);
+      await expect(announcedText(refused)).toHaveCount(0);
     }
 
     expect(await readOutcome(page, "neiPlaced")).toMatchObject({ outcome: null });
