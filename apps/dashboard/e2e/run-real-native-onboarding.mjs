@@ -207,7 +207,7 @@ try {
       "--project=chromium",
       "--workers=1",
       "--retries=0",
-      "--reporter=line",
+      process.env.PLAYWRIGHT_JSON_OUTPUT_NAME ? "--reporter=line,json" : "--reporter=line",
     ],
     dashboardRoot,
   );
