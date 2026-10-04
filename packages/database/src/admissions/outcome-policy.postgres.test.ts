@@ -21,13 +21,17 @@ import {
   Admissions,
   AdmissionOutcome,
   AdmissionOutcomeCommand,
+  AdmissionOutcomeEntry,
+  AdmissionOutcomeFailure,
+  AdmissionOutcomePersistenceError,
 } from "@vektorprogrammet/domain/admissions";
+import type { OutcomeMailRenderer } from "@vektorprogrammet/domain/admissions/template";
 import {
   type PublicApplicationId,
   PublicApplicationIdSchema,
 } from "@vektorprogrammet/domain/application";
 import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
-import { Placements } from "@vektorprogrammet/domain/placements";
+import { PlacementFailure, Placements } from "@vektorprogrammet/domain/placements";
 import { SchoolId } from "@vektorprogrammet/domain/schools";
 import { DatabaseLive } from "../layers.js";
 import {
@@ -43,28 +47,38 @@ import { PlacementsLive } from "../placements/index.js";
 import { AdmissionsLive } from "./index.js";
 
 /**
- * Red-first proof of spec 0027 (docs/specs/0027-admission-outcome-policy.md in the effx design
- * repository, falsifiers 1 and 2) on real PostgreSQL, against the handwritten Admissions and
- * Placements services of the accepted source `8152c389`. Every case states an observable law of
- * the approved policy and fails on that source because the source behaves otherwise:
+ * Real-PostgreSQL proof of spec 0027 (docs/specs/0027-admission-outcome-policy.md in the effx
+ * design repository, falsifiers 1 and 2) for the two-step admission outcome policy. The suite
+ * was committed red-first against the accepted source `8152c389`, where each case failed because
+ * the source behaved otherwise. It now runs the distinct `decideAdmissionOutcome` and
+ * `announceAdmissionOutcome` operations of the Admissions service and the Placements service,
+ * each in the caller's transaction, and states every law of the approved policy:
  *
  * - `AdmissionOutcome` is `Admitted | Rejected`; `Substitute` is not an outcome, not a command
  *   value and not an insertable revision, also through direct SQL.
- * - An interview `Ja` is Admitted and `Nei` Rejected without a manual override; `Kanskje` and a
- *   returning assistant without an interview take an explicit Admitted or Rejected decision, and
- *   an unplaced Admitted person is never denied.
- * - `Rejected` cannot be committed for a person with an active placement in the same department
- *   and semester, and a placement cannot be created for a Rejected person. A Rejected write and a
- *   placement create contend on one scope lock, in both orders, on separate connections.
+ * - Decide takes only the applications that an interview does not derive: `Kanskje` and a
+ *   returning assistant without an interview. `Ja` and `Nei` cannot be decided, not even to the
+ *   value that they derive, and an unreviewed application has nothing to decide. An unplaced
+ *   Admitted person is never denied, and a decision can change until the announcement.
+ * - Announce derives `Ja` as Admitted and `Nei` as Rejected, announces the decision of `Kanskje`
+ *   and returning, and refuses an undecided one before it renders or writes anything. It is
+ *   terminal: one announcement, one revision history that takes no further row, one mail
+ *   envelope that commits or rolls back with the outcome. Either callback fails the call
+ *   unchanged and before any write.
+ * - `Rejected`, decided or announced, cannot be committed for a person with an active placement
+ *   in the same department and semester, and a placement cannot be created for a Rejected
+ *   person. A Rejected write, an announcement and a placement create contend on one scope lock,
+ *   in both orders, on separate connections. A later placement never rewrites an announcement.
  * - An Admitted assistant without a placement is an eligible coverer, once.
  * - One migration after the accepted `80_days-served-and-certificates` appends exactly one
- *   Admitted, provenance-marked revision with no human decider for each application whose current
- *   outcome is `Substitute`, and rewrites no earlier revision.
+ *   Admitted revision with the `SemanticUpgrade` provenance and no human decider for each
+ *   application whose current outcome is `Substitute`, announces nothing and rewrites no earlier
+ *   revision.
  *
  * The suite starts a private cluster of the PostgreSQL major that `VEKTOR_POSTGRES_MAJOR` selects
  * (the highest supported one by default; `VEKTOR_POSTGRES_MAJOR=17` selects 17). The upgrade proof
- * also runs on PGlite. The cases use only the current service operations and SQL; they import no
- * operation of the target design.
+ * also runs on PGlite. Authority is resolved by the transport before these operations and is not
+ * their input; the HTTP suite proves who may decide and announce.
  */
 
 class OutcomePolicyCluster extends Context.Service<OutcomePolicyCluster, DisposablePostgres>()(
@@ -140,6 +154,10 @@ const applicantSeeds: ReadonlyArray<ApplicantSeed> = [
   { key: "cover-placed", recommendation: "Ja", placement: "current", outcome: "Admitted" },
   { key: "cover-rejected", recommendation: "Nei", outcome: "Rejected" },
   { key: "cover-undecided", recommendation: "Kanskje" },
+  { key: "unreviewed" },
+  { key: "race-announce-reject-first", recommendation: "Nei" },
+  { key: "race-announce-place-first", recommendation: "Nei" },
+  { key: "race-announce-twice", recommendation: "Nei" },
 ];
 
 /** A placed assistant who never applied this semester. */
@@ -413,13 +431,92 @@ const policy = suiteSeed.pipe(
 // drops the label.
 const retiredOutcome = "Substitute" as never;
 
-const record = (application: PublicApplicationId, outcome: AdmissionOutcome) =>
+const decideChecked = <E>(
+  application: PublicApplicationId,
+  outcome: AdmissionOutcome,
+  checkPrecondition: (current: AdmissionOutcomeEntry) => Effect.Effect<void, E>,
+) =>
   Admissions.use((service) =>
-    service.recordAdmissionOutcome(
+    service.decideAdmissionOutcome(
       { applicationId: application, command: { outcome }, actor: recruiter, now },
-      () => Effect.void,
+      checkPrecondition,
     ),
   );
+
+const decide = (application: PublicApplicationId, outcome: AdmissionOutcome) =>
+  decideChecked(application, outcome, () => Effect.void);
+
+/** The bytes are a pure function of the template kind and values, so a case can check what was queued. */
+const renderMail: OutcomeMailRenderer = ({ kind, values }) =>
+  Effect.succeed({
+    subject: `Utfall ${values.firstName} ${values.departmentName}`,
+    html: `<p>${kind}</p>`,
+    text: `${kind}|${values.schoolName ?? "-"}`,
+  });
+
+/** A renderer that no refused announcement may reach: reaching it changes the failure the case sees. */
+const unrenderable: OutcomeMailRenderer<"render failed"> = () =>
+  Effect.fail("render failed" as const);
+
+const announceChecked = <E, RenderE>(
+  application: PublicApplicationId,
+  checkPrecondition: (current: AdmissionOutcomeEntry) => Effect.Effect<void, E>,
+  render: OutcomeMailRenderer<RenderE>,
+) =>
+  Admissions.use((service) =>
+    service.announceAdmissionOutcome(
+      { applicationId: application, actor: coordinator, now },
+      checkPrecondition,
+      render,
+    ),
+  );
+
+const announce = (application: PublicApplicationId) =>
+  announceChecked(application, () => Effect.void, renderMail);
+
+/** The school of the seeded placements; the announcement names it for an Admitted person who has one. */
+const placementSchool = "Outcome policy school";
+
+/** A failure of the operations under test as comparable data; any other failure passes through. */
+const describeRefusal = <F>(failure: F) =>
+  failure instanceof AdmissionOutcomeFailure ||
+  failure instanceof AdmissionOutcomePersistenceError ||
+  failure instanceof PlacementFailure
+    ? { _tag: failure._tag, code: failure.code, status: failure.status }
+    : failure;
+
+/**
+ * What `effect` refuses with, run in a savepoint of the caller's transaction so that the
+ * transaction stays usable. A call that succeeds fails the case, because it was meant to refuse.
+ */
+const refusalOf = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Database.use((sql) => sql.withTransaction(effect)).pipe(Effect.flip, Effect.map(describeRefusal));
+
+const outcomeRefusal = (
+  code: AdmissionOutcomeFailure["code"],
+  status: AdmissionOutcomeFailure["status"],
+) => describeRefusal(new AdmissionOutcomeFailure({ code, status }));
+
+const derivedRefusal = outcomeRefusal("admission-outcome.derived", 422);
+
+const unreviewedRefusal = outcomeRefusal("admission-outcome.unreviewed", 422);
+
+const undecidedRefusal = outcomeRefusal("admission-outcome.undecided", 409);
+
+const placementActiveRefusal = outcomeRefusal("admission-outcome.placement-active", 409);
+
+const finalRefusal = outcomeRefusal("admission-outcome.final", 409);
+
+const notFoundRefusal = outcomeRefusal("resource.not-found", 404);
+
+/** The database refuses a Substitute revision with its CHECK; the service reports an internal failure. */
+const storageRefusal = describeRefusal(
+  new AdmissionOutcomePersistenceError({ code: "internal.error", status: 500, cause: undefined }),
+);
+
+const placementRejectedRefusal = describeRefusal(
+  new PlacementFailure({ code: "placement.person-rejected", status: 422 }),
+);
 
 const readEntry = (application: PublicApplicationId) =>
   Admissions.use((service) => service.readAdmissionOutcome(application));
@@ -429,6 +526,98 @@ const historyOf = (application: PublicApplicationId) =>
     (sql) => sql<{ readonly revision: number; readonly outcome: string }>`SELECT revision, outcome
       FROM admission_application_outcomes WHERE application_id = ${application} ORDER BY revision`,
   );
+
+/** Every revision with the provenance and decider that the database holds for it. */
+const provenanceOf = (application: PublicApplicationId) =>
+  Database.use(
+    (sql) => sql<{
+      readonly revision: number;
+      readonly outcome: string;
+      readonly provenance: string;
+      readonly decidedBy: string | null;
+    }>`SELECT revision, outcome, provenance, decided_by_person_id AS "decidedBy"
+      FROM admission_application_outcomes WHERE application_id = ${application} ORDER BY revision`,
+  );
+
+const announcementsOf = (application: PublicApplicationId) =>
+  Database.use(
+    (sql) => sql<{
+      readonly outcome: string;
+      readonly outcomeRevision: number;
+      readonly announcedBy: string;
+    }>`SELECT outcome, outcome_revision AS "outcomeRevision", announced_by_person_id AS "announcedBy"
+      FROM admission_outcome_announcements WHERE application_id = ${application}`,
+  );
+
+/** The queued mail envelopes of the application, as the worker will send them. */
+const mailOf = (application: PublicApplicationId) =>
+  Database.use(
+    (sql) => sql<{
+      readonly kind: string;
+      readonly recipient: string;
+      readonly subject: string;
+      readonly html: string;
+      readonly text: string;
+    }>`SELECT kind, payload_json->>'recipient' AS recipient, payload_json->>'subject' AS subject,
+        payload_json->>'html' AS html, payload_json->>'text' AS text
+      FROM admission_outcome_outbox WHERE application_id = ${application}`,
+  );
+
+/** The entry that a reader sees, and everything that the operations wrote for the application. */
+const observeApplication = (key: string) =>
+  Effect.gen(function* () {
+    const application = applicationOf(key);
+    const entry = yield* readEntry(application);
+
+    return {
+      basis: entry.basis,
+      state: entry.state,
+      outcome: entry.outcome,
+      placed: entry.placed,
+      history: yield* provenanceOf(application),
+      announcements: yield* announcementsOf(application),
+      mail: yield* mailOf(application),
+    };
+  });
+
+const untouched = { history: [], announcements: [], mail: [] };
+
+/** The three fields of an entry that a decision or an announcement changes. */
+const summary = (entry: AdmissionOutcomeEntry) => ({
+  outcome: entry.outcome,
+  state: entry.state,
+  placed: entry.placed,
+});
+
+/** A revision that Rekruttering decided. */
+const decision = (revision: number, outcome: AdmissionOutcome) => ({
+  revision,
+  outcome,
+  provenance: "Decision",
+  decidedBy: recruiter,
+});
+
+/** The revision that an interview derived at the announcement; nobody decided it. */
+const recommendation = (revision: number, outcome: AdmissionOutcome) => ({
+  revision,
+  outcome,
+  provenance: "Recommendation",
+  decidedBy: null,
+});
+
+const announcementOf = (outcome: AdmissionOutcome, outcomeRevision: number) => ({
+  outcome,
+  outcomeRevision,
+  announcedBy: coordinator,
+});
+
+const mailFor = (key: string, kind: string, school?: string) => ({
+  kind,
+  recipient: `policy-${key}@example.invalid`,
+  subject: "Utfall Ada Policy",
+  html: `<p>${kind}</p>`,
+  text: `${kind}|${school ?? "-"}`,
+});
 
 let commandSequence = 0;
 
@@ -465,6 +654,23 @@ const createPlacement = (key: string) =>
       ),
     );
   });
+
+const removePlacement = (key: string) =>
+  Placements.use((service) =>
+    service.execute(
+      {
+        mutation: {
+          mode: "board",
+          scope,
+          command: { action: "Remove", placementId: placementIdOf(key, 0) },
+        },
+        actor: coordinator,
+        now,
+        commandId: nextCommandId(),
+      },
+      () => Effect.void,
+    ),
+  );
 
 /**
  * Runs `effect` in a savepoint of the caller's transaction, so that a database rejection leaves
@@ -560,7 +766,10 @@ const raceOnScopeLock = <HolderE, HolderR, ContenderE, ContenderR>(
     };
   });
 
-/** What the database holds after a race: an active placement in the scope, and the latest outcome. */
+/**
+ * What the database holds after a race: an active placement in the scope, the latest outcome
+ * revision, and how many announcements and mail envelopes the application has.
+ */
 const committedState = (key: string) =>
   Database.use((sql) =>
     Effect.gen(function* () {
@@ -572,7 +781,18 @@ const committedState = (key: string) =>
         FROM admission_application_outcomes WHERE application_id = ${applicationOf(key)}
         ORDER BY revision DESC LIMIT 1`;
 
-      return { placed: (placements[0]?.active ?? 0) > 0, outcome: outcomes[0]?.outcome ?? null };
+      const announcements = yield* sql<{ readonly total: number }>`SELECT count(*)::int AS total
+        FROM admission_outcome_announcements WHERE application_id = ${applicationOf(key)}`;
+
+      const mail = yield* sql<{ readonly total: number }>`SELECT count(*)::int AS total
+        FROM admission_outcome_outbox WHERE application_id = ${applicationOf(key)}`;
+
+      return {
+        placed: (placements[0]?.active ?? 0) > 0,
+        outcome: outcomes[0]?.outcome ?? null,
+        announced: announcements[0]?.total ?? 0,
+        mail: mail[0]?.total ?? 0,
+      };
     }),
   );
 
@@ -735,6 +955,23 @@ const insertRevision = (application: string, revision: number, outcome: string) 
   `INSERT INTO public.admission_application_outcomes (application_id, revision, outcome, decided_by_person_id, decided_at)
    VALUES ('${application}', ${revision}, '${outcome}', 'upgrade-first-decider', '2026-04-01T10:00:00.000Z')`;
 
+/** A revision with an explicit provenance, to observe which provenance and decider pairs the schema accepts. */
+const insertProvenanceRevision = (
+  application: string,
+  revision: number,
+  provenance: string,
+  decider: string | null,
+) =>
+  `INSERT INTO public.admission_application_outcomes (application_id, revision, outcome, decided_by_person_id, decided_at, provenance)
+   VALUES ('${application}', ${revision}, 'Admitted', ${decider === null ? "NULL" : `'${decider}'`}, '2026-04-01T10:00:00.000Z', '${provenance}')`;
+
+const readProvenanceLabels = `SELECT provenance, count(*)::int AS total
+  FROM public.admission_application_outcomes GROUP BY provenance ORDER BY provenance COLLATE "C"`;
+
+const readSemanticUpgrades = `SELECT application_id AS application, revision
+  FROM public.admission_application_outcomes WHERE provenance = 'SemanticUpgrade'
+  ORDER BY application_id COLLATE "C", revision`;
+
 const attemptStatement = (pool: Pool, statement: string) =>
   select<{ readonly outcome: string }>(
     pool,
@@ -785,6 +1022,21 @@ const upgrade = (pool: Pool) =>
       readLatest,
     );
 
+    const labels = yield* select<{ readonly provenance: string; readonly total: number }>(
+      pool,
+      readProvenanceLabels,
+    );
+
+    const upgraded = yield* select<{ readonly application: string; readonly revision: number }>(
+      pool,
+      readSemanticUpgrades,
+    );
+
+    const announcements = yield* select<{ readonly total: number }>(
+      pool,
+      "SELECT count(*)::int AS total FROM public.admission_outcome_announcements",
+    );
+
     const beforeKeys = new Set(before.map(rowKey));
     const afterKeys = new Set(after.map(rowKey));
 
@@ -795,6 +1047,22 @@ const upgrade = (pool: Pool) =>
     const retired = yield* attemptStatement(
       pool,
       insertRevision("plain-rejected", 2, "Substitute"),
+    );
+
+    // The provenance names who decided: a Decision has a decider, the other two have none.
+    const decisionWithoutDecider = yield* attemptStatement(
+      pool,
+      insertProvenanceRevision("plain-rejected", 2, "Decision", null),
+    );
+
+    const recommendationWithDecider = yield* attemptStatement(
+      pool,
+      insertProvenanceRevision("plain-rejected", 2, "Recommendation", "upgrade-first-decider"),
+    );
+
+    const recommendationWithoutDecider = yield* attemptStatement(
+      pool,
+      insertProvenanceRevision("plain-rejected", 2, "Recommendation", null),
     );
 
     yield* pgQuery(
@@ -823,7 +1091,17 @@ const upgrade = (pool: Pool) =>
       legacyRevisions: after.filter((row) => row.outcome === "Substitute").length,
       inventedPeople: (peopleAfter[0]?.total ?? 0) - (peopleBefore[0]?.total ?? 0),
       mailRows: (mailAfter[0]?.total ?? 0) - (mailBefore[0]?.total ?? 0),
-      directInsert: { control, substituteRejected: retired?.startsWith("rejected ") === true },
+      upgraded,
+      provenanceLabels: labels,
+      announcements: announcements[0]?.total ?? 0,
+      directInsert: {
+        control,
+        substituteRejected: retired?.startsWith("rejected ") === true,
+        decisionWithoutDeciderRejected: decisionWithoutDecider?.startsWith("rejected ") === true,
+        recommendationWithDeciderRejected:
+          recommendationWithDecider?.startsWith("rejected ") === true,
+        recommendationWithoutDecider,
+      },
     };
   });
 
@@ -852,7 +1130,24 @@ const upgradeEvidence = {
   legacyRevisions: 4,
   inventedPeople: 0,
   mailRows: 0,
-  directInsert: { control: "accepted 1", substituteRejected: true },
+  // The migration is the only author of the SemanticUpgrade provenance; the nine earlier
+  // revisions keep their Decision provenance, and nothing is announced.
+  upgraded: [
+    { application: "admitted-then-substitute", revision: 3 },
+    { application: "substitute-current", revision: 2 },
+  ],
+  provenanceLabels: [
+    { provenance: "Decision", total: 9 },
+    { provenance: "SemanticUpgrade", total: 2 },
+  ],
+  announcements: 0,
+  directInsert: {
+    control: "accepted 1",
+    substituteRejected: true,
+    decisionWithoutDeciderRejected: true,
+    recommendationWithDeciderRejected: true,
+    recommendationWithoutDecider: "accepted 1",
+  },
 };
 
 layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "180 seconds" })(
@@ -873,41 +1168,46 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
           rejected: Schema.is(AdmissionOutcome)("Rejected"),
           substituteOutcome: Schema.is(AdmissionOutcome)("Substitute"),
           substituteCommand: Schema.is(AdmissionOutcomeCommand)({ outcome: "Substitute" }),
+          substituteEntryOutcome: Schema.is(AdmissionOutcomeEntry.fields.outcome)("Substitute"),
+          undecidedEntryOutcome: Schema.is(AdmissionOutcomeEntry.fields.outcome)(null),
         }).toEqual({
           admitted: true,
           rejected: true,
           substituteOutcome: false,
           substituteCommand: false,
+          substituteEntryOutcome: false,
+          undecidedEntryOutcome: true,
         });
       }),
     );
 
-    for (const key of [
-      "ja-unplaced",
-      "ja-placed",
-      "nei-unplaced",
-      "nei-placed",
-      "kanskje-unplaced",
-      "kanskje-placed",
-      "returning",
-    ]) {
+    for (const [key, refusal] of [
+      ["ja-unplaced", derivedRefusal],
+      ["ja-placed", derivedRefusal],
+      ["nei-unplaced", derivedRefusal],
+      ["nei-placed", derivedRefusal],
+      ["kanskje-unplaced", storageRefusal],
+      ["kanskje-placed", storageRefusal],
+      ["returning", storageRefusal],
+    ] as const) {
       it.effect(
         `refuses a new Substitute revision for ${key} and keeps it out of the history`,
         () =>
           Effect.gen(function* () {
             const observed = yield* observeRolledBack(
               Effect.gen(function* () {
-                const exit = yield* attempt(record(applicationOf(key), retiredOutcome));
+                const refused = yield* refusalOf(decide(applicationOf(key), retiredOutcome));
                 const history = yield* historyOf(applicationOf(key));
 
                 return {
-                  refused: Exit.isFailure(exit),
+                  refused,
                   substituteRevisions: history.filter((row) => row.outcome === "Substitute").length,
+                  revisions: history.length,
                 };
               }),
             );
 
-            expect(observed).toEqual({ refused: true, substituteRevisions: 0 });
+            expect(observed).toEqual({ refused: refusal, substituteRevisions: 0, revisions: 0 });
           }),
       );
     }
@@ -922,19 +1222,104 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
         Effect.gen(function* () {
           const observed = yield* observeRolledBack(
             Effect.gen(function* () {
-              const exit = yield* attempt(record(applicationOf(key), outcome));
+              const refused = yield* refusalOf(decide(applicationOf(key), outcome));
+              const entry = yield* readEntry(applicationOf(key));
 
               return {
-                refused: Exit.isFailure(exit),
+                refused,
                 revisions: (yield* historyOf(applicationOf(key))).length,
+                effective: entry.outcome,
               };
             }),
           );
 
-          expect(observed).toEqual({ refused: true, revisions: 0 });
+          expect(observed).toEqual({
+            refused: derivedRefusal,
+            revisions: 0,
+            effective: outcome === "Rejected" ? "Admitted" : "Rejected",
+          });
         }),
       );
     }
+
+    for (const [key, outcome] of [
+      ["ja-unplaced", "Admitted"],
+      ["ja-placed", "Admitted"],
+      ["nei-unplaced", "Rejected"],
+      ["nei-placed", "Rejected"],
+    ] as const) {
+      it.effect(
+        `refuses to restate the interview result of ${key} as a decision, because only the announcement settles it`,
+        () =>
+          Effect.gen(function* () {
+            const observed = yield* observeRolledBack(
+              Effect.gen(function* () {
+                const refused = yield* refusalOf(decide(applicationOf(key), outcome));
+
+                return { refused, after: yield* observeApplication(key) };
+              }),
+            );
+
+            expect(observed.refused).toEqual(derivedRefusal);
+            expect(observed.after).toMatchObject({
+              state: "ApplicationSubmitted",
+              outcome,
+              ...untouched,
+            });
+          }),
+      );
+    }
+
+    it.effect("refuses to decide or announce an unreviewed application and writes nothing", () =>
+      Effect.gen(function* () {
+        const observed = yield* observeRolledBack(
+          Effect.gen(function* () {
+            const application = applicationOf("unreviewed");
+
+            return {
+              admitted: yield* refusalOf(decide(application, "Admitted")),
+              rejected: yield* refusalOf(decide(application, "Rejected")),
+              announced: yield* refusalOf(
+                announceChecked(application, () => Effect.void, unrenderable),
+              ),
+              after: yield* observeApplication("unreviewed"),
+            };
+          }),
+        );
+
+        expect(observed).toEqual({
+          admitted: unreviewedRefusal,
+          rejected: unreviewedRefusal,
+          announced: unreviewedRefusal,
+          after: {
+            basis: "Unreviewed",
+            state: "ApplicationSubmitted",
+            outcome: null,
+            placed: false,
+            ...untouched,
+          },
+        });
+      }),
+    );
+
+    it.effect("refuses to decide or announce an application that does not exist", () =>
+      Effect.gen(function* () {
+        const missing = PublicApplicationIdSchema.make("policy-application-missing");
+
+        const observed = yield* observeRolledBack(
+          Effect.gen(function* () {
+            return {
+              decided: yield* refusalOf(decide(missing, "Admitted")),
+              announced: yield* refusalOf(
+                announceChecked(missing, () => Effect.void, unrenderable),
+              ),
+            };
+          }),
+        );
+
+        expect(observed).toEqual({ decided: notFoundRefusal, announced: notFoundRefusal });
+      }),
+    );
 
     for (const key of ["kanskje-unplaced", "returning"]) {
       it.effect(`takes an explicit Admitted decision for ${key} without a placement`, () =>
@@ -942,36 +1327,111 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
           const observed = yield* observeRolledBack(
             Effect.gen(function* () {
               const before = yield* readEntry(applicationOf(key));
-              const admitted = yield* attempt(record(applicationOf(key), "Admitted"));
+              const decided = yield* decide(applicationOf(key), "Admitted");
+              const repeated = yield* decide(applicationOf(key), "Admitted");
 
               return {
-                undecidedBefore: before.outcome,
-                admitted: Exit.isSuccess(admitted),
-                history: yield* historyOf(applicationOf(key)),
-                outcome: (yield* readEntry(applicationOf(key))).outcome,
+                before: summary(before),
+                decided: summary(decided),
+                decidedRevision: decided.revision,
+                repeated: summary(repeated),
+                repeatedRevision: repeated.revision,
+                after: yield* observeApplication(key),
               };
             }),
           );
 
+          // An unplaced Admitted person is never denied; deciding the current outcome again
+          // changes nothing, so the history keeps its one Decision of Rekruttering.
           expect(observed).toEqual({
-            undecidedBefore: null,
-            admitted: true,
-            history: [{ revision: 1, outcome: "Admitted" }],
-            outcome: "Admitted",
+            before: { outcome: null, state: "ApplicationSubmitted", placed: false },
+            decided: { outcome: "Admitted", state: "ApplicationSubmitted", placed: false },
+            decidedRevision: 1,
+            repeated: { outcome: "Admitted", state: "ApplicationSubmitted", placed: false },
+            repeatedRevision: 1,
+            after: {
+              basis: key === "returning" ? "Returning" : "Kanskje",
+              state: "ApplicationSubmitted",
+              outcome: "Admitted",
+              placed: false,
+              history: [decision(1, "Admitted")],
+              announcements: [],
+              mail: [],
+            },
           });
         }),
       );
     }
 
     it.effect(
+      "lets Rekruttering change a decision as append-only revisions until the announcement",
+      () =>
+        Effect.gen(function* () {
+          const observed = yield* observeRolledBack(
+            Effect.gen(function* () {
+              const application = applicationOf("kanskje-unplaced");
+
+              yield* decide(application, "Admitted");
+              yield* decide(application, "Rejected");
+              yield* decide(application, "Admitted");
+
+              return yield* observeApplication("kanskje-unplaced");
+            }),
+          );
+
+          expect(observed).toEqual({
+            basis: "Kanskje",
+            state: "ApplicationSubmitted",
+            outcome: "Admitted",
+            placed: false,
+            history: [decision(1, "Admitted"), decision(2, "Rejected"), decision(3, "Admitted")],
+            announcements: [],
+            mail: [],
+          });
+        }),
+    );
+
+    it.effect(
+      "checks the fresh entry before any decision write and keeps the callback failure unchanged",
+      () =>
+        Effect.gen(function* () {
+          const observed = yield* observeRolledBack(
+            Effect.gen(function* () {
+              const before = yield* readEntry(applicationOf("kanskje-unplaced"));
+
+              const failure = yield* Effect.flip(
+                decideChecked(applicationOf("kanskje-unplaced"), "Admitted", (current) =>
+                  Effect.fail({ code: "precondition.failed", current } as const),
+                ),
+              );
+
+              return { before, failure, after: yield* observeApplication("kanskje-unplaced") };
+            }),
+          );
+
+          expect(observed.failure).toEqual({
+            code: "precondition.failed",
+            current: observed.before,
+          });
+          expect(observed.after).toEqual({
+            basis: "Kanskje",
+            state: "ApplicationSubmitted",
+            outcome: null,
+            placed: false,
+            ...untouched,
+          });
+        }),
+    );
+
+    it.effect(
       "cannot commit Rejected for a person with an active placement in the same department and semester",
       () =>
         Effect.gen(function* () {
-          const exit = yield* attempt(record(applicationOf("placed-reject"), "Rejected"));
+          const refused = yield* refusalOf(decide(applicationOf("placed-reject"), "Rejected"));
           const committed = yield* historyOf(applicationOf("placed-reject"));
 
-          expect({ refused: Exit.isFailure(exit), committed }).toEqual({
-            refused: true,
+          expect({ refused, committed }).toEqual({
+            refused: placementActiveRefusal,
             committed: [],
           });
         }),
@@ -981,7 +1441,7 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
       "commits Rejected when the placements are only in another department, another semester, or removed",
       () =>
         Effect.gen(function* () {
-          const exit = yield* attempt(record(applicationOf("kanskje-elsewhere"), "Rejected"));
+          const exit = yield* attempt(decide(applicationOf("kanskje-elsewhere"), "Rejected"));
           const committed = yield* historyOf(applicationOf("kanskje-elsewhere"));
 
           expect({ refused: Exit.isFailure(exit), committed }).toEqual({
@@ -991,48 +1451,63 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
         }),
     );
 
+    it.effect(
+      "treats a placement in another department, another semester, or a removed one as no placement when it announces",
+      () =>
+        Effect.gen(function* () {
+          const observed = yield* observeRolledBack(
+            Effect.gen(function* () {
+              const application = applicationOf("kanskje-elsewhere");
+
+              yield* decide(application, "Admitted");
+              yield* announce(application);
+
+              return yield* observeApplication("kanskje-elsewhere");
+            }),
+          );
+
+          // The decision is the last revision, whether or not an earlier case committed a Rejected one.
+          expect(observed).toMatchObject({
+            state: "OutcomeAnnounced",
+            outcome: "Admitted",
+            placed: false,
+            announcements: [announcementOf("Admitted", observed.history.length)],
+            mail: [mailFor("kanskje-elsewhere", "AdmittedPlacementPending")],
+          });
+        }),
+    );
+
     it.effect("accepts Rejected for a Kanskje applicant only after the placement is removed", () =>
       Effect.gen(function* () {
         const observed = yield* observeRolledBack(
           Effect.gen(function* () {
             const application = applicationOf("kanskje-placed");
-            const whilePlaced = yield* attempt(record(application, "Rejected"));
-
-            const removed = yield* attempt(
-              Placements.use((service) =>
-                service.execute(
-                  {
-                    mutation: {
-                      mode: "board",
-                      scope,
-                      command: {
-                        action: "Remove",
-                        placementId: placementIdOf("kanskje-placed", 0),
-                      },
-                    },
-                    actor: coordinator,
-                    now,
-                    commandId: nextCommandId(),
-                  },
-                  () => Effect.void,
-                ),
-              ),
-            );
-
-            const afterRemoval = yield* attempt(record(application, "Rejected"));
+            const whilePlaced = yield* refusalOf(decide(application, "Rejected"));
+            const removed = yield* attempt(removePlacement("kanskje-placed"));
+            const afterRemoval = yield* attempt(decide(application, "Rejected"));
 
             return {
-              whilePlacedRefused: Exit.isFailure(whilePlaced),
+              whilePlaced,
               removed: Exit.isSuccess(removed),
               afterRemovalAccepted: Exit.isSuccess(afterRemoval),
+              after: yield* observeApplication("kanskje-placed"),
             };
           }),
         );
 
         expect(observed).toEqual({
-          whilePlacedRefused: true,
+          whilePlaced: placementActiveRefusal,
           removed: true,
           afterRemovalAccepted: true,
+          after: {
+            basis: "Kanskje",
+            state: "ApplicationSubmitted",
+            outcome: "Rejected",
+            placed: false,
+            history: [decision(1, "Rejected")],
+            announcements: [],
+            mail: [],
+          },
         });
       }),
     );
@@ -1041,13 +1516,13 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
       Effect.gen(function* () {
         const observed = yield* observeRolledBack(
           Effect.gen(function* () {
-            const rejected = yield* attempt(record(applicationOf("kanskje-unplaced"), "Rejected"));
-            const placement = yield* attempt(createPlacement("kanskje-unplaced"));
+            const rejected = yield* attempt(decide(applicationOf("kanskje-unplaced"), "Rejected"));
+            const placement = yield* refusalOf(createPlacement("kanskje-unplaced"));
             const active = yield* committedState("kanskje-unplaced");
 
             return {
               rejectedRecorded: Exit.isSuccess(rejected),
-              placementRefused: Exit.isFailure(placement),
+              placement,
               placed: active.placed,
             };
           }),
@@ -1055,7 +1530,7 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
 
         expect(observed).toEqual({
           rejectedRecorded: true,
-          placementRefused: true,
+          placement: placementRejectedRefusal,
           placed: false,
         });
       }),
@@ -1066,7 +1541,7 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
         const observed = yield* observeRolledBack(
           Effect.gen(function* () {
             const application = applicationOf("kanskje-unplaced");
-            const admitted = yield* attempt(record(application, "Admitted"));
+            const admitted = yield* attempt(decide(application, "Admitted"));
             const placement = yield* attempt(createPlacement("kanskje-unplaced"));
 
             return {
@@ -1085,12 +1560,361 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
       }),
     );
 
+    for (const [key, basis, outcome, kind, school] of [
+      ["ja-unplaced", "Ja", "Admitted", "AdmittedPlacementPending", undefined],
+      ["ja-placed", "Ja", "Admitted", "AdmittedWithSchool", placementSchool],
+      ["nei-unplaced", "Nei", "Rejected", "Rejected", undefined],
+    ] as const) {
+      it.effect(
+        `announces the interview result of ${key} as ${outcome} once, with one derived revision and one mail envelope`,
+        () =>
+          Effect.gen(function* () {
+            const observed = yield* observeRolledBack(
+              Effect.gen(function* () {
+                const before = yield* readEntry(applicationOf(key));
+                const announced = yield* announce(applicationOf(key));
+                const again = yield* refusalOf(announce(applicationOf(key)));
+
+                return {
+                  before: summary(before),
+                  announced: summary(announced),
+                  revisionAdvanced: announced.revision > before.revision,
+                  again,
+                  after: yield* observeApplication(key),
+                };
+              }),
+            );
+
+            // No decision exists for Ja and Nei: the announcement derives the one revision, and
+            // nobody decided it. A second announcement refuses and queues nothing.
+            expect(observed).toEqual({
+              before: { outcome, state: "ApplicationSubmitted", placed: key === "ja-placed" },
+              announced: { outcome, state: "OutcomeAnnounced", placed: key === "ja-placed" },
+              revisionAdvanced: true,
+              again: finalRefusal,
+              after: {
+                basis,
+                state: "OutcomeAnnounced",
+                outcome,
+                placed: key === "ja-placed",
+                history: [recommendation(1, outcome)],
+                announcements: [announcementOf(outcome, 1)],
+                mail: [mailFor(key, kind, school)],
+              },
+            });
+          }),
+      );
+    }
+
+    for (const [key, basis, kind, school] of [
+      ["kanskje-unplaced", "Kanskje", "AdmittedPlacementPending", undefined],
+      ["returning", "Returning", "AdmittedPlacementPending", undefined],
+      ["kanskje-placed", "Kanskje", "AdmittedWithSchool", placementSchool],
+    ] as const) {
+      it.effect(
+        `announces the Admitted decision of ${key} without a second revision, and names the school only for a placed person`,
+        () =>
+          Effect.gen(function* () {
+            const observed = yield* observeRolledBack(
+              Effect.gen(function* () {
+                const decided = yield* decide(applicationOf(key), "Admitted");
+                const announced = yield* announce(applicationOf(key));
+
+                return {
+                  announced: summary(announced),
+                  revisionAdvanced: announced.revision > decided.revision,
+                  after: yield* observeApplication(key),
+                };
+              }),
+            );
+
+            expect(observed).toEqual({
+              announced: {
+                outcome: "Admitted",
+                state: "OutcomeAnnounced",
+                placed: key === "kanskje-placed",
+              },
+              revisionAdvanced: true,
+              after: {
+                basis,
+                state: "OutcomeAnnounced",
+                outcome: "Admitted",
+                placed: key === "kanskje-placed",
+                history: [decision(1, "Admitted")],
+                announcements: [announcementOf("Admitted", 1)],
+                mail: [mailFor(key, kind, school)],
+              },
+            });
+          }),
+      );
+    }
+
+    it.effect("announces the Rejected decision of a Kanskje applicant who has no placement", () =>
+      Effect.gen(function* () {
+        const observed = yield* observeRolledBack(
+          Effect.gen(function* () {
+            yield* decide(applicationOf("kanskje-unplaced"), "Rejected");
+            yield* announce(applicationOf("kanskje-unplaced"));
+
+            return yield* observeApplication("kanskje-unplaced");
+          }),
+        );
+
+        expect(observed).toEqual({
+          basis: "Kanskje",
+          state: "OutcomeAnnounced",
+          outcome: "Rejected",
+          placed: false,
+          history: [decision(1, "Rejected")],
+          announcements: [announcementOf("Rejected", 1)],
+          mail: [mailFor("kanskje-unplaced", "Rejected")],
+        });
+      }),
+    );
+
+    for (const key of ["kanskje-unplaced", "kanskje-placed", "returning"]) {
+      it.effect(
+        `refuses to announce ${key} before Rekruttering decided it, before it renders or writes anything`,
+        () =>
+          Effect.gen(function* () {
+            const observed = yield* observeRolledBack(
+              Effect.gen(function* () {
+                const refused = yield* refusalOf(
+                  announceChecked(applicationOf(key), () => Effect.void, unrenderable),
+                );
+
+                return { refused, after: yield* observeApplication(key) };
+              }),
+            );
+
+            expect(observed.refused).toEqual(undecidedRefusal);
+            expect(observed.after).toMatchObject({
+              state: "ApplicationSubmitted",
+              outcome: null,
+              ...untouched,
+            });
+          }),
+      );
+    }
+
+    it.effect(
+      "cannot announce Nei for a person with an active placement, and announces it once the placement is removed",
+      () =>
+        Effect.gen(function* () {
+          const observed = yield* observeRolledBack(
+            Effect.gen(function* () {
+              const application = applicationOf("nei-placed");
+
+              const whilePlaced = yield* refusalOf(
+                announceChecked(application, () => Effect.void, unrenderable),
+              );
+
+              const stillOpen = yield* observeApplication("nei-placed");
+              const removed = yield* attempt(removePlacement("nei-placed"));
+              const announced = yield* attempt(announce(application));
+
+              return {
+                whilePlaced,
+                stillOpen,
+                removed: Exit.isSuccess(removed),
+                announced: Exit.isSuccess(announced),
+                after: yield* observeApplication("nei-placed"),
+              };
+            }),
+          );
+
+          expect(observed).toEqual({
+            whilePlaced: placementActiveRefusal,
+            stillOpen: {
+              basis: "Nei",
+              state: "ApplicationSubmitted",
+              outcome: "Rejected",
+              placed: true,
+              ...untouched,
+            },
+            removed: true,
+            announced: true,
+            after: {
+              basis: "Nei",
+              state: "OutcomeAnnounced",
+              outcome: "Rejected",
+              placed: false,
+              history: [recommendation(1, "Rejected")],
+              announcements: [announcementOf("Rejected", 1)],
+              mail: [mailFor("nei-placed", "Rejected")],
+            },
+          });
+        }),
+    );
+
+    for (const key of ["ja-unplaced", "kanskje-unplaced"]) {
+      it.effect(
+        `makes the announcement of ${key} final: no second announcement and no later decision`,
+        () =>
+          Effect.gen(function* () {
+            const observed = yield* observeRolledBack(
+              Effect.gen(function* () {
+                const application = applicationOf(key);
+
+                if (key === "kanskje-unplaced") yield* decide(application, "Admitted");
+
+                yield* announce(application);
+                const announced = yield* observeApplication(key);
+
+                return {
+                  announced,
+                  again: yield* refusalOf(announce(application)),
+                  admitted: yield* refusalOf(decide(application, "Admitted")),
+                  rejected: yield* refusalOf(decide(application, "Rejected")),
+                  after: yield* observeApplication(key),
+                };
+              }),
+            );
+
+            expect({
+              again: observed.again,
+              admitted: observed.admitted,
+              rejected: observed.rejected,
+            }).toEqual({ again: finalRefusal, admitted: finalRefusal, rejected: finalRefusal });
+            expect(observed.after).toEqual(observed.announced);
+            expect(observed.after).toMatchObject({
+              state: "OutcomeAnnounced",
+              outcome: "Admitted",
+              announcements: [announcementOf("Admitted", 1)],
+            });
+            expect(observed.after.history).toHaveLength(1);
+            expect(observed.after.mail).toHaveLength(1);
+          }),
+      );
+    }
+
+    it.effect(
+      "checks the fresh entry before any announcement write and keeps the callback failure unchanged",
+      () =>
+        Effect.gen(function* () {
+          const observed = yield* observeRolledBack(
+            Effect.gen(function* () {
+              const before = yield* readEntry(applicationOf("ja-unplaced"));
+
+              const failure = yield* Effect.flip(
+                announceChecked(
+                  applicationOf("ja-unplaced"),
+                  (current) => Effect.fail({ code: "precondition.failed", current } as const),
+                  renderMail,
+                ),
+              );
+
+              return { before, failure, after: yield* observeApplication("ja-unplaced") };
+            }),
+          );
+
+          expect(observed.failure).toEqual({
+            code: "precondition.failed",
+            current: observed.before,
+          });
+          expect(observed.after).toEqual({
+            basis: "Ja",
+            state: "ApplicationSubmitted",
+            outcome: "Admitted",
+            placed: false,
+            ...untouched,
+          });
+        }),
+    );
+
+    it.effect("rolls the announcement back with its mail when the mail cannot be rendered", () =>
+      Effect.gen(function* () {
+        const observed = yield* observeRolledBack(
+          Effect.gen(function* () {
+            const failure = yield* refusalOf(
+              announceChecked(applicationOf("ja-unplaced"), () => Effect.void, unrenderable),
+            );
+
+            return { failure, after: yield* observeApplication("ja-unplaced") };
+          }),
+        );
+
+        // The caller's transaction owns the commit: the failure of the renderer leaves neither the
+        // derived revision, nor the announcement, nor an envelope behind.
+        expect(observed.failure).toBe("render failed");
+        expect(observed.after).toMatchObject({ state: "ApplicationSubmitted", ...untouched });
+      }),
+    );
+
+    it.effect(
+      "keeps the announced Rejected outcome final and refuses a placement for the Nei that was announced",
+      () =>
+        Effect.gen(function* () {
+          const observed = yield* observeRolledBack(
+            Effect.gen(function* () {
+              yield* announce(applicationOf("nei-unplaced"));
+              const placement = yield* refusalOf(createPlacement("nei-unplaced"));
+
+              return {
+                placement,
+                active: (yield* committedState("nei-unplaced")).placed,
+                after: yield* observeApplication("nei-unplaced"),
+              };
+            }),
+          );
+
+          expect(observed).toEqual({
+            placement: placementRejectedRefusal,
+            active: false,
+            after: {
+              basis: "Nei",
+              state: "OutcomeAnnounced",
+              outcome: "Rejected",
+              placed: false,
+              history: [recommendation(1, "Rejected")],
+              announcements: [announcementOf("Rejected", 1)],
+              mail: [mailFor("nei-unplaced", "Rejected")],
+            },
+          });
+        }),
+    );
+
+    for (const key of ["ja-unplaced", "kanskje-unplaced"]) {
+      it.effect(
+        `never rewrites the announced Admitted outcome of ${key} or its mail when the person is placed afterwards`,
+        () =>
+          Effect.gen(function* () {
+            const observed = yield* observeRolledBack(
+              Effect.gen(function* () {
+                const application = applicationOf(key);
+
+                if (key === "kanskje-unplaced") yield* decide(application, "Admitted");
+
+                const announced = yield* announce(application);
+                const announcedState = yield* observeApplication(key);
+                const placement = yield* attempt(createPlacement(key));
+                const entry = yield* readEntry(application);
+
+                return {
+                  placed: Exit.isSuccess(placement),
+                  announcedRevision: announced.revision,
+                  entryRevision: entry.revision,
+                  announcedState,
+                  after: yield* observeApplication(key),
+                };
+              }),
+            );
+
+            // The envelope was built while the person had no placement, and it stays that way.
+            expect(observed.placed).toBe(true);
+            expect(observed.entryRevision).toBe(observed.announcedRevision);
+            expect(observed.after).toEqual({ ...observed.announcedState, placed: true });
+            expect(observed.after.mail).toEqual([mailFor(key, "AdmittedPlacementPending")]);
+          }),
+      );
+    }
+
     it.effect(
       "serializes a Rejected write that came first before a placement create on the scope lock",
       () =>
         Effect.gen(function* () {
           const observed = yield* raceOnScopeLock(
-            record(applicationOf("race-reject-first"), "Rejected"),
+            decide(applicationOf("race-reject-first"), "Rejected"),
             createPlacement("race-reject-first"),
           );
 
@@ -1100,6 +1924,8 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
             contenderCommitted: false,
             placed: false,
             outcome: "Rejected",
+            announced: 0,
+            mail: 0,
           });
         }),
       30_000,
@@ -1111,7 +1937,7 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
         Effect.gen(function* () {
           const observed = yield* raceOnScopeLock(
             createPlacement("race-place-first"),
-            record(applicationOf("race-place-first"), "Rejected"),
+            decide(applicationOf("race-place-first"), "Rejected"),
           );
 
           expect({ ...observed, ...(yield* committedState("race-place-first")) }).toEqual({
@@ -1120,6 +1946,80 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
             contenderCommitted: false,
             placed: true,
             outcome: null,
+            announced: 0,
+            mail: 0,
+          });
+        }),
+      30_000,
+    );
+
+    it.effect(
+      "serializes a Nei announcement that came first before a placement create on the scope lock",
+      () =>
+        Effect.gen(function* () {
+          const observed = yield* raceOnScopeLock(
+            announce(applicationOf("race-announce-reject-first")),
+            createPlacement("race-announce-reject-first"),
+          );
+
+          expect({
+            ...observed,
+            ...(yield* committedState("race-announce-reject-first")),
+          }).toEqual({
+            waited: true,
+            holderCommitted: true,
+            contenderCommitted: false,
+            placed: false,
+            outcome: "Rejected",
+            announced: 1,
+            mail: 1,
+          });
+        }),
+      30_000,
+    );
+
+    it.effect(
+      "serializes a placement create that came first before a Nei announcement on the scope lock",
+      () =>
+        Effect.gen(function* () {
+          const observed = yield* raceOnScopeLock(
+            createPlacement("race-announce-place-first"),
+            announce(applicationOf("race-announce-place-first")),
+          );
+
+          expect({
+            ...observed,
+            ...(yield* committedState("race-announce-place-first")),
+          }).toEqual({
+            waited: true,
+            holderCommitted: true,
+            contenderCommitted: false,
+            placed: true,
+            outcome: null,
+            announced: 0,
+            mail: 0,
+          });
+        }),
+      30_000,
+    );
+
+    it.effect(
+      "serializes two announcements of one application on the scope lock: one announcement, one mail",
+      () =>
+        Effect.gen(function* () {
+          const observed = yield* raceOnScopeLock(
+            announce(applicationOf("race-announce-twice")),
+            announce(applicationOf("race-announce-twice")),
+          );
+
+          expect({ ...observed, ...(yield* committedState("race-announce-twice")) }).toEqual({
+            waited: true,
+            holderCommitted: true,
+            contenderCommitted: false,
+            placed: false,
+            outcome: "Rejected",
+            announced: 1,
+            mail: 1,
           });
         }),
       30_000,
@@ -1143,6 +2043,26 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
       }),
     );
 
+    it.effect(
+      "lists a Ja applicant who was announced Admitted without a placement as an eligible coverer, once",
+      () =>
+        Effect.gen(function* () {
+          const listed = yield* observeRolledBack(
+            Effect.gen(function* () {
+              yield* announce(applicationOf("ja-unplaced"));
+
+              const board = yield* Placements.use((service) => service.readCoverageBoard(scope));
+
+              return board.coverers.flatMap((coverer) =>
+                coverer.personId === personOf("ja-unplaced") ? [coverer.personId] : [],
+              );
+            }),
+          );
+
+          expect(listed).toEqual([personOf("ja-unplaced")]);
+        }),
+    );
+
     it.effect("rejects a new Substitute revision in direct SQL and accepts an Admitted one", () =>
       Effect.gen(function* () {
         const insert = (outcome: string) =>
@@ -1162,6 +2082,125 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
           substituteRejected: Exit.isFailure(retired),
         }).toEqual({ admittedAccepted: true, substituteRejected: true });
       }),
+    );
+
+    it.effect(
+      "rejects a revision after the announcement and any rewrite or second announcement of it in direct SQL",
+      () =>
+        Effect.gen(function* () {
+          const observed = yield* observeRolledBack(
+            Effect.gen(function* () {
+              const announced = applicationOf("ja-unplaced");
+              yield* announce(announced);
+
+              const insertRevision = (
+                application: PublicApplicationId,
+                outcome: AdmissionOutcome,
+              ) =>
+                attempt(
+                  Database.use(
+                    (sql) => sql`INSERT INTO admission_application_outcomes (
+                      application_id, revision, outcome, decided_by_person_id, decided_at, provenance
+                    ) VALUES (${application}, ${application === announced ? 2 : 1}, ${outcome}, ${recruiter}, ${now}, 'Decision')`,
+                  ),
+                );
+
+              return {
+                lateRevision: yield* insertRevision(announced, "Rejected"),
+                control: yield* insertRevision(applicationOf("kanskje-unplaced"), "Rejected"),
+                rewriteRevision: yield* attempt(
+                  Database.use(
+                    (sql) => sql`UPDATE admission_application_outcomes SET outcome = 'Rejected'
+                      WHERE application_id = ${announced}`,
+                  ),
+                ),
+                rewriteAnnouncement: yield* attempt(
+                  Database.use(
+                    (sql) => sql`UPDATE admission_outcome_announcements SET outcome = 'Rejected'
+                      WHERE application_id = ${announced}`,
+                  ),
+                ),
+                eraseAnnouncement: yield* attempt(
+                  Database.use(
+                    (sql) => sql`DELETE FROM admission_outcome_announcements
+                      WHERE application_id = ${announced}`,
+                  ),
+                ),
+                secondAnnouncement: yield* attempt(
+                  Database.use(
+                    (sql) => sql`INSERT INTO admission_outcome_announcements (
+                      application_id, outcome, outcome_revision, announced_by_person_id, announced_at
+                    ) VALUES (${announced}, 'Admitted', 1, ${coordinator}, ${now})`,
+                  ),
+                ),
+                after: yield* observeApplication("ja-unplaced"),
+              };
+            }),
+          );
+
+          // The control revision of another, unannounced application is accepted by the same
+          // statement, so the refusals above name the announcement and not the statement.
+          expect({
+            lateRevisionRejected: Exit.isFailure(observed.lateRevision),
+            controlAccepted: Exit.isSuccess(observed.control),
+            rewriteRevisionRejected: Exit.isFailure(observed.rewriteRevision),
+            rewriteAnnouncementRejected: Exit.isFailure(observed.rewriteAnnouncement),
+            eraseAnnouncementRejected: Exit.isFailure(observed.eraseAnnouncement),
+            secondAnnouncementRejected: Exit.isFailure(observed.secondAnnouncement),
+            history: observed.after.history,
+            announcements: observed.after.announcements,
+          }).toEqual({
+            lateRevisionRejected: true,
+            controlAccepted: true,
+            rewriteRevisionRejected: true,
+            rewriteAnnouncementRejected: true,
+            eraseAnnouncementRejected: true,
+            secondAnnouncementRejected: true,
+            history: [recommendation(1, "Admitted")],
+            announcements: [announcementOf("Admitted", 1)],
+          });
+        }),
+    );
+
+    it.effect(
+      "accepts a revision only when its provenance and its decider agree: Decision names a person, the others none",
+      () =>
+        Effect.gen(function* () {
+          const insert = (provenance: string, decider: PersonId | null) =>
+            attempt(
+              Database.use(
+                (sql) => sql`INSERT INTO admission_application_outcomes (
+                  application_id, revision, outcome, decided_by_person_id, decided_at, provenance
+                ) VALUES (${applicationOf("direct-sql")}, 1, 'Admitted', ${decider}, ${now}, ${provenance})`,
+              ),
+            );
+
+          const observed = yield* observeRolledBack(
+            Effect.gen(function* () {
+              return {
+                decisionWithoutDecider: yield* insert("Decision", null),
+                recommendationWithDecider: yield* insert("Recommendation", recruiter),
+                semanticUpgradeWithDecider: yield* insert("SemanticUpgrade", recruiter),
+                unknownProvenance: yield* insert("Announcement", null),
+                decision: yield* insert("Decision", recruiter),
+              };
+            }),
+          );
+
+          expect({
+            decisionWithoutDecider: Exit.isFailure(observed.decisionWithoutDecider),
+            recommendationWithDecider: Exit.isFailure(observed.recommendationWithDecider),
+            semanticUpgradeWithDecider: Exit.isFailure(observed.semanticUpgradeWithDecider),
+            unknownProvenance: Exit.isFailure(observed.unknownProvenance),
+            decision: Exit.isSuccess(observed.decision),
+          }).toEqual({
+            decisionWithoutDecider: true,
+            recommendationWithDecider: true,
+            semanticUpgradeWithDecider: true,
+            unknownProvenance: true,
+            decision: true,
+          });
+        }),
     );
 
     it.effect(
