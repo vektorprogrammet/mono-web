@@ -1,8 +1,9 @@
 import { Capability, Concealment, type HttpAccessAnnotationSpec } from "@effx/runtime";
 import { TEAM_APPLICATION_INTAKE_LIST_LIMIT } from "@vektorprogrammet/domain/team-application";
 import { Context, Predicate, Schema } from "effect";
-import { HttpApiSchema } from "effect/unstable/httpapi";
+import { HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { describe, expect, it } from "vitest";
+import { ExternalNativeApi } from "../src/api.js";
 import { AccessSpecAnnotation } from "../src/access.js";
 import { nativeProblems } from "../src/endpoint-problems.js";
 import {
@@ -181,11 +182,10 @@ describe("TeamApplications effx source declarations", () => {
       description: "Public team intake, staff review, deletion, and intake settings.",
     });
 
-    expect(annotation(ListTeamApplicationIntakes, "Http.Contract")).toMatchObject({
-      metadata: {
-        description: `Returns the intake state of at most ${TEAM_APPLICATION_INTAKE_LIST_LIMIT} active teams.`,
-      },
-    });
+    const listing = OpenApi.fromApi(ExternalNativeApi).paths["/api/team-application-intakes"]?.get;
+    expect(listing?.description).toBe(
+      `Returns the intake state of at most ${TEAM_APPLICATION_INTAKE_LIST_LIMIT} active teams.`,
+    );
 
     for (const { declaration, endpoint } of cases) {
       expect(annotation(declaration, "Http.In")).toBe(TeamApplicationsGroup);

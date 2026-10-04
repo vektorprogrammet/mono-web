@@ -6,7 +6,7 @@ import {
 } from "@vektorprogrammet/domain/team-application";
 import { HttpApiSchema } from "effect/unstable/httpapi";
 import { ExternalNativeApi } from "./api.js";
-import { PersonSecurity, nativeOperationAnnotations } from "./common.js";
+import { PersonSecurity } from "./common.js";
 import { nativeProblems } from "./endpoint-problems.js";
 import {
   CreatedMutationResponseHeaders,
@@ -34,6 +34,7 @@ import {
   TeamApplicationsStaffReadCodes,
   TeamApplicationsSubmitCodes,
   teamApplicationsAccessAnnotations,
+  teamApplicationsOperationAnnotations,
 } from "./team-application-effx-adapters.js";
 import {
   TeamApplicationIntakeListResponse,
@@ -49,7 +50,7 @@ export const TeamApplicationsGroup = Http.group({
   title: "Team applications",
   description: "Public team intake, staff review, deletion, and intake settings.",
   defaults: {
-    metadata: { annotator: nativeOperationAnnotations },
+    metadata: { annotator: teamApplicationsOperationAnnotations },
     problems: { registry: nativeProblems },
     access: {
       annotator: teamApplicationsAccessAnnotations,
@@ -102,7 +103,6 @@ export const ListTeamApplicationIntakes = Operation.query({
     middleware: [],
     metadata: {
       summary: "List team application intakes",
-      description: "Returns the intake state of at most 500 active teams.",
     },
   })
   .http.problems({

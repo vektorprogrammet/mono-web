@@ -1,13 +1,26 @@
-import type { HttpAccessAnnotationSpec } from "@effx/runtime";
+import type { HttpAccessAnnotationSpec, HttpOperationMetadata } from "@effx/runtime";
 import { type SCOPE_RESOLVER_IDS } from "@vektorprogrammet/domain/authz";
 import { TeamId } from "@vektorprogrammet/domain/organization";
 import {
+  TEAM_APPLICATION_INTAKE_LIST_LIMIT,
   TeamApplicationCursor,
   TeamApplicationId,
 } from "@vektorprogrammet/domain/team-application";
 import { Predicate, Schema } from "effect";
 import { accessSpecAnnotations, anonymousNativeAccess, personNativeAccess } from "./access.js";
+import { nativeOperationAnnotations } from "./common.js";
 import { noStoreReadResponse, type NativeProblemCode } from "./http-semantics.js";
+
+/** Derives public listing copy from the domain bound used by the schema and SQL query. */
+export const teamApplicationsOperationAnnotations = (metadata: HttpOperationMetadata) =>
+  nativeOperationAnnotations(
+    metadata.operationId === "team-applications.listTeamApplicationIntakes"
+      ? {
+          ...metadata,
+          description: `Returns the intake state of at most ${TEAM_APPLICATION_INTAKE_LIST_LIMIT} active teams.`,
+        }
+      : metadata,
+  );
 
 /** Exported SchemaRefs for the existing route parameters and optional cursor. */
 export const TeamApplicationEmptyInput = Schema.Struct({});
