@@ -12,7 +12,7 @@
   },
   "devDependencies": {
     "@effect/tsgo": "0.36.4",
-    "@effx/cli": "file:tools/effx-dist/effx-cli-0.1.0-f3c6bf8ae6205b9b60a449d01faed63744beb765.tgz",
+    "@effx/cli": "file:tools/effx-dist/effx-cli-0.1.0-e04c8d2a16636f81e65d478a4d06a07933f6896b.tgz",
     "@oxlint/plugins": "1.77.0",
     "@phibkro/oxlint-effect-plugin": "0.1.0",
     "@types/bun": "1.3.10",
@@ -25,6 +25,10 @@
     "turbo": "^2.8.12",
     "typescript": "7.0.2",
     "wrangler": "4.136.1"
+  },
+  "overrides": {
+    "@effx/compiler": "file:tools/effx-dist/effx-compiler-0.1.0-e04c8d2a16636f81e65d478a4d06a07933f6896b.tgz",
+    "@effx/ir": "file:tools/effx-dist/effx-ir-0.1.0-e04c8d2a16636f81e65d478a4d06a07933f6896b.tgz"
   },
   "engines": {
     "node": ">=22",
