@@ -25,6 +25,8 @@ const decode = Schema.decodeUnknownEffect(ApplicationAdmissionEvidence);
 
 const encode = Schema.encodeEffect(ApplicationAdmissionEvidence);
 
+const encodeFixtureLabel = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+
 describe("canonical application admission evidence boundary", () => {
   it.effect("canonical encoded evidence round-trips with domain Instants", () =>
     Effect.gen(function* () {
@@ -71,14 +73,12 @@ describe("canonical application admission evidence boundary", () => {
     { ...encoded, semesterEndsAt: "2031-02-30T00:00:00.000Z" },
     { ...encoded, linkedPersonId: 42 },
   ]) {
-    it.effect(
-      "rejects malformed evidence " + Schema.encodeSync(Schema.UnknownFromJsonString)(invalid),
-      () =>
-        Effect.gen(function* () {
-          const error = yield* Effect.flip(decode(invalid));
+    it.effect("rejects malformed evidence " + encodeFixtureLabel(invalid), () =>
+      Effect.gen(function* () {
+        const error = yield* Effect.flip(decode(invalid));
 
-          expect(error._tag).toBe("SchemaError");
-        }),
+        expect(error._tag).toBe("SchemaError");
+      }),
     );
   }
 });
@@ -113,17 +113,14 @@ describe("canonical evidence standing", () => {
     { basis: "Returning", returningRegistered: false },
     { basis: "Unreviewed" },
   ]) {
-    it.effect(
-      "refuses unclosed ineligible evidence " +
-        Schema.encodeSync(Schema.UnknownFromJsonString)(changes),
-      () =>
-        Effect.gen(function* () {
-          const evidence = yield* decode({ ...encoded, decisionClosed: false, ...changes });
+    it.effect("refuses unclosed ineligible evidence " + encodeFixtureLabel(changes), () =>
+      Effect.gen(function* () {
+        const evidence = yield* decode({ ...encoded, decisionClosed: false, ...changes });
 
-          expect(
-            admissionStanding(evidence, DateTime.makeUnsafe("2031-09-15T12:00:00.000Z")),
-          ).toBeNull();
-        }),
+        expect(
+          admissionStanding(evidence, DateTime.makeUnsafe("2031-09-15T12:00:00.000Z")),
+        ).toBeNull();
+      }),
     );
   }
 
