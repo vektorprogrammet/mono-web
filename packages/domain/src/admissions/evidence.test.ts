@@ -127,15 +127,24 @@ describe("canonical evidence standing", () => {
     );
   }
 
-  for (const at of [
-    "2031-08-31T23:59:59.999Z",
-    "2031-10-01T00:00:00.000Z",
-    "2031-07-31T23:59:59.999Z",
-    "2032-01-01T00:00:00.000Z",
+  for (const boundary of [
+    { at: "2031-08-31T23:59:59.999Z" },
+    { at: "2031-10-01T00:00:00.000Z" },
+    {
+      at: "2031-07-31T23:59:59.999Z",
+      periodOpensAt: "2031-07-01T00:00:00.000Z",
+      periodClosesAt: "2031-09-01T00:00:00.000Z",
+    },
+    {
+      at: "2032-01-01T00:00:00.000Z",
+      periodOpensAt: "2031-12-01T00:00:00.000Z",
+      periodClosesAt: "2032-02-01T00:00:00.000Z",
+    },
   ]) {
-    it.effect("own period and semester bounds refuse " + at, () =>
+    it.effect("own period and semester bounds refuse " + boundary.at, () =>
       Effect.gen(function* () {
-        const evidence = yield* decode(encoded);
+        const { at, ...period } = boundary;
+        const evidence = yield* decode({ ...encoded, ...period });
 
         expect(admissionStanding(evidence, DateTime.makeUnsafe(at))).toBeNull();
       }),
