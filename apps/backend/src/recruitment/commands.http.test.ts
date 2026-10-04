@@ -94,7 +94,8 @@ const seedInterview = Effect.fnUntraced(function* (complete: boolean) {
     INSERT INTO admission_applications (application_id, applicant_id, admission_period_id, department_id, field_of_study_id, year_of_study, submitted_at)
     VALUES (${applicationId}, 'commands-applicant', 'commands-period', ${departmentId}, 'commands-field', 2, '2031-09-10T12:00:00.000Z')
   `;
-  yield* sql`INSERT INTO organization_departments (department_id, name, short_name, email, city) VALUES (${departmentId}, 'Commands', 'CMD', 'commands-department@example.invalid', 'Bergen')`;
+  // Native board-leader reach requires a recognized independent home department.
+  yield* sql`INSERT INTO organization_departments (department_id, name, short_name, email, city, independent) VALUES (${departmentId}, 'Commands', 'CMD', 'commands-department@example.invalid', 'Bergen', true)`;
   yield* sql`INSERT INTO organization_teams (team_id, department_id, name) VALUES ('commands-team', ${departmentId}, 'Commands team')`;
   yield* sql`INSERT INTO person_profiles (person_id, first_name, last_name) VALUES (${leaderPersonId}, 'Lise', 'Leader'), (${interviewerPersonId}, 'Ivar', 'Interviewer')`;
   yield* sql`
@@ -749,8 +750,8 @@ describe("R2 correction closure and frozen admission evidence", () => {
         yield* commitAnnouncement(f);
         const wire = reopenWire("r2-normalized", 0, "2031-09-16T14:00:00.000+02:00");
         const response = yield* maintenance(f, wire);
-        expect(response.headers.get("etag")).not.toBeNull();
         const reopened = yield* decodeMaintenance(response);
+        expect(response.headers.get("etag")).not.toBeNull();
         expect(reopened).toMatchObject({ sequence: 1 });
 
         const conduct = yield* f.request("/api/recruitment/interviews/" + interviewId);
