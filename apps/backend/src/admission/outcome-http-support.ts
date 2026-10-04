@@ -10,7 +10,7 @@ import type {
 import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import type { OrganizationPersistenceError } from "@vektorprogrammet/domain/organization";
 import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
-import { Effect } from "effect";
+import { Effect, Match } from "effect";
 import { isSqlError, type SqlError } from "effect/unstable/sql/SqlError";
 import type { OrganizationResolutionError } from "../authority.js";
 import {
@@ -18,6 +18,7 @@ import {
   jsonText,
   personPresentation,
   problemMapper,
+  type ProblemCases,
 } from "../http-api/problem.js";
 import { PRIVATE_NO_STORE } from "../http-semantics.js";
 
@@ -45,20 +46,20 @@ export const persistenceProblem = (failure: OrganizationPersistenceError | SqlEr
     : Problem.make("internal.error");
 
 /**
- * The one answer for every admission outcome, outcome template and person-authority failure. A
+ * Every failure of an admission outcome, outcome template and person-authority operation. A
  * person credential rejected inside the transaction is answered from the request's evidence.
  */
-export const outcomeProblems = (presentation: CredentialPresentation) =>
-  problemMapper<
-    | AdmissionOutcomeOperationFailure
-    | OutcomeTemplateFailure
-    | OutcomeTemplatePersistenceError
-    | OutcomeMailRenderFailure
-    | UnauthenticatedActor
-    | IdentityEngineError
-    | OrganizationResolutionError
-  >()({
-    AdmissionOutcomeFailure: (failure) => Problem.make(failure.code),
+type OutcomeFailure =
+  | AdmissionOutcomeOperationFailure
+  | OutcomeTemplateFailure
+  | OutcomeTemplatePersistenceError
+  | OutcomeMailRenderFailure
+  | UnauthenticatedActor
+  | IdentityEngineError
+  | OrganizationResolutionError;
+
+const sharedCases = (presentation: CredentialPresentation) =>
+  ({
     AdmissionOutcomePersistenceError: (failure) => Problem.make(failure.code),
     OutcomeTemplateFailure: (failure) => Problem.make(failure.code),
     OutcomeTemplatePersistenceError: (failure) => Problem.make(failure.code),
@@ -67,6 +68,29 @@ export const outcomeProblems = (presentation: CredentialPresentation) =>
     IdentityEngineError: () => Problem.make("internal.error"),
     OrganizationDecodeError: () => Problem.make("internal.error"),
     OrganizationPersistenceError: persistenceProblem,
+  }) satisfies Omit<ProblemCases<OutcomeFailure>, "AdmissionOutcomeFailure">;
+
+/** The answer of a command: every refusal of the outcome policy has its code. */
+export const outcomeProblems = (presentation: CredentialPresentation) =>
+  problemMapper<OutcomeFailure>()({
+    ...sharedCases(presentation),
+    AdmissionOutcomeFailure: (failure) => Problem.make(failure.code),
+  });
+
+/**
+ * The answer of a read. A read decides nothing, so a policy refusal from it is a defect of the
+ * service, answered as internal.error and not declared in the read contract.
+ */
+export const outcomeReadProblems = (presentation: CredentialPresentation) =>
+  problemMapper<OutcomeFailure>()({
+    ...sharedCases(presentation),
+    AdmissionOutcomeFailure: (failure) =>
+      Match.value(failure.code).pipe(
+        Match.when("authority.denied", (code) => Problem.make(code)),
+        Match.when("resource.not-found", (code) => Problem.make(code)),
+        Match.when("scope.invalid", (code) => Problem.make(code)),
+        Match.orElse(() => Problem.make("internal.error")),
+      ),
   });
 
 /**
@@ -84,5 +108,5 @@ export const outcomeSnapshotRead = <A, E, R>(request: Request, effect: Effect.Ef
     ),
   ).pipe(
     Effect.catchIf(isSqlError, (failure) => Effect.fail(persistenceProblem(failure))),
-    outcomeProblems(personPresentation(request)),
+    outcomeReadProblems(personPresentation(request)),
   );

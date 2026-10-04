@@ -135,8 +135,8 @@ export const AdmissionOutcomeCommandProblem = problemUnion("AdmissionOutcomeComm
   "admission-outcome.template-invalid",
 ]);
 
-/** A preview answers an invalid draft like a save does, and writes no receipt. */
-export const AdmissionOutcomePreviewProblem = problemUnion("AdmissionOutcomePreviewProblem", [
+/** Reading or previewing a template answers an invalid stored or drafted document; neither writes a receipt. */
+export const AdmissionOutcomeTemplateProblem = problemUnion("AdmissionOutcomeTemplateProblem", [
   ...admissionOutcomeProblems,
   "admission-outcome.template-invalid",
 ]);
@@ -278,7 +278,7 @@ export const ReadOutcomeTemplatesEndpoint = HttpApiEndpoint.get(
     query: { departmentId: Schema.optional(DepartmentId) },
     headers: ConditionalReadHeaders,
     success: privateConditionalResponses(OutcomeTemplateResource),
-    error: endpointProblemResponses(AdmissionOutcomeProblem),
+    error: endpointProblemResponses(AdmissionOutcomeTemplateProblem),
   },
 )
   .middleware(PersonSecurity)
@@ -300,7 +300,7 @@ export const PreviewOutcomeTemplateEndpoint = HttpApiEndpoint.post(
     query: { departmentId: Schema.optional(DepartmentId) },
     payload: OutcomeTemplatePreviewRequest,
     success: privateReadResponse(RenderedOutcomeMail),
-    error: endpointProblemResponses(AdmissionOutcomePreviewProblem),
+    error: endpointProblemResponses(AdmissionOutcomeTemplateProblem),
   },
 )
   .middleware(PersonSecurity)
