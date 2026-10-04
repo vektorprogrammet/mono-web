@@ -74,6 +74,15 @@ module authority
  * outcomes. Substitute is only the retired third label, which no policy derives or announces; it
  * is no role type either. Dated cover of absent assistant A by assistant B (the commitment, the
  * absence and the coverage record) is not an outcome and stays outside this model.
+ * R2 CORRECTION. Completed uncancelled evidence can be corrected by either current participant,
+ * except known self. The first explicit decision or derived-outcome announcement freezes its
+ * citation and derived standing. Authorized unannounced explicit choices can still be revised
+ * against the same cited Kanskje/Returning basis. Later corrections are evidence-only and need
+ * a scoped-staffing window, excluding its opener; they cannot replace a decision or final outcome.
+ * Windows are half-open and bounded by the application's own semester. Scheduling read policy
+ * is unchanged: this model extension adds no read action or interviewer appointment requirement.
+ *
+
  *
  * CHECKING. Alloy 6, for example from nixpkgs:
  *   nix shell nixpkgs#alloy6 --command alloy6 exec -s glucose -c '*' -t text -o DIR -f authority.als
@@ -107,11 +116,17 @@ sig Rekruttering, Skolekoordinering in Team {}
 fact outcomeTeamsAreDistinct { no Rekruttering & Skolekoordinering }
 sig Styret extends Scope {}            -- the board of one department
 one sig Hovedstyret extends Scope {}   -- the national board
-sig Semester {}
+sig Semester { endsAt: one Instant }
 sig SchoolSemester extends Scope { semester: one Semester }   -- one school in one semester, in one department
 abstract sig Resource extends Scope {}
-sig Interview, Receipt, TeamApplication, ServiceCommitment,
+sig Receipt, TeamApplication, ServiceCommitment,
     ClaimTarget, InvitationTarget extends Resource {}
+sig Interview extends Resource {
+  application: lone Application,
+  var assessment: lone Assessment,
+  var correctionSequence: one Int,
+  var correctionWindow: lone CorrectionWindow
+}
 
 -- an application belongs to one department (within) and one semester; a Person is its applicant. Its
 -- fields are the state of the two-step workflow: Rekruttering's decision and the one terminal
@@ -123,7 +138,42 @@ sig Application extends Resource {
   var decision: lone Outcome,
   var decidedBy: lone Request,
   var announced: lone Outcome,
-  var announcedBy: lone Request
+  var announcedBy: lone Request,
+  var knownApplicant: lone Person,
+  var citedAssessment: lone Assessment,
+  var citedRecommendation: lone Recommendation,
+  var frozenStanding: lone Outcome
+}
+-- Immutable assessment revisions and append-only window records represent committed facts, not
+-- permits. A request's observed revision/sequence is only a precondition, never write authority.
+sig Assessment { interview: one Interview, revision: one Int, value: one Recommendation }
+sig Reason {}
+sig CorrectionWindow {
+  interview: one Interview, sequence: one Int, openedBy: one Request,
+  openedAt: one Instant, endsAt: one Instant, reason: lone Reason
+}
+sig CorrectionRequest in Request { expectedAssessment: one Assessment }
+sig ReopenCorrectionRequest, CloseCorrectionRequest in Request {
+  expectedSequence: one Int, changeReason: lone Reason
+}
+var sig Completed, Cancelled in Interview {}
+var sig RecordedWindows, ClosedWindows in CorrectionWindow {}
+one sig WindowClosure {
+  var by: CorrectionWindow -> lone CloseCorrectionRequest,
+  var at: CorrectionWindow -> lone Instant
+}
+one sig CorrectionObservation { var preflight: set CorrectionRequest }
+
+fact correctionShapes {
+  all i: Interview | some i.application implies i.within = i.application.within
+  all a: Application | lone application.a
+  all e: Assessment | e.value in Ja + Nei + Kanskje
+  all q: CorrectionRequest | q.action = CorrectAssessment and q.target in Interview
+  all q: ReopenCorrectionRequest + CloseCorrectionRequest |
+    q.action = MaintainInterviewStaffing and q.target in Interview
+  no CorrectionRequest & (ReopenCorrectionRequest + CloseCorrectionRequest)
+  no ReopenCorrectionRequest & CloseCorrectionRequest
+  all w: CorrectionWindow | w.openedBy in ReopenCorrectionRequest and w.openedBy.target = w.interview
 }
 -- the interview recommendation; a returning assistant registers without an interview
 abstract sig Recommendation {}
@@ -367,7 +417,8 @@ fun intendedCapabilities: RoleType -> Action {
     + RosterMember -> ReportAbsence         -- a scheduled volunteer reports their own absence
     + Interviewer -> ScheduleInterview      -- with the named requirement InterviewerAppointment
     + Interviewer -> AssessInterview        -- an interviewer assesses only an assigned interview
-    + CoInterviewer -> CorrectAssessment    -- while the scoped correction capability is active
+    + Interviewer -> CorrectAssessment     -- both current participants correct completed evidence
+    + CoInterviewer -> CorrectAssessment    -- closure additionally requires a scoped active window
     + ReceiptOwner -> ReadOwnReceipt        -- a receipt owner reads their own file
     + Applicant -> ReadOwnProgress          -- an applicant reads their own application progress
     -- BoardMember carries only certificate issuance: a board seat without leadership, derived or
@@ -744,6 +795,169 @@ pred grantPermit[q: Request] {
 -- Admission outcomes
 --------------------------------------------------------------------------------------------
 
+--------------------------------------------------------------------------------------------
+-- Assessment correction: spec 0029 R2. Atomic steps stand for the common application fence.
+-- The model abstracts SQL locking, receipts and strings; it does not prove their implementation.
+-- Reason atoms mean nonblank decoded reasons. Window records are immutable, with early closure
+-- tracked separately. A bounded Int sequence models append order; no wraparound is admitted.
+--------------------------------------------------------------------------------------------
+
+fun liveRecommendation[a: Application]: set Recommendation {
+  (some application.a) =>
+    ((completedUncancelled[application.a]) => (application.a).assessment.value else none)
+    else a.recommendation
+}
+fun outcomeRecommendation[a: Application]: set Recommendation {
+  (some a.citedRecommendation) => a.citedRecommendation else liveRecommendation[a]
+}
+fun standing[a: Application]: set Outcome { derivedOutcome[a] }
+pred correctionClosed[a: Application] { some a.citedRecommendation }
+fun requestPerson[q: Request]: set Person { Binding.boundPerson[Resolution.chosen[q]] }
+pred currentParticipant[q: Request, i: Interview] {
+  some r: Effective | r.holder in requestPerson[q] and r.scope = i
+    and r.type in Interviewer + CoInterviewer
+}
+pred completedUncancelled[i: Interview] { i in Completed - Cancelled and some i.assessment }
+pred knownSelf[q: Request, i: Interview] { some requestPerson[q] & i.application.knownApplicant }
+pred activeCorrectionWindow[w: CorrectionWindow] {
+  w in RecordedWindows - ClosedWindows and lte[w.openedAt, Clock.now] and lt[Clock.now, w.endsAt]
+}
+pred correctionLifecycle[q: Request, i: Interview] {
+  some i.application
+  (completedUncancelled[i] or CorrectionWithoutCompletion in Broken.rule)
+  (not knownSelf[q, i] or CorrectionByKnownSelf in Broken.rule)
+  (not correctionClosed[i.application] and OrdinaryCorrectionNeedsWindow not in Broken.rule) or {
+    (some w: i.correctionWindow | {
+      (activeCorrectionWindow[w] or CorrectionAfterWindowEnd in Broken.rule)
+      (requestPerson[q] != requestPerson[w.openedBy] or WindowOpenerCorrects in Broken.rule)
+    }) or CorrectionWithoutWindow in Broken.rule
+  }
+}
+pred correctionGuard[q: CorrectionRequest, i: Interview] {
+  q.target = i
+  ((CorrectionUsesStalePermit in Broken.rule and q in CorrectionObservation.preflight)
+    or (permitted[q] and currentParticipant[q, i] and correctionLifecycle[q, i])
+    or (CorrectionByStaffOnly in Broken.rule and grantCovers[requestPerson[q], MaintainInterviewStaffing, i]))
+  (PrimaryCorrectionDenied in Broken.rule) implies
+    no r: Effective | r.holder in requestPerson[q] and r.scope = i and r.type = Interviewer
+  (CoCorrectionDenied in Broken.rule) implies
+    no r: Effective | r.holder in requestPerson[q] and r.scope = i and r.type = CoInterviewer
+  (q.expectedAssessment = i.assessment or CorrectionIgnoresRevision in Broken.rule)
+}
+pred windowAuthority[q: Request, i: Interview] {
+  q.target = i and q.action = MaintainInterviewStaffing
+  (permitted[q] or WindowWithoutStaffingAuthority in Broken.rule)
+}
+pred reopenGuard[q: ReopenCorrectionRequest, i: Interview, w: CorrectionWindow] {
+  windowAuthority[q, i]
+  some i.application and completedUncancelled[i] and correctionClosed[i.application]
+  (not (some old: i.correctionWindow | activeCorrectionWindow[old]) or OverlappingCorrectionWindows in Broken.rule)
+  (q.expectedSequence = i.correctionSequence or WindowIgnoresSequence in Broken.rule)
+  i.correctionSequence < 7
+  w not in RecordedWindows and w.interview = i and w.openedBy = q
+  w.sequence = ((WindowSequenceReused in Broken.rule and i.correctionSequence > 0) => i.correctionSequence else add[i.correctionSequence, 1])
+  w.openedAt = Clock.now
+  (some q.changeReason and w.reason = q.changeReason) or WindowWithoutReason in Broken.rule
+  lt[Clock.now, w.endsAt]
+  (lte[w.endsAt, i.application.forSemester.endsAt] or WindowPastOwnSemester in Broken.rule)
+}
+pred closeGuard[q: CloseCorrectionRequest, i: Interview] {
+  windowAuthority[q, i]
+  some w: i.correctionWindow | activeCorrectionWindow[w] or CloseExpiredWindow in Broken.rule
+  (q.expectedSequence = i.correctionSequence or WindowIgnoresSequence in Broken.rule)
+  some q.changeReason
+}
+
+pred correctionRowsUnchangedExcept[interviews: set Interview, apps: set Application] {
+  all i: Interview - interviews | i.assessment' = i.assessment
+    and i.correctionSequence' = i.correctionSequence and i.correctionWindow' = i.correctionWindow
+    and (i in Completed' iff i in Completed) and (i in Cancelled' iff i in Cancelled)
+  all a: Application - apps | a.knownApplicant' = a.knownApplicant
+}
+pred correctionUnchanged {
+  correctionRowsUnchangedExcept[none, none]
+  RecordedWindows' = RecordedWindows and ClosedWindows' = ClosedWindows
+  CorrectionObservation.preflight' = CorrectionObservation.preflight
+  WindowClosure.by' = WindowClosure.by and WindowClosure.at' = WindowClosure.at
+}
+pred correctionStepFrame {
+  Clock.now' = Clock.now and authorityUnchangedExcept[none, none]
+  Consumed' = Consumed and no UsedNow
+  WindowClosure.by' = WindowClosure.by and WindowClosure.at' = WindowClosure.at
+}
+pred correctionEvidenceEvent[q: CorrectionRequest, i: Interview, e: Assessment] {
+  correctionGuard[q, i]
+  e.interview = i and e != i.assessment and e.revision = add[i.assessment.revision, 1]
+  i.assessment' = e and i.correctionSequence' = i.correctionSequence and i.correctionWindow' = i.correctionWindow
+  Completed' = Completed and Cancelled' = Cancelled
+  correctionRowsUnchangedExcept[i, none]
+  RecordedWindows' = RecordedWindows and ClosedWindows' = ClosedWindows
+  CorrectionObservation.preflight' = CorrectionObservation.preflight - q
+  all a: Application | {
+    a.decision' = a.decision and a.decidedBy' = a.decidedBy and a.announcedBy' = a.announcedBy
+    a.citedAssessment' = ((CorrectionRewritesCitation in Broken.rule and a = i.application and correctionClosed[a]) => e else a.citedAssessment)
+    a.citedRecommendation' = ((CorrectionRewritesCitation in Broken.rule and a = i.application and correctionClosed[a]) => e.value else a.citedRecommendation)
+    a.frozenStanding' = ((CorrectionRewritesStanding in Broken.rule and a = i.application and correctionClosed[a]) =>
+      ((e.value = Ja) => Admitted else Rejected) else a.frozenStanding)
+    a.announced' = ((CorrectionRewritesAnnouncement in Broken.rule and a = i.application and some a.announced) =>
+      ((e.value = Ja) => Admitted else Rejected) else a.announced)
+  }
+  correctionStepFrame
+}
+pred reopenCorrectionEvent[q: ReopenCorrectionRequest, i: Interview, w: CorrectionWindow] {
+  reopenGuard[q, i, w]
+  i.correctionWindow' = w and i.correctionSequence' = w.sequence and i.assessment' = i.assessment
+  Completed' = Completed and Cancelled' = Cancelled
+  correctionRowsUnchangedExcept[i, none]
+  RecordedWindows' = ((WindowHistoryForgotten in Broken.rule) => w else RecordedWindows + w)
+  ClosedWindows' = ClosedWindows
+  CorrectionObservation.preflight' = CorrectionObservation.preflight
+  outcomesUnchangedExcept[none] and correctionStepFrame
+}
+pred closeCorrectionEvent[q: CloseCorrectionRequest, i: Interview] {
+  closeGuard[q, i]
+  ClosedWindows' = ClosedWindows + i.correctionWindow and RecordedWindows' = RecordedWindows
+  WindowClosure.by' = WindowClosure.by + i.correctionWindow -> q
+  WindowClosure.at' = WindowClosure.at + i.correctionWindow -> Clock.now
+  correctionRowsUnchangedExcept[none, none]
+  CorrectionObservation.preflight' = CorrectionObservation.preflight
+  outcomesUnchangedExcept[none]
+  Clock.now' = Clock.now and authorityUnchangedExcept[none, none]
+  Consumed' = Consumed and no UsedNow
+}
+pred observeCorrection[q: CorrectionRequest] {
+  some i: Interview | correctionGuard[q, i]
+  CorrectionObservation.preflight' = CorrectionObservation.preflight + q
+  correctionRowsUnchangedExcept[none, none]
+  RecordedWindows' = RecordedWindows and ClosedWindows' = ClosedWindows
+  outcomesUnchangedExcept[none] and correctionStepFrame
+}
+pred linkApplicant[a: Application, p: Person] {
+  no a.knownApplicant and p = a.applicant and a.knownApplicant' = p
+  correctionRowsUnchangedExcept[none, a]
+  RecordedWindows' = RecordedWindows and ClosedWindows' = ClosedWindows
+  CorrectionObservation.preflight' = CorrectionObservation.preflight
+  outcomesUnchangedExcept[none] and correctionStepFrame
+}
+pred cancelCompletedInterview[i: Interview] {
+  some i.application and i not in Cancelled
+  Cancelled' = Cancelled + i and Completed' = Completed
+  i.assessment' = i.assessment and i.correctionSequence' = i.correctionSequence and i.correctionWindow' = i.correctionWindow
+  correctionRowsUnchangedExcept[i, none]
+  RecordedWindows' = RecordedWindows and ClosedWindows' = ClosedWindows
+  CorrectionObservation.preflight' = CorrectionObservation.preflight
+  outcomesUnchangedExcept[none] and correctionStepFrame
+}
+
+pred freezeCitation[a: Application, o: Outcome] {
+  a.citedAssessment' = ((no a.citedRecommendation or DecisionRecitesEvidence in Broken.rule) => (application.a).assessment else a.citedAssessment)
+  a.citedRecommendation' = ((no a.citedRecommendation or DecisionRecitesEvidence in Broken.rule) =>
+    ((ClosureUsesStaleEvidence in Broken.rule) => a.recommendation else liveRecommendation[a]) else a.citedRecommendation)
+  -- Only Ja/Nei has a frozen derived outcome. Explicit Kanskje/Returning standing follows the
+  -- latest authorized choice on the frozen citation, not the first choice and not live correction.
+  a.frozenStanding' = ((no a.citedRecommendation and liveRecommendation[a] in Ja + Nei) => o else a.frozenStanding)
+}
+
 -- r is a placement of the applicant of a in the application's department and semester
 pred placementOf[r: Role, a: Application] {
   r.type = PlacedAssistant and r.holder = a.applicant
@@ -756,11 +970,12 @@ pred hasActivePlacement[a: Application] { some r: Effective | placementOf[r, a] 
 -- MUTANT (Y4): a Ja or Nei outcome is overridden by a decision
 -- MUTANT (Y4): an undecided Kanskje or returning application announces Admitted
 fun derivedOutcome[a: Application]: set Outcome {
-  (JaNeiOverridden in Broken.rule and some a.decision) => a.decision
-  else ((a.recommendation = Ja) =>
+  (some a.frozenStanding and outcomeRecommendation[a] in Ja + Nei) => a.frozenStanding
+  else ((JaNeiOverridden in Broken.rule and some a.decision) => a.decision
+  else ((outcomeRecommendation[a] = Ja) =>
          (((JaUnplacedIsSubstitute in Broken.rule) and not hasActivePlacement[a]) => Substitute else Admitted)
-       else ((a.recommendation = Nei) => Rejected
-       else ((UndecidedAnnounced in Broken.rule and no a.decision) => Admitted else a.decision)))
+       else ((outcomeRecommendation[a] = Nei) => Rejected
+       else ((UndecidedAnnounced in Broken.rule and no a.decision) => Admitted else a.decision))))
 }
 
 -- Rekruttering decides with the decide capability over this application. Only Kanskje and returning
@@ -773,8 +988,10 @@ pred decideGuard[q: Request, a: Application, o: Outcome] {
   q.action = DecideAdmissionOutcome or (AnnouncerDecides in Broken.rule and q.action = AnnounceAdmissionOutcome)
   q.target = a
   o in Admitted + Rejected
-  (a.recommendation in Kanskje + ReturningWithoutInterview) or (JaNeiOverridden in Broken.rule)
+  (((DecisionUsesLiveEvidence in Broken.rule) => liveRecommendation[a] else outcomeRecommendation[a])
+    in Kanskje + ReturningWithoutInterview) or (JaNeiOverridden in Broken.rule)
   (no a.announced) or (FinalOutcomeRewritten in Broken.rule)
+  UnannouncedDecisionRevisionDenied in Broken.rule implies not correctionClosed[a]
 }
 
 -- the announce capability over this very application, resolved now
@@ -802,15 +1019,19 @@ pred announceGuard[q: Request, a: Application] {
 pred outcomesUnchangedExcept[touched: set Application] {
   all x: Application - touched | x.decision' = x.decision and x.announced' = x.announced
     and x.decidedBy' = x.decidedBy and x.announcedBy' = x.announcedBy
+    and x.citedAssessment' = x.citedAssessment and x.citedRecommendation' = x.citedRecommendation
+    and x.frozenStanding' = x.frozenStanding
 }
 pred outcomeStepFrame {
   Clock.now' = Clock.now and authorityUnchangedExcept[none, none] and Consumed' = Consumed and no UsedNow
+  correctionUnchanged
 }
 
 pred decideEvent[q: Request, a: Application, o: Outcome] {
   decideGuard[q, a, o]
   a.decision' = o and a.decidedBy' = q
   a.announced' = a.announced and a.announcedBy' = a.announcedBy
+  freezeCitation[a, o]
   outcomesUnchangedExcept[a]
   outcomeStepFrame
 }
@@ -819,6 +1040,7 @@ pred announceEvent[q: Request, a: Application] {
   announceGuard[q, a]
   a.announced' = derivedOutcome[a] and a.announcedBy' = q
   a.decision' = a.decision and a.decidedBy' = a.decidedBy
+  freezeCitation[a, derivedOutcome[a]]
   outcomesUnchangedExcept[a]
   outcomeStepFrame
 }
@@ -843,6 +1065,17 @@ pred init {
   all g: Grant | some g.gfinish implies lt[g.gstart, g.gfinish]
   all g: Delegation | some g.dfinish implies lt[g.dstart, g.dfinish]
   all a: Application | no a.decision and no a.decidedBy and no a.announced and no a.announcedBy
+    and no a.citedAssessment and no a.citedRecommendation and no a.frozenStanding
+    and a.knownApplicant in a.applicant
+  no RecordedWindows and no ClosedWindows and no CorrectionObservation.preflight
+  no WindowClosure.by and no WindowClosure.at
+  all i: Interview | {
+    i.correctionSequence = 0 and no i.correctionWindow
+    some i.assessment iff i in Completed
+    some i.assessment implies i.assessment.interview = i and i.assessment.revision = 0
+    no i.application implies no i.assessment
+    some i.assessment implies i.assessment.value = i.application.recommendation
+  }
 }
 
 pred authorityUnchangedExcept[roles: set Role, grants: set Grant] {
@@ -855,6 +1088,7 @@ pred authorityUnchangedExcept[roles: set Role, grants: set Grant] {
 pred unchangedExcept[roles: set Role, grants: set Grant] {
   authorityUnchangedExcept[roles, grants]
   outcomesUnchangedExcept[none]
+  correctionUnchanged
 }
 
 pred tick {
@@ -895,6 +1129,7 @@ pred endDelegation[g: Delegation] {
   all h: Grant | h.gfinish' = h.gfinish
   Clock.now' = Clock.now and Consumed' = Consumed and no UsedNow
   outcomesUnchangedExcept[none]
+  correctionUnchanged
 }
 
 -- a new-account claim uses its token as the principal and consumes it
@@ -967,7 +1202,16 @@ one sig ReachByPositionLabel, MachinesRunAsOperator, StaleLeadership, CascadingE
         AnnounceUnscoped, JaUnplacedIsSubstitute, JaNeiOverridden, UndecidedAnnounced,
         UnplacedAdmittedDenied, PlacedRejectedAnnounced, PlacementAfterRejection,
         FinalOutcomeRewritten, BoardLeaderHoldsOutcomeAuthority, OutcomeStepsByAnyTeam,
-        OutcomeBackingCrossed extends Mutant {}
+        UnannouncedDecisionRevisionDenied, DecisionUsesLiveEvidence, DecisionRecitesEvidence,
+        OutcomeBackingCrossed,
+        CorrectionWithoutCompletion, CorrectionByKnownSelf, CorrectionByStaffOnly,
+        OrdinaryCorrectionNeedsWindow, PrimaryCorrectionDenied, CoCorrectionDenied,
+        CorrectionWithoutWindow, CorrectionAfterWindowEnd, WindowOpenerCorrects,
+        CorrectionUsesStalePermit, CorrectionIgnoresRevision, WindowWithoutStaffingAuthority,
+        OverlappingCorrectionWindows, WindowIgnoresSequence, WindowWithoutReason,
+        WindowPastOwnSemester, CloseExpiredWindow, CorrectionRewritesCitation,
+        ClosureUsesStaleEvidence, WindowHistoryForgotten, WindowSequenceReused,
+        CorrectionRewritesStanding, CorrectionRewritesAnnouncement extends Mutant {}
 
 pred anyEventWith[m: lone Mutant] {
   tick or skip or (some g: Grant | endGrant[g]) or (some g: Delegation | endDelegation[g])
@@ -980,6 +1224,12 @@ pred anyEventWith[m: lone Mutant] {
      or reinstateRole[r])
   or (some q: Request, a: Application, o: Outcome | decideEvent[q, a, o])
   or (some q: Request, a: Application | announceEvent[q, a])
+  or (some q: CorrectionRequest, i: Interview, e: Assessment | correctionEvidenceEvent[q, i, e])
+  or (some q: ReopenCorrectionRequest, i: Interview, w: CorrectionWindow | reopenCorrectionEvent[q, i, w])
+  or (some q: CloseCorrectionRequest, i: Interview | closeCorrectionEvent[q, i])
+  or (some q: CorrectionRequest | observeCorrection[q])
+  or (some a: Application, p: Person | linkApplicant[a, p])
+  or (some i: Interview | cancelCompletedInterview[i])
 }
 
 -- the intended policy, or the intended policy with exactly the rule of mutant m broken
@@ -1288,11 +1538,11 @@ pred outcomesAreAdmittedOrRejected {
 --      Kanskje and returning announce exactly their explicit decision
 pred announcedFollowsTheRecommendation {
   always all a: Application | {
-    a.recommendation in Ja + Nei implies no a.decision
+    outcomeRecommendation[a] in Ja + Nei implies no a.decision
     some a.announced implies {
-      a.recommendation = Ja implies a.announced = Admitted
-      a.recommendation = Nei implies a.announced = Rejected
-      a.recommendation in Kanskje + ReturningWithoutInterview implies a.announced = a.decision
+      outcomeRecommendation[a] = Ja implies a.announced = Admitted
+      outcomeRecommendation[a] = Nei implies a.announced = Rejected
+      outcomeRecommendation[a] in Kanskje + ReturningWithoutInterview implies a.announced = a.decision
     }
   }
 }
@@ -1783,6 +2033,253 @@ pred scenarioBoardLeaderAloneDoesNeither {
     and not rolePermit[r.holder, DecideAdmissionOutcome, a] and not rolePermit[r.holder, AnnounceAdmissionOutcome, a]
 }
 
+
+--------------------------------------------------------------------------------------------
+-- R2 contracts. Guard checks quantify over requests, not just successful writes, so an admitted
+-- invalid request cannot hide behind an impossible fixture. Trace checks observe changed records.
+--------------------------------------------------------------------------------------------
+pred ordinaryCorrectionAvailableFor[types: set RoleType] {
+  always all q: CorrectionRequest, i: Interview |
+    (q.target = i and permitted[q] and some i.application
+      and (some r: Effective | r.holder in requestPerson[q] and r.scope = i and r.type in types)
+      and completedUncancelled[i] and not knownSelf[q, i] and not correctionClosed[i.application]
+      and q.expectedAssessment = i.assessment) implies correctionGuard[q, i]
+}
+pred ordinaryCorrectionAvailable { ordinaryCorrectionAvailableFor[Interviewer + CoInterviewer] }
+pred correctionsNeedCompletedUncancelled {
+  always all q: CorrectionRequest, i: Interview | correctionGuard[q, i] implies i in Completed - Cancelled
+}
+pred correctionsRejectKnownSelf {
+  always all q: CorrectionRequest, i: Interview | correctionGuard[q, i] implies
+    no requestPerson[q] & i.application.knownApplicant
+}
+pred correctionsNeedCurrentParticipant {
+  always all q: CorrectionRequest, i: Interview | correctionGuard[q, i] implies
+    (permitted[q] and some r: Effective | r.scope = i and r.holder in requestPerson[q]
+      and r.type in Interviewer + CoInterviewer)
+}
+pred closureNeedsWindow {
+  always all q: CorrectionRequest, i: Interview |
+    (correctionGuard[q, i] and correctionClosed[i.application]) implies
+      some w: RecordedWindows - ClosedWindows | w = i.correctionWindow and lte[w.openedAt, Clock.now]
+}
+pred correctionWindowIsHalfOpen {
+  always all q: CorrectionRequest, i: Interview |
+    (correctionGuard[q, i] and correctionClosed[i.application]) implies
+      some w: i.correctionWindow | lt[Clock.now, w.endsAt] and w not in ClosedWindows
+}
+pred correctionSeparatesOpener {
+  always all q: CorrectionRequest, i: Interview |
+    (correctionGuard[q, i] and correctionClosed[i.application]) implies
+      requestPerson[q] != requestPerson[i.correctionWindow.openedBy]
+}
+pred correctionsCompareCurrentRevision {
+  always all q: CorrectionRequest, i: Interview | correctionGuard[q, i] implies q.expectedAssessment = i.assessment
+}
+pred windowCommandsNeedCurrentStaffing {
+  always all q: ReopenCorrectionRequest, i: Interview, w: CorrectionWindow |
+    reopenGuard[q, i, w] implies permitted[q] and q.target = i
+  always all q: CloseCorrectionRequest, i: Interview | closeGuard[q, i] implies permitted[q] and q.target = i
+}
+pred windowCommandsCompareSequence {
+  always all q: ReopenCorrectionRequest, i: Interview, w: CorrectionWindow |
+    reopenGuard[q, i, w] implies q.expectedSequence = i.correctionSequence
+  always all q: CloseCorrectionRequest, i: Interview |
+    closeGuard[q, i] implies q.expectedSequence = i.correctionSequence
+}
+pred windowsKeepReasons {
+  always all w: RecordedWindows | some w.reason and w.reason = w.openedBy.changeReason
+  always all w: ClosedWindows | some WindowClosure.by[w].changeReason and some WindowClosure.at[w]
+}
+pred windowsEndInOwnSemester {
+  always all w: RecordedWindows | lte[w.endsAt, w.interview.application.forSemester.endsAt]
+}
+pred oneActiveCorrectionWindow {
+  always all i: Interview | lone { w: RecordedWindows | w.interview = i and activeCorrectionWindow[w] }
+}
+pred closeOnlyWhileOpen {
+  always all q: CloseCorrectionRequest, i: Interview | closeGuard[q, i] implies
+    some w: i.correctionWindow | w in RecordedWindows - ClosedWindows and lt[Clock.now, w.endsAt]
+}
+pred citationStaysFrozen {
+  always all a: Application | correctionClosed[a] implies
+    a.citedAssessment' = a.citedAssessment and a.citedRecommendation' = a.citedRecommendation
+}
+pred standingStaysFrozen {
+  always all a: Application | correctionClosed[a] implies a.frozenStanding' = a.frozenStanding
+  always all i: Interview | i.assessment' != i.assessment implies
+    i.application.decision' = i.application.decision and i.application.decidedBy' = i.application.decidedBy
+}
+-- Only the cited evidence is frozen. Existing authorized unannounced explicit choices may be
+-- revised on that same Kanskje/Returning citation; correction evidence never recites the choice.
+pred sameCitationDecisionRevisionAvailable {
+  always all a: Application, q: Request, o: Admitted + Rejected |
+    (some a.decision and no a.announced and q.action = DecideAdmissionOutcome and q.target = a
+      and permitted[q] and a.citedRecommendation in Kanskje + ReturningWithoutInterview)
+      implies decideGuard[q, a, o]
+}
+pred closureCitesSerializedEvidence {
+  always all a: Application | (not correctionClosed[a] and after correctionClosed[a]) implies
+    a.citedAssessment' = (application.a).assessment and a.citedRecommendation' = liveRecommendation[a]
+}
+pred windowHistoryIsAppendOnly {
+  always {
+    RecordedWindows in RecordedWindows' and ClosedWindows in ClosedWindows'
+    all w: RecordedWindows | w.sequence > 0
+    all w: ClosedWindows | WindowClosure.by'[w] = WindowClosure.by[w] and WindowClosure.at'[w] = WindowClosure.at[w]
+    all i: Interview | i.correctionSequence' >= i.correctionSequence
+    all disj x, y: RecordedWindows | x.interview = y.interview implies x.sequence != y.sequence
+  }
+}
+pred windowNeverGrantsOutcomeOrConduct {
+  always all i: Interview | i.correctionWindow' != i.correctionWindow implies {
+    all q: Request | permitted[q] iff after permitted[q]
+    all r: Role | r.finish' = r.finish and (r in Effective iff r in Effective')
+  }
+}
+
+-- Findable independent witnesses: successful commits, each denial, both serial orders and the
+-- separation between frozen outcome and corrected live assessment. No exact command counts.
+pred scenarioR2PrimaryCorrectsBeforeClosure {
+  policy
+  some q: CorrectionRequest, i: Interview, e: Assessment, r: Effective |
+    r.type = Interviewer and r.scope = i and r.holder in requestPerson[q]
+    and correctionEvidenceEvent[q, i, e] and after not correctionClosed[i.application]
+}
+pred scenarioR2CoCorrectsBeforeClosure {
+  policy
+  some q: CorrectionRequest, i: Interview, e: Assessment, r: Effective |
+    r.type = CoInterviewer and r.scope = i and r.holder in requestPerson[q]
+    and correctionEvidenceEvent[q, i, e] and after not correctionClosed[i.application]
+}
+pred scenarioR2UnknownSelfThenLinkedDenial {
+  policy
+  some q: CorrectionRequest, i: Interview | i.application.applicant in requestPerson[q]
+    and no i.application.knownApplicant and correctionGuard[q, i]
+    and eventually (some i.application.knownApplicant and not correctionGuard[q, i])
+}
+pred scenarioR2ObservedCorrectionLosesClosureRace {
+  policy
+  some q: CorrectionRequest, i: Interview | correctionGuard[q, i]
+    and eventually (q in CorrectionObservation.preflight and correctionClosed[i.application]
+      and not correctionGuard[q, i] and no i.correctionWindow)
+}
+pred scenarioR2CorrectionWinsThenDecisionCitesIt {
+  policy
+  some q: CorrectionRequest, i: Interview, e: Assessment | e.value = Kanskje
+    and correctionEvidenceEvent[q, i, e]
+    and after eventually (some i.application.decision and i.application.citedAssessment = e)
+}
+pred scenarioR2ReopenCorrectClose {
+  policy
+  some i: Interview, q: CorrectionRequest, e: Assessment |
+    eventually (some i.application.decision and no i.application.announced
+      and eventually (some i.correctionWindow and correctionEvidenceEvent[q, i, e]
+        and after eventually (i.correctionWindow in ClosedWindows and not correctionGuard[q, i])))
+}
+pred scenarioR2AnnouncedJaThenCorrectedNei {
+  policy
+  some i: Interview, q: CorrectionRequest, e: Assessment | e.value = Nei
+    and eventually (i.application.announced = Admitted and i.application.citedRecommendation = Ja
+      and eventually (correctionEvidenceEvent[q, i, e]
+        and after (i.assessment.value = Nei and standing[i.application] = Admitted
+          and i.application.announced = Admitted)))
+}
+pred scenarioR2OpenerIsParticipantButCannotCorrect {
+  policy
+  some i: Interview, q: CorrectionRequest | eventually
+    (some w: i.correctionWindow | activeCorrectionWindow[w] and requestPerson[w.openedBy] = requestPerson[q]
+      and permitted[q] and currentParticipant[q, i] and not correctionGuard[q, i])
+}
+pred scenarioR2WindowExpiresAtOwnSemesterEnd {
+  policy
+  some i: Interview, q: CorrectionRequest | eventually
+    (some w: i.correctionWindow | w.endsAt = i.application.forSemester.endsAt
+      and activeCorrectionWindow[w] and correctionGuard[q, i]
+      and eventually (Clock.now = w.endsAt and not correctionGuard[q, i]))
+}
+pred scenarioR2CloseThenReopenNextSequence {
+  policy
+  some i: Interview | eventually (some old: i.correctionWindow | old in ClosedWindows
+    and eventually (some fresh: i.correctionWindow | activeCorrectionWindow[fresh]
+      and fresh.sequence = add[old.sequence, 1] and old in RecordedWindows))
+}
+pred scenarioR2CurrentAuthorityLostAfterObservation {
+  policy
+  some q: CorrectionRequest, i: Interview | correctionGuard[q, i] and eventually
+    (q in CorrectionObservation.preflight and not permitted[q] and not correctionGuard[q, i])
+}
+pred scenarioR2StaffingDelegationExpires {
+  policy
+  some q: ReopenCorrectionRequest, i: Interview, w: CorrectionWindow, r: Role, g: Delegation |
+    q.target = i and r.holder in requestPerson[q] and r.scope = g.team
+    and g.capability = MaintainInterviewStaffing and eventually
+      (r in Effective and delegationActive[g] and reopenGuard[q, i, w]
+        and eventually (not delegationActive[g] and not permitted[q] and not reopenGuard[q, i, w]))
+}
+pred scenarioR2CancelledAndIncompleteDenied {
+  policy
+  some disj i, j: Interview, q: CorrectionRequest, u: CorrectionRequest |
+    i in Completed & Cancelled and j not in Completed and q.target = i and u.target = j
+    and permitted[q] and permitted[u] and not correctionGuard[q, i] and not correctionGuard[u, j]
+}
+pred scenarioR2OtherDepartmentStaffDenied {
+  policy
+  some i: Interview, q: ReopenCorrectionRequest, d: Department, w: CorrectionWindow |
+    d != i.within and eventually (rolePermit[requestPerson[q], MaintainInterviewStaffing, d]
+      and some i.application.decision and not permitted[q] and not reopenGuard[q, i, w])
+}
+
+assert R2_OrdinaryCorrectionAvailable { policy implies ordinaryCorrectionAvailable }
+assert R2_OrdinaryCorrectionAvailable_mutantRequiresWindow { policyWith[OrdinaryCorrectionNeedsWindow] implies ordinaryCorrectionAvailable }
+assert R2_PrimaryCorrectionAvailable { policy implies ordinaryCorrectionAvailableFor[Interviewer] }
+assert R2_PrimaryCorrectionAvailable_mutantPrimaryDenied { policyWith[PrimaryCorrectionDenied] implies ordinaryCorrectionAvailableFor[Interviewer] }
+assert R2_CoCorrectionAvailable { policy implies ordinaryCorrectionAvailableFor[CoInterviewer] }
+assert R2_CoCorrectionAvailable_mutantCoDenied { policyWith[CoCorrectionDenied] implies ordinaryCorrectionAvailableFor[CoInterviewer] }
+assert R2_CompletedUncancelled { policy implies correctionsNeedCompletedUncancelled }
+assert R2_CompletedUncancelled_mutantIncompleteOrCancelled { policyWith[CorrectionWithoutCompletion] implies correctionsNeedCompletedUncancelled }
+assert R2_KnownSelfDenied { policy implies correctionsRejectKnownSelf }
+assert R2_KnownSelfDenied_mutantKnownSelf { policyWith[CorrectionByKnownSelf] implies correctionsRejectKnownSelf }
+assert R2_CurrentParticipantRequired { policy implies correctionsNeedCurrentParticipant }
+assert R2_CurrentParticipantRequired_mutantStaffCorrects { policyWith[CorrectionByStaffOnly] implies correctionsNeedCurrentParticipant }
+assert R2_ClosureNeedsWindow { policy implies closureNeedsWindow }
+assert R2_ClosureNeedsWindow_mutantMissingWindow { policyWith[CorrectionWithoutWindow] implies closureNeedsWindow }
+assert R2_HalfOpenWindow { policy implies correctionWindowIsHalfOpen }
+assert R2_HalfOpenWindow_mutantExpiredOrClosed { policyWith[CorrectionAfterWindowEnd] implies correctionWindowIsHalfOpen }
+assert R2_OpenerCannotCorrect { policy implies correctionSeparatesOpener }
+assert R2_OpenerCannotCorrect_mutantOpener { policyWith[WindowOpenerCorrects] implies correctionSeparatesOpener }
+assert R2_NoStalePermitReuse { policy implies correctionsNeedCurrentParticipant }
+assert R2_NoStalePermitReuse_mutantStaleAuthority { policyWith[CorrectionUsesStalePermit] implies correctionsNeedCurrentParticipant }
+assert R2_NoPreclosurePermitReuse { policy implies closureNeedsWindow }
+assert R2_NoPreclosurePermitReuse_mutantStaleClosure { policyWith[CorrectionUsesStalePermit] implies closureNeedsWindow }
+assert R2_CurrentRevisionCompared { policy implies correctionsCompareCurrentRevision }
+assert R2_CurrentRevisionCompared_mutantStaleRevision { policyWith[CorrectionIgnoresRevision] implies correctionsCompareCurrentRevision }
+assert R2_CurrentStaffingRequired { policy implies windowCommandsNeedCurrentStaffing }
+assert R2_CurrentStaffingRequired_mutantNoStaffing { policyWith[WindowWithoutStaffingAuthority] implies windowCommandsNeedCurrentStaffing }
+assert R2_CurrentSequenceCompared { policy implies windowCommandsCompareSequence }
+assert R2_CurrentSequenceCompared_mutantStaleSequence { policyWith[WindowIgnoresSequence] implies windowCommandsCompareSequence }
+assert R2_WindowReasonsRecorded { policy implies windowsKeepReasons }
+assert R2_WindowReasonsRecorded_mutantNoReason { policyWith[WindowWithoutReason] implies windowsKeepReasons }
+assert R2_OwnSemesterEnd { policy implies windowsEndInOwnSemester }
+assert R2_OwnSemesterEnd_mutantOtherSemester { policyWith[WindowPastOwnSemester] implies windowsEndInOwnSemester }
+assert R2_OneActiveWindow { policy implies oneActiveCorrectionWindow }
+assert R2_OneActiveWindow_mutantOverlap { policyWith[OverlappingCorrectionWindows] implies oneActiveCorrectionWindow }
+assert R2_CloseOnlyOpen { policy implies closeOnlyWhileOpen }
+assert R2_CloseOnlyOpen_mutantExpiredClose { policyWith[CloseExpiredWindow] implies closeOnlyWhileOpen }
+assert R2_FrozenCitation { policy implies citationStaysFrozen }
+assert R2_FrozenCitation_mutantCitationChanged { policyWith[CorrectionRewritesCitation] implies citationStaysFrozen }
+assert R2_FrozenStanding { policy implies standingStaysFrozen }
+assert R2_FrozenStanding_mutantStandingChanged { policyWith[CorrectionRewritesStanding] implies standingStaysFrozen }
+assert R2_SameCitationDecisionRevision { policy implies sameCitationDecisionRevisionAvailable }
+assert R2_SameCitationDecisionRevision_mutantDenied { policyWith[UnannouncedDecisionRevisionDenied] implies sameCitationDecisionRevisionAvailable }
+assert R2_SameCitationDecisionRevision_mutantLiveEvidence { policyWith[DecisionUsesLiveEvidence] implies sameCitationDecisionRevisionAvailable }
+assert R2_AnnouncementFinal { policy implies finalOutcomeIsTerminal }
+assert R2_AnnouncementFinal_mutantAnnouncementReplaced { policyWith[CorrectionRewritesAnnouncement] implies finalOutcomeIsTerminal }
+assert R2_SerializedCitation { policy implies closureCitesSerializedEvidence }
+assert R2_AppendOnlyWindowHistory { policy implies windowHistoryIsAppendOnly }
+assert R2_WindowGrantsNoNewAuthority { policy implies windowNeverGrantsOutcomeOrConduct }
+
+
 --------------------------------------------------------------------------------------------
 -- Commands
 --------------------------------------------------------------------------------------------
@@ -1956,3 +2453,105 @@ run scenarioAdmittedThenPlaced for 3 but 8 Scope, 6 Role, 3 Instant, 5 steps exp
 run scenarioDeciderDoesNotAnnounce for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
 run scenarioCoordinatorDoesNotDecide for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
 run scenarioBoardLeaderAloneDoesNeither for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
+
+-- R2 command registration is source-owned. The existing runner discovers these expect-bearing
+-- commands; historical checks/mutants/scenarios above retain their names and original bounds.
+assert R2_SerializedCitation_mutantStaleCitation { policyWith[ClosureUsesStaleEvidence] implies closureCitesSerializedEvidence }
+assert R2_AppendOnlyWindowHistory_mutantForgottenHistory { policyWith[WindowHistoryForgotten] implies windowHistoryIsAppendOnly }
+assert R2_AppendOnlyWindowHistory_mutantReusedSequence { policyWith[WindowSequenceReused] implies windowHistoryIsAppendOnly }
+
+check R2_OrdinaryCorrectionAvailable for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_OrdinaryCorrectionAvailable_mutantRequiresWindow for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_PrimaryCorrectionAvailable for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_PrimaryCorrectionAvailable_mutantPrimaryDenied for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_CoCorrectionAvailable for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_CoCorrectionAvailable_mutantCoDenied for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_CompletedUncancelled for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_CompletedUncancelled_mutantIncompleteOrCancelled for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_KnownSelfDenied for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_KnownSelfDenied_mutantKnownSelf for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_CurrentParticipantRequired for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_CurrentParticipantRequired_mutantStaffCorrects for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_ClosureNeedsWindow for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_ClosureNeedsWindow_mutantMissingWindow for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_HalfOpenWindow for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_HalfOpenWindow_mutantExpiredOrClosed for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_OpenerCannotCorrect for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_OpenerCannotCorrect_mutantOpener for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_NoStalePermitReuse for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_NoStalePermitReuse_mutantStaleAuthority for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_NoPreclosurePermitReuse for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_NoPreclosurePermitReuse_mutantStaleClosure for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_CurrentRevisionCompared for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_CurrentRevisionCompared_mutantStaleRevision for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_CurrentStaffingRequired for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_CurrentStaffingRequired_mutantNoStaffing for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_CurrentSequenceCompared for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_CurrentSequenceCompared_mutantStaleSequence for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_WindowReasonsRecorded for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_WindowReasonsRecorded_mutantNoReason for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_OwnSemesterEnd for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_OwnSemesterEnd_mutantOtherSemester for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_OneActiveWindow for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_OneActiveWindow_mutantOverlap for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_CloseOnlyOpen for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_CloseOnlyOpen_mutantExpiredClose for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_FrozenCitation for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_FrozenCitation_mutantCitationChanged for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_FrozenStanding for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_FrozenStanding_mutantStandingChanged for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_SameCitationDecisionRevision for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_SameCitationDecisionRevision_mutantDenied for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_SameCitationDecisionRevision_mutantLiveEvidence for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_AnnouncementFinal for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_AnnouncementFinal_mutantAnnouncementReplaced for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_SerializedCitation for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_SerializedCitation_mutantStaleCitation for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_AppendOnlyWindowHistory for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+check R2_AppendOnlyWindowHistory_mutantForgottenHistory for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_AppendOnlyWindowHistory_mutantReusedSequence for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+check R2_WindowGrantsNoNewAuthority for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 0
+
+run scenarioR2PrimaryCorrectsBeforeClosure for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 10 steps expect 1
+run scenarioR2CoCorrectsBeforeClosure for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 10 steps expect 1
+run scenarioR2UnknownSelfThenLinkedDenial for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 10 steps expect 1
+run scenarioR2ObservedCorrectionLosesClosureRace for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 10 steps expect 1
+run scenarioR2CorrectionWinsThenDecisionCitesIt for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 10 steps expect 1
+run scenarioR2ReopenCorrectClose for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 10 steps expect 1
+run scenarioR2AnnouncedJaThenCorrectedNei for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 10 steps expect 1
+run scenarioR2OpenerIsParticipantButCannotCorrect for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 10 steps expect 1
+run scenarioR2WindowExpiresAtOwnSemesterEnd for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 10 steps expect 1
+run scenarioR2CloseThenReopenNextSequence for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 10 steps expect 1
+run scenarioR2CurrentAuthorityLostAfterObservation for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 10 steps expect 1
+run scenarioR2StaffingDelegationExpires for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 10 steps expect 1
+run scenarioR2CancelledAndIncompleteDenied for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 10 steps expect 1
+run scenarioR2OtherDepartmentStaffDenied for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 10 steps expect 1
+
+-- The choice may change, but the evidence that authorizes that choice does not. A live Nei
+-- correction to a cited Kanskje must neither reverse the old choice nor prevent an authorized
+-- explicit revision on the original citation before its one announcement.
+pred scenarioR2CorrectThenReviseSameCitation {
+  policy
+  some i: Interview, q: CorrectionRequest, disj basis, changed: Assessment |
+    i.assessment = basis and basis.value = Kanskje and changed.value = Nei
+    and eventually (i.application.decision = Admitted and no i.application.announced
+      and i.application.citedAssessment = basis
+      and eventually (correctionEvidenceEvent[q, i, changed]
+        and after (i.application.decision = Admitted and i.application.citedAssessment = basis
+          and eventually (i.application.decision = Rejected and no i.application.announced
+            and i.application.citedAssessment = basis and i.application.citedRecommendation = Kanskje
+            and eventually (i.application.announced = Rejected and i.application.citedAssessment = basis)))))
+}
+pred scenarioR2ReturningRevisionBeforeAnnouncement {
+  policy
+  some a: Application | a.recommendation = ReturningWithoutInterview and no application.a
+    and eventually (a.decision = Admitted and no a.announced
+      and eventually (a.decision = Rejected and no a.announced
+        and a.citedRecommendation = ReturningWithoutInterview and eventually a.announced = Rejected))
+}
+assert R2_FrozenCitation_mutantDecisionRecites { policyWith[DecisionRecitesEvidence] implies citationStaysFrozen }
+check R2_FrozenCitation_mutantDecisionRecites for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
+run scenarioR2CorrectThenReviseSameCitation for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 10 steps expect 1
+run scenarioR2ReturningRevisionBeforeAnnouncement for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 10 steps expect 1
+
+
