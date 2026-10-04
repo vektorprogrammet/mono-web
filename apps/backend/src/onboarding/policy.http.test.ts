@@ -838,7 +838,7 @@ describe("R3/R4 transaction lifetime and authority", () => {
                     departmentId,
                     command: { applicationId, action: "Issue" },
                     actor,
-                    now: DateTime.formatIso(yield* postgresNow),
+                    now: postgresNow,
                     invitationId: "policy-replacement",
                     token,
                     digest: "b".repeat(64),

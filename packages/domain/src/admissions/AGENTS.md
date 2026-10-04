@@ -67,6 +67,12 @@ Responsibilities:
 | `@vektorprogrammet/domain/admissions`          | [index.ts](index.ts)       |
 | `@vektorprogrammet/domain/admissions/template` | [template.ts](template.ts) |
 
+## Constructs
+
+The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../../../docs/constructs.md) indexes them all.
+
+- [`admissionStanding`](../../../../docs/constructs/policy.md#admissionstanding) (policy): Admission standing of the application's own period and semester at one instant.
+
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 
 [//]: # "guide: end"

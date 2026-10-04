@@ -4,6 +4,81 @@
 
 Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account access. The [index](../constructs.md) lists every category.
 
+## `lockApplicationDecisionWithSql`
+
+Fences this application's decision-sensitive writes in the caller's transaction.
+
+```ts
+lockApplicationDecisionWithSql(
+  sql: DatabaseOperations,
+  applicationId: PublicApplicationId
+): Effect.Effect<void, SqlError>
+```
+
+- Inputs:
+  - `sql: DatabaseOperations`
+  - `applicationId: PublicApplicationId`
+- Output: `Effect.Effect<void, SqlError>`
+- Errors: `SqlError`
+- Requirements: none
+- Side effects: Waits for application row custody and increments its fence version until commit or rollback.
+- Source: [packages/database/src/admissions/evidence.ts:24](../../packages/database/src/admissions/evidence.ts#L24)
+
+**How it works**
+
+Updates the application-owned version through the same SQL owner used by decision,
+correction and window backstops. Unlike a row lock alone, this invalidates old snapshots.
+
+**Use**
+
+```ts
+yield* lockApplicationDecisionWithSql(sql, applicationId);
+```
+
+**Avoid**
+
+Calling outside the transaction that writes, or acquiring it before applicant custody.
+
+## `readApplicationAdmissionEvidenceWithSql`
+
+Reads decoded admission evidence from the application's own period and semester.
+
+```ts
+readApplicationAdmissionEvidenceWithSql(
+  sql: DatabaseOperations,
+  applicationId: PublicApplicationId,
+  departmentId: DepartmentId,
+  options: { readonly lock: boolean }
+): Effect.Effect<ApplicationAdmissionEvidence, SqlError | Schema.SchemaError | AdmissionOutcomeFailure>
+```
+
+- Inputs:
+  - `sql: DatabaseOperations`
+  - `applicationId: PublicApplicationId`
+  - `departmentId: DepartmentId`
+  - `options: { readonly lock: boolean }`
+- Output: `Effect.Effect<ApplicationAdmissionEvidence, SqlError | Schema.SchemaError | AdmissionOutcomeFailure>`
+- Errors: `SqlError | Schema.SchemaError | AdmissionOutcomeFailure`
+- Requirements: none
+- Side effects: Reads evidence and, on writes, acquires versioned application custody until transaction end.
+- Source: [packages/database/src/admissions/evidence.ts:47](../../packages/database/src/admissions/evidence.ts#L47)
+
+**How it works**
+
+The SQL view owns live versus frozen citation selection and the public outcome projection.
+Historical uncited decisions retain their outcome and never acquire a current assessment citation.
+The caller owns authority, applicant custody and the transaction; lock=true takes the common fence.
+
+**Use**
+
+```ts
+const evidence = yield* readApplicationAdmissionEvidenceWithSql(sql, applicationId, departmentId, { lock: true });
+```
+
+**Avoid**
+
+Treating a department selector as authority or observing eligibility before a lock wait.
+
 ## `accountAccessEnabled`
 
 Whether the native account of `personId` exists and is not disabled.

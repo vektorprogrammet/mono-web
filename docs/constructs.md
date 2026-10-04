@@ -13,6 +13,8 @@ The JSDoc of a construct carries `@construct <category>`, a summary sentence, `@
 Tag a construct only when at least 2 modules outside its own module and the tests of its app or package import it.
 `just constructs` fails when these pages differ from the tags, when a construct lacks one of these tags or annotations, and when fewer modules import it. It lists untagged functions that 3 or more modules outside their app or package import.
 
+- [policy](constructs/policy.md): Pure domain eligibility decisions over decoded facts and an explicit instant.
+  - [`admissionStanding`](constructs/policy.md#admissionstanding): Admission standing of the application's own period and semester at one instant.
 - [http-transport](constructs/http-transport.md): Reads native HTTP requests and writes their representations: bounded JSON, preconditions, idempotency keys, entity tags, and cache headers.
   - [`encodePathIdentity`](constructs/http-transport.md#encodepathidentity): Encodes one decoded identity as an uppercase RFC 3986 path segment.
   - [`normalizeTarget`](constructs/http-transport.md#normalizetarget): Fills a route template with its encoded identities; a missing identity is a malformed request.
@@ -64,6 +66,8 @@ Tag a construct only when at least 2 modules outside its own module and the test
   - [`lockAdvisory`](constructs/sql-lock.md#lockadvisory): Waits for the advisory lock on `key` until the current transaction ends.
   - [`lockPersonAuthorization`](constructs/sql-lock.md#lockpersonauthorization): Serializes one person's protected command with person-keyed authority writers.
 - [sql-lifecycle](constructs/sql-lifecycle.md): Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account access.
+  - [`lockApplicationDecisionWithSql`](constructs/sql-lifecycle.md#lockapplicationdecisionwithsql): Fences this application's decision-sensitive writes in the caller's transaction.
+  - [`readApplicationAdmissionEvidenceWithSql`](constructs/sql-lifecycle.md#readapplicationadmissionevidencewithsql): Reads decoded admission evidence from the application's own period and semester.
   - [`accountAccessEnabled`](constructs/sql-lifecycle.md#accountaccessenabled): Whether the native account of `personId` exists and is not disabled.
   - [`outboxClaimAssignments`](constructs/sql-lifecycle.md#outboxclaimassignments): SET list for the aggregate's claim UPDATE; `targetAlias` names the updated outbox row.
   - [`markOutboxDelivered`](constructs/sql-lifecycle.md#markoutboxdelivered): Settles the claimed row as Delivered, with delivery evidence when the table records it.

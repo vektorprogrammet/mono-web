@@ -68,6 +68,13 @@ Responsibilities:
 | `@vektorprogrammet/database/admissions/outcome-mail-queue`     | [outcome-mail-queue.ts](outcome-mail-queue.ts)         |
 | `@vektorprogrammet/database/admissions/outcome-template-store` | [outcome-template-store.ts](outcome-template-store.ts) |
 
+## Constructs
+
+The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../../../docs/constructs.md) indexes them all.
+
+- [`lockApplicationDecisionWithSql`](../../../../docs/constructs/sql-lifecycle.md#lockapplicationdecisionwithsql) (sql-lifecycle): Fences this application's decision-sensitive writes in the caller's transaction.
+- [`readApplicationAdmissionEvidenceWithSql`](../../../../docs/constructs/sql-lifecycle.md#readapplicationadmissionevidencewithsql) (sql-lifecycle): Reads decoded admission evidence from the application's own period and semester.
+
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 
 [//]: # "guide: end"

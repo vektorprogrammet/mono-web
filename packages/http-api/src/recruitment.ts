@@ -14,6 +14,8 @@ import { ApplicantIdSchema, PublicApplicationIdSchema } from "@vektorprogrammet/
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
   CancelInterviewObservationSchema,
+  AssessmentCorrection,
+  CorrectionHistoryOriginalSchema,
   containsRecruitmentInvitationCapabilitySequence,
   FinalizeInterviewObservationSchema,
   InterviewRecommendationSchema,
@@ -124,7 +126,16 @@ const SchedulingBoardExample: any = {
   ],
 };
 
-const ConductObservationExample: any = {
+const ConductAssessmentExample = CorrectionHistoryOriginalSchema.make({
+  revision: 3,
+  answers: [{ questionId: "q-1", answer: "I am drawn to the study programme's breadth." }],
+  score: { explanatoryPower: 7, roleModel: 8, suitability: 6 },
+  recommendation: "Ja",
+  finalizedByPersonId: PersonId.make("1001"),
+  finalizedAt: "2026-09-12T15:00:00.000Z",
+});
+
+const ConductObservationExample: typeof RecruitmentInterviewConductObservationSchema.Encoded = {
   interviewId: RecruitmentInterviewId.make("interview-1"),
   applicationId: PublicApplicationIdSchema.make("app-0080"),
   applicant: {
@@ -155,14 +166,23 @@ const ConductObservationExample: any = {
       alternatives: [],
     },
   ],
-  answers: [{ questionId: "q-1", answer: "I am drawn to the study programme's breadth." }],
-  score: { explanatoryPower: 7, roleModel: 8, suitability: 6 },
-  recommendation: "Ja",
+  answers: ConductAssessmentExample.answers,
+  score: ConductAssessmentExample.score,
+  recommendation: ConductAssessmentExample.recommendation,
   completionState: "Completed",
   cancellationState: "NotCancelled",
-  finalizedAt: "2026-09-12T15:00:00.000Z",
+  finalizedByPersonId: ConductAssessmentExample.finalizedByPersonId,
+  finalizedAt: ConductAssessmentExample.finalizedAt,
   cancelledAt: null,
-  revision: 3,
+  revision: ConductAssessmentExample.revision,
+  effectiveRevision: ConductAssessmentExample.revision,
+  history: [ConductAssessmentExample],
+  assessmentCorrection: AssessmentCorrection.cases.Ordinary.make({
+    sequence: 0,
+    canCorrect: true,
+    canReopen: false,
+    canClose: false,
+  }),
   canFinalize: false,
   canCancel: false,
 };

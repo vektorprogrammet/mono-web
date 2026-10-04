@@ -1265,7 +1265,7 @@ recruitmentProblems<const Unavailable extends RecruitmentUnavailable>(
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/recruitment/http-problem.ts:126](../../apps/backend/src/recruitment/http-problem.ts#L126)
+- Source: [apps/backend/src/recruitment/http-problem.ts:127](../../apps/backend/src/recruitment/http-problem.ts#L127)
 
 **How it works**
 
@@ -1303,7 +1303,7 @@ raceProblems<A, E, R>(
 - Errors: `E | Problem<"transaction.conflict">`
 - Requirements: `R`
 - Side effects: none
-- Source: [apps/backend/src/recruitment/http-problem.ts:162](../../apps/backend/src/recruitment/http-problem.ts#L162)
+- Source: [apps/backend/src/recruitment/http-problem.ts:163](../../apps/backend/src/recruitment/http-problem.ts#L163)
 
 **How it works**
 
@@ -1340,7 +1340,7 @@ problemUnion<const Codes extends readonly [NativeProblemCode, ...ReadonlyArray<N
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/http-api/src/http-semantics.ts:1215](../../packages/http-api/src/http-semantics.ts#L1215)
+- Source: [packages/http-api/src/http-semantics.ts:1227](../../packages/http-api/src/http-semantics.ts#L1227)
 
 **How it works**
 
@@ -1396,7 +1396,7 @@ class Problem<const Code extends NativeProblemCode = NativeProblemCode> extends 
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/http-api/src/http-semantics.ts:1334](../../packages/http-api/src/http-semantics.ts#L1334)
+- Source: [packages/http-api/src/http-semantics.ts:1346](../../packages/http-api/src/http-semantics.ts#L1346)
 
 **How it works**
 
@@ -1433,7 +1433,7 @@ isProblem(u: unknown): u is Problem
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/http-api/src/http-semantics.ts:1437](../../packages/http-api/src/http-semantics.ts#L1437)
+- Source: [packages/http-api/src/http-semantics.ts:1449](../../packages/http-api/src/http-semantics.ts#L1449)
 
 **How it works**
 
@@ -1465,7 +1465,7 @@ problemBody(problem: Problem): ProblemWireRecord
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/http-api/src/http-semantics.ts:1466](../../packages/http-api/src/http-semantics.ts#L1466)
+- Source: [packages/http-api/src/http-semantics.ts:1478](../../packages/http-api/src/http-semantics.ts#L1478)
 
 **How it works**
 
@@ -1505,7 +1505,7 @@ makeNativeProblem<Code extends NativeProblemCode>(
 - Throws: An `Error` when `expectedStatus` differs from the status that the registry freezes for `code`.
 - Requirements: none
 - Side effects: none
-- Source: [packages/http-api/src/http-semantics.ts:1655](../../packages/http-api/src/http-semantics.ts#L1655)
+- Source: [packages/http-api/src/http-semantics.ts:1667](../../packages/http-api/src/http-semantics.ts#L1667)
 
 **How it works**
 

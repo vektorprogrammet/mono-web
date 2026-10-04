@@ -21,7 +21,10 @@ import type { DatabaseOperations } from "../service.js";
  * @construct sql-lifecycle
  */
 
-export const lockApplicationDecisionWithSql = Effect.fnUntraced(function* (
+export const lockApplicationDecisionWithSql: (
+  sql: DatabaseOperations,
+  applicationId: PublicApplicationId,
+) => Effect.Effect<void, SqlError> = Effect.fnUntraced(function* (
   sql: DatabaseOperations,
   applicationId: PublicApplicationId,
 ): Effect.fn.Return<void, SqlError> {
@@ -41,7 +44,15 @@ export const lockApplicationDecisionWithSql = Effect.fnUntraced(function* (
  * @construct sql-lifecycle
  */
 
-export const readApplicationAdmissionEvidenceWithSql = Effect.fnUntraced(function* (
+export const readApplicationAdmissionEvidenceWithSql: (
+  sql: DatabaseOperations,
+  applicationId: PublicApplicationId,
+  departmentId: DepartmentId,
+  options: { readonly lock: boolean },
+) => Effect.Effect<
+  ApplicationAdmissionEvidence,
+  SqlError | Schema.SchemaError | AdmissionOutcomeFailure
+> = Effect.fnUntraced(function* (
   sql: DatabaseOperations,
   applicationId: PublicApplicationId,
   departmentId: DepartmentId,

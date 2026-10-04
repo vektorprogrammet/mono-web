@@ -39,6 +39,7 @@ import type { Repository } from "./repository.js";
  * them; add a category here before the first construct that needs it.
  */
 export const constructCategories = {
+  policy: "Pure domain eligibility decisions over decoded facts and an explicit instant.",
   "http-transport":
     "Reads native HTTP requests and writes their representations: bounded JSON, preconditions, idempotency keys, entity tags, and cache headers.",
   "http-problem":

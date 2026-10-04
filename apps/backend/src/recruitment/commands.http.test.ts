@@ -1041,7 +1041,7 @@ const issueAfterCorrection = commandOnboarding({
   departmentId,
   command: { applicationId, action: "Issue" },
   actor: leaderPersonId,
-  now: "2031-09-15T12:10:00.000Z",
+  now: Effect.sync(() => DateTime.makeUnsafe("2031-09-15T12:10:00.000Z")),
   invitationId: "r2-onboarding",
   token: "r2-onboarding".padEnd(43, "_"),
   digest: "f".repeat(64),
