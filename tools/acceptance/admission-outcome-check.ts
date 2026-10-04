@@ -343,7 +343,7 @@ try {
       [applicationId, applicantId, scope.periodId, departmentId, fieldOfStudyId, scope.submittedAt],
     );
     await query(
-      "INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES ($1,$2,$3,$4,date_add(now(), interval '1 year', 'UTC'),'Claimed',$5,'2024-01-03')",
+      "INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES ($1,$2,$3,$4,date_trunc('milliseconds', date_add(now(), interval '1 year', 'UTC'), 'UTC'),'Claimed',$5,'2024-01-03')",
       [`invitation-${key}-outcomes`, applicationId, applicantId, digest(`token-${key}`), leaderPersonId],
     );
     await query(
