@@ -260,6 +260,7 @@ try {
  INSERT INTO public.organization_teams(team_id,department_id,name,active,revision) VALUES ('${otherTeamId}','${otherDepartmentId}','Skolekoordinering',true,0),('${coordinationTeamId}','${departmentId}','Skolekoordinering',true,0),('${decisionTeamId}','${departmentId}','Rekruttering utfall',true,0);
  UPDATE public.organization_memberships SET team_id='${otherTeamId}',is_team_leader=true WHERE person_id='journey-rec-interviewer-b-0049';
  INSERT INTO public.organization_memberships(membership_id,person_id,team_id,start_at,is_team_leader) VALUES ('membership-coordinator-outcomes','${coordinatorPersonId}','${coordinationTeamId}','2020-01-01',true),('membership-decision-outcomes','${leaderPersonId}','${decisionTeamId}','2020-01-01',true);
+ INSERT INTO public.person_contact_profiles(person_id,email,phone,revision) VALUES ('${coordinatorPersonId}','${persons.coordinator.email}','+47 900 00 060',0);
  INSERT INTO public.recruitment_interview_schemas(interview_schema_id,name,question_count,active,revision) VALUES ('${interviewSchemaId}','Intervju',0,true,0);`);
 
   // Rekruttering decides Kanskje and returning outcomes; Skolekoordinering announces. Each is an
