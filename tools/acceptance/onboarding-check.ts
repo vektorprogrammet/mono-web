@@ -15,8 +15,9 @@ import {
   startDisposablePostgres,
 } from "../postgres/index.ts";
 import { Predicate, Schema, Struct } from "effect";
-import { RecruitmentInterviewConductObservationSchema } from "@vektorprogrammet/domain/recruitment";
-import { FinalizeInterviewResponse, NativeProblem } from "@vektorprogrammet/http-api";
+import { RecruitmentInterviewConductObservationSchema } from "../../packages/domain/src/recruitment/schema.js";
+import { FinalizeInterviewResponse } from "../../packages/http-api/src/recruitment.js";
+import { NativeProblem } from "../../packages/http-api/src/http-semantics.js";
 import { journeyClock } from "../e2e/journey-clock.ts";
 import { seedOnboardingAuthority } from "../../apps/dashboard/e2e/onboarding-authority-fixture.mjs";
 
