@@ -153,9 +153,12 @@ sig CorrectionWindow {
   openedAt: one Instant, endsAt: one Instant, reason: lone Reason
 }
 sig CorrectionRequest in Request { expectedAssessment: one Assessment }
-sig ReopenCorrectionRequest, CloseCorrectionRequest in Request {
+-- Subset siblings can overlap in Alloy's type system even when a fact makes them disjoint.
+-- Own the common preconditions once; correctionShapes partitions exactly this request subset.
+sig CorrectionWindowRequest in Request {
   expectedSequence: one Int, changeReason: lone Reason
 }
+sig ReopenCorrectionRequest, CloseCorrectionRequest in CorrectionWindowRequest {}
 var sig Completed, Cancelled in Interview {}
 var sig RecordedWindows, ClosedWindows in CorrectionWindow {}
 one sig WindowClosure {
@@ -165,6 +168,7 @@ one sig WindowClosure {
 one sig CorrectionObservation { var preflight: set CorrectionRequest }
 
 fact correctionShapes {
+  CorrectionWindowRequest = ReopenCorrectionRequest + CloseCorrectionRequest
   all i: Interview | some i.application implies i.within = i.application.within
   all a: Application | lone application.a
   all e: Assessment | e.value in Ja + Nei + Kanskje
