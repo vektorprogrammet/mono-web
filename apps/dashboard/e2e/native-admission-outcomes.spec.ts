@@ -593,10 +593,17 @@ test("admission outcomes: Rekruttering decides, the coordinator announces, templ
     await announceOnce("returning", "Rejected", "custom", "click");
     await announceOnce("markup", "Rejected", "custom", "click");
 
-    expect(await readOutcome(page, "maybe")).toMatchObject({ outcome: "Admitted", revision: 5 });
+    // The entry revision counts the recorded decisions and the announcement: five decisions and one
+    // announcement for the Kanskje, one decision and one announcement for the returning assistant.
+    expect(await readOutcome(page, "maybe")).toMatchObject({
+      outcome: "Admitted",
+      state: "OutcomeAnnounced",
+      revision: 6,
+    });
     expect(await readOutcome(page, "returning")).toMatchObject({
       outcome: "Rejected",
-      revision: 1,
+      state: "OutcomeAnnounced",
+      revision: 2,
     });
     await axe(coordinatorPage, "coordinator announce board after announcements");
     await coordinatorPage.screenshot({
