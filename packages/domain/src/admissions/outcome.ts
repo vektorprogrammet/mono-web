@@ -1,4 +1,4 @@
-import { Data, Match, Predicate, Schema } from "effect";
+import { Data, Match, Schema } from "effect";
 import { AdmissionPeriodId } from "../admission-period/schema.js";
 import {
   PublicApplicationEmailSchema,
@@ -7,12 +7,10 @@ import {
   PublicApplicationPhoneSchema,
   PublicApplicationYearOfStudySchema,
 } from "../application/schema.js";
-import {
-  mapOrganizationAuthorityToDepartmentActor,
-  type OrganizationPersonAuthority,
-} from "../organization/authority.js";
+import type { OrganizationPersonAuthority } from "../organization/authority.js";
 import { DepartmentId, SemesterId } from "../organization/schema.js";
-import { canManagePlacements } from "../placements/policy.js";
+import { DelegationArea, type OrganizationCapability } from "../authz/delegation.js";
+import { delegationsReaching, ReachScope, ReachTarget, scopeCovers } from "../authz/reach.js";
 
 /**
  * The admission outcome of one application. Admission is not scheduling: an admitted person may
@@ -139,27 +137,45 @@ export type AdmissionOutcomeOperationFailure =
   | AdmissionOutcomePersistenceError;
 
 /**
- * Whoever holds `admissions.outcomes` in the department decides the outcomes that the interview
- * does not derive. Uses the canonical department mapping, so multi-membership and ended-grant
- * semantics match admission management. A plain department member sees nothing.
+ * Whether an active global administrator acts, or a current delegation of the capability reaches
+ * the department. A board or team leadership alone does not: Rekruttering decides and the school
+ * coordinator announces only where a delegation names them, and an ended or other-department
+ * delegation confers nothing. `delegationsReaching` and `scopeCovers` are the canonical reach.
+ */
+export const holdsDelegatedDepartmentCapability = (
+  authority: OrganizationPersonAuthority,
+  capability: OrganizationCapability,
+  departmentId: DepartmentId,
+): boolean =>
+  authority.globalAdministrator === "Active" ||
+  delegationsReaching(authority, capability).some((delegation) =>
+    scopeCovers(
+      DelegationArea.guards.Department(delegation.area)
+        ? ReachScope.Department({ departmentId: delegation.area.departmentId })
+        : ReachScope.Organization(),
+      ReachTarget.Department({ departmentId }),
+    ),
+  );
+
+/**
+ * Whoever holds a current `admissions.outcomes` delegation in the department, or is an active
+ * global administrator, decides the outcomes that the interview does not derive. A department
+ * board leader without the delegation, and a plain department member, are denied.
  */
 export const admissionOutcomePermission = (
   authority: OrganizationPersonAuthority,
   departmentId: DepartmentId,
-): "Denied" | "Decide" => {
-  const decision = mapOrganizationAuthorityToDepartmentActor(
-    authority,
-    "admissions.outcomes",
-    departmentId,
-  );
+): "Denied" | "Decide" =>
+  holdsDelegatedDepartmentCapability(authority, "admissions.outcomes", departmentId)
+    ? "Decide"
+    : "Denied";
 
-  return Predicate.isTagged(decision, "Deny") || Predicate.isTagged(decision.value, "Member")
-    ? "Denied"
-    : "Decide";
-};
-
-/** The school coordinator of the department, who holds `placements.coordinate`, announces. */
+/**
+ * The school coordinator announces: a current `placements.coordinate` delegation of
+ * Skolekoordinering in the department, or an active global administrator. A board leadership
+ * alone does not announce.
+ */
 export const canAnnounceAdmissionOutcome = (
   authority: OrganizationPersonAuthority,
   departmentId: DepartmentId,
-): boolean => canManagePlacements(authority, departmentId);
+): boolean => holdsDelegatedDepartmentCapability(authority, "placements.coordinate", departmentId);

@@ -1,137 +1,212 @@
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
-import { AdmissionOutcomeEntry, admissionOutcomePermission, onCallSubstitutes } from "./outcome.js";
+import {
+  AdmissionOutcome,
+  AdmissionOutcomeCommand,
+  admissionOutcomePermission,
+  canAnnounceAdmissionOutcome,
+  effectiveAdmissionOutcome,
+} from "./outcome.js";
 import { OrganizationPersonAuthoritySchema } from "../organization/authority.js";
 import { DelegationArea } from "../authz/delegation.js";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 
-const entry = (applicationId: string, outcome: string | null) =>
-  Schema.decodeUnknownSync(AdmissionOutcomeEntry)({
-    applicationId,
-    admissionPeriodId: "period",
-    departmentId: "a",
-    semesterId: "semester",
-    firstName: "Sofie",
-    lastName: "Søker",
-    email: "sofie@example.invalid",
-    phone: "123",
-    yearOfStudy: 3,
-    outcome,
-    revision: outcome === null ? 0 : 1,
+const departmentA = DepartmentId.make("a");
+
+const departmentB = DepartmentId.make("b");
+
+const evaluatedAt = "2026-09-06T10:00:00.000Z";
+
+interface MembershipOverrides {
+  readonly active?: boolean;
+  readonly unitLeader?: boolean;
+  readonly unitKind?: "Team" | "DepartmentBoard";
+}
+
+interface DelegationOverrides {
+  readonly startAt?: string;
+  readonly endAt?: string | null;
+  readonly holders?: "AllMembers" | "LeadersOnly";
+}
+
+type DelegatedCapability = "admissions.outcomes" | "placements.coordinate";
+
+const membership = (overrides: MembershipOverrides) => ({
+  membershipId: "membership",
+  teamId: "team",
+  departmentId: departmentA,
+  active: true,
+  unitLeader: false,
+  unitKind: "Team",
+  teamScope: "HomeDepartment",
+  departmentIndependent: true,
+  ...overrides,
+});
+
+const authorityOf = (
+  parts: {
+    readonly globalAdministrator?: "Absent" | "Active" | "Inactive";
+    readonly memberships?: ReadonlyArray<unknown>;
+    readonly nationalBoardSeats?: ReadonlyArray<unknown>;
+    readonly delegations?: ReadonlyArray<unknown>;
+  } = {},
+) =>
+  Schema.decodeUnknownSync(OrganizationPersonAuthoritySchema)({
+    personId: PersonId.make("person"),
+    evaluatedAt,
+    globalAdministrator: "Absent",
+    memberships: [],
+    nationalBoardSeats: [],
+    delegations: [],
+    ...parts,
   });
 
-describe("admission outcome authority and member visibility", () => {
-  it("evaluates the requested department across all memberships using canonical authority rules", () => {
-    const authority = Schema.decodeSync(OrganizationPersonAuthoritySchema)({
-      personId: PersonId.make("person"),
-      evaluatedAt: "2026-09-06T10:00:00.000Z",
-      globalAdministrator: "Absent",
-      memberships: [
-        {
-          membershipId: "first",
-          teamId: "wrong",
-          departmentId: DepartmentId.make("wrong"),
-          active: true,
-          unitLeader: true,
-          unitKind: "Team",
-          teamScope: "HomeDepartment",
-          departmentIndependent: true,
-        },
-        {
-          membershipId: "second",
-          teamId: "right",
-          departmentId: DepartmentId.make("a"),
-          active: true,
-          unitLeader: true,
-          unitKind: "DepartmentBoard",
-          teamScope: "HomeDepartment",
-          departmentIndependent: true,
-        },
-      ],
-      nationalBoardSeats: [],
-      delegations: [],
-    });
+const delegation = (capability: DelegatedCapability, overrides: DelegationOverrides = {}) => ({
+  delegationId: `delegation-${"c".repeat(64)}`,
+  name: "Delegation",
+  teamId: "team",
+  capability,
+  area: DelegationArea.cases.Department.make({ departmentId: departmentA }),
+  holders: "AllMembers",
+  startAt: "2026-08-01T00:00:00.000Z",
+  endAt: null,
+  revision: 0,
+  ...overrides,
+});
 
-    expect(admissionOutcomePermission(authority, DepartmentId.make("a"))).toBe("Decide");
-    // An ordinary team's leader acts within the team: the department's outcomes are read-only.
-    expect(admissionOutcomePermission(authority, DepartmentId.make("wrong"))).toBe("ReadOnly");
-    expect(admissionOutcomePermission(authority, DepartmentId.make("absent"))).toBe("Denied");
-    // An ended administrator grant leaves the memberships' authority as it is.
-    const ended = { ...authority, globalAdministrator: "Inactive" as const };
-    expect(admissionOutcomePermission(ended, DepartmentId.make("a"))).toBe("Decide");
-    expect(admissionOutcomePermission(ended, DepartmentId.make("wrong"))).toBe("ReadOnly");
-    expect(admissionOutcomePermission(ended, DepartmentId.make("absent"))).toBe("Denied");
+const delegatedMember = (
+  capability: DelegatedCapability,
+  overrides: DelegationOverrides = {},
+  member: MembershipOverrides = {},
+) =>
+  authorityOf({
+    memberships: [membership(member)],
+    delegations: [delegation(capability, overrides)],
+  });
+
+describe("admission outcome values", () => {
+  it("admits only Admitted and Rejected as an outcome and a command value", () => {
+    expect(Schema.is(AdmissionOutcome)("Admitted")).toBe(true);
+    expect(Schema.is(AdmissionOutcome)("Rejected")).toBe(true);
+    expect(Schema.is(AdmissionOutcome)("Substitute")).toBe(false);
+    expect(Schema.is(AdmissionOutcomeCommand)({ outcome: "Substitute" })).toBe(false);
+  });
+
+  it("derives Ja and Nei from the interview and takes Rekruttering's decision for the rest", () => {
+    // A recorded revision never overrides what the interview derived.
+    expect(effectiveAdmissionOutcome("Ja", null)).toBe("Admitted");
+    expect(effectiveAdmissionOutcome("Ja", "Rejected")).toBe("Admitted");
+    expect(effectiveAdmissionOutcome("Nei", null)).toBe("Rejected");
+    expect(effectiveAdmissionOutcome("Nei", "Admitted")).toBe("Rejected");
+    expect(effectiveAdmissionOutcome("Kanskje", null)).toBeNull();
+    expect(effectiveAdmissionOutcome("Kanskje", "Rejected")).toBe("Rejected");
+    expect(effectiveAdmissionOutcome("Returning", "Admitted")).toBe("Admitted");
+    expect(effectiveAdmissionOutcome("Unreviewed", null)).toBeNull();
+  });
+});
+
+describe("admission outcome authority comes from delegation, not from leadership", () => {
+  it("lets a team decide only through a current admissions.outcomes delegation (O8-12, O8-17)", () => {
+    expect(admissionOutcomePermission(delegatedMember("admissions.outcomes"), departmentA)).toBe(
+      "Decide",
+    );
+    // A delegation reaches only its own department.
+    expect(admissionOutcomePermission(delegatedMember("admissions.outcomes"), departmentB)).toBe(
+      "Denied",
+    );
+    // The end instant is exclusive: a delegation that ends now confers nothing.
     expect(
       admissionOutcomePermission(
-        { ...authority, globalAdministrator: "Active" },
-        DepartmentId.make("absent"),
+        delegatedMember("admissions.outcomes", { endAt: evaluatedAt }),
+        departmentA,
+      ),
+    ).toBe("Denied");
+    expect(
+      admissionOutcomePermission(
+        delegatedMember("admissions.outcomes", { startAt: "2026-09-07T00:00:00.000Z" }),
+        departmentA,
+      ),
+    ).toBe("Denied");
+    // A delegation of another capability does not decide outcomes.
+    expect(admissionOutcomePermission(delegatedMember("placements.coordinate"), departmentA)).toBe(
+      "Denied",
+    );
+    // A delegation reaches only a person with an active membership of the delegated team.
+    expect(
+      admissionOutcomePermission(
+        delegatedMember("admissions.outcomes", {}, { active: false }),
+        departmentA,
+      ),
+    ).toBe("Denied");
+    expect(
+      admissionOutcomePermission(
+        delegatedMember("admissions.outcomes", { holders: "LeadersOnly" }),
+        departmentA,
+      ),
+    ).toBe("Denied");
+    expect(
+      admissionOutcomePermission(
+        delegatedMember("admissions.outcomes", { holders: "LeadersOnly" }, { unitLeader: true }),
+        departmentA,
       ),
     ).toBe("Decide");
   });
 
-  it("lets a team decide outcomes only through a current delegation (O8-12, O8-17)", () => {
-    const rekruttering = (delegations: ReadonlyArray<unknown>) =>
-      Schema.decodeUnknownSync(OrganizationPersonAuthoritySchema)({
-        personId: PersonId.make("recruiter"),
-        evaluatedAt: "2026-09-06T10:00:00.000Z",
-        globalAdministrator: "Absent",
-        memberships: [
-          {
-            membershipId: "recruiter",
-            teamId: "rekruttering",
-            departmentId: DepartmentId.make("a"),
-            active: true,
-            unitLeader: false,
-            unitKind: "Team",
-            teamScope: "HomeDepartment",
-            departmentIndependent: true,
-          },
-        ],
-        nationalBoardSeats: [],
-        delegations,
-      });
-
-    const delegation = {
-      delegationId: `delegation-${"c".repeat(64)}`,
-      name: "Rekruttering avgjør opptak",
-      teamId: "rekruttering",
-      capability: "admissions.outcomes",
-      area: DelegationArea.cases.Department.make({ departmentId: DepartmentId.make("a") }),
-      holders: "AllMembers",
-      startAt: "2026-08-01T00:00:00.000Z",
-      endAt: "2026-09-06T10:00:00.000Z",
-      revision: 1,
-    };
-
-    expect(admissionOutcomePermission(rekruttering([]), DepartmentId.make("a"))).toBe("ReadOnly");
+  it("lets only a delegated school coordinator announce", () => {
+    expect(canAnnounceAdmissionOutcome(delegatedMember("placements.coordinate"), departmentA)).toBe(
+      true,
+    );
+    expect(canAnnounceAdmissionOutcome(delegatedMember("placements.coordinate"), departmentB)).toBe(
+      false,
+    );
     expect(
-      admissionOutcomePermission(
-        rekruttering([{ ...delegation, endAt: null, revision: 0 }]),
-        DepartmentId.make("a"),
+      canAnnounceAdmissionOutcome(
+        delegatedMember("placements.coordinate", { endAt: evaluatedAt }),
+        departmentA,
       ),
-    ).toBe("Decide");
-    // The end instant is exclusive.
-    expect(admissionOutcomePermission(rekruttering([delegation]), DepartmentId.make("a"))).toBe(
-      "ReadOnly",
+    ).toBe(false);
+    // Rekruttering decides but does not announce.
+    expect(canAnnounceAdmissionOutcome(delegatedMember("admissions.outcomes"), departmentA)).toBe(
+      false,
     );
   });
 
-  it("shows members only the name and contact of substitutes on call", () => {
-    const visible = onCallSubstitutes([
-      entry("app-admitted", "Admitted"),
-      entry("app-substitute", "Substitute"),
-      entry("app-rejected", "Rejected"),
-      entry("app-undecided", null),
-    ]);
+  it("gives a board leader without a delegation neither decision nor announcement", () => {
+    const departmentBoardLeader = authorityOf({
+      memberships: [membership({ unitKind: "DepartmentBoard", unitLeader: true })],
+    });
 
-    expect(visible).toEqual([
-      {
-        applicationId: "app-substitute",
-        firstName: "Sofie",
-        lastName: "Søker",
-        email: "sofie@example.invalid",
-        phone: "123",
-      },
-    ]);
+    const nationalBoardLeader = authorityOf({
+      nationalBoardSeats: [
+        { membershipId: "seat", boardId: "board", active: true, unitLeader: true },
+      ],
+    });
+
+    const teamLeader = authorityOf({ memberships: [membership({ unitLeader: true })] });
+
+    for (const authority of [departmentBoardLeader, nationalBoardLeader, teamLeader]) {
+      expect(admissionOutcomePermission(authority, departmentA)).toBe("Denied");
+      expect(canAnnounceAdmissionOutcome(authority, departmentA)).toBe(false);
+    }
+  });
+
+  it("keeps a plain department member out of both steps", () => {
+    const member = authorityOf({ memberships: [membership({})] });
+
+    expect(admissionOutcomePermission(member, departmentA)).toBe("Denied");
+    expect(canAnnounceAdmissionOutcome(member, departmentA)).toBe(false);
+  });
+
+  it("keeps an active global administrator in both steps in every department", () => {
+    const administrator = authorityOf({ globalAdministrator: "Active" });
+
+    expect(admissionOutcomePermission(administrator, departmentB)).toBe("Decide");
+    expect(canAnnounceAdmissionOutcome(administrator, departmentB)).toBe(true);
+
+    // An ended grant confers nothing and leaves other authority as it is.
+    const ended = authorityOf({ globalAdministrator: "Inactive" });
+
+    expect(admissionOutcomePermission(ended, departmentA)).toBe("Denied");
+    expect(canAnnounceAdmissionOutcome(ended, departmentA)).toBe(false);
   });
 });
