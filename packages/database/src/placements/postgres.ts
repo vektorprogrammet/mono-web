@@ -392,6 +392,26 @@ export const mutatePlacementBoard = (
 
         if (affiliation.status !== "Active") return yield* fail("affiliation.inactive");
 
+        // The department lock above is the lock that a Rejected admission outcome takes before it
+        // checks for a placement, so a Rejected person cannot gain one of the scope afterwards.
+        const rejected = yield* sql`SELECT 1
+          FROM public.applicant_account_links AS link
+          JOIN public.admission_applications AS application ON application.applicant_id=link.applicant_id
+          JOIN public.admission_periods AS period
+            ON period.admission_period_id=application.admission_period_id
+            AND period.department_id=application.department_id
+          JOIN LATERAL (
+            SELECT outcome.outcome FROM public.admission_application_outcomes AS outcome
+            WHERE outcome.application_id=application.application_id
+            ORDER BY outcome.revision DESC LIMIT 1
+          ) AS current ON current.outcome='Rejected'
+          WHERE link.person_id=${personId}
+            AND period.department_id=${scope.departmentId}
+            AND period.semester_id=${scope.semesterId}
+          LIMIT 1`;
+
+        if (rejected.length > 0) return yield* fail("placement.person-rejected");
+
         if (!board.schools.some((school) => school.schoolId === command.schoolId)) {
           return yield* fail("scope.invalid");
         }

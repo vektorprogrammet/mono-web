@@ -332,6 +332,13 @@ export const NativeProblemRegistry = {
     status: 422,
     detail: "The placement has already been removed.",
   },
+  "placement.person-rejected": {
+    type: "urn:vektorprogrammet:problem:v0.2:placement.person-rejected",
+    title: "Rejected applicant",
+    status: 422,
+    detail:
+      "The person's admission to this department and semester was rejected, so no placement can be created.",
+  },
   "school-service.proposal-empty": {
     type: "urn:vektorprogrammet:problem:v0.2:school-service.proposal-empty",
     title: "Empty school-service proposal",

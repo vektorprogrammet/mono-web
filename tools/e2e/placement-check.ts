@@ -1633,7 +1633,6 @@ try {
       personId: substitute.personId,
       firstName: substitute.firstName,
       lastName: substitute.lastName,
-      kind: "Substitute",
     };
 
     coverageBoard = await readCoverageBoard();
@@ -1680,13 +1679,8 @@ try {
 
     assert.ok(firstRecord);
     assert.deepEqual(
-      [
-        firstRecord.coveringPersonId,
-        firstRecord.coveringFirstName,
-        firstRecord.covererKind,
-        firstRecord.recordedByPersonId,
-      ],
-      [substitute.personId, substitute.firstName, "Substitute", volunteerId],
+      [firstRecord.coveringPersonId, firstRecord.coveringFirstName, firstRecord.recordedByPersonId],
+      [substitute.personId, substitute.firstName, volunteerId],
     );
     assert.deepEqual(
       await expectStatus(
@@ -1748,11 +1742,8 @@ try {
 
     assert.ok(assistantPlacement);
     assert.deepEqual(
-      (await readCoverageBoard()).coverers.map((coverer) => [coverer.personId, coverer.kind]),
-      [
-        [substitute.personId, "Substitute"],
-        [leaderId, "Assistant"],
-      ],
+      (await readCoverageBoard()).coverers.map((coverer) => coverer.personId),
+      [substitute.personId, leaderId],
     );
 
     const replacedBoard = await commandCoverage(recordCoverage(coveredAbsence.absenceId, leaderId));
@@ -1763,12 +1754,8 @@ try {
 
     assert.ok(replacingRecord);
     assert.deepEqual(
-      [
-        replacingRecord.coveringPersonId,
-        replacingRecord.covererKind,
-        replacingRecord.recordedByPersonId,
-      ],
-      [leaderId, "Assistant", leaderId],
+      [replacingRecord.coveringPersonId, replacingRecord.recordedByPersonId],
+      [leaderId, leaderId],
     );
     assert.deepEqual(
       (
@@ -2340,7 +2327,7 @@ try {
       (
         await pool.query(
           `SELECT coverage.absence_id AS "absenceId",coverage.covering_person_id AS "coveringPersonId",
-           coverage.coverer_kind AS "covererKind",coverage.recorded_by_person_id AS "recordedBy",
+           coverage.recorded_by_person_id AS "recordedBy",
            coverage.withdrawn_by_person_id AS "withdrawnBy"
          FROM school_service_coverage_records AS coverage
          JOIN school_service_absences AS absence USING(absence_id)
@@ -2349,15 +2336,14 @@ try {
         )
       ).rows,
       [
-        [coveredAbsence.absenceId, substitute.personId, "Substitute", volunteerId, leaderId],
-        [coveredAbsence.absenceId, leaderId, "Assistant", leaderId, leaderId],
-        [coveredAbsence.absenceId, substitute.personId, "Substitute", leaderId, null],
-        [volunteerWednesday.absenceId, substitute.personId, "Substitute", leaderId, null],
-        [cancelledAbsenceId, substitute.personId, "Substitute", leaderId, null],
-      ].map(([absenceId, coveringPersonId, covererKind, recordedBy, withdrawnBy]) => ({
+        [coveredAbsence.absenceId, substitute.personId, volunteerId, leaderId],
+        [coveredAbsence.absenceId, leaderId, leaderId, leaderId],
+        [coveredAbsence.absenceId, substitute.personId, leaderId, null],
+        [volunteerWednesday.absenceId, substitute.personId, leaderId, null],
+        [cancelledAbsenceId, substitute.personId, leaderId, null],
+      ].map(([absenceId, coveringPersonId, recordedBy, withdrawnBy]) => ({
         absenceId,
         coveringPersonId,
-        covererKind,
         recordedBy,
         withdrawnBy,
       })),
@@ -2697,7 +2683,7 @@ try {
         (
           await pool.query(
             `SELECT coverage.coverage_id AS "coverageId",coverage.absence_id AS "absenceId",
-             coverage.covering_person_id AS "coveringPersonId",coverage.coverer_kind AS "covererKind",
+             coverage.covering_person_id AS "coveringPersonId",
              coverage.recorded_by_person_id AS "recordedBy",
              coverage.withdrawn_by_person_id AS "withdrawnBy"
            FROM school_service_coverage_records AS coverage
@@ -2711,7 +2697,6 @@ try {
             coverageId: browserCoverageExpected.coverageId,
             absenceId: browserCoverageExpected.coveredAbsenceId,
             coveringPersonId: substitute.personId,
-            covererKind: "Substitute",
             recordedBy: volunteerId,
             withdrawnBy: null,
           },
@@ -2719,7 +2704,6 @@ try {
             coverageId: browserCoverageExpected.withdrawnCoverageId,
             absenceId: browserCoverageExpected.uncoveredAbsenceId,
             coveringPersonId: substitute.personId,
-            covererKind: "Substitute",
             recordedBy: leaderId,
             withdrawnBy: leaderId,
           },

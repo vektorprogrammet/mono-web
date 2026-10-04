@@ -115,7 +115,7 @@ const coverageRows = (sql: DatabaseOperations, where: Statement.Fragment) =>
     SELECT coverage.coverage_id AS "coverageId",coverage.absence_id AS "absenceId",
       coverage.covering_person_id AS "coveringPersonId",
       profile.first_name AS "coveringFirstName",profile.last_name AS "coveringLastName",
-      coverage.coverer_kind AS "covererKind",coverage.recorded_by_person_id AS "recordedByPersonId",
+      coverage.recorded_by_person_id AS "recordedByPersonId",
       to_char(coverage.recorded_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "recordedAt"
     FROM public.school_service_coverage_records AS coverage
     JOIN public.school_service_absences AS absence USING(absence_id)
@@ -175,23 +175,23 @@ const coverageRosterRows = (sql: DatabaseOperations, scope: PlacementScope) =>
   `;
 
 /**
- * People who can cover in the scope: an active placement makes an assistant; otherwise a Person
- * linked to an application of the scope whose current admission outcome is Substitute.
+ * Assistants who can cover in the scope, each once: a person with an active placement, or a Person
+ * linked to an application of the scope whose current admission outcome is Admitted, placed or not.
  */
 const covererRows = (sql: DatabaseOperations, scope: PlacementScope, personId?: PersonId) =>
   sql`
     SELECT coverer.person_id AS "personId",profile.first_name AS "firstName",
-      profile.last_name AS "lastName",coverer.kind
+      profile.last_name AS "lastName"
     FROM (
-      SELECT DISTINCT ON (candidate.person_id) candidate.person_id,candidate.kind
+      SELECT candidate.person_id
       FROM (
-        SELECT placement.person_id,'Assistant' AS kind,0 AS rank
+        SELECT placement.person_id
         FROM public.assistant_placements AS placement
         WHERE placement.active
           AND placement.department_id=${scope.departmentId}
           AND placement.semester_id=${scope.semesterId}
-        UNION ALL
-        SELECT link.person_id,'Substitute' AS kind,1 AS rank
+        UNION
+        SELECT link.person_id
         FROM public.admission_applications AS application
         JOIN public.admission_periods AS period
           ON period.admission_period_id=application.admission_period_id
@@ -201,12 +201,11 @@ const covererRows = (sql: DatabaseOperations, scope: PlacementScope, personId?: 
           SELECT outcome.outcome FROM public.admission_application_outcomes AS outcome
           WHERE outcome.application_id=application.application_id
           ORDER BY outcome.revision DESC LIMIT 1
-        ) AS current ON current.outcome='Substitute'
+        ) AS current ON current.outcome='Admitted'
         WHERE period.department_id=${scope.departmentId}
           AND period.semester_id=${scope.semesterId}
       ) AS candidate
       ${personId === undefined ? sql`` : sql`WHERE candidate.person_id=${personId}`}
-      ORDER BY candidate.person_id,candidate.rank
     ) AS coverer
     JOIN public.person_profiles AS profile ON profile.person_id=coverer.person_id
     ORDER BY profile.last_name,profile.first_name,coverer.person_id
@@ -461,13 +460,12 @@ const recordCoverage = (
     }
 
     yield* sql`INSERT INTO public.school_service_coverage_records(
-      coverage_id,absence_id,covering_person_id,coverer_kind,recorded_by_person_id,recorded_at
-    ) VALUES(${coverageId},${absence.absenceId},${input.coveringPersonId},${coverer.kind},${actor},${now})`;
+      coverage_id,absence_id,covering_person_id,recorded_by_person_id,recorded_at
+    ) VALUES(${coverageId},${absence.absenceId},${input.coveringPersonId},${actor},${now})`;
     yield* writeAudit(sql, scope, actor, "RecordCoverage", now, {
       coverageId,
       absenceId: absence.absenceId,
       coveringPersonId: input.coveringPersonId,
-      covererKind: coverer.kind,
       replacedCoverageId: current?.coverageId ?? null,
     });
   });

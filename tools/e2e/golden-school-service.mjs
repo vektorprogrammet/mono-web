@@ -203,12 +203,11 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
       [
         row.absence_id,
         row.covering_person_id,
-        row.coverer_kind,
         row.recorded_by_person_id,
         row.withdrawn_by_person_id,
         row.withdrawn_at === null,
       ],
-      [absence.absence_id, coveringPersonId, "Substitute", recordedBy, withdrawnBy, withdrawnBy === null],
+      [absence.absence_id, coveringPersonId, recordedBy, withdrawnBy, withdrawnBy === null],
     );
   };
 
@@ -323,7 +322,6 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
         coverageId: recorded.coverage_id,
         absenceId: absence.absence_id,
         coveringPersonId: candidateId,
-        covererKind: "Substitute",
         replacedCoverageId: null,
       }),
     ],
@@ -335,7 +333,6 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
         coverageId: replaced.coverage_id,
         absenceId: absence.absence_id,
         coveringPersonId: secondSubstituteId,
-        covererKind: "Substitute",
         replacedCoverageId: recorded.coverage_id,
       }),
     ],
@@ -353,7 +350,6 @@ const assertSubstituteFacts = (step, facts, previous, baseline, fixture) => {
         coverageId: rerecorded.coverage_id,
         absenceId: absence.absence_id,
         coveringPersonId: candidateId,
-        covererKind: "Substitute",
         replacedCoverageId: null,
       }),
     ],

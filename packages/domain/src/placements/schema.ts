@@ -227,12 +227,11 @@ export const SchoolServiceAbsence = Schema.Struct({
   reportedAt: Schema.String,
 });
 
-/** A placed assistant or an admitted substitute on call, as known when coverage was recorded. */
-export const CoverageCovererKind = Schema.Literals(["Assistant", "Substitute"]);
-
 /**
  * Names the person who covered one absence on its service date. It is a recorded fact, not an
- * offer: the people involved agree on cover outside the system.
+ * offer: the people involved agree on cover outside the system. The covering person has no
+ * standing role of their own: any assistant who is not the absent person and has no conflict
+ * may cover.
  */
 export const SchoolServiceCoverage = Schema.Struct({
   coverageId: SchoolServiceCoverageId,
@@ -240,7 +239,6 @@ export const SchoolServiceCoverage = Schema.Struct({
   coveringPersonId: PersonId,
   coveringFirstName: Schema.String,
   coveringLastName: Schema.String,
-  covererKind: CoverageCovererKind,
   recordedByPersonId: PersonId,
   recordedAt: Schema.String,
 });
@@ -270,12 +268,14 @@ export const CoverageRosterAssignment = Schema.Struct({
   ...SchoolServiceProposalAssignment.fields,
 });
 
-/** A person who can be named in a coverage record for the scope. Conflicts are checked on record. */
+/**
+ * An assistant who can be named in a coverage record for the scope: placed in it, or admitted to
+ * it with an account. Conflicts are checked on record.
+ */
 export const CoverageCoverer = Schema.Struct({
   personId: PersonId,
   firstName: Schema.String,
   lastName: Schema.String,
-  kind: CoverageCovererKind,
 });
 
 export const OwnCoverageView = Schema.Struct({

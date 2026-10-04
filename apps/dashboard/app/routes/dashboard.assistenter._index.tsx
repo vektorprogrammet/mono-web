@@ -321,6 +321,8 @@ export async function action({ request }: Route.ActionArgs) {
       "affiliation.transition-invalid":
         "Tilknytningen har endret status. Hent oppdaterte opplysninger.",
       "placement.inactive": "Plasseringen er fjernet. Utkastet er beholdt.",
+      "placement.person-rejected":
+        "Personen er ikke tatt opp i denne avdelingen og dette semesteret og kan ikke få plassering.",
       "scope.invalid": "Velg en aktiv skole i avdelingen og et gyldig semester.",
       "school-service.proposal-empty":
         "Det finnes ingen aktive plasseringer å lage en tjenesteplan fra.",
@@ -344,7 +346,7 @@ export async function action({ request }: Route.ActionArgs) {
       "coverage.owner-invalid":
         "Du kan bare registrere eller trekke tilbake dekning for ditt eget fravær.",
       "coverage.coverer-ineligible":
-        "Personen kan ikke dekke dette fraværet. Velg en assistent eller vikar i avdelingen og semesteret, ikke den som er borte.",
+        "Personen kan ikke dekke dette fraværet. Velg en assistent i avdelingen og semesteret, ikke den som er borte.",
       "coverage.coverer-unavailable":
         "Personen er allerede opptatt i samme tidsrom. Velg en annen person.",
       "coverage.not-recorded":
@@ -930,8 +932,6 @@ function SchoolServicePanel({
 
 const closureOutcomeLabel = { Covered: "Dekket", Uncovered: "Ikke dekket" } as const;
 
-const covererKindLabel = { Assistant: "assistent", Substitute: "vikar" } as const;
-
 type CoverageCoverer = (typeof CoverageBoardResource.Type)["coverers"][number];
 
 type CoverageRecord = (typeof CoverageBoardResource.Type)["coverage"][number];
@@ -964,7 +964,7 @@ function CoverageForms({
   return (
     <div className="space-y-3">
       {coverers.length === 0 ? (
-        <p>Ingen assistenter eller vikarer kan registreres som dekning i valgt semester.</p>
+        <p>Ingen assistenter kan registreres som dekning i valgt semester.</p>
       ) : (
         <CommandForm
           etag={etag}
@@ -986,7 +986,7 @@ function CoverageForms({
               </option>
               {coverers.map((coverer) => (
                 <option key={coverer.personId} value={coverer.personId}>
-                  {`${coverer.firstName} ${coverer.lastName} (${covererKindLabel[coverer.kind]})`}
+                  {`${coverer.firstName} ${coverer.lastName}`}
                 </option>
               ))}
             </select>
@@ -1037,7 +1037,7 @@ function OwnCoveragePanel({
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Her vises bare dine skoleplasseringer, fraværet ditt og fravær du dekker. Avtal dekning
-          direkte med en assistent eller vikar, for eksempel i Slack, og registrer hvem som dekket.
+          direkte med en assistent, for eksempel i Slack, og registrer hvem som dekket.
         </p>
       </header>
       <section className="space-y-3" aria-labelledby="own-placements-title">
@@ -1259,7 +1259,7 @@ function CoordinatorCoveragePanel({
               <p className="[overflow-wrap:anywhere]">Fraværende: {absentName}</p>
               <p className="[overflow-wrap:anywhere]">
                 {record
-                  ? `Dekket av: ${record.coveringFirstName} ${record.coveringLastName} (${covererKindLabel[record.covererKind]})`
+                  ? `Dekket av: ${record.coveringFirstName} ${record.coveringLastName}`
                   : "Ingen dekning er registrert."}
               </p>
               {closure && (

@@ -42,7 +42,6 @@ const siriCoversAda = {
   coveringPersonId: "person-siri",
   coveringFirstName: "Siri",
   coveringLastName: "Vikar",
-  covererKind: "Substitute",
   recordedByPersonId: "person-ada",
   recordedAt: "2031-03-21T08:00:00.000Z",
 };

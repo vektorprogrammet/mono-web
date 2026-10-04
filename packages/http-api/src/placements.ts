@@ -78,6 +78,7 @@ export const PlacementProblem = problemUnion("PlacementProblem", [
   "affiliation.inactive",
   "placement.overlap",
   "placement.inactive",
+  "placement.person-rejected",
   "school-service.proposal-empty",
   "school-service.proposal-inactive",
   "school-service.exception-review-invalid",

@@ -516,7 +516,7 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
 
           const rosterPerson = PersonId.make("coverage-roster-person");
           const secondRosterPerson = PersonId.make("coverage-second-roster-person");
-          const substitutePerson = PersonId.make("coverage-substitute-person");
+          const admittedPerson = PersonId.make("coverage-substitute-person");
           const placedAssistant = PersonId.make("coverage-placed-assistant");
           const outsider = PersonId.make("coverage-outsider");
           const coverageCoordinator = PersonId.make("coverage-coordinator");
@@ -562,7 +562,7 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
                 yield* sql`INSERT INTO admission_period_semesters VALUES(${coverageScope.semesterId},'2026-08-01T00:00:00Z','2026-12-31T00:00:00Z')`;
                 yield* sql`INSERT INTO admission_periods VALUES('coverage-period',${coverageScope.departmentId},${coverageScope.semesterId},'2026-08-01T00:00:00Z','2026-12-31T00:00:00Z',0,'coverage-seed')`;
                 yield* sql`INSERT INTO admission_period_fields_of_study VALUES('coverage-field',${coverageScope.departmentId},'Math',true)`;
-                yield* sql`INSERT INTO person_profiles(person_id,first_name,last_name) VALUES(${rosterPerson},'Rosa','Roster'),(${secondRosterPerson},'Sam','Scheduled'),(${substitutePerson},'Cato','Candidate'),(${placedAssistant},'Pia','Placed'),(${outsider},'Otto','Outsider'),(${coverageCoordinator},'Cora','Coordinator')`;
+                yield* sql`INSERT INTO person_profiles(person_id,first_name,last_name) VALUES(${rosterPerson},'Rosa','Roster'),(${secondRosterPerson},'Sam','Scheduled'),(${admittedPerson},'Cato','Candidate'),(${placedAssistant},'Pia','Placed'),(${outsider},'Otto','Outsider'),(${coverageCoordinator},'Cora','Coordinator')`;
 
                 const schools = yield* sql<{
                   schoolId: number;
@@ -570,12 +570,12 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
 
                 const schoolId = SchoolId.make(schools[0]!.schoolId);
                 yield* sql`INSERT INTO schools_directory_departments(school_id,department_id) VALUES(${schoolId},${coverageScope.departmentId})`;
-                // The substitute is an admitted applicant whose recorded outcome is Substitute.
+                // The admitted assistant has no placement: an applicant whose recorded outcome is Admitted.
                 yield* sql`INSERT INTO admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study) VALUES('coverage-applicant','coverage@applicant.invalid','coverage@applicant.invalid','Cato','Candidate','12345678',0,'coverage-field',2)`;
                 yield* sql`INSERT INTO admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at) VALUES('coverage-application','coverage-applicant','coverage-period',${coverageScope.departmentId},'coverage-field',2,${now})`;
                 yield* sql`INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES('coverage-invitation','coverage-application','coverage-applicant',${"a".repeat(64)},'2027-01-01T00:00:00Z','Claimed',${coverageCoordinator},${now})`;
-                yield* sql`INSERT INTO applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES('coverage-applicant',${substitutePerson},${now},'coverage-invitation')`;
-                yield* sql`INSERT INTO admission_application_outcomes(application_id,revision,outcome,decided_by_person_id,decided_at) VALUES('coverage-application',1,'Substitute',${coverageCoordinator},${now})`;
+                yield* sql`INSERT INTO applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES('coverage-applicant',${admittedPerson},${now},'coverage-invitation')`;
+                yield* sql`INSERT INTO admission_application_outcomes(application_id,revision,outcome,decided_by_person_id,decided_at) VALUES('coverage-application',1,'Admitted',${coverageCoordinator},${now})`;
                 yield* lockPlacementDepartment(coverageScope.departmentId);
 
                 // Roster members and one more assistant hold placements in the semester.
@@ -672,11 +672,11 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
                 );
 
                 const foreignAbsence = yield* Effect.flip(
-                  own(secondRosterPerson, record(substitutePerson), "a"),
+                  own(secondRosterPerson, record(admittedPerson), "a"),
                 );
 
-                const bySubstitute = yield* own(rosterPerson, record(substitutePerson), "a");
-                const substituteView = yield* readOwnCoverage(coverageScope, substitutePerson);
+                const byAdmitted = yield* own(rosterPerson, record(admittedPerson), "a");
+                const admittedView = yield* readOwnCoverage(coverageScope, admittedPerson);
                 const replaced = yield* coordinate(record(placedAssistant), "b");
 
                 const withdrawn = yield* own(
@@ -689,7 +689,7 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
                   own(rosterPerson, { action: "WithdrawCoverage", absenceId: absence }, "c"),
                 );
 
-                const recoveredBoard = yield* coordinate(record(substitutePerson), "d");
+                const recoveredBoard = yield* coordinate(record(admittedPerson), "d");
 
                 const reservations = yield* sql<{ sourceKind: string; personId: string }>`
           SELECT source_kind AS "sourceKind", person_id AS "personId"
@@ -786,15 +786,12 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
                   {
                     action: "RecordCoverage",
                     absenceId: ids("4").absenceId,
-                    coveringPersonId: substitutePerson,
+                    coveringPersonId: admittedPerson,
                   },
                   "4",
                 );
 
-                const coveringBeforeCancel = yield* readOwnCoverage(
-                  coverageScope,
-                  substitutePerson,
-                );
+                const coveringBeforeCancel = yield* readOwnCoverage(coverageScope, admittedPerson);
 
                 const cancelledBoard = yield* coordinate(
                   {
@@ -806,7 +803,7 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
                   "4",
                 );
 
-                const coveringAfterCancel = yield* readOwnCoverage(coverageScope, substitutePerson);
+                const coveringAfterCancel = yield* readOwnCoverage(coverageScope, admittedPerson);
                 const absentAfterCancel = yield* readOwnCoverage(coverageScope, rosterPerson);
 
                 const lateAbsence = yield* Effect.flip(
@@ -865,8 +862,8 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
                   selfCover,
                   scheduledCover,
                   foreignAbsence,
-                  bySubstitute,
-                  substituteView,
+                  byAdmitted,
+                  admittedView,
                   replaced,
                   withdrawn,
                   nothingToWithdraw,
@@ -905,28 +902,22 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
           const lateCoverage = yield* Effect.exit(
             Database.use((sql) =>
               sql.withTransaction(
-                sql`INSERT INTO school_service_coverage_records(coverage_id,absence_id,covering_person_id,coverer_kind,recorded_by_person_id,recorded_at)
-        VALUES(${ids("f").coverageId},${ids("2").absenceId},${placedAssistant},'Assistant',${coverageCoordinator},${now})`,
+                sql`INSERT INTO school_service_coverage_records(coverage_id,absence_id,covering_person_id,recorded_by_person_id,recorded_at)
+        VALUES(${ids("f").coverageId},${ids("2").absenceId},${placedAssistant},${coverageCoordinator},${now})`,
               ),
             ),
           );
 
-          const coverer = (
-            personId: PersonId,
-            firstName: string,
-            lastName: string,
-            kind: string,
-          ) => ({
+          const coverer = (personId: PersonId, firstName: string, lastName: string) => ({
             personId,
             firstName,
             lastName,
-            kind,
           });
 
           expect(observed.absentView.coverers).toEqual([
-            coverer(substitutePerson, "Cato", "Candidate", "Substitute"),
-            coverer(placedAssistant, "Pia", "Placed", "Assistant"),
-            coverer(secondRosterPerson, "Sam", "Scheduled", "Assistant"),
+            coverer(admittedPerson, "Cato", "Candidate"),
+            coverer(placedAssistant, "Pia", "Placed"),
+            coverer(secondRosterPerson, "Sam", "Scheduled"),
           ]);
           expect(observed.ineligible).toMatchObject({ code: "coverage.coverer-ineligible" });
           expect(observed.selfCover).toMatchObject({ code: "coverage.coverer-ineligible" });
@@ -935,36 +926,34 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
             code: "coverage.owner-invalid",
             status: 403,
           });
-          expect(observed.bySubstitute.coverage).toMatchObject([
+          expect(observed.byAdmitted.coverage).toMatchObject([
             {
               coverageId: ids("a").coverageId,
               absenceId: absence,
-              coveringPersonId: substitutePerson,
+              coveringPersonId: admittedPerson,
               coveringFirstName: "Cato",
-              covererKind: "Substitute",
               recordedByPersonId: rosterPerson,
             },
           ]);
-          expect(observed.substituteView.commitments.map((entry) => entry.commitmentId)).toEqual([
+          expect(observed.admittedView.commitments.map((entry) => entry.commitmentId)).toEqual([
             covered,
           ]);
-          expect(observed.substituteView.coverers).toEqual([]);
+          expect(observed.admittedView.coverers).toEqual([]);
           expect(observed.replaced.coverage).toMatchObject([
             {
               coverageId: ids("b").coverageId,
               coveringPersonId: placedAssistant,
-              covererKind: "Assistant",
             },
           ]);
           expect(observed.withdrawn.coverage).toEqual([]);
           expect(observed.nothingToWithdraw).toMatchObject({ code: "coverage.not-recorded" });
           expect(observed.recoveredBoard.coverage).toMatchObject([
-            { coverageId: ids("d").coverageId, coveringPersonId: substitutePerson },
+            { coverageId: ids("d").coverageId, coveringPersonId: admittedPerson },
           ]);
           expect(observed.reservations).toEqual([
             { sourceKind: "Scheduled", personId: rosterPerson },
             { sourceKind: "Scheduled", personId: secondRosterPerson },
-            { sourceKind: "Coverage", personId: substitutePerson },
+            { sourceKind: "Coverage", personId: admittedPerson },
           ]);
 
           const decisionOf = (
@@ -974,13 +963,13 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
 
           expect(decisionOf(observed.completed, covered)).toMatchObject({
             outcome: "Completed",
-            attendedPersonIds: [secondRosterPerson, substitutePerson],
+            attendedPersonIds: [secondRosterPerson, admittedPerson],
             occurrenceId: ids("1").occurrenceId,
           });
           expect(observed.completed.occurrences).toMatchObject([
             {
               occurrenceId: ids("1").occurrenceId,
-              attendedPersonIds: [secondRosterPerson, substitutePerson],
+              attendedPersonIds: [secondRosterPerson, admittedPerson],
             },
           ]);
           expect(observed.completed.closures).toMatchObject([
@@ -990,7 +979,7 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
               scheduledPersonId: rosterPerson,
               outcome: "Covered",
               coverageId: ids("d").coverageId,
-              coveringPersonId: substitutePerson,
+              coveringPersonId: admittedPerson,
             },
           ]);
           expect(observed.closedCoverage).toMatchObject({ code: "commitment.closed" });

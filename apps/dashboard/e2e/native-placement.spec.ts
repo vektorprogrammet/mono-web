@@ -558,7 +558,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await expect(ownAbsenceArticle).toContainText("Ingen dekning er registrert.");
     await ownCoverage
       .getByRole("combobox", { name: "Dekkes av", exact: true })
-      .selectOption({ label: `${candidateName} (vikar)` });
+      .selectOption({ label: candidateName });
     await ownCoverage.getByRole("button", { name: "Registrer dekning", exact: true }).click();
     await saved(ownCoverage);
     await self.reload();
@@ -571,7 +571,6 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
 
     expect(recordedCoverage).toMatchObject({
       coveringPersonId: manifest.coverage.candidateId,
-      covererKind: "Substitute",
       recordedByPersonId: manifest.volunteerId,
     });
     await wrongPage.reload();
@@ -589,7 +588,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     });
 
     await expect(page.getByRole("article").filter({ has: coordinatorFirst })).toContainText(
-      `Dekket av: ${candidateName} (vikar)`,
+      `Dekket av: ${candidateName}`,
     );
     await page
       .locator(`article[data-commitment-id="${firstCommitment.commitmentId}"]`)
@@ -669,7 +668,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     // The other scheduled volunteer is already booked in the same interval.
     await secondCoverage
       .getByRole("combobox", { name: "Dekkes av", exact: true })
-      .selectOption({ label: "Irene Intervjuer (assistent)" });
+      .selectOption({ label: "Irene Intervjuer" });
 
     const unavailable = page.waitForResponse(
       (response) =>
@@ -689,11 +688,11 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     ).toEqual([]);
     await secondCoverage
       .getByRole("combobox", { name: "Dekkes av", exact: true })
-      .selectOption({ label: `${candidateName} (vikar)` });
+      .selectOption({ label: candidateName });
     await secondCoverage.getByRole("button", { name: "Registrer dekning", exact: true }).click();
     await saved(secondCoverage);
     await page.reload();
-    await expect(secondAbsenceArticle).toContainText(`Dekket av: ${candidateName} (vikar)`);
+    await expect(secondAbsenceArticle).toContainText(`Dekket av: ${candidateName}`);
 
     const withdrawnCoverageId = (await readCoverageBoard(page)).coverage.find(
       (item: { absenceId: string }) => item.absenceId === uncoveredAbsence.absenceId,
@@ -1417,7 +1416,7 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     await self.reload();
     await ownCoverage
       .getByRole("combobox", { name: "Dekkes av", exact: true })
-      .selectOption({ label: "Kari Kandidat (vikar)" });
+      .selectOption({ label: "Kari Kandidat" });
     await submitOn(self, ownCoverage, "Registrer dekning");
     await self.reload();
     await expect(ownAbsence).toContainText("Dekket av: Kari Kandidat");
@@ -1436,13 +1435,13 @@ test("golden school-service continuous functional journey", async ({ browser }) 
       exact: true,
     });
 
-    await expect(coordinatorAbsence).toContainText("Dekket av: Kari Kandidat (vikar)");
+    await expect(coordinatorAbsence).toContainText("Dekket av: Kari Kandidat");
     await coordinatorCoverage
       .getByRole("combobox", { name: "Dekkes av", exact: true })
-      .selectOption({ label: "Vera Vikar (vikar)" });
+      .selectOption({ label: "Vera Vikar" });
     await submit(coordinatorCoverage, "Registrer dekning");
     await page.reload();
-    await expect(coordinatorAbsence).toContainText("Dekket av: Vera Vikar (vikar)");
+    await expect(coordinatorAbsence).toContainText("Dekket av: Vera Vikar");
     await checkpoint("coverage-replaced");
 
     const withdrawCoverage = page.getByRole("form", {
@@ -1471,7 +1470,7 @@ test("golden school-service continuous functional journey", async ({ browser }) 
       await self.reload();
       await ownCoverage
         .getByRole("combobox", { name: "Dekkes av", exact: true })
-        .selectOption({ label: "Kari Kandidat (vikar)" });
+        .selectOption({ label: "Kari Kandidat" });
       await submitOn(self, ownCoverage, "Registrer dekning");
       await self.reload();
       await expect(ownAbsence).toContainText("Dekket av: Kari Kandidat");
@@ -1512,7 +1511,7 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     await expect(substituted.getByRole("list", { name: "Faktisk møtte" })).toHaveText(
       "Kari Kandidat",
     );
-    await expect(coordinatorAbsence).toContainText("Dekket av: Kari Kandidat (vikar)");
+    await expect(coordinatorAbsence).toContainText("Dekket av: Kari Kandidat");
     await checkpoint("substitute-completed");
 
     const freshCandidate = await session({ width: 390, height: 844 });

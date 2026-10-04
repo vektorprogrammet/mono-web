@@ -26,6 +26,7 @@ export class PlacementFailure extends Data.TaggedError("PlacementFailure")<{
     | "affiliation.inactive"
     | "placement.overlap"
     | "placement.inactive"
+    | "placement.person-rejected"
     | "school-service.proposal-empty"
     | "school-service.proposal-inactive"
     | "school-service.exception-review-invalid"
