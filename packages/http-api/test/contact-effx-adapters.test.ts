@@ -79,7 +79,9 @@ describe("Contact effx contract preparation", () => {
       { ...declared, exposure: "Internal" },
       { ...declared, concealment: TestNotFound.make({ stages: ["Scope"] }) },
       { ...declared, decisionTime: "Transaction" },
-      { ...declared, extra: "unexpected" },
+      // Not an object literal: the closed spec type refuses an excess key at compile time, and this
+      // case proves that the decoder still refuses it at run time.
+      Object.assign({}, declared, { extra: "unexpected" }),
     ] satisfies ReadonlyArray<HttpAccessAnnotationSpec>) {
       expect(() => contactAccessAnnotations(altered)).toThrow();
     }
