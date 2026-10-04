@@ -151,13 +151,16 @@ not expose database rows or transport objects.
 The [Placements service](../packages/domain/src/placements/service.ts) owns complete commands
 and queries. Its [database Layer](../packages/database/src/placements/service.ts) holds the department lock across the
 precondition, transition, audit, history, and outbox writes in the caller transaction.
-The [admission outcome contract](../packages/domain/src/admissions/outcome.ts) records whether an
-application is admitted, a substitute on call, or rejected. Its
+The [admission outcome contract](../packages/domain/src/admissions/outcome.ts) records an
+explicit decision for a Kanskje or returning application and announces one terminal outcome,
+Admitted or Rejected, independent of placement. Its
 [database Layer](../packages/database/src/admissions/outcome.ts) locks the application across the fresh read,
-transport precondition, and append-only revision write.
+transport precondition, and append-only revision write. Announcing Rejected takes the placement scope lock,
+so it and a placement creation for that department and semester exclude each other. The announcement stores one
+immutable outcome and one immutable rendered message envelope.
 The caller owns current authorization, the transaction, and response receipts.
-Placements records absences and who covered each lesson date. It derives actual attendance from the
-confirmed roster, the absences, and the current coverage records.
+Placements records absences and which assistant covered each lesson date, with no coverer kind. It derives actual
+attendance from the confirmed roster, the absences, and the current coverage records.
 
 Economy uses its [service contract](../packages/domain/src/receipt/service.ts) for
 receipt queries and settlement commands. The [owner query](../packages/database/src/receipt/projections.ts)

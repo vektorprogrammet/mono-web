@@ -56,14 +56,16 @@ human team activity or assume that sponsor presentation is an income ledger.
   area for a time range.
 - A **Grant** gives one Person or one service principal named authority for a time
   range. Global administration is a grant.
+- An **AdmissionOutcome** is Admitted or Rejected. A department announces one for
+  each application, once. It does not depend on a Placement.
 - A **Placement** assigns an assistant to recurring school service on one weekday,
   in one or both teaching blocks of a semester.
 - A **SchoolServiceCommitment** binds a school, dated service interval, demand,
   and the assistants scheduled to meet it. It does not replace a Placement.
 - An **Absence** records that one scheduled assistant cannot serve on that dated
   commitment. It does not erase the placement or the school's need. A coverage
-  record can name the person who covers the absence: a substitute or another
-  assistant.
+  record names the assistant who covers the absence on that date. Covering is
+  not a role and not an admission outcome.
 - A **SemesterRef** identifies an external semester. Vektorprogrammet uses semesters
   but does not own their lifecycle. Each semester has its own admission, placement,
   and school service.
@@ -182,14 +184,16 @@ Applicant submits
 The system must keep these decisions separate:
 
 1. Interview recommendation.
-2. Onboarding invitation.
-3. Account claim.
-4. Volunteer affiliation.
-5. School placement.
+2. Admission outcome.
+3. Onboarding invitation.
+4. Account claim.
+5. Volunteer affiliation.
+6. School placement.
 
-There is no inferred generic “accepted applicant” fact. For a new applicant, the
-interview recommendation decides admission. An interviewer from the recruitment
-team (Rekruttering) records it. No coordinator makes a separate admission decision.
+There is no inferred generic “accepted applicant” fact. For a new applicant, an
+interviewer from the recruitment team (Rekruttering) records the interview
+recommendation, and a Ja or Nei derives the admission outcome. No coordinator
+makes a separate admission decision; the coordinator announces the outcome.
 
 A returning assistant registers again for each new semester, without an interview.
 The registration states the same availability and teaching language as an
@@ -197,14 +201,32 @@ application, and it can name one school that the assistant wishes to return to.
 The assistant can use the existing account and history. The assistant still needs
 an explicit affiliation in the department and an explicit placement.
 
-When the placements for the semester are complete, each new applicant and each
-returning assistant has one admission outcome: admitted, substitute, or rejected.
-A Kanskje (maybe) recommendation implies no outcome. The recruitment team
-(Rekruttering) then decides whether the person is placed, a substitute, or rejected.
-An admitted person has a placement. A substitute is also admitted but has no
-placement. A substitute is on call during the semester and can cover an absence.
-The school coordination team (Skolekoordinering) sends the outcome message to each
-person.
+Each department announces one admission outcome to each new applicant and each
+returning assistant. The outcome is Admitted or Rejected. There is no third
+outcome and no substitute role. Placement is a separate decision: it neither
+delays the outcome nor changes it, and an Admitted assistant without a placement
+stays an assistant.
+
+The interview recommendation derives the outcome for a new applicant. Ja gives
+Admitted, whether or not the person has a school placement. Nei gives Rejected.
+Nobody overrides either. A Kanskje (maybe) recommendation, and a returning assistant
+without an interview, imply no outcome. The recruitment team (Rekruttering) then
+decides explicitly, Admitted or Rejected, under a delegation from the board leader
+that covers only these two cases.
+
+The school coordination team (Skolekoordinering) announces the outcome. The
+announcement happens once and is final. It fails while a Kanskje or returning
+application has no decision. It also fails for Rejected while the person has an
+active placement in that department and semester; the placement must go first.
+Announcing Rejected and creating a placement for the same person, department, and
+semester exclude each other. Whichever commits first wins, and a placement for a
+person with a final Rejected outcome fails. A later placement change for an Admitted
+assistant changes neither the announced outcome nor the message, and sends no
+correction.
+
+The announcement queues one message to the email address on the application. The
+server renders its subject, HTML, and text from the effective template when it
+announces, and never again. A later template edit does not change a queued message.
 
 The onboarding claim link is a bearer capability for one invitation. A consumed claim capability cannot be used again.
 A holder without an account presents only the link and creates an account; a request that also carries a session or bearer fails.
@@ -299,8 +321,8 @@ A placement is separate from a confirmed roster and a dated commitment.
 An authorized coordinator establishes a commitment for one school, date, and
 bounded service interval from a confirmed roster. It records the required number
 of assistants and their scheduled assignments. An absence affects one assignment.
-A substitute or another assistant can cover that assignment. Coverage does not
-change the confirmed roster or the semester placement of the absent assistant.
+Another assistant can cover that assignment. Coverage does not change the
+confirmed roster or the semester placement of the absent assistant.
 
 The interval starts before it ends, and required demand is positive. A reviewed
 proposal can still have no assigned assistant; this leaves visible unmet demand.
@@ -333,13 +355,16 @@ The cards use existing authorized responses. They perform no separate identity l
 
 ### Substitute coverage
 
-The system records absences and coverage only. Assistants and substitutes agree in
-Slack, outside the system, on who covers an absence.
+The system records absences and coverage only. Assistants agree in Slack, outside
+the system, on who covers an absence. Assistant B substitutes for absent assistant A
+on one dated service; there is no substitute role and no substitute admission outcome.
 
 A scheduled assistant or a scoped coordinator can report an absence for a confirmed
 slot and service date. The report stores no medical reason or free text. A coverage
-record names the person who covered the absence on that date: a substitute or
-another assistant. Neither record changes the confirmed roster or a placement.
+record names assistant B, who covered the absence on that date. B is an assistant
+with an active placement in the department and semester, or a linked Admitted
+assistant of that department and semester without a placement. The record stores no
+kind of coverer. Neither record changes the confirmed roster or a placement.
 
 When service occurs, its attendance records the confirmed roster minus absent
 assistants plus the people in coverage records. An absence closes as Covered or
@@ -622,6 +647,7 @@ Examples:
   correction capability is active.
 - A receipt owner can read their own file.
 - A board member can issue certificates for the department of the board, and a seat on Hovedstyret for a department that is not independent.
+- A board leader of a department, or a team that holds a delegation from the board leader, decides or announces an admission outcome there. Deciding and announcing are separate capabilities: the recruitment team decides only Kanskje and returning cases, the school coordination team announces, and a delegation of one capability gives no access to the other.
 - A team leader acts within the team. A title alone gives no authority.
 
 A delegation lets one team act in one area. It has a name, and it names the team, one capability, the area, and a time range.

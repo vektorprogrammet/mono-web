@@ -55,6 +55,23 @@ module authority
  *     or p is an unconsumed bearer capability for exactly this target and action
  *     or the action is the existing-account claim, p is an account, and its token is valid )
  *
+ * ADMISSION OUTCOMES. An application belongs to one department and one semester, and a Person is
+ * its applicant. The interview recommendation derives the outcome: Ja gives Admitted whether or
+ * not the applicant has an effective placement, and Nei gives Rejected; nobody overrides either.
+ * Kanskje, and a returning assistant without an interview, take one explicit decision, Admitted or
+ * Rejected, from a holder of DecideAdmissionOutcome over the application: a board leader, or the
+ * recruitment team by delegation. A holder of AnnounceAdmissionOutcome over the application,
+ * coordinator(department), announces the outcome once, by delegation to Skolekoordinering or as a
+ * board leader. The announcement is terminal: neither the outcome, the decision nor the requests
+ * behind them change afterwards, whatever happens to a placement. Rejected needs no effective
+ * placement of the applicant in the application's department and semester, and no placement of
+ * that applicant becomes effective after a Rejected announcement. The SQL scope lock between the
+ * two is the serial order that every trace already assumes: each step is atomic, so the checks
+ * quantify over both orders of a Rejected announcement and a placement. There are exactly two
+ * outcomes. Substitute is only the retired third label, which no policy derives or announces; it
+ * is no role type either. Dated cover of absent assistant A by assistant B (the commitment, the
+ * absence and the coverage record) is not an outcome and stays outside this model.
+ *
  * CHECKING. Alloy 6, for example from nixpkgs:
  *   nix shell nixpkgs#alloy6 --command alloy6 exec -s glucose -c '*' -t text -o DIR -f authority.als
  * Each command states its expected result. A correct check expects no counterexample (expect 0).
@@ -85,8 +102,28 @@ one sig Hovedstyret extends Scope {}   -- the national board
 sig Semester {}
 sig SchoolSemester extends Scope { semester: one Semester }   -- one school in one semester, in one department
 abstract sig Resource extends Scope {}
-sig Interview, Receipt, Application, TeamApplication, ServiceCommitment,
+sig Interview, Receipt, TeamApplication, ServiceCommitment,
     ClaimTarget, InvitationTarget extends Resource {}
+
+-- an application belongs to one department (within) and one semester; a Person is its applicant. Its
+-- fields are the state of the two-step workflow: Rekruttering's decision and the one terminal
+-- announcement, each with the request that made it
+sig Application extends Resource {
+  applicant: one Person,
+  forSemester: one Semester,
+  recommendation: one Recommendation,
+  var decision: lone Outcome,
+  var decidedBy: lone Request,
+  var announced: lone Outcome,
+  var announcedBy: lone Request
+}
+-- the interview recommendation; a returning assistant registers without an interview
+abstract sig Recommendation {}
+one sig Ja, Nei, Kanskje, ReturningWithoutInterview extends Recommendation {}
+-- an admission outcome is Admitted or Rejected. Substitute is the retired third label, declared
+-- only so that a mutant can produce it; the policy never derives, decides or announces it
+abstract sig Outcome {}
+one sig Admitted, Rejected, Substitute extends Outcome {}
 
 fact containment {
   no Organization.within
@@ -272,12 +309,15 @@ one sig ReadTeamApplications, ManageTeamApplications,
         ReportAbsence, ChangeAccountAccess, AdministerGrants, MaintainQuestionnaires,
         AssessInterview, CorrectAssessment, ReadOwnReceipt, ReadOwnProgress, ReadOwnPlacement,
         SubmitReceipt, ApproveReceipt, SettleReceipt, ManageDelegations, RecordDaysServed, IssueCertificates,
-        ClaimNewAccount, ClaimExistingAccount, RespondToInvitation extends Action {}
+        ClaimNewAccount, ClaimExistingAccount, RespondToInvitation,
+        DecideAdmissionOutcome, AnnounceAdmissionOutcome extends Action {}
 
--- organisational administration of a department (from Hovedstyret: of every department)
+-- organisational administration of a department (from Hovedstyret: of every department). It includes
+-- the two steps of an admission outcome: the decision for Kanskje and returning applications, and the
+-- announcement of the outcome. A delegation carries each separately.
 fun DepartmentAdministration: set Action {
   ManageAppointments + MaintainInterviewStaffing + ScheduleInterview + CoordinatePlacements + ReportAbsence
-  + RecordDaysServed
+  + RecordDaysServed + DecideAdmissionOutcome + AnnounceAdmissionOutcome
 }
 -- what a delegation may give a team: department administration, and receipt approval and
 -- settlement (the national delegation to the economy team)
@@ -670,6 +710,98 @@ pred grantPermit[q: Request] {
 }
 
 --------------------------------------------------------------------------------------------
+-- Admission outcomes
+--------------------------------------------------------------------------------------------
+
+-- r is a placement of the applicant of a in the application's department and semester
+pred placementOf[r: Role, a: Application] {
+  r.type = PlacedAssistant and r.holder = a.applicant
+  departmentOf[r.scope] = departmentOf[a] and r.scope.semester = a.forSemester
+}
+pred hasActivePlacement[a: Application] { some r: Effective | placementOf[r, a] }
+
+-- the outcome that the announcement stores: Ja and Nei derive it, Kanskje and returning take the decision.
+-- MUTANT (Y3): Ja without a placement derives the retired Substitute label
+-- MUTANT (Y4): a Ja or Nei outcome is overridden by a decision
+-- MUTANT (Y4): an undecided Kanskje or returning application announces Admitted
+fun derivedOutcome[a: Application]: set Outcome {
+  (JaNeiOverridden in Broken.rule and some a.decision) => a.decision
+  else ((a.recommendation = Ja) =>
+         (((JaUnplacedIsSubstitute in Broken.rule) and not hasActivePlacement[a]) => Substitute else Admitted)
+       else ((a.recommendation = Nei) => Rejected
+       else ((UndecidedAnnounced in Broken.rule and no a.decision) => Admitted else a.decision)))
+}
+
+-- Rekruttering decides with the decide capability over this application. Only Kanskje and returning
+-- applications take a decision, and none after the announcement.
+-- MUTANT (Y2): the announce capability also decides
+-- MUTANT (Y4): a Ja or Nei application also takes a decision
+-- MUTANT (Y7): a decision is accepted after the announcement
+pred decideGuard[q: Request, a: Application, o: Outcome] {
+  permitted[q]
+  q.action = DecideAdmissionOutcome or (AnnouncerDecides in Broken.rule and q.action = AnnounceAdmissionOutcome)
+  q.target = a
+  o in Admitted + Rejected
+  (a.recommendation in Kanskje + ReturningWithoutInterview) or (JaNeiOverridden in Broken.rule)
+  (no a.announced) or (FinalOutcomeRewritten in Broken.rule)
+}
+
+-- the announce capability over this very application, resolved now
+-- MUTANT (Y1): the decide capability also announces
+-- MUTANT (Y1): the request need not name the application, so authority over another scope announces it
+pred announceAuthorised[q: Request, a: Application] {
+  permitted[q]
+  q.action = AnnounceAdmissionOutcome or (DeciderAnnounces in Broken.rule and q.action = DecideAdmissionOutcome)
+  (q.target = a) or (AnnounceUnscoped in Broken.rule)
+}
+
+-- one announcement of a defined outcome. Rejected needs no effective placement; Admitted never needs one.
+-- MUTANT (Y7): an announced application is announced again
+-- MUTANT (Y5): Rejected is announced while the applicant has an effective placement
+-- MUTANT (Y6): Admitted is refused without a placement
+pred announceGuard[q: Request, a: Application] {
+  announceAuthorised[q, a]
+  (no a.announced) or (FinalOutcomeRewritten in Broken.rule)
+  some derivedOutcome[a]
+  (derivedOutcome[a] = Rejected and not (PlacedRejectedAnnounced in Broken.rule)) implies not hasActivePlacement[a]
+  (UnplacedAdmittedDenied in Broken.rule and derivedOutcome[a] = Admitted) implies hasActivePlacement[a]
+}
+
+-- a step that changes the outcome record of the named applications only: nothing else moves
+pred outcomesUnchangedExcept[touched: set Application] {
+  all x: Application - touched | x.decision' = x.decision and x.announced' = x.announced
+    and x.decidedBy' = x.decidedBy and x.announcedBy' = x.announcedBy
+}
+pred outcomeStepFrame {
+  Clock.now' = Clock.now and authorityUnchangedExcept[none, none] and Consumed' = Consumed and no UsedNow
+}
+
+pred decideEvent[q: Request, a: Application, o: Outcome] {
+  decideGuard[q, a, o]
+  a.decision' = o and a.decidedBy' = q
+  a.announced' = a.announced and a.announcedBy' = a.announcedBy
+  outcomesUnchangedExcept[a]
+  outcomeStepFrame
+}
+
+pred announceEvent[q: Request, a: Application] {
+  announceGuard[q, a]
+  a.announced' = derivedOutcome[a] and a.announcedBy' = q
+  a.decision' = a.decision and a.decidedBy' = a.decidedBy
+  outcomesUnchangedExcept[a]
+  outcomeStepFrame
+}
+
+-- a placement becomes effective only while its applicant has no announced Rejected outcome in its
+-- department and semester: a placement creation after the Rejected announcement fails
+pred rejectedBlocksPlacement {
+  always all r: Role, a: Application |
+    (placementOf[r, a] and r not in Effective and r in Effective') implies a.announced != Rejected
+}
+-- MUTANT (Y5): a placement becomes effective for an applicant who is already Rejected
+pred placementIgnoresRejection {}
+
+--------------------------------------------------------------------------------------------
 -- Events
 --------------------------------------------------------------------------------------------
 
@@ -679,12 +811,19 @@ pred init {
   all r: Role | some r.finish implies lt[r.start, r.finish]
   all g: Grant | some g.gfinish implies lt[g.gstart, g.gfinish]
   all g: Delegation | some g.dfinish implies lt[g.dstart, g.dfinish]
+  all a: Application | no a.decision and no a.decidedBy and no a.announced and no a.announcedBy
 }
 
-pred unchangedExcept[roles: set Role, grants: set Grant] {
+pred authorityUnchangedExcept[roles: set Role, grants: set Grant] {
   all x: Role - roles | x.finish' = x.finish and (x in Suspended' iff x in Suspended)
   all g: Grant - grants | g.gfinish' = g.gfinish
   all e: Delegation | e.dfinish' = e.dfinish
+}
+
+-- every step that is not an outcome step leaves every outcome record as it was
+pred unchangedExcept[roles: set Role, grants: set Grant] {
+  authorityUnchangedExcept[roles, grants]
+  outcomesUnchangedExcept[none]
 }
 
 pred tick {
@@ -724,6 +863,7 @@ pred endDelegation[g: Delegation] {
   all x: Role | x.finish' = x.finish and (x in Suspended' iff x in Suspended)
   all h: Grant | h.gfinish' = h.gfinish
   Clock.now' = Clock.now and Consumed' = Consumed and no UsedNow
+  outcomesUnchangedExcept[none]
 }
 
 -- a new-account claim uses its token as the principal and consumes it
@@ -792,7 +932,10 @@ one sig ReachByPositionLabel, MachinesRunAsOperator, StaleLeadership, CascadingE
         DerivedSeatOutlivesLeadership, ClientGrantLeaks, TokenScopeIgnored,
         BotChangeWithoutConfirmation, NationalLeaderSeatAtHome, StyretGovernsWithoutIndependence,
         HovedstyretGovernsOnlyNationalTeams, CertificatesFromAnyBoard, SettlementReachesMembers,
-        HovedstyretIssuesNoCertificates, ClaimByBearer extends Mutant {}
+        HovedstyretIssuesNoCertificates, ClaimByBearer, DeciderAnnounces, AnnouncerDecides,
+        AnnounceUnscoped, JaUnplacedIsSubstitute, JaNeiOverridden, UndecidedAnnounced,
+        UnplacedAdmittedDenied, PlacedRejectedAnnounced, PlacementAfterRejection,
+        FinalOutcomeRewritten extends Mutant {}
 
 pred anyEventWith[m: lone Mutant] {
   tick or skip or (some g: Grant | endGrant[g]) or (some g: Delegation | endDelegation[g])
@@ -803,6 +946,8 @@ pred anyEventWith[m: lone Mutant] {
         ((m = CascadingEnd) => endRoleCascading[r] else endRole[r])
      or ((m = CascadingSuspend) => suspendRoleCascading[r] else suspendRole[r])
      or reinstateRole[r])
+  or (some q: Request, a: Application, o: Outcome | decideEvent[q, a, o])
+  or (some q: Request, a: Application | announceEvent[q, a])
 }
 
 -- the intended policy, or the intended policy with exactly the rule of mutant m broken
@@ -829,6 +974,7 @@ pred policyWith[m: lone Mutant] {
     else ((m = HovedstyretGovernsOnlyNationalTeams) => hovedstyretGovernsOnlyNationalTeams
     else boardsSitWhereTheyServe)))
   (m = NationalLeaderSeatAtHome) => nationalLeadersSitAtHome else leadersSitOnTheGoverningBoard
+  (m = PlacementAfterRejection) => placementIgnoresRejection else rejectedBlocksPlacement
   (m = ClaimWithoutToken) => claimTokenNotRequired
     else ((m = InterviewerWithoutAppointment) => interviewerAppointmentNotRequired
     else ((m = BotChangeWithoutConfirmation) => changeConfirmationNotRequired
@@ -1085,6 +1231,60 @@ pred existingAccountClaimBySessionOnly {
   always all q: Request | (permitted[q] and q.action = ClaimExistingAccount) implies q.presents in CookieCredential
 }
 
+-- (Y1) an announcement is made by a request that holds the announce capability over that very
+--      application: not the decider's capability, and not authority over another scope
+pred announcementNeedsAnnounceAuthority {
+  always all a: Application, q: Request |
+    (q = a.announcedBy' and q != a.announcedBy) implies
+      (q.action = AnnounceAdmissionOutcome and q.target = a and permitted[q])
+}
+
+-- (Y2) a decision is made by a request that holds the decide capability over that very application
+pred decisionNeedsDecideAuthority {
+  always all a: Application, q: Request |
+    (q = a.decidedBy' and q != a.decidedBy) implies
+      (q.action = DecideAdmissionOutcome and q.target = a and permitted[q])
+}
+
+-- (Y3) there are exactly two outcomes: a decision and an announcement are Admitted or Rejected
+pred outcomesAreAdmittedOrRejected {
+  always all a: Application | a.decision in Admitted + Rejected and a.announced in Admitted + Rejected
+}
+
+-- (Y4) Ja announces Admitted and Nei announces Rejected, with no decision to override either;
+--      Kanskje and returning announce exactly their explicit decision
+pred announcedFollowsTheRecommendation {
+  always all a: Application | {
+    a.recommendation in Ja + Nei implies no a.decision
+    some a.announced implies {
+      a.recommendation = Ja implies a.announced = Admitted
+      a.recommendation = Nei implies a.announced = Rejected
+      a.recommendation in Kanskje + ReturningWithoutInterview implies a.announced = a.decision
+    }
+  }
+}
+
+-- (Y5) Rejected excludes an effective placement, whichever of the two came first
+pred rejectedHasNoActivePlacement {
+  always all a: Application | a.announced = Rejected implies not hasActivePlacement[a]
+}
+
+-- (Y6) admission is independent of placement: an authorised request to announce an unannounced
+--      application whose outcome is Admitted is accepted without any placement
+pred unplacedAdmittedIsNeverDenied {
+  always all q: Request, a: Application |
+    (announceAuthorised[q, a] and no a.announced and derivedOutcome[a] = Admitted
+      and not hasActivePlacement[a]) implies announceGuard[q, a]
+}
+
+-- (Y7) the announcement is terminal: afterwards the outcome, the decision and the requests behind
+--      them never change, whatever a placement does
+pred finalOutcomeIsTerminal {
+  always all a: Application | some a.announced implies
+    (a.announced' = a.announced and a.announcedBy' = a.announcedBy
+      and a.decision' = a.decision and a.decidedBy' = a.decidedBy)
+}
+
 -- sanity: the events keep every role interval ordered
 pred intervalsStayOrdered { always all r: Role | some r.finish implies lt[r.start, r.finish] }
 
@@ -1281,6 +1481,53 @@ assert F4_ExistingAccountClaimBySessionOnly_mutantBearer {
   policyWith[ClaimByBearer] implies existingAccountClaimBySessionOnly
 }
 
+assert Y1_AnnouncementNeedsAnnounceAuthority { policy implies announcementNeedsAnnounceAuthority }
+assert Y1_AnnouncementNeedsAnnounceAuthority_mutantDeciderAnnounces {
+  policyWith[DeciderAnnounces] implies announcementNeedsAnnounceAuthority
+}
+assert Y1_AnnouncementNeedsAnnounceAuthority_mutantUnscoped {
+  policyWith[AnnounceUnscoped] implies announcementNeedsAnnounceAuthority
+}
+
+assert Y2_DecisionNeedsDecideAuthority { policy implies decisionNeedsDecideAuthority }
+assert Y2_DecisionNeedsDecideAuthority_mutantAnnouncerDecides {
+  policyWith[AnnouncerDecides] implies decisionNeedsDecideAuthority
+}
+
+assert Y3_OutcomesAreAdmittedOrRejected { policy implies outcomesAreAdmittedOrRejected }
+assert Y3_OutcomesAreAdmittedOrRejected_mutantSubstitute {
+  policyWith[JaUnplacedIsSubstitute] implies outcomesAreAdmittedOrRejected
+}
+
+assert Y4_AnnouncedFollowsTheRecommendation { policy implies announcedFollowsTheRecommendation }
+assert Y4_AnnouncedFollowsTheRecommendation_mutantSubstitute {
+  policyWith[JaUnplacedIsSubstitute] implies announcedFollowsTheRecommendation
+}
+assert Y4_AnnouncedFollowsTheRecommendation_mutantOverride {
+  policyWith[JaNeiOverridden] implies announcedFollowsTheRecommendation
+}
+assert Y4_AnnouncedFollowsTheRecommendation_mutantUndecided {
+  policyWith[UndecidedAnnounced] implies announcedFollowsTheRecommendation
+}
+
+assert Y5_RejectedHasNoActivePlacement { policy implies rejectedHasNoActivePlacement }
+assert Y5_RejectedHasNoActivePlacement_mutantAnnouncedWhilePlaced {
+  policyWith[PlacedRejectedAnnounced] implies rejectedHasNoActivePlacement
+}
+assert Y5_RejectedHasNoActivePlacement_mutantPlacedAfterRejection {
+  policyWith[PlacementAfterRejection] implies rejectedHasNoActivePlacement
+}
+
+assert Y6_UnplacedAdmittedIsNeverDenied { policy implies unplacedAdmittedIsNeverDenied }
+assert Y6_UnplacedAdmittedIsNeverDenied_mutantDenied {
+  policyWith[UnplacedAdmittedDenied] implies unplacedAdmittedIsNeverDenied
+}
+
+assert Y7_FinalOutcomeIsTerminal { policy implies finalOutcomeIsTerminal }
+assert Y7_FinalOutcomeIsTerminal_mutantRewritten {
+  policyWith[FinalOutcomeRewritten] implies finalOutcomeIsTerminal
+}
+
 assert S_IntervalsStayOrdered { policy implies intervalsStayOrdered }
 
 --------------------------------------------------------------------------------------------
@@ -1428,6 +1675,49 @@ pred scenarioHovedstyretIssuesCertificatesForADependentDepartment {
     and rolePermit[r.holder, IssueCertificates, d]
 }
 
+-- a Ja applicant without any placement is announced Admitted
+pred scenarioUnplacedJaIsAdmitted {
+  policy
+  some a: Application | a.recommendation = Ja and eventually (a.announced = Admitted and not hasActivePlacement[a])
+}
+-- a Ja applicant with an effective placement is announced Admitted
+pred scenarioPlacedJaIsAdmitted {
+  policy
+  some a: Application | a.recommendation = Ja and eventually (a.announced = Admitted and hasActivePlacement[a])
+}
+-- a Nei applicant without a placement is announced Rejected
+pred scenarioNeiIsRejected {
+  policy
+  some a: Application | a.recommendation = Nei and eventually (a.announced = Rejected and not hasActivePlacement[a])
+}
+-- a Kanskje or returning application takes its decision, then is announced exactly as decided
+pred scenarioDecisionThenAnnouncement {
+  policy
+  some a: Application | a.recommendation in Kanskje + ReturningWithoutInterview and
+    eventually (some a.decision and no a.announced and eventually (some a.announced and a.announced = a.decision))
+}
+-- a placement becomes effective after an Admitted announcement, and the outcome stays Admitted
+pred scenarioAdmittedThenPlaced {
+  policy
+  some a: Application | a.recommendation = Ja and
+    eventually (a.announced = Admitted and not hasActivePlacement[a]
+      and eventually (hasActivePlacement[a] and a.announced = Admitted))
+}
+-- a member of a delegated team decides, and the decide capability does not announce
+pred scenarioDeciderDoesNotAnnounce {
+  policy
+  some r: Effective, g: Delegation, a: Application | r.type = Member and r.scope = g.team and delegationActive[g]
+    and g.capability = DecideAdmissionOutcome and r in witnesses[r.holder, DecideAdmissionOutcome, a]
+    and not rolePermit[r.holder, AnnounceAdmissionOutcome, a]
+}
+-- a member of a delegated team announces, and the announce capability does not decide
+pred scenarioCoordinatorDoesNotDecide {
+  policy
+  some r: Effective, g: Delegation, a: Application | r.type = Member and r.scope = g.team and delegationActive[g]
+    and g.capability = AnnounceAdmissionOutcome and r in witnesses[r.holder, AnnounceAdmissionOutcome, a]
+    and not rolePermit[r.holder, DecideAdmissionOutcome, a]
+}
+
 --------------------------------------------------------------------------------------------
 -- Commands
 --------------------------------------------------------------------------------------------
@@ -1541,6 +1831,31 @@ check F4_ExistingAccountClaimBySessionOnly_mutantBearer for 3 but 8 Scope, 6 Rol
 
 check S_IntervalsStayOrdered for 3 but 8 Scope, 6 Role, 3 Instant, 5 steps expect 0
 
+check Y1_AnnouncementNeedsAnnounceAuthority for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 0
+check Y1_AnnouncementNeedsAnnounceAuthority_mutantDeciderAnnounces for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+check Y1_AnnouncementNeedsAnnounceAuthority_mutantUnscoped for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+
+check Y2_DecisionNeedsDecideAuthority for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 0
+check Y2_DecisionNeedsDecideAuthority_mutantAnnouncerDecides for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+
+check Y3_OutcomesAreAdmittedOrRejected for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 0
+check Y3_OutcomesAreAdmittedOrRejected_mutantSubstitute for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+
+check Y4_AnnouncedFollowsTheRecommendation for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 0
+check Y4_AnnouncedFollowsTheRecommendation_mutantSubstitute for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+check Y4_AnnouncedFollowsTheRecommendation_mutantOverride for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+check Y4_AnnouncedFollowsTheRecommendation_mutantUndecided for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+
+check Y5_RejectedHasNoActivePlacement for 3 but 8 Scope, 6 Role, 3 Instant, 5 steps expect 0
+check Y5_RejectedHasNoActivePlacement_mutantAnnouncedWhilePlaced for 3 but 8 Scope, 6 Role, 3 Instant, 5 steps expect 1
+check Y5_RejectedHasNoActivePlacement_mutantPlacedAfterRejection for 3 but 8 Scope, 6 Role, 3 Instant, 5 steps expect 1
+
+check Y6_UnplacedAdmittedIsNeverDenied for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 0
+check Y6_UnplacedAdmittedIsNeverDenied_mutantDenied for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+
+check Y7_FinalOutcomeIsTerminal for 3 but 8 Scope, 6 Role, 3 Instant, 5 steps expect 0
+check Y7_FinalOutcomeIsTerminal_mutantRewritten for 3 but 8 Scope, 6 Role, 3 Instant, 5 steps expect 1
+
 run scenarioLeadershipHandover for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
 run scenarioHovedstyretSeatIsNotAdministrator for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
 run scenarioStyretSeatStaysInItsDepartment for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
@@ -1563,3 +1878,10 @@ run scenarioHovedstyretDelegatesInADependentDepartment for 3 but 8 Scope, 6 Role
 run scenarioDerivedSeatIssuesCertificates for 3 but 8 Scope, 6 Role, 3 Instant, 1 steps expect 1
 run scenarioEconomyMemberApprovesButDoesNotSettle for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
 run scenarioHovedstyretIssuesCertificatesForADependentDepartment for 3 but 8 Scope, 6 Role, 3 Instant, 1 steps expect 1
+run scenarioUnplacedJaIsAdmitted for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+run scenarioPlacedJaIsAdmitted for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+run scenarioNeiIsRejected for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
+run scenarioDecisionThenAnnouncement for 3 but 8 Scope, 6 Role, 3 Instant, 5 steps expect 1
+run scenarioAdmittedThenPlaced for 3 but 8 Scope, 6 Role, 3 Instant, 5 steps expect 1
+run scenarioDeciderDoesNotAnnounce for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1
+run scenarioCoordinatorDoesNotDecide for 3 but 8 Scope, 6 Role, 3 Instant, 3 steps expect 1

@@ -53,14 +53,18 @@
  * - The global-administrator grant keeps its organisational actions for now.
  * - An OAuth client acting for a person never exceeds the person's authority and is narrowed by its
  *   token scope. A bot holds no standing capability and changes data only with the person's confirmation.
- * - Substitute coverage records absences and who covered each lesson date; coordination stays in Slack.
+ * - Coverage records absences: it names assistant B, who covered absent assistant A on one dated
+ *   lesson. There is no substitute role and no substitute admission outcome. Coordination stays in Slack.
  * - A pure scheduling function drafts placements; Skolekoordinering adjusts the draft.
  * - Certificates are in scope: school coordination adjusts each assistant's days served at semester
  *   end, and the department's board issues the certificates; Hovedstyret's seats issue them for a
  *   department that is not independent. Surveys stay in Google Forms.
- * - A substitute is an admission outcome: an admitted applicant without a placement, on call.
- * - A Kanskje recommendation implies no admission outcome; the recruitment team decides placed,
- *   substitute or rejected.
+ * - An admission outcome is Admitted or Rejected. A Ja recommendation derives Admitted, with or
+ *   without a school placement, and a Nei recommendation derives Rejected; nobody overrides either.
+ *   A Kanskje recommendation, and a returning assistant without an interview, imply no outcome: the
+ *   recruitment team decides Admitted or Rejected explicitly. Placement is a separate decision.
+ *   Skolekoordinering announces each outcome once; the announcement is final. A Rejected outcome
+ *   requires no active placement of the person in the department and semester.
  * - General Assembly vote weights are a derived report: active members plus 100 per department, split
  *   among its attending members, at most 25 per member.
  * - The first Google Workspace scope keeps team group membership in sync with team membership;
@@ -1269,7 +1273,7 @@ BoundedContext Admissions implements VolunteerRecruitment {
     }
   }
 
-  "invariant: one application per applicant and admission period. invariant: the field of study is active and belongs to the period's department. Admissions is the only writer of the year of study. invariant: the application states the applicant's unsuitable weekdays, a four- or eight-week position, the bolk of a four-week position, and the school wish of a teaching language; a returning registration can also name a school; the placement scheduling function reads them."
+  "invariant: one application per applicant and admission period. invariant: the field of study is active and belongs to the period's department. Admissions is the only writer of the year of study. invariant: the application states the applicant's unsuitable weekdays, a four- or eight-week position, the bolk of a four-week position, and the school wish of a teaching language; a returning registration can also name a school; the placement scheduling function reads them. invariant: an outcome is Admitted or Rejected and never Substitute. A Ja recommendation derives Admitted whether or not the person has a placement; a Nei recommendation derives Rejected; neither can be overridden. A Kanskje or returning application has an explicit decision before its announcement. invariant: the announcement is terminal: ApplicationSubmitted becomes OutcomeAnnounced once, stores one immutable outcome and one immutable message, and a later placement change rewrites neither. invariant: a Rejected outcome requires no active placement of the applicant in the application's department and semester, and a placement creation for a final Rejected person fails; the announcement and a placement creation for that scope take one lock."
   Aggregate AdmissionApplication {
     Entity AdmissionApplication {
       aggregateRoot
@@ -1289,16 +1293,16 @@ BoundedContext Admissions implements VolunteerRecruitment {
       def void submitApplication(ApplicantId applicantId, AdmissionPeriodId admissionPeriodId, int yearOfStudy) : write [ -> ApplicationSubmitted ];
       "capability: admissions.applications.revise; requirement: the applicant's linked Person (returning registration); a correction path for department managers, if kept, has its own specification; scope: own application; decisionTime: Transaction"
       def void reviseYearOfStudy(int yearOfStudy, int expectedRevision) : write [ ApplicationSubmitted -> ApplicationSubmitted ];
-      "capability: admissions.outcomes.announce; requirement: coordinator(department); scope: application-department; decisionTime: Transaction. A Ja recommendation derives Admitted with a placement or Substitute without one, on call; a Nei recommendation derives Rejected. School coordination announces the outcome after allocation."
-      def void announceOutcome(@AdmissionOutcome outcome, int expectedRevision) : write [ ApplicationSubmitted -> OutcomeAnnounced ];
-      "capability: admissions.outcomes.decide; requirement: board.leader covering departmentId, delegated to the recruitment team; scope: application-department; decisionTime: Transaction. A Kanskje recommendation implies no outcome: the recruitment team decides placed, substitute or rejected."
+      "capability: admissions.outcomes.announce; requirement: coordinator(department); scope: application-department; decisionTime: Transaction. The outcome is derived and not an argument: Ja gives Admitted with or without a placement, Nei gives Rejected, and a Kanskje or returning application needs its explicit decision first. Rejected requires no active placement of the person in the application's department and semester. School coordination announces the outcome once; the announcement is final."
+      def void announceOutcome(int expectedRevision) : write [ ApplicationSubmitted -> OutcomeAnnounced ];
+      "capability: admissions.outcomes.decide; requirement: board.leader covering departmentId, delegated to the recruitment team; scope: application-department; decisionTime: Transaction. Only a Kanskje recommendation or a returning assistant without an interview takes a decision: the recruitment team decides Admitted or Rejected. A Ja or Nei recommendation takes none, and an announced outcome takes none."
       def void decideOutcome(@AdmissionOutcome outcome, int expectedRevision) : write [ ApplicationSubmitted -> ApplicationSubmitted ];
     }
     ValueObject ApplicationId {
       String value key
     }
     enum AdmissionOutcome {
-      Admitted, Substitute, Rejected
+      Admitted, Rejected
     }
     enum ApplicationLifecycle {
       aggregateLifecycle
@@ -1434,7 +1438,7 @@ BoundedContext Recruitment implements VolunteerRecruitment {
 
 BoundedContext Placements implements SchoolService {
   type = FEATURE
-  domainVisionStatement = "Assistant supply (affiliation), semester placements, school demand, automatically drafted and reviewed proposals, confirmed rosters, dated school-service commitments, absences with a record of who covered each lesson date, days served and certificates, and immutable service outcomes and history. Substitutes and assistants arrange cover in Slack; the system records the result."
+  domainVisionStatement = "Assistant supply (affiliation), semester placements, school demand, automatically drafted and reviewed proposals, confirmed rosters, dated school-service commitments, absences with a record of which assistant covered each lesson date, days served and certificates, and immutable service outcomes and history. Assistants arrange cover in Slack; the system records the result."
   responsibilities = "Volunteer affiliation", "Placements", "Demand", "Placement drafts, proposals and rosters", "Commitments", "Absence and coverage", "Days served and certificates", "Service history"
   implementationTechnology = "packages/domain/src/placements: portable contracts; packages/database/src/placements: PostgreSQL service Layer and adapters"
 
@@ -1462,7 +1466,7 @@ BoundedContext Placements implements SchoolService {
     }
   }
 
-  "invariant: a placement requires an active affiliation in the school's associated department. invariant: placement history survives edits and removal; proposal generation never changes a placement."
+  "invariant: a placement requires an active affiliation in the school's associated department. invariant: placement history survives edits and removal; proposal generation never changes a placement. invariant: a placement is independent of admission: an Admitted assistant can be placed or unplaced, and a later placement never changes an announced outcome. A placement for a person whose announced outcome is Rejected in that department and semester fails."
   Aggregate Placement {
     Entity Placement {
       aggregateRoot
@@ -1579,7 +1583,7 @@ BoundedContext Placements implements SchoolService {
     }
   }
 
-  "invariant: an absence affects one scheduled assignment and stores no medical reason or free text; it does not erase the placement or the school's need. invariant: a coverage record names who covered one lesson date of the absence: a substitute on call (an admitted applicant without a placement) or another assistant. It is a recorded fact, not an offer."
+  "invariant: an absence affects one scheduled assignment and stores no medical reason or free text; it does not erase the placement or the school's need. invariant: a coverage record names assistant B, who covered absent assistant A on one lesson date of the absence. B is an actively placed assistant of the department and semester, or a linked assistant whose latest outcome there is Admitted without a placement. Neither is a separate role: the record stores no coverer kind. It is a recorded fact, not an offer."
   Aggregate Absence {
     Entity Absence {
       aggregateRoot
@@ -2108,7 +2112,7 @@ BoundedContext GoogleForms implements SchoolFeedback {
 
 BoundedContext Slack {
   type = SYSTEM
-  domainVisionStatement = "External chat workspace. Volunteers arrange substitute cover there; the system records only absences and coverage. The integration scope is not decided."
+  domainVisionStatement = "External chat workspace. Volunteers arrange cover there; the system records only absences and coverage. The integration scope is not decided."
 }
 
 BoundedContext MailProvider {
