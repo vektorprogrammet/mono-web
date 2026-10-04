@@ -51,10 +51,13 @@ describe("generated native operation index", () => {
 
     expect(operationIndex.operations).toEqual(projected);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(projected).toHaveLength(107);
+    expect(projected).toHaveLength(111);
     expect(projected.filter((operation) => operation.group === "profile")).toHaveLength(2);
     expect(projected.filter((operation) => operation.group === "directory")).toHaveLength(4);
     expect(projected.filter((operation) => operation.group === "content")).toHaveLength(8);
+    expect(projected.filter((operation) => operation.group === "admissionOutcomes")).toHaveLength(
+      8,
+    );
     expect(ids.every((id) => !internalIds.has(id))).toBe(true);
     expect(operationIndex.release).toEqual({
       name: NativeApiReleaseName,
