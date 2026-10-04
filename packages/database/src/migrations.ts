@@ -638,6 +638,16 @@ export const databaseMigrationDefinitions = [
     name: "admission-outcome-mail",
     url: new URL("../migrations/0082-admission-outcome-mail.sql", import.meta.url),
   },
+  {
+    id: "83_application-decision-correction-fence",
+    name: "application-decision-correction-fence",
+    url: new URL("../migrations/0083-application-decision-correction-fence.sql", import.meta.url),
+  },
+  {
+    id: "84_application-email-period-ownership",
+    name: "application-email-period-ownership",
+    url: new URL("../migrations/0084-application-email-period-ownership.sql", import.meta.url),
+  },
 ] as const;
 
 /**

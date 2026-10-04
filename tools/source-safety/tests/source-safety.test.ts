@@ -137,6 +137,8 @@ describe("SQL", () => {
       "packages/database/migrations/0027-native-oauth-provider.sql",
       "packages/database/migrations/0029-native-http-semantics.sql",
       "packages/database/migrations/0059-school-service-person-intervals.sql",
+      "packages/database/migrations/0083-application-decision-correction-fence.sql",
+      "packages/database/migrations/0084-application-email-period-ownership.sql",
     ]) {
       const migration = readFileSync(join(repoRoot, migrationPath));
       const migrationText = new TextDecoder().decode(migration);
