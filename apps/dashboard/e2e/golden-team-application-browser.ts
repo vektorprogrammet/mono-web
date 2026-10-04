@@ -690,7 +690,7 @@ export const runTeamApplicationBrowser = async (
 
     await expect(rows).toHaveCount(2);
     assert.deepEqual(
-      await rows.evaluateAll((elements) => elements.map((element) => element.getAttribute("data-application-id"))),
+      await Promise.all((await rows.all()).map((row) => row.getAttribute("data-application-id"))),
       [second.submission.applicationId, first.submission.applicationId],
     );
     await expect(memberAlfa.page.getByRole("heading", { name: "Søknadsinntak" })).toBeVisible();
