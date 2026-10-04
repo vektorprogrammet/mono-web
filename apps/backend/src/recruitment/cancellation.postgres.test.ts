@@ -975,7 +975,8 @@ describe("R1 cancelled invitation custody and R8 committing authority", () => {
           .pipe(Effect.forkChild);
 
         yield* Deferred.await(started);
-        const exit = yield* Fiber.interrupt(worker);
+        yield* Fiber.interrupt(worker);
+        const exit = yield* Fiber.await(worker);
         assert.isTrue(Exit.isFailure(exit));
 
         if (Exit.isFailure(exit)) assert.isTrue(Cause.hasInterrupts(exit.cause));
