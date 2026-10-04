@@ -1,6 +1,13 @@
 import { randomBytes } from "node:crypto";
 import { Database } from "@vektorprogrammet/database";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
+import { readOnboardingBoard } from "@vektorprogrammet/database/onboarding";
+import { OrganizationLive } from "@vektorprogrammet/database/organization";
+import { ProfileLive } from "@vektorprogrammet/database/profile";
+import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
+import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
+import { OnboardingBoard } from "@vektorprogrammet/domain/onboarding";
+import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
 import { PublicApplicationSubmitInputSchema } from "@vektorprogrammet/domain/application";
@@ -344,5 +351,186 @@ describe("public application submission over HTTP", () => {
       });
       expect(yield* count("admission_applications")).toBe(0);
     }),
+  );
+});
+
+const linkedOwner = PersonId.make("same-email-linked-owner");
+
+const historicalApplicant = Database.use((sql) =>
+  Effect.gen(function* () {
+    yield* sql`INSERT INTO admission_periods (admission_period_id,department_id,semester_id,start_at,end_at,last_command_id) VALUES ('period-prior','department-http','semester-http','2031-08-01','2031-09-01','prior-period-created')`;
+    yield* sql`INSERT INTO admission_period_fields_of_study (field_of_study_id,department_id,name) VALUES ('field-prior','department-http','Physics')`;
+    yield* sql`INSERT INTO admission_applicants (applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study,activation_digest) VALUES ('linked-applicant','ada@example.invalid','ada@example.invalid','Original','Owner','91111111',1,'field-prior',1,${"a".repeat(64)})`;
+    yield* sql`INSERT INTO admission_applications (application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at) VALUES ('prior-application','linked-applicant','period-prior','department-http','field-prior',1,'2031-08-15')`;
+    yield* sql`INSERT INTO person_profiles (person_id,first_name,last_name) VALUES (${linkedOwner},'Original','Owner')`;
+    yield* sql`INSERT INTO auth."user" (id,name,email,"emailVerified") VALUES (${linkedOwner},'Original Owner','owner@example.invalid',true)`;
+    yield* sql`INSERT INTO organization_global_administrator_grants (grant_id,person_id,start_at) VALUES ('linked-owner-grant',${linkedOwner},'2020-01-01')`;
+    yield* sql`INSERT INTO applicant_account_invitations (invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES ('prior-invitation','prior-application','linked-applicant',${"b".repeat(64)},'2031-08-17','Claimed',${linkedOwner},'2031-08-16')`;
+    yield* sql`INSERT INTO applicant_account_links (applicant_id,person_id,linked_at,invitation_id) VALUES ('linked-applicant',${linkedOwner},'2031-08-16','prior-invitation')`;
+    yield* sql`INSERT INTO recruitment_interview_schemas (interview_schema_id,name,question_count) VALUES ('prior-schema','Historical questionnaire',1)`;
+    yield* sql`INSERT INTO recruitment_interview_schema_questions (interview_schema_id,question_id,ordinal,prompt,kind,alternatives) VALUES ('prior-schema','prior-question',0,'Why?','text','[]'::jsonb)`;
+    yield* sql`INSERT INTO recruitment_interviews (interview_id,application_id,department_id,interviewer_person_id,interview_schema_id,assigned_by_person_id,assigned_at) VALUES ('prior-interview','prior-application','department-http',${linkedOwner},'prior-schema',${linkedOwner},'2031-08-16')`;
+  }),
+);
+
+// Compare the actual owning projections, not a test copy of their joins/classifiers.
+const priorIdentity = Effect.gen(function* () {
+  const sql = yield* Database;
+
+  const owner =
+    yield* sql`SELECT p.*,l.person_id,l.linked_at,l.invitation_id FROM admission_applicants p JOIN applicant_account_links l USING(applicant_id) WHERE p.applicant_id='linked-applicant'`;
+
+  const priorApplication =
+    yield* sql`SELECT * FROM admission_applications WHERE application_id='prior-application'`;
+
+  const onboarding = yield* Schema.decodeUnknownEffect(OnboardingBoard)(
+    yield* readOnboardingBoard(DepartmentId.make("department-http")),
+  );
+
+  const staffing = yield* Recruitment.use((service) => service.readInterviewStaffing(linkedOwner));
+
+  return {
+    owner,
+    priorApplication,
+    onboarding: onboarding.items.filter((item) => item.applicationId === "prior-application"),
+    staffing: staffing.interviews.filter((item) => item.interviewId === "prior-interview"),
+  };
+});
+
+const recruitmentProjections = RecruitmentLive.pipe(
+  Layer.provideMerge(
+    Layer.mergeAll(AdmissionsLive, ProfileLive).pipe(Layer.provideMerge(OrganizationLive)),
+  ),
+);
+
+describe("anonymous submission cannot acquire a linked same-email identity", () => {
+  it.live(
+    "preserves linked owner identity and prior Recruitment/onboarding projections across another period and replay",
+    () =>
+      Effect.gen(function* () {
+        const { database, submit, count } = fixture();
+        yield* database.run(historicalApplicant);
+        const projections = recruitmentProjections.pipe(Layer.provideMerge(database.layer));
+        const before = yield* priorIdentity.pipe(Effect.provide(projections));
+
+        const body = yield* jsonText({
+          ...application,
+          email: "ADA@example.invalid",
+          firstName: "New",
+          lastName: "Submission",
+        });
+
+        const response = yield* submit("independentSameEmail", { body });
+        expect(response.status).toBe(201);
+        const bytes = yield* Effect.promise(() => response.text());
+
+        const confirmation = yield* Schema.decodeEffect(
+          Schema.fromJsonString(PublicApplicationConfirmationSchema),
+        )(bytes);
+
+        const [submitted] = yield* database.run(
+          Database.use(
+            (sql) => sql`
+      SELECT a.applicant_id AS "applicantId",p.first_name AS "firstName",p.last_name AS "lastName",p.activation_digest AS "activationDigest",l.person_id AS "personId"
+      FROM admission_applications a JOIN admission_applicants p USING(applicant_id) LEFT JOIN applicant_account_links l USING(applicant_id) WHERE a.application_id=${confirmation.applicationId}
+    `,
+          ),
+        );
+
+        expect(yield* priorIdentity.pipe(Effect.provide(projections))).toEqual(before);
+        expect(submitted).toMatchObject({
+          firstName: "New",
+          lastName: "Submission",
+          personId: null,
+          activationDigest: expect.any(String),
+        });
+        expect(submitted?.applicantId).not.toBe("linked-applicant");
+        const replay = yield* submit("independentSameEmail", { body });
+        expect(replay.status).toBe(201);
+        expect(yield* Effect.promise(() => replay.text())).toBe(bytes);
+        const duplicate = yield* submit("samePeriodCollision", { body });
+        expect(duplicate.status).toBe(409);
+        expect((yield* problem(duplicate)).code).toBe("application.duplicate");
+        expect(yield* count("admission_applicants")).toBe(2);
+        expect(yield* count("admission_applications")).toBe(2);
+        expect(yield* count("admission_application_command_receipts")).toBe(1);
+        expect(yield* count("native_http_idempotency_receipts")).toBe(1);
+        expect(yield* priorIdentity.pipe(Effect.provide(projections))).toEqual(before);
+      }),
+  );
+
+  it.live(
+    "serializes concurrent same-period same-email submissions without attaching either to the linked owner",
+    () =>
+      Effect.gen(function* () {
+        const { database, submit, count, competitor } = fixture();
+        yield* database.run(historicalApplicant);
+        const projections = recruitmentProjections.pipe(Layer.provideMerge(database.layer));
+        const before = yield* priorIdentity.pipe(Effect.provide(projections));
+        const connection = yield* competitor();
+        const lockHeld = yield* Deferred.make<void>();
+
+        const input = yield* Schema.decodeUnknownEffect(PublicApplicationSubmitInputSchema)({
+          ...application,
+          firstName: "Concurrent",
+          commandId: "independent-race-winner",
+        });
+
+        const winner = yield* Database.use((sql) =>
+          sql.withTransaction(
+            Effect.gen(function* () {
+              yield* Admissions.use((admissions) =>
+                admissions.executePublicApplication(input, {
+                  now: environment.ADMISSION_FIXED_NOW,
+                  activationToken: "independent".padEnd(43, "_"),
+                }),
+              );
+              yield* Deferred.succeed(lockHeld, undefined);
+
+              return yield* sql`SELECT count(*)::integer AS waiting FROM pg_locks WHERE locktype='advisory' AND NOT granted`.pipe(
+                Effect.map((rows) => rows[0]?.waiting ?? 0),
+                Effect.repeat({
+                  until: (waiting) => waiting > 0,
+                  times: 400,
+                  schedule: Schedule.spaced("10 millis"),
+                }),
+              );
+            }),
+          ),
+        ).pipe(
+          Effect.provide(AdmissionsLive),
+          Effect.provide(connection, { local: true }),
+          Effect.forkChild,
+        );
+
+        yield* Deferred.await(lockHeld);
+
+        const loser = yield* submit("independentRaceLoser", {
+          body: yield* jsonText({
+            ...application,
+            email: "ADA@example.invalid",
+            firstName: "Loser",
+          }),
+        });
+
+        expect(yield* Fiber.join(winner)).toBe(1);
+        expect(loser.status).toBe(409);
+        expect((yield* problem(loser)).code).toBe("application.duplicate");
+        expect(yield* count("admission_applicants")).toBe(2);
+        expect(yield* count("admission_applications")).toBe(2);
+        expect(yield* count("admission_application_command_receipts")).toBe(1);
+        expect(yield* count("native_http_idempotency_receipts")).toBe(0);
+        expect(yield* priorIdentity.pipe(Effect.provide(projections))).toEqual(before);
+
+        const rows = yield* database.run(
+          Database.use(
+            (sql) =>
+              sql`SELECT applicant_id FROM admission_applications WHERE admission_period_id='period-http'`,
+          ),
+        );
+
+        expect(rows).toHaveLength(1);
+        expect(rows[0]?.applicant_id).not.toBe("linked-applicant");
+      }),
   );
 });
