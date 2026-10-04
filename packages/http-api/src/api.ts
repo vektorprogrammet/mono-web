@@ -16,7 +16,7 @@ import { ProfileApi } from "../.effx/generated/profile-contract.js";
 import { InternalReceiptsApi, ReceiptsApi } from "./receipts.js";
 import { RecruitmentApi } from "./recruitment.js";
 import { SocialEventsApi } from "../.effx/generated/social-events-contract.js";
-import { TeamApplicationsApi } from "./team-application.js";
+import { TeamApplicationsApi } from "../.effx/generated/team-applications-contract.js";
 import { CertificatesApi } from "./certificates.js";
 import { RequestSchemaErrorMiddleware } from "./common.js";
 import { NativeApiReleaseVersion } from "./release.js";
