@@ -228,6 +228,13 @@ const approvedSqlSourceDigests = new Map<string, string>([
     "packages/database/migrations/0081-admission-outcome-policy.sql",
     "sha256:793e964b7a9a9afa67e7e89384fb0206aabf5b6fe1adbc5a5f56f98803b87dcb",
   ],
+  // Reviewed: the INSERTs seed the global scope row and the three approved default message
+  // templates of the admission outcome mail as global revision 1. The only literals are scope and
+  // variant names, revision identifiers, the approved Norwegian copy, and one fixed seed instant.
+  [
+    "packages/database/migrations/0082-admission-outcome-mail.sql",
+    "sha256:cf0c122e49bd6ee714f20f01e6dba92bcddfae2faa85022baddb91cc90a63ccb",
+  ],
 ]);
 
 const envSourcePathPattern = /(?:^|\/)\.env(?:$|[.-])/i;

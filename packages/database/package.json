@@ -7,6 +7,8 @@
     ".": "./src/index.ts",
     "./admission-period": "./src/admission-period/index.ts",
     "./admissions": "./src/admissions/index.ts",
+    "./admissions/outcome-mail-queue": "./src/admissions/outcome-mail-queue.ts",
+    "./admissions/outcome-template-store": "./src/admissions/outcome-template-store.ts",
     "./advisory-lock": "./src/advisory-lock.ts",
     "./application": "./src/application/index.ts",
     "./auth": "./src/auth-live.ts",

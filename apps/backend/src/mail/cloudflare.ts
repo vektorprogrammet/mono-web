@@ -2,6 +2,7 @@ import { Duration, Effect, Layer, Predicate, Schema } from "effect";
 import {
   Mail,
   MailDeliveryError,
+  MAIL_HTML_MAX_LENGTH,
   type MailDeliveryRequest,
   type MailOperations,
 } from "@vektorprogrammet/domain/mail";
@@ -12,6 +13,7 @@ export interface CloudflareEmailMessage {
   readonly replyTo?: string;
   readonly subject: string;
   readonly text: string;
+  readonly html?: string;
   readonly headers?: Readonly<Record<string, string>>;
 }
 
@@ -96,7 +98,8 @@ const validateRequest = (request: MailDeliveryRequest): void => {
     request.subject.length === 0 ||
     request.subject.length > 998 ||
     CONTROL.test(request.subject) ||
-    request.text.length > 2_000_000
+    request.text.length > 2_000_000 ||
+    (request.html !== undefined && request.html.length > MAIL_HTML_MAX_LENGTH)
   ) {
     throw permanent();
   }
@@ -117,6 +120,8 @@ const messageFor = (
   };
 
   if (request.replyTo !== undefined) Object.assign(message, { replyTo: request.replyTo });
+
+  if (request.html !== undefined) Object.assign(message, { html: request.html });
 
   return message;
 };

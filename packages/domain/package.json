@@ -20,6 +20,7 @@
     "./application": "./src/application/index.ts",
     "./admission-period": "./src/admission-period/index.ts",
     "./admissions": "./src/admissions/index.ts",
+    "./admissions/template": "./src/admissions/template.ts",
     "./organization": "./src/organization/index.ts",
     "./content": "./src/content/index.ts",
     "./social-events": "./src/social-events/index.ts",

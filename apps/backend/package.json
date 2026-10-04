@@ -28,15 +28,21 @@
   },
   "dependencies": {
     "@effect/platform-bun": "catalog:effect-v4",
+    "@react-email/render": "2.1.0",
     "@vektorprogrammet/database": "workspace:*",
     "@vektorprogrammet/domain": "workspace:*",
     "@vektorprogrammet/http-api": "workspace:*",
-    "effect": "catalog:effect-v4"
+    "effect": "catalog:effect-v4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-email": "6.11.0"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:effect-v4",
     "@monoweb/postgres": "workspace:*",
     "@types/node": "^22",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
     "oxlint": "^1.41.0",
     "typescript": "7.0.2",
     "vitest": "catalog:effect-v4"

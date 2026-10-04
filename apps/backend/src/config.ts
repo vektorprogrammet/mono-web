@@ -58,6 +58,19 @@ export interface TeamApplicationDeliveryConfig {
   readonly maxAttempts: number;
 }
 
+/** Enabled only by ADMISSIONS_OUTCOME_DELIVERY_MODE=http with the shared mail transport and MAIL_SENDER. */
+export interface AdmissionOutcomeDeliveryConfig {
+  readonly sender: string;
+  readonly transport: MailDeliveryConfig;
+  readonly pollIntervalMilliseconds: number;
+  /** A claim that its worker stopped renewing this long ago returns to Failed and is retried. */
+  readonly staleClaimMilliseconds: number;
+  /** Upper bound of the doubling retry delay of a temporary failure. */
+  readonly retryDelayMaxMilliseconds: number;
+  /** The last attempt; its temporary failure quarantines the message. */
+  readonly maxAttempts: number;
+}
+
 /** Bounds the anonymous submission route; one process-wide public bucket. */
 export interface TeamApplicationApiConfig {
   readonly rateLimit: PublicRateLimit;
@@ -95,6 +108,7 @@ export interface BackendConfig {
   readonly publicApplicationEffects?: PublicApplicationEffectConfig;
   readonly schoolServiceNotifications?: SchoolServiceNotificationConfig;
   readonly teamApplicationDelivery?: TeamApplicationDeliveryConfig;
+  readonly admissionOutcomeDelivery?: AdmissionOutcomeDeliveryConfig;
 }
 
 const exactOrigin = (value: string, field: string): string => {
@@ -308,6 +322,55 @@ const teamApplicationDeliveryConfig = (
     };
   });
 
+const admissionOutcomeDeliveryMode = Config.Literals(
+  ["disabled", "http"],
+  "ADMISSIONS_OUTCOME_DELIVERY_MODE",
+).pipe(Config.withDefault("disabled"));
+
+const admissionOutcomeDeliverySettings = Config.all({
+  sender: Config.schema(Schema.Redacted(ContactEmail), "MAIL_SENDER"),
+  pollIntervalMilliseconds: Config.schema(
+    PositiveInteger,
+    "ADMISSIONS_OUTCOME_DELIVERY_POLL_MS",
+  ).pipe(Config.withDefault(1000)),
+  staleClaimMilliseconds: Config.schema(
+    PositiveInteger,
+    "ADMISSIONS_OUTCOME_DELIVERY_STALE_MS",
+  ).pipe(Config.withDefault(60_000)),
+  retryDelayMaxMilliseconds: Config.schema(
+    PositiveInteger,
+    "ADMISSIONS_OUTCOME_DELIVERY_RETRY_MAX_MS",
+  ).pipe(Config.withDefault(300_000)),
+  maxAttempts: Config.schema(PositiveInteger, "ADMISSIONS_OUTCOME_DELIVERY_MAX_ATTEMPTS").pipe(
+    Config.withDefault(48),
+  ),
+});
+
+const admissionOutcomeDeliveryConfig = (
+  env: Readonly<Record<string, string | undefined>>,
+  provider: ConfigProvider.ConfigProvider,
+): Effect.Effect<AdmissionOutcomeDeliveryConfig | undefined, Config.ConfigError> =>
+  Effect.gen(function* () {
+    if ((yield* admissionOutcomeDeliveryMode.parse(provider)) === "disabled") return undefined;
+
+    const transport = mailDeliveryConfig(env);
+
+    if (transport === undefined) {
+      throw new Error("Admission outcome delivery requires mail configuration");
+    }
+
+    const settings = yield* admissionOutcomeDeliverySettings.parse(provider);
+
+    return {
+      sender: Redacted.value(settings.sender),
+      transport,
+      pollIntervalMilliseconds: settings.pollIntervalMilliseconds,
+      staleClaimMilliseconds: settings.staleClaimMilliseconds,
+      retryDelayMaxMilliseconds: settings.retryDelayMaxMilliseconds,
+      maxAttempts: settings.maxAttempts,
+    };
+  });
+
 const providerEndpoint = (endpoint: URL): URL => {
   const loopback =
     endpoint.hostname === "127.0.0.1" ||
@@ -428,6 +491,7 @@ export const decodeBackendConfig = (
     const oauth = yield* oauthBackendConfig(env, sessionBoundary.trustedOrigins, provider);
     const receiptDelivery = receiptDeliveryConfig(env);
     const teamApplicationDelivery = yield* teamApplicationDeliveryConfig(env, provider);
+    const admissionOutcomeDelivery = yield* admissionOutcomeDeliveryConfig(env, provider);
     const passwordResetDelivery = yield* passwordResetDeliveryConfig(env, provider);
 
     const receiptDeliveryPollMilliseconds = yield* receiptDeliveryPollConfig(
@@ -474,6 +538,8 @@ export const decodeBackendConfig = (
       Object.assign(config, { schoolServiceNotifications });
 
     if (teamApplicationDelivery !== undefined) Object.assign(config, { teamApplicationDelivery });
+
+    if (admissionOutcomeDelivery !== undefined) Object.assign(config, { admissionOutcomeDelivery });
 
     return config;
   });

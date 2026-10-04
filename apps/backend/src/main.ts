@@ -6,6 +6,7 @@ import { ReceiptFileStoreLive } from "./receipt/filesystem.js";
 import { runReceiptDeliveryWorker } from "./receipt/worker.js";
 import { runPasswordResetDeliveryWorker } from "./password-recovery/worker.js";
 import { HttpMailLive } from "./mail/http.js";
+import { runAdmissionOutcomeDeliveryWorker } from "./admission/outcome-worker.js";
 import { randomUUID } from "node:crypto";
 import process from "node:process";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
@@ -273,8 +274,22 @@ if (process.exitCode !== 1) {
           ),
         );
 
+  const admissionOutcomeWorkerFiber =
+    ingress === "internal" || config.admissionOutcomeDelivery === undefined
+      ? undefined
+      : runtime.runFork(
+          runAdmissionOutcomeDeliveryWorker(
+            config.admissionOutcomeDelivery,
+            `admission-outcome-${randomUUID()}`,
+          ).pipe(Effect.provide(HttpMailLive(config.admissionOutcomeDelivery.transport))),
+        );
+
   if (ingress === "external" && teamApplicationWorkerFiber === undefined) {
     process.stderr.write("team application delivery worker is not configured\n");
+  }
+
+  if (ingress === "external" && admissionOutcomeWorkerFiber === undefined) {
+    process.stderr.write("admission outcome delivery worker is not configured\n");
   }
 
   if (ingress === "external" && recruitmentWorkerFiber === undefined) {
@@ -316,6 +331,7 @@ if (process.exitCode !== 1) {
     interruptDeliveryWorker(passwordResetWorkerFiber),
     interruptDeliveryWorker(receiptWorkerFiber),
     interruptDeliveryWorker(teamApplicationWorkerFiber),
+    interruptDeliveryWorker(admissionOutcomeWorkerFiber),
     Effect.as(runtime.disposeEffect, false),
   ];
 
@@ -394,6 +410,15 @@ if (process.exitCode !== 1) {
     void runtime.runPromise(Fiber.await(teamApplicationWorkerFiber)).then((exit) => {
       if (Exit.isFailure(exit) && !shuttingDown) {
         process.stderr.write("team application delivery worker failed\n");
+        shutdown(true);
+      }
+    });
+  }
+
+  if (admissionOutcomeWorkerFiber !== undefined) {
+    void runtime.runPromise(Fiber.await(admissionOutcomeWorkerFiber)).then((exit) => {
+      if (Exit.isFailure(exit) && !shuttingDown) {
+        process.stderr.write("admission outcome delivery worker failed\n");
         shutdown(true);
       }
     });
