@@ -506,7 +506,9 @@ describe("anonymous submission cannot acquire a linked same-email identity", () 
               );
               yield* Deferred.succeed(lockHeld, undefined);
 
-              return yield* sql`SELECT count(*)::integer AS waiting FROM pg_locks WHERE locktype='advisory' AND NOT granted`.pipe(
+              return yield* sql<{
+                readonly waiting: number;
+              }>`SELECT count(*)::integer AS waiting FROM pg_locks WHERE locktype='advisory' AND NOT granted`.pipe(
                 Effect.map((rows) => rows[0]?.waiting ?? 0),
                 Effect.repeat({
                   until: (waiting) => waiting > 0,

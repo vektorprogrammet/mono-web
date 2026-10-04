@@ -834,11 +834,13 @@ describe("R3/R4 transaction lifetime and authority", () => {
             Database.use((sql) =>
               sql.withTransaction(
                 Effect.gen(function* () {
+                  const now = yield* postgresNow;
+
                   yield* commandOnboarding({
                     departmentId,
                     command: { applicationId, action: "Issue" },
                     actor,
-                    now: postgresNow,
+                    now: Effect.succeed(now),
                     invitationId: "policy-replacement",
                     token,
                     digest: "b".repeat(64),

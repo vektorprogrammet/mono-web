@@ -526,7 +526,7 @@ const maintenance = Effect.fnUntraced(function* (
   );
 });
 
-const wireJson = Schema.encodeSync(Schema.UnknownFromJsonString);
+const wireJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 const reopenWire = (
   key = "r2-reopen",

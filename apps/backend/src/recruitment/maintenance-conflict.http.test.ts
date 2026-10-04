@@ -176,7 +176,12 @@ for (const code of ["40001", "40P01"] as const) {
               expect(Schema.is(RecruitmentMaintenanceResult.cases.QuestionnaireSaved)(result)).toBe(
                 true,
               );
-              expect(result.revision).toBe(0);
+
+              const saved = yield* Schema.decodeUnknownEffect(
+                RecruitmentMaintenanceResult.cases.QuestionnaireSaved,
+              )(result);
+
+              expect(saved.revision).toBe(0);
               const replay = yield* http.fetch(request(body));
               expect(replay.status).toBe(200);
               expect(yield* Effect.promise(() => replay.text())).toBe(bytes);
