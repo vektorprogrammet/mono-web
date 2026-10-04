@@ -225,6 +225,9 @@ test("admission outcomes: Rekruttering decides, the coordinator announces, templ
 
     await expect(page.getByText("Vikar", { exact: false })).toHaveCount(0);
     await expect(page.getByText("på vakt", { exact: false })).toHaveCount(0);
+    // The page and its decision region are two landmarks, so they carry two names (axe landmark-unique).
+    await expect(page.getByRole("region", { name: "Opptaksutfall", exact: true })).toHaveCount(1);
+    await expect(page.getByRole("region", { name: "Avgjørelser", exact: true })).toHaveCount(1);
     await axe(page, "decide board without outcomes");
     gates.push(
       "keyboard scope selection shows one decide form per application with exactly two outcomes and no on-call list",

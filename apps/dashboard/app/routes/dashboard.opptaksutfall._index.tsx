@@ -161,25 +161,25 @@ export async function action({ request }: Route.ActionArgs) {
   const send: Option.Option<() => Promise<void>> =
     intent === "announce"
       ? Option.map(
-          Schema.decodeUnknownOption(AnnounceOutcomeRequest)({
-            params: { applicationId: form.get("applicationId") },
-            headers: { "if-match": form.get("etag"), "idempotency-key": form.get("commandId") },
-            payload: {},
-          }),
-          (request) => async () => {
-            await client.admissionOutcomes.announceOutcome(request);
-          },
-        )
+        Schema.decodeUnknownOption(AnnounceOutcomeRequest)({
+          params: { applicationId: form.get("applicationId") },
+          headers: { "if-match": form.get("etag"), "idempotency-key": form.get("commandId") },
+          payload: {},
+        }),
+        (request) => async () => {
+          await client.admissionOutcomes.announceOutcome(request);
+        },
+      )
       : Option.map(
-          Schema.decodeUnknownOption(DecideOutcomeRequest)({
-            params: { applicationId: form.get("applicationId") },
-            headers: { "if-match": form.get("etag"), "idempotency-key": form.get("commandId") },
-            payload: { outcome: form.get("outcome") },
-          }),
-          (request) => async () => {
-            await client.admissionOutcomes.decideOutcome(request);
-          },
-        );
+        Schema.decodeUnknownOption(DecideOutcomeRequest)({
+          params: { applicationId: form.get("applicationId") },
+          headers: { "if-match": form.get("etag"), "idempotency-key": form.get("commandId") },
+          payload: { outcome: form.get("outcome") },
+        }),
+        (request) => async () => {
+          await client.admissionOutcomes.decideOutcome(request);
+        },
+      );
 
   if (Option.isNone(send))
     return privateData(
@@ -627,7 +627,7 @@ export default function Opptaksutfall() {
             {Predicate.isTagged(board, "Decide") && (
               <section aria-labelledby="outcome-title" className="space-y-4">
                 <h2 id="outcome-title" className="font-semibold text-xl">
-                  Opptaksutfall
+                  Avgjørelser
                 </h2>
                 {board.entries.length === 0 ? (
                   <p>Ingen søknader i opptaksperioden.</p>
