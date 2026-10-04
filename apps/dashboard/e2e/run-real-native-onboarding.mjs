@@ -17,7 +17,10 @@ assert.ok(manifestPath, "ONBOARDING_JOURNEY_MANIFEST is required");
 
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
 
-const secrets = [manifest.mailboxToken, ...Object.values(manifest.persons).map((p) => p.password)];
+const secrets = [manifest.mailboxToken,
+  ...Object.values(manifest.persons).map((p) => p.password),
+  ...Object.values(manifest.routeAuthority.persons).map((p) => p.password),
+];
 
 const safe = (text) => {
   let value = text.replace(/onboard_[a-f0-9]{64}/g, "[REDACTED]");

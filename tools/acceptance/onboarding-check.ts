@@ -15,6 +15,7 @@ import {
   startDisposablePostgres,
 } from "../postgres/index.ts";
 import { Predicate, Schema, Struct } from "effect";
+import { seedOnboardingAuthority } from "../../apps/dashboard/e2e/onboarding-authority-fixture.mjs";
 
 const root = new URL("../../", import.meta.url).pathname;
 
@@ -125,6 +126,27 @@ try {
   mailbox = httpServer(async (req, res) => {
     if (req.headers.authorization !== `Bearer ${mailboxToken}`) {
       res.writeHead(401).end();
+
+      return;
+    }
+
+    // Test-only control: a real database failure behind the native SDK, never an SDK echo.
+    if (mode === "--browser" && req.url === "/r6/command-fault") {
+      if (req.method === "POST") {
+        await pool.query(`CREATE FUNCTION public.onboarding_r6_command_fault() RETURNS trigger
+          LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic onboarding command outage'; END $$;
+          CREATE TRIGGER onboarding_r6_command_fault BEFORE UPDATE ON public.applicant_account_invitations
+          FOR EACH STATEMENT EXECUTE FUNCTION public.onboarding_r6_command_fault()`);
+      } else if (req.method === "DELETE") {
+        await pool.query(`DROP TRIGGER IF EXISTS onboarding_r6_command_fault ON public.applicant_account_invitations;
+          DROP FUNCTION IF EXISTS public.onboarding_r6_command_fault()`);
+      } else {
+        res.writeHead(405).end();
+
+        return;
+      }
+
+      res.writeHead(204).end();
 
       return;
     }
@@ -643,6 +665,14 @@ try {
     await delay(100);
   }
 
+  const routeAuthority = mode === "--browser"
+    ? await seedOnboardingAuthority(pool, environment, departmentId)
+    : null;
+
+  if (routeAuthority) {
+    for (const person of Object.values(routeAuthority.persons)) secrets.add(person.password);
+  }
+
   const manifest = {
     revision,
     backendOrigin,
@@ -655,6 +685,7 @@ try {
     applicationId: browserApplication.applicationId,
     mailboxOrigin,
     mailboxToken,
+    routeAuthority,
   };
 
   const manifestPath = join(artifacts, "manifest.json");
