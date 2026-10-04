@@ -486,8 +486,15 @@ test("admission outcomes: Rekruttering decides, the coordinator announces, templ
       await expect(announcedText(refused)).toHaveCount(0);
     }
 
-    expect(await readOutcome(page, "neiPlaced")).toMatchObject({ outcome: null });
-    expect((await readOutcome(page, "undecided")).outcome).toBeNull();
+    // A Nei interview derives Rejected on every read; the refusal shows in the state, which stays unannounced.
+    expect(await readOutcome(page, "neiPlaced")).toMatchObject({
+      state: "ApplicationSubmitted",
+      outcome: "Rejected",
+    });
+    expect(await readOutcome(page, "undecided")).toMatchObject({
+      state: "ApplicationSubmitted",
+      outcome: null,
+    });
     await axe(coordinatorPage, "coordinator announce board with refusals");
     gates.push(
       "a Rejected outcome with an active placement and an undecided Kanskje are refused with an alert and stay unannounced",
