@@ -591,7 +591,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
             : [],
         ),
     },
-    toMessage: (message) => GotCorrectionDialogMessage({ message }),
+    toParentMessage: (message) => GotCorrectionDialogMessage({ message }),
   });
 
   return h.section(

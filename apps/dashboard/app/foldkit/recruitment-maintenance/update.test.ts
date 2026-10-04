@@ -1,5 +1,6 @@
 import { Dialog } from "@foldkit/ui";
 import { AssessmentCorrection } from "@vektorprogrammet/domain/recruitment";
+import { canonicalJsonBytes } from "@vektorprogrammet/domain/shared-kernel";
 import {
   RecruitmentInterviewId,
   RecruitmentMaintenanceCommand,
@@ -182,6 +183,11 @@ describe("R2 server-owned correction window model", () => {
     const pending = update(windowDraft(), SubmittedCorrectionWindow()).model;
     const command = pendingCommand(pending);
 
+    if (!Predicate.isTagged(command, "ReopenAssessmentCorrection"))
+      throw new Error("Expected reopen");
+    const encodeCommand = Schema.encodeSync(RecruitmentMaintenanceCommand);
+    const originalBytes = canonicalJsonBytes(encodeCommand(command));
+
     const failed = update(
       pending,
       FailedSave({ commandId: testCommandId, message: "Uncertain response", conflict: false }),
@@ -191,9 +197,23 @@ describe("R2 server-owned correction window model", () => {
       failed,
     );
     const retried = update(failed, RetriedMaintenance());
-    expect(pendingCommand(retried.model)).toBe(command);
+    const retriedCommand = pendingCommand(retried.model);
+
+    if (!Predicate.isTagged(retriedCommand, "ReopenAssessmentCorrection"))
+      throw new Error("Expected reopen retry");
+    // Schema reconstruction may clone values; retry identity is the complete
+    // encoded command, not its JavaScript reference.
+    expect(canonicalJsonBytes(encodeCommand(retriedCommand))).toEqual(originalBytes);
+    expect(retriedCommand.commandId).toBe(command.commandId);
+    expect(retriedCommand.reason).toBe(command.reason);
+    expect(retriedCommand.expectedSequence).toBe(command.expectedSequence);
+    expect(DateTime.formatIso(retriedCommand.endsAt)).toBe(DateTime.formatIso(command.endsAt));
+    expect(retried.commands).toHaveLength(1);
     expect(retried.commands?.[0]?.args).toEqual({ command });
+    expect(retried.model.commandId).toBe(failed.commandId);
+    expect(retried.model.correctionReason).toBe(failed.correctionReason);
     expect(retried.model.correctionEndsAt).toBe(failed.correctionEndsAt);
+    expect(retried.model.correctionSequence).toBe(failed.correctionSequence);
 
     const resumed = update(
       failed,
