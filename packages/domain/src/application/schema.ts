@@ -112,6 +112,7 @@ export const PublicApplicationInstantSchema = Rfc3339InstantSchema;
 
 export type PublicApplicationInstant = typeof PublicApplicationInstantSchema.Type;
 
+/** An immutable, unverified submission statement, not a mutable Person profile. */
 export class ApplicantRecord extends Model.Class<ApplicantRecord>("ApplicantRecord")({
   id: Model.Field({
     select: ApplicantIdSchema,
@@ -122,56 +123,44 @@ export class ApplicantRecord extends Model.Class<ApplicantRecord>("ApplicantReco
     select: PublicApplicationEmailSchema,
     insert: PublicApplicationEmailSchema,
   }),
-  email: Model.Sensitive(PublicApplicationEmailSchema),
+  email: PublicApplicationEmailSchema.pipe(Model.FieldOnly(["select", "insert"])),
   firstName: Model.Field({
     select: PublicApplicationNameSchema,
     insert: PublicApplicationNameSchema,
-    update: PublicApplicationNameSchema,
     json: PublicApplicationNameSchema,
     jsonCreate: PublicApplicationNameSchema,
-    jsonUpdate: PublicApplicationNameSchema,
   }),
   lastName: Model.Field({
     select: PublicApplicationNameSchema,
     insert: PublicApplicationNameSchema,
-    update: PublicApplicationNameSchema,
     json: PublicApplicationNameSchema,
     jsonCreate: PublicApplicationNameSchema,
-    jsonUpdate: PublicApplicationNameSchema,
   }),
   phone: Model.Field({
     select: PublicApplicationPhoneSchema,
     insert: PublicApplicationPhoneSchema,
-    update: PublicApplicationPhoneSchema,
     json: PublicApplicationPhoneSchema,
     jsonCreate: PublicApplicationPhoneSchema,
-    jsonUpdate: PublicApplicationPhoneSchema,
   }),
   gender: Model.Field({
     select: PublicApplicationGenderSchema,
     insert: PublicApplicationGenderSchema,
-    update: PublicApplicationGenderSchema,
     json: PublicApplicationGenderSchema,
     jsonCreate: PublicApplicationGenderSchema,
-    jsonUpdate: PublicApplicationGenderSchema,
   }),
   fieldOfStudyId: Model.Field({
     select: AdmissionFieldOfStudyId,
     insert: AdmissionFieldOfStudyId,
-    update: AdmissionFieldOfStudyId,
     json: AdmissionFieldOfStudyId,
     jsonCreate: AdmissionFieldOfStudyId,
-    jsonUpdate: AdmissionFieldOfStudyId,
   }),
   yearOfStudy: Model.Field({
     select: PublicApplicationYearOfStudySchema,
     insert: PublicApplicationYearOfStudySchema,
-    update: PublicApplicationYearOfStudySchema,
     json: PublicApplicationYearOfStudySchema,
     jsonCreate: PublicApplicationYearOfStudySchema,
-    jsonUpdate: PublicApplicationYearOfStudySchema,
   }),
-  activationDigest: Model.Sensitive(Schema.NullOr(Sha256Schema)),
+  activationDigest: Schema.NullOr(Sha256Schema).pipe(Model.FieldOnly(["select", "insert"])),
 }) {}
 
 /** Model-derived non-email applicant boundary used by effect payload construction. */
@@ -412,9 +401,9 @@ export interface PublicApplicationSubmitContext {
   readonly now: string;
   /** Optional server-generated opaque ID. It is never accepted from the public body. */
   readonly applicationId?: PublicApplicationId;
-  /** Optional server-owned applicant identity hint for a new normalized email. */
+  /** Optional server-generated ID for this submission only; never an email ownership hint. */
   readonly applicantId?: ApplicantId;
-  /** Server-generated token for a new or inactive applicant. */
+  /** Server-generated token for this new unverified submission. */
   readonly activationToken: string;
 }
 

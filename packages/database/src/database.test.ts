@@ -5036,20 +5036,13 @@ describe("DatabaseTest", () => {
               now: "2031-09-15T12:21:00.000Z",
               applicantId: ApplicantIdSchema.make("legacy-delivered-applicant"),
               applicationId: PublicApplicationIdSchema.make("legacy-delivered-application"),
-              activationToken: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
+              activationToken: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq",
             },
           );
           yield* database`
           UPDATE admission_applications
           SET activation_digest = NULL
           WHERE application_id = 'legacy-delivered-application'
-        `;
-          yield* database`
-          UPDATE admission_applicants
-          SET activation_digest = ${publicApplicationActivationDigest(
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq",
-          )}
-          WHERE applicant_id = 'legacy-delivered-applicant'
         `;
           yield* database`
           UPDATE admission_application_outbox

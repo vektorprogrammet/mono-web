@@ -498,7 +498,7 @@ export const submitApplication = (
       {
         retry: "serialization-or-unique-once",
         retryUniqueConstraints: [
-          "admission_applicants_normalized_email_key",
+          "admission_applications_period_email_unique",
           "native_http_idempotency_receipts_pkey",
         ],
       },

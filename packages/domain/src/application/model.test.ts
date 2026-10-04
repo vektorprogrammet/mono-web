@@ -2,6 +2,7 @@ import { DepartmentId } from "../organization/schema.js";
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { ApplicantRecord, PublicApplication } from "./schema.js";
+import { expectTypeOf } from "vitest";
 
 it.effect("strictly decodes persisted records without exposing sensitive fields", () => {
   const applicant = {
@@ -100,3 +101,43 @@ it.effect("strictly decodes persisted records without exposing sensitive fields"
     expect(String(invalidActivation)).toContain("activationDigest");
   });
 });
+
+it.effect(
+  "offers no applicant statement update, while retaining its read and insert representations",
+  () =>
+    Effect.gen(function* () {
+      expectTypeOf<keyof typeof ApplicantRecord.update.Type>().toEqualTypeOf<never>();
+      expectTypeOf<keyof typeof ApplicantRecord.jsonUpdate.Type>().toEqualTypeOf<never>();
+      expect(
+        yield* Schema.decodeEffect(ApplicantRecord.update)(
+          {},
+          {
+            onExcessProperty: "error",
+          },
+        ),
+      ).toEqual({});
+
+      for (const schema of [ApplicantRecord.update, ApplicantRecord.jsonUpdate]) {
+        for (const change of [
+          { id: "another-applicant" },
+          { normalizedEmail: "another@example.invalid" },
+          { email: "another@example.invalid" },
+          { firstName: "Another" },
+          { lastName: "Statement" },
+          { phone: "90000001" },
+          { gender: 1 },
+          { fieldOfStudyId: "another-field" },
+          { yearOfStudy: 4 },
+          { activationDigest: "a".repeat(64) },
+        ]) {
+          const refused = yield* Effect.flip(
+            Schema.decodeEffect(schema)(change, {
+              onExcessProperty: "error",
+            }),
+          );
+
+          expect(refused._tag).toBe("SchemaError");
+        }
+      }
+    }),
+);
