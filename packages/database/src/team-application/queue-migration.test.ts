@@ -428,6 +428,7 @@ layer(Layer.merge(migrationCluster, TestPlatform), {
       }).pipe(Effect.scoped, Effect.orDie),
   );
 
+  // PGlite creates and migrates the full preceding schema inside this test, not the suite Layer.
   it.effect(
     "moves in-flight rows with their original ids and states, and drops the claim columns only after no worker can write them, on PGlite",
     () =>
@@ -435,5 +436,6 @@ layer(Layer.merge(migrationCluster, TestPlatform), {
         Effect.map((evidence) => expect(evidence).toEqual(upgradeEvidence)),
         Effect.orDie,
       ),
+    30_000,
   );
 });
