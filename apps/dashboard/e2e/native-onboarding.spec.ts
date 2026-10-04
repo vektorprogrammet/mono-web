@@ -3,7 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { Schema } from "effect";
-import { OnboardingResource, OnboardingProblem, OnboardingCommandProblem, SchedulingBoard, PlacementScopes } from "@vektorprogrammet/http-api";
+import { IdempotencyKey, OnboardingResource, OnboardingProblem, OnboardingCommandProblem, SchedulingBoard, PlacementScopes } from "@vektorprogrammet/http-api";
 
 const manifestPath = process.env.ONBOARDING_JOURNEY_MANIFEST;
 
@@ -95,13 +95,13 @@ test.describe("R6 real onboarding route authority and problem status", () => {
     return Schema.decodeUnknownSync(OnboardingResource)(await response.json());
   };
 
-  const nativeCommand = (page: Page, etag: string, key: string, action: "Issue" | "Revoke") =>
+  const nativeCommand = (page: Page, etag: string, key: IdempotencyKey, action: "Issue" | "Revoke") =>
     page.request.post(manifest.backendOrigin + "/api/onboarding?departmentId=" + manifest.departmentId, {
       headers: { origin: manifest.dashboardOrigin, "if-match": etag, "idempotency-key": key },
       data: { applicationId: manifest.applicationId, action },
     });
 
-  const routeCommand = (page: Page, etag: string, key: string, action: "Issue" | "Revoke") =>
+  const routeCommand = (page: Page, etag: string, key: IdempotencyKey, action: "Issue" | "Revoke") =>
     page.request.post(manifest.dashboardOrigin + "/dashboard/onboarding", {
       form: { departmentId: manifest.departmentId, applicationId: manifest.applicationId,
         etag, commandId: key, action },
@@ -115,11 +115,11 @@ test.describe("R6 real onboarding route authority and problem status", () => {
     expect(enabled.status()).toBe(204);
 
     try {
-      const native = await nativeCommand(page, board.etag, "r6-native-outage", "Revoke");
+      const native = await nativeCommand(page, board.etag, IdempotencyKey.make("r6-native-receipt-outage-command"), "Revoke");
       const problem = Schema.decodeUnknownSync(OnboardingCommandProblem)(await native.json());
       expect(problem.code).toBe("idempotency.unavailable");
       expect(native.status()).toBe(503);
-      const route = await routeCommand(page, board.etag, "r6-route-outage", "Revoke");
+      const route = await routeCommand(page, board.etag, IdempotencyKey.make("r6-route-receipt-outage-command"), "Revoke");
       expect(route.status()).toBe(native.status());
       expect(route.headers()["cache-control"]).toContain("private");
     } finally {
@@ -131,7 +131,7 @@ test.describe("R6 real onboarding route authority and problem status", () => {
   test("actual SDKProblem 409 digest conflict remains 409 through the onboarding route", async ({ page }) => {
     await signIn(page, manifest.persons.leader, "/dashboard/onboarding");
     const board = await readBoard(page);
-    const key = "r6-real-digest-conflict";
+    const key = IdempotencyKey.make("r6-real-digest-conflict");
     const accepted = await nativeCommand(page, board.etag, key, "Revoke");
     expect(accepted.status()).toBe(200);
     Schema.decodeUnknownSync(OnboardingResource)(await accepted.json());
