@@ -241,6 +241,7 @@ Both assigned interviewers can correct completed, uncancelled conduct before clo
 The current linked applicant cannot correct their own assessment. After closure, a correction
 requires a current window from the staffing maintenance workflow. A scoped board leader or
 global administrator opens or closes the window with a reason and its observed sequence.
+
 The window ends no later than the application’s own semester end. Its opener cannot correct
 within that window. At the end instant, the window no longer permits correction.
 
@@ -302,6 +303,7 @@ The native maintenance transaction retries a serialization or deadlock race once
 An exhausted race answers 409 transaction.conflict. An ordinary persistence outage answers
 503 recruitment.unavailable. A successful retry commits the change, history, and receipts
 together. Exact replay does not repeat the change.
+
 Queued notifications retain their original content and recipients. Staffing changes do not bypass notification integrity or cancellation checks.
 
 After an applicant requests a new interview time, authorized staff can select a replacement through the scheduling board.
