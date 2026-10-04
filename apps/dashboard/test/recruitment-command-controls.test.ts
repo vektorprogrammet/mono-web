@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 import { assert, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Schema } from "effect";
-import { Arbitrary } from "effect/unstable/arbitrary";
 import { vi } from "vitest";
 import { RecruitmentMaintenanceCommand, RecruitmentInterviewResource, StrongETag } from "@vektorprogrammet/http-api";
 import { commandsFor as recruitmentCommands } from "../app/foldkit/recruitment/command";
@@ -21,15 +20,17 @@ import { FailedSave, RetriedMaintenance } from "../app/foldkit/recruitment-maint
 import { Mutation, init as initMaintenance } from "../app/foldkit/recruitment-maintenance/model";
 import { updateFor as maintenanceUpdate } from "../app/foldkit/recruitment-maintenance/update";
 
-const inputArbitrary = Arbitrary.all({
-  assignment: Arbitrary.schema(CreateApplicationInterviewInputSchema),
-  schedule: Arbitrary.schema(ScheduleInterviewInputSchema),
-  finalize: Arbitrary.schema(FinalizeInterviewInputSchema),
-  correction: Arbitrary.schema(CorrectInterviewAssessmentInputSchema),
-  cancel: Arbitrary.schema(CancelInterviewInputSchema),
-  maintenance: Arbitrary.schema(RecruitmentMaintenanceCommand),
-  assigned: Arbitrary.schema(RecruitmentInterviewResource),
-});
+// These controls need valid inputs, not random generation. Opaque HTTP filters
+// exhaust generic sampling before the command assertions can run.
+const decodeInputs = Schema.decodeUnknownEffect(Schema.Struct({
+  assignment: CreateApplicationInterviewInputSchema,
+  schedule: ScheduleInterviewInputSchema,
+  finalize: FinalizeInterviewInputSchema,
+  correction: CorrectInterviewAssessmentInputSchema,
+  cancel: CancelInterviewInputSchema,
+  maintenance: RecruitmentMaintenanceCommand,
+  assigned: RecruitmentInterviewResource,
+}));
 
 const board = Schema.decodeSync(RecruitmentAssignmentBoardSchema)({
   admissionPeriodId: "period-controls", departmentId: "department-controls",
@@ -38,6 +39,51 @@ const board = Schema.decodeSync(RecruitmentAssignmentBoardSchema)({
 
 const etag = StrongETag.make(`"vkr2.${"A".repeat(43)}"`);
 
+const inputHeaders = { "idempotency-key": "controls-command-identity-0029", "if-match": etag };
+
+const inputParams = { interviewId: "interview-controls" };
+
+const assessment = {
+  answers: [{ questionId: "question-controls", answer: "A considered answer" }],
+  score: { explanatoryPower: 7, roleModel: 8, suitability: 9 },
+  recommendation: "Ja",
+};
+
+const inputsFixture = {
+  assignment: {
+    params: { applicationId: "application-controls" }, headers: inputHeaders,
+    payload: { interviewerPersonId: "person-controls", interviewSchemaId: "schema-controls" },
+  },
+  schedule: {
+    params: inputParams, headers: inputHeaders,
+    payload: { scheduledAt: "2031-09-20T13:30:00.000Z", room: "Room", campus: "Campus",
+      mapLink: null, message: "Please attend the interview" },
+  },
+  finalize: { params: inputParams, headers: inputHeaders, payload: assessment },
+  correction: { params: inputParams, headers: inputHeaders, payload: { ...assessment, expectedRevision: 1 } },
+  cancel: { params: inputParams, headers: inputHeaders, payload: {} },
+  maintenance: RecruitmentMaintenanceCommand.cases.ChangeInterviewStaffing.make({
+    commandId: inputHeaders["idempotency-key"], reason: "Correct the interviewer assignment",
+    interviewId: RecruitmentMaintenanceCommand.cases.ChangeInterviewStaffing.fields.interviewId.make(inputParams.interviewId),
+    expectedRevision: 1,
+    interviewerPersonId: RecruitmentMaintenanceCommand.cases.ChangeInterviewStaffing.fields.interviewerPersonId.make("person-controls"),
+    coInterviewerPersonId: null,
+  }),
+  assigned: {
+    ...inputParams, applicationId: "application-controls", departmentId: "department-controls",
+    interviewerPersonId: "person-controls", coInterviewerPersonId: null,
+    interviewSchemaId: "schema-controls", assignedByPersonId: "coordinator-controls",
+    assignedAt: "2031-09-19T12:00:00.000Z", revision: 1,
+  },
+};
+
+// Schema failures carry a useful message; the former plain SampleError did not.
+const controlInputs = decodeInputs(inputsFixture).pipe(
+  Effect.tapError((error) => Effect.sync(() => assert.fail(
+    "Invalid command-control fixture: " + error.message,
+  ))),
+);
+
 const invitation = Schema.decodeSync(InvitationResponseResourceSchema)({
   observation: { scheduledAt: "2031-09-20T13:30:00.000Z", room: "Room", campus: "Campus",
     responseState: "Accepted", responseMessage: null }, etag,
@@ -45,7 +91,7 @@ const invitation = Schema.decodeSync(InvitationResponseResourceSchema)({
 
 it.effect("all fifteen handwritten Commands construct and discard without client calls, fetch or UUID creation", () =>
   Effect.gen(function* () {
-    const [inputs] = yield* Arbitrary.sampleEffect(inputArbitrary, { seed: 29, count: 1, size: 2 });
+    const inputs = yield* controlInputs;
     assert.isDefined(inputs);
     let calls = 0;
 
@@ -110,7 +156,7 @@ it.effect("all fifteen handwritten Commands construct and discard without client
 
 it.effect("assignment success waits for mutation and fresh board instead of dispatching a premature SDK result", () =>
   Effect.gen(function* () {
-    const [inputs] = yield* Arbitrary.sampleEffect(inputArbitrary, { seed: 29, count: 1, size: 2 });
+    const inputs = yield* controlInputs;
     const mutationStarted = yield* Deferred.make<void>();
     const mutated = yield* Deferred.make<typeof inputs.assigned>();
     const readStarted = yield* Deferred.make<void>();
@@ -161,7 +207,7 @@ it.effect("invitation compound success keeps request/action correlation and wait
 
 it.effect("maintenance drops wrong-commandId failures and retries the identical owned command", () =>
   Effect.gen(function* () {
-    const [inputs] = yield* Arbitrary.sampleEffect(inputArbitrary, { seed: 29, count: 1, size: 2 });
+    const inputs = yield* controlInputs;
     yield* Effect.acquireRelease(
       Effect.sync(() => { vi.stubGlobal("location", new URL("http://localhost:3000")); vi.stubEnv("VITE_API_URL", "http://localhost:3000"); }),
       () => Effect.sync(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); }),
