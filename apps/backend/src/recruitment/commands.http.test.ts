@@ -657,7 +657,7 @@ describe("R2 correction closure and frozen admission evidence", () => {
             headers: {
               "content-type": "application/json",
               "idempotency-key": ("r2-denied-" + personId).padEnd(22, "0"),
-              "if-match": '"stale"',
+              "if-match": '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"',
             },
             body: correctionBody,
           },
@@ -690,7 +690,7 @@ describe("R2 correction closure and frozen admission evidence", () => {
         headers: {
           "content-type": "application/json",
           "idempotency-key": "r2-self".padEnd(22, "0"),
-          "if-match": '"stale"',
+          "if-match": '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"',
         },
         body: correctionBody,
       });
