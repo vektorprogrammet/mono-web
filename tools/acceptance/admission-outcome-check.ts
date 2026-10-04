@@ -240,7 +240,6 @@ try {
     openSemesterId = "semester-native-journey-0049",
     openPeriodId = "admission-period-native-journey-0049",
     fieldOfStudyId = "field-native-journey-0049",
-    recruitmentTeamId = "team-native-journey-0049",
     historicalSemesterId = "semester-historical-outcomes",
     historicalPeriodId = "period-historical-outcomes",
     previousSemesterId = "semester-previous-outcomes",
@@ -248,6 +247,7 @@ try {
     otherDepartmentId = "department-other-outcomes",
     coordinationTeamId = "team-coordination-outcomes",
     otherTeamId = "team-other-outcomes",
+    decisionTeamId = "team-decision-outcomes",
     interviewSchemaId = "interview-schema-outcomes",
     interviewerPersonId = "journey-rec-interviewer-a-0049",
     leaderPersonId = "journey-rec-leader-0049";
@@ -257,9 +257,9 @@ try {
   await database.query(`INSERT INTO public.admission_period_semesters(semester_id,start_at,end_at) VALUES ('${historicalSemesterId}','2024-01-01','2024-07-01'),('${noPeriodSemesterId}','2023-01-01','2023-07-01'),('${previousSemesterId}','2023-08-01','2023-12-31');
  INSERT INTO public.admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,revision,last_command_id) VALUES ('${historicalPeriodId}','${departmentId}','${historicalSemesterId}','2024-01-01','2024-06-01',0,'fixture-admission-outcomes');
  INSERT INTO public.organization_departments(department_id,name,short_name,email,city,active,revision) VALUES ('${otherDepartmentId}','Annen avdeling','Annen','annen@example.invalid','Annen',true,0);
- INSERT INTO public.organization_teams(team_id,department_id,name,active,revision) VALUES ('${otherTeamId}','${otherDepartmentId}','Skolekoordinering',true,0),('${coordinationTeamId}','${departmentId}','Skolekoordinering',true,0);
+ INSERT INTO public.organization_teams(team_id,department_id,name,active,revision) VALUES ('${otherTeamId}','${otherDepartmentId}','Skolekoordinering',true,0),('${coordinationTeamId}','${departmentId}','Skolekoordinering',true,0),('${decisionTeamId}','${departmentId}','Rekruttering utfall',true,0);
  UPDATE public.organization_memberships SET team_id='${otherTeamId}',is_team_leader=true WHERE person_id='journey-rec-interviewer-b-0049';
- INSERT INTO public.organization_memberships(membership_id,person_id,team_id,start_at,is_team_leader) VALUES ('membership-coordinator-outcomes','${coordinatorPersonId}','${coordinationTeamId}','2020-01-01',true);
+ INSERT INTO public.organization_memberships(membership_id,person_id,team_id,start_at,is_team_leader) VALUES ('membership-coordinator-outcomes','${coordinatorPersonId}','${coordinationTeamId}','2020-01-01',true),('membership-decision-outcomes','${leaderPersonId}','${decisionTeamId}','2020-01-01',true);
  INSERT INTO public.recruitment_interview_schemas(interview_schema_id,name,question_count,active,revision) VALUES ('${interviewSchemaId}','Intervju',0,true,0);`);
 
   // Rekruttering decides Kanskje and returning outcomes; Skolekoordinering announces. Each is an
@@ -269,7 +269,7 @@ try {
 
   await database.query(
     `INSERT INTO public.organization_delegations(delegation_id,name,team_id,capability,area,area_department_id,holders,start_at) VALUES ${[
-      delegation("Rekruttering avgjor utfall", recruitmentTeamId, "admissions.outcomes", departmentId),
+      delegation("Rekruttering avgjor utfall", decisionTeamId, "admissions.outcomes", departmentId),
       delegation(
         "Skolekoordinering fordeler assistenter",
         coordinationTeamId,
