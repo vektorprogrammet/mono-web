@@ -886,6 +886,126 @@ INSERT INTO public.admission_application_outcomes (application_id, revision, out
   VALUES ('plain-rejected', 1, 'Rejected', 'upgrade-first-decider', '2026-03-01T10:00:00.000Z');
 `;
 
+const serviceId = (kind: string, digit: string) => `school-service-${kind}-${digit.repeat(64)}`;
+
+/**
+ * Coverage and receipt facts of the previous schema, beside the outcome histories. Migration 0081
+ * drops `coverer_kind`, so the records carry both of its values: a withdrawn `Substitute` record
+ * and a current `Assistant` record on one absence, and a current `Substitute` record on another.
+ * Both absences belong to dated commitments of one confirmed proposal, as every live coverage
+ * record does. The receipt is a successful pre-cutover `recordOutcome` answer that names the
+ * retired label.
+ */
+const previousServiceSeed = `
+INSERT INTO public.person_profiles (person_id, first_name, last_name) VALUES
+  ('upgrade-absent', 'Anna', 'Absent'),
+  ('upgrade-cover-one', 'Cora', 'One'),
+  ('upgrade-cover-two', 'Cora', 'Two');
+INSERT INTO public.schools_directory_schools (school_id, name, contact_person, email, phone, language, active, revision)
+  OVERRIDING SYSTEM VALUE VALUES (9701, 'Upgrade school', 'Kontakt', 'school@example.invalid', 'synthetic', 'Norwegian', true, 0);
+INSERT INTO public.schools_directory_departments (school_id, department_id, revision)
+  VALUES (9701, 'upgrade-department', 0);
+INSERT INTO public.school_service_proposals (
+  proposal_id, department_id, semester_id, status, revision, created_at, created_by_person_id,
+  confirmed_at, confirmed_by_person_id, demand_snapshot, assignment_snapshot, exception_snapshot
+) VALUES (
+  '${serviceId("proposal", "a")}', 'upgrade-department', 'upgrade-semester', 'Confirmed', 1,
+  '2026-02-10T10:00:00.000Z', 'upgrade-first-decider', '2026-02-11T10:00:00.000Z',
+  'upgrade-first-decider',
+  '[{"schoolId":9701,"day":"Monday","block":"1","requiredVolunteers":1}]'::jsonb,
+  '[{"personId":"upgrade-absent","schoolId":9701,"day":"Monday","block":"1"}]'::jsonb,
+  '[]'::jsonb
+);
+INSERT INTO public.school_service_commitments (
+  commitment_id, proposal_id, department_id, semester_id, school_id, school_name, day, block,
+  service_date, start_time, end_time, required_volunteers, assignment_snapshot, created_at,
+  created_by_person_id
+) VALUES
+  ('${serviceId("commitment", "7")}', '${serviceId("proposal", "a")}', 'upgrade-department',
+   'upgrade-semester', 9701, 'Upgrade school', 'Monday', '1', '2026-03-02', '15:00', '17:00', 1,
+   '[{"personId":"upgrade-absent","schoolId":9701,"day":"Monday","block":"1"}]'::jsonb,
+   '2026-02-12T10:00:00.000Z', 'upgrade-first-decider'),
+  ('${serviceId("commitment", "8")}', '${serviceId("proposal", "a")}', 'upgrade-department',
+   'upgrade-semester', 9701, 'Upgrade school', 'Monday', '1', '2026-03-09', '15:00', '17:00', 1,
+   '[{"personId":"upgrade-absent","schoolId":9701,"day":"Monday","block":"1"}]'::jsonb,
+   '2026-02-12T10:00:00.000Z', 'upgrade-first-decider');
+INSERT INTO public.school_service_absences (
+  absence_id, proposal_id, department_id, semester_id, person_id, school_id, day, block,
+  service_date, reporter_person_id, reported_at, commitment_id
+) VALUES
+  ('${serviceId("absence", "b")}', '${serviceId("proposal", "a")}', 'upgrade-department', 'upgrade-semester',
+   'upgrade-absent', 9701, 'Monday', '1', '2026-03-02', 'upgrade-absent', '2026-03-01T08:00:00.000Z',
+   '${serviceId("commitment", "7")}'),
+  ('${serviceId("absence", "c")}', '${serviceId("proposal", "a")}', 'upgrade-department', 'upgrade-semester',
+   'upgrade-absent', 9701, 'Monday', '1', '2026-03-09', 'upgrade-absent', '2026-03-08T08:00:00.000Z',
+   '${serviceId("commitment", "8")}');
+INSERT INTO public.school_service_coverage_records (
+  coverage_id, absence_id, covering_person_id, coverer_kind, recorded_by_person_id, recorded_at
+) VALUES
+  ('${serviceId("coverage", "d")}', '${serviceId("absence", "b")}', 'upgrade-cover-one', 'Substitute',
+   'upgrade-cover-one', '2026-03-01T09:00:00.000Z');
+UPDATE public.school_service_coverage_records
+  SET withdrawn_by_person_id = 'upgrade-first-decider', withdrawn_at = '2026-03-01T10:00:00.000Z'
+  WHERE coverage_id = '${serviceId("coverage", "d")}';
+INSERT INTO public.school_service_coverage_records (
+  coverage_id, absence_id, covering_person_id, coverer_kind, recorded_by_person_id, recorded_at
+) VALUES
+  ('${serviceId("coverage", "e")}', '${serviceId("absence", "b")}', 'upgrade-cover-two', 'Assistant',
+   'upgrade-cover-two', '2026-03-01T11:00:00.000Z'),
+  ('${serviceId("coverage", "f")}', '${serviceId("absence", "c")}', 'upgrade-cover-one', 'Substitute',
+   'upgrade-cover-one', '2026-03-08T09:00:00.000Z');
+INSERT INTO public.native_http_idempotency_receipts (
+  identity_sha256, request_sha256, operation_id, state, status, media_type, body_bytes,
+  headers_json, committed_at, full_expires_at
+) VALUES (
+  '${"1".repeat(64)}', '${"2".repeat(64)}', 'admissionOutcomes.recordOutcome', 'Complete', 200,
+  'application/json',
+  convert_to('{"applicationId":"substitute-current","outcome":"Substitute","revision":1}', 'UTF8'),
+  '{"content-type":"application/json","etag":"\\"previous\\""}'::jsonb,
+  '2026-03-01T10:00:00.000Z', '2026-03-02T10:00:00.000Z'
+);
+`;
+
+const readCoverage = `SELECT coverage_id, absence_id, covering_person_id, recorded_by_person_id,
+  to_char(recorded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS recorded_at,
+  withdrawn_by_person_id,
+  to_char(withdrawn_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS withdrawn_at
+  FROM public.school_service_coverage_records ORDER BY coverage_id COLLATE "C"`;
+
+const readCovererKindColumns = `SELECT count(*)::int AS total FROM information_schema.columns
+  WHERE table_schema = 'public' AND table_name = 'school_service_coverage_records'
+    AND column_name = 'coverer_kind'`;
+
+/** The whole receipt row, with its body as text, so that any change to it shows. */
+const readReceipts = `SELECT identity_sha256, operation_id, state, status, media_type,
+  convert_from(body_bytes, 'UTF8') AS body, headers_json::text AS headers,
+  to_char(committed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS committed_at
+  FROM public.native_http_idempotency_receipts ORDER BY identity_sha256 COLLATE "C"`;
+
+interface CoverageRow extends QueryResultRow {
+  readonly coverage_id: string;
+  readonly absence_id: string;
+  readonly covering_person_id: string;
+  readonly recorded_by_person_id: string;
+  readonly recorded_at: string;
+  readonly withdrawn_by_person_id: string | null;
+  readonly withdrawn_at: string | null;
+}
+
+interface ReceiptRow extends QueryResultRow {
+  readonly identity_sha256: string;
+  readonly operation_id: string;
+  readonly state: string;
+  readonly status: number;
+  readonly media_type: string;
+  readonly body: string;
+  readonly headers: string;
+  readonly committed_at: string;
+}
+
+/** The column values of one row in select order, so that two reads of a row compare by value. */
+const rowText = (row: QueryResultRow) => Object.values(row).join("\u001f");
+
 /**
  * Observers that stay in the database: PGlite's socket server closes a connection that reports
  * an error, so a statement runs inside a function that answers whether it was accepted or the
@@ -983,6 +1103,7 @@ const attemptStatement = (pool: Pool, statement: string) =>
 const upgrade = (pool: Pool) =>
   Effect.gen(function* () {
     yield* pgQuery(pool, upgradeSeed);
+    yield* pgQuery(pool, previousServiceSeed);
     yield* pgQuery(pool, observers);
 
     const before = yield* select<HistoryRow>(pool, readHistory);
@@ -997,6 +1118,15 @@ const upgrade = (pool: Pool) =>
       "SELECT public.outcome_policy_outbox_rows() AS total",
     );
 
+    const kindsBefore = yield* select<{ readonly kind: string; readonly total: number }>(
+      pool,
+      `SELECT coverer_kind AS kind, count(*)::int AS total
+        FROM public.school_service_coverage_records GROUP BY coverer_kind ORDER BY coverer_kind COLLATE "C"`,
+    );
+
+    const coverageBefore = yield* select<CoverageRow>(pool, readCoverage);
+    const receiptsBefore = yield* select<ReceiptRow>(pool, readReceipts);
+
     for (const migration of laterMigrations) yield* pgQuery(pool, yield* readSql(migration));
 
     const after = yield* select<HistoryRow>(pool, readHistory);
@@ -1009,6 +1139,18 @@ const upgrade = (pool: Pool) =>
     const mailAfter = yield* select<{ readonly total: number }>(
       pool,
       "SELECT public.outcome_policy_outbox_rows() AS total",
+    );
+
+    const coverageAfter = yield* select<CoverageRow>(pool, readCoverage);
+    const receiptsAfter = yield* select<ReceiptRow>(pool, readReceipts);
+
+    const kindColumns = yield* select<{ readonly total: number }>(pool, readCovererKindColumns);
+
+    const currentCoverage = yield* select<{ readonly absence: string; readonly total: number }>(
+      pool,
+      `SELECT absence_id AS absence, count(*)::int AS total
+        FROM public.school_service_coverage_records WHERE withdrawn_at IS NULL
+        GROUP BY absence_id ORDER BY absence_id COLLATE "C"`,
     );
 
     const provenance = yield* select<{
@@ -1094,6 +1236,25 @@ const upgrade = (pool: Pool) =>
       upgraded,
       provenanceLabels: labels,
       announcements: announcements[0]?.total ?? 0,
+      coverage: {
+        kindsBefore,
+        rows: coverageAfter.length,
+        rewritten: coverageBefore.filter(
+          (row, index) => rowText(row) !== rowText(coverageAfter[index] ?? {}),
+        ).length,
+        kindColumnAfter: kindColumns[0]?.total,
+        currentPerAbsence: currentCoverage,
+      },
+      receipts: {
+        rows: receiptsAfter.length,
+        unchanged:
+          receiptsBefore.length === receiptsAfter.length &&
+          receiptsBefore.every(
+            (row, index) => rowText(row) === rowText(receiptsAfter[index] ?? {}),
+          ),
+        bodies: receiptsAfter.map((row) => row.body),
+        operations: receiptsAfter.map((row) => row.operation_id),
+      },
       directInsert: {
         control,
         substituteRejected: retired?.startsWith("rejected ") === true,
@@ -1141,6 +1302,31 @@ const upgradeEvidence = {
     { provenance: "SemanticUpgrade", total: 2 },
   ],
   announcements: 0,
+  coverage: {
+    // Both values of the dropped discriminator existed before the upgrade.
+    kindsBefore: [
+      { kind: "Assistant", total: 1 },
+      { kind: "Substitute", total: 2 },
+    ],
+    // Every record keeps its id, absence, covering person, recorder, instants and withdrawal.
+    rows: 3,
+    rewritten: 0,
+    kindColumnAfter: 0,
+    // The one-current-record-per-absence rule survives: absence b has its Assistant record,
+    // absence c its Substitute-era record.
+    currentPerAbsence: [
+      { absence: serviceId("absence", "b"), total: 1 },
+      { absence: serviceId("absence", "c"), total: 1 },
+    ],
+  },
+  // The pre-cutover receipt keeps its operation id and its stale three-value body byte for byte.
+  // The cutover replaces the operation, so the old identity can not replay into the new contract.
+  receipts: {
+    rows: 1,
+    unchanged: true,
+    bodies: ['{"applicationId":"substitute-current","outcome":"Substitute","revision":1}'],
+    operations: ["admissionOutcomes.recordOutcome"],
+  },
   directInsert: {
     control: "accepted 1",
     substituteRejected: true,
