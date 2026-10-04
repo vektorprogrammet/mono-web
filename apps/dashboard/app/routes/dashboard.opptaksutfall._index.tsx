@@ -157,7 +157,8 @@ export async function action({ request }: Route.ActionArgs) {
   const commandId = formText(form, "commandId");
   const intent: Intent = formText(form, "intent") === "announce" ? "announce" : "decide";
 
-  const send =
+  // Both intents are one dispatch: a decoded request bound to its operation. The result is not read.
+  const send: Option.Option<() => Promise<void>> =
     intent === "announce"
       ? Option.map(
           Schema.decodeUnknownOption(AnnounceOutcomeRequest)({
@@ -165,7 +166,9 @@ export async function action({ request }: Route.ActionArgs) {
             headers: { "if-match": form.get("etag"), "idempotency-key": form.get("commandId") },
             payload: {},
           }),
-          (request) => () => client.admissionOutcomes.announceOutcome(request),
+          (request) => async () => {
+            await client.admissionOutcomes.announceOutcome(request);
+          },
         )
       : Option.map(
           Schema.decodeUnknownOption(DecideOutcomeRequest)({
@@ -173,7 +176,9 @@ export async function action({ request }: Route.ActionArgs) {
             headers: { "if-match": form.get("etag"), "idempotency-key": form.get("commandId") },
             payload: { outcome: form.get("outcome") },
           }),
-          (request) => () => client.admissionOutcomes.decideOutcome(request),
+          (request) => async () => {
+            await client.admissionOutcomes.decideOutcome(request);
+          },
         );
 
   if (Option.isNone(send))
