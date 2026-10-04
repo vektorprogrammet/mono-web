@@ -284,16 +284,16 @@ UI accessibility and usability programs remain separate from this functional gat
 This scope does not require removal of existing accessibility checks.
 Screenshots do not create pixel-baseline obligations for the golden suite.
 
-### Continuous substitute coverage
+### Continuous assistant coverage
 
-The existing golden command continues through [substitute coverage](system.md#substitute-coverage).
+The existing golden command continues through [dated assistant coverage](system.md#substitute-coverage).
 The [source-owned checkpoints](../tools/e2e/golden-school-service.mjs) keep the original journey and add the absence-to-coverage sequence.
-A substitute is an admission outcome. People agree on cover outside the system. The system records the absence and the person who covered it.
-The fixture adds two applicants without an outcome and one department member. It creates no outcome, absence, or coverage record.
+Assistants agree on cover outside the system. The system records the absence and the person who covered it; it grants no standing Substitute outcome or role.
+The fixture adds two applicants with completed Ja interviews but no announced outcome, and one department member. It creates no outcome, absence, or coverage record.
 
-Before the Substitute outcome, the absent volunteer cannot name the applicant.
-The manager records the outcome of both applicants in the browser. The server refuses a stale outcome version.
-A department member reads the on-call contacts and records no outcome. A substitute cannot record cover for the absence of another person.
+Before the coordinator announces the interview-derived Admitted outcomes, the absent volunteer cannot name either applicant as a coverer.
+The coordinator announces both outcomes in the browser without a placement prerequisite or a human decider. The server refuses a stale outcome version.
+An ordinary department member gets neither announcement authority nor an on-call contact list. An absent assistant cannot cover their own absence.
 The volunteer records the coverage in the browser. The coordinator replaces the record and then withdraws it in the browser.
 The volunteer records the coverage again. The completion derives attendance from that record, and the absence closes Covered with it.
 
