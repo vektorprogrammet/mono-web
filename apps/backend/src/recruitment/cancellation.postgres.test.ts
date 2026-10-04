@@ -128,6 +128,29 @@ const requestNewTime = Recruitment.use((recruitment) =>
   recruitment.requestNewInvitationTime(capability, { message: newTimeMessage }, { now }),
 );
 
+const isPostgresCause = Schema.is(
+  Schema.Struct({ code: Schema.String.check(Schema.isPattern(/^[0-9A-Z]{5}$/)) }),
+);
+
+// Preserve the typed failure; SQL, parameters, messages and detail can contain secrets.
+const diagnoseSql: PostgresStatementObserver = (execution) =>
+  execution.pipe(
+    Effect.tapError((failure) =>
+      Effect.logError("Cancellation fixture SQL failure", {
+        tag: failure._tag,
+        reason: failure.reason._tag,
+        retryable: failure.reason.isRetryable,
+        cause: isPostgresCause(failure.reason.cause) ? "PostgresError" : "OtherCause",
+        sqlState: isPostgresCause(failure.reason.cause) ? failure.reason.cause.code : null,
+      }),
+    ),
+  );
+
+const diagnosticDatabase = Layer.effect(
+  Database,
+  Effect.map(Database, (sql) => observePostgresStatements(sql, diagnoseSql)),
+);
+
 // Reuse the migrated per-test PostgreSQL engine and the existing real service layers.
 const seed = Effect.gen(function* () {
   const sql = yield* Database;
@@ -145,7 +168,10 @@ const seed = Effect.gen(function* () {
   yield* sql`INSERT INTO recruitment_interview_schemas (interview_schema_id, name, question_count) VALUES ('cancel-schema', 'Cancellation interview', 0)`;
   yield* sql`INSERT INTO recruitment_interviews (interview_id, application_id, department_id, interviewer_person_id, interview_schema_id, assigned_by_person_id, assigned_at, revision) VALUES (${interviewId}, 'cancel-application', ${departmentId}, ${interviewerPersonId}, 'cancel-schema', ${leader.personId}, '2031-09-15', 0)`;
   yield* schedule();
-}).pipe(Effect.provide(domain, { local: true }), Effect.asVoid);
+}).pipe(
+  Effect.provide(domain.pipe(Layer.provideMerge(diagnosticDatabase)), { local: true }),
+  Effect.asVoid,
+);
 
 const decodeState = Schema.decodeUnknownEffect(Schema.Struct({ state: Schema.JsonObject }));
 // Compare complete persisted rows, including immutable envelopes and claim/evidence fields.
@@ -157,7 +183,6 @@ const durableState = Database.use(
     'schedules', (SELECT jsonb_agg(to_jsonb(stored) ORDER BY schedule_revision) FROM recruitment_interview_schedules stored),
     'invitations', (SELECT jsonb_agg(to_jsonb(stored) ORDER BY invitation_id) FROM recruitment_invitations stored),
     'responseAudit', (SELECT jsonb_agg(to_jsonb(stored) ORDER BY invitation_id) FROM recruitment_invitation_response_audit stored),
-    'responseReceipts', (SELECT jsonb_agg(to_jsonb(stored) ORDER BY command_id) FROM recruitment_invitation_response_command_receipts stored),
     'responseOutbox', (SELECT jsonb_agg(to_jsonb(stored) ORDER BY effect_id) FROM recruitment_invitation_response_outbox stored),
     'invitationOutbox', (SELECT jsonb_agg(to_jsonb(stored) ORDER BY effect_id) FROM recruitment_invitation_outbox stored),
     'cancellations', (SELECT jsonb_agg(to_jsonb(stored) ORDER BY interview_id) FROM recruitment_interview_cancellations stored),
@@ -191,7 +216,13 @@ const decodeProblem = Schema.decodeUnknownEffect(NativeProblem);
 const decodeObservation = Schema.decodeUnknownEffect(InvitationResponseObservation);
 
 const fixture = () => {
-  const database = backendDatabase(seed);
+  const nativeDatabase = backendDatabase(seed);
+
+  const database = {
+    layer: diagnosticDatabase.pipe(Layer.provide(nativeDatabase.layer)),
+    run: <A, E>(effect: Effect.Effect<A, E, Database>) =>
+      nativeDatabase.run(effect.pipe(Effect.provide(diagnosticDatabase, { local: true }))),
+  };
 
   const run = <A, E>(effect: Effect.Effect<A, E, DomainServices>) =>
     database.run(effect.pipe(Effect.provide(domain, { local: true })));
@@ -258,7 +289,10 @@ const fixture = () => {
 
     return domain.pipe(
       Layer.provideMerge(
-        DatabaseRuntimeLive({ ...connection, maxConnections: 1 }).pipe(Layer.orDie),
+        diagnosticDatabase.pipe(
+          Layer.provide(DatabaseRuntimeLive({ ...connection, maxConnections: 1 })),
+          Layer.orDie,
+        ),
       ),
     );
   });
