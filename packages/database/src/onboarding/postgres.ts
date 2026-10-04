@@ -1,12 +1,25 @@
-import { DateTime, Effect } from "effect";
+import { DateTime, Effect, Predicate, Schema, Struct } from "effect";
+import { SqlSchema } from "effect/unstable/sql";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database } from "../service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
+import { admissionStanding } from "@vektorprogrammet/domain/admissions";
+import { Instant } from "@vektorprogrammet/domain/time";
+import { readApplicationAdmissionEvidenceWithSql } from "../admissions/evidence.js";
+import { ApplicantIdSchema } from "@vektorprogrammet/domain/application";
 import {
   OnboardingFailure,
+  OnboardingNotAdmitted,
+  OnboardingItem,
   type AccountProvisionInput,
   type OnboardingCommand,
 } from "@vektorprogrammet/domain/onboarding";
+
+const decodeInstant = Schema.decodeUnknownEffect(Instant);
+
+const decodeOnboardingApplication = Schema.decodeUnknownEffect(
+  Schema.Struct({ applicantId: ApplicantIdSchema }),
+);
 
 const fail = (code: OnboardingFailure["code"], status: OnboardingFailure["status"] = 409) =>
   Effect.fail(new OnboardingFailure({ code, status }));
@@ -20,7 +33,7 @@ export const onboardingApplication = (applicationId: string, departmentId: Depar
 
       if (!rows[0]) return yield* fail("resource.not-found", 404);
 
-      return rows[0];
+      return yield* decodeOnboardingApplication(rows[0]).pipe(Effect.orDie);
     }),
   );
 
@@ -30,25 +43,77 @@ export const lockOnboardingApplicant = (applicantId: string) =>
       sql`SELECT applicant_id FROM public.admission_applicants WHERE applicant_id=${applicantId} FOR UPDATE`,
   );
 
-export const readOnboardingBoard = (departmentId: DepartmentId) =>
+const boardItems = SqlSchema.findAll({
+  Request: DepartmentId,
+  Result: Schema.Struct(Struct.omit(OnboardingItem.fields, ["canIssue"])),
+  execute: (departmentId) =>
+    Database.use(
+      (sql) => sql`
+    SELECT a.application_id AS "applicationId", p.first_name AS "firstName",
+      p.last_name AS "lastName", i.invitation_id AS "invitationId",
+      CASE WHEN l.applicant_id IS NOT NULL THEN 'Linked'
+        WHEN i.state='Open' AND i.expires_at<=clock_timestamp() THEN 'Expired'
+        ELSE COALESCE(i.state,'Absent') END AS state,
+      COALESCE(d.state,'Absent') AS delivery,
+      to_char(i.expires_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "expiresAt"
+    FROM public.admission_applications a
+    JOIN public.admission_applicants p USING(applicant_id)
+    LEFT JOIN public.applicant_account_links l USING(applicant_id)
+    LEFT JOIN LATERAL (SELECT * FROM public.applicant_account_invitations
+      WHERE application_id=a.application_id ORDER BY generation DESC LIMIT 1) i ON true
+    LEFT JOIN public.applicant_account_delivery d ON d.invitation_id=i.invitation_id
+    WHERE a.department_id=${departmentId}
+    ORDER BY a.submitted_at DESC,a.application_id
+  `,
+    ),
+});
+
+export const readOnboardingBoard = (
+  departmentId: DepartmentId,
+  currentTime: Effect.Effect<Instant> = DateTime.now,
+) =>
   Database.use((sql) =>
     Effect.gen(function* () {
-      const items =
-        yield* sql`SELECT a.application_id AS "applicationId",p.first_name AS "firstName",p.last_name AS "lastName",i.invitation_id AS "invitationId",CASE WHEN l.applicant_id IS NOT NULL THEN 'Linked' WHEN i.state='Open' AND i.expires_at<=transaction_timestamp() THEN 'Expired' ELSE COALESCE(i.state,'Absent') END AS state,COALESCE(d.state,'Absent') AS delivery,to_char(i.expires_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "expiresAt" FROM public.admission_applications a JOIN public.admission_applicants p USING(applicant_id) LEFT JOIN public.applicant_account_links l USING(applicant_id) LEFT JOIN LATERAL(SELECT * FROM public.applicant_account_invitations WHERE application_id=a.application_id ORDER BY generation DESC LIMIT 1)i ON true LEFT JOIN public.applicant_account_delivery d ON d.invitation_id=i.invitation_id WHERE a.department_id=${departmentId} ORDER BY a.submitted_at DESC,a.application_id`;
+      const rows = yield* boardItems(departmentId).pipe(Effect.catchTag("SchemaError", Effect.die));
 
-      return { departmentId, items };
+      const evidence = yield* Effect.forEach(rows, (item) =>
+        readApplicationAdmissionEvidenceWithSql(sql, item.applicationId, departmentId, {
+          lock: false,
+        }).pipe(
+          Effect.catchTags({
+            SchemaError: Effect.die,
+            AdmissionOutcomeFailure: () => fail("resource.not-found", 404),
+          }),
+        ),
+      );
+
+      const at = yield* currentTime;
+
+      return {
+        departmentId,
+        items: rows.map((item, index) => ({
+          ...item,
+          canIssue:
+            evidence[index]!.linkedPersonId === null &&
+            admissionStanding(evidence[index]!, at) === "Admitted",
+        })),
+      };
     }),
   );
 
-export const commandOnboarding = (input: {
-  departmentId: DepartmentId;
-  command: OnboardingCommand;
-  actor: PersonId;
-  now: string;
-  invitationId: string;
-  token: string;
-  digest: string;
-}) =>
+/** Invitation, audit, secret, and HTTP capsule commit together in the caller transaction. */
+export const commandOnboarding = <E = never, R = never>(
+  input: {
+    departmentId: DepartmentId;
+    command: OnboardingCommand;
+    actor: PersonId;
+    now: string | Effect.Effect<Instant>;
+    invitationId: string;
+    token: string;
+    digest: string;
+  },
+  checkPrecondition: Effect.Effect<void, E, R> = Effect.void,
+) =>
   Database.use((sql) =>
     Effect.gen(function* () {
       const { applicantId } = yield* onboardingApplication(
@@ -56,7 +121,26 @@ export const commandOnboarding = (input: {
         input.departmentId,
       );
 
+      // Recruitment corrections share applicant custody before the decision fence.
       yield* lockOnboardingApplicant(applicantId);
+
+      const evidence = yield* readApplicationAdmissionEvidenceWithSql(
+        sql,
+        input.command.applicationId,
+        input.departmentId,
+        { lock: true },
+      ).pipe(
+        Effect.catchTags({
+          SchemaError: Effect.die,
+          AdmissionOutcomeFailure: () => fail("resource.not-found", 404),
+        }),
+      );
+
+      const at = yield* Predicate.isString(input.now)
+        ? decodeInstant(input.now).pipe(Effect.orDie)
+        : input.now;
+
+      const now = DateTime.formatIso(at);
 
       if (input.command.action === "RetryDelivery") return;
 
@@ -65,24 +149,27 @@ export const commandOnboarding = (input: {
 
       if (linked.length) return yield* fail("onboarding.already-linked");
 
+      if (input.command.action === "Issue" && admissionStanding(evidence, at) !== "Admitted")
+        return yield* new OnboardingNotAdmitted({ applicationId: input.command.applicationId });
+
+      yield* checkPrecondition;
+
       const old = yield* sql<{
         invitationId: string;
       }>`UPDATE public.applicant_account_invitations SET state='Revoked' WHERE applicant_id=${applicantId} AND state='Open' AND (${input.command.action}='Issue' OR application_id=${input.command.applicationId}) RETURNING invitation_id AS "invitationId"`;
 
       for (const row of old) {
         yield* sql`UPDATE public.applicant_account_delivery SET state='Cancelled',secret=NULL,envelope=NULL,claim_id=NULL,claimed_at=NULL WHERE invitation_id=${row.invitationId} AND state<>'Delivered'`;
-        yield* sql`INSERT INTO public.applicant_account_audit VALUES(${input.invitationId + ":revoke:" + row.invitationId},${applicantId},${row.invitationId},${input.actor},'Revoked',${input.now})`;
+        yield* sql`INSERT INTO public.applicant_account_audit VALUES(${input.invitationId + ":revoke:" + row.invitationId},${applicantId},${row.invitationId},${input.actor},'Revoked',${now})`;
       }
 
       if (input.command.action === "Revoke") return;
 
-      const expiresAt = DateTime.formatIso(
-        DateTime.add(DateTime.makeUnsafe(input.now), { days: 1 }),
-      );
+      const expiresAt = DateTime.formatIso(DateTime.add(at, { days: 1 }));
 
-      yield* sql`INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES(${input.invitationId},${input.command.applicationId},${applicantId},${input.digest},${expiresAt},'Open',${input.actor},${input.now})`;
+      yield* sql`INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES(${input.invitationId},${input.command.applicationId},${applicantId},${input.digest},${expiresAt},'Open',${input.actor},${now})`;
       yield* sql`INSERT INTO public.applicant_account_delivery(invitation_id,state,secret,recipient) SELECT ${input.invitationId},'Pending',${input.token},email FROM public.admission_applicants WHERE applicant_id=${applicantId}`;
-      yield* sql`INSERT INTO public.applicant_account_audit VALUES(${input.invitationId + ":issue"},${applicantId},${input.invitationId},${input.actor},'Issued',${input.now})`;
+      yield* sql`INSERT INTO public.applicant_account_audit VALUES(${input.invitationId + ":issue"},${applicantId},${input.invitationId},${input.actor},'Issued',${now})`;
     }),
   );
 

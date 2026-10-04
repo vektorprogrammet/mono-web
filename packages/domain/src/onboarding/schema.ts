@@ -26,6 +26,7 @@ export const OnboardingItem = Schema.Struct({
   applicationId: PublicApplicationIdSchema,
   firstName: Schema.String,
   lastName: Schema.String,
+  canIssue: Schema.Boolean,
   invitationId: Schema.NullOr(Schema.String),
   state: Schema.Literals(["Absent", "Open", "Revoked", "Claimed", "Expired", "Linked"]),
   delivery: Schema.Literals(["Absent", "Pending", "Claimed", "Delivered", "Cancelled"]),

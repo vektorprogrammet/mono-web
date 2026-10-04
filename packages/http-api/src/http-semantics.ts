@@ -337,6 +337,12 @@ export const NativeProblemRegistry = {
     detail: "This applicant already has an immutable account association.",
     status: 409,
   },
+  "onboarding.not-admitted": {
+    type: "urn:vektorprogrammet:problem:v0.2:onboarding.not-admitted",
+    title: "Applicant is not currently admitted",
+    detail: "Current admitted standing in the application period and semester is required.",
+    status: 409,
+  },
   "placement.overlap": {
     type: "urn:vektorprogrammet:problem:v0.2:placement.overlap",
     title: "Duplicate placement",

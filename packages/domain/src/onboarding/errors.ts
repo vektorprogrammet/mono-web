@@ -1,4 +1,5 @@
-import { Data } from "effect";
+import { Data, Schema } from "effect";
+import { PublicApplicationIdSchema } from "../application/schema.js";
 
 export class OnboardingFailure extends Data.TaggedError("OnboardingFailure")<{
   readonly code:
@@ -8,3 +9,9 @@ export class OnboardingFailure extends Data.TaggedError("OnboardingFailure")<{
     | "resource.not-found";
   readonly status: 400 | 404 | 409;
 }> {}
+
+/** No invitation may replace custody without current admitted standing. */
+export class OnboardingNotAdmitted extends Schema.TaggedError<OnboardingNotAdmitted>()(
+  "OnboardingNotAdmitted",
+  { applicationId: PublicApplicationIdSchema },
+) {}

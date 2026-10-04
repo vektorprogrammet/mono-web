@@ -12,14 +12,13 @@ import {
   OnboardingClaim,
   OnboardingCommand,
   type OnboardingFailure,
+  type OnboardingNotAdmitted,
   OnboardingScope,
 } from "@vektorprogrammet/domain/onboarding";
 import {
   checkOnboardingClaim,
   claimOnboarding,
   commandOnboarding,
-  lockOnboardingApplicant,
-  onboardingApplication,
   readOnboardingBoard,
 } from "@vektorprogrammet/database/onboarding";
 import { hashOnboardingPassword, provisionOnboardingAccount } from "@vektorprogrammet/database";
@@ -42,6 +41,7 @@ import {
   Problem,
 } from "@vektorprogrammet/http-api/http-semantics";
 import { Crypto, flow, Predicate, Effect, Option, Schema } from "effect";
+import { Instant } from "@vektorprogrammet/domain/time";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
@@ -107,6 +107,7 @@ const sqlProblem = (cause: SqlError | OrganizationPersistenceError) =>
 const onboardingProblems = (presentation: CredentialPresentation) =>
   problemMapper<
     | OnboardingFailure
+    | OnboardingNotAdmitted
     | UnauthenticatedActor
     | IdentityEngineError
     | OrganizationDecodeError
@@ -114,6 +115,7 @@ const onboardingProblems = (presentation: CredentialPresentation) =>
     | SqlError
   >()({
     OnboardingFailure: ({ code }) => Problem.make(code),
+    OnboardingNotAdmitted: () => Problem.make("onboarding.not-admitted"),
     UnauthenticatedActor: () => Problem.unauthenticated(presentation),
     IdentityEngineError: () => Problem.make("internal.error"),
     OrganizationDecodeError: () => Problem.make("internal.error"),
@@ -171,8 +173,8 @@ const scopeOf = (request: Request) => {
 };
 
 /**
- * Whoever holds `admissions.outcomes` in the department invites admitted applicants, then the
- * declared AccessSpec, at one transaction instant.
+ * Onboarding retains generic admissions.outcomes reach plus its own onboarding.manage
+ * AccessSpec. Outcome-decide delegation policy does not interpret onboarding authority.
  */
 const authorize = (
   request: Request,
@@ -236,6 +238,7 @@ export const OnboardingApiHandlers = (input: {
   delivery?: OnboardingDeliveryConfig;
 }) => {
   const now = currentInstant(input.now);
+  const freshInstant = now.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Instant)), Effect.orDie);
 
   const read = (request: Request) => {
     const presentation = personPresentation(request);
@@ -251,7 +254,7 @@ export const OnboardingApiHandlers = (input: {
             presentation,
             input.now,
           );
-          const board = yield* readOnboardingBoard(scope.departmentId);
+          const board = yield* readOnboardingBoard(scope.departmentId, freshInstant);
 
           return json(yield* boardOutput(resource(board)));
         }),
@@ -297,28 +300,34 @@ export const OnboardingApiHandlers = (input: {
               operationId: "onboarding.command",
             },
             execute: Effect.gen(function* () {
-              const app = yield* onboardingApplication(selected.applicationId, scope.departmentId);
-              yield* lockOnboardingApplicant(app.applicantId);
-              const current = resource(yield* readOnboardingBoard(scope.departmentId));
-              yield* requireCurrentETag(current.etag, ifMatch);
-              yield* commandOnboarding({
-                departmentId: scope.departmentId,
-                command: selected,
-                actor: auth.authority.personId,
-                now: auth.authorizationInstant,
-                invitationId: "onboarding-" + identity.identitySha256,
-                token,
-                digest,
-              });
+              yield* commandOnboarding(
+                {
+                  departmentId: scope.departmentId,
+                  command: selected,
+                  actor: auth.authority.personId,
+                  now: freshInstant,
+                  invitationId: "onboarding-" + identity.identitySha256,
+                  token,
+                  digest,
+                },
+                Effect.gen(function* () {
+                  const current = resource(
+                    yield* readOnboardingBoard(scope.departmentId, freshInstant),
+                  );
+
+                  yield* requireCurrentETag(current.etag, ifMatch);
+                }),
+              );
 
               const changed = yield* boardOutput(
-                resource(yield* readOnboardingBoard(scope.departmentId)),
+                resource(yield* readOnboardingBoard(scope.departmentId, freshInstant)),
               );
 
               return yield* Effect.promise(() => responseCapsule(json(changed, changed.etag)));
             }),
           };
         }),
+        { retry: "serialization-once" },
       ).pipe(onboardingProblems(presentation), commandReceiptProblems);
 
       const response = yield* commandOutcomeResponse(outcome);

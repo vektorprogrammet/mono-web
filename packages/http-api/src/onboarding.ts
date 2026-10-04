@@ -61,6 +61,7 @@ export const OnboardingProblem = problemUnion("OnboardingProblem", onboardingPro
 export const OnboardingCommandProblem = problemUnion("OnboardingCommandProblem", [
   ...onboardingProblems,
   "idempotency.unavailable",
+  "onboarding.not-admitted",
 ]);
 
 /**
