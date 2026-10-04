@@ -13,6 +13,8 @@ import {
   OnboardingCommand,
   type OnboardingFailure,
   type OnboardingNotAdmitted,
+  type OnboardingDeliveryNotRetryable,
+  type OnboardingDeliveryAdmission,
   OnboardingScope,
 } from "@vektorprogrammet/domain/onboarding";
 import {
@@ -40,7 +42,7 @@ import {
   nativeCookieChallenge,
   Problem,
 } from "@vektorprogrammet/http-api/http-semantics";
-import { Crypto, flow, Predicate, Effect, Option, Schema } from "effect";
+import { Crypto, flow, Predicate, Effect, Option, Ref, Schema } from "effect";
 import { Instant } from "@vektorprogrammet/domain/time";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
@@ -108,6 +110,7 @@ const onboardingProblems = (presentation: CredentialPresentation) =>
   problemMapper<
     | OnboardingFailure
     | OnboardingNotAdmitted
+    | OnboardingDeliveryNotRetryable
     | UnauthenticatedActor
     | IdentityEngineError
     | OrganizationDecodeError
@@ -116,6 +119,7 @@ const onboardingProblems = (presentation: CredentialPresentation) =>
   >()({
     OnboardingFailure: ({ code }) => Problem.make(code),
     OnboardingNotAdmitted: () => Problem.make("onboarding.not-admitted"),
+    OnboardingDeliveryNotRetryable: () => Problem.make("onboarding.delivery-not-retryable"),
     UnauthenticatedActor: () => Problem.unauthenticated(presentation),
     IdentityEngineError: () => Problem.make("internal.error"),
     OrganizationDecodeError: () => Problem.make("internal.error"),
@@ -276,6 +280,8 @@ export const OnboardingApiHandlers = (input: {
 
       const digest = yield* tokenDigest(token);
 
+      const deliveryAdmission = yield* Ref.make<OnboardingDeliveryAdmission | null>(null);
+
       const outcome = yield* executeNativeHttpCommandPostgres(
         Effect.gen(function* () {
           const auth = yield* authorize(
@@ -300,7 +306,7 @@ export const OnboardingApiHandlers = (input: {
               operationId: "onboarding.command",
             },
             execute: Effect.gen(function* () {
-              yield* commandOnboarding(
+              const admitted = yield* commandOnboarding(
                 {
                   departmentId: scope.departmentId,
                   command: selected,
@@ -311,6 +317,9 @@ export const OnboardingApiHandlers = (input: {
                   digest,
                 },
                 Effect.gen(function* () {
+                  if (selected.action === "RetryDelivery" && input.delivery === undefined)
+                    return yield* Problem.make("dependency.unavailable");
+
                   const current = resource(
                     yield* readOnboardingBoard(scope.departmentId, freshInstant),
                   );
@@ -318,6 +327,8 @@ export const OnboardingApiHandlers = (input: {
                   yield* requireCurrentETag(current.etag, ifMatch);
                 }),
               );
+
+              yield* Ref.set(deliveryAdmission, admitted);
 
               const changed = yield* boardOutput(
                 resource(yield* readOnboardingBoard(scope.departmentId, freshInstant)),
@@ -332,10 +343,29 @@ export const OnboardingApiHandlers = (input: {
 
       const response = yield* commandOutcomeResponse(outcome);
 
-      if (selected.action !== "Revoke")
-        yield* drainOnboardingDelivery(selected.applicationId, input.delivery).pipe(
-          Effect.catchTag("SchemaError", Effect.die),
-          onboardingProblems(presentation),
+      // A replay never starts or resumes delivery. The capsule already means committed admission.
+      const admitted = yield* Ref.get(deliveryAdmission);
+
+      if (
+        Predicate.isTagged(outcome, "Committed") &&
+        admitted !== null &&
+        input.delivery !== undefined
+      )
+        yield* drainOnboardingDelivery(
+          selected.applicationId,
+          input.delivery,
+          admitted.invitationId,
+        ).pipe(
+          Effect.catchTags({
+            SchemaError: () =>
+              Effect.logWarning(
+                "Committed onboarding delivery could not decode its stored envelope",
+              ),
+            SqlError: () =>
+              Effect.logWarning(
+                "Committed onboarding delivery attempt could not persist; explicit retry required",
+              ),
+          }),
         );
 
       return response;

@@ -343,6 +343,12 @@ export const NativeProblemRegistry = {
     detail: "Current admitted standing in the application period and semester is required.",
     status: 409,
   },
+  "onboarding.delivery-not-retryable": {
+    type: "urn:vektorprogrammet:problem:v0.2:onboarding.delivery-not-retryable",
+    title: "Invitation delivery cannot be retried",
+    detail: "An open unexpired invitation with pending or stale-claimed delivery is required.",
+    status: 409,
+  },
   "placement.overlap": {
     type: "urn:vektorprogrammet:problem:v0.2:placement.overlap",
     title: "Duplicate placement",

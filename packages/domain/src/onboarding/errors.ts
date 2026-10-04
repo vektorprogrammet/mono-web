@@ -15,3 +15,9 @@ export class OnboardingNotAdmitted extends Schema.TaggedError<OnboardingNotAdmit
   "OnboardingNotAdmitted",
   { applicationId: PublicApplicationIdSchema },
 ) {}
+
+/** The selected invitation has no currently retryable durable delivery. */
+export class OnboardingDeliveryNotRetryable extends Schema.TaggedError<OnboardingDeliveryNotRetryable>()(
+  "OnboardingDeliveryNotRetryable",
+  { applicationId: PublicApplicationIdSchema },
+) {}

@@ -62,6 +62,8 @@ export const OnboardingCommandProblem = problemUnion("OnboardingCommandProblem",
   ...onboardingProblems,
   "idempotency.unavailable",
   "onboarding.not-admitted",
+  "onboarding.delivery-not-retryable",
+  "dependency.unavailable",
 ]);
 
 /**

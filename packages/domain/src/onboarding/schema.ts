@@ -43,6 +43,11 @@ export const OnboardingClaimResult = Schema.Struct({
   departmentId: DepartmentId,
 });
 
+/** Durable acceptance identifies only the invitation this command may attempt after commit. */
+export const OnboardingDeliveryAdmission = Schema.Struct({ invitationId: Schema.NonEmptyString });
+
+export type OnboardingDeliveryAdmission = typeof OnboardingDeliveryAdmission.Type;
+
 export type OnboardingCommand = typeof OnboardingCommand.Type;
 
 export type AccountProvisionInput = {

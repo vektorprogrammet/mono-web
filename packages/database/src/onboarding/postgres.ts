@@ -1,25 +1,27 @@
-import { DateTime, Effect, Predicate, Schema, Struct } from "effect";
+import { DateTime, Effect, Schema, Struct } from "effect";
 import { SqlSchema } from "effect/unstable/sql";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database } from "../service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { admissionStanding } from "@vektorprogrammet/domain/admissions";
-import { Instant } from "@vektorprogrammet/domain/time";
+import type { Instant } from "@vektorprogrammet/domain/time";
 import { readApplicationAdmissionEvidenceWithSql } from "../admissions/evidence.js";
 import { ApplicantIdSchema } from "@vektorprogrammet/domain/application";
 import {
   OnboardingFailure,
   OnboardingNotAdmitted,
+  OnboardingDeliveryNotRetryable,
   OnboardingItem,
+  OnboardingDeliveryAdmission,
   type AccountProvisionInput,
   type OnboardingCommand,
 } from "@vektorprogrammet/domain/onboarding";
 
-const decodeInstant = Schema.decodeUnknownEffect(Instant);
-
 const decodeOnboardingApplication = Schema.decodeUnknownEffect(
   Schema.Struct({ applicantId: ApplicantIdSchema }),
 );
+
+const decodeRetryAdmission = Schema.decodeUnknownEffect(OnboardingDeliveryAdmission);
 
 const fail = (code: OnboardingFailure["code"], status: OnboardingFailure["status"] = 409) =>
   Effect.fail(new OnboardingFailure({ code, status }));
@@ -101,13 +103,18 @@ export const readOnboardingBoard = (
     }),
   );
 
-/** Invitation, audit, secret, and HTTP capsule commit together in the caller transaction. */
+/**
+ * Invitation custody and retry admission commit with the HTTP capsule in the caller transaction.
+ * A retry resets only eligible work to Pending, retaining its immutable envelope and secret.
+ * The returned invitation ID permits one postcommit attempt, not external-completion acknowledgement.
+ */
 export const commandOnboarding = <E = never, R = never>(
   input: {
     departmentId: DepartmentId;
     command: OnboardingCommand;
     actor: PersonId;
-    now: string | Effect.Effect<Instant>;
+    /** Read only after applicant custody and the shared decision fence, on every execution. */
+    now: Effect.Effect<Instant>;
     invitationId: string;
     token: string;
     digest: string;
@@ -136,13 +143,33 @@ export const commandOnboarding = <E = never, R = never>(
         }),
       );
 
-      const at = yield* Predicate.isString(input.now)
-        ? decodeInstant(input.now).pipe(Effect.orDie)
-        : input.now;
+      const at = yield* input.now;
 
       const now = DateTime.formatIso(at);
 
-      if (input.command.action === "RetryDelivery") return;
+      if (input.command.action === "RetryDelivery") {
+        yield* checkPrecondition;
+
+        const accepted = yield* sql`
+          UPDATE public.applicant_account_delivery d
+          SET state='Pending',claim_id=NULL,claimed_at=NULL
+          FROM public.applicant_account_invitations i
+          WHERE d.invitation_id=i.invitation_id
+            AND i.application_id=${input.command.applicationId}
+            AND i.applicant_id=${applicantId} AND i.state='Open'
+            AND i.expires_at>clock_timestamp()
+            AND (d.state='Pending' OR (d.state='Claimed'
+              AND d.claimed_at<clock_timestamp()-interval '60 seconds'))
+          RETURNING d.invitation_id AS "invitationId"
+        `;
+
+        if (accepted[0] === undefined)
+          return yield* new OnboardingDeliveryNotRetryable({
+            applicationId: input.command.applicationId,
+          });
+
+        return yield* decodeRetryAdmission(accepted[0]).pipe(Effect.orDie);
+      }
 
       const linked =
         yield* sql`SELECT applicant_id FROM public.applicant_account_links WHERE applicant_id=${applicantId}`;
@@ -163,13 +190,15 @@ export const commandOnboarding = <E = never, R = never>(
         yield* sql`INSERT INTO public.applicant_account_audit VALUES(${input.invitationId + ":revoke:" + row.invitationId},${applicantId},${row.invitationId},${input.actor},'Revoked',${now})`;
       }
 
-      if (input.command.action === "Revoke") return;
+      if (input.command.action === "Revoke") return null;
 
       const expiresAt = DateTime.formatIso(DateTime.add(at, { days: 1 }));
 
       yield* sql`INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES(${input.invitationId},${input.command.applicationId},${applicantId},${input.digest},${expiresAt},'Open',${input.actor},${now})`;
       yield* sql`INSERT INTO public.applicant_account_delivery(invitation_id,state,secret,recipient) SELECT ${input.invitationId},'Pending',${input.token},email FROM public.admission_applicants WHERE applicant_id=${applicantId}`;
       yield* sql`INSERT INTO public.applicant_account_audit VALUES(${input.invitationId + ":issue"},${applicantId},${input.invitationId},${input.actor},'Issued',${now})`;
+
+      return { invitationId: input.invitationId };
     }),
   );
 
