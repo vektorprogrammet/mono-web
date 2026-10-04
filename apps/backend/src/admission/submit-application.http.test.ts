@@ -402,7 +402,7 @@ const priorIdentity = Effect.gen(function* () {
   const priorApplication =
     yield* sql`SELECT * FROM admission_applications WHERE application_id='prior-application'`;
 
-  const onboarding = yield* Schema.decodeUnknownEffect(OnboardingBoard)(
+  const onboarding = yield* Schema.decodeEffect(OnboardingBoard)(
     yield* readOnboardingBoard(DepartmentId.make("department-http")),
   );
 
