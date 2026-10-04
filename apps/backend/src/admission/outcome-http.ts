@@ -405,7 +405,11 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
         }),
       ).pipe(outcomeProblems(personPresentation(request)), commandReceiptProblems);
 
-      return yield* commandOutcomeResponse(outcome);
+      // A stored capsule keeps no cache policy and replays as no-store; the announce answer is private.
+      const response = yield* commandOutcomeResponse(outcome);
+      response.headers.set("cache-control", PRIVATE_NO_STORE);
+
+      return response;
     });
 
   return HttpApiBuilder.group(ExternalNativeApi, "admissionOutcomes", (handlers) =>

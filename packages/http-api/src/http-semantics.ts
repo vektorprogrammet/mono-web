@@ -201,6 +201,16 @@ export const EntityMutationResponseHeaders = Schema.Struct({
 export const entityMutationResponse = <S extends Schema.Top>(success: S) =>
   HttpApiSchema.WithHeaders(success, EntityMutationResponseHeaders);
 
+/** The private no-store and entity-tagged headers of a mutation answer that carries a person's data. */
+export const PrivateEntityMutationResponseHeaders = Schema.Struct({
+  ...externalHeaders(PrivateNoStore),
+  etag: StrongETag,
+});
+
+/** Successful mutation response carrying a current mutable representation that only its caller may store. */
+export const privateEntityMutationResponse = <S extends Schema.Top>(success: S) =>
+  HttpApiSchema.WithHeaders(success, PrivateEntityMutationResponseHeaders);
+
 /** Successful mutation response carrying the bytes of a generated document and its entity tag. */
 export const documentMutationResponse = (contentType: string) =>
   HttpApiSchema.WithHeaders(Schema.Uint8Array.pipe(HttpApiSchema.asUint8Array({ contentType })), {

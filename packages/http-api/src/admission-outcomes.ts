@@ -30,6 +30,7 @@ import {
   privateReadResponse,
   privateConditionalResponses,
   entityMutationResponse,
+  privateEntityMutationResponse,
   endpointProblemResponses,
   problemUnion,
 } from "./http-semantics.js";
@@ -258,7 +259,7 @@ export const AnnounceAdmissionOutcomeEndpoint = HttpApiEndpoint.post(
     params: { applicationId: PublicApplicationIdSchema },
     headers: IdempotencyIfMatchHeaders,
     payload: AdmissionOutcomeAnnounceCommand,
-    success: entityMutationResponse(AdmissionOutcomeAnnounceResource),
+    success: privateEntityMutationResponse(AdmissionOutcomeAnnounceResource),
     error: endpointProblemResponses(AdmissionOutcomeCommandProblem),
   },
 )
