@@ -30,6 +30,14 @@ vi.setConfig({ testTimeout: 60_000 });
  * Template authority is expressed with the grants that exist at 8152c389: a global-administrator
  * grant, `placements.coordinate` for the Skolekoordinering coordinator and `admissions.outcomes`
  * for Rekruttering.
+ *
+ * The mail envelope is frozen as one concrete Admissions table, `public.admission_outcome_outbox`,
+ * a proposed application-owned name that follows `public.team_application_outbox`: one row per
+ * announced application, keyed by `application_id`, with `effect_id` as the deterministic delivery
+ * ID and `payload_json` as the strict envelope `{deliveryId, recipient, subject, html, text}`
+ * (the worker adds `MAIL_SENDER`). Every case first asserts the HTTP answer it requires and only
+ * then reads this table by `WHERE application_id = $id`, so an absent endpoint fails as the
+ * router's 404 and never as a missing relation.
  */
 const environment = {
   BACKEND_PG_URL: "postgres://test.invalid/vektorprogrammet",
@@ -73,6 +81,9 @@ interface Applicant {
   readonly placement?: "Monday" | "Tuesday";
 }
 
+/** A first name that is markup: it must reach the mail as escaped text, never as an element. */
+const markupName = "<img src=x onerror=alert(1)>";
+
 /**
  * Interviewed Ja and Nei applicants, with and without an active placement in the semester, a
  * Kanskje applicant, and a returning assistant who registered without an interview.
@@ -84,6 +95,7 @@ const applicants: ReadonlyArray<Applicant> = [
   { key: "nei-placed", firstName: "Nils", recommendation: "Nei", placement: "Tuesday" },
   { key: "maybe", firstName: "Maja", recommendation: "Kanskje" },
   { key: "returning", firstName: "Rita", recommendation: "Returning" },
+  { key: "markup-nei", firstName: markupName, recommendation: "Nei" },
 ];
 
 const seed = Database.use((sql) =>
@@ -94,10 +106,13 @@ const seed = Database.use((sql) =>
     yield* sql`INSERT INTO admission_period_semesters VALUES('outcome-previous','2031-08-01T00:00:00Z','2031-12-31T00:00:00Z'),(${semesterId},'2032-01-01T00:00:00Z','2032-06-30T00:00:00Z')`;
     yield* sql`INSERT INTO admission_periods VALUES('outcome-period',${departmentId},${semesterId},'2031-11-01T00:00:00Z','2031-12-01T00:00:00Z',0,'outcome-seed')`;
     yield* sql`INSERT INTO admission_period_fields_of_study VALUES('outcome-field',${departmentId},'Matematikk',true)`;
-    yield* sql`INSERT INTO person_profiles(person_id,first_name,last_name) VALUES('recruiter','Rolf','Rekruttering'),('coordinator','Kari','Koordinator'),('member','Mia','Medlem'),('outsider','Olga','Oslo'),('admin','Ada','Admin')`;
+    yield* sql`INSERT INTO person_profiles(person_id,first_name,last_name) VALUES('recruiter','Rolf','Rekruttering'),('coordinator','Kari','Koordinator'),('member','Mia','Medlem'),('outsider','Olga','Oslo'),('admin','Ada','Admin'),('boardmember','Bjorn','Styre')`;
     yield* sql`INSERT INTO organization_global_administrator_grants(grant_id,person_id,start_at) VALUES('outcome-admin-grant','admin','2020-01-01T00:00:00.000Z')`;
 
     yield* sql`INSERT INTO organization_memberships(membership_id,person_id,team_id,start_at,is_team_leader) VALUES('outcome-m-recruiter','recruiter','outcome-recruitment','2020-01-01T00:00:00Z',false),('outcome-m-coordinator','coordinator','outcome-coordination','2020-01-01T00:00:00Z',true),('outcome-m-member','member','outcome-evaluation','2020-01-01T00:00:00Z',false),('outcome-m-outsider','outsider','outcome-other-coordination','2020-01-01T00:00:00Z',true)`;
+    // A plain national board seat: board membership alone confers no template or announce authority.
+    yield* sql`INSERT INTO organization_national_boards(board_id,name) VALUES('outcome-board','Hovedstyret')`;
+    yield* sql`INSERT INTO organization_memberships(membership_id,person_id,board_id,position_name,start_at,is_team_leader) VALUES('outcome-m-board','boardmember','outcome-board','Styremedlem','2020-01-01T00:00:00Z',false)`;
     // Rekruttering decides outcomes and Skolekoordinering coordinates placements, each by an explicit delegation.
     yield* sql`INSERT INTO organization_delegations(delegation_id,name,team_id,capability,area,area_department_id,holders,start_at) VALUES(${`delegation-${digest("outcome-decide")}`},'Rekruttering avgjor utfall','outcome-recruitment','admissions.outcomes','Department',${departmentId},'AllMembers','2020-01-01T00:00:00Z'),(${`delegation-${digest("outcome-coordinate")}`},'Skolekoordinering fordeler assistenter','outcome-coordination','placements.coordinate','Department',${departmentId},'AllMembers','2020-01-01T00:00:00Z'),(${`delegation-${digest("outcome-other-coordinate")}`},'Skolekoordinering Oslo','outcome-other-coordination','placements.coordinate','Department',${otherDepartmentId},'AllMembers','2020-01-01T00:00:00Z')`;
 
@@ -211,6 +226,15 @@ const BoardBody = Schema.Struct({
 });
 
 const PreviewBody = Schema.Struct({
+  subject: Schema.String,
+  html: Schema.String,
+  text: Schema.String,
+});
+
+/** The strict envelope in `payload_json`: exactly these keys, so an extra or missing one fails. */
+const Envelope = Schema.Struct({
+  deliveryId: Schema.String,
+  recipient: Schema.String,
   subject: Schema.String,
   html: Schema.String,
   text: Schema.String,
@@ -335,6 +359,69 @@ const fixture = () => {
       )
       .pipe(Effect.map((rows) => rows.map((row) => row.outcome)));
 
+  /** The mail envelopes queued for one application, read only by `application_id`. */
+  const envelopes = (key: string) =>
+    database
+      .run(
+        Database.use(
+          (sql) =>
+            sql<{
+              readonly effectId: string;
+              readonly applicationId: string;
+              readonly payload: unknown;
+            }>`SELECT effect_id AS "effectId", application_id AS "applicationId", payload_json AS "payload" FROM public.admission_outcome_outbox WHERE application_id = ${applicationOf(key)} ORDER BY effect_id`,
+        ),
+      )
+      .pipe(
+        Effect.flatMap((rows) =>
+          Effect.forEach(rows, (row) =>
+            Schema.decodeUnknownEffect(Envelope)(row.payload, { onExcessProperty: "error" }).pipe(
+              Effect.map((envelope) => {
+                expect(row.applicationId).toBe(applicationOf(key));
+                expect(envelope.deliveryId, "the delivery ID is the effect ID").toBe(row.effectId);
+
+                return { effectId: row.effectId, envelope };
+              }),
+            ),
+          ),
+        ),
+      );
+
+  const soleEnvelope = (key: string) =>
+    Effect.map(envelopes(key), (rows) => {
+      expect(rows, `exactly one envelope for ${key}`).toHaveLength(1);
+
+      return rows[0]!;
+    });
+
+  /** The table itself refuses a rewrite of a queued envelope; the success of the UPDATE is the failure. */
+  const rewriteEnvelope = (key: string) =>
+    Effect.flip(
+      database.run(
+        Database.use(
+          (sql) =>
+            sql`UPDATE public.admission_outcome_outbox SET payload_json = jsonb_set(payload_json, '{subject}', '"rewritten"'::jsonb) WHERE application_id = ${applicationOf(key)}`,
+        ),
+      ),
+    );
+
+  /** Makes the HTTP receipt of the next command fail at commit, as in the receipt transaction tests. */
+  const rejectReceiptCommits = database.run(
+    Database.use((sql) =>
+      Effect.gen(function* () {
+        yield* sql`CREATE OR REPLACE FUNCTION reject_native_receipt_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'receipt commit rejected'; END $$`;
+        yield* sql`CREATE CONSTRAINT TRIGGER reject_native_receipt_commit AFTER INSERT ON public.native_http_idempotency_receipts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_native_receipt_commit()`;
+      }),
+    ),
+  );
+
+  const allowReceiptCommits = database.run(
+    Database.use(
+      (sql) =>
+        sql`DROP TRIGGER reject_native_receipt_commit ON public.native_http_idempotency_receipts`,
+    ),
+  );
+
   return {
     send,
     post,
@@ -344,6 +431,11 @@ const fixture = () => {
     announceEtag,
     announce,
     outcomes,
+    envelopes,
+    soleEnvelope,
+    rewriteEnvelope,
+    rejectReceiptCommits,
+    allowReceiptCommits,
   };
 };
 
@@ -431,31 +523,87 @@ describe("admission outcomes are Admitted or Rejected over HTTP and PostgreSQL",
   );
 });
 
+const departmentName = "Trondheim";
+
+const schoolName = "Alpha skole";
+
+/** The subject that `draftFor` produces once its placeholders are filled with the seeded values. */
+const customSubject = `Opptaksresultat - ${departmentName}, ${semesterId}: Egendefinert`;
+
+type Variant = "AdmittedWithSchool" | "AdmittedPlacementPending" | "Rejected";
+
+/** The exact approved subject of the default copy of spec 0027 (an en dash, not a hyphen). */
+const defaultSubject = (variant: Variant) =>
+  `Opptaksresultat – ${departmentName}, ${semesterId}: ${variant === "Rejected" ? "Avslag" : "Tatt opp"}`;
+
+/** The approved default copy rendered for one seeded applicant, in subject, text and HTML. */
+const expectDefaultEnvelope = (envelope: typeof Envelope.Type, key: string, variant: Variant) => {
+  const { firstName } = applicants.find((candidate) => candidate.key === key)!;
+  const rejected = variant === "Rejected";
+
+  expect(envelope.recipient, "the submitted application's email").toBe(emailOf(key));
+  expect(envelope.subject).toBe(defaultSubject(variant));
+
+  const lines = [
+    `Hei ${firstName},`,
+    rejected
+      ? `Utfall: Avslag. Du fikk dessverre ikke plass i Vektorprogrammet i ${departmentName} for ${semesterId}.`
+      : `Utfall: Tatt opp. Du er tatt opp som assistent i Vektorprogrammet i ${departmentName} for ${semesterId}.`,
+    ...(variant === "AdmittedWithSchool" ? [`Skole: ${schoolName}.`] : []),
+    ...(variant === "AdmittedPlacementPending" ? ["Skoleplassering kommer."] : []),
+    "Vennlig hilsen",
+    "Vektorprogrammet",
+  ];
+
+  for (const line of lines) expect(envelope.text).toContain(line);
+
+  expect(envelope.html).toContain("<html");
+
+  for (const fragment of [firstName, departmentName, semesterId, rejected ? "Avslag" : "Tatt opp"])
+    expect(envelope.html).toContain(fragment);
+
+  if (variant === "AdmittedWithSchool") expect(envelope.html).toContain(schoolName);
+
+  if (variant === "AdmittedPlacementPending") expect(envelope.html).toContain("Skoleplassering");
+
+  if (variant !== "AdmittedWithSchool") {
+    expect(envelope.text).not.toContain(schoolName);
+    expect(envelope.html).not.toContain(schoolName);
+  }
+
+  if (rejected) expect(envelope.text).not.toContain("Skole");
+
+  for (const field of [envelope.subject, envelope.text, envelope.html])
+    expect(field).not.toMatch(/\{(firstName|departmentName|semesterName|schoolName)\}/u);
+};
+
 describe("announcing an outcome over HTTP and PostgreSQL", () => {
   it.live("reaches the protected announce endpoint and answers a stale If-Match with 412", () =>
     Effect.gen(function* () {
-      const { announce, outcomes } = fixture();
+      const { announce, outcomes, envelopes } = fixture();
       const answer = yield* announce("coordinator", "ja-free", staleEtag, "announce-stale");
 
       expect(yield* refusal(answer, [412])).toBe("precondition.failed");
       expect(yield* outcomes("ja-free")).toEqual([]);
+      expect(yield* envelopes("ja-free")).toEqual([]);
     }),
   );
 
-  for (const person of ["recruiter", "member", "outsider"]) {
+  for (const person of ["recruiter", "member", "outsider", "boardmember"]) {
     it.live(`denies the announcement to ${person}, who is not the department coordinator`, () =>
       Effect.gen(function* () {
-        const { announce } = fixture();
+        const { announce, envelopes } = fixture();
         const answer = yield* announce(person, "ja-free", staleEtag, `announce-denied-${person}`);
 
         expect(yield* refusal(answer, [403])).toBe("authority.denied");
+        expect(yield* envelopes("ja-free")).toEqual([]);
       }),
     );
   }
 
-  it.live("announces Ja without a placement as Admitted, once", () =>
+  it.live("announces Ja without a placement as Admitted, once, with one immutable envelope", () =>
     Effect.gen(function* () {
-      const { announce, announceEtag } = fixture();
+      const { announce, announceEtag, soleEnvelope, envelopes, rewriteEnvelope } = fixture();
       const etag = yield* announceEtag("ja-free");
       const first = yield* announce("coordinator", "ja-free", etag, "announce-ja-free");
 
@@ -465,13 +613,20 @@ describe("announcing an outcome over HTTP and PostgreSQL", () => {
       expect(first.text).toContain('"outcome":"Admitted"');
       expect(first.text).not.toContain("Substitute");
 
-      // The exact replay answers the first answer.
+      // The announcement queued exactly one envelope: the placement-pending variant of the copy.
+      const queued = yield* soleEnvelope("ja-free");
+
+      expectDefaultEnvelope(queued.envelope, "ja-free", "AdmittedPlacementPending");
+      expect(queued.effectId).not.toBe("");
+
+      // The exact replay answers the first answer and queues no second envelope.
       const replay = yield* announce("coordinator", "ja-free", etag, "announce-ja-free");
 
       expect(replay.status, replay.text).toBe(200);
       expect(replay.text).toBe(first.text);
+      expect(yield* envelopes("ja-free")).toEqual([queued]);
 
-      // The outcome is final: another announcement with the new ETag is refused.
+      // The outcome is final: another announcement with the new ETag and a new key is refused and queues nothing.
       const second = yield* announce(
         "coordinator",
         "ja-free",
@@ -480,12 +635,17 @@ describe("announcing an outcome over HTTP and PostgreSQL", () => {
       );
 
       expect(yield* refusal(second, [409, 422])).toMatch(outcomeCode);
+      expect(yield* envelopes("ja-free")).toEqual([queued]);
+
+      // The queued bytes cannot be rewritten, not even directly in the table.
+      expect(yield* rewriteEnvelope("ja-free")).toBeDefined();
+      expect(yield* envelopes("ja-free")).toEqual([queued]);
     }),
   );
 
-  it.live("announces Ja with a placement as Admitted", () =>
+  it.live("announces Ja with a placement as Admitted and names the school", () =>
     Effect.gen(function* () {
-      const { announce, announceEtag } = fixture();
+      const { announce, announceEtag, soleEnvelope } = fixture();
 
       const answer = yield* announce(
         "coordinator",
@@ -496,12 +656,18 @@ describe("announcing an outcome over HTTP and PostgreSQL", () => {
 
       expect(answer.status, answer.text).toBe(200);
       expect(answer.text).toContain('"outcome":"Admitted"');
+
+      expectDefaultEnvelope(
+        (yield* soleEnvelope("ja-placed")).envelope,
+        "ja-placed",
+        "AdmittedWithSchool",
+      );
     }),
   );
 
-  it.live("announces Nei without a placement as Rejected", () =>
+  it.live("announces Nei without a placement as Rejected with the rejection copy", () =>
     Effect.gen(function* () {
-      const { announce, announceEtag } = fixture();
+      const { announce, announceEtag, soleEnvelope } = fixture();
 
       const answer = yield* announce(
         "coordinator",
@@ -512,12 +678,14 @@ describe("announcing an outcome over HTTP and PostgreSQL", () => {
 
       expect(answer.status, answer.text).toBe(200);
       expect(answer.text).toContain('"outcome":"Rejected"');
+
+      expectDefaultEnvelope((yield* soleEnvelope("nei-free")).envelope, "nei-free", "Rejected");
     }),
   );
 
   it.live("refuses a Rejected outcome while the applicant has an active placement", () =>
     Effect.gen(function* () {
-      const { announce, announceEtag, outcomes } = fixture();
+      const { announce, announceEtag, outcomes, envelopes } = fixture();
 
       const answer = yield* announce(
         "coordinator",
@@ -528,13 +696,14 @@ describe("announcing an outcome over HTTP and PostgreSQL", () => {
 
       expect(yield* refusal(answer, [409, 422])).toMatch(outcomeCode);
       expect(yield* outcomes("nei-placed")).toEqual([]);
+      expect(yield* envelopes("nei-placed")).toEqual([]);
     }),
   );
 
   for (const undecided of ["maybe", "returning"]) {
     it.live(`refuses to announce ${undecided} before Rekruttering decided`, () =>
       Effect.gen(function* () {
-        const { announce, announceEtag, outcomes } = fixture();
+        const { announce, announceEtag, outcomes, envelopes } = fixture();
 
         const answer = yield* announce(
           "coordinator",
@@ -545,21 +714,30 @@ describe("announcing an outcome over HTTP and PostgreSQL", () => {
 
         expect(yield* refusal(answer, [409, 422])).toMatch(outcomeCode);
         expect(yield* outcomes(undecided)).toEqual([]);
+        expect(yield* envelopes(undecided)).toEqual([]);
       }),
     );
   }
 
   const decisions = [
-    { key: "maybe", outcome: "Admitted" },
-    { key: "returning", outcome: "Rejected" },
+    { key: "maybe", outcome: "Admitted", variant: "AdmittedPlacementPending" },
+    { key: "returning", outcome: "Rejected", variant: "Rejected" },
   ] as const;
 
   for (const decision of decisions) {
     it.live(
-      `announces ${decision.key} as ${decision.outcome} after Rekruttering's explicit decision`,
+      `queues no mail when Rekruttering decides ${decision.key}, and one when the coordinator announces it`,
       () =>
         Effect.gen(function* () {
-          const { command, outcomeRoute, decisionEtag, announce, announceEtag } = fixture();
+          const {
+            command,
+            outcomeRoute,
+            decisionEtag,
+            announce,
+            announceEtag,
+            envelopes,
+            soleEnvelope,
+          } = fixture();
 
           const decided = yield* command(
             "POST",
@@ -573,6 +751,9 @@ describe("announcing an outcome over HTTP and PostgreSQL", () => {
           expect(decided.status, decided.text).toBe(200);
           expect(decided.text).toContain(`"outcome":"${decision.outcome}"`);
 
+          // Deciding is not announcing: no envelope exists until the coordinator announces.
+          expect(yield* envelopes(decision.key)).toEqual([]);
+
           const answer = yield* announce(
             "coordinator",
             decision.key,
@@ -582,9 +763,51 @@ describe("announcing an outcome over HTTP and PostgreSQL", () => {
 
           expect(answer.status, answer.text).toBe(200);
           expect(answer.text).toContain(`"outcome":"${decision.outcome}"`);
+
+          expectDefaultEnvelope(
+            (yield* soleEnvelope(decision.key)).envelope,
+            decision.key,
+            decision.variant,
+          );
         }),
     );
   }
+
+  it.live("rolls the outcome and its envelope back together when the receipt cannot commit", () =>
+    Effect.gen(function* () {
+      const {
+        announce,
+        announceEtag,
+        outcomes,
+        envelopes,
+        soleEnvelope,
+        rejectReceiptCommits,
+        allowReceiptCommits,
+      } = fixture();
+
+      const etag = yield* announceEtag("ja-free");
+
+      yield* rejectReceiptCommits;
+
+      const failed = yield* announce("coordinator", "ja-free", etag, "announce-rollback");
+
+      expect(yield* refusal(failed, [503])).toBe("idempotency.unavailable");
+      expect(yield* outcomes("ja-free")).toEqual([]);
+      expect(yield* envelopes("ja-free")).toEqual([]);
+
+      // Nothing of the failed attempt survives: the same request now announces once.
+      yield* allowReceiptCommits;
+
+      const retried = yield* announce("coordinator", "ja-free", etag, "announce-rollback");
+
+      expect(retried.status, retried.text).toBe(200);
+      expectDefaultEnvelope(
+        (yield* soleEnvelope("ja-free")).envelope,
+        "ja-free",
+        "AdmittedPlacementPending",
+      );
+    }),
+  );
 });
 
 /** The proposed closed document: subject tokens and a versioned ProseMirror-compatible body. */
@@ -630,7 +853,11 @@ const draftFor = (
   },
 });
 
-const unsafeDrafts: ReadonlyArray<{ readonly name: string; readonly draft: Draft }> = [
+const unsafeDrafts: ReadonlyArray<{
+  readonly name: string;
+  readonly kind?: Variant;
+  readonly draft: Draft;
+}> = [
   {
     name: "script node",
     draft: draftFor("Rejected", [{ type: "script", content: [text("alert(1)")] }]),
@@ -694,12 +921,59 @@ const unsafeDrafts: ReadonlyArray<{ readonly name: string; readonly draft: Draft
       body: { version: 1, type: "doc", content: [paragraph(text("Hei"))] },
     },
   },
+  {
+    name: "school placeholder in the placement-pending variant",
+    kind: "AdmittedPlacementPending",
+    draft: draftFor("AdmittedPlacementPending", [paragraph(placeholder("schoolName"))]),
+  },
+  {
+    name: "unknown mark",
+    draft: draftFor("Rejected", [
+      paragraph({ type: "text", text: "x", marks: [{ type: "blink" }] }),
+    ]),
+  },
+  {
+    name: "unknown attribute on a known mark",
+    draft: draftFor("Rejected", [
+      paragraph({
+        type: "text",
+        text: "x",
+        marks: [{ type: "bold", attrs: { style: "color:red" } }],
+      }),
+    ]),
+  },
+  {
+    name: "event handler attribute on a link",
+    draft: draftFor("Rejected", [
+      paragraph({
+        type: "text",
+        text: "x",
+        marks: [{ type: "link", attrs: { href: "https://example.invalid/", onclick: "alert(1)" } }],
+      }),
+    ]),
+  },
+  {
+    name: "data link",
+    draft: draftFor("Rejected", [
+      paragraph({
+        type: "text",
+        text: "x",
+        marks: [{ type: "link", attrs: { href: "data:text/html,<script>alert(1)</script>" } }],
+      }),
+    ]),
+  },
+  {
+    name: "unknown attribute on a placeholder",
+    draft: draftFor("Rejected", [
+      paragraph({ type: "placeholder", attrs: { name: "firstName", onmouseover: "alert(1)" } }),
+    ]),
+  },
 ];
 
 const templates = "/api/admission-outcomes/templates";
 
 const sample = {
-  firstName: "<img src=x onerror=alert(1)>",
+  firstName: markupName,
   departmentName: "Trondheim",
   semesterName: "Var 2032",
 };
@@ -773,9 +1047,17 @@ describe("outcome mail templates over HTTP and PostgreSQL", () => {
       const { send, post, command } = fixture();
       const { etag } = yield* globalEtag(send);
 
-      for (const [index, { name, draft }] of unsafeDrafts.entries()) {
+      const department = yield* send(`${templates}?departmentId=${departmentId}`, "coordinator");
+
+      expect(department.status, department.text).toBe(200);
+
+      const departmentEtag = department.headers.get("etag");
+
+      expect(departmentEtag).toMatch(strongEtag);
+
+      for (const [index, { name, kind = "Rejected", draft }] of unsafeDrafts.entries()) {
         const preview = yield* post(
-          `${templates}/Rejected:preview`,
+          `${templates}/${kind}:preview`,
           "admin",
           { ...draft, sample },
           {},
@@ -786,7 +1068,7 @@ describe("outcome mail templates over HTTP and PostgreSQL", () => {
 
         const save = yield* command(
           "PUT",
-          `${templates}/Rejected`,
+          `${templates}/${kind}`,
           "admin",
           draft,
           etag,
@@ -795,9 +1077,33 @@ describe("outcome mail templates over HTTP and PostgreSQL", () => {
 
         expect(save.status, `save ${name} ${save.text}`).toBe(422);
         expect(save.headers.get("content-type")).toBe("application/problem+json");
+
+        // The delegated coordinator's department override is validated by the same Schema.
+        const departmentSave = yield* command(
+          "PUT",
+          `${templates}/${kind}?departmentId=${departmentId}`,
+          "coordinator",
+          draft,
+          departmentEtag!,
+          `template-unsafe-department-${index}`,
+        );
+
+        expect(departmentSave.status, `department save ${name} ${departmentSave.text}`).toBe(422);
+        expect(departmentSave.headers.get("content-type")).toBe("application/problem+json");
       }
 
-      expect((yield* globalEtag(send)).etag).toBe(etag);
+      const after = yield* globalEtag(send);
+
+      expect(after.etag).toBe(etag);
+      expect(after.read.text).not.toContain("alert(1)");
+
+      const departmentAfter = yield* send(
+        `${templates}?departmentId=${departmentId}`,
+        "coordinator",
+      );
+
+      expect(departmentAfter.headers.get("etag")).toBe(departmentEtag);
+      expect(departmentAfter.text).not.toContain("alert(1)");
     }),
   );
 
@@ -808,6 +1114,8 @@ describe("outcome mail templates over HTTP and PostgreSQL", () => {
 
       const attempts = [
         { person: "coordinator", path: `${templates}/Rejected` },
+        { person: "boardmember", path: `${templates}/Rejected` },
+        { person: "boardmember", path: `${templates}/Rejected?departmentId=${departmentId}` },
         { person: "member", path: `${templates}/Rejected?departmentId=${departmentId}` },
         { person: "outsider", path: `${templates}/Rejected?departmentId=${departmentId}` },
         { person: "recruiter", path: `${templates}/Rejected?departmentId=${departmentId}` },
@@ -871,6 +1179,239 @@ describe("outcome mail templates over HTTP and PostgreSQL", () => {
       );
 
       expect(yield* refusal(stale, [412])).toBe("precondition.failed");
+    }),
+  );
+
+  it.live("lets only the department's delegated coordinator save its override", () =>
+    Effect.gen(function* () {
+      const { send, command } = fixture();
+      const globalBefore = yield* globalEtag(send);
+      const department = `${templates}?departmentId=${departmentId}`;
+
+      const read = yield* send(department, "coordinator");
+
+      expect(read.status, read.text).toBe(200);
+
+      const etag = read.headers.get("etag");
+
+      expect(etag).toMatch(strongEtag);
+
+      // A coordinator delegated for another department, a plain national board seat, a member and
+      // Rekruttering hold no authority here, even with the current ETag of the department.
+      for (const person of ["outsider", "boardmember", "member", "recruiter"]) {
+        const denied = yield* command(
+          "PUT",
+          `${templates}/Rejected?departmentId=${departmentId}`,
+          person,
+          draftFor("Rejected"),
+          etag!,
+          `department-template-denied-${person}`,
+        );
+
+        expect(yield* refusal(denied, [403]), person).toBe("authority.denied");
+      }
+
+      for (const person of ["outsider", "boardmember"]) {
+        expect(yield* refusal(yield* send(department, person), [403]), person).toBe(
+          "authority.denied",
+        );
+      }
+
+      expect((yield* send(department, "coordinator")).headers.get("etag")).toBe(etag);
+
+      const saved = yield* command(
+        "PUT",
+        `${templates}/Rejected?departmentId=${departmentId}`,
+        "coordinator",
+        draftFor("Rejected"),
+        etag!,
+        "department-template-save",
+      );
+
+      expect(saved.status, saved.text).toBe(200);
+      expect(saved.headers.get("etag")).toMatch(strongEtag);
+      expect(saved.headers.get("etag")).not.toBe(etag);
+
+      // The override is the department's own: the global default and its ETag stay as they were.
+      expect((yield* globalEtag(send)).etag).toBe(globalBefore.etag);
+    }),
+  );
+
+  it.live("announces with the department override and leaves the global default as it was", () =>
+    Effect.gen(function* () {
+      const { send, command, announce, announceEtag, soleEnvelope } = fixture();
+      const globalBefore = yield* globalEtag(send);
+
+      const read = yield* send(`${templates}?departmentId=${departmentId}`, "coordinator");
+
+      expect(read.status, read.text).toBe(200);
+
+      const saved = yield* command(
+        "PUT",
+        `${templates}/Rejected?departmentId=${departmentId}`,
+        "coordinator",
+        draftFor("Rejected"),
+        read.headers.get("etag")!,
+        "department-override-for-announce",
+      );
+
+      expect(saved.status, saved.text).toBe(200);
+
+      const answer = yield* announce(
+        "coordinator",
+        "nei-free",
+        yield* announceEtag("nei-free"),
+        "announce-with-override",
+      );
+
+      expect(answer.status, answer.text).toBe(200);
+
+      const { envelope } = yield* soleEnvelope("nei-free");
+
+      expect(envelope.subject).toBe(customSubject);
+      expect(envelope.text).toContain(`Egendefinert tekst for ${departmentName} ${semesterId}.`);
+      expect(envelope.recipient).toBe(emailOf("nei-free"));
+      expect((yield* globalEtag(send)).etag).toBe(globalBefore.etag);
+    }),
+  );
+
+  it.live("keeps a queued envelope byte-identical when its template is edited afterwards", () =>
+    Effect.gen(function* () {
+      const { send, post, command, announce, announceEtag, envelopes, soleEnvelope } = fixture();
+      const { etag } = yield* globalEtag(send);
+      const neiEtag = yield* announceEtag("nei-free");
+      const first = yield* announce("coordinator", "nei-free", neiEtag, "announce-before-edit");
+
+      expect(first.status, first.text).toBe(200);
+
+      const queued = yield* soleEnvelope("nei-free");
+
+      expectDefaultEnvelope(queued.envelope, "nei-free", "Rejected");
+
+      const saved = yield* command(
+        "PUT",
+        `${templates}/Rejected`,
+        "admin",
+        draftFor("Rejected"),
+        etag,
+        "template-edit-after-announce",
+      );
+
+      expect(saved.status, saved.text).toBe(200);
+
+      // The earlier envelope and an exact replay of its announcement keep the old bytes.
+      expect(yield* envelopes("nei-free")).toEqual([queued]);
+
+      const replay = yield* announce("coordinator", "nei-free", neiEtag, "announce-before-edit");
+
+      expect(replay.status, replay.text).toBe(200);
+      expect(replay.text).toBe(first.text);
+      expect(yield* envelopes("nei-free")).toEqual([queued]);
+
+      // A later announcement renders the saved revision, and its markup-bearing first name is text.
+      const synthetic = { firstName: markupName, departmentName, semesterName: semesterId };
+
+      const preview = yield* post(
+        `${templates}/Rejected:preview`,
+        "admin",
+        { ...draftFor("Rejected"), sample: synthetic },
+        {},
+      );
+
+      expect(preview.status, preview.text).toBe(200);
+
+      const rendered = yield* decodeBody(PreviewBody, preview);
+
+      const later = yield* announce(
+        "coordinator",
+        "markup-nei",
+        yield* announceEtag("markup-nei"),
+        "announce-after-edit",
+      );
+
+      expect(later.status, later.text).toBe(200);
+
+      const { envelope } = yield* soleEnvelope("markup-nei");
+
+      expect(envelope.recipient).toBe(emailOf("markup-nei"));
+      expect(envelope.subject).toBe(customSubject);
+      expect(envelope.html).toContain("&lt;img");
+      expect(envelope.html).not.toContain("<img");
+
+      // The preview returned exactly the bytes that were queued.
+      expect(envelope.subject).toBe(rendered.subject);
+      expect(envelope.html).toBe(rendered.html);
+      expect(envelope.text).toBe(rendered.text);
+
+      expect(yield* envelopes("nei-free")).toEqual([queued]);
+    }),
+  );
+
+  it.live("sends exactly the bytes that the preview of each saved variant returned", () =>
+    Effect.gen(function* () {
+      const { send, post, command, announce, announceEtag, soleEnvelope } = fixture();
+      let etag = (yield* globalEtag(send)).etag;
+
+      const variants = [
+        {
+          key: "ja-placed",
+          variant: "AdmittedWithSchool",
+          sample: { firstName: "Jonas", departmentName, semesterName: semesterId, schoolName },
+        },
+        {
+          key: "ja-free",
+          variant: "AdmittedPlacementPending",
+          sample: { firstName: "Jorunn", departmentName, semesterName: semesterId },
+        },
+        {
+          key: "nei-free",
+          variant: "Rejected",
+          sample: { firstName: "Nina", departmentName, semesterName: semesterId },
+        },
+      ] as const;
+
+      for (const { key, variant, sample: values } of variants) {
+        const draft = draftFor(variant);
+
+        const saved = yield* command(
+          "PUT",
+          `${templates}/${variant}`,
+          "admin",
+          draft,
+          etag,
+          `template-parity-${variant}`,
+        );
+
+        expect(saved.status, `${variant} ${saved.text}`).toBe(200);
+        etag = saved.headers.get("etag")!;
+
+        const preview = yield* post(
+          `${templates}/${variant}:preview`,
+          "admin",
+          { ...draft, sample: values },
+          {},
+        );
+
+        expect(preview.status, `${variant} ${preview.text}`).toBe(200);
+
+        const rendered = yield* decodeBody(PreviewBody, preview);
+
+        const sent = yield* announce(
+          "coordinator",
+          key,
+          yield* announceEtag(key),
+          `announce-parity-${variant}`,
+        );
+
+        expect(sent.status, `${variant} ${sent.text}`).toBe(200);
+
+        const { envelope } = yield* soleEnvelope(key);
+
+        expect(envelope.subject, variant).toBe(rendered.subject);
+        expect(envelope.html, variant).toBe(rendered.html);
+        expect(envelope.text, variant).toBe(rendered.text);
+        expect(envelope.subject, variant).toBe(customSubject);
+      }
     }),
   );
 });
