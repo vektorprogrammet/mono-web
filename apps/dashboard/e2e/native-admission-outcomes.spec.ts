@@ -570,12 +570,14 @@ test("admission outcomes: Rekruttering decides, the coordinator announces, templ
       "the delegated coordinator authors, previews (save is disabled until the draft is previewed) and saves all three variants as department templates, with axe and a phone viewport",
     );
 
-    for (const [context, person] of [
-      [member, "member"],
-      [otherDepartment, "otherDepartment"],
+    // The member context signed in above; the other department's context signs in here, once.
+    for (const [context, person, signedIn] of [
+      [member, "member", true],
+      [otherDepartment, "otherDepartment", false],
     ] as const) {
       const denied = await context.newPage();
-      await signIn(denied, manifest.persons[person]);
+
+      if (!signedIn) await signIn(denied, manifest.persons[person]);
       await denied.goto(`${manifest.dashboardOrigin}${templatePath("Rejected")}`);
       await expect(denied.getByRole("textbox", { name: "Meldingstekst", exact: true })).toHaveCount(0);
       await expect(denied.getByRole("button", { name: "Lagre mal", exact: true })).toHaveCount(0);
@@ -614,7 +616,7 @@ test("admission outcomes: Rekruttering decides, the coordinator announces, templ
     gates.push("an announced outcome is final on the decide board and markup names render as text");
 
     const forbidden = await otherDepartment.newPage();
-    await signIn(forbidden, manifest.persons.otherDepartment);
+    // This context signed in at the template editor check: a second sign-in would redirect away.
     await forbidden.goto(`${manifest.dashboardOrigin}${scopePath(manifest.semesterId)}`);
     await expect(forbidden.getByRole("alert")).toContainText(
       "Velg en avdeling du har tilgang til og et gyldig semester.",
