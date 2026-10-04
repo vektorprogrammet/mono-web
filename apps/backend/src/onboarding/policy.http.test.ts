@@ -10,6 +10,7 @@ import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application"
 import { IdentityActor, IdentitySessionNotFound } from "@vektorprogrammet/domain/identity";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
+  IdempotencyKey,
   NativeProblem,
   OnboardingResource,
   OnboardingApi,
@@ -125,6 +126,8 @@ const decodeResource = Schema.decodeUnknownEffect(Schema.fromJsonString(Onboardi
 
 const decodeProblem = Schema.decodeUnknownEffect(Schema.fromJsonString(NativeProblem));
 
+const decodeIdempotencyKey = Schema.decodeUnknownEffect(IdempotencyKey);
+
 const fixture = Effect.fnUntraced(function* (
   options: {
     transport?: boolean;
@@ -183,6 +186,8 @@ const fixture = Effect.fnUntraced(function* (
     key = "policy-command",
     person = actor,
   ) {
+    const idempotencyKey = yield* decodeIdempotencyKey(`onboarding-policy-${key}`);
+
     return yield* http
       .fetch(
         new Request(`http://backend.test/api/onboarding?departmentId=${departmentId}`, {
@@ -192,7 +197,7 @@ const fixture = Effect.fnUntraced(function* (
             cookie: `better-auth.session_token=${person}`,
             "content-type": "application/json",
             "if-match": etag,
-            "idempotency-key": key,
+            "idempotency-key": idempotencyKey,
           },
           body: yield* jsonText({ applicationId, action }),
         }),
