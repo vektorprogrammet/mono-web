@@ -157,9 +157,13 @@ const conditionalReadResponses = <S extends Schema.Top, H extends Schema.Top>(
 export const publicConditionalResponses = <S extends Schema.Top>(success: S) =>
   conditionalReadResponses(success, PublicConditionalResponseHeaders);
 
+/** The conditional-read headers whose shared cache lifetime is bounded by the next admission boundary. */
+export const DynamicAdmissionConditionalResponseHeaders =
+  conditionalReadHeaders(DynamicAdmissionCache);
+
 /** Public conditional response whose TTL is bounded by the next admission boundary. */
 export const dynamicAdmissionConditionalResponses = <S extends Schema.Top>(success: S) =>
-  conditionalReadResponses(success, conditionalReadHeaders(DynamicAdmissionCache));
+  conditionalReadResponses(success, DynamicAdmissionConditionalResponseHeaders);
 
 /** Credential-selected conditional response that is never stored. */
 export const privateConditionalResponses = <S extends Schema.Top>(success: S) =>
@@ -172,9 +176,12 @@ export const PrivateReadResponseHeaders = Schema.Struct(externalHeaders(PrivateN
 export const privateReadResponse = <S extends Schema.Top>(success: S) =>
   HttpApiSchema.WithHeaders(success, PrivateReadResponseHeaders);
 
+/** The no-store headers of an anonymous or health response. */
+export const NoStoreReadResponseHeaders = Schema.Struct(externalHeaders(NoStore));
+
 /** Anonymous or health response that is not cacheable. */
 export const noStoreReadResponse = <S extends Schema.Top>(success: S) =>
-  HttpApiSchema.WithHeaders(success, externalHeaders(NoStore));
+  HttpApiSchema.WithHeaders(success, NoStoreReadResponseHeaders);
 
 /** Internal response with no browser CORS contract. */
 export const internalNoStoreResponse = <S extends Schema.Top>(success: S) =>

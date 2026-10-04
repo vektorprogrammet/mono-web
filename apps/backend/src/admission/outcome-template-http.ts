@@ -16,22 +16,14 @@ import {
   type OutcomeTemplateSet,
 } from "@vektorprogrammet/domain/admissions/template";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
-import {
-  OutcomeTemplateResource,
-  PreviewOutcomeTemplateEndpoint,
-  ReadOutcomeTemplatesEndpoint,
-  RenderedOutcomeMail,
-  SaveOutcomeTemplateEndpoint,
-  reflectAccessSpec,
-} from "@vektorprogrammet/http-api";
+import { OutcomeTemplateResource, RenderedOutcomeMail } from "@vektorprogrammet/http-api";
 import { Problem } from "@vektorprogrammet/http-api/http-semantics";
-import { Effect, Option, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import {
   resolveRequestPersonAuthorityInTransaction,
   type TransactionPersonAuthority,
 } from "../authority.js";
 import {
-  authorizePerson,
   commandOutcomeResponse,
   commandReceiptProblems,
   conditionalJson,
@@ -54,6 +46,7 @@ import {
   semanticRequestDigest,
 } from "../http-semantics.js";
 import { genericContext } from "../native-operation.js";
+import { authorizeAt, type OutcomePersonAuthorize } from "./http-guard.js";
 import { outcomeJson, outcomeProblems, outcomeSnapshotRead } from "./outcome-http-support.js";
 import { previewOutcomeTemplate as previewRendered } from "./template-render.js";
 
@@ -81,18 +74,15 @@ const templateResource = (set: OutcomeTemplateSet) => ({
   }),
 });
 
-type Endpoint =
-  | typeof ReadOutcomeTemplatesEndpoint
-  | typeof PreviewOutcomeTemplateEndpoint
-  | typeof SaveOutcomeTemplateEndpoint;
-
 /**
  * Refuses a person who may not read or edit the scope's templates, then evaluates the declared
- * AccessSpec. No departmentId is the global default, which only a global administrator edits.
+ * AccessSpec through the generated guard. No departmentId is the global default, which only a
+ * global administrator edits.
  */
 const authorizeTemplates = (
+  authorize: OutcomePersonAuthorize,
+  operation: string,
   request: Request,
-  endpoint: Endpoint,
   departmentId: DepartmentId | undefined,
   need: "read" | "edit",
   auth: TransactionPersonAuthority,
@@ -103,9 +93,11 @@ const authorizeTemplates = (
     if (!(need === "read" ? permission.read : permission.edit))
       return yield* Problem.make("authority.denied");
 
-    yield* authorizePerson(
-      {
-        spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
+    yield* authorizeAt(authorize, {
+      kind: "Person",
+      operation,
+      request,
+      input: {
         credential: auth.credential,
         personId: auth.authority.personId,
         resolution: {
@@ -123,8 +115,7 @@ const authorizeTemplates = (
         ],
         now: auth.authorizationInstant,
       },
-      personPresentation(request),
-    );
+    });
   });
 
 /** The one optional `departmentId` of a template operation; any other or repeated query member is malformed. */
@@ -146,7 +137,7 @@ export const OutcomeTemplateHandlers = (input: { now?: () => string }) => {
   const personAuthority = (request: Request) =>
     resolveRequestPersonAuthorityInTransaction(request, { now: input.now });
 
-  const readOutcomeTemplates = (request: Request) =>
+  const readOutcomeTemplates = (request: Request, authorize: OutcomePersonAuthorize) =>
     outcomeSnapshotRead(
       request,
       Effect.gen(function* () {
@@ -154,8 +145,9 @@ export const OutcomeTemplateHandlers = (input: { now?: () => string }) => {
         const auth = yield* personAuthority(request);
 
         yield* authorizeTemplates(
+          authorize,
+          "admissionOutcomes.readOutcomeTemplates",
           request,
-          ReadOutcomeTemplatesEndpoint,
           departmentId,
           "read",
           auth,
@@ -174,7 +166,11 @@ export const OutcomeTemplateHandlers = (input: { now?: () => string }) => {
       }),
     );
 
-  const previewOutcomeTemplate = (request: Request, kind: OutcomeTemplateKind) =>
+  const previewOutcomeTemplate = (
+    request: Request,
+    kind: OutcomeTemplateKind,
+    authorize: OutcomePersonAuthorize,
+  ) =>
     outcomeSnapshotRead(
       request,
       Effect.gen(function* () {
@@ -185,8 +181,9 @@ export const OutcomeTemplateHandlers = (input: { now?: () => string }) => {
         const auth = yield* personAuthority(request);
 
         yield* authorizeTemplates(
+          authorize,
+          "admissionOutcomes.previewOutcomeTemplate",
           request,
-          PreviewOutcomeTemplateEndpoint,
           departmentId,
           "edit",
           auth,
@@ -202,7 +199,11 @@ export const OutcomeTemplateHandlers = (input: { now?: () => string }) => {
       }),
     );
 
-  const saveOutcomeTemplate = (request: Request, kind: OutcomeTemplateKind) =>
+  const saveOutcomeTemplate = (
+    request: Request,
+    kind: OutcomeTemplateKind,
+    authorize: OutcomePersonAuthorize,
+  ) =>
     Effect.gen(function* () {
       const departmentId = yield* selectedDepartment(request);
       const body = yield* readJsonBody(request, JSON_MEDIA_TYPE, MAX_TEMPLATE_BYTES);
@@ -225,8 +226,9 @@ export const OutcomeTemplateHandlers = (input: { now?: () => string }) => {
           const auth = yield* personAuthority(request);
 
           yield* authorizeTemplates(
+            authorize,
+            "admissionOutcomes.saveOutcomeTemplate",
             request,
-            SaveOutcomeTemplateEndpoint,
             departmentId,
             "edit",
             auth,

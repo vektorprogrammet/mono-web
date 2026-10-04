@@ -68,7 +68,7 @@ No `exports` entry of [apps/backend/package.json](../../package.json) points int
 
 The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../../../docs/constructs.md) indexes them all.
 
-- [`authorizeAdmissionPerson`](../../../../docs/constructs/http-problem.md#authorizeadmissionperson) (http-problem): Evaluates one admission person AccessSpec.
+- [`authorizeAdmissionPerson`](../../../../docs/constructs/http-problem.md#authorizeadmissionperson) (http-problem): Evaluates one admission person AccessSpec through the generated guard of its endpoint.
 - [`returningAuthorization`](../../../../docs/constructs/http-problem.md#returningauthorization) (http-problem): Resolves the current person and authorizes one returning-assistant operation on that person's own profile.
 - [`admissionActorForAuthority`](../../../../docs/constructs/http-problem.md#admissionactorforauthority) (http-problem): The admission actor of one department scope.
 - [`admissionProblems`](../../../../docs/constructs/http-problem.md#admissionproblems) (http-problem): The one answer for every admission failure.

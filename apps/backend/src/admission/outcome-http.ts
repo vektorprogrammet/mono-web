@@ -13,23 +13,29 @@ import {
   AdmissionOutcomeAnnounceResource,
   AdmissionOutcomeBoardResource,
   AdmissionOutcomeResource,
-  AnnounceAdmissionOutcomeEndpoint,
-  DecideAdmissionOutcomeEndpoint,
+  announceOutcome as announceOutcomeEndpoint,
+  decideOutcome as decideOutcomeEndpoint,
   ExternalNativeApi,
-  ListAdmissionOutcomeScopesEndpoint,
-  ReadAdmissionOutcomeEndpoint,
-  ReadAdmissionOutcomesEndpoint,
-  reflectAccessSpec,
+  listScopes as listScopesEndpoint,
+  previewOutcomeTemplate as previewOutcomeTemplateEndpoint,
+  readOutcome as readOutcomeEndpoint,
+  readOutcomes as readOutcomesEndpoint,
+  readOutcomeTemplates as readOutcomeTemplatesEndpoint,
+  saveOutcomeTemplate as saveOutcomeTemplateEndpoint,
 } from "@vektorprogrammet/http-api";
 import { Problem } from "@vektorprogrammet/http-api/http-semantics";
-import { Effect, Match, Option } from "effect";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { Effect, Match } from "effect";
+import type { HttpApiGroup } from "effect/unstable/httpapi";
+import {
+  type AdmissionOutcomesGuards,
+  type AdmissionOutcomesRawHandlers,
+  AdmissionOutcomesApiHandlers as GeneratedAdmissionOutcomesApiHandlers,
+} from "../../.effx/generated/admissionOutcomes-handlers.js";
 import {
   resolveRequestPersonAuthorityInTransaction,
   type TransactionPersonAuthority,
 } from "../authority.js";
 import {
-  authorizePerson,
   commandOutcomeResponse,
   commandReceiptProblems,
   conditionalJson,
@@ -54,6 +60,7 @@ import {
   semanticRequestDigest,
 } from "../http-semantics.js";
 import { genericContext } from "../native-operation.js";
+import { authorizeAt, personGuard, type OutcomePersonAuthorize } from "./http-guard.js";
 import {
   MAX_MUTATION_BYTES,
   outcomeJson,
@@ -88,23 +95,18 @@ const announceResource = (entry: AdmissionOutcomeEntry) => ({
   }),
 });
 
-type Endpoint =
-  | typeof ListAdmissionOutcomeScopesEndpoint
-  | typeof ReadAdmissionOutcomesEndpoint
-  | typeof ReadAdmissionOutcomeEndpoint
-  | typeof DecideAdmissionOutcomeEndpoint
-  | typeof AnnounceAdmissionOutcomeEndpoint;
-
 /** Who an operation needs: the board is open to either, a command to its own authority. */
 type Requirement = "Either" | "Decide" | "Announce";
 
 /**
  * Resolves what the person holds in the department now, refuses a person who lacks the operation's
- * authority, then evaluates the declared AccessSpec. A plain department member holds neither.
+ * authority, then evaluates the declared AccessSpec through the generated guard. A plain
+ * department member holds neither.
  */
-const authorize = (
+const authorizeOutcome = (
+  authorize: OutcomePersonAuthorize,
+  operation: string,
   request: Request,
-  endpoint: Endpoint,
   departmentId: AdmissionOutcomeEntry["departmentId"],
   requirement: Requirement,
   auth: TransactionPersonAuthority,
@@ -122,9 +124,11 @@ const authorize = (
 
     if (!permitted) return yield* Problem.make("authority.denied");
 
-    yield* authorizePerson(
-      {
-        spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
+    yield* authorizeAt(authorize, {
+      kind: "Person",
+      operation,
+      request,
+      input: {
         credential: auth.credential,
         personId: auth.authority.personId,
         resolution: {
@@ -141,11 +145,37 @@ const authorize = (
         grantScopes: [Scope.Department({ departmentId })],
         now: auth.authorizationInstant,
       },
-      personPresentation(request),
-    );
+    });
 
     return { decide, announce };
   });
+
+type AdmissionOutcomesEndpoints = HttpApiGroup.Endpoints<
+  (typeof ExternalNativeApi)["groups"]["admissionOutcomes"]
+>;
+
+/**
+ * The guards evaluate each endpoint's declared AccessSpec at the decision point of its raw
+ * handler, after the handler has resolved what the person holds in the department.
+ */
+export const admissionOutcomesGuards = {
+  "admissionOutcomes.announceOutcome": () =>
+    personGuard("admissionOutcomes.announceOutcome", announceOutcomeEndpoint),
+  "admissionOutcomes.decideOutcome": () =>
+    personGuard("admissionOutcomes.decideOutcome", decideOutcomeEndpoint),
+  "admissionOutcomes.listScopes": () =>
+    personGuard("admissionOutcomes.listScopes", listScopesEndpoint),
+  "admissionOutcomes.previewOutcomeTemplate": () =>
+    personGuard("admissionOutcomes.previewOutcomeTemplate", previewOutcomeTemplateEndpoint),
+  "admissionOutcomes.readOutcome": () =>
+    personGuard("admissionOutcomes.readOutcome", readOutcomeEndpoint),
+  "admissionOutcomes.readOutcomeTemplates": () =>
+    personGuard("admissionOutcomes.readOutcomeTemplates", readOutcomeTemplatesEndpoint),
+  "admissionOutcomes.readOutcomes": () =>
+    personGuard("admissionOutcomes.readOutcomes", readOutcomesEndpoint),
+  "admissionOutcomes.saveOutcomeTemplate": () =>
+    personGuard("admissionOutcomes.saveOutcomeTemplate", saveOutcomeTemplateEndpoint),
+} satisfies AdmissionOutcomesGuards<AdmissionOutcomesEndpoints>;
 
 export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
   const personAuthority = (request: Request) =>
@@ -153,7 +183,7 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
 
   const templates = OutcomeTemplateHandlers(input);
 
-  const listScopes = (request: Request) =>
+  const listScopes = (request: Request, authorize: OutcomePersonAuthorize) =>
     outcomeSnapshotRead(
       request,
       Effect.gen(function* () {
@@ -166,9 +196,10 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
         );
 
         for (const department of scopes.departments)
-          yield* authorize(
+          yield* authorizeOutcome(
+            authorize,
+            "admissionOutcomes.listScopes",
             request,
-            ListAdmissionOutcomeScopesEndpoint,
             department.departmentId,
             "Either",
             auth,
@@ -178,7 +209,7 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
       }),
     );
 
-  const readOutcomes = (request: Request) =>
+  const readOutcomes = (request: Request, authorize: OutcomePersonAuthorize) =>
     outcomeSnapshotRead(
       request,
       Effect.gen(function* () {
@@ -194,9 +225,10 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
         const scope = yield* decodeRequest(AdmissionOutcomeScope)(Object.fromEntries(parameters));
         const auth = yield* personAuthority(request);
 
-        const { decide, announce } = yield* authorize(
+        const { decide, announce } = yield* authorizeOutcome(
+          authorize,
+          "admissionOutcomes.readOutcomes",
           request,
-          ReadAdmissionOutcomesEndpoint,
           scope.departmentId,
           "Either",
           auth,
@@ -225,7 +257,11 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
       }),
     );
 
-  const readOutcome = (request: Request, applicationId: AdmissionOutcomeEntry["applicationId"]) =>
+  const readOutcome = (
+    request: Request,
+    applicationId: AdmissionOutcomeEntry["applicationId"],
+    authorize: OutcomePersonAuthorize,
+  ) =>
     outcomeSnapshotRead(
       request,
       Effect.gen(function* () {
@@ -236,7 +272,14 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
         );
 
         const auth = yield* personAuthority(request);
-        yield* authorize(request, ReadAdmissionOutcomeEndpoint, entry.departmentId, "Decide", auth);
+        yield* authorizeOutcome(
+          authorize,
+          "admissionOutcomes.readOutcome",
+          request,
+          entry.departmentId,
+          "Decide",
+          auth,
+        );
         const resource = yield* strictOutput(AdmissionOutcomeResource)(outcomeResource(entry));
 
         return yield* conditionalJson({
@@ -249,7 +292,11 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
       }),
     );
 
-  const decideOutcome = (request: Request, applicationId: AdmissionOutcomeEntry["applicationId"]) =>
+  const decideOutcome = (
+    request: Request,
+    applicationId: AdmissionOutcomeEntry["applicationId"],
+    authorize: OutcomePersonAuthorize,
+  ) =>
     Effect.gen(function* () {
       yield* requireNoQuery(request);
 
@@ -273,9 +320,10 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
 
           const auth = yield* personAuthority(request);
 
-          yield* authorize(
+          yield* authorizeOutcome(
+            authorize,
+            "admissionOutcomes.decideOutcome",
             request,
-            DecideAdmissionOutcomeEndpoint,
             selected.departmentId,
             "Decide",
             auth,
@@ -330,6 +378,7 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
   const announceOutcome = (
     request: Request,
     applicationId: AdmissionOutcomeEntry["applicationId"],
+    authorize: OutcomePersonAuthorize,
   ) =>
     Effect.gen(function* () {
       yield* requireNoQuery(request);
@@ -354,9 +403,10 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
 
           const auth = yield* personAuthority(request);
 
-          yield* authorize(
+          yield* authorizeOutcome(
+            authorize,
+            "admissionOutcomes.announceOutcome",
             request,
-            AnnounceAdmissionOutcomeEndpoint,
             selected.departmentId,
             "Announce",
             auth,
@@ -412,33 +462,35 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
       return response;
     });
 
-  return HttpApiBuilder.group(ExternalNativeApi, "admissionOutcomes", (handlers) =>
-    Effect.succeed(
-      handlers
-        .handleRaw("listScopes", ({ request }) => webHandler(request, listScopes))
-        .handleRaw("readOutcomes", ({ request }) => webHandler(request, readOutcomes))
-        .handleRaw("readOutcome", ({ request, params }) =>
-          webHandler(request, (webRequest) => readOutcome(webRequest, params.applicationId)),
-        )
-        .handleRaw("decideOutcome", ({ request, params }) =>
-          webHandler(request, (webRequest) => decideOutcome(webRequest, params.applicationId)),
-        )
-        .handleRaw("announceOutcome", ({ request, params }) =>
-          webHandler(request, (webRequest) => announceOutcome(webRequest, params.applicationId)),
-        )
-        .handleRaw("readOutcomeTemplates", ({ request }) =>
-          webHandler(request, templates.readOutcomeTemplates),
-        )
-        .handleRaw("previewOutcomeTemplate", ({ request, params }) =>
-          webHandler(request, (webRequest) =>
-            templates.previewOutcomeTemplate(webRequest, params.kind),
-          ),
-        )
-        .handleRaw("saveOutcomeTemplate", ({ request, params }) =>
-          webHandler(request, (webRequest) =>
-            templates.saveOutcomeTemplate(webRequest, params.kind),
-          ),
-        ),
-    ),
-  );
+  const raw = {
+    listScopes: ({ request }, authorize) =>
+      webHandler(request, (webRequest) => listScopes(webRequest, authorize)),
+    readOutcomes: ({ request }, authorize) =>
+      webHandler(request, (webRequest) => readOutcomes(webRequest, authorize)),
+    readOutcome: ({ request, params }, authorize) =>
+      webHandler(request, (webRequest) => readOutcome(webRequest, params.applicationId, authorize)),
+    decideOutcome: ({ request, params }, authorize) =>
+      webHandler(request, (webRequest) =>
+        decideOutcome(webRequest, params.applicationId, authorize),
+      ),
+    announceOutcome: ({ request, params }, authorize) =>
+      webHandler(request, (webRequest) =>
+        announceOutcome(webRequest, params.applicationId, authorize),
+      ),
+    readOutcomeTemplates: ({ request }, authorize) =>
+      webHandler(request, (webRequest) => templates.readOutcomeTemplates(webRequest, authorize)),
+    previewOutcomeTemplate: ({ request, params }, authorize) =>
+      webHandler(request, (webRequest) =>
+        templates.previewOutcomeTemplate(webRequest, params.kind, authorize),
+      ),
+    saveOutcomeTemplate: ({ request, params }, authorize) =>
+      webHandler(request, (webRequest) =>
+        templates.saveOutcomeTemplate(webRequest, params.kind, authorize),
+      ),
+  } satisfies AdmissionOutcomesRawHandlers<
+    AdmissionOutcomesEndpoints,
+    typeof admissionOutcomesGuards
+  >;
+
+  return GeneratedAdmissionOutcomesApiHandlers({ raw, guards: admissionOutcomesGuards });
 };

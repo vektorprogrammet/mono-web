@@ -7,7 +7,7 @@ import {
   makeNativeValidationError,
   type NativeValidationError,
   PublicApplicationConfirmationSchema,
-  ReadApplicationCatalogEndpoint,
+  listApplicationOptions,
   SubmitApplicationRequest,
 } from "@vektorprogrammet/http-api";
 import { Schema, Struct } from "effect";
@@ -104,11 +104,11 @@ type ResponseBody<Response> =
 
 /** The 200 body that the application options endpoint declares; its 304 has none. */
 const catalogSchema = (() => {
-  for (const response of ReadApplicationCatalogEndpoint.success) {
+  for (const response of listApplicationOptions.success) {
     if (HttpApiSchema.isWithHeaders(response) && !HttpApiSchema.isNoContent(response.schema.ast)) {
       // SAFETY: the endpoint's runtime set holds exactly the responses its type declares.
       return response.schema as ResponseBody<
-        HttpApiEndpoint.Success<typeof ReadApplicationCatalogEndpoint>
+        HttpApiEndpoint.Success<typeof listApplicationOptions>
       >;
     }
   }

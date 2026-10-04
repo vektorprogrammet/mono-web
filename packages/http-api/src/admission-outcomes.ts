@@ -1,7 +1,8 @@
 /**
- * HTTP contract for admission outcomes: Rekruttering decides Admitted or Rejected where the
- * interview derives none, the school coordinator announces each outcome once, and the effective
- * outcome message templates are read, previewed and saved.
+ * Schemas, parameters and ordered problem lists of the admission-outcome contract: Rekruttering
+ * decides Admitted or Rejected where the interview derives none, the school coordinator announces
+ * each outcome once, and the effective outcome message templates are read, previewed and saved.
+ * The operations are declared in `admission-outcomes.effx.ts`.
  */
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import { AdmissionPeriodId } from "@vektorprogrammet/domain/admission-period";
@@ -9,7 +10,6 @@ import {
   AdmissionOutcomeCommand,
   AdmissionOutcomeEntry,
   AdmissionOutcomeScope,
-  AdmissionOutcomeScopes,
 } from "@vektorprogrammet/domain/admissions";
 import {
   OutcomeMailValues,
@@ -20,20 +20,7 @@ import {
 } from "@vektorprogrammet/domain/admissions/template";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { Schema } from "effect";
-import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
-import { annotateAccessSpec, personNativeAccess } from "./access.js";
-import { operationAnnotations, PersonSecurity } from "./common.js";
-import {
-  ConditionalReadHeaders,
-  StrongETag,
-  IdempotencyIfMatchHeaders,
-  privateReadResponse,
-  privateConditionalResponses,
-  entityMutationResponse,
-  privateEntityMutationResponse,
-  endpointProblemResponses,
-  problemUnion,
-} from "./http-semantics.js";
+import { StrongETag, problemUnion } from "./http-semantics.js";
 
 export { AdmissionOutcomeCommand, AdmissionOutcomeScope };
 
@@ -96,7 +83,27 @@ export const OutcomeTemplatePreviewRequest = Schema.Struct({
 
 export { OutcomeTemplateDraft, OutcomeTemplateKind, RenderedOutcomeMail };
 
-const admissionOutcomeProblems = [
+/** The empty input of an operation that takes no path, query or body. */
+export const EmptyAdmissionOutcomeInput = Schema.Struct({});
+
+/** The application that one outcome operation addresses. */
+export const AdmissionOutcomeParams = Schema.Struct({ applicationId: PublicApplicationIdSchema });
+
+/** The variant that one template operation addresses. */
+export const OutcomeTemplateKindParams = Schema.Struct({ kind: OutcomeTemplateKind });
+
+/** The department whose override a template operation addresses; absent selects the global default. */
+export const OutcomeTemplateScopeQuery = Schema.Struct({
+  departmentId: Schema.optional(DepartmentId),
+});
+
+/**
+ * The ordered problems of the three outcome reads. This list and the two below are the single
+ * source of the order: `admission-outcomes-effx-adapters.ts` repeats them as flat literal tuples
+ * because the effx frontend cannot resolve a spread of a const tuple, and a test compares each
+ * flat tuple with its source element for element.
+ */
+export const AdmissionOutcomeProblemCodes = [
   "request.malformed",
   "request.too-large",
   "precondition.invalid",
@@ -118,15 +125,15 @@ const admissionOutcomeProblems = [
 
 export const AdmissionOutcomeProblem = problemUnion(
   "AdmissionOutcomeProblem",
-  admissionOutcomeProblems,
+  AdmissionOutcomeProblemCodes,
 );
 
 /**
  * A command also answers an unavailable receipt store and the refusals of the outcome policy and
  * of an invalid template, appended after the codes that existed before spec 0027.
  */
-export const AdmissionOutcomeCommandProblem = problemUnion("AdmissionOutcomeCommandProblem", [
-  ...admissionOutcomeProblems,
+export const AdmissionOutcomeCommandProblemCodes = [
+  ...AdmissionOutcomeProblemCodes,
   "idempotency.unavailable",
   "admission-outcome.undecided",
   "admission-outcome.placement-active",
@@ -134,223 +141,20 @@ export const AdmissionOutcomeCommandProblem = problemUnion("AdmissionOutcomeComm
   "admission-outcome.derived",
   "admission-outcome.unreviewed",
   "admission-outcome.template-invalid",
-]);
+] as const;
+
+export const AdmissionOutcomeCommandProblem = problemUnion(
+  "AdmissionOutcomeCommandProblem",
+  AdmissionOutcomeCommandProblemCodes,
+);
 
 /** Reading or previewing a template answers an invalid stored or drafted document; neither writes a receipt. */
-export const AdmissionOutcomeTemplateProblem = problemUnion("AdmissionOutcomeTemplateProblem", [
-  ...admissionOutcomeProblems,
+export const AdmissionOutcomeTemplateProblemCodes = [
+  ...AdmissionOutcomeProblemCodes,
   "admission-outcome.template-invalid",
-]);
+] as const;
 
-const access = (
-  capability: "admissions.outcomes.read" | "admissions.outcomes.decide",
-  decisionTime: "SnapshotRead" | "Transaction",
-) =>
-  personNativeAccess({
-    capability,
-    canonicalScopeResolver: "admissions.application-outcomes",
-    decisionTime,
-  });
-
-/** Announcing needs the capability and the coordinator of the application's department, in the committing transaction. */
-const announceAccess = personNativeAccess({
-  capability: "admissions.outcomes.announce",
-  canonicalScopeResolver: "admissions.outcome-announcement",
-  requirements: ["admissions.department-coordinator"],
-  decisionTime: "Transaction",
-});
-
-/** The coordinator reads the board and the scopes through the same operations as the decider. */
-const readAccess = personNativeAccess({
-  capability: "admissions.outcomes.read",
-  alternatives: ["admissions.outcomes.announce"],
-  canonicalScopeResolver: "admissions.application-outcomes",
-  decisionTime: "SnapshotRead",
-});
-
-const templateAccess = (
-  capability: "admissions.outcome-templates.read" | "admissions.outcome-templates.edit",
-  decisionTime: "SnapshotRead" | "Transaction",
-) =>
-  personNativeAccess({
-    capability,
-    canonicalScopeResolver: "admissions.outcome-templates",
-    decisionTime,
-  });
-
-export const ListAdmissionOutcomeScopesEndpoint = HttpApiEndpoint.get(
-  "listScopes",
-  "/api/admission-outcomes/scopes",
-  {
-    success: privateReadResponse(AdmissionOutcomeScopes),
-    error: endpointProblemResponses(AdmissionOutcomeProblem),
-  },
-)
-  .middleware(PersonSecurity)
-  .pipe((e) => annotateAccessSpec(e, readAccess))
-  .annotateMerge(
-    operationAnnotations(
-      "Select admission outcome scope",
-      "Authorized departments and canonical historical semesters.",
-    ),
-  );
-
-export const ReadAdmissionOutcomesEndpoint = HttpApiEndpoint.get(
-  "readOutcomes",
-  "/api/admission-outcomes",
-  {
-    query: AdmissionOutcomeScope.fields,
-    success: privateReadResponse(AdmissionOutcomeBoardResource),
-    error: endpointProblemResponses(AdmissionOutcomeProblem),
-  },
-)
-  .middleware(PersonSecurity)
-  .pipe((e) => annotateAccessSpec(e, readAccess))
-  .annotateMerge(
-    operationAnnotations(
-      "Read admission outcomes",
-      "Admission management reads every application of the period. The school coordinator reads each application's name, lifecycle state and ETag, never the applicant's contact data.",
-    ),
-  );
-
-export const ReadAdmissionOutcomeEndpoint = HttpApiEndpoint.get(
-  "readOutcome",
-  "/api/admission-outcomes/:applicationId",
-  {
-    params: { applicationId: PublicApplicationIdSchema },
-    headers: ConditionalReadHeaders,
-    success: privateConditionalResponses(AdmissionOutcomeResource),
-    error: endpointProblemResponses(AdmissionOutcomeProblem),
-  },
-)
-  .middleware(PersonSecurity)
-  .pipe((e) => annotateAccessSpec(e, access("admissions.outcomes.read", "SnapshotRead")))
-  .annotateMerge(
-    operationAnnotations(
-      "Select admission outcome",
-      "Only admission management reads one application's outcome entry.",
-    ),
-  );
-
-export const DecideAdmissionOutcomeEndpoint = HttpApiEndpoint.post(
-  "decideOutcome",
-  "/api/admission-outcomes/:applicationId:decide",
-  {
-    params: { applicationId: PublicApplicationIdSchema },
-    headers: IdempotencyIfMatchHeaders,
-    payload: AdmissionOutcomeCommand,
-    success: entityMutationResponse(AdmissionOutcomeResource),
-    error: endpointProblemResponses(AdmissionOutcomeCommandProblem),
-  },
-)
-  .middleware(PersonSecurity)
-  .pipe((e) => annotateAccessSpec(e, access("admissions.outcomes.decide", "Transaction")))
-  .annotateMerge(
-    operationAnnotations(
-      "Decide admission outcome",
-      "Rekruttering decides Admitted or Rejected for a Kanskje or returning application. An interview's Ja or Nei derives its outcome and cannot be decided. Deciding the current decision again changes nothing, and nothing is announced.",
-    ),
-  );
-
-export const AnnounceAdmissionOutcomeEndpoint = HttpApiEndpoint.post(
-  "announceOutcome",
-  "/api/admission-outcomes/:applicationId:announce",
-  {
-    params: { applicationId: PublicApplicationIdSchema },
-    headers: IdempotencyIfMatchHeaders,
-    payload: AdmissionOutcomeAnnounceCommand,
-    success: privateEntityMutationResponse(AdmissionOutcomeAnnounceResource),
-    error: endpointProblemResponses(AdmissionOutcomeCommandProblem),
-  },
-)
-  .middleware(PersonSecurity)
-  .pipe((e) => annotateAccessSpec(e, announceAccess))
-  .annotateMerge(
-    operationAnnotations(
-      "Announce admission outcome",
-      "The school coordinator of the application's department announces its outcome once: the server derives it, stores it as final and queues one mail from the effective template.",
-    ),
-  );
-
-export const ReadOutcomeTemplatesEndpoint = HttpApiEndpoint.get(
-  "readOutcomeTemplates",
-  "/api/admission-outcomes/templates",
-  {
-    query: { departmentId: Schema.optional(DepartmentId) },
-    headers: ConditionalReadHeaders,
-    success: privateConditionalResponses(OutcomeTemplateResource),
-    error: endpointProblemResponses(AdmissionOutcomeTemplateProblem),
-  },
-)
-  .middleware(PersonSecurity)
-  .pipe((e) =>
-    annotateAccessSpec(e, templateAccess("admissions.outcome-templates.read", "SnapshotRead")),
-  )
-  .annotateMerge(
-    operationAnnotations(
-      "Read outcome message templates",
-      "The effective Admitted and Rejected variants of the global default, or of one department with the provenance of each variant. Only the department's coordinator or a global administrator reads them.",
-    ),
-  );
-
-export const PreviewOutcomeTemplateEndpoint = HttpApiEndpoint.post(
-  "previewOutcomeTemplate",
-  "/api/admission-outcomes/templates/:kind:preview",
-  {
-    params: { kind: OutcomeTemplateKind },
-    query: { departmentId: Schema.optional(DepartmentId) },
-    payload: OutcomeTemplatePreviewRequest,
-    success: privateReadResponse(RenderedOutcomeMail),
-    error: endpointProblemResponses(AdmissionOutcomeTemplateProblem),
-  },
-)
-  .middleware(PersonSecurity)
-  .pipe((e) =>
-    annotateAccessSpec(e, templateAccess("admissions.outcome-templates.edit", "SnapshotRead")),
-  )
-  .annotateMerge(
-    operationAnnotations(
-      "Preview outcome message template",
-      "Validates a draft with the schema of save and announce and answers the exact subject, HTML and text that the server would send for the sample values. Nothing is stored.",
-    ),
-  );
-
-export const SaveOutcomeTemplateEndpoint = HttpApiEndpoint.put(
-  "saveOutcomeTemplate",
-  "/api/admission-outcomes/templates/:kind",
-  {
-    params: { kind: OutcomeTemplateKind },
-    query: { departmentId: Schema.optional(DepartmentId) },
-    headers: IdempotencyIfMatchHeaders,
-    payload: OutcomeTemplateDraft,
-    success: entityMutationResponse(OutcomeTemplateResource),
-    error: endpointProblemResponses(AdmissionOutcomeCommandProblem),
-  },
-)
-  .middleware(PersonSecurity)
-  .pipe((e) =>
-    annotateAccessSpec(e, templateAccess("admissions.outcome-templates.edit", "Transaction")),
-  )
-  .annotateMerge(
-    operationAnnotations(
-      "Save outcome message template",
-      "Appends one revision of a variant for the global default or one department's override. Only a global administrator saves a default, and only the department's delegated school coordinator saves its override. A queued mail never changes.",
-    ),
-  );
-
-export class AdmissionOutcomesApi extends HttpApiGroup.make("admissionOutcomes")
-  .add(ListAdmissionOutcomeScopesEndpoint)
-  .add(ReadAdmissionOutcomesEndpoint)
-  .add(ReadAdmissionOutcomeEndpoint)
-  .add(DecideAdmissionOutcomeEndpoint)
-  .add(AnnounceAdmissionOutcomeEndpoint)
-  .add(ReadOutcomeTemplatesEndpoint)
-  .add(PreviewOutcomeTemplateEndpoint)
-  .add(SaveOutcomeTemplateEndpoint)
-  .annotateMerge(
-    OpenApi.annotations({
-      title: "Admission outcomes",
-      description:
-        "Admission outcomes, their one-time announcement and the editable outcome message templates.",
-    }),
-  ) {}
+export const AdmissionOutcomeTemplateProblem = problemUnion(
+  "AdmissionOutcomeTemplateProblem",
+  AdmissionOutcomeTemplateProblemCodes,
+);

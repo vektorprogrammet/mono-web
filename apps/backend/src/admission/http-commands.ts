@@ -13,19 +13,10 @@ import {
   ReturningAssistants,
   ReturningCommandIdSchema,
 } from "@vektorprogrammet/domain/application";
-import {
-  CreateAdmissionPeriodEndpoint,
-  CreateAdmissionPeriodRequest,
-  RegisterReturningAssistantEndpoint,
-  ReviseAdmissionPeriodEndpoint,
-  SubmitApplicationEndpoint,
-  SubmitApplicationRequest,
-  reflectAccessSpec,
-} from "@vektorprogrammet/http-api";
-import { Clock, DateTime, Effect, Option, Predicate } from "effect";
+import { CreateAdmissionPeriodRequest, SubmitApplicationRequest } from "@vektorprogrammet/http-api";
+import { Clock, DateTime, Effect, Predicate } from "effect";
 import { currentInstant, resolveRequestPersonAuthorityInTransaction } from "../authority.js";
 import {
-  authorizeAnonymous,
   commandOutcomeResponse,
   commandReceiptProblems,
   httpIdentity,
@@ -53,10 +44,19 @@ import {
   returningAuthorization,
 } from "./http-access.js";
 import { admissionActorForAuthority, type AdmissionApiHttpOptions } from "./http-context.js";
+import {
+  authorizeAt,
+  type AdmissionAnonymousAuthorize,
+  type AdmissionPersonAuthorize,
+} from "./http-guard.js";
 import { decodeAdmissionPeriodPatch, decodeJson } from "./http-decode.js";
 import { admissionProblems } from "./http-problem.js";
 
-export const registerReturningAssistant = (request: Request, input: AdmissionApiHttpOptions) =>
+export const registerReturningAssistant = (
+  request: Request,
+  input: AdmissionApiHttpOptions,
+  authorize: AdmissionPersonAuthorize,
+) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
 
@@ -81,9 +81,10 @@ export const registerReturningAssistant = (request: Request, input: AdmissionApi
           (() => DateTime.formatIso(DateTime.makeUnsafe(clock.currentTimeMillisUnsafe())));
 
         const authorization = yield* returningAuthorization(
+          authorize,
+          "admissions.registerReturningAssistant",
           request,
           input,
-          RegisterReturningAssistantEndpoint,
         );
 
         yield* ReturningAssistants.use(({ preflight }) =>
@@ -149,7 +150,11 @@ export const registerReturningAssistant = (request: Request, input: AdmissionApi
     return yield* commandOutcomeResponse(outcome);
   }).pipe(admissionProblems(request, "returning.unavailable"), commandReceiptProblems);
 
-export const createAdmissionPeriod = (request: Request, input: AdmissionApiHttpOptions) =>
+export const createAdmissionPeriod = (
+  request: Request,
+  input: AdmissionApiHttpOptions,
+  authorize: AdmissionPersonAuthorize,
+) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
 
@@ -178,8 +183,7 @@ export const createAdmissionPeriod = (request: Request, input: AdmissionApiHttpO
         );
 
         const now = authorization.authorizationInstant;
-        yield* authorizeAdmissionPerson(request, {
-          spec: Option.getOrThrow(reflectAccessSpec(CreateAdmissionPeriodEndpoint)),
+        yield* authorizeAdmissionPerson(authorize, "admissions.createAdmissionPeriod", request, {
           credential: authorization.credential,
           personId: actor.personId,
           resolution: {
@@ -270,6 +274,7 @@ export const reviseAdmissionPeriod = (
   request: Request,
   admissionPeriodId: AdmissionPeriodId,
   input: AdmissionApiHttpOptions,
+  authorize: AdmissionPersonAuthorize,
 ) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
@@ -305,8 +310,7 @@ export const reviseAdmissionPeriod = (
           return yield* new AdmissionPeriodNotFound({ admissionPeriodId });
         }
 
-        yield* authorizeAdmissionPerson(request, {
-          spec: Option.getOrThrow(reflectAccessSpec(ReviseAdmissionPeriodEndpoint)),
+        yield* authorizeAdmissionPerson(authorize, "admissions.reviseAdmissionPeriod", request, {
           credential: authorization.credential,
           personId: actor.personId,
           resolution: {
@@ -401,7 +405,11 @@ export const reviseAdmissionPeriod = (
     unreachable("admission-period.already-exists"),
   );
 
-export const submitApplication = (request: Request, input: AdmissionApiHttpOptions) =>
+export const submitApplication = (
+  request: Request,
+  input: AdmissionApiHttpOptions,
+  authorize: AdmissionAnonymousAuthorize,
+) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
     const now = yield* currentInstant(input.config.now);
@@ -419,9 +427,10 @@ export const submitApplication = (request: Request, input: AdmissionApiHttpOptio
     // Domain failures are mapped after the executor, whose retry reads their causes.
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
-        yield* authorizeAnonymous(
-          Option.getOrThrow(reflectAccessSpec(SubmitApplicationEndpoint)),
-          {
+        yield* authorizeAt(authorize, {
+          kind: "Anonymous",
+          operation: "admissions.submitApplication",
+          resolution: {
             selection: "ExactlyOne",
             contexts: [
               genericContext({
@@ -431,7 +440,7 @@ export const submitApplication = (request: Request, input: AdmissionApiHttpOptio
             ],
           },
           now,
-        );
+        });
 
         const identity = yield* httpIdentity({
           credentialSubject: "Anonymous",

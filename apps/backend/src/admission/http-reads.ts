@@ -6,26 +6,11 @@ import {
   ReturningAssistantOptionsSchema,
   ReturningAssistants,
 } from "@vektorprogrammet/domain/application";
-import {
-  AdmissionPeriodManagementItem,
-  ListAdmissionPeriodsEndpoint,
-  ListOpenAdmissionPeriodsEndpoint,
-  ReadApplicantProgressEndpoint,
-  ReadApplicationCatalogEndpoint,
-  ReadApplicationConfirmationEndpoint,
-  ReadReturningAssistantOptionsEndpoint,
-  reflectAccessSpec,
-} from "@vektorprogrammet/http-api";
+import { AdmissionPeriodManagementItem } from "@vektorprogrammet/http-api";
 import { Problem } from "@vektorprogrammet/http-api/http-semantics";
-import { Effect, Option, Predicate, Schema } from "effect";
+import { Effect, Predicate, Schema } from "effect";
 import { currentInstant, resolveRequestPersonAuthorityInTransaction } from "../authority.js";
-import {
-  authorizeAnonymous,
-  requireNoQuery,
-  strictOutput,
-  unreachable,
-  jsonText,
-} from "../http-api/problem.js";
+import { requireNoQuery, strictOutput, unreachable, jsonText } from "../http-api/problem.js";
 import { PRIVATE_NO_STORE, deriveStrongETag } from "../http-semantics.js";
 import { genericContext } from "../native-operation.js";
 import {
@@ -35,6 +20,11 @@ import {
   returningPersonResource,
 } from "./http-access.js";
 import { requireActive, type AdmissionApiHttpOptions } from "./http-context.js";
+import {
+  authorizeAt,
+  type AdmissionAnonymousAuthorize,
+  type AdmissionPersonAuthorize,
+} from "./http-guard.js";
 import { admissionProblems, periodCommandProblems, submissionProblems } from "./http-problem.js";
 import {
   conditionalCollection,
@@ -42,14 +32,19 @@ import {
   jsonResponse,
 } from "./http-representation.js";
 
-export const readReturningAssistantOptions = (request: Request, input: AdmissionApiHttpOptions) =>
+export const readReturningAssistantOptions = (
+  request: Request,
+  input: AdmissionApiHttpOptions,
+  authorize: AdmissionPersonAuthorize,
+) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
 
     const authorization = yield* returningAuthorization(
+      authorize,
+      "admissions.readReturningAssistantOptions",
       request,
       input,
-      ReadReturningAssistantOptionsEndpoint,
     );
 
     const options = yield* ReturningAssistants.use(({ readOptions }) =>
@@ -72,13 +67,16 @@ export const readReturningAssistantOptions = (request: Request, input: Admission
     ),
   );
 
-export const listAdmissionPeriods = (request: Request, input: AdmissionApiHttpOptions) =>
+export const listAdmissionPeriods = (
+  request: Request,
+  input: AdmissionApiHttpOptions,
+  authorize: AdmissionPersonAuthorize,
+) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
     const actor = yield* input.resolveActor(request).pipe(Effect.flatMap(requireActive));
     const now = yield* currentInstant(input.config.now);
-    yield* authorizeAdmissionPerson(request, {
-      spec: Option.getOrThrow(reflectAccessSpec(ListAdmissionPeriodsEndpoint)),
+    yield* authorizeAdmissionPerson(authorize, "admissions.listAdmissionPeriods", request, {
       request,
       personId: actor.personId,
       resolution: {
@@ -131,13 +129,18 @@ export const listAdmissionPeriods = (request: Request, input: AdmissionApiHttpOp
     unreachable(...periodCommandProblems),
   );
 
-export const listOpenAdmissionPeriods = (request: Request, input: AdmissionApiHttpOptions) =>
+export const listOpenAdmissionPeriods = (
+  request: Request,
+  input: AdmissionApiHttpOptions,
+  authorize: AdmissionAnonymousAuthorize,
+) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
     const now = yield* currentInstant(input.config.now);
-    yield* authorizeAnonymous(
-      Option.getOrThrow(reflectAccessSpec(ListOpenAdmissionPeriodsEndpoint)),
-      {
+    yield* authorizeAt(authorize, {
+      kind: "Anonymous",
+      operation: "admissions.listOpenAdmissionPeriods",
+      resolution: {
         selection: "AllMatching",
         contexts: [
           genericContext({
@@ -147,7 +150,7 @@ export const listOpenAdmissionPeriods = (request: Request, input: AdmissionApiHt
         ],
       },
       now,
-    );
+    });
 
     const rows = yield* Admissions.use(({ listOpenAdmissionPeriods }) =>
       listOpenAdmissionPeriods(now),
@@ -185,13 +188,18 @@ export const listOpenAdmissionPeriods = (request: Request, input: AdmissionApiHt
     ),
   );
 
-export const listApplicationOptions = (request: Request, input: AdmissionApiHttpOptions) =>
+export const listApplicationOptions = (
+  request: Request,
+  input: AdmissionApiHttpOptions,
+  authorize: AdmissionAnonymousAuthorize,
+) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
     const now = yield* currentInstant(input.config.now);
-    yield* authorizeAnonymous(
-      Option.getOrThrow(reflectAccessSpec(ReadApplicationCatalogEndpoint)),
-      {
+    yield* authorizeAt(authorize, {
+      kind: "Anonymous",
+      operation: "admissions.listApplicationOptions",
+      resolution: {
         selection: "AllMatching",
         contexts: [
           genericContext({
@@ -201,7 +209,7 @@ export const listApplicationOptions = (request: Request, input: AdmissionApiHttp
         ],
       },
       now,
-    );
+    });
 
     const source = yield* Admissions.use(({ listPublicApplicationCatalog }) =>
       listPublicApplicationCatalog({ now }),
@@ -229,13 +237,15 @@ export const readApplicationConfirmation = (
   request: Request,
   applicationId: string,
   input: AdmissionApiHttpOptions,
+  authorize: AdmissionAnonymousAuthorize,
 ) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
     const now = yield* currentInstant(input.config.now);
-    yield* authorizeAnonymous(
-      Option.getOrThrow(reflectAccessSpec(ReadApplicationConfirmationEndpoint)),
-      {
+    yield* authorizeAt(authorize, {
+      kind: "Anonymous",
+      operation: "admissions.readApplicationConfirmation",
+      resolution: {
         selection: "ExactlyOne",
         contexts: [
           genericContext({
@@ -247,7 +257,7 @@ export const readApplicationConfirmation = (
         ],
       },
       now,
-    );
+    });
 
     const confirmation = yield* Admissions.use(({ findPublicApplicationConfirmation }) =>
       findPublicApplicationConfirmation(applicationId),
@@ -260,7 +270,11 @@ export const readApplicationConfirmation = (
     unreachable(...submissionProblems),
   );
 
-export const readApplicantProgress = (request: Request, input: AdmissionApiHttpOptions) =>
+export const readApplicantProgress = (
+  request: Request,
+  input: AdmissionApiHttpOptions,
+  authorize: AdmissionPersonAuthorize,
+) =>
   Database.use((sql) =>
     sql.withTransaction(
       Effect.gen(function* () {
@@ -274,8 +288,7 @@ export const readApplicantProgress = (request: Request, input: AdmissionApiHttpO
           now: input.config.now,
         });
 
-        yield* authorizeAdmissionPerson(request, {
-          spec: Option.getOrThrow(reflectAccessSpec(ReadApplicantProgressEndpoint)),
+        yield* authorizeAdmissionPerson(authorize, "admissions.readApplicantProgress", request, {
           credential: authorization.credential,
           personId: authorization.authority.personId,
           resolution: {

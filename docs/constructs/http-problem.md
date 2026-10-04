@@ -6,74 +6,83 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
 
 ## `authorizeAdmissionPerson`
 
-Evaluates one admission person AccessSpec.
+Evaluates one admission person AccessSpec through the generated guard of its endpoint.
 
 ```ts
-authorizeAdmissionPerson(
+authorizeAdmissionPerson<E>(
+  authorize: () => Effect.Effect<unknown, E>,
+  operation: string,
   request: Request,
-  input: NativePersonAuthorization
-): Effect.Effect<void, Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">>
+  input: PersonDecisionInput
+): Effect.Effect<void, E>
 ```
 
 - Inputs:
+  - `authorize: () => Effect.Effect<unknown, E>`
+  - `operation: string`
   - `request: Request`
-  - `input: NativePersonAuthorization`
-- Output: `Effect.Effect<void, Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">>`
-- Errors: `Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">`
+  - `input: PersonDecisionInput`
+- Output: `Effect.Effect<void, E>`
+- Errors: `E`
 - Requirements: none
 - Side effects: none
-- Source: [apps/backend/src/admission/http-access.ts:65](../../apps/backend/src/admission/http-access.ts#L65)
+- Source: [apps/backend/src/admission/http-access.ts:61](../../apps/backend/src/admission/http-access.ts#L61)
 
 **How it works**
 
-It runs `authorizePerson` with the credential that the request presented, then
-`unreachable("resource.not-found")`: every admission AccessSpec reveals its denials, so
-authorization never answers 404, and a concealment would be a defect.
+It hands the facts of this decision point to `authorize`, the guard that the generated raw
+handler supplies, which runs `authorizePerson` with the credential that the request presented
+and then `unreachable("resource.not-found")`: every admission AccessSpec reveals its denials, so
+authorization never answers 404, and a concealment would be a defect. The guard refuses to run
+for another operation's frame.
 
 **Use**
 
 ```ts
-yield* authorizeAdmissionPerson(request, { spec, credential, personId, resolution, grantScopes, now });
+yield* authorizeAdmissionPerson(authorize, "admissions.createAdmissionPeriod", request, { credential, personId, resolution, grantScopes, now });
 ```
 
 **Avoid**
 
-Calling `authorizePerson` in an admission handler and declaring resource.not-found on the
-endpoint: admission specs reveal their denials, so that problem never occurs. Call this.
+Calling `authorizePerson` in an admission handler, or evaluating a spec that the handler
+chose itself: the generated guard owns the AccessSpec of its endpoint. Call this.
 
 ## `returningAuthorization`
 
 Resolves the current person and authorizes one returning-assistant operation on that person's own profile.
 
 ```ts
-returningAuthorization(
+returningAuthorization<E>(
+  authorize: () => Effect.Effect<unknown, E>,
+  operation: string,
   request: Request,
-  input: AdmissionApiHttpOptions,
-  endpoint: | typeof ReadReturningAssistantOptionsEndpoint | typeof RegisterReturningAssistantEndpoint
-): Effect.Effect<TransactionPersonAuthority, | IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">, Database | Organization | IdentitySnapshot | OAuthCredentialAuthority>
+  input: AdmissionApiHttpOptions
+): Effect.Effect<TransactionPersonAuthority, IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError | E, Database | Organization | IdentitySnapshot | OAuthCredentialAuthority>
 ```
 
 - Inputs:
+  - `authorize: () => Effect.Effect<unknown, E>`
+  - `operation: string`
   - `request: Request`
   - `input: AdmissionApiHttpOptions`
-  - `endpoint: | typeof ReadReturningAssistantOptionsEndpoint | typeof RegisterReturningAssistantEndpoint`
-- Output: `Effect.Effect<TransactionPersonAuthority, | IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">, Database | Organization | IdentitySnapshot | OAuthCredentialAuthority>`
-- Errors: `| IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing">`
+- Output: `Effect.Effect<TransactionPersonAuthority, IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError | E, Database | Organization | IdentitySnapshot | OAuthCredentialAuthority>`
+- Errors: `IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError | E`
 - Requirements: `Database | Organization | IdentitySnapshot | OAuthCredentialAuthority`
 - Side effects: Reads the person's session or token and organization authority in the caller's transaction.
-- Source: [apps/backend/src/admission/http-access.ts:96](../../apps/backend/src/admission/http-access.ts#L96)
+- Source: [apps/backend/src/admission/http-access.ts:92](../../apps/backend/src/admission/http-access.ts#L92)
 
 **How it works**
 
 It resolves the request's person credential and organization authority in the caller's
-transaction at one instant, then evaluates the endpoint's AccessSpec for that person over their
-own `person-profile` resource, with the resource as the grant scope. It answers the resolved
-authority, whose instant the command uses for its own reads.
+transaction at one instant, then evaluates the endpoint's AccessSpec, through the generated
+guard `authorize`, for that person over their own `person-profile` resource, with the resource
+as the grant scope. It answers the resolved authority, whose instant the command uses for its
+own reads.
 
 **Use**
 
 ```ts
-const authorization = yield* returningAuthorization(request, input, RegisterReturningAssistantEndpoint);
+const authorization = yield* returningAuthorization(authorize, "admissions.registerReturningAssistant", request, input);
 ```
 
 **Avoid**
@@ -1331,7 +1340,7 @@ problemUnion<const Codes extends readonly [NativeProblemCode, ...ReadonlyArray<N
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/http-api/src/http-semantics.ts:1208](../../packages/http-api/src/http-semantics.ts#L1208)
+- Source: [packages/http-api/src/http-semantics.ts:1215](../../packages/http-api/src/http-semantics.ts#L1215)
 
 **How it works**
 
@@ -1387,7 +1396,7 @@ class Problem<const Code extends NativeProblemCode = NativeProblemCode> extends 
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/http-api/src/http-semantics.ts:1327](../../packages/http-api/src/http-semantics.ts#L1327)
+- Source: [packages/http-api/src/http-semantics.ts:1334](../../packages/http-api/src/http-semantics.ts#L1334)
 
 **How it works**
 
@@ -1424,7 +1433,7 @@ isProblem(u: unknown): u is Problem
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/http-api/src/http-semantics.ts:1430](../../packages/http-api/src/http-semantics.ts#L1430)
+- Source: [packages/http-api/src/http-semantics.ts:1437](../../packages/http-api/src/http-semantics.ts#L1437)
 
 **How it works**
 
@@ -1456,7 +1465,7 @@ problemBody(problem: Problem): ProblemWireRecord
 - Errors: none
 - Requirements: none
 - Side effects: none
-- Source: [packages/http-api/src/http-semantics.ts:1459](../../packages/http-api/src/http-semantics.ts#L1459)
+- Source: [packages/http-api/src/http-semantics.ts:1466](../../packages/http-api/src/http-semantics.ts#L1466)
 
 **How it works**
 
@@ -1496,7 +1505,7 @@ makeNativeProblem<Code extends NativeProblemCode>(
 - Throws: An `Error` when `expectedStatus` differs from the status that the registry freezes for `code`.
 - Requirements: none
 - Side effects: none
-- Source: [packages/http-api/src/http-semantics.ts:1648](../../packages/http-api/src/http-semantics.ts#L1648)
+- Source: [packages/http-api/src/http-semantics.ts:1655](../../packages/http-api/src/http-semantics.ts#L1655)
 
 **How it works**
 

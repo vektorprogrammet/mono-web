@@ -127,6 +127,7 @@ Legacy usernames and company emails are not supported as login aliases. No impor
 
 Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction-over-trust)).
 
+- Flat copies of the outcome problem lists, under "Construction over trust": `packages/http-api/src/admission-outcomes-effx-adapters.ts` repeats the three spread-composed lists of `packages/http-api/src/admission-outcomes.ts` (17, 24 and 18 codes) as flat literal tuples, because the effx frontend resolves a literal tuple but not a spread of a const tuple in `Http.problems` codes. `packages/http-api/test/admission-outcomes-effx-adapters.test.ts` compares each copy with its source element for element and at the type level, so neither side can drift. Retire the copies when the effx frontend resolves spreads of const tuples.
 - Typed endpoint problems: every backend group fails with declared `Problem` values; the raw problem path is gone.
   Defects found and left open: `packages/database/src/content/postgres.ts` never recognizes a department foreign-key violation (503, not 422);
   `Schema.Struct({})` request bodies accept excess members; a sanitizer rejection of article HTML answers 500; a lost serialization race
@@ -171,8 +172,7 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
   applications and returning registrations use `AssistantLanguageSchema` (`packages/domain/src/application/availability.ts`), and schools `SchoolLanguageSchema` (`packages/domain/src/schools/schema.ts`).
 - The application asks for no school level, and a new applicant names no preferred school: the legacy application asked neither, and the school directory records no level.
   A level wish needs a school level in Schools first; the operator decides whether to add one.
-- Admission outcomes are recorded by hand in `/dashboard/vikarer` by whoever holds `admissions.outcomes` in the department (`admissions.outcomes.decide`); they are not derived from interview recommendations.
-  Rekruttering decides them once its Styret issues it an `admissions.outcomes` delegation (O8-17); outcome messages are not sent.
+- Admission outcomes: an interview's `Ja` derives Admitted and `Nei` derives Rejected; Rekruttering decides a `Kanskje` or returning application in `/dashboard/opptaksutfall` through an `admissions.outcomes` delegation (O8-17), and the department's delegated school coordinator announces each outcome once, which queues one immutable mail from the editable templates. The mail is delivered through the configured HTTP mail transport; no deployed provider has accepted its HTML.
 - Receipt approval and settlement still also accept the person-keyed Economy grants (`economy_receipt_approval_grants`, `economy_receipt_settlement_grants`, read by `packages/database/src/receipt/authority-postgres.ts`).
   The model makes them delegations, not grants (O8-15). Retire the grants after the receipt seeds and the golden reimbursement journey issue the Økonomi delegations instead.
 - Membership still gives department-wide reach where the model names no action: content editing (`ContentEditor` in `packages/domain/src/content/actor.ts`), social-event creation (`packages/domain/src/social-events/authority.ts`),

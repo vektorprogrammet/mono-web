@@ -5,7 +5,11 @@
  */
 export * from "./admissions.js";
 
+export * from "../.effx/generated/admissions-contract.js";
+
 export * from "./admission-outcomes.js";
+
+export * from "../.effx/generated/admissionOutcomes-contract.js";
 
 export * from "./api.js";
 

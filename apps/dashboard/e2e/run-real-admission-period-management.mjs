@@ -3,8 +3,8 @@ import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "
 import { deriveHttpIdentity, encodePathIdentity } from "@vektorprogrammet/backend/http-semantics";
 import {
   AdmissionsApi,
-  CreateAdmissionPeriodEndpoint,
-  ReviseAdmissionPeriodEndpoint,
+  createAdmissionPeriod,
+  reviseAdmissionPeriod,
 } from "@vektorprogrammet/http-api";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -575,25 +575,25 @@ function assertDurableEvidence(postgres, lifecycle) {
   const audits = Array.isArray(postgres.audits) ? postgres.audits : [];
   const outbox = Array.isArray(postgres.outbox) ? postgres.outbox : [];
 
-  const periodTarget = ReviseAdmissionPeriodEndpoint.path.replace(
+  const periodTarget = reviseAdmissionPeriod.path.replace(
     ":admissionPeriodId",
     encodePathIdentity(lifecycle.period.id),
   );
 
   const createCommandId = leaderCommandId(
-    CreateAdmissionPeriodEndpoint,
-    CreateAdmissionPeriodEndpoint.path,
+    createAdmissionPeriod,
+    createAdmissionPeriod.path,
     lifecycle.period.createIdempotencyKey,
   );
 
   const concurrentWinnerCommandId = leaderCommandId(
-    ReviseAdmissionPeriodEndpoint,
+    reviseAdmissionPeriod,
     periodTarget,
     lifecycle.period.concurrentWinnerIdempotencyKey,
   );
 
   const closeCommandId = leaderCommandId(
-    ReviseAdmissionPeriodEndpoint,
+    reviseAdmissionPeriod,
     periodTarget,
     lifecycle.period.closeIdempotencyKey,
   );

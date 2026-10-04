@@ -405,196 +405,227 @@ export const SchoolAdministrationProblem = problemUnion(
   SchoolAdministrationCodes,
 );
 
+/** Ordered problems for `admissions.listOpenAdmissionPeriods`. */
+export const AdmissionsListOpenAdmissionPeriodsCodes = [
+  "request.malformed",
+  "header.malformed",
+  "precondition.invalid",
+  "precondition.failed",
+  "internal.error",
+  "admissions.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
 /** Problems for `admissions.listOpenAdmissionPeriods`. */
 export const AdmissionsListOpenAdmissionPeriodsProblem = problemUnion(
   "AdmissionsListOpenAdmissionPeriodsProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "precondition.invalid",
-    "precondition.failed",
-    "internal.error",
-    "admissions.unavailable",
-  ],
+  AdmissionsListOpenAdmissionPeriodsCodes,
 );
+
+/** Ordered problems for `admissions.listApplicationOptions`. */
+export const AdmissionsListApplicationOptionsCodes = [
+  "request.malformed",
+  "header.malformed",
+  "precondition.invalid",
+  "precondition.failed",
+  "internal.error",
+  "admissions.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
 
 /** Problems for `admissions.listApplicationOptions`. */
 export const AdmissionsListApplicationOptionsProblem = problemUnion(
   "AdmissionsListApplicationOptionsProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "precondition.invalid",
-    "precondition.failed",
-    "internal.error",
-    "admissions.unavailable",
-  ],
+  AdmissionsListApplicationOptionsCodes,
 );
+
+/** Ordered problems for the current person's applicant progress projection. */
+export const AdmissionsReadApplicantProgressCodes = [
+  "request.malformed",
+  "header.malformed",
+  "authority.denied",
+  "origin.denied",
+  "internal.error",
+  "admissions.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
 
 /** Problems for the current person's applicant progress projection. */
 export const AdmissionsReadApplicantProgressProblem = problemUnion(
   "AdmissionsReadApplicantProgressProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "authority.denied",
-    "origin.denied",
-    "internal.error",
-    "admissions.unavailable",
-  ],
+  AdmissionsReadApplicantProgressCodes,
 );
 
-/** Problems for returning-assistant options and registration. */
+/** Ordered problems for returning-assistant options. */
+export const AdmissionsReadReturningAssistantOptionsCodes = [
+  "request.malformed",
+  "header.malformed",
+  "authority.denied",
+  "origin.denied",
+  "validation.failed",
+  "returning.identity-missing",
+  "returning.identity-ambiguous",
+  "returning.history-missing",
+  "returning.study-invalid",
+  "returning.period-unavailable",
+  "internal.error",
+  "returning.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
+/** Problems for returning-assistant options. */
 export const AdmissionsReadReturningAssistantOptionsProblem = problemUnion(
   "AdmissionsReadReturningAssistantOptionsProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "authority.denied",
-    "origin.denied",
-    "validation.failed",
-    "returning.identity-missing",
-    "returning.identity-ambiguous",
-    "returning.history-missing",
-    "returning.study-invalid",
-    "returning.period-unavailable",
-    "internal.error",
-    "returning.unavailable",
-  ],
+  AdmissionsReadReturningAssistantOptionsCodes,
 );
 
+/** Ordered problems for returning-assistant registration. */
+export const AdmissionsRegisterReturningAssistantCodes = [
+  "request.malformed",
+  "header.malformed",
+  "idempotency-key.invalid",
+  "authority.denied",
+  "origin.denied",
+  "idempotency.in-flight",
+  "idempotency.digest-conflict",
+  "idempotency.response-expired",
+  "transaction.conflict",
+  "request.too-large",
+  "media-type.unsupported",
+  "validation.failed",
+  "returning.identity-missing",
+  "returning.identity-ambiguous",
+  "returning.history-missing",
+  "returning.study-invalid",
+  "returning.period-unavailable",
+  "returning.team-scope-denied",
+  "returning.revision-conflict",
+  "internal.error",
+  "dependency.unavailable",
+  "idempotency.unavailable",
+  "returning.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
+/** Problems for returning-assistant registration. */
 export const AdmissionsRegisterReturningAssistantProblem = problemUnion(
   "AdmissionsRegisterReturningAssistantProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "idempotency-key.invalid",
-    "authority.denied",
-    "origin.denied",
-    "idempotency.in-flight",
-    "idempotency.digest-conflict",
-    "idempotency.response-expired",
-    "transaction.conflict",
-    "request.too-large",
-    "media-type.unsupported",
-    "validation.failed",
-    "returning.identity-missing",
-    "returning.identity-ambiguous",
-    "returning.history-missing",
-    "returning.study-invalid",
-    "returning.period-unavailable",
-    "returning.team-scope-denied",
-    "returning.revision-conflict",
-    "internal.error",
-    "dependency.unavailable",
-    "idempotency.unavailable",
-    "returning.unavailable",
-  ],
+  AdmissionsRegisterReturningAssistantCodes,
 );
+
+/** Ordered problems for `admissions.submitApplication`. */
+export const AdmissionsSubmitApplicationCodes = [
+  "request.malformed",
+  "header.malformed",
+  "idempotency-key.invalid",
+  "idempotency.in-flight",
+  "idempotency.digest-conflict",
+  "idempotency.response-expired",
+  "transaction.conflict",
+  "request.too-large",
+  "media-type.unsupported",
+  "validation.failed",
+  "internal.error",
+  "dependency.unavailable",
+  "idempotency.unavailable",
+  "application.no-eligible-period",
+  "application.ambiguous-period",
+  "application.duplicate",
+  "application.invalid-field-of-study",
+  "rate-limit.exceeded",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
 
 /** Problems for `admissions.submitApplication`. */
 export const AdmissionsSubmitApplicationProblem = problemUnion(
   "AdmissionsSubmitApplicationProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "idempotency-key.invalid",
-    "idempotency.in-flight",
-    "idempotency.digest-conflict",
-    "idempotency.response-expired",
-    "transaction.conflict",
-    "request.too-large",
-    "media-type.unsupported",
-    "validation.failed",
-    "internal.error",
-    "dependency.unavailable",
-    "idempotency.unavailable",
-    "application.no-eligible-period",
-    "application.ambiguous-period",
-    "application.duplicate",
-    "application.invalid-field-of-study",
-    "rate-limit.exceeded",
-  ],
+  AdmissionsSubmitApplicationCodes,
 );
+
+/** Ordered problems for `admissions.readApplicationConfirmation`. */
+export const AdmissionsReadApplicationConfirmationCodes = [
+  "request.malformed",
+  "header.malformed",
+  "internal.error",
+  "application.not-found",
+  "admissions.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
 
 /** Problems for `admissions.readApplicationConfirmation`. */
 export const AdmissionsReadApplicationConfirmationProblem = problemUnion(
   "AdmissionsReadApplicationConfirmationProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "internal.error",
-    "application.not-found",
-    "admissions.unavailable",
-  ],
+  AdmissionsReadApplicationConfirmationCodes,
 );
+
+/** Ordered problems for `admissions.listAdmissionPeriods`. */
+export const AdmissionsListAdmissionPeriodsCodes = [
+  "request.malformed",
+  "header.malformed",
+  "precondition.invalid",
+  "precondition.failed",
+  "authority.denied",
+  "origin.denied",
+  "internal.error",
+  "admissions.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
 
 /** Problems for `admissions.listAdmissionPeriods`. */
 export const AdmissionsListAdmissionPeriodsProblem = problemUnion(
   "AdmissionsListAdmissionPeriodsProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "precondition.invalid",
-    "precondition.failed",
-    "authority.denied",
-    "origin.denied",
-    "internal.error",
-    "admissions.unavailable",
-  ],
+  AdmissionsListAdmissionPeriodsCodes,
 );
+
+/** Ordered problems for `admissions.createAdmissionPeriod`. */
+export const AdmissionsCreateAdmissionPeriodCodes = [
+  "request.malformed",
+  "header.malformed",
+  "authority.denied",
+  "origin.denied",
+  "idempotency-key.invalid",
+  "idempotency.in-flight",
+  "idempotency.digest-conflict",
+  "idempotency.response-expired",
+  "transaction.conflict",
+  "request.too-large",
+  "media-type.unsupported",
+  "validation.failed",
+  "internal.error",
+  "dependency.unavailable",
+  "idempotency.unavailable",
+  "admission-period.already-exists",
+  "admission-period.invalid-window",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
 
 /** Problems for `admissions.createAdmissionPeriod`. */
 export const AdmissionsCreateAdmissionPeriodProblem = problemUnion(
   "AdmissionsCreateAdmissionPeriodProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "authority.denied",
-    "origin.denied",
-    "idempotency-key.invalid",
-    "idempotency.in-flight",
-    "idempotency.digest-conflict",
-    "idempotency.response-expired",
-    "transaction.conflict",
-    "request.too-large",
-    "media-type.unsupported",
-    "validation.failed",
-    "internal.error",
-    "dependency.unavailable",
-    "idempotency.unavailable",
-    "admission-period.already-exists",
-    "admission-period.invalid-window",
-  ],
+  AdmissionsCreateAdmissionPeriodCodes,
 );
+
+/** Ordered problems for `admissions.reviseAdmissionPeriod`. */
+export const AdmissionsReviseAdmissionPeriodCodes = [
+  "request.malformed",
+  "header.malformed",
+  "authority.denied",
+  "origin.denied",
+  "idempotency-key.invalid",
+  "idempotency.in-flight",
+  "idempotency.digest-conflict",
+  "idempotency.response-expired",
+  "transaction.conflict",
+  "request.too-large",
+  "media-type.unsupported",
+  "validation.failed",
+  "validation.no-change",
+  "validation.field-not-deletable",
+  "precondition.invalid",
+  "precondition.failed",
+  "precondition.required",
+  "internal.error",
+  "dependency.unavailable",
+  "idempotency.unavailable",
+  "admission-period.not-found",
+  "admission-period.invalid-window",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
 
 /** Problems for `admissions.reviseAdmissionPeriod`. */
 export const AdmissionsReviseAdmissionPeriodProblem = problemUnion(
   "AdmissionsReviseAdmissionPeriodProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "authority.denied",
-    "origin.denied",
-    "idempotency-key.invalid",
-    "idempotency.in-flight",
-    "idempotency.digest-conflict",
-    "idempotency.response-expired",
-    "transaction.conflict",
-    "request.too-large",
-    "media-type.unsupported",
-    "validation.failed",
-    "validation.no-change",
-    "validation.field-not-deletable",
-    "precondition.invalid",
-    "precondition.failed",
-    "precondition.required",
-    "internal.error",
-    "dependency.unavailable",
-    "idempotency.unavailable",
-    "admission-period.not-found",
-    "admission-period.invalid-window",
-  ],
+  AdmissionsReviseAdmissionPeriodCodes,
 );
 
 /** Problems for `recruitment.readInvitationResponse`. */

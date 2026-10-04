@@ -18,7 +18,7 @@ Tag a construct only when at least 2 modules outside its own module and the test
   - [`normalizeTarget`](constructs/http-transport.md#normalizetarget): Fills a route template with its encoded identities; a missing identity is a malformed request.
   - [`deriveHttpIdentity`](constructs/http-transport.md#derivehttpidentity): Derives the private storage digest and domain command ID from the identity tuple.
 - [http-problem](constructs/http-problem.md): Answers a native HTTP request with a declared problem: failure mapping, credential classification, authorization, and decoding.
-  - [`authorizeAdmissionPerson`](constructs/http-problem.md#authorizeadmissionperson): Evaluates one admission person AccessSpec.
+  - [`authorizeAdmissionPerson`](constructs/http-problem.md#authorizeadmissionperson): Evaluates one admission person AccessSpec through the generated guard of its endpoint.
   - [`returningAuthorization`](constructs/http-problem.md#returningauthorization): Resolves the current person and authorizes one returning-assistant operation on that person's own profile.
   - [`admissionActorForAuthority`](constructs/http-problem.md#admissionactorforauthority): The admission actor of one department scope.
   - [`admissionProblems`](constructs/http-problem.md#admissionproblems): The one answer for every admission failure.
