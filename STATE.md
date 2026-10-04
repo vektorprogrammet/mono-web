@@ -34,6 +34,11 @@ admission procedure: two readings 10 seconds apart, load below nproc, MemAvailab
 each job’s evidence. If admission fails, wait 60 seconds and repeat. After 15 minutes, report
 the resource holders. Admit each heavy job from its retained resource observations. Measured lead execution
 skips obsolete exclusive-flock admission under that quoted instruction, without claiming lock ownership.
+The director added a provisional IO admission rule: before each heavy start, read
+`/proc/pressure/io`; if `full avg10` exceeds 10%, wait 60 seconds and recheck. This
+threshold belongs to the director. The operator owns the underlying machine-status
+instruction, not this numeric addition. The existing owned Alloy run stays running.
+
 The e04 mixed-onboarding module fails type-checking because its subset factory leaves `claim`
 unhandled (TS2322). No built-in option emits its raw/guard types without that factory. The
 director approved a typed completion continuation: the generated factory registers `readBoard`
