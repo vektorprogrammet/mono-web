@@ -27,25 +27,31 @@ export type ReachScope = Data.TaggedEnum<{
 
 export const ReachScope = Data.taggedEnum<ReachScope>();
 
-/** What a decision targets. A team or department board is a unit inside its home department. */
+/** What a decision targets. A team's current scope, not its hosting department, controls reach. */
 export type ReachTarget = Data.TaggedEnum<{
   Organization: {};
   Department: { readonly departmentId: DepartmentId };
-  Team: { readonly teamId: TeamId; readonly departmentId: DepartmentId };
+  Team: {
+    readonly teamId: TeamId;
+    readonly departmentId: DepartmentId;
+    readonly teamScope: TeamScope;
+  };
   NationalBoard: {};
 }>;
 
 export const ReachTarget = Data.taggedEnum<ReachTarget>();
 
-/** Containment: the organization covers everything, a department its units, a team itself. */
+/** Containment: a department covers only local teams; a team leader still reaches its own team. */
 export const scopeCovers = (scope: ReachScope, target: ReachTarget): boolean =>
   Match.value(scope).pipe(
     Match.tag("Organization", () => true),
     Match.tag(
       "Department",
       ({ departmentId }) =>
-        (ReachTarget.$is("Department")(target) || ReachTarget.$is("Team")(target)) &&
-        target.departmentId === departmentId,
+        (ReachTarget.$is("Department")(target) && target.departmentId === departmentId) ||
+        (ReachTarget.$is("Team")(target) &&
+          target.teamScope === "HomeDepartment" &&
+          target.departmentId === departmentId),
     ),
     Match.tag("Team", ({ teamId }) => ReachTarget.$is("Team")(target) && target.teamId === teamId),
     Match.exhaustive,

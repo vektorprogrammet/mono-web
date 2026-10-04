@@ -8,6 +8,7 @@ import {
   ReachTarget,
   scopeCovers,
   SeatBoard,
+  TeamScope,
 } from "@vektorprogrammet/domain/authz";
 import {
   Appointment,
@@ -67,24 +68,40 @@ const authorityFor = Effect.fn("organization.lifecycleAuthority")(function* (
   return authority;
 });
 
-interface Unit {
-  readonly kind: "Team" | "NationalBoard";
-  readonly id: string;
-  readonly name: string;
-  readonly departmentId: string | null;
-}
+const UnitSchema = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("Team"),
+    id: TeamId,
+    name: Schema.String,
+    departmentId: DepartmentId,
+    teamScope: TeamScope,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("NationalBoard"),
+    id: Schema.String,
+    name: Schema.String,
+    departmentId: Schema.Null,
+    teamScope: Schema.Null,
+  }),
+]);
 
-const unitsFor = (sql: DatabaseOperations) => sql<Unit>`
-  SELECT 'Team'::text AS kind, t.team_id AS id, t.name, t.department_id AS "departmentId"
+type Unit = typeof UnitSchema.Type;
+
+const unitsFor = (sql: DatabaseOperations) =>
+  sql`
+  SELECT 'Team'::text AS kind, t.team_id AS id, t.name, t.department_id AS "departmentId", t.team_scope AS "teamScope"
   FROM organization_teams t JOIN organization_departments d ON d.department_id=t.department_id WHERE t.active AND d.active
-  UNION ALL SELECT 'NationalBoard', board_id, name, NULL FROM organization_national_boards ORDER BY name,id`;
+  UNION ALL SELECT 'NationalBoard', board_id, name, NULL, NULL FROM organization_national_boards ORDER BY name,id`.pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(UnitSchema))),
+  );
 
-/** A team or department board sits inside its home department; the national board nowhere. */
-const unitTarget = (unit: Pick<Unit, "kind" | "id" | "departmentId">): ReachTarget =>
-  unit.kind === "Team" && unit.departmentId !== null
+/** The current classification, not the home department alone, determines a team's area. */
+const unitTarget = (unit: Unit): ReachTarget =>
+  unit.kind === "Team"
     ? ReachTarget.Team({
-        teamId: TeamId.make(unit.id),
-        departmentId: DepartmentId.make(unit.departmentId),
+        teamId: unit.id,
+        departmentId: unit.departmentId,
+        teamScope: unit.teamScope,
       })
     : ReachTarget.NationalBoard();
 
@@ -197,7 +214,11 @@ export const readAppointmentManagement = Effect.fn("readAppointmentManagement")(
         return yield* decode(AppointmentManagement)({
           globalAdministrator: authority.globalAdministrator === "Active",
           people: yield* canonicalPeople(sql, authority, allUnits),
-          units: units.map(({ kind, id, ...unit }) => ({ ...unit, target: { kind, id } })),
+          units: units.map(({ kind, id, name, departmentId }) => ({
+            name,
+            departmentId,
+            target: { kind, id },
+          })),
           appointments,
           accounts,
           history: history

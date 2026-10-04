@@ -46,6 +46,7 @@ const actors = {
   administrator: PersonId.make("national-reach-administrator"),
   localMember: PersonId.make("national-reach-local-member"),
   nationalMember: PersonId.make("national-reach-national-member"),
+  otherNationalMember: PersonId.make("national-reach-other-national-member"),
 };
 
 const localTeam = TeamId.make("national-reach-local-team");
@@ -60,7 +61,8 @@ const seed = Layer.effectDiscard(
         (${actors.hovedstyret},'National','Board'),
         (${actors.administrator},'Global','Administrator'),
         (${actors.localMember},'Local','Member'),
-        (${actors.nationalMember},'National','Member')`;
+        (${actors.nationalMember},'National','Member'),
+        (${actors.otherNationalMember},'Other','Member')`;
       yield* sql`INSERT INTO auth."user" (id,name,email,"emailVerified")
         SELECT person_id, first_name || ' ' || last_name, person_id || '@example.invalid', true
         FROM person_profiles WHERE person_id LIKE 'national-reach-%'`;
@@ -201,7 +203,7 @@ layer(organization, { excludeTestServices: true, timeout: "90 seconds" })(
         const global = yield* appoint(
           "national-reach-global-appoint",
           actors.administrator,
-          actors.nationalMember,
+          actors.otherNationalMember,
           nationalTeam,
         );
 
