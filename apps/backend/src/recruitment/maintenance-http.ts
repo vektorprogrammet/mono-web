@@ -133,6 +133,7 @@ export const maintainRecruitmentHttp = (request: Request) =>
       onExcessProperty: "error",
     }).pipe(Effect.mapError(() => new RecruitmentMaintenanceFailure({ code: "Invalid" })));
 
+    const encodedCommand = yield* Schema.encodeEffect(RecruitmentMaintenanceCommand)(command);
     const key = yield* idempotencyKeyOf(request);
 
     if (key !== command.commandId)
@@ -155,7 +156,7 @@ export const maintainRecruitmentHttp = (request: Request) =>
         return {
           identity: {
             identitySha256: identity.identitySha256,
-            requestSha256: semanticRequestDigest({ body: command }),
+            requestSha256: semanticRequestDigest({ body: encodedCommand }),
             operationId: "recruitment.maintainRecruitment",
           },
           execute: Effect.gen(function* () {

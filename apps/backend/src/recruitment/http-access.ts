@@ -37,7 +37,7 @@ import {
 import {
   reflectAccessSpec,
   type CancelInterviewEndpoint,
-  type CorrectInterviewAssessmentEndpoint,
+  CorrectInterviewAssessmentEndpoint,
   type FinalizeInterviewEndpoint,
   type ReadInterviewConductEndpoint,
   type ScheduleInterviewEndpoint,
@@ -285,6 +285,15 @@ export const interviewAuthorizationInTransaction = <R>(
         authorizationInstant: authorization.authorizationInstant,
       }),
     );
+
+    if (endpoint === CorrectInterviewAssessmentEndpoint)
+      yield* Recruitment.use((service) =>
+        service.authorizeAssessmentCorrection(interviewId, {
+          actor,
+          now: authorization.authorizationInstant,
+          authorizationInstant: authorization.authorizationInstant,
+        }),
+      );
 
     const resource = {
       kind: ResourceKind.make("recruitment-interview"),

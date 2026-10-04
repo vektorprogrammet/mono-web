@@ -17,7 +17,7 @@ import {
   ManagedQuestionnaire,
   QuestionnaireHistory,
   QuestionnaireManagement,
-  InterviewStaffing,
+  InterviewStaffingSnapshot,
   InterviewStaffingHistory,
   InterviewStaffingManagement,
   RecruitmentMaintenanceCommand,
@@ -35,6 +35,13 @@ import {
 import { guardInterviewApplicantIdentity } from "./conduct-identity.js";
 import { sealInterviewInvitationEnvelopes } from "./outbox.js";
 import { sealInterviewResponseEnvelopes } from "./response-outbox.js";
+import { readAssessmentCorrectionWithSql } from "./assessment-correction.js";
+import {
+  lockApplicationDecisionWithSql,
+  readApplicationAdmissionEvidenceWithSql,
+} from "../admissions/evidence.js";
+import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
+import { RecruitmentInterviewId } from "@vektorprogrammet/domain/recruitment";
 
 const fail = (code: RecruitmentMaintenanceFailure["code"]) =>
   new RecruitmentMaintenanceFailure({ code });
@@ -51,6 +58,7 @@ const mapFailure = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     Effect.catchTags({
       SqlError: persistence,
       SchemaError: persistence,
+      AdmissionOutcomeFailure: () => fail("NotFound"),
       OrganizationPersistenceError: persistence,
       OrganizationDecodeError: persistence,
     }),
@@ -105,7 +113,7 @@ const staffingRows = (
 ) =>
   SqlSchema.findAll({
     Request: Schema.Void,
-    Result: InterviewStaffing,
+    Result: InterviewStaffingSnapshot,
     execute:
       () => sql`SELECT i.interview_id AS "interviewId",i.department_id AS "departmentId",p.first_name || ' ' || p.last_name AS "applicantName",
       i.interviewer_person_id AS "interviewerPersonId",i.co_interviewer_person_id AS "coInterviewerPersonId",i.revision,
@@ -161,7 +169,29 @@ export const readInterviewStaffing = (personId: PersonId) =>
         const scope = staffingScope(authority);
 
         if (scope !== null && scope.length === 0) return yield* fail("Denied");
-        const interviews = yield* staffingRows(sql, scope, null, false);
+        const staffing = yield* staffingRows(sql, scope, null, false);
+
+        const interviews = yield* Effect.forEach(
+          staffing,
+          Effect.fnUntraced(function* (entry) {
+            const assessmentCorrection = yield* readAssessmentCorrectionWithSql(
+              sql,
+              entry.interviewId,
+              {
+                personId,
+                participant: false,
+                canMaintain: reaches(
+                  authority,
+                  "recruitment.interviews",
+                  ReachTarget.Department({ departmentId: entry.departmentId }),
+                ),
+              },
+              DateTime.makeUnsafe(now),
+            );
+
+            return { ...entry, assessmentCorrection };
+          }),
+        );
 
         const candidates = yield* SqlSchema.findAll({
           Request: Schema.Void,
@@ -199,6 +229,7 @@ const authorizeWithSql = Effect.fn("Recruitment.authorizeMaintenance")(function*
   personId: PersonId,
 ) {
   const staffing = Predicate.isTagged(command, "ChangeInterviewStaffing");
+  const interviewCommand = "interviewId" in command;
 
   const people = staffing
     ? [
@@ -210,14 +241,25 @@ const authorizeWithSql = Effect.fn("Recruitment.authorizeMaintenance")(function*
 
   for (const id of [...new Set(people)].sort()) yield* lockPersonAuthorization(sql, id);
 
-  const identity = staffing
+  const identity = interviewCommand
     ? yield* guardInterviewApplicantIdentity(command.interviewId, personId)
     : null;
+
+  if (interviewCommand) {
+    const application = yield* SqlSchema.findOne({
+      Request: RecruitmentInterviewId,
+      Result: Schema.Struct({ applicationId: PublicApplicationIdSchema }),
+      execute: (id) =>
+        sql`SELECT application_id AS "applicationId" FROM public.recruitment_interviews WHERE interview_id=${id}`,
+    })(command.interviewId);
+
+    yield* lockApplicationDecisionWithSql(sql, application.applicationId);
+  }
 
   const now = DateTime.formatIso(yield* DateTime.now);
   const authority = yield* authorityFor(sql, personId, now, true);
 
-  if (!staffing) {
+  if (!interviewCommand) {
     if (authority.globalAdministrator !== "Active") return yield* fail("Denied");
 
     return;
@@ -232,6 +274,24 @@ const authorizeWithSql = Effect.fn("Recruitment.authorizeMaintenance")(function*
   )
     return yield* fail("Denied");
   yield* lockAdvisory(sql, AdvisoryLockKey.recruitmentInterview(command.interviewId));
+
+  if (
+    Predicate.isTagged(command, "ReopenAssessmentCorrection") ||
+    Predicate.isTagged(command, "CloseAssessmentCorrection")
+  ) {
+    // Authority is current before any domain or HTTP receipt replay, even after a fence wait.
+    const at = yield* DateTime.now;
+    const currentAuthority = yield* authorityFor(sql, personId, DateTime.formatIso(at), true);
+
+    if (
+      !reaches(
+        currentAuthority,
+        "recruitment.interviews",
+        ReachTarget.Department({ departmentId: identity!.departmentId }),
+      )
+    )
+      return yield* fail("Denied");
+  }
 });
 
 export const authorizeMaintenance = (command: RecruitmentMaintenanceCommand, personId: PersonId) =>
@@ -253,7 +313,8 @@ export const maintainRecruitment = (input: RecruitmentMaintenanceCommand, person
           sql,
           AdvisoryLockKey.recruitmentMaintenanceCommand(personId, command.commandId),
         );
-        const digest = sha256Hex(canonicalJsonBytes(command));
+        const encodedCommand = yield* Schema.encodeEffect(RecruitmentMaintenanceCommand)(command);
+        const digest = sha256Hex(canonicalJsonBytes(encodedCommand));
 
         const receipts = yield* sql<{
           digest: string;
@@ -266,6 +327,78 @@ export const maintainRecruitment = (input: RecruitmentMaintenanceCommand, person
           return yield* Schema.decodeUnknownEffect(RecruitmentMaintenanceResult)(
             receipts[0].result,
           );
+        }
+
+        if (
+          Predicate.isTagged(command, "ReopenAssessmentCorrection") ||
+          Predicate.isTagged(command, "CloseAssessmentCorrection")
+        ) {
+          const at = yield* DateTime.now;
+          const identity = yield* guardInterviewApplicantIdentity(command.interviewId, personId);
+          const authority = yield* authorityFor(sql, personId, DateTime.formatIso(at), true);
+
+          const permission = yield* readAssessmentCorrectionWithSql(
+            sql,
+            command.interviewId,
+            {
+              personId,
+              participant: false,
+              canMaintain: reaches(
+                authority,
+                "recruitment.interviews",
+                ReachTarget.Department({ departmentId: identity.departmentId }),
+              ),
+            },
+            at,
+          );
+
+          if (permission.sequence !== command.expectedSequence) return yield* fail("Stale");
+          const reopening = Predicate.isTagged(command, "ReopenAssessmentCorrection");
+
+          if (reopening ? !permission.canReopen : !permission.canClose)
+            return yield* fail("Terminal");
+          const sequence = reopening ? permission.sequence + 1 : permission.sequence;
+
+          if (reopening) {
+            const application = yield* SqlSchema.findOne({
+              Request: RecruitmentInterviewId,
+              Result: Schema.Struct({ applicationId: PublicApplicationIdSchema }),
+              execute: (id) =>
+                sql`SELECT application_id AS "applicationId" FROM public.recruitment_interviews WHERE interview_id=${id}`,
+            })(command.interviewId);
+
+            const evidence = yield* readApplicationAdmissionEvidenceWithSql(
+              sql,
+              application.applicationId,
+              identity.departmentId,
+              { lock: false },
+            );
+
+            if (
+              DateTime.toEpochMillis(command.endsAt) <= DateTime.toEpochMillis(at) ||
+              DateTime.toEpochMillis(command.endsAt) >
+                DateTime.toEpochMillis(evidence.semesterEndsAt)
+            )
+              return yield* fail("Invalid");
+            yield* sql`INSERT INTO public.recruitment_assessment_correction_windows(interview_id,sequence,opened_by,opened_at,ends_at,reason) VALUES(${command.interviewId},${sequence},${personId},${DateTime.formatIso(at)},${DateTime.formatIso(command.endsAt)},${command.reason})`;
+          } else {
+            yield* sql`UPDATE public.recruitment_assessment_correction_windows SET closed_by=${personId},closed_at=${DateTime.formatIso(at)},close_reason=${command.reason} WHERE interview_id=${command.interviewId} AND sequence=${sequence} AND closed_at IS NULL`;
+          }
+
+          const result = reopening
+            ? RecruitmentMaintenanceResult.cases.AssessmentCorrectionReopened.make({
+                interviewId: command.interviewId,
+                sequence,
+              })
+            : RecruitmentMaintenanceResult.cases.AssessmentCorrectionClosed.make({
+                interviewId: command.interviewId,
+                sequence,
+              });
+
+          yield* sql`INSERT INTO public.recruitment_maintenance_command_receipts(actor_person_id,command_id,command_digest,result_json) VALUES(${personId},${command.commandId},${digest},${sql.json(result)})`;
+          yield* sql`INSERT INTO public.recruitment_assessment_correction_window_audit(actor_person_id,command_id,interview_id,sequence,action,reason,occurred_at) VALUES(${personId},${command.commandId},${command.interviewId},${sequence},${reopening ? "Reopen" : "Close"},${command.reason},${DateTime.formatIso(at)})`;
+
+          return result;
         }
 
         if (Predicate.isTagged(command, "ChangeInterviewStaffing")) {

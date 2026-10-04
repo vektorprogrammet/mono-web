@@ -520,7 +520,13 @@ const reopenWire = (
     commandId,
     body:
       '{"_tag":"ReopenAssessmentCorrection",' +
-      wireJson({ commandId, interviewId, reason, expectedWindowSequence, endsAt }).slice(1),
+      wireJson({
+        commandId,
+        interviewId,
+        reason,
+        expectedSequence: expectedWindowSequence,
+        endsAt,
+      }).slice(1),
   };
 };
 
@@ -531,7 +537,7 @@ const closeWire = (windowSequence = 1, key = "r2-close", reason = "Review comple
     commandId,
     body:
       '{"_tag":"CloseAssessmentCorrection",' +
-      wireJson({ commandId, interviewId, reason, windowSequence }).slice(1),
+      wireJson({ commandId, interviewId, reason, expectedSequence: windowSequence }).slice(1),
   };
 };
 
@@ -707,17 +713,17 @@ describe("R2 correction closure and frozen admission evidence", () => {
         yield* commitAnnouncement(f);
         const reopened = yield* decodeMaintenance(yield* maintenance(f, reopenWire()));
         expect(reopened._tag).toBe("AssessmentCorrectionReopened");
-        expect(reopened).toMatchObject({ windowSequence: 1 });
+        toMatchObject({ sequence: 1 });
         expect((yield* maintenance(f, reopenWire("r2-overlap", 1))).status).toBe(409);
         expect((yield* maintenance(f, closeWire(2, "r2-stale-close"))).status).toBe(409);
         const closed = yield* decodeMaintenance(yield* maintenance(f, closeWire()));
         expect(closed._tag).toBe("AssessmentCorrectionClosed");
-        expect(closed).toMatchObject({ windowSequence: 1 });
+        toMatchObject({ sequence: 1 });
         expect((yield* correct(f)).status).toBe(409);
         expect((yield* maintenance(f, reopenWire("r2-stale-open", 0))).status).toBe(409);
         const second = yield* decodeMaintenance(yield* maintenance(f, reopenWire("r2-second", 1)));
         expect(second._tag).toBe("AssessmentCorrectionReopened");
-        expect(second).toMatchObject({ windowSequence: 2 });
+        toMatchObject({ sequence: 2 });
       }),
   );
 
@@ -1218,6 +1224,46 @@ describe("R2 scoped reopen authority and explicit-decision citation", () => {
           state: "OutcomeAnnounced",
         });
       }),
+  );
+  it.live("authorized unannounced revision uses frozen Kanskje, never the later corrected Ja", () =>
+    Effect.gen(function* () {
+      const f = fixture(correctionActors);
+      yield* decideMaybe(f);
+      yield* decodeMaintenance(yield* maintenance(f, reopenWire()));
+      expect((yield* correct(f, coPersonId, "Ja", "r2-same-citation-revision", 3)).status).toBe(
+        200,
+      );
+
+      const revised = yield* runDomain(
+        f,
+        Database.use((sql) =>
+          sql.withTransaction(
+            Admissions.use((service) =>
+              service.decideAdmissionOutcome(
+                {
+                  applicationId,
+                  command: { outcome: "Rejected" },
+                  actor: leaderPersonId,
+                  now: "2031-09-15T12:06:00.000Z",
+                },
+                () => Effect.void,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(revised).toMatchObject({
+        basis: "Kanskje",
+        outcome: "Rejected",
+        state: "ApplicationSubmitted",
+      });
+      expect(yield* commitAnnouncement(f)).toMatchObject({
+        basis: "Kanskje",
+        outcome: "Rejected",
+        state: "OutcomeAnnounced",
+      });
+    }),
   );
   it.live("reopen must end strictly after its committing instant", () =>
     Effect.gen(function* () {

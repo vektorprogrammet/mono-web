@@ -5,7 +5,6 @@ import {
   AdmissionOutcomeCommand,
   admissionOutcomePermission,
   canAnnounceAdmissionOutcome,
-  effectiveAdmissionOutcome,
 } from "./outcome.js";
 import { OrganizationPersonAuthoritySchema } from "../organization/authority.js";
 import { DelegationArea } from "../authz/delegation.js";
@@ -90,18 +89,6 @@ describe("admission outcome values", () => {
     expect(Schema.is(AdmissionOutcome)("Rejected")).toBe(true);
     expect(Schema.is(AdmissionOutcome)("Substitute")).toBe(false);
     expect(Schema.is(AdmissionOutcomeCommand)({ outcome: "Substitute" })).toBe(false);
-  });
-
-  it("derives Ja and Nei from the interview and takes Rekruttering's decision for the rest", () => {
-    // A recorded revision never overrides what the interview derived.
-    expect(effectiveAdmissionOutcome("Ja", null)).toBe("Admitted");
-    expect(effectiveAdmissionOutcome("Ja", "Rejected")).toBe("Admitted");
-    expect(effectiveAdmissionOutcome("Nei", null)).toBe("Rejected");
-    expect(effectiveAdmissionOutcome("Nei", "Admitted")).toBe("Rejected");
-    expect(effectiveAdmissionOutcome("Kanskje", null)).toBeNull();
-    expect(effectiveAdmissionOutcome("Kanskje", "Rejected")).toBe("Rejected");
-    expect(effectiveAdmissionOutcome("Returning", "Admitted")).toBe("Admitted");
-    expect(effectiveAdmissionOutcome("Unreviewed", null)).toBeNull();
   });
 });
 

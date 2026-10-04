@@ -123,6 +123,11 @@ export type RecruitmentFailure =
   | ProfileFailure;
 
 export interface RecruitmentOperations {
+  /** Caller owns the receipt transaction; current correction authority precedes replay. */
+  readonly authorizeAssessmentCorrection: (
+    interviewId: RecruitmentInterviewId,
+    context: RecruitmentConductContext,
+  ) => Effect.Effect<void, RecruitmentFailure>;
   /** Caller holds the receipt transaction; current target authority precedes replay. */
   readonly prepareAssignment: (input: {
     readonly applicationId: PublicApplicationId;

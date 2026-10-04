@@ -34,11 +34,7 @@ import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/org
 import { PlacementFailure, Placements } from "@vektorprogrammet/domain/placements";
 import { SchoolId } from "@vektorprogrammet/domain/schools";
 import { DatabaseLive } from "../layers.js";
-import {
-  type DatabaseMigrationDefinition,
-  databaseMigrationDefinitions,
-  selectDatabaseMigration,
-} from "../migrations.js";
+import { type DatabaseMigrationDefinition, selectDatabaseMigration } from "../migrations.js";
 import { pgQuery } from "../pg-pool.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import { TestPlatform } from "../test-support/platform.js";
@@ -59,7 +55,7 @@ import { AdmissionsLive } from "./index.js";
  * - Decide takes only the applications that an interview does not derive: `Kanskje` and a
  *   returning assistant without an interview. `Ja` and `Nei` cannot be decided, not even to the
  *   value that they derive, and an unreviewed application has nothing to decide. An unplaced
- *   Admitted person is never denied, and a decision can change until the announcement.
+ *   Admitted person is never denied, and an unannounced decision may be revised against its frozen citation.
  * - Announce derives `Ja` as Admitted and `Nei` as Rejected, announces the decision of `Kanskje`
  *   and returning, and refuses an undecided one before it renders or writes anything. It is
  *   terminal: one announcement, one revision history that takes no further row, one mail
@@ -804,8 +800,10 @@ const baselineMigrations: ReadonlyArray<DatabaseMigrationDefinition> = [
   baseline.migration,
 ];
 
-const laterMigrations: ReadonlyArray<DatabaseMigrationDefinition> =
-  databaseMigrationDefinitions.slice(baseline.preceding.length + 1);
+const laterMigrations: ReadonlyArray<DatabaseMigrationDefinition> = [
+  ...selectDatabaseMigration("82_admission-outcome-mail").preceding,
+  selectDatabaseMigration("82_admission-outcome-mail").migration,
+].slice(baseline.preceding.length + 1);
 
 const readSql = (migration: DatabaseMigrationDefinition) =>
   Effect.gen(function* () {
@@ -1527,8 +1525,7 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
             }),
           );
 
-          // An unplaced Admitted person is never denied; deciding the current outcome again
-          // changes nothing, so the history keeps its one Decision of Rekruttering.
+          // Repeating the same explicit decision changes no revision or cited assessment.
           expect(observed).toEqual({
             before: { outcome: null, state: "ApplicationSubmitted", placed: false },
             decided: { outcome: "Admitted", state: "ApplicationSubmitted", placed: false },
@@ -1550,7 +1547,7 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
     }
 
     it.effect(
-      "lets Rekruttering change a decision as append-only revisions until the announcement",
+      "lets Rekruttering revise an unannounced decision against the same frozen citation",
       () =>
         Effect.gen(function* () {
           const observed = yield* observeRolledBack(

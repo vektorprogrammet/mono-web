@@ -7,17 +7,24 @@ import {
   DepartmentId,
   Organization,
   type OrganizationOperations,
+  type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
 import { PersonId } from "@vektorprogrammet/domain/organization";
+import { reaches, ReachTarget } from "@vektorprogrammet/domain/authz";
 import {
   canonicalJson,
   canonicalJsonBytes,
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
-import { flow, Effect, Schema, Struct } from "effect";
+import { DateTime, flow, Effect, Schema } from "effect";
+import { Instant } from "@vektorprogrammet/domain/time";
+import { lockApplicationDecisionWithSql } from "../admissions/evidence.js";
+import { readAssessmentCorrectionWithSql } from "./assessment-correction.js";
 import {
   CorrectionHistoryOriginalSchema,
   RecruitmentConductValidationError,
+  RecruitmentInterviewAlreadyFinalized,
+  RecruitmentInterviewAlreadyCancelled,
   RecruitmentInterviewNotFound,
   RecruitmentInterviewNotScheduled,
   RecruitmentInvitationNotAccepted,
@@ -41,6 +48,7 @@ import {
   FinalizeInterviewCommandSchema,
   FinalizeInterviewObservationSchema,
   FinalizeInterviewResultSchema,
+  AssessmentCorrection,
   RecruitmentConductActorSchema,
   RecruitmentInterviewCancellation,
   InterviewRecommendationSchema,
@@ -516,7 +524,13 @@ const authorityActor = (
   personId: PersonId,
   departmentId: typeof RecruitmentInterview.fields.departmentId.Type,
   authorizationInstant: string,
-): Effect.Effect<typeof RecruitmentConductActorSchema.Type, RecruitmentFailure> =>
+): Effect.Effect<
+  {
+    readonly actor: typeof RecruitmentConductActorSchema.Type;
+    readonly authority: OrganizationPersonAuthority;
+  },
+  RecruitmentFailure
+> =>
   Effect.gen(function* () {
     const authority = yield* organization.resolvePersonAuthority(personId, authorizationInstant);
 
@@ -528,7 +542,7 @@ const authorityActor = (
       return yield* new RecruitmentScopeDenied({ personId, departmentId });
     }
 
-    return yield* decode(
+    const actor = yield* decode(
       RecruitmentConductActorSchema,
       "conduct actor",
     )({
@@ -539,6 +553,8 @@ const authorityActor = (
       teamActive: membership.active,
       departmentActive: membership.active,
     });
+
+    return { actor, authority };
   });
 
 type InterviewAccessMode = "PrimaryInterviewer" | "InterviewParticipant";
@@ -550,6 +566,7 @@ const authorizeAndLoad = (
   interviewId: string,
   lock: boolean,
   accessMode: InterviewAccessMode,
+  freshAuthority = false,
 ) =>
   Effect.gen(function* () {
     const actorInput = yield* decode(RecruitmentActorSchema, "recruitment actor")(context.actor);
@@ -565,9 +582,18 @@ const authorizeAndLoad = (
       return yield* new RecruitmentInterviewNotFound({
         interviewId: RecruitmentInterviewId.make(interviewId),
       });
-    const authorizationInstant = context.authorizationInstant ?? context.now;
 
-    const actor = yield* authorityActor(
+    if (lock)
+      yield* lockApplicationDecisionWithSql(
+        sql,
+        PublicApplicationIdSchema.make(interview.applicationId),
+      );
+
+    const authorizationInstant = freshAuthority
+      ? DateTime.formatIso(yield* DateTime.now)
+      : (context.authorizationInstant ?? context.now);
+
+    const { actor, authority } = yield* authorityActor(
       organization,
       actorInput.personId,
       DepartmentId.make(interview.departmentId),
@@ -607,6 +633,7 @@ const authorizeAndLoad = (
 
     return {
       actor,
+      authority,
       interview,
       schedule,
       invitation,
@@ -628,6 +655,7 @@ const observation = (
   corrections: ReadonlyArray<CorrectionRow>,
   effective: EffectiveAssessmentRow | undefined,
   actor: typeof RecruitmentConductActorSchema.Type,
+  correction: AssessmentCorrection,
 ): Effect.Effect<RecruitmentInterviewConductObservation, RecruitmentFailure> =>
   Effect.gen(function* () {
     if (state.schedule === null)
@@ -707,6 +735,7 @@ const observation = (
       history,
       cancelledAt: state.cancellation?.cancelledAt ?? null,
       revision: state.revision,
+      assessmentCorrection: correction,
       canFinalize: canManageLifecycle,
       canCancel: canManageLifecycle,
     });
@@ -780,7 +809,41 @@ export const readInterviewConductInTransaction = (
 
     const applicant = yield* readApplicant(admissions, loaded.interview.applicationId);
 
-    return yield* observation(state, applicant, loaded.corrections, loaded.effective, loaded.actor);
+    const correction = yield* readAssessmentCorrectionWithSql(
+      sql,
+      interviewId,
+      {
+        personId: loaded.actor.personId,
+        participant: true,
+        canMaintain: reaches(
+          loaded.authority,
+          "recruitment.interviews",
+          ReachTarget.Department({ departmentId: loaded.actor.departmentId }),
+        ),
+      },
+      yield* decode(
+        Instant,
+        "correction observation instant",
+      )(context.authorizationInstant ?? context.now),
+    ).pipe(
+      Effect.mapError(
+        (cause) =>
+          new RecruitmentPersistenceError({
+            operation: "correction observation",
+            message: String(cause),
+            cause,
+          }),
+      ),
+    );
+
+    return yield* observation(
+      state,
+      applicant,
+      loaded.corrections,
+      loaded.effective,
+      loaded.actor,
+      correction,
+    );
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("conduct observation", cause)),
@@ -962,6 +1025,76 @@ const cancelInTransaction = (
     ),
   );
 
+const requireCorrectionPermission = Effect.fnUntraced(function* (
+  permission: AssessmentCorrection,
+  lifecycle: { readonly completed: boolean; readonly cancelled: boolean },
+  interviewId: RecruitmentInterviewId,
+  personId: PersonId,
+  departmentId: DepartmentId,
+) {
+  if (lifecycle.cancelled) return yield* new RecruitmentInterviewAlreadyCancelled({ interviewId });
+
+  if (!lifecycle.completed)
+    return yield* new RecruitmentConductValidationError({
+      interviewId,
+      message: "the interview is not completed",
+    });
+
+  if (permission.canCorrect) return;
+
+  if (AssessmentCorrection.guards.Open(permission) && permission.openedBy === personId)
+    return yield* new RecruitmentScopeDenied({ personId, departmentId });
+
+  return yield* new RecruitmentInterviewAlreadyFinalized({ interviewId });
+});
+
+/** Caller owns the HTTP receipt transaction. Current decision/window authority precedes replay. */
+export const authorizeAssessmentCorrection = Effect.fnUntraced(
+  function* (interviewId: RecruitmentInterviewId, context: RecruitmentConductContext) {
+    const sql = yield* Database;
+    const organization = yield* Organization;
+
+    const loaded = yield* authorizeAndLoad(
+      sql,
+      organization,
+      context,
+      interviewId,
+      true,
+      "InterviewParticipant",
+      true,
+    );
+
+    const at = yield* DateTime.now;
+
+    const permission = yield* readAssessmentCorrectionWithSql(
+      sql,
+      interviewId,
+      { personId: loaded.actor.personId, participant: true, canMaintain: false },
+      at,
+    ).pipe(
+      Effect.mapError(
+        (cause) =>
+          new RecruitmentPersistenceError({
+            operation: "correction authority",
+            message: String(cause),
+            cause,
+          }),
+      ),
+    );
+
+    yield* requireCorrectionPermission(
+      permission,
+      { completed: loaded.conduct !== undefined, cancelled: loaded.cancellation !== undefined },
+      interviewId,
+      loaded.actor.personId,
+      loaded.actor.departmentId,
+    );
+  },
+  Effect.catchTag("SqlError", (cause) =>
+    Effect.fail(persistenceError("correction authority", cause)),
+  ),
+);
+
 const correctInTransaction = (
   command: CorrectInterviewAssessmentCommand,
   context: RecruitmentConductContext,
@@ -983,8 +1116,34 @@ const correctInTransaction = (
       command.interviewId,
       true,
       "InterviewParticipant",
+      true,
     );
 
+    const correctionInstant = yield* DateTime.now;
+
+    const permission = yield* readAssessmentCorrectionWithSql(
+      sql,
+      command.interviewId,
+      { personId: loaded.actor.personId, participant: true, canMaintain: false },
+      correctionInstant,
+    ).pipe(
+      Effect.mapError(
+        (cause) =>
+          new RecruitmentPersistenceError({
+            operation: "correction authority",
+            message: String(cause),
+            cause,
+          }),
+      ),
+    );
+
+    yield* requireCorrectionPermission(
+      permission,
+      { completed: loaded.conduct !== undefined, cancelled: loaded.cancellation !== undefined },
+      command.interviewId,
+      loaded.actor.personId,
+      loaded.actor.departmentId,
+    );
     const receipt = yield* readCorrectionReceipt(sql, command.commandId, true);
 
     if (receipt !== undefined) {
@@ -1011,17 +1170,12 @@ const correctInTransaction = (
       loaded.cancellation,
     );
 
-    const correctionState =
-      loaded.interview.coInterviewerPersonId === loaded.actor.personId
-        ? {
-            ...state,
-            interview: Struct.assign(state.interview, {
-              interviewerPersonId: loaded.actor.personId,
-            }),
-          }
-        : state;
-
-    const transition = yield* applyCorrection(correctionState, command, loaded.actor, context.now);
+    const transition = yield* applyCorrection(
+      state,
+      command,
+      loaded.actor,
+      DateTime.formatIso(correctionInstant),
+    );
 
     const updated = yield* sql<{ readonly revision: number }>`
       UPDATE recruitment_interviews
