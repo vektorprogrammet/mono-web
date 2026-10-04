@@ -396,6 +396,7 @@ A name runs the files that its command names, and in turn the files that those n
 | `just golden team-application`               | Browser journeys (golden team-application)                       |
 | `just e2e applicant`                         | Public applicant (PostgreSQL and Chromium)                       |
 | `just e2e contact`                           | Browser journeys (e2e contact)                                   |
+| `just e2e admission-outcomes`                | Browser journeys (e2e admission-outcomes)                        |
 | `just e2e admission-periods`                 | Browser journeys (e2e admission-periods)                         |
 | `just e2e approval`                          | Browser journeys (e2e approval)                                  |
 | `just e2e conduct`                           | Browser journeys (e2e conduct)                                   |
@@ -410,7 +411,6 @@ A name runs the files that its command names, and in turn the files that those n
 | `just e2e schools`                           | Browser journeys (e2e schools)                                   |
 | `just e2e settlement`                        | Browser journeys (e2e settlement)                                |
 | `just e2e social-events`                     | Browser journeys (e2e social-events)                             |
-| `just e2e substitutes`                       | Browser journeys (e2e substitutes)                               |
 | `just e2e sign-in-pages`                     | Browser journeys (e2e sign-in-pages)                             |
 | `just e2e unavailable-projections`           | Browser journeys (e2e unavailable-projections)                   |
 | `just e2e onboarding`                        | Browser journeys (e2e onboarding)                                |

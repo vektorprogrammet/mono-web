@@ -148,6 +148,7 @@ jobs:
           - { recipe: golden, suite: reimbursement }
           - { recipe: golden, suite: team-application }
           - { recipe: e2e, suite: contact }
+          - { recipe: e2e, suite: admission-outcomes }
           - { recipe: e2e, suite: admission-periods }
           - { recipe: e2e, suite: approval }
           - { recipe: e2e, suite: conduct }
@@ -161,7 +162,6 @@ jobs:
           - { recipe: e2e, suite: schools }
           - { recipe: e2e, suite: settlement }
           - { recipe: e2e, suite: social-events }
-          - { recipe: e2e, suite: substitutes }
           - { recipe: e2e, suite: sign-in-pages }
           - { recipe: e2e, suite: unavailable-projections }
           - { recipe: e2e, suite: onboarding }

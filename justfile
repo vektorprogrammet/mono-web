@@ -136,7 +136,7 @@ golden journey:
       *) echo "Unknown journey '$1'. Use school-service, recruitment, reimbursement, or team-application." >&2; exit 2 ;;
     esac
 
-# Run a browser suite: admission-periods, applicant, approval, conduct, contact, content-publication, identity, interview-response, onboarding, organization, owner, password-recovery, profile, recommendation, recommendation-applicant-progress, recommendation-co-interviewer, recommendation-correction, recommendation-report, recommendation-returning, recruitment, scheduling, schools, settlement, sign-in-pages, social-events, substitutes, or unavailable-projections.
+# Run a browser suite: admission-outcomes, admission-periods, applicant, approval, conduct, contact, content-publication, identity, interview-response, onboarding, organization, owner, password-recovery, profile, recommendation, recommendation-applicant-progress, recommendation-co-interviewer, recommendation-correction, recommendation-report, recommendation-returning, recruitment, scheduling, schools, settlement, sign-in-pages, social-events, or unavailable-projections.
 [group('journeys')]
 e2e suite:
     #!/usr/bin/env bash
@@ -144,7 +144,7 @@ e2e suite:
     case "$1" in
       applicant) exec bun run --cwd apps/homepage e2e:applicant:real ;;
       contact) exec bun run --cwd apps/homepage e2e:contact:native ;;
-      admission-periods | approval | conduct | content-publication | identity | interview-response | organization | owner | profile | recruitment | scheduling | schools | settlement | social-events | substitutes)
+      admission-outcomes | admission-periods | approval | conduct | content-publication | identity | interview-response | organization | owner | profile | recruitment | scheduling | schools | settlement | social-events)
         exec bun run --cwd apps/dashboard "e2e:real-$1" ;;
       sign-in-pages | unavailable-projections) exec bun run --cwd apps/dashboard "e2e:$1" ;;
       onboarding) exec bun --no-env-file tools/acceptance/onboarding-check.ts --browser ;;
@@ -155,7 +155,7 @@ e2e suite:
       recommendation-correction) exec bun --no-env-file tools/acceptance/recommendation-check.ts --correction-mode ;;
       recommendation-report) exec bun --no-env-file tools/acceptance/recommendation-check.ts --report ;;
       recommendation-returning) exec bun --no-env-file tools/acceptance/recommendation-check.ts --returning-mode ;;
-      *) echo "Unknown suite '$1'. Use admission-periods, applicant, approval, conduct, contact, content-publication, identity, interview-response, onboarding, organization, owner, password-recovery, profile, recommendation, recommendation-applicant-progress, recommendation-co-interviewer, recommendation-correction, recommendation-report, recommendation-returning, recruitment, scheduling, schools, settlement, sign-in-pages, social-events, substitutes, or unavailable-projections." >&2; exit 2 ;;
+      *) echo "Unknown suite '$1'. Use admission-outcomes, admission-periods, applicant, approval, conduct, contact, content-publication, identity, interview-response, onboarding, organization, owner, password-recovery, profile, recommendation, recommendation-applicant-progress, recommendation-co-interviewer, recommendation-correction, recommendation-report, recommendation-returning, recruitment, scheduling, schools, settlement, sign-in-pages, social-events, or unavailable-projections." >&2; exit 2 ;;
     esac
 
 # Run a PostgreSQL proof: authorization-rules, delivery-recovery, or rule-reconciliation.

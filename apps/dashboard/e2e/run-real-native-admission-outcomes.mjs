@@ -5,15 +5,15 @@ import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
-// The parent substitutes driver owns PostgreSQL, seed, backend and credentials.
+// The parent admission-outcomes driver owns PostgreSQL, seed, backend and credentials.
 // This child owns only its production dashboard process and Playwright process.
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 
-const manifestPath = process.env.SUBSTITUTE_JOURNEY_MANIFEST;
+const manifestPath = process.env.ADMISSION_OUTCOME_JOURNEY_MANIFEST;
 
-assert.ok(manifestPath, "SUBSTITUTE_JOURNEY_MANIFEST is required");
+assert.ok(manifestPath, "ADMISSION_OUTCOME_JOURNEY_MANIFEST is required");
 
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
 
@@ -166,7 +166,7 @@ try {
     [
       "node_modules/@playwright/test/cli.js",
       "test",
-      "e2e/native-substitutes.spec.ts",
+      "e2e/native-admission-outcomes.spec.ts",
       "--project=chromium",
       "--workers=1",
       "--retries=0",
