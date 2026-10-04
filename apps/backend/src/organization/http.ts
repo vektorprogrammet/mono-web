@@ -32,28 +32,28 @@ import {
 import type { Identity, IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import type { ProfileFailure } from "@vektorprogrammet/domain/profile";
 import {
-  CreateDepartmentEndpoint,
   CreateDepartmentRequest,
-  CreateFieldOfStudyEndpoint,
   CreateFieldOfStudyRequest,
-  CreateTeamEndpoint,
   CreateTeamRequest,
   DelegationCommand,
   DelegationManagement,
-  ExecuteDelegationEndpoint,
-  ExecuteOrganizationLifecycleEndpoint,
   ExternalNativeApi,
-  ListDepartmentsEndpoint,
-  ListFieldOfStudiesEndpoint,
-  ListMailingListsEndpoint,
-  ListTeamInterestEndpoint,
-  ListTeamsEndpoint,
   MailingListResponse,
-  ReadAppointmentManagementEndpoint,
-  ReadBoardRostersEndpoint,
-  ReadDelegationManagementEndpoint,
   reflectAccessSpec,
   TeamInterestResponse,
+  createDepartment as createDepartmentEndpoint,
+  createFieldOfStudy as createFieldOfStudyEndpoint,
+  createTeam as createTeamEndpoint,
+  executeDelegation as executeDelegationEndpoint,
+  executeLifecycle as executeLifecycleEndpoint,
+  listDepartments as listDepartmentsEndpoint,
+  listFieldOfStudies as listFieldOfStudiesEndpoint,
+  listMailingLists as listMailingListsEndpoint,
+  listTeamInterest as listTeamInterestEndpoint,
+  listTeams as listTeamsEndpoint,
+  readAppointmentManagement as readAppointmentManagementEndpoint,
+  readBoardRosters as readBoardRostersEndpoint,
+  readDelegationManagement as readDelegationManagementEndpoint,
 } from "@vektorprogrammet/http-api";
 import {
   type CredentialPresentation,
@@ -61,8 +61,14 @@ import {
   Problem,
   type StrongETag,
 } from "@vektorprogrammet/http-api/http-semantics";
-import { DateTime, Effect, flow, Match, Option, Predicate, Schema } from "effect";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { Context, DateTime, Effect, flow, Match, Option, Predicate, Schema } from "effect";
+import type { HttpServerRequest } from "effect/unstable/http";
+import type { HttpApiGroup } from "effect/unstable/httpapi";
+import {
+  OrganizationApiHandlers as GeneratedOrganizationApiHandlers,
+  type OrganizationGuards,
+  type OrganizationRawHandlers,
+} from "../../.effx/generated/organization-handlers.js";
 import {
   organizationActorFrom,
   resolveRequestCredentialInTransaction,
@@ -122,6 +128,53 @@ export interface OrganizationApiHttpOptions {
     Identity | OAuthCredentialAuthority | Organization
   >;
 }
+
+/** Decisions stay lazy: the raw handler provides one decision only at its original access point. */
+const CurrentPersonAuthorization = Context.Reference<
+  ReturnType<typeof authorizePerson> | undefined
+>("@vektorprogrammet/backend/organization/current-person-authorization", {
+  defaultValue: () => undefined,
+});
+
+const CurrentAnonymousAuthorization = Context.Reference<
+  ReturnType<typeof authorizeAnonymous> | undefined
+>("@vektorprogrammet/backend/organization/current-anonymous-authorization", {
+  defaultValue: () => undefined,
+});
+
+const currentPersonAuthorization = Effect.gen(function* () {
+  const decision = yield* CurrentPersonAuthorization;
+
+  return decision === undefined
+    ? yield* Effect.die(
+        new TypeError("Organization person guard ran outside its authorization point"),
+      )
+    : yield* decision;
+});
+
+const currentAnonymousAuthorization = Effect.gen(function* () {
+  const decision = yield* CurrentAnonymousAuthorization;
+
+  return decision === undefined
+    ? yield* Effect.die(
+        new TypeError("Organization anonymous guard ran outside its authorization point"),
+      )
+    : yield* decision;
+});
+
+const authorizeAtOriginalPoint = <E, R>(
+  authorize: () => Effect.Effect<void, E, R>,
+  decision: ReturnType<typeof authorizePerson>,
+) => authorize().pipe(Effect.provideService(CurrentPersonAuthorization, decision));
+
+const authorizeAtAnonymousPoint = <E, R>(
+  authorize: () => Effect.Effect<void, E, R>,
+  decision: ReturnType<typeof authorizeAnonymous>,
+) => authorize().pipe(Effect.provideService(CurrentAnonymousAuthorization, decision));
+
+type OrganizationAuthorize = () => ReturnType<typeof authorizePerson>;
+
+type OrganizationAnonymousAuthorize = () => typeof currentAnonymousAuthorization;
 
 const organizationUnavailable = () => Problem.make("organization.unavailable");
 
@@ -281,20 +334,23 @@ const privateReadJson = <S extends Schema.ConstraintDecoder<Schema.Json, never>>
     ),
   );
 
-const listDepartments = (request: Request) =>
+const listDepartments = (request: Request, authorize: OrganizationAnonymousAuthorize) =>
   Effect.gen(function* () {
-    yield* authorizeAnonymous(
-      Option.getOrThrow(reflectAccessSpec(ListDepartmentsEndpoint)),
-      {
-        selection: "AllMatching",
-        contexts: [
-          genericContext({
-            domainId: "organization",
-            authorityVersion: "organization-public-departments",
-          }),
-        ],
-      },
-      DateTime.formatIso(yield* DateTime.now),
+    yield* authorizeAtAnonymousPoint(
+      authorize,
+      authorizeAnonymous(
+        Option.getOrThrow(reflectAccessSpec(listDepartmentsEndpoint)),
+        {
+          selection: "AllMatching",
+          contexts: [
+            genericContext({
+              domainId: "organization",
+              authorityVersion: "organization-public-departments",
+            }),
+          ],
+        },
+        DateTime.formatIso(yield* DateTime.now),
+      ),
     );
     yield* requireNoQuery(request);
 
@@ -316,20 +372,23 @@ const listDepartments = (request: Request) =>
     });
   });
 
-const listTeams = (request: Request) =>
+const listTeams = (request: Request, authorize: OrganizationAnonymousAuthorize) =>
   Effect.gen(function* () {
-    yield* authorizeAnonymous(
-      Option.getOrThrow(reflectAccessSpec(ListTeamsEndpoint)),
-      {
-        selection: "AllMatching",
-        contexts: [
-          genericContext({
-            domainId: "organization",
-            authorityVersion: "organization-public-teams",
-          }),
-        ],
-      },
-      DateTime.formatIso(yield* DateTime.now),
+    yield* authorizeAtAnonymousPoint(
+      authorize,
+      authorizeAnonymous(
+        Option.getOrThrow(reflectAccessSpec(listTeamsEndpoint)),
+        {
+          selection: "AllMatching",
+          contexts: [
+            genericContext({
+              domainId: "organization",
+              authorityVersion: "organization-public-teams",
+            }),
+          ],
+        },
+        DateTime.formatIso(yield* DateTime.now),
+      ),
     );
     yield* requireNoQuery(request);
 
@@ -351,20 +410,23 @@ const listTeams = (request: Request) =>
     });
   });
 
-const listFieldOfStudies = (request: Request) =>
+const listFieldOfStudies = (request: Request, authorize: OrganizationAnonymousAuthorize) =>
   Effect.gen(function* () {
-    yield* authorizeAnonymous(
-      Option.getOrThrow(reflectAccessSpec(ListFieldOfStudiesEndpoint)),
-      {
-        selection: "AllMatching",
-        contexts: [
-          genericContext({
-            domainId: "organization",
-            authorityVersion: "organization-public-field-of-studies",
-          }),
-        ],
-      },
-      DateTime.formatIso(yield* DateTime.now),
+    yield* authorizeAtAnonymousPoint(
+      authorize,
+      authorizeAnonymous(
+        Option.getOrThrow(reflectAccessSpec(listFieldOfStudiesEndpoint)),
+        {
+          selection: "AllMatching",
+          contexts: [
+            genericContext({
+              domainId: "organization",
+              authorityVersion: "organization-public-field-of-studies",
+            }),
+          ],
+        },
+        DateTime.formatIso(yield* DateTime.now),
+      ),
     );
     yield* requireNoQuery(request);
 
@@ -406,6 +468,7 @@ const createdCapsule = (
  */
 const authorizeCreate = (input: {
   readonly request: Request;
+  readonly authorize: OrganizationAuthorize;
   readonly endpoint: Parameters<typeof reflectAccessSpec>[0];
   readonly operationId: string;
   readonly target: string;
@@ -416,24 +479,29 @@ const authorizeCreate = (input: {
     const resolved = yield* resolveRequestPersonAuthorityInTransaction(input.request, {});
     const actor = organizationActorFrom(resolved.authority);
 
-    yield* authorizePerson(
-      {
-        spec: Option.getOrThrow(reflectAccessSpec(input.endpoint)),
-        credential: resolved.credential,
-        personId: actor.personId,
-        resolution: {
-          selection: "ExactlyOne",
-          contexts: [
-            genericContext({
-              domainId: "organization",
-              authorityVersion: `organization:${actor._tag}`,
-            }),
-          ],
+    yield* authorizeAtOriginalPoint(
+      input.authorize,
+      authorizePerson(
+        {
+          spec: Option.getOrThrow(reflectAccessSpec(input.endpoint)),
+          credential: resolved.credential,
+          personId: actor.personId,
+          resolution: {
+            selection: "ExactlyOne",
+            contexts: [
+              genericContext({
+                domainId: "organization",
+                authorityVersion: `organization:${actor._tag}`,
+              }),
+            ],
+          },
+          grantScopes: Predicate.isTagged(actor, "OrganizationAdministrator")
+            ? [Scope.Global()]
+            : [],
+          now: resolved.authorizationInstant,
         },
-        grantScopes: Predicate.isTagged(actor, "OrganizationAdministrator") ? [Scope.Global()] : [],
-        now: resolved.authorizationInstant,
-      },
-      input.presentation,
+        input.presentation,
+      ),
     );
 
     const identity = yield* httpIdentity({
@@ -446,7 +514,11 @@ const authorizeCreate = (input: {
     return { actor, identity };
   });
 
-const createDepartment = (request: Request, input: OrganizationApiHttpOptions) =>
+const createDepartment = (
+  request: Request,
+  input: OrganizationApiHttpOptions,
+  authorize: OrganizationAuthorize,
+) =>
   Effect.gen(function* () {
     yield* rejectQuery(request);
 
@@ -463,7 +535,8 @@ const createDepartment = (request: Request, input: OrganizationApiHttpOptions) =
       Effect.gen(function* () {
         const { actor, identity } = yield* authorizeCreate({
           request,
-          endpoint: CreateDepartmentEndpoint,
+          authorize,
+          endpoint: createDepartmentEndpoint,
           operationId,
           target: "/api/departments",
           idempotencyKey,
@@ -517,7 +590,11 @@ const createDepartment = (request: Request, input: OrganizationApiHttpOptions) =
     return yield* commandOutcomeResponse(outcome);
   });
 
-const createTeam = (request: Request, input: OrganizationApiHttpOptions) =>
+const createTeam = (
+  request: Request,
+  input: OrganizationApiHttpOptions,
+  authorize: OrganizationAuthorize,
+) =>
   Effect.gen(function* () {
     yield* rejectQuery(request);
 
@@ -534,7 +611,8 @@ const createTeam = (request: Request, input: OrganizationApiHttpOptions) =>
       Effect.gen(function* () {
         const { actor, identity } = yield* authorizeCreate({
           request,
-          endpoint: CreateTeamEndpoint,
+          authorize,
+          endpoint: createTeamEndpoint,
           operationId,
           target: "/api/teams",
           idempotencyKey,
@@ -588,7 +666,11 @@ const createTeam = (request: Request, input: OrganizationApiHttpOptions) =>
     return yield* commandOutcomeResponse(outcome);
   });
 
-const createFieldOfStudy = (request: Request, input: OrganizationApiHttpOptions) =>
+const createFieldOfStudy = (
+  request: Request,
+  input: OrganizationApiHttpOptions,
+  authorize: OrganizationAuthorize,
+) =>
   Effect.gen(function* () {
     yield* rejectQuery(request);
 
@@ -605,7 +687,8 @@ const createFieldOfStudy = (request: Request, input: OrganizationApiHttpOptions)
       Effect.gen(function* () {
         const { actor, identity } = yield* authorizeCreate({
           request,
-          endpoint: CreateFieldOfStudyEndpoint,
+          authorize,
+          endpoint: createFieldOfStudyEndpoint,
           operationId,
           target: "/api/field-of-studies",
           idempotencyKey,
@@ -794,7 +877,11 @@ const authorizeOrganizationCollection = (input: {
   );
 };
 
-const listTeamInterest = (request: Request, input: OrganizationApiHttpOptions) => {
+const listTeamInterest = (
+  request: Request,
+  input: OrganizationApiHttpOptions,
+  authorize: OrganizationAuthorize,
+) => {
   const presentation = personPresentation(request);
 
   return Effect.gen(function* () {
@@ -831,14 +918,17 @@ const listTeamInterest = (request: Request, input: OrganizationApiHttpOptions) =
             ? []
             : yield* Problem.make("authority.denied");
 
-    yield* authorizeOrganizationCollection({
-      request,
-      authority,
-      endpoint: ListTeamInterestEndpoint,
-      departmentIds: authorized,
-      teams: authorizedTeams,
-      presentation,
-    });
+    yield* authorizeAtOriginalPoint(
+      authorize,
+      authorizeOrganizationCollection({
+        request,
+        authority,
+        endpoint: listTeamInterestEndpoint,
+        departmentIds: authorized,
+        teams: authorizedTeams,
+        presentation,
+      }),
+    );
 
     // Unknown department reference denies with 422 before any data leaves the store.
     if (requested !== undefined) yield* assertDepartmentsExist([requested]);
@@ -869,7 +959,11 @@ const listTeamInterest = (request: Request, input: OrganizationApiHttpOptions) =
   );
 };
 
-const listMailingLists = (request: Request, input: OrganizationApiHttpOptions) => {
+const listMailingLists = (
+  request: Request,
+  input: OrganizationApiHttpOptions,
+  authorize: OrganizationAuthorize,
+) => {
   const presentation = personPresentation(request);
 
   return Effect.gen(function* () {
@@ -888,13 +982,16 @@ const listMailingLists = (request: Request, input: OrganizationApiHttpOptions) =
     const authorized = yield* narrowScopeOrThrow(scope.departmentIds, requested);
 
     if (requested !== undefined) yield* assertDepartmentsExist([requested]);
-    yield* authorizeOrganizationCollection({
-      request,
-      authority,
-      endpoint: ListMailingListsEndpoint,
-      departmentIds: authorized,
-      presentation,
-    });
+    yield* authorizeAtOriginalPoint(
+      authorize,
+      authorizeOrganizationCollection({
+        request,
+        authority,
+        endpoint: listMailingListsEndpoint,
+        departmentIds: authorized,
+        presentation,
+      }),
+    );
     const semesterId = yield* optionalQueryIdentity(request, "semester", SemesterId);
 
     const lists = yield* Organization.use(({ projectMailingLists }) =>
@@ -916,7 +1013,7 @@ const listMailingLists = (request: Request, input: OrganizationApiHttpOptions) =
   );
 };
 
-const readAppointmentManagement = (request: Request) => {
+const readAppointmentManagement = (request: Request, authorize: OrganizationAuthorize) => {
   const presentation = personPresentation(request);
 
   return Effect.gen(function* () {
@@ -933,24 +1030,27 @@ const readAppointmentManagement = (request: Request) => {
       service.readAppointmentManagement(personId),
     );
 
-    yield* authorizePerson(
-      {
-        spec: Option.getOrThrow(reflectAccessSpec(ReadAppointmentManagementEndpoint)),
-        credential: resolved.credential,
-        personId,
-        resolution: {
-          selection: "ExactlyOne",
-          contexts: [
-            genericContext({
-              domainId: "organization",
-              authorityVersion: "appointment-management",
-            }),
-          ],
+    yield* authorizeAtOriginalPoint(
+      authorize,
+      authorizePerson(
+        {
+          spec: Option.getOrThrow(reflectAccessSpec(readAppointmentManagementEndpoint)),
+          credential: resolved.credential,
+          personId,
+          resolution: {
+            selection: "ExactlyOne",
+            contexts: [
+              genericContext({
+                domainId: "organization",
+                authorityVersion: "appointment-management",
+              }),
+            ],
+          },
+          grantScopes: [Scope.Global()],
+          now: resolved.authorizationInstant,
         },
-        grantScopes: [Scope.Global()],
-        now: resolved.authorizationInstant,
-      },
-      presentation,
+        presentation,
+      ),
     );
 
     return yield* privateReadJson(AppointmentManagement)(snapshot);
@@ -958,7 +1058,7 @@ const readAppointmentManagement = (request: Request) => {
 };
 
 /** The certificate-issuing boards the reader manages, with appointed and derived seats. */
-const readBoardRosters = (request: Request) => {
+const readBoardRosters = (request: Request, authorize: OrganizationAuthorize) => {
   const presentation = personPresentation(request);
 
   return Effect.gen(function* () {
@@ -972,31 +1072,38 @@ const readBoardRosters = (request: Request) => {
     const personId = resolved.credential.principal.personId;
     const rosters = yield* Organization.use((service) => service.readBoardRosters(personId));
 
-    yield* authorizePerson(
-      {
-        spec: Option.getOrThrow(reflectAccessSpec(ReadBoardRostersEndpoint)),
-        credential: resolved.credential,
-        personId,
-        resolution: {
-          selection: "ExactlyOne",
-          contexts: [
-            genericContext({
-              domainId: "organization",
-              authorityVersion: "appointment-management",
-            }),
-          ],
+    yield* authorizeAtOriginalPoint(
+      authorize,
+      authorizePerson(
+        {
+          spec: Option.getOrThrow(reflectAccessSpec(readBoardRostersEndpoint)),
+          credential: resolved.credential,
+          personId,
+          resolution: {
+            selection: "ExactlyOne",
+            contexts: [
+              genericContext({
+                domainId: "organization",
+                authorityVersion: "appointment-management",
+              }),
+            ],
+          },
+          grantScopes: [Scope.Global()],
+          now: resolved.authorizationInstant,
         },
-        grantScopes: [Scope.Global()],
-        now: resolved.authorizationInstant,
-      },
-      presentation,
+        presentation,
+      ),
     );
 
     return yield* privateReadJson(BoardRosters)(rosters);
   }).pipe(organizationProblems, credentialProblems(presentation));
 };
 
-const executeLifecycle = (request: Request, input: OrganizationApiHttpOptions) =>
+const executeLifecycle = (
+  request: Request,
+  input: OrganizationApiHttpOptions,
+  authorize: OrganizationAuthorize,
+) =>
   Effect.gen(function* () {
     yield* rejectQuery(request);
 
@@ -1031,24 +1138,27 @@ const executeLifecycle = (request: Request, input: OrganizationApiHttpOptions) =
         );
 
         const current = yield* resolveRequestCredentialInTransaction(request, "OAuthUserBearer");
-        yield* authorizePerson(
-          {
-            spec: Option.getOrThrow(reflectAccessSpec(ExecuteOrganizationLifecycleEndpoint)),
-            credential: current.credential,
-            personId,
-            resolution: {
-              selection: "ExactlyOne",
-              contexts: [
-                genericContext({
-                  domainId: "organization",
-                  authorityVersion: "appointment-management",
-                }),
-              ],
+        yield* authorizeAtOriginalPoint(
+          authorize,
+          authorizePerson(
+            {
+              spec: Option.getOrThrow(reflectAccessSpec(executeLifecycleEndpoint)),
+              credential: current.credential,
+              personId,
+              resolution: {
+                selection: "ExactlyOne",
+                contexts: [
+                  genericContext({
+                    domainId: "organization",
+                    authorityVersion: "appointment-management",
+                  }),
+                ],
+              },
+              grantScopes: [Scope.Global()],
+              now: current.authorizationInstant,
             },
-            grantScopes: [Scope.Global()],
-            now: current.authorizationInstant,
-          },
-          presentation,
+            presentation,
+          ),
         );
 
         // An accepted person, the decoded key, and the fixed operation and target always derive one.
@@ -1086,7 +1196,7 @@ const executeLifecycle = (request: Request, input: OrganizationApiHttpOptions) =
     return yield* commandOutcomeResponse(outcome);
   });
 
-const readDelegationManagement = (request: Request) => {
+const readDelegationManagement = (request: Request, authorize: OrganizationAuthorize) => {
   const presentation = personPresentation(request);
 
   return Effect.gen(function* () {
@@ -1103,31 +1213,38 @@ const readDelegationManagement = (request: Request) => {
       service.readDelegationManagement(personId),
     );
 
-    yield* authorizePerson(
-      {
-        spec: Option.getOrThrow(reflectAccessSpec(ReadDelegationManagementEndpoint)),
-        credential: resolved.credential,
-        personId,
-        resolution: {
-          selection: "ExactlyOne",
-          contexts: [
-            genericContext({
-              domainId: "organization",
-              authorityVersion: "delegation-management",
-            }),
-          ],
+    yield* authorizeAtOriginalPoint(
+      authorize,
+      authorizePerson(
+        {
+          spec: Option.getOrThrow(reflectAccessSpec(readDelegationManagementEndpoint)),
+          credential: resolved.credential,
+          personId,
+          resolution: {
+            selection: "ExactlyOne",
+            contexts: [
+              genericContext({
+                domainId: "organization",
+                authorityVersion: "delegation-management",
+              }),
+            ],
+          },
+          grantScopes: [Scope.Global()],
+          now: resolved.authorizationInstant,
         },
-        grantScopes: [Scope.Global()],
-        now: resolved.authorizationInstant,
-      },
-      presentation,
+        presentation,
+      ),
     );
 
     return yield* privateReadJson(DelegationManagement)(snapshot);
   }).pipe(organizationProblems, credentialProblems(presentation));
 };
 
-const executeDelegation = (request: Request, input: OrganizationApiHttpOptions) =>
+const executeDelegation = (
+  request: Request,
+  input: OrganizationApiHttpOptions,
+  authorize: OrganizationAuthorize,
+) =>
   Effect.gen(function* () {
     yield* rejectQuery(request);
 
@@ -1160,24 +1277,27 @@ const executeDelegation = (request: Request, input: OrganizationApiHttpOptions) 
         );
 
         const current = yield* resolveRequestCredentialInTransaction(request, "OAuthUserBearer");
-        yield* authorizePerson(
-          {
-            spec: Option.getOrThrow(reflectAccessSpec(ExecuteDelegationEndpoint)),
-            credential: current.credential,
-            personId,
-            resolution: {
-              selection: "ExactlyOne",
-              contexts: [
-                genericContext({
-                  domainId: "organization",
-                  authorityVersion: "delegation-management",
-                }),
-              ],
+        yield* authorizeAtOriginalPoint(
+          authorize,
+          authorizePerson(
+            {
+              spec: Option.getOrThrow(reflectAccessSpec(executeDelegationEndpoint)),
+              credential: current.credential,
+              personId,
+              resolution: {
+                selection: "ExactlyOne",
+                contexts: [
+                  genericContext({
+                    domainId: "organization",
+                    authorityVersion: "delegation-management",
+                  }),
+                ],
+              },
+              grantScopes: [Scope.Global()],
+              now: current.authorizationInstant,
             },
-            grantScopes: [Scope.Global()],
-            now: current.authorizationInstant,
-          },
-          presentation,
+            presentation,
+          ),
         );
 
         const identity = yield* httpIdentity({
@@ -1214,41 +1334,73 @@ const executeDelegation = (request: Request, input: OrganizationApiHttpOptions) 
     return yield* commandOutcomeResponse(outcome);
   });
 
-/** Native HttpApi implementations for organization endpoints. */
-export const OrganizationApiHandlers = (input: OrganizationApiHttpOptions) =>
-  HttpApiBuilder.group(ExternalNativeApi, "organization", (handlers) =>
-    Effect.succeed(
-      handlers
-        .handleRaw("readAppointmentManagement", ({ request }) =>
-          webHandler(request, readAppointmentManagement),
-        )
-        .handleRaw("readBoardRosters", ({ request }) => webHandler(request, readBoardRosters))
-        .handleRaw("executeLifecycle", ({ request }) =>
-          webHandler(request, (webRequest) => executeLifecycle(webRequest, input)),
-        )
-        .handleRaw("readDelegationManagement", ({ request }) =>
-          webHandler(request, readDelegationManagement),
-        )
-        .handleRaw("executeDelegation", ({ request }) =>
-          webHandler(request, (webRequest) => executeDelegation(webRequest, input)),
-        )
-        .handleRaw("listDepartments", ({ request }) => webHandler(request, listDepartments))
-        .handleRaw("listTeams", ({ request }) => webHandler(request, listTeams))
-        .handleRaw("listFieldOfStudies", ({ request }) => webHandler(request, listFieldOfStudies))
-        .handleRaw("listTeamInterest", ({ request }) =>
-          webHandler(request, (webRequest) => listTeamInterest(webRequest, input)),
-        )
-        .handleRaw("listMailingLists", ({ request }) =>
-          webHandler(request, (webRequest) => listMailingLists(webRequest, input)),
-        )
-        .handleRaw("createDepartment", ({ request }) =>
-          webHandler(request, (webRequest) => createDepartment(webRequest, input)),
-        )
-        .handleRaw("createTeam", ({ request }) =>
-          webHandler(request, (webRequest) => createTeam(webRequest, input)),
-        )
-        .handleRaw("createFieldOfStudy", ({ request }) =>
-          webHandler(request, (webRequest) => createFieldOfStudy(webRequest, input)),
-        ),
-    ),
-  );
+/** The generated guard is invoked only where each raw handler supplies its current decision. */
+type OrganizationEndpoints = HttpApiGroup.Endpoints<
+  (typeof ExternalNativeApi)["groups"]["organization"]
+>;
+
+const makeOrganizationGuards = () =>
+  ({
+    "organization.listDepartments": (_request: HttpServerRequest.HttpServerRequest) =>
+      currentAnonymousAuthorization,
+    "organization.listTeams": (_request: HttpServerRequest.HttpServerRequest) =>
+      currentAnonymousAuthorization,
+    "organization.listFieldOfStudies": (_request: HttpServerRequest.HttpServerRequest) =>
+      currentAnonymousAuthorization,
+    "organization.listTeamInterest": (_request: HttpServerRequest.HttpServerRequest) =>
+      currentPersonAuthorization.pipe(unreachable("resource.not-found")),
+    "organization.listMailingLists": (_request: HttpServerRequest.HttpServerRequest) =>
+      currentPersonAuthorization.pipe(unreachable("resource.not-found")),
+    "organization.createDepartment": (_request: HttpServerRequest.HttpServerRequest) =>
+      currentPersonAuthorization.pipe(unreachable("resource.not-found")),
+    "organization.createTeam": (_request: HttpServerRequest.HttpServerRequest) =>
+      currentPersonAuthorization.pipe(unreachable("resource.not-found")),
+    "organization.createFieldOfStudy": (_request: HttpServerRequest.HttpServerRequest) =>
+      currentPersonAuthorization.pipe(unreachable("resource.not-found")),
+    "organization.readAppointmentManagement": (_request: HttpServerRequest.HttpServerRequest) =>
+      currentPersonAuthorization,
+    "organization.readBoardRosters": (_request: HttpServerRequest.HttpServerRequest) =>
+      currentPersonAuthorization,
+    "organization.executeLifecycle": (_request: HttpServerRequest.HttpServerRequest) =>
+      currentPersonAuthorization,
+    "organization.readDelegationManagement": (_request: HttpServerRequest.HttpServerRequest) =>
+      currentPersonAuthorization,
+    "organization.executeDelegation": (_request: HttpServerRequest.HttpServerRequest) =>
+      currentPersonAuthorization,
+  }) satisfies OrganizationGuards<OrganizationEndpoints>;
+
+/** Binds the thirteen raw HTTP effects without moving their authority or receipt boundaries. */
+export const OrganizationApiHandlers = (input: OrganizationApiHttpOptions) => {
+  const guards = makeOrganizationGuards();
+
+  const raw = {
+    listDepartments: ({ request }, authorize) =>
+      webHandler(request, (webRequest) => listDepartments(webRequest, authorize)),
+    listTeams: ({ request }, authorize) =>
+      webHandler(request, (webRequest) => listTeams(webRequest, authorize)),
+    listFieldOfStudies: ({ request }, authorize) =>
+      webHandler(request, (webRequest) => listFieldOfStudies(webRequest, authorize)),
+    listTeamInterest: ({ request }, authorize) =>
+      webHandler(request, (webRequest) => listTeamInterest(webRequest, input, authorize)),
+    listMailingLists: ({ request }, authorize) =>
+      webHandler(request, (webRequest) => listMailingLists(webRequest, input, authorize)),
+    createDepartment: ({ request }, authorize) =>
+      webHandler(request, (webRequest) => createDepartment(webRequest, input, authorize)),
+    createTeam: ({ request }, authorize) =>
+      webHandler(request, (webRequest) => createTeam(webRequest, input, authorize)),
+    createFieldOfStudy: ({ request }, authorize) =>
+      webHandler(request, (webRequest) => createFieldOfStudy(webRequest, input, authorize)),
+    readAppointmentManagement: ({ request }, authorize) =>
+      webHandler(request, (webRequest) => readAppointmentManagement(webRequest, authorize)),
+    readBoardRosters: ({ request }, authorize) =>
+      webHandler(request, (webRequest) => readBoardRosters(webRequest, authorize)),
+    executeLifecycle: ({ request }, authorize) =>
+      webHandler(request, (webRequest) => executeLifecycle(webRequest, input, authorize)),
+    readDelegationManagement: ({ request }, authorize) =>
+      webHandler(request, (webRequest) => readDelegationManagement(webRequest, authorize)),
+    executeDelegation: ({ request }, authorize) =>
+      webHandler(request, (webRequest) => executeDelegation(webRequest, input, authorize)),
+  } satisfies OrganizationRawHandlers<OrganizationEndpoints, typeof guards>;
+
+  return GeneratedOrganizationApiHandlers({ raw, guards });
+};

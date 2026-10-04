@@ -6,6 +6,6 @@
     "types": ["node"]
   },
   "effx": { "projectRoot": "../.." },
-  "files": ["../../packages/http-api/src/profile.effx.ts", "../../packages/http-api/src/directory.effx.ts", "../../packages/http-api/src/social-events.effx.ts", "../../packages/http-api/src/content.effx.ts", "../../packages/http-api/src/team-application.effx.ts"],
+  "files": ["../../packages/http-api/src/profile.effx.ts", "../../packages/http-api/src/directory.effx.ts", "../../packages/http-api/src/social-events.effx.ts", "../../packages/http-api/src/content.effx.ts", "../../packages/http-api/src/team-application.effx.ts", "../../packages/http-api/src/organization.effx.ts"],
   "include": []
 }

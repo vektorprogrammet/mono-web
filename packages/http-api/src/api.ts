@@ -11,7 +11,7 @@ import { AdmissionsApi } from "./admissions.js";
 import { AdmissionOutcomesApi } from "./admission-outcomes.js";
 import { ContentApi } from "../.effx/generated/content-contract.js";
 import { DirectoryApi } from "../.effx/generated/directory-contract.js";
-import { OrganizationApi } from "./organization.js";
+import { OrganizationApi } from "../.effx/generated/organization-contract.js";
 import { ProfileApi } from "../.effx/generated/profile-contract.js";
 import { InternalReceiptsApi, ReceiptsApi } from "./receipts.js";
 import { RecruitmentApi } from "./recruitment.js";

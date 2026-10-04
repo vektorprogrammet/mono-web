@@ -23,6 +23,8 @@ export * from "./directory.js";
 
 export * from "./organization.js";
 
+export * from "../.effx/generated/organization-contract.js";
+
 export * from "./profile.js";
 
 export * from "../.effx/generated/profile-contract.js";

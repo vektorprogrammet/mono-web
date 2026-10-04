@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 import { deriveHttpIdentity } from "@vektorprogrammet/backend/http-semantics";
+import { admissionJourneyClock } from "../../../tools/e2e/journey-clock.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -46,6 +47,10 @@ const memberEmail = "member.organization.0052@example.invalid";
 const personaPassword = "native-organization-0052-password-0123456789";
 
 const betterAuthSecret = randomBytes(32).toString("base64url");
+
+const journeyClock = admissionJourneyClock();
+
+const semesterId = "semester-organization-0052";
 
 const identitySeedPersons = [
   {
@@ -123,6 +128,8 @@ INSERT INTO organization_global_administrator_grants (
   'global-administrator-organization-0052', '${adminPersonId}',
   '2020-01-01T00:00:00.000Z', NULL, 0
 );
+INSERT INTO admission_period_semesters(semester_id, start_at, end_at)
+VALUES ('${semesterId}', '${journeyClock.fromNow(-30)}', '${journeyClock.fromNow(30)}');
 COMMIT;
 `;
 
@@ -423,6 +430,7 @@ async function startRecordingProxy(targetOrigin) {
       responseContentType: null,
       responseEtag: null,
       responseLocation: null,
+      responseCacheControl: null,
       status: 0,
     };
 
@@ -460,6 +468,7 @@ async function startRecordingProxy(targetOrigin) {
       record.responseContentType = upstream.headers.get("content-type");
       record.responseEtag = upstream.headers.get("etag");
       record.responseLocation = upstream.headers.get("location");
+      record.responseCacheControl = upstream.headers.get("cache-control");
 
       if (
         cookieKey !== undefined &&
@@ -629,6 +638,18 @@ async function readDatabaseEvidence(environment) {
           AND audit.actor_person_id = receipt.actor_person_id
           AND audit.occurred_at = receipt.committed_at
       ),
+      'journey', json_build_object(
+        'semester', (SELECT count(*) FROM admission_period_semesters WHERE semester_id = '${semesterId}'),
+        'appointmentHistory', (SELECT coalesce(json_agg(json_build_object('action', action, 'actor', actor_person_id, 'subject', subject_id) ORDER BY occurred_at, command_id), '[]'::json) FROM organization_lifecycle_history WHERE reason IN ('Nytt verv i testteam', 'Avsluttet etter oppdrag', 'Tidsavgrenset teamleder', 'Lederansvar tilbakekalt', 'Delegert verv i medlemsteam')),
+        'delegationHistory', (SELECT coalesce(json_agg(json_build_object('action', action, 'actor', actor_person_id, 'name', after_json->>'name') ORDER BY occurred_at, command_id), '[]'::json) FROM organization_delegation_history WHERE reason IN ('Tidsavgrenset myndighet', 'Myndigheten er trukket tilbake')),
+        'suspendedLeader', (SELECT count(*) FROM organization_memberships WHERE person_id = '${memberPersonId}' AND team_id = '${fixtureTeamId}' AND is_team_leader AND is_suspended AND revision = 1),
+        'createdAppointmentId', (SELECT subject_id FROM organization_lifecycle_history WHERE reason = 'Nytt verv i testteam' AND action = 'Appoint'),
+        'leaderAppointmentId', (SELECT subject_id FROM organization_lifecycle_history WHERE reason = 'Tidsavgrenset teamleder' AND action = 'Appoint'),
+        'mailingDelegationId', (SELECT delegation_id FROM organization_delegations WHERE name = 'Kontaktmyndighet'),
+        'originalMembership', (SELECT count(*) FROM organization_memberships WHERE membership_id = 'membership-organization-member-0052' AND NOT is_suspended),
+        'delegationRevisions', (SELECT coalesce(json_agg(revision ORDER BY name), '[]'::json) FROM organization_delegations WHERE name = 'Kontaktmyndighet'),
+        'replayReceipt', (SELECT count(*) FROM organization_lifecycle_history WHERE command_id = 'organization-delegated-appointment-0052' AND actor_person_id = '${memberPersonId}')
+      ),
       'deniedReceipts', (SELECT count(*) FROM organization_command_receipts WHERE command_id IN ('${persistedIds.unknownDepartment}', '${persistedIds.memberDenied}')),
       'deniedAudits', (SELECT count(*) FROM organization_creation_audit WHERE command_id IN ('${persistedIds.unknownDepartment}', '${persistedIds.memberDenied}'))
     )::text;`,
@@ -775,6 +796,23 @@ function assertDatabaseEvidence(evidence) {
       throw new Error(`Organization audit omitted canonical fields: ${missing.join(", ")}`);
     }
   }
+
+  assertEqual(evidence.journey.semester, 1, "Mailing semester fixture");
+  assertEqual(evidence.journey.suspendedLeader, 1, "Revoked team-leader appointment");
+  assertEqual(evidence.journey.originalMembership, 1, "Ordinary membership survives suspension");
+  assertEqual(evidence.journey.delegationRevisions, [1], "Scheduled delegation end persisted");
+  assertEqual(evidence.journey.replayReceipt, 1, "Revoked replay did not commit again");
+  assertEqual(
+    evidence.journey.appointmentHistory.map(({ action, actor }) => [action, actor].join(":" )).sort(),
+    ["Appoint", "EndAppointment", "Appoint", "ReviseAppointment", "SuspendAppointment"]
+      .map((action, index) => `${action}:${index === 3 ? memberPersonId : adminPersonId}`).sort(),
+    "Attributable lifecycle history",
+  );
+  assertEqual(
+    evidence.journey.delegationHistory.map(({ action, actor }) => [action, actor].join(":" )).sort(),
+    [`IssueDelegation:${adminPersonId}`, `EndDelegation:${adminPersonId}`].sort(),
+    "Attributable delegation history",
+  );
 }
 
 async function main() {
@@ -936,6 +974,11 @@ async function main() {
       ORGANIZATION_E2E_MEMBER_EMAIL: memberEmail,
       ORGANIZATION_E2E_MEMBER_PASSWORD: personaPassword,
       ORGANIZATION_E2E_MEMBER_PERSON_ID: memberPersonId,
+      ORGANIZATION_E2E_FIXTURE_TEAM_ID: fixtureTeamId,
+      ORGANIZATION_E2E_FIXTURE_DEPARTMENT_ID: fixtureDepartmentId,
+      ORGANIZATION_E2E_SEMESTER_ID: semesterId,
+      ORGANIZATION_E2E_START_AT: journeyClock.fromNow(-1),
+      ORGANIZATION_E2E_END_AT: journeyClock.fromNow(0, -5),
       ORGANIZATION_E2E_BROWSER_EVIDENCE_PATH: browserEvidencePath,
       BACKEND_PG_URL: postgresUrl,
     };
@@ -1399,6 +1442,61 @@ async function main() {
       "Native Organization exact replay ETag",
     );
 
+    const lifecycleCommands = proxy.records.filter(({ path, method }) =>
+      path === "/api/organization/appointments/commands" && method === "POST",
+    );
+
+    assertEqual(lifecycleCommands.map(({ status }) => status), [200, 200, 200, 200, 200, 403], "Lifecycle command and revoked replay statuses");
+
+    const delegationCommands = proxy.records.filter(({ path, method }) =>
+      path === "/api/organization/delegations/commands" && method === "POST",
+    );
+
+    assertEqual(delegationCommands.map(({ status }) => status), [200, 200], "Delegation issue/end statuses");
+
+    for (const record of [...lifecycleCommands, ...delegationCommands]) {
+      if (!record.sessionCookieAuth || record.authorizationHeaderPresent || record.ifMatch !== null ||
+        !Predicate.isString(record.idempotencyKey) || record.requestContentType?.split(";", 1)[0] !== "application/json" ||
+        record.responseCacheControl !== "private, no-store") {
+        throw new Error(`${record.method} ${record.path} bypassed the native authenticated command contract`);
+      }
+
+      if (record.status === 200) assertStrongEtag(record.responseEtag, `${record.method} ${record.path}`);
+    }
+
+    const replay = lifecycleCommands.at(-1);
+
+    if (replay === undefined) throw new Error("Revoked lifecycle replay was not recorded");
+    assertEqual(replay?.sessionPersonId, memberPersonId, "Revoked replay actor identity");
+    assertProblemResponse(replay, { status: 403, code: "authority.denied" });
+    assertEqual(lifecycleCommands.filter(({ idempotencyKey }) => idempotencyKey === replay.idempotencyKey)
+      .map(({ status }) => status), [200, 403], "Revoked actor replayed the same committed key");
+    const mailing = proxy.records.filter(({ path }) => path === "/api/mailing-lists");
+
+    if (mailing.length < 5 || !mailing.some(({ status, sessionPersonId }) => status === 403 && sessionPersonId === memberPersonId) ||
+      !mailing.some(({ status, sessionPersonId }) => status === 200 && sessionPersonId === memberPersonId)) {
+      throw new Error("Mailing route and SDK did not exercise the same authorized and denied backend");
+    }
+
+    for (const record of mailing) {
+      if (record.method !== "GET" || !record.sessionCookieAuth || record.authorizationHeaderPresent ||
+        record.responseCacheControl !== "private, no-store") {
+        throw new Error("Mailing recipient read was not private and cookie authenticated");
+      }
+
+      if (record.status === 403) assertProblemResponse(record, { status: 403, code: "authority.denied" });
+    }
+
+    assertEqual(browser.organizationJourney.revokedReplayStatus, 403, "Browser revoked replay");
+    assertEqual(browser.organizationJourney.mailingAuthorizedStatus, 200, "Browser authorized Mailing route");
+    assertEqual(browser.organizationJourney.mailingDeniedStatus, 403, "Browser denied Mailing API");
+    assertEqual(browser.organizationJourney.routeDeniedStatus, 403, "Browser denied Mailing route");
+    assertEqual(browser.organizationJourney.routeCacheControl, ["private, no-store", "private, no-store"], "SSR Mailing private caching");
+    assertEqual(database.journey.replayReceipt, 1, "Revoked replay retained only the original PostgreSQL receipt");
+    assertEqual(browser.organizationJourney.appointmentId, database.journey.createdAppointmentId, "Browser appointment persisted");
+    assertEqual(browser.organizationJourney.leaderAppointmentId, database.journey.leaderAppointmentId, "Browser leader appointment persisted");
+    assertEqual(browser.organizationJourney.delegationId, database.journey.mailingDelegationId, "Browser Mailing delegation persisted");
+    assertEqual(browser.organizationJourney.delegatedCommandId, "organization-delegated-appointment-0052", "SDK command receipt identity");
     evidence = {
       topology: {
         dashboard: "loopback-react-router-production-server",

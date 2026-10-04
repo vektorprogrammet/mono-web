@@ -1,5 +1,5 @@
 /**
- * Public HTTP contracts for organization queries and commands.
+ * Shared schemas and examples for the generated Organization HTTP group.
  *
  * @since 0.1.0
  */
@@ -17,48 +17,6 @@ import {
   type TeamJson,
 } from "@vektorprogrammet/domain/organization";
 import { Schema } from "effect";
-import {
-  AppointmentManagement,
-  BoardRosters,
-  OrganizationLifecycleCommand,
-  OrganizationLifecycleResult,
-} from "@vektorprogrammet/domain/organization";
-import {
-  DelegableCapability,
-  DelegationArea,
-  DelegationCommand,
-  DelegationManagement,
-  DelegationResult,
-  OrganizationCapability,
-} from "@vektorprogrammet/domain/authz";
-import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
-import { annotateAccessSpec, anonymousNativeAccess, personNativeAccess } from "./access.js";
-import { operationAnnotations, PersonSecurity } from "./common.js";
-import {
-  OrganizationCreateDepartmentProblem,
-  OrganizationCreateFieldOfStudyProblem,
-  OrganizationCreateTeamProblem,
-  OrganizationListDepartmentsProblem,
-  OrganizationListFieldOfStudiesProblem,
-  OrganizationListMailingListsProblem,
-  OrganizationListTeamInterestProblem,
-  OrganizationListTeamsProblem,
-} from "./endpoint-problems.js";
-import {
-  ConditionalReadHeaders,
-  createdMutationResponse,
-  endpointProblemResponses,
-  IdempotencyHeaders,
-  privateReadResponse,
-  publicConditionalResponses,
-  entityMutationResponse,
-  problemUnion,
-} from "./http-semantics.js";
-import {
-  CreateDepartmentRequest,
-  CreateFieldOfStudyRequest,
-  CreateTeamRequest,
-} from "./v2-schemas.js";
 
 export {
   DepartmentId,
@@ -191,406 +149,50 @@ export const FieldOfStudyExample = {
   revision: 0,
 } as const;
 
-/** @since 0.1.0 @category Endpoints */
-export const ListDepartmentsEndpoint = HttpApiEndpoint.get("listDepartments", "/api/departments", {
-  headers: ConditionalReadHeaders,
-  success: publicConditionalResponses(
-    Schema.Array(
-      DepartmentJsonSchema.annotate({
-        identifier: "DepartmentJson",
-        description: "One native department directory row.",
-        examples: [DepartmentExample],
-      }),
-    ),
-  ),
-  error: endpointProblemResponses(OrganizationListDepartmentsProblem),
-})
-  .pipe((endpoint) =>
-    annotateAccessSpec(endpoint, anonymousNativeAccess("organization.public-departments")),
-  )
-  .annotateMerge(
-    operationAnnotations("List departments", "Returns the public native department directory."),
-  );
+/** Source schema for the three conditional public directory responses. */
+export const DepartmentDirectoryResponse = Schema.Array(
+  DepartmentJsonSchema.annotate({
+    identifier: "DepartmentJson",
+    description: "One native department directory row.",
+    examples: [DepartmentExample],
+  }),
+);
 
-/** @since 0.1.0 @category Endpoints */
-export const ListTeamsEndpoint = HttpApiEndpoint.get("listTeams", "/api/teams", {
-  headers: ConditionalReadHeaders,
-  success: publicConditionalResponses(
-    Schema.Array(
-      TeamJsonSchema.annotate({
-        identifier: "TeamJson",
-        description: "One native team directory row.",
-        examples: [TeamExample],
-      }),
-    ),
-  ),
-  error: endpointProblemResponses(OrganizationListTeamsProblem),
-})
-  .pipe((endpoint) =>
-    annotateAccessSpec(endpoint, anonymousNativeAccess("organization.public-teams")),
-  )
-  .annotateMerge(operationAnnotations("List teams", "Returns the public native team directory."));
+export const TeamDirectoryResponse = Schema.Array(
+  TeamJsonSchema.annotate({
+    identifier: "TeamJson",
+    description: "One native team directory row.",
+    examples: [TeamExample],
+  }),
+);
 
-export const ListFieldOfStudiesEndpoint = HttpApiEndpoint.get(
-  "listFieldOfStudies",
-  "/api/field-of-studies",
-  {
-    headers: ConditionalReadHeaders,
-    success: publicConditionalResponses(
-      Schema.Array(
-        FieldOfStudyJsonSchema.annotate({
-          identifier: "FieldOfStudyJson",
-          description: "One native field-of-study directory row.",
-          examples: [FieldOfStudyExample],
-        }),
-      ),
-    ),
-    error: endpointProblemResponses(OrganizationListFieldOfStudiesProblem),
-  },
-)
-  .pipe((endpoint) =>
-    annotateAccessSpec(endpoint, anonymousNativeAccess("organization.public-field-of-studies")),
-  )
-  .annotateMerge(
-    operationAnnotations("List fields of study", "Returns the public native study directory."),
-  );
+export const FieldOfStudyDirectoryResponse = Schema.Array(
+  FieldOfStudyJsonSchema.annotate({
+    identifier: "FieldOfStudyJson",
+    description: "One native field-of-study directory row.",
+    examples: [FieldOfStudyExample],
+  }),
+);
 
-/** @since 0.1.0 @category Endpoints */
-export const ListTeamInterestEndpoint = HttpApiEndpoint.get(
-  "listTeamInterest",
-  "/api/team-interest-registrations",
-  {
-    query: OrganizationScopeQuery,
-    success: privateReadResponse(TeamInterestResponse),
-    error: endpointProblemResponses(OrganizationListTeamInterestProblem),
-  },
-)
-  .middleware(PersonSecurity)
-  .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      personNativeAccess({
-        capability: "organization.read-team-interest",
-        canonicalScopeResolver: "organization.team-interest-registrations",
-        decisionTime: "SnapshotRead",
-      }),
-    ),
-  )
-  .annotateMerge(
-    operationAnnotations(
-      "List team interest",
-      "Returns registrations within the caller's team-interest reach: the own team for its leader, whole departments for department reach.",
-    ),
-  );
+/** Keep the shared query fields as an object for existing application consumers. */
+export const OrganizationScopeQuerySchema = Schema.Struct(OrganizationScopeQuery);
 
-/** @since 0.1.0 @category Endpoints */
-export const ListMailingListsEndpoint = HttpApiEndpoint.get(
-  "listMailingLists",
-  "/api/mailing-lists",
-  {
-    query: MailingListQuery,
-    success: privateReadResponse(MailingListResponse),
-    error: endpointProblemResponses(OrganizationListMailingListsProblem),
-  },
-)
-  .middleware(PersonSecurity)
-  .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      personNativeAccess({
-        capability: "organization.read-mailing-lists",
-        canonicalScopeResolver: "organization.mailing-lists",
-        decisionTime: "SnapshotRead",
-      }),
-    ),
-  )
-  .annotateMerge(
-    operationAnnotations(
-      "Project mailing lists",
-      "Projects addresses within the departments where the caller reads people.",
-    ),
-  );
+export const MailingListQuerySchema = Schema.Struct(MailingListQuery);
 
-/** @since 0.1.0 @category Endpoints */
-export const CreateDepartmentEndpoint = HttpApiEndpoint.post(
-  "createDepartment",
-  "/api/departments",
-  {
-    headers: IdempotencyHeaders,
-    payload: CreateDepartmentRequest,
-    success: createdMutationResponse(DepartmentJsonSchema.pipe(HttpApiSchema.status(201))),
-    error: endpointProblemResponses(OrganizationCreateDepartmentProblem),
-  },
-)
-  .middleware(PersonSecurity)
-  .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      personNativeAccess({
-        capability: "organization.create-department",
-        canonicalScopeResolver: "organization.department-create",
-        decisionTime: "Transaction",
-      }),
-    ),
-  )
-  .annotateMerge(
-    operationAnnotations(
-      "Create department",
-      "Creates or replays an idempotent department command.",
-    ),
-  );
-
-/** @since 0.1.0 @category Endpoints */
-export const CreateTeamEndpoint = HttpApiEndpoint.post("createTeam", "/api/teams", {
-  headers: IdempotencyHeaders,
-  payload: CreateTeamRequest,
-  success: createdMutationResponse(TeamJsonSchema.pipe(HttpApiSchema.status(201))),
-  error: endpointProblemResponses(OrganizationCreateTeamProblem),
-})
-  .middleware(PersonSecurity)
-  .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      personNativeAccess({
-        capability: "organization.create-team",
-        canonicalScopeResolver: "organization.team-create",
-        decisionTime: "Transaction",
-      }),
-    ),
-  )
-  .annotateMerge(
-    operationAnnotations("Create team", "Creates or replays an idempotent team command."),
-  );
-
-/** @since 0.1.0 @category Endpoints */
-export const CreateFieldOfStudyEndpoint = HttpApiEndpoint.post(
-  "createFieldOfStudy",
-  "/api/field-of-studies",
-  {
-    headers: IdempotencyHeaders,
-    payload: CreateFieldOfStudyRequest,
-    success: createdMutationResponse(FieldOfStudyJsonSchema.pipe(HttpApiSchema.status(201))),
-    error: endpointProblemResponses(OrganizationCreateFieldOfStudyProblem),
-  },
-)
-  .middleware(PersonSecurity)
-  .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      personNativeAccess({
-        capability: "organization.create-field-of-study",
-        canonicalScopeResolver: "organization.field-of-study-create",
-        decisionTime: "Transaction",
-      }),
-    ),
-  )
-  .annotateMerge(
-    operationAnnotations(
-      "Create field of study",
-      "Creates or replays an idempotent field-of-study command.",
-    ),
-  );
-
-/**
- * Organization directory and administration API.
- *
- * @since 0.1.0
- * @category Groups
- */
-const OrganizationLifecycleProblem = problemUnion("OrganizationLifecycleProblem", [
-  "authority.denied",
-  "origin.denied",
-  "resource.not-found",
-  "precondition.failed",
-  "validation.failed",
-  "request.malformed",
-  "request.too-large",
-  "idempotency-key.invalid",
-  "idempotency.digest-conflict",
-  "idempotency.in-flight",
-  "idempotency.response-expired",
-  "transaction.conflict",
-  "internal.error",
-  "idempotency.unavailable",
-  "organization.unavailable",
-]);
-
-export const ReadAppointmentManagementEndpoint = HttpApiEndpoint.get(
-  "readAppointmentManagement",
-  "/api/organization/appointments",
-  {
-    success: privateReadResponse(AppointmentManagement),
-    error: endpointProblemResponses(OrganizationLifecycleProblem),
-  },
-)
-  .middleware(PersonSecurity)
-  .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      personNativeAccess({
-        capability: "organization.manage-appointments",
-        canonicalScopeResolver: "organization.appointment-management",
-        decisionTime: "SnapshotRead",
-      }),
-    ),
-  )
-  .annotateMerge(
-    operationAnnotations(
-      "Read appointment management",
-      "Returns authorized people, units, appointments, account access and history.",
-    ),
-  );
-
-/**
- * The rosters of Styret of an independent department and of Hovedstyret: the appointed seats and
- * the seats that current team leadership derives, for the boards whose appointments the reader
- * manages.
- */
-export const ReadBoardRostersEndpoint = HttpApiEndpoint.get(
-  "readBoardRosters",
-  "/api/organization/board-rosters",
-  {
-    success: privateReadResponse(BoardRosters),
-    error: endpointProblemResponses(OrganizationLifecycleProblem),
-  },
-)
-  .middleware(PersonSecurity)
-  .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      personNativeAccess({
-        capability: "organization.manage-appointments",
-        canonicalScopeResolver: "organization.appointment-management",
-        decisionTime: "SnapshotRead",
-      }),
-    ),
-  )
-  .annotateMerge(
-    operationAnnotations(
-      "Read board rosters",
-      "Returns the appointed and derived seats of the certificate-issuing boards whose appointments the reader manages, as of the request instant.",
-    ),
-  );
-
-export const ExecuteOrganizationLifecycleEndpoint = HttpApiEndpoint.post(
-  "executeLifecycle",
-  "/api/organization/appointments/commands",
-  {
-    headers: IdempotencyHeaders,
-    payload: OrganizationLifecycleCommand,
-    success: entityMutationResponse(OrganizationLifecycleResult),
-    error: endpointProblemResponses(OrganizationLifecycleProblem),
-  },
-)
-  .middleware(PersonSecurity)
-  .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      personNativeAccess({
-        capability: "organization.manage-appointments",
-        canonicalScopeResolver: "organization.appointment-management",
-        decisionTime: "Transaction",
-      }),
-    ),
-  )
-  .annotateMerge(
-    operationAnnotations(
-      "Manage appointments and account access",
-      "Applies one authorized, revision-checked lifecycle command with atomic history.",
-    ),
-  );
-
-/**
- * The delegations that one person manages: a Styret leader those of its department's teams,
- * Hovedstyret or a global administrator those of national teams.
- */
-export const ReadDelegationManagementEndpoint = HttpApiEndpoint.get(
-  "readDelegationManagement",
-  "/api/organization/delegations",
-  {
-    success: privateReadResponse(DelegationManagement),
-    error: endpointProblemResponses(OrganizationLifecycleProblem),
-  },
-)
-  .middleware(PersonSecurity)
-  .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      personNativeAccess({
-        capability: "organization.manage-delegations",
-        canonicalScopeResolver: "organization.delegation-management",
-        decisionTime: "SnapshotRead",
-      }),
-    ),
-  )
-  .annotateMerge(
-    operationAnnotations(
-      "Read delegation management",
-      "Returns the teams, delegations and history within the caller's delegation management reach.",
-    ),
-  );
-
-export const ExecuteDelegationEndpoint = HttpApiEndpoint.post(
-  "executeDelegation",
-  "/api/organization/delegations/commands",
-  {
-    headers: IdempotencyHeaders,
-    payload: DelegationCommand,
-    success: entityMutationResponse(DelegationResult),
-    error: endpointProblemResponses(OrganizationLifecycleProblem),
-  },
-)
-  .middleware(PersonSecurity)
-  .pipe((endpoint) =>
-    annotateAccessSpec(
-      endpoint,
-      personNativeAccess({
-        capability: "organization.manage-delegations",
-        canonicalScopeResolver: "organization.delegation-management",
-        decisionTime: "Transaction",
-      }),
-    ),
-  )
-  .annotateMerge(
-    operationAnnotations(
-      "Issue or end a delegation",
-      "Issues or ends one named, time-bounded delegation with atomic history under current authority.",
-    ),
-  );
+export const EmptyOrganizationInput = Schema.Struct({});
 
 export {
   AppointmentManagement,
   BoardRosters,
+  OrganizationLifecycleCommand,
+  OrganizationLifecycleResult,
+} from "@vektorprogrammet/domain/organization";
+
+export {
   DelegableCapability,
   DelegationArea,
   DelegationCommand,
   DelegationManagement,
   DelegationResult,
   OrganizationCapability,
-  OrganizationLifecycleCommand,
-  OrganizationLifecycleResult,
-};
-
-export class OrganizationApi extends HttpApiGroup.make("organization")
-  .add(
-    ReadAppointmentManagementEndpoint,
-    ReadBoardRostersEndpoint,
-    ExecuteOrganizationLifecycleEndpoint,
-    ReadDelegationManagementEndpoint,
-    ExecuteDelegationEndpoint,
-    ListDepartmentsEndpoint,
-    ListTeamsEndpoint,
-    ListFieldOfStudiesEndpoint,
-    ListTeamInterestEndpoint,
-    ListMailingListsEndpoint,
-    CreateDepartmentEndpoint,
-    CreateTeamEndpoint,
-    CreateFieldOfStudyEndpoint,
-  )
-  .annotateMerge(
-    OpenApi.annotations({
-      title: "Organization",
-      description: "Public organization directories and scoped administration.",
-      override: { "x-displayName": "Organization" },
-    }),
-  ) {}
+} from "@vektorprogrammet/domain/authz";

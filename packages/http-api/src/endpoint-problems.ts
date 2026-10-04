@@ -165,96 +165,85 @@ function deriveNativeProblems(identifier: string, codes: ReadonlyArray<string>) 
 /** Derives response schemas from the one native problem registry and a declared code tuple. */
 export const nativeProblems = deriveNativeProblems;
 
-/** Problems for `organization.listDepartments`. */
-export const OrganizationListDepartmentsProblem = problemUnion(
-  "OrganizationListDepartmentsProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "precondition.invalid",
-    "precondition.failed",
-    "internal.error",
-    "organization.unavailable",
-  ],
-);
-
-/** Problems for `organization.listTeams`. */
-export const OrganizationListTeamsProblem = problemUnion("OrganizationListTeamsProblem", [
+/** Ordered local problems for `organization.listDepartments`. */
+export const OrganizationListDepartmentsCodes = [
   "request.malformed",
   "header.malformed",
   "precondition.invalid",
   "precondition.failed",
   "internal.error",
   "organization.unavailable",
-]);
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
 
-/** Problems for `organization.listFieldOfStudies`. */
+export const OrganizationListDepartmentsProblem = problemUnion(
+  "OrganizationListDepartmentsProblem",
+  OrganizationListDepartmentsCodes,
+);
+
+/** Ordered local problems for `organization.listTeams`. */
+export const OrganizationListTeamsCodes = [
+  "request.malformed",
+  "header.malformed",
+  "precondition.invalid",
+  "precondition.failed",
+  "internal.error",
+  "organization.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
+export const OrganizationListTeamsProblem = problemUnion(
+  "OrganizationListTeamsProblem",
+  OrganizationListTeamsCodes,
+);
+
+/** Ordered local problems for `organization.listFieldOfStudies`. */
+export const OrganizationListFieldOfStudiesCodes = [
+  "request.malformed",
+  "header.malformed",
+  "precondition.invalid",
+  "precondition.failed",
+  "internal.error",
+  "organization.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
 export const OrganizationListFieldOfStudiesProblem = problemUnion(
   "OrganizationListFieldOfStudiesProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "precondition.invalid",
-    "precondition.failed",
-    "internal.error",
-    "organization.unavailable",
-  ],
+  OrganizationListFieldOfStudiesCodes,
 );
 
-/** Problems for `organization.listTeamInterest`. */
+/** Ordered local problems for `organization.listTeamInterest`. */
+export const OrganizationListTeamInterestCodes = [
+  "request.malformed",
+  "header.malformed",
+  "authority.denied",
+  "origin.denied",
+  "internal.error",
+  "organization.invalid-reference",
+  "organization.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
 export const OrganizationListTeamInterestProblem = problemUnion(
   "OrganizationListTeamInterestProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "authority.denied",
-    "origin.denied",
-    "internal.error",
-    "organization.invalid-reference",
-    "organization.unavailable",
-  ],
+  OrganizationListTeamInterestCodes,
 );
 
-/** Problems for `organization.listMailingLists`. */
+/** Ordered local problems for `organization.listMailingLists`. */
+export const OrganizationListMailingListsCodes = [
+  "request.malformed",
+  "header.malformed",
+  "authority.denied",
+  "origin.denied",
+  "internal.error",
+  "organization.invalid-reference",
+  "organization.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
 export const OrganizationListMailingListsProblem = problemUnion(
   "OrganizationListMailingListsProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "authority.denied",
-    "origin.denied",
-    "internal.error",
-    "organization.invalid-reference",
-    "organization.unavailable",
-  ],
+  OrganizationListMailingListsCodes,
 );
 
-/** Problems for `organization.createDepartment`. */
-export const OrganizationCreateDepartmentProblem = problemUnion(
-  "OrganizationCreateDepartmentProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "authority.denied",
-    "origin.denied",
-    "idempotency-key.invalid",
-    "idempotency.in-flight",
-    "idempotency.digest-conflict",
-    "idempotency.response-expired",
-    "transaction.conflict",
-    "request.too-large",
-    "media-type.unsupported",
-    "validation.failed",
-    "internal.error",
-    "dependency.unavailable",
-    "idempotency.unavailable",
-    "organization.invalid-reference",
-    "organization.unavailable",
-  ],
-);
-
-/** Problems for `organization.createTeam`. */
-export const OrganizationCreateTeamProblem = problemUnion("OrganizationCreateTeamProblem", [
+/** Ordered local problems for `organization.createDepartment`. */
+export const OrganizationCreateDepartmentCodes = [
   "request.malformed",
   "header.malformed",
   "authority.denied",
@@ -272,30 +261,87 @@ export const OrganizationCreateTeamProblem = problemUnion("OrganizationCreateTea
   "idempotency.unavailable",
   "organization.invalid-reference",
   "organization.unavailable",
-]);
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
 
-/** Problems for `organization.createFieldOfStudy`. */
+export const OrganizationCreateDepartmentProblem = problemUnion(
+  "OrganizationCreateDepartmentProblem",
+  OrganizationCreateDepartmentCodes,
+);
+
+/** Ordered local problems for `organization.createTeam`. */
+export const OrganizationCreateTeamCodes = [
+  "request.malformed",
+  "header.malformed",
+  "authority.denied",
+  "origin.denied",
+  "idempotency-key.invalid",
+  "idempotency.in-flight",
+  "idempotency.digest-conflict",
+  "idempotency.response-expired",
+  "transaction.conflict",
+  "request.too-large",
+  "media-type.unsupported",
+  "validation.failed",
+  "internal.error",
+  "dependency.unavailable",
+  "idempotency.unavailable",
+  "organization.invalid-reference",
+  "organization.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
+export const OrganizationCreateTeamProblem = problemUnion(
+  "OrganizationCreateTeamProblem",
+  OrganizationCreateTeamCodes,
+);
+
+/** Ordered local problems for `organization.createFieldOfStudy`. */
+export const OrganizationCreateFieldOfStudyCodes = [
+  "request.malformed",
+  "header.malformed",
+  "authority.denied",
+  "origin.denied",
+  "idempotency-key.invalid",
+  "idempotency.in-flight",
+  "idempotency.digest-conflict",
+  "idempotency.response-expired",
+  "transaction.conflict",
+  "request.too-large",
+  "media-type.unsupported",
+  "validation.failed",
+  "internal.error",
+  "dependency.unavailable",
+  "idempotency.unavailable",
+  "organization.invalid-reference",
+  "organization.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
 export const OrganizationCreateFieldOfStudyProblem = problemUnion(
   "OrganizationCreateFieldOfStudyProblem",
-  [
-    "request.malformed",
-    "header.malformed",
-    "authority.denied",
-    "origin.denied",
-    "idempotency-key.invalid",
-    "idempotency.in-flight",
-    "idempotency.digest-conflict",
-    "idempotency.response-expired",
-    "transaction.conflict",
-    "request.too-large",
-    "media-type.unsupported",
-    "validation.failed",
-    "internal.error",
-    "dependency.unavailable",
-    "idempotency.unavailable",
-    "organization.invalid-reference",
-    "organization.unavailable",
-  ],
+  OrganizationCreateFieldOfStudyCodes,
+);
+
+/** The five organization management operations share this ordered lifecycle union. */
+export const OrganizationLifecycleCodes = [
+  "authority.denied",
+  "origin.denied",
+  "resource.not-found",
+  "precondition.failed",
+  "validation.failed",
+  "request.malformed",
+  "request.too-large",
+  "idempotency-key.invalid",
+  "idempotency.digest-conflict",
+  "idempotency.in-flight",
+  "idempotency.response-expired",
+  "transaction.conflict",
+  "internal.error",
+  "idempotency.unavailable",
+  "organization.unavailable",
+] as const satisfies readonly [NativeProblemCode, ...NativeProblemCode[]];
+
+export const OrganizationLifecycleProblem = problemUnion(
+  "OrganizationLifecycleProblem",
+  OrganizationLifecycleCodes,
 );
 
 /** The People directory problem codes remain its one endpoint-owned list. */

@@ -6,6 +6,6 @@
     "types": ["node"]
   },
   "effx": { "projectRoot": "../.." },
-  "files": ["src/profile.effx.ts", "src/directory.effx.ts", "src/social-events.effx.ts", "src/content.effx.ts", "src/team-application.effx.ts"],
+  "files": ["src/profile.effx.ts", "src/directory.effx.ts", "src/social-events.effx.ts", "src/content.effx.ts", "src/team-application.effx.ts", "src/organization.effx.ts"],
   "include": []
 }
