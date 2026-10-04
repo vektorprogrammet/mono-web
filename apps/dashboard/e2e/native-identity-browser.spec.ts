@@ -47,7 +47,7 @@ const navigationPaths = [
   "/dashboard/intervjuer",
   "/dashboard/statistikk",
   "/dashboard/assistenter",
-  "/dashboard/vikarer",
+  "/dashboard/opptaksutfall",
   "/dashboard/skoler",
   "/dashboard/brukere",
   "/dashboard/epostliste",
