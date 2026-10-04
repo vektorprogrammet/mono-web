@@ -112,8 +112,7 @@ export const PublicApplicationInstantSchema = Rfc3339InstantSchema;
 
 export type PublicApplicationInstant = typeof PublicApplicationInstantSchema.Type;
 
-/** An immutable, unverified submission statement, not a mutable Person profile. */
-export class ApplicantRecord extends Model.Class<ApplicantRecord>("ApplicantRecord")({
+const ApplicantRecordVariants = Model.Class<ApplicantRecord>("ApplicantRecord")({
   id: Model.Field({
     select: ApplicantIdSchema,
     insert: ApplicantIdSchema,
@@ -161,11 +160,28 @@ export class ApplicantRecord extends Model.Class<ApplicantRecord>("ApplicantReco
     jsonCreate: PublicApplicationYearOfStudySchema,
   }),
   activationDigest: Schema.NullOr(Sha256Schema).pipe(Model.FieldOnly(["select", "insert"])),
-}) {
-  // An empty Struct accepts any object. The immutable variants permit only the empty no-op.
-  static override readonly update = super.update.check(Schema.isMaxProperties(0));
+});
 
-  static override readonly jsonUpdate = super.jsonUpdate.check(Schema.isMaxProperties(0));
+const NoApplicantStatementProperties = Schema.isMaxProperties(0);
+
+const ImmutableApplicantUpdate = ApplicantRecordVariants.update.check(
+  NoApplicantStatementProperties,
+);
+
+const ImmutableApplicantJsonUpdate = ApplicantRecordVariants.jsonUpdate.check(
+  NoApplicantStatementProperties,
+);
+
+/** An immutable, unverified submission statement, not a mutable Person profile. */
+export class ApplicantRecord extends ApplicantRecordVariants {
+  // Accessors shadow Model’s readonly variant properties without transpiled field assignment.
+  static override get update() {
+    return ImmutableApplicantUpdate;
+  }
+
+  static override get jsonUpdate() {
+    return ImmutableApplicantJsonUpdate;
+  }
 }
 
 /** Model-derived non-email applicant boundary used by effect payload construction. */
