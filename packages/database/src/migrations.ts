@@ -633,6 +633,11 @@ export const databaseMigrationDefinitions = [
     name: "admission-outcome-policy",
     url: new URL("../migrations/0081-admission-outcome-policy.sql", import.meta.url),
   },
+  {
+    id: "82_admission-outcome-mail",
+    name: "admission-outcome-mail",
+    url: new URL("../migrations/0082-admission-outcome-mail.sql", import.meta.url),
+  },
 ] as const;
 
 /**

@@ -79,5 +79,6 @@
   "78_team-application-persisted-queue": "74f7316d14a71b0c6169d0d151df905ba4838cdeec36053e8e7895795a079b65",
   "79_team-application-outbox-claim-columns": "70acda46f84c2ca8a79841049fc73739fe358ddc48f7b2551d7dcc09b3d77c44",
   "80_days-served-and-certificates": "d4d949dec00502d5e11ad554fbb456edb5b37bd116bae00006cf8eb8954e61c2",
-  "81_admission-outcome-policy": "793e964b7a9a9afa67e7e89384fb0206aabf5b6fe1adbc5a5f56f98803b87dcb"
+  "81_admission-outcome-policy": "793e964b7a9a9afa67e7e89384fb0206aabf5b6fe1adbc5a5f56f98803b87dcb",
+  "82_admission-outcome-mail": "cf0c122e49bd6ee714f20f01e6dba92bcddfae2faa85022baddb91cc90a63ccb"
 }
