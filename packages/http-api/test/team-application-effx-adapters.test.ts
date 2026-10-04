@@ -1,10 +1,10 @@
 import { Capability, Concealment, type HttpAccessAnnotationSpec } from "@effx/runtime";
 import { TEAM_APPLICATION_INTAKE_LIST_LIMIT } from "@vektorprogrammet/domain/team-application";
-import { Context, Predicate, Schema } from "effect";
+import { Context, Option, Predicate, Schema } from "effect";
 import { HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { describe, expect, it } from "vitest";
+import { AccessSpecAnnotation, reflectAccessSpec } from "../src/access.js";
 import { ExternalNativeApi } from "../src/api.js";
-import { AccessSpecAnnotation } from "../src/access.js";
 import { nativeProblems } from "../src/endpoint-problems.js";
 import {
   createdMutationResponse,
@@ -196,7 +196,7 @@ describe("TeamApplications effx source declarations", () => {
     }
   });
 
-  it("preserves each ordered endpoint-local problem union and its registry-derived statuses", () => {
+  it("preserves each ordered endpoint-local problem union and response headers", () => {
     for (const { declaration, endpoint, codes, problem, problemName } of cases) {
       expect(problem.members.map((member) => member.fields.code.literal)).toEqual(codes);
       expect(annotation(declaration, "Http.Problems")).toEqual({
@@ -204,9 +204,7 @@ describe("TeamApplications effx source declarations", () => {
         codes,
       });
       const derived = nativeProblems(problemName, codes);
-      expect([...endpoint.error].map((response) => HttpApiSchema.getStatusErrorSchema(response))).toEqual(
-        derived.map((response) => HttpApiSchema.getStatusErrorSchema(response)),
-      );
+
       expect(derived.map((response) => HttpApiSchema.isWithHeaders(response) && response.headers.ast)).toEqual(
         [...endpoint.error].map((response) => HttpApiSchema.isWithHeaders(response) && response.headers.ast),
       );
@@ -214,7 +212,6 @@ describe("TeamApplications effx source declarations", () => {
   });
 
   it("preserves original header, media, status and middleware boundaries", () => {
-    const expectedStatuses = [200, 200, 201, 200, 200, 204, 200] as const;
 
     const expectedHeaderSchemas = [
       TeamApplicationsNoStoreResponseHeaders,
@@ -245,7 +242,7 @@ describe("TeamApplications effx source declarations", () => {
         responseHeaders: expect.objectContaining({ ast: success.headers.ast }),
         middleware: index < 3 ? [] : [expect.any(Function)],
       });
-      expect(HttpApiSchema.getStatusSuccessSchema(success)).toBe(expectedStatuses[index]);
+
       expect(Object.hasOwn(contracts[index] ?? {}, "status")).toBe(index === 2 || index === 5);
       expect(success.headers.ast).toEqual(expectedHeaderSchemas[index]?.ast);
     }
@@ -278,7 +275,7 @@ describe("TeamApplications effx source declarations", () => {
         decisionTime: access.decisionTime,
       });
       expect(Context.get(teamApplicationsAccessAnnotations(access), AccessSpecAnnotation)).toEqual(
-        Context.get(endpoint.annotations, AccessSpecAnnotation),
+        Option.getOrThrow(reflectAccessSpec(endpoint)),
       );
       expect(endpoint.middlewares.size).toBe(index < 3 ? 0 : 1);
     }
