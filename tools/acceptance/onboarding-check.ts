@@ -368,7 +368,7 @@ try {
     assert.ok(etag);
     assert.equal(detail.questions.length, 8);
 
-    const finalization = Schema.makeSync(FinalizeInterviewRequest)({
+    const finalization = FinalizeInterviewRequest.make({
       answers: detail.questions.map((question) => ({ questionId: question.questionId, answer: "Work through a concrete example with the pupil." })),
       score: { explanatoryPower: 7, roleModel: 8, suitability: 9 },
       recommendation: "Ja",
