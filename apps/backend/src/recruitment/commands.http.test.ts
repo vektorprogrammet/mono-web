@@ -33,6 +33,10 @@ import {
   NativeProblem,
 } from "@vektorprogrammet/http-api";
 import {
+  NativeProblemRegistry,
+  type NativeProblemCode,
+} from "@vektorprogrammet/http-api/http-semantics";
+import {
   Cause,
   Clock,
   DateTime,
@@ -729,13 +733,22 @@ describe("R2 correction closure and frozen admission evidence", () => {
         const reopened = yield* decodeMaintenance(yield* maintenance(f, reopenWire()));
         expect(reopened._tag).toBe("AssessmentCorrectionReopened");
         expect(reopened).toMatchObject({ sequence: 1 });
-        expect((yield* maintenance(f, reopenWire("r2-overlap", 1))).status).toBe(409);
-        expect((yield* maintenance(f, closeWire(2, "r2-stale-close"))).status).toBe(409);
+        yield* assertProblemCode(
+          yield* maintenance(f, reopenWire("r2-overlap", 1)),
+          "recruitment.terminal",
+        );
+        yield* assertProblemCode(
+          yield* maintenance(f, closeWire(2, "r2-stale-close")),
+          "precondition.failed",
+        );
         const closed = yield* decodeMaintenance(yield* maintenance(f, closeWire()));
         expect(closed._tag).toBe("AssessmentCorrectionClosed");
         expect(closed).toMatchObject({ sequence: 1 });
         expect((yield* correct(f)).status).toBe(409);
-        expect((yield* maintenance(f, reopenWire("r2-stale-open", 0))).status).toBe(409);
+        yield* assertProblemCode(
+          yield* maintenance(f, reopenWire("r2-stale-open", 0)),
+          "precondition.failed",
+        );
         const second = yield* decodeMaintenance(yield* maintenance(f, reopenWire("r2-second", 1)));
         expect(second._tag).toBe("AssessmentCorrectionReopened");
         expect(second).toMatchObject({ sequence: 2 });
@@ -967,6 +980,19 @@ const assertProblemStatus = Effect.fnUntraced(function* (response: Response, sta
   );
 
   expect(problem.status).toBe(status);
+});
+
+const assertProblemCode = Effect.fnUntraced(function* (
+  response: Response,
+  code: NativeProblemCode,
+) {
+  const problem = yield* Schema.decodeUnknownEffect(NativeProblem)(
+    yield* Effect.promise(() => response.json()),
+  );
+
+  expect(problem.code).toBe(code);
+  expect(problem.status).toBe(NativeProblemRegistry[code].status);
+  expect(response.status).toBe(NativeProblemRegistry[code].status);
 });
 
 describe("R2 decision fence, refusal and interruption", () => {
