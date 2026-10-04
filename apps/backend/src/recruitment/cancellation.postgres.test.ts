@@ -852,4 +852,141 @@ describe("R1 cancelled invitation custody and R8 committing authority", () => {
       }),
     30_000,
   );
+
+  it.live(
+    "R1 already admitted response delivery runs outside SQL transaction and survives later cancellation",
+    () =>
+      Effect.gen(function* () {
+        const f = fixture();
+        yield* f.run(requestNewTime);
+        const before = yield* f.database.run(durableState);
+        const gateway = makeRecordingNotificationGateway(afterCancellation);
+
+        const observedGateway = Layer.effect(
+          NotificationGateway,
+          Effect.gen(function* () {
+            const native = yield* NotificationGateway;
+            const sql = yield* Database;
+            const recruitment = yield* Recruitment;
+
+            return NotificationGateway.of({
+              ...native,
+              deliverInterviewInvitationResponse: Effect.fnUntraced(function* (
+                request: RecruitmentInvitationResponseOutboxRequest,
+              ) {
+                assert.isTrue(
+                  Option.isNone(yield* Effect.serviceOption(sql.transactionService)),
+                  "provider I/O must follow admission commit",
+                );
+                yield* recruitment
+                  .cancelInterview(
+                    {
+                      commandId: RecruitmentCancellationCommandId.make("cancel-command"),
+                      interviewId,
+                      expectedRevision: 1,
+                    },
+                    { actor, now: cancelledAt },
+                  )
+                  .pipe(Effect.orDie);
+
+                return yield* native.deliverInterviewInvitationResponse(request);
+              }),
+            });
+          }),
+        ).pipe(Layer.provide(gateway.layer));
+
+        const result = yield* f.run(
+          deliverNextRecruitmentInvitationResponse("admitted-before-cancel", now).pipe(
+            Effect.provide(observedGateway),
+          ),
+        );
+
+        assert.strictEqual(result._tag, "Delivered");
+        assert.strictEqual(gateway.responseRequests.length, 1);
+        const after = yield* f.database.run(durableState);
+        assert.deepStrictEqual(after.invitations, before.invitations);
+        assert.deepStrictEqual(after.responseAudit, before.responseAudit);
+        assert.deepStrictEqual(yield* f.run(bearerOutcomes), concealedOutcomes);
+      }),
+    30_000,
+  );
+
+  it.live(
+    "R1 interrupted admitted response releases its claim without losing its original envelope",
+    () =>
+      Effect.gen(function* () {
+        const f = fixture();
+        yield* f.run(requestNewTime);
+        const started = yield* Deferred.make<void>();
+        const hold = yield* Deferred.make<void>();
+
+        const readOutbox = Database.use(
+          (sql) => sql`
+        SELECT status, attempts, claim_id AS "claimId", payload_json AS "payloadJson"
+        FROM recruitment_invitation_response_outbox
+      `,
+        ).pipe(
+          Effect.flatMap(
+            Schema.decodeUnknownEffect(
+              Schema.Array(
+                Schema.Struct({
+                  status: Schema.Literals([
+                    "Pending",
+                    "Failed",
+                    "Processing",
+                    "Delivered",
+                    "Quarantined",
+                  ]),
+                  attempts: Schema.Int,
+                  claimId: Schema.NullOr(Schema.String),
+                  payloadJson: Schema.Json,
+                }),
+              ),
+            ),
+          ),
+        );
+
+        const before = yield* f.database.run(readOutbox);
+        const gateway = makeRecordingNotificationGateway(afterCancellation);
+
+        const waitingGateway = Layer.effect(
+          NotificationGateway,
+          Effect.map(NotificationGateway, (native) =>
+            NotificationGateway.of({
+              ...native,
+              deliverInterviewInvitationResponse: Effect.fnUntraced(function* (
+                request: RecruitmentInvitationResponseOutboxRequest,
+              ) {
+                yield* Deferred.succeed(started, undefined);
+                yield* Deferred.await(hold);
+
+                return yield* native.deliverInterviewInvitationResponse(request);
+              }),
+            }),
+          ),
+        ).pipe(Layer.provide(gateway.layer));
+
+        const worker = yield* f
+          .run(
+            deliverNextRecruitmentInvitationResponse("interrupted-admitted", now).pipe(
+              Effect.provide(waitingGateway),
+            ),
+          )
+          .pipe(Effect.forkChild);
+
+        yield* Deferred.await(started);
+        const exit = yield* Fiber.interrupt(worker);
+        assert.isTrue(Exit.isFailure(exit));
+
+        if (Exit.isFailure(exit)) assert.isTrue(Cause.hasInterrupts(exit.cause));
+        const after = yield* f.database.run(readOutbox);
+        assert.deepStrictEqual(
+          after,
+          before.map((row) => ({ ...row, status: "Pending", attempts: 1, claimId: null })),
+        );
+        assert.deepStrictEqual(gateway.responseRequests, []);
+        yield* f.database.run(Database.use((sql) => sql.health));
+      }),
+    30_000,
+  );
 });

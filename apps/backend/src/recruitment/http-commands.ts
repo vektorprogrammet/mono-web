@@ -1,9 +1,12 @@
 /** Recruitment command handlers: invitation responses, assignment, scheduling, correction, finalize, and cancel. */
+import { Database } from "@vektorprogrammet/database";
+import { AdvisoryLockKey, lockAdvisory } from "@vektorprogrammet/database/advisory-lock";
 import type { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import { ResourceId, ResourceKind, Scope } from "@vektorprogrammet/domain/authz";
 import type { PersonId } from "@vektorprogrammet/domain/organization";
 import {
   Recruitment,
+  RecruitmentPersistenceError,
   RecruitmentAssignmentCommandId,
   RecruitmentCancellationCommandId,
   RecruitmentConductCommandId,
@@ -179,23 +182,49 @@ const respondToInvitation = <E, R, RActor>(
     const transition = yield* readTransition;
     const now = yield* currentInstant(input.config.now);
 
-    const source = yield* Recruitment.use((service) =>
-      service.readInvitationSnapshot(capability),
-    ).pipe(Effect.map((snapshot) => snapshot.source));
+    const updated = yield* Database.use((sql) =>
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const selected = yield* Recruitment.use((service) =>
+            service.readInvitationSnapshot(capability),
+          );
 
-    yield* authorizeInvitationOperation({
-      spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
-      source,
-      authorizationInstant: now,
-    });
+          yield* lockAdvisory(
+            sql,
+            AdvisoryLockKey.recruitmentInterview(selected.source.interviewId),
+          );
 
-    // An answered invitation fails as already responded, whatever its validator.
-    if (source.responseState === "Pending") {
-      yield* requireCurrentETag(invitationETag(source), ifMatch);
-    }
+          // Read again after the decision fence: preflight selection grants no authority.
+          const source = yield* Recruitment.use((service) =>
+            service.readInvitationSnapshot(capability),
+          ).pipe(Effect.map((snapshot) => snapshot.source));
 
-    const updated = yield* Recruitment.use((service) =>
-      service.transitionInvitation({ capability, transition, now }),
+          yield* authorizeInvitationOperation({
+            spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
+            source,
+            authorizationInstant: now,
+          });
+
+          // An answered invitation fails as already responded, whatever its validator.
+          if (source.responseState === "Pending") {
+            yield* requireCurrentETag(invitationETag(source), ifMatch);
+          }
+
+          return yield* Recruitment.use((service) =>
+            service.transitionInvitation({ capability, transition, now }),
+          );
+        }),
+      ),
+    ).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(
+          new RecruitmentPersistenceError({
+            operation: "invitation HTTP transition",
+            message: String(cause),
+            cause,
+          }),
+        ),
+      ),
     );
 
     return new Response(null, {
