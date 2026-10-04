@@ -31,6 +31,7 @@ import {
   RecruitmentInvitationTransition,
   RecruitmentNotificationDeliveryError,
   RecruitmentScheduleCommandId,
+  type RecruitmentInvitationResponseOutboxRequest,
 } from "@vektorprogrammet/domain/recruitment";
 import { InvitationResponseObservation, NativeProblem } from "@vektorprogrammet/http-api";
 import { Cause, Deferred, Effect, Exit, Fiber, Layer, Option, Schema } from "effect";
@@ -596,5 +597,225 @@ describe("R1 cancelled invitation custody and R8 committing authority", () => {
           observations.map(() => true),
         );
       }),
+  );
+
+  it.live(
+    "R1 response-first race preserves the response but cancellation closes its queued notice",
+    () =>
+      Effect.gen(function* () {
+        const f = fixture();
+        const competing = yield* f.competitor;
+        const held = yield* Deferred.make<Schema.JsonObject>();
+        const cancelPid = yield* Deferred.make<number>();
+        const blocked = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+
+        yield* Effect.gen(function* () {
+          const response = yield* f
+            .run(
+              Database.use((sql) =>
+                sql.withTransaction(
+                  Effect.gen(function* () {
+                    yield* requestNewTime;
+                    yield* Deferred.succeed(held, yield* durableState);
+
+                    const pid = yield* Deferred.await(cancelPid);
+
+                    const waiting =
+                      yield* sql`SELECT pg_backend_pid() = ANY(pg_blocking_pids(${pid})) AS blocked`.pipe(
+                        Effect.flatMap((rows) => decodeBlocking(rows[0])),
+                        Effect.map(({ blocked: isBlocked }) => isBlocked),
+                        Effect.repeat({ until: (isBlocked) => isBlocked, times: 400 }),
+                      );
+
+                    assert.isTrue(
+                      waiting,
+                      "cancellation never waited on the response's PostgreSQL lock",
+                    );
+                    yield* Deferred.succeed(blocked, undefined);
+                    yield* Deferred.await(release);
+                  }),
+                ),
+              ),
+            )
+            .pipe(Effect.forkChild);
+
+          const before = yield* Deferred.await(held);
+
+          const cancellation = yield* Effect.gen(function* () {
+            const rows = yield* Database.use((sql) => sql`SELECT pg_backend_pid() AS pid`);
+            const { pid } = yield* decodePid(rows[0]);
+
+            yield* Deferred.succeed(cancelPid, pid);
+
+            return yield* cancel;
+          }).pipe(Effect.provide(competing, { local: true }), Effect.forkChild);
+
+          yield* Deferred.await(blocked);
+          yield* Deferred.succeed(release, undefined);
+          yield* Fiber.join(response);
+          yield* Fiber.join(cancellation);
+
+          const after = yield* f.database.run(durableState);
+
+          for (const key of [
+            "schedules",
+            "invitations",
+            "responseAudit",
+            "responseOutbox",
+            "invitationOutbox",
+            "scheduleReceipts",
+            "scheduleAudit",
+          ]) {
+            assert.deepStrictEqual(after[key], before[key]);
+          }
+
+          const gateway = makeRecordingNotificationGateway(afterCancellation);
+
+          const delivery = yield* f.run(
+            deliverNextRecruitmentInvitationResponse(
+              "response-first-claim",
+              afterCancellation,
+            ).pipe(Effect.provide(gateway.layer)),
+          );
+
+          assert.strictEqual(delivery._tag, "Idle");
+          assert.deepStrictEqual(gateway.responseRequests, []);
+          assert.deepStrictEqual(yield* f.database.run(durableState), after);
+        }).pipe(Effect.ensuring(Deferred.succeed(release, undefined)));
+      }),
+    30_000,
+  );
+
+  it.live(
+    "R1 cancellation during a real response claim cannot start a later provider attempt",
+    () =>
+      Effect.gen(function* () {
+        const f = fixture();
+
+        yield* f.run(requestNewTime);
+
+        const before = yield* f.database.run(durableState);
+        const competing = yield* f.competitor;
+        const claimed = yield* Deferred.make<void>();
+        const resume = yield* Deferred.make<void>();
+        const cancelPid = yield* Deferred.make<number>();
+        const gateway = makeRecordingNotificationGateway(afterCancellation);
+        const providerStartedAfterCancellation: boolean[] = [];
+
+        let paused = false;
+
+        const gatewayLayer = Layer.effect(
+          NotificationGateway,
+          Effect.gen(function* () {
+            const native = yield* NotificationGateway;
+            const monitor = yield* Database;
+
+            return NotificationGateway.of({
+              ...native,
+              deliverInterviewInvitationResponse: Effect.fnUntraced(function* (
+                request: RecruitmentInvitationResponseOutboxRequest,
+              ) {
+                // A broken test observer is a defect, not a provider outcome.
+                const { blocked: isCancelled } =
+                  yield* monitor`SELECT EXISTS (SELECT 1 FROM recruitment_interview_cancellations WHERE interview_id = ${interviewId}) AS blocked`.pipe(
+                    Effect.flatMap((rows) => decodeBlocking(rows[0])),
+                    Effect.orDie,
+                  );
+
+                providerStartedAfterCancellation.push(isCancelled);
+
+                return yield* native.deliverInterviewInvitationResponse(request);
+              }),
+            });
+          }),
+        ).pipe(Layer.provide(Layer.mergeAll(gateway.layer, competing)));
+
+        const observe: PostgresStatementObserver = (execution, _text, parameters) =>
+          Effect.gen(function* () {
+            const value = yield* execution;
+
+            // The claim id is bound only by the real claim UPDATE. Pause after that
+            // statement, before canonical envelope validation and provider dispatch.
+            if (!paused && parameters.includes("invalidation-claim")) {
+              paused = true;
+              yield* Deferred.succeed(claimed, undefined);
+              yield* Deferred.await(resume);
+            }
+
+            return value;
+          });
+
+        const decodeOrder = Schema.decodeUnknownEffect(
+          Schema.Struct({ committed: Schema.Boolean, blocked: Schema.Boolean }),
+        );
+
+        yield* Effect.gen(function* () {
+          const worker = yield* f.database
+            .run(
+              Effect.gen(function* () {
+                const sql = yield* Database;
+
+                return yield* deliverNextRecruitmentInvitationResponse(
+                  "invalidation-claim",
+                  now,
+                ).pipe(
+                  Effect.provide(domain, { local: true }),
+                  Effect.provideService(Database, observePostgresStatements(sql, observe)),
+                  Effect.provide(gatewayLayer),
+                );
+              }),
+            )
+            .pipe(Effect.forkChild);
+
+          yield* Deferred.await(claimed);
+
+          const cancellation = yield* Effect.gen(function* () {
+            const rows = yield* Database.use((sql) => sql`SELECT pg_backend_pid() AS pid`);
+            const { pid } = yield* decodePid(rows[0]);
+
+            yield* Deferred.succeed(cancelPid, pid);
+            yield* cancel;
+          }).pipe(Effect.provide(competing, { local: true }), Effect.forkChild);
+
+          const pid = yield* Deferred.await(cancelPid);
+          // A separately scoped, single-connection observer distinguishes genuine
+          // cancellation-first from a future claim fence that lawfully wins first.
+
+          const order = yield* Database.use((sql) =>
+            sql`
+          SELECT EXISTS (SELECT 1 FROM recruitment_interview_cancellations WHERE interview_id = ${interviewId}) AS committed,
+            cardinality(pg_blocking_pids(${pid})) > 0 AS blocked
+        `.pipe(
+              Effect.flatMap((rows) => decodeOrder(rows[0])),
+              Effect.repeat({
+                until: (current) => current.committed || current.blocked,
+                times: 400,
+              }),
+            ),
+          ).pipe(Effect.provide(competing, { local: true }));
+
+          assert.isTrue(order.committed || order.blocked, "no observable claim/cancellation order");
+
+          if (order.committed) yield* Fiber.join(cancellation);
+
+          yield* Deferred.succeed(resume, undefined);
+          yield* Fiber.join(worker);
+          yield* Fiber.join(cancellation);
+
+          assert.deepStrictEqual(
+            providerStartedAfterCancellation,
+            providerStartedAfterCancellation.map(() => false),
+          );
+
+          if (order.committed) assert.deepStrictEqual(gateway.responseRequests, []);
+
+          const after = yield* f.database.run(durableState);
+
+          assert.deepStrictEqual(after.responseAudit, before.responseAudit);
+          assert.deepStrictEqual(after.invitations, before.invitations);
+        }).pipe(Effect.ensuring(Deferred.succeed(resume, undefined)));
+      }),
+    30_000,
   );
 });
