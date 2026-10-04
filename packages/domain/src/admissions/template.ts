@@ -52,11 +52,20 @@ const CONTROL_CHARACTERS = /\p{Cc}/u;
 
 const LINK_SCHEME = /^(?:https:\/\/|mailto:)/iu;
 
-/** An `https:` or `mailto:` target without whitespace, control characters or credentials. */
+const RAW_AUTHORITY = /^https:\/\/([^/?#]*)/iu;
+
+/**
+ * An `https:` or `mailto:` target that every URL parser reads the same way. The renderer emits the
+ * raw text, so a target is refused, never canonicalized, when its parse differs from its text: a
+ * backslash (WHATWG reads it as a slash, other parsers as userinfo), whitespace or control
+ * characters, credentials, an empty userinfo, or an authority that the parser rewrites (case,
+ * default port, percent-encoding or non-ASCII host).
+ */
 export const isSafeOutcomeLinkTarget = (value: string): boolean => {
   if (
     value.length === 0 ||
     value.length > 2048 ||
+    value.includes("\\") ||
     CONTROL_CHARACTERS.test(value) ||
     /\s/u.test(value) ||
     !LINK_SCHEME.test(value) ||
@@ -66,12 +75,18 @@ export const isSafeOutcomeLinkTarget = (value: string): boolean => {
 
   const url = new URL(value);
 
-  return url.protocol === "mailto:"
-    ? url.pathname.length > 0
-    : url.protocol === "https:" &&
-        url.hostname.length > 0 &&
-        url.username.length === 0 &&
-        url.password.length === 0;
+  if (url.protocol === "mailto:") return url.pathname.length > 0;
+
+  const authority = RAW_AUTHORITY.exec(value)?.[1];
+
+  return (
+    url.protocol === "https:" &&
+    url.hostname.length > 0 &&
+    url.username.length === 0 &&
+    url.password.length === 0 &&
+    authority !== undefined &&
+    authority.toLowerCase() === url.host
+  );
 };
 
 const LinkTarget = Schema.String.pipe(
