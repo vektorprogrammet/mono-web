@@ -1,8 +1,10 @@
 import type { HttpAccessAnnotationSpec } from "@effx/runtime";
 import { CONTACT_IP_HEADER } from "@vektorprogrammet/domain/contact";
 import { Context, Option, Schema } from "effect";
+import { OpenApi } from "effect/unstable/httpapi";
 import { describe, expect, it } from "vitest";
 import { submitContactMessage } from "../.effx/generated/contact-contract.js";
+import { ExternalNativeApi } from "../src/api.js";
 import { AccessSpecAnnotation, reflectAccessSpec } from "../src/access.js";
 import {
   ContactDepartmentRecipientResolver,
@@ -50,6 +52,19 @@ describe("Contact effx contract preparation", () => {
     expect(spec.concealment._tag).toBe("Reveal");
     expect(spec.decisionTime).toBe("SnapshotRead");
     expect(Option.getOrThrow(reflectAccessSpec(submitContactMessage))).toEqual(spec);
+  });
+
+  it("renders bodyless 201 and only the server-side Contact credential", () => {
+    const operation = OpenApi.fromApi(ExternalNativeApi).paths["/api/contact-messages"]?.post;
+
+    expect(operation?.operationId).toBe("contact.submitContactMessage");
+    expect(operation?.security).toEqual([{ contactBackend: [] }]);
+    expect(operation?.responses["401"]).toBeDefined();
+    expect(Object.keys(operation?.responses["201"]?.content ?? {})).toEqual([]);
+    expect(Object.keys(operation?.responses["201"]?.headers ?? {}).sort()).toEqual([
+      "cache-control",
+      "vary",
+    ]);
   });
 
   it("rejects a copied resolver and any widened authority, credential or decision time", () => {
