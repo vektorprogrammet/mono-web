@@ -18,7 +18,7 @@ selectDatabaseMigration(id: DatabaseMigrationId): DatabaseMigrationSelection
 - Throws: An `Error` that names the nearest registered ids, when `id` is not registered, which only a caller that bypasses the id type reaches.
 - Requirements: none
 - Side effects: none
-- Source: [packages/database/src/migrations.ts:710](../../packages/database/src/migrations.ts#L710)
+- Source: [packages/database/src/migrations.ts:720](../../packages/database/src/migrations.ts#L720)
 
 **How it works**
 
