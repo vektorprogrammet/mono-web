@@ -2,7 +2,8 @@
 import { assert, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Schema } from "effect";
 import { vi } from "vitest";
-import { RecruitmentMaintenanceCommand, RecruitmentInterviewResource, StrongETag } from "@vektorprogrammet/http-api";
+import { IdempotencyKey, RecruitmentMaintenanceCommand, RecruitmentInterviewResource, StrongETag } from "@vektorprogrammet/http-api";
+import { canonicalJsonBytes } from "@vektorprogrammet/domain/shared-kernel";
 import { commandsFor as recruitmentCommands } from "../app/foldkit/recruitment/command";
 import { commandsFor as invitationCommands } from "../app/foldkit/interview/command";
 import { commandsFor as schedulingCommands } from "../app/foldkit/scheduling/command";
@@ -208,6 +209,10 @@ it.effect("invitation compound success keeps request/action correlation and wait
 it.effect("maintenance drops wrong-commandId failures and retries the identical owned command", () =>
   Effect.gen(function* () {
     const inputs = yield* controlInputs;
+    const commandId = inputHeaders["idempotency-key"];
+    const encodeCommand = Schema.encodeEffect(RecruitmentMaintenanceCommand);
+    const originalBytes = canonicalJsonBytes(yield* encodeCommand(inputs.maintenance));
+    assert.strictEqual(inputs.maintenance.commandId, commandId);
     yield* Effect.acquireRelease(
       Effect.sync(() => { vi.stubGlobal("location", new URL("http://localhost:3000")); vi.stubEnv("VITE_API_URL", "http://localhost:3000"); }),
       () => Effect.sync(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); }),
@@ -225,7 +230,14 @@ it.effect("maintenance drops wrong-commandId failures and retries the identical 
     const failed = update(pending, FailedSave({ commandId: inputs.maintenance.commandId, message: "unconfirmed", conflict: false }));
     const retry = update(failed.model, RetriedMaintenance());
     assert.strictEqual(retry.commands?.length, 1);
-    assert.strictEqual(retry.commands?.[0]?.args?.command, inputs.maintenance);
+    const retryCommand = retry.commands?.[0]?.args?.command;
+    // Mutation.make validates and reconstructs nested schema values. Retry owns
+    // the same command identity and complete input, not a JavaScript reference.
+    assert.deepStrictEqual(retryCommand, inputs.maintenance);
+    const decodedRetry = yield* Schema.decodeUnknownEffect(RecruitmentMaintenanceCommand)(retryCommand);
+    assert.strictEqual(decodedRetry.commandId, commandId);
+    assert.strictEqual(IdempotencyKey.make(decodedRetry.commandId), commandId);
+    assert.deepStrictEqual(canonicalJsonBytes(yield* encodeCommand(decodedRetry)), originalBytes);
     assert.deepStrictEqual(retry.model.mutation, Mutation.cases.Pending.make({ command: inputs.maintenance }));
   }),
 );
