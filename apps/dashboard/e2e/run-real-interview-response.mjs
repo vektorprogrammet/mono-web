@@ -1,4 +1,9 @@
 import {
+  ExternalNativeApi, InvitationCapabilitySecurity, InvitationResponseObservation,
+  InvitationRequestNewTimeInput, SessionUnauthorizedProblem, IdempotencyKey,
+  ReadInvitationResponseEndpoint, RequestNewInvitationTimeEndpoint, ReadSchedulingBoardEndpoint,
+  CancelInterviewEndpoint, CancelInterviewRequest, CancelInterviewResponse,
+  ScheduleInterviewEndpoint, ScheduleInterviewRequest, ScheduleInterviewResponse, SchedulingBoard,
   RecruitmentReadInvitationResponseProblem,
   RecruitmentRequestNewInvitationTimeProblem,
 } from "@vektorprogrammet/http-api";
@@ -798,6 +803,10 @@ async function expectNativeProblem(path, init, expectedStatus, expectedCode, dec
     problem,
   );
 
+  if (response.headers.get("cache-control") !== "no-store") {
+    throw new Error("Native boundary problem did not retain no-store privacy");
+  }
+
   if (
     response.status !== expectedStatus ||
     !response.headers.get("content-type")?.startsWith("application/problem+json") ||
@@ -826,6 +835,8 @@ async function expectNativeProblem(path, init, expectedStatus, expectedCode, dec
     type: decoded.success.type,
     responseKeys: Object.keys(problem).sort(),
     rawCapabilityObserved: false,
+    challenge: response.headers.get("www-authenticate"),
+    cacheControl: response.headers.get("cache-control"),
   };
 }
 
@@ -891,6 +902,234 @@ async function exerciseNativeBoundaryFailures() {
     ),
   };
 }
+
+async function nativePersonCookie(email) {
+  const response = await fetch(new URL("/api/auth/sign-in/email", backendOrigin), {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: dashboardOrigin },
+    body: JSON.stringify({ email, password: personaPassword }),
+  });
+
+  if (response.status !== 200) throw new Error("Native denial fixture password sign-in failed");
+
+  const cookies = response.headers.getSetCookie()
+    .map((value) => value.split(";")[0])
+    .filter((value) => sessionCookieNames.has(value.slice(0, value.indexOf("="))));
+
+  if (cookies.length !== 1) throw new Error("Native denial fixture did not receive one real session");
+
+  await response.arrayBuffer();
+
+  return cookies[0];
+}
+
+async function exerciseInvitationCredentialConflict(environment) {
+  const cookie = await nativePersonCookie(leaderEmail);
+  const capability = rawCapabilitiesByCase["requested-new-time"];
+
+  const read = await fetch(new URL(ReadInvitationResponseEndpoint.path, backendOrigin), {
+    headers: { [invitationCapabilityHeader]: capability },
+  });
+
+  const readText = await read.text();
+
+  assertNoRawCapability(readText, "Credential-conflict live invitation response");
+
+  const resource = Schema.decodeUnknownSync(InvitationResponseObservation, { onExcessProperty: "error" })(JSON.parse(readText));
+  const etag = read.headers.get("etag");
+
+  if (read.status !== 200 || resource.responseState !== "Pending" || etag === null) {
+    throw new Error("Credential-conflict fixture is not a live pending invitation");
+  }
+
+  const interviewId = responseCases.find(({ key }) => key === "requested-new-time").interviewId;
+  const before = await readInvalidatedInvitationEvidence(environment, interviewId);
+  const denials = [];
+  // The canonical root owns this set: do not add a parallel route registry.
+
+  for (const endpoint of Object.values(ExternalNativeApi.groups.recruitment.endpoints)) {
+    if (!endpoint.middlewares.has(InvitationCapabilitySecurity)) continue;
+
+    const init = { method: endpoint.method, headers: { ...nativeMutationHeaders(capability, etag), cookie } };
+
+    if (endpoint.method !== "GET") {
+      init.body = JSON.stringify(endpoint.identifier === "requestNewInvitationTime"
+        ? Schema.decodeSync(InvitationRequestNewTimeInput)({ message: "Kan vi møtes senere?" })
+        : {});
+    }
+
+    const denial = await expectNativeProblem(endpoint.path, init, 401, "credential.invalid", SessionUnauthorizedProblem);
+
+    if (denial.challenge !== 'RecruitmentInvitationCapability realm="native-api"') {
+      throw new Error("Conflicting Person credential did not retain the capability challenge");
+    }
+
+    denials.push({ operation: endpoint.identifier, method: endpoint.method, path: endpoint.path, ...denial });
+    assertEqual(await readInvalidatedInvitationEvidence(environment, interviewId), before, "Credential denial aggregate/receipt/audit/outbox equality");
+  }
+
+  if (denials.length !== 4) throw new Error("Credential denials did not exercise every invitation endpoint");
+
+  return { denials, postgresUnchanged: true };
+}
+
+async function readInvalidatedInvitationEvidence(environment, interviewId) {
+  const result = await runPsql(`
+    SELECT jsonb_build_object(
+      'interview', (SELECT to_jsonb(r) FROM recruitment_interviews r WHERE interview_id='${interviewId}'),
+      'schedules', (SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY schedule_revision),'[]'::jsonb) FROM recruitment_interview_schedules r WHERE interview_id='${interviewId}'),
+      'invitations', (SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY invitation_id),'[]'::jsonb) FROM recruitment_invitations r WHERE interview_id='${interviewId}'),
+      'responses', (SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY invitation_id),'[]'::jsonb) FROM recruitment_invitation_response_audit r WHERE interview_id='${interviewId}'),
+      'responseOutbox', (SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY effect_id),'[]'::jsonb) FROM recruitment_invitation_response_outbox r WHERE interview_id='${interviewId}'),
+      'scheduleReceipts', (SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY command_id),'[]'::jsonb) FROM recruitment_schedule_command_receipts r WHERE interview_id='${interviewId}'),
+      'scheduleAudit', (SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY command_id),'[]'::jsonb) FROM recruitment_schedule_audit r WHERE interview_id='${interviewId}'),
+      'invitationOutbox', (SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY effect_id),'[]'::jsonb) FROM recruitment_invitation_outbox r WHERE interview_id='${interviewId}'),
+      'cancellation', (SELECT to_jsonb(r) FROM recruitment_interview_cancellations r WHERE interview_id='${interviewId}'),
+      'lifecycleReceipts', (SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY command_id),'[]'::jsonb) FROM recruitment_interview_lifecycle_command_receipts r WHERE interview_id='${interviewId}'),
+      'lifecycleAudit', (SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY command_id),'[]'::jsonb) FROM recruitment_interview_lifecycle_audit r WHERE interview_id='${interviewId}'),
+      'httpReceipts', (SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY identity_sha256),'[]'::jsonb) FROM native_http_idempotency_receipts r)
+    )::text;
+  `, environment, "Invalidated invitation aggregate/receipt/audit/outbox snapshot");
+
+  return parseJsonOutput(result, "Invalidated invitation PostgreSQL evidence");
+}
+
+async function exerciseInvalidatedInvitationCapabilities(environment) {
+  const cookie = await nativePersonCookie(interviewerEmail);
+  const original = await readResponseEvidence(environment);
+  const cases = [];
+
+  for (const invalidation of ["cancelled", "superseded"]) {
+    const suffix = `native-invitation-denial-${invalidation}-0051`;
+    const applicantId = `applicant-${suffix}`;
+    const applicationId = `application-${suffix}`;
+    const interviewId = `interview-${suffix}`;
+    const invitationId = `invitation-${suffix}`;
+    const capability = createHash("sha256").update(suffix, "utf8").digest("base64url");
+    const capabilityDigest = createHash("sha256").update(capability, "utf8").digest("hex");
+    rawCapabilities.push(capability);
+    // New targets keep the original three browser/SQL fixtures untouched. Only prerequisite
+    // facts are seeded; response, cancellation and rebooking use the real native operations.
+
+    const sql = `
+      BEGIN;
+      INSERT INTO admission_applicants (applicant_id, normalized_email, email, first_name, last_name, phone, gender, field_of_study_id, year_of_study, activation_digest)
+      VALUES ('${applicantId}', '${suffix}@example.invalid', '${suffix}@example.invalid', 'Invitation', '${invalidation}', '90000519', 1, '${fieldOfStudyId}', 3, NULL);
+      INSERT INTO admission_applications (application_id, applicant_id, admission_period_id, department_id, field_of_study_id, year_of_study, submitted_at, revision)
+      VALUES ('${applicationId}', '${applicantId}', '${admissionPeriodId}', '${departmentId}', '${fieldOfStudyId}', 3, '${clock.fromNow(-5)}', 0);
+      INSERT INTO recruitment_interviews (interview_id, application_id, department_id, interviewer_person_id, interview_schema_id, assigned_by_person_id, assigned_at, revision)
+      VALUES ('${interviewId}', '${applicationId}', '${departmentId}', '${interviewerPersonId}', '${interviewSchemaId}', '${leaderPersonId}', '${clock.fromNow(-3)}', 1);
+      INSERT INTO recruitment_interview_question_snapshots (interview_id, question_id, ordinal, prompt, help_text, kind, alternatives)
+      SELECT '${interviewId}', question_id, ordinal, prompt, help_text, kind, alternatives FROM recruitment_interview_schema_questions WHERE interview_schema_id='${interviewSchemaId}';
+      INSERT INTO recruitment_interview_schedules (interview_id, scheduled_at, room, campus, map_link, message, scheduled_by_person_id, committed_at, schedule_revision)
+      VALUES ('${interviewId}', '${clock.fromNow(5)}', 'R-Denial', 'Gløshaugen', NULL, 'Invitasjon for native avvisningskontroll.', '${leaderPersonId}', '${clock.fromNow(-2)}', 1);
+      INSERT INTO recruitment_invitations (invitation_id, interview_id, schedule_revision, capability_sha256, response_state, created_at)
+      VALUES ('${invitationId}', '${interviewId}', 1, '${capabilityDigest}', 'Pending', '${clock.fromNow(-2)}');
+      COMMIT;
+    `;
+
+    assertNoRawCapability(sql, "Invalidation prerequisite fixture SQL");
+    await runPsql(sql, environment, "Isolated invitation invalidation prerequisites");
+
+    const read = await fetch(new URL(ReadInvitationResponseEndpoint.path, backendOrigin), {
+      headers: { [invitationCapabilityHeader]: capability },
+    });
+
+    const readText = await read.text();
+
+    assertNoRawCapability(readText, "Initially usable invalidation capability response");
+
+    const resource = Schema.decodeUnknownSync(InvitationResponseObservation, { onExcessProperty: "error" })(JSON.parse(readText));
+    const etag = read.headers.get("etag");
+
+    if (read.status !== 200 || resource.responseState !== "Pending" || etag === null) {
+      throw new Error("Isolated invalidation capability was not initially usable");
+    }
+
+    if (invalidation === "superseded") {
+      const response = await fetch(new URL(RequestNewInvitationTimeEndpoint.path, backendOrigin), {
+        method: RequestNewInvitationTimeEndpoint.method,
+        headers: nativeMutationHeaders(capability, etag),
+        body: JSON.stringify(Schema.decodeSync(InvitationRequestNewTimeInput)({ message: "Et senere tidspunkt, takk." })),
+      });
+
+      if (response.status !== 204 || (await response.text()) !== "") {
+        throw new Error("Supersession prerequisite native new-time response did not commit");
+      }
+    }
+
+    const boardResponse = await fetch(new URL(ReadSchedulingBoardEndpoint.path, backendOrigin), { headers: { cookie } });
+    const board = Schema.decodeUnknownSync(SchedulingBoard)(await boardResponse.json());
+    const interview = board.interviews.find((entry) => entry.interviewId === interviewId);
+
+    if (boardResponse.status !== 200 || interview === undefined || interview.responseState !== (invalidation === "superseded" ? "RequestedNewTime" : "Pending")) {
+      throw new Error("Invalidation prerequisite did not appear in the native scheduling projection");
+    }
+
+    const endpoint = invalidation === "cancelled" ? CancelInterviewEndpoint : ScheduleInterviewEndpoint;
+
+    const payload = invalidation === "cancelled"
+      ? Schema.decodeSync(CancelInterviewRequest)({})
+      : Schema.decodeSync(ScheduleInterviewRequest)({ scheduledAt: clock.fromNow(6), room: "R-Rebooked", campus: "Gløshaugen", mapLink: null, message: "Et nytt tidspunkt." });
+
+    const response = await fetch(new URL(endpoint.path.replace(":interviewId", encodeURIComponent(interviewId)), backendOrigin), {
+      method: endpoint.method,
+      headers: { cookie, origin: dashboardOrigin, "content-type": "application/json", "if-match": interview.etag, "idempotency-key": IdempotencyKey.make(`invitation-denial-${invalidation}-command`) },
+      body: JSON.stringify(payload),
+    });
+
+    const body = await response.text();
+    assertNoRawCapability(body, "Native invitation invalidation response");
+
+    if (response.status !== 200) throw new Error(`Native ${invalidation} prerequisite failed with ${response.status}`);
+
+    const outcome = invalidation === "cancelled"
+      ? Schema.decodeUnknownSync(CancelInterviewResponse)(JSON.parse(body))
+      : Schema.decodeUnknownSync(ScheduleInterviewResponse)(JSON.parse(body));
+
+    if (outcome.interviewId !== interviewId || (invalidation === "cancelled" ? outcome.cancellationState !== "Cancelled" : outcome.responseState !== "Pending")) {
+      throw new Error("Native invitation invalidation returned the wrong committed state");
+    }
+
+    const before = await readInvalidatedInvitationEvidence(environment, interviewId);
+    const oldInvitation = before.invitations.find((entry) => entry.invitation_id === invitationId);
+
+    if (oldInvitation === undefined || (invalidation === "cancelled" ? before.cancellation?.interview_id !== interviewId : oldInvitation.superseded_at === null || before.invitations.length !== 2)) {
+      throw new Error("Invalidation did not commit its cancellation or replacement SQL facts");
+    }
+
+    const denials = [];
+
+    for (const endpoint of Object.values(ExternalNativeApi.groups.recruitment.endpoints)) {
+      if (!endpoint.middlewares.has(InvitationCapabilitySecurity)) continue;
+
+      const init = { method: endpoint.method, headers: nativeMutationHeaders(capability, etag) };
+
+      if (endpoint.method !== "GET") {
+        init.body = JSON.stringify(endpoint.identifier === "requestNewInvitationTime"
+          ? Schema.decodeSync(InvitationRequestNewTimeInput)({ message: "Et annet tidspunkt." })
+          : {});
+      }
+
+      const denial = await expectNativeProblem(endpoint.path, init, 404, "resource.not-found", RecruitmentReadInvitationResponseProblem);
+
+      if (denial.challenge !== null) throw new Error("Concealed capability denial disclosed a credential challenge");
+
+      denials.push({ operation: endpoint.identifier, method: endpoint.method, path: endpoint.path, ...denial });
+      assertEqual(await readInvalidatedInvitationEvidence(environment, interviewId), before, "Denied invitation aggregate/receipt/audit/outbox equality");
+    }
+
+    if (denials.length !== 4) throw new Error("Invalidated capability did not fail on every invitation endpoint");
+
+    cases.push({ invalidation, initiallyUsable: true, nativeInvalidationCommitted: true, denials, postgresUnchangedAfterDenial: true });
+  }
+
+  assertEqual(await readResponseEvidence(environment), original, "Original three committed browser/SQL fixtures");
+  await assertCanonicalDatabasePrivacy(environment);
+
+  return cases;
+}
+
 
 const semanticResponseHeaders = (headers) =>
   Object.fromEntries(
@@ -1972,6 +2211,7 @@ async function main() {
     assertSeedEvidence(seededEvidence);
     await assertCanonicalDatabasePrivacy(baseEnvironment);
     const nativeBoundaryFailures = await exerciseNativeBoundaryFailures();
+    const invitationCredentialConflict = await exerciseInvitationCredentialConflict(baseEnvironment);
 
     proxy = await startRecordingProxy(
       backendOrigin,
@@ -2092,6 +2332,7 @@ async function main() {
     assertDeliveredEvidence(deliveredEvidence, committedEvidence);
     assertRecordingEvidence(recording, committedEvidence, deliveredEvidence);
     await assertCanonicalDatabasePrivacy(baseEnvironment);
+    const invalidatedCapabilities = await exerciseInvalidatedInvitationCapabilities(baseEnvironment);
 
     evidence = {
       topology: {
@@ -2128,6 +2369,8 @@ async function main() {
         rawCapabilityObserved: false,
         contractObservations: nativeContractObservations,
         boundaryFailures: nativeBoundaryFailures,
+        invitationCredentialConflict,
+        invalidatedCapabilities,
         nonReplayableRepeat,
       },
       postgres: {

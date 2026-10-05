@@ -1,9 +1,14 @@
 import AxeBuilder from "@axe-core/playwright";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type APIResponse, type Page } from "@playwright/test";
 import { Schema } from "effect";
-import { IdempotencyKey, OnboardingResource, OnboardingProblem, OnboardingCommandProblem, SchedulingBoard, PlacementScopes } from "@vektorprogrammet/http-api";
+import {
+  IdempotencyKey, OnboardingResource, OnboardingProblem, OnboardingCommandProblem,
+  SchedulingBoard, PlacementScopes, SessionUnauthorizedProblem,
+  RecruitmentReadAssignmentBoardProblem, RecruitmentReadSchedulingBoardProblem,
+  ReadAssignmentBoardEndpoint, ReadSchedulingBoardEndpoint,
+} from "@vektorprogrammet/http-api";
 
 const manifestPath = process.env.ONBOARDING_JOURNEY_MANIFEST;
 
@@ -76,6 +81,60 @@ test.describe("R6 real onboarding route authority and problem status", () => {
     });
   }
 
+  test("native boards reject missing and revoked real Better Auth sessions without returning private projections", async ({ page }) => {
+    const assertCredentialDenials = async (code: "credential.missing" | "credential.invalid", cookie?: string) => {
+      const headers = cookie === undefined ? {} : { cookie };
+      const assignment = await page.request.get(manifest.backendOrigin + ReadAssignmentBoardEndpoint.path + "?status=all", { headers });
+      const scheduling = await page.request.get(manifest.backendOrigin + ReadSchedulingBoardEndpoint.path, { headers });
+
+      const assertProblem = async (response: APIResponse) => {
+        const problem = Schema.decodeUnknownSync(SessionUnauthorizedProblem, { onExcessProperty: "error" })(await response.json());
+        expect(problem.code).toBe(code);
+        expect(response.status()).toBe(problem.status);
+        expect(response.headers()["content-type"]).toContain("application/problem+json");
+        expect(response.headers()["cache-control"]).toBe("no-store");
+        expect(response.headers()["www-authenticate"]).toBe('VektorSession realm="native-api", Bearer realm="native-api"');
+      };
+
+      await assertProblem(assignment);
+      await assertProblem(scheduling);
+    };
+
+    await assertCredentialDenials("credential.missing");
+    await signIn(page, manifest.routeAuthority.persons.member, "/dashboard/onboarding");
+
+    const sessionCookies = (await page.context().cookies(manifest.backendOrigin)).filter(({ name }) =>
+      name === "better-auth.session_token" || name === "__Secure-better-auth.session_token");
+
+    expect(sessionCookies).toHaveLength(1);
+    const cookie = sessionCookies.map(({ name, value }) => name + "=" + value).join("; ");
+
+    const signedOut = await page.request.post(manifest.backendOrigin + "/api/auth/sign-out", {
+      headers: { origin: manifest.dashboardOrigin }, data: {},
+    });
+
+    expect(signedOut.status()).toBe(200);
+    await assertCredentialDenials("credential.invalid", cookie);
+  });
+
+  test("other-department credentials cannot read the assignment board or widen the scheduling board", async ({ page }) => {
+    await signIn(page, manifest.routeAuthority.persons.wrongDepartment, "/dashboard/onboarding");
+    const assignment = await page.request.get(manifest.backendOrigin + ReadAssignmentBoardEndpoint.path + "?status=all");
+    const denied = Schema.decodeUnknownSync(RecruitmentReadAssignmentBoardProblem, { onExcessProperty: "error" })(await assignment.json());
+    expect(denied.code).toBe("authority.denied");
+    expect(assignment.status()).toBe(denied.status);
+    expect(assignment.headers()["cache-control"]).toBe("no-store");
+    const scheduling = await page.request.get(manifest.backendOrigin + ReadSchedulingBoardEndpoint.path);
+    expect(scheduling.status()).toBe(200);
+    const ownBoard = Schema.decodeUnknownSync(SchedulingBoard)(await scheduling.json());
+    expect(ownBoard.departmentId).toBe(manifest.routeAuthority.otherDepartmentId);
+    expect(ownBoard.interviews.some((interview) => interview.applicationId === manifest.applicationId)).toBe(false);
+    const widened = await page.request.get(manifest.backendOrigin + ReadSchedulingBoardEndpoint.path + "?departmentId=" + manifest.departmentId);
+    const malformed = Schema.decodeUnknownSync(RecruitmentReadSchedulingBoardProblem, { onExcessProperty: "error" })(await widened.json());
+    expect(malformed.code).toBe("request.malformed");
+    expect(widened.status()).toBe(malformed.status);
+  });
+
   test("department member without interviewer appointment retains scheduling visibility without other-department widening", async ({ page }) => {
     await signIn(page, manifest.routeAuthority.persons.member, "/dashboard/onboarding");
     const response = await page.request.get(manifest.backendOrigin + "/api/recruitment/interviews");
@@ -84,6 +143,9 @@ test.describe("R6 real onboarding route authority and problem status", () => {
     expect(board.departmentId).toBe(manifest.departmentId);
     const widened = await page.request.get(manifest.backendOrigin + "/api/recruitment/interviews?departmentId=" + manifest.routeAuthority.otherDepartmentId);
     expect(widened.status()).toBe(400);
+    const malformed = Schema.decodeUnknownSync(RecruitmentReadSchedulingBoardProblem, { onExcessProperty: "error" })(await widened.json());
+    expect(malformed.code).toBe("request.malformed");
+    expect(widened.status()).toBe(malformed.status);
     // Neither board visibility nor ordinary membership grants onboarding issuance.
     await expect(page.getByRole("combobox", { name: "Avdeling" }).locator(`option[value="${manifest.departmentId}"]`)).toHaveCount(0);
   });
@@ -169,12 +231,59 @@ test("0099 applicant claims an invited account then requests affiliation and rec
 
   await expect(card).toBeVisible();
   await axe(managerPage);
-  await card.getByRole("button", { name: "Trekk tilbake", exact: true }).click();
+  const revokeButton = card.getByRole("button", { name: "Trekk tilbake", exact: true });
+  const retryButton = card.getByRole("button", { name: "Prøv levering igjen", exact: true });
+  await revokeButton.focus();
+  await expect(revokeButton).toBeFocused();
+  await managerPage.keyboard.press("Tab");
+  await expect(retryButton).toBeFocused();
+  await managerPage.keyboard.press("Shift+Tab");
+  await expect(revokeButton).toBeFocused();
+  await managerPage.keyboard.press("Enter");
   await expect(card.locator("form")).toHaveAttribute("data-pending", "false");
   await expect(card.getByRole("status")).toContainText("Endringen er lagret");
-  await card.getByRole("button", { name: "Inviter", exact: true }).click();
+  const issueButton = card.getByRole("button", { name: "Inviter", exact: true });
+  await issueButton.focus();
+  await expect(issueButton).toBeFocused();
+  await managerPage.keyboard.press("Tab");
+  await expect(revokeButton).toBeFocused();
+  await managerPage.keyboard.press("Shift+Tab");
+  await expect(issueButton).toBeFocused();
+  await managerPage.keyboard.press("Space");
   await expect(card.locator("form")).toHaveAttribute("data-pending", "false");
   await expect(card).toContainText("Levering: Delivered");
+  await axe(managerPage);
+  await managerPage.setViewportSize({ width: 390, height: 844 });
+  await axe(managerPage);
+  const nativeBoardResponse = await managerPage.request.get(manifest.backendOrigin + "/api/onboarding?departmentId=" + manifest.departmentId);
+  expect(nativeBoardResponse.status()).toBe(200);
+  const deliveredBoard = Schema.decodeUnknownSync(OnboardingResource)(await nativeBoardResponse.json());
+
+  const nativeRetry = await managerPage.request.post(manifest.backendOrigin + "/api/onboarding?departmentId=" + manifest.departmentId, {
+    headers: { origin: manifest.dashboardOrigin, "if-match": deliveredBoard.etag, "idempotency-key": IdempotencyKey.make("onboarding-keyboard-delivered-native-denial") },
+    data: { applicationId: manifest.applicationId, action: "RetryDelivery" },
+  });
+
+  const retryProblem = Schema.decodeUnknownSync(OnboardingCommandProblem, { onExcessProperty: "error" })(await nativeRetry.json());
+  expect(retryProblem.code).toBe("onboarding.delivery-not-retryable");
+  expect(nativeRetry.status()).toBe(retryProblem.status);
+  await revokeButton.focus();
+  await expect(revokeButton).toBeFocused();
+  await managerPage.keyboard.press("Tab");
+  await expect(retryButton).toBeFocused();
+
+  const retryResponse = managerPage.waitForResponse((response) =>
+    response.request().method() === "POST" && new URL(response.url()).pathname === "/dashboard/onboarding");
+
+  await managerPage.keyboard.press("Enter");
+  expect((await retryResponse).status()).toBe(retryProblem.status);
+  await expect(card.locator("form")).toHaveAttribute("data-pending", "false");
+  await expect(card.getByRole("status")).toContainText(retryProblem.detail);
+  const afterRetryResponse = await managerPage.request.get(manifest.backendOrigin + "/api/onboarding?departmentId=" + manifest.departmentId);
+  expect(afterRetryResponse.status()).toBe(200);
+  expect(Schema.decodeUnknownSync(OnboardingResource)(await afterRetryResponse.json())).toEqual(deliveredBoard);
+  await axe(managerPage);
+  await managerPage.setViewportSize({ width: 1440, height: 900 });
 
   const mailbox = await managerPage.request.get(manifest.mailboxOrigin + "/mail", {
     headers: { authorization: "Bearer " + manifest.mailboxToken },

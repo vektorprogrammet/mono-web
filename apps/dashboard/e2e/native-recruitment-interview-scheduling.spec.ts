@@ -145,13 +145,27 @@ test.describe("Native recruitment interview scheduling", () => {
       const card = applicantCard(page, applicantName);
       await expect(card).toContainText(`Intervjuer: ${interviewerName}`);
       await expect(card).toContainText("Ikke planlagt");
-      await card.getByRole("button", { name: "Planlegg intervju" }).click();
+      const scheduleOpener = card.getByRole("button", { name: "Planlegg intervju" });
+      await scheduleOpener.focus();
+      await expect(scheduleOpener).toBeFocused();
+      await page.keyboard.press("Enter");
 
       const dialog = page.getByRole("dialog");
       await expect(dialog).toBeVisible();
       await expect(
         dialog.getByRole("heading", { name: `Planlegg intervju med ${applicantName}` }),
       ).toBeVisible();
+      await expect(dialog.getByLabel("Tidspunkt")).toBeFocused();
+      await page.keyboard.press("Shift+Tab");
+      await expect(dialog.getByRole("button", { name: "Lagre og legg i kø" })).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(dialog.getByLabel("Tidspunkt")).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(dialog).toHaveCount(0);
+      await expect(scheduleOpener).toBeFocused();
+      await page.keyboard.press("Space");
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByLabel("Tidspunkt")).toBeFocused();
       await dialog.getByLabel("Tidspunkt").fill(scheduledAt);
       await dialog.getByLabel("Rom").fill(SCHEDULE.room);
       await dialog.getByLabel("Campus").fill(SCHEDULE.campus);
@@ -166,7 +180,12 @@ test.describe("Native recruitment interview scheduling", () => {
         (response) => bridgeOperation(response.request()) === "readSchedulingBoard",
       );
 
-      await dialog.getByRole("button", { name: "Lagre og legg i kø" }).click();
+      await expect(dialog.getByLabel("Melding")).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(dialog.getByRole("button", { name: "Avbryt", exact: true })).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(dialog.getByRole("button", { name: "Lagre og legg i kø" })).toBeFocused();
+      await page.keyboard.press("Enter");
       const scheduled = await scheduleResponse;
 
       if (scheduled.status() !== 200) {

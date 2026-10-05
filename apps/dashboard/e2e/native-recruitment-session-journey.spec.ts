@@ -165,13 +165,28 @@ test.describe("Native recruitment assignment journey (spec 0049.3)", () => {
     expect((await newFilterResponse).status()).toBe(200);
     await expect(applicantRow).toBeVisible();
 
-    await applicantRow
-      .getByRole("button", { name: `Tildel intervju til ${applicantName}` })
-      .click();
+    const assignmentOpener = applicantRow.getByRole("button", {
+      name: `Tildel intervju til ${applicantName}`,
+    });
+
+    await assignmentOpener.focus();
+    await expect(assignmentOpener).toBeFocused();
+    await page.keyboard.press("Enter");
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
     const interviewerSelect = dialog.getByLabel("Intervjuer");
     const schemaSelect = dialog.getByLabel("Intervjuskjema");
+    await expect(interviewerSelect).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(dialog.getByRole("button", { name: "Tildel intervju", exact: true })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(interviewerSelect).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(assignmentOpener).toBeFocused();
+    await page.keyboard.press("Space");
+    await expect(dialog).toBeVisible();
+    await expect(interviewerSelect).toBeFocused();
     expect(await interviewerSelect.locator("option").allTextContents()).toEqual(interviewerOptions);
     expect(await schemaSelect.locator("option").allTextContents()).toEqual(schemaOptions);
     await interviewerSelect.selectOption({ label: interviewerName });
@@ -189,7 +204,13 @@ test.describe("Native recruitment assignment journey (spec 0049.3)", () => {
         bridgeRequests.some(({ operation }) => operation === "createApplicationInterview"),
     );
 
-    await dialog.getByRole("button", { name: "Tildel intervju", exact: true }).click();
+    await schemaSelect.focus();
+    await expect(schemaSelect).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(dialog.getByRole("button", { name: "Avbryt", exact: true })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(dialog.getByRole("button", { name: "Tildel intervju", exact: true })).toBeFocused();
+    await page.keyboard.press("Enter");
     expect((await assignResponse).status()).toBe(200);
     expect((await freshNewFilterResponse).status()).toBe(200);
 
