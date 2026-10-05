@@ -130,8 +130,8 @@ describe("the original mixed onboarding group", () => {
     expect(OnboardingApi.endpoints.readBoard).toBe(readBoard);
     expect(OnboardingApi.endpoints.command).toBe(command);
     expect(OnboardingApi.endpoints.claim).toBe(ClaimOnboardingEndpoint);
-    expect(Context.get(OnboardingApi.annotations, OpenApi.Title)).toBe("Applicant account onboarding");
-    expect(Context.get(OnboardingApi.annotations, OpenApi.Description)).toBe(
+    expect(Context.getUnsafe(OnboardingApi.annotations, OpenApi.Title)).toBe("Applicant account onboarding");
+    expect(Context.getUnsafe(OnboardingApi.annotations, OpenApi.Description)).toBe(
       "Explicit applicant identity proof and account linking.",
     );
   });

@@ -59,8 +59,17 @@ describe("Recruitment generated authority contract", () => {
 
     for (const { endpoint, native, declared, annotate, invitation } of cases) {
       expect(Context.get(annotate(declared), AccessSpecAnnotation)).toEqual(native);
-      expect(endpoint.middlewares.has(InvitationCapabilitySecurity)).toBe(invitation);
-      expect(endpoint.middlewares.has(PersonSecurity)).toBe(!invitation);
+      let hasInvitationSecurity = false;
+      let hasPersonSecurity = false;
+
+      for (const middleware of endpoint.middlewares) {
+        if (middleware === InvitationCapabilitySecurity) hasInvitationSecurity = true;
+
+        if (middleware === PersonSecurity) hasPersonSecurity = true;
+      }
+
+      expect(hasInvitationSecurity).toBe(invitation);
+      expect(hasPersonSecurity).toBe(!invitation);
     }
   });
 
