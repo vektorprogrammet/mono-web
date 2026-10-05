@@ -8,7 +8,13 @@ import {
   type IdentityOperations,
 } from "@vektorprogrammet/domain/identity";
 import { PersonId } from "@vektorprogrammet/domain/organization";
+import {
+  AdmissionOutcomeCommandProblem,
+  AdmissionOutcomeResource,
+} from "@vektorprogrammet/http-api";
+import { NativeProblemRegistry } from "@vektorprogrammet/http-api/http-semantics";
 import { DateTime, Effect, Layer, Schema } from "effect";
+import { SqlSchema } from "effect/unstable/sql";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "@effect/vitest";
 import { backendDatabase } from "../../test/database.js";
@@ -77,7 +83,8 @@ const applicationOf = (key: string) => `application-${key}`;
 interface Applicant {
   readonly key: string;
   readonly firstName: string;
-  readonly recommendation: "Ja" | "Kanskje" | "Nei" | "Returning";
+  /** Absent for an assigned interview that has no conduct or assessment. */
+  readonly recommendation?: "Ja" | "Kanskje" | "Nei" | "Returning";
   readonly placement?: "Monday" | "Tuesday";
 }
 
@@ -98,57 +105,58 @@ const applicants: ReadonlyArray<Applicant> = [
   { key: "markup-nei", firstName: markupName, recommendation: "Nei" },
 ];
 
-const seed = Database.use((sql) =>
-  Effect.gen(function* () {
-    yield* sql`INSERT INTO organization_departments(department_id,name,short_name,email,city) VALUES(${departmentId},'Trondheim','TRD','outcome@example.invalid','Trondheim'),(${otherDepartmentId},'Oslo','OSL','other-outcome@example.invalid','Oslo')`;
-    yield* sql`INSERT INTO organization_teams(team_id,department_id,name) VALUES('outcome-recruitment',${departmentId},'Rekruttering'),('outcome-coordination',${departmentId},'Skolekoordinering'),('outcome-evaluation',${departmentId},'Evaluering'),('outcome-other-coordination',${otherDepartmentId},'Skolekoordinering')`;
-    yield* sql`INSERT INTO admission_period_departments(department_id,name) VALUES(${departmentId},'Trondheim')`;
-    yield* sql`INSERT INTO admission_period_semesters VALUES('outcome-previous','2031-08-01T00:00:00Z','2031-12-31T00:00:00Z'),(${semesterId},'2032-01-01T00:00:00Z','2032-06-30T00:00:00Z')`;
-    yield* sql`INSERT INTO admission_periods VALUES('outcome-period',${departmentId},${semesterId},'2031-11-01T00:00:00Z','2031-12-01T00:00:00Z',0,'outcome-seed')`;
-    yield* sql`INSERT INTO admission_period_fields_of_study VALUES('outcome-field',${departmentId},'Matematikk',true)`;
-    yield* sql`INSERT INTO person_profiles(person_id,first_name,last_name) VALUES('recruiter','Rolf','Rekruttering'),('coordinator','Kari','Koordinator'),('member','Mia','Medlem'),('outsider','Olga','Oslo'),('admin','Ada','Admin'),('boardmember','Bjorn','Styre'),('boardleader','Berit','Styreleder')`;
-    yield* sql`INSERT INTO organization_global_administrator_grants(grant_id,person_id,start_at) VALUES('outcome-admin-grant','admin','2020-01-01T00:00:00.000Z')`;
+const seed = Effect.fnUntraced(function* (cohort: ReadonlyArray<Applicant> = applicants) {
+  const sql = yield* Database;
+  yield* sql`INSERT INTO organization_departments(department_id,name,short_name,email,city) VALUES(${departmentId},'Trondheim','TRD','outcome@example.invalid','Trondheim'),(${otherDepartmentId},'Oslo','OSL','other-outcome@example.invalid','Oslo')`;
+  yield* sql`INSERT INTO organization_teams(team_id,department_id,name) VALUES('outcome-recruitment',${departmentId},'Rekruttering'),('outcome-coordination',${departmentId},'Skolekoordinering'),('outcome-evaluation',${departmentId},'Evaluering'),('outcome-other-coordination',${otherDepartmentId},'Skolekoordinering')`;
+  yield* sql`INSERT INTO admission_period_departments(department_id,name) VALUES(${departmentId},'Trondheim')`;
+  yield* sql`INSERT INTO admission_period_semesters VALUES('outcome-previous','2031-08-01T00:00:00Z','2031-12-31T00:00:00Z'),(${semesterId},'2032-01-01T00:00:00Z','2032-06-30T00:00:00Z')`;
+  yield* sql`INSERT INTO admission_periods VALUES('outcome-period',${departmentId},${semesterId},'2031-11-01T00:00:00Z','2031-12-01T00:00:00Z',0,'outcome-seed')`;
+  yield* sql`INSERT INTO admission_period_fields_of_study VALUES('outcome-field',${departmentId},'Matematikk',true)`;
+  yield* sql`INSERT INTO person_profiles(person_id,first_name,last_name) VALUES('recruiter','Rolf','Rekruttering'),('coordinator','Kari','Koordinator'),('member','Mia','Medlem'),('outsider','Olga','Oslo'),('admin','Ada','Admin'),('boardmember','Bjorn','Styre'),('boardleader','Berit','Styreleder')`;
+  yield* sql`INSERT INTO organization_global_administrator_grants(grant_id,person_id,start_at) VALUES('outcome-admin-grant','admin','2020-01-01T00:00:00.000Z')`;
 
-    yield* sql`INSERT INTO organization_memberships(membership_id,person_id,team_id,start_at,is_team_leader) VALUES('outcome-m-recruiter','recruiter','outcome-recruitment','2020-01-01T00:00:00Z',false),('outcome-m-coordinator','coordinator','outcome-coordination','2020-01-01T00:00:00Z',true),('outcome-m-member','member','outcome-evaluation','2020-01-01T00:00:00Z',false),('outcome-m-outsider','outsider','outcome-other-coordination','2020-01-01T00:00:00Z',true)`;
-    // A plain national board seat: board membership alone confers no template or announce authority.
-    yield* sql`INSERT INTO organization_national_boards(board_id,name) VALUES('outcome-board','Hovedstyret')`;
-    yield* sql`INSERT INTO organization_memberships(membership_id,person_id,board_id,position_name,start_at,is_team_leader) VALUES('outcome-m-board','boardmember','outcome-board','Styremedlem','2020-01-01T00:00:00Z',false)`;
-    // A national board leader holds neither delegation: a board leadership alone decides and announces nothing.
-    yield* sql`INSERT INTO organization_memberships(membership_id,person_id,board_id,position_name,start_at,is_team_leader) VALUES('outcome-m-board-leader','boardleader','outcome-board','Styreleder','2020-01-01T00:00:00Z',true)`;
-    // Rekruttering decides outcomes and Skolekoordinering coordinates placements, each by an explicit delegation.
-    yield* sql`INSERT INTO organization_delegations(delegation_id,name,team_id,capability,area,area_department_id,holders,start_at) VALUES(${`delegation-${digest("outcome-decide")}`},'Rekruttering avgjor utfall','outcome-recruitment','admissions.outcomes','Department',${departmentId},'AllMembers','2020-01-01T00:00:00Z'),(${`delegation-${digest("outcome-coordinate")}`},'Skolekoordinering fordeler assistenter','outcome-coordination','placements.coordinate','Department',${departmentId},'AllMembers','2020-01-01T00:00:00Z'),(${`delegation-${digest("outcome-other-coordinate")}`},'Skolekoordinering Oslo','outcome-other-coordination','placements.coordinate','Department',${otherDepartmentId},'AllMembers','2020-01-01T00:00:00Z')`;
+  yield* sql`INSERT INTO organization_memberships(membership_id,person_id,team_id,start_at,is_team_leader) VALUES('outcome-m-recruiter','recruiter','outcome-recruitment','2020-01-01T00:00:00Z',false),('outcome-m-coordinator','coordinator','outcome-coordination','2020-01-01T00:00:00Z',true),('outcome-m-member','member','outcome-evaluation','2020-01-01T00:00:00Z',false),('outcome-m-outsider','outsider','outcome-other-coordination','2020-01-01T00:00:00Z',true)`;
+  // A plain national board seat: board membership alone confers no template or announce authority.
+  yield* sql`INSERT INTO organization_national_boards(board_id,name) VALUES('outcome-board','Hovedstyret')`;
+  yield* sql`INSERT INTO organization_memberships(membership_id,person_id,board_id,position_name,start_at,is_team_leader) VALUES('outcome-m-board','boardmember','outcome-board','Styremedlem','2020-01-01T00:00:00Z',false)`;
+  // A national board leader holds neither delegation: a board leadership alone decides and announces nothing.
+  yield* sql`INSERT INTO organization_memberships(membership_id,person_id,board_id,position_name,start_at,is_team_leader) VALUES('outcome-m-board-leader','boardleader','outcome-board','Styreleder','2020-01-01T00:00:00Z',true)`;
+  // Rekruttering decides outcomes and Skolekoordinering coordinates placements, each by an explicit delegation.
+  yield* sql`INSERT INTO organization_delegations(delegation_id,name,team_id,capability,area,area_department_id,holders,start_at) VALUES(${`delegation-${digest("outcome-decide")}`},'Rekruttering avgjor utfall','outcome-recruitment','admissions.outcomes','Department',${departmentId},'AllMembers','2020-01-01T00:00:00Z'),(${`delegation-${digest("outcome-coordinate")}`},'Skolekoordinering fordeler assistenter','outcome-coordination','placements.coordinate','Department',${departmentId},'AllMembers','2020-01-01T00:00:00Z'),(${`delegation-${digest("outcome-other-coordinate")}`},'Skolekoordinering Oslo','outcome-other-coordination','placements.coordinate','Department',${otherDepartmentId},'AllMembers','2020-01-01T00:00:00Z')`;
 
-    const [school] = yield* sql<{
-      readonly schoolId: number;
-    }>`INSERT INTO schools_directory_schools(name,contact_person,email,phone,language,active) VALUES('Alpha skole','Kontakt','alpha@example.invalid','12345678','Norwegian',true) RETURNING school_id::double precision AS "schoolId"`;
+  const [school] = yield* sql<{
+    readonly schoolId: number;
+  }>`INSERT INTO schools_directory_schools(name,contact_person,email,phone,language,active) VALUES('Alpha skole','Kontakt','alpha@example.invalid','12345678','Norwegian',true) RETURNING school_id::double precision AS "schoolId"`;
 
-    yield* sql`INSERT INTO schools_directory_departments(school_id,department_id) VALUES(${school!.schoolId},${departmentId})`;
-    yield* sql`INSERT INTO recruitment_interview_schemas(interview_schema_id,name,question_count,active,revision) VALUES('outcome-schema','Intervju',0,true,0)`;
+  yield* sql`INSERT INTO schools_directory_departments(school_id,department_id) VALUES(${school!.schoolId},${departmentId})`;
+  yield* sql`INSERT INTO recruitment_interview_schemas(interview_schema_id,name,question_count,active,revision) VALUES('outcome-schema','Intervju',0,true,0)`;
 
-    for (const applicant of applicants) {
-      const { key, firstName } = applicant;
-      yield* sql`INSERT INTO person_profiles(person_id,first_name,last_name) VALUES(${key},${firstName},'Soker')`;
-      yield* sql`INSERT INTO admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study) VALUES(${`applicant-${key}`},${emailOf(key)},${emailOf(key)},${firstName},'Soker','12345678',0,'outcome-field',2)`;
-      yield* sql`INSERT INTO admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at) VALUES(${applicationOf(key)},${`applicant-${key}`},'outcome-period',${departmentId},'outcome-field',2,'2031-11-02T00:00:00Z')`;
-      yield* sql`INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES(${`invitation-${key}`},${applicationOf(key)},${`applicant-${key}`},${digest(`token-${key}`)},'2032-01-01T00:00:00Z','Claimed','coordinator','2031-11-03T00:00:00Z')`;
-      yield* sql`INSERT INTO applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES(${`applicant-${key}`},${key},'2031-11-04T00:00:00Z',${`invitation-${key}`})`;
-      yield* sql`INSERT INTO organization_volunteer_affiliations(person_id,department_id,status,revision) VALUES(${key},${departmentId},'Active',1)`;
+  for (const applicant of cohort) {
+    const { key, firstName } = applicant;
+    yield* sql`INSERT INTO person_profiles(person_id,first_name,last_name) VALUES(${key},${firstName},'Soker')`;
+    yield* sql`INSERT INTO admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study) VALUES(${`applicant-${key}`},${emailOf(key)},${emailOf(key)},${firstName},'Soker','12345678',0,'outcome-field',2)`;
+    yield* sql`INSERT INTO admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at) VALUES(${applicationOf(key)},${`applicant-${key}`},'outcome-period',${departmentId},'outcome-field',2,'2031-11-02T00:00:00Z')`;
+    yield* sql`INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES(${`invitation-${key}`},${applicationOf(key)},${`applicant-${key}`},${digest(`token-${key}`)},'2032-01-01T00:00:00Z','Claimed','coordinator','2031-11-03T00:00:00Z')`;
+    yield* sql`INSERT INTO applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES(${`applicant-${key}`},${key},'2031-11-04T00:00:00Z',${`invitation-${key}`})`;
+    yield* sql`INSERT INTO organization_volunteer_affiliations(person_id,department_id,status,revision) VALUES(${key},${departmentId},'Active',1)`;
 
-      if (applicant.recommendation !== "Returning") {
-        yield* sql`INSERT INTO recruitment_interviews(interview_id,application_id,department_id,interviewer_person_id,interview_schema_id,assigned_by_person_id,assigned_at,revision) VALUES(${`interview-${key}`},${applicationOf(key)},${departmentId},'recruiter','outcome-schema','recruiter','2031-11-05T00:00:00Z',1)`;
+    if (applicant.recommendation !== "Returning") {
+      yield* sql`INSERT INTO recruitment_interviews(interview_id,application_id,department_id,interviewer_person_id,interview_schema_id,assigned_by_person_id,assigned_at,revision) VALUES(${`interview-${key}`},${applicationOf(key)},${departmentId},'recruiter','outcome-schema','recruiter','2031-11-05T00:00:00Z',1)`;
+
+      if (applicant.recommendation !== undefined)
         yield* sql`INSERT INTO recruitment_interview_conducts(interview_id,answers,explanatory_power,role_model,suitability,finalized_by_person_id,finalized_at,interview_revision,recommendation) VALUES(${`interview-${key}`},'[]'::jsonb,7,8,9,'recruiter','2031-11-06T00:00:00Z',2,${applicant.recommendation})`;
-      } else {
-        const previous = `placement-${digest(`${key}-previous`)}`;
-        yield* sql`INSERT INTO assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision) VALUES(${previous},${key},${departmentId},'outcome-previous',${school!.schoolId},'Friday',4,'1',false,2)`;
-        yield* sql`INSERT INTO admission_returning_registrations(registration_id,application_id,applicant_id,person_id,placement_id,department_id,semester_id,admission_period_id,revision,command_id,year_of_study,monday_unavailable,tuesday_unavailable,wednesday_unavailable,thursday_unavailable,friday_unavailable,position_weeks,preferred_group,language,preferred_school,team_interest,team_ids,registered_at) VALUES(${`returning-registration-${digest(`${key}-1`)}`},${applicationOf(key)},${`applicant-${key}`},${key},${previous},${departmentId},${semesterId},'outcome-period',1,${`register-${key}-1`},2,false,false,false,false,false,4,'all','Norsk',NULL,false,'[]'::jsonb,'2031-11-11T00:00:00Z')`;
-      }
-
-      if (applicant.placement !== undefined) {
-        yield* sql`INSERT INTO assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision) VALUES(${`placement-${digest(`${key}-current`)}`},${key},${departmentId},${semesterId},${school!.schoolId},${applicant.placement},4,'1',true,1)`;
-      }
+    } else {
+      const previous = `placement-${digest(`${key}-previous`)}`;
+      yield* sql`INSERT INTO assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision) VALUES(${previous},${key},${departmentId},'outcome-previous',${school!.schoolId},'Friday',4,'1',false,2)`;
+      yield* sql`INSERT INTO admission_returning_registrations(registration_id,application_id,applicant_id,person_id,placement_id,department_id,semester_id,admission_period_id,revision,command_id,year_of_study,monday_unavailable,tuesday_unavailable,wednesday_unavailable,thursday_unavailable,friday_unavailable,position_weeks,preferred_group,language,preferred_school,team_interest,team_ids,registered_at) VALUES(${`returning-registration-${digest(`${key}-1`)}`},${applicationOf(key)},${`applicant-${key}`},${key},${previous},${departmentId},${semesterId},'outcome-period',1,${`register-${key}-1`},2,false,false,false,false,false,4,'all','Norsk',NULL,false,'[]'::jsonb,'2031-11-11T00:00:00Z')`;
     }
-  }),
-);
+
+    if (applicant.placement !== undefined) {
+      yield* sql`INSERT INTO assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision) VALUES(${`placement-${digest(`${key}-current`)}`},${key},${departmentId},${semesterId},${school!.schoolId},${applicant.placement},4,'1',true,1)`;
+    }
+  }
+});
 
 /** Every session cookie names its person. */
 const sessionActor = (cookie: string | undefined) => {
@@ -254,8 +262,8 @@ const refusal = (answer: Reply, statuses: ReadonlyArray<number>) =>
 /** The domain refusals of spec 0027 are new canonical codes of the `admission-outcome.` family. */
 const outcomeCode = /^admission-outcome\.[a-z-]+$/u;
 
-const fixture = () => {
-  const database = backendDatabase(seed);
+const fixture = (seedEffect = seed(), now?: () => string) => {
+  const database = backendDatabase(seedEffect);
 
   const http = makeBackendTestHttp(
     Effect.runSync(decodeBackendConfig(environment)),
@@ -269,6 +277,7 @@ const fixture = () => {
       handler: () => Effect.succeed(new Response(null, { status: 404 })),
       recordTrustedOriginRejection: () => Effect.void,
     },
+    { now },
   );
 
   const send = (path: string, person: string, init: RequestInit = {}) => {
@@ -424,6 +433,49 @@ const fixture = () => {
     ),
   );
 
+  const persistenceSnapshot = database.run(
+    Database.use((sql) =>
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY`;
+
+          // Discover every receipt, audit and outbox, including auth-owned ones: no hand-picked
+          // side-effect table list can hide a newly introduced write from this refusal check.
+          const relations = yield* SqlSchema.findAll({
+            Request: Schema.Void,
+            Result: Schema.Struct({ schemaName: Schema.String, tableName: Schema.String }),
+            execute: () => sql`SELECT table_schema AS "schemaName", table_name AS "tableName"
+              FROM information_schema.tables WHERE table_schema IN ('public','auth') AND (
+                table_name ~ '(receipt|audit|outbox)' OR table_name IN (
+                  'admission_applications','admission_applicants','applicant_account_links',
+                  'admission_returning_registrations','organization_memberships','organization_delegations',
+                  'application_admission_evidence','application_admission_decision_evidence',
+                  'admission_application_outcomes','admission_outcome_announcements',
+                  'recruitment_interviews','recruitment_interview_conducts',
+                  'recruitment_interview_cancellations','recruitment_interview_correction_assessments',
+                  'recruitment_interview_effective_assessments'
+                )) ORDER BY table_schema COLLATE "C", table_name COLLATE "C"`,
+          })(undefined);
+
+          return yield* Effect.forEach(
+            relations,
+            Effect.fnUntraced(function* (relation: (typeof relations)[number]) {
+              const { rows } = yield* SqlSchema.findOne({
+                Request: Schema.Void,
+                Result: Schema.Struct({ rows: Schema.Array(Schema.JsonObject) }),
+                execute: () => sql`SELECT COALESCE(
+                  jsonb_agg(to_jsonb(stored) ORDER BY to_jsonb(stored)::text COLLATE "C"),
+                  '[]'::jsonb) AS rows FROM ${sql(relation.schemaName)}.${sql(relation.tableName)} stored`,
+              })(undefined);
+
+              return { ...relation, rows };
+            }),
+          );
+        }),
+      ),
+    ),
+  );
+
   return {
     send,
     post,
@@ -438,10 +490,234 @@ const fixture = () => {
     rewriteEnvelope,
     rejectReceiptCommits,
     allowReceiptCommits,
+    persistenceSnapshot,
   };
 };
 
 describe("admission outcomes are Admitted or Rejected over HTTP and PostgreSQL", () => {
+  /**
+   * Effx spec 0027, approved two-outcome policy (1): "Kanskje and a returning assistant without
+   * an interview get an explicit Rekruttering Admitted or Rejected decision."
+   * Spec 0029, ruling 2: "Freeze the cited assessment and standing at closure."
+   * An assignment alone supplies neither a Kanskje assessment nor Returning registration.
+   * This catches promoting an incomplete interview into a new, uncited explicit decision.
+   */
+  it.live(
+    "refuses an initial Rejected decision for a linked incomplete interview without assessment and leaves SQL unchanged",
+    () =>
+      Effect.gen(function* () {
+        const key = "incomplete-linked";
+        const applicationId = applicationOf(key);
+        const interviewId = `interview-${key}`;
+        const now = "2031-11-12T00:00:00.000Z";
+
+        const { send, command, outcomeRoute, decisionEtag, persistenceSnapshot } = fixture(
+          seed([...applicants, { key, firstName: "Ina" }]).pipe(
+            Effect.andThen(
+              Database.use(
+                (sql) => sql`UPDATE organization_memberships
+                  SET is_team_leader=true WHERE membership_id='outcome-m-recruiter'`,
+              ),
+            ),
+            Effect.asVoid,
+          ),
+          () => now,
+        );
+
+        // Same authorized route, clock and validator/key grammar; both controls start undecided.
+        // Returning is deliberately a positive WITHOUT an interview, not an unreviewed applicant.
+        for (const control of [
+          { key: "maybe", basis: "Kanskje", outcome: "Rejected" },
+          { key: "returning", basis: "Returning", outcome: "Admitted" },
+        ] as const) {
+          const read = yield* send(
+            `/api/admission-outcomes/${applicationOf(control.key)}`,
+            "recruiter",
+          );
+
+          expect(read.status, read.text).toBe(200);
+          const initial = yield* decodeBody(AdmissionOutcomeResource, read);
+          expect(initial).toMatchObject({
+            basis: control.basis,
+            state: "ApplicationSubmitted",
+            outcome: null,
+            revision: 0,
+            placed: false,
+          });
+
+          const decided = yield* command(
+            "POST",
+            outcomeRoute(control.key, ":decide"),
+            "recruiter",
+            { outcome: control.outcome },
+            initial.etag,
+            `initial-control-${control.key}`,
+          );
+
+          expect(decided.status, decided.text).toBe(200);
+          expect(yield* decodeBody(AdmissionOutcomeResource, decided)).toMatchObject({
+            basis: control.basis,
+            state: "ApplicationSubmitted",
+            outcome: control.outcome,
+            revision: 1,
+          });
+        }
+
+        const read = yield* send(`/api/admission-outcomes/${applicationId}`, "recruiter");
+        expect(read.status, read.text).toBe(200);
+        const initial = yield* decodeBody(AdmissionOutcomeResource, read);
+        expect(initial).toMatchObject({
+          applicationId,
+          basis: "Unreviewed",
+          state: "ApplicationSubmitted",
+          outcome: null,
+          revision: 0,
+          placed: false,
+        });
+        const before = yield* persistenceSnapshot;
+
+        const rows = (tableName: string) => {
+          const relation = before.find(
+            (entry) => entry.schemaName === "public" && entry.tableName === tableName,
+          );
+
+          expect(relation, `snapshot includes public.${tableName}`).toBeDefined();
+
+          return relation!.rows;
+        };
+
+        expect(rows("organization_memberships")).toContainEqual(
+          expect.objectContaining({
+            person_id: "recruiter",
+            team_id: "outcome-recruitment",
+            is_team_leader: true,
+            end_at: null,
+          }),
+        );
+        expect(rows("organization_delegations")).toContainEqual(
+          expect.objectContaining({
+            team_id: "outcome-recruitment",
+            capability: "admissions.outcomes",
+            area: "Department",
+            area_department_id: departmentId,
+            holders: "AllMembers",
+            end_at: null,
+          }),
+        );
+        expect(rows("admission_applications")).toContainEqual(
+          expect.objectContaining({
+            application_id: applicationId,
+            applicant_id: `applicant-${key}`,
+            admission_period_id: "outcome-period",
+            department_id: departmentId,
+            decision_fence_version: 0,
+          }),
+        );
+        expect(rows("applicant_account_links")).toContainEqual(
+          expect.objectContaining({ applicant_id: `applicant-${key}`, person_id: key }),
+        );
+        expect(rows("recruitment_interviews")).toContainEqual(
+          expect.objectContaining({
+            interview_id: interviewId,
+            application_id: applicationId,
+            department_id: departmentId,
+            interviewer_person_id: "recruiter",
+            revision: 1,
+          }),
+        );
+
+        for (const tableName of [
+          "recruitment_interview_conducts",
+          "recruitment_interview_cancellations",
+          "recruitment_interview_correction_assessments",
+          "recruitment_interview_effective_assessments",
+        ])
+          expect(rows(tableName).filter((row) => row.interview_id === interviewId)).toEqual([]);
+
+        for (const tableName of [
+          "admission_returning_registrations",
+          "application_admission_decision_evidence",
+          "admission_application_outcomes",
+          "admission_outcome_announcements",
+        ])
+          expect(rows(tableName).filter((row) => row.application_id === applicationId)).toEqual([]);
+        expect(rows("application_admission_evidence")).toContainEqual(
+          expect.objectContaining({
+            application_id: applicationId,
+            interview_id: interviewId,
+            assessment_revision: null,
+            basis: "Unreviewed",
+            outcome: null,
+            decision_closed: false,
+            interview_completed: false,
+            interview_cancelled: false,
+            returning_registered: false,
+          }),
+        );
+        expect(rows("application_admission_decision_evidence")).toContainEqual(
+          expect.objectContaining({
+            application_id: applicationOf("maybe"),
+            basis: "Kanskje",
+            outcome: "Rejected",
+            interview_id: "interview-maybe",
+            assessment_revision: 2,
+            interview_completed: true,
+            interview_cancelled: false,
+            citation_state: "Cited",
+          }),
+        );
+        expect(
+          rows("recruitment_interviews").filter(
+            (row) => row.application_id === applicationOf("returning"),
+          ),
+        ).toEqual([]);
+        expect(rows("application_admission_decision_evidence")).toContainEqual(
+          expect.objectContaining({
+            application_id: applicationOf("returning"),
+            basis: "Returning",
+            outcome: "Admitted",
+            interview_id: null,
+            assessment_revision: null,
+            interview_completed: false,
+            returning_registered: true,
+            citation_state: "Cited",
+          }),
+        );
+        // Each control committed one durable HTTP capsule and cited outcome, not an announcement or mail.
+        expect(rows("native_http_idempotency_receipts")).toHaveLength(2);
+
+        for (const receipt of rows("native_http_idempotency_receipts"))
+          expect(receipt).toMatchObject({
+            operation_id: "admissionOutcomes.decideOutcome",
+            state: "Complete",
+            status: 200,
+          });
+        expect(rows("admission_outcome_announcements")).toEqual([]);
+        expect(rows("admission_outcome_outbox")).toEqual([]);
+
+        const refused = yield* command(
+          "POST",
+          outcomeRoute(key, ":decide"),
+          "recruiter",
+          { outcome: "Rejected" },
+          initial.etag,
+          "initial-empty-assessment",
+        );
+
+        const after = yield* persistenceSnapshot;
+        const problem = NativeProblemRegistry["admission-outcome.unreviewed"];
+        expect(refused.status, refused.text).toBe(problem.status);
+        expect(refused.headers.get("content-type")).toBe("application/problem+json");
+        expect(yield* decodeBody(AdmissionOutcomeCommandProblem, refused)).toMatchObject({
+          ...problem,
+          code: "admission-outcome.unreviewed",
+        });
+        // Even the versioned fence, all domain/HTTP receipts, audit and outbox rows roll back.
+        expect(after).toEqual(before);
+        expect(yield* decisionEtag(key)).toBe(initial.etag);
+      }),
+  );
+
   it.live("accepts no Substitute outcome on any command route", () =>
     Effect.gen(function* () {
       const { command, outcomeRoute, decisionEtag, outcomes } = fixture();
