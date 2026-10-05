@@ -1,5 +1,14 @@
 ## Unreleased
 
+### Canonical Recruitment and mixed onboarding contracts
+
+- Replace sixteen Recruitment and two Recruitment-owned onboarding HTTP declarations and raw bindings with canonical generated contracts.
+- Keep one mixed onboarding root with typed completion of Identity's handwritten claim. Preserve claim ownership and credential rules.
+- Keep all four Foldkit programs' handwritten Command bodies over the generated SDK and existing bridges.
+- Preserve transactional authority, domain locks, exact replay, frozen decision citations, final announcements, and immutable delivery envelopes.
+- Require complete synthetic primary-interviewer contacts in local Returning fixture construction. Keep production missing-contact refusal unchanged.
+- Record LOCAL implementation separately from acceptance. Final-source journeys, parity, aggregate checks, and all 195 model outcomes remain gates.
+
 ### Correction window dialog openers
 
 - Keep eligible Reopen and Close buttons enabled while their native Dialog is open, so native focus restoration can use the opener.

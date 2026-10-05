@@ -322,6 +322,30 @@ A generated artifact must name its source and generator. Generation must be
 repeatable. Git ignores generated artifacts; regenerate them instead of committing them.
 Do not hand-edit a generated client or maintain a separate route list in documentation.
 
+Recruitment's canonical declarations live in [recruitment.effx.ts](../packages/http-api/src/recruitment.effx.ts).
+[onboarding.effx.ts](../packages/http-api/src/onboarding.effx.ts) declares the two Recruitment-owned onboarding operations.
+These eighteen operations join the prior 56 operations in one 74-operation project IR across eleven generated groups.
+The complete external native contract retains 111 operations, including operations outside these generated groups.
+The contract and backend generation configurations consume the same declarations. Contracts generate before raw handlers.
+AOT access declarations describe policy. Request-local typed guards call the existing authorization interpreter at the original snapshot or transaction decision point.
+Generated contracts and raw bindings do not acquire business authority or replace domain-specific locks.
+
+Onboarding uses one native group under the external root, not a second generated root.
+Its generated factory registers `readBoard` and `command`, then requires typed completion of the handwritten Identity `claim` handler.
+A missing claim prevents construction of the group layer.
+Identity retains credential selection, account provisioning, capability consumption, and claim transaction ownership.
+After Identity migrates claim, the complete generated group replaces this completion seam.
+
+Fresh transaction authorization precedes HTTP receipt lookup. Exact replay returns the stored response capsule before mutation-only preconditions.
+New commands retain domain locks and atomic mutation, audit, outbox, and receipt writes.
+Frozen decision citations, final announcements, immutable message envelopes, and exact receipt bytes remain application-owned.
+The generated SDK consumes the canonical contract. It does not change those persistence semantics.
+
+Local journey fixtures must construct every dependency of their declared participants before the journey uses them.
+The Returning fixture owns its synthetic primary interviewer's contact projection before its primary appointment.
+Identity provisioning alone does not create that contact projection.
+Fixture completeness is test construction, not business authority. Production reads still refuse a missing required contact.
+
 ## Frontend state
 
 The homepage and dashboard render server-owned facts. The dashboard uses Foldkit
@@ -345,6 +369,14 @@ controls. Response-body consumption shares the same cancellation lifetime. Foldk
 fibers retain their embedded runtime as the lifetime owner. EmbedHandle disposal interrupts
 the owned browser requests. Abort does not prove rollback of a server command that already
 committed.
+
+The four Recruitment programs keep handwritten Foldkit Command bodies: assignment, scheduling/conduct, invitation response, and maintenance.
+They call the generated SDK directly or through the existing browser bridges. Generated Commands are not part of this cutover.
+
+The native correction-window Dialog owns background isolation, focus containment, dismissal, and focus restoration.
+Eligible Reopen and Close openers remain enabled while the dialog is open, so native restoration can focus the opener.
+Server `canReopen` and `canClose` observations and mutation locks still control opener eligibility.
+The update function refuses reentrant opens and pending dismissal. An open dialog grants no server authority.
 
 ## Runtime composition
 

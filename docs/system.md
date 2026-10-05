@@ -251,6 +251,18 @@ versioned transaction fence. Every committing correction rechecks participant au
 known-self identity, cancellation, and the current window before receipt replay. Later
 corrections preserve final announcements and their original messages.
 
+Announcement validators follow the caller's current department-scoped authority.
+An Announce-only caller can use only the current Minimal validator and receives no Full representation.
+A caller with both Decide and Announce authority can use the current Full or Minimal validator.
+The handler resolves both authorities in the committing transaction. The domain-locked callback compares exact strong validator bytes against the current entry.
+The representation namespaces remain distinct. A stale Full or Minimal validator fails with `precondition.failed`/412.
+Fresh authorization precedes receipt lookup. Exact replay returns the original capsule before mutation-only preconditions, without another mutation, audit event, or message envelope.
+The announcement response remains Minimal and private/no-store. Validator selection does not change frozen citations or final outcomes.
+
+The correction-window dialog uses native modal isolation and native focus restoration.
+Server eligibility and mutation locks control Reopen and Close. An open dialog alone does not disable an otherwise eligible opener.
+The workflow refuses reentrant opens and pending dismissal. Dialog state grants no correction-window authority.
+
 The announcement queues one message to the email address on the application. The
 server renders its subject, HTML, and text from the effective template when it
 announces, and never again. A later template edit does not change a queued message.

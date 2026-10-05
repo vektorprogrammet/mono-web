@@ -12,26 +12,43 @@ Local implementation and acceptance do not authorize production, provider, or so
 
 Recruitment migration 0029 has operator approval reported by the director; exact words not
 preserved. This is not verified direct operator approval. Effx commit `b88523d2a8ffcbde5c19008d649da653c26ee475` records the report under `docs/specs/0029-recruitment-migration.md`.
-This branch starts from the accepted Admissions integration `815a28f8`.
-R1–R8 have accepted red evidence at handwritten revisions aee83078 and 06ba6607.
-The evidence remains outside the product tree in `/srv/share/projects/effx-recruitment-0029-evidence/red/`.
-All isolated repair sources, correction-window UI, model controls, upgrade proofs, and eligible
-positive fixtures are integrated locally. Their staged hooks passed. Focused backend controls
-passed 103/103 at `191b7ad3`; real bridge POST cancellation controls passed 14/14 at `83d2a804`.
-The actual built onboarding journey passed all ten browser cases at `1f59263a`, with no skips,
-unexpected failures or flaky cases. These are synthetic loopback observations, not provider proof.
-Evidence is retained outside the product tree in `/srv/share/projects/effx-recruitment-0029-evidence/green-suites.json`.
-The repaired handwritten baseline `16481296` passed serial `just check --concurrency=1` and `just test --concurrency=1`.
-The runs passed 16/16 type/generation tasks and 21/21 aggregate tasks. Four opt-in `auth-live` database tests remained skipped.
-Historical upgrade controls passed 20/20 on PostgreSQL 17.11 and PGlite. The aggregate also ran PostgreSQL 18/PGlite upgrade controls.
-`just model validate` passed. The earlier 194-command run found one Y4 counterexample.
-The real PostgreSQL 18 HTTP test at `6a2b7514` rejected an uncited, incomplete Rejected decision
-with `admission.outcome.unreviewed`/422 and exact unchanged SQL state. Valid Kanskje and Returning controls passed.
-The defect was in the model: `none in S` admitted an empty decision basis. The model-only repair at `ac1d1012`
-retains all 194 obligations and adds one seeded empty-basis mutant. Its single persistent 195-command run
-uses `proc://recruitment-authority-model-195`; it remains running without whole-model acceptance.
-The evidence is in `/srv/share/projects/effx-recruitment-0029-evidence/repaired-baseline-acceptance.json`.
-Migrations 0083–0085 are registered. Migration 0085 neither rounds nor rewrites historical instants.
+The current phase is LOCAL implemented, not accepted. The source descends from the accepted Admissions integration `815a28f8`.
+Canonical declarations cover sixteen Recruitment operations and two Recruitment-owned onboarding operations.
+The project IR contains 74 operations across eleven generated groups. The complete external native contract retains 111 operations.
+These eleven groups do not represent every external API group.
+
+Identity owns the handwritten onboarding claim.
+One mixed onboarding root requires typed claim completion after the generated handlers register `readBoard` and `command`.
+The four Foldkit programs retain handwritten Command bodies over the generated SDK, directly or through the existing bridges.
+The AOT contracts and raw-handler types do not replace domain authority, transaction locks, receipts, or delivery ownership.
+The system and architecture documents describe the implemented validator, correction, frozen-outcome, and dialog policies.
+
+The third and final original full R2 diagnostic failed with `ProfileContactNotFound` during `ReadBoard`.
+The unchanged mapper returned `recruitment.unavailable`/503. The original 30-second button assertion remained red after eighteen correction stages.
+The diagnostic did not record the missing runtime Person identity. Source establishes an incomplete Returning fixture, not runtime Person attribution.
+
+The director approved a narrow repair in the local Returning fixture owner.
+That fixture must seed its declared primary interviewer's contact projection before the primary appointment, using its existing synthetic data.
+Contact construction and the primary appointment belong in the same fixture transaction, with the same commit or rollback.
+Fixture completeness grants no business authority and permits no production fallback or change to the missing-contact refusal.
+
+The original full R2 remains a required regression confirmation, not a fourth diagnostic or a target-only substitute.
+Its original actions, filters, selectors, timeouts, denials, no-write snapshots, corrections, frozen citations, announcements, and late focus assertions remain gates.
+
+Acceptance requires one clean source after fixture and documentation integration:
+
+- All 28 original acceptance rows, including the complete original R2 journey.
+- The full 39-case HTTP regression suite, canonical contract/handler parity, and serial `just check --concurrency=1` and `just test --concurrency=1`.
+- Before/after source, emitted, and materialized artifact manifests, plus the actual build's Git HEAD stamp.
+- All 195 completed outcomes from the existing persistent authority-model run and byte equality with its model source.
+
+The single `proc://recruitment-authority-model-195` run remains active. Whole-model acceptance and its completed outcomes remain pending.
+The model source digest is `ca4460362b618320f0c6a200e98be8dc0692ee37f0b1113d94cf0d5c7fc8d4e7`.
+Partial progress does not establish SAT instance counts or completed obligations. The existing run must not restart.
+Migrations 0083–0085 remain registered. Migration 0085 neither rounds nor rewrites historical instants.
+Historical repaired-baseline and prerequisite results remain external evidence, not final-source acceptance.
+Evidence stays in `/srv/share/projects/effx-recruitment-0029-evidence/`.
+The final manifest and operator approval receipt stay outside the repository. Acceptance requires no evidence-only commit after the source freeze.
 No generated Recruitment/onboarding cutover is accepted.
 The operator’s direct instruction was: “Forgoe the heavy job slot in place of checking the machine status for
 what resources are taken” (2026-10-04, `history://Main:253-255`). The director supplied the
@@ -46,28 +63,16 @@ For a suite timeout, retain NVMe `io_ticks` and elapsed time around the run to
 distinguish actual disk saturation from a code failure. Staged-only formatting/lint
 hooks are light work. The existing owned Alloy run stays running.
 
-The e04 mixed-onboarding module fails type-checking because its subset factory leaves `claim`
-unhandled (TS2322). The director approved a typed completion continuation: the generated factory
-registers `readBoard` and `command`, then requires handwritten `claim` before a group layer exists.
-A missing claim remains a compile error. The compiler successor `7290ea5` fixes D1/D2 without
-a root shim, output edit, suppression, or sequencing workaround. The native recipe already orders
-contracts before handlers. The director accepted the fresh nine-group re-vendor prerequisite
-for LOCAL cutover at `ac51f9aa`: fresh own frozen install, cold contract→handlers generation,
-all ten amended parity conditions, full check 16/16, and full test 21/21 passed, with zero cached tasks.
-Four pre-existing opt-in `auth-live` tests remained skipped; no zero-skip claim is made.
-All eighteen prior contract/raw-handler files remain byte-identical to the frozen a879 projections.
-The record is `/srv/share/projects/effx-recruitment-0029-evidence/revendor-7290-ac51f9aa-1791210940758-gate.json`.
-The parity wrapper’s missing-jq exit 127 is preserved beside the independent retained-receipt assertion exit 0.
-The pre-revendor repair revision `09ee6a2c` passed all nine focused delivery cases. At `f01fe503`,
-all nine original cases and two interruption/isolation controls passed (11/11). Each case now
-owns its migrated database and native queue scope; a 200 ms Idle result no longer masquerades
-as fixture isolation. Retry policy, five-second test bounds, teardown, and behavioral assertions
-remain unchanged. The original aggregate’s third failure directly showed cross-case leftover delivery.
-The pre-revendor 9/9 is a passing control, not a failing-before reproduction; the first two causes remain unproven.
-The fresh whole aggregate at `ac51f9aa` also passed the original nine cases and both isolation controls (11/11).
-Recruitment/onboarding source integration is now unparked under frozen spec 0029: all eighteen operations,
-one native onboarding root with typed manual claim completion, and handwritten Foldkit Commands over the SDK.
-Actual named journeys, controls, and final clean exact-source gates remain required before migration acceptance.
+The director accepted the nine-group re-vendor prerequisite at `ac51f9aa` for LOCAL implementation only.
+The installed compiler supports typed completion of the mixed onboarding group. A missing claim remains a compile error.
+The native recipe generates contracts before handlers, without a root shim or generated-output edit.
+Prior-group byte identity, the repaired OpenAPI semantics, and SDK parity remain final-source gates.
+Delivery tests own their migrated database and native queue scope. An Idle result does not establish fixture isolation.
+Earlier prerequisite receipts and repair chronology remain outside the product tree. They do not establish final acceptance.
+The retained source-`750d0389` NEW aggregate receipt records historical canonical/parity, HTTP39, maintenance, check, and test results.
+It remains separate from the final candidate and its required original acceptance rows.
+The record is `/srv/share/projects/effx-recruitment-0029-evidence/final750-aggregate-BeIa6C-receipt.json`.
+Unmerged worktrees remain retained. Cleanup requires a proven merge or explicit disposal authority.
 The credential-exposure incident is held separately. Raw installer evidence remains private and unpublished;
 token revocation is recommended but awaits the operator’s decision. No credential or transcript changes are authorized.
 Stopping verbose installs is the director’s containment order, not a quoted operator instruction.
