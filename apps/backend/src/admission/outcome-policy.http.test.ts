@@ -10,6 +10,8 @@ import {
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import {
   AdmissionOutcomeCommandProblem,
+  AdmissionOutcomeAnnounceResource,
+  AdmissionOutcomeBoardResource,
   AdmissionOutcomeResource,
 } from "@vektorprogrammet/http-api";
 import { NativeProblemRegistry } from "@vektorprogrammet/http-api/http-semantics";
@@ -348,6 +350,57 @@ const fixture = (seedEffect = seed(), now?: () => string) => {
       return entry!.etag;
     });
 
+  /** Read the real full representation as the seeded administrator, who holds both capabilities. */
+  const fullEtag = (key: string, source: "single GET" | "board") =>
+    Effect.gen(function* () {
+      const read = yield* send(
+        source === "single GET"
+          ? `/api/admission-outcomes/${applicationOf(key)}`
+          : `/api/admission-outcomes?${scope}`,
+        "admin",
+      );
+
+      expect(read.status).toBe(200);
+
+      if (source === "single GET") {
+        const entry = yield* decodeBody(AdmissionOutcomeResource, read);
+        expect(read.headers.get("etag") === entry.etag).toBe(true);
+
+        return entry.etag;
+      }
+
+      const board = yield* decodeBody(AdmissionOutcomeBoardResource, read);
+      expect(AdmissionOutcomeBoardResource.guards.Decide(board)).toBe(true);
+
+      if (!AdmissionOutcomeBoardResource.guards.Decide(board))
+        return yield* Effect.die("dual authority did not receive the Decide board");
+
+      expect(board.canAnnounce).toBe(true);
+
+      const entry = board.entries.find(
+        (candidate) => candidate.applicationId === applicationOf(key),
+      );
+
+      expect(entry).toBeDefined();
+
+      return entry!.etag;
+    });
+
+  const renameApplicant = (key: string) =>
+    database.run(
+      Database.use(
+        (sql) => sql`UPDATE admission_applicants SET first_name = first_name || ' updated'
+      WHERE applicant_id = ${`applicant-${key}`}`,
+      ),
+    );
+
+  const revokeAdministrator = database.run(
+    Database.use(
+      (sql) => sql`UPDATE organization_global_administrator_grants
+      SET end_at='2031-11-10T00:00:00Z' WHERE person_id='admin'`,
+    ),
+  );
+
   const announce = (person: string, key: string, etag: string, idempotencyKey: string) =>
     command(
       "POST",
@@ -439,22 +492,14 @@ const fixture = (seedEffect = seed(), now?: () => string) => {
         Effect.gen(function* () {
           yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY`;
 
-          // Discover every receipt, audit and outbox, including auth-owned ones: no hand-picked
-          // side-effect table list can hide a newly introduced write from this refusal check.
+          // Snapshot every public/auth table and view, including fences, receipts, audit and outbox.
+          // An exact refusal comparison cannot hide a write in a newly introduced relation.
           const relations = yield* SqlSchema.findAll({
             Request: Schema.Void,
             Result: Schema.Struct({ schemaName: Schema.String, tableName: Schema.String }),
             execute: () => sql`SELECT table_schema AS "schemaName", table_name AS "tableName"
-              FROM information_schema.tables WHERE table_schema IN ('public','auth') AND (
-                table_name ~ '(receipt|audit|outbox)' OR table_name IN (
-                  'admission_applications','admission_applicants','applicant_account_links',
-                  'admission_returning_registrations','organization_memberships','organization_delegations',
-                  'application_admission_evidence','application_admission_decision_evidence',
-                  'admission_application_outcomes','admission_outcome_announcements',
-                  'recruitment_interviews','recruitment_interview_conducts',
-                  'recruitment_interview_cancellations','recruitment_interview_correction_assessments',
-                  'recruitment_interview_effective_assessments'
-                )) ORDER BY table_schema COLLATE "C", table_name COLLATE "C"`,
+              FROM information_schema.tables WHERE table_schema IN ('public','auth')
+              ORDER BY table_schema COLLATE "C", table_name COLLATE "C"`,
           })(undefined);
 
           return yield* Effect.forEach(
@@ -483,6 +528,9 @@ const fixture = (seedEffect = seed(), now?: () => string) => {
     outcomeRoute,
     decisionEtag,
     announceEtag,
+    fullEtag,
+    renameApplicant,
+    revokeAdministrator,
     announce,
     outcomes,
     envelopes,
@@ -878,6 +926,250 @@ const expectDefaultEnvelope = (envelope: typeof Envelope.Type, key: string, vari
   for (const field of [envelope.subject, envelope.text, envelope.html])
     expect(field).not.toMatch(/\{(firstName|departmentName|semesterName|schoolName)\}/u);
 };
+
+/** Regression for authorized representation selection, not shared tags for different wire bytes. */
+describe("announcement authorized current representations", () => {
+  for (const source of ["single GET", "board"] as const) {
+    it.live(
+      "accepts dual-capability FULL " + source + " ETag for announce with exact receipt replay",
+      () =>
+        Effect.gen(function* () {
+          const { fullEtag, announceEtag, announce, persistenceSnapshot, soleEnvelope, envelopes } =
+            fixture();
+
+          const full = yield* fullEtag("ja-free", source);
+          const minimal = yield* announceEtag("ja-free");
+          expect(full === minimal).toBe(false);
+          const before = yield* persistenceSnapshot;
+          const first = yield* announce("admin", "ja-free", full, "authorized-full");
+
+          // This exact expectation is red on the original product: real FULL GET/board -> 412.
+          expect(first.status).toBe(200);
+
+          const resource = yield* Schema.decodeUnknownEffect(AdmissionOutcomeAnnounceResource)(
+            first.body,
+            {
+              onExcessProperty: "error",
+            },
+          );
+
+          expect(resource).toMatchObject({
+            state: "OutcomeAnnounced",
+            outcome: "Admitted",
+            placed: false,
+          });
+          expect(first.headers.get("cache-control")).toBe("private, no-store");
+          expect(first.headers.get("etag") === resource.etag).toBe(true);
+          expect(resource.etag === (yield* announceEtag("ja-free"))).toBe(true);
+          const queued = yield* soleEnvelope("ja-free");
+          expectDefaultEnvelope(queued.envelope, "ja-free", "AdmittedPlacementPending");
+          const committed = yield* persistenceSnapshot;
+
+          const rows = (snapshot: typeof committed, tableName: string) => {
+            const relation = snapshot.find(
+              (row) => row.schemaName === "public" && row.tableName === tableName,
+            );
+
+            expect(relation).toBeDefined();
+
+            return relation!.rows;
+          };
+
+          expect(rows(committed, "application_admission_decision_evidence")).toContainEqual(
+            expect.objectContaining({
+              application_id: applicationOf("ja-free"),
+              basis: "Ja",
+              outcome: "Admitted",
+              interview_id: "interview-ja-free",
+              assessment_revision: 2,
+              citation_state: "Cited",
+            }),
+          );
+          expect(rows(committed, "admission_outcome_announcements")).toHaveLength(1);
+          expect(rows(committed, "admission_application_outcomes")).toHaveLength(1);
+          expect(rows(committed, "native_http_idempotency_receipts")).toHaveLength(1);
+          expect(rows(committed, "native_http_idempotency_receipts")[0]).toMatchObject({
+            operation_id: "admissionOutcomes.announceOutcome",
+            state: "Complete",
+            status: 200,
+          });
+
+          const fence = (snapshot: typeof committed) =>
+            rows(snapshot, "admission_applications").find(
+              (row) => row.application_id === applicationOf("ja-free"),
+            )!.decision_fence_version;
+
+          expect(Number(fence(committed))).toBeGreaterThan(Number(fence(before)));
+          // Announcement evidence is append-only; it does not manufacture correction-window audit.
+          expect(committed.filter((relation) => /audit/u.test(relation.tableName))).toEqual(
+            before.filter((relation) => /audit/u.test(relation.tableName)),
+          );
+
+          const replay = yield* announce("admin", "ja-free", full, "authorized-full");
+          expect(replay.status).toBe(first.status);
+          expect(replay.text === first.text).toBe(true);
+          expect(replay.headers.get("etag") === first.headers.get("etag")).toBe(true);
+          expect(replay.headers.get("content-type")).toBe(first.headers.get("content-type"));
+          expect(replay.headers.get("cache-control")).toBe("private, no-store");
+          expect(yield* persistenceSnapshot).toEqual(committed);
+
+          // Same identity/key with different validator bytes is a digest conflict, never a replay.
+          const changedDigest = yield* announce("admin", "ja-free", minimal, "authorized-full");
+          expect(yield* refusal(changedDigest, [409])).toBe("idempotency.digest-conflict");
+          expect(yield* persistenceSnapshot).toEqual(committed);
+          const newKey = yield* announce("admin", "ja-free", full, "authorized-full-new-key");
+          expect(yield* refusal(newKey, [412])).toBe("precondition.failed");
+          expect(yield* persistenceSnapshot).toEqual(committed);
+
+          // Both exact current tags pass the guard after terminality, then finality returns 409.
+          for (const current of [yield* fullEtag("ja-free", source), resource.etag]) {
+            const terminal = yield* announce("admin", "ja-free", current, "authorized-terminal");
+            expect(yield* refusal(terminal, [409])).toBe("admission-outcome.final");
+            expect(yield* persistenceSnapshot).toEqual(committed);
+          }
+
+          expect(yield* envelopes("ja-free")).toEqual([queued]);
+        }),
+    );
+  }
+
+  for (const person of ["admin", "coordinator"]) {
+    it.live("accepts " + person + " MINIMAL read and announcement response validators", () =>
+      Effect.gen(function* () {
+        const { announceEtag, announce, persistenceSnapshot, soleEnvelope } = fixture();
+        const initial = yield* announceEtag("ja-free");
+        const first = yield* announce(person, "ja-free", initial, "authorized-minimal");
+        expect(first.status).toBe(200);
+
+        const resource = yield* Schema.decodeUnknownEffect(AdmissionOutcomeAnnounceResource)(
+          first.body,
+          {
+            onExcessProperty: "error",
+          },
+        );
+
+        expect(first.headers.get("etag") === resource.etag).toBe(true);
+        expect(first.headers.get("cache-control")).toBe("private, no-store");
+        yield* soleEnvelope("ja-free");
+        const committed = yield* persistenceSnapshot;
+
+        const terminal = yield* announce(
+          person,
+          "ja-free",
+          resource.etag,
+          "minimal-response-new-key",
+        );
+
+        expect(yield* refusal(terminal, [409])).toBe("admission-outcome.final");
+        expect(yield* persistenceSnapshot).toEqual(committed);
+      }),
+    );
+  }
+
+  it.live(
+    "refuses stale FULL and stale MINIMAL while both current namespaces exist without any SQL write",
+    () =>
+      Effect.gen(function* () {
+        const { fullEtag, announceEtag, renameApplicant, announce, persistenceSnapshot } =
+          fixture();
+
+        const oldFull = yield* fullEtag("ja-free", "single GET");
+        const oldMinimal = yield* announceEtag("ja-free");
+        yield* renameApplicant("ja-free");
+        const currentFull = yield* fullEtag("ja-free", "single GET");
+        const currentMinimal = yield* announceEtag("ja-free");
+        expect(oldFull === currentFull).toBe(false);
+        expect(oldMinimal === currentMinimal).toBe(false);
+        expect(currentFull === currentMinimal).toBe(false);
+        const before = yield* persistenceSnapshot;
+
+        for (const [index, stale] of [oldFull, oldMinimal].entries()) {
+          const refused = yield* announce(
+            "admin",
+            "ja-free",
+            stale,
+            "stale-real-namespace-" + index,
+          );
+
+          expect(yield* refusal(refused, [412])).toBe("precondition.failed");
+          expect(yield* persistenceSnapshot).toEqual(before);
+        }
+      }),
+  );
+
+  it.live(
+    "refuses announcer-only FULL with current MINIMAL available and leaves SQL unchanged",
+    () =>
+      Effect.gen(function* () {
+        const { fullEtag, announceEtag, announce, persistenceSnapshot, soleEnvelope } = fixture();
+        const full = yield* fullEtag("ja-free", "single GET");
+        const minimal = yield* announceEtag("ja-free");
+        const before = yield* persistenceSnapshot;
+        const refused = yield* announce("coordinator", "ja-free", full, "announcer-only-full");
+        expect(yield* refusal(refused, [412])).toBe("precondition.failed");
+        expect(yield* persistenceSnapshot).toEqual(before);
+
+        const accepted = yield* announce(
+          "coordinator",
+          "ja-free",
+          minimal,
+          "announcer-only-minimal",
+        );
+
+        expect(accepted.status).toBe(200);
+        yield* Schema.decodeUnknownEffect(AdmissionOutcomeAnnounceResource)(accepted.body, {
+          onExcessProperty: "error",
+        });
+        yield* soleEnvelope("ja-free");
+      }),
+  );
+
+  it.live(
+    "denies freshly revoked announcement authority before exact successful capsule replay",
+    () =>
+      Effect.gen(function* () {
+        const { announceEtag, announce, revokeAdministrator, persistenceSnapshot } = fixture(
+          seed(),
+          () => "2031-11-12T00:00:00.000Z",
+        );
+
+        const minimal = yield* announceEtag("ja-free");
+        const first = yield* announce("admin", "ja-free", minimal, "revoke-before-replay");
+        expect(first.status).toBe(200);
+        yield* revokeAdministrator;
+        const before = yield* persistenceSnapshot;
+        const denied = yield* announce("admin", "ja-free", minimal, "revoke-before-replay");
+        expect(yield* refusal(denied, [403])).toBe("authority.denied");
+        expect(yield* persistenceSnapshot).toEqual(before);
+      }),
+  );
+
+  it.live(
+    "rolls FULL announcement citation fence audit outbox and receipt back when receipt commit fails",
+    () =>
+      Effect.gen(function* () {
+        const {
+          fullEtag,
+          announce,
+          rejectReceiptCommits,
+          allowReceiptCommits,
+          persistenceSnapshot,
+          soleEnvelope,
+        } = fixture();
+
+        const full = yield* fullEtag("ja-free", "single GET");
+        yield* rejectReceiptCommits;
+        const before = yield* persistenceSnapshot;
+        const failed = yield* announce("admin", "ja-free", full, "full-receipt-rollback");
+        expect(yield* refusal(failed, [503])).toBe("idempotency.unavailable");
+        expect(yield* persistenceSnapshot).toEqual(before);
+        yield* allowReceiptCommits;
+        const retried = yield* announce("admin", "ja-free", full, "full-receipt-rollback");
+        expect(retried.status).toBe(200);
+        yield* soleEnvelope("ja-free");
+      }),
+  );
+});
 
 describe("announcing an outcome over HTTP and PostgreSQL", () => {
   it.live("reaches the protected announce endpoint and answers a stale If-Match with 412", () =>
