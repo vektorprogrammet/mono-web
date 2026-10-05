@@ -25,6 +25,8 @@ type Endpoints = HttpApiGroup.Endpoints<(typeof ExternalNativeApi)["groups"]["re
 
 type Guards = typeof recruitmentGuards;
 
+type TestGuard = () => Effect.Effect<unknown, Effect.Error<ReturnType<Guards[keyof Guards]>>>;
+
 type UnexpectedFailures = {
   [K in keyof Guards]: Exclude<
     Effect.Error<ReturnType<Guards[K]>>,
@@ -91,7 +93,7 @@ it("keeps every generated guard key, allowed failure channel and closed requirem
 
 it.effect("all sixteen guards refuse execution without a decision frame", () =>
   Effect.gen(function* () {
-    const guards = Object.values(recruitmentGuards);
+    const guards: ReadonlyArray<TestGuard> = Object.values(recruitmentGuards);
     expect(guards).toHaveLength(16);
 
     for (const guard of guards) expect(Exit.hasDies(yield* Effect.exit(guard()))).toBe(true);
@@ -113,11 +115,14 @@ it.effect(
           authorizationInstant: "2031-09-15T12:00:00.000Z",
         };
 
-        const guard = recruitmentGuards[operation];
+        const guard: TestGuard = recruitmentGuards[operation];
+        let invitationGuard = false;
 
-        const wrongKind = endpoint.middlewares.has(InvitationCapabilitySecurity)
-          ? person
-          : invitation;
+        for (const middleware of endpoint.middlewares) {
+          if (middleware === InvitationCapabilitySecurity) invitationGuard = true;
+        }
+
+        const wrongKind = invitationGuard ? person : invitation;
 
         expect(Exit.hasDies(yield* Effect.exit(authorizeAt(guard, wrongKind)))).toBe(true);
       }
@@ -128,7 +133,9 @@ it.effect("guards cannot reuse another operation's authority frame", () =>
   Effect.gen(function* () {
     const decision = personDecision("recruitment.readInvitationResponse");
 
-    for (const guard of Object.values(recruitmentGuards)) {
+    const guards: ReadonlyArray<TestGuard> = Object.values(recruitmentGuards);
+
+    for (const guard of guards) {
       expect(Exit.hasDies(yield* Effect.exit(authorizeAt(guard, decision)))).toBe(true);
     }
   }),
