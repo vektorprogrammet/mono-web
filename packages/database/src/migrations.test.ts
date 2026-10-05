@@ -1,10 +1,14 @@
-import { describe, expect, layer } from "@effect/vitest";
+import { describe, expect, it, layer } from "@effect/vitest";
+import { startDisposablePostgres } from "@monoweb/postgres";
 import { PGlite } from "@electric-sql/pglite";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { Schema, Predicate, Effect, FileSystem, Path } from "effect";
+import { Pool } from "pg";
 import { Database } from "./service.js";
 import { DatabaseTestLive, TestPlatform } from "./test-support/platform.js";
 import { type DatabaseMigrationId, selectDatabaseMigration } from "./migrations.js";
+import { pgQuery, pgTransaction } from "./pg-pool.js";
+import { withPostgresTestDatabase } from "./test-support/postgres.js";
 
 const inventory = [
   "organization_global_administrator_grants",
@@ -1611,3 +1615,260 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
     });
   },
 );
+
+const precisionBaseline = selectDatabaseMigration("84_application-email-period-ownership");
+
+const precisionPreceding = [...precisionBaseline.preceding, precisionBaseline.migration];
+
+const precisionRepair = selectDatabaseMigration("85_application-decision-instant-precision");
+
+// Registered 84 seed: completed, uncancelled Ja conduct closes a real Admitted citation.
+// One early-closed window and its successor retain their own audit and command receipts.
+const precisionSeed = `
+INSERT INTO public.admission_period_departments(department_id,name) VALUES('precision-department','Precision');
+INSERT INTO public.admission_period_semesters(semester_id,start_at,end_at) VALUES('precision-semester','2031-01-01','2032-01-01');
+INSERT INTO public.admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,last_command_id)
+  VALUES('precision-period','precision-department','precision-semester','2031-01-01','2031-03-01','precision-period-created');
+INSERT INTO public.admission_period_fields_of_study(field_of_study_id,department_id,name) VALUES('precision-field','precision-department','Math');
+INSERT INTO public.person_profiles(person_id,first_name,last_name) VALUES
+  ('precision-staff','Synthetic','Interviewer'),('precision-maintainer','Synthetic','Maintainer');
+INSERT INTO public.admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study)
+  SELECT 'precision-applicant-'||n,'precision-'||n||'@example.invalid','precision-'||n||'@example.invalid',
+    'Synthetic','Applicant','90000000',0,'precision-field',2 FROM generate_series(1,2) n;
+INSERT INTO public.admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at)
+  SELECT 'precision-application-'||n,'precision-applicant-'||n,'precision-period','precision-department','precision-field',2,'2031-02-01'::timestamptz
+    FROM generate_series(1,2) n;
+INSERT INTO public.recruitment_interview_schemas(interview_schema_id,name,question_count) VALUES('precision-schema','Precision',0);
+INSERT INTO public.recruitment_interviews(interview_id,application_id,department_id,interviewer_person_id,interview_schema_id,assigned_by_person_id,assigned_at,revision)
+  SELECT 'precision-interview-'||n,'precision-application-'||n,'precision-department','precision-staff','precision-schema','precision-staff','2031-02-01'::timestamptz,1
+    FROM generate_series(1,2) n;
+INSERT INTO public.recruitment_interview_conducts(interview_id,answers,explanatory_power,role_model,suitability,finalized_by_person_id,finalized_at,interview_revision,recommendation)
+  SELECT 'precision-interview-'||n,'[]'::jsonb,1,2,3,'precision-staff','2031-02-02'::timestamptz,1,'Ja' FROM generate_series(1,2) n;
+INSERT INTO public.admission_application_outcomes(application_id,revision,outcome,decided_by_person_id,decided_at,provenance)
+  VALUES('precision-application-1',1,'Admitted',NULL,'2031-02-03 10:00:00.123+00','Recommendation');
+INSERT INTO public.recruitment_assessment_correction_windows(interview_id,sequence,opened_by,opened_at,ends_at,reason)
+  VALUES('precision-interview-1',1,'precision-maintainer','2031-02-04 10:00:00.123+00','2031-02-05 10:00:00.456+00','Review original assessment');
+UPDATE public.recruitment_assessment_correction_windows SET closed_by='precision-maintainer',closed_at='2031-02-04 11:00:00.789+00',close_reason='Review withdrawn'
+  WHERE interview_id='precision-interview-1' AND sequence=1;
+INSERT INTO public.recruitment_assessment_correction_windows(interview_id,sequence,opened_by,opened_at,ends_at,reason)
+  VALUES('precision-interview-1',2,'precision-maintainer','2031-02-06 10:00:00.123+00','2031-02-07 10:00:00.456+00','Independent review');
+INSERT INTO public.recruitment_maintenance_command_receipts(actor_person_id,command_id,command_digest,result_json)
+  SELECT 'precision-maintainer','precision-window-command-'||n,repeat('a',64),
+    jsonb_build_object('_tag',CASE n WHEN 2 THEN 'AssessmentCorrectionClosed' ELSE 'AssessmentCorrectionReopened' END,
+      'interviewId','precision-interview-1','sequence',CASE n WHEN 3 THEN 2 ELSE 1 END) FROM generate_series(1,3) n;
+INSERT INTO public.recruitment_assessment_correction_window_audit(actor_person_id,command_id,interview_id,sequence,action,reason,occurred_at)
+  VALUES('precision-maintainer','precision-window-command-1','precision-interview-1',1,'Reopen','Review original assessment','2031-02-04 10:00:00.123+00'),
+    ('precision-maintainer','precision-window-command-2','precision-interview-1',1,'Close','Review withdrawn','2031-02-04 11:00:00.789+00'),
+    ('precision-maintainer','precision-window-command-3','precision-interview-1',2,'Reopen','Independent review','2031-02-06 10:00:00.123+00');
+`;
+
+const precisionSnapshotSql = `SELECT jsonb_build_object(
+  'applications',(SELECT jsonb_agg(to_jsonb(a) ORDER BY application_id) FROM public.admission_applications a),
+  'citations',(SELECT jsonb_agg(to_jsonb(e) ORDER BY application_id) FROM public.application_admission_decision_evidence e),
+  'conducts',(SELECT jsonb_agg(to_jsonb(c) ORDER BY interview_id) FROM public.recruitment_interview_conducts c),
+  'outcomes',(SELECT jsonb_agg(to_jsonb(o) ORDER BY application_id,revision) FROM public.admission_application_outcomes o),
+  'windows',(SELECT jsonb_agg(to_jsonb(w) ORDER BY interview_id,sequence) FROM public.recruitment_assessment_correction_windows w),
+  'audit',(SELECT jsonb_agg(to_jsonb(a) ORDER BY actor_person_id,command_id) FROM public.recruitment_assessment_correction_window_audit a),
+  'receipts',(SELECT jsonb_agg(to_jsonb(r) ORDER BY actor_person_id,command_id) FROM public.recruitment_maintenance_command_receipts r)
+)::text AS bytes`;
+
+const decodePrecisionSnapshot = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ bytes: Schema.String })),
+);
+
+const precisionSnapshot = Effect.fnUntraced(function* (pool: Pool) {
+  return yield* decodePrecisionSnapshot((yield* pgQuery(pool, precisionSnapshotSql)).rows);
+});
+
+// Each probe runs in a server-side subtransaction, so even successful controls are undone.
+// This keeps failed statements observable through PGlite's socket adapter as well as PG17/18.
+const precisionObserver = `CREATE FUNCTION public.precision_attempt(statement text) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE state text; violated text;
+BEGIN
+  BEGIN
+    EXECUTE statement;
+    RAISE EXCEPTION 'probe undone' USING ERRCODE='RB001';
+  EXCEPTION WHEN SQLSTATE 'RB001' THEN
+    RETURN jsonb_build_object('state','accepted','constraint',NULL);
+  END;
+EXCEPTION WHEN OTHERS THEN
+  GET STACKED DIAGNOSTICS state=RETURNED_SQLSTATE,violated=CONSTRAINT_NAME;
+  RETURN jsonb_build_object('state',state,'constraint',violated);
+END $$;
+CREATE FUNCTION public.precision_history_attempt(statement text,repair text,snapshot text) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE state text; violated text; before_bytes text; after_bytes text; result jsonb;
+BEGIN
+  BEGIN
+    EXECUTE statement;
+    EXECUTE snapshot INTO before_bytes;
+    BEGIN
+      EXECUTE repair;
+      state:='accepted';
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS state=RETURNED_SQLSTATE,violated=CONSTRAINT_NAME;
+    END;
+    EXECUTE snapshot INTO after_bytes;
+    result:=jsonb_build_object('state',state,'constraint',violated,'before',before_bytes,'after',after_bytes);
+    RAISE EXCEPTION 'historical fixture undone' USING ERRCODE='RB001';
+  EXCEPTION WHEN SQLSTATE 'RB001' THEN
+    RETURN result;
+  END;
+END $$;`;
+
+const decodePrecisionAttempt = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    result: Schema.Struct({
+      state: Schema.Literals(["accepted", "23514", "P0001"]),
+      constraint: Schema.NullOr(Schema.String),
+    }),
+  }),
+);
+
+const precisionAttempt = Effect.fnUntraced(function* (pool: Pool, statement: string) {
+  const rows = yield* pgQuery(pool, "SELECT public.precision_attempt($1) AS result", [statement]);
+
+  return (yield* decodePrecisionAttempt(rows.rows[0])).result;
+});
+
+const decodePrecisionHistoryAttempt = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    result: Schema.Struct({
+      state: Schema.Literals(["accepted", "23514"]),
+      constraint: Schema.NullOr(Schema.String),
+      before: Schema.String,
+      after: Schema.String,
+    }),
+  }),
+);
+
+const precisionHistoryAttempt = Effect.fnUntraced(function* (
+  pool: Pool,
+  statement: string,
+  source: string,
+) {
+  const rows = yield* pgQuery(pool, "SELECT public.precision_history_attempt($1,$2,$3) AS result", [
+    statement,
+    source,
+    precisionSnapshotSql,
+  ]);
+
+  return (yield* decodePrecisionHistoryAttempt(rows.rows[0])).result;
+});
+
+const precisionProbes = [
+  {
+    constraint: "application_admission_decision_evidence_closed_at_ms",
+    statement: (fraction: string) =>
+      `INSERT INTO public.application_admission_decision_evidence
+      (application_id,basis,outcome,interview_id,assessment_revision,interview_completed,interview_cancelled,returning_registered,citation_state,closed_at)
+      SELECT application_id,basis,'Admitted',interview_id,assessment_revision,interview_completed,interview_cancelled,returning_registered,citation_state,
+        '2031-02-03 10:00:00.${fraction}+00'::timestamptz
+      FROM public.application_admission_evidence WHERE application_id='precision-application-2'`,
+  },
+  {
+    constraint: "recruitment_assessment_correction_window_audit_occurred_at_ms",
+    statement: (fraction: string) =>
+      `INSERT INTO public.recruitment_maintenance_command_receipts(actor_person_id,command_id,command_digest,result_json)
+      VALUES('precision-maintainer','precision-window-command-4',repeat('b',64),'{"_tag":"AssessmentCorrectionClosed","interviewId":"precision-interview-1","sequence":2}');
+      UPDATE public.recruitment_assessment_correction_windows SET closed_by='precision-maintainer',closed_at='2031-02-06 11:00:00.123+00',close_reason='Review withdrawn'
+        WHERE interview_id='precision-interview-1' AND sequence=2;
+      INSERT INTO public.recruitment_assessment_correction_window_audit(actor_person_id,command_id,interview_id,sequence,action,reason,occurred_at)
+      VALUES('precision-maintainer','precision-window-command-4','precision-interview-1',2,'Close','Review withdrawn','2031-02-06 11:00:00.${fraction}+00')`,
+  },
+  {
+    constraint: "recruitment_assessment_correction_windows_closed_at_ms",
+    statement: (fraction: string) => `UPDATE public.recruitment_assessment_correction_windows
+      SET closed_by='precision-maintainer',closed_at='2031-02-06 11:00:00.${fraction}+00',close_reason='Review withdrawn'
+      WHERE interview_id='precision-interview-1' AND sequence=2`,
+  },
+  ...["ends_at", "opened_at"].map((column) => ({
+    constraint: `recruitment_assessment_correction_windows_${column}_ms`,
+    statement: (fraction: string) =>
+      `INSERT INTO public.recruitment_assessment_correction_windows(interview_id,sequence,opened_by,opened_at,ends_at,reason)
+      VALUES('precision-interview-1',3,'precision-maintainer',
+        '2031-02-08 10:00:00.${column === "opened_at" ? fraction : "123"}+00','2031-02-09 10:00:00.${column === "ends_at" ? fraction : "456"}+00','Further independent review')`,
+  })),
+];
+
+const proveDecisionPrecisionUpgrade = Effect.fnUntraced(function* (pool: Pool) {
+  yield* pgQuery(pool, precisionSeed);
+  yield* pgQuery(pool, precisionObserver);
+  const historical = yield* precisionSnapshot(pool);
+  const source = yield* readMigrationSource(precisionRepair.migration.url);
+
+  for (const probe of precisionProbes) {
+    // Valid 84 writes must stay valid; historical microseconds must abort instead of being rewritten.
+    expect(yield* precisionAttempt(pool, probe.statement("123456"))).toEqual({
+      state: "accepted",
+      constraint: null,
+    });
+    const refusal = yield* precisionHistoryAttempt(pool, probe.statement("123456"), source);
+    expect({ state: refusal.state, constraint: refusal.constraint }).toEqual({
+      state: "23514",
+      constraint: probe.constraint,
+    });
+    expect(refusal.after).toBe(refusal.before);
+    expect(yield* precisionSnapshot(pool)).toEqual(historical);
+  }
+
+  yield* pgTransaction(pool, (client) => pgQuery(client, source));
+  expect(yield* precisionSnapshot(pool)).toEqual(historical);
+
+  for (const probe of precisionProbes) {
+    expect(yield* precisionAttempt(pool, probe.statement("123"))).toEqual({
+      state: "accepted",
+      constraint: null,
+    });
+    expect(yield* precisionAttempt(pool, probe.statement("123456"))).toEqual({
+      state: "23514",
+      constraint: probe.constraint,
+    });
+  }
+
+  for (const statement of [
+    "UPDATE public.application_admission_decision_evidence SET closed_at=closed_at WHERE application_id='precision-application-1'",
+    "DELETE FROM public.application_admission_decision_evidence WHERE application_id='precision-application-1'",
+    "UPDATE public.recruitment_assessment_correction_window_audit SET reason=reason",
+    "DELETE FROM public.recruitment_assessment_correction_window_audit",
+    "UPDATE public.recruitment_assessment_correction_windows SET reason='Rewrite window' WHERE sequence=1",
+    "DELETE FROM public.recruitment_assessment_correction_windows",
+  ])
+    expect((yield* precisionAttempt(pool, statement)).state).toBe("P0001");
+  expect(yield* precisionSnapshot(pool)).toEqual(historical);
+  yield* pgQuery(
+    pool,
+    "DROP FUNCTION public.precision_attempt(text); DROP FUNCTION public.precision_history_attempt(text,text,text)",
+  );
+});
+
+// The existing harness and hosted supported-major matrix run the same upgrade on PG17 and PG18.
+describe("decision instant precision upgrade from registered 84", () => {
+  it.live(
+    "preserves citations, audit and window history and enforces all five instants on PGlite",
+    () =>
+      withPostgresTestDatabase(proveDecisionPrecisionUpgrade, precisionPreceding).pipe(
+        Effect.provide(TestPlatform),
+      ),
+    { timeout: 180_000 },
+  );
+  it.live(
+    "preserves the same history and enforcement on the selected PostgreSQL major",
+    () =>
+      Effect.gen(function* () {
+        const postgres = yield* Effect.acquireRelease(
+          Effect.promise(() => startDisposablePostgres({ listen: "socket", maxConnections: 4 })),
+          (opened) => Effect.promise(() => opened.stop()),
+        );
+
+        const pool = yield* Effect.acquireRelease(
+          Effect.sync(() => new Pool({ connectionString: postgres.url, max: 1 })),
+          (opened) => Effect.promise(() => opened.end()),
+        );
+
+        for (const migration of precisionPreceding)
+          yield* pgQuery(pool, yield* readMigrationSource(migration.url));
+        yield* proveDecisionPrecisionUpgrade(pool);
+      }).pipe(Effect.scoped, Effect.provide(TestPlatform)),
+    { timeout: 180_000 },
+  );
+});

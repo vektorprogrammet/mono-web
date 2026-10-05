@@ -648,6 +648,11 @@ export const databaseMigrationDefinitions = [
     name: "application-email-period-ownership",
     url: new URL("../migrations/0084-application-email-period-ownership.sql", import.meta.url),
   },
+  {
+    id: "85_application-decision-instant-precision",
+    name: "application-decision-instant-precision",
+    url: new URL("../migrations/0085-application-decision-instant-precision.sql", import.meta.url),
+  },
 ] as const;
 
 /**
