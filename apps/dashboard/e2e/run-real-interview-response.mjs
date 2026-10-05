@@ -2096,6 +2096,9 @@ async function main() {
 
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
+  delete baseEnvironment.RECRUITMENT_NOTIFICATION_MODE;
+  delete baseEnvironment.RECRUITMENT_NOTIFICATION_URL;
+  delete baseEnvironment.RECRUITMENT_NOTIFICATION_TOKEN;
 
   const apiEnvironment = {
     ...baseEnvironment,
@@ -2111,6 +2114,7 @@ async function main() {
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     PASSWORD_RESET_DELIVERY_MODE: "disabled",
     RECEIPT_DELIVERY_MODE: "disabled",
+    RECRUITMENT_NOTIFICATION_MODE: "disabled",
     ADMISSION_FIXED_NOW: fixedClock,
     RECEIPT_STAGING_ROOT: stagingRoot,
     RECEIPT_COMMITTED_ROOT: committedRoot,
