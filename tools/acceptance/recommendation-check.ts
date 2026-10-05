@@ -65,7 +65,7 @@ import {
 import { deliverJson } from "../../apps/backend/src/delivery/http.js";
 import { deriveHttpIdentity, normalizeTarget } from "../../apps/backend/src/http-semantics.js";
 import { NotificationGateway } from "../../packages/domain/src/notification/service.js";
-import { Array as Arr, Predicate, Schema } from "effect";
+import { Array as Arr, Effect, Predicate, Schema } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import { admissionJourneyClock } from "../e2e/journey-clock.ts";
 import {
@@ -507,7 +507,8 @@ try {
     RECEIPT_DELIVERY_MODE: "disabled",
 
     API_URL: api,
-    VITE_API_URL: api,
+    // Browser SDK calls use the dashboard proxy; SSR keeps the upstream API origin.
+    VITE_API_URL: ui,
     DASHBOARD_MOUNT: "/",
     HOST: "127.0.0.1",
     PORT: String(uiPort),
@@ -662,6 +663,10 @@ try {
   recordGate(
     "0039/0040 upgrades preserved original interview/schedule/invitation/conduct/lifecycle rows",
   );
+  assert.equal(new URL(env.API_URL!).origin, api);
+  const browserSameOrigin = new URL(env.VITE_API_URL!).origin === ui;
+  assert.ok(browserSameOrigin);
+  Effect.runSync(Effect.log("Runner browser API boundary", { sameOrigin: browserSameOrigin }));
   run("bun", ["run", "build"], env, join(root, "packages/sdk"));
   run("bun", ["run", "build"], env, join(root, "apps/dashboard"));
   start("bun", ["server.mjs"], env, join(root, "apps/dashboard"));
@@ -1308,16 +1313,46 @@ try {
 
     const maintenanceSqlObservations: Array<{ kind: string; body: unknown }> = [];
 
-    const nativeResponseFor = (target: any, operation: typeof maintenanceOperation) =>
+    // The page owns these native SDK observations; server HTTP probes stay on api.
+    // Both maintenance reads and commands have an empty query, not an SSR .data suffix.
+    const nativeResponseFor = (
+      target: any,
+      operation: typeof maintenanceOperation,
+      tag?: RecruitmentMaintenanceCommand["_tag"],
+    ) =>
       target.waitForResponse((response: any) => {
         const url = new URL(response.url());
+        const request = response.request();
 
-        return (
-          response.request().method() === operation.method &&
-          url.origin === api &&
-          url.pathname === operation.path
-        );
+        if (
+          request.frame() !== target.mainFrame() ||
+          request.method() !== operation.method ||
+          url.origin !== ui ||
+          url.pathname !== operation.path ||
+          url.search !== ""
+        ) return false;
+
+        if (operation.operationId === maintenanceOperation.operationId) {
+          const command = decodeMaintenanceCommand(request.postDataJSON());
+
+          if (tag !== undefined && command._tag !== tag) return false;
+
+          if (request.headers()["idempotency-key"] !== command.commandId) return false;
+        }
+
+        return true;
       });
+
+    // Synchronous logging at the acceptance host boundary starts no background work.
+    const recordBrowserResponse = (operation: typeof maintenanceOperation, response: any) =>
+      Effect.runSync(Effect.log("Maintenance browser response", {
+        sameOrigin: new URL(response.url()).origin === ui,
+        operation: operation.operationId,
+        normalizedRoute: operation.path,
+        method: response.request().method(),
+        status: response.status(),
+        schemaDecoded: true,
+      }));
 
     const observeMaintenanceRead = async <S extends Schema.ConstraintDecoder<unknown>>(
       target: any,
@@ -1330,6 +1365,7 @@ try {
       const response = await pending;
       assert.equal(response.status(), 200, await response.text());
       const body = Schema.decodeUnknownSync(schema)(await response.json());
+      recordBrowserResponse(operation, response);
       maintenanceRequests.push({ ...operation, status: response.status(), body });
 
       return body;
@@ -1340,7 +1376,7 @@ try {
       tag: RecruitmentMaintenanceCommand["_tag"],
       trigger: () => Promise<void>,
     ) => {
-      const pending = nativeResponseFor(target, maintenanceOperation);
+      const pending = nativeResponseFor(target, maintenanceOperation, tag);
       await trigger();
       const response = await pending;
       const request = response.request();
@@ -1350,6 +1386,7 @@ try {
       assert.equal(key, command.commandId);
       assert.equal(response.status(), 200, await response.text());
       const result = decodeMaintenanceResult(await response.json());
+      recordBrowserResponse(maintenanceOperation, response);
       const bytes = await response.text();
       maintenanceRequests.push({
         ...maintenanceOperation,
@@ -3281,7 +3318,7 @@ try {
 
         const beforeStaleWindow = await maintenanceSnapshot();
         const effectsBeforeStaleWindow = await effectSnapshot();
-        const staleResponse = nativeResponseFor(staleWindowPage, maintenanceOperation);
+        const staleResponse = nativeResponseFor(staleWindowPage, maintenanceOperation, "ReopenAssessmentCorrection");
 
         await staleDialog
           .getByRole("button", { name: "Bekreft gjenåpning", exact: true })

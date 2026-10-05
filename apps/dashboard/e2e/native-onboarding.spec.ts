@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { expect, test, type APIResponse, type Page } from "@playwright/test";
 import { Schema } from "effect";
 import {
-  IdempotencyKey, OnboardingResource, OnboardingProblem, OnboardingCommandProblem,
+  IdempotencyKey, IdempotencyIfMatchHeaders, OnboardingCommand, OnboardingScope,
+  OnboardingResource, OnboardingProblem, OnboardingCommandProblem,
   SchedulingBoard, PlacementScopes, SessionUnauthorizedProblem,
   RecruitmentReadAssignmentBoardProblem, RecruitmentReadSchedulingBoardProblem,
   readAssignmentBoard, readSchedulingBoard,
@@ -272,11 +273,70 @@ test("0099 applicant claims an invited account then requests affiliation and rec
   await managerPage.keyboard.press("Tab");
   await expect(retryButton).toBeFocused();
 
-  const retryResponse = managerPage.waitForResponse((response) =>
-    response.request().method() === "POST" && new URL(response.url()).pathname === "/dashboard/onboarding");
+  // InvitationForm uses hydrated fetcher.Form: React Router single-fetch posts .data,
+  // with the native command, scope and preconditions encoded as form fields.
+  const isInvitationForm = Schema.is(Schema.Struct({
+    ...OnboardingCommand.fields,
+    ...OnboardingScope.fields,
+    etag: IdempotencyIfMatchHeaders.fields["if-match"],
+    commandId: IdempotencyIfMatchHeaders.fields["idempotency-key"],
+  }));
 
-  await managerPage.keyboard.press("Enter");
-  expect((await retryResponse).status()).toBe(retryProblem.status);
+  const retryControl = () => retryButton.evaluate((button: HTMLButtonElement) => ({
+    focused: button.matches(":focus"),
+    enabled: !button.matches(":disabled"),
+    submitType: button.type === "submit",
+    pending: button.closest("form")?.getAttribute("data-pending") === "true",
+  }));
+
+  const beforeRetry = await retryControl();
+
+  const retryObservations: {
+    method: string; status: number; typed: boolean; action: boolean;
+    target: boolean; department: boolean; etag: boolean;
+  }[] = [];
+
+  const retryResponse = managerPage.waitForResponse((response) => {
+    const request = response.request();
+    const url = new URL(response.url());
+
+    if (request.method() !== "POST" || url.origin !== new URL(manifest.dashboardOrigin).origin ||
+      url.pathname !== "/dashboard/onboarding.data") return false;
+
+    // Private request values stay in memory; only comparisons reach the evidence file.
+    const form = new URLSearchParams(request.postData() ?? "");
+
+    const fields = {
+      applicationId: form.get("applicationId"), action: form.get("action"),
+      departmentId: form.get("departmentId"), etag: form.get("etag"),
+      commandId: form.get("commandId"),
+    };
+
+    const typed = isInvitationForm(fields);
+
+    const observation = {
+      method: request.method(), status: response.status(), typed,
+      action: typed && fields.action === "RetryDelivery",
+      target: typed && fields.applicationId === manifest.applicationId,
+      department: typed && fields.departmentId === manifest.departmentId,
+      etag: typed && fields.etag === deliveredBoard.etag,
+    };
+
+    retryObservations.push(observation);
+
+    return observation.action && observation.target && observation.department && observation.etag;
+  });
+
+  try {
+    await managerPage.keyboard.press("Enter");
+    expect((await retryResponse).status()).toBe(retryProblem.status);
+  } finally {
+    await writeFile(join(manifest.artifacts, "onboarding-retry-observer-safe.json"), JSON.stringify({
+      operation: "onboarding.command", route: "/dashboard/onboarding.data",
+      before: beforeRetry, after: await retryControl(), responses: retryObservations,
+    }, null, 2));
+  }
+
   await expect(card.locator("form")).toHaveAttribute("data-pending", "false");
   await expect(card.getByRole("status")).toContainText(retryProblem.detail);
   const afterRetryResponse = await managerPage.request.get(manifest.backendOrigin + "/api/onboarding?departmentId=" + manifest.departmentId);
