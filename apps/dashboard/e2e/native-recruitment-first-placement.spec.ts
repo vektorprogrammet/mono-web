@@ -4,8 +4,15 @@ import { expect, test, type Page, type Locator, type BrowserContext } from "@pla
 import AxeBuilder from "@axe-core/playwright";
 import { Predicate, Schema } from "effect";
 import { OnboardingResource } from "@vektorprogrammet/http-api";
+import { RecruitmentInvitationOutboxRequestSchema } from "@vektorprogrammet/domain/recruitment";
 
 const decodeOnboarding = Schema.decodeUnknownSync(OnboardingResource, { onExcessProperty: "error" });
+
+const decodeInvitation = Schema.decodeUnknownSync(RecruitmentInvitationOutboxRequestSchema, {
+  onExcessProperty: "error",
+});
+
+const decodeMailbox = Schema.decodeUnknownSync(Schema.Array(Schema.Json));
 
 const manifestPath = process.env.PLACEMENT_JOURNEY_MANIFEST;
 
@@ -277,15 +284,19 @@ test("continuous recruitment to first placement", async ({ browser }) => {
     await otherSchedule.getByRole("button", { name: "Lagre og legg i kø" }).click();
     await expect(otherSchedule).toHaveCount(0);
     await checkpoint("other-scheduled");
-    await expect.poll(async () => (await mailbox()).some(
-      (item: { _tag?: string; interviewId?: string }) =>
-        Predicate.isTagged(item, "SendInterviewInvitation") && item.interviewId === otherInterviewId,
+
+    const interviewInvitations = async () =>
+      decodeMailbox(await mailbox())
+        .filter(Predicate.isTagged("SendInterviewInvitation"))
+        .map((item) => decodeInvitation(item));
+
+    await expect.poll(async () => (await interviewInvitations()).some(
+      (item) => item.interviewId === otherInterviewId,
     )).toBe(true);
 
-    const otherInvitation = (await mailbox()).find(
-      (item: { _tag?: string; interviewId?: string }) =>
-        Predicate.isTagged(item, "SendInterviewInvitation") && item.interviewId === otherInterviewId,
-    );
+    const otherInvitation = decodeInvitation((await interviewInvitations()).find(
+      (item) => item.interviewId === otherInterviewId,
+    ));
 
     await other.goto(m.dashboardOrigin + "/interview-response/" + otherInvitation.responseCapability);
     await other.getByRole("button", { name: "Bekreft intervjutid", exact: true }).click();
