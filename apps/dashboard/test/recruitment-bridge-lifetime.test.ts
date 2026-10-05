@@ -12,6 +12,8 @@ import { commandsFor as interviewCommands } from "../app/foldkit/interview/comma
 import { SucceededReadInvitationResponse } from "../app/foldkit/interview/message";
 import { RecruitmentAssignmentBoardSchema, StrongETag } from "@vektorprogrammet/http-api";
 import { InvitationResponseResourceSchema } from "../app/foldkit/interview/bridge";
+import { INVITATION_INTERACTION_ATTRIBUTE, INVITATION_INTERACTION_HEADER } from "../app/foldkit/interview/bridge";
+import { CANDIDATE_ELEMENT, registerInterviewElement } from "../app/foldkit/interview/elements";
 
 const Completed = Schema.TaggedStruct("Completed", {});
 
@@ -33,6 +35,8 @@ const delayedBridge = Effect.fnUntraced(function* (body: string, pathname: strin
   const accepted = yield* Deferred.make<ServerResponse>();
   const disconnected = yield* Deferred.make<void>();
   const networkSettled = yield* Deferred.make<void>();
+  const replacementAccepted = yield* Deferred.make<ServerResponse>();
+  const interactions: Array<string | string[] | undefined> = [];
   const signals: Array<NonNullable<Parameters<Window["fetch"]>[1]>["signal"]> = [];
 
   const server = yield* Effect.acquireRelease(
@@ -49,7 +53,8 @@ const delayedBridge = Effect.fnUntraced(function* (body: string, pathname: strin
       response.once("close", () => {
         if (!response.writableEnded) Deferred.doneUnsafe(disconnected, Effect.void);
       });
-      Deferred.doneUnsafe(accepted, Effect.succeed(response));
+      interactions.push(request.headers[INVITATION_INTERACTION_HEADER.toLowerCase()]);
+      Deferred.doneUnsafe(interactions.length === 1 ? accepted : replacementAccepted, Effect.succeed(response));
     })),
     (owned) => Effect.callback<void>((resume) => {
       owned.closeAllConnections();
@@ -112,10 +117,10 @@ const delayedBridge = Effect.fnUntraced(function* (body: string, pathname: strin
   );
 
   return {
-    accepted, disconnected, networkSettled, signals,
-    release: (response: ServerResponse) => Effect.sync(() => {
+    accepted, disconnected, networkSettled, signals, replacementAccepted, interactions, browserWindow,
+    release: (response: ServerResponse, responseBody = body) => Effect.sync(() => {
       response.writeHead(200, { "content-type": "application/json" });
-      response.end(body);
+      response.end(responseBody);
     }),
   };
 });
@@ -323,3 +328,152 @@ describe("R8 real delayed browser bridge cancellation", () => {
     );
   }
 });
+
+// These controls exercise the production custom element, not a substitute host.
+// Each test owns its realm, host and HTTP fixture. The empty-container receipt is
+// Foldkit's renderer finalizer, after interruption of its runtime-owned work.
+const productionInterviewHost = Effect.fnUntraced(function* (browserWindow: Window) {
+  const globals = {
+    window: browserWindow, document: browserWindow.document,
+    customElements: browserWindow.customElements, HTMLElement: browserWindow.HTMLElement,
+    Element: browserWindow.Element, Node: browserWindow.Node,
+    HTMLInputElement: browserWindow.HTMLInputElement,
+    HTMLTextAreaElement: browserWindow.HTMLTextAreaElement,
+    HTMLSelectElement: browserWindow.HTMLSelectElement,
+    MutationObserver: browserWindow.MutationObserver, Event: browserWindow.Event,
+    CustomEvent: browserWindow.CustomEvent,
+    requestAnimationFrame: browserWindow.requestAnimationFrame.bind(browserWindow),
+    cancelAnimationFrame: browserWindow.cancelAnimationFrame.bind(browserWindow),
+    getComputedStyle: browserWindow.getComputedStyle.bind(browserWindow),
+    navigator: browserWindow.navigator, history: browserWindow.history,
+  };
+
+  yield* Effect.acquireRelease(
+    Effect.sync(() => {
+      const originals = Object.keys(globals).map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
+
+      for (const [name, value] of Object.entries(globals)) {
+        Object.defineProperty(globalThis, name, { configurable: true, value });
+      }
+
+      return originals;
+    }),
+    (originals) => Effect.sync(() => {
+      for (const [name, descriptor] of originals) {
+        if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+        else Reflect.deleteProperty(globalThis, name);
+      }
+    }),
+  );
+
+  return yield* Effect.acquireRelease(
+    Effect.sync(() => {
+      registerInterviewElement();
+      const host = browserWindow.document.createElement(CANDIDATE_ELEMENT);
+      host.setAttribute(INVITATION_INTERACTION_ATTRIBUTE, "a".repeat(32));
+      browserWindow.document.body.append(host);
+
+      return host;
+    }),
+    Effect.fnUntraced(function* (host) {
+      yield* Effect.sync(() => host.remove());
+      yield* observeHostDOM(browserWindow, host, () => host.textContent === "");
+    }),
+  );
+});
+
+const observeHostDOM = Effect.fnUntraced(function* (
+  browserWindow: Window,
+  host: ReturnType<Window["document"]["createElement"]>,
+  observed: () => boolean,
+) {
+  yield* Effect.callback<void>((resume) => {
+    const observer = new browserWindow.MutationObserver(() => {
+      if (observed()) resume(Effect.void);
+    });
+
+    observer.observe(host, { childList: true, subtree: true, characterData: true });
+
+    if (observed()) resume(Effect.void);
+
+    return Effect.sync(() => observer.disconnect());
+  }).pipe(Effect.interruptible, Effect.timeout("1 second"));
+});
+
+const waitHostReceipt = Effect.fnUntraced(function* <A>(receipt: Deferred.Deferred<A>) {
+  return yield* Deferred.await(receipt).pipe(Effect.interruptible, Effect.timeout("1 second"));
+});
+
+const invitationJson = Schema.encodeEffect(Schema.fromJsonString(InvitationResponseResourceSchema));
+
+describe("R8 production interview custom-element lifetime", () => {
+  it.live("interaction attribute change aborts the old POST and renders only the new decoded owner", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const bridge = yield* delayedBridge(yield* invitationJson(invitation), "/dashboard/interview");
+      const host = yield* productionInterviewHost(bridge.browserWindow);
+      const oldResponse = yield* waitHostReceipt(bridge.accepted);
+      assert.deepStrictEqual(bridge.interactions, ["a".repeat(32)]);
+      assert.isFalse(bridge.signals[0]?.aborted === true);
+
+      // This invokes the real attributeChangedCallback. Do not serialize the
+      // replacement behind old cleanup: dispose is a signal, not an awaitable.
+      yield* Effect.sync(() => host.setAttribute(INVITATION_INTERACTION_ATTRIBUTE, "b".repeat(32)));
+      const newResponse = yield* waitHostReceipt(bridge.replacementAccepted);
+      yield* waitHostReceipt(bridge.disconnected);
+      yield* waitHostReceipt(bridge.networkSettled);
+      assert.strictEqual(bridge.signals.length, 2);
+      assert.isTrue(bridge.signals[0]?.aborted === true);
+      assert.isFalse(bridge.signals[1]?.aborted === true);
+      assert.deepStrictEqual(bridge.interactions, ["a".repeat(32), "b".repeat(32)]);
+
+      const replacement = yield* Schema.decodeUnknownEffect(InvitationResponseResourceSchema)({
+        observation: { ...invitation.observation, room: "NEW-OWNER-202", responseState: "Accepted" }, etag,
+      });
+
+      yield* bridge.release(newResponse, yield* invitationJson(replacement));
+      yield* observeHostDOM(bridge.browserWindow, host, () =>
+        host.querySelector("#response-heading")?.textContent === "Intervjutiden er akseptert" &&
+        host.textContent.includes(replacement.observation.room));
+      const replacementDOM = host.innerHTML;
+      // Plausible bug: old cleanup/results replace the new owner's DOM.
+      yield* bridge.release(oldResponse);
+      yield* Effect.promise(() => bridge.browserWindow.happyDOM.waitUntilComplete()).pipe(Effect.timeout("1 second"));
+      assert.strictEqual(host.innerHTML, replacementDOM);
+      assert.isFalse(host.textContent.includes(invitation.observation.room));
+      assert.isTrue(host.isConnected);
+    })),
+  );
+
+  for (const removal of ["DOM removal", "interaction attribute removal"] as const) {
+    it.live(
+      removal + " aborts the production POST, restores an empty host and rejects late DOM publication",
+      () => Effect.scoped(Effect.gen(function* () {
+        const bridge = yield* delayedBridge(yield* invitationJson(invitation), "/dashboard/interview");
+        const host = yield* productionInterviewHost(bridge.browserWindow);
+        const response = yield* waitHostReceipt(bridge.accepted);
+        assert.strictEqual(bridge.signals.length, 1);
+        assert.isFalse(bridge.signals[0]?.aborted === true);
+        assert.deepStrictEqual(bridge.interactions, ["a".repeat(32)]);
+        yield* Effect.sync(() => {
+          if (removal === "DOM removal") host.remove();
+          else host.removeAttribute(INVITATION_INTERACTION_ATTRIBUTE);
+        });
+        // Plausible bugs: disconnectedCallback fails to dispose, or a missing
+        // interaction starts a replacement / permits the disposed result to render.
+        yield* waitHostReceipt(bridge.disconnected);
+        yield* waitHostReceipt(bridge.networkSettled);
+        assert.isTrue(bridge.signals[0]?.aborted === true);
+        yield* observeHostDOM(bridge.browserWindow, host, () => host.textContent === "");
+        const disposedDOM = host.innerHTML;
+        yield* bridge.release(response);
+        yield* Effect.promise(() => bridge.browserWindow.happyDOM.waitUntilComplete()).pipe(Effect.timeout("1 second"));
+        assert.strictEqual(host.innerHTML, disposedDOM);
+        assert.isNull(host.querySelector(".foldkit-interview"));
+        assert.strictEqual(host.isConnected, removal === "interaction attribute removal");
+        assert.strictEqual(bridge.signals.length, 1);
+        assert.isFalse(yield* Deferred.isDone(bridge.replacementAccepted));
+      })),
+    );
+  }
+});
+

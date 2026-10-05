@@ -1126,43 +1126,6 @@ command.pipe(receiptProblems, commandReceiptProblems, receiptCredentialProblems(
 Answering a rejected credential with a fixed code: a request that presented a rejected
 credential would be told that it presented none. Pipe the handler's effect through this.
 
-## `authorizeInvitationOperation`
-
-Authorizes the holder of an invitation's response capability.
-
-```ts
-authorizeInvitationOperation(
-  input: { readonly spec: AccessSpec; readonly source: RecruitmentInvitationHttpSource; readonly authorizationInstant: string }
-): Effect.Effect<void, Problem<"resource.not-found">>
-```
-
-- Inputs: `input: { readonly spec: AccessSpec; readonly source: RecruitmentInvitationHttpSource; readonly authorizationInstant: string }`
-- Output: `Effect.Effect<void, Problem<"resource.not-found">>`
-- Errors: `Problem<"resource.not-found">`
-- Requirements: none
-- Side effects: none
-- Source: [apps/backend/src/recruitment/http-access.ts:79](../../apps/backend/src/recruitment/http-access.ts#L79)
-
-**How it works**
-
-It evaluates the invitation AccessSpec for the capability holder, with one grant of the
-spec's one capability on the invitation resource, over the invitation's recruitment context
-at `authorizationInstant`. The invitation AccessSpec conceals every denial as not found, so a
-denial answers resource.not-found and no other rejection exists. A spec with another capability
-set, or a revealed denial, is a defect.
-
-**Use**
-
-```ts
-yield* authorizeInvitationOperation({ spec: Option.getOrThrow(reflectAccessSpec(ReadInvitationResponseEndpoint)), source: snapshot.source, authorizationInstant: now });
-```
-
-**Avoid**
-
-Checking the capability digest against the invitation in the handler: the AccessSpec of
-the contract then stops being the authority, and a denial can reveal that the invitation
-exists. Authorize the holder with this.
-
 ## `interviewAuthorizationInTransaction`
 
 Resolves the current person and authorizes one interview inside the caller's transaction; a rejected credential is answered from the request's evidence.
@@ -1171,23 +1134,25 @@ Resolves the current person and authorizes one interview inside the caller's tra
 interviewAuthorizationInTransaction<R>(
   request: Request,
   interviewId: RecruitmentInterviewId,
-  endpoint: | typeof ScheduleInterviewEndpoint | typeof ReadInterviewConductEndpoint | typeof FinalizeInterviewEndpoint | typeof CancelInterviewEndpoint | typeof CorrectInterviewAssessmentEndpoint,
+  endpoint: | typeof scheduleInterviewEndpoint | typeof readInterviewConductEndpoint | typeof finalizeInterviewEndpoint | typeof cancelInterviewEndpoint | typeof correctInterviewAssessmentEndpoint,
   allowLeader: boolean,
-  input: RecruitmentApiHttpOptions<R>
+  input: RecruitmentApiHttpOptions<R>,
+  authorize: RecruitmentPersonAuthorize
 ): Effect.Effect<InterviewAuthorization, | RecruitmentFailure | IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing"> | Problem<"resource.not-found">, Database | IdentitySnapshot | OAuthCredentialAuthority | Organization | Recruitment>
 ```
 
 - Inputs:
   - `request: Request`
   - `interviewId: RecruitmentInterviewId`
-  - `endpoint: | typeof ScheduleInterviewEndpoint | typeof ReadInterviewConductEndpoint | typeof FinalizeInterviewEndpoint | typeof CancelInterviewEndpoint | typeof CorrectInterviewAssessmentEndpoint`
+  - `endpoint: | typeof scheduleInterviewEndpoint | typeof readInterviewConductEndpoint | typeof finalizeInterviewEndpoint | typeof cancelInterviewEndpoint | typeof correctInterviewAssessmentEndpoint`
   - `allowLeader: boolean`
   - `input: RecruitmentApiHttpOptions<R>`
+  - `authorize: RecruitmentPersonAuthorize`
 - Output: `Effect.Effect<InterviewAuthorization, | RecruitmentFailure | IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing"> | Problem<"resource.not-found">, Database | IdentitySnapshot | OAuthCredentialAuthority | Organization | Recruitment>`
 - Errors: `| RecruitmentFailure | IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError | Problem<"authority.denied"> | Problem<"credential.invalid"> | Problem<"credential.missing"> | Problem<"resource.not-found">`
 - Requirements: `Database | IdentitySnapshot | OAuthCredentialAuthority | Organization | Recruitment`
 - Side effects: Reads the person's credential and authority, and takes recruitment's locks in the caller's transaction.
-- Source: [apps/backend/src/recruitment/http-access.ts:253](../../apps/backend/src/recruitment/http-access.ts#L253)
+- Source: [apps/backend/src/recruitment/http-access.ts:250](../../apps/backend/src/recruitment/http-access.ts#L250)
 
 **How it works**
 
@@ -1200,7 +1165,7 @@ the actor, the instant, and the interview source that the command uses.
 **Use**
 
 ```ts
-const authorization = yield* interviewAuthorizationInTransaction(request, interviewId, ScheduleInterviewEndpoint, true, input);
+const authorization = yield* interviewAuthorizationInTransaction(request, interviewId, scheduleInterviewEndpoint, true, input, authorize);
 ```
 
 **Avoid**

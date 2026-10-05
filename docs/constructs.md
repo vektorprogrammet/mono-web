@@ -51,7 +51,6 @@ Tag a construct only when at least 2 modules outside its own module and the test
   - [`ProblemBoundaryLive`](constructs/http-problem.md#problemboundarylive): The only Cause consumer.
   - [`receiptProblems`](constructs/http-problem.md#receiptproblems): The one answer for every receipt failure other than a rejected credential, including an unavailable store, Identity, or E2E barrier.
   - [`receiptCredentialProblems`](constructs/http-problem.md#receiptcredentialproblems): A credential rejected inside a receipt handler is answered from the request's own evidence.
-  - [`authorizeInvitationOperation`](constructs/http-problem.md#authorizeinvitationoperation): Authorizes the holder of an invitation's response capability.
   - [`interviewAuthorizationInTransaction`](constructs/http-problem.md#interviewauthorizationintransaction): Resolves the current person and authorizes one interview inside the caller's transaction; a rejected credential is answered from the request's evidence.
   - [`readRecruitmentBody`](constructs/http-problem.md#readrecruitmentbody): Every recruitment request body is one bounded `application/json` document.
   - [`recruitmentProblems`](constructs/http-problem.md#recruitmentproblems): The one answer for every recruitment failure.

@@ -72,8 +72,6 @@ type GenericFacts = Schema.JsonObject;
  * @avoid Checking the capability digest against the invitation in the handler: the AccessSpec of
  * the contract then stops being the authority, and a denial can reveal that the invitation
  * exists. Authorize the holder with this.
- *
- * @construct http-problem
  */
 export const authorizeInvitationOperation = (input: {
   readonly spec: AccessSpec;
