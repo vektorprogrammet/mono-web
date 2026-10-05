@@ -2,7 +2,10 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Page, type Locator, type BrowserContext } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { Predicate } from "effect";
+import { Predicate, Schema } from "effect";
+import { OnboardingResource } from "@vektorprogrammet/http-api";
+
+const decodeOnboarding = Schema.decodeUnknownSync(OnboardingResource, { onExcessProperty: "error" });
 
 const manifestPath = process.env.PLACEMENT_JOURNEY_MANIFEST;
 
@@ -45,6 +48,18 @@ test("continuous recruitment to first placement", async ({ browser }) => {
   const pageErrors: string[] = [];
   const network: Array<{ method: string; path: string; status: number }> = [];
   const steps: string[] = [];
+  const readiness: Array<{ step: string; applicationId: string; canIssue: boolean; state: string }> = [];
+
+  const captureReadiness = async (step: string, applicationId: string, canIssue: boolean) => {
+    const response = await staff.request.get(m.backendOrigin + "/api/onboarding?departmentId=" + m.departmentId);
+    expect(response.status()).toBe(200);
+    const board = decodeOnboarding(await response.json());
+    const item = board.items.find((entry) => entry.applicationId === applicationId);
+    expect(item).toBeDefined();
+    expect(item!.canIssue).toBe(canIssue);
+    expect(item!.state).toBe("Absent");
+    readiness.push({ step, applicationId, canIssue: item!.canIssue, state: item!.state });
+  };
 
   const capture = (context: BrowserContext) => {
     context.setDefaultTimeout(10_000);
@@ -217,6 +232,12 @@ test("continuous recruitment to first placement", async ({ browser }) => {
     await expect(staff.locator("#interviewer-recommendation")).toHaveValue("Ja");
     await checkpoint("reloaded");
 
+    const otherApplication = submitted.applications.find(
+      (a: { email: string }) => a.email === m.persons.other.email,
+    );
+
+    await captureReadiness("other-unreviewed", otherApplication.application_id, false);
+
     await staff.goto(m.dashboardOrigin + onboarding);
     const mainCard = card(staff, "Ada Rekrutt");
     await mainCard.getByRole("button", { name: "Inviter", exact: true }).click();
@@ -228,6 +249,61 @@ test("continuous recruitment to first placement", async ({ browser }) => {
     await expect(mainCard).toContainText("Levering: Delivered");
     await checkpoint("invitation-delivered");
     const mainClaim = await claimUrl(m.persons.applicant.email);
+    // Ordinary JA admission needs the secondary applicant's own completed interview.
+    await staff.goto(m.dashboardOrigin + "/dashboard/sokere");
+    const otherRow = staff.getByRole("row").filter({ hasText: "Olav Annen" });
+    await otherRow.getByRole("button", { name: "Tildel intervju til Olav Annen" }).click();
+    const otherAssign = staff.getByRole("dialog");
+    await otherAssign.getByLabel("Intervjuer").selectOption(m.persons.leader.personId);
+    await otherAssign.getByLabel("Intervjuskjema").selectOption(m.schemaId);
+    await otherAssign.getByRole("button", { name: "Tildel intervju", exact: true }).click();
+    await expect(otherAssign).toHaveCount(0);
+    const otherAssigned = await checkpoint("other-assigned");
+
+    const otherInterviewId = otherAssigned.interviews.find(
+      (entry: { application_id: string }) => entry.application_id === otherApplication.application_id,
+    ).interview_id;
+
+    expect(otherInterviewId).not.toBe(interviewId);
+    await staff.goto(m.dashboardOrigin + "/dashboard/intervjuer");
+    const otherInterview = staff.getByRole("article").filter({ hasText: "Olav Annen" });
+    await otherInterview.getByRole("button", { name: "Planlegg intervju" }).click();
+    const otherSchedule = staff.getByRole("dialog");
+    await otherSchedule.getByLabel("Tidspunkt").fill(new Date(Date.now() + 86400000).toISOString());
+    await otherSchedule.getByLabel("Rom").fill("Rekrutt 926");
+    await otherSchedule.getByLabel("Campus").fill("Gløshaugen");
+    await otherSchedule.getByLabel("Kartlenke").fill("https://maps.example.invalid/recruitment");
+    await otherSchedule.getByLabel("Melding").fill("Velkommen til ditt intervju.");
+    await otherSchedule.getByRole("button", { name: "Lagre og legg i kø" }).click();
+    await expect(otherSchedule).toHaveCount(0);
+    await checkpoint("other-scheduled");
+    await expect.poll(async () => (await mailbox()).some(
+      (item: { _tag?: string; interviewId?: string }) =>
+        Predicate.isTagged(item, "SendInterviewInvitation") && item.interviewId === otherInterviewId,
+    )).toBe(true);
+
+    const otherInvitation = (await mailbox()).find(
+      (item: { _tag?: string; interviewId?: string }) =>
+        Predicate.isTagged(item, "SendInterviewInvitation") && item.interviewId === otherInterviewId,
+    );
+
+    await other.goto(m.dashboardOrigin + "/interview-response/" + otherInvitation.responseCapability);
+    await other.getByRole("button", { name: "Bekreft intervjutid", exact: true }).click();
+    await expect(other.getByText("Akseptert", { exact: true })).toBeVisible();
+    await checkpoint("other-responded");
+    await staff.reload();
+    await otherInterview.getByRole("button", { name: "Åpne intervju" }).click();
+    await staff.locator("#question-recruitment-motivation").fill("Jeg vil bidra i klasserommet.");
+    await staff.locator("#score-explanatoryPower").selectOption("6");
+    await staff.locator("#score-roleModel").selectOption("7");
+    await staff.locator("#score-suitability").selectOption("8");
+    await staff.locator("#interviewer-recommendation").selectOption("Ja");
+    await staff.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
+    await staff.getByRole("dialog").getByRole("button", { name: "Fullfør intervju", exact: true }).click();
+    await expect(staff.locator(".fs-conduct .fs-status")).toHaveText("Fullført");
+    await checkpoint("other-recommended");
+    await captureReadiness("other-completed-ja", otherApplication.application_id, true);
+    await staff.goto(m.dashboardOrigin + onboarding);
     const otherCard = card(staff, "Olav Annen");
     await otherCard.getByRole("button", { name: "Inviter", exact: true }).click();
     await expect(otherCard).toContainText("Levering: Delivered");
@@ -375,6 +451,8 @@ test("continuous recruitment to first placement", async ({ browser }) => {
           pageErrors,
           applicationId: mainApplication.application_id,
           interviewId,
+          otherInterviewId,
+          readiness,
           freshVolunteerSession: true,
         },
         null,

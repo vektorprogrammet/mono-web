@@ -807,6 +807,33 @@ try {
       assert.equal(browserEvidence.passed, true);
       assert.equal(browserEvidence.revision, revision);
       assert.deepEqual(browserEvidence.steps, recruitmentSteps.slice(1));
+
+      const otherApplication = observations
+        .find((o) => o.step === "applications")!
+        .applications.find((a: { email: string }) => a.email === recruitmentPeople.other.email);
+
+      assert.deepEqual(browserEvidence.readiness, [
+        {
+          step: "other-unreviewed",
+          applicationId: otherApplication.application_id,
+          canIssue: false,
+          state: "Absent",
+        },
+        {
+          step: "other-completed-ja",
+          applicationId: otherApplication.application_id,
+          canIssue: true,
+          state: "Absent",
+        },
+      ]);
+      const completed = observations.find((o) => o.step === "other-recommended")!;
+
+      const ownInterview = completed.interviews.find(
+        (i: { application_id: string }) => i.application_id === otherApplication.application_id,
+      );
+
+      assert.equal(browserEvidence.otherInterviewId, ownInterview.interview_id);
+      assert.notEqual(browserEvidence.otherInterviewId, browserEvidence.interviewId);
       assert.equal(run("git", ["rev-parse", "HEAD"]).trim(), revision);
       assert.equal(
         run("git", ["status", "--porcelain"]).trim(),

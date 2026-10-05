@@ -15,6 +15,7 @@
 - Show volunteers their own active school placements without coordinator controls. Filter Person, department, semester, and active status on the server.
 - Keep raw placements separate from confirmed rosters and dated service. Check the fresh volunteer session and another applicant's isolation.
 - Expose `test:golden-recruitment` and retain source-bound local evidence. Production data and real providers remain separate gates.
+- Complete each golden applicant's own JA interview before onboarding. Capture native readiness before and after the secondary assessment and join SQL facts by application, preserving Ada's first-placement and privacy assertions.
 
 ### Unattended delivery recovery
 

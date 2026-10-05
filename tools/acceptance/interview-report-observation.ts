@@ -6,12 +6,17 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import { writeFile } from "node:fs/promises";
 
+import { PublicApplicationEmailSchema } from "../../packages/domain/src/application/schema.js";
 import {
   InterviewReport,
   InterviewReportQuery,
   InterviewReportRow,
 } from "../../packages/domain/src/recruitment/report.js";
 import { Match, Predicate, Schema } from "effect";
+
+const decodeApplicantEmailRow = Schema.decodeUnknownSync(
+  Schema.Struct({ normalized_email: PublicApplicationEmailSchema }),
+);
 
 const ids = {
   person: "report-coordinator-0103",
@@ -232,6 +237,17 @@ export async function observeInterviewReport(o: Options) {
       first_name: "Report",
       last_name: f.key.startsWith("tie-") ? "Tie" : f.key,
     });
+
+    // Preserve 0084's application email invariant using the actual cloned applicant statement.
+    const applicantRow = decodeApplicantEmailRow(
+      (
+        await pool.query(
+          "SELECT normalized_email FROM public.admission_applicants WHERE applicant_id=$1",
+          [applicant],
+        )
+      ).rows[0],
+    );
+
     await clone(
       "public.admission_applications",
       "application_id='application-native-conduct-a-0063'",
@@ -240,6 +256,7 @@ export async function observeInterviewReport(o: Options) {
         field_of_study_id:
           f.key === "foreign" ? "report-other-field-0103" : "field-native-conduct-0063",
         applicant_id: applicant,
+        normalized_email: applicantRow.normalized_email,
         admission_period_id: Match.value(f.key).pipe(
           Match.when("closed", () => ids.closed),
           Match.when("foreign", () => ids.foreign),

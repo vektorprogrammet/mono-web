@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import type { Pool, PoolClient } from "pg";
 
+import { PublicApplicationEmailSchema } from "../../packages/domain/src/application/schema.js";
 import {
   CancelInterviewCommandSchema,
   CancelInterviewObservationSchema,
@@ -163,7 +164,14 @@ const clone = async (
   );
 };
 
-/** A nonterminal staffing target that cannot mutate the correction/history fixtures. */
+const decodeApplicantEmailRow = Schema.decodeUnknownSync(
+  Schema.Struct({ normalized_email: PublicApplicationEmailSchema }),
+);
+
+/**
+ * A nonterminal staffing target that cannot mutate the correction/history fixtures.
+ * Its application inherits the newly cloned applicant's email within the seed transaction.
+ */
 export const seedRecruitmentMaintenanceJourneyFixture = async (pool: Pool) => {
   const interviewId = "interview-maintenance-journey-0029";
   const applicantId = "applicant-maintenance-journey-0029";
@@ -187,6 +195,16 @@ export const seedRecruitmentMaintenanceJourneyFixture = async (pool: Pool) => {
           last_name: "Journey",
         },
       );
+
+      const applicant = decodeApplicantEmailRow(
+        (
+          await client.query(
+            "SELECT normalized_email FROM public.admission_applicants WHERE applicant_id=$1",
+            [applicantId],
+          )
+        ).rows[0],
+      );
+
       await clone(
         client,
         "admission_applications",
@@ -194,6 +212,7 @@ export const seedRecruitmentMaintenanceJourneyFixture = async (pool: Pool) => {
         {
           application_id: applicationId,
           applicant_id: applicantId,
+          normalized_email: applicant.normalized_email,
         },
       );
       await clone(
