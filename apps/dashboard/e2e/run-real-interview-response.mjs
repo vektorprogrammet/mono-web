@@ -4,10 +4,13 @@ import {
   ReadInvitationResponseEndpoint, RequestNewInvitationTimeEndpoint, ReadSchedulingBoardEndpoint,
   CancelInterviewEndpoint, CancelInterviewRequest, CancelInterviewResponse,
   ScheduleInterviewEndpoint, ScheduleInterviewRequest, ScheduleInterviewResponse, SchedulingBoard,
+  ListSessionsEndpoint, SessionListResponse,
+  RecruitmentCancelInterviewProblem, RecruitmentScheduleInterviewProblem,
   RecruitmentReadInvitationResponseProblem,
   RecruitmentRequestNewInvitationTimeProblem,
 } from "@vektorprogrammet/http-api";
 import { Predicate, Result, Schema } from "effect";
+import { escapeLiteral } from "pg";
 import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { createHash, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -994,8 +997,68 @@ async function readInvalidatedInvitationEvidence(environment, interviewId) {
   return parseJsonOutput(result, "Invalidated invitation PostgreSQL evidence");
 }
 
+async function alignIsolatedInterviewerSession(cookie, environment) {
+  const response = await fetch(new URL(ListSessionsEndpoint.path, backendOrigin), {
+    method: ListSessionsEndpoint.method,
+    headers: { cookie, origin: dashboardOrigin },
+  });
+
+  const body = await response.text();
+
+  assertNoRawCapability(body, "Isolated interviewer session metadata");
+
+  if (response.status !== 200) {
+    throw new Error(`Isolated interviewer session metadata failed with ${response.status}`);
+  }
+
+  const decoded = Schema.decodeResult(Schema.fromJsonString(SessionListResponse), {
+    onExcessProperty: "error",
+  })(body);
+
+  if (Result.isFailure(decoded)) {
+    throw new Error("Isolated interviewer session metadata did not match SessionListResponse");
+  }
+
+  const current = decoded.success.filter((session) => session.current);
+
+  if (current.length !== 1) {
+    throw new Error(`Expected one isolated current interviewer session, found ${current.length}`);
+  }
+
+  const session = current[0];
+
+  if (session.personId !== interviewerPersonId) {
+    throw new Error("Isolated current session did not belong to the interviewer fixture");
+  }
+
+  // Better Auth signs in against its real clock; transaction authority uses fixedClock.
+  // Align only this fresh fixture lifetime, leaving its credential/access data intact.
+  const result = await runPsql(`
+    WITH aligned AS (
+      UPDATE auth."session"
+      SET "expiresAt" = ${escapeLiteral(clock.fromNow(1))}::timestamptz
+      WHERE "id" = ${escapeLiteral(session.sessionId)}
+        AND "userId" = ${escapeLiteral(session.personId)}
+      RETURNING "id"
+    )
+    SELECT count(*) FROM aligned;
+  `, environment, "Align isolated interviewer session to the command fixture clock");
+
+  const count = Schema.decodeResult(Schema.fromJsonString(Schema.Int))(result.stdout.trim());
+
+  if (Result.isFailure(count)) {
+    throw new Error("Isolated session expiry alignment returned an invalid row count");
+  }
+
+  if (count.success !== 1) {
+    throw new Error(`Isolated session expiry alignment changed ${count.success} rows, expected one`);
+  }
+}
+
 async function exerciseInvalidatedInvitationCapabilities(environment) {
   const cookie = await nativePersonCookie(interviewerEmail);
+
+  await alignIsolatedInterviewerSession(cookie, environment);
   const original = await readResponseEvidence(environment);
   const cases = [];
 
@@ -1081,7 +1144,19 @@ async function exerciseInvalidatedInvitationCapabilities(environment) {
     const body = await response.text();
     assertNoRawCapability(body, "Native invitation invalidation response");
 
-    if (response.status !== 200) throw new Error(`Native ${invalidation} prerequisite failed with ${response.status}`);
+    if (response.status !== 200) {
+      const declaredProblems = invalidation === "cancelled"
+        ? Schema.Union([RecruitmentCancelInterviewProblem, SessionUnauthorizedProblem])
+        : Schema.Union([RecruitmentScheduleInterviewProblem, SessionUnauthorizedProblem]);
+
+      const decoded = Schema.decodeResult(Schema.fromJsonString(declaredProblems), {
+        onExcessProperty: "error",
+      })(body);
+
+      const code = Result.isFailure(decoded) ? "undecodable-declared-problem" : decoded.success.code;
+
+      throw new Error(`Native ${invalidation} prerequisite failed with ${response.status} ${code}`);
+    }
 
     const outcome = invalidation === "cancelled"
       ? Schema.decodeUnknownSync(CancelInterviewResponse)(JSON.parse(body))
