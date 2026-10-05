@@ -9,7 +9,14 @@ import {
 } from "@vektorprogrammet/http-api";
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
-import { CompletedPrepareEdit, FailedLoad, FailedSave, SucceededSave } from "./message";
+import {
+  CompletedPrepareEdit,
+  FailedLoad,
+  FailedSave,
+  SucceededQuestionnaires,
+  SucceededStaffing,
+  SucceededSave,
+} from "./message";
 import { init, Mode, type Model } from "./model";
 
 export const testCommandId = "correction-window-command-0029";
@@ -76,7 +83,7 @@ export const expiredObservation = (canReopen = true) =>
 export const testCommands = (onExecute: () => void = () => {}) => ({
   Load: Command.define("LoadRecruitmentMaintenance", {
     args: { mode: Mode, requestId: Schema.Int },
-    messages: [FailedLoad],
+    messages: [SucceededQuestionnaires, SucceededStaffing, FailedLoad],
     execute: ({ requestId }) =>
       Effect.sync(() => {
         onExecute();
