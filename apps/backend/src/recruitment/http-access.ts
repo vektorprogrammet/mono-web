@@ -35,21 +35,20 @@ import {
   type RecruitmentInvitationHttpSource,
 } from "@vektorprogrammet/domain/recruitment";
 import {
-  reflectAccessSpec,
-  type CancelInterviewEndpoint,
-  CorrectInterviewAssessmentEndpoint,
-  type FinalizeInterviewEndpoint,
-  type ReadInterviewConductEndpoint,
-  type ScheduleInterviewEndpoint,
+  type cancelInterview as cancelInterviewEndpoint,
+  correctInterviewAssessment as correctInterviewAssessmentEndpoint,
+  type finalizeInterview as finalizeInterviewEndpoint,
+  type readInterviewConduct as readInterviewConductEndpoint,
+  type scheduleInterview as scheduleInterviewEndpoint,
 } from "@vektorprogrammet/http-api";
 import { Problem } from "@vektorprogrammet/http-api/http-semantics";
-import { Effect, Option, Predicate, type Schema } from "effect";
+import { Effect, Predicate, type Schema } from "effect";
 import {
   type OrganizationResolutionError,
   resolveRequestPersonAuthorityInTransaction,
 } from "../authority.js";
-import { authorizePerson, personPresentation } from "../http-api/problem.js";
 import type { RecruitmentApiHttpOptions } from "./http-context.js";
+import { authorizeAt, type RecruitmentPersonAuthorize } from "./http-guard.js";
 
 type GenericFacts = Schema.JsonObject;
 
@@ -67,7 +66,7 @@ type GenericFacts = Schema.JsonObject;
  *
  * @example
  * ```ts
- * yield* authorizeInvitationOperation({ spec: Option.getOrThrow(reflectAccessSpec(ReadInvitationResponseEndpoint)), source: snapshot.source, authorizationInstant: now });
+ * yield* authorizeInvitationOperation({ spec: Option.getOrThrow(reflectAccessSpec(readInvitationResponse)), source: snapshot.source, authorizationInstant: now });
  * ```
  *
  * @avoid Checking the capability digest against the invitation in the handler: the AccessSpec of
@@ -241,7 +240,7 @@ interface InterviewAuthorization {
  *
  * @example
  * ```ts
- * const authorization = yield* interviewAuthorizationInTransaction(request, interviewId, ScheduleInterviewEndpoint, true, input);
+ * const authorization = yield* interviewAuthorizationInTransaction(request, interviewId, scheduleInterviewEndpoint, true, input, authorize);
  * ```
  *
  * @avoid Authorizing outside the command's transaction, or before recruitment prepares the
@@ -254,13 +253,14 @@ export const interviewAuthorizationInTransaction = <R>(
   request: Request,
   interviewId: RecruitmentInterviewId,
   endpoint:
-    | typeof ScheduleInterviewEndpoint
-    | typeof ReadInterviewConductEndpoint
-    | typeof FinalizeInterviewEndpoint
-    | typeof CancelInterviewEndpoint
-    | typeof CorrectInterviewAssessmentEndpoint,
+    | typeof scheduleInterviewEndpoint
+    | typeof readInterviewConductEndpoint
+    | typeof finalizeInterviewEndpoint
+    | typeof cancelInterviewEndpoint
+    | typeof correctInterviewAssessmentEndpoint,
   allowLeader: boolean,
   input: RecruitmentApiHttpOptions<R>,
+  authorize: RecruitmentPersonAuthorize,
 ): Effect.Effect<
   InterviewAuthorization,
   | RecruitmentFailure
@@ -291,9 +291,11 @@ export const interviewAuthorizationInTransaction = <R>(
       id: ResourceId.make(interviewId),
     };
 
-    yield* authorizePerson(
-      {
-        spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
+    yield* authorizeAt(authorize, {
+      kind: "Person",
+      operation: `recruitment.${endpoint.identifier}`,
+      request,
+      input: {
         credential: authorization.credential,
         personId: actor.personId,
         resolution: {
@@ -303,11 +305,10 @@ export const interviewAuthorizationInTransaction = <R>(
         grantScopes: [Scope.Resource({ resource })],
         now: authorization.authorizationInstant,
       },
-      personPresentation(request),
-    );
+    });
 
     // Endpoint authority precedes lifecycle refusal, and both precede receipt replay.
-    if (endpoint === CorrectInterviewAssessmentEndpoint)
+    if (endpoint === correctInterviewAssessmentEndpoint)
       yield* Recruitment.use((service) =>
         service.authorizeAssessmentCorrection(interviewId, {
           actor,

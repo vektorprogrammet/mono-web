@@ -33,8 +33,8 @@ import {
   ClaimOnboardingEndpoint,
   ExternalNativeApi,
   OnboardingResource,
-  ReadOnboardingEndpoint,
-  CommandOnboardingEndpoint,
+  readBoard as readOnboardingBoardEndpoint,
+  command as commandOnboardingEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import {
@@ -45,14 +45,18 @@ import {
 import { Crypto, flow, Predicate, Effect, Option, Ref, Schema } from "effect";
 import { Instant } from "@vektorprogrammet/domain/time";
 import type { SqlError } from "effect/unstable/sql/SqlError";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import type { HttpApiGroup } from "effect/unstable/httpapi";
+import {
+  OnboardingApiHandlers as GeneratedOnboardingApiHandlers,
+  type OnboardingGuards,
+  type OnboardingRawHandlers,
+} from "../../.effx/generated/onboarding-handlers.js";
 import {
   currentInstant,
   headerCredentialCount,
   resolveRequestPersonAuthorityInTransaction,
 } from "../authority.js";
 import {
-  authorizePerson,
   commandOutcomeResponse,
   commandReceiptProblems,
   decodeRequest,
@@ -76,6 +80,23 @@ import {
 } from "../http-semantics.js";
 import { genericContext } from "../native-operation.js";
 import { drainOnboardingDelivery, type OnboardingDeliveryConfig } from "./delivery.js";
+import {
+  authorizeOnboardingAt,
+  onboardingGuard,
+  type OnboardingOperation,
+  type OnboardingPersonAuthorize,
+} from "./http-guard.js";
+
+type OnboardingEndpoints = HttpApiGroup.Endpoints<
+  (typeof ExternalNativeApi)["groups"]["onboarding"]
+>;
+
+/** Guards remain lazy until the raw handler supplies its original authority frame. */
+export const onboardingGuards = {
+  "onboarding.readBoard": () =>
+    onboardingGuard("onboarding.readBoard", readOnboardingBoardEndpoint),
+  "onboarding.command": () => onboardingGuard("onboarding.command", commandOnboardingEndpoint),
+} satisfies OnboardingGuards<OnboardingEndpoints>;
 
 /** Both bodies are JSON. The media type is matched case-sensitively. */
 const JSON_MEDIA_TYPE = /^application\/json(?:\s*;|$)/u;
@@ -180,42 +201,41 @@ const scopeOf = (request: Request) => {
  * Onboarding retains generic admissions.outcomes reach plus its own onboarding.manage
  * AccessSpec. Outcome-decide delegation policy does not interpret onboarding authority.
  */
-const authorize = (
+const authorizeOnboarding = Effect.fn("authorizeOnboarding")(function* (
   request: Request,
-  endpoint: typeof ReadOnboardingEndpoint | typeof CommandOnboardingEndpoint,
+  operation: OnboardingOperation,
+  guard: OnboardingPersonAuthorize,
   departmentId: typeof OnboardingScope.Type.departmentId,
-  presentation: CredentialPresentation,
   now?: () => string,
-) =>
-  Effect.gen(function* () {
-    const auth = yield* resolveRequestPersonAuthorityInTransaction(request, { now });
+) {
+  const auth = yield* resolveRequestPersonAuthorityInTransaction(request, { now });
 
-    if (!reaches(auth.authority, "admissions.outcomes", ReachTarget.Department({ departmentId })))
-      return yield* Problem.make("authority.denied");
+  if (!reaches(auth.authority, "admissions.outcomes", ReachTarget.Department({ departmentId })))
+    return yield* Problem.make("authority.denied");
 
-    yield* authorizePerson(
-      {
-        spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
-        credential: auth.credential,
-        personId: auth.authority.personId,
-        resolution: {
-          selection: "ExactlyOne",
-          contexts: [
-            genericContext({
-              domainId: "organization",
-              departmentId,
-              authorityVersion: auth.authorizationInstant,
-            }),
-          ],
-        },
-        grantScopes: [Scope.Department({ departmentId })],
-        now: auth.authorizationInstant,
+  yield* authorizeOnboardingAt(guard, {
+    operation,
+    request,
+    input: {
+      credential: auth.credential,
+      personId: auth.authority.personId,
+      resolution: {
+        selection: "ExactlyOne",
+        contexts: [
+          genericContext({
+            domainId: "organization",
+            departmentId,
+            authorityVersion: auth.authorizationInstant,
+          }),
+        ],
       },
-      presentation,
-    );
-
-    return auth;
+      grantScopes: [Scope.Department({ departmentId })],
+      now: auth.authorizationInstant,
+    },
   });
+
+  return auth;
+});
 
 /**
  * The one principal of an existing-account claim: a Person credential that the claim's
@@ -244,18 +264,18 @@ export const OnboardingApiHandlers = (input: {
   const now = currentInstant(input.now);
   const freshInstant = now.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Instant)), Effect.orDie);
 
-  const read = (request: Request) => {
+  const read = (request: Request, guard: OnboardingPersonAuthorize) => {
     const presentation = personPresentation(request);
 
     return Database.use((sql) =>
       sql.withTransaction(
         Effect.gen(function* () {
           const scope = yield* scopeOf(request);
-          yield* authorize(
+          yield* authorizeOnboarding(
             request,
-            ReadOnboardingEndpoint,
+            "onboarding.readBoard",
+            guard,
             scope.departmentId,
-            presentation,
             input.now,
           );
           const board = yield* readOnboardingBoard(scope.departmentId, freshInstant);
@@ -266,7 +286,7 @@ export const OnboardingApiHandlers = (input: {
     ).pipe(onboardingProblems(presentation));
   };
 
-  const command = (request: Request) =>
+  const command = (request: Request, guard: OnboardingPersonAuthorize) =>
     Effect.gen(function* () {
       const body = yield* readJsonBody(request, JSON_MEDIA_TYPE, MAX_BODY_BYTES);
       const selected = yield* decodeRequest(OnboardingCommand)(body);
@@ -284,11 +304,11 @@ export const OnboardingApiHandlers = (input: {
 
       const outcome = yield* executeNativeHttpCommandPostgres(
         Effect.gen(function* () {
-          const auth = yield* authorize(
+          const auth = yield* authorizeOnboarding(
             request,
-            CommandOnboardingEndpoint,
+            "onboarding.command",
+            guard,
             scope.departmentId,
-            presentation,
             input.now,
           );
 
@@ -429,12 +449,15 @@ export const OnboardingApiHandlers = (input: {
       return json(result);
     }).pipe(onboardingProblems(personPresentation(request, nativeCookieChallenge)));
 
-  return HttpApiBuilder.group(ExternalNativeApi, "onboarding", (handlers) =>
-    Effect.succeed(
-      handlers
-        .handleRaw("readBoard", ({ request }) => webHandler(request, read))
-        .handleRaw("command", ({ request }) => webHandler(request, command))
-        .handleRaw("claim", ({ request }) => webHandler(request, claim)),
-    ),
+  const raw = {
+    readBoard: ({ request }, authorize) =>
+      webHandler(request, (webRequest) => read(webRequest, authorize)),
+    command: ({ request }, authorize) =>
+      webHandler(request, (webRequest) => command(webRequest, authorize)),
+  } satisfies OnboardingRawHandlers<OnboardingEndpoints, typeof onboardingGuards>;
+
+  // The generated factory requires native completion of Identity's handwritten claim.
+  return GeneratedOnboardingApiHandlers({ raw, guards: onboardingGuards })((handlers) =>
+    handlers.handleRaw("claim", ({ request }) => webHandler(request, claim)),
   );
 };

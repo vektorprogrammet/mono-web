@@ -73,7 +73,7 @@ import {
 } from "@vektorprogrammet/domain/recruitment";
 import {
   NativeProblem,
-  ReadInterviewReportEndpoint,
+  readInterviewReport as readInterviewReportEndpoint,
   SchedulingBoard,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
@@ -942,7 +942,7 @@ it("authorizes a current co-interviewer only through the participant requirement
 });
 
 it("authorizes the report collection for its current scoped leader and rejects missing leadership", () => {
-  const spec = Option.getOrThrow(reflectAccessSpec(ReadInterviewReportEndpoint));
+  const spec = Option.getOrThrow(reflectAccessSpec(readInterviewReportEndpoint));
 
   if (!Predicate.isTagged(spec.capabilities, "One"))
     throw new Error("report requires one capability");

@@ -58,6 +58,8 @@ export * from "./release.js";
 
 export * from "./recruitment.js";
 
+export * from "../.effx/generated/recruitment-contract.js";
+
 export * from "./system.js";
 
 export * from "./v2-schemas.js";
@@ -71,6 +73,10 @@ export * from "./placements.js";
 export * from "./social-events.js";
 
 export * from "./onboarding.js";
+
+export { OnboardingResource } from "./onboarding-effx-adapters.js";
+
+export { command, readBoard } from "../.effx/generated/onboarding-contract.js";
 
 export * from "./team-application.js";
 

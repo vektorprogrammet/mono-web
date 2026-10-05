@@ -983,3 +983,39 @@ describe("R3 Returning rule stays separate", () => {
     60000,
   );
 });
+
+describe("generated onboarding transaction guards", () => {
+  it.effect(
+    "fresh command authority precedes exact HTTP replay and does not replace the stored capsule",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture({ transport: false });
+        yield* invitation();
+        const recruiter = PersonId.make("policy-recruiter");
+        const etag = yield* etagOf(f);
+        const first = yield* f.send("Revoke", etag, "generated-authority-replay", recruiter);
+
+        assert.strictEqual(first.status, 200);
+        const committed = yield* snapshot;
+
+        // End the real scoped grant before a request with the identical body, key and validator.
+        yield* f.sql`UPDATE organization_delegations SET end_at=start_at + interval '1 second' WHERE delegation_id=${`delegation-${digest}`}`;
+        const denied = yield* f.send("Revoke", etag, "generated-authority-replay", recruiter);
+        assert.strictEqual(denied.status, 403);
+        assert.strictEqual((yield* decodeProblem(denied.text)).code, "authority.denied");
+        assert.deepStrictEqual(yield* snapshot, committed);
+
+        const deniedRead = yield* f.read(recruiter);
+        assert.strictEqual(deniedRead.status, 403);
+        assert.strictEqual((yield* decodeProblem(deniedRead.text)).code, "authority.denied");
+
+        // Restored authority permits the original capsule, not a fresh mutation-only ETag check.
+        yield* f.sql`UPDATE organization_delegations SET end_at=NULL WHERE delegation_id=${`delegation-${digest}`}`;
+        const replay = yield* f.send("Revoke", etag, "generated-authority-replay", recruiter);
+        assert.deepStrictEqual(replay, first);
+        assert.deepStrictEqual(yield* snapshot, committed);
+        assert.strictEqual(f.calls(), 0);
+      }),
+    60000,
+  );
+});

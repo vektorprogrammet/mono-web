@@ -14,7 +14,7 @@ import { DirectoryApi } from "../.effx/generated/directory-contract.js";
 import { OrganizationApi } from "../.effx/generated/organization-contract.js";
 import { ProfileApi } from "../.effx/generated/profile-contract.js";
 import { InternalReceiptsApi, ReceiptsApi } from "./receipts.js";
-import { RecruitmentApi } from "./recruitment.js";
+import { RecruitmentApi } from "../.effx/generated/recruitment-contract.js";
 import { SocialEventsApi } from "../.effx/generated/social-events-contract.js";
 import { TeamApplicationsApi } from "../.effx/generated/team-applications-contract.js";
 import { CertificatesApi } from "./certificates.js";

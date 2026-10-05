@@ -71,3 +71,28 @@ Responsibilities:
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 
 [//]: # "guide: end"
+
+## Mixed HTTP ownership
+
+Recruitment declares only `onboarding.readBoard` and `onboarding.command` in `onboarding.effx.ts`.
+The original `OnboardingApi` combines their generated endpoints with Identity's handwritten `ClaimOnboardingEndpoint`.
+The generated raw factory returns a typed continuation. Its completion callback must register the original claim before it produces the group layer.
+The claim token, account linking, and credential rules remain Identity-owned.
+
+Each generated guard runs in the original request-local authority frame.
+The read frame shares the board transaction. Command preparation resolves current Person authority and evaluates the guard before HTTP receipt replay.
+The deeper department reach, application custody, readiness, and validator checks remain in their existing owners.
+
+A command receipt records committed acceptance, not provider delivery.
+Only a newly committed command attempts admitted delivery after commit. An HTTP replay returns the stored capsule and performs no delivery attempt.
+
+`endpoint-problems.ts` owns the spread-composed `OnboardingCommandCodes`.
+The declaration adapter supplies a flat tuple because the compiler cannot resolve those spreads.
+Its type constraint and adapter tests require exact ordered equality. A reordered negative control must fail that equality.
+The compiler's support for const-tuple spreads retires the flat copy.
+Identity's migration of `claim` retires the handwritten completion.
+
+Native Effect completion rejects ordinary omitted and duplicate claim registrations.
+Its ValidateReturn diagnostic marker can still be explicitly annotated as a callback result;
+the type control records this expected pass, not a workaround or a completion guarantee.
+The real binding registers claim with handleRaw and never returns that diagnostic marker.

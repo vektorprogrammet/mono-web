@@ -79,3 +79,15 @@ The shared constructs defined here. Each name links to its contract; [docs/const
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 
 [//]: # "guide: end"
+
+## Generated HTTP bindings
+
+The declaration in `packages/http-api/src/recruitment.effx.ts` owns the sixteen Recruitment endpoints.
+The generated factory supplies one deferred guard per operation.
+
+Run each guard through `authorizeAt` at the existing authority decision point.
+For commands, keep that point inside the committing transaction and before receipt replay.
+Keep the deeper domain guards, request bounds, preconditions, receipts, and outboxes.
+Do not place Person security on the group. Invitation endpoints accept only their dedicated capability.
+
+A committed response does not prove external delivery. Delivery acknowledgement remains separate from business and HTTP receipts.

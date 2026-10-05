@@ -18,6 +18,7 @@ import { backendTestConfig } from "../../test/config.js";
 import { makeBackendTestHttp } from "../test/native-http.js";
 import { TestPlatform } from "../test/platform.js";
 import { maintainRecruitmentHttp } from "./maintenance-http.js";
+import { recruitmentGuards } from "./http.js";
 
 const personId = PersonId.make("maintenance-conflict-admin");
 
@@ -278,10 +279,10 @@ it.live(
         command,
       );
 
-      const fiber = yield* maintainRecruitmentHttp(request(body)).pipe(
-        Effect.provide(services),
-        Effect.forkChild,
-      );
+      const fiber = yield* maintainRecruitmentHttp(
+        request(body),
+        recruitmentGuards["recruitment.maintainRecruitment"],
+      ).pipe(Effect.provide(services), Effect.forkChild);
 
       yield* Deferred.await(inserted);
       yield* Fiber.interrupt(fiber);
