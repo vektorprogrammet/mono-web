@@ -21,12 +21,13 @@ passed 103/103 at `191b7ad3`; real bridge POST cancellation controls passed 14/1
 The actual built onboarding journey passed all ten browser cases at `1f59263a`, with no skips,
 unexpected failures or flaky cases. These are synthetic loopback observations, not provider proof.
 Evidence is retained outside the product tree in `/srv/share/projects/effx-recruitment-0029-evidence/green-suites.json`.
-The 194-command authority-model run is still supervised; whole-tree aggregate gates are not
-accepted. Reviewed fixture, channel, and decision-instant precision repairs are integrated.
-The latest aggregate stopped at the precision upgrade proof’s missing layout import record;
-that test dependency is now registered. Serial baseline verification remains required.
-Migrations 0083–0085 are registered through `just migration-hashes write`; existing historical
-instants are not rounded or rewritten by 0085. No Recruitment generated-contract cutover is accepted.
+The repaired handwritten baseline `16481296` passed serial `just check --concurrency=1` and `just test --concurrency=1`.
+The runs passed 16/16 type/generation tasks and 21/21 aggregate tasks. Four opt-in `auth-live` database tests remained skipped.
+Historical upgrade controls passed 20/20 on PostgreSQL 17.11 and PGlite. The aggregate also ran PostgreSQL 18/PGlite upgrade controls.
+`just model validate` passed. The 194-command authority-model run remains supervised, without whole-model acceptance.
+The evidence is in `/srv/share/projects/effx-recruitment-0029-evidence/repaired-baseline-acceptance.json`.
+Migrations 0083–0085 are registered. Migration 0085 neither rounds nor rewrites historical instants.
+No generated Recruitment/onboarding cutover is accepted.
 The operator’s direct instruction was: “Forgoe the heavy job slot in place of checking the machine status for
 what resources are taken” (2026-10-04, `history://Main:253-255`). The director supplied the
 admission procedure: two readings 10 seconds apart, load below nproc, MemAvailable at least
