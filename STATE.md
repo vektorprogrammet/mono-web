@@ -45,10 +45,17 @@ The e04 mixed-onboarding module fails type-checking because its subset factory l
 unhandled (TS2322). No built-in option emits its raw/guard types without that factory. The
 director approved a typed completion continuation: the generated factory registers `readBoard`
 and `command`, then requires the handwritten `claim` completion before a group layer exists.
-A missing claim must be a compile error. The successor `a879a38` is vendored through the flat
-manifest/package workflow. Frozen installation and nine-group regeneration exited zero; the
-director-amended contract delta, raw-handler/IR identity, full OpenAPI/SDK, and frontend gates
-remain required before onboarding integration. No suppression, output edit, or new root shim is applied.
+A missing claim must remain a compile error. The successor `a879a38` is vendored through the flat manifest/package workflow.
+Its scoped nine-group re-vendor gate passed at `16481296`. All nine raw-handler files remained byte-identical.
+Contract differences were only approved status-on-wrapper changes and removed imports. Canonical OpenAPI and all 111 SDK operation bytes remained identical.
+This evidence does not accept the new cutover. The new onboarding bootstrap is blocked by compiler defects D1/D2.
+Contract-only and handler-only both exited 1 on the exact source copy. Each run emitted EFFX2415 at all ten group references.
+The native recipe already orders contract before handlers. The director assigned the compiler correction to `compiler-bootstrap`.
+Onboarding remains parked until its new pack passes the same amended re-vendor gate.
+Before final acceptance, a fresh `bun install --frozen-lockfile` must succeed without reused `node_modules`.
+If that install stalls, capture its wait with `--verbose` and report the network, registry, resolution, or Git dependency.
+The previous cold install stalled for 30 minutes. Reused dependencies served only the accepted diagnostic record, not cutover acceptance.
+No suppression, output edit, root shim, or sequencing workaround is applied.
 **Retirement trigger:** after Identity migrates `claim`, the complete generated group replaces
 the transitional handwritten completion.
 The isolated reproducer is retained outside the product tree at
