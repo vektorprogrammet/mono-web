@@ -78,7 +78,7 @@ import {
   QuestionnaireManagement,
   InterviewStaffingManagement,
   CorrectInterviewAssessmentRequest,
-} from "@vektorprogrammet/http-api";
+} from "../../packages/http-api/src/index.js";
 import nativeOperations from "../../packages/sdk/native-api-operations.json";
 
 const root = new URL("../../", import.meta.url).pathname;
@@ -3344,7 +3344,7 @@ try {
       assert.equal(openerDetail.assessmentCorrection.canCorrect, false);
       assert.ok(openerDetail.score);
 
-      const openerPayload = Schema.decodeUnknownSync(CorrectInterviewAssessmentRequest)({
+      const openerPayload = Schema.decodeSync(CorrectInterviewAssessmentRequest)({
         expectedRevision: openerDetail.revision,
         answers: openerDetail.answers,
         score: openerDetail.score,
