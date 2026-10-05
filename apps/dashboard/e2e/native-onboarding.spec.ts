@@ -83,7 +83,7 @@ test.describe("R6 real onboarding route authority and problem status", () => {
 
   test("native boards reject missing and revoked real Better Auth sessions without returning private projections", async ({ page }) => {
     const assertCredentialDenials = async (code: "credential.missing" | "credential.invalid", cookie?: string) => {
-      const headers = cookie === undefined ? {} : { cookie };
+      const headers: Record<string, string> = cookie === undefined ? {} : { cookie };
       const assignment = await page.request.get(manifest.backendOrigin + ReadAssignmentBoardEndpoint.path + "?status=all", { headers });
       const scheduling = await page.request.get(manifest.backendOrigin + ReadSchedulingBoardEndpoint.path, { headers });
 
