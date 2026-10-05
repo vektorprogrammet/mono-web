@@ -70,7 +70,6 @@ No `exports` entry of [apps/backend/package.json](../../package.json) points int
 
 The shared constructs defined here. Each name links to its contract; [docs/constructs.md](../../../../docs/constructs.md) indexes them all.
 
-- [`authorizeInvitationOperation`](../../../../docs/constructs/http-problem.md#authorizeinvitationoperation) (http-problem): Authorizes the holder of an invitation's response capability.
 - [`interviewAuthorizationInTransaction`](../../../../docs/constructs/http-problem.md#interviewauthorizationintransaction) (http-problem): Resolves the current person and authorizes one interview inside the caller's transaction; a rejected credential is answered from the request's evidence.
 - [`readRecruitmentBody`](../../../../docs/constructs/http-problem.md#readrecruitmentbody) (http-problem): Every recruitment request body is one bounded `application/json` document.
 - [`recruitmentProblems`](../../../../docs/constructs/http-problem.md#recruitmentproblems) (http-problem): The one answer for every recruitment failure.
