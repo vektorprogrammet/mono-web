@@ -79,12 +79,16 @@ export const expiredObservation = (canReopen = true) =>
     canClose: false,
   });
 
+const loadMessages = [SucceededQuestionnaires, SucceededStaffing, FailedLoad] as const;
+
+type LoadResponse = Schema.Schema.Type<(typeof loadMessages)[number]>;
+
 /** Story and Scene resolve these definitions; an accidental execute is observable. */
 export const testCommands = (onExecute: () => void = () => {}) => ({
   Load: Command.define("LoadRecruitmentMaintenance", {
     args: { mode: Mode, requestId: Schema.Int },
-    messages: [SucceededQuestionnaires, SucceededStaffing, FailedLoad],
-    execute: ({ requestId }) =>
+    messages: loadMessages,
+    execute: ({ requestId }): Effect.Effect<LoadResponse> =>
       Effect.sync(() => {
         onExecute();
 
