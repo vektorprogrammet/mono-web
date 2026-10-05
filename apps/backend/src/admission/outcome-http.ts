@@ -23,7 +23,7 @@ import {
   readOutcomeTemplates as readOutcomeTemplatesEndpoint,
   saveOutcomeTemplate as saveOutcomeTemplateEndpoint,
 } from "@vektorprogrammet/http-api";
-import { Problem } from "@vektorprogrammet/http-api/http-semantics";
+import { Problem, type StrongETag } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Match } from "effect";
 import type { HttpApiGroup } from "effect/unstable/httpapi";
 import {
@@ -70,14 +70,41 @@ import {
 import { renderOutcomeMail } from "./template-render.js";
 import { OutcomeTemplateHandlers } from "./outcome-template-http.js";
 
+const fullOutcomeKind = "AdmissionOutcomeResource";
+
+const minimalOutcomeKind = "AdmissionOutcomeAnnounceResource";
+
+const outcomeETag = (
+  entry: AdmissionOutcomeEntry,
+  representationKind: typeof fullOutcomeKind | typeof minimalOutcomeKind,
+  version: string,
+): StrongETag =>
+  deriveStrongETag({
+    representationKind,
+    resourceIdentity: entry.applicationId,
+    version,
+  });
+
+/** Selects only current representations allowed by this transaction's fresh authority. */
+const currentAnnouncementETag = (
+  entry: AdmissionOutcomeEntry,
+  decide: boolean,
+  ifMatch: StrongETag,
+): StrongETag => {
+  const version = JSON.stringify(entry);
+  const minimal = outcomeETag(entry, minimalOutcomeKind, version);
+
+  if (minimal === ifMatch || !decide) return minimal;
+
+  const full = outcomeETag(entry, fullOutcomeKind, version);
+
+  return full === ifMatch ? full : minimal;
+};
+
 /** Rekruttering's view of one application, with the ETag of its current state. */
 const outcomeResource = (entry: AdmissionOutcomeEntry) => ({
   ...entry,
-  etag: deriveStrongETag({
-    representationKind: "AdmissionOutcomeResource",
-    resourceIdentity: entry.applicationId,
-    version: JSON.stringify(entry),
-  }),
+  etag: outcomeETag(entry, fullOutcomeKind, JSON.stringify(entry)),
 });
 
 /** The school coordinator's view: the safe fields, and an ETag that every change of the entry moves. */
@@ -88,11 +115,7 @@ const announceResource = (entry: AdmissionOutcomeEntry) => ({
   state: entry.state,
   outcome: entry.outcome,
   placed: entry.placed,
-  etag: deriveStrongETag({
-    representationKind: "AdmissionOutcomeAnnounceResource",
-    resourceIdentity: entry.applicationId,
-    version: JSON.stringify(entry),
-  }),
+  etag: outcomeETag(entry, minimalOutcomeKind, JSON.stringify(entry)),
 });
 
 /** Who an operation needs: the board is open to either, a command to its own authority. */
@@ -403,7 +426,7 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
 
           const auth = yield* personAuthority(request);
 
-          yield* authorizeOutcome(
+          const permission = yield* authorizeOutcome(
             authorize,
             "admissionOutcomes.announceOutcome",
             request,
@@ -435,7 +458,11 @@ export const AdmissionOutcomesApiHandlers = (input: { now?: () => string }) => {
                     actor: auth.authority.personId,
                     now: auth.authorizationInstant,
                   },
-                  (current) => requireCurrentETag(announceResource(current).etag, ifMatch),
+                  (current) =>
+                    requireCurrentETag(
+                      currentAnnouncementETag(current, permission.decide, ifMatch),
+                      ifMatch,
+                    ),
                   renderOutcomeMail,
                 ),
               );

@@ -76,3 +76,11 @@ The shared constructs defined here. Each name links to its contract; [docs/const
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 
 [//]: # "guide: end"
+
+## Announcement preconditions
+
+Announcement preparation resolves current Announce and Decide authority in the committing transaction, before receipt lookup.
+The locked precondition compares one strong If-Match against the same current entry.
+Announce authority permits the current minimal announcement tag. Fresh Decide authority in the same department also permits the current full outcome tag.
+The two representations keep distinct tag namespaces. A stale tag fails with 412 even if another representation has a current tag.
+The announcement response remains minimal and private/no-store. Exact replay preserves the stored response without another mutation or envelope.

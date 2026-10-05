@@ -1,5 +1,10 @@
 ## Unreleased
 
+### Admission announcement validators
+
+- Accept the current full or minimal outcome tag for callers with fresh Decide and Announce authority in the same department.
+- Keep minimal-only tag acceptance for Announce-only callers, distinct representation namespaces, stale-tag rejection, and fresh authorization before receipt replay.
+
 ### Bounded reimbursement journey
 
 - Qualify claim submission, scoped approval, separate settlement evidence, and fresh-session owner visibility through the native dashboard.
