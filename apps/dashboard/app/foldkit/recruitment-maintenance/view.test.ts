@@ -219,6 +219,7 @@ it.each(openerCases)("keeps $name mutation-locked and applies server eligibility
 it.each(openerCases)("returns native Dialog focus to $name after Escape and Tilbake, and releases on unmount", async ({ observation, index }) => {
   const host = document.createElement("div");
   const container = document.createElement("div");
+  container.id = `correction-window-opener-test-${index}`;
   host.append(container);
   document.body.append(host);
   let calls = 0;
