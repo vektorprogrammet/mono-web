@@ -48,6 +48,47 @@ const coordinator = PersonId.make("placement-coordinator");
 
 const now = "2026-09-06T00:00:00.000Z";
 
+/** Real completed, uncancelled conduct, as in the canonical placement admission fixture. */
+const seedInterview = Effect.fnUntraced(function* (
+  sql: DatabaseOperations,
+  applicationId: string,
+  departmentId: DepartmentId,
+  actor: PersonId,
+  recommendation: "Ja" | "Kanskje" = "Ja",
+) {
+  const interviewId = applicationId + "-interview";
+  const schemaId = applicationId + "-schema";
+  const at = DateTime.makeUnsafe(now);
+  const assignedAt = DateTime.formatIso(DateTime.add(at, { hours: -2 }));
+  const scheduledAt = DateTime.formatIso(DateTime.add(at, { hours: -1 }));
+  yield* sql`INSERT INTO recruitment_interview_schemas(interview_schema_id,name,question_count) VALUES(${schemaId},'Synthetic placement interview',1)`;
+  yield* sql`INSERT INTO recruitment_interview_schema_questions(interview_schema_id,question_id,ordinal,prompt,kind,alternatives) VALUES(${schemaId},'explanation',0,'Explain how you would help a pupil.','text','[]'::jsonb)`;
+  yield* sql`INSERT INTO recruitment_interviews(interview_id,application_id,department_id,interviewer_person_id,interview_schema_id,assigned_by_person_id,assigned_at,revision) VALUES(${interviewId},${applicationId},${departmentId},${actor},${schemaId},${actor},${assignedAt},2)`;
+  yield* sql`INSERT INTO recruitment_interview_question_snapshots(interview_id,question_id,ordinal,prompt,kind,alternatives) SELECT ${interviewId},question_id,ordinal,prompt,kind,alternatives FROM recruitment_interview_schema_questions WHERE interview_schema_id=${schemaId}`;
+  yield* sql`INSERT INTO recruitment_interview_schedules(interview_id,scheduled_at,room,campus,message,scheduled_by_person_id,committed_at,schedule_revision) VALUES(${interviewId},${scheduledAt},'A1','Synthetic campus','Welcome',${actor},${assignedAt},1)`;
+  yield* sql`INSERT INTO recruitment_invitations(invitation_id,interview_id,schedule_revision,capability_sha256,response_state,response_revision,responded_at,created_at) VALUES(${interviewId + "-invitation"},${interviewId},1,repeat(md5(${interviewId}),2),'Accepted',1,${assignedAt},${assignedAt})`;
+  yield* sql`INSERT INTO recruitment_invitation_response_audit(invitation_id,interview_id,schedule_revision,response_revision,response_state,responded_at) VALUES(${interviewId + "-invitation"},${interviewId},1,1,'Accepted',${assignedAt})`;
+  yield* sql`INSERT INTO recruitment_interview_conducts(interview_id,answers,explanatory_power,role_model,suitability,finalized_by_person_id,finalized_at,interview_revision,recommendation) VALUES(${interviewId},'[{"questionId":"explanation","answer":"Work through a concrete example with the pupil."}]'::jsonb,7,8,9,${actor},${now},2,${recommendation})`;
+});
+
+/** Commits admission evidence with its caller's placement fixture transaction; no provider work. */
+const seedAdmittedApplication = Effect.fnUntraced(function* (
+  sql: DatabaseOperations,
+  personId: PersonId,
+  actor: PersonId,
+  departmentId: DepartmentId,
+  periodId: string,
+  fieldId: string,
+) {
+  const applicationId = personId + "-application";
+  const applicantId = personId + "-applicant";
+  yield* sql`INSERT INTO admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study) SELECT ${applicantId},${personId + "@example.invalid"},${personId + "@example.invalid"},first_name,last_name,'12345678',0,${fieldId},2 FROM person_profiles WHERE person_id=${personId}`;
+  yield* sql`INSERT INTO admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at) VALUES(${applicationId},${applicantId},${periodId},${departmentId},${fieldId},2,${DateTime.formatIso(DateTime.add(DateTime.makeUnsafe(now), { hours: -3 }))})`;
+  yield* seedInterview(sql, applicationId, departmentId, actor);
+  yield* sql`INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) SELECT ${applicationId + "-account-invitation"},${applicationId},${applicantId},repeat(md5(${applicationId}),2),end_at,'Claimed',${actor},${now} FROM admission_periods WHERE admission_period_id=${periodId}`;
+  yield* sql`INSERT INTO applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES(${applicantId},${personId},${now},${applicationId + "-account-invitation"})`;
+});
+
 layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
   "canonical placement persistence",
   (it) => {
@@ -235,6 +276,17 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
                 yield* sql`INSERT INTO organization_departments(department_id,name,short_name,email,city) VALUES(${serviceScope.departmentId},'Service department','SD','service@example.invalid','Trondheim')`;
                 yield* sql`INSERT INTO admission_period_semesters(semester_id,start_at,end_at) VALUES(${serviceScope.semesterId},'2026-08-01T00:00:00Z','2026-12-31T00:00:00Z')`;
                 yield* sql`INSERT INTO person_profiles(person_id,first_name,last_name) VALUES(${serviceVolunteer},'Sara','Service'),(${serviceCoordinator},'Cora','Coordinator')`;
+                yield* sql`INSERT INTO admission_period_departments(department_id,name) VALUES(${serviceScope.departmentId},'Service admission')`;
+                yield* sql`INSERT INTO admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,last_command_id) VALUES('service-period',${serviceScope.departmentId},${serviceScope.semesterId},'2026-08-01T00:00:00Z','2026-12-31T00:00:00Z','service-seed')`;
+                yield* sql`INSERT INTO admission_period_fields_of_study(field_of_study_id,department_id,name) VALUES('service-field',${serviceScope.departmentId},'Math')`;
+                yield* seedAdmittedApplication(
+                  sql,
+                  serviceVolunteer,
+                  serviceCoordinator,
+                  serviceScope.departmentId,
+                  "service-period",
+                  "service-field",
+                );
 
                 const schools = yield* sql<{
                   schoolId: number;
@@ -606,9 +658,17 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
                 yield* sql`INSERT INTO schools_directory_departments(school_id,department_id) VALUES(${schoolId},${coverageScope.departmentId})`;
                 // The admitted assistant has no placement: an applicant whose recorded outcome is Admitted.
                 yield* sql`INSERT INTO admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study) VALUES('coverage-applicant','coverage@applicant.invalid','coverage@applicant.invalid','Cato','Candidate','12345678',0,'coverage-field',2)`;
-                yield* sql`INSERT INTO admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at) VALUES('coverage-application','coverage-applicant','coverage-period',${coverageScope.departmentId},'coverage-field',2,${now})`;
+                yield* sql`INSERT INTO admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at) VALUES('coverage-application','coverage-applicant','coverage-period',${coverageScope.departmentId},'coverage-field',2,${DateTime.formatIso(DateTime.add(DateTime.makeUnsafe(now), { hours: -3 }))})`;
                 yield* sql`INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES('coverage-invitation','coverage-application','coverage-applicant',${"a".repeat(64)},'2027-01-01T00:00:00Z','Claimed',${coverageCoordinator},${now})`;
                 yield* sql`INSERT INTO applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES('coverage-applicant',${admittedPerson},${now},'coverage-invitation')`;
+                // An explicit decision cites completed Kanskje evidence; the SQL trigger freezes it.
+                yield* seedInterview(
+                  sql,
+                  "coverage-application",
+                  coverageScope.departmentId,
+                  coverageCoordinator,
+                  "Kanskje",
+                );
                 yield* sql`INSERT INTO admission_application_outcomes(application_id,revision,outcome,decided_by_person_id,decided_at) VALUES('coverage-application',1,'Admitted',${coverageCoordinator},${now})`;
                 yield* lockPlacementDepartment(coverageScope.departmentId);
 
@@ -618,6 +678,15 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
                   [secondRosterPerson, "Monday", "6"],
                   [placedAssistant, "Tuesday", "7"],
                 ] as const) {
+                  yield* seedAdmittedApplication(
+                    sql,
+                    personId,
+                    coverageCoordinator,
+                    coverageScope.departmentId,
+                    "coverage-period",
+                    "coverage-field",
+                  );
+
                   const pending = yield* mutateAffiliation(
                     yield* readOwnAffiliation(personId, coverageScope.departmentId),
                     "Request",

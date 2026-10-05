@@ -214,7 +214,10 @@ const suiteSeed = Layer.effectDiscard(
         (${coordinator}, 'Cora', 'Coordinator')`;
       yield* sql`INSERT INTO recruitment_interview_schemas (
         interview_schema_id, name, question_count, active, revision
-      ) VALUES ('policy-schema', 'Policy', 0, true, 0)`;
+      ) VALUES ('policy-schema', 'Policy', 1, true, 0)`;
+      yield* sql`INSERT INTO recruitment_interview_schema_questions (
+        interview_schema_id, question_id, ordinal, prompt, kind, alternatives
+      ) VALUES ('policy-schema', 'explanation', 0, 'Explain how you would help a pupil.', 'text', '[]'::jsonb)`;
 
       const schools = yield* sql<{
         readonly schoolId: number;
@@ -284,8 +287,12 @@ const suiteSeed = Layer.effectDiscard(
             assigned_by_person_id, assigned_at, revision
           ) VALUES (
             ${interview}, ${application}, ${scope.departmentId}, ${interviewer}, 'policy-schema',
-            ${interviewer}, '2026-02-03T00:00:00.000Z', 1
+            ${interviewer}, '2026-02-03T00:00:00.000Z', 2
           )`;
+          yield* sql`INSERT INTO recruitment_interview_question_snapshots (
+            interview_id, question_id, ordinal, prompt, kind, alternatives
+          ) SELECT ${interview}, question_id, ordinal, prompt, kind, alternatives
+            FROM recruitment_interview_schema_questions WHERE interview_schema_id = 'policy-schema'`;
           yield* sql`INSERT INTO recruitment_interview_schedules (
             interview_id, scheduled_at, room, campus, map_link, message, scheduled_by_person_id,
             committed_at, schedule_revision
@@ -318,7 +325,8 @@ const suiteSeed = Layer.effectDiscard(
                 interview_id, answers, explanatory_power, role_model, suitability,
                 finalized_by_person_id, finalized_at, interview_revision, recommendation
               ) VALUES (
-                ${interview}, '[]'::jsonb, 7, 8, 9, ${interviewer}, '2026-02-10T11:00:00.000Z', 2,
+                ${interview}, '[{"questionId":"explanation","answer":"Work through a concrete example with the pupil."}]'::jsonb,
+                7, 8, 9, ${interviewer}, '2026-02-10T11:00:00.000Z', 2,
                 ${recommendation}
               )`;
             }),
@@ -395,9 +403,12 @@ const suiteSeed = Layer.effectDiscard(
         }
 
         if (seed.outcome !== undefined) {
+          // Ja/Nei record the interview-derived outcome, never a human override.
+          const derived = recommendation === "Ja" || recommendation === "Nei";
           yield* sql`INSERT INTO admission_application_outcomes (
-            application_id, revision, outcome, decided_by_person_id, decided_at
-          ) VALUES (${application}, 1, ${seed.outcome}, ${recruiter}, '2026-05-01T10:00:00.000Z')`;
+            application_id, revision, outcome, decided_by_person_id, decided_at, provenance
+          ) VALUES (${application}, 1, ${seed.outcome}, ${derived ? null : recruiter},
+            '2026-05-01T10:00:00.000Z', ${derived ? "Recommendation" : "Decision"})`;
         }
       }
 
