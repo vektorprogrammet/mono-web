@@ -26,12 +26,14 @@ const recruitment = LoadedRecruitmentInput.make({ status: "all", board });
 
 const unexpectedRequest = () => Effect.die("keyboard regression must not submit a server command");
 
-const client: RecruitmentClient = { recruitment: {
-  readAssignmentBoard: unexpectedRequest, createApplicationInterview: unexpectedRequest,
-  readSchedulingBoard: unexpectedRequest, scheduleInterview: unexpectedRequest,
-  readInterviewConduct: unexpectedRequest, finalizeInterview: unexpectedRequest,
-  cancelInterview: unexpectedRequest, correctInterviewAssessment: unexpectedRequest,
-} };
+const client: RecruitmentClient = {
+  recruitment: {
+    readAssignmentBoard: unexpectedRequest, createApplicationInterview: unexpectedRequest,
+    readSchedulingBoard: unexpectedRequest, scheduleInterview: unexpectedRequest,
+    readInterviewConduct: unexpectedRequest, finalizeInterview: unexpectedRequest,
+    cancelInterview: unexpectedRequest, correctInterviewAssessment: unexpectedRequest,
+  }
+};
 
 const admissionSelector = `#${Disclosure.buttonId("fd-admission-menu")}`;
 
@@ -177,7 +179,7 @@ describe("shell keyboard event ownership", () => {
 
       disposeRecruitment = embedRecruitment(child, {
         client, serializedInput: S.encodeSync(RecruitmentInputJson)(recruitment),
-        idempotencyKeySeed: IdempotencyKey.make("shell-keyboard-test"),
+        idempotencyKeySeed: IdempotencyKey.make("shell-keyboard-test-command"),
       });
 
       await vi.waitFor(() => expect(shell.container.querySelector(".fr-button--compact")).not.toBeNull());
