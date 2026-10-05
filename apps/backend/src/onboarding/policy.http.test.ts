@@ -999,7 +999,7 @@ describe("generated onboarding transaction guards", () => {
         const committed = yield* snapshot;
 
         // End the real scoped grant before a request with the identical body, key and validator.
-        yield* f.sql`UPDATE organization_delegations SET end_at=start_at + interval '1 second' WHERE delegation_id=${`delegation-${digest}`}`;
+        yield* f.sql`UPDATE organization_delegations SET end_at=start_at + interval '1 second', revision=revision + 1 WHERE delegation_id=${`delegation-${digest}`}`;
         const denied = yield* f.send("Revoke", etag, "generated-authority-replay", recruiter);
         assert.strictEqual(denied.status, 403);
         assert.strictEqual((yield* decodeProblem(denied.text)).code, "authority.denied");
@@ -1009,8 +1009,11 @@ describe("generated onboarding transaction guards", () => {
         assert.strictEqual(deniedRead.status, 403);
         assert.strictEqual((yield* decodeProblem(deniedRead.text)).code, "authority.denied");
 
-        // Restored authority permits the original capsule, not a fresh mutation-only ETag check.
-        yield* f.sql`UPDATE organization_delegations SET end_at=NULL WHERE delegation_id=${`delegation-${digest}`}`;
+        // A successor grant restores authority; an ended delegation can never reopen.
+        // The original capsule still precedes a fresh mutation-only ETag check.
+        yield* f.sql`INSERT INTO organization_delegations(delegation_id,name,team_id,capability,area,area_department_id,holders,start_at)
+          SELECT ${`delegation-${"b".repeat(64)}`},name,team_id,capability,area,area_department_id,holders,end_at
+          FROM organization_delegations WHERE delegation_id=${`delegation-${digest}`}`;
         const replay = yield* f.send("Revoke", etag, "generated-authority-replay", recruiter);
         assert.deepStrictEqual(replay, first);
         assert.deepStrictEqual(yield* snapshot, committed);
