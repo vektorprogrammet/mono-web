@@ -12,7 +12,10 @@ import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { inspect } from "node:util";
 import { createPromiseClient } from "../../packages/sdk/src/promise.js";
-import { decodeApplicantProgressResponse } from "../../packages/domain/src/application/schema.js";
+import {
+  decodeApplicantProgressResponse,
+  PublicApplicationEmailSchema,
+} from "../../packages/domain/src/application/schema.js";
 import type { Page } from "playwright";
 import { join } from "node:path";
 import type { Pool, PoolClient } from "pg";
@@ -98,6 +101,10 @@ const linkApplicant = async (
   );
 };
 
+const decodeApplicantEmailRow = Schema.decodeUnknownSync(
+  Schema.Struct({ normalized_email: PublicApplicationEmailSchema }),
+);
+
 type ProgressSeedState = "received" | "pending" | "new-time" | "rejected" | "completed";
 
 const seedProgressState = async (client: PoolClient, state: ProgressSeedState, ordinal: number) => {
@@ -112,9 +119,21 @@ const seedProgressState = async (client: PoolClient, state: ProgressSeedState, o
     first_name: state,
     last_name: "Progress",
   });
+
+  // Applications retain the actual new applicant statement's email, not the source clone's.
+  const applicant = decodeApplicantEmailRow(
+    (
+      await client.query(
+        "SELECT normalized_email FROM public.admission_applicants WHERE applicant_id=$1",
+        [applicantId],
+      )
+    ).rows[0],
+  );
+
   await clone(client, "admission_applications", `application_id='${base.application}'`, {
     application_id: applicationId,
     applicant_id: applicantId,
+    normalized_email: applicant.normalized_email,
     submitted_at: fromJourneyNow(-20, ordinal),
   });
   await linkApplicant(client, state, applicationId, applicantId);
@@ -252,9 +271,20 @@ const seedScopedApplication = async (
     email: `${suffix}.scoped.progress@example.invalid`,
     field_of_study_id: fieldId,
   });
+
+  const applicant = decodeApplicantEmailRow(
+    (
+      await client.query(
+        "SELECT normalized_email FROM public.admission_applicants WHERE applicant_id=$1",
+        [applicantId],
+      )
+    ).rows[0],
+  );
+
   await clone(client, "admission_applications", `application_id='${base.application}'`, {
     application_id: applicationId,
     applicant_id: applicantId,
+    normalized_email: applicant.normalized_email,
     admission_period_id: periodId,
     department_id: departmentId,
     field_of_study_id: fieldId,
