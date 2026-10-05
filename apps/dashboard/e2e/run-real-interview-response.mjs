@@ -950,7 +950,7 @@ async function exerciseInvitationCredentialConflict(environment) {
   for (const endpoint of Object.values(ExternalNativeApi.groups.recruitment.endpoints)) {
     if (!endpoint.middlewares.has(InvitationCapabilitySecurity)) continue;
 
-    const init = { method: endpoint.method, headers: { ...nativeMutationHeaders(capability, etag), cookie } };
+    const init = { method: endpoint.method, headers: { ...nativeMutationHeaders(capability, etag), cookie, origin: dashboardOrigin } };
 
     if (endpoint.method !== "GET") {
       init.body = JSON.stringify(endpoint.identifier === "requestNewInvitationTime"
