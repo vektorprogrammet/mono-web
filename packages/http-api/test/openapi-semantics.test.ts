@@ -5,13 +5,14 @@ import { ExternalNativeApi } from "../src/api.js";
 import { canonicalOpenApiDigest, getIn, jsonObject, mapRefs, setIn } from "./openapi-canonical.js";
 
 /**
- * The component-name-canonical digest of the external OpenAPI that the handwritten Admissions
- * contract produced at the spec 0027 acceptance (mono-web `98506652`, whole-document SHA-256
- * `9e0b0035244ca89c758455b3bc7c44dc178a2b8ca78ad828ff4c2cb2475b2e2c`). The generated Admissions groups
- * must keep every operation, status, header, security rule and schema; only component names may
- * differ.
+ * The component-name-canonical reference for the repair-first handwritten Recruitment contract
+ * at mono-web `9ff6ec1b`: correction controls and window commands/results, onboarding readiness
+ * and standing/retry problems, with the encoded conduct example preserved. Spec 0029 records
+ * every approved wire delta before this transport-parity pin. This is not full migration
+ * acceptance. Later generated contracts must preserve this complete document; only component
+ * names may differ. The original spec 0027 reference remains in Git history.
  */
-const acceptedCanonicalDigest = "0805f9889bea3a6201c7d65e539815183af0a95c9c2057ebd81eb218ec390997";
+const acceptedCanonicalDigest = "b30a076c336d60d682cf8e63c14dc4923ff5c125437d81c35a632cfe7a2aa95a";
 
 const decodeJson = Schema.decodeUnknownSync(Schema.Json);
 
