@@ -51,19 +51,27 @@ unhandled (TS2322). The director approved a typed completion continuation: the g
 registers `readBoard` and `command`, then requires handwritten `claim` before a group layer exists.
 A missing claim remains a compile error. The compiler successor `7290ea5` fixes D1/D2 without
 a root shim, output edit, suppression, or sequencing workaround. The native recipe already orders
-contracts before handlers. The current nine-group re-vendor gate is not yet accepted.
-At `11700f07`, fresh frozen installation, cold nine-contract/nine-handler generation, all ten
-amended parity conditions, and full checks passed. The full aggregate was interrupted after
-three team-application delivery reds. Their exact retained evidence is in
-`/srv/share/projects/effx-recruitment-0029-evidence/revendor-7290-fresh-gate.json`.
+contracts before handlers. The director accepted the fresh nine-group re-vendor prerequisite
+for LOCAL cutover at `ac51f9aa`: fresh own frozen install, cold contract→handlers generation,
+all ten amended parity conditions, full check 16/16, and full test 21/21 passed, with zero cached tasks.
+Four pre-existing opt-in `auth-live` tests remained skipped; no zero-skip claim is made.
+All eighteen prior contract/raw-handler files remain byte-identical to the frozen a879 projections.
+The record is `/srv/share/projects/effx-recruitment-0029-evidence/revendor-7290-ac51f9aa-1791210940758-gate.json`.
+The parity wrapper’s missing-jq exit 127 is preserved beside the independent retained-receipt assertion exit 0.
 The pre-revendor repair revision `09ee6a2c` passed all nine focused delivery cases. At `f01fe503`,
 all nine original cases and two interruption/isolation controls passed (11/11). Each case now
 owns its migrated database and native queue scope; a 200 ms Idle result no longer masquerades
 as fixture isolation. Retry policy, five-second test bounds, teardown, and behavioral assertions
-remain unchanged. Cross-case leftover delivery was observed; attribution of the first two
-aggregate failures to the shared lifetime remains [INFERENCE]. Focused passing tests do not
-replace the required fresh full gate. Before acceptance, freeze the repaired source, install
-without reused `node_modules`, and run amended parity, full checks, and the full aggregate.
+remain unchanged. The original aggregate’s third failure directly showed cross-case leftover delivery.
+The pre-revendor 9/9 is a passing control, not a failing-before reproduction; the first two causes remain unproven.
+The fresh whole aggregate at `ac51f9aa` also passed the original nine cases and both isolation controls (11/11).
+Recruitment/onboarding source integration is now unparked under frozen spec 0029: all eighteen operations,
+one native onboarding root with typed manual claim completion, and handwritten Foldkit Commands over the SDK.
+Actual named journeys, controls, and final clean exact-source gates remain required before migration acceptance.
+The credential-exposure incident is held separately. Raw installer evidence remains private and unpublished;
+token revocation is recommended but awaits the operator’s decision. No credential or transcript changes are authorized.
+Stopping verbose installs is the director’s containment order, not a quoted operator instruction.
+No mono-web main merge, push, publication, provider, or production-cutover authority is granted.
 **Retirement trigger:** after Identity migrates `claim`, the complete generated group replaces
 the transitional handwritten completion. The retained mixed-onboarding probe is outside
 the product tree in `/srv/share/projects/effx-recruitment-0029-evidence/compiler/mixed-onboarding/`.
