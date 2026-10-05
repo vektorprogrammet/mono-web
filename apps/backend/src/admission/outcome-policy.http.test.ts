@@ -386,14 +386,6 @@ const fixture = (seedEffect = seed(), now?: () => string) => {
       return entry!.etag;
     });
 
-  const renameApplicant = (key: string) =>
-    database.run(
-      Database.use(
-        (sql) => sql`UPDATE admission_applicants SET first_name = first_name || ' updated'
-      WHERE applicant_id = ${`applicant-${key}`}`,
-      ),
-    );
-
   const revokeAdministrator = database.run(
     Database.use(
       (sql) => sql`UPDATE organization_global_administrator_grants
@@ -529,7 +521,6 @@ const fixture = (seedEffect = seed(), now?: () => string) => {
     decisionEtag,
     announceEtag,
     fullEtag,
-    renameApplicant,
     revokeAdministrator,
     announce,
     outcomes,
@@ -1070,26 +1061,39 @@ describe("announcement authorized current representations", () => {
     "refuses stale FULL and stale MINIMAL while both current namespaces exist without any SQL write",
     () =>
       Effect.gen(function* () {
-        const { fullEtag, announceEtag, renameApplicant, announce, persistenceSnapshot } =
+        const { fullEtag, announceEtag, command, outcomeRoute, announce, persistenceSnapshot } =
           fixture();
 
-        const oldFull = yield* fullEtag("ja-free", "single GET");
-        const oldMinimal = yield* announceEtag("ja-free");
-        yield* renameApplicant("ja-free");
-        const currentFull = yield* fullEtag("ja-free", "single GET");
-        const currentMinimal = yield* announceEtag("ja-free");
+        const oldFull = yield* fullEtag("maybe", "single GET");
+        const oldMinimal = yield* announceEtag("maybe");
+
+        // Applicant statements are immutable. A real Kanskje decision lawfully changes both tags.
+        const decided = yield* command(
+          "POST",
+          outcomeRoute("maybe", ":decide"),
+          "recruiter",
+          { outcome: "Admitted" },
+          oldFull,
+          "stale-fixture-decision",
+        );
+
+        expect(decided.status).toBe(200);
+
+        const resource = yield* Schema.decodeUnknownEffect(AdmissionOutcomeResource)(decided.body, {
+          onExcessProperty: "error",
+        });
+
+        expect(resource).toMatchObject({ basis: "Kanskje", outcome: "Admitted", revision: 1 });
+        const currentFull = yield* fullEtag("maybe", "single GET");
+        const currentMinimal = yield* announceEtag("maybe");
+        expect(currentFull === resource.etag).toBe(true);
         expect(oldFull === currentFull).toBe(false);
         expect(oldMinimal === currentMinimal).toBe(false);
         expect(currentFull === currentMinimal).toBe(false);
         const before = yield* persistenceSnapshot;
 
         for (const [index, stale] of [oldFull, oldMinimal].entries()) {
-          const refused = yield* announce(
-            "admin",
-            "ja-free",
-            stale,
-            "stale-real-namespace-" + index,
-          );
+          const refused = yield* announce("admin", "maybe", stale, "stale-real-namespace-" + index);
 
           expect(yield* refusal(refused, [412])).toBe("precondition.failed");
           expect(yield* persistenceSnapshot).toEqual(before);
