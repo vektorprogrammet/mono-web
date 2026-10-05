@@ -177,19 +177,41 @@ const seedJaInterview = async (
   departmentId: string,
   interviewerId: string,
   label: string,
+  withProtocol = false,
 ) => {
   const interviewId = `coverage-interview-${label}`;
   const invitationId = `coverage-interview-invitation-${label}`;
+  const schemaId = withProtocol ? "school-volunteer-schema" : "coverage-interview-schema";
 
   await pool.query(
     `INSERT INTO recruitment_interview_schemas(interview_schema_id,name,question_count,active,revision)
      VALUES ('coverage-interview-schema','Coverage',0,true,0) ON CONFLICT DO NOTHING`,
   );
+
+  if (withProtocol) {
+    await pool.query(
+      "INSERT INTO recruitment_interview_schemas(interview_schema_id,name,question_count,active,revision) VALUES ($1,'Rekruttintervju',1,true,0)",
+      [schemaId],
+    );
+    await pool.query(
+      "INSERT INTO recruitment_interview_schema_questions(interview_schema_id,question_id,ordinal,prompt,help_text,kind,alternatives) VALUES ($1,'school-volunteer-motivation',0,'Hvorfor vil du bidra?',NULL,'text','[]'::jsonb)",
+      [schemaId],
+    );
+  }
+
   await pool.query(
     `INSERT INTO recruitment_interviews(interview_id,application_id,department_id,interviewer_person_id,interview_schema_id,assigned_by_person_id,assigned_at,revision)
-     VALUES ($1,$2,$3,$4,'coverage-interview-schema',$4,date_trunc('milliseconds',now(),'UTC')-interval '264 hours',1)`,
-    [interviewId, applicationId, departmentId, interviewerId],
+     VALUES ($1,$2,$3,$4,$5,$4,date_trunc('milliseconds',now(),'UTC')-interval '264 hours',1)`,
+    [interviewId, applicationId, departmentId, interviewerId, schemaId],
   );
+
+  if (withProtocol) {
+    await pool.query(
+      "INSERT INTO recruitment_interview_question_snapshots(interview_id,question_id,ordinal,prompt,help_text,kind,alternatives) SELECT $1,question_id,ordinal,prompt,help_text,kind,alternatives FROM recruitment_interview_schema_questions WHERE interview_schema_id=$2",
+      [interviewId, schemaId],
+    );
+  }
+
   await pool.query(
     `INSERT INTO recruitment_interview_schedules(interview_id,scheduled_at,room,campus,map_link,message,scheduled_by_person_id,committed_at,schedule_revision)
      VALUES ($1,date_trunc('milliseconds',now(),'UTC')-interval '120 hours','A-101','Gløshaugen','https://example.invalid/map','Velkommen',$2,date_trunc('milliseconds',now(),'UTC')-interval '240 hours',1)`,
@@ -217,8 +239,8 @@ const seedJaInterview = async (
     );
     await connection.query(
       `INSERT INTO recruitment_interview_conducts(interview_id,answers,explanatory_power,role_model,suitability,finalized_by_person_id,finalized_at,interview_revision,recommendation)
-       VALUES ($1,'[]'::jsonb,7,8,9,$2,date_trunc('milliseconds',now(),'UTC')-interval '120 hours'+interval '1 hour',2,'Ja')`,
-      [interviewId, interviewerId],
+       VALUES ($1,CASE WHEN $3 THEN jsonb_build_array(jsonb_build_object('questionId','school-volunteer-motivation','answer','Jeg vil bidra til matematikkundervisningen.')) ELSE '[]'::jsonb END,7,8,9,$2,date_trunc('milliseconds',now(),'UTC')-interval '120 hours'+interval '1 hour',2,'Ja')`,
+      [interviewId, interviewerId, withProtocol],
     );
     await connection.query("COMMIT");
   } catch (error) {
@@ -723,6 +745,50 @@ try {
         await seedJaInterview(applicationId, departmentId, leaderId, label);
     }
 
+    if (mode === "--golden-school-service") {
+      // Committed fixture prerequisites, not an outcome announcement or returning-service claim.
+      // Standing uses this application's CURRENT windows, not the historical school-service selector.
+      const clock = admissionJourneyClock();
+      await pool.query(
+        "INSERT INTO admission_period_semesters(semester_id,start_at,end_at) VALUES ('golden-volunteer-semester',$1,$2)",
+        [clock.fromNow(-30), clock.fromNow(120)],
+      );
+      await pool.query(
+        "INSERT INTO admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,last_command_id) VALUES ('golden-volunteer-period',$1,'golden-volunteer-semester',$2,$3,'seed')",
+        [departmentId, clock.fromNow(-30), clock.fromNow(120)],
+      );
+      await pool.query(
+        "INSERT INTO admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study) VALUES ('golden-volunteer-applicant',$1,$1,'Irene','Intervjuer','90000052',0,'golden-field',3)",
+        ["irene.intervjuer@example.invalid"],
+      );
+      // 0084 derives the APPLICATION email from the coherent, immutable applicant statement.
+      await pool.query(
+        "INSERT INTO admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at) VALUES ('golden-volunteer-application','golden-volunteer-applicant','golden-volunteer-period',$1,'golden-field',3,$2)",
+        [departmentId, clock.fromNow(-12)],
+      );
+      await pool.query(
+        "INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES ('golden-volunteer-invitation','golden-volunteer-application','golden-volunteer-applicant',$1,$2,'Claimed',$3,$4)",
+        [
+          createHash("sha256").update("golden-volunteer-invitation").digest("hex"),
+          claimExpiresAt,
+          leaderId,
+          clock.fromNow(-12),
+        ],
+      );
+      await pool.query(
+        "INSERT INTO applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES ('golden-volunteer-applicant',$1,$2,'golden-volunteer-invitation')",
+        [volunteerId, clock.fromNow(-12)],
+      );
+      // Existing department leader assigns and completes the volunteer's interview: never self-assessment.
+      await seedJaInterview(
+        "golden-volunteer-application",
+        departmentId,
+        leaderId,
+        "volunteer",
+        true,
+      );
+    }
+
     const credentialSnapshot = async () =>
       createHash("sha256")
         .update(
@@ -853,6 +919,9 @@ try {
         departmentId,
         semesterId,
         volunteerId,
+        volunteerApplicationId: "golden-volunteer-application",
+        volunteerPeriodId: "golden-volunteer-period",
+        volunteerSemesterId: "golden-volunteer-semester",
         leaderId,
         schoolId: 962,
         persons: { ...persons, member: { email: member.email, password: member.password } },
