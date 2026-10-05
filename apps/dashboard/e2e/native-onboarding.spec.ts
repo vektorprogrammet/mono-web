@@ -7,7 +7,7 @@ import {
   IdempotencyKey, OnboardingResource, OnboardingProblem, OnboardingCommandProblem,
   SchedulingBoard, PlacementScopes, SessionUnauthorizedProblem,
   RecruitmentReadAssignmentBoardProblem, RecruitmentReadSchedulingBoardProblem,
-  ReadAssignmentBoardEndpoint, ReadSchedulingBoardEndpoint,
+  readAssignmentBoard, readSchedulingBoard,
 } from "@vektorprogrammet/http-api";
 
 const manifestPath = process.env.ONBOARDING_JOURNEY_MANIFEST;
@@ -84,8 +84,8 @@ test.describe("R6 real onboarding route authority and problem status", () => {
   test("native boards reject missing and revoked real Better Auth sessions without returning private projections", async ({ page }) => {
     const assertCredentialDenials = async (code: "credential.missing" | "credential.invalid", cookie?: string) => {
       const headers: Record<string, string> = cookie === undefined ? {} : { cookie };
-      const assignment = await page.request.get(manifest.backendOrigin + ReadAssignmentBoardEndpoint.path + "?status=all", { headers });
-      const scheduling = await page.request.get(manifest.backendOrigin + ReadSchedulingBoardEndpoint.path, { headers });
+      const assignment = await page.request.get(manifest.backendOrigin + readAssignmentBoard.path + "?status=all", { headers });
+      const scheduling = await page.request.get(manifest.backendOrigin + readSchedulingBoard.path, { headers });
 
       const assertProblem = async (response: APIResponse) => {
         const problem = Schema.decodeUnknownSync(SessionUnauthorizedProblem, { onExcessProperty: "error" })(await response.json());
@@ -119,17 +119,17 @@ test.describe("R6 real onboarding route authority and problem status", () => {
 
   test("other-department credentials cannot read the assignment board or widen the scheduling board", async ({ page }) => {
     await signIn(page, manifest.routeAuthority.persons.wrongDepartment, "/dashboard/onboarding");
-    const assignment = await page.request.get(manifest.backendOrigin + ReadAssignmentBoardEndpoint.path + "?status=all");
+    const assignment = await page.request.get(manifest.backendOrigin + readAssignmentBoard.path + "?status=all");
     const denied = Schema.decodeUnknownSync(RecruitmentReadAssignmentBoardProblem, { onExcessProperty: "error" })(await assignment.json());
     expect(denied.code).toBe("authority.denied");
     expect(assignment.status()).toBe(denied.status);
     expect(assignment.headers()["cache-control"]).toBe("no-store");
-    const scheduling = await page.request.get(manifest.backendOrigin + ReadSchedulingBoardEndpoint.path);
+    const scheduling = await page.request.get(manifest.backendOrigin + readSchedulingBoard.path);
     expect(scheduling.status()).toBe(200);
     const ownBoard = Schema.decodeUnknownSync(SchedulingBoard)(await scheduling.json());
     expect(ownBoard.departmentId).toBe(manifest.routeAuthority.otherDepartmentId);
     expect(ownBoard.interviews.some((interview) => interview.applicationId === manifest.applicationId)).toBe(false);
-    const widened = await page.request.get(manifest.backendOrigin + ReadSchedulingBoardEndpoint.path + "?departmentId=" + manifest.departmentId);
+    const widened = await page.request.get(manifest.backendOrigin + readSchedulingBoard.path + "?departmentId=" + manifest.departmentId);
     const malformed = Schema.decodeUnknownSync(RecruitmentReadSchedulingBoardProblem, { onExcessProperty: "error" })(await widened.json());
     expect(malformed.code).toBe("request.malformed");
     expect(widened.status()).toBe(malformed.status);

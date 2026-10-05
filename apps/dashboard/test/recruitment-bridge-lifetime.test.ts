@@ -25,13 +25,15 @@ const board = Schema.decodeSync(RecruitmentAssignmentBoardSchema)({
 });
 
 const invitation = Schema.decodeSync(InvitationResponseResourceSchema)({
-  observation: { scheduledAt: "2031-09-20T13:30:00.000Z", room: "K-101", campus: "Campus",
-    responseState: "Pending", responseMessage: null }, etag,
+  observation: {
+    scheduledAt: "2031-09-20T13:30:00.000Z", room: "K-101", campus: "Campus",
+    responseState: "Pending", responseMessage: null
+  }, etag,
 });
 
 // This is a URL adapter, not a fetch stub: every request uses a real loopback socket.
 // The server holds the response until the test releases it; no delay or polling signals success.
-const delayedBridge = Effect.fnUntraced(function* (body: string, pathname: string) {
+const delayedBridge = Effect.fnUntraced(function*(body: string, pathname: string) {
   const accepted = yield* Deferred.make<ServerResponse>();
   const disconnected = yield* Deferred.make<void>();
   const networkSettled = yield* Deferred.make<void>();
@@ -132,18 +134,22 @@ const cases: ReadonlyArray<{
   expectedMessage: { readonly _tag: string };
   build: () => Command.Command<{ readonly _tag: string }>;
 }> = [
-  { name: "recruitment", body: Schema.encodeSync(Schema.fromJsonString(RecruitmentAssignmentBoardSchema))(board),
-    pathname: "/recruitment", expectedMessage: SucceededLoadBoard({ requestId: 17, board }),
-    build: () => recruitmentCommands(createBrowserRecruitmentClient()).LoadAssignmentBoard({ status: "all", requestId: 17 }) },
-  { name: "interview", body: Schema.encodeSync(Schema.fromJsonString(InvitationResponseResourceSchema))(invitation),
-    pathname: "/dashboard/interview", expectedMessage: SucceededReadInvitationResponse({ requestId: 17, ...invitation }),
-    build: () => interviewCommands(createBrowserInterviewClient("a".repeat(32))).ReadInvitationResponse({ requestId: 17 }) },
-];
+    {
+      name: "recruitment", body: Schema.encodeSync(Schema.fromJsonString(RecruitmentAssignmentBoardSchema))(board),
+      pathname: "/recruitment", expectedMessage: SucceededLoadBoard({ requestId: 17, board }),
+      build: () => recruitmentCommands(createBrowserRecruitmentClient()).LoadAssignmentBoard({ status: "all", requestId: 17 })
+    },
+    {
+      name: "interview", body: Schema.encodeSync(Schema.fromJsonString(InvitationResponseResourceSchema))(invitation),
+      pathname: "/dashboard/interview", expectedMessage: SucceededReadInvitationResponse({ requestId: 17, ...invitation }),
+      build: () => interviewCommands(createBrowserInterviewClient("a".repeat(32))).ReadInvitationResponse({ requestId: 17 })
+    },
+  ];
 
 describe("R8 real delayed browser bridge cancellation", () => {
   for (const scenario of cases) {
     it.live(`${scenario.name}: the real POST completes with its decoded success Message`, () =>
-      Effect.scoped(Effect.gen(function* () {
+      Effect.scoped(Effect.gen(function*() {
         const bridge = yield* delayedBridge(scenario.body, scenario.pathname);
         const fiber = yield* Effect.forkScoped(scenario.build().effect);
         const response = yield* Deferred.await(bridge.accepted).pipe(Effect.timeout("2 seconds"));
@@ -158,7 +164,7 @@ describe("R8 real delayed browser bridge cancellation", () => {
     );
 
     it.live(`${scenario.name}: scoped interruption aborts the socket, finalizes and suppresses late messages`, () =>
-      Effect.scoped(Effect.gen(function* () {
+      Effect.scoped(Effect.gen(function*() {
         const bridge = yield* delayedBridge(scenario.body, scenario.pathname);
         const finalized = yield* Deferred.make<void>();
         const messages: string[] = [];
@@ -184,14 +190,14 @@ describe("R8 real delayed browser bridge cancellation", () => {
     );
 
     it.live(`${scenario.name}: custom host disposal aborts the network and releases the in-flight Command`, () =>
-      Effect.scoped(Effect.gen(function* () {
+      Effect.scoped(Effect.gen(function*() {
         const bridge = yield* delayedBridge(scenario.body, scenario.pathname);
         const started = yield* Deferred.make<void>();
         const finalized = yield* Deferred.make<void>();
         const restored = yield* Deferred.make<void>();
         const completed: string[] = [];
 
-        const waitReceipt = Effect.fnUntraced(function* (receipt: Deferred.Deferred<void>, milestone: string) {
+        const waitReceipt = Effect.fnUntraced(function*(receipt: Deferred.Deferred<void>, milestone: string) {
           const observed = yield* Deferred.await(receipt).pipe(Effect.interruptible, Effect.timeoutOption("1 second"));
           assert.isTrue(Option.isSome(observed), milestone);
         });
@@ -215,7 +221,7 @@ describe("R8 real delayed browser bridge cancellation", () => {
 
             return { window, originalDocument };
           }),
-          Effect.fnUntraced(function* ({ window, originalDocument }) {
+          Effect.fnUntraced(function*({ window, originalDocument }) {
             yield* Effect.sync(() => {
               if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
               else Reflect.deleteProperty(globalThis, "document");
@@ -268,7 +274,7 @@ describe("R8 real delayed browser bridge cancellation", () => {
             devTools: false, slow: false,
             crash: { report: ({ error }) => { Deferred.doneUnsafe(started, Effect.die(error)); } },
           }))),
-          Effect.fnUntraced(function* (host) {
+          Effect.fnUntraced(function*(host) {
             host.dispose();
 
             // dispose signals interruption; it does not await runtime teardown.
@@ -297,7 +303,7 @@ describe("R8 real delayed browser bridge cancellation", () => {
 
 
     it.live(`${scenario.name}: a late loopback response after interruption never produces a Message`, () =>
-      Effect.scoped(Effect.gen(function* () {
+      Effect.scoped(Effect.gen(function*() {
         const bridge = yield* delayedBridge(scenario.body, scenario.pathname);
         const messages: string[] = [];
         const finalized = yield* Deferred.make<void>();
@@ -318,7 +324,7 @@ describe("R8 real delayed browser bridge cancellation", () => {
     );
 
     it.live(`${scenario.name}: constructing and discarding the real Command starts no network work`, () =>
-      Effect.scoped(Effect.gen(function* () {
+      Effect.scoped(Effect.gen(function*() {
         const bridge = yield* delayedBridge(scenario.body, scenario.pathname);
         const discarded = scenario.build();
         assert.strictEqual(discarded.args?.requestId, 17);
@@ -332,7 +338,7 @@ describe("R8 real delayed browser bridge cancellation", () => {
 // These controls exercise the production custom element, not a substitute host.
 // Each test owns its realm, host and HTTP fixture. The empty-container receipt is
 // Foldkit's renderer finalizer, after interruption of its runtime-owned work.
-const productionInterviewHost = Effect.fnUntraced(function* (browserWindow: Window) {
+const productionInterviewHost = Effect.fnUntraced(function*(browserWindow: Window) {
   const globals = {
     window: browserWindow, document: browserWindow.document,
     customElements: browserWindow.customElements, HTMLElement: browserWindow.HTMLElement,
@@ -375,19 +381,19 @@ const productionInterviewHost = Effect.fnUntraced(function* (browserWindow: Wind
 
       return host;
     }),
-    Effect.fnUntraced(function* (host) {
+    Effect.fnUntraced(function*(host) {
       yield* Effect.sync(() => host.remove());
       yield* observeHostDOM(browserWindow, host, () => host.textContent === "");
     }),
   );
 });
 
-const observeHostDOM = Effect.fnUntraced(function* (
+const observeHostDOM = Effect.fnUntraced(function*(
   browserWindow: Window,
   host: ReturnType<Window["document"]["createElement"]>,
   observed: () => boolean,
 ) {
-  yield* Effect.callback<void>((resume) => {
+  const milestone = yield* Effect.callback<void>((resume) => {
     const observer = new browserWindow.MutationObserver(() => {
       if (observed()) resume(Effect.void);
     });
@@ -397,7 +403,9 @@ const observeHostDOM = Effect.fnUntraced(function* (
     if (observed()) resume(Effect.void);
 
     return Effect.sync(() => observer.disconnect());
-  }).pipe(Effect.interruptible, Effect.timeout("1 second"));
+  }).pipe(Effect.interruptible, Effect.timeoutOption("1 second"));
+
+  assert.isTrue(Option.isSome(milestone), "Production host DOM milestone must complete within its owned lifetime");
 });
 
 const waitHostReceipt = Effect.fnUntraced(function* <A>(receipt: Deferred.Deferred<A>) {
@@ -408,7 +416,7 @@ const invitationJson = Schema.encodeEffect(Schema.fromJsonString(InvitationRespo
 
 describe("R8 production interview custom-element lifetime", () => {
   it.live("interaction attribute change aborts the old POST and renders only the new decoded owner", () =>
-    Effect.scoped(Effect.gen(function* () {
+    Effect.scoped(Effect.gen(function*() {
       const bridge = yield* delayedBridge(yield* invitationJson(invitation), "/dashboard/interview");
       const host = yield* productionInterviewHost(bridge.browserWindow);
       const oldResponse = yield* waitHostReceipt(bridge.accepted);
@@ -447,7 +455,7 @@ describe("R8 production interview custom-element lifetime", () => {
   for (const removal of ["DOM removal", "interaction attribute removal"] as const) {
     it.live(
       removal + " aborts the production POST, restores an empty host and rejects late DOM publication",
-      () => Effect.scoped(Effect.gen(function* () {
+      () => Effect.scoped(Effect.gen(function*() {
         const bridge = yield* delayedBridge(yield* invitationJson(invitation), "/dashboard/interview");
         const host = yield* productionInterviewHost(bridge.browserWindow);
         const response = yield* waitHostReceipt(bridge.accepted);

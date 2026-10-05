@@ -1,9 +1,9 @@
 import {
   ExternalNativeApi, InvitationCapabilitySecurity, InvitationResponseObservation,
   InvitationRequestNewTimeInput, SessionUnauthorizedProblem, IdempotencyKey,
-  ReadInvitationResponseEndpoint, RequestNewInvitationTimeEndpoint, ReadSchedulingBoardEndpoint,
-  CancelInterviewEndpoint, CancelInterviewRequest, CancelInterviewResponse,
-  ScheduleInterviewEndpoint, ScheduleInterviewRequest, ScheduleInterviewResponse, SchedulingBoard,
+  readInvitationResponse, requestNewInvitationTime, readSchedulingBoard,
+  cancelInterview, CancelInterviewRequest, CancelInterviewResponse,
+  scheduleInterview, ScheduleInterviewRequest, ScheduleInterviewResponse, SchedulingBoard,
   ListSessionsEndpoint, SessionListResponse,
   RecruitmentCancelInterviewProblem, RecruitmentScheduleInterviewProblem,
   RecruitmentReadInvitationResponseProblem,
@@ -930,7 +930,7 @@ async function exerciseInvitationCredentialConflict(environment) {
   const cookie = await nativePersonCookie(leaderEmail);
   const capability = rawCapabilitiesByCase["requested-new-time"];
 
-  const read = await fetch(new URL(ReadInvitationResponseEndpoint.path, backendOrigin), {
+  const read = await fetch(new URL(readInvitationResponse.path, backendOrigin), {
     headers: { [invitationCapabilityHeader]: capability },
   });
 
@@ -1094,7 +1094,7 @@ async function exerciseInvalidatedInvitationCapabilities(environment) {
     assertNoRawCapability(sql, "Invalidation prerequisite fixture SQL");
     await runPsql(sql, environment, "Isolated invitation invalidation prerequisites");
 
-    const read = await fetch(new URL(ReadInvitationResponseEndpoint.path, backendOrigin), {
+    const read = await fetch(new URL(readInvitationResponse.path, backendOrigin), {
       headers: { [invitationCapabilityHeader]: capability },
     });
 
@@ -1110,8 +1110,8 @@ async function exerciseInvalidatedInvitationCapabilities(environment) {
     }
 
     if (invalidation === "superseded") {
-      const response = await fetch(new URL(RequestNewInvitationTimeEndpoint.path, backendOrigin), {
-        method: RequestNewInvitationTimeEndpoint.method,
+      const response = await fetch(new URL(requestNewInvitationTime.path, backendOrigin), {
+        method: requestNewInvitationTime.method,
         headers: nativeMutationHeaders(capability, etag),
         body: JSON.stringify(Schema.decodeSync(InvitationRequestNewTimeInput)({ message: "Et senere tidspunkt, takk." })),
       });
@@ -1121,7 +1121,7 @@ async function exerciseInvalidatedInvitationCapabilities(environment) {
       }
     }
 
-    const boardResponse = await fetch(new URL(ReadSchedulingBoardEndpoint.path, backendOrigin), { headers: { cookie } });
+    const boardResponse = await fetch(new URL(readSchedulingBoard.path, backendOrigin), { headers: { cookie } });
     const board = Schema.decodeUnknownSync(SchedulingBoard)(await boardResponse.json());
     const interview = board.interviews.find((entry) => entry.interviewId === interviewId);
 
@@ -1129,7 +1129,7 @@ async function exerciseInvalidatedInvitationCapabilities(environment) {
       throw new Error("Invalidation prerequisite did not appear in the native scheduling projection");
     }
 
-    const endpoint = invalidation === "cancelled" ? CancelInterviewEndpoint : ScheduleInterviewEndpoint;
+    const endpoint = invalidation === "cancelled" ? cancelInterview : scheduleInterview;
 
     const payload = invalidation === "cancelled"
       ? Schema.decodeSync(CancelInterviewRequest)({})
