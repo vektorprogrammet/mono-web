@@ -6,7 +6,9 @@ import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { describe, expect, it, layer } from "@effect/vitest";
 import {
   ApplicantIdSchema,
+  ApplicantRecord,
   makeRecordingPublicApplicationEffectInterpreter,
+  PublicApplication,
   PublicApplicationEffectDeliveryError,
   PublicApplicationIdSchema,
   publicApplicationActivationDigest,
@@ -91,7 +93,7 @@ import {
   listStaleReceiptOutboxClaimIds,
   recoverStaleReceiptOutbox,
 } from "./receipt/outbox.js";
-import { Context, Match, Predicate, Effect, FileSystem, Layer, Path } from "effect";
+import { Context, Match, Predicate, Effect, FileSystem, Layer, Path, Schema } from "effect";
 import { DatabaseTestLive, TestPlatform } from "./test-support/platform.js";
 import {
   databaseMigrationDefinitions,
@@ -1596,6 +1598,23 @@ describe("DatabaseTest", () => {
         const secondToken = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq";
         const interpreter = makeRecordingPublicApplicationEffectInterpreter();
 
+        const decodeApplications = Schema.decodeUnknownEffect(
+          Schema.Array(
+            Schema.Struct({
+              id: PublicApplication.fields.id,
+              applicantId: PublicApplication.fields.applicantId,
+              admissionPeriodId: PublicApplication.fields.admissionPeriodId,
+              yearOfStudy: PublicApplication.fields.yearOfStudy,
+              activationDigest: PublicApplication.fields.activationDigest,
+            }),
+          ),
+          { onExcessProperty: "error" },
+        );
+
+        const decodeApplicants = Schema.decodeUnknownEffect(Schema.Array(ApplicantRecord), {
+          onExcessProperty: "error",
+        });
+
         const evidence = yield* Effect.gen(function* () {
           const database = yield* Database;
           yield* executePublicApplicationCommand(
@@ -1655,7 +1674,7 @@ describe("DatabaseTest", () => {
             },
             {
               now: "2032-09-15T12:22:30.000Z",
-              applicantId: ApplicantIdSchema.make("ignored-existing-applicant"),
+              applicantId: ApplicantIdSchema.make("snapshot-second-applicant"),
               applicationId: PublicApplicationIdSchema.make("snapshot-second-application"),
               activationToken: secondToken,
             },
@@ -1667,24 +1686,30 @@ describe("DatabaseTest", () => {
             interpreter,
           );
 
-          const applications = yield* database<{
-            readonly application_id: string;
-            readonly activation_digest: string | null;
-          }>`
-          SELECT application_id, activation_digest
+          const applications = yield* database`
+          SELECT application_id AS id, applicant_id AS "applicantId",
+            admission_period_id AS "admissionPeriodId", year_of_study AS "yearOfStudy",
+            activation_digest AS "activationDigest"
           FROM admission_applications
           WHERE application_id IN (
             'snapshot-first-application',
             'snapshot-second-application'
           )
           ORDER BY application_id
-        `;
+        `.pipe(Effect.flatMap(decodeApplications));
 
-          const applicants = yield* database<{ readonly activation_digest: string | null }>`
-          SELECT activation_digest
+          const applicants = yield* database`
+          SELECT applicant_id AS id, normalized_email AS "normalizedEmail", email,
+            first_name AS "firstName", last_name AS "lastName", phone, gender,
+            field_of_study_id AS "fieldOfStudyId", year_of_study AS "yearOfStudy",
+            activation_digest AS "activationDigest"
           FROM admission_applicants
-          WHERE applicant_id = 'snapshot-applicant'
-        `;
+          WHERE applicant_id IN (
+            'snapshot-applicant',
+            'snapshot-second-applicant'
+          )
+          ORDER BY applicant_id
+        `.pipe(Effect.flatMap(decodeApplicants));
 
           yield* database`
           DELETE FROM admission_application_outbox
@@ -1697,7 +1722,7 @@ describe("DatabaseTest", () => {
           return {
             delivery,
             applications,
-            applicantDigest: applicants[0]?.activation_digest,
+            applicants,
           };
         });
 
@@ -1705,20 +1730,49 @@ describe("DatabaseTest", () => {
         expect(evidence.delivery).toMatchObject({
           claim: {
             commandId: "snapshot-first-period-submit",
-            request: { activationToken: firstToken },
+            request: {
+              applicationId: "snapshot-first-application",
+              applicantId: "snapshot-applicant",
+              email: "snapshot.applicant@example.invalid",
+              activationToken: firstToken,
+            },
           },
         });
         expect(evidence.applications).toEqual([
           {
-            application_id: "snapshot-first-application",
-            activation_digest: publicApplicationActivationDigest(firstToken),
+            id: "snapshot-first-application",
+            applicantId: "snapshot-applicant",
+            admissionPeriodId: "outbox-period",
+            yearOfStudy: 2,
+            activationDigest: publicApplicationActivationDigest(firstToken),
           },
           {
-            application_id: "snapshot-second-application",
-            activation_digest: publicApplicationActivationDigest(secondToken),
+            id: "snapshot-second-application",
+            applicantId: "snapshot-second-applicant",
+            admissionPeriodId: "outbox-second-period",
+            yearOfStudy: 3,
+            activationDigest: publicApplicationActivationDigest(secondToken),
           },
         ]);
-        expect(evidence.applicantDigest).toBe(publicApplicationActivationDigest(secondToken));
+        expect(evidence.applicants).toHaveLength(2);
+        expect(evidence.applicants).toMatchObject([
+          {
+            id: evidence.applications[0]?.applicantId,
+            normalizedEmail: "snapshot.applicant@example.invalid",
+            email: "snapshot.applicant@example.invalid",
+            phone: "+47 48888888",
+            yearOfStudy: 2,
+            activationDigest: publicApplicationActivationDigest(firstToken),
+          },
+          {
+            id: evidence.applications[1]?.applicantId,
+            normalizedEmail: "snapshot.applicant@example.invalid",
+            email: "snapshot.applicant@example.invalid",
+            phone: "+47 49999999",
+            yearOfStudy: 3,
+            activationDigest: publicApplicationActivationDigest(secondToken),
+          },
+        ]);
       }),
     );
 
