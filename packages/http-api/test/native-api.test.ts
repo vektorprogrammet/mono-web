@@ -2,7 +2,7 @@ import { PUBLIC_SYSTEM_ACCESS, CapabilityTypeId, RequirementId } from "@vektorpr
 import { ReceiptId } from "@vektorprogrammet/domain/receipt";
 import { Predicate, Context, Schema } from "effect";
 import { HttpApiClient, OpenApi } from "effect/unstable/httpapi";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { ExternalNativeApi, InternalNativeApi } from "../src/api.js";
 import {
   annotateAccessSpec,
@@ -11,6 +11,7 @@ import {
   type VektorAccessProjection,
 } from "../src/access.js";
 import { HealthEndpoint } from "../src/system.js";
+import { ConductObservation, RecruitmentInterviewConductObservationSchema } from "../src/recruitment.js";
 import {
   AdmissionOutcomeBoardResource,
   AdmissionOutcomeCommand,
@@ -1546,6 +1547,70 @@ describe("native API reflection", () => {
 
 describe("frozen v0.2 boundary schemas", () => {
   const strict = { onExcessProperty: "error" } as const;
+
+  it("publishes the conduct example as wire JSON rather than dropping decoded Model instances", () => {
+    const annotated = Schema.resolveAnnotations(Schema.toEncoded(ConductObservation))?.examples;
+    const published = OpenApi.fromApi(ExternalNativeApi).components.schemas.ConductObservation?.examples;
+
+    expect(annotated).toHaveLength(1);
+    expect(published).toEqual(annotated);
+    Schema.decodeUnknownSync(Schema.Json)(published);
+
+    const observations = Schema.decodeUnknownSync(Schema.Array(ConductObservation))(published, strict);
+    expect(observations).toHaveLength(1);
+    expect(Schema.encodeSync(Schema.Array(ConductObservation))(observations)).toEqual(published);
+    expect(observations[0]).toMatchObject({
+      interviewId: "interview-1",
+      applicationId: "app-0080",
+      applicant: { applicantId: "applicant-0080", firstName: "Ming", lastName: "Medlem" },
+      schedule: {
+        interviewId: "interview-1",
+        scheduledAt: "2026-09-10T14:00:00.000Z",
+        room: "Realfagbygget, R90",
+        campus: "Gløshaugen",
+        mapLink: "https://maps.example.org/r90",
+        message: "Interview invitation with room details.",
+        scheduledByPersonId: "1002",
+        committedAt: "2026-08-20T10:05:00.000Z",
+        scheduleRevision: 1,
+      },
+      invitationResponse: "Accepted",
+      questions: [{
+        interviewId: "interview-1",
+        questionId: "q-1",
+        ordinal: 1,
+        prompt: "Why did you apply to this programme?",
+        helpText: null,
+        kind: "text",
+        alternatives: [],
+      }],
+      answers: [{ questionId: "q-1", answer: "I am drawn to the study programme's breadth." }],
+      score: { explanatoryPower: 7, roleModel: 8, suitability: 6 },
+      recommendation: "Ja",
+      completionState: "Completed",
+      cancellationState: "NotCancelled",
+      finalizedByPersonId: "1001",
+      finalizedAt: "2026-09-12T15:00:00.000Z",
+      cancelledAt: null,
+      revision: 3,
+      effectiveRevision: 3,
+      history: [{ revision: 3 }],
+      assessmentCorrection: {
+        sequence: 0, canCorrect: true, canReopen: false, canClose: false,
+      },
+      canFinalize: false,
+      canCancel: false,
+    });
+    expect(observations[0]?.history.map((entry) => entry._tag)).toEqual(["Original"]);
+    expect(observations[0]?.assessmentCorrection._tag).toBe("Ordinary");
+  });
+
+  it("keeps the conduct schema channels when annotating its encoded example", () => {
+    expectTypeOf<typeof ConductObservation.Type>().toEqualTypeOf<typeof RecruitmentInterviewConductObservationSchema.Type>();
+    expectTypeOf<typeof ConductObservation.Encoded>().toEqualTypeOf<typeof RecruitmentInterviewConductObservationSchema.Encoded>();
+    expectTypeOf<typeof ConductObservation.DecodingServices>().toEqualTypeOf<typeof RecruitmentInterviewConductObservationSchema.DecodingServices>();
+    expectTypeOf<typeof ConductObservation.EncodingServices>().toEqualTypeOf<typeof RecruitmentInterviewConductObservationSchema.EncodingServices>();
+  });
 
   it("keeps merge-patch absence distinct from null and unknown fields", () => {
     expect(Schema.decodeSync(ProfileMergePatch)({ firstName: "Ada" }, strict)).toEqual({

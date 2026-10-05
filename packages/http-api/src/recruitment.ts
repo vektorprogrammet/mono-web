@@ -321,11 +321,16 @@ export const SchedulingBoard = Schema.Struct({
   examples: [SchedulingBoardExample],
 });
 
-export const ConductObservation = RecruitmentInterviewConductObservationSchema.annotate({
-  identifier: "ConductObservation",
-  description: "Interview questions, answers, and conduct state.",
-  examples: [ConductObservationExample],
-});
+/** Encode Model instances before documenting the public JSON representation. */
+export const ConductObservation = RecruitmentInterviewConductObservationSchema.pipe(
+  Schema.annotateEncoded<typeof RecruitmentInterviewConductObservationSchema>({
+    identifier: "ConductObservation",
+    description: "Interview questions, answers, and conduct state.",
+    examples: [
+      Schema.encodeSync(RecruitmentInterviewConductObservationSchema)(ConductObservationExample),
+    ],
+  }),
+);
 
 /** @since 0.1.0 @category Endpoints */
 export const ReadInvitationResponseEndpoint = HttpApiEndpoint.get(
