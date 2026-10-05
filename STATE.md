@@ -27,7 +27,7 @@ The latest aggregate stopped at the precision upgrade proof’s missing layout i
 that test dependency is now registered. Serial baseline verification remains required.
 Migrations 0083–0085 are registered through `just migration-hashes write`; existing historical
 instants are not rounded or rewritten by 0085. No Recruitment generated-contract cutover is accepted.
-direct instruction was: “Forgoe the heavy job slot in place of checking the machine status for
+The operator’s direct instruction was: “Forgoe the heavy job slot in place of checking the machine status for
 what resources are taken” (2026-10-04, `history://Main:253-255`). The director supplied the
 admission procedure: two readings 10 seconds apart, load below nproc, MemAvailable at least
 25% of RAM, and no swap growth. Retain top RSS/CPU processes and heavy-job attribution beside
