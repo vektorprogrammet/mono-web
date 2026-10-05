@@ -28,7 +28,8 @@ import {
   PublicApplicationPhoneSchema,
   PublicApplicationYearOfStudySchema,
 } from "../../packages/domain/src/application/schema.js";
-import { DepartmentId } from "../../packages/domain/src/organization/schema.js";
+import { DepartmentId, PersonId } from "../../packages/domain/src/organization/schema.js";
+import { PersonContactProfile } from "../../packages/domain/src/profile/schema.js";
 import { Match, Predicate, Schema } from "effect";
 import { admissionJourneyClock } from "../e2e/journey-clock.ts";
 
@@ -37,8 +38,16 @@ const person = {
   firstName: "Rita",
   lastName: "Tilbake",
   email: "rita.returning@example.invalid",
+  phone: "90000104",
   password: "returning-e2e-0104-password",
 } as const;
+
+const primaryInterviewerContact = PersonContactProfile.make({
+  personId: PersonId.make(person.personId),
+  email: person.email,
+  phone: person.phone,
+  revision: 0,
+});
 
 const departmentId = "department-native-conduct-0063";
 
@@ -72,10 +81,10 @@ const originalPublicCommand =
   SubmitPublicApplicationCommandSchema.cases.SubmitPublicApplication.make({
     commandId: PublicApplicationCommandIdSchema.make(originalPublicCommandId),
     departmentId: DepartmentId.make(departmentId),
-    firstName: PublicApplicationNameSchema.make("Rita"),
-    lastName: PublicApplicationNameSchema.make("Tilbake"),
-    phone: PublicApplicationPhoneSchema.make("90000104"),
-    email: PublicApplicationEmailSchema.make("rita.returning@example.invalid"),
+    firstName: PublicApplicationNameSchema.make(person.firstName),
+    lastName: PublicApplicationNameSchema.make(person.lastName),
+    phone: PublicApplicationPhoneSchema.make(person.phone),
+    email: PublicApplicationEmailSchema.make(person.email),
     gender: PublicApplicationGenderSchema.make(0),
     fieldOfStudyId: AdmissionFieldOfStudyId.make(fieldOfStudyId),
     yearOfStudy: PublicApplicationYearOfStudySchema.make(2),
@@ -216,6 +225,19 @@ export const seedReturningAssistant = async ({
 
   try {
     await client.query("BEGIN");
+    // The owned synthetic contact and primary appointment commit together. Identity stays
+    // identity-only; the required contact projection precedes every primary appointment.
+    await seedQuery(
+      "primary interviewer contact",
+      `INSERT INTO public.person_contact_profiles(person_id,email,phone,revision)
+       VALUES($1,$2,$3,$4) ON CONFLICT (person_id) DO NOTHING`,
+      [
+        primaryInterviewerContact.personId,
+        primaryInterviewerContact.email,
+        primaryInterviewerContact.phone,
+        primaryInterviewerContact.revision,
+      ],
+    );
     await seedQuery(
       "next semester",
       `INSERT INTO public.admission_period_semesters(semester_id,start_at,end_at,revision)
@@ -273,8 +295,16 @@ export const seedReturningAssistant = async ({
     await seedQuery(
       "applicant",
       `INSERT INTO public.admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study,activation_digest)
-       VALUES($1,'rita.returning@example.invalid','rita.returning@example.invalid','Rita','Tilbake','90000104',0,$2,2,$3) ON CONFLICT DO NOTHING`,
-      [applicantId, fieldOfStudyId, originalActivationDigest],
+       VALUES($1,$2,$2,$3,$4,$5,0,$6,2,$7) ON CONFLICT DO NOTHING`,
+      [
+        applicantId,
+        person.email,
+        person.firstName,
+        person.lastName,
+        person.phone,
+        fieldOfStudyId,
+        originalActivationDigest,
+      ],
     );
     await seedQuery(
       "application",
@@ -527,8 +557,8 @@ export const seedReturningAssistant = async ({
     await seedQuery(
       "interview",
       `INSERT INTO public.recruitment_interviews(interview_id,application_id,department_id,interviewer_person_id,interview_schema_id,assigned_by_person_id,assigned_at,revision)
-       VALUES('interview-returning-0104',$1,$2,'journey-returning-assistant-0104','interview-schema-native-conduct-0063','journey-conduct-leader-0063',$3,1) ON CONFLICT DO NOTHING`,
-      [applicationId, departmentId, interviewAssignedAt],
+       VALUES('interview-returning-0104',$1,$2,$3,'interview-schema-native-conduct-0063','journey-conduct-leader-0063',$4,1) ON CONFLICT DO NOTHING`,
+      [applicationId, departmentId, primaryInterviewerContact.personId, interviewAssignedAt],
     );
     await seedQuery(
       "question snapshots",
