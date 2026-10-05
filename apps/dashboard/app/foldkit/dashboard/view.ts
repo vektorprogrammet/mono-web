@@ -224,6 +224,7 @@ const sidebarView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
       h.Id("fd-primary-sidebar"),
       h.Class(`fd-sidebar${model.isMobileNavigationOpen ? " is-mobile-open" : ""}`),
       h.AriaLabel("Kontrollpanelmeny"),
+      navigationDismissal(model, h),
     ],
     [
       mobileCloseButton(h),
@@ -274,6 +275,7 @@ const mobileOpenButton = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
             h.AriaLabel("Åpne meny"),
             h.AriaControls("fd-primary-sidebar"),
             h.AriaExpanded(model.isMobileNavigationOpen),
+            mobileNavigationDismissal(model, h),
           ],
           [h.span([h.AriaHidden(true)], ["☰"])],
         ),
@@ -291,6 +293,7 @@ const mobileOverlay = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
             ...button,
             h.Class("fd-mobile-overlay"),
             h.Hidden(!model.isMobileNavigationOpen),
+            mobileNavigationDismissal(model, h),
             h.AriaLabel("Lukk meny"),
             h.OnClick(ClosedMobileNavigation(), { focusSelector: "#fd-mobile-navigation-toggle" }),
           ],
@@ -338,28 +341,35 @@ const landingView = (_model: ReadyModel, h: HtmlBuilder<Message>): Html =>
     ],
   );
 
-const readyView = (model: ReadyModel, h: HtmlBuilder<Message>): Html => {
-  const hasOpenNavigation =
-    model.isMobileNavigationOpen || model.isAdmissionMenuOpen || model.isProfileMenuOpen;
+const navigationDismissal = (model: ReadyModel, h: HtmlBuilder<Message>) =>
+  h.OnKeyDownFocus((key) => {
+    const hasOpenNavigation =
+      model.isMobileNavigationOpen || model.isAdmissionMenuOpen || model.isProfileMenuOpen;
 
-  return h.div(
-    [
-      h.Class("foldkit-dashboard"),
-      h.OnKeyDownFocus((key) => {
-        if (key !== "Escape" || !hasOpenNavigation) return Option.none();
+    if (key !== "Escape" || !hasOpenNavigation) return Option.none();
 
-        const focusSelector = model.isMobileNavigationOpen
-          ? "#fd-mobile-navigation-toggle"
-          : model.isProfileMenuOpen
-            ? `#${Disclosure.buttonId("fd-profile-menu")}`
-            : `#${Disclosure.buttonId("fd-admission-menu")}`;
+    const focusSelector = model.isMobileNavigationOpen
+      ? "#fd-mobile-navigation-toggle"
+      : model.isProfileMenuOpen
+        ? `#${Disclosure.buttonId("fd-profile-menu")}`
+        : `#${Disclosure.buttonId("fd-admission-menu")}`;
 
-        return Option.some({
-          focusSelector,
+    return Option.some({ focusSelector, message: DismissedNavigation() });
+  });
+
+const mobileNavigationDismissal = (model: ReadyModel, h: HtmlBuilder<Message>) =>
+  h.OnKeyDownFocus((key) =>
+    key === "Escape" && model.isMobileNavigationOpen
+      ? Option.some({
+          focusSelector: "#fd-mobile-navigation-toggle",
           message: DismissedNavigation(),
-        });
-      }),
-    ],
+        })
+      : Option.none(),
+  );
+
+const readyView = (model: ReadyModel, h: HtmlBuilder<Message>): Html => {
+  return h.div(
+    [h.Class("foldkit-dashboard")],
     [
       h.a([h.Class("fd-skip-link"), h.Href("#fd-main")], ["Hopp til innhold"]),
       sidebarView(model, h),
