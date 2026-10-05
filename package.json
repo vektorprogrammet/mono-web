@@ -12,7 +12,7 @@
   },
   "devDependencies": {
     "@effect/tsgo": "0.36.4",
-    "@effx/cli": "file:tools/effx-dist/effx-cli-0.1.0-e04c8d2a16636f81e65d478a4d06a07933f6896b.tgz",
+    "@effx/cli": "file:tools/effx-dist/effx-cli-0.1.0-a879a38c109d4fa968745ab152e8c093a457f2dd.tgz",
     "@oxlint/plugins": "1.77.0",
     "@phibkro/oxlint-effect-plugin": "0.1.0",
     "@types/bun": "1.3.10",
@@ -27,8 +27,9 @@
     "wrangler": "4.136.1"
   },
   "overrides": {
-    "@effx/compiler": "file:tools/effx-dist/effx-compiler-0.1.0-e04c8d2a16636f81e65d478a4d06a07933f6896b.tgz",
-    "@effx/ir": "file:tools/effx-dist/effx-ir-0.1.0-e04c8d2a16636f81e65d478a4d06a07933f6896b.tgz"
+    "@effx/compiler": "file:tools/effx-dist/effx-compiler-0.1.0-a879a38c109d4fa968745ab152e8c093a457f2dd.tgz",
+    "@effx/ir": "file:tools/effx-dist/effx-ir-0.1.0-a879a38c109d4fa968745ab152e8c093a457f2dd.tgz",
+    "@effx/runtime": "file:tools/effx-dist/effx-runtime-0.1.0-a879a38c109d4fa968745ab152e8c093a457f2dd.tgz"
   },
   "engines": {
     "node": ">=22",
