@@ -22,11 +22,11 @@ The actual built onboarding journey passed all ten browser cases at `1f59263a`, 
 unexpected failures or flaky cases. These are synthetic loopback observations, not provider proof.
 Evidence is retained outside the product tree in `/srv/share/projects/effx-recruitment-0029-evidence/green-suites.json`.
 The 194-command authority-model run is still supervised; whole-tree aggregate gates are not
-accepted. The latest aggregate reached database type checking and found dispatcher result and
-maintenance row-absence channel errors, now under isolated repair. No Recruitment generated-contract
-cutover or repaired parity baseline is claimed.
-Migrations 0083 and 0084 are registered through `just migration-hashes write`. The source-safety
-test accepts their exact reviewed bytes and rejects a one-byte appended space. The operator’s
+accepted. Reviewed fixture, channel, and decision-instant precision repairs are integrated.
+The latest aggregate stopped at the precision upgrade proof’s missing layout import record;
+that test dependency is now registered. Serial baseline verification remains required.
+Migrations 0083–0085 are registered through `just migration-hashes write`; existing historical
+instants are not rounded or rewritten by 0085. No Recruitment generated-contract cutover is accepted.
 direct instruction was: “Forgoe the heavy job slot in place of checking the machine status for
 what resources are taken” (2026-10-04, `history://Main:253-255`). The director supplied the
 admission procedure: two readings 10 seconds apart, load below nproc, MemAvailable at least
@@ -44,10 +44,10 @@ The e04 mixed-onboarding module fails type-checking because its subset factory l
 unhandled (TS2322). No built-in option emits its raw/guard types without that factory. The
 director approved a typed completion continuation: the generated factory registers `readBoard`
 and `command`, then requires the handwritten `claim` completion before a group layer exists.
-A missing claim must be a compile error. The successor package passes spec 0029’s re-vendor
-gate, including unchanged regeneration of all nine earlier groups. The onboarding cutover
-alone remains parked until then. Independent Recruitment work continues after repair green
-acceptance. No compiler upgrade, suppression, output edit, or new root shim is applied here.
+A missing claim must be a compile error. The successor `a879a38` is vendored through the flat
+manifest/package workflow. Frozen installation and nine-group regeneration exited zero; the
+director-amended contract delta, raw-handler/IR identity, full OpenAPI/SDK, and frontend gates
+remain required before onboarding integration. No suppression, output edit, or new root shim is applied.
 **Retirement trigger:** after Identity migrates `claim`, the complete generated group replaces
 the transitional handwritten completion.
 The isolated reproducer is retained outside the product tree at
