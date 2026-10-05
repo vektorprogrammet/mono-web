@@ -24,7 +24,12 @@ Evidence is retained outside the product tree in `/srv/share/projects/effx-recru
 The repaired handwritten baseline `16481296` passed serial `just check --concurrency=1` and `just test --concurrency=1`.
 The runs passed 16/16 type/generation tasks and 21/21 aggregate tasks. Four opt-in `auth-live` database tests remained skipped.
 Historical upgrade controls passed 20/20 on PostgreSQL 17.11 and PGlite. The aggregate also ran PostgreSQL 18/PGlite upgrade controls.
-`just model validate` passed. The 194-command authority-model run remains supervised, without whole-model acceptance.
+`just model validate` passed. The earlier 194-command run found one Y4 counterexample.
+The real PostgreSQL 18 HTTP test at `6a2b7514` rejected an uncited, incomplete Rejected decision
+with `admission.outcome.unreviewed`/422 and exact unchanged SQL state. Valid Kanskje and Returning controls passed.
+The defect was in the model: `none in S` admitted an empty decision basis. The model-only repair at `ac1d1012`
+retains all 194 obligations and adds one seeded empty-basis mutant. Its single persistent 195-command run
+uses `proc://recruitment-authority-model-195`; it remains running without whole-model acceptance.
 The evidence is in `/srv/share/projects/effx-recruitment-0029-evidence/repaired-baseline-acceptance.json`.
 Migrations 0083–0085 are registered. Migration 0085 neither rounds nor rewrites historical instants.
 No generated Recruitment/onboarding cutover is accepted.
@@ -42,25 +47,26 @@ distinguish actual disk saturation from a code failure. Staged-only formatting/l
 hooks are light work. The existing owned Alloy run stays running.
 
 The e04 mixed-onboarding module fails type-checking because its subset factory leaves `claim`
-unhandled (TS2322). No built-in option emits its raw/guard types without that factory. The
-director approved a typed completion continuation: the generated factory registers `readBoard`
-and `command`, then requires the handwritten `claim` completion before a group layer exists.
-A missing claim must remain a compile error. The successor `a879a38` is vendored through the flat manifest/package workflow.
-Its scoped nine-group re-vendor gate passed at `16481296`. All nine raw-handler files remained byte-identical.
-Contract differences were only approved status-on-wrapper changes and removed imports. Canonical OpenAPI and all 111 SDK operation bytes remained identical.
-This evidence does not accept the new cutover. The new onboarding bootstrap is blocked by compiler defects D1/D2.
-Contract-only and handler-only both exited 1 on the exact source copy. Each run emitted EFFX2415 at all ten group references.
-The native recipe already orders contract before handlers. The director assigned the compiler correction to `compiler-bootstrap`.
-Onboarding remains parked until its new pack passes the same amended re-vendor gate.
-Before final acceptance, a fresh `bun install --frozen-lockfile` must succeed without reused `node_modules`.
-If that install stalls, capture its wait with `--verbose` and report the network, registry, resolution, or Git dependency.
-The previous cold install stalled for 30 minutes. Reused dependencies served only the accepted diagnostic record, not cutover acceptance.
-No suppression, output edit, root shim, or sequencing workaround is applied.
+unhandled (TS2322). The director approved a typed completion continuation: the generated factory
+registers `readBoard` and `command`, then requires handwritten `claim` before a group layer exists.
+A missing claim remains a compile error. The compiler successor `7290ea5` fixes D1/D2 without
+a root shim, output edit, suppression, or sequencing workaround. The native recipe already orders
+contracts before handlers. The current nine-group re-vendor gate is not yet accepted.
+At `11700f07`, fresh frozen installation, cold nine-contract/nine-handler generation, all ten
+amended parity conditions, and full checks passed. The full aggregate was interrupted after
+three team-application delivery reds. Their exact retained evidence is in
+`/srv/share/projects/effx-recruitment-0029-evidence/revendor-7290-fresh-gate.json`.
+The pre-revendor repair revision `09ee6a2c` passed all nine focused delivery cases. At `f01fe503`,
+all nine original cases and two interruption/isolation controls passed (11/11). Each case now
+owns its migrated database and native queue scope; a 200 ms Idle result no longer masquerades
+as fixture isolation. Retry policy, five-second test bounds, teardown, and behavioral assertions
+remain unchanged. Cross-case leftover delivery was observed; attribution of the first two
+aggregate failures to the shared lifetime remains [INFERENCE]. Focused passing tests do not
+replace the required fresh full gate. Before acceptance, freeze the repaired source, install
+without reused `node_modules`, and run amended parity, full checks, and the full aggregate.
 **Retirement trigger:** after Identity migrates `claim`, the complete generated group replaces
-the transitional handwritten completion.
-The isolated reproducer is retained outside the product tree at
-`/srv/share/projects/effx-recruitment-0029-evidence/compiler/mixed-onboarding/`;
-`observed.json` records build exit 0 and type-check exit 1, not product-test acceptance.
+the transitional handwritten completion. The retained mixed-onboarding probe is outside
+the product tree in `/srv/share/projects/effx-recruitment-0029-evidence/compiler/mixed-onboarding/`.
 
 ### Attribution correction (2026-10-04)
 
