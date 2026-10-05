@@ -959,7 +959,7 @@ pred freezeCitation[a: Application, o: Outcome] {
     ((ClosureUsesStaleEvidence in Broken.rule) => a.recommendation else liveRecommendation[a]) else a.citedRecommendation)
   -- Only Ja/Nei has a frozen derived outcome. Explicit Kanskje/Returning standing follows the
   -- latest authorized choice on the frozen citation, not the first choice and not live correction.
-  a.frozenStanding' = ((no a.citedRecommendation and liveRecommendation[a] in Ja + Nei) => o else a.frozenStanding)
+  a.frozenStanding' = ((no a.citedRecommendation and some liveRecommendation[a] and liveRecommendation[a] in Ja + Nei) => o else a.frozenStanding)
 }
 
 -- r is a placement of the applicant of a in the application's department and semester
@@ -974,7 +974,7 @@ pred hasActivePlacement[a: Application] { some r: Effective | placementOf[r, a] 
 -- MUTANT (Y4): a Ja or Nei outcome is overridden by a decision
 -- MUTANT (Y4): an undecided Kanskje or returning application announces Admitted
 fun derivedOutcome[a: Application]: set Outcome {
-  (some a.frozenStanding and outcomeRecommendation[a] in Ja + Nei) => a.frozenStanding
+  (some a.frozenStanding and some outcomeRecommendation[a] and outcomeRecommendation[a] in Ja + Nei) => a.frozenStanding
   else ((JaNeiOverridden in Broken.rule and some a.decision) => a.decision
   else ((outcomeRecommendation[a] = Ja) =>
          (((JaUnplacedIsSubstitute in Broken.rule) and not hasActivePlacement[a]) => Substitute else Admitted)
@@ -992,8 +992,9 @@ pred decideGuard[q: Request, a: Application, o: Outcome] {
   q.action = DecideAdmissionOutcome or (AnnouncerDecides in Broken.rule and q.action = AnnounceAdmissionOutcome)
   q.target = a
   o in Admitted + Rejected
-  (((DecisionUsesLiveEvidence in Broken.rule) => liveRecommendation[a] else outcomeRecommendation[a])
-    in Kanskje + ReturningWithoutInterview) or (JaNeiOverridden in Broken.rule)
+  let basis = ((DecisionUsesLiveEvidence in Broken.rule) => liveRecommendation[a] else outcomeRecommendation[a]) |
+    ((some basis or EmptyDecisionBasisAccepted in Broken.rule)
+      and basis in Kanskje + ReturningWithoutInterview) or (JaNeiOverridden in Broken.rule)
   (no a.announced) or (FinalOutcomeRewritten in Broken.rule)
   UnannouncedDecisionRevisionDenied in Broken.rule implies not correctionClosed[a]
 }
@@ -1216,6 +1217,7 @@ one sig ReachByPositionLabel, MachinesRunAsOperator, StaleLeadership, CascadingE
         WindowPastOwnSemester, CloseExpiredWindow, CorrectionRewritesCitation,
         ClosureUsesStaleEvidence, WindowHistoryForgotten, WindowSequenceReused,
         CorrectionRewritesStanding, CorrectionRewritesAnnouncement extends Mutant {}
+one sig EmptyDecisionBasisAccepted extends Mutant {}
 
 pred anyEventWith[m: lone Mutant] {
   tick or skip or (some g: Grant | endGrant[g]) or (some g: Delegation | endDelegation[g])
@@ -2557,5 +2559,11 @@ assert R2_FrozenCitation_mutantDecisionRecites { policyWith[DecisionRecitesEvide
 check R2_FrozenCitation_mutantDecisionRecites for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 8 steps expect 1
 run scenarioR2CorrectThenReviseSameCitation for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 10 steps expect 1
 run scenarioR2ReturningRevisionBeforeAnnouncement for 3 but 12 Scope, 10 Role, 7 Request, 3 Assessment, 2 CorrectionWindow, 4 Instant, 4 Int, 10 steps expect 1
+
+-- Seed only the empty-basis decision bug; Y4 and its original four-step bound are unchanged.
+assert Y4_AnnouncedFollowsTheRecommendation_mutantEmptyDecisionBasis {
+  policyWith[EmptyDecisionBasisAccepted] implies announcedFollowsTheRecommendation
+}
+check Y4_AnnouncedFollowsTheRecommendation_mutantEmptyDecisionBasis for 3 but 8 Scope, 6 Role, 3 Instant, 4 steps expect 1
 
 
