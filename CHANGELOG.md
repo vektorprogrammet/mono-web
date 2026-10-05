@@ -1,5 +1,10 @@
 ## Unreleased
 
+### Correction window dialog openers
+
+- Keep eligible Reopen and Close buttons enabled while their native Dialog is open, so native focus restoration can use the opener.
+- Preserve server eligibility, mutation locks, reentrant-open guards, pending dismissal guards, and native modal isolation.
+
 ### Admission announcement validators
 
 - Accept the current full or minimal outcome tag for callers with fresh Decide and Announce authority in the same department.

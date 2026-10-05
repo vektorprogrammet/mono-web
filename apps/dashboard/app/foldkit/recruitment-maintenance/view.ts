@@ -482,12 +482,12 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
               button(
                 "Gjenåpne retting",
                 OpenedCorrectionWindow({ action: "Reopen" }),
-                locked || !selectedInterview.assessmentCorrection.canReopen,
+                mutationLocked || !selectedInterview.assessmentCorrection.canReopen,
               ),
               button(
                 "Lukk rettingsvindu",
                 OpenedCorrectionWindow({ action: "Close" }),
-                locked || !selectedInterview.assessmentCorrection.canClose,
+                mutationLocked || !selectedInterview.assessmentCorrection.canClose,
               ),
             ],
           ),

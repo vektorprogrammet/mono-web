@@ -77,6 +77,11 @@ Staffing workflow opens and closes a correction window through the existing main
 command. A terminal interview disables staffing changes, not window controls. Use only
 `canReopen` and `canClose` to show those controls; roles and client time grant nothing.
 
+Eligible window openers stay enabled while the Dialog is open. Their disabled state
+depends on mutation readiness and the server flag, not Dialog visibility. Native modal
+isolation blocks background interaction, and the update guard rejects another open.
+This keeps the same keyed opener eligible for native focus capture and restoration.
+
 The Dialog owns focus, Escape handling, background isolation, and mount cleanup. Keep
 its Commands lifted with `Command.mapMessages` and its view in `h.submodel`. A pending
 save blocks dismissal and editing. An uncertain save keeps the whole decoded command,
