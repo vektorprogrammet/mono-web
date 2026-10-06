@@ -373,10 +373,28 @@ committed.
 The four Recruitment programs keep handwritten Foldkit Command bodies: assignment, scheduling/conduct, invitation response, and maintenance.
 They call the generated SDK directly or through the existing browser bridges. Generated Commands are not part of this cutover.
 
-The native correction-window Dialog owns background isolation, focus containment, dismissal, and focus restoration.
-Eligible Reopen and Close openers remain enabled while the dialog is open, so native restoration can focus the opener.
-Server `canReopen` and `canClose` observations and mutation locks still control opener eligibility.
+The native correction-window Dialog owns background isolation, focus containment, dismissal, and ordinary opener restoration.
+Eligible Reopen and Close openers remain enabled while the dialog is open. Server `canReopen`, `canClose`, and mutation locks control eligibility.
 The update function refuses reentrant opens and pending dismissal. An open dialog grants no server authority.
+
+Successful Close changes the next valid action. The workflow does not preserve a physical Close node and relabel it as Reopen.
+The [maintenance Model](../apps/dashboard/app/foldkit/recruitment-maintenance/model.ts) owns the close ticket and the pending next-action focus identity.
+The [maintenance update](../apps/dashboard/app/foldkit/recruitment-maintenance/update.ts) correlates the successful mutation and staffing refresh with that identity.
+It requires Ready staffing, Closed correction state, and server-owned `canReopen`; it does not infer eligibility from roles, time, or local dialog state.
+Native Dialog close completion releases the ticket before the workflow dispatches focus on the current Reopen control. Ordinary Cancel/Escape/Tilbake retain native opener restoration.
+
+The [maintenance Commands](../apps/dashboard/app/foldkit/recruitment-maintenance/command.ts) own focus as a lazy, interruptible one-shot Command through native `Dom.focus`.
+The view and focus Command share the pure [Reopen target](../apps/dashboard/app/foldkit/recruitment-maintenance/correction-window.ts) for its id and eligible selector.
+This target describes a control identity, not correction-window authority.
+The runtime owns its fiber. Runtime disposal interrupts pending work; selection, release, and replacement invalidate the workflow's focus intent.
+The [staffing route](../apps/dashboard/app/routes/dashboard.intervjubemanning._index.tsx) binds the custom element to the actual location identity.
+Navigation to a replacement location tears down that element and its runtime, including while the destination loader is pending.
+Unrelated fetchers and background revalidation do not end that lifetime.
+Failures and cancellations clear pending focus intent. Results carry their workflow identity, and update rejects an identity that no longer matches.
+A Command key is an address, not a lock. Same-key dispatch alone cancels nothing, and one batch supplies no execution order.
+Replacement open/focus waits for the old native Close completion and any pending focus-cancellation completion. An unordered batch cannot supply that barrier.
+Cancellation clears focus intent immediately. A late close completion for an old dialog generation cannot change a replacement dialog or arm focus.
+No focus runner, timer, retry, weakened assertion, browser-node reuse, or framework change supplies this policy. The server remains the correction-window authority.
 
 ## Runtime composition
 

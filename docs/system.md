@@ -259,9 +259,12 @@ The representation namespaces remain distinct. A stale Full or Minimal validator
 Fresh authorization precedes receipt lookup. Exact replay returns the original capsule before mutation-only preconditions, without another mutation, audit event, or message envelope.
 The announcement response remains Minimal and private/no-store. Validator selection does not change frozen citations or final outcomes.
 
-The correction-window dialog uses native modal isolation and native focus restoration.
+The correction-window dialog uses native modal isolation. Ordinary Cancel, Escape, and Tilbake return focus to the opener through the native Dialog.
+After a confirmed Close, the workflow waits for the correlated staffing refresh to report Closed with server-owned `canReopen`.
+After native dialog close completion, a workflow-owned focus Command targets the current Reopen action, not the former Close opener.
+Failure, release, cancellation, selection change, replacement, navigation, and disposal invalidate pending focus for the old workflow identity.
 Server eligibility and mutation locks control Reopen and Close. An open dialog alone does not disable an otherwise eligible opener.
-The workflow refuses reentrant opens and pending dismissal. Dialog state grants no correction-window authority.
+The workflow refuses reentrant opens and pending dismissal. Dialog state and focus grant no correction-window authority.
 
 The announcement queues one message to the email address on the application. The
 server renders its subject, HTML, and text from the effective template when it

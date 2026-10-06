@@ -27,24 +27,46 @@ The third and final original full R2 diagnostic failed with `ProfileContactNotFo
 The unchanged mapper returned `recruitment.unavailable`/503. The original 30-second button assertion remained red after eighteen correction stages.
 The diagnostic did not record the missing runtime Person identity. Source establishes an incomplete Returning fixture, not runtime Person attribution.
 
-The director approved a narrow repair in the local Returning fixture owner.
-That fixture must seed its declared primary interviewer's contact projection before the primary appointment, using its existing synthetic data.
-Contact construction and the primary appointment belong in the same fixture transaction, with the same commit or rollback.
+The local Returning fixture repair seeds the declared primary interviewer's synthetic contact before the appointment in one transaction.
 Fixture completeness grants no business authority and permits no production fallback or change to the missing-contact refusal.
+The third diagnostic remains separate, red evidence; it does not identify a missing runtime Person.
+
+The original full R2 regression on `66d2baee91d515d6c0787d6ec4aef85ba2c23e57` reached seven outer gates and nineteen completed stages, then failed.
+The unchanged `tools/acceptance/recommendation-check.ts:3600` assertion required focus on the current Reopen action within 5,000 ms.
+Close returned 200 and staffing refreshed to Closed, but Reopen remained inactive. This is not migration acceptance or observed Chrome causality.
+The operator approved a permanent native workflow-focus repair for this next-action transition. It does not reuse the Close opener as Reopen.
+Ordinary Cancel/Escape retain native opener restoration. The system and architecture documents define the approved ownership and correlation policy.
+
+On source `66d2baee`, the native 39-case suite, canonical/parity checks, full check (16/16 tasks), and full test (21/21 tasks) passed.
+These results and every original 28-row result on that source are historical, source-specific evidence only.
+Collector omissions and repeats remain explicit external evidence incidents, not product failures.
 
 The original full R2 remains a required regression confirmation, not a fourth diagnostic or a target-only substitute.
-Its original actions, filters, selectors, timeouts, denials, no-write snapshots, corrections, frozen citations, announcements, and late focus assertions remain gates.
+Its original actions, filters, selectors, 5/30-second click waits, and 5,000-ms focus assertions remain gates.
+Window privacy, 403 denials, exact no-write snapshots, corrections, mail, and frozen outcome citations remain unchanged.
 
-Acceptance requires one clean source after fixture and documentation integration:
+Acceptance requires a new clean final candidate after workflow-focus, permanent tests, and documentation integration:
 
-- All 28 original acceptance rows, including the complete original R2 journey.
+- New executions of all 28 original acceptance rows, including the complete original R2 journey.
 - The full 39-case HTTP regression suite, canonical contract/handler parity, and serial `just check --concurrency=1` and `just test --concurrency=1`.
-- Before/after source, emitted, and materialized artifact manifests, plus the actual build's Git HEAD stamp.
+- The mounted production workflow and its full permanent focused tests: failure, release, ordinary cancellation, interruption, stale identity, replacement, real navigation, and disposal.
+- A held native Close must block replacement open/focus until its actual completion and any pending focus-cancellation completion.
+  Late old-generation completions and duplicate save responses must not arm focus or change a replacement dialog.
+- Before/after custody of the exact consumed source, served bundles/runtime, and each job's own environment.
+- Source conditions, runners, and build manifests decide which emitted or materialized artifacts each gate consumes.
+- A missing SDK dist, OpenAPI binary, or environment inventory is a gap only when evidence proves that the gate consumes it.
+  Labels alone prove neither consumption nor nonconsumption.
+- The homepage's existing build stamp is consumed evidence only. The dashboard embeds no Git HEAD stamp; a new dashboard stamp is not a gate.
 - All 195 completed outcomes from the existing persistent authority-model run and byte equality with its model source.
 
+All final-candidate gates run after integration and the new clean source freeze. Earlier focused or historical results cannot replace them.
+The two baseline and seven prototype HappyDOM tests establish a native mechanism only, not Chrome acceptance.
+
 The single `proc://recruitment-authority-model-195` run remains active. Whole-model acceptance and its completed outcomes remain pending.
+The actual Authority and contexts bytes match source `66d2baee`; final-candidate byte equality remains a gate.
 The model source digest is `ca4460362b618320f0c6a200e98be8dc0692ee37f0b1113d94cf0d5c7fc8d4e7`.
-Partial progress does not establish SAT instance counts or completed obligations. The existing run must not restart.
+`/srv/share/projects/effx-recruitment-0029-evidence/final66-model195-input-and-expected-obligations.json` records both actual input hashes and expected obligations.
+Partial progress does not establish SAT instance counts or completed obligations. The existing run must not receive signals or restart.
 Migrations 0083–0085 remain registered. Migration 0085 neither rounds nor rewrites historical instants.
 Historical repaired-baseline and prerequisite results remain external evidence, not final-source acceptance.
 Evidence stays in `/srv/share/projects/effx-recruitment-0029-evidence/`.
@@ -69,9 +91,9 @@ The native recipe generates contracts before handlers, without a root shim or ge
 Prior-group byte identity, the repaired OpenAPI semantics, and SDK parity remain final-source gates.
 Delivery tests own their migrated database and native queue scope. An Idle result does not establish fixture isolation.
 Earlier prerequisite receipts and repair chronology remain outside the product tree. They do not establish final acceptance.
-The retained source-`750d0389` NEW aggregate receipt records historical canonical/parity, HTTP39, maintenance, check, and test results.
-It remains separate from the final candidate and its required original acceptance rows.
-The record is `/srv/share/projects/effx-recruitment-0029-evidence/final750-aggregate-BeIa6C-receipt.json`.
+The retained source-`66d2baee` aggregate receipt records historical canonical/parity, HTTP39, maintenance, check, and test results.
+It remains separate from the new final candidate and its required original acceptance rows.
+The record is `/srv/share/projects/effx-recruitment-0029-evidence/final66-aggregate-BeIa6C-receipt.json`.
 Unmerged worktrees remain retained. Cleanup requires a proven merge or explicit disposal authority.
 The credential-exposure incident is held separately. Raw installer evidence remains private and unpublished;
 token revocation is recommended but awaits the operator’s decision. No credential or transcript changes are authorized.

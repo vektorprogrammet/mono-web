@@ -9,10 +9,13 @@
 - Require complete synthetic primary-interviewer contacts in local Returning fixture construction. Keep production missing-contact refusal unchanged.
 - Record LOCAL implementation separately from acceptance. Final-source journeys, parity, aggregate checks, and all 195 model outcomes remain gates.
 
-### Correction window dialog openers
+### Correction-window workflow focus
 
-- Keep eligible Reopen and Close buttons enabled while their native Dialog is open, so native focus restoration can use the opener.
-- Preserve server eligibility, mutation locks, reentrant-open guards, pending dismissal guards, and native modal isolation.
+- Preserve native modal isolation and ordinary Cancel/Escape/Tilbake opener restoration. Keep eligible Reopen and Close controls enabled while the Dialog is open.
+- After a confirmed Close and correlated Closed refresh with server-owned `canReopen`, focus the current Reopen action after native Dialog close completion.
+- Own focus through a native interruptible Foldkit Command. Reject stale workflow identities and sequence replacement after cancellation completion.
+- Preserve server eligibility, mutation locks, reentrant-open guards, pending dismissal guards, and runtime disposal. Do not reuse the Close node as Reopen.
+- Keep the source-`66d2baee` late-focus failure and historical passing gates separate from pending final-candidate acceptance.
 
 ### Admission announcement validators
 
