@@ -1,7 +1,8 @@
 import { Schema as S } from "effect";
 import { Dialog } from "@foldkit/ui";
-import { CorrectionWindowAction } from "./model";
+import { CorrectionWindowAction, WorkflowFocusTicket } from "./model";
 import { taggedStruct } from "foldkit/schema";
+import { Interruptible } from "foldkit/command";
 import {
   QuestionnaireManagement,
   InterviewStaffingManagement,
@@ -82,7 +83,17 @@ export const SubmittedCorrectionWindow = taggedStruct("SubmittedCorrectionWindow
 
 export const GotCorrectionDialogMessage = taggedStruct("GotCorrectionDialogMessage", {
   message: Dialog.Message,
+  generation: S.Int,
+  ticket: S.optionalKey(WorkflowFocusTicket),
 });
+
+export const CompletedWorkflowFocus = taggedStruct("CompletedWorkflowFocus", { ticket: WorkflowFocusTicket });
+
+export const FailedWorkflowFocus = taggedStruct("FailedWorkflowFocus", { ticket: WorkflowFocusTicket });
+
+export const CompletedCancelWorkflowFocus = taggedStruct("CompletedCancelWorkflowFocus", { ticket: WorkflowFocusTicket, outcome: Interruptible.Outcome });
+
+export const CompletedCancelMaintenanceLoad = taggedStruct("CompletedCancelMaintenanceLoad", { requestId: S.Int, outcome: Interruptible.Outcome });
 
 export const SucceededQuestionnaires = taggedStruct("SucceededQuestionnaires", {
   requestId: S.Int,
@@ -110,6 +121,10 @@ export const FailedSave = taggedStruct("FailedSave", {
 });
 
 export const Message = S.Union([
+  CompletedWorkflowFocus,
+  FailedWorkflowFocus,
+  CompletedCancelWorkflowFocus,
+  CompletedCancelMaintenanceLoad,
   OpenedCorrectionWindow,
   ChangedCorrectionReason,
   ChangedCorrectionEndsAt,

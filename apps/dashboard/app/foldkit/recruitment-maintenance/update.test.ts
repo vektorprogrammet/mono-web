@@ -7,12 +7,19 @@ import {
   RecruitmentMaintenanceResult,
 } from "@vektorprogrammet/http-api";
 import { DateTime, Option, Predicate, Schema } from "effect";
+import { Interruptible } from "foldkit/command";
+import { FocusCorrectionReopen } from "./command";
 import { Story } from "foldkit/test";
 import { describe, expect, it } from "vitest";
 import {
   ChangedCorrectionEndsAt,
   ChangedCorrectionReason,
   CompletedPrepareEdit,
+  CompletedCancelWorkflowFocus,
+  CompletedCancelMaintenanceLoad,
+  CompletedWorkflowFocus,
+  FailedWorkflowFocus,
+  FailedLoad,
   FailedSave,
   GotCorrectionDialogMessage,
   OpenedCorrectionWindow,
@@ -229,7 +236,7 @@ describe("R2 server-owned correction window model", () => {
     const pending = update(windowDraft(), SubmittedCorrectionWindow()).model;
 
     for (const message of [
-      GotCorrectionDialogMessage({ message: Dialog.Message.RequestedClose() }),
+      GotCorrectionDialogMessage({ message: Dialog.Message.RequestedClose(), generation: pending.dialogGeneration }),
       SubmittedCorrectionWindow(),
       SelectedRecord({ id: "different-interview" }),
       SubmittedMaintenance(),
@@ -306,7 +313,7 @@ describe("R2 server-owned correction window model", () => {
       Story.message(OpenedCorrectionWindow({ action: "Reopen" })),
       Story.Command.resolveAllExact([Dialog.ShowDialog, Dialog.Message.SucceededShowDialog()]),
       Story.message(ChangedCorrectionReason({ value: "Draft not submitted" })),
-      Story.message(GotCorrectionDialogMessage({ message: Dialog.Message.RequestedClose() })),
+      Story.message(GotCorrectionDialogMessage({ message: Dialog.Message.RequestedClose(), generation: 1 })),
       Story.Command.resolveAllExact([Dialog.CloseDialog, Dialog.Message.CompletedCloseDialog()]),
       Story.model((model) => {
         expect(model.correctionDialog.isOpen).toBe(false);
@@ -368,10 +375,11 @@ it("R2 dismissing a dialog retains its draft, but selecting another interview re
 
   const dismissed = update(
     draft,
-    GotCorrectionDialogMessage({ message: Dialog.Message.RequestedClose() }),
+    GotCorrectionDialogMessage({ message: Dialog.Message.RequestedClose(), generation: draft.dialogGeneration }),
   ).model;
 
-  const reopened = update(dismissed, OpenedCorrectionWindow({ action: "Reopen" })).model;
+  const closeCompleted = update(dismissed, GotCorrectionDialogMessage({ message: Dialog.Message.CompletedCloseDialog(), generation: dismissed.dialogGeneration })).model;
+  const reopened = update(closeCompleted, OpenedCorrectionWindow({ action: "Reopen" })).model;
   expect(reopened.correctionReason).toBe(draft.correctionReason);
   expect(reopened.correctionEndsAt).toBe(draft.correctionEndsAt);
   const selected = update(dismissed, SelectedRecord({ id: "another-interview" })).model;
@@ -393,3 +401,101 @@ it("R2 a duplicated read response cannot replace a pending window draft or its c
     ).model,
   ).toBe(pending);
 });
+
+const closingReload = () => {
+  const opened = update(staffingModel(openObservation()), OpenedCorrectionWindow({ action: "Close" })).model;
+  const pending = update({ ...opened, correctionReason: "Close finished window" }, SubmittedCorrectionWindow()).model;
+
+  return update(pending, SucceededSave({ commandId: testCommandId, result: RecruitmentMaintenanceResult.cases.AssessmentCorrectionClosed.make({ interviewId: RecruitmentInterviewId.make(testInterviewId), sequence: 4 }) }));
+};
+
+const readyClose = (canReopen = true) => {
+  const loading = closingReload().model;
+
+  return update(loading, SucceededStaffing({ requestId: loading.requestId, commandId: "new-read-command", data: staffingModel(closedObservation(canReopen)).staffing! }));
+};
+
+it("sequences production Save Load correlated native Close completion and one inert Focus", () => {
+  const loading = closingReload();
+  expect(loading.model.correctionDialog.isOpen).toBe(true);
+  expect(loading.commands?.map((command) => command.name)).toEqual(["LoadRecruitmentMaintenance"]);
+  const ready = readyClose();
+  expect(ready.model.workflowFocus?.phase).toBe("Closing");
+  expect(ready.commands?.map((command) => command.name)).toEqual(["CloseDialog"]);
+  const ticket = ready.model.workflowFocus!.ticket;
+  Story.story(update, Story.given(ready.model), (simulation) => ({ ...simulation, commands: ready.commands ?? [] }),
+    Story.Command.resolve(Dialog.CloseDialog, Dialog.Message.CompletedCloseDialog()),
+    Story.Command.expectExact(FocusCorrectionReopen(ticket)),
+    Story.Command.resolveAllExact([FocusCorrectionReopen, CompletedWorkflowFocus({ ticket })]),
+    Story.model((model) => expect(model.workflowFocus).toBeNull()));
+  expect(() => FocusCorrectionReopen({ ...ticket, interviewId: "css:punctuation[]" })).not.toThrow();
+});
+
+it.each(["requestId", "commandId", "interviewId"] as const)("rejects stale %s close/focus/cancel tickets", (field) => {
+  const ready = readyClose();
+  const ticket = ready.model.workflowFocus!.ticket;
+  const stale = { ...ticket, [field]: field === "requestId" ? ticket.requestId + 1 : "stale" };
+  expect(update(ready.model, GotCorrectionDialogMessage({ generation: ready.model.dialogGeneration, ticket: stale, message: Dialog.Message.CompletedCloseDialog() })).commands).toEqual([]);
+  const focusing = update(ready.model, GotCorrectionDialogMessage({ generation: ready.model.dialogGeneration, ticket, message: Dialog.Message.CompletedCloseDialog() })).model;
+
+  for (const message of [CompletedWorkflowFocus({ ticket: stale }), FailedWorkflowFocus({ ticket: stale })]) expect(update(focusing, message).model).toBe(focusing);
+  const cancelled = update(focusing, SelectedRecord({ id: "another-interview" })).model;
+  expect(cancelled.workflowFocus).toBeNull();
+  expect(update(cancelled, CompletedCancelWorkflowFocus({ ticket: stale, outcome: Interruptible.Outcome.NotFound() })).model).toBe(cancelled);
+});
+
+it("old close generation cannot close or focus a newer dialog; cancellation completes before replacement", () => {
+  const ready = readyClose().model;
+  const ticket = ready.workflowFocus!.ticket;
+  expect(update(ready, GotCorrectionDialogMessage({ generation: ready.dialogGeneration - 1, ticket, message: Dialog.Message.CompletedCloseDialog() })).model).toBe(ready);
+  expect(update(ready, OpenedCorrectionWindow({ action: "Reopen" })).model).toBe(ready);
+  const focusing = update(ready, GotCorrectionDialogMessage({ generation: ready.dialogGeneration, ticket, message: Dialog.Message.CompletedCloseDialog() })).model;
+  const cancelled = update(focusing, SelectedRecord({ id: testInterviewId }));
+  expect(cancelled.commands?.map((command) => command.name)).toEqual(["FocusCorrectionReopen.Interrupt"]);
+  expect(update(cancelled.model, OpenedCorrectionWindow({ action: "Reopen" })).model).toBe(cancelled.model);
+  const settled = update(cancelled.model, CompletedCancelWorkflowFocus({ ticket, outcome: Interruptible.Outcome.NotFound() })).model;
+  const opened = update(settled, OpenedCorrectionWindow({ action: "Reopen" })).model;
+  expect(opened.correctionDialog.isOpen).toBe(true);
+  expect(update(opened, GotCorrectionDialogMessage({ generation: ready.dialogGeneration, ticket, message: Dialog.Message.CompletedCloseDialog() })).model).toBe(opened);
+});
+
+it.each([false, true])("failed reload (denied=%s) releases modal and never focuses", (denied) => {
+  const loading = closingReload().model;
+  const failed = update(loading, FailedLoad({ requestId: loading.requestId, denied }));
+  expect(failed.model.workflowFocus).toBeNull();
+  expect(failed.model.status).toBe(denied ? "Denied" : "Failed");
+  expect(failed.model.correctionDialog.isOpen).toBe(false);
+  expect(failed.commands?.map((command) => command.name)).toEqual(["CloseDialog"]);
+});
+
+it("no server Reopen permission releases without focus", () => {
+  const ready = readyClose(false);
+  expect(ready.model.workflowFocus).toBeNull();
+  Story.story(update, Story.given(ready.model), (simulation) => ({ ...simulation, commands: ready.commands ?? [] }), Story.Command.resolveAllExact([Dialog.CloseDialog, Dialog.Message.CompletedCloseDialog()]), Story.Command.expectNone());
+});
+
+it.each(["dismiss", "refresh"] as const)("%s cancels reload before ordinary replacement; stale reads cannot rearm", (action) => {
+  const loading = closingReload().model;
+  const cancelled = update(loading, action === "dismiss" ? GotCorrectionDialogMessage({ message: Dialog.Message.RequestedClose(), generation: loading.dialogGeneration }) : RefreshedMaintenance());
+  expect(cancelled.model.workflowFocus).toBeNull();
+  expect(cancelled.commands?.map((command) => command.name)).toEqual(["LoadRecruitmentMaintenance.Interrupt", "CloseDialog"]);
+  expect(cancelled.model.requestId).toBe(loading.requestId + 1);
+  expect(update(cancelled.model, SucceededStaffing({ requestId: loading.requestId, data: staffingModel(closedObservation()).staffing!, commandId: "late" })).model).toBe(cancelled.model);
+  const replacement = update(cancelled.model, CompletedCancelMaintenanceLoad({ requestId: loading.requestId, outcome: Interruptible.Outcome.Interrupted() }));
+  expect(replacement.commands?.map((command) => command.name)).toEqual(["LoadRecruitmentMaintenance"]);
+  expect(replacement.model.workflowFocus).toBeNull();
+  expect(update(replacement.model, SucceededSave({ commandId: testCommandId, result: RecruitmentMaintenanceResult.cases.AssessmentCorrectionClosed.make({ interviewId: RecruitmentInterviewId.make(testInterviewId), sequence: 4 }) })).model).toBe(replacement.model);
+});
+
+it("selection during correlated reload clears intent and cancels before replacing the read", () => {
+  const loading = closingReload().model;
+  const selected = update(loading, SelectedRecord({ id: "another-current-interview" }));
+  expect(selected.model.workflowFocus).toBeNull();
+  expect(selected.model.selectedId).toBe("another-current-interview");
+  expect(selected.model.correctionDialog.isOpen).toBe(false);
+  expect(selected.commands?.map((command) => command.name)).toEqual(["LoadRecruitmentMaintenance.Interrupt", "CloseDialog"]);
+  const replacement = update(selected.model, CompletedCancelMaintenanceLoad({ requestId: loading.requestId, outcome: Interruptible.Outcome.Interrupted() }));
+  expect(replacement.commands?.map((command) => command.name)).toEqual(["LoadRecruitmentMaintenance"]);
+  expect(replacement.model.selectedId).toBe("another-current-interview");
+});
+

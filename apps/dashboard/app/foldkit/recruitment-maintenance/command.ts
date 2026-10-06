@@ -1,10 +1,12 @@
 import { Effect, Match, Predicate, Schema as S } from "effect";
 import { Command } from "foldkit";
+import * as Dom from "foldkit/dom";
+import { correctionReopenTarget } from "./correction-window";
 import { IdempotencyKey, RecruitmentMaintenanceCommand } from "@vektorprogrammet/http-api";
 import { createEffectClient } from "@vektorprogrammet/sdk/effect";
 import { resolveBrowserApiUrl } from "../../lib/browser-api";
 import { nativeProblemFrom } from "../../lib/native-problem";
-import { Mode } from "./model";
+import { Mode, WorkflowFocusTicket } from "./model";
 import {
   SucceededQuestionnaires,
   SucceededStaffing,
@@ -12,23 +14,39 @@ import {
   SucceededSave,
   FailedSave,
   CompletedPrepareEdit,
+  CompletedWorkflowFocus,
+  FailedWorkflowFocus,
+  CompletedCancelMaintenanceLoad,
   type Message,
 } from "./message";
 
 export interface MaintenanceCommands {
   readonly Load: (args: { mode: Mode; requestId: number }) => Command.Command<Message>;
+  readonly CancelLoad: (requestId: number) => Command.Command<Message>;
   readonly Save: (args: { command: RecruitmentMaintenanceCommand }) => Command.Command<Message>;
   readonly PrepareEdit: () => Command.Command<Message>;
 }
 
-export const commandsFor = (): MaintenanceCommands => {
-  const client = createEffectClient(
-    resolveBrowserApiUrl(import.meta.env.VITE_API_URL, globalThis.location.origin),
-  );
+/** One invocation per ticket; the interview key addresses all holders, never serializes them.
+ * Update waits for CompletedCancelWorkflowFocus before admitting another dialog. */
+export const FocusCorrectionReopen = Command.define("FocusCorrectionReopen", {
+  args: WorkflowFocusTicket.fields,
+  messages: [CompletedWorkflowFocus, FailedWorkflowFocus],
+  interrupt: { keyFields: ["interviewId"], toKey: ({ interviewId }) => interviewId },
+  execute: (ticket) => Dom.focus(correctionReopenTarget(ticket.interviewId).selector).pipe(
+    Effect.as(CompletedWorkflowFocus({ ticket })),
+    Effect.catchTag("ElementNotFound", () => Effect.succeed(FailedWorkflowFocus({ ticket }))),
+  ),
+});
+
+export const commandsFor = (
+  client = createEffectClient(resolveBrowserApiUrl(import.meta.env.VITE_API_URL, globalThis.location.origin)),
+): MaintenanceCommands => {
 
   const Load = Command.define("LoadRecruitmentMaintenance", {
     args: { mode: Mode, requestId: S.Int },
     messages: [SucceededQuestionnaires, SucceededStaffing, FailedLoad],
+    interrupt: { keyFields: ["requestId"], toKey: ({ requestId }) => String(requestId) },
     execute: ({ mode, requestId }) =>
       Effect.gen(function* () {
         const commandId = crypto.randomUUID();
@@ -141,5 +159,7 @@ export const commandsFor = (): MaintenanceCommands => {
     execute: Effect.sync(() => CompletedPrepareEdit({ commandId: crypto.randomUUID() })),
   });
 
-  return { Load, Save, PrepareEdit };
+  const CancelLoad = (requestId: number) => Load.Interrupt({ requestId }, (outcome) => CompletedCancelMaintenanceLoad({ requestId, outcome }));
+
+  return { Load, CancelLoad, Save, PrepareEdit };
 };

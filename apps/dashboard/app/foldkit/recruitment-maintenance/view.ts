@@ -1,6 +1,6 @@
 import { Dialog, Input, Select, Textarea } from "@foldkit/ui";
 import { Option, Predicate, Schema } from "effect";
-import { correctionWindowDescription } from "./correction-window";
+import { correctionWindowDescription, correctionReopenTarget } from "./correction-window";
 import { RecruitmentInterviewQuestionKindSchema } from "@vektorprogrammet/http-api";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Model } from "./model";
@@ -479,10 +479,9 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
           h.div(
             [h.Class("rm-actions")],
             [
-              button(
-                "Gjenåpne retting",
-                OpenedCorrectionWindow({ action: "Reopen" }),
-                mutationLocked || !selectedInterview.assessmentCorrection.canReopen,
+              h.button(
+                [h.Id(correctionReopenTarget(selectedInterview.interviewId).id), h.Type("button"), h.OnClick(OpenedCorrectionWindow({ action: "Reopen" })), h.Disabled(mutationLocked || !selectedInterview.assessmentCorrection.canReopen)],
+                ["Gjenåpne retting"],
               ),
               button(
                 "Lukk rettingsvindu",
@@ -563,6 +562,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
                                 h.OnClick(
                                   GotCorrectionDialogMessage({
                                     message: Dialog.Message.RequestedClose(),
+                                    generation: model.dialogGeneration,
                                   }),
                                 ),
                               ],
@@ -591,7 +591,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
             : [],
         ),
     },
-    toParentMessage: (message) => GotCorrectionDialogMessage({ message }),
+    toParentMessage: (message) => GotCorrectionDialogMessage({ message, generation: model.dialogGeneration }),
   });
 
   return h.section(

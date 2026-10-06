@@ -22,3 +22,26 @@ export const correctionWindowDescription = (observation: AssessmentCorrection): 
     ),
     Match.exhaustive,
   );
+
+type CorrectionReopenTarget = Readonly<{ id: string; selector: string }>;
+
+/** Derives the Reopen button's stable id and eligible focus selector from its interview.
+ * @construct ui-target
+ * @remarks The view and Command share this identity; disabled controls never match the selector.
+ * @sideEffects None. This is a pure projection of a decoded interview identity.
+ * @example
+ * const target = correctionReopenTarget("interview-42");
+ * // Render target.id, then use target.selector in the native workflow focus Command.
+ * @avoid Do not reuse the Close button's node or infer server eligibility from this identity.
+ */
+export const correctionReopenTarget = (
+  interviewId: string,
+): CorrectionReopenTarget => {
+  let id = "rm-correction-reopen";
+
+  for (let index = 0; index < interviewId.length; index++) {
+    id += "-" + interviewId.charCodeAt(index).toString(16);
+  }
+
+  return { id, selector: `[id="${id}"]:not([disabled])` };
+};

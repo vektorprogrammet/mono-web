@@ -55,6 +55,7 @@ export const constructCategories = {
     "Starts and drives disposable infrastructure for tests, proofs, and journeys: PostgreSQL clusters, loopback ports, and the local backend.",
   "request-ledger":
     "Classifies the requests that journey recorders observe by whole path segments: native contract operations and legacy routes.",
+  "ui-target": "Derives stable UI element identities and selectors from decoded model identities.",
 } satisfies Readonly<Record<string, string>>;
 
 /** Where `just constructs write` writes: the index, and one contract page per category. */

@@ -101,3 +101,5 @@ Tag a construct only when at least 2 modules outside its own module and the test
 - [request-ledger](constructs/request-ledger.md): Classifies the requests that journey recorders observe by whole path segments: native contract operations and legacy routes.
   - [`isNativeRequest`](constructs/request-ledger.md#isnativerequest): Whether a dashboard-to-backend request stays on the native surface: an operation of the native HTTP contract or an email-password route of the identity engine.
   - [`addressesAnyRoute`](constructs/request-ledger.md#addressesanyroute): Whether a request path addresses any of the routes, each matched by whole path segments.
+- [ui-target](constructs/ui-target.md): Derives stable UI element identities and selectors from decoded model identities.
+  - [`correctionReopenTarget`](constructs/ui-target.md#correctionreopentarget): Derives the Reopen button's stable id and eligible focus selector from its interview.

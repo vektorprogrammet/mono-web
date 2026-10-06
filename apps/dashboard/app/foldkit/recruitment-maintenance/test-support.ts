@@ -11,6 +11,7 @@ import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
 import {
   CompletedPrepareEdit,
+  CompletedCancelMaintenanceLoad,
   FailedLoad,
   FailedSave,
   SucceededQuestionnaires,
@@ -84,17 +85,19 @@ const loadMessages = [SucceededQuestionnaires, SucceededStaffing, FailedLoad] as
 type LoadResponse = Schema.Schema.Type<(typeof loadMessages)[number]>;
 
 /** Story and Scene resolve these definitions; an accidental execute is observable. */
-export const testCommands = (onExecute: () => void = () => {}) => ({
-  Load: Command.define("LoadRecruitmentMaintenance", {
+export const testCommands = (onExecute: () => void = () => {}) => {
+  const Load = Command.define("LoadRecruitmentMaintenance", {
     args: { mode: Mode, requestId: Schema.Int },
     messages: loadMessages,
-    execute: ({ requestId }): Effect.Effect<LoadResponse> =>
-      Effect.sync(() => {
-        onExecute();
+    interrupt: { keyFields: ["requestId"], toKey: ({ requestId }) => String(requestId) },
+    execute: ({ requestId }): Effect.Effect<LoadResponse> => Effect.sync(() => { onExecute();
 
-        return FailedLoad({ requestId, denied: false });
-      }),
-  }),
+ return FailedLoad({ requestId, denied: false }); }),
+  });
+
+  return {
+  CancelLoad: (requestId: number) => Load.Interrupt({ requestId }, (outcome) => CompletedCancelMaintenanceLoad({ requestId, outcome })),
+  Load,
   Save: Command.define("SaveRecruitmentMaintenance", {
     args: { command: RecruitmentMaintenanceCommand },
     messages: [SucceededSave, FailedSave],
@@ -117,4 +120,5 @@ export const testCommands = (onExecute: () => void = () => {}) => ({
       return CompletedPrepareEdit({ commandId: "new-correction-window-command-0029" });
     }),
   }),
-});
+  };
+};

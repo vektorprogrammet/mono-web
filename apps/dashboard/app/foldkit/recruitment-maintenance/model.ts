@@ -13,6 +13,19 @@ export type Mode = typeof Mode.Type;
 
 export const CorrectionWindowAction = S.Literals(["Reopen", "Close"]);
 
+export const WorkflowFocusTicket = S.Struct({
+  interviewId: S.String,
+  requestId: S.Int,
+  commandId: S.String,
+});
+
+export type WorkflowFocusTicket = typeof WorkflowFocusTicket.Type;
+
+export const WorkflowFocusIntent = S.Struct({
+  ticket: WorkflowFocusTicket,
+  phase: S.Literals(["Reloading", "Closing", "Focusing"]),
+});
+
 export const DraftQuestion = S.Struct({
   questionId: S.String,
   prompt: S.String,
@@ -48,6 +61,12 @@ export const Model = S.Struct({
   co: S.String,
   reason: S.String,
   correctionDialog: Dialog.Model,
+  dialogGeneration: S.Int,
+  dialogClosing: S.Boolean,
+  closingTicket: S.NullOr(WorkflowFocusTicket),
+  workflowFocus: S.NullOr(WorkflowFocusIntent),
+  cancellingFocus: S.NullOr(WorkflowFocusTicket),
+  reloadAfterCancel: S.NullOr(S.Int),
   correctionAction: S.NullOr(CorrectionWindowAction),
   correctionReason: S.String,
   correctionEndsAt: S.String,
@@ -72,6 +91,12 @@ export const init = (mode: Mode): Model => ({
   co: "",
   reason: "",
   correctionDialog: Dialog.init({ id: "recruitment-correction-window" }),
+  dialogGeneration: 0,
+  dialogClosing: false,
+  closingTicket: null,
+  workflowFocus: null,
+  cancellingFocus: null,
+  reloadAfterCancel: null,
   correctionAction: null,
   correctionReason: "",
   correctionEndsAt: "",
