@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, webcrypto } from "node:crypto";
 import {
   chmod,
   cp,
@@ -199,31 +199,42 @@ const rehearse = async () =>
       const checked = (name: string) => checks.push(name);
       const key = randomBytes(32);
 
-      const cipher = PaymentCustody.makePaymentAccountCipher({
-        keyId: "synthetic-candidate-payment-v1",
-        key,
-      });
+      const cipher = await Effect.runPromise(
+        PaymentCustody.makePaymentAccountCipher({
+          subtle: webcrypto.subtle,
+          keyId: "synthetic-candidate-payment-v1",
+          key,
+        }).pipe(Effect.provide(BunServices.layer)),
+      );
 
       stage = "ReadCombinedSource";
       const source = await readLegacySourceSnapshot(sourceUrl, "Include", "Include");
 
-      const evidenceFor = (snapshot: LegacySourceSnapshot) => ({
+      const evidenceFor = async (snapshot: LegacySourceSnapshot) => ({
         baseRevision: legacyReceiptBaseSourceRevision(snapshot),
         credentialRevision: digest(snapshot.credentials),
-        receiptRevision: receiptSourceRevision(legacyReceiptRows(snapshot, cipher)),
+        receiptRevision: receiptSourceRevision(
+          await Effect.runPromise(legacyReceiptRows(snapshot, cipher)),
+        ),
         accountRevision: digest(
-          snapshot.paymentAccounts!.map((row) => [
-            String(row.id),
-            row.accountNumber === null ? null : cipher.commitment(row.accountNumber),
-          ]),
+          await Effect.runPromise(
+            Effect.forEach(snapshot.paymentAccounts!, (row) =>
+              Effect.gen(function* () {
+                return [
+                  String(row.id),
+                  row.accountNumber === null ? null : yield* cipher.commitment(row.accountNumber),
+                ];
+              }),
+            ),
+          ),
         ),
       });
 
-      const baseline = evidenceFor(source);
+      const baseline = await evidenceFor(source);
 
       const assertFrozen = async () =>
         assert.deepEqual(
-          evidenceFor(await readLegacySourceSnapshot(sourceUrl, "Include", "Include")),
+          await evidenceFor(await readLegacySourceSnapshot(sourceUrl, "Include", "Include")),
           baseline,
           "Selected source changed between candidate phases",
         );
@@ -300,7 +311,7 @@ const rehearse = async () =>
         referenceDigest,
         attestedBy: "synthetic-candidate-reviewer",
         evidenceRef: "synthetic-receipt-evidence",
-        entries: legacyReceiptRows(source, cipher).map((row) => {
+        entries: (await Effect.runPromise(legacyReceiptRows(source, cipher))).map((row) => {
           const common = {
             sourcePrimaryKey: row.sourcePrimaryKey,
             sourceRowDigest: receiptSourceRowDigest(row),
@@ -592,7 +603,9 @@ const rehearse = async () =>
 
       for (const receipt of pendingReceipts) {
         assert.equal(
-          cipher.decrypt(receipt.payment_account_ciphertext, receipt.receipt_id),
+          await Effect.runPromise(
+            cipher.decrypt(receipt.payment_account_ciphertext, receipt.receipt_id),
+          ),
           candidateAccount.replaceAll(".", ""),
         );
         assert.equal(

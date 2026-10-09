@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, webcrypto } from "node:crypto";
 import {
   chmod,
   cp,
@@ -359,15 +359,21 @@ const rehearse = async () =>
     const checked = (name: string) => checks.push(name);
     const key = randomBytes(32);
 
-    const cipher = PaymentCustody.makePaymentAccountCipher({
-      keyId: "synthetic-receipt-key-v1",
-      key,
-    });
+    const cipher = await Effect.runPromise(
+      PaymentCustody.makePaymentAccountCipher({
+        subtle: webcrypto.subtle,
+        keyId: "synthetic-receipt-key-v1",
+        key,
+      }).pipe(Effect.provide(BunServices.layer)),
+    );
 
-    const wrongCipher = PaymentCustody.makePaymentAccountCipher({
-      keyId: cipher.keyId,
-      key: randomBytes(32),
-    });
+    const wrongCipher = await Effect.runPromise(
+      PaymentCustody.makePaymentAccountCipher({
+        subtle: webcrypto.subtle,
+        keyId: cipher.keyId,
+        key: randomBytes(32),
+      }).pipe(Effect.provide(BunServices.layer)),
+    );
 
     const keyPath = join(temporaryRoot, "payment-key.json");
     await privateJson(keyPath, { keyId: cipher.keyId, keyBase64: key.toString("base64") });
@@ -392,7 +398,7 @@ const rehearse = async () =>
       readLegacySourceSnapshot(writer.toString(), "NotRequested", "Include"),
       /Grants/,
     );
-    const sourceRows = legacyReceiptRows(source, cipher);
+    const sourceRows = await Effect.runPromise(legacyReceiptRows(source, cipher));
     const baseRevision = legacyReceiptBaseSourceRevision(source);
     const financeRevision = receiptSourceRevision(sourceRows);
     await mysql(
@@ -401,11 +407,15 @@ const rehearse = async () =>
     const changedSecrets = await readLegacySourceSnapshot(sourceUrl, "NotRequested", "Include");
     assert.equal(legacyReceiptBaseSourceRevision(changedSecrets), baseRevision);
     assert.notEqual(
-      receiptSourceRevision(legacyReceiptRows(changedSecrets, cipher)),
+      receiptSourceRevision(await Effect.runPromise(legacyReceiptRows(changedSecrets, cipher))),
       financeRevision,
     );
-    assert.notEqual(cipher.commitment(account), cipher.commitment(normalizedAccount));
-    assert.notEqual(cipher.commitment(account), wrongCipher.commitment(account));
+    const accountCommitment = await Effect.runPromise(cipher.commitment(account));
+    assert.notEqual(
+      accountCommitment,
+      await Effect.runPromise(cipher.commitment(normalizedAccount)),
+    );
+    assert.notEqual(accountCommitment, await Effect.runPromise(wrongCipher.commitment(account)));
     assert.equal(JSON.stringify(sourceRows).includes(account), false);
     assert.equal(JSON.stringify(sourceRows).includes(sha256(account)), false);
     await mysql(`UPDATE vektor.user SET accountNumber='${account}',password=NULL WHERE id=1`);
@@ -820,15 +830,28 @@ const rehearse = async () =>
 
     stage = "ActualAuthenticatedEncryption";
     const encrypted = initialReceipts[0]!;
+
+    const custodyFailure = (
+      effect: Effect.Effect<string, PaymentCustody.PaymentAccountCustodyError>,
+    ) => Effect.runPromise(Effect.map(Effect.flip(effect), (error) => error.code));
+
     assert.equal(
-      cipher.decrypt(encrypted.payment_account_ciphertext, encrypted.receipt_id),
+      await Effect.runPromise(
+        cipher.decrypt(encrypted.payment_account_ciphertext, encrypted.receipt_id),
+      ),
       normalizedAccount,
     );
-    assert.throws(() =>
-      wrongCipher.decrypt(encrypted.payment_account_ciphertext, encrypted.receipt_id),
+    assert.equal(
+      await custodyFailure(
+        wrongCipher.decrypt(encrypted.payment_account_ciphertext, encrypted.receipt_id),
+      ),
+      "InvalidCiphertext",
     );
-    assert.throws(() =>
-      cipher.decrypt(encrypted.payment_account_ciphertext, initialReceipts[1]!.receipt_id),
+    assert.equal(
+      await custodyFailure(
+        cipher.decrypt(encrypted.payment_account_ciphertext, initialReceipts[1]!.receipt_id),
+      ),
+      "InvalidCiphertext",
     );
     const ciphertext = encrypted.payment_account_ciphertext;
     const tamperIndex = ciphertext.length - 4;
@@ -838,10 +861,16 @@ const rehearse = async () =>
       (ciphertext[tamperIndex] === "A" ? "B" : "A") +
       ciphertext.slice(tamperIndex + 1);
 
-    assert.throws(() => cipher.decrypt(tampered, encrypted.receipt_id));
-    const additional = cipher.encrypt(account, encrypted.receipt_id);
+    assert.equal(
+      await custodyFailure(cipher.decrypt(tampered, encrypted.receipt_id)),
+      "InvalidCiphertext",
+    );
+    const additional = await Effect.runPromise(cipher.encrypt(account, encrypted.receipt_id));
     assert.notEqual(additional, ciphertext);
-    assert.equal(cipher.decrypt(additional, encrypted.receipt_id), normalizedAccount);
+    assert.equal(
+      await Effect.runPromise(cipher.decrypt(additional, encrypted.receipt_id)),
+      normalizedAccount,
+    );
     const ciphertexts = initialReceipts.map((row) => row.payment_account_ciphertext);
     assert.equal(new Set(ciphertexts).size, 3);
     checked(
@@ -989,9 +1018,11 @@ const rehearse = async () =>
     );
     await mysql(`UPDATE vektor.receipt SET description='${description}-changed' WHERE id=1`);
 
-    const changedRows = legacyReceiptRows(
-      await readLegacySourceSnapshot(sourceUrl, "NotRequested", "Include"),
-      cipher,
+    const changedRows = await Effect.runPromise(
+      legacyReceiptRows(
+        await readLegacySourceSnapshot(sourceUrl, "NotRequested", "Include"),
+        cipher,
+      ),
     );
 
     await conflict(
@@ -1052,7 +1083,7 @@ const rehearse = async () =>
       submittedAt: "2026-08-21T12:00:00.000Z",
       status: "pending",
       refundDate: null,
-      paymentAccountCiphertext: cipher.encrypt(account, nativeIdentity),
+      paymentAccountCiphertext: await Effect.runPromise(cipher.encrypt(account, nativeIdentity)),
       file: nativeFile.file,
     };
 
@@ -1116,7 +1147,7 @@ const rehearse = async () =>
       {
         ...nativeRow,
         visualId: "ATTEMPTED-SECOND-NATIVE",
-        paymentAccountCiphertext: cipher.encrypt(account, reverseIdentity),
+        paymentAccountCiphertext: await Effect.runPromise(cipher.encrypt(account, reverseIdentity)),
       },
       reverseIdentity,
       {
@@ -1213,7 +1244,11 @@ const rehearse = async () =>
     submitted_at,status,approved_at,payment_account_ciphertext,file_ref,file_object_key,file_content_type,file_byte_length,file_sha256,revision
   ) VALUES('unrelated-native-receipt','RECEIPT-1','legacy-person-1','legacy-department:1',999,'NOK','Native receipt','2026-08-20',
     '2026-08-21T12:00:00Z','Pending',NULL,$1,'native-stage/unrelated.pdf','native/unrelated.pdf','application/pdf',$2,$3,4)`,
-      [cipher.encrypt(account, "unrelated-native-receipt"), pdf.byteLength, sha256(pdf)],
+      [
+        await Effect.runPromise(cipher.encrypt(account, "unrelated-native-receipt")),
+        pdf.byteLength,
+        sha256(pdf),
+      ],
     );
     const nativeBefore = (await receipts(collision.pool))[0]!;
     const collisionReport = await success(collision, collisionRoots);

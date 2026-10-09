@@ -4,9 +4,8 @@ import {
   ReceiptReview,
   receiptEvidenceDigest,
   type ReceiptSourceRow,
-  type ReviewedReceiptSnapshot,
 } from "@vektorprogrammet/domain/receipt";
-import { Effect, FileSystem, Path, Result, Schema } from "effect";
+import { Data, Effect, FileSystem, Path, Schema } from "effect";
 import type { PaymentAccountCipher } from "@vektorprogrammet/backend/receipt/payment-account";
 import { reviewedReceiptTransformationRevision } from "@vektorprogrammet/backend/receipt/reviewed-import";
 import { buildLegacyReferences } from "./legacy-cutover-references";
@@ -44,57 +43,67 @@ export const legacyReceiptAccounts = (
 };
 
 /** Keep raw dates, decimal text, nulls and unsupported statuses for occurrence disposition. */
-export const legacyReceiptRows = (
+export const legacyReceiptRows = Effect.fn("legacyReceiptRows")(function* (
   source: LegacySourceSnapshot,
   cipher: PaymentAccountCipher,
-): ReadonlyArray<ReceiptSourceRow> => {
+) {
   const accounts = legacyReceiptAccounts(source);
 
-  return source.receipts!.map((row) => {
-    const sourceUserId = row.userId === null ? null : `legacy-user:${String(row.userId)}`;
-    const account = sourceUserId === null ? null : (accounts.get(sourceUserId) ?? null);
+  return yield* Effect.forEach(source.receipts!, (row) =>
+    Effect.gen(function* () {
+      const sourceUserId = row.userId === null ? null : `legacy-user:${String(row.userId)}`;
+      const account = sourceUserId === null ? null : (accounts.get(sourceUserId) ?? null);
 
-    return {
-      sourcePrimaryKey: String(row.id),
-      sourceUserId,
-      visualId: row.visualId,
-      amountDecimal: row.amountDecimal,
-      description: row.description,
-      receiptDate: row.receiptDate,
-      submittedAt: row.submittedAt,
-      status: row.status,
-      refundDate: row.refundDate,
-      picturePath: row.picturePath,
-      accountCommitment: account === null ? null : cipher.commitment(account),
-    };
-  });
-};
+      return {
+        sourcePrimaryKey: String(row.id),
+        sourceUserId,
+        visualId: row.visualId,
+        amountDecimal: row.amountDecimal,
+        description: row.description,
+        receiptDate: row.receiptDate,
+        submittedAt: row.submittedAt,
+        status: row.status,
+        refundDate: row.refundDate,
+        picturePath: row.picturePath,
+        accountCommitment: account === null ? null : yield* cipher.commitment(account),
+      } satisfies ReceiptSourceRow;
+    }),
+  );
+});
+
+export class LegacyReceiptSnapshotMismatch extends Data.TaggedError(
+  "LegacyReceiptSnapshotMismatch",
+)<{}> {
+  override get message(): string {
+    return "Receipt review does not match the selected source";
+  }
+}
 
 /** Accepted Person and reference provenance is checked again by the transactional import boundary. */
-export const buildLegacyReceiptSnapshot = (
+export const buildLegacyReceiptSnapshot = Effect.fn("buildLegacyReceiptSnapshot")(function* (
   source: LegacySourceSnapshot,
   reviewInput: ReceiptReview,
   cipher: PaymentAccountCipher,
-): ReviewedReceiptSnapshot => {
-  try {
-    const review = Schema.decodeSync(ReceiptReview)(reviewInput, {
-      onExcessProperty: "error",
-    });
+) {
+  const review = yield* Schema.decodeEffect(ReceiptReview)(reviewInput, {
+    onExcessProperty: "error",
+  }).pipe(Effect.mapError(() => new LegacyReceiptSnapshotMismatch()));
 
-    if (
-      review.sourceRepository !== "vektorprogrammet/vektorprogrammet" ||
-      review.sourceRevision !== legacyReceiptBaseSourceRevision(source) ||
-      review.referenceDigest !== buildLegacyReferences(source).referenceDigest
-    )
-      throw new Error("InvalidSnapshot");
+  if (
+    review.sourceRepository !== "vektorprogrammet/vektorprogrammet" ||
+    review.sourceRevision !== legacyReceiptBaseSourceRevision(source) ||
+    review.referenceDigest !== buildLegacyReferences(source).referenceDigest
+  )
+    return yield* new LegacyReceiptSnapshotMismatch();
 
-    return Result.getOrThrow(
-      decodeReviewedReceiptSnapshot({ review, rows: legacyReceiptRows(source, cipher) }),
-    );
-  } catch {
-    throw new Error("Receipt review does not match the selected source");
-  }
-};
+  const rows = yield* legacyReceiptRows(source, cipher).pipe(
+    Effect.mapError(() => new LegacyReceiptSnapshotMismatch()),
+  );
+
+  return yield* Effect.fromResult(decodeReviewedReceiptSnapshot({ review, rows })).pipe(
+    Effect.mapError(() => new LegacyReceiptSnapshotMismatch()),
+  );
+});
 
 /** Bind every executable transformation, including the reader and operator boundary. */
 export const legacyReceiptTransformationRevision = Effect.gen(function* () {

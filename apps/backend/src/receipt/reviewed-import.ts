@@ -22,7 +22,7 @@ import {
   type ResolvedReviewedReceipt,
 } from "@vektorprogrammet/database/receipt/postgres";
 import { readSnapshotFile } from "./import-snapshot.js";
-import { PaymentAccountCustodyError, type PaymentAccountCipher } from "./payment-account.js";
+import type { PaymentAccountCipher } from "./payment-account.js";
 import type { ReceiptFileStore } from "./filesystem.js";
 
 const maxFileBytes = 10 * 1024 * 1024;
@@ -53,19 +53,15 @@ const validSourceDateTime = (value: string | null): boolean =>
 
 /** An invalid source account imports without a destination; any other cipher failure stops the cohort. */
 const encryptAccount = (cipher: PaymentAccountCipher, account: string, receiptId: string) =>
-  Effect.try({
-    try: () => cipher.encrypt(account, receiptId),
-    catch: (cause) =>
-      cause instanceof PaymentAccountCustodyError
-        ? cause
-        : new ReceiptCohortFailure({ code: "AccountEncryptionFailed" }),
-  }).pipe(
-    Effect.catchTag("PaymentAccountCustodyError", (error) =>
-      error.code === "InvalidAccount"
-        ? Effect.succeed(null)
-        : Effect.fail(new ReceiptCohortFailure({ code: "AccountEncryptionFailed" })),
-    ),
-  );
+  cipher
+    .encrypt(account, receiptId)
+    .pipe(
+      Effect.catchTag("PaymentAccountCustodyError", (error) =>
+        error.code === "InvalidAccount"
+          ? Effect.succeed(null)
+          : Effect.fail(new ReceiptCohortFailure({ code: "AccountEncryptionFailed" })),
+      ),
+    );
 
 export const runReviewedReceiptImport = (
   input: ReviewedReceiptSnapshot,
@@ -81,7 +77,17 @@ export const runReviewedReceiptImport = (
 
     for (const row of snapshot.rows) {
       const account = row.sourceUserId === null ? null : (accounts.get(row.sourceUserId) ?? null);
-      const commitment = account === null ? null : cipher.commitment(account);
+
+      const commitment =
+        account === null
+          ? null
+          : yield* cipher
+              .commitment(account)
+              .pipe(
+                Effect.mapError(
+                  () => new ReceiptCohortFailure({ code: "AccountEncryptionFailed" }),
+                ),
+              );
 
       if (commitment !== row.accountCommitment)
         return yield* new ReceiptCohortFailure({ code: "AccountEvidenceConflict" });
@@ -235,10 +241,7 @@ export const runReviewedReceiptImport = (
       // receipt pending.
       const custody = yield* Effect.result(
         Effect.gen(function* () {
-          yield* Effect.try({
-            try: () => cipher.decrypt(original.paymentAccountCiphertext, original.receiptId),
-            catch: () => new ReceiptCohortFailure({ code: "FileCustodyPending" }),
-          });
+          yield* cipher.decrypt(original.paymentAccountCiphertext, original.receiptId);
           const committed = yield* Effect.result(files.readCommitted(original.file, maxFileBytes));
 
           if (Predicate.isTagged(committed, "Success")) return;
