@@ -15,8 +15,23 @@ import { canonicalOpenApiDigest, getIn, jsonObject, mapRefs, setIn } from "./ope
  * every approved wire delta before this transport-parity pin. This is not full migration
  * acceptance. Later generated contracts must preserve this complete document; only component
  * names may differ. The original spec 0027 reference remains in Git history.
+ *
+ * Accepted by the director on 2026-10-09 for the stable Effect 4.0.0 cutover, replacing
+ * `b30a076c336d60d682cf8e63c14dc4923ff5c125437d81c35a632cfe7a2aa95a`, which held at `a41ede76`
+ * with Effect 4.0.0-rc.116 and remains in Git history. The single acceptance reason is the Effect
+ * stable module path in the provenance string. Classified differences:
+ * - G1 accepted: `x-vektorprogrammet-provenance.generator` names `effect/http-api/OpenApi.fromApi`,
+ *   where it named `effect/unstable/httpapi/OpenApi.fromApi`.
+ * - G2 fixed, no digest effect: the 143 `pattern` keywords that stable Effect omits for a RegExp
+ *   without the `u` flag are published again through the `u` flag of the domain RegExps (`4c7ff388`).
+ * - G3 kept, no digest effect: `minLength: 12` of the onboarding claim `password` stays published
+ *   through one `PASSWORD_MIN_LENGTH` and an explicit annotation (`afbbb356`).
+ * - G4 cosmetic: the key insertion order of 1063 responses and of `components.schemas` differs,
+ *   which the digest ignores.
+ * Classified diff with installed-source evidence: `/tmp/monoweb-openapi-digest-report.md`,
+ * SHA-256 `10fc5c124fe6ef74c9b40e302e094ed445c7ea34e2062e1716ca4f7072c69ff2`.
  */
-const acceptedCanonicalDigest = "b30a076c336d60d682cf8e63c14dc4923ff5c125437d81c35a632cfe7a2aa95a";
+const acceptedCanonicalDigest = "0bd490c2ff7e01738421181d76f066a8f4da7c73c63c4c8c60179b70592ee559";
 
 const decodeJson = Schema.decodeUnknownResult(Schema.Json);
 

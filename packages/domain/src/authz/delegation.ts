@@ -10,7 +10,7 @@ import { DepartmentId, PersonId, TeamId } from "../organization/schema.js";
 import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
 
 const Text = Schema.String.pipe(
-  Schema.check(Schema.isMinLength(1), Schema.isMaxLength(250), Schema.isPattern(/\S/)),
+  Schema.check(Schema.isMinLength(1), Schema.isMaxLength(250), Schema.isPattern(/\S/u)),
 );
 
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
@@ -164,7 +164,7 @@ export const DELEGABLE_CAPABILITY_IDS: ReadonlyArray<DelegableCapability> =
 export const DelegableCapability = Schema.Literals(DELEGABLE_CAPABILITY_IDS);
 
 export const DelegationId = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^delegation-[a-f0-9]{64}$/)),
+  Schema.check(Schema.isPattern(/^delegation-[a-f0-9]{64}$/u)),
   Schema.brand("DelegationId"),
 );
 

@@ -9,7 +9,7 @@ import { AppointmentTarget } from "./lifecycle.js";
 import { DepartmentId, PersonId, TeamId } from "./schema.js";
 
 const Text = Schema.String.pipe(
-  Schema.check(Schema.isMinLength(1), Schema.isMaxLength(250), Schema.isPattern(/\S/)),
+  Schema.check(Schema.isMinLength(1), Schema.isMaxLength(250), Schema.isPattern(/\S/u)),
 );
 
 /** One seat on a board: an appointment on the board, or a seat derived from a team leadership. */
@@ -54,7 +54,7 @@ export const IssuerBasisKind = Schema.Literals(["BoardSeat", "DerivedSeat", "Glo
 export type IssuerBasisKind = typeof IssuerBasisKind.Type;
 
 const SeatTitle = Schema.String.pipe(
-  Schema.check(Schema.isMinLength(1), Schema.isMaxLength(600), Schema.isPattern(/\S/)),
+  Schema.check(Schema.isMinLength(1), Schema.isMaxLength(600), Schema.isPattern(/\S/u)),
 );
 
 /** The issuer as a certificate prints them: their name and the title of the authorizing seat. */

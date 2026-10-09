@@ -31,7 +31,7 @@ export const DaysServedTotal = Schema.Int.pipe(
 
 export type DaysServedTotal = typeof DaysServedTotal.Type;
 
-export const Sha256Digest = Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-f0-9]{64}$/)));
+export const Sha256Digest = Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-f0-9]{64}$/u)));
 
 export const DaysServedSchool = Schema.Struct({ schoolId: SchoolId, name: Schema.String });
 
@@ -125,7 +125,7 @@ export const daysServedEvidenceSha256 = (evidence: DaysServedEvidence): string =
   sha256Hex(canonicalJsonBytes(encodeEvidence(evidence)));
 
 export const DaysServedConfirmationId = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^days-served-confirmation-[a-f0-9]{64}$/)),
+  Schema.check(Schema.isPattern(/^days-served-confirmation-[a-f0-9]{64}$/u)),
   Schema.brand("DaysServedConfirmationId"),
 );
 
