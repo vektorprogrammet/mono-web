@@ -22,6 +22,7 @@ import { IdentityEngineError, IdentityRequestContext } from "@vektorprogrammet/d
 import { withPostgresTestDatabase, withRealPostgres } from "./test-support/postgres.js";
 import { TestPlatform } from "./test-support/platform.js";
 import type { AuthEngineConfig } from "./auth-engine.js";
+import { SecretEqualityLive } from "./web-crypto.js";
 import {
   drainPasswordResetMail,
   makePasswordRecovery,
@@ -294,6 +295,7 @@ layer(TestPlatform, { excludeTestServices: true })("owned recovery boundary", (i
 
         const services = yield* Layer.build(
           NativeAuthEngineLive(liveConfig).pipe(
+            Layer.provide(SecretEqualityLive(globalThis.crypto.subtle)),
             Layer.provideMerge(
               Layer.mergeAll(
                 DatabaseLive({

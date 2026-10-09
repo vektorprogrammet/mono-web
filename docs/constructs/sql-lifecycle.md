@@ -97,7 +97,7 @@ withNativeAuthProvisioning<A>(
 - Errors: `Cause.UnknownError`
 - Requirements: none
 - Side effects: Executes the caller's supported Better Auth write and scopes its private authority.
-- Source: [packages/database/src/auth-engine.ts:369](../../packages/database/src/auth-engine.ts#L369)
+- Source: [packages/database/src/auth-engine.ts:372](../../packages/database/src/auth-engine.ts#L372)
 
 **How it works**
 

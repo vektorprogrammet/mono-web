@@ -587,6 +587,7 @@
           "packages/database/src/team-application/queue-deadline.test.ts",
           "packages/database/src/team-application/queue-migration.test.ts",
           "packages/database/runtime/historical-service-cohort-rehearsal.ts",
+          "packages/database/src/auth-schema-generator.config.ts",
           "packages/database/runtime/identity-browser-proof-main.ts",
           "packages/database/runtime/identity-postgres-proof-main.ts",
           "packages/database/runtime/identity-seed-main.ts",

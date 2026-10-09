@@ -402,7 +402,7 @@ const verifyIssuedJwtSignature = (pool: SqlClient.SqlClient, decoded: DecodedNat
     return yield* webCrypto.verifyJwtSignature(decoded, key.public_key);
   });
 
-const refreshTokenDigest = (token: string): string | undefined => {
+const refreshTokenDigest = Effect.fnUntraced(function* (token: string) {
   if (
     !token.startsWith(OAUTH_REFRESH_TOKEN_PREFIX) ||
     token.length === OAUTH_REFRESH_TOKEN_PREFIX.length
@@ -410,8 +410,8 @@ const refreshTokenDigest = (token: string): string | undefined => {
     return undefined;
   }
 
-  return hashOAuthToken(token.slice(OAUTH_REFRESH_TOKEN_PREFIX.length), "refresh_token");
-};
+  return yield* hashOAuthToken(token.slice(OAUTH_REFRESH_TOKEN_PREFIX.length), "refresh_token");
+});
 
 const bearerFromRequest = (request: Request) => {
   const value = request.headers.get("authorization");
@@ -968,7 +968,12 @@ export const makeOAuthClientOperatorService = (
 
       const clientSecret = rawSecret === undefined ? undefined : `vkr_cs_${rawSecret}`;
 
-      const storedSecret = rawSecret === undefined ? null : hashOAuthClientSecret(rawSecret);
+      const storedSecret =
+        rawSecret === undefined
+          ? null
+          : yield* hashOAuthClientSecret(rawSecret).pipe(
+              Effect.provideService(Crypto.Crypto, crypto),
+            );
 
       const instant = yield* DateTime.now;
       const now = DateTime.toDateUtc(instant);
@@ -1059,7 +1064,9 @@ export const makeOAuthClientOperatorService = (
       const rawSecret = Buffer.from(yield* crypto.randomBytes(32)).toString("base64url");
       const secret = `vkr_cs_${rawSecret}`;
 
-      const digest = hashOAuthClientSecret(rawSecret);
+      const digest = yield* hashOAuthClientSecret(rawSecret).pipe(
+        Effect.provideService(Crypto.Crypto, crypto),
+      );
 
       yield* pool.withTransaction(
         Effect.gen(function* () {
@@ -1355,7 +1362,7 @@ const authorizeTokenClient = (
       client.client_secret === null ||
       !(yield* webCrypto.digestsEqual(
         client.client_secret,
-        hashOAuthClientSecret(basic.secret.slice("vkr_cs_".length)),
+        yield* hashOAuthClientSecret(basic.secret.slice("vkr_cs_".length)),
       ))
     ) {
       return undefined;
@@ -1388,7 +1395,7 @@ const authorizeOAuthIntrospectionClient = (
       !basic.secret.startsWith("vkr_cs_") ||
       !(yield* webCrypto.digestsEqual(
         client.client_secret,
-        hashOAuthClientSecret(basic.secret.slice("vkr_cs_".length)),
+        yield* hashOAuthClientSecret(basic.secret.slice("vkr_cs_".length)),
       ))
     ) {
       return false;
@@ -1455,6 +1462,7 @@ export const makeOAuthInternalIntrospectionHandler =
     engine: OAuthEngineBoundary,
     pool: SqlClient.SqlClient,
     webCrypto: OAuthWebCryptoService,
+    crypto: Crypto.Crypto,
   ): OAuthIntrospectionHandler =>
   (request, context) =>
     Effect.gen(function* () {
@@ -1598,7 +1606,10 @@ export const makeOAuthInternalIntrospectionHandler =
         status: 200,
         headers: { "cache-control": "no-store", pragma: "no-cache" },
       });
-    }).pipe(Effect.provideService(OAuthWebCrypto, webCrypto));
+    }).pipe(
+      Effect.provideService(OAuthWebCrypto, webCrypto),
+      Effect.provideService(Crypto.Crypto, crypto),
+    );
 
 const invalidOAuthResponse = (status: number, error: string): Response =>
   Response.json(
@@ -1748,7 +1759,7 @@ const initialCodeExchange = (
     const code = form.get("code");
 
     if (code === null) return invalidOAuthResponse(400, "invalid_request");
-    const codeDigest = hashOAuthToken(code, "authorization_code");
+    const codeDigest = yield* hashOAuthToken(code, "authorization_code");
 
     return yield* withSessionAdvisoryLock(
       pool,
@@ -1844,7 +1855,7 @@ const refreshExchange = (
     const refreshToken = form.get("refresh_token");
 
     if (refreshToken === null) return invalidOAuthResponse(400, "invalid_request");
-    const digest = refreshTokenDigest(refreshToken);
+    const digest = yield* refreshTokenDigest(refreshToken);
 
     if (digest === undefined) return invalidOAuthResponse(400, "invalid_grant");
 
@@ -2203,7 +2214,7 @@ const handleRevocation = (
       });
     }
 
-    const refreshDigest = refreshTokenDigest(token);
+    const refreshDigest = yield* refreshTokenDigest(token);
 
     if (refreshDigest === undefined) {
       return new Response(null, {
@@ -2453,6 +2464,7 @@ export const makeOAuthReleaseBarrier =
       return response;
     }).pipe(
       Effect.provideService(OAuthWebCrypto, webCrypto),
+      Effect.provideService(Crypto.Crypto, crypto),
       withIdentityRequestCancellation(request),
       // The barrier answers exchange failures, never cancellation.
       Effect.catchCause((cause) => {
@@ -2524,7 +2536,7 @@ export const OAuthLive = (config: OAuthProviderRuntimeConfig, subtle: WebCryptoS
         Context.add(OAuthClientOperator, makeOAuthClientOperatorService(pool, engine, crypto)),
         Context.add(OAuthHandlers, {
           release: makeOAuthReleaseBarrier(engine, pool, config, crypto, webCrypto),
-          introspection: makeOAuthInternalIntrospectionHandler(engine, pool, webCrypto),
+          introspection: makeOAuthInternalIntrospectionHandler(engine, pool, webCrypto, crypto),
         }),
       );
     }),

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   oauthProvider,
   type OAuthOptions,
@@ -6,7 +5,8 @@ import {
   type StoreTokenType,
 } from "@better-auth/oauth-provider";
 import { jwt } from "better-auth/plugins";
-import { Schema } from "effect";
+import { Crypto, Effect, Schema } from "effect";
+import { Base64Url } from "effect/encoding";
 
 export const OAUTH_NATIVE_API_RESOURCE = "urn:vektorprogrammet:native-api" as const;
 
@@ -71,20 +71,43 @@ export interface OAuthProviderRuntimeConfig {
 export const oauthIssuer = (config: OAuthProviderRuntimeConfig): string =>
   `${config.canonicalOrigin}${OAUTH_ISSUER_PATH}`;
 
-export const sha256Base64Url = (domain: string, value: string): string =>
-  createHash("sha256")
-    .update(domain, "utf8")
-    .update("\0", "utf8")
-    .update(value, "utf8")
-    .digest("base64url");
+const encoder = new TextEncoder();
 
-export const hashOAuthClientSecret = (secret: string): string =>
+/**
+ * The SHA-256 digest of `value` under the domain label `domain`, as unpadded base64url. The input
+ * is `domain`, one NUL byte, and `value`, each in UTF-8, so a digest of one domain never answers
+ * for another.
+ *
+ * A digest failure cannot come from well-formed input, so it is a defect, never an answer.
+ */
+export const sha256Base64Url = (
+  domain: string,
+  value: string,
+): Effect.Effect<string, never, Crypto.Crypto> =>
+  Crypto.Crypto.use((crypto) =>
+    crypto.digest("SHA-256", encoder.encode(`${domain}\0${value}`)),
+  ).pipe(Effect.orDie, Effect.map(Base64Url.encode));
+
+export const hashOAuthClientSecret = (secret: string) =>
   sha256Base64Url("vektor-oauth-client-secret", secret);
 
-export const hashOAuthToken = (token: string, type: StoreTokenType): string =>
+export const hashOAuthToken = (token: string, type: StoreTokenType) =>
   sha256Base64Url(`vektor-oauth-${type}`, token);
 
-export const makeOAuthOptions = (config: OAuthProviderRuntimeConfig): OAuthOptions<Scope[]> => ({
+/**
+ * Runs a digest program as the Promise that the OAuth plugin awaits. The plugin types its `hash`
+ * callbacks as `Awaitable<string>` (`@better-auth/oauth-provider` 1.7.1, `oauth-1Ud-hvZY.d.mts`
+ * lines 1628 and 1645) and awaits every call (`utils-B77ebneW.mjs` lines 454, 481, 493, 503), so
+ * the callbacks need no synchronous digest. The callback ABI has no cancellation signal.
+ */
+export type OAuthCallbackRunner = <A>(
+  program: Effect.Effect<A, never, Crypto.Crypto>,
+) => Promise<A>;
+
+export const makeOAuthOptions = (
+  config: OAuthProviderRuntimeConfig,
+  run: OAuthCallbackRunner,
+): OAuthOptions<Scope[]> => ({
   loginPage: new URL(OAUTH_DASHBOARD_LOGIN_PATH, config.dashboardOrigin).toString(),
   consentPage: new URL(OAUTH_DASHBOARD_CONSENT_PATH, config.dashboardOrigin).toString(),
   scopes: [...OAUTH_SCOPES],
@@ -108,8 +131,8 @@ export const makeOAuthOptions = (config: OAuthProviderRuntimeConfig): OAuthOptio
   refreshTokenReuseInterval: 0,
   codeExpiresIn: 60,
   disableJwtPlugin: false,
-  storeClientSecret: { hash: hashOAuthClientSecret },
-  storeTokens: { hash: hashOAuthToken },
+  storeClientSecret: { hash: (secret) => run(hashOAuthClientSecret(secret)) },
+  storeTokens: { hash: (token, type) => run(hashOAuthToken(token, type)) },
   allowDynamicClientRegistration: false,
   allowUnauthenticatedClientRegistration: false,
   allowPublicClientPrelogin: false,
@@ -127,7 +150,11 @@ export const makeOAuthOptions = (config: OAuthProviderRuntimeConfig): OAuthOptio
   },
 });
 
-export const oauthPlugins = (config: OAuthProviderRuntimeConfig) =>
+/**
+ * The plugins of the one Better Auth engine. `run` is the callback runner of that engine, which
+ * supplies the `Crypto` service to the digests that the OAuth plugin awaits.
+ */
+export const oauthPlugins = (config: OAuthProviderRuntimeConfig, run: OAuthCallbackRunner) =>
   [
     jwt({
       jwks: {
@@ -138,5 +165,5 @@ export const oauthPlugins = (config: OAuthProviderRuntimeConfig) =>
       },
       jwt: { issuer: oauthIssuer(config) },
     }),
-    oauthProvider(makeOAuthOptions(config)),
+    oauthProvider(makeOAuthOptions(config, run)),
   ] as const;

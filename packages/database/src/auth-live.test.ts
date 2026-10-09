@@ -53,7 +53,7 @@ import {
 } from "./auth-engine.js";
 import { DatabaseLive } from "./layers.js";
 import { DatabaseTestLive, TestPlatform } from "./test-support/platform.js";
-import { HmacTagVerifierLive } from "./web-crypto.js";
+import { HmacTagVerifierLive, SecretEqualityLive } from "./web-crypto.js";
 
 /**
  * Focused spec 0054 checks for the Layer-scoped better-auth engine behind
@@ -190,230 +190,233 @@ const authLayer = AuthLive(config, subtle).pipe(
     ),
   ),
   Layer.provide(disposableCluster),
-  Layer.provide(TestPlatform),
+  Layer.provideMerge(SecretEqualityLive(subtle)),
+  Layer.provideMerge(TestPlatform),
 );
 
-layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
-  "Better Auth session hardening configuration",
-  (it) => {
-    const optionsPool = new Pool({ max: 1 });
+layer(
+  Layer.merge(DatabaseTestLive(), SecretEqualityLive(subtle)).pipe(
+    Layer.provideMerge(TestPlatform),
+  ),
+  { excludeTestServices: true, timeout: "30 seconds" },
+)("Better Auth session hardening configuration", (it) => {
+  const optionsPool = new Pool({ max: 1 });
 
-    afterAll(() => optionsPool.end());
+  afterAll(() => optionsPool.end());
 
-    const diagnostics: string[] = [];
+  const diagnostics: string[] = [];
 
-    const diagnostic = () => {
-      diagnostics.push("auth diagnostic");
-    };
+  const diagnostic = () => {
+    diagnostics.push("auth diagnostic");
+  };
 
-    const localOptions = (
-      sql: SqlClient.SqlClient,
-      run: Effect.Success<typeof makeBetterAuthCallbackRunner>,
-    ) => makeAuthEngineOptions(config, optionsPool, sql, run, diagnostic);
+  const localOptions = (
+    sql: SqlClient.SqlClient,
+    run: Effect.Success<typeof makeBetterAuthCallbackRunner>,
+  ) => makeAuthEngineOptions(config, optionsPool, sql, run, diagnostic);
 
-    const previewOptions = (
-      sql: SqlClient.SqlClient,
-      run: Effect.Success<typeof makeBetterAuthCallbackRunner>,
-    ) =>
-      makeAuthEngineOptions(
-        {
-          ...config,
-          oauth: {
-            canonicalOrigin: "https://preview.example.invalid",
-            dashboardOrigin: "https://preview.example.invalid",
-            nativeApiResource: "urn:vektorprogrammet:native-api",
-          },
-          trustedOrigins: ["https://preview.example.invalid"],
-          secureCookies: true,
+  const previewOptions = (
+    sql: SqlClient.SqlClient,
+    run: Effect.Success<typeof makeBetterAuthCallbackRunner>,
+  ) =>
+    makeAuthEngineOptions(
+      {
+        ...config,
+        oauth: {
+          canonicalOrigin: "https://preview.example.invalid",
+          dashboardOrigin: "https://preview.example.invalid",
+          nativeApiResource: "urn:vektorprogrammet:native-api",
         },
-        optionsPool,
-        sql,
-        run,
-        diagnostic,
-      );
-
-    it.effect("selects exact local and secure-prefixed cookie attributes", () =>
-      Effect.gen(function* () {
-        const sql = yield* Database;
-        const run = yield* makeBetterAuthCallbackRunner;
-        const local = getCookies(localOptions(sql, run)).sessionToken;
-        const preview = getCookies(previewOptions(sql, run)).sessionToken;
-        expect(local).toMatchObject({
-          name: "better-auth.session_token",
-          attributes: { httpOnly: true, sameSite: "lax", path: "/", secure: false },
-        });
-        expect(preview).toMatchObject({
-          name: "__Secure-better-auth.session_token",
-          attributes: { httpOnly: true, sameSite: "lax", path: "/", secure: true },
-        });
-      }),
+        trustedOrigins: ["https://preview.example.invalid"],
+        secureCookies: true,
+      },
+      optionsPool,
+      sql,
+      run,
+      diagnostic,
     );
 
-    it.effect("rejects the public sign-up route before creating identity state", () =>
+  it.effect("selects exact local and secure-prefixed cookie attributes", () =>
+    Effect.gen(function* () {
+      const sql = yield* Database;
+      const run = yield* makeBetterAuthCallbackRunner;
+      const local = getCookies(localOptions(sql, run)).sessionToken;
+      const preview = getCookies(previewOptions(sql, run)).sessionToken;
+      expect(local).toMatchObject({
+        name: "better-auth.session_token",
+        attributes: { httpOnly: true, sameSite: "lax", path: "/", secure: false },
+      });
+      expect(preview).toMatchObject({
+        name: "__Secure-better-auth.session_token",
+        attributes: { httpOnly: true, sameSite: "lax", path: "/", secure: true },
+      });
+    }),
+  );
+
+  it.effect("rejects the public sign-up route before creating identity state", () =>
+    Effect.gen(function* () {
+      const engine = betterAuth({
+        ...localOptions(yield* Database, yield* makeBetterAuthCallbackRunner),
+        database: memoryAdapter({ ...oauthMemoryModels }),
+      });
+
+      const body = yield* jsonText({
+        name: "Forbidden",
+        email: "forbidden@example.invalid",
+        password: "ForbiddenSignUp!0054",
+      });
+
+      const response = yield* Effect.promise(() =>
+        engine.handler(
+          new Request("http://127.0.0.1:8790/api/auth/sign-up/email", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              origin: "http://127.0.0.1:8790",
+            },
+            body,
+          }),
+        ),
+      );
+
+      expect(response.status).toBe(400);
+      expect(yield* Effect.promise(() => response.json())).toMatchObject({
+        code: "EMAIL_PASSWORD_SIGN_UP_DISABLED",
+      });
+    }),
+  );
+
+  it.effect(
+    "accepts signed cookies only while their session remains persisted",
+    () =>
       Effect.gen(function* () {
-        const engine = betterAuth({
-          ...localOptions(yield* Database, yield* makeBetterAuthCallbackRunner),
-          database: memoryAdapter({ ...oauthMemoryModels }),
+        const snapshotMemory = {
+          user: [],
+          session: [],
+          account: [],
+          verification: [],
+          ...oauthMemoryModels,
+        };
+
+        const issuingEngine = betterAuth({
+          baseURL: config.oauth.canonicalOrigin,
+          secret: config.secret,
+          trustedOrigins: [...config.trustedOrigins],
+          database: memoryAdapter(snapshotMemory),
+          advanced: { useSecureCookies: false },
+          emailAndPassword: { enabled: true, minPasswordLength: 12 },
         });
 
-        const body = yield* jsonText({
-          name: "Forbidden",
-          email: "forbidden@example.invalid",
-          password: "ForbiddenSignUp!0054",
-        });
+        const issued = yield* Effect.promise(() =>
+          issuingEngine.api.signUpEmail({
+            body: {
+              name: "Snapshot",
+              email: "snapshot@example.invalid",
+              password: "SnapshotCookie!0055",
+            },
+            asResponse: true,
+          }),
+        );
 
-        const response = yield* Effect.promise(() =>
-          engine.handler(
-            new Request("http://127.0.0.1:8790/api/auth/sign-up/email", {
-              method: "POST",
-              headers: {
-                "content-type": "application/json",
-                origin: "http://127.0.0.1:8790",
-              },
-              body,
-            }),
+        const cookie = issued.headers.getSetCookie()[0]?.split(";")[0];
+
+        const body = yield* Effect.promise(() => issued.json()).pipe(
+          Effect.flatMap(
+            Schema.decodeUnknownEffect(
+              Schema.Struct({ user: Schema.Struct({ id: Schema.String }) }),
+            ),
           ),
         );
 
-        expect(response.status).toBe(400);
-        expect(yield* Effect.promise(() => response.json())).toMatchObject({
-          code: "EMAIL_PASSWORD_SIGN_UP_DISABLED",
-        });
+        expect(cookie).toBeDefined();
+
+        const [session] = yield* Schema.decodeEffect(
+          Schema.Array(
+            Schema.Struct({ id: Schema.String, token: Schema.String, expiresAt: Schema.Date }),
+          ),
+        )(snapshotMemory.session);
+
+        if (session === undefined) {
+          return yield* Effect.die(new Error("Sign-up did not persist its session"));
+        }
+
+        yield* Database.use((sql) =>
+          Effect.gen(function* () {
+            yield* sql`INSERT INTO person_profiles (person_id, first_name, last_name) VALUES (${body.user.id}, 'Snapshot', 'Owner')`;
+            yield* sql`INSERT INTO auth."user" (id, name, email, "emailVerified") VALUES (${body.user.id}, 'Snapshot', 'snapshot@example.invalid', TRUE)`;
+            yield* sql`INSERT INTO auth."session" (id, token, "expiresAt", "updatedAt", "userId") VALUES (${session.id}, ${session.token}, ${session.expiresAt.toISOString()}, date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), ${body.user.id})`;
+          }),
+        );
+        const snapshotIdentity = yield* snapshotService;
+
+        const resolve = (cookieHeader: string | undefined) =>
+          snapshotIdentity.resolveSession(
+            cookieHeader,
+            AuthorizationInstant.make("2026-09-01T12:00:00.000Z"),
+          );
+
+        expect((yield* resolve(cookie)).personId).toBe(body.user.id);
+        expect(yield* Effect.flip(resolve("better-auth.session_token=raw"))).toBeInstanceOf(
+          IdentitySessionNotFound,
+        );
+        yield* Database.use((sql) => sql`DELETE FROM auth."session" WHERE id = ${session.id}`);
+        expect(yield* Effect.flip(resolve(cookie))).toBeInstanceOf(IdentitySessionNotFound);
       }),
-    );
+    15_000,
+  );
 
-    it.effect(
-      "accepts signed cookies only while their session remains persisted",
-      () =>
-        Effect.gen(function* () {
-          const snapshotMemory = {
-            user: [],
-            session: [],
-            account: [],
-            verification: [],
-            ...oauthMemoryModels,
-          };
+  it.effect(
+    "revokes owned persisted sessions and commits the audit together",
+    () =>
+      Effect.gen(function* () {
+        const actor = new IdentityActor({
+          personId: PersonId.make("snapshot-mutation-person"),
+          sessionId: "snapshot-mutation-session",
+          expiresAt: DateTime.makeUnsafe("2031-09-16T12:00:00.000Z"),
+        });
 
-          const issuingEngine = betterAuth({
-            baseURL: config.oauth.canonicalOrigin,
-            secret: config.secret,
-            trustedOrigins: [...config.trustedOrigins],
-            database: memoryAdapter(snapshotMemory),
-            advanced: { useSecureCookies: false },
-            emailAndPassword: { enabled: true, minPasswordLength: 12 },
-          });
+        const observed = yield* Database.use((sql) =>
+          Effect.gen(function* () {
+            yield* sql`INSERT INTO person_profiles (person_id, first_name, last_name) VALUES (${actor.personId}, 'Snapshot', 'Owner')`;
+            yield* sql`INSERT INTO auth."user" (id, name, email, "emailVerified") VALUES (${actor.personId}, 'Owner', 'owner@example.invalid', TRUE)`;
+            yield* sql`INSERT INTO auth."session" (id, token, "expiresAt", "updatedAt", "userId") VALUES (${actor.sessionId}, 'snapshot-token', '2031-09-16', date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), ${actor.personId})`;
 
-          const issued = yield* Effect.promise(() =>
-            issuingEngine.api.signUpEmail({
-              body: {
-                name: "Snapshot",
-                email: "snapshot@example.invalid",
-                password: "SnapshotCookie!0055",
-              },
-              asResponse: true,
-            }),
-          );
+            const snapshotIdentity = yield* snapshotService;
 
-          const cookie = issued.headers.getSetCookie()[0]?.split(";")[0];
-
-          const body = yield* Effect.promise(() => issued.json()).pipe(
-            Effect.flatMap(
-              Schema.decodeUnknownEffect(
-                Schema.Struct({ user: Schema.Struct({ id: Schema.String }) }),
-              ),
-            ),
-          );
-
-          expect(cookie).toBeDefined();
-
-          const [session] = yield* Schema.decodeEffect(
-            Schema.Array(
-              Schema.Struct({ id: Schema.String, token: Schema.String, expiresAt: Schema.Date }),
-            ),
-          )(snapshotMemory.session);
-
-          if (session === undefined) {
-            return yield* Effect.die(new Error("Sign-up did not persist its session"));
-          }
-
-          yield* Database.use((sql) =>
-            Effect.gen(function* () {
-              yield* sql`INSERT INTO person_profiles (person_id, first_name, last_name) VALUES (${body.user.id}, 'Snapshot', 'Owner')`;
-              yield* sql`INSERT INTO auth."user" (id, name, email, "emailVerified") VALUES (${body.user.id}, 'Snapshot', 'snapshot@example.invalid', TRUE)`;
-              yield* sql`INSERT INTO auth."session" (id, token, "expiresAt", "updatedAt", "userId") VALUES (${session.id}, ${session.token}, ${session.expiresAt.toISOString()}, date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), ${body.user.id})`;
-            }),
-          );
-          const snapshotIdentity = yield* snapshotService;
-
-          const resolve = (cookieHeader: string | undefined) =>
-            snapshotIdentity.resolveSession(
-              cookieHeader,
-              AuthorizationInstant.make("2026-09-01T12:00:00.000Z"),
+            const result = yield* snapshotIdentity.revokeSession(
+              actor,
+              actor.sessionId,
+              requestContext,
             );
 
-          expect((yield* resolve(cookie)).personId).toBe(body.user.id);
-          expect(yield* Effect.flip(resolve("better-auth.session_token=raw"))).toBeInstanceOf(
-            IdentitySessionNotFound,
-          );
-          yield* Database.use((sql) => sql`DELETE FROM auth."session" WHERE id = ${session.id}`);
-          expect(yield* Effect.flip(resolve(cookie))).toBeInstanceOf(IdentitySessionNotFound);
-        }),
-      15_000,
-    );
+            const sessions =
+              yield* sql`SELECT id FROM auth."session" WHERE id = ${actor.sessionId}`;
 
-    it.effect(
-      "revokes owned persisted sessions and commits the audit together",
-      () =>
-        Effect.gen(function* () {
-          const actor = new IdentityActor({
-            personId: PersonId.make("snapshot-mutation-person"),
-            sessionId: "snapshot-mutation-session",
-            expiresAt: DateTime.makeUnsafe("2031-09-16T12:00:00.000Z"),
-          });
+            const audit =
+              yield* sql`SELECT event_kind, subject_person_id, session_id FROM auth.identity_security_audit WHERE request_correlation = ${requestContext.requestCorrelation}`;
 
-          const observed = yield* Database.use((sql) =>
-            Effect.gen(function* () {
-              yield* sql`INSERT INTO person_profiles (person_id, first_name, last_name) VALUES (${actor.personId}, 'Snapshot', 'Owner')`;
-              yield* sql`INSERT INTO auth."user" (id, name, email, "emailVerified") VALUES (${actor.personId}, 'Owner', 'owner@example.invalid', TRUE)`;
-              yield* sql`INSERT INTO auth."session" (id, token, "expiresAt", "updatedAt", "userId") VALUES (${actor.sessionId}, 'snapshot-token', '2031-09-16', date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), ${actor.personId})`;
+            const retry = yield* Effect.flip(
+              snapshotIdentity.revokeSession(actor, actor.sessionId, requestContext),
+            );
 
-              const snapshotIdentity = yield* snapshotService;
+            return { result, sessions, audit, retry };
+          }),
+        );
 
-              const result = yield* snapshotIdentity.revokeSession(
-                actor,
-                actor.sessionId,
-                requestContext,
-              );
-
-              const sessions =
-                yield* sql`SELECT id FROM auth."session" WHERE id = ${actor.sessionId}`;
-
-              const audit =
-                yield* sql`SELECT event_kind, subject_person_id, session_id FROM auth.identity_security_audit WHERE request_correlation = ${requestContext.requestCorrelation}`;
-
-              const retry = yield* Effect.flip(
-                snapshotIdentity.revokeSession(actor, actor.sessionId, requestContext),
-              );
-
-              return { result, sessions, audit, retry };
-            }),
-          );
-
-          expect(observed.result).toEqual({ setCookies: [] });
-          expect(observed.sessions).toEqual([]);
-          expect(observed.audit).toEqual([
-            {
-              event_kind: "session-revoked-one",
-              subject_person_id: actor.personId,
-              session_id: actor.sessionId,
-            },
-          ]);
-          expect(observed.retry).toBeInstanceOf(IdentityOwnedSessionNotFound);
-        }),
-      15_000,
-    );
-  },
-);
+        expect(observed.result).toEqual({ setCookies: [] });
+        expect(observed.sessions).toEqual([]);
+        expect(observed.audit).toEqual([
+          {
+            event_kind: "session-revoked-one",
+            subject_person_id: actor.personId,
+            session_id: actor.sessionId,
+          },
+        ]);
+        expect(observed.retry).toBeInstanceOf(IdentityOwnedSessionNotFound);
+      }),
+    15_000,
+  );
+});
 
 describe("audited Better Auth response ordering", () => {
   it.effect(

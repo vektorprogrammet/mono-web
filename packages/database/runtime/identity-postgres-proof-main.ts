@@ -22,6 +22,7 @@ import { Cause, Config, Context, Effect, Exit, Layer, Predicate, Redacted } from
 import { type AuthEngine, type AuthEngineConfig } from "../src/auth-engine.js";
 import { DatabaseLive } from "../src/layers.js";
 import { TestPlatform } from "../src/test-support/platform.js";
+import { SecretEqualityLive } from "../src/web-crypto.js";
 import { databaseSchemaRevision } from "../src/migrations.js";
 
 const proofCohort = {
@@ -521,6 +522,7 @@ const runIdentityPostgresProof = (postgresUrl: string) =>
     };
 
     const nativeAuthLayer = NativeAuthEngineLive(authConfig).pipe(
+      Layer.provide(SecretEqualityLive(globalThis.crypto.subtle)),
       Layer.provideMerge(
         Layer.mergeAll(
           AuthPoolLive(authConfig, {

@@ -19,6 +19,7 @@ import {
 import { Context, Layer } from "effect";
 import { DatabaseLive } from "../src/layers.js";
 import { TestPlatform } from "../src/test-support/platform.js";
+import { SecretEqualityLive } from "../src/web-crypto.js";
 
 /**
  * Native identity seed entrypoint (spec 0054).
@@ -201,6 +202,7 @@ const program = Effect.gen(function* () {
           ),
           Effect.provide(
             NativeAuthEngineLive(config).pipe(
+              Layer.provide(SecretEqualityLive(globalThis.crypto.subtle)),
               Layer.provide(
                 Layer.mergeAll(
                   AuthPoolLive(config, {

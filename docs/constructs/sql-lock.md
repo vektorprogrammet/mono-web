@@ -17,7 +17,7 @@ const AdvisoryLockKey: AdvisoryLockKeys
 - Errors: none
 - Requirements: none
 - Side effects: none: it builds key text, and `lockAdvisory` takes the lock.
-- Source: [packages/database/src/advisory-lock.ts:135](../../packages/database/src/advisory-lock.ts#L135)
+- Source: [packages/database/src/advisory-lock.ts:137](../../packages/database/src/advisory-lock.ts#L137)
 
 **How it works**
 
@@ -60,7 +60,7 @@ lockAdvisory(
 - Errors: `SqlError`
 - Requirements: none
 - Side effects: Holds a PostgreSQL advisory lock until the transaction ends, and waits while another transaction holds a conflicting one.
-- Source: [packages/database/src/advisory-lock.ts:216](../../packages/database/src/advisory-lock.ts#L216)
+- Source: [packages/database/src/advisory-lock.ts:219](../../packages/database/src/advisory-lock.ts#L219)
 
 **How it works**
 

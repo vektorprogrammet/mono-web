@@ -23,7 +23,7 @@ import {
   startDisposablePostgres,
 } from "@monoweb/postgres";
 import { Console, Schema, flow, Predicate, Effect, Redacted } from "effect";
-import { Database, databaseHealth } from "@vektorprogrammet/database";
+import { Database, databaseHealth, SecretEqualityLive } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import {
   NativeAuthEngine,
@@ -178,8 +178,13 @@ try {
 
   secrets.push(...values, ...hashes);
 
+  // The password codec compares keys through SecretEquality and draws salts from Crypto.
+  const PasswordCheckLive = SecretEqualityLive(globalThis.crypto.subtle).pipe(
+    Layer.provide(BunServices.layer),
+  );
+
   const verify = (input: { hash: string; password: string }) =>
-    Effect.runPromise(verifyNativeOrLegacyPassword(input));
+    Effect.runPromise(verifyNativeOrLegacyPassword(input).pipe(Effect.provide(PasswordCheckLive)));
 
   for (let i = 0; i < values.length; i++) {
     assert.ok(
@@ -929,6 +934,8 @@ try {
             ? Layer.succeed(Database, pool)
             : DatabaseRuntimeLive({ url: Redacted.make(selected.postgresUrl), maxConnections: 4 }),
         ),
+        Layer.provide(PasswordCheckLive),
+        Layer.provideMerge(BunServices.layer),
       ),
     );
 
@@ -1023,7 +1030,13 @@ try {
   assert.equal(
     (
       await Effect.runPromise(
-        pool.unsafe('SELECT name FROM auth."user" WHERE id=$1', ["person-accepted-0"]),
+        pool
+          .unsafe('SELECT name FROM auth."user" WHERE id=$1', ["person-accepted-0"])
+          .pipe(
+            Effect.flatMap(
+              Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ name: Schema.String }))),
+            ),
+          ),
       )
     )[0]?.name,
     "Synthetic Cohort",
@@ -1071,9 +1084,17 @@ try {
   assert.equal(
     (
       await Effect.runPromise(
-        pool.unsafe('SELECT "emailVerified" FROM auth."user" WHERE id=$1', [
-          "person-backup-passwordless",
-        ]),
+        pool
+          .unsafe('SELECT "emailVerified" FROM auth."user" WHERE id=$1', [
+            "person-backup-passwordless",
+          ])
+          .pipe(
+            Effect.flatMap(
+              Schema.decodeUnknownEffect(
+                Schema.Array(Schema.Struct({ emailVerified: Schema.Boolean })),
+              ),
+            ),
+          ),
       )
     )[0].emailVerified,
     false,
@@ -1309,9 +1330,17 @@ try {
   assert.equal(
     (
       await Effect.runPromise(
-        pool.unsafe('SELECT "emailVerified" FROM auth."user" WHERE id=$1', [
-          "person-backup-passwordless",
-        ]),
+        pool
+          .unsafe('SELECT "emailVerified" FROM auth."user" WHERE id=$1', [
+            "person-backup-passwordless",
+          ])
+          .pipe(
+            Effect.flatMap(
+              Schema.decodeUnknownEffect(
+                Schema.Array(Schema.Struct({ emailVerified: Schema.Boolean })),
+              ),
+            ),
+          ),
       )
     )[0].emailVerified,
     false,
@@ -1391,7 +1420,7 @@ try {
             (cause) => new CredentialRaceBoundaryFailure({ operation: "Reset", cause }),
           ),
         ),
-    }),
+    }).pipe(Effect.provide(BunServices.layer)),
   );
 
   await server!.stop(true);
@@ -1461,9 +1490,17 @@ try {
     assert.equal(
       (
         await Effect.runPromise(
-          restoredPool.unsafe('SELECT password FROM auth."account" WHERE "userId"=$1', [
-            "person-backup-passwordless",
-          ]),
+          restoredPool
+            .unsafe('SELECT password FROM auth."account" WHERE "userId"=$1', [
+              "person-backup-passwordless",
+            ])
+            .pipe(
+              Effect.flatMap(
+                Schema.decodeUnknownEffect(
+                  Schema.Array(Schema.Struct({ password: Schema.String })),
+                ),
+              ),
+            ),
         )
       )[0].password,
       claimedHash,

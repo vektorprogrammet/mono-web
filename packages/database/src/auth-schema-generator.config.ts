@@ -1,6 +1,13 @@
+/** EX-0021: native SQL declarations retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import type { AuthEngineConfig } from "./auth-engine.js";
-import { Config, ConfigProvider, Effect, ManagedRuntime, Layer } from "effect";
-import { NativeAuthEngine, NativeAuthEngineLive, AuthPoolLive } from "./auth-engine.js";
+import { Config, ConfigProvider, Effect, ManagedRuntime, Layer, Redacted } from "effect";
+import { NativeAuthEngine, AuthSchemaGeneratorLive } from "./auth-engine.js";
+import { AuthPoolLive, nativePgLayer } from "./pg-pool.js";
+import { SecretEqualityLive } from "./web-crypto.js";
+import * as BunServices from "@effect/platform-bun/BunServices";
+import process from "node:process";
 
 // A set but empty variable stays empty: only an unset one takes the default.
 const generatorEnvironment = Effect.runSync(
@@ -18,13 +25,13 @@ const generatorEnvironment = Effect.runSync(
  * Generator-only config for migration 0015 provenance (spec 0054).
  *
  * Regenerate the canonical auth DDL with the version-pinned CLI:
- *   npx --yes auth@<pinned> generate \
+ *   bunx --bun auth@<pinned> generate \
  *     --config packages/database/src/auth-schema-generator.config.ts \
  *     --output <file> --yes
  *
- * Point AUTH_GENERATE_PG_URL at a disposable PostgreSQL cluster - generation
- * must never target the authoritative database. Runtime wiring stays in
- * auth-engine.ts; this file only re-exports the engine for the CLI.
+ * Point AUTH_GENERATE_PG_URL at a disposable PostgreSQL cluster. This generator
+ * owns native SQL and supported Better Auth pools but runs no application migration.
+ * It exposes the same engine options without enabling runtime delivery callbacks.
  */
 const config: AuthEngineConfig = {
   ...generatorEnvironment,
@@ -38,7 +45,25 @@ const config: AuthEngineConfig = {
 };
 
 const runtime = ManagedRuntime.make(
-  NativeAuthEngineLive(config).pipe(Layer.provide(AuthPoolLive(config))),
+  AuthSchemaGeneratorLive(config).pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        AuthPoolLive(config, {
+          maxConnections: 1,
+          applicationName: "auth-schema-generator-auth",
+          pipeline: false,
+        }),
+        nativePgLayer({
+          url: Redacted.make(config.postgresUrl),
+          maxConnections: 1,
+          startupOptions: "-c search_path=auth,public",
+          applicationName: "auth-schema-generator-sql",
+        }),
+        SecretEqualityLive(globalThis.crypto.subtle),
+      ),
+    ),
+    Layer.provide(BunServices.layer),
+  ),
 );
 
 process.once("beforeExit", () => {

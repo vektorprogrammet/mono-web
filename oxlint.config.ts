@@ -161,6 +161,7 @@ const effectConfig = {
       files: [
         "apps/backend/src/main.ts",
         "apps/backend/src/**/*-main.ts",
+        "packages/database/src/auth-schema-generator.config.ts",
         "tools/acceptance/password-recovery-check.ts",
         "tools/e2e/golden-harness.ts",
         "tools/e2e/golden-harness-self-test.ts",

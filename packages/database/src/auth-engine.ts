@@ -17,13 +17,15 @@ import { runWithEndpointContext } from "@better-auth/core/context";
 import { PasswordRecovery, PasswordRecoveryLive } from "./password-recovery.js";
 import type { GenericEndpointContext } from "better-auth";
 import type { Pool } from "pg";
-import type { SqlClient } from "effect/sql/SqlClient";
+import { SqlClient } from "effect/sql/SqlClient";
 import { Database } from "./service.js";
 import { oauthPlugins, type OAuthProviderRuntimeConfig } from "./oauth-config.js";
+import { SecretEquality } from "./web-crypto.js";
 import {
   flow,
   type Cause,
   Context,
+  Crypto,
   FiberSet,
   Layer,
   Effect,
@@ -34,9 +36,11 @@ import {
   type Scope,
 } from "effect";
 
+type BetterAuthCallbackServices = Crypto.Crypto | SecretEquality;
+
 /** Runs the Effect program behind one Better Auth callback as the Promise Better Auth awaits. */
 export type BetterAuthCallbackRunner = <A, E>(
-  program: Effect.Effect<A, E>,
+  program: Effect.Effect<A, E, BetterAuthCallbackServices>,
   options?: Pick<Effect.RunOptions, "signal">,
 ) => Promise<A>;
 
@@ -48,8 +52,8 @@ export type BetterAuthCallbackRunner = <A, E>(
 export const makeBetterAuthCallbackRunner: Effect.Effect<
   BetterAuthCallbackRunner,
   never,
-  Scope.Scope
-> = FiberSet.makeRuntimePromise();
+  Scope.Scope | BetterAuthCallbackServices
+> = FiberSet.makeRuntimePromise<BetterAuthCallbackServices>();
 
 /** Better Auth owns sessions and credentials, never Person roles or authorization policy. */
 export interface AuthEngineConfig {
@@ -518,7 +522,7 @@ export const makeAuthEngineOptions = (
     basePath: "/api/auth",
     database,
     trustedOrigins: [...config.trustedOrigins],
-    plugins: [...oauthPlugins(config.oauth)],
+    plugins: [...oauthPlugins(config.oauth, run)],
     hooks: makeCredentialLifecycleHooks(nativeSql, run),
     databaseHooks: makeAccessDatabaseHooks(nativeSql, run),
     account: {
@@ -597,3 +601,19 @@ export const NativeAuthEngineLive = (config: AuthEngineConfig) =>
       return makeAuthEngine(config, pool, database, run, diagnostic, recovery);
     }),
   ).pipe(Layer.provideMerge(PasswordRecoveryLive(config)));
+
+/** Native engine options for the schema CLI; no migration or delivery callbacks run. */
+export const AuthSchemaGeneratorLive = (config: AuthEngineConfig) =>
+  Layer.effect(
+    NativeAuthEngine,
+    Effect.gen(function* () {
+      const pool = yield* AuthPgPool;
+      const sql = yield* SqlClient;
+      const run = yield* makeBetterAuthCallbackRunner;
+      const diagnostic = yield* FiberSet.makeRuntime<never, void, never>();
+
+      return makeAuthEngine(config, pool, sql, run, () => {
+        diagnostic(Effect.logWarning("Identity schema generator diagnostic"));
+      });
+    }),
+  );

@@ -106,6 +106,8 @@ export interface AdvisoryLockKeys {
   readonly teamApplicationCommand: (commandId: string) => AdvisoryLockKey;
   /** Native HTTP command receipt identity digest. Bare. */
   readonly httpCommandReceipt: (identitySha256: string) => AdvisoryLockKey;
+  /** OAuth secret rotation and client disabling. Bare, matching the original raw pg lock bytes. */
+  readonly oauthClient: (clientId: string) => AdvisoryLockKey;
 }
 
 /**
@@ -138,6 +140,7 @@ export const AdvisoryLockKey: AdvisoryLockKeys = {
   administratorSet: advisoryLockKey("vektorprogrammet:administrator-set:v1"),
   authorizationRules: advisoryLockKey(AUTHZ_LOCK_PROTOCOL.advisoryKey),
   publicApplicationCommand: (commandId) => advisoryLockKey(commandId),
+  oauthClient: (clientId) => advisoryLockKey(clientId),
   applicantEmail: (email) => advisoryLockKey(`applicant:${email}`),
   returningAssistantCommand: (commandId) => advisoryLockKey(`returning:${commandId}`),
   admissionPeriodCommand: (commandId) => advisoryLockKey(commandId),

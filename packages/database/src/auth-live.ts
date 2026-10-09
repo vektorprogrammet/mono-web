@@ -7,7 +7,12 @@ import { PasswordRecovery, withIdentityRequestCancellation } from "./password-re
 import { OAuthHandlers, OAuthLive } from "./oauth-live.js";
 import { ServicePrincipalGrantAuthorityLive } from "./service-principal-grants-live.js";
 import { canonicalJsonValue } from "@vektorprogrammet/domain/shared-kernel";
-import { HmacTagVerifier, HmacTagVerifierLive, type WebCryptoSubtle } from "./web-crypto.js";
+import {
+  HmacTagVerifier,
+  HmacTagVerifierLive,
+  SecretEqualityLive,
+  type WebCryptoSubtle,
+} from "./web-crypto.js";
 import { getSessionCookie } from "better-auth/cookies";
 import { Context, Crypto, Effect, Layer, Schema } from "effect";
 import type * as SqlClient from "effect/sql/SqlClient";
@@ -904,7 +909,7 @@ export const AuthLive = (
   never,
   Database | AuthPgPool | Crypto.Crypto
 > => {
-  const nativeEngine = NativeAuthEngineLive(config);
+  const nativeEngine = NativeAuthEngineLive(config).pipe(Layer.provide(SecretEqualityLive(subtle)));
 
   const services = Layer.mergeAll(
     nativeEngine,
