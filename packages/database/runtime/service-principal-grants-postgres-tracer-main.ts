@@ -11,12 +11,14 @@ import {
   Config,
   ConfigProvider,
   DateTime,
+  Deferred,
   Duration,
   Effect,
+  Exit,
   Fiber,
   Layer,
+  Option,
   Predicate,
-  Ref,
   Schema,
 } from "effect";
 import { AuthEngine, AuthLive } from "../src/auth-live.js";
@@ -238,33 +240,51 @@ const trace = (target: string) =>
       }),
     );
 
-    // The read waits for the authorization lock that the blocker holds until it commits.
-    const blocked = yield* pool.withTransaction(
-      Effect.gen(function* () {
-        const blocker = pool;
-        yield* blocker.unsafe(
-          `SELECT pg_catalog.pg_advisory_xact_lock(
+    // The blocker owns the lock in its own fiber, so the reader starts outside the blocker's
+    // transaction context: it takes its own transaction and waits for the lock like any caller.
+    const lockHeld = yield* Deferred.make<void>();
+    const releaseLock = yield* Deferred.make<void>();
+
+    const blocker = yield* pool
+      .withTransaction(
+        Effect.gen(function* () {
+          yield* pool.unsafe(
+            `SELECT pg_catalog.pg_advisory_xact_lock(
        pg_catalog.hashtextextended($1, 0)
      )`,
-          [AUTHZ_LOCK_PROTOCOL.advisoryKey],
-        );
+            [AUTHZ_LOCK_PROTOCOL.advisoryKey],
+          );
 
-        const settled = yield* Ref.make(false);
+          yield* Deferred.succeed(lockHeld, undefined);
+          yield* Deferred.await(releaseLock);
+        }),
+      )
+      .pipe(Effect.forkChild);
 
-        const read = yield* grantAuthority
-          .readReceiptApprovalCandidates(credential, authorizationInstant)
-          .pipe(Effect.ensuring(Ref.set(settled, true)), Effect.forkChild);
+    yield* Effect.raceFirst(Deferred.await(lockHeld), Fiber.join(blocker));
 
-        yield* Effect.sleep(Duration.millis(50));
-        const readBlockedByLock = !(yield* Ref.get(settled));
-        assert.equal(readBlockedByLock, true);
+    const read = yield* grantAuthority
+      .readReceiptApprovalCandidates(credential, authorizationInstant)
+      .pipe(Effect.forkChild);
 
-        return { read, readBlockedByLock };
-      }),
-    );
+    // A reader that settled within the window never proves the lock held it: its failure
+    // fails the proof with its own cause, and a success means the lock did not block it.
+    const settledReader = yield* Effect.timeoutOption(Fiber.await(read), Duration.millis(50));
 
-    const authorizationReadBlockedByExclusiveLock = blocked.readBlockedByLock;
-    const before = yield* Fiber.join(blocked.read);
+    if (Option.isSome(settledReader)) {
+      if (Exit.isFailure(settledReader.value)) {
+        return yield* Effect.failCause(settledReader.value.cause);
+      }
+
+      assert.fail("the receipt-approval reader completed while the exclusive lock was held");
+    }
+
+    const authorizationReadBlockedByExclusiveLock = Option.isNone(settledReader);
+    assert.equal(authorizationReadBlockedByExclusiveLock, true);
+
+    yield* Deferred.succeed(releaseLock, undefined);
+    yield* Fiber.join(blocker);
+    const before = yield* Fiber.join(read);
 
     assert.deepEqual(before.candidates, []);
 

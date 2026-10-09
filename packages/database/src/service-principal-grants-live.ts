@@ -233,6 +233,21 @@ const decodePersistedRow = <Row, A>(
   decode: (row: Row) => Effect.Effect<A, Schema.SchemaError | PersistedRowRejected>,
 ) => decode(row).pipe(Effect.mapError((cause) => new PersistedRowRejected({ cause })));
 
+/**
+ * Maps a foreign persistence failure to the domain failure after logging its cause: the domain
+ * error has no cause field, and its public message stays non-enumerating.
+ */
+const grantFailure = (message: string) => (cause: unknown) =>
+  cause instanceof ServicePrincipalGrantAuthorityError
+    ? Effect.fail(cause)
+    : Effect.logError(message, cause).pipe(
+        Effect.andThen(
+          Effect.fail(
+            new ServicePrincipalGrantAuthorityError({ reason: "PersistenceFailure", message }),
+          ),
+        ),
+      );
+
 const currentServiceBinding = (
   client: SqlClient.SqlClient,
   credential: AcceptedOAuthServiceCredential,
@@ -596,16 +611,7 @@ const readInCurrentSnapshot = (
         return authority;
       }),
     )
-    .pipe(
-      Effect.mapError((cause) =>
-        cause instanceof ServicePrincipalGrantAuthorityError
-          ? cause
-          : new ServicePrincipalGrantAuthorityError({
-              reason: "PersistenceFailure",
-              message: "Service-principal grant authority read failed",
-            }),
-      ),
-    );
+    .pipe(Effect.catch(grantFailure("Service-principal grant authority read failed")));
 
 type ServicePrincipalGrantAuditEventKind =
   | "service-principal-grant-created"
@@ -805,16 +811,7 @@ const mutateGrant = <A, E>(
 ) =>
   pool
     .withTransaction(acquireExclusiveAuthorizationLock(pool).pipe(Effect.andThen(mutation(pool))))
-    .pipe(
-      Effect.mapError((cause) =>
-        cause instanceof ServicePrincipalGrantAuthorityError
-          ? cause
-          : new ServicePrincipalGrantAuthorityError({
-              reason: "PersistenceFailure",
-              message: "Service-principal grant mutation failed",
-            }),
-      ),
-    );
+    .pipe(Effect.catch(grantFailure("Service-principal grant mutation failed")));
 
 export const makeServicePrincipalGrantAuthorityService = (
   pool: SqlClient.SqlClient,

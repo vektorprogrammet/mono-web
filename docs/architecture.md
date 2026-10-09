@@ -203,6 +203,18 @@ The [exception registry](effect-exceptions.json) records their scope, upstream
 capability gaps, verification requirements, and retirement triggers. Runtime
 acceptance and provider capacity remain separate gates in [STATE.md](../STATE.md).
 
+Native provisioning uses Better Auth's public endpoint-context API with a private,
+live-identity marker. Only the bounded provisioning helper mints it. Null, forged,
+copied, expired, or interrupted contexts grant no provisioning authority; marked
+account writes still read the current enabled Person access revision. The root
+catalog and lock require one Better Auth context module shared by the helper and
+the installed engine.
+
+The installed Better Auth dispatch sets a fresh context for each endpoint and
+resets it after merging before-hook evidence. Native database callbacks capture
+that hook argument before entering their owned Effect fiber. They do not infer
+request authority from an empty or stale ambient store.
+
 ## Boundary encoding
 
 Use Effect Schema at every external or durable boundary:

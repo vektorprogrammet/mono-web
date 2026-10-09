@@ -16,7 +16,7 @@ import { Crypto } from "effect";
 import { sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { createLocalAccountIssuer } from "better-auth";
 import { IdentityRequestContext } from "@vektorprogrammet/domain/identity";
-import { type AuthEngineConfig } from "../src/auth-engine.js";
+import { withNativeAuthProvisioning, type AuthEngineConfig } from "../src/auth-engine.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 
 /** The bytes that `JSON.stringify` writes for `value`. */
@@ -44,7 +44,7 @@ const trace = (target: string) =>
       engineContext.password.hash(delegatedPassword),
     );
 
-    yield* Effect.tryPromise(() =>
+    yield* withNativeAuthProvisioning(engineContext, () =>
       engineContext.internalAdapter.createUser(
         {
           id: "oauth-proof-person",
@@ -56,7 +56,7 @@ const trace = (target: string) =>
       ),
     );
 
-    yield* Effect.tryPromise(() =>
+    yield* withNativeAuthProvisioning(engineContext, () =>
       engineContext.internalAdapter.linkAccount({
         accountId: "oauth-proof-person",
         providerId: "credential",

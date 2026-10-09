@@ -5,7 +5,11 @@
 import * as SqlClient from "effect/sql/SqlClient";
 import { AuthPoolLive, nativePgLayer } from "../src/pg-pool.js";
 import { DatabaseRuntimeLive } from "../src/runtime-layer.js";
-import { NativeAuthEngineLive, NativeAuthEngine } from "../src/auth-engine.js";
+import {
+  NativeAuthEngineLive,
+  NativeAuthEngine,
+  withNativeAuthProvisioning,
+} from "../src/auth-engine.js";
 import assert from "node:assert/strict";
 import { Database } from "../src/service.js";
 import {
@@ -224,7 +228,7 @@ const seedCallerSuppliedIdentity = (engine: AuthEngine, observer: SqlClient.SqlC
     const context = yield* Effect.promise(() => engine.$context);
 
     const orphan = yield* Effect.exit(
-      Effect.tryPromise(() =>
+      withNativeAuthProvisioning(context, () =>
         context.internalAdapter.createUser(
           {
             id: proofCohort.orphanPersonId,
@@ -255,7 +259,7 @@ const seedCallerSuppliedIdentity = (engine: AuthEngine, observer: SqlClient.SqlC
       context.password.hash(proofCohort.password),
     );
 
-    const user = yield* Effect.tryPromise(() =>
+    const user = yield* withNativeAuthProvisioning(context, () =>
       context.internalAdapter.createUser(
         {
           id: proofCohort.personId,
@@ -269,7 +273,7 @@ const seedCallerSuppliedIdentity = (engine: AuthEngine, observer: SqlClient.SqlC
 
     assert.equal(user.id, proofCohort.personId);
 
-    const account = yield* Effect.tryPromise(() =>
+    const account = yield* withNativeAuthProvisioning(context, () =>
       context.internalAdapter.linkAccount({
         accountId: proofCohort.personId,
         providerId: "credential",

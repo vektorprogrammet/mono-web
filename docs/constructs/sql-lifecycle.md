@@ -79,6 +79,44 @@ const evidence = yield* readApplicationAdmissionEvidenceWithSql(sql, application
 
 Treating a department selector as authority or observing eligibility before a lock wait.
 
+## `withNativeAuthProvisioning`
+
+Runs one explicit native provisioning attempt through Better Auth's public endpoint context API.
+
+```ts
+withNativeAuthProvisioning<A>(
+  context: Awaited<AuthEngine["$context"]>,
+  task: () => Promise<A>
+): Effect.Effect<A, Cause.UnknownError>
+```
+
+- Inputs:
+  - `context: Awaited<AuthEngine["$context"]>`
+  - `task: () => Promise<A>`
+- Output: `Effect.Effect<A, Cause.UnknownError>`
+- Errors: `Cause.UnknownError`
+- Requirements: none
+- Side effects: Executes the caller's supported Better Auth write and scopes its private authority.
+- Source: [packages/database/src/auth-engine.ts:369](../../packages/database/src/auth-engine.ts#L369)
+
+**How it works**
+
+Only this helper mints the private marker. Hooks require both its identity and live
+owner registration; copied contexts, lookalike keys and request contexts grant no authority.
+The marker ends on success, failure or interruption. Better Auth's Promise writes have no
+cancellation ABI: interruption revokes later hook admission but does not certify rollback
+of an operation already accepted by its adapter. This helper retries nothing.
+
+**Use**
+
+```ts
+yield* withNativeAuthProvisioning(context, () => context.internalAdapter.linkAccount(account));
+```
+
+**Avoid**
+
+Passing request-sourced authority or treating cancellation as a transaction receipt.
+
 ## `accountAccessEnabled`
 
 Whether the native account of `personId` exists and is not disabled.

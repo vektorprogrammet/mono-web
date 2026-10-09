@@ -77,6 +77,7 @@ The shared constructs defined here. Each name links to its contract; [docs/const
 
 - [`AdvisoryLockKey`](../../docs/constructs/sql-lock.md#advisorylockkey) (sql-lock): The registered advisory-lock keys, one constructor per namespace.
 - [`lockAdvisory`](../../docs/constructs/sql-lock.md#lockadvisory) (sql-lock): Waits for the advisory lock on `key` until the current transaction ends.
+- [`withNativeAuthProvisioning`](../../docs/constructs/sql-lifecycle.md#withnativeauthprovisioning) (sql-lifecycle): Runs one explicit native provisioning attempt through Better Auth's public endpoint context API.
 - [`accountAccessEnabled`](../../docs/constructs/sql-lifecycle.md#accountaccessenabled) (sql-lifecycle): Whether the native account of `personId` exists and is not disabled.
 - [`selectDatabaseMigration`](../../docs/constructs/test-harness.md#selectdatabasemigration) (test-harness): Selects the registered migration `id` and the migrations that run before it.
 - [`outboxClaimAssignments`](../../docs/constructs/sql-lifecycle.md#outboxclaimassignments) (sql-lifecycle): SET list for the aggregate's claim UPDATE; `targetAlias` names the updated outbox row.

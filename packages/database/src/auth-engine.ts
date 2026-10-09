@@ -13,6 +13,7 @@ import {
 import { betterAuth, createLocalAccountIssuer, type BetterAuthOptions } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { deleteSessionCookie, getSessionCookie } from "better-auth/cookies";
+import { runWithEndpointContext } from "@better-auth/core/context";
 import { PasswordRecovery, PasswordRecoveryLive } from "./password-recovery.js";
 import type { GenericEndpointContext } from "better-auth";
 import type { Pool } from "pg";
@@ -21,6 +22,7 @@ import { Database } from "./service.js";
 import { oauthPlugins, type OAuthProviderRuntimeConfig } from "./oauth-config.js";
 import {
   flow,
+  type Cause,
   Context,
   FiberSet,
   Layer,
@@ -328,6 +330,74 @@ const decodeNativeAccessEvidence = flow(
   Option.map((context) => context.nativeAccessEvidence),
 );
 
+const nativeProvisioningMarker = Symbol("NativeAuthProvisioning");
+
+const activeProvisioningContexts = new WeakSet<object>();
+
+const isNativeProvisioning = (context: GenericEndpointContext | null): boolean =>
+  context !== null &&
+  activeProvisioningContexts.has(context) &&
+  nativeProvisioningMarker in context &&
+  context[nativeProvisioningMarker] === true;
+
+// SAFETY: EX-0037: public Better Auth forwards this opaque context unchanged and async-awaits the task; its declaration is invariant and omits Awaited<T>.
+const runProvisioningContext = runWithEndpointContext as typeof runWithEndpointContext &
+  (<A>(
+    context: { readonly context: Awaited<AuthEngine["$context"]> },
+    task: () => Promise<A>,
+  ) => Promise<A>);
+
+/**
+ * Runs one explicit native provisioning attempt through Better Auth's public endpoint context API.
+ *
+ * @remarks Only this helper mints the private marker. Hooks require both its identity and live
+ * owner registration; copied contexts, lookalike keys and request contexts grant no authority.
+ * The marker ends on success, failure or interruption. Better Auth's Promise writes have no
+ * cancellation ABI: interruption revokes later hook admission but does not certify rollback
+ * of an operation already accepted by its adapter. This helper retries nothing.
+ * @param context The actual scoped engine context, resolved by the trusted provisioning caller.
+ * @param task One supported internal-adapter provisioning call; never an HTTP handler.
+ * @returns The operation result, or its original foreign rejection wrapped by native UnknownError.
+ * @sideEffects Executes the caller's supported Better Auth write and scopes its private authority.
+ * @example
+ * ```ts
+ * yield* withNativeAuthProvisioning(context, () => context.internalAdapter.linkAccount(account));
+ * ```
+ * @avoid Passing request-sourced authority or treating cancellation as a transaction receipt.
+ * @construct sql-lifecycle
+ */
+export const withNativeAuthProvisioning: <A>(
+  context: Awaited<AuthEngine["$context"]>,
+  task: () => Promise<A>,
+) => Effect.Effect<A, Cause.UnknownError> = Effect.fnUntraced(function* <A>(
+  context: Awaited<AuthEngine["$context"]>,
+  task: () => Promise<A>,
+): Effect.fn.Return<A, Cause.UnknownError, Scope.Scope> {
+  const endpointContext = yield* Effect.acquireRelease(
+    Effect.sync(() => {
+      const marked = { context, [nativeProvisioningMarker]: true };
+
+      activeProvisioningContexts.add(marked);
+
+      return marked;
+    }),
+    (marked) =>
+      Effect.sync(() => {
+        activeProvisioningContexts.delete(marked);
+      }),
+  );
+
+  return yield* Effect.tryPromise(() => runProvisioningContext(endpointContext, task));
+}, Effect.scoped);
+
+const decodeAccessRevisions = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+    }),
+  ),
+);
+
 const makeAccessDatabaseHooks = (
   database: SqlClient,
   run: BetterAuthCallbackRunner,
@@ -335,20 +405,22 @@ const makeAccessDatabaseHooks = (
   const accessRevision = (context: GenericEndpointContext | null, personId?: string) =>
     Effect.gen(function* () {
       const evidence = Option.getOrUndefined(decodeNativeAccessEvidence(context?.context));
+      const provisioning = isNativeProvisioning(context);
 
-      if (evidence && (personId === undefined || personId === evidence.personId))
-        return evidence.revision;
-
-      // Internal adapter provisioning has no endpoint context. HTTP and direct API
-      // password changes must carry the revision captured before credential work.
-      if (context == null && personId !== undefined) {
-        const row = (yield* database.unsafe<{ revision: number }>(
-          'SELECT access_revision AS revision FROM auth."user" WHERE id=$1 AND NOT access_disabled',
-          [personId],
-        ))[0];
+      // Provisioning is explicit, never inferred from absent or stale endpoint state.
+      if (provisioning && personId !== undefined) {
+        const row = (yield* database
+          .unsafe(
+            'SELECT u.access_revision AS revision FROM auth."user" u JOIN public.person_profiles p ON p.person_id=u.id WHERE u.id=$1 AND NOT u.access_disabled',
+            [personId],
+          )
+          .pipe(Effect.flatMap(decodeAccessRevisions)))[0];
 
         if (row) return row.revision;
       }
+
+      if (!provisioning && evidence && (personId === undefined || personId === evidence.personId))
+        return evidence.revision;
 
       return yield* Effect.fail(
         new APIError("UNAUTHORIZED", {

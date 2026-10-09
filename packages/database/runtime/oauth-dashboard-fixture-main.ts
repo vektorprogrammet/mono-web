@@ -10,7 +10,7 @@ import { AuthLive, AuthEngine } from "../src/auth-live.js";
 import { OAuthClientOperator } from "../src/oauth-live.js";
 import assert from "node:assert/strict";
 import { createLocalAccountIssuer } from "better-auth";
-import { type AuthEngineConfig } from "../src/auth-engine.js";
+import { withNativeAuthProvisioning, type AuthEngineConfig } from "../src/auth-engine.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 
 /** The bytes that `JSON.stringify` writes for `value`. */
@@ -60,7 +60,7 @@ const program = Effect.gen(function* () {
       context.password.hash(Redacted.value(password)),
     );
 
-    yield* Effect.tryPromise(() =>
+    yield* withNativeAuthProvisioning(context, () =>
       context.internalAdapter.createUser(
         {
           id: "oauth-dashboard-person",
@@ -72,7 +72,7 @@ const program = Effect.gen(function* () {
       ),
     );
 
-    yield* Effect.tryPromise(() =>
+    yield* withNativeAuthProvisioning(context, () =>
       context.internalAdapter.linkAccount({
         accountId: "oauth-dashboard-person",
         providerId: "credential",

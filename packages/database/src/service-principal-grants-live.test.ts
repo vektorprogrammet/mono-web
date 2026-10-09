@@ -15,11 +15,36 @@ import {
   ServicePrincipalReceiptGrantSchema,
   evaluateServicePrincipalReceiptApprovalAccess,
 } from "@vektorprogrammet/domain/authz";
-import { Effect, Schema } from "effect";
+import { startDisposablePostgres } from "@monoweb/postgres";
+import { Context, Effect, Layer, Redacted, Schema } from "effect";
 import { expect, layer } from "@effect/vitest";
 import { makeServicePrincipalGrantAuthorityService } from "./service-principal-grants-live.js";
 import { TestPlatform } from "./test-support/platform.js";
-import { withPostgresTestDatabase } from "./test-support/postgres.js";
+import { DatabaseLive } from "./layers.js";
+import { Database } from "./service.js";
+
+/**
+ * One migrated, disposable PostgreSQL cluster for `use`. The failure path of the grant proof
+ * rolls a transaction back, which the PGlite socket server does not survive: it fatals on the
+ * wire-level ROLLBACK. Real PostgreSQL carries that path.
+ */
+const withRealPostgres = <A, E, R>(use: (sql: SqlClient.SqlClient) => Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const cluster = yield* Effect.acquireRelease(
+      Effect.promise(() => startDisposablePostgres({ listen: "tcp", maxConnections: 4 })),
+      (disposable) => Effect.promise(() => disposable.stop()),
+    );
+
+    const services = yield* Layer.build(
+      DatabaseLive({
+        url: Redacted.make(cluster.url),
+        maxConnections: 2,
+        applicationName: "service-principal-grants-proof",
+      }),
+    );
+
+    return yield* use(Context.get(services, Database));
+  }).pipe(Effect.scoped);
 
 const authorizationInstant = AuthorizationInstant.make("2032-06-01T12:00:00.000Z");
 
@@ -39,7 +64,7 @@ layer(TestPlatform, { excludeTestServices: true })((it) => {
   it.effect(
     "commits grants with their audit, reads exact candidates, and fails closed for invalid persisted rules",
     () =>
-      withPostgresTestDatabase((pool) =>
+      withRealPostgres((pool) =>
         Effect.gen(function* () {
           yield* executePostgresMigration(`
               INSERT INTO public.person_profiles (person_id, first_name, last_name) VALUES ('receipt-owner', 'Receipt', 'Owner');
@@ -227,6 +252,6 @@ layer(TestPlatform, { excludeTestServices: true })((it) => {
           ).toBe(true);
         }),
       ),
-    20_000,
+    60_000,
   );
 });

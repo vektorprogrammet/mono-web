@@ -68,6 +68,7 @@
     "rehearsal:historical-service": "bun run runtime/historical-service-cohort-rehearsal.ts"
   },
   "dependencies": {
+    "@better-auth/core": "catalog:effect-v4",
     "@better-auth/oauth-provider": "1.7.1",
     "@effect/platform-bun": "catalog:effect-v4",
     "@effect/sql-pg": "catalog:effect-v4",

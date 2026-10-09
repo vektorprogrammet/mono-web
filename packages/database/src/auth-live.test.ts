@@ -3,23 +3,31 @@
  * @effect-diagnostics unstableApiUsage:off
  */
 import type * as SqlClient from "effect/sql/SqlClient";
-import { AuthPoolLive } from "./pg-pool.js";
-import { betterAuth, createLocalAccountIssuer } from "better-auth";
+import { AuthPgPool, AuthPoolLive } from "./pg-pool.js";
+import { betterAuth, createLocalAccountIssuer, type GenericEndpointContext } from "better-auth";
+import {
+  getCurrentAuthContext,
+  runWithEndpointContext,
+  type AuthEndpointContext,
+} from "@better-auth/core/context";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { getCookies } from "better-auth/cookies";
 import {
   Config,
   ConfigProvider,
   DateTime,
+  Deferred,
   Effect,
   Exit,
+  Fiber,
   Layer,
   Option,
   Redacted,
+  Result,
   Schema,
 } from "effect";
 import { Pool } from "pg";
-import { afterAll, describe, expect, it, layer } from "@effect/vitest";
+import { afterAll, describe, expect, expectTypeOf, it, layer } from "@effect/vitest";
 import { AuthorizationInstant } from "@vektorprogrammet/domain/authz";
 import { Database } from "./service.js";
 import {
@@ -38,7 +46,11 @@ import {
   IdentitySnapshot,
   makeIdentitySnapshotService,
 } from "./auth-live.js";
-import { makeAuthEngineOptions, makeBetterAuthCallbackRunner } from "./auth-engine.js";
+import {
+  makeAuthEngineOptions,
+  makeBetterAuthCallbackRunner,
+  withNativeAuthProvisioning,
+} from "./auth-engine.js";
 import { DatabaseLive } from "./layers.js";
 import { DatabaseTestLive, TestPlatform } from "./test-support/platform.js";
 
@@ -113,7 +125,7 @@ const seedCredentialIdentity = (
   Effect.gen(function* () {
     const engine = yield* AuthEngine;
     const context = yield* Effect.promise(() => engine.engine.$context);
-    yield* Effect.tryPromise(() =>
+    yield* withNativeAuthProvisioning(context, () =>
       context.internalAdapter.createUser(
         {
           id: person.personId,
@@ -123,9 +135,9 @@ const seedCredentialIdentity = (
         },
         { method: "email-password" },
       ),
-    ).pipe(Effect.ignore);
+    );
     const passwordHash = yield* Effect.promise(() => context.password.hash(person.password));
-    yield* Effect.tryPromise(() =>
+    yield* withNativeAuthProvisioning(context, () =>
       context.internalAdapter.linkAccount({
         accountId: person.personId,
         providerId: "credential",
@@ -762,6 +774,14 @@ dsl("AuthLive (spec 0054)", () => {
           assertDisposable(config.postgresUrl);
 
           yield* Database.use(resetAuthData);
+          yield* Database.use((observer) =>
+            observer.unsafe(
+              `INSERT INTO public.person_profiles (person_id, first_name, last_name)
+               VALUES ($1, 'Auth', 'Live Test')
+               ON CONFLICT DO NOTHING`,
+              [cohort.personId],
+            ),
+          );
           yield* seedCredentialIdentity();
 
           const engine = yield* AuthEngine;
@@ -791,6 +811,326 @@ dsl("AuthLive (spec 0054)", () => {
 
           expect(second.ok).toBe(true);
         }),
+      120_000,
+    );
+
+    it.effect("keeps the provisioning callsite closed to request-shaped contexts", () =>
+      Effect.sync(() => {
+        const wrongContextCall = () => {
+          // @ts-expect-error A Request is not the actual native engine context; EX-0037 cannot widen this callsite.
+          return withNativeAuthProvisioning(new Request("http://native.test/"), () =>
+            Promise.resolve(undefined),
+          );
+        };
+
+        expectTypeOf(wrongContextCall).toBeFunction();
+      }),
+    );
+    it.effect("admits only live explicit provisioning with current enabled Person facts", () =>
+      Effect.gen(function* () {
+        yield* Database.use(resetAuthData);
+        yield* Database.use((sql) =>
+          sql.unsafe(
+            "INSERT INTO public.person_profiles(person_id,first_name,last_name) VALUES ($1,'Marker','Owner') ON CONFLICT DO NOTHING",
+            [cohort.personId],
+          ),
+        );
+        yield* seedCredentialIdentity();
+        const engine = yield* AuthEngine;
+        const context = yield* Effect.promise(() => engine.engine.$context);
+
+        const account = (userId: string, accountId: string) => ({
+          userId,
+          accountId,
+          providerId: "credential",
+          issuer: createLocalAccountIssuer("credential"),
+          password: "synthetic-marker-hash",
+        });
+
+        yield* Database.use((sql) =>
+          sql.unsafe('UPDATE auth."user" SET access_revision=7 WHERE id=$1', [cohort.personId]),
+        );
+        yield* withNativeAuthProvisioning(context, () =>
+          context.internalAdapter.linkAccount(account(cohort.personId, "marker-current")),
+        );
+
+        const rows = yield* Database.use((sql) =>
+          sql.unsafe(
+            'SELECT access_revision AS revision FROM auth."account" WHERE "accountId"=$1',
+            ["marker-current"],
+          ),
+        ).pipe(
+          Effect.flatMap(
+            Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ revision: Schema.Int }))),
+          ),
+        );
+
+        expect(rows).toEqual([{ revision: 7 }]);
+        yield* Database.use((sql) =>
+          sql.unsafe('UPDATE auth."user" SET access_disabled=TRUE WHERE id=$1', [cohort.personId]),
+        );
+
+        for (const personId of [cohort.personId, "unknown-marker-person"]) {
+          const failure = yield* Effect.flip(
+            withNativeAuthProvisioning(context, () =>
+              context.internalAdapter.linkAccount(account(personId, "marker-denied-" + personId)),
+            ),
+          );
+
+          expect(failure.cause).toMatchObject({
+            body: { code: "INVALID_SESSION", message: "Account access unavailable" },
+          });
+        }
+      }),
+    );
+
+    it.effect("rejects forged and copied provisioning contexts at the real adapter hook", () =>
+      Effect.gen(function* () {
+        yield* Database.use(resetAuthData);
+        yield* Database.use((sql) =>
+          sql.unsafe(
+            "INSERT INTO public.person_profiles(person_id,first_name,last_name) VALUES ($1,'Marker','Owner') ON CONFLICT DO NOTHING",
+            [cohort.personId],
+          ),
+        );
+        yield* seedCredentialIdentity();
+        const engine = yield* AuthEngine;
+        const context = yield* Effect.promise(() => engine.engine.$context);
+
+        const link = () =>
+          context.internalAdapter.linkAccount({
+            userId: cohort.personId,
+            accountId: "forged-marker-account",
+            providerId: "credential",
+            issuer: createLocalAccountIssuer("credential"),
+            password: "synthetic-marker-hash",
+          });
+
+        const foreignContext = (yield* withNativeAuthProvisioning(context, getCurrentAuthContext))
+          .context;
+
+        for (const forged of [
+          { context: foreignContext, nativeProvisioningMarker: true },
+          { context: foreignContext, [Symbol.for("NativeAuthProvisioning")]: true },
+        ]) {
+          const failure = yield* Effect.flip(
+            Effect.tryPromise(() => runWithEndpointContext(forged, link).then((result) => result)),
+          );
+
+          expect(failure.cause).toMatchObject({ body: { code: "INVALID_SESSION" } });
+        }
+
+        const copiedFailure = yield* Effect.flip(
+          withNativeAuthProvisioning(context, () =>
+            getCurrentAuthContext().then((marked) =>
+              runWithEndpointContext({ ...marked }, link).then((result) => result),
+            ),
+          ),
+        );
+
+        expect(copiedFailure.cause).toMatchObject({ body: { code: "INVALID_SESSION" } });
+        const expired = yield* withNativeAuthProvisioning(context, getCurrentAuthContext);
+
+        const expiredFailure = yield* Effect.flip(
+          Effect.tryPromise(() => runWithEndpointContext(expired, link).then((result) => result)),
+        );
+
+        expect(expiredFailure.cause).toMatchObject({ body: { code: "INVALID_SESSION" } });
+      }),
+    );
+
+    it.effect("revokes provisioning authority on failure and interruption before late hooks", () =>
+      Effect.gen(function* () {
+        yield* Database.use(resetAuthData);
+        yield* Database.use((sql) =>
+          sql.unsafe(
+            "INSERT INTO public.person_profiles(person_id,first_name,last_name) VALUES ($1,'Marker','Owner') ON CONFLICT DO NOTHING",
+            [cohort.personId],
+          ),
+        );
+        yield* seedCredentialIdentity();
+        const engine = yield* AuthEngine;
+        const context = yield* Effect.promise(() => engine.engine.$context);
+        const captured = Promise.withResolvers<AuthEndpointContext>();
+        const pending = Promise.withResolvers<void>();
+
+        const fiber = yield* withNativeAuthProvisioning(context, () =>
+          getCurrentAuthContext().then((marked) => {
+            captured.resolve(marked);
+
+            return pending.promise;
+          }),
+        ).pipe(Effect.forkChild);
+
+        const interruptedContext = yield* Effect.promise(() => captured.promise);
+        yield* Fiber.interrupt(fiber);
+
+        const link = () =>
+          context.internalAdapter.linkAccount({
+            userId: cohort.personId,
+            accountId: "late-marker-account",
+            providerId: "credential",
+            issuer: createLocalAccountIssuer("credential"),
+            password: "synthetic-marker-hash",
+          });
+
+        const interruptedFailure = yield* Effect.flip(
+          Effect.tryPromise(() =>
+            runWithEndpointContext(interruptedContext, link).then((result) => result),
+          ),
+        );
+
+        expect(interruptedFailure.cause).toMatchObject({ body: { code: "INVALID_SESSION" } });
+        pending.resolve();
+        const failedCapture = Promise.withResolvers<AuthEndpointContext>();
+        yield* Effect.flip(
+          withNativeAuthProvisioning(context, () =>
+            getCurrentAuthContext().then((marked) => {
+              failedCapture.resolve(marked);
+
+              return Promise.reject(new Error("synthetic provisioning failure"));
+            }),
+          ),
+        );
+        const failedContext = yield* Effect.promise(() => failedCapture.promise);
+
+        const afterFailure = yield* Effect.flip(
+          Effect.tryPromise(() =>
+            runWithEndpointContext(failedContext, link).then((result) => result),
+          ),
+        );
+
+        expect(afterFailure.cause).toMatchObject({ body: { code: "INVALID_SESSION" } });
+      }).pipe(Effect.scoped),
+    );
+
+    it.effect(
+      "keeps each real endpoint hook context while an earlier request fiber is draining",
+      () =>
+        Effect.gen(function* () {
+          yield* Database.use(resetAuthData);
+          yield* Database.use((sql) =>
+            sql.unsafe(
+              "INSERT INTO public.person_profiles(person_id,first_name,last_name) VALUES ($1,'Context','First'),($2,'Context','Second') ON CONFLICT DO NOTHING",
+              [cohort.personId, otherCohort.personId],
+            ),
+          );
+          yield* seedCredentialIdentity(cohort);
+          yield* seedCredentialIdentity(otherCohort);
+          const sql = yield* Database;
+          const pool = yield* AuthPgPool;
+          const run = yield* makeBetterAuthCallbackRunner;
+          const firstHook = yield* Deferred.make<void>();
+          const releaseFirst = yield* Deferred.make<void>();
+
+          const seen: Array<{
+            personId: string;
+            revision: number;
+            ownsContext: boolean;
+            context: GenericEndpointContext | null;
+          }> = [];
+
+          const options = makeAuthEngineOptions(config, pool, sql, run, () => undefined);
+          const original = options.databaseHooks.session?.create?.before;
+
+          if (original === undefined) return yield* Effect.die("Native session hook is missing");
+
+          const observedEngine = betterAuth({
+            ...options,
+            databaseHooks: {
+              ...options.databaseHooks,
+              session: {
+                create: {
+                  before: (data, context) =>
+                    getCurrentAuthContext()
+                      .then((current) => {
+                        const evidence = Result.getOrThrow(
+                          Schema.decodeUnknownResult(
+                            Schema.Struct({
+                              nativeAccessEvidence: Schema.Struct({
+                                personId: Schema.String,
+                                revision: Schema.Int,
+                              }),
+                            }),
+                          )(context?.context),
+                        ).nativeAccessEvidence;
+
+                        seen.push({
+                          personId: evidence.personId,
+                          revision: evidence.revision,
+                          ownsContext: current === context,
+                          context,
+                        });
+
+                        return original(data, context);
+                      })
+                      .then((result) =>
+                        data.userId === cohort.personId
+                          ? run(
+                              Deferred.succeed(firstHook, undefined).pipe(
+                                Effect.andThen(Deferred.await(releaseFirst)),
+                                Effect.as(result),
+                              ),
+                            )
+                          : result,
+                      ),
+                },
+              },
+            },
+          });
+
+          const request = (person: typeof cohort | typeof otherCohort) =>
+            Effect.flatMap(jsonText({ email: person.email, password: person.password }), (body) =>
+              Effect.tryPromise(() =>
+                observedEngine.handler(
+                  new Request("http://127.0.0.1:8790/api/auth/sign-in/email", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body,
+                  }),
+                ),
+              ),
+            );
+
+          const first = yield* request(cohort).pipe(Effect.forkChild);
+          yield* Deferred.await(firstHook);
+          const secondResponse = yield* request(otherCohort);
+          expect(secondResponse.ok).toBe(true);
+          expect(first.pollUnsafe()).toBeUndefined();
+          yield* Deferred.succeed(releaseFirst, undefined);
+          expect((yield* Fiber.join(first)).ok).toBe(true);
+          expect((yield* request(cohort)).ok).toBe(true);
+          expect((yield* request(otherCohort)).ok).toBe(true);
+          expect(
+            seen.map(({ personId, revision, ownsContext }) => ({
+              personId,
+              revision,
+              ownsContext,
+            })),
+          ).toEqual([
+            { personId: cohort.personId, revision: 0, ownsContext: true },
+            { personId: otherCohort.personId, revision: 0, ownsContext: true },
+            { personId: cohort.personId, revision: 0, ownsContext: true },
+            { personId: otherCohort.personId, revision: 0, ownsContext: true },
+          ]);
+          expect(seen[0]?.context === seen[1]?.context).toBe(false);
+
+          const sessions = yield* sql
+            .unsafe(
+              'SELECT id, "userId" AS "personId" FROM auth."session" WHERE "userId" IN ($1,$2)',
+              [cohort.personId, otherCohort.personId],
+            )
+            .pipe(
+              Effect.flatMap(
+                Schema.decodeUnknownEffect(
+                  Schema.Array(Schema.Struct({ id: Schema.String, personId: Schema.String })),
+                ),
+              ),
+            );
+
+          expect(sessions).toHaveLength(4);
+          expect(sessions[0]?.id === sessions[1]?.id).toBe(false);
+        }).pipe(Effect.scoped),
       120_000,
     );
   });

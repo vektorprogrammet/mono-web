@@ -176,7 +176,12 @@ export const makePasswordRecovery = (
   if (!config.trustedOrigins.includes(config.oauth.dashboardOrigin))
     throw new Error("Recovery dashboard origin is not trusted");
 
-  const enqueueResetMail = (user: { id: string }, token: string, url: string) =>
+  const enqueueResetMail = (
+    user: { id: string },
+    token: string,
+    url: string,
+    context: IdentityRequestContext,
+  ) =>
     Effect.gen(function* () {
       if (
         url !==
@@ -232,7 +237,7 @@ export const makePasswordRecovery = (
             "password-reset-request-accepted",
             "mail-enqueued",
             user.id,
-            local.getStore()?.context ?? null,
+            context,
           );
 
           return true;
@@ -267,17 +272,20 @@ export const makePasswordRecovery = (
 
       if (state.closed || state.signal.aborted) return Effect.interrupt;
 
-      return enqueueResetMail(user, token, url).pipe(
+      return enqueueResetMail(user, token, url, state.context).pipe(
         Effect.tap((accepted) =>
           Effect.sync(() => {
             state.enqueue = accepted ? "Accepted" : "Absent";
           }),
         ),
         Effect.asVoid,
-        Effect.catch(() =>
-          Effect.sync(() => {
-            state.enqueue = "Failed";
-          }).pipe(
+        Effect.catch((cause) =>
+          Effect.logError("Password recovery enqueue failed", cause).pipe(
+            Effect.andThen(
+              Effect.sync(() => {
+                state.enqueue = "Failed";
+              }),
+            ),
             Effect.andThen(
               Effect.fail(
                 new IdentityEngineError({
@@ -442,13 +450,25 @@ export const makePasswordRecovery = (
 
         return response;
       }).pipe(
-        Effect.catch(() =>
-          (resetting
-            ? Effect.ignore(
-                audit(pool, "password-reset-failure", "engine-failure", state.subject, context),
-              )
-            : Effect.void
-          ).pipe(Effect.as(unavailable())),
+        Effect.catch((cause) =>
+          Effect.logError("Password recovery request failed", cause).pipe(
+            Effect.andThen(
+              resetting
+                ? audit(
+                    pool,
+                    "password-reset-failure",
+                    "engine-failure",
+                    state.subject,
+                    context,
+                  ).pipe(
+                    Effect.catch((auditCause) =>
+                      Effect.logError("Password recovery failure audit failed", auditCause),
+                    ),
+                  )
+                : Effect.void,
+            ),
+            Effect.as(unavailable()),
+          ),
         ),
         withIdentityRequestCancellation(request),
         Effect.ensuring(

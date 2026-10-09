@@ -7,6 +7,7 @@ import { AuthPoolLive, nativePgLayer } from "../src/pg-pool.js";
 import { DatabaseRuntimeLive } from "../src/runtime-layer.js";
 import assert from "node:assert/strict";
 import { Database } from "../src/service.js";
+import { withNativeAuthProvisioning } from "../src/auth-engine.js";
 import { createLocalAccountIssuer } from "better-auth";
 import { Config, ConfigProvider, Effect, Redacted, Schema } from "effect";
 import {
@@ -101,7 +102,7 @@ const seedPerson = (engine: AuthEngine, observer: SqlClient.SqlClient, person: S
 
     const context = yield* Effect.promise(() => engine.$context);
 
-    yield* Effect.tryPromise(() =>
+    yield* withNativeAuthProvisioning(context, () =>
       context.internalAdapter.createUser(
         {
           id: person.personId,
@@ -115,7 +116,7 @@ const seedPerson = (engine: AuthEngine, observer: SqlClient.SqlClient, person: S
 
     const password = yield* Effect.tryPromise(() => context.password.hash(person.password));
 
-    yield* Effect.tryPromise(() =>
+    yield* withNativeAuthProvisioning(context, () =>
       context.internalAdapter.linkAccount({
         accountId: person.personId,
         providerId: "credential",

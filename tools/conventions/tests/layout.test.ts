@@ -196,6 +196,22 @@ export default mergeConfig(sharedVitestConfig, { test: { maxWorkers: 32 } });
       ]);
     }
   });
+
+  test("rejects duplicate Better Auth context modules even at the same version", () => {
+    const lock = JSON.stringify({
+      packages: {
+        "@better-auth/core": ["@better-auth/core@1.7.1"],
+        "nested/@better-auth/core": ["@better-auth/core@1.7.1"],
+      },
+    });
+
+    expect(findingsFor({ "bun.lock": lock }, "bun.lock")).toEqual([
+      {
+        path: "bun.lock",
+        message: expect.stringContaining("multiple @better-auth/core copies"),
+      },
+    ]);
+  });
 });
 
 describe("CML bounded context names", () => {

@@ -66,16 +66,28 @@ const stableEffectLockFindings = (repository: Repository): ReadonlyArray<Finding
     ];
   }
 
-  return Object.entries(parsed.success.packages).flatMap(([locator, [resolution]]) =>
-    /^(?:effect|@effect\/[^@/]+)@[^-]*-/u.test(resolution)
-      ? [
-          {
-            path: "bun.lock",
-            message: `${locator} resolves to a prerelease Effect package (${resolution}); select its stable compatible cohort and regenerate the lock`,
-          },
-        ]
-      : [],
-  );
+  const findings: Array<Finding> = [];
+  let authContextCopies = 0;
+
+  for (const [locator, [resolution]] of Object.entries(parsed.success.packages)) {
+    if (/^(?:effect|@effect\/[^@/]+)@[^-]*-/u.test(resolution)) {
+      findings.push({
+        path: "bun.lock",
+        message: `${locator} resolves to a prerelease Effect package (${resolution}); select its stable compatible cohort and regenerate the lock`,
+      });
+    }
+
+    if (resolution.startsWith("@better-auth/core@")) authContextCopies++;
+  }
+
+  if (authContextCopies > 1)
+    findings.push({
+      path: "bun.lock",
+      message:
+        "resolves multiple @better-auth/core copies; provisioning and adapter hooks must share one context module",
+    });
+
+  return findings;
 };
 
 const absent = (entry: string): Finding => ({

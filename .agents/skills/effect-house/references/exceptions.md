@@ -54,3 +54,7 @@ Where a rule offers a precise expectation, such as `@effect-expect-leaking` for 
 When the trigger arrives, replace each site with the native form, remove the suppressions, and delete the entry. Keep its id unused.
 
 Native Console retires EX-0009; plugin 0.2.0 local allow comments require an external coordinator absent from this repository.
+
+EX-0036, the Contact raw-token node comparison, retired when startup-owned WebCrypto
+HMAC verification replaced it; its id stays unused. EX-0037 is a distinct, scoped
+public Better Auth context typing exception, recorded in the registry.

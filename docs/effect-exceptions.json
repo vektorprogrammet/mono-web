@@ -937,6 +937,35 @@
         "@effect/tsgo": "0.48.0"
       },
       "retirementTrigger": "When a compatible public Effect/native PostgreSQL API supplies the required synchronous stream and real transport/resource observations, replace these test-only imports and retain the same negative-control and real-PG lifetime laws. Never infer physical close or transaction outcome from a scope/row count alone."
+    },
+    {
+      "id": "EX-0037",
+      "rules": ["FX003", "FX004", "FX012"],
+      "scope": {
+        "files": ["packages/database/src/auth-engine.ts"],
+        "symbols": ["runProvisioningContext", "withNativeAuthProvisioning"]
+      },
+      "reason": "One binding assertion describes the installed public Better Auth runWithEndpointContext ABI without casting any Effect channel or application context. The upstream non-generic AuthContext default is invariant with plugin-specific engine contexts and the declared Promise<T> omits JavaScript async Promise flattening.",
+      "missingCapability": "@better-auth/core1.7.1 public context declarations cannot express the plugin-specific context and Promise<Awaited<T>> result used by supported internal-adapter provisioning.",
+      "nativeAlternatives": [
+        "Inspected @better-auth/core/src/context/endpoint-context.ts:46-51: the public function forwards the exact context object to its owned ALS.run and an async function awaits the task result.",
+        "Broadening the native engine type loses typed plugin APIs; constructing a fake context or an adapter shim violates the supported engine boundary.",
+        "Effect.acquireRelease, Effect.scoped and Effect.tryPromise own registration, rejection and interruption. The assertion is on the foreign callable ABI only; native Effect success/error/requirement channels remain inferred and checked."
+      ],
+      "verification": [
+        "Real adapter-hook controls cover current enabled Person access revisions, disabled/unknown Persons, forged string and Symbol.for lookalikes, copied and expired contexts, failure and interruption revocation.",
+        "Compile-only wrong-context callsite negative control must fail before the expectation; the full type/Effect diagnostic gate remains required.",
+        "Production source inspection: better-auth/dist/api/dispatch.mjs205 establishes per-call context;228 resets it after before-hook merging; with-hooks.mjs7 captures that exact context for hook arguments. The real two-person hook case also observes context identity/evidence while a previous request fiber drains.",
+        "No runtime security acceptance is claimed from source publication. An unfiled upstream issue draft is retained outside the repository."
+      ],
+      "owner": "packages/database",
+      "examinedWith": {
+        "@better-auth/core": "1.7.1",
+        "better-auth": "1.7.1",
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When the public context API is generic in the actual engine options and returns Promise<Awaited<T>>, remove the one foreign binding assertion and this record after all native hook/lifetime and compile-time negative controls pass."
     }
   ]
 }

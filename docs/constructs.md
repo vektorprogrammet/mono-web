@@ -68,6 +68,7 @@ Tag a construct only when at least 2 modules outside its own module and the test
 - [sql-lifecycle](constructs/sql-lifecycle.md): Claim-fenced row lifecycles in PostgreSQL, such as outbox claims and account access.
   - [`lockApplicationDecisionWithSql`](constructs/sql-lifecycle.md#lockapplicationdecisionwithsql): Fences this application's decision-sensitive writes in the caller's transaction.
   - [`readApplicationAdmissionEvidenceWithSql`](constructs/sql-lifecycle.md#readapplicationadmissionevidencewithsql): Reads decoded admission evidence from the application's own period and semester.
+  - [`withNativeAuthProvisioning`](constructs/sql-lifecycle.md#withnativeauthprovisioning): Runs one explicit native provisioning attempt through Better Auth's public endpoint context API.
   - [`accountAccessEnabled`](constructs/sql-lifecycle.md#accountaccessenabled): Whether the native account of `personId` exists and is not disabled.
   - [`outboxClaimAssignments`](constructs/sql-lifecycle.md#outboxclaimassignments): SET list for the aggregate's claim UPDATE; `targetAlias` names the updated outbox row.
   - [`markOutboxDelivered`](constructs/sql-lifecycle.md#markoutboxdelivered): Settles the claimed row as Delivered, with delivery evidence when the table records it.

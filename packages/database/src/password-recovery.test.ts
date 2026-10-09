@@ -4,17 +4,21 @@
  */
 import { startDisposablePostgres } from "@monoweb/postgres";
 import { createLocalAccountIssuer } from "better-auth";
-import { Context, Layer, Redacted } from "effect";
+import { Context, Layer, Logger, Redacted } from "effect";
 import { Database } from "./service.js";
 import { DatabaseLive } from "./layers.js";
 import { AuthPoolLive } from "./pg-pool.js";
-import { NativeAuthEngine, NativeAuthEngineLive } from "./auth-engine.js";
+import {
+  NativeAuthEngine,
+  NativeAuthEngineLive,
+  withNativeAuthProvisioning,
+} from "./auth-engine.js";
 import { PasswordRecovery } from "./password-recovery.js";
 import { expect, layer } from "@effect/vitest";
 import { expectTypeOf } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber, FiberSet, Schema } from "effect";
 import { MailDeliveryError } from "@vektorprogrammet/domain/mail";
-import { IdentityRequestContext } from "@vektorprogrammet/domain/identity";
+import { IdentityEngineError, IdentityRequestContext } from "@vektorprogrammet/domain/identity";
 import { withPostgresTestDatabase } from "./test-support/postgres.js";
 import { TestPlatform } from "./test-support/platform.js";
 import type { AuthEngineConfig } from "./auth-engine.js";
@@ -46,6 +50,88 @@ const context = new IdentityRequestContext({
 
 /** The bytes that `JSON.stringify` writes for `value`. */
 const jsonText = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
+
+const recoveryToken = "synthetic-recovery-token";
+
+const secondRecoveryToken = "synthetic-recovery-token-two";
+
+const seedRecoveryRequest = (sql: SqlClient.SqlClient) =>
+  executePostgresMigration(`
+    INSERT INTO public.person_profiles(person_id, first_name, last_name) VALUES ('recovery-request-person', 'Recovery', 'Request');
+    INSERT INTO auth."user"(id, name, email, "emailVerified") VALUES ('recovery-request-person', 'Recovery Request', 'recovery-request@example.invalid', TRUE);
+    INSERT INTO auth.verification(id, identifier, value, "expiresAt", "createdAt", "updatedAt")
+    VALUES ('recovery-request-verification', 'reset-password:${recoveryToken}', 'recovery-request-person', CURRENT_TIMESTAMP + INTERVAL '1 hour', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+  `).pipe(Effect.provideService(SqlClient.SqlClient, sql));
+
+const decodeAcceptedAudit = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ event_kind: Schema.String, request_correlation: Schema.String })),
+);
+
+/** The audit rows that the enqueue itself writes; the handler writes its own response row. */
+const enqueueAuditSql =
+  "SELECT event_kind, request_correlation FROM auth.identity_security_audit WHERE event_kind='password-reset-request-accepted' AND details->>'outcomeCode'='mail-enqueued'";
+
+/**
+ * One migrated, disposable PostgreSQL cluster for `use`. A failed statement inside a transaction
+ * rolls it back, a wire path that the PGlite socket server does not survive; real PostgreSQL
+ * carries every failure-path proof.
+ */
+const withRealPostgres = <A, E, R>(use: (sql: SqlClient.SqlClient) => Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const cluster = yield* Effect.acquireRelease(
+      Effect.promise(() => startDisposablePostgres({ listen: "tcp", maxConnections: 4 })),
+      (disposable) => Effect.promise(() => disposable.stop()),
+    );
+
+    const services = yield* Layer.build(
+      DatabaseLive({
+        url: Redacted.make(cluster.url),
+        maxConnections: 2,
+        applicationName: "recovery-failure-proof",
+      }),
+    );
+
+    return yield* use(Context.get(services, Database));
+  }).pipe(Effect.scoped);
+
+/**
+ * Runs the real request handler, captures the sendResetPassword program that the engine would run
+ * in a background task, and returns it after the request scope has ended.
+ */
+const captureSendResetPassword = (
+  sql: SqlClient.SqlClient,
+  requestContext = context,
+  token = recoveryToken,
+) =>
+  Effect.gen(function* () {
+    const recovery = makePasswordRecovery(sql, config);
+    let captured: Effect.Effect<void, IdentityEngineError> | undefined;
+
+    yield* recovery.handler(
+      () => {
+        captured = recovery.sendResetPassword({
+          user: { id: "recovery-request-person" },
+          token,
+          url: `${config.oauth.canonicalOrigin}/api/auth/reset-password/${token}?callbackURL=${encodeURIComponent(`${config.oauth.dashboardOrigin}/tilbakestill-passord`)}`,
+        });
+
+        return Promise.resolve(Response.json({ status: true }));
+      },
+      new Request(`${config.oauth.canonicalOrigin}/api/auth/request-password-reset`, {
+        method: "POST",
+        headers: { origin: config.oauth.dashboardOrigin, "content-type": "application/json" },
+        body: yield* jsonText({
+          email: "recovery-request@example.invalid",
+          redirectTo: `${config.oauth.dashboardOrigin}/tilbakestill-passord`,
+        }),
+      }),
+      requestContext,
+    );
+
+    if (captured === undefined) return yield* Effect.die("the engine callback did not run");
+
+    return { program: captured };
+  });
 
 const seedRecoveryDelivery = (sql: SqlClient.SqlClient) =>
   executePostgresMigration(`
@@ -114,6 +200,107 @@ layer(TestPlatform, { excludeTestServices: true })("owned recovery boundary", (i
   );
 
   it.effect(
+    "enqueues a reset mail from a task that runs outside the request's ambient scope",
+    () =>
+      withPostgresTestDatabase((sql) =>
+        Effect.gen(function* () {
+          yield* seedRecoveryRequest(sql);
+          const { program } = yield* captureSendResetPassword(sql);
+
+          // Better Auth runs this task after the request scope ended: ambient storage is empty.
+          yield* program;
+
+          expect(
+            yield* sql.unsafe(enqueueAuditSql).pipe(Effect.flatMap(decodeAcceptedAudit)),
+          ).toEqual([
+            {
+              event_kind: "password-reset-request-accepted",
+              request_correlation: context.requestCorrelation,
+            },
+          ]);
+          expect((yield* deliveryStates(sql)).length).toBe(1);
+        }),
+      ),
+    15_000,
+  );
+
+  it.effect(
+    "logs the real cause of a failed enqueue without secrets and keeps the public failure",
+    () =>
+      withRealPostgres((sql) =>
+        Effect.gen(function* () {
+          yield* seedRecoveryRequest(sql);
+
+          yield* executePostgresMigration(
+            `CREATE FUNCTION auth.refuse_recovery_outbox() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'recovery outbox refused'; END $$; CREATE TRIGGER refuse_recovery_outbox BEFORE INSERT ON auth.password_reset_email_outbox FOR EACH ROW EXECUTE FUNCTION auth.refuse_recovery_outbox()`,
+          ).pipe(Effect.provideService(SqlClient.SqlClient, sql));
+
+          const { program } = yield* captureSendResetPassword(sql);
+          const lines: Array<string> = [];
+          const capture = Logger.make((options) => lines.push(Logger.formatSimple.log(options)));
+
+          const failure = yield* Effect.flip(program.pipe(Effect.provide(Logger.layer([capture]))));
+
+          expect(failure).toMatchObject({
+            operation: "sendResetPassword",
+            message: "Recovery enqueue unavailable",
+          });
+          expect(lines.join("\n")).toContain("recovery outbox refused");
+          expect(lines.join("\n")).not.toContain(recoveryToken);
+        }),
+      ),
+    15_000,
+  );
+
+  it.effect(
+    "keeps each sequential request's own context in its audit rows",
+    () =>
+      withPostgresTestDatabase((sql) =>
+        Effect.gen(function* () {
+          yield* seedRecoveryRequest(sql);
+
+          const first = new IdentityRequestContext({
+            requestCorrelation: "recovery-request-one",
+            sourceIp: null,
+            userAgent: null,
+          });
+
+          const second = new IdentityRequestContext({
+            requestCorrelation: "recovery-request-two",
+            sourceIp: null,
+            userAgent: null,
+          });
+
+          yield* executePostgresMigration(`
+          INSERT INTO auth.verification(id, identifier, value, "expiresAt", "createdAt", "updatedAt")
+          VALUES ('recovery-request-verification-two', 'reset-password:${secondRecoveryToken}', 'recovery-request-person', CURRENT_TIMESTAMP + INTERVAL '1 hour', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+        `).pipe(Effect.provideService(SqlClient.SqlClient, sql));
+
+          const firstCapture = yield* captureSendResetPassword(sql, first);
+          yield* firstCapture.program;
+          const secondCapture = yield* captureSendResetPassword(sql, second, secondRecoveryToken);
+          yield* secondCapture.program;
+
+          expect(
+            yield* sql
+              .unsafe(enqueueAuditSql + " ORDER BY request_correlation")
+              .pipe(Effect.flatMap(decodeAcceptedAudit)),
+          ).toEqual([
+            {
+              event_kind: "password-reset-request-accepted",
+              request_correlation: "recovery-request-one",
+            },
+            {
+              event_kind: "password-reset-request-accepted",
+              request_correlation: "recovery-request-two",
+            },
+          ]);
+        }),
+      ),
+    15_000,
+  );
+
+  it.effect(
     "runs supported Better Auth reset and session revocation against real native PostgreSQL",
     () =>
       Effect.gen(function* () {
@@ -155,7 +342,7 @@ layer(TestPlatform, { excludeTestServices: true })("owned recovery boundary", (i
           "INSERT INTO public.person_profiles(person_id, first_name, last_name) VALUES ('real-recovery-person', 'Real', 'Recovery')",
         );
         const engineContext = yield* Effect.promise(() => engine.$context);
-        yield* Effect.tryPromise(() =>
+        yield* withNativeAuthProvisioning(engineContext, () =>
           engineContext.internalAdapter.createUser(
             {
               id: "real-recovery-person",
@@ -168,7 +355,7 @@ layer(TestPlatform, { excludeTestServices: true })("owned recovery boundary", (i
         );
         const oldPassword = "OriginalRecoveryPassword!2032";
         const password = yield* Effect.tryPromise(() => engineContext.password.hash(oldPassword));
-        yield* Effect.tryPromise(() =>
+        yield* withNativeAuthProvisioning(engineContext, () =>
           engineContext.internalAdapter.linkAccount({
             accountId: "real-recovery-person",
             providerId: "credential",

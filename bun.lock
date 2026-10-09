@@ -194,6 +194,7 @@
       "name": "@vektorprogrammet/database",
       "version": "0.1.0",
       "dependencies": {
+        "@better-auth/core": "catalog:effect-v4",
         "@better-auth/oauth-provider": "1.7.1",
         "@effect/platform-bun": "catalog:effect-v4",
         "@effect/sql-pg": "catalog:effect-v4",
@@ -384,6 +385,7 @@
   },
   "catalogs": {
     "effect-v4": {
+      "@better-auth/core": "1.7.1",
       "@effect/platform-browser": "4.0.0",
       "@effect/platform-bun": "4.0.0",
       "@effect/sql-d1": "4.0.0",
