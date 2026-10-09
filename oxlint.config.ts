@@ -43,6 +43,7 @@ const bunNodeModules = {
       "node:os",
       "node:path",
       "node:process",
+      "node:stream",
       "node:timers/promises",
       "node:url",
     ],
