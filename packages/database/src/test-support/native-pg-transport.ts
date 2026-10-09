@@ -221,7 +221,40 @@ export const withStartupWithheldPostgres = Effect.fnUntraced(function* <A, E, R>
       const port = yield* Effect.fromNullishOr(ports[0]);
       const host = "127.0.0.1";
       const server = yield* BunSocketServer.make({ host, port });
-      yield* server.run(() => Effect.never).pipe(Effect.forkScoped);
+
+      yield* server
+        .run(() =>
+          Effect.scoped(
+            Effect.gen(function* () {
+              // The accepted peer is never read, so its owner must destroy it and await its close.
+              const peer = yield* Effect.serviceOption(BunSocket.NetSocket);
+
+              if (Option.isNone(peer))
+                return yield* Effect.die(
+                  "Native SocketServer omitted its public NetSocket capability",
+                );
+
+              yield* Effect.acquireRelease(
+                Effect.sync(() => {
+                  const closed = Deferred.makeUnsafe<void>();
+
+                  if (peer.value.closed) Deferred.doneUnsafe(closed, Effect.void);
+                  else peer.value.once("close", () => Deferred.doneUnsafe(closed, Effect.void));
+
+                  return closed;
+                }),
+                (closed) =>
+                  Effect.sync(() => peer.value.destroy()).pipe(
+                    Effect.andThen(Deferred.await(closed)),
+                  ),
+              );
+
+              return yield* Effect.never;
+            }),
+          ),
+        )
+        .pipe(Effect.forkScoped);
+
       const url = new URL(postgres.url);
       url.hostname = host;
       url.port = String(port);
