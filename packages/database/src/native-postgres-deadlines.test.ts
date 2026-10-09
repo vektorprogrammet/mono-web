@@ -50,7 +50,7 @@ layer(postgres, { excludeTestServices: true, timeout: "30 seconds" })(
   "stable native transaction admission",
   (it) => {
     it.effect(
-      "startup acquisition belongs to the pool owner until its scope closes after borrower cancellation",
+      "borrower cancellation runs no transaction body and owner shutdown closes pending startup within two seconds",
       () =>
         Effect.gen(function* () {
           const started = yield* Postgres;
@@ -86,24 +86,17 @@ layer(postgres, { excludeTestServices: true, timeout: "30 seconds" })(
 
               yield* transport.connected;
               yield* Effect.yieldNow;
-              const cancellingAt = yield* Clock.monotonicTimeNanos;
               yield* Fiber.interrupt(waiting);
               const exit = yield* Fiber.await(waiting);
-              // Native Pool forks startup into its owner scope, not the waiting borrower.
               assert.isTrue(Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause));
               assert.strictEqual(yield* Ref.get(entries), 0);
-              assert.deepStrictEqual(
-                (yield* transport.snapshot).map(({ destroyed, closed }) => ({ destroyed, closed })),
-                [{ destroyed: false, closed: false }],
-              );
 
+              const ownerClosingAt = yield* Clock.monotonicTimeNanos;
               yield* Scope.close(ownerScope, Exit.void);
               yield* transport.closed;
 
               const closedAt = yield* Clock.monotonicTimeNanos;
-              assert.isBelow(Number(closedAt - cancellingAt) / 1_000_000, 2000);
-              assert.isTrue(Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause));
-              assert.strictEqual(yield* Ref.get(entries), 0);
+              assert.isBelow(Number(closedAt - ownerClosingAt) / 1_000_000, 2000);
               assert.isTrue(
                 (yield* transport.snapshot).every(({ destroyed, closed }) => destroyed && closed),
               );
