@@ -1,4 +1,4 @@
-import { Predicate } from "effect";
+import { Predicate, Struct } from "effect";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -18,8 +18,8 @@ const trustedOrigins = JSON.parse(process.env.NATIVE_IDENTITY_TRUSTED_ORIGINS ??
 
 assert.ok(
   Array.isArray(trustedOrigins) &&
-    trustedOrigins.length === 1 &&
-    Predicate.isString(trustedOrigins[0]),
+  trustedOrigins.length === 1 &&
+  Predicate.isString(trustedOrigins[0]),
   "NATIVE_IDENTITY_TRUSTED_ORIGINS must contain one dashboard origin",
 );
 
@@ -51,7 +51,7 @@ const parsedDashboardOrigin = new URL(dashboardOrigin);
 
 assert.ok(
   parsedDashboardOrigin.protocol === "http:" &&
-    ["127.0.0.1", "localhost", "::1", "[::1]"].includes(parsedDashboardOrigin.hostname),
+  ["127.0.0.1", "localhost", "::1", "[::1]"].includes(parsedDashboardOrigin.hostname),
   "Receipt approval seed requires a loopback HTTP Better Auth origin",
 );
 
@@ -121,7 +121,7 @@ export const receiptApprovalDepartments = {
 
 const persons = Object.values(receiptApprovalPersonas);
 
-const identityPersons = persons.map(({ fixtureLabel: _, ...person }) => person);
+const identityPersons = persons.map(Struct.omit(["fixtureLabel"]));
 
 const personIds = persons.map(({ personId }) => personId);
 

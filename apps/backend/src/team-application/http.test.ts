@@ -24,6 +24,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { backendDatabase } from "../../test/database.js";
 import { decodeTeamApplicationApiConfig } from "../config.js";
 import { makeTeamApplicationsTestHttp } from "../test/native-http.js";
+import { TestPlatform } from "../test/platform.js";
 
 const expiresAt = DateTime.makeUnsafe("2099-01-01T00:00:00.000Z");
 
@@ -119,7 +120,7 @@ const fixture = (environment: Readonly<Record<string, string>> = {}) => {
       Layer.succeed(Identity, identity),
       Layer.succeed(IdentitySnapshot, identitySnapshot),
       Layer.succeed(OAuthCredentialAuthority, oauth),
-    ),
+    ).pipe(Layer.provideMerge(TestPlatform)),
   );
 
   const request: TestRequest = (pathname, init = {}) => {

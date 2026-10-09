@@ -92,6 +92,9 @@ export const headerCredentialCount = (
 
 type AcceptedCredential = Extract<CredentialOutcome, { readonly _tag: "Accepted" }>;
 
+const isAcceptedCredential = (credential: CredentialOutcome): credential is AcceptedCredential =>
+  Predicate.isTagged(credential, "Accepted");
+
 const requestCredentialEffect = (
   request: Request,
   expected: "OAuthUserBearer" | "OAuthServiceBearer" | "Either",
@@ -110,7 +113,7 @@ const requestCredentialEffect = (
   if (authorization !== null) {
     return OAuthCredentialAuthority.use(({ resolve }) => resolve(request, expected)).pipe(
       Effect.filterOrFail(
-        Predicate.isTagged("Accepted"),
+        isAcceptedCredential,
         () => new UnauthenticatedActor({ message: "authentication required" }),
       ),
     );
@@ -158,7 +161,7 @@ const requestCredentialInTransactionEffect = (
       resolveInTransaction(request, expected, DateTime.makeUnsafe(authorizationInstant)),
     ).pipe(
       Effect.filterOrFail(
-        Predicate.isTagged("Accepted"),
+        isAcceptedCredential,
         () => new UnauthenticatedActor({ message: "authentication required" }),
       ),
     );

@@ -994,7 +994,7 @@ const readReceipts = `SELECT identity_sha256, operation_id, state, status, media
   to_char(committed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS committed_at
   FROM public.native_http_idempotency_receipts ORDER BY identity_sha256 COLLATE "C"`;
 
-interface CoverageRow extends object {
+interface CoverageRow {
   readonly coverage_id: string;
   readonly absence_id: string;
   readonly covering_person_id: string;
@@ -1004,7 +1004,7 @@ interface CoverageRow extends object {
   readonly withdrawn_at: string | null;
 }
 
-interface ReceiptRow extends object {
+interface ReceiptRow {
   readonly identity_sha256: string;
   readonly operation_id: string;
   readonly state: string;
@@ -1015,8 +1015,10 @@ interface ReceiptRow extends object {
   readonly committed_at: string;
 }
 
+type SnapshotRow = CoverageRow | ReceiptRow | Readonly<Record<string, never>>;
+
 /** The column values of one row in select order, so that two reads of a row compare by value. */
-const rowText = (row: QueryResultRow) => Object.values(row).join("\u001f");
+const rowText = (row: SnapshotRow) => Object.values(row).join("\u001f");
 
 /**
  * Observers that stay in the database: PGlite's socket server closes a connection that reports
@@ -1049,7 +1051,7 @@ BEGIN
 END $$;
 `;
 
-interface HistoryRow extends object {
+interface HistoryRow {
   readonly application_id: string;
   readonly revision: number;
   readonly outcome: string;

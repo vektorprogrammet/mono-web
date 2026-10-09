@@ -172,7 +172,7 @@ layer(TestPlatform, { excludeTestServices: true })("makeR2ReceiptFileStore", (it
       );
 
       expect(failure._tag).toBe("ReceiptFileStoreError");
-      expect(failure.operation).toBe("stageBytes");
+      expect(failure).toHaveProperty("operation", "stageBytes");
       expect(bucket.keys()).toEqual([]);
     }),
   );
