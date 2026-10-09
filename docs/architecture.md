@@ -179,6 +179,27 @@ Public responses require explicit public-schema encoding. Raw model serializatio
 These boundaries do not require a new queue, event log, state runtime, or generic repository.
 Adoption criteria and verification practices live in [AGENTS.md](../AGENTS.md#boundary-practices).
 
+## Database and authentication lifetimes
+
+The backend owns two separate scoped pools. Native Effect SQL provides `Database`;
+Better Auth uses its supported pg/Kysely adapter on `AuthPoolLive`. Neither pool
+borrows the other pool's connection or transaction. The Bun host supplies caps of
+eight native connections and four authentication connections.
+
+`nativePgLayer` keeps every checkout exclusive and disables multiplexing. Prepared
+statements are disabled unless the host explicitly selects a compatible pooler.
+The native driver owns reservation, transaction nesting, rollback, and release.
+Migration files pass through `executePostgresMigration`, which parses their original
+statement boundaries and runs them sequentially inside the caller's transaction.
+
+The dependency patches in the root manifest preserve the HTTP request union and
+queue verification and acknowledgement contracts. The native SQL lifetime repair
+adds explicit top-level admission interruptibility and opted physical shutdown
+observation; it does not infer a transaction outcome from cancellation or disposal.
+The [exception registry](effect-exceptions.json) records their scope, upstream
+capability gaps, verification requirements, and retirement triggers. Runtime
+acceptance and provider capacity remain separate gates in [STATE.md](../STATE.md).
+
 ## Boundary encoding
 
 Use Effect Schema at every external or durable boundary:

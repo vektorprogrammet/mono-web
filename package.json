@@ -11,8 +11,9 @@
     "prepare": "effect-tsgo patch --typescript --oxlint"
   },
   "devDependencies": {
+    "@effect/platform-browser": "catalog:effect-v4",
     "@effect/tsgo": "0.48.0",
-    "@effx/cli": "file:tools/effx-dist/effx-cli-0.1.0-6c01765feaf647252eec69eb6de17251169f5843.tgz",
+    "@effx/cli": "file:tools/effx-dist/effx-cli-0.1.0-34f56e2e92d8ec3ee881db22fa702fe8cdc81a77.tgz",
     "@effx/runtime": "0.1.0",
     "@oxlint/plugins": "1.77.0",
     "@phibkro/oxlint-effect-plugin": "0.2.0",
@@ -31,11 +32,11 @@
     "@effect/platform-browser": "4.0.0",
     "@effect/platform-node": "4.0.0",
     "@effect/platform-node-shared": "4.0.0",
-    "@effx/compiler": "file:tools/effx-dist/effx-compiler-0.1.0-6c01765feaf647252eec69eb6de17251169f5843.tgz",
-    "@effx/diagnostics": "file:tools/effx-dist/effx-diagnostics-0.1.0-6c01765feaf647252eec69eb6de17251169f5843.tgz",
-    "@effx/ir": "file:tools/effx-dist/effx-ir-0.1.0-6c01765feaf647252eec69eb6de17251169f5843.tgz",
-    "@effx/persistence": "file:tools/effx-dist/effx-persistence-0.1.0-6c01765feaf647252eec69eb6de17251169f5843.tgz",
-    "@effx/runtime": "file:tools/effx-dist/effx-runtime-0.1.0-6c01765feaf647252eec69eb6de17251169f5843.tgz"
+    "@effx/compiler": "file:tools/effx-dist/effx-compiler-0.1.0-34f56e2e92d8ec3ee881db22fa702fe8cdc81a77.tgz",
+    "@effx/diagnostics": "file:tools/effx-dist/effx-diagnostics-0.1.0-34f56e2e92d8ec3ee881db22fa702fe8cdc81a77.tgz",
+    "@effx/ir": "file:tools/effx-dist/effx-ir-0.1.0-34f56e2e92d8ec3ee881db22fa702fe8cdc81a77.tgz",
+    "@effx/persistence": "file:tools/effx-dist/effx-persistence-0.1.0-34f56e2e92d8ec3ee881db22fa702fe8cdc81a77.tgz",
+    "@effx/runtime": "file:tools/effx-dist/effx-runtime-0.1.0-34f56e2e92d8ec3ee881db22fa702fe8cdc81a77.tgz"
   },
   "engines": {
     "node": ">=22",
