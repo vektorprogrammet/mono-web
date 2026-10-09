@@ -577,6 +577,15 @@
       "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
       "scope": {
         "files": [
+          "packages/database/src/admissions/evidence-upgrade.test.ts",
+          "packages/database/src/admissions/outcome-policy.postgres.test.ts",
+          "packages/database/src/application/ownership-upgrade.postgres.test.ts",
+          "packages/database/src/migrations.test.ts",
+          "packages/database/src/native-postgres-codecs.test.ts",
+          "packages/database/src/schema-calendar-arithmetic.test.ts",
+          "packages/database/src/team-application/delivery-pgbouncer.test.ts",
+          "packages/database/src/team-application/queue-deadline.test.ts",
+          "packages/database/src/team-application/queue-migration.test.ts",
           "packages/database/runtime/historical-service-cohort-rehearsal.ts",
           "packages/database/runtime/identity-browser-proof-main.ts",
           "packages/database/runtime/identity-postgres-proof-main.ts",
@@ -876,17 +885,47 @@
       "retirementTrigger": "A supported native Effect PostgreSQL API parses complete migration sources and executes original UTF-8 statement bytes within the caller's transaction. Replace this FFI adapter with that API and retain all parser, channel, rollback and cancellation laws."
     },
     {
+      "id": "EX-0031",
+      "rules": ["FX002", "FX012"],
+      "scope": {
+        "files": ["packages/database/src/team-application/delivery-pgbouncer.test.ts"],
+        "symbols": ["poolMode", "preparedCapacity"]
+      },
+      "reason": "Only the disposable PgBouncer admin console uses the supported pg simple-protocol client to read SHOW POOLS and SHOW CONFIG. All application SQL, transactions, prepared queries, queue operations and migrations use the native driver.",
+      "missingCapability": "Installed native sql-pg4.0.0 exposes extended-protocol execution but no public simple-query client for the PgBouncer admin console.",
+      "nativeAlternatives": [
+        "Inspected installed PgConnection.ts1043-1050 and1070-1100: both unnamed and prepared executions encode Parse/Bind/Describe/Execute/Sync; prepare:false remains extended protocol.",
+        "Native PgClient/PgConnection have no public simple-query selection. Reimplementing PostgreSQL protocol or using private session internals is rejected.",
+        "The existing maintained pg client is already the supported Better Auth dependency. The console adapter owns a one-connection scoped pool with explicit acquisition/query deadlines, typed failures, schema-decoded rows and finalization."
+      ],
+      "verification": [
+        "packages/database/src/team-application/delivery-pgbouncer.test.ts reads actual pool_mode and max_prepared_statements from the owned real console, and tests native queries/transactions under prepare:false and prepare:true.",
+        "Real PostgreSQL17/18 and PgBouncer execution on the final integrated head remains lead-admitted; registering this source does not claim a runtime pass."
+      ],
+      "owner": "packages/database",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/sql-pg": "4.0.0",
+        "pg": "8.23.0"
+      },
+      "retirementTrigger": "When the public native PostgreSQL client supports the required simple-query admin protocol, replace only these console operations and remove this record after the real pool mode/prepared-capacity proofs pass."
+    },
+    {
       "id": "EX-0032",
       "rules": ["FX002", "FX006", "FX012", "effecttsgo/node-builtin-import"],
       "scope": {
-        "files": ["packages/database/src/test-support/native-pg-transport.ts"],
+        "files": [
+          "packages/database/src/test-support/native-pg-transport.ts",
+          "packages/database/src/team-application/queue-deadline.test.ts"
+        ],
         "symbols": [
           "observeNativePgTransport",
           "withFinWithheldPostgres",
           "readNativeTimeoutCount",
           "readNativeHostRuntime",
           "CloseSilentPgDuplex",
-          "withStartupWithheldPostgres"
+          "withStartupWithheldPostgres",
+          "trackedTransport"
         ]
       },
       "reason": "Test-only public Node transport ABI supplies PgClientConfig.stream synchronously and observes genuine socket close and active Timeout resources. A genuine Duplex with emitClose false forwards real PostgreSQL traffic to falsify missing close acknowledgement; it is not a socket mock or an application adapter.",
@@ -913,7 +952,10 @@
       "id": "EX-0037",
       "rules": ["FX003", "FX004", "FX012"],
       "scope": {
-        "files": ["packages/database/src/auth-engine.ts"],
+        "files": [
+          "packages/database/src/auth-engine.ts",
+          "packages/database/src/auth-live.test.ts"
+        ],
         "symbols": ["runProvisioningContext", "withNativeAuthProvisioning"]
       },
       "reason": "One binding assertion describes the installed public Better Auth runWithEndpointContext ABI without casting any Effect channel or application context. The upstream non-generic AuthContext default is invariant with plugin-specific engine contexts and the declared Promise<T> omits JavaScript async Promise flattening.",

@@ -224,6 +224,9 @@ export const toolImportExceptions = [
       "packages/database/src/native-postgres-deadlines.test.ts",
       "packages/database/src/password-recovery.test.ts",
       "packages/database/src/test-support/native-pg-transport.ts",
+      "packages/database/src/native-postgres-codecs.test.ts",
+      "packages/database/src/team-application/queue-deadline.test.ts",
+      "packages/database/src/test-support/postgres.ts",
     ],
     reason:
       "Native SQL admission, cancellation, physical-close and recovery tests own disposable PostgreSQL peers through the same test-only fixture boundary. " +

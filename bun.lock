@@ -109,7 +109,7 @@
         "@vektorprogrammet/backend": "workspace:*",
         "@vektorprogrammet/domain": "workspace:*",
         "happy-dom": "^20.12.0",
-        "pg": "8",
+        "pg": "catalog:effect-v4",
         "typescript": "7.0.2",
         "vite": "^8.0.7",
         "vitest": "catalog:effect-v4",
@@ -206,7 +206,7 @@
         "better-auth": "catalog:effect-v4",
         "effect": "catalog:effect-v4",
         "libpg-query": "catalog:sql-parser",
-        "pg": "8",
+        "pg": "catalog:effect-v4",
       },
       "devDependencies": {
         "@effect/sql-pglite": "catalog:effect-v4",
@@ -294,7 +294,7 @@
         "@vektorprogrammet/http-api": "workspace:*",
         "effect": "catalog:effect-v4",
         "mysql2": "^3.15.3",
-        "pg": "8",
+        "pg": "catalog:effect-v4",
       },
       "devDependencies": {
         "@types/node": "^22",
@@ -360,7 +360,7 @@
         "@vektorprogrammet/sdk": "workspace:*",
         "better-auth": "1.7.1",
         "effect": "catalog:effect-v4",
-        "pg": "8",
+        "pg": "catalog:effect-v4",
       },
       "devDependencies": {
         "@types/node": "^22",
@@ -399,6 +399,7 @@
       "effect": "4.0.0",
       "fast-check": "4.9.0",
       "foldkit": "0.165.0",
+      "pg": "8.23.0",
       "vitest": "5.0.0",
     },
     "sql-parser": {

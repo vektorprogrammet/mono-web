@@ -153,7 +153,7 @@ export const ExternalNativeApiRouterLive = (
     now: options.now,
   };
 
-  const middlewareLayer = nativeHttpApiMiddlewareLayer(config.contact);
+  const middlewareLayer = nativeHttpApiMiddlewareLayer(config.contact, globalThis.crypto.subtle);
 
   const handlers = Layer.mergeAll(
     AdmissionOutcomesApiHandlers({ now: options.now }),
@@ -259,7 +259,7 @@ export const InternalNativeApiRouterLive = (
     now: options.now,
   };
 
-  const middlewareLayer = nativeHttpApiMiddlewareLayer(config.contact);
+  const middlewareLayer = nativeHttpApiMiddlewareLayer(config.contact, globalThis.crypto.subtle);
   const handlers = InternalReceiptApiHandlers(receiptOptions).pipe(Layer.provide(middlewareLayer));
 
   const internalRoutes = HttpApiBuilder.layer(InternalNativeApi).pipe(

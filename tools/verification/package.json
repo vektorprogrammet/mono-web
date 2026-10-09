@@ -23,7 +23,7 @@
     "@vektorprogrammet/sdk": "workspace:*",
     "better-auth": "1.7.1",
     "effect": "catalog:effect-v4",
-    "pg": "8"
+    "pg": "catalog:effect-v4"
   },
   "devDependencies": {
     "@types/node": "^22",

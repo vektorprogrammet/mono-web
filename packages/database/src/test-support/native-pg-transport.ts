@@ -1,8 +1,8 @@
 /**
  * EX-0021: Required public native socket/SQL APIs retain upstream unstable annotations.
  * @effect-diagnostics unstableApiUsage:off
- * EX-0032: Test-only public Duplex ABI and actual socket-close observations.
  */
+/** EX-0032: Test-only public Duplex ABI and actual socket-close observations. */
 import * as BunSocket from "@effect/platform-bun/BunSocket";
 import * as BunSocketServer from "@effect/platform-bun/BunSocketServer";
 import { reserveLoopbackPorts, type DisposablePostgres } from "@monoweb/postgres";

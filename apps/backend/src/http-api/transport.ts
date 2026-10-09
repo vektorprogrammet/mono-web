@@ -276,15 +276,17 @@ const invitationCapabilitySecurityLayer = Layer.succeed(
   }),
 );
 
+const noContactSsrSecurityLayer = Layer.succeed(
+  ContactSsrSecurity,
+  ContactSsrSecurity.of({ contactBackend: (httpEffect) => httpEffect }),
+);
+
 const contactSsrSecurityLayer = (
   contact: ContactConfig | undefined,
   subtle: Pick<typeof globalThis.crypto.subtle, "importKey" | "sign" | "verify">,
 ) =>
   contact === undefined
-    ? Layer.succeed(
-        ContactSsrSecurity,
-        ContactSsrSecurity.of({ contactBackend: (httpEffect) => httpEffect }),
-      )
+    ? noContactSsrSecurityLayer
     : Layer.effect(
         ContactSsrSecurity,
         Effect.gen(function* () {
@@ -326,12 +328,15 @@ const RequestSchemaErrorLive = HttpApiMiddleware.layerSchemaErrorTransform(
  * the serializable transaction that commits the command.
  */
 export const nativeHttpApiMiddlewareLayer = (
-  contact?: ContactConfig,
-  subtle: Pick<typeof globalThis.crypto.subtle, "importKey" | "sign" | "verify"> = globalThis.crypto
-    .subtle,
+  ...args:
+    | []
+    | [
+        contact: ContactConfig | undefined,
+        subtle: Pick<typeof globalThis.crypto.subtle, "importKey" | "sign" | "verify">,
+      ]
 ) =>
   Layer.mergeAll(
-    contactSsrSecurityLayer(contact, subtle),
+    args.length === 0 ? noContactSsrSecurityLayer : contactSsrSecurityLayer(...args),
     sessionSecurityLayer,
     personSecurityLayer,
     personOrServiceSecurityLayer,

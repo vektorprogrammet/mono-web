@@ -79,7 +79,7 @@
     "better-auth": "catalog:effect-v4",
     "effect": "catalog:effect-v4",
     "libpg-query": "catalog:sql-parser",
-    "pg": "8"
+    "pg": "catalog:effect-v4"
   },
   "devDependencies": {
     "@effect/sql-pglite": "catalog:effect-v4",
