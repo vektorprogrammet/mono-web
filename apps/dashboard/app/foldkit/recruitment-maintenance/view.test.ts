@@ -313,7 +313,9 @@ const fixtureFetch = (canReopen = true, failReload = false) => {
 
     if (request.method === "POST") {
       const command = decodeMaintenanceJson(yield* Effect.promise(() => request.text()));
-      expect(Predicate.isTagged(command, "CloseAssessmentCorrection")).toBe(true);
+
+      if (!Predicate.isTagged(command, "CloseAssessmentCorrection"))
+        return yield* Effect.die(new Error("Expected a CloseAssessmentCorrection command"));
       expect(command.commandId).toBe(request.headers.get("idempotency-key"));
       expect(command.interviewId).toBe(testInterviewId);
       posts++;

@@ -31,6 +31,7 @@ import {
   SubmittedMaintenance,
   SucceededSave,
   SucceededStaffing,
+  type Message,
 } from "./message";
 import { Mutation, type Model } from "./model";
 import {
@@ -67,6 +68,13 @@ const pendingCommand = (model: Model) => {
 
   return model.mutation.command;
 };
+
+const seededCommands =
+  (pending: ReadonlyArray<Story.AnyCommand>) =>
+  (simulation: Story.StorySimulation<Model, Message>): Story.StorySimulation<Model, Message> => ({
+    ...simulation,
+    commands: pending,
+  });
 
 describe("R2 server-owned correction window model", () => {
   it("building and discarding window and dialog commands runs no work", () => {
@@ -423,7 +431,7 @@ it("sequences production Save Load correlated native Close completion and one in
   expect(ready.model.workflowFocus?.phase).toBe("Closing");
   expect(ready.commands?.map((command) => command.name)).toEqual(["CloseDialog"]);
   const ticket = ready.model.workflowFocus!.ticket;
-  Story.story(update, Story.given(ready.model), (simulation) => ({ ...simulation, commands: ready.commands ?? [] }),
+  Story.story(update, Story.given(ready.model), seededCommands(ready.commands ?? []),
     Story.Command.resolve(Dialog.CloseDialog, Dialog.Message.CompletedCloseDialog()),
     Story.Command.expectExact(FocusCorrectionReopen(ticket)),
     Story.Command.resolveAllExact([FocusCorrectionReopen, CompletedWorkflowFocus({ ticket })]),
@@ -471,7 +479,7 @@ it.each([false, true])("failed reload (denied=%s) releases modal and never focus
 it("no server Reopen permission releases without focus", () => {
   const ready = readyClose(false);
   expect(ready.model.workflowFocus).toBeNull();
-  Story.story(update, Story.given(ready.model), (simulation) => ({ ...simulation, commands: ready.commands ?? [] }), Story.Command.resolveAllExact([Dialog.CloseDialog, Dialog.Message.CompletedCloseDialog()]), Story.Command.expectNone());
+  Story.story(update, Story.given(ready.model), seededCommands(ready.commands ?? []), Story.Command.resolveAllExact([Dialog.CloseDialog, Dialog.Message.CompletedCloseDialog()]), Story.Command.expectNone());
 });
 
 it.each(["dismiss", "refresh"] as const)("%s cancels reload before ordinary replacement; stale reads cannot rearm", (action) => {
