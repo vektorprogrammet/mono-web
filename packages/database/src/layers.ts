@@ -28,11 +28,4 @@ const DatabaseFromPg = (observer?: DatabaseLayerObserver) =>
  * Better Auth owns a separate supported pool.
  */
 export const DatabaseLive = (config: NativePgPoolConfig, observer?: DatabaseLayerObserver) =>
-  DatabaseFromPg(observer).pipe(
-    Layer.provideMerge(
-      nativePgLayer({
-        ...config,
-        startupOptions: config.startupOptions ?? "-c search_path=auth,public",
-      }),
-    ),
-  );
+  DatabaseFromPg(observer).pipe(Layer.provideMerge(nativePgLayer(config)));

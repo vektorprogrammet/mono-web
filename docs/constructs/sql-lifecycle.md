@@ -428,7 +428,7 @@ nativePgLayer(
 - Errors: `Schema.SchemaError | SqlError`
 - Requirements: none
 - Side effects: Opens native PostgreSQL sessions only after the layer runs.
-- Source: [packages/database/src/pg-pool.ts:70](../../packages/database/src/pg-pool.ts#L70)
+- Source: [packages/database/src/pg-pool.ts:72](../../packages/database/src/pg-pool.ts#L72)
 
 **How it works**
 
@@ -445,7 +445,7 @@ no close event is a defect, not a successful disposal or transaction-outcome rec
 **Use**
 
 ```ts
-const sql = nativePgLayer({ url, maxConnections: 2, prepare: false });
+const sql = nativePgLayer({ url, maxConnections: 2, prepare: false, startupOptions: "-c search_path=public" });
 ```
 
 **Avoid**
@@ -470,7 +470,7 @@ AuthPoolLive(
 - Errors: `Schema.SchemaError`
 - Requirements: none
 - Side effects: Opens supported pg sessions only when the auth adapter uses the layer.
-- Source: [packages/database/src/pg-pool.ts:120](../../packages/database/src/pg-pool.ts#L120)
+- Source: [packages/database/src/pg-pool.ts:123](../../packages/database/src/pg-pool.ts#L123)
 
 **How it works**
 
@@ -486,6 +486,7 @@ const authPool = AuthPoolLive(config, {
   maxConnections: 2,
   applicationName: "vektorprogrammet-worker-auth",
   pipeline: true,
+  startupOptions: "-c search_path=auth",
   connectTimeoutMilliseconds: 2_000,
   queryTimeoutMilliseconds: 1_000,
 });

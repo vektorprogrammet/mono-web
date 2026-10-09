@@ -189,6 +189,13 @@ Better Auth uses its supported pg/Kysely adapter on `AuthPoolLive`. Neither pool
 borrows the other pool's connection or transaction. The Bun host supplies caps of
 eight native connections and four authentication connections.
 
+The host supplies startup options explicitly for each pool. Production native
+database pools select `search_path=public`; Better Auth pools select
+`search_path=auth`. No database Layer supplies a schema-search fallback.
+Historical migration proofs select their earlier schema order explicitly.
+Business tables resolve to public, while authentication queries name auth
+explicitly; a same-named auth relation cannot redirect an unqualified business read.
+
 `nativePgLayer` keeps every checkout exclusive and disables multiplexing. Prepared
 statements are disabled unless the host explicitly selects a compatible pooler.
 The native driver owns reservation, transaction nesting, rollback, and release.

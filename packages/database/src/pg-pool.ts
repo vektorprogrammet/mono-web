@@ -22,7 +22,7 @@ export const AuthPoolOptions = Schema.Struct({
   pipeline: Schema.Boolean,
   connectTimeoutMilliseconds: Schema.optionalKey(positiveMilliseconds),
   queryTimeoutMilliseconds: Schema.optionalKey(positiveMilliseconds),
-  startupOptions: Schema.optionalKey(Schema.String),
+  startupOptions: Schema.NonEmptyString,
 });
 
 export type AuthPoolOptions = typeof AuthPoolOptions.Type;
@@ -33,6 +33,8 @@ export interface NativePgPoolConfig extends Omit<
   "multiplex" | "multiplexConcurrency"
 > {
   readonly maxConnections: number;
+  /** Explicit PostgreSQL startup options including this pool's intended search_path. */
+  readonly startupOptions: string;
 }
 
 /** The approved backend cap. Smaller host-owned pools use the same limit decoder. */
@@ -62,7 +64,7 @@ const decodeNativePgPoolLimit = Schema.decodeEffect(NativePgPoolLimit);
  * @sideEffects Opens native PostgreSQL sessions only after the layer runs.
  * @example
  * ```ts
- * const sql = nativePgLayer({ url, maxConnections: 2, prepare: false });
+ * const sql = nativePgLayer({ url, maxConnections: 2, prepare: false, startupOptions: "-c search_path=public" });
  * ```
  * @avoid Providing a new layer for each service or enabling multiplexing on a cancellable path.
  * @construct sql-lifecycle
@@ -110,6 +112,7 @@ const decodeAuthPoolOptions = Schema.decodeEffect(AuthPoolOptions);
  *   maxConnections: 2,
  *   applicationName: "vektorprogrammet-worker-auth",
  *   pipeline: true,
+ *   startupOptions: "-c search_path=auth",
  *   connectTimeoutMilliseconds: 2_000,
  *   queryTimeoutMilliseconds: 1_000,
  * });
