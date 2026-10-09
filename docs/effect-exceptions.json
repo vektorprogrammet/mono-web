@@ -483,9 +483,17 @@
           "tools/e2e/golden-harness-self-test.ts",
           "tools/e2e/golden-harness.ts",
           "tools/e2e/golden-team-application.ts",
-          "tools/e2e/legacy-candidate-native-journey.ts"
+          "tools/e2e/legacy-candidate-native-journey.ts",
+          "tools/e2e/run-legacy-backup-person-rehearsal.ts"
         ],
-        "symbols": ["ChildProcess", "ChildProcessSpawner", "Etag", "FetchHttpClient", "HttpRouter"]
+        "symbols": [
+          "ChildProcess",
+          "ChildProcessSpawner",
+          "Etag",
+          "FetchHttpClient",
+          "HttpRouter",
+          "SqlClient"
+        ]
       },
       "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
       "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
@@ -495,6 +503,7 @@
         "Examined installed effect/http/HttpRouter: its used public declarations retain unstable annotations.",
         "Examined installed effect/process/ChildProcess: its used public declarations retain unstable annotations.",
         "Examined installed effect/process/ChildProcessSpawner: its used public declarations retain unstable annotations.",
+        "Examined exact installed effect/sql/SqlClient used by the Person rehearsal: its public tag and methods retain upstream unstable annotations; native transaction and cleanup requirements are not exempted.",
         "Replacing native protocols, SQL/model variants, schema arbitraries or scoped processes with foreign implementations would violate the approved native ownership and wire/data contracts.",
         "The installed tsgo rule has no module allowlist. Global disabling or lowering severity would hide unrelated usages, so acknowledgement stays in these explicit files."
       ],
@@ -589,6 +598,9 @@
       "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
       "scope": {
         "files": [
+          "packages/database/src/person-cohort.ts",
+          "packages/database/src/person-cohort.test.ts",
+          "packages/database/runtime/person-cohort-rehearsal.ts",
           "packages/database/src/advisory-lock.ts",
           "packages/database/src/auth-engine.ts",
           "packages/database/src/database-construction.ts",
