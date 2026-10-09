@@ -7,7 +7,8 @@
  * Only two sources count: the attendance recorded at completed dated service, and accepted
  * legacy workday totals, which count as totals and never become dates.
  */
-import { Effect, Encoding, Order, Result, Schema } from "effect";
+import { Effect, Order, Result, Schema } from "effect";
+import { Base64 } from "effect/encoding";
 import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
 import { SchoolId } from "../schools/schema.js";
 import { canonicalJsonBytes, sha256Hex } from "../shared-kernel/canonical-json.js";
@@ -115,6 +116,8 @@ export const evidenceSchools = (evidence: DaysServedEvidence): ReadonlyArray<Day
     ...evidence.legacyTotals.map((legacy) => legacy.school),
   ]);
 
+// EX-0035: typed total serialization keeps the domain digest pure and preserves its canonical wire bytes.
+// @effect-diagnostics-next-line schemaSync:off
 const encodeEvidence = Schema.encodeSync(DaysServedEvidence);
 
 /** The digest of the evidence, so a precondition notices evidence that changed since a read. */
@@ -192,6 +195,8 @@ const CursorTuple = Schema.fromJsonString(
   ]),
 );
 
+// EX-0035: this typed tuple-to-wire serialization remains a total deterministic cursor calculation.
+// @effect-diagnostics-next-line schemaSync:off
 const encodeCursorTuple = Schema.encodeSync(CursorTuple);
 
 /** Opaque continuation of a name-ordered assistant list. */
@@ -209,7 +214,7 @@ export const decodeAssistantCursor = (
   Effect.gen(function* () {
     yield* Schema.decodeEffect(AssistantCursor)(cursor);
 
-    const text = yield* Encoding.decodeBase64String(cursor).pipe(
+    const text = yield* Base64.decodeString(cursor).pipe(
       Result.match({ onSuccess: Effect.succeed, onFailure: Effect.fail }),
     );
 
@@ -236,8 +241,6 @@ export const assistantPage = <A>(
 
   return {
     items: rows.slice(0, DAYS_SERVED_PAGE_SIZE),
-    nextCursor: Encoding.encodeBase64(
-      encodeCursorTuple(["assistant-v1", lastName, firstName, personId]),
-    ),
+    nextCursor: Base64.encode(encodeCursorTuple(["assistant-v1", lastName, firstName, personId])),
   };
 };

@@ -1,10 +1,14 @@
 /**
+ * EX-0020: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Public schemas for application submission, confirmation, and management.
  *
  * @since 0.1.0
  */
 import { Schema } from "effect";
-import { Model } from "effect/unstable/schema";
+import { Model } from "effect/schema";
 import {
   AdmissionDepartment,
   AdmissionFieldOfStudy,
@@ -365,13 +369,6 @@ export const ApplicantProgressResponseSchema = Schema.Struct({
 });
 
 export type ApplicantProgressResponse = typeof ApplicantProgressResponseSchema.Type;
-
-export const decodeApplicantProgressResponse = Schema.decodeUnknownSync(
-  ApplicantProgressResponseSchema,
-  {
-    onExcessProperty: "error",
-  },
-);
 
 export const PublicApplicationFieldOfStudySchema = Schema.Struct({
   fieldOfStudyId: AdmissionFieldOfStudy.json.fields.fieldOfStudyId,

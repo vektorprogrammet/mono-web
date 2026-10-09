@@ -218,8 +218,371 @@
         "The HTTP repair changes only dist/http-api/HttpApiEndpoint.d.ts and its source. SDK contract tests exercise the unchanged client runtime; bootstrap patch applicability is not runtime/type acceptance."
       ],
       "owner": "packages/sdk",
-      "examinedWith": { "effect": "4.0.0", "typescript": "7.0.2" },
+      "examinedWith": {
+        "effect": "4.0.0",
+        "typescript": "7.0.2"
+      },
       "retirementTrigger": "When the installed native ClientRequest accepts the complete union, remove only the HTTP hunks and this record after the retained type/runtime regressions pass. Keep the patch descriptor while an independent native queue hunk remains necessary."
+    },
+    {
+      "id": "EX-0020",
+      "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
+      "scope": {
+        "files": [
+          "packages/domain/runtime/tutor-d1.ts",
+          "packages/domain/src/admission-period/schema.ts",
+          "packages/domain/src/application/schema.ts",
+          "packages/domain/src/content/schema.ts",
+          "packages/domain/src/organization/schema.ts",
+          "packages/domain/src/placements/scheduler.test.ts",
+          "packages/domain/src/profile/schema.ts",
+          "packages/domain/src/receipt/schema.ts",
+          "packages/domain/src/receipt/update.property.test.ts",
+          "packages/domain/src/recruitment/schema.ts",
+          "packages/domain/src/schools/schema.ts",
+          "packages/domain/src/tutor/tracer.property.test.ts"
+        ],
+        "symbols": ["Arbitrary", "D1Client", "Model", "SqlError"]
+      },
+      "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
+      "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
+      "nativeAlternatives": [
+        "Examined installed @effect/sql-d1/D1Client: its used public declarations retain unstable annotations.",
+        "Examined installed effect/Arbitrary: its used public declarations retain unstable annotations.",
+        "Examined installed effect/schema/Model: its used public declarations retain unstable annotations.",
+        "Examined installed effect/sql/SqlError: its used public declarations retain unstable annotations.",
+        "Replacing native protocols, SQL/model variants, schema arbitraries or scoped processes with foreign implementations would violate the approved native ownership and wire/data contracts.",
+        "The installed tsgo rule has no module allowlist. Global disabling or lowering severity would hide unrelated usages, so acknowledgement stays in these explicit files."
+      ],
+      "verification": [
+        "Existing repository exception checks reject unknown ids, files/symbols outside this module, version drift and other suppressed rules. Exact source API inspection establishes this native stability gap.",
+        "Required before acceptance: native module type/diagnostic/runtime contracts and full check/tests on the final clean committed stable source. A local stability acknowledgement does not certify behavior, cancellation, delivery or providers."
+      ],
+      "owner": "packages/domain",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When the installed native declarations no longer carry unstable annotations, remove the matching file acknowledgements and scope entries after the retained native behavior and negative-control diagnostics pass. Reopen this record on any examined-version change."
+    },
+    {
+      "id": "EX-0022",
+      "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
+      "scope": {
+        "files": [
+          "packages/http-api/scripts/generate-openapi.ts",
+          "packages/http-api/src/access.ts",
+          "packages/http-api/src/api.ts",
+          "packages/http-api/src/certificates.ts",
+          "packages/http-api/src/common.ts",
+          "packages/http-api/src/contact.ts",
+          "packages/http-api/src/http-semantics.ts",
+          "packages/http-api/src/onboarding.ts",
+          "packages/http-api/src/placements.ts",
+          "packages/http-api/src/receipt-upload.test.ts",
+          "packages/http-api/src/receipt-upload.ts",
+          "packages/http-api/src/receipts.ts",
+          "packages/http-api/src/recruitment.effx.ts",
+          "packages/http-api/src/system.ts",
+          "packages/http-api/src/team-application.effx.ts",
+          "packages/http-api/src/v2-schemas.ts",
+          "packages/http-api/test/contact-effx-adapters.test.ts",
+          "packages/http-api/test/content-effx-adapters.test.ts",
+          "packages/http-api/test/native-api.test.ts",
+          "packages/http-api/test/onboarding-effx-adapters.test.ts",
+          "packages/http-api/test/openapi-semantics.test.ts",
+          "packages/http-api/test/organization-effx-adapters.test.ts",
+          "packages/http-api/test/receipts.test.ts",
+          "packages/http-api/test/team-application-effx-adapters.test.ts"
+        ],
+        "symbols": [
+          "HttpApi",
+          "HttpApiClient",
+          "HttpApiEndpoint",
+          "HttpApiGroup",
+          "HttpApiMiddleware",
+          "HttpApiSchema",
+          "HttpApiSecurity",
+          "Multipart",
+          "OpenApi"
+        ]
+      },
+      "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
+      "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
+      "nativeAlternatives": [
+        "Examined installed effect/http-api/HttpApi: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiEndpoint: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiGroup: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiMiddleware: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiSchema: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiSecurity: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/OpenApi: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/Multipart: its used public declarations retain unstable annotations.",
+        "Replacing native protocols, SQL/model variants, schema arbitraries or scoped processes with foreign implementations would violate the approved native ownership and wire/data contracts.",
+        "The installed tsgo rule has no module allowlist. Global disabling or lowering severity would hide unrelated usages, so acknowledgement stays in these explicit files."
+      ],
+      "verification": [
+        "Existing repository exception checks reject unknown ids, files/symbols outside this module, version drift and other suppressed rules. Exact source API inspection establishes this native stability gap.",
+        "Required before acceptance: native module type/diagnostic/runtime contracts and full check/tests on the final clean committed stable source. A local stability acknowledgement does not certify behavior, cancellation, delivery or providers."
+      ],
+      "owner": "packages/http-api",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When the installed native declarations no longer carry unstable annotations, remove the matching file acknowledgements and scope entries after the retained native behavior and negative-control diagnostics pass. Reopen this record on any examined-version change."
+    },
+    {
+      "id": "EX-0023",
+      "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
+      "scope": {
+        "files": [
+          "packages/sdk/scripts/generate-operations.ts",
+          "packages/sdk/src/__tests__/generated-native-client.test.ts",
+          "packages/sdk/src/__tests__/profile-operation-index.test.ts",
+          "packages/sdk/src/effect-client.ts"
+        ],
+        "symbols": [
+          "FetchHttpClient",
+          "HttpApi",
+          "HttpApiBuilder",
+          "HttpApiClient",
+          "HttpApiGroup",
+          "HttpApiSchema",
+          "HttpClient",
+          "HttpClientRequest",
+          "HttpRouter",
+          "HttpServer",
+          "OpenApi"
+        ]
+      },
+      "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
+      "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
+      "nativeAlternatives": [
+        "Examined installed effect/http-api/HttpApi: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiBuilder: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiGroup: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiSchema: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/OpenApi: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/FetchHttpClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpClientRequest: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpRouter: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpServer: its used public declarations retain unstable annotations.",
+        "Replacing native protocols, SQL/model variants, schema arbitraries or scoped processes with foreign implementations would violate the approved native ownership and wire/data contracts.",
+        "The installed tsgo rule has no module allowlist. Global disabling or lowering severity would hide unrelated usages, so acknowledgement stays in these explicit files."
+      ],
+      "verification": [
+        "Existing repository exception checks reject unknown ids, files/symbols outside this module, version drift and other suppressed rules. Exact source API inspection establishes this native stability gap.",
+        "Required before acceptance: native module type/diagnostic/runtime contracts and full check/tests on the final clean committed stable source. A local stability acknowledgement does not certify behavior, cancellation, delivery or providers."
+      ],
+      "owner": "packages/sdk",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When the installed native declarations no longer carry unstable annotations, remove the matching file acknowledgements and scope entries after the retained native behavior and negative-control diagnostics pass. Reopen this record on any examined-version change."
+    },
+    {
+      "id": "EX-0025",
+      "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
+      "scope": {
+        "files": [
+          "apps/dashboard/app/foldkit/interview/update.property.test.ts",
+          "apps/dashboard/e2e/native-operations.ts"
+        ],
+        "symbols": ["Arbitrary", "OpenApi"]
+      },
+      "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
+      "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
+      "nativeAlternatives": [
+        "Examined installed effect/Arbitrary: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/OpenApi: its used public declarations retain unstable annotations.",
+        "Replacing native protocols, SQL/model variants, schema arbitraries or scoped processes with foreign implementations would violate the approved native ownership and wire/data contracts.",
+        "The installed tsgo rule has no module allowlist. Global disabling or lowering severity would hide unrelated usages, so acknowledgement stays in these explicit files."
+      ],
+      "verification": [
+        "Existing repository exception checks reject unknown ids, files/symbols outside this module, version drift and other suppressed rules. Exact source API inspection establishes this native stability gap.",
+        "Required before acceptance: native module type/diagnostic/runtime contracts and full check/tests on the final clean committed stable source. A local stability acknowledgement does not certify behavior, cancellation, delivery or providers."
+      ],
+      "owner": "apps/dashboard",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When the installed native declarations no longer carry unstable annotations, remove the matching file acknowledgements and scope entries after the retained native behavior and negative-control diagnostics pass. Reopen this record on any examined-version change."
+    },
+    {
+      "id": "EX-0026",
+      "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
+      "scope": {
+        "files": [
+          "apps/homepage/e2e/public-applicant-admission.spec.ts",
+          "apps/homepage/src/lib/api-types.ts",
+          "apps/homepage/src/lib/public-application.ts",
+          "apps/homepage/src/lib/public-team-application.ts"
+        ],
+        "symbols": ["HttpApiEndpoint", "HttpApiSchema"]
+      },
+      "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
+      "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
+      "nativeAlternatives": [
+        "Examined installed effect/http-api/HttpApiEndpoint: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http-api/HttpApiSchema: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpClientError: its used public declarations retain unstable annotations.",
+        "Replacing native protocols, SQL/model variants, schema arbitraries or scoped processes with foreign implementations would violate the approved native ownership and wire/data contracts.",
+        "The installed tsgo rule has no module allowlist. Global disabling or lowering severity would hide unrelated usages, so acknowledgement stays in these explicit files."
+      ],
+      "verification": [
+        "Existing repository exception checks reject unknown ids, files/symbols outside this module, version drift and other suppressed rules. Exact source API inspection establishes this native stability gap.",
+        "Required before acceptance: native module type/diagnostic/runtime contracts and full check/tests on the final clean committed stable source. A local stability acknowledgement does not certify behavior, cancellation, delivery or providers."
+      ],
+      "owner": "apps/homepage",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When the installed native declarations no longer carry unstable annotations, remove the matching file acknowledgements and scope entries after the retained native behavior and negative-control diagnostics pass. Reopen this record on any examined-version change."
+    },
+    {
+      "id": "EX-0027",
+      "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
+      "scope": {
+        "files": [
+          "tools/acceptance/password-recovery-check.ts",
+          "tools/acceptance/recommendation-check.ts"
+        ],
+        "symbols": ["FetchHttpClient", "HttpClient"]
+      },
+      "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
+      "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
+      "nativeAlternatives": [
+        "Examined installed effect/http/FetchHttpClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpClient: its used public declarations retain unstable annotations.",
+        "Replacing native protocols, SQL/model variants, schema arbitraries or scoped processes with foreign implementations would violate the approved native ownership and wire/data contracts.",
+        "The installed tsgo rule has no module allowlist. Global disabling or lowering severity would hide unrelated usages, so acknowledgement stays in these explicit files."
+      ],
+      "verification": [
+        "Existing repository exception checks reject unknown ids, files/symbols outside this module, version drift and other suppressed rules. Exact source API inspection establishes this native stability gap.",
+        "Required before acceptance: native module type/diagnostic/runtime contracts and full check/tests on the final clean committed stable source. A local stability acknowledgement does not certify behavior, cancellation, delivery or providers."
+      ],
+      "owner": "tools/acceptance",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When the installed native declarations no longer carry unstable annotations, remove the matching file acknowledgements and scope entries after the retained native behavior and negative-control diagnostics pass. Reopen this record on any examined-version change."
+    },
+    {
+      "id": "EX-0028",
+      "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
+      "scope": {
+        "files": [
+          "tools/e2e/golden-harness-self-test.ts",
+          "tools/e2e/golden-harness.ts",
+          "tools/e2e/golden-team-application.ts",
+          "tools/e2e/legacy-candidate-native-journey.ts"
+        ],
+        "symbols": ["ChildProcess", "ChildProcessSpawner", "Etag", "FetchHttpClient", "HttpRouter"]
+      },
+      "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
+      "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
+      "nativeAlternatives": [
+        "Examined installed effect/http/Etag: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/FetchHttpClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpRouter: its used public declarations retain unstable annotations.",
+        "Examined installed effect/process/ChildProcess: its used public declarations retain unstable annotations.",
+        "Examined installed effect/process/ChildProcessSpawner: its used public declarations retain unstable annotations.",
+        "Replacing native protocols, SQL/model variants, schema arbitraries or scoped processes with foreign implementations would violate the approved native ownership and wire/data contracts.",
+        "The installed tsgo rule has no module allowlist. Global disabling or lowering severity would hide unrelated usages, so acknowledgement stays in these explicit files."
+      ],
+      "verification": [
+        "Existing repository exception checks reject unknown ids, files/symbols outside this module, version drift and other suppressed rules. Exact source API inspection establishes this native stability gap.",
+        "Required before acceptance: native module type/diagnostic/runtime contracts and full check/tests on the final clean committed stable source. A local stability acknowledgement does not certify behavior, cancellation, delivery or providers."
+      ],
+      "owner": "tools/e2e",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When the installed native declarations no longer carry unstable annotations, remove the matching file acknowledgements and scope entries after the retained native behavior and negative-control diagnostics pass. Reopen this record on any examined-version change."
+    },
+    {
+      "id": "EX-0029",
+      "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
+      "scope": {
+        "files": [
+          "tools/verification/completion-receipt-postgres-proof-main.ts",
+          "tools/verification/identity-cohort-rehearsal.ts",
+          "tools/verification/onboarding-delivery.test.ts",
+          "tools/verification/organization-import-rehearsal-main.ts",
+          "tools/verification/organization-import-rehearsal-postgres.ts",
+          "tools/verification/recommendation-preupgrade-fixture.ts"
+        ],
+        "symbols": [
+          "Etag",
+          "FetchHttpClient",
+          "HttpClient",
+          "HttpClientRequest",
+          "HttpClientResponse",
+          "HttpRouter",
+          "Migrator",
+          "SqlClient",
+          "SqlError"
+        ]
+      },
+      "reason": "This module uses the operator-required public native APIs from the exact stable Effect4 application cohort. Their upstream declarations retain unstable annotations. A file-local acknowledgement covers only unstableApiUsage; all other diagnostics remain errors.",
+      "missingCapability": "The required native families are exported by stable Effect4.0.0 but still annotated @stability unstable. No unannotated native equivalent preserves this module contract. This record accepts declared API evolution risk, not an RC package or an erased error/lifetime requirement.",
+      "nativeAlternatives": [
+        "Examined installed effect/http/Etag: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/FetchHttpClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpClientRequest: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpClientResponse: its used public declarations retain unstable annotations.",
+        "Examined installed effect/http/HttpRouter: its used public declarations retain unstable annotations.",
+        "Examined installed effect/sql/Migrator: its used public declarations retain unstable annotations.",
+        "Examined installed effect/sql/SqlClient: its used public declarations retain unstable annotations.",
+        "Examined installed effect/sql/SqlError: its used public declarations retain unstable annotations.",
+        "Replacing native protocols, SQL/model variants, schema arbitraries or scoped processes with foreign implementations would violate the approved native ownership and wire/data contracts.",
+        "The installed tsgo rule has no module allowlist. Global disabling or lowering severity would hide unrelated usages, so acknowledgement stays in these explicit files."
+      ],
+      "verification": [
+        "Existing repository exception checks reject unknown ids, files/symbols outside this module, version drift and other suppressed rules. Exact source API inspection establishes this native stability gap.",
+        "Required before acceptance: native module type/diagnostic/runtime contracts and full check/tests on the final clean committed stable source. A local stability acknowledgement does not certify behavior, cancellation, delivery or providers."
+      ],
+      "owner": "tools/verification",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When the installed native declarations no longer carry unstable annotations, remove the matching file acknowledgements and scope entries after the retained native behavior and negative-control diagnostics pass. Reopen this record on any examined-version change."
+    },
+    {
+      "id": "EX-0035",
+      "rules": ["FX012", "FX014", "effecttsgo/schema-sync"],
+      "scope": {
+        "files": ["packages/domain/src/placements/days-served.ts"],
+        "symbols": ["encodeEvidence", "encodeCursorTuple"]
+      },
+      "reason": "Only these two native encodeSync constructors serialize already typed domain evidence and the locally constructed assistant cursor tuple. The public digest and cursor APIs remain total deterministic functions; no untrusted decode is admitted.",
+      "missingCapability": "None in Effect: native encodeSync is the required pure typed serializer. The generic schemaSync diagnostic does not distinguish these typed total encoders from throwing external-input decoders.",
+      "nativeAlternatives": [
+        "Installed Schema.encodeEffect adds an error and runtime channel to pure digest/cursor calculations and changes every caller contract.",
+        "Installed Schema.encodeResult introduces an impossible failure branch for these already typed values; a fallback or unwrap would not improve their totality.",
+        "A hand-written serializer duplicates the native schema and risks changing canonical wire bytes."
+      ],
+      "verification": [
+        "Existing packages/domain/src/placements/days-served.test.ts digest and wire/cursor laws must run against final stable committed source.",
+        "The exception check must retain exactly these two next-line schemaSync directives; malformed input and all decodeUnknown/other schemaSync sites remain errors."
+      ],
+      "owner": "packages/domain/src/placements",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "Remove both directives and this entry once the installed diagnostic supports typed total encoder constructors without reporting schemaSync, after the existing digest and cursor wire laws pass. Reopen on examined package version drift."
     }
   ]
 }
