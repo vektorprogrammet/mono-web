@@ -148,6 +148,14 @@ const effectConfig = {
       strictness: "strict",
     },
     {
+      files: ["packages/database/src/test-support/native-pg-transport.ts"],
+      role: "runtime-adapter",
+      platform: "bun",
+      boundaries: ["external-data"],
+      strictness: "strict",
+      ruleOptions: bunNodeModules,
+    },
+    {
       // Bun runs these composition roots and the journey runtimes that they share.
       files: [
         "apps/backend/src/main.ts",

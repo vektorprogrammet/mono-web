@@ -75,7 +75,7 @@
     "@types/pg": "^8.23.1",
     "@vektorprogrammet/domain": "workspace:*",
     "bcryptjs": "3.0.3",
-    "better-auth": "1.7.1",
+    "better-auth": "catalog:effect-v4",
     "effect": "catalog:effect-v4",
     "libpg-query": "catalog:sql-parser",
     "pg": "8"

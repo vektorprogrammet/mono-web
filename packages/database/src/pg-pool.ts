@@ -54,6 +54,8 @@ const decodeNativePgPoolLimit = Schema.decodeEffect(NativePgPoolLimit);
  * Building the layer performs no work. Its scope closes its native pool on every exit.
  * EX-0034: native admission policy is patched at the upstream boundary. Omitted or false preserves
  * the caller mask; explicit acquisitionInterruptible true interrupts only top-level admission.
+ * Explicit shutdownTimeout owns the graceful wait, then a 100ms real-close acknowledgement bound;
+ * no close event is a defect, not a successful disposal or transaction-outcome receipt.
  *
  * @param config Native connection configuration with the host limit.
  * @returns The native PgClient and SqlClient layer, with configuration or SQL failures.

@@ -1,3 +1,7 @@
+/**
+ * EX-0021: required stable native queue and SQL APIs retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import {
   Context,
   Data,
@@ -11,10 +15,10 @@ import {
   Schedule,
   Schema,
 } from "effect";
-import * as PersistedQueue from "effect/unstable/persistence/PersistedQueue";
-import { SqlSchema } from "effect/unstable/sql";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import type * as Statement from "effect/unstable/sql/Statement";
+import * as PersistedQueue from "effect/persistence/PersistedQueue";
+import { SqlSchema } from "effect/sql";
+import * as SqlClient from "effect/sql/SqlClient";
+import type * as Statement from "effect/sql/Statement";
 import { Mail } from "@vektorprogrammet/domain/mail";
 import {
   TeamApplicationEnvelope,
@@ -43,6 +47,8 @@ export interface TeamApplicationDeliveryOptions {
   /** A lease whose worker stopped refreshing it this long ago is taken again. */
   readonly lockExpiration: Duration.Input;
   readonly lockRefreshInterval: Duration.Input;
+  /** Independent acknowledgement retry window; omission retains the native lease-derived default. */
+  readonly ackRetryDuration?: Duration.Input | undefined;
   /** The attempt with this number is the last: its temporary failure quarantines the effect. */
   readonly maxAttempts: number;
   /** Retry delays double from one second up to this bound. */
@@ -85,11 +91,14 @@ export const TeamApplicationDeliveryQueueLive = (
     Effect.gen(function* () {
       const options = { ...defaultOptions, ...overrides };
 
+      // EX-0012: native queue extensions retain independent retry/schema ownership; omitted options keep this baseline behavior.
       const store = yield* PersistedQueue.makeStoreSql({
         tableName: "effect_queue",
         pollInterval: options.pollInterval,
         lockRefreshInterval: options.lockRefreshInterval,
         lockExpiration: options.lockExpiration,
+        ackRetryDuration: options.ackRetryDuration,
+        migrations: "verify",
       }).pipe(Effect.provideService(SqlClient.SqlClient, yield* Database), Effect.orDie);
 
       const factory = yield* PersistedQueue.makeFactory.pipe(
@@ -119,6 +128,10 @@ export const insertTeamApplicationOutbox = (
   Effect.gen(function* () {
     const { effectId } = notification.request;
 
+    const envelope = yield* Schema.encodeEffect(TeamApplicationEnvelope)(
+      notification.envelope,
+    ).pipe(Effect.orDie);
+
     yield* Database.use(
       (sql) => sql`
         INSERT INTO public.team_application_outbox (
@@ -128,7 +141,7 @@ export const insertTeamApplicationOutbox = (
           ${effectId}, ${notification.request._tag},
           ${notification.request.teamId}, ${notification.request.applicationId},
           ${notification.request.commandId}, ${ordinal},
-          ${sql.json(Schema.encodeSync(TeamApplicationEnvelope)(notification.envelope))},
+          ${sql.json(envelope)},
           'Pending', ${committedAt}
         )
       `,

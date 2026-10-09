@@ -643,6 +643,9 @@
           "packages/database/src/service-principal-grants-live.ts",
           "packages/database/src/service.ts",
           "packages/database/src/test-support/pglite-layer.ts",
+          "packages/database/src/team-application/outbox.ts",
+          "packages/database/src/native-postgres-deadlines.test.ts",
+          "packages/database/src/test-support/native-pg-transport.ts",
           "packages/database/src/test-support/postgres.ts"
         ],
         "symbols": [
@@ -735,16 +738,18 @@
         "files": ["packages/database/src/pg-pool.ts"],
         "symbols": ["nativePgLayer"]
       },
-      "reason": "The local native lifetime patch exposes an explicit transaction admission policy through SqlClient and public PgClient configuration. It changes only top-level connection admission; nested transactions and BEGIN/COMMIT/rollback/release retain native ownership. App hosts must opt in explicitly inside masked requests.",
-      "missingCapability": "Public stable Effect4.0.0 makeWithTransaction acquires a top-level connection inside an unconditional uninterruptible mask. Public PgClient4.0.0 has no acquisition policy option, so a saturated masked request cannot preserve the approved cancellation contract.",
+      "reason": "The local native lifetime patch exposes explicit top-level transaction admission and opted transport shutdown. Omitted/false acquisition preserves caller interruptibility; true overrides a caller mask only during admission. Omitted shutdown retains the original synchronous closeUnsafe branch; opted shutdown waits for actual close, forces local destruction only after owner grace, and defects if no close arrives within the subsequent 100ms. No transaction outcome is inferred.",
+      "missingCapability": "Stable SqlClient4.0.0 masks top-level acquisition and PgClient has no explicit admission policy. Stable PgConnection.closeUnsafe ends the transport without observing physical close, so scope completion/backend-row absence cannot certify physical cleanup.",
       "nativeAlternatives": [
         "Inspected installed SqlClient.makeWithTransaction and Scope.provide transaction acquisition: restoring caller interruptibility preserves unmasked callers; explicit true is required to override a masked caller only during admission.",
         "Wrapping the whole transaction in Effect.interruptible changes the caller body and finalization contract. A private transaction wrapper duplicates native control/lease ownership.",
-        "Changing a SQL deadline or pool capacity does not make the admission wait interruptible and cannot substitute for physical cleanup observation."
+        "Changing a SQL deadline or pool capacity does not make the admission wait interruptible and cannot substitute for physical cleanup observation.",
+        "Inspected exact PgClient to PgPool to PgConnection.make option plumbing and finalizer original options. Native Socket APIs and public Node close events are reused; no private application pool wrapper or invented close receipt is introduced."
       ],
       "verification": [
         "Required native real PostgreSQL acquisition matrix: unmasked/masked callers with omitted,false,true; body interruption, rollback and release, plus failed transaction controls.",
-        "Normal-hook native patch publication and actual anonymous Bun installation are source/graph evidence only, not behavioral acceptance. Final frozen source must run native PostgreSQL and application journeys."
+        "Normal-hook native patch publication and actual anonymous Bun installation are source/graph evidence only, not behavioral acceptance. Final frozen source must run native PostgreSQL and application journeys.",
+        "Required v1 leaked-timer negative control versus v3 graceful no-pending-timeout law, omitted branch-ran/FIN-withheld law, forced 1800ms grace plus 100ms close acknowledgement within 2s total, and real close-silent transport bounded defect. Heavy runs remain paused until Main resumes."
       ],
       "owner": "packages/database",
       "examinedWith": {
@@ -752,7 +757,92 @@
         "@effect/sql-pg": "4.0.0",
         "@effect/tsgo": "0.48.0"
       },
-      "retirementTrigger": "When compatible public native SqlClient/PgClient provide the same explicit top-level admission policy, run the full mask/default/rollback/release matrix, remove only the acquisition patch hunks and this scope after source cutover. Retain independently needed HTTP and queue patches. Reopen on examined-version drift."
+      "retirementTrigger": "Retire admission hunks only when compatible native SqlClient/PgClient provide the same caller-mask-preserving explicit policy and the full default/masked/nested/body/rollback/release laws pass. Retire shutdown hunks only when native public disposal observes real close, owns/cancels its timer and handles missing close honestly under the same graceful/omitted/forced/silent native-PG laws. Retain independently required HTTP/queue patches and reopen on package version drift."
+    },
+    {
+      "id": "EX-0012",
+      "rules": ["FX001", "FX006", "FX010", "FX012"],
+      "scope": {
+        "files": ["packages/database/src/team-application/outbox.ts"],
+        "symbols": ["TeamApplicationDeliveryQueueLive"]
+      },
+      "reason": "Finite delivery graphs need independently bounded acknowledgement retries and read-only acquisition of operator-provisioned queue schema. Local native queue extensions preserve native lease, refresh, claim fencing, factory retry and committed-envelope ownership.",
+      "missingCapability": "Stable Effect4.0.0 derives acknowledgement retry duration from lockExpiration and always runs Migrator on SQL store acquisition. No public acknowledgement-window or verification-only option exists.",
+      "nativeAlternatives": [
+        "Changing lockExpiration changes native claim fencing and refresh, not only acknowledgement retries.",
+        "Factory retry delays/maxAttempts govern redelivery policy, not SQL acknowledgement finalization.",
+        "Database.migrate intent does not stop the native queue store running its own Migrator and migration locks."
+      ],
+      "verification": [
+        "Retained real PostgreSQL queue deadline/lease/refresh/fencing/default laws in native-postgres-deadlines.test.ts and team-application delivery tests must run on final installed source; no native lifetime acceptance implied by patch generation.",
+        "migrations verify reads canonical migration versions and column availability only, not types/indexes/constraints. Operator migrations remain authoritative."
+      ],
+      "owner": "packages/database",
+      "examinedWith": {
+        "effect": "4.0.0"
+      },
+      "retirementTrigger": "When native SQL queue supports independent acknowledgement retry windows and read-only schema acquisition, replace these options and remove only queue patch hunks and this record after the same real PostgreSQL regressions pass. Retain independently necessary HTTP and native transaction/lifetime hunks."
+    },
+    {
+      "id": "EX-0030",
+      "rules": ["FX002", "FX012"],
+      "scope": {
+        "files": ["packages/database/src/postgres-migration-statements.ts"],
+        "symbols": ["postgresMigrationStatements"]
+      },
+      "reason": "Native PostgreSQL uses extended query protocol, which accepts one statement per execution. Migration sources contain dollar-quoted functions, comments and Unicode. Their original statement bytes must run sequentially within the existing Migrator transaction.",
+      "missingCapability": "Effect 4.0.0 has no PostgreSQL grammar parser that exposes original RawStmt UTF-8 byte ranges.",
+      "nativeAlternatives": [
+        "SqlClient.unsafe(source) uses native extended protocol and rejects a source with multiple statements.",
+        "Migrator owns ordering, the ledger and the transaction. It does not parse SQL source statements.",
+        "A handwritten splitter or AST deparser changes the grammar or source bytes and is prohibited by the frozen native SQL contract."
+      ],
+      "verification": [
+        "Retained command: devenv shell -- bun run --cwd packages/database vitest run src/postgres-migration-statements.test.ts --no-file-parallelism --maxWorkers=1. Covers suspended construction, channels, empty source, comments, dollar quotes, UTF-8 byte offsets, omitted protobuf zero fields, syntax failure and NUL rejection; final source verification remains required.",
+        "The adapter Schema-decodes RawStmt offset fields. Parser rejection and offset decode failure retain DatabaseMigrationExecutionError. Only original UTF-8 ranges become statement text; no AST deparser runs.",
+        "libpg-query owns its WASM allocation and frees per-call parse memory. Its parse operation cannot be aborted. Effect interruption discards a late result before executePostgresMigration can execute SQL.",
+        "Authored, not exercised by C: packages/database/src/native-postgres-codecs.test.ts proves real sequential Unicode/function execution, Migrator ledger and DDL rollback after a later SQL failure, and interruption during pg_sleep preventing subsequent statements. SQL lead owns the single heavy proof job and admission.",
+        "Native proof command: devenv shell -- just measure --class stable-sql-codecs -- bun run --cwd packages/database vitest run src/native-postgres-codecs.test.ts --no-file-parallelism --maxWorkers=1. Run for each supported PostgreSQL major through the lead's existing harness."
+      ],
+      "owner": "packages/database",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "libpg-query": "18.1.5"
+      },
+      "retirementTrigger": "A supported native Effect PostgreSQL API parses complete migration sources and executes original UTF-8 statement bytes within the caller's transaction. Replace this FFI adapter with that API and retain all parser, channel, rollback and cancellation laws."
+    },
+    {
+      "id": "EX-0032",
+      "rules": ["FX002", "FX006", "FX012", "effecttsgo/node-builtin-import"],
+      "scope": {
+        "files": ["packages/database/src/test-support/native-pg-transport.ts"],
+        "symbols": [
+          "observeNativePgTransport",
+          "withFinWithheldPostgres",
+          "readNativeTimeoutCount",
+          "CloseSilentPgDuplex",
+          "withStartupWithheldPostgres"
+        ]
+      },
+      "reason": "Test-only public Node transport ABI supplies PgClientConfig.stream synchronously and observes genuine socket close and active Timeout resources. A genuine Duplex with emitClose false forwards real PostgreSQL traffic to falsify missing close acknowledgement; it is not a socket mock or an application adapter.",
+      "missingCapability": "Public Effect Socket does not expose a synchronous fresh Node Duplex for PgClientConfig.stream or host active-resource inventory. Native scope completion alone cannot certify physical transport close.",
+      "nativeAlternatives": [
+        "Inspected PgClientConfig.stream public Node Duplex ABI and native PgConnection shutdown; opaque private pool bookkeeping cannot supply a real close receipt.",
+        "Native BunSocket/BunSocketServer own scoped FIN/startup-withheld peers and are reused for protocol traffic; node net is restricted to the supported synchronous stream constructor and independent real socket observation.",
+        "Clock.monotonic and Deferred own receipt timing; process.getActiveResourcesInfo is used only for the test host timeout inventory, not configuration or application behavior."
+      ],
+      "verification": [
+        "Required real PostgreSQL physical close, active cancellation, startup interruption, graceful no-timer-leak, omitted original synchronous branch, forced deadline timing and never-closing transport bounded-defect laws.",
+        "v1-leak-control RED and confirmed v3 GREEN must be exercised after Main resumes heavy execution. Publishing this prospective test-only record authorizes exact owned test source pairing, not a passing receipt."
+      ],
+      "owner": "packages/database",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/platform-bun": "4.0.0",
+        "@effect/sql-pg": "4.0.0",
+        "@effect/tsgo": "0.48.0"
+      },
+      "retirementTrigger": "When a compatible public Effect/native PostgreSQL API supplies the required synchronous stream and real transport/resource observations, replace these test-only imports and retain the same negative-control and real-PG lifetime laws. Never infer physical close or transaction outcome from a scope/row count alone."
     }
   ]
 }
