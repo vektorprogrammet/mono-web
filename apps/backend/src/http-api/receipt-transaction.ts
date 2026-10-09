@@ -353,7 +353,7 @@ export const redactExpiredNativeHttpReceipts = Database.use((sql) =>
           AND full_expires_at <= transaction_timestamp()
         RETURNING 1
       )
-      SELECT count(*)::integer AS count FROM redacted
+      SELECT count(*)::double precision AS count FROM redacted
     `.pipe(Effect.map((rows) => rows[0]?.count ?? 0)),
     )
     .pipe(

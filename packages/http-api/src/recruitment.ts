@@ -135,7 +135,9 @@ const ConductAssessmentExample = CorrectionHistoryOriginalSchema.make({
   finalizedAt: "2026-09-12T15:00:00.000Z",
 });
 
-const ConductObservationExample = Schema.decodeSync(RecruitmentInterviewConductObservationSchema)({
+const ConductObservationExample = decodeExampleOrThrow(
+  RecruitmentInterviewConductObservationSchema,
+)({
   interviewId: RecruitmentInterviewId.make("interview-1"),
   applicationId: PublicApplicationIdSchema.make("app-0080"),
   applicant: {
@@ -188,6 +190,7 @@ const ConductObservationExample = Schema.decodeSync(RecruitmentInterviewConductO
 });
 
 import * as Schema from "effect/Schema";
+import { decodeExampleOrThrow, encodeExampleOrThrow } from "./declaration-decoding.js";
 import { StrongETag } from "./http-semantics.js";
 import { EmptyJsonRequest } from "./v2-schemas.js";
 
@@ -284,7 +287,7 @@ export const ConductObservation = RecruitmentInterviewConductObservationSchema.p
     identifier: "ConductObservation",
     description: "Interview questions, answers, and conduct state.",
     examples: [
-      Schema.encodeSync(RecruitmentInterviewConductObservationSchema)(ConductObservationExample),
+      encodeExampleOrThrow(RecruitmentInterviewConductObservationSchema)(ConductObservationExample),
     ],
   }),
 );

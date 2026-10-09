@@ -216,7 +216,7 @@ const StoredReceipt = Schema.Struct({
   file_ref: Schema.String,
   file_object_key: Schema.String,
   file_content_type: Schema.Literals(["application/pdf", "image/png", "image/jpeg"]),
-  file_byte_length: Schema.Finite,
+  file_byte_length: Schema.FiniteFromString,
   file_sha256: Schema.String,
   revision: Schema.Finite,
 });
@@ -257,7 +257,7 @@ const receipts = (sql: DatabaseOperations) =>
       .unsafe(`
 SELECT receipt_id,visual_id,owner_person_id,department_id,amount_ore::text AS amount_ore,status,
 to_char(approved_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS approved_at,
-description,payment_account_ciphertext,file_ref,file_object_key,file_content_type,file_byte_length,file_sha256,revision
+description,payment_account_ciphertext,file_ref,file_object_key,file_content_type,file_byte_length::text AS file_byte_length,file_sha256,revision
 FROM public.economy_receipts ORDER BY visual_id
 `)
       .pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(StoredReceipt)))),

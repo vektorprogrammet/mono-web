@@ -46,6 +46,19 @@ const decodeCliReport = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.
 
 const decodeJsonFacts = Schema.decodeUnknownEffect(Schema.Struct({ facts: Schema.Json }));
 
+const decodeSchoolRows = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ school_id: Schema.FiniteFromString, name: Schema.String })),
+);
+
+/** A `count(*)` is one `int8` row; the native client decodes `int8` to `bigint`. */
+const decodeCountRows = Schema.decodeUnknownEffect(
+  Schema.Tuple([Schema.Struct({ count: Schema.BigInt })]),
+);
+
+const decodeReasonRows = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ reason: Schema.String })),
+);
+
 assertNoAmbientConfiguration([
   "HISTORICAL_SERVICE_PG_URL",
   "HISTORICAL_SERVICE_INPUT",
@@ -115,18 +128,27 @@ try {
       .unsafe(
         `SELECT school_id::text, name FROM public.schools_directory_schools ORDER BY school_id`,
       )
-      .pipe(
-        Effect.flatMap(
-          Schema.decodeUnknownEffect(
-            Schema.Array(Schema.Struct({ school_id: Schema.String, name: Schema.String })),
-          ),
-        ),
-      ),
+      .pipe(Effect.flatMap(decodeSchoolRows)),
   );
 
-  const schoolA = Number(schools[0]!.school_id);
+  const schoolId = (name: string) => {
+    const school = schools.find((candidate) => candidate.name === name);
+    assert.ok(school, `${name} must be seeded`);
 
-  const schoolB = Number(schools[1]!.school_id);
+    return school.school_id;
+  };
+
+  const schoolA = schoolId("School A");
+
+  const schoolB = schoolId("School B");
+
+  const countRows = (statement: string) =>
+    Effect.runPromise(
+      pool.unsafe(statement).pipe(
+        Effect.flatMap(decodeCountRows),
+        Effect.map(([{ count }]) => count),
+      ),
+    );
 
   const reconciledSources = [
     "valid-link",
@@ -325,7 +347,7 @@ try {
 
   const currentState = () =>
     Effect.runPromise(
-      pool!
+      pool
         .unsafe(`SELECT jsonb_build_object(
         'affiliations', (SELECT jsonb_agg(a ORDER BY person_id, department_id) FROM public.organization_volunteer_affiliations a),
         'placements', (SELECT jsonb_agg(p ORDER BY placement_id) FROM public.assistant_placements p),
@@ -399,21 +421,14 @@ try {
     ],
   );
 
-  assert.equal(
-    Number(
-      (
-        await Effect.runPromise(
-          pool.unsafe(`SELECT count(*) FROM public.assistant_affiliation_history`),
-        )
-      )[0].count,
-    ),
-    2,
-  );
+  assert.equal(await countRows(`SELECT count(*) FROM public.assistant_affiliation_history`), 2n);
 
   assert.deepEqual(
     (
       await Effect.runPromise(
-        pool.unsafe(`SELECT reason FROM public.historical_service_occurrences ORDER BY reason`),
+        pool
+          .unsafe(`SELECT reason FROM public.historical_service_occurrences ORDER BY reason`)
+          .pipe(Effect.flatMap(decodeReasonRows)),
       )
     ).map(({ reason }) => reason),
     [
@@ -453,16 +468,10 @@ try {
   assert.equal(concurrent[0].accepted, 1);
 
   assert.equal(
-    Number(
-      (
-        await Effect.runPromise(
-          pool.unsafe(
-            `SELECT count(*) FROM public.assistant_service_history WHERE source_history_id = 'concurrent'`,
-          ),
-        )
-      )[0].count,
+    await countRows(
+      `SELECT count(*) FROM public.assistant_service_history WHERE source_history_id = 'concurrent'`,
     ),
-    1,
+    1n,
   );
 
   const facts = (databasePool: SqlClient.SqlClient) =>
@@ -540,16 +549,10 @@ try {
   );
 
   assert.equal(
-    Number(
-      (
-        await Effect.runPromise(
-          pool.unsafe(
-            `SELECT count(*) FROM public.historical_service_snapshots WHERE snapshot_id = 'historical-service-0108-rollback'`,
-          ),
-        )
-      )[0].count,
+    await countRows(
+      `SELECT count(*) FROM public.historical_service_snapshots WHERE snapshot_id = 'historical-service-0108-rollback'`,
     ),
-    0,
+    0n,
   );
 
   await Effect.runPromise(

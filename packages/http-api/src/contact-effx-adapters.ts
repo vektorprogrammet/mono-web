@@ -9,6 +9,7 @@ import {
 } from "@vektorprogrammet/domain/authz";
 import { Schema } from "effect";
 import { accessSpecAnnotations } from "./access.js";
+import { decodeDeclaredOrThrow } from "./declaration-decoding.js";
 
 /** Explicit exported resolver symbol used by the Contact contract. */
 export const ContactDepartmentRecipientResolver = {
@@ -48,9 +49,7 @@ const ContactAccess = Schema.Struct({
   decisionTime: Schema.Literal("SnapshotRead"),
 });
 
-const decodeContactAccess = Schema.decodeUnknownSync(ContactAccess, {
-  onExcessProperty: "error",
-});
+const decodeContactAccess = decodeDeclaredOrThrow(ContactAccess, { onExcessProperty: "error" });
 
 /** Derives native annotations only for the one existing Contact ObjectCapability access triple. */
 export const contactAccessAnnotations = (input: HttpAccessAnnotationSpec) => {

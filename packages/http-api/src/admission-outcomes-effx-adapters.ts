@@ -2,6 +2,7 @@ import type { HttpAccessAnnotationSpec } from "@effx/runtime";
 import { type SCOPE_RESOLVER_IDS } from "@vektorprogrammet/domain/authz";
 import { Predicate, Schema } from "effect";
 import { accessSpecAnnotations, personNativeAccess } from "./access.js";
+import { decodeDeclaredOrThrow } from "./declaration-decoding.js";
 import type { NativeProblemCode } from "./http-semantics.js";
 
 /**
@@ -205,7 +206,7 @@ const AdmissionOutcomesAccess = Schema.Struct({
   ),
 );
 
-const decodeAdmissionOutcomesAccess = Schema.decodeUnknownSync(AdmissionOutcomesAccess, {
+const decodeAdmissionOutcomesAccess = decodeDeclaredOrThrow(AdmissionOutcomesAccess, {
   onExcessProperty: "error",
 });
 

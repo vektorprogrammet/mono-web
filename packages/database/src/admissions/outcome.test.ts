@@ -1,5 +1,5 @@
 import { expect, layer } from "@effect/vitest";
-import { Effect, Exit, Layer, Predicate } from "effect";
+import { Effect, Exit, Layer } from "effect";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
 import {
@@ -66,6 +66,10 @@ const envelopeRows = Database.use(
     SELECT count(*)::int AS total FROM public.admission_outcome_outbox
     WHERE application_id = ${applicationId}`,
 ).pipe(Effect.map((rows) => rows[0]?.total ?? 0));
+
+/** The driver message behind a failed statement: the cause of the SQL error reason. */
+const driverCause = (error: { readonly cause: { readonly cause: unknown } }): string =>
+  String(error.cause.cause);
 
 /** The history is append-only, so a case observes its writes inside a transaction it rolls back. */
 const observeRolledBack = <A, E>(effect: Effect.Effect<A, E, Admissions | Database>) =>
@@ -199,9 +203,7 @@ layer(suiteSeed.pipe(Layer.provideMerge(suiteLayer)), {
               rejected,
               board,
               history,
-              rewrite: String(
-                Predicate.hasProperty(rewrite.cause, "cause") ? rewrite.cause.cause : rewrite.cause,
-              ),
+              rewrite: driverCause(rewrite),
             };
           }),
         );
@@ -304,9 +306,7 @@ layer(suiteSeed.pipe(Layer.provideMerge(suiteLayer)), {
             ),
           );
 
-          return String(
-            Predicate.hasProperty(update.cause, "cause") ? update.cause.cause : update.cause,
-          );
+          return driverCause(update);
         }),
       );
 

@@ -264,9 +264,10 @@ const writePeriod = (
   );
 };
 
-const encodeObservation = Schema.encodeSync(AdmissionPeriodObservationSchema);
+// A domain value that fails its own contract encoder is a broken invariant, so the failure is a defect.
+const encodeObservation = Schema.encodeEffect(AdmissionPeriodObservationSchema);
 
-const encodeOutboxRequest = Schema.encodeSync(AdmissionPeriodOutboxRequestSchema);
+const encodeOutboxRequest = Schema.encodeEffect(AdmissionPeriodOutboxRequestSchema);
 
 const writePeriodCommandReceipt = (
   sql: DatabaseOperations,
@@ -276,20 +277,24 @@ const writePeriodCommandReceipt = (
   period: AdmissionPeriod,
   now: string,
 ): Effect.Effect<void, AdmissionPeriodPersistenceError> =>
-  sql`
+  Effect.gen(function* () {
+    const encodedObservation = yield* encodeObservation(observation).pipe(Effect.orDie);
+
+    yield* sql`
   INSERT INTO admission_period_command_receipts (
     command_id, command_sha256, command_json, observation_json,
     admission_period_id, committed_at
   ) VALUES (
     ${command.commandId}, ${commandDigest}, ${sql.json(canonicalJsonValue(command))},
-    ${sql.json(canonicalJsonValue(encodeObservation(observation)))}, ${period.id}, ${now}
+    ${sql.json(canonicalJsonValue(encodedObservation))}, ${period.id}, ${now}
   )
 `.pipe(
-    Effect.asVoid,
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(periodPersistenceError("insert admission command receipt", cause)),
-    ),
-  );
+      Effect.asVoid,
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(periodPersistenceError("insert admission command receipt", cause)),
+      ),
+    );
+  });
 
 const writeOutbox = (
   sql: DatabaseOperations,
@@ -298,14 +303,18 @@ const writeOutbox = (
   Effect.forEach(
     requests,
     (request, ordinal) =>
-      sql`
+      Effect.gen(function* () {
+        const encodedRequest = yield* encodeOutboxRequest(request).pipe(Effect.orDie);
+
+        yield* sql`
       INSERT INTO admission_period_outbox (
         effect_id, effect_type, admission_period_id, command_id, ordinal, payload_json
       ) VALUES (
         ${request.effectId}, ${request._tag}, ${request.admissionPeriodId},
-        ${request.commandId}, ${ordinal}, ${sql.json(canonicalJsonValue(encodeOutboxRequest(request)))}
+        ${request.commandId}, ${ordinal}, ${sql.json(canonicalJsonValue(encodedRequest))}
       )
-    `.pipe(Effect.asVoid),
+    `;
+      }),
     { discard: true },
   ).pipe(
     Effect.catchTag("SqlError", (cause) =>

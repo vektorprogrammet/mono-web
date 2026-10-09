@@ -52,11 +52,11 @@ beforeEach(() =>
     database.run(
       Database.use((sql) =>
         Effect.gen(function* () {
-          yield* sql`CREATE TABLE IF NOT EXISTS native_test_domain_state (revision integer NOT NULL)`;
-          yield* sql`CREATE TABLE IF NOT EXISTS native_test_commands (command_id text, CONSTRAINT native_test_commands_id_key UNIQUE (command_id))`;
+          yield* sql`CREATE TABLE IF NOT EXISTS public.native_test_domain_state (revision integer NOT NULL)`;
+          yield* sql`CREATE TABLE IF NOT EXISTS public.native_test_commands (command_id text, CONSTRAINT native_test_commands_id_key UNIQUE (command_id))`;
           yield* sql`DROP TRIGGER IF EXISTS reject_native_receipt_commit ON public.native_http_idempotency_receipts`;
-          yield* sql`TRUNCATE public.native_http_idempotency_receipts, native_test_domain_state, native_test_commands`;
-          yield* sql`INSERT INTO native_test_domain_state VALUES (0)`;
+          yield* sql`TRUNCATE public.native_http_idempotency_receipts, public.native_test_domain_state, public.native_test_commands`;
+          yield* sql`INSERT INTO public.native_test_domain_state VALUES (0)`;
         }),
       ),
     ),
@@ -67,7 +67,7 @@ const persistedState = Database.use((sql) =>
   Effect.gen(function* () {
     const revisions = yield* sql<{
       revision: number;
-    }>`SELECT revision FROM native_test_domain_state`;
+    }>`SELECT revision FROM public.native_test_domain_state`;
 
     const receipts = yield* sql<{
       count: number;
@@ -99,7 +99,7 @@ describe("native HTTP command receipt transaction", () => {
       const execute = Database.use((sql) =>
         Effect.gen(function* () {
           executions += 1;
-          yield* sql`UPDATE native_test_domain_state SET revision = revision + 1`;
+          yield* sql`UPDATE public.native_test_domain_state SET revision = revision + 1`;
 
           return response;
         }),
@@ -142,8 +142,8 @@ describe("native HTTP command receipt transaction", () => {
         yield* database.run(
           Database.use((sql) =>
             Effect.gen(function* () {
-              yield* sql`CREATE OR REPLACE FUNCTION reject_native_receipt_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'receipt commit rejected'; END $$`;
-              yield* sql`CREATE CONSTRAINT TRIGGER reject_native_receipt_commit AFTER INSERT ON public.native_http_idempotency_receipts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_native_receipt_commit()`;
+              yield* sql`CREATE OR REPLACE FUNCTION public.reject_native_receipt_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'receipt commit rejected'; END $$`;
+              yield* sql`CREATE CONSTRAINT TRIGGER reject_native_receipt_commit AFTER INSERT ON public.native_http_idempotency_receipts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.reject_native_receipt_commit()`;
             }),
           ),
         );
@@ -151,7 +151,7 @@ describe("native HTTP command receipt transaction", () => {
 
         const execute = Database.use((sql) =>
           Effect.gen(function* () {
-            yield* sql`UPDATE native_test_domain_state SET revision = revision + 1`;
+            yield* sql`UPDATE public.native_test_domain_state SET revision = revision + 1`;
             executed = true;
 
             return response;
@@ -227,15 +227,16 @@ describe("native HTTP command receipt transaction", () => {
 
                 const rows = yield* sql<{
                   commandId: string;
-                }>`SELECT command_id AS "commandId" FROM native_test_commands WHERE command_id = 'same-command'`;
+                }>`SELECT command_id AS "commandId" FROM public.native_test_commands WHERE command_id = 'same-command'`;
 
                 if (rows.length === 0) {
                   yield* database.compete(
                     Database.use(
-                      (other) => other`INSERT INTO native_test_commands VALUES ('same-command')`,
+                      (other) =>
+                        other`INSERT INTO public.native_test_commands VALUES ('same-command')`,
                     ),
                   );
-                  yield* sql`INSERT INTO native_test_commands VALUES ('same-command')`;
+                  yield* sql`INSERT INTO public.native_test_commands VALUES ('same-command')`;
                 }
 
                 return response;

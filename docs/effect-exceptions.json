@@ -582,6 +582,7 @@
           "packages/database/src/application/ownership-upgrade.postgres.test.ts",
           "packages/database/src/migrations.test.ts",
           "packages/database/src/native-postgres-codecs.test.ts",
+          "packages/database/src/test-support/pglite-native-parity.test.ts",
           "packages/database/src/schema-calendar-arithmetic.test.ts",
           "packages/database/src/team-application/delivery-pgbouncer.test.ts",
           "packages/database/src/team-application/queue-deadline.test.ts",
@@ -1006,6 +1007,34 @@
         "@noble/hashes": "2.3.0"
       },
       "retirementTrigger": "A public streaming or incremental digest in Effect Crypto. Replace the two sha256.create() sites with it, run the filesystem and import-snapshot tests, remove the @noble/hashes dependency from apps/backend and the EX-0038 comment, and delete this record."
+    },
+    {
+      "id": "EX-0039",
+      "rules": ["FX005", "FX012"],
+      "scope": {
+        "files": ["packages/http-api/src/declaration-decoding.ts"],
+        "symbols": ["decodeDeclaredOrThrow", "decodeExampleOrThrow", "encodeExampleOrThrow"]
+      },
+      "reason": "The effx compiler calls an access annotator (`metadata.annotator`, an exported callable symbol) and a problem registry synchronously with the literals of one declaration, and module-level annotation examples are constants. Their schema mismatch is the build-time or module-load failure of that declaration, so the helpers unwrap a Result into a thrown SchemaError, in one module.",
+      "missingCapability": "Installed Effect 4.0.0 provides synchronous throwing Schema decoders and encoders. The schema-sync diagnostic has no declaration-time/static-input acknowledgement, and effx0.1.0 annotator or registry callbacks cannot return Effect, Result or Exit to a caller that handles a typed failure. This record scopes the required declaration-time throw, not an absent Effect decoder API.",
+      "nativeAlternatives": [
+        "Schema.decodeUnknownEffect / decodeEffect / encodeEffect: rejected, because the callers are synchronous annotation functions and module-level constants, not running Effects, and an Effect cannot be unwrapped without a run.",
+        "Schema.decodeUnknownResult / decodeResult / encodeResult returned to the caller: rejected, because the effx annotator contract returns annotations, not a Result.",
+        "Typed Schema .make: rejected for the access specs and the conduct example, because their input is unknown or Encoded-shaped (instant strings, a resolver symbol check, Model.Class representations) rather than the Type side. Constants that are already Type-shaped keep using .make (the CorrectionHistoryOriginalSchema example).",
+        "Schema.decodeUnknownSync / decodeSync / encodeSync: rejected by effecttsgo/schema-sync and an unregistered spelling of the same throw."
+      ],
+      "verification": [
+        "packages/http-api/test/*-effx-adapters.test.ts: each adapter's tests assert `toThrow()` for unsupported or excess specs (e.g. profile-effx-adapters.test.ts and the `registry(\"InvalidProblem\", [...])` cases), which pin the throw contract at every site.",
+        "just exceptions: this file names the id, and the entry's file and symbols exist.",
+        "`just lint-files` and the commit hook on the touched files are clean.",
+        "Not covered: no test exercises the module-load decode of the conduct example in isolation; it fails when recruitment.ts is imported, which the http-api suites and `effx build` do."
+      ],
+      "owner": "packages/http-api",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effx/runtime": "0.1.0"
+      },
+      "retirementTrigger": "An effx release whose annotator or problem-registry contract may return an Effect, Result or typed diagnostic, or a stable Effect decoder that is synchronous and not flagged by schema-sync. Then change the callers to the new contract, delete declaration-decoding.ts, and delete the entry (keep the id unused)."
     }
   ]
 }

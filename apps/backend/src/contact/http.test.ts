@@ -1,6 +1,6 @@
 import { backendDatabase } from "../../test/database.js";
 import { Database } from "@vektorprogrammet/database";
-import { Organization } from "@vektorprogrammet/domain/organization";
+import { DepartmentNotFound, Organization } from "@vektorprogrammet/domain/organization";
 import { NativeProblem } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Exit, Layer, Schema } from "effect";
 import { describe, expect, it } from "@effect/vitest";
@@ -84,13 +84,20 @@ const contactIngress = (contact: typeof config | undefined, recipient = organiza
         }),
       );
     },
+    /** The quota windows that visitors have spent, as the database holds them. */
     consumedWindows: () =>
       database.run(
         Database.use(
           (sql) =>
             sql<{
-              count: number;
-            }>`SELECT count(*)::integer AS count FROM public.contact_rate_windows`,
+              visitorIp: string;
+              attempts: number;
+              expiresAt: string;
+            }>`
+              SELECT host(visitor_ip) AS "visitorIp", attempts::integer AS attempts, expires_at::text AS "expiresAt"
+              FROM public.contact_rate_windows
+              ORDER BY visitor_ip
+            `,
         ),
       ),
   };
@@ -125,7 +132,7 @@ describe("native contact trust boundary", () => {
         });
       }
 
-      expect(yield* ingress.consumedWindows()).toEqual([{ count: 0 }]);
+      expect(yield* ingress.consumedWindows()).toEqual([]);
     }),
   );
 
@@ -133,10 +140,11 @@ describe("native contact trust boundary", () => {
     "admits the configured token through native verification and rejects a one-bit change",
     () =>
       Effect.gen(function* () {
+        // The department does not exist, so the recipient lookup refuses the admitted request.
         const ingress = contactIngress(
           config,
           Layer.mock(Organization, {
-            readDepartment: () => Effect.succeedNone,
+            readDepartment: (departmentId) => Effect.fail(new DepartmentNotFound({ departmentId })),
           }),
         );
 
@@ -144,13 +152,23 @@ describe("native contact trust boundary", () => {
 
         expect(yield* problemOf(accepted)).toEqual({ status: 422, code: "validation.failed" });
 
+        // The law of submitContact in packages/domain/src/contact/service.ts is "Quota commits before
+        // recipient lookup or delivery, so neither failure refunds an attempt": the admitted request
+        // spent exactly one attempt, which also shows that it passed the credential guard.
+        const admitted = yield* ingress.consumedWindows();
+
+        expect(admitted.map(({ visitorIp, attempts }) => ({ visitorIp, attempts }))).toEqual([
+          { visitorIp: "127.0.0.1", attempts: 1 },
+        ]);
+
         const changed =
           String.fromCharCode(config.backendToken.charCodeAt(0) ^ 1) + config.backendToken.slice(1);
 
         const denied = yield* ingress.submit({ ip: "127.0.0.1", token: changed });
 
         expect(yield* problemOf(denied)).toEqual({ status: 401, code: "credential.invalid" });
-        expect(yield* ingress.consumedWindows()).toEqual([{ count: 0 }]);
+        // A refused credential writes nothing: the windows are exactly those the admitted request left.
+        expect(yield* ingress.consumedWindows()).toEqual(admitted);
       }),
   );
 
@@ -173,7 +191,7 @@ describe("native contact trust boundary", () => {
         );
       }
 
-      expect(yield* ingress.consumedWindows()).toEqual([{ count: 0 }]);
+      expect(yield* ingress.consumedWindows()).toEqual([]);
     }),
   );
 
@@ -194,7 +212,7 @@ describe("native contact trust boundary", () => {
         });
       }
 
-      expect(yield* ingress.consumedWindows()).toEqual([{ count: 0 }]);
+      expect(yield* ingress.consumedWindows()).toEqual([]);
     }),
   );
 

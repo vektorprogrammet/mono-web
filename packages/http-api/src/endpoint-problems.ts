@@ -1,5 +1,6 @@
 /** Generated from the frozen 0080.1 endpoint-specific Problem Details table. */
 import { Schema, Struct } from "effect";
+import { decodeDeclaredOrThrow } from "./declaration-decoding.js";
 import {
   endpointProblemResponses,
   NativeProblemRegistry,
@@ -147,7 +148,7 @@ export const ProfileUpdateOwnProfileProblem = problemUnion(
 
 const nativeProblemCode = Schema.Literals(Struct.keys(NativeProblemRegistry));
 
-const decodeProblemCodes = Schema.decodeUnknownSync(
+const decodeProblemCodes = decodeDeclaredOrThrow(
   Schema.TupleWithRest(Schema.Tuple([nativeProblemCode]), [nativeProblemCode]),
 );
 

@@ -1,6 +1,7 @@
 import { Predicate, Effect, Schema } from "effect";
 import type { DatabaseOperations } from "../service.js";
 import { Database } from "../service.js";
+import { ArticleIdFromText } from "./article-id.js";
 
 import { PersonId, DepartmentId, Organization } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
@@ -23,7 +24,7 @@ const integrityError = (operation: string, cause: unknown): ContentIntegrityErro
   new ContentIntegrityError({ operation, message: String(cause) });
 
 const CurrentVersionRowSchema = Schema.Struct({
-  articleId: Schema.Int,
+  articleId: ArticleIdFromText,
   slug: Schema.String,
   title: Schema.String,
   sticky: Schema.Boolean,
@@ -37,7 +38,7 @@ const PublishedVersionRowSchema = Schema.Struct({
   bodyHtml: Schema.String,
 });
 
-type CurrentVersionRow = typeof CurrentVersionRowSchema.Type;
+type CurrentVersionRow = typeof CurrentVersionRowSchema.Encoded;
 
 const readDepartments = (
   database: DatabaseOperations,
@@ -45,8 +46,8 @@ const readDepartments = (
 ): Effect.Effect<ReadonlyMap<number, ReadonlyArray<DepartmentId>>, ContentIntegrityError> =>
   articleIds.length === 0
     ? Effect.succeed(new Map())
-    : database<{ readonly articleId: number; readonly departmentId: DepartmentId }>`
-        SELECT article_id AS "articleId", department_id AS "departmentId"
+    : database<{ readonly articleId: string; readonly departmentId: DepartmentId }>`
+        SELECT article_id::text AS "articleId", department_id AS "departmentId"
         FROM public.content_article_departments
         WHERE ${database.in("article_id", articleIds)}
         ORDER BY article_id, department_id
@@ -55,7 +56,7 @@ const readDepartments = (
           Schema.decodeUnknownEffect(
             Schema.Array(
               Schema.Struct({
-                articleId: Schema.Union([Schema.String, Schema.Int]),
+                articleId: ArticleIdFromText,
                 departmentId: DepartmentId,
               }),
             ),
@@ -69,9 +70,9 @@ const readDepartments = (
           const map = new Map<number, Array<DepartmentId>>();
 
           for (const row of rows) {
-            const list = map.get(Number(row.articleId)) ?? [];
+            const list = map.get(row.articleId) ?? [];
             list.push(row.departmentId);
-            map.set(Number(row.articleId), list);
+            map.set(row.articleId, list);
           }
 
           return map;
@@ -116,7 +117,7 @@ export const readNewsListingPostgres = (
 
           const rows = yield* database<CurrentVersionRow>`
             SELECT
-              CAST(version.article_id AS integer) AS "articleId",
+              version.article_id::text AS "articleId",
               version.slug,
               version.title,
               version.sticky,
@@ -211,7 +212,7 @@ export const readPublishedArticlePostgres = (
           );
 
           const versions = yield* database<{
-            readonly articleId: number;
+            readonly articleId: string;
             readonly versionNumber: number;
             readonly slug: string;
             readonly title: string;
@@ -221,7 +222,7 @@ export const readPublishedArticlePostgres = (
             readonly createdByPersonId: string;
           }>`
             SELECT
-              CAST(version.article_id AS integer) AS "articleId",
+              version.article_id::text AS "articleId",
               version.version_number AS "versionNumber",
               version.slug,
               version.title,

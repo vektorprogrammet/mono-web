@@ -1,7 +1,10 @@
+import { DepartmentNotFound } from "../organization/errors.js";
 import { DepartmentId } from "../organization/schema.js";
-import { describe, expect, it } from "vitest";
-import { Option, Schema } from "effect";
+import { Organization } from "../organization/service.js";
+import { describe, expect, it } from "@effect/vitest";
+import { Effect, Layer, Option, Schema } from "effect";
 import { canonicalContactIp, ContactMessage, ContactVisitorIp } from "./schema.js";
+import { ContactDelivery, ContactFailure, ContactQuota, submitContact } from "./service.js";
 
 const valid = {
   departmentId: DepartmentId.make("one"),
@@ -43,4 +46,64 @@ describe("contact command boundary", () => {
       expect(canonicalContactIp(ip)).toEqual(Option.none());
     expect(Schema.is(ContactVisitorIp)("::ffff:127.0.0.1")).toBe(false);
   });
+});
+
+/**
+ * One submission for the visitor `127.0.0.1` against capabilities that record, in order, what they
+ * were asked. The quota answers with `quota`, and the recipient department does not exist.
+ */
+const submission = (quota: Effect.Effect<void, ContactFailure>) => {
+  const used: Array<string> = [];
+
+  const record = (entry: string) =>
+    Effect.sync(() => {
+      used.push(entry);
+    });
+
+  const services = Layer.mergeAll(
+    Layer.succeed(
+      ContactQuota,
+      ContactQuota.of({ consume: (ip) => record(`quota ${ip}`).pipe(Effect.andThen(quota)) }),
+    ),
+    Layer.mock(Organization, {
+      readDepartment: (departmentId) =>
+        record(`department ${departmentId}`).pipe(
+          Effect.andThen(Effect.fail(new DepartmentNotFound({ departmentId }))),
+        ),
+    }),
+    Layer.mock(ContactDelivery, { send: () => record("delivery") }),
+  );
+
+  return {
+    used,
+    failure: submitContact(valid, ContactVisitorIp.make("127.0.0.1")).pipe(
+      Effect.provide(services),
+      Effect.flip,
+    ),
+  };
+};
+
+describe("contact submission order", () => {
+  it.effect(
+    "commits the quota attempt before the recipient lookup, so a missing recipient refunds nothing",
+    () =>
+      Effect.gen(function* () {
+        const { used, failure } = submission(Effect.void);
+
+        expect((yield* failure).reason).toBe("InvalidRecipient");
+        // The quota has no operation that gives an attempt back, so the one it was asked for stands.
+        expect(used).toEqual(["quota 127.0.0.1", "department one"]);
+      }),
+  );
+
+  it.effect("stops at a spent quota before any recipient lookup or delivery", () =>
+    Effect.gen(function* () {
+      const { used, failure } = submission(
+        Effect.fail(new ContactFailure({ reason: "RateLimited" })),
+      );
+
+      expect((yield* failure).reason).toBe("RateLimited");
+      expect(used).toEqual(["quota 127.0.0.1"]);
+    }),
+  );
 });

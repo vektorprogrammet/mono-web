@@ -4795,6 +4795,7 @@ const program = (databaseUrl: Redacted.Redacted<string>) =>
     ).pipe(
       Effect.catchTags({
         MigrationError: Effect.die,
+        SchemaError: Effect.die,
         SqlError: Effect.die,
       }),
     );

@@ -2,6 +2,7 @@ import type { HttpAccessAnnotationSpec } from "@effx/runtime";
 import { type SCOPE_RESOLVER_IDS } from "@vektorprogrammet/domain/authz";
 import { Match, Schema } from "effect";
 import { accessSpecAnnotations, personNativeAccess } from "./access.js";
+import { decodeDeclaredOrThrow } from "./declaration-decoding.js";
 
 /** The resolver values are explicit symbols, not guessed from effx export names. */
 export const PeopleDirectoryResolver = { id: "profile.people-directory" } as const satisfies {
@@ -70,9 +71,7 @@ const DirectoryAccess = Schema.Struct({
   ),
 );
 
-const decodeDirectoryAccess = Schema.decodeUnknownSync(DirectoryAccess, {
-  onExcessProperty: "error",
-});
+const decodeDirectoryAccess = decodeDeclaredOrThrow(DirectoryAccess, { onExcessProperty: "error" });
 
 /** Derives only the existing People/Schools directory and management AccessSpecs. */
 export const directoryAccessAnnotations = (input: HttpAccessAnnotationSpec) => {

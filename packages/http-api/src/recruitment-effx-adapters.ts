@@ -2,6 +2,7 @@ import type { HttpAccessAnnotationSpec } from "@effx/runtime";
 import { type SCOPE_RESOLVER_IDS } from "@vektorprogrammet/domain/authz";
 import { Schema } from "effect";
 import { accessSpecAnnotations, invitationNativeAccess, personNativeAccess } from "./access.js";
+import { decodeDeclaredOrThrow } from "./declaration-decoding.js";
 
 export const RecruitmentInvitationByCapabilityResolver = {
   id: "recruitment.invitation-response-by-capability",
@@ -187,14 +188,14 @@ const CheckedPersonAccess = PersonAccess.pipe(
   ),
 );
 
-const decodePersonRead = Schema.decodeUnknownSync(
+const decodePersonRead = decodeDeclaredOrThrow(
   CheckedPersonAccess.pipe(
     Schema.check(Schema.makeFilter((spec) => spec.decisionTime === "SnapshotRead")),
   ),
   { onExcessProperty: "error" },
 );
 
-const decodePersonCommand = Schema.decodeUnknownSync(
+const decodePersonCommand = decodeDeclaredOrThrow(
   CheckedPersonAccess.pipe(
     Schema.check(Schema.makeFilter((spec) => spec.decisionTime === "Transaction")),
   ),
@@ -239,12 +240,12 @@ const invitationFields = {
   }),
 };
 
-const decodeInvitationRead = Schema.decodeUnknownSync(
+const decodeInvitationRead = decodeDeclaredOrThrow(
   Schema.Struct({ ...invitationFields, decisionTime: Schema.Literal("SnapshotRead") }),
   { onExcessProperty: "error" },
 );
 
-const decodeInvitationCommand = Schema.decodeUnknownSync(
+const decodeInvitationCommand = decodeDeclaredOrThrow(
   Schema.Struct({ ...invitationFields, decisionTime: Schema.Literal("Transaction") }),
   { onExcessProperty: "error" },
 );

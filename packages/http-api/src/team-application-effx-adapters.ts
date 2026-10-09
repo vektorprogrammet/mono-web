@@ -8,6 +8,7 @@ import {
 } from "@vektorprogrammet/domain/team-application";
 import { Predicate, Schema } from "effect";
 import { accessSpecAnnotations, anonymousNativeAccess, personNativeAccess } from "./access.js";
+import { decodeDeclaredOrThrow } from "./declaration-decoding.js";
 import { nativeOperationAnnotations } from "./common.js";
 import { noStoreReadResponse, type NativeProblemCode } from "./http-semantics.js";
 
@@ -231,7 +232,7 @@ const TeamApplicationsAccess = Schema.Struct({
   ),
 );
 
-const decodeTeamApplicationsAccess = Schema.decodeUnknownSync(TeamApplicationsAccess, {
+const decodeTeamApplicationsAccess = decodeDeclaredOrThrow(TeamApplicationsAccess, {
   onExcessProperty: "error",
 });
 

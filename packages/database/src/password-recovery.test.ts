@@ -775,7 +775,7 @@ layer(TestPlatform, { excludeTestServices: true })("owned recovery boundary", (i
   it.effect(
     "concealed request audit failure replaces engine success with unavailable",
     () =>
-      withPostgresTestDatabase((pool) =>
+      withRealPostgres("recovery-audit-failure-proof", (pool) =>
         Effect.gen(function* () {
           yield* executePostgresMigration(
             `CREATE FUNCTION auth.reject_recovery_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END $$; CREATE TRIGGER reject_recovery_audit BEFORE INSERT ON auth.identity_security_audit FOR EACH ROW EXECUTE FUNCTION auth.reject_recovery_audit()`,
@@ -798,6 +798,6 @@ layer(TestPlatform, { excludeTestServices: true })("owned recovery boundary", (i
           expect(r.status).toBe(503);
         }),
       ),
-    15_000,
+    60_000,
   );
 });

@@ -3,6 +3,7 @@ import type { SCOPE_RESOLVER_IDS } from "@vektorprogrammet/domain/authz";
 import { OnboardingBoard } from "@vektorprogrammet/domain/onboarding";
 import { Schema } from "effect";
 import { accessSpecAnnotations, personNativeAccess } from "./access.js";
+import { decodeDeclaredOrThrow } from "./declaration-decoding.js";
 import type { OnboardingCommandCodes } from "./endpoint-problems.js";
 import { StrongETag } from "./http-semantics.js";
 
@@ -57,7 +58,7 @@ const Resolver = Schema.Unknown.pipe(
 );
 
 const accessAnnotations = (decisionTime: "SnapshotRead" | "Transaction") => {
-  const decodeAccess = Schema.decodeUnknownSync(
+  const decodeAccess = decodeDeclaredOrThrow(
     Schema.Struct({
       exposure: Schema.Literal("External"),
       acceptedCredentials: Schema.Tuple([
