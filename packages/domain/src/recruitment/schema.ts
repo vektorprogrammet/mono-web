@@ -1,10 +1,14 @@
 /**
+ * EX-0020: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Public schemas for recruitment assignment, scheduling, conduct, and invitation responses.
  *
  * @since 0.1.0
  */
 import { Schema, SchemaGetter } from "effect";
-import { Model } from "effect/unstable/schema";
+import { Model } from "effect/schema";
 import {
   AdmissionPeriodActorSchema,
   type AdmissionPeriodActor,

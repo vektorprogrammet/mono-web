@@ -1,11 +1,15 @@
 /**
+ * EX-0020: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Public schemas for receipt commands, lifecycle state, settlement evidence,
  * and observations.
  *
  * @since 0.1.0
  */
 import { DateTime, Schema } from "effect";
-import { Model } from "effect/unstable/schema";
+import { Model } from "effect/schema";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { isRfc3339Instant, Rfc3339InstantSchema } from "../time.js";
 

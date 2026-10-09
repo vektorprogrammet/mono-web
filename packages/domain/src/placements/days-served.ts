@@ -117,7 +117,7 @@ export const evidenceSchools = (evidence: DaysServedEvidence): ReadonlyArray<Day
   ]);
 
 // EX-0035: typed total serialization keeps the domain digest pure and preserves its canonical wire bytes.
-// @effect-diagnostics-next-line schemaSync:off
+// @effect-diagnostics-next-line schemaSync:off EX-0035
 const encodeEvidence = Schema.encodeSync(DaysServedEvidence);
 
 /** The digest of the evidence, so a precondition notices evidence that changed since a read. */
@@ -196,7 +196,7 @@ const CursorTuple = Schema.fromJsonString(
 );
 
 // EX-0035: this typed tuple-to-wire serialization remains a total deterministic cursor calculation.
-// @effect-diagnostics-next-line schemaSync:off
+// @effect-diagnostics-next-line schemaSync:off EX-0035
 const encodeCursorTuple = Schema.encodeSync(CursorTuple);
 
 /** Opaque continuation of a name-ordered assistant list. */

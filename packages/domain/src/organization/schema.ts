@@ -1,10 +1,14 @@
 /**
+ * EX-0020: required public native APIs in exact stable Effect4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Public organization identities, models, and transport-safe projections.
  *
  * @since 0.1.0
  */
 import { Schema } from "effect";
-import { Model } from "effect/unstable/schema";
+import { Model } from "effect/schema";
 import { compareRfc3339Instants, isRfc3339Instant, Rfc3339InstantSchema } from "../time.js";
 
 const NonEmpty = Schema.String.pipe(
