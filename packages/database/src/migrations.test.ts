@@ -1,14 +1,18 @@
+/** EX-0021: Stable SQL modules carry an upstream unstable annotation.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { Redacted } from "effect";
+import * as SqlClient from "effect/sql/SqlClient";
 import { describe, expect, it, layer } from "@effect/vitest";
 import { startDisposablePostgres } from "@monoweb/postgres";
 import { PGlite } from "@electric-sql/pglite";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { Schema, Predicate, Effect, FileSystem, Path } from "effect";
-import { Pool } from "pg";
 import { Database } from "./service.js";
 import { DatabaseTestLive, TestPlatform } from "./test-support/platform.js";
 import { type DatabaseMigrationId, selectDatabaseMigration } from "./migrations.js";
-import { pgQuery, pgTransaction } from "./pg-pool.js";
-import { withPostgresTestDatabase } from "./test-support/postgres.js";
+import { executePostgresMigration } from "./postgres-migration-statements.js";
+import { postgresTestClient, withPostgresTestDatabase } from "./test-support/postgres.js";
 
 const inventory = [
   "organization_global_administrator_grants",
@@ -1676,8 +1680,8 @@ const decodePrecisionSnapshot = Schema.decodeUnknownEffect(
   Schema.Array(Schema.Struct({ bytes: Schema.String })),
 );
 
-const precisionSnapshot = Effect.fnUntraced(function* (pool: Pool) {
-  return yield* decodePrecisionSnapshot((yield* pgQuery(pool, precisionSnapshotSql)).rows);
+const precisionSnapshot = Effect.fnUntraced(function* (pool: SqlClient.SqlClient) {
+  return yield* decodePrecisionSnapshot(yield* pool.unsafe(precisionSnapshotSql));
 });
 
 // Each probe runs in a server-side subtransaction, so even successful controls are undone.
@@ -1724,10 +1728,13 @@ const decodePrecisionAttempt = Schema.decodeUnknownEffect(
   }),
 );
 
-const precisionAttempt = Effect.fnUntraced(function* (pool: Pool, statement: string) {
-  const rows = yield* pgQuery(pool, "SELECT public.precision_attempt($1) AS result", [statement]);
+const precisionAttempt = Effect.fnUntraced(function* (
+  pool: SqlClient.SqlClient,
+  statement: string,
+) {
+  const rows = yield* pool.unsafe("SELECT public.precision_attempt($1) AS result", [statement]);
 
-  return (yield* decodePrecisionAttempt(rows.rows[0])).result;
+  return (yield* decodePrecisionAttempt(rows[0])).result;
 });
 
 const decodePrecisionHistoryAttempt = Schema.decodeUnknownEffect(
@@ -1742,17 +1749,17 @@ const decodePrecisionHistoryAttempt = Schema.decodeUnknownEffect(
 );
 
 const precisionHistoryAttempt = Effect.fnUntraced(function* (
-  pool: Pool,
+  pool: SqlClient.SqlClient,
   statement: string,
   source: string,
 ) {
-  const rows = yield* pgQuery(pool, "SELECT public.precision_history_attempt($1,$2,$3) AS result", [
+  const rows = yield* pool.unsafe("SELECT public.precision_history_attempt($1,$2,$3) AS result", [
     statement,
     source,
     precisionSnapshotSql,
   ]);
 
-  return (yield* decodePrecisionHistoryAttempt(rows.rows[0])).result;
+  return (yield* decodePrecisionHistoryAttempt(rows[0])).result;
 });
 
 const precisionProbes = [
@@ -1790,9 +1797,13 @@ const precisionProbes = [
   })),
 ];
 
-const proveDecisionPrecisionUpgrade = Effect.fnUntraced(function* (pool: Pool) {
-  yield* pgQuery(pool, precisionSeed);
-  yield* pgQuery(pool, precisionObserver);
+const proveDecisionPrecisionUpgrade = Effect.fnUntraced(function* (pool: SqlClient.SqlClient) {
+  yield* pool.withTransaction(
+    executePostgresMigration(precisionSeed).pipe(Effect.provideService(SqlClient.SqlClient, pool)),
+  );
+  yield* executePostgresMigration(precisionObserver).pipe(
+    Effect.provideService(SqlClient.SqlClient, pool),
+  );
   const historical = yield* precisionSnapshot(pool);
   const source = yield* readMigrationSource(precisionRepair.migration.url);
 
@@ -1811,7 +1822,9 @@ const proveDecisionPrecisionUpgrade = Effect.fnUntraced(function* (pool: Pool) {
     expect(yield* precisionSnapshot(pool)).toEqual(historical);
   }
 
-  yield* pgTransaction(pool, (client) => pgQuery(client, source));
+  yield* pool.withTransaction(
+    executePostgresMigration(source).pipe(Effect.provideService(SqlClient.SqlClient, pool)),
+  );
   expect(yield* precisionSnapshot(pool)).toEqual(historical);
 
   for (const probe of precisionProbes) {
@@ -1835,10 +1848,9 @@ const proveDecisionPrecisionUpgrade = Effect.fnUntraced(function* (pool: Pool) {
   ])
     expect((yield* precisionAttempt(pool, statement)).state).toBe("P0001");
   expect(yield* precisionSnapshot(pool)).toEqual(historical);
-  yield* pgQuery(
-    pool,
+  yield* executePostgresMigration(
     "DROP FUNCTION public.precision_attempt(text); DROP FUNCTION public.precision_history_attempt(text,text,text)",
-  );
+  ).pipe(Effect.provideService(SqlClient.SqlClient, pool));
 });
 
 // The existing harness and hosted supported-major matrix run the same upgrade on PG17 and PG18.
@@ -1860,13 +1872,17 @@ describe("decision instant precision upgrade from registered 84", () => {
           (opened) => Effect.promise(() => opened.stop()),
         );
 
-        const pool = yield* Effect.acquireRelease(
-          Effect.sync(() => new Pool({ connectionString: postgres.url, max: 1 })),
-          (opened) => Effect.promise(() => opened.end()),
-        );
+        const pool = yield* postgresTestClient({
+          url: Redacted.make(postgres.url),
+          maxConnections: 1,
+        });
 
         for (const migration of precisionPreceding)
-          yield* pgQuery(pool, yield* readMigrationSource(migration.url));
+          yield* pool.withTransaction(
+            executePostgresMigration(yield* readMigrationSource(migration.url)).pipe(
+              Effect.provideService(SqlClient.SqlClient, pool),
+            ),
+          );
         yield* proveDecisionPrecisionUpgrade(pool);
       }).pipe(Effect.scoped, Effect.provide(TestPlatform)),
     { timeout: 180_000 },

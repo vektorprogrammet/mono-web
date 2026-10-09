@@ -194,9 +194,11 @@ const ingress = (
       config: {
         maxBodyBytes: 256,
         now: () => at,
-        nextInterviewId: () => RecruitmentInterviewId.make("http-unexpected-interview"),
-        nextInvitationId: () => RecruitmentInvitationId.make("http-unexpected-invitation"),
-        nextResponseCapability: () => "unexpected".padEnd(43, "_"),
+        nextInterviewId: Effect.succeed(RecruitmentInterviewId.make("http-unexpected-interview")),
+        nextInvitationId: Effect.succeed(
+          RecruitmentInvitationId.make("http-unexpected-invitation"),
+        ),
+        nextResponseCapability: Effect.succeed("unexpected".padEnd(43, "_")),
       },
       resolveActor,
     },

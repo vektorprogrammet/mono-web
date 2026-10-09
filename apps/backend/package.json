@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@effect/platform-bun": "catalog:effect-v4",
+    "@noble/hashes": "catalog:effect-v4",
     "@react-email/render": "2.1.0",
     "@vektorprogrammet/database": "workspace:*",
     "@vektorprogrammet/domain": "workspace:*",

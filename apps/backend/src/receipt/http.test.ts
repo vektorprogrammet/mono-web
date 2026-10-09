@@ -114,8 +114,8 @@ const config: ReceiptApiConfig = {
   committedRoot: "/tmp/receipt-http-test-committed",
   maxFileBytes: 1024,
   now: () => evaluatedAt,
-  nextReceiptId: () => receiptId,
-  nextVisualId: () => visualId,
+  nextReceiptId: Effect.succeed(receiptId),
+  nextVisualId: Effect.succeed(visualId),
 };
 
 const pendingReceipt = (overrides: Partial<ProjectionRow> = {}): ProjectionRow => ({

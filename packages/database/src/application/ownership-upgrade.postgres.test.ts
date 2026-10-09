@@ -1,11 +1,15 @@
+/** EX-0021: Stable SQL modules carry an upstream unstable annotation.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { Redacted } from "effect";
+import * as SqlClient from "effect/sql/SqlClient";
 import { expect, layer } from "@effect/vitest";
 import { type DisposablePostgres, startDisposablePostgres } from "@monoweb/postgres";
 import { Context, Effect, FileSystem, Layer, Path, Schema } from "effect";
-import { Pool } from "pg";
 import { type DatabaseMigrationDefinition, selectDatabaseMigration } from "../migrations.js";
-import { pgQuery } from "../pg-pool.js";
+import { executePostgresMigration } from "../postgres-migration-statements.js";
 import { TestPlatform } from "../test-support/platform.js";
-import { withPostgresTestDatabase } from "../test-support/postgres.js";
+import { postgresTestClient, withPostgresTestDatabase } from "../test-support/postgres.js";
 
 /**
  * R7 upgrade proof. Seed the registered 82 schema, including one linked applicant shared by
@@ -136,10 +140,10 @@ const Snapshot = Schema.Struct({
 
 const decodeSnapshot = Schema.decodeUnknownEffect(Snapshot, { onExcessProperty: "error" });
 
-const snapshot = Effect.fnUntraced(function* (pool: Pool) {
-  const result = yield* pgQuery(pool, snapshotSql);
+const snapshot = Effect.fnUntraced(function* (pool: SqlClient.SqlClient) {
+  const result = yield* pool.unsafe(snapshotSql);
 
-  return yield* decodeSnapshot(result.rows[0]);
+  return yield* decodeSnapshot(result[0]);
 });
 
 // PGlite's socket adapter can end a failed connection. Observe SQLSTATE and roll back the
@@ -163,12 +167,10 @@ const decodeAttempt = Schema.decodeUnknownEffect(
   }),
 );
 
-const attempt = Effect.fnUntraced(function* (pool: Pool, statement: string) {
-  const result = yield* pgQuery(pool, "SELECT public.ownership_attempt($1) AS outcome", [
-    statement,
-  ]);
+const attempt = Effect.fnUntraced(function* (pool: SqlClient.SqlClient, statement: string) {
+  const result = yield* pool.unsafe("SELECT public.ownership_attempt($1) AS outcome", [statement]);
 
-  return (yield* decodeAttempt(result.rows[0])).outcome;
+  return (yield* decodeAttempt(result[0])).outcome;
 });
 
 const insertApplication = (id: string, applicant: string, period: string, email?: string) =>
@@ -178,13 +180,15 @@ const insertApplication = (id: string, applicant: string, period: string, email?
     VALUES ('${id}', '${applicant}', '${period}', 'ownership-department', 'ownership-field', 2,
       '2032-02-01'${email === undefined ? "" : `, '${email}'`})`;
 
-const proveUpgrade = Effect.fnUntraced(function* (pool: Pool, predecessor: 82 | 83) {
+const proveUpgrade = Effect.fnUntraced(function* (pool: SqlClient.SqlClient, predecessor: 82 | 83) {
   const repair = selectDatabaseMigration("84_application-email-period-ownership");
   const last = repair.preceding.at(-1);
   expect(last?.id.startsWith("83_")).toBe(true);
   const baseline = selectDatabaseMigration("82_admission-outcome-mail");
   const between = repair.preceding.slice(baseline.preceding.length + 1);
-  yield* pgQuery(pool, seed);
+  yield* pool.withTransaction(
+    executePostgresMigration(seed).pipe(Effect.provideService(SqlClient.SqlClient, pool)),
+  );
   const historical = yield* snapshot(pool);
   expect(
     Object.fromEntries(Object.entries(historical).map(([name, rows]) => [name, rows.length])),
@@ -202,26 +206,35 @@ const proveUpgrade = Effect.fnUntraced(function* (pool: Pool, predecessor: 82 | 
   });
 
   if (predecessor === 83) {
-    for (const migration of between) yield* pgQuery(pool, yield* readSql(migration));
+    for (const migration of between)
+      yield* pool.withTransaction(
+        executePostgresMigration(yield* readSql(migration)).pipe(
+          Effect.provideService(SqlClient.SqlClient, pool),
+        ),
+      );
   }
 
   const before = yield* snapshot(pool);
 
   if (predecessor === 82) {
-    for (const migration of between) yield* pgQuery(pool, yield* readSql(migration));
+    for (const migration of between)
+      yield* pool.withTransaction(
+        executePostgresMigration(yield* readSql(migration)).pipe(
+          Effect.provideService(SqlClient.SqlClient, pool),
+        ),
+      );
   }
 
-  yield* pgQuery(pool, "BEGIN");
-  yield* pgQuery(pool, yield* readSql(repair.migration));
-  yield* pgQuery(pool, "COMMIT");
+  yield* pool.withTransaction(
+    executePostgresMigration(yield* readSql(repair.migration)).pipe(
+      Effect.provideService(SqlClient.SqlClient, pool),
+    ),
+  );
   expect(yield* snapshot(pool)).toEqual(before);
   expect(yield* snapshot(pool)).toEqual(historical);
 
-  const keys = yield* pgQuery(
-    pool,
-    `SELECT application_id AS id, normalized_email AS email,
-    decision_fence_version::text AS fence FROM public.admission_applications ORDER BY application_id`,
-  );
+  const keys = yield* pool.unsafe(`SELECT application_id AS id, normalized_email AS email,
+  decision_fence_version::text AS fence FROM public.admission_applications ORDER BY application_id`);
 
   expect(
     yield* Schema.decodeUnknownEffect(
@@ -232,22 +245,19 @@ const proveUpgrade = Effect.fnUntraced(function* (pool: Pool, predecessor: 82 | 
           fence: Schema.Literal("0"),
         }),
       ),
-    )(keys.rows),
+    )(keys),
   ).toEqual([
     { id: "ownership-application-1", email: "same@example.invalid", fence: "0" },
     { id: "ownership-application-2", email: "same@example.invalid", fence: "0" },
   ]);
 
   // A different, unlinked statement can reuse the address. A period cannot acquire two of them.
-  yield* pgQuery(
-    pool,
-    `INSERT INTO public.admission_applicants
-    (applicant_id, normalized_email, email, first_name, last_name, phone, gender, field_of_study_id,
-     year_of_study, activation_digest)
-    VALUES ('ownership-new', 'same@example.invalid', 'same@example.invalid', 'New', 'Statement',
-      '90000002', 0, 'ownership-field', 4, repeat('e', 64))`,
-  );
-  yield* pgQuery(pool, observers);
+  yield* pool.unsafe(`INSERT INTO public.admission_applicants
+  (applicant_id, normalized_email, email, first_name, last_name, phone, gender, field_of_study_id,
+   year_of_study, activation_digest)
+  VALUES ('ownership-new', 'same@example.invalid', 'same@example.invalid', 'New', 'Statement',
+    '90000002', 0, 'ownership-field', 4, repeat('e', 64))`);
+  yield* executePostgresMigration(observers).pipe(Effect.provideService(SqlClient.SqlClient, pool));
   expect(
     yield* attempt(
       pool,
@@ -351,7 +361,7 @@ const proveUpgrade = Effect.fnUntraced(function* (pool: Pool, predecessor: 82 | 
     SELECT applicant_id, 'ownership-person', '2032-02-02'::timestamptz, invitation_id FROM invitation`,
     ),
   ).toBe("accepted");
-  yield* pgQuery(pool, "DROP FUNCTION public.ownership_attempt(text)");
+  yield* pool.unsafe("DROP FUNCTION public.ownership_attempt(text)");
   // Remove only the intentionally added control statement from this exact preservation comparison.
   const after = yield* snapshot(pool);
   expect(after.applicants).toHaveLength(2);
@@ -377,15 +387,16 @@ layer(Layer.merge(cluster, TestPlatform), { excludeTestServices: true, timeout: 
               postgres.createDatabase(`ownership_upgrade_${predecessor}`),
             );
 
-            const pool = yield* Effect.acquireRelease(
-              Effect.sync(() => new Pool({ connectionString: url, max: 1 })),
-              (opened) => Effect.promise(() => opened.end()),
-            );
+            const pool = yield* postgresTestClient({ url: Redacted.make(url), maxConnections: 1 });
 
             const baseline = selectDatabaseMigration("82_admission-outcome-mail");
 
             for (const migration of [...baseline.preceding, baseline.migration])
-              yield* pgQuery(pool, yield* readSql(migration));
+              yield* pool.withTransaction(
+                executePostgresMigration(yield* readSql(migration)).pipe(
+                  Effect.provideService(SqlClient.SqlClient, pool),
+                ),
+              );
             yield* proveUpgrade(pool, predecessor);
           }).pipe(Effect.scoped),
         120_000,

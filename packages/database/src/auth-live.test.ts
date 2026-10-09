@@ -53,6 +53,7 @@ import {
 } from "./auth-engine.js";
 import { DatabaseLive } from "./layers.js";
 import { DatabaseTestLive, TestPlatform } from "./test-support/platform.js";
+import { HmacTagVerifierLive } from "./web-crypto.js";
 
 /**
  * Focused spec 0054 checks for the Layer-scoped better-auth engine behind
@@ -169,7 +170,14 @@ const disposableCluster = Layer.effectDiscard(
   Effect.sync(() => assertDisposable(config.postgresUrl)),
 );
 
-const authLayer = AuthLive(config).pipe(
+const subtle = globalThis.crypto.subtle;
+
+/** The snapshot service over the verifier of the engine secret, as `AuthLive` builds it. */
+const snapshotService = makeIdentitySnapshotService().pipe(
+  Effect.provide(HmacTagVerifierLive(subtle, config.secret)),
+);
+
+const authLayer = AuthLive(config, subtle).pipe(
   Layer.provideMerge(
     Layer.mergeAll(
       databaseLayer,
@@ -335,7 +343,7 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
               yield* sql`INSERT INTO auth."session" (id, token, "expiresAt", "updatedAt", "userId") VALUES (${session.id}, ${session.token}, ${session.expiresAt.toISOString()}, date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), ${body.user.id})`;
             }),
           );
-          const snapshotIdentity = makeIdentitySnapshotService(config);
+          const snapshotIdentity = yield* snapshotService;
 
           const resolve = (cookieHeader: string | undefined) =>
             snapshotIdentity.resolveSession(
@@ -369,7 +377,9 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
               yield* sql`INSERT INTO auth."user" (id, name, email, "emailVerified") VALUES (${actor.personId}, 'Owner', 'owner@example.invalid', TRUE)`;
               yield* sql`INSERT INTO auth."session" (id, token, "expiresAt", "updatedAt", "userId") VALUES (${actor.sessionId}, 'snapshot-token', '2031-09-16', date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), ${actor.personId})`;
 
-              const result = yield* makeIdentitySnapshotService(config).revokeSession(
+              const snapshotIdentity = yield* snapshotService;
+
+              const result = yield* snapshotIdentity.revokeSession(
                 actor,
                 actor.sessionId,
                 requestContext,
@@ -382,11 +392,7 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
                 yield* sql`SELECT event_kind, subject_person_id, session_id FROM auth.identity_security_audit WHERE request_correlation = ${requestContext.requestCorrelation}`;
 
               const retry = yield* Effect.flip(
-                makeIdentitySnapshotService(config).revokeSession(
-                  actor,
-                  actor.sessionId,
-                  requestContext,
-                ),
+                snapshotIdentity.revokeSession(actor, actor.sessionId, requestContext),
               );
 
               return { result, sessions, audit, retry };

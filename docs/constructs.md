@@ -78,6 +78,7 @@ Tag a construct only when at least 2 modules outside its own module and the test
   - [`recoverStaleOutboxClaims`](constructs/sql-lifecycle.md#recoverstaleoutboxclaims): Recovers every Processing row claimed before `claimedBefore`.
   - [`nativePgLayer`](constructs/sql-lifecycle.md#nativepglayer): Builds the native SQL layer with an explicit host-owned connection limit.
   - [`AuthPoolLive`](constructs/sql-lifecycle.md#authpoollive): Builds the supported Better Auth pool with its own host-supplied capacity.
+  - [`executePostgresMigration`](constructs/sql-lifecycle.md#executepostgresmigration): Executes parsed statements sequentially on the provided native SQL client.
 - [delivery](constructs/delivery.md): Delivers committed effects to providers after the transaction.
   - [`deliverJson`](constructs/delivery.md#deliverjson): Shared acknowledged JSON transport; deliberately no retry on ambiguous acceptance.
 - [worker](constructs/worker.md): Runs background workers on the Effect clock.
@@ -87,6 +88,7 @@ Tag a construct only when at least 2 modules outside its own module and the test
   - [`receiptCursorTimestamp`](constructs/pagination.md#receiptcursortimestamp): Selects the ordering column as microsecond UTC text so cursor positions compare exactly.
   - [`receiptCursorPage`](constructs/pagination.md#receiptcursorpage): Keeps one page of the rows, encodes the next cursor when a further row was read, and drops the ordering text.
 - [digest](constructs/digest.md): Canonical JSON and SHA-256 digests that evidence and idempotency identities hash.
+  - [`SecretEqualityLive`](constructs/digest.md#secretequalitylive): Supplies constant-time comparison of raw secrets under one process-owned HMAC key.
   - [`canonicalJsonValue`](constructs/digest.md#canonicaljsonvalue): The plain JSON value of a datum, with sorted object keys and non-finite numbers as `null`.
   - [`canonicalJson`](constructs/digest.md#canonicaljson): The canonical JSON text of a datum, to hash or compare; a SQL `json` parameter takes `canonicalJsonValue` instead.
   - [`canonicalJsonBytes`](constructs/digest.md#canonicaljsonbytes): The UTF-8 bytes of the canonical JSON text of a datum.

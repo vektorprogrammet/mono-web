@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { Database } from "@vektorprogrammet/database";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { readOnboardingBoard } from "@vektorprogrammet/database/onboarding";
@@ -238,7 +237,7 @@ describe("public application submission over HTTP", () => {
             yield* Admissions.use((admissions) =>
               admissions.executePublicApplication(input, {
                 now: environment.ADMISSION_FIXED_NOW,
-                activationToken: randomBytes(32).toString("base64url"),
+                activationToken: "race-winner-activation".padEnd(43, "_"),
               }),
             );
             yield* Deferred.succeed(lockHeld, undefined);

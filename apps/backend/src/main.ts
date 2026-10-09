@@ -151,7 +151,7 @@ const authPoolLayer = AuthPoolLive(config.auth, {
   pipeline: false,
 });
 
-const authLayer = AuthLive(config.auth).pipe(
+const authLayer = AuthLive(config.auth, globalThis.crypto.subtle).pipe(
   Layer.provide(Layer.merge(databaseLayer, authPoolLayer)),
   Layer.provide(platformLayer),
 );

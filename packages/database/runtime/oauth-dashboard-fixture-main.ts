@@ -114,7 +114,7 @@ const program = Effect.gen(function* () {
     yield* Effect.sync(() => process.stdout.write(`${fixture}\n`));
   }).pipe(
     Effect.provide(
-      AuthLive(config).pipe(
+      AuthLive(config, globalThis.crypto.subtle).pipe(
         Layer.provideMerge(
           Layer.mergeAll(
             AuthPoolLive(config, {

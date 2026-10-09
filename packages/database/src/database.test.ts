@@ -93,7 +93,7 @@ import {
   listStaleReceiptOutboxClaimIds,
   recoverStaleReceiptOutbox,
 } from "./receipt/outbox.js";
-import { Context, Match, Predicate, Effect, FileSystem, Layer, Path, Schema } from "effect";
+import { Context, Match, Predicate, Effect, FileSystem, Layer, Path, Schema, Struct } from "effect";
 import { DatabaseTestLive, TestPlatform } from "./test-support/platform.js";
 import {
   databaseMigrationDefinitions,
@@ -114,7 +114,10 @@ const applicationAvailability = {
   language: "Norsk",
 } as const;
 
-const economyLayer = EconomyLive.pipe(Layer.provideMerge(databaseLayer));
+const economyLayer = EconomyLive.pipe(
+  Layer.provideMerge(databaseLayer),
+  Layer.provideMerge(TestPlatform),
+);
 
 const recruitmentLayer = (pglite: PGlite) =>
   RecruitmentLive.pipe(
@@ -4666,9 +4669,7 @@ describe("DatabaseTest", () => {
             };
           });
 
-          const completionRequests = evidence.completionRequests.map(
-            ({ _tag: _, ...request }) => request,
-          );
+          const completionRequests = evidence.completionRequests.map(Struct.omit(["_tag"]));
 
           expect(evidence.completionRequests.map((request) => request._tag)).toEqual([
             "SendInterviewCompletionReceipt",

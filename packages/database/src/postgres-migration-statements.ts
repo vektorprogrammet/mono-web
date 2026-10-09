@@ -66,15 +66,29 @@ export const postgresMigrationStatements = Effect.fnUntraced(function* (
 
 /**
  * Executes parsed statements sequentially on the provided native SQL client.
- * The caller (normally Migrator) owns the transaction; this operation never
- * commits, opens another pool, retries, or catches SQL failures. Interruption
- * stops subsequent statements and leaves rollback to that transaction owner.
+ *
+ * @remarks
+ * The caller (normally Migrator) owns the transaction. Construction is suspended;
+ * this operation never commits, opens another pool, or retries. SQL errors remain
+ * typed. Interruption stops subsequent statements and the owner rolls back.
+ * @param source The unchanged PostgreSQL migration source, decoded by its loader.
+ * @returns Completion, parser or SQL failure, requiring the caller's SqlClient.
+ * @sideEffects Executes original statement bytes when the Effect runs.
+ * @example
+ * ```ts
+ * yield* sql.withTransaction(executePostgresMigration(source));
+ * ```
+ * @avoid Running it outside the migration owner's transaction or on a new pool.
+ * @construct sql-lifecycle
  */
-export const executePostgresMigration = Effect.fnUntraced(function* (
+export const executePostgresMigration: (
   source: string,
-): Effect.fn.Return<void, SqlError | DatabaseMigrationExecutionError, SqlClient.SqlClient> {
-  const statements = yield* postgresMigrationStatements(source);
-  const sql = yield* SqlClient.SqlClient;
+) => Effect.Effect<void, SqlError | DatabaseMigrationExecutionError, SqlClient.SqlClient> =
+  Effect.fnUntraced(function* (
+    source: string,
+  ): Effect.fn.Return<void, SqlError | DatabaseMigrationExecutionError, SqlClient.SqlClient> {
+    const statements = yield* postgresMigrationStatements(source);
+    const sql = yield* SqlClient.SqlClient;
 
-  for (const statement of statements) yield* sql.unsafe(statement);
-});
+    for (const statement of statements) yield* sql.unsafe(statement);
+  });

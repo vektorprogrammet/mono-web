@@ -1,15 +1,11 @@
-/**
- * EX-0021: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+/** EX-0021: Stable SQL modules carry an upstream unstable annotation.
  * @effect-diagnostics unstableApiUsage:off
  */
+import type { NativePgPoolConfig } from "../pg-pool.js";
 import * as Migrator from "effect/sql/Migrator";
 import * as SqlClient from "effect/sql/SqlClient";
-import {
-  databaseMigrationLoader,
-  type ExecuteMigration,
-  runDatabaseMigrations,
-} from "../migrations.js";
-import { nativePgLayer, type NativePgPoolConfig } from "../pg-pool.js";
+import { databaseMigrationLoader, runDatabaseMigrations } from "../migrations.js";
+import { nativePgLayer } from "../pg-pool.js";
 import { executePostgresMigration } from "../postgres-migration-statements.js";
 import { Database } from "../service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
@@ -46,9 +42,9 @@ interface SchemaDefinitionRow {
   readonly definition: string;
 }
 
+/** Behavioral evidence only; the composition root owns the actual source-artifact identity. */
 export interface ReceiptFileProofEvidence {
   readonly specId: "0034";
-  readonly sourceRevision: "463d98c88e3ac89cbe6c4de28e449e69eca0a532";
   readonly database: "PostgreSQL";
   readonly providerCalls: 0;
   readonly networkCalls: 0;
@@ -301,11 +297,9 @@ const replayedReceiptAuthority = `
     ADD CONSTRAINT economy_receipts_file_byte_length_check CHECK (file_byte_length > 0);
 `;
 
-const executeMigration: ExecuteMigration = executePostgresMigration;
-
 const migrateThrough = (lastMigrationId: number) =>
   Migrator.make({})({
-    loader: databaseMigrationLoader(executeMigration).pipe(
+    loader: databaseMigrationLoader(executePostgresMigration).pipe(
       Effect.map((migrations) => migrations.filter(([id]) => id <= lastMigrationId)),
     ),
     table: "vektorprogrammet_schema_migrations",
@@ -329,7 +323,7 @@ const upgradedLegacyReceiptSchema = (database: NativePgPoolConfig) =>
       throw new Error(`legacy Receipt upgrade applied migrations ${appliedMigrationIds}, not 1-4`);
     }
 
-    yield* runDatabaseMigrations(executeMigration);
+    yield* runDatabaseMigrations(executePostgresMigration);
 
     return yield* receiptSchemaDefinition(sql);
   }).pipe(Effect.provide(nativePgLayer(database)));
@@ -343,7 +337,8 @@ export const runReceiptFileProof = (
   Effect.gen(function* () {
     const sql = yield* Database;
     const files = yield* ReceiptFileService;
-    yield* sql.unsafe(`
+    yield* sql.withTransaction(
+      executePostgresMigration(`
       INSERT INTO person_profiles (person_id, first_name, last_name) VALUES
         ('file-proof-owner', 'File', 'Owner'),
         ('file-proof-approver', 'File', 'Approver');
@@ -375,7 +370,8 @@ export const runReceiptFileProof = (
         'file-proof-approval', 'file-proof-approver', 'Department',
         'file-proof-department', '2026-01-01T00:00:00.000Z'
       );
-    `);
+    `).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+    );
 
     const freshSchema = yield* receiptSchemaDefinition(sql);
     const upgradedSchema = yield* upgradedLegacyReceiptSchema(legacyUpgradeDatabase);
@@ -745,7 +741,6 @@ export const runReceiptFileProof = (
 
     const evidence: ReceiptFileProofEvidence = {
       specId: "0034",
-      sourceRevision: "463d98c88e3ac89cbe6c4de28e449e69eca0a532",
       database: "PostgreSQL",
       providerCalls: 0,
       networkCalls: 0,

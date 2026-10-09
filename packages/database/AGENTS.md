@@ -89,6 +89,8 @@ The shared constructs defined here. Each name links to its contract; [docs/const
 - [`withIdentityRequestCancellation`](../../docs/constructs/http-transport.md#withidentityrequestcancellation) (http-transport): Keeps an identity request's cancellation signal attached to its native Effect fiber.
 - [`nativePgLayer`](../../docs/constructs/sql-lifecycle.md#nativepglayer) (sql-lifecycle): Builds the native SQL layer with an explicit host-owned connection limit.
 - [`AuthPoolLive`](../../docs/constructs/sql-lifecycle.md#authpoollive) (sql-lifecycle): Builds the supported Better Auth pool with its own host-supplied capacity.
+- [`executePostgresMigration`](../../docs/constructs/sql-lifecycle.md#executepostgresmigration) (sql-lifecycle): Executes parsed statements sequentially on the provided native SQL client.
+- [`SecretEqualityLive`](../../docs/constructs/digest.md#secretequalitylive) (digest): Supplies constant-time comparison of raw secrets under one process-owned HMAC key.
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

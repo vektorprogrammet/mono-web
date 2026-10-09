@@ -8,12 +8,15 @@ import {
   Economy,
 } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/database/receipt/postgres";
-import { Predicate, Effect, Layer } from "effect";
-import { DatabaseTestLive } from "./test-support/platform.js";
+import { Crypto, Deferred, Effect, Exit, Fiber, Layer, Predicate } from "effect";
+import { DatabaseTestLive, TestPlatform } from "./test-support/platform.js";
+import { recordReceiptSettlement } from "./receipt/settlement.js";
 
 const databaseLayer = DatabaseTestLive();
 
-const suiteLayer = Layer.merge(databaseLayer, EconomyLive.pipe(Layer.provide(databaseLayer)));
+const suiteLayer = Layer.merge(databaseLayer, EconomyLive.pipe(Layer.provide(databaseLayer))).pipe(
+  Layer.provideMerge(TestPlatform),
+);
 
 const ownerPersonId = PersonId.make("settlement-test-owner");
 
@@ -124,6 +127,57 @@ layer(suiteLayer, { excludeTestServices: true, timeout: "30 seconds" })(
           ${paymentDestination}, 'settlement-test-file-5', 'temporary/settlement-test-5',
           'application/pdf', 128, ${"e".repeat(64)}, 0)
     `;
+
+            const crypto = yield* Crypto.Crypto;
+
+            const entropyFailure = yield* recordReceiptSettlement(
+              command(
+                "settlement-entropy-failure",
+                "settlement-test-receipt-1",
+                0,
+                "entropy-failure",
+              ),
+              principal(settlerPersonId),
+            ).pipe(
+              Effect.provideService(Crypto.Crypto, {
+                ...crypto,
+                randomUUIDv4: Effect.die("entropy unavailable"),
+              }),
+              Effect.exit,
+            );
+
+            expect(Exit.isFailure(entropyFailure)).toBe(true);
+            const entered = yield* Deferred.make<void>();
+
+            const interrupted = yield* recordReceiptSettlement(
+              command(
+                "settlement-entropy-interrupted",
+                "settlement-test-receipt-1",
+                0,
+                "entropy-interrupted",
+              ),
+              principal(settlerPersonId),
+            ).pipe(
+              Effect.provideService(Crypto.Crypto, {
+                ...crypto,
+                randomUUIDv4: Deferred.succeed(entered, undefined).pipe(
+                  Effect.andThen(Effect.never),
+                ),
+              }),
+              Effect.forkChild,
+            );
+
+            yield* Deferred.await(entered);
+            yield* Fiber.interrupt(interrupted);
+            expect(
+              yield* database`SELECT revision FROM public.economy_receipts WHERE receipt_id = 'settlement-test-receipt-1'`,
+            ).toEqual([{ revision: 0 }]);
+            expect(
+              yield* database`SELECT settlement_id FROM public.economy_receipt_settlements WHERE receipt_id = 'settlement-test-receipt-1'`,
+            ).toEqual([]);
+            expect(
+              yield* database`SELECT command_id FROM public.economy_receipt_command_receipts WHERE command_id IN ('settlement-entropy-failure', 'settlement-entropy-interrupted')`,
+            ).toEqual([]);
 
             const recorded = yield* economy.recordReceiptSettlement(
               command("settlement-test-command-1", "settlement-test-receipt-1", 0, "reference-1"),

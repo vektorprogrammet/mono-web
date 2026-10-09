@@ -1,3 +1,7 @@
+/**
+ * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { assert, describe, it } from "@effect/vitest";
 import { Database } from "@vektorprogrammet/database";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
@@ -241,9 +245,13 @@ const fixture = () => {
         config: {
           maxBodyBytes: 65_536,
           now: () => afterCancellation,
-          nextInterviewId: () => RecruitmentInterviewId.make("cancel-unexpected-interview"),
-          nextInvitationId: () => RecruitmentInvitationId.make("cancel-unexpected-invitation"),
-          nextResponseCapability: () => "unexpected".padEnd(43, "_"),
+          nextInterviewId: Effect.succeed(
+            RecruitmentInterviewId.make("cancel-unexpected-interview"),
+          ),
+          nextInvitationId: Effect.succeed(
+            RecruitmentInvitationId.make("cancel-unexpected-invitation"),
+          ),
+          nextResponseCapability: Effect.succeed("unexpected".padEnd(43, "_")),
         },
         resolveActor: () => Effect.die("unexpected person authority on invitation route"),
       },

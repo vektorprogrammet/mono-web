@@ -17,6 +17,9 @@ describe("PostgreSQL migration source boundaries", () => {
     Effect.sync(() => {
       expect(() => postgresMigrationStatements("this is invalid SQL")).not.toThrow();
       expect(() => executePostgresMigration("this is invalid SQL")).not.toThrow();
+      expectTypeOf<
+        Effect.Services<ReturnType<typeof executePostgresMigration>>
+      >().toEqualTypeOf<SqlClient.SqlClient>();
       expectTypeOf(postgresMigrationStatements("SELECT 1")).toEqualTypeOf<
         Effect.Effect<ReadonlyArray<string>, DatabaseMigrationExecutionError>
       >();

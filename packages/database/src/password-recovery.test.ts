@@ -19,7 +19,7 @@ import { expectTypeOf } from "vitest";
 import { Cause, Deferred, Effect, Exit, Fiber, FiberSet, Schema } from "effect";
 import { MailDeliveryError } from "@vektorprogrammet/domain/mail";
 import { IdentityEngineError, IdentityRequestContext } from "@vektorprogrammet/domain/identity";
-import { withPostgresTestDatabase } from "./test-support/postgres.js";
+import { withPostgresTestDatabase, withRealPostgres } from "./test-support/postgres.js";
 import { TestPlatform } from "./test-support/platform.js";
 import type { AuthEngineConfig } from "./auth-engine.js";
 import {
@@ -70,29 +70,6 @@ const decodeAcceptedAudit = Schema.decodeUnknownEffect(
 /** The audit rows that the enqueue itself writes; the handler writes its own response row. */
 const enqueueAuditSql =
   "SELECT event_kind, request_correlation FROM auth.identity_security_audit WHERE event_kind='password-reset-request-accepted' AND details->>'outcomeCode'='mail-enqueued'";
-
-/**
- * One migrated, disposable PostgreSQL cluster for `use`. A failed statement inside a transaction
- * rolls it back, a wire path that the PGlite socket server does not survive; real PostgreSQL
- * carries every failure-path proof.
- */
-const withRealPostgres = <A, E, R>(use: (sql: SqlClient.SqlClient) => Effect.Effect<A, E, R>) =>
-  Effect.gen(function* () {
-    const cluster = yield* Effect.acquireRelease(
-      Effect.promise(() => startDisposablePostgres({ listen: "tcp", maxConnections: 4 })),
-      (disposable) => Effect.promise(() => disposable.stop()),
-    );
-
-    const services = yield* Layer.build(
-      DatabaseLive({
-        url: Redacted.make(cluster.url),
-        maxConnections: 2,
-        applicationName: "recovery-failure-proof",
-      }),
-    );
-
-    return yield* use(Context.get(services, Database));
-  }).pipe(Effect.scoped);
 
 /**
  * Runs the real request handler, captures the sendResetPassword program that the engine would run
@@ -227,7 +204,7 @@ layer(TestPlatform, { excludeTestServices: true })("owned recovery boundary", (i
   it.effect(
     "logs the real cause of a failed enqueue without secrets and keeps the public failure",
     () =>
-      withRealPostgres((sql) =>
+      withRealPostgres("recovery-failure-proof", (sql) =>
         Effect.gen(function* () {
           yield* seedRecoveryRequest(sql);
 

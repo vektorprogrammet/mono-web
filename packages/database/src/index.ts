@@ -11,6 +11,8 @@ export {
 
 export * from "./oauth-config.js";
 
+export { SecretEquality, SecretEqualityLive, type WebCryptoSubtle } from "./web-crypto.js";
+
 export {
   OAuthCredentialAuthority,
   type OAuthCredentialAuthorityService,

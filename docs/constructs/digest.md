@@ -4,6 +4,37 @@
 
 Canonical JSON and SHA-256 digests that evidence and idempotency identities hash. The [index](../constructs.md) lists every category.
 
+## `SecretEqualityLive`
+
+Supplies constant-time comparison of raw secrets under one process-owned HMAC key.
+
+```ts
+SecretEqualityLive(subtle: WebCryptoSubtle): Layer.Layer<SecretEquality, never, Crypto.Crypto>
+```
+
+- Inputs: `subtle: WebCryptoSubtle`
+- Output: `Layer.Layer<SecretEquality, never, Crypto.Crypto>`
+- Errors: none
+- Requirements: `Crypto.Crypto`
+- Side effects: Draws random bytes and imports a WebCrypto key at layer construction; each comparison signs and verifies through the injected provider. Provider failures are defects.
+- Source: [packages/database/src/web-crypto.ts:95](../../packages/database/src/web-crypto.ts#L95)
+
+**How it works**
+
+Draws a random 256-bit key from Crypto, imports it as non-extractable, and
+zeroes temporary bytes on success, failure, and interruption. The key never leaves the layer.
+Signing the expected value and verifying the presented value has no length shortcut.
+
+**Use**
+
+```ts
+SecretEqualityLive(subtle).pipe(Layer.provide(platform));
+```
+
+**Avoid**
+
+Comparing raw secrets with a plain equality, digest equality, or a length shortcut.
+
 ## `canonicalJsonValue`
 
 The plain JSON value of a datum, with sorted object keys and non-finite numbers as `null`.

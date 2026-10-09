@@ -248,8 +248,8 @@ export const submitReceipt = <R>(
         const command = ReceiptCommandRequestSchema.cases.SubmitReceipt.make(commandFields);
 
         const nextAllocation = {
-          receiptId: ReceiptId.make(options.config.nextReceiptId()),
-          visualId: ReceiptVisualId.make(options.config.nextVisualId()),
+          receiptId: ReceiptId.make(yield* options.config.nextReceiptId),
+          visualId: ReceiptVisualId.make(yield* options.config.nextVisualId),
         };
 
         allocation = nextAllocation;

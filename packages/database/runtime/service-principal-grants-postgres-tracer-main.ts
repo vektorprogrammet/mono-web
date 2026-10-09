@@ -488,7 +488,7 @@ const program = Effect.gen(function* () {
 
   yield* trace(parsedDatabaseUrl.pathname.slice(1)).pipe(
     Effect.provide(
-      AuthLive(config).pipe(
+      AuthLive(config, globalThis.crypto.subtle).pipe(
         Layer.provideMerge(
           Layer.mergeAll(
             AuthPoolLive(config, {

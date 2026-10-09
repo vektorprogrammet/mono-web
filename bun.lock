@@ -28,6 +28,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@effect/platform-bun": "catalog:effect-v4",
+        "@noble/hashes": "catalog:effect-v4",
         "@react-email/render": "2.1.0",
         "@vektorprogrammet/database": "workspace:*",
         "@vektorprogrammet/domain": "workspace:*",
@@ -198,7 +199,7 @@
         "@better-auth/oauth-provider": "1.7.1",
         "@effect/platform-bun": "catalog:effect-v4",
         "@effect/sql-pg": "catalog:effect-v4",
-        "@noble/hashes": "2.3.0",
+        "@noble/hashes": "catalog:effect-v4",
         "@types/pg": "^8.23.1",
         "@vektorprogrammet/domain": "workspace:*",
         "bcryptjs": "3.0.3",
@@ -225,7 +226,7 @@
       "dependencies": {
         "@effect/platform-bun": "catalog:effect-v4",
         "@effect/sql-d1": "catalog:effect-v4",
-        "@noble/hashes": "2.3.0",
+        "@noble/hashes": "catalog:effect-v4",
         "effect": "catalog:effect-v4",
         "ip-address": "10.7.0",
         "parse5": "8.0.1",
@@ -393,6 +394,7 @@
       "@effect/sql-pglite": "4.0.0",
       "@effect/vitest": "4.0.0",
       "@foldkit/ui": "0.165.0",
+      "@noble/hashes": "2.3.0",
       "better-auth": "1.7.1",
       "effect": "4.0.0",
       "fast-check": "4.9.0",

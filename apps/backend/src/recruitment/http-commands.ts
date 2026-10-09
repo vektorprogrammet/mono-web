@@ -85,7 +85,7 @@ import { interviewETag, invitationETag } from "./http-representation.js";
  * receipt, then the command, all in one serializable transaction that is
  * retried once after a lost race.
  */
-const executeCommand = <CommandId, EPrepare, RPrepare, EExecute>(input: {
+const executeCommand = <CommandId, EPrepare, RPrepare, EExecute, RExecute = never>(input: {
   readonly request: Request;
   readonly operationId: string;
   readonly routeTemplate: string;
@@ -97,7 +97,7 @@ const executeCommand = <CommandId, EPrepare, RPrepare, EExecute>(input: {
       readonly credentialSubject: CredentialSubject;
       readonly execute: (
         commandId: NoInfer<CommandId>,
-      ) => Effect.Effect<Response, EExecute, Recruitment>;
+      ) => Effect.Effect<Response, EExecute, Recruitment | RExecute>;
     },
     EPrepare,
     RPrepare
@@ -388,13 +388,15 @@ export const createApplicationInterview = <R>(
           credentialSubject: `Person:${actor.personId}` as const,
           execute: (commandId: RecruitmentAssignmentCommandId) =>
             Effect.gen(function* () {
+              const interviewId = yield* input.config.nextInterviewId;
+
               const result = yield* Recruitment.use((service) =>
                 service.assignApplicant(
                   { commandId, applicationId, ...body },
                   {
                     actor,
                     now: authorization.authorizationInstant,
-                    interviewId: input.config.nextInterviewId(),
+                    interviewId,
                   },
                 ),
               );
@@ -478,6 +480,9 @@ export const scheduleInterview = <R>(
             Effect.gen(function* () {
               yield* requireCurrentETag(interviewETag(authorization.source), ifMatch);
 
+              const invitationId = yield* input.config.nextInvitationId;
+              const responseCapability = yield* input.config.nextResponseCapability;
+
               const { observation } = yield* Recruitment.use((service) =>
                 service.scheduleInterview(
                   {
@@ -489,8 +494,8 @@ export const scheduleInterview = <R>(
                   {
                     actor: authorization.actor,
                     now: authorization.authorizationInstant,
-                    invitationId: input.config.nextInvitationId(),
-                    responseCapability: input.config.nextResponseCapability(),
+                    invitationId,
+                    responseCapability,
                   },
                 ),
               );

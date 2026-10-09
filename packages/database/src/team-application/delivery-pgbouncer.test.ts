@@ -1,10 +1,13 @@
+/** EX-0021: Stable SQL modules carry an upstream unstable annotation.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { expect, layer } from "@effect/vitest";
 import {
   type DisposablePgBouncer,
   startDisposablePgBouncer,
   startDisposablePostgres,
 } from "@monoweb/postgres";
-import { Context, Data, Duration, Effect, Layer, Redacted, Schema } from "effect";
+import { Context, Duration, Effect, Layer, Redacted, Schema } from "effect";
 import { Pool } from "pg";
 import { Mail, type MailDeliveryRequest } from "@vektorprogrammet/domain/mail";
 import { TeamId } from "@vektorprogrammet/domain/organization";
@@ -15,18 +18,26 @@ import {
   type TeamApplicationInput,
 } from "@vektorprogrammet/domain/team-application";
 import { DatabaseLive } from "../layers.js";
+import { postgresTestClient } from "../test-support/postgres.js";
 import { Database } from "../service.js";
 import { TestPlatform } from "../test-support/platform.js";
 import { TeamApplicationsLive } from "./index.js";
+
+class PgBouncerConsoleError extends Schema.TaggedError<PgBouncerConsoleError>()(
+  "PgBouncerConsoleError",
+  { cause: Schema.Defect() },
+) {}
+
+class PoolerProbeRollback extends Schema.TaggedError<PoolerProbeRollback>()(
+  "PoolerProbeRollback",
+  {},
+) {}
 
 /**
  * The transaction condition of the team-application PersistedQueue pilot on PostgreSQL through
  * PgBouncer in transaction mode (docs/specs/infrastructure-ports.md): every statement outside a
  * transaction may run on another server connection, and a transaction holds one.
  */
-class PgBouncerAdminError extends Data.TaggedError("PgBouncerAdminError")<{
-  readonly cause: unknown;
-}> {}
 
 class Pooler extends Context.Service<Pooler, DisposablePgBouncer>()(
   "team-application/delivery-pgbouncer.test/Pooler",
@@ -45,15 +56,8 @@ const pooler = Layer.effect(
       (started) => Effect.promise(() => started.stop()),
     );
 
-    const admin = yield* Effect.acquireRelease(
-      Effect.sync(() => new Pool({ connectionString: cluster.url, max: 1 })),
-      (pool) => Effect.promise(() => pool.end()),
-    );
-
-    yield* Effect.tryPromise({
-      try: () => admin.query("ALTER DATABASE pilot SET search_path = auth, public"),
-      catch: (cause) => new PgBouncerAdminError({ cause }),
-    }).pipe(Effect.orDie);
+    const admin = yield* postgresTestClient({ url: Redacted.make(cluster.url), maxConnections: 1 });
+    yield* admin.unsafe("ALTER DATABASE pilot SET search_path = auth, public").pipe(Effect.orDie);
 
     return yield* Effect.acquireRelease(
       Effect.promise(() => startDisposablePgBouncer(cluster, { poolSize: 4 })),
@@ -69,6 +73,7 @@ const database = Layer.unwrap(
       url: Redacted.make(started.urlOf("pilot")),
       applicationName: "team-application-pgbouncer-test",
       maxConnections: 4,
+      prepare: false,
     }).pipe(Layer.provide(TestPlatform)),
   ),
 );
@@ -130,31 +135,133 @@ const poolMode = (database: string) =>
     const started = yield* Pooler;
 
     const admin = yield* Effect.acquireRelease(
-      Effect.sync(() => new Pool({ connectionString: started.urlOf("pgbouncer"), max: 1 })),
+      Effect.sync(
+        () =>
+          new Pool({
+            connectionString: started.urlOf("pgbouncer"),
+            max: 1,
+            connectionTimeoutMillis: 1_000,
+            query_timeout: 1_000,
+          }),
+      ),
       (pool) => Effect.promise(() => pool.end()),
     );
 
-    // The admin console answers the simple query protocol, which a query without values uses.
-    const result = yield* Effect.tryPromise({
+    // EX-0031: PgBouncer's console requires simple protocol; the native app uses extended protocol.
+    const { rows } = yield* Effect.tryPromise({
       try: () => admin.query("SHOW POOLS"),
-      catch: (cause) => new PgBouncerAdminError({ cause }),
+      catch: (cause) => new PgBouncerConsoleError({ cause }),
     });
 
-    const rows = yield* Schema.decodeEffect(
-      Schema.Array(
-        Schema.Struct({
-          database: Schema.String,
-          pool_mode: Schema.String,
-        }),
-      ),
-    )(result.rows);
+    const decoded = yield* Schema.decodeEffect(
+      Schema.Array(Schema.Struct({ database: Schema.String, pool_mode: Schema.String })),
+    )(rows);
 
-    return rows.filter((row) => row.database === database).map((row) => row.pool_mode);
+    return decoded.filter((row) => row.database === database).map((row) => row.pool_mode);
   }).pipe(Effect.scoped);
+
+// EX-0031: only the owned PgBouncer console uses the supported simple-protocol client.
+const preparedCapacity = Effect.fnUntraced(function* () {
+  const started = yield* Pooler;
+
+  const admin = yield* Effect.acquireRelease(
+    Effect.sync(
+      () =>
+        new Pool({
+          connectionString: started.urlOf("pgbouncer"),
+          max: 1,
+          connectionTimeoutMillis: 1_000,
+          query_timeout: 1_000,
+        }),
+    ),
+    (pool) => Effect.promise(() => pool.end()),
+  );
+
+  const result = yield* Effect.tryPromise({
+    try: () => admin.query("SHOW CONFIG"),
+    catch: (cause) => new PgBouncerConsoleError({ cause }),
+  });
+
+  const rows = yield* Schema.decodeEffect(
+    Schema.Array(Schema.Struct({ key: Schema.String, value: Schema.String })),
+  )(result.rows);
+
+  return yield* Schema.decodeUnknownEffect(Schema.FiniteFromString.check(Schema.isGreaterThan(0)))(
+    rows.find((row) => row.key === "max_prepared_statements")?.value,
+  );
+}, Effect.scoped);
 
 layer(pooledLayer, { excludeTestServices: true, timeout: "120 seconds" })(
   "team application delivery through PgBouncer in transaction mode",
   (it) => {
+    it.effect(
+      "uses prepared native statements only when the real pooler declares prepared capacity",
+      () =>
+        Effect.gen(function* () {
+          expect(yield* preparedCapacity()).toBeGreaterThan(0);
+          const started = yield* Pooler;
+
+          const sql = yield* postgresTestClient({
+            url: Redacted.make(started.urlOf("pilot")),
+            maxConnections: 1,
+            prepare: true,
+            applicationName: "native-prepared-pooler",
+          });
+
+          for (let value = 0; value < 5; value++)
+            expect(yield* sql`SELECT ${value}::integer AS value`).toEqual([{ value }]);
+        }).pipe(Effect.scoped),
+    );
+
+    it.effect(
+      "reuses native unnamed statements and restores transaction-local settings after commit and rollback",
+      () =>
+        Database.use((sql) =>
+          Effect.gen(function* () {
+            const before =
+              yield* sql`SELECT current_setting('TimeZone') AS zone, current_schemas(false) AS schemas`;
+
+            const decoded = yield* Schema.decodeUnknownEffect(
+              Schema.Array(
+                Schema.Struct({ zone: Schema.String, schemas: Schema.Array(Schema.String) }),
+              ),
+            )(before);
+
+            expect(decoded[0]?.schemas).toEqual(["auth", "public"]);
+
+            for (let value = 0; value < 5; value++)
+              expect(yield* sql`SELECT ${value}::integer AS value`).toEqual([{ value }]);
+            yield* sql.withTransaction(
+              Effect.gen(function* () {
+                yield* sql`SET LOCAL TimeZone = 'Europe/Oslo'`;
+                expect(yield* sql`SELECT current_setting('TimeZone') AS zone`).toEqual([
+                  { zone: "Europe/Oslo" },
+                ]);
+                const pids = yield* sql`SELECT pg_backend_pid() AS pid`;
+                expect(yield* sql`SELECT pg_backend_pid() AS pid`).toEqual(pids);
+              }),
+            );
+            expect(
+              yield* sql`SELECT current_setting('TimeZone') AS zone, current_schemas(false) AS schemas`,
+            ).toEqual(before);
+
+            const rolledBack = yield* Effect.exit(
+              sql.withTransaction(
+                Effect.gen(function* () {
+                  yield* sql`SET LOCAL TimeZone = 'Pacific/Auckland'`;
+
+                  return yield* new PoolerProbeRollback();
+                }),
+              ),
+            );
+
+            expect(rolledBack._tag).toBe("Failure");
+            expect(
+              yield* sql`SELECT current_setting('TimeZone') AS zone, current_schemas(false) AS schemas`,
+            ).toEqual(before);
+          }),
+        ),
+    );
     it.effect(
       "commits the application, its receipt, both envelopes, and their queue items together, or none, through PgBouncer in transaction mode",
       () =>

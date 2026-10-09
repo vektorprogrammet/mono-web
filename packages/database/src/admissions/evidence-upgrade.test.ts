@@ -1,10 +1,14 @@
+/** EX-0021: Stable SQL modules carry an upstream unstable annotation.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { Redacted } from "effect";
+import * as SqlClient from "effect/sql/SqlClient";
 import { describe, expect, it } from "@effect/vitest";
 import { startDisposablePostgres } from "@monoweb/postgres";
 import { Effect, FileSystem, Path, Schema } from "effect";
-import { Pool } from "pg";
 import { selectDatabaseMigration } from "../migrations.js";
-import { pgQuery } from "../pg-pool.js";
-import { withPostgresTestDatabase } from "../test-support/postgres.js";
+import { executePostgresMigration } from "../postgres-migration-statements.js";
+import { postgresTestClient, withPostgresTestDatabase } from "../test-support/postgres.js";
 import { TestPlatform } from "../test-support/platform.js";
 
 const baseline = selectDatabaseMigration("82_admission-outcome-mail");
@@ -61,26 +65,27 @@ const Citation = Schema.Struct({
   closed: Schema.Boolean,
 });
 
-const proof = Effect.fnUntraced(function* (pool: Pool) {
-  yield* pgQuery(pool, seed);
-
-  const before = yield* Schema.decodeUnknownEffect(Schema.Array(Row))(
-    (yield* pgQuery(pool, original)).rows,
+const proof = Effect.fnUntraced(function* (pool: SqlClient.SqlClient) {
+  yield* pool.withTransaction(
+    executePostgresMigration(seed).pipe(Effect.provideService(SqlClient.SqlClient, pool)),
   );
 
-  yield* pgQuery(pool, yield* readMigration(migration));
+  const before = yield* Schema.decodeUnknownEffect(Schema.Array(Row))(yield* pool.unsafe(original));
 
-  const after = yield* Schema.decodeUnknownEffect(Schema.Array(Row))(
-    (yield* pgQuery(pool, upgraded)).rows,
+  yield* pool.withTransaction(
+    executePostgresMigration(yield* readMigration(migration)).pipe(
+      Effect.provideService(SqlClient.SqlClient, pool),
+    ),
   );
+
+  const after = yield* Schema.decodeUnknownEffect(Schema.Array(Row))(yield* pool.unsafe(upgraded));
 
   expect(after).toEqual(before);
 
   const citation = yield* Schema.decodeUnknownEffect(Schema.Array(Citation))(
-    (yield* pgQuery(
-      pool,
+    yield* pool.unsafe(
       `SELECT basis,outcome,citation_state AS citation,assessment_revision AS revision,interview_completed AS completed,decision_closed AS closed FROM application_admission_evidence WHERE application_id='evidence-application'`,
-    )).rows,
+    ),
   );
 
   expect(citation).toEqual([
@@ -94,17 +99,15 @@ const proof = Effect.fnUntraced(function* (pool: Pool) {
     },
   ]);
 
-  const frozen = (yield* pgQuery(
-    pool,
+  const frozen = yield* pool.unsafe(
     `SELECT to_jsonb(e)::text AS bytes FROM application_admission_decision_evidence e`,
-  )).rows;
+  );
 
-  yield* pgQuery(pool, `SELECT public.fence_application_decision('evidence-application')`);
+  yield* pool.unsafe(`SELECT public.fence_application_decision('evidence-application')`);
   expect(
-    (yield* pgQuery(
-      pool,
+    yield* pool.unsafe(
       `SELECT to_jsonb(e)::text AS bytes FROM application_admission_decision_evidence e`,
-    )).rows,
+    ),
   ).toEqual(frozen);
 
   for (const statement of [
@@ -114,16 +117,13 @@ const proof = Effect.fnUntraced(function* (pool: Pool) {
   ]) {
     const refusal = yield* Schema.decodeUnknownEffect(
       Schema.Array(Schema.Struct({ result: Schema.String })),
-    )(
-      (yield* pgQuery(pool, `SELECT public.evidence_upgrade_attempt($1) AS result`, [statement]))
-        .rows,
-    );
+    )(yield* pool.unsafe(`SELECT public.evidence_upgrade_attempt($1) AS result`, [statement]));
 
     expect(refusal[0]?.result).not.toBe("accepted");
   }
 
   expect(
-    (yield* pgQuery(pool, `SELECT count(*)::integer AS total FROM admission_outcome_outbox`)).rows,
+    yield* pool.unsafe(`SELECT count(*)::integer AS total FROM admission_outcome_outbox`),
   ).toEqual([{ total: 0 }]);
 });
 
@@ -143,12 +143,17 @@ describe("R2 migration83 historical citation", () => {
             (p) => Effect.promise(() => p.stop()),
           );
 
-          const pool = yield* Effect.acquireRelease(
-            Effect.sync(() => new Pool({ connectionString: postgres.url, max: 2 })),
-            (p) => Effect.promise(() => p.end()),
-          );
+          const pool = yield* postgresTestClient({
+            url: Redacted.make(postgres.url),
+            maxConnections: 2,
+          });
 
-          for (const step of preceding) yield* pgQuery(pool, yield* readMigration(step.url));
+          for (const step of preceding)
+            yield* pool.withTransaction(
+              executePostgresMigration(yield* readMigration(step.url)).pipe(
+                Effect.provideService(SqlClient.SqlClient, pool),
+              ),
+            );
           yield* proof(pool);
         }),
       ).pipe(Effect.provide(TestPlatform)),

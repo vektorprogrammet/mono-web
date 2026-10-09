@@ -494,3 +494,36 @@ const authPool = AuthPoolLive(config, {
 **Avoid**
 
 Providing this layer to a delivery-only event or sharing it with native Effect SQL.
+
+## `executePostgresMigration`
+
+Executes parsed statements sequentially on the provided native SQL client.
+
+```ts
+executePostgresMigration(
+  source: string
+): Effect.Effect<void, SqlError | DatabaseMigrationExecutionError, SqlClient.SqlClient>
+```
+
+- Inputs: `source: string`
+- Output: `Effect.Effect<void, SqlError | DatabaseMigrationExecutionError, SqlClient.SqlClient>`
+- Errors: `SqlError | DatabaseMigrationExecutionError`
+- Requirements: `SqlClient.SqlClient`
+- Side effects: Executes original statement bytes when the Effect runs.
+- Source: [packages/database/src/postgres-migration-statements.ts:84](../../packages/database/src/postgres-migration-statements.ts#L84)
+
+**How it works**
+
+The caller (normally Migrator) owns the transaction. Construction is suspended;
+this operation never commits, opens another pool, or retries. SQL errors remain
+typed. Interruption stops subsequent statements and the owner rolls back.
+
+**Use**
+
+```ts
+yield* sql.withTransaction(executePostgresMigration(source));
+```
+
+**Avoid**
+
+Running it outside the migration owner's transaction or on a new pool.

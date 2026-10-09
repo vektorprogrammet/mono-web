@@ -1,5 +1,5 @@
 import { Database } from "../service.js";
-import { Effect, Layer } from "effect";
+import { Crypto, Effect, Layer } from "effect";
 import {
   deliverNextReceiptOutbox,
   listStaleReceiptOutboxClaimIds,
@@ -29,6 +29,7 @@ export const EconomyLive = Layer.effect(
   Economy,
   Effect.gen(function* () {
     const database = yield* Database;
+    const crypto = yield* Crypto.Crypto;
 
     return Economy.of({
       executeReceipt: (input, principal, allocation) =>
@@ -46,7 +47,10 @@ export const EconomyLive = Layer.effect(
           Effect.provideService(Database, database),
         ),
       recordReceiptSettlement: (input, principal) =>
-        recordReceiptSettlement(input, principal).pipe(Effect.provideService(Database, database)),
+        recordReceiptSettlement(input, principal).pipe(
+          Effect.provideService(Database, database),
+          Effect.provideService(Crypto.Crypto, crypto),
+        ),
       listOwnedReceipts: (ownerPersonId, status, after) =>
         listOwnedReceiptProjection(ownerPersonId, status, after).pipe(
           Effect.provideService(Database, database),

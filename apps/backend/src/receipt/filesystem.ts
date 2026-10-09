@@ -1,6 +1,7 @@
-import { createHash, randomUUID } from "node:crypto";
+import { sha256 } from "@noble/hashes/sha2.js";
 import {
   Context,
+  Crypto,
   Data,
   Effect,
   FileSystem,
@@ -11,6 +12,7 @@ import {
   Predicate,
   Stream,
 } from "effect";
+import { Hex } from "effect/encoding";
 import {
   ReceiptDecodeError,
   receiptEvidenceDigest,
@@ -58,15 +60,12 @@ const mediaKey = (contentType: ReceiptFile["contentType"]): string =>
     Match.orElse(() => "jpeg" as const),
   );
 
-const sha256Hex = (value: string | Uint8Array): string =>
-  createHash("sha256").update(value).digest("hex");
-
 const fileIdentity = (
-  commandId: string,
+  commandDigest: string,
   contentType: ReceiptFile["contentType"],
   digest: FileDigest,
 ): ReceiptFile => {
-  const suffix = `${sha256Hex(commandId).slice(0, 32)}-${digest.sha256}-${mediaKey(contentType)}`;
+  const suffix = `${commandDigest.slice(0, 32)}-${digest.sha256}-${mediaKey(contentType)}`;
 
   return {
     fileRef: `staging/${suffix}`,
@@ -111,12 +110,23 @@ export class ReceiptFileStoreResource extends Context.Service<
   ReceiptFileStore
 >()("@vektorprogrammet/backend/ReceiptFileStore") {}
 
-/** Private receipt files under two local roots, through the platform FileSystem and Path. */
+/**
+ * Private receipt files under two local roots, through the platform FileSystem and Path.
+ *
+ * The platform `Crypto` is captured once here. It names temporary files, digests identities and
+ * committed bytes, and a failure of it is a `PlatformError` that each operation already maps.
+ */
 export const makeReceiptFileStore = (config: ReceiptFileStoreConfig) =>
   Effect.gen(function* () {
+    const crypto = yield* Crypto.Crypto;
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     let failNextPromotionEffectId = config.failNextPromotionEffectId;
+
+    const sha256Hex = (value: string | Uint8Array) =>
+      crypto
+        .digest("SHA-256", Predicate.isString(value) ? encoder.encode(value) : value)
+        .pipe(Effect.map(Hex.encode));
 
     const pathFor = (root: string, key: string) => {
       const segments = key.split("/");
@@ -134,10 +144,14 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig) =>
     };
 
     // Reads at most one byte past the expected length: a longer file is already different.
+    //
+    // EX-0038: `Crypto.digest` takes the whole input, so it cannot keep the length + 1 cutoff
+    // and the constant memory bound of this streaming comparison; `@noble/hashes` hashes
+    // chunk by chunk. Whole-input digests of this module use `Crypto.digest`.
     const inspectFile = (filePath: string, file: ReceiptFile) =>
       fs.stream(filePath, { bytesToRead: file.byteLength + 1 }).pipe(
         Stream.runFold(
-          () => ({ hash: createHash("sha256"), byteLength: 0 }),
+          () => ({ hash: sha256.create(), byteLength: 0 }),
           (digest, chunk) => ({
             hash: digest.hash.update(chunk),
             byteLength: digest.byteLength + chunk.byteLength,
@@ -145,7 +159,7 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig) =>
         ),
         Effect.map(
           ({ hash, byteLength }): ExistingFile =>
-            byteLength === file.byteLength && hash.digest("hex") === file.sha256
+            byteLength === file.byteLength && Hex.encode(hash.digest()) === file.sha256
               ? "matching"
               : "different",
         ),
@@ -174,8 +188,8 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig) =>
       Effect.gen(function* () {
         const directory = path.join(config.committedRoot, ".effects");
         yield* fs.makeDirectory(directory, { recursive: true, mode: 0o700 });
-        const target = path.join(directory, sha256Hex(effectId));
-        const temporary = path.join(directory, `.incoming-${randomUUID()}`);
+        const target = path.join(directory, yield* sha256Hex(effectId));
+        const temporary = path.join(directory, `.incoming-${yield* crypto.randomUUIDv4}`);
 
         const recorded = yield* Effect.scoped(
           Effect.acquireUseRelease(
@@ -203,7 +217,7 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig) =>
         Effect.sync(() => upload.stream().getReader()),
         (reader) =>
           Effect.gen(function* () {
-            const hash = createHash("sha256");
+            const hash = sha256.create();
             let byteLength = 0;
 
             for (;;) {
@@ -230,7 +244,7 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig) =>
               yield* handle.writeAll(chunk.value);
             }
 
-            return { byteLength, sha256: hash.digest("hex") };
+            return { byteLength, sha256: Hex.encode(hash.digest()) };
           }),
         (reader) =>
           Effect.tryPromise({
@@ -277,8 +291,15 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig) =>
       maxFileBytes: number,
     ) =>
       Effect.gen(function* () {
+        // Both platform calls come before any file exists, so a failure of either leaves nothing.
+        const commandDigest = yield* sha256Hex(commandId);
         yield* fs.makeDirectory(config.stagingRoot, { recursive: true, mode: 0o700 });
-        const temporaryPath = path.join(config.stagingRoot, `.incoming-${randomUUID()}.part`);
+
+        const temporaryPath = path.join(
+          config.stagingRoot,
+          `.incoming-${yield* crypto.randomUUIDv4}.part`,
+        );
+
         const removeTemporary = removeIfPresent(temporaryPath).pipe(Effect.ignore);
 
         // The handle closes after the fsync, before the file is placed.
@@ -295,7 +316,7 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig) =>
 
         return yield* placeStagedFile(
           temporaryPath,
-          fileIdentity(commandId, contentType, digest),
+          fileIdentity(commandDigest, contentType, digest),
         ).pipe(Effect.onError(() => removeTemporary));
       }).pipe(Effect.catchTag("PlatformError", failedOperation("stageBytes")));
 
@@ -436,12 +457,10 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig) =>
 
             const after = yield* handle.stat;
 
-            if (
-              offset !== file.byteLength ||
-              after.size !== BigInt(file.byteLength) ||
-              sha256Hex(bytes) !== file.sha256
-            )
-              return yield* mismatch;
+            // The digest runs only for a file of the expected length.
+            const complete = offset === file.byteLength && after.size === BigInt(file.byteLength);
+
+            if (!complete || (yield* sha256Hex(bytes)) !== file.sha256) return yield* mismatch;
 
             return bytes;
           }),

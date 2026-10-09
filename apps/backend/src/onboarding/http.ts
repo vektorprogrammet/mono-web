@@ -2,6 +2,7 @@
  * EX-0024: required public native APIs in stable Effect 4 retain upstream unstable annotations.
  * @effect-diagnostics unstableApiUsage:off
  */
+import { allocateOnboardingClaimToken, onboardingClaimTokenDigest } from "./claim-token.js";
 import {
   credentialMatchesAccessSpec,
   reaches,
@@ -152,14 +153,6 @@ const onboardingProblems = (presentation: CredentialPresentation) =>
     SqlError: sqlProblem,
   });
 
-/**
- * Hex SHA-256 of a claim token, the only form the database stores.
- */
-const tokenDigest = (token: string) =>
-  Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(token))).pipe(
-    Effect.map((digest) => Buffer.from(digest).toString("hex")),
-  );
-
 const resource = <A extends object>(body: A) => ({
   ...body,
   etag: deriveStrongETag({
@@ -299,10 +292,8 @@ export const OnboardingApiHandlers = (input: {
       const idempotencyKey = yield* idempotencyKeyOf(request);
       const presentation = personPresentation(request);
 
-      const token =
-        "onboard_" + Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("hex");
-
-      const digest = yield* tokenDigest(token);
+      const token = yield* allocateOnboardingClaimToken;
+      const digest = yield* onboardingClaimTokenDigest(token);
 
       const deliveryAdmission = yield* Ref.make<OnboardingDeliveryAdmission | null>(null);
 
@@ -404,7 +395,7 @@ export const OnboardingApiHandlers = (input: {
         yield* readJsonBody(request, JSON_MEDIA_TYPE, MAX_BODY_BYTES),
       );
 
-      const digest = yield* tokenDigest(body.token);
+      const digest = yield* onboardingClaimTokenDigest(body.token);
 
       // A new-account claim presents one credential: its token. An existing-account claim has one
       // principal, the browser session's Person. Its token is then a single-use requirement bound to

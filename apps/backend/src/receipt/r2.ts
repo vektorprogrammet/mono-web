@@ -1,6 +1,7 @@
 import { ReceiptFileStoreError, ReceiptFileStoreResource } from "./filesystem.js";
 import { jsonText } from "../http-api/problem.js";
-import { Data, Match, Effect, Layer, Predicate } from "effect";
+import { Crypto, Data, Match, Effect, Layer, Predicate } from "effect";
+import { Hex } from "effect/encoding";
 import {
   ReceiptDecodeError,
   ReceiptFileEffectConflict,
@@ -65,15 +66,17 @@ const extensionFor = (contentType: ReceiptFile["contentType"]): string =>
     Match.orElse(() => "jpeg" as const),
   );
 
-const hexDigest = (bytes: Uint8Array) =>
-  call(() => crypto.subtle.digest("SHA-256", bytes)).pipe(
-    Effect.map((digest) =>
-      Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join(""),
-    ),
+const hexDigest = (bytes: Uint8Array, crypto: Crypto.Crypto) =>
+  crypto.digest("SHA-256", bytes).pipe(
+    Effect.map(Hex.encode),
+    Effect.mapError((cause) => new R2CallFailure({ cause })),
   );
 
-const digestBytes = (bytes: Uint8Array) =>
-  Effect.map(hexDigest(bytes), (sha256): Digest => ({ byteLength: bytes.byteLength, sha256 }));
+const digestBytes = (bytes: Uint8Array, crypto: Crypto.Crypto) =>
+  Effect.map(
+    hexDigest(bytes, crypto),
+    (sha256): Digest => ({ byteLength: bytes.byteLength, sha256 }),
+  );
 
 const keyIsSafe = (key: string): boolean =>
   key.length > 0 &&
@@ -85,8 +88,9 @@ const receiptFileIdentity = (
   commandId: string,
   contentType: ReceiptFile["contentType"],
   digest: Digest,
+  crypto: Crypto.Crypto,
 ) =>
-  Effect.map(hexDigest(encoder.encode(commandId)), (commandDigest): ReceiptFile => {
+  Effect.map(hexDigest(encoder.encode(commandId), crypto), (commandDigest): ReceiptFile => {
     const suffix = `${commandDigest.slice(0, 32)}-${digest.sha256}-${extensionFor(contentType)}`;
 
     return {
@@ -101,7 +105,7 @@ const receiptFileIdentity = (
 const notStaged = (effectId: string, fileRef: string): ReceiptFileNotStaged =>
   new ReceiptFileNotStaged({ effectId, fileRef });
 
-const readMatching = (bucket: R2Bucket, key: string, file: ReceiptFile) =>
+const readMatching = (bucket: R2Bucket, key: string, file: ReceiptFile, crypto: Crypto.Crypto) =>
   Effect.gen(function* () {
     const object = yield* call(() => bucket.get(key));
 
@@ -111,7 +115,7 @@ const readMatching = (bucket: R2Bucket, key: string, file: ReceiptFile) =>
       return "different" satisfies Existing;
 
     const digest = yield* call(() => object.arrayBuffer()).pipe(
-      Effect.flatMap((buffer) => digestBytes(new Uint8Array(buffer))),
+      Effect.flatMap((buffer) => digestBytes(new Uint8Array(buffer), crypto)),
     );
 
     return digest.byteLength === file.byteLength && digest.sha256 === file.sha256
@@ -164,7 +168,10 @@ const ensureFileIdentity = (file: ReceiptFile) =>
         new ReceiptFileIdentityConflict({ effectId: "identity", objectKey: file.objectKey }),
       );
 
-export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): ReceiptFileStore => {
+export const makeR2ReceiptFileStore = (
+  config: R2ReceiptFileStoreConfig,
+  crypto: Crypto.Crypto,
+): ReceiptFileStore => {
   if (
     !Predicate.isObject(config.bucket) ||
     !Predicate.isFunction(config.bucket.get) ||
@@ -198,10 +205,11 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
       const identity = yield* receiptFileIdentity(
         commandId,
         contentType,
-        yield* digestBytes(bytes),
+        yield* digestBytes(bytes, crypto),
+        crypto,
       );
 
-      const existing = yield* readMatching(bucket, identity.fileRef, identity);
+      const existing = yield* readMatching(bucket, identity.fileRef, identity, crypto);
 
       if (existing === "matching") return { file: identity, created: false };
 
@@ -233,7 +241,7 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
 
       if (staged === null) return yield* notStaged(request.effectId, request.file.fileRef);
       const bytes = new Uint8Array(yield* call(() => staged.arrayBuffer()));
-      const digest = yield* digestBytes(bytes);
+      const digest = yield* digestBytes(bytes, crypto);
 
       if (
         digest.byteLength !== request.file.byteLength ||
@@ -250,7 +258,7 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
     stage: (file) =>
       Effect.gen(function* () {
         yield* ensureFileIdentity(file);
-        const staged = yield* readMatching(bucket, file.fileRef, file);
+        const staged = yield* readMatching(bucket, file.fileRef, file, crypto);
 
         if (staged === "matching") return;
 
@@ -261,7 +269,7 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
           });
         }
 
-        const committed = yield* readMatching(bucket, file.objectKey, file);
+        const committed = yield* readMatching(bucket, file.objectKey, file, crypto);
 
         if (committed === "matching") return;
 
@@ -279,7 +287,7 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
     apply: (request) =>
       Effect.gen(function* () {
         yield* ensureFileIdentity(request.file);
-        const markerKey = `effects/${yield* hexDigest(encoder.encode(request.effectId))}`;
+        const markerKey = `effects/${yield* hexDigest(encoder.encode(request.effectId), crypto)}`;
 
         if (Predicate.isTagged(request, "PromoteReceiptFile")) {
           if (failNextPromotionEffectId === request.effectId) {
@@ -288,7 +296,12 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
             return yield* notStaged(request.effectId, request.file.fileRef);
           }
 
-          const committed = yield* readMatching(bucket, request.file.objectKey, request.file);
+          const committed = yield* readMatching(
+            bucket,
+            request.file.objectKey,
+            request.file,
+            crypto,
+          );
 
           if (committed === "different") {
             return yield* new ReceiptFileIdentityConflict({
@@ -311,7 +324,7 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
           return yield* call(() => bucket.delete(request.file.fileRef));
         }
 
-        const committed = yield* readMatching(bucket, request.file.objectKey, request.file);
+        const committed = yield* readMatching(bucket, request.file.objectKey, request.file, crypto);
 
         if (committed === "different") {
           return yield* new ReceiptFileIdentityConflict({
@@ -353,7 +366,7 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
       }
 
       const bytes = new Uint8Array(yield* call(() => object.arrayBuffer()));
-      const digest = yield* digestBytes(bytes);
+      const digest = yield* digestBytes(bytes, crypto);
 
       if (
         digest.byteLength !== file.byteLength ||
@@ -381,4 +394,7 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
 };
 
 export const R2ReceiptFileStoreLive = (config: R2ReceiptFileStoreConfig) =>
-  Layer.sync(ReceiptFileStoreResource, () => makeR2ReceiptFileStore(config));
+  Layer.effect(
+    ReceiptFileStoreResource,
+    Effect.map(Crypto.Crypto, (crypto) => makeR2ReceiptFileStore(config, crypto)),
+  );

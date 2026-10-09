@@ -5,11 +5,14 @@ import { PGlite } from "@electric-sql/pglite";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import * as PgClient from "@effect/sql-pg/PgClient";
+import { startDisposablePostgres } from "@monoweb/postgres";
 import { Context, Effect, FileSystem, Layer, Path, Redacted } from "effect";
 import { SqlClient } from "effect/sql";
 import { type DatabaseMigrationDefinition, databaseMigrationDefinitions } from "../migrations.js";
 import { executePostgresMigration } from "../postgres-migration-statements.js";
 import { nativePgLayer, type NativePgPoolConfig } from "../pg-pool.js";
+import { DatabaseLive } from "../layers.js";
+import { Database } from "../service.js";
 
 /** A scoped native test client; the caller's Scope owns physical pool shutdown. */
 export const postgresTestClient = Effect.fnUntraced(function* (config: NativePgPoolConfig) {
@@ -25,6 +28,32 @@ export const postgresTestClient = Effect.fnUntraced(function* (config: NativePgP
 
   return Context.get(context, PgClient.PgClient);
 });
+
+/**
+ * Runs a callback on migrated, private PostgreSQL with native SQL.
+ * The caller supplies the application name and platform services.
+ * The Scope closes the native two-connection pool before the four-connection cluster.
+ * SQL failures inside a transaction use the real PostgreSQL rollback protocol.
+ */
+export const withRealPostgres = Effect.fnUntraced(function* <A, E, R>(
+  applicationName: string,
+  use: (sql: SqlClient.SqlClient) => Effect.Effect<A, E, R>,
+) {
+  const cluster = yield* Effect.acquireRelease(
+    Effect.promise(() => startDisposablePostgres({ listen: "tcp", maxConnections: 4 })),
+    (disposable) => Effect.promise(() => disposable.stop()),
+  );
+
+  const services = yield* Layer.build(
+    DatabaseLive({
+      url: Redacted.make(cluster.url),
+      maxConnections: 2,
+      applicationName,
+    }),
+  );
+
+  return yield* use(Context.get(services, Database));
+}, Effect.scoped);
 
 /**
  * Runs `use` on a native SqlClient through the explicitly selected migrations.

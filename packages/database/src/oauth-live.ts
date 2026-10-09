@@ -11,8 +11,7 @@ import {
   CredentialMechanismSchema,
   PrincipalSchema,
 } from "@vektorprogrammet/domain/authz";
-// oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0033: Effect Crypto lacks ECDSA signature verification and constant-time comparison.
-import { timingSafeEqual, webcrypto } from "node:crypto";
+import { SecretEquality, SecretEqualityLive, type WebCryptoSubtle } from "./web-crypto.js";
 import { sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { Crypto } from "effect";
 import { Types, Layer, Predicate, Context, Data, DateTime, Effect, Result, Schema } from "effect";
@@ -333,33 +332,59 @@ const decodeIssuedJwt = (token: string) =>
     ),
   );
 
-const verifyJwtSignature = (decoded: DecodedNativeJwt, publicKey: string) =>
-  Effect.gen(function* () {
-    const publicJwk = yield* decodeUnknownRecordJson(publicKey);
+/** The WebCrypto verifications of the OAuth flows, imported once from the injected provider. */
+export interface OAuthWebCryptoService {
+  /** Verifies the ES256 signature of a decoded compact JWT under the JWK text `publicKey`. */
+  readonly verifyJwtSignature: (
+    decoded: Pick<DecodedNativeJwt, "signingInput" | "signature">,
+    publicKey: string,
+  ) => Effect.Effect<boolean, OAuthExchangeFailure | Schema.SchemaError>;
+  /** Whether `presented` equals `expected`, without a timing channel (see `SecretEquality`). */
+  readonly digestsEqual: (expected: string, presented: string) => Effect.Effect<boolean>;
+}
 
-    const verificationKey = yield* Effect.tryPromise({
-      try: () =>
-        webcrypto.subtle.importKey(
-          "jwk",
-          publicJwk,
-          { name: "ECDSA", namedCurve: "P-256" },
-          false,
-          ["verify"],
-        ),
-      catch: (cause) => new OAuthExchangeFailure({ message: "signing key is unusable", cause }),
-    });
+class OAuthWebCrypto extends Context.Service<OAuthWebCrypto, OAuthWebCryptoService>()(
+  "@vektorprogrammet/database/OAuthWebCrypto",
+) {}
 
-    return yield* Effect.tryPromise({
-      try: () =>
-        webcrypto.subtle.verify(
-          { name: "ECDSA", hash: "SHA-256" },
-          verificationKey,
-          decoded.signature,
-          decoded.signingInput,
-        ),
-      catch: (cause) => new OAuthExchangeFailure({ message: "signature check failed", cause }),
-    });
-  });
+/**
+ * Builds the OAuth WebCrypto verifications over `subtle`, the provider of the composition root.
+ *
+ * The comparison of digests is that of the `SecretEquality` of the layer, whose per-process key is
+ * imported once; every method requires nothing.
+ */
+export const makeOAuthWebCrypto = Effect.fn("OAuthWebCrypto.make")(function* (
+  subtle: WebCryptoSubtle,
+): Effect.fn.Return<OAuthWebCryptoService, never, SecretEquality> {
+  const secretEquality = yield* SecretEquality;
+
+  return {
+    digestsEqual: secretEquality.equal,
+    verifyJwtSignature: (decoded, publicKey) =>
+      Effect.gen(function* () {
+        const publicJwk = yield* decodeUnknownRecordJson(publicKey);
+
+        const verificationKey = yield* Effect.tryPromise({
+          try: () =>
+            subtle.importKey("jwk", publicJwk, { name: "ECDSA", namedCurve: "P-256" }, false, [
+              "verify",
+            ]),
+          catch: (cause) => new OAuthExchangeFailure({ message: "signing key is unusable", cause }),
+        });
+
+        return yield* Effect.tryPromise({
+          try: () =>
+            subtle.verify(
+              { name: "ECDSA", hash: "SHA-256" },
+              verificationKey,
+              decoded.signature,
+              decoded.signingInput,
+            ),
+          catch: (cause) => new OAuthExchangeFailure({ message: "signature check failed", cause }),
+        });
+      }),
+  };
+});
 
 const verifyIssuedJwtSignature = (pool: SqlClient.SqlClient, decoded: DecodedNativeJwt) =>
   Effect.gen(function* () {
@@ -372,7 +397,9 @@ const verifyIssuedJwtSignature = (pool: SqlClient.SqlClient, decoded: DecodedNat
 
     if (key === undefined || key.alg !== "ES256") return false;
 
-    return yield* verifyJwtSignature(decoded, key.public_key);
+    const webCrypto = yield* OAuthWebCrypto;
+
+    return yield* webCrypto.verifyJwtSignature(decoded, key.public_key);
   });
 
 const refreshTokenDigest = (token: string): string | undefined => {
@@ -399,13 +426,6 @@ const bearerFromRequest = (request: Request) => {
 
 const hasBetterAuthCookie = (request: Request): boolean =>
   /(?:^|;\s*)(?:__Secure-)?better-auth\.session_token=/u.test(request.headers.get("cookie") ?? "");
-
-const constantDigestEqual = (left: string, right: string): boolean => {
-  const leftBytes = Buffer.from(left, "utf8");
-  const rightBytes = Buffer.from(right, "utf8");
-
-  return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
-};
 
 const selectTokenState = (
   pool: SqlClient.SqlClient,
@@ -518,7 +538,7 @@ const resolveOAuthCredential = <E, R>(
   now: DateTime.Utc,
   lookup: TokenStateLookup<E, R>,
   config: OAuthProviderRuntimeConfig,
-): Effect.Effect<CredentialOutcome, never, R> =>
+): Effect.Effect<CredentialOutcome, never, R | OAuthWebCrypto> =>
   Effect.gen(function* () {
     const bearer = bearerFromRequest(request);
 
@@ -563,9 +583,11 @@ const resolveOAuthCredential = <E, R>(
       return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Invalid" });
     }
 
-    const signatureValid = yield* verifyJwtSignature(decoded, state.public_key).pipe(
-      Effect.orElseSucceed(() => false),
-    );
+    const webCrypto = yield* OAuthWebCrypto;
+
+    const signatureValid = yield* webCrypto
+      .verifyJwtSignature(decoded, state.public_key)
+      .pipe(Effect.orElseSucceed(() => false));
 
     if (!signatureValid) return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Invalid" });
 
@@ -658,6 +680,7 @@ const resolveOAuthCredential = <E, R>(
 export const makeOAuthCredentialAuthorityService = (
   pool: SqlClient.SqlClient,
   config: OAuthProviderRuntimeConfig,
+  webCrypto: OAuthWebCryptoService,
 ): OAuthCredentialAuthorityService => ({
   resolve: (request, expected, now) =>
     Effect.flatMap(now === undefined ? DateTime.now : Effect.succeed(now), (instant) =>
@@ -668,11 +691,11 @@ export const makeOAuthCredentialAuthorityService = (
         (claims, kid) => selectTokenState(pool, claims, kid),
         config,
       ),
-    ),
+    ).pipe(Effect.provideService(OAuthWebCrypto, webCrypto)),
   resolveInTransaction: (request, expected, now) =>
     Effect.flatMap(now === undefined ? DateTime.now : Effect.succeed(now), (instant) =>
       resolveOAuthCredential(request, expected, instant, selectTokenStateInTransaction, config),
-    ),
+    ).pipe(Effect.provideService(OAuthWebCrypto, webCrypto)),
 });
 
 const sanitizedRequestContext = (context: IdentityRequestContext) => ({
@@ -1306,6 +1329,7 @@ const authorizeTokenClient = (
   now: DateTime.Utc,
 ) =>
   Effect.gen(function* () {
+    const webCrypto = yield* OAuthWebCrypto;
     const basic = yield* basicClientCredential(request);
     const formClientId = form.get("client_id");
     const clientId = basic?.clientId ?? formClientId;
@@ -1329,10 +1353,10 @@ const authorizeTokenClient = (
       !basic.secret.startsWith("vkr_cs_") ||
       client.token_endpoint_auth_method !== "client_secret_basic" ||
       client.client_secret === null ||
-      !constantDigestEqual(
-        hashOAuthClientSecret(basic.secret.slice("vkr_cs_".length)),
+      !(yield* webCrypto.digestsEqual(
         client.client_secret,
-      )
+        hashOAuthClientSecret(basic.secret.slice("vkr_cs_".length)),
+      ))
     ) {
       return undefined;
     }
@@ -1346,6 +1370,7 @@ const authorizeOAuthIntrospectionClient = (
   now: DateTime.Utc,
 ) =>
   Effect.gen(function* () {
+    const webCrypto = yield* OAuthWebCrypto;
     const basic = yield* basicClientCredential(request);
 
     if (basic === undefined) return false;
@@ -1361,10 +1386,10 @@ const authorizeOAuthIntrospectionClient = (
       client.secret_expires_at.getTime() <= DateTime.toEpochMillis(now) ||
       client.scopes?.length !== 0 ||
       !basic.secret.startsWith("vkr_cs_") ||
-      !constantDigestEqual(
-        hashOAuthClientSecret(basic.secret.slice("vkr_cs_".length)),
+      !(yield* webCrypto.digestsEqual(
         client.client_secret,
-      )
+        hashOAuthClientSecret(basic.secret.slice("vkr_cs_".length)),
+      ))
     ) {
       return false;
     }
@@ -1426,7 +1451,11 @@ const inactiveIntrospectionResponse = (): Response =>
   );
 
 export const makeOAuthInternalIntrospectionHandler =
-  (engine: OAuthEngineBoundary, pool: SqlClient.SqlClient): OAuthIntrospectionHandler =>
+  (
+    engine: OAuthEngineBoundary,
+    pool: SqlClient.SqlClient,
+    webCrypto: OAuthWebCryptoService,
+  ): OAuthIntrospectionHandler =>
   (request, context) =>
     Effect.gen(function* () {
       const pathname = new URL(request.url).pathname;
@@ -1569,7 +1598,7 @@ export const makeOAuthInternalIntrospectionHandler =
         status: 200,
         headers: { "cache-control": "no-store", pragma: "no-cache" },
       });
-    });
+    }).pipe(Effect.provideService(OAuthWebCrypto, webCrypto));
 
 const invalidOAuthResponse = (status: number, error: string): Response =>
   Response.json(
@@ -2377,6 +2406,7 @@ export const makeOAuthReleaseBarrier =
     pool: SqlClient.SqlClient,
     config: OAuthProviderRuntimeConfig,
     crypto: Crypto.Crypto,
+    webCrypto: OAuthWebCryptoService,
   ): OAuthReleaseHandler =>
   (request, context) =>
     Effect.gen(function* () {
@@ -2422,6 +2452,7 @@ export const makeOAuthReleaseBarrier =
 
       return response;
     }).pipe(
+      Effect.provideService(OAuthWebCrypto, webCrypto),
       withIdentityRequestCancellation(request),
       // The barrier answers exchange failures, never cancellation.
       Effect.catchCause((cause) => {
@@ -2478,22 +2509,23 @@ export class OAuthHandlers extends Context.Service<
   }
 >()("@vektorprogrammet/database/OAuthHandlers") {}
 
-export const OAuthLive = (config: OAuthProviderRuntimeConfig) =>
+export const OAuthLive = (config: OAuthProviderRuntimeConfig, subtle: WebCryptoSubtle) =>
   Layer.effectContext(
     Effect.gen(function* () {
       const pool = yield* Database;
       const engine = yield* NativeAuthEngine;
       const crypto = yield* Crypto.Crypto;
+      const webCrypto = yield* makeOAuthWebCrypto(subtle);
 
       return Context.make(
         OAuthCredentialAuthority,
-        makeOAuthCredentialAuthorityService(pool, config),
+        makeOAuthCredentialAuthorityService(pool, config, webCrypto),
       ).pipe(
         Context.add(OAuthClientOperator, makeOAuthClientOperatorService(pool, engine, crypto)),
         Context.add(OAuthHandlers, {
-          release: makeOAuthReleaseBarrier(engine, pool, config, crypto),
-          introspection: makeOAuthInternalIntrospectionHandler(engine, pool),
+          release: makeOAuthReleaseBarrier(engine, pool, config, crypto, webCrypto),
+          introspection: makeOAuthInternalIntrospectionHandler(engine, pool, webCrypto),
         }),
       );
     }),
-  );
+  ).pipe(Layer.provide(SecretEqualityLive(subtle)));

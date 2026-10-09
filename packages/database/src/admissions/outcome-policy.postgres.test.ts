@@ -1,3 +1,7 @@
+/** EX-0021: Stable SQL modules carry an upstream unstable annotation.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import * as SqlClient from "effect/sql/SqlClient";
 import { expect, layer } from "@effect/vitest";
 import {
   type DisposablePostgres,
@@ -16,7 +20,6 @@ import {
   Redacted,
   Schema,
 } from "effect";
-import { Pool, type QueryResultRow } from "pg";
 import {
   Admissions,
   AdmissionOutcome,
@@ -35,10 +38,10 @@ import { PlacementFailure, Placements } from "@vektorprogrammet/domain/placement
 import { SchoolId } from "@vektorprogrammet/domain/schools";
 import { DatabaseLive } from "../layers.js";
 import { type DatabaseMigrationDefinition, selectDatabaseMigration } from "../migrations.js";
-import { pgQuery } from "../pg-pool.js";
+import { executePostgresMigration } from "../postgres-migration-statements.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import { TestPlatform } from "../test-support/platform.js";
-import { withPostgresTestDatabase } from "../test-support/postgres.js";
+import { postgresTestClient, withPostgresTestDatabase } from "../test-support/postgres.js";
 import { PlacementsLive } from "../placements/index.js";
 import { AdmissionsLive } from "./index.js";
 
@@ -824,11 +827,11 @@ const readSql = (migration: DatabaseMigrationDefinition) =>
     return yield* fs.readFileString(yield* path.fromFileUrl(migration.url));
   });
 
-const select = <R extends QueryResultRow>(
-  pool: Pool,
+const select = <R extends object>(
+  pool: SqlClient.SqlClient,
   text: string,
   values: ReadonlyArray<unknown> = [],
-) => pgQuery<R>(pool, text, values).pipe(Effect.map(({ rows }) => rows));
+) => pool.unsafe<R>(text, values);
 
 /**
  * Application outcome histories of the previous schema. `Substitute` is current for
@@ -991,7 +994,7 @@ const readReceipts = `SELECT identity_sha256, operation_id, state, status, media
   to_char(committed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS committed_at
   FROM public.native_http_idempotency_receipts ORDER BY identity_sha256 COLLATE "C"`;
 
-interface CoverageRow extends QueryResultRow {
+interface CoverageRow extends object {
   readonly coverage_id: string;
   readonly absence_id: string;
   readonly covering_person_id: string;
@@ -1001,7 +1004,7 @@ interface CoverageRow extends QueryResultRow {
   readonly withdrawn_at: string | null;
 }
 
-interface ReceiptRow extends QueryResultRow {
+interface ReceiptRow extends object {
   readonly identity_sha256: string;
   readonly operation_id: string;
   readonly state: string;
@@ -1046,7 +1049,7 @@ BEGIN
 END $$;
 `;
 
-interface HistoryRow extends QueryResultRow {
+interface HistoryRow extends object {
   readonly application_id: string;
   readonly revision: number;
   readonly outcome: string;
@@ -1101,7 +1104,7 @@ const readSemanticUpgrades = `SELECT application_id AS application, revision
   FROM public.admission_application_outcomes WHERE provenance = 'SemanticUpgrade'
   ORDER BY application_id COLLATE "C", revision`;
 
-const attemptStatement = (pool: Pool, statement: string) =>
+const attemptStatement = (pool: SqlClient.SqlClient, statement: string) =>
   select<{ readonly outcome: string }>(
     pool,
     "SELECT public.outcome_policy_attempt($1) AS outcome",
@@ -1109,11 +1112,19 @@ const attemptStatement = (pool: Pool, statement: string) =>
   ).pipe(Effect.map((rows) => rows[0]?.outcome));
 
 /** Seeds the previous schema, applies the later migrations, and observes the upgraded history. */
-const upgrade = (pool: Pool) =>
+const upgrade = (pool: SqlClient.SqlClient) =>
   Effect.gen(function* () {
-    yield* pgQuery(pool, upgradeSeed);
-    yield* pgQuery(pool, previousServiceSeed);
-    yield* pgQuery(pool, observers);
+    yield* pool.withTransaction(
+      executePostgresMigration(upgradeSeed).pipe(Effect.provideService(SqlClient.SqlClient, pool)),
+    );
+    yield* pool.withTransaction(
+      executePostgresMigration(previousServiceSeed).pipe(
+        Effect.provideService(SqlClient.SqlClient, pool),
+      ),
+    );
+    yield* executePostgresMigration(observers).pipe(
+      Effect.provideService(SqlClient.SqlClient, pool),
+    );
 
     const before = yield* select<HistoryRow>(pool, readHistory);
 
@@ -1136,7 +1147,12 @@ const upgrade = (pool: Pool) =>
     const coverageBefore = yield* select<CoverageRow>(pool, readCoverage);
     const receiptsBefore = yield* select<ReceiptRow>(pool, readReceipts);
 
-    for (const migration of laterMigrations) yield* pgQuery(pool, yield* readSql(migration));
+    for (const migration of laterMigrations)
+      yield* pool.withTransaction(
+        executePostgresMigration(yield* readSql(migration)).pipe(
+          Effect.provideService(SqlClient.SqlClient, pool),
+        ),
+      );
 
     const after = yield* select<HistoryRow>(pool, readHistory);
 
@@ -1216,10 +1232,9 @@ const upgrade = (pool: Pool) =>
       insertProvenanceRevision("plain-rejected", 2, "Recommendation", null),
     );
 
-    yield* pgQuery(
-      pool,
+    yield* executePostgresMigration(
       "DROP FUNCTION public.outcome_policy_attempt(text); DROP FUNCTION public.outcome_policy_outbox_rows()",
-    );
+    ).pipe(Effect.provideService(SqlClient.SqlClient, pool));
 
     return {
       appended: after.flatMap((row) =>
@@ -2407,13 +2422,14 @@ layer(Layer.merge(policy, TestPlatform), { excludeTestServices: true, timeout: "
             postgres.createDatabase("outcome_policy_upgrade"),
           );
 
-          const pool = yield* Effect.acquireRelease(
-            Effect.sync(() => new Pool({ connectionString: url, max: 1 })),
-            (opened) => Effect.promise(() => opened.end()),
-          );
+          const pool = yield* postgresTestClient({ url: Redacted.make(url), maxConnections: 1 });
 
           for (const migration of baselineMigrations)
-            yield* pgQuery(pool, yield* readSql(migration));
+            yield* pool.withTransaction(
+              executePostgresMigration(yield* readSql(migration)).pipe(
+                Effect.provideService(SqlClient.SqlClient, pool),
+              ),
+            );
 
           expect(yield* upgrade(pool)).toEqual(upgradeEvidence);
         }).pipe(Effect.scoped, Effect.orDie),

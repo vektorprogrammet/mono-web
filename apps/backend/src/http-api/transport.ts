@@ -10,7 +10,11 @@ import {
   RequestSchemaErrorMiddleware,
   SessionSecurity,
 } from "@vektorprogrammet/http-api";
-import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
+import {
+  OAuthCredentialAuthority,
+  SecretEquality,
+  SecretEqualityLive,
+} from "@vektorprogrammet/database";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import { CONTACT_BACKEND_HEADER } from "@vektorprogrammet/domain/contact";
 import { Identity } from "@vektorprogrammet/domain/identity";
@@ -19,17 +23,7 @@ import {
   invitationCapabilityChallenge,
   Problem,
 } from "@vektorprogrammet/http-api/http-semantics";
-import {
-  Crypto,
-  Data,
-  Match,
-  Effect,
-  Layer,
-  Redacted,
-  Result,
-  Schema,
-  type SchemaIssue,
-} from "effect";
+import { Match, Effect, Layer, Redacted, Result, Schema, type SchemaIssue } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/http";
 import { HttpApiError, HttpApiMiddleware } from "effect/http-api";
 import {
@@ -282,66 +276,44 @@ const invitationCapabilitySecurityLayer = Layer.succeed(
   }),
 );
 
-class ContactTokenCryptoFailure extends Data.TaggedError("ContactTokenCryptoFailure")<{}> {}
-
-const contactTokenEncoder = new TextEncoder();
-
 const contactSsrSecurityLayer = (
   contact: ContactConfig | undefined,
   subtle: Pick<typeof globalThis.crypto.subtle, "importKey" | "sign" | "verify">,
 ) =>
-  Layer.effect(
-    ContactSsrSecurity,
-    Effect.gen(function* () {
-      if (contact === undefined)
-        return ContactSsrSecurity.of({ contactBackend: (httpEffect) => httpEffect });
+  contact === undefined
+    ? Layer.succeed(
+        ContactSsrSecurity,
+        ContactSsrSecurity.of({ contactBackend: (httpEffect) => httpEffect }),
+      )
+    : Layer.effect(
+        ContactSsrSecurity,
+        Effect.gen(function* () {
+          const equality = yield* SecretEquality;
 
-      const crypto = yield* Crypto.Crypto;
-      const keyBytes = yield* crypto.randomBytes(32).pipe(Effect.orDie);
+          return ContactSsrSecurity.of({
+            contactBackend: (httpEffect, { credential }) =>
+              Effect.gen(function* () {
+                const accepted = yield* equality.equal(
+                  contact.backendToken,
+                  Redacted.value(credential),
+                );
 
-      const key = yield* Effect.tryPromise({
-        try: () =>
-          subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, [
-            "sign",
-            "verify",
-          ]),
-        catch: () => new ContactTokenCryptoFailure(),
-      }).pipe(Effect.ensuring(Effect.sync(() => keyBytes.fill(0))), Effect.orDie);
+                if (accepted)
+                  return yield* httpEffect.pipe(
+                    Effect.provideService(ContactBackendAdmission, true),
+                  );
+                const request = yield* HttpServerRequest.HttpServerRequest;
 
-      const expectedTag = yield* Effect.tryPromise({
-        try: () => subtle.sign("HMAC", key, contactTokenEncoder.encode(contact.backendToken)),
-        catch: () => new ContactTokenCryptoFailure(),
-      }).pipe(Effect.orDie);
-
-      return ContactSsrSecurity.of({
-        contactBackend: (httpEffect, { credential }) =>
-          Effect.gen(function* () {
-            const accepted = yield* Effect.tryPromise({
-              try: () =>
-                subtle.verify(
-                  "HMAC",
-                  key,
-                  expectedTag,
-                  contactTokenEncoder.encode(Redacted.value(credential)),
-                ),
-              catch: () => new ContactTokenCryptoFailure(),
-            }).pipe(Effect.orDie);
-
-            if (accepted)
-              return yield* httpEffect.pipe(Effect.provideService(ContactBackendAdmission, true));
-
-            const request = yield* HttpServerRequest.HttpServerRequest;
-
-            return yield* Problem.unauthenticated(
-              credentialPresentation({
-                presented: request.headers[CONTACT_BACKEND_HEADER] !== undefined,
-                challenge: 'ContactSSR realm="native-contact"',
+                return yield* Problem.unauthenticated(
+                  credentialPresentation({
+                    presented: request.headers[CONTACT_BACKEND_HEADER] !== undefined,
+                    challenge: 'ContactSSR realm="native-contact"',
+                  }),
+                );
               }),
-            );
-          }),
-      });
-    }),
-  );
+          });
+        }),
+      ).pipe(Layer.provide(SecretEqualityLive(subtle)));
 
 const RequestSchemaErrorLive = HttpApiMiddleware.layerSchemaErrorTransform(
   RequestSchemaErrorMiddleware,

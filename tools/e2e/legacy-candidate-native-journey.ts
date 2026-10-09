@@ -9,6 +9,7 @@ import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { AuthEngine, AuthLive, OAUTH_NATIVE_API_RESOURCE } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { AuthPoolLive } from "@vektorprogrammet/database/pg-pool";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { ReturningAssistantsLive } from "@vektorprogrammet/database/application";
 import { ContentLive, ContentManagementLive } from "@vektorprogrammet/database/content";
@@ -125,7 +126,16 @@ export const observeLegacyCandidateNativeJourney = async (
     SocialEventsLive.pipe(Layer.provide(database)),
     TeamApplicationsLive().pipe(Layer.provide(database)),
     ReceiptDeliveryLive(undefined).pipe(Layer.provide(Layer.merge(database, platform))),
-    AuthLive(config.auth).pipe(Layer.provide(database)),
+    AuthLive(config.auth, globalThis.crypto.subtle).pipe(
+      Layer.provide(database),
+      Layer.provide(
+        AuthPoolLive(config.auth, {
+          maxConnections: 4,
+          applicationName: "candidate-native-journey-auth",
+          pipeline: false,
+        }),
+      ),
+    ),
   );
 
   const http = Layer.mergeAll(

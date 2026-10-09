@@ -6,6 +6,7 @@ import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
 import { commandOnboarding } from "@vektorprogrammet/database/onboarding";
 import { PlacementsLive } from "@vektorprogrammet/database/placements";
+import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { Placements } from "@vektorprogrammet/domain/placements";
 import { AdmissionPeriodActorSchema } from "@vektorprogrammet/domain/admission-period";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
@@ -243,9 +244,13 @@ const fixture = <E = never>(
       config: {
         maxBodyBytes: 65_536,
         now: () => now,
-        nextInterviewId: () => RecruitmentInterviewId.make("commands-unexpected-interview"),
-        nextInvitationId: () => RecruitmentInvitationId.make("commands-unexpected-invitation"),
-        nextResponseCapability: () => "unexpected".padEnd(43, "_"),
+        nextInterviewId: Effect.succeed(
+          RecruitmentInterviewId.make("commands-unexpected-interview"),
+        ),
+        nextInvitationId: Effect.succeed(
+          RecruitmentInvitationId.make("commands-unexpected-invitation"),
+        ),
+        nextResponseCapability: Effect.succeed("unexpected".padEnd(43, "_")),
       },
       resolveActor: () => Effect.die("unexpected recruitment board actor"),
     },
@@ -526,8 +531,6 @@ const maintenance = Effect.fnUntraced(function* (
   );
 });
 
-const wireJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
-
 const reopenWire = (
   key = "r2-reopen",
   expectedWindowSequence = 0,
@@ -540,7 +543,7 @@ const reopenWire = (
     commandId,
     body:
       '{"_tag":"ReopenAssessmentCorrection",' +
-      wireJson({
+      canonicalJson({
         commandId,
         interviewId,
         reason,
@@ -557,7 +560,7 @@ const closeWire = (windowSequence = 1, key = "r2-close", reason = "Review comple
     commandId,
     body:
       '{"_tag":"CloseAssessmentCorrection",' +
-      wireJson({ commandId, interviewId, reason, expectedSequence: windowSequence }).slice(1),
+      canonicalJson({ commandId, interviewId, reason, expectedSequence: windowSequence }).slice(1),
   };
 };
 
@@ -831,7 +834,7 @@ describe("R2 correction closure and frozen admission evidence", () => {
         commandId,
         body:
           '{"_tag":"ReopenAssessmentCorrection",' +
-          wireJson({
+          canonicalJson({
             commandId,
             interviewId,
             expectedSequence: 0,

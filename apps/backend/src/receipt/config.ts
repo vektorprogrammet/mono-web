@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
 import { RECEIPT_FILE_MAX_BYTES } from "@vektorprogrammet/domain/receipt";
-import { Predicate } from "effect";
+import { allocatePrefixedUuid } from "../allocation.js";
+import { Predicate, type Crypto, type Effect } from "effect";
 import type { IdentityDeployment } from "../session-security.js";
 
 /**
@@ -17,8 +17,9 @@ export interface ReceiptApiConfig {
   readonly maxFileBytes: number;
   /** Evidence compositions can pin the instant; absence reads the Effect Clock. */
   readonly now?: () => string;
-  readonly nextReceiptId: () => string;
-  readonly nextVisualId: () => string;
+  /** Each allocation draws fresh entropy from the platform `Crypto` service when it runs. */
+  readonly nextReceiptId: Effect.Effect<string, never, Crypto.Crypto>;
+  readonly nextVisualId: Effect.Effect<string, never, Crypto.Crypto>;
   readonly e2e?: ReceiptE2EComposition;
 }
 
@@ -56,8 +57,8 @@ export const decodeReceiptApiConfig = (
     "RECEIPT_COMMITTED_ROOT",
   ),
   maxFileBytes: parseMaxFileBytes(env.RECEIPT_MAX_FILE_BYTES),
-  nextReceiptId: () => `receipt_${randomUUID()}`,
-  nextVisualId: () => `visual_${randomUUID()}`,
+  nextReceiptId: allocatePrefixedUuid("receipt"),
+  nextVisualId: allocatePrefixedUuid("visual"),
 });
 
 /**

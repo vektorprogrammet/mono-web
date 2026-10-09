@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { Database, IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { commandOnboarding } from "@vektorprogrammet/database/onboarding";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
@@ -120,7 +120,7 @@ const seed = Database.use((sql) =>
           now: currentTime,
           invitationId: `claim-invitation-${applicant}`,
           token: tokens[applicant],
-          digest: createHash("sha256").update(tokens[applicant]).digest("hex"),
+          digest: sha256Hex(new TextEncoder().encode(tokens[applicant])),
         }),
       );
     }
