@@ -1,3 +1,7 @@
+/**
+ * EX-0029: required public native APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { Mail } from "@vektorprogrammet/domain/mail";
 /** 0107 owned Person-to-Account reconciliation / Better Auth / recovery / restore journey. */
@@ -9,7 +13,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer as createHttpServer } from "node:http";
 import process from "node:process";
-import { Pool } from "pg";
+import { SqlClient } from "effect/sql";
+import { Context, Scope, Exit } from "effect";
+import { executePostgresMigration } from "@vektorprogrammet/database/postgres-migration-statements";
 import {
   type DisposablePostgres,
   postgresProgram,
@@ -17,17 +23,18 @@ import {
   startDisposablePostgres,
 } from "@monoweb/postgres";
 import { Console, Schema, flow, Predicate, Effect, Redacted } from "effect";
-import { databaseHealth } from "@vektorprogrammet/database";
+import { Database, databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import {
   NativeAuthEngine,
   NativeAuthEngineLive,
-  AuthPoolLive,
   type AuthEngineConfig,
 } from "@vektorprogrammet/database/auth-engine";
-import { DatabasePgPool } from "@vektorprogrammet/database/pg-pool";
+
 import { ManagedRuntime, Layer } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
+import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
+import { AuthPoolLive } from "@vektorprogrammet/database/pg-pool";
 import {
   PasswordRecovery,
   drainPasswordResetMail,
@@ -44,11 +51,9 @@ import {
   isNativePasswordHash,
   verifyNativeOrLegacyPassword,
 } from "@vektorprogrammet/database/password-codec";
-import { proveCredentialResetRace } from "./credential-race.js";
+import { CredentialRaceBoundaryFailure, proveCredentialResetRace } from "./credential-race.js";
 
 const importIdentityCohort = flow(importIdentityCohortEffect, Effect.runPromise);
-
-const importPersonCohort = flow(importPersonCohortEffect, Effect.runPromise);
 
 declare const Bun: {
   version: string;
@@ -93,9 +98,9 @@ let postgres: DisposablePostgres | undefined;
 
 let disposeAuth: (() => Promise<void>) | undefined;
 
-let pool: Pool | undefined,
-  authPool: Pool | undefined,
-  server: ReturnType<typeof Bun.serve> | undefined;
+let databaseScope: Scope.Closeable | undefined;
+
+let authPool: SqlClient.SqlClient | undefined, server: ReturnType<typeof Bun.serve> | undefined;
 
 let sink: ReturnType<typeof createHttpServer> | undefined;
 
@@ -109,6 +114,7 @@ const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const stop = async (child: ChildProcess) => {
   if (child.exitCode !== null || child.signalCode !== null) return;
+
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("owned process cleanup timeout")), 15000);
     child.once("exit", () => {
@@ -119,13 +125,19 @@ const stop = async (child: ChildProcess) => {
   });
 };
 
-const readPassword = async (databasePool: Pool, personId: string) => {
-  const result = await databasePool.query<{ password: string }>(
-    'SELECT password FROM auth."account" WHERE "userId"=$1',
-    [personId],
+const readPassword = async (databasePool: SqlClient.SqlClient, personId: string) => {
+  const result = await Effect.runPromise(
+    databasePool
+      .unsafe('SELECT password FROM auth."account" WHERE "userId"=$1', [personId])
+      .pipe(
+        Effect.flatMap(
+          Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ password: Schema.String }))),
+        ),
+      ),
   );
 
-  const account = result.rows[0];
+  const account = result[0];
+
   assert.ok(account, "imported credential account is required");
 
   return account.password;
@@ -135,17 +147,23 @@ let evidence: Record<string, Schema.Json> | undefined;
 
 try {
   postgres = await startDisposablePostgres({ database: "identity_cohort_rehearsal" });
+
   const databaseUrl = postgres.url;
-  pool = new Pool({ connectionString: databaseUrl, max: 4 });
-  await Effect.runPromise(
-    databaseHealth.pipe(
-      Effect.provide(
-        DatabaseLive({ url: Redacted.make(databaseUrl), maxConnections: 1 }).pipe(
-          Layer.provide(BunServices.layer),
-        ),
+  databaseScope = await Effect.runPromise(Scope.make());
+
+  const databaseContext = await Effect.runPromise(
+    Layer.buildWithScope(
+      DatabaseLive({ url: Redacted.make(databaseUrl), maxConnections: 4 }).pipe(
+        Layer.provide(BunServices.layer),
       ),
+      databaseScope,
     ),
   );
+
+  const pool = Context.get(databaseContext, Database);
+
+  await Effect.runPromise(databaseHealth.pipe(Effect.provideContext(databaseContext)));
+
   const php = process.env.IDENTITY_COHORT_PHP ?? "php";
 
   const values = [
@@ -168,10 +186,12 @@ try {
       await verify({ hash: hashes[i]!, password: values[i]! }),
       "PHP/bcrypt cross-runtime verification",
     );
+
     assert.equal(await verify({ hash: hashes[i]!, password: "wrong-password" }), false);
   }
 
   assert.equal(await verify({ hash: hashes[0]!, password: values[0]! + "\0tail" }), false);
+
   assert.equal(
     await verify({ hash: hashes[0]!, password: values[0]!.normalize("NFD") }),
     false,
@@ -233,6 +253,7 @@ try {
   mappings.push({ ...mappings.at(-1)! });
   add("unattested");
   mappings.at(-1)!.emailOwnership.email = "someone-else@example.invalid";
+
   const duplicate = add("duplicate-source");
   occurrences.push({ occurrenceId: "occ-duplicate-source-second", row: { ...duplicate } });
   add("duplicate-email-a", { email: "shared@example.invalid" });
@@ -241,7 +262,9 @@ try {
   add("duplicate-target-b");
   mappings.at(-1)!.personId = "person-duplicate-target-a";
   add("person-missing");
+
   const targetConflictRow = add("target-conflict");
+
   const emailConflictRow = add("email-conflict");
   occurrences.push({
     occurrenceId: "occ-invalid",
@@ -259,12 +282,11 @@ try {
     mappings,
   };
 
-  const reconcilePerson = async (
+  const reconcilePersonEffect = Effect.fnUntraced(function* (
     source: Row,
     mode: "create" | "link" = "create",
     personId = `person-${source.sourceUserId}`,
-    client?: import("pg").PoolClient,
-  ) => {
+  ) {
     const personMapping =
       mode === "create"
         ? {
@@ -290,67 +312,77 @@ try {
             expectedContactRevision: 0,
           };
 
-    const result = await importPersonCohort(
-      pool!,
-      {
-        sourceRepository: snapshot.sourceRepository,
-        sourceRevision: `person-source-${source.sourceUserId}`,
-        snapshotId: `person-${source.sourceUserId}`,
-        transformationRevision: "0107-v1",
-        sourceKind: "Synthetic",
-        occurrences: [
-          {
-            occurrenceId: `person-${source.sourceUserId}`,
-            row: {
-              sourceUserId: source.sourceUserId,
-              active: true,
-              firstName: "Synthetic",
-              lastName: "Cohort",
-              email: source.email,
-              phone: "+47 999 00 000",
-            },
+    const result = yield* importPersonCohortEffect(pool!, {
+      sourceRepository: snapshot.sourceRepository,
+      sourceRevision: `person-source-${source.sourceUserId}`,
+      snapshotId: `person-${source.sourceUserId}`,
+      transformationRevision: "0107-v1",
+      sourceKind: "Synthetic",
+      occurrences: [
+        {
+          occurrenceId: `person-${source.sourceUserId}`,
+          row: {
+            sourceUserId: source.sourceUserId,
+            active: true,
+            firstName: "Synthetic",
+            lastName: "Cohort",
+            email: source.email,
+            phone: "+47 999 00 000",
           },
-        ],
-        mappings: [personMapping],
-      },
-      client,
-    );
+        },
+      ],
+      mappings: [personMapping],
+    });
 
     assert.equal(result.accepted, 1);
-  };
+  });
 
-  await pool.query(
-    "INSERT INTO person_profiles(person_id,first_name,last_name) VALUES('person-accepted-2','Synthetic','Cohort'); INSERT INTO person_contact_profiles(person_id,email,phone) VALUES('person-accepted-2','cohort-accepted-2@example.invalid','+47 999 00 000')",
+  const reconcilePerson = flow(reconcilePersonEffect, Effect.runPromise);
+
+  await Effect.runPromise(
+    executePostgresMigration(
+      "INSERT INTO person_profiles(person_id,first_name,last_name) VALUES('person-accepted-2','Synthetic','Cohort'); INSERT INTO person_contact_profiles(person_id,email,phone) VALUES('person-accepted-2','cohort-accepted-2@example.invalid','+47 999 00 000')",
+    ).pipe(Effect.provideService(SqlClient.SqlClient, pool)),
   );
 
   for (const [index, source] of acceptedRows.entries())
     await reconcilePerson(source, index === 2 ? "link" : "create");
 
   for (const source of [targetConflictRow, emailConflictRow]) await reconcilePerson(source);
-  await pool.query(
-    "INSERT INTO person_profiles(person_id,first_name,last_name) VALUES('person-person-missing','Synthetic','ProfileOnly'),('existing-email-owner','Synthetic','Existing')",
+
+  await Effect.runPromise(
+    pool.unsafe(
+      "INSERT INTO person_profiles(person_id,first_name,last_name) VALUES('person-person-missing','Synthetic','ProfileOnly'),('existing-email-owner','Synthetic','Existing')",
+    ),
   );
-  await pool.query(
-    "INSERT INTO auth.\"user\"(id,name,email,\"emailVerified\") VALUES('person-target-conflict','Existing','target-existing@example.invalid',false),('existing-email-owner','Existing','cohort-email-conflict@example.invalid',false)",
+
+  await Effect.runPromise(
+    pool.unsafe(
+      "INSERT INTO auth.\"user\"(id,name,email,\"emailVerified\") VALUES('person-target-conflict','Existing','target-existing@example.invalid',false),('existing-email-owner','Existing','cohort-email-conflict@example.invalid',false)",
+    ),
   );
 
   const profilesBefore = digest(
-    (await pool.query("SELECT * FROM person_profiles ORDER BY person_id")).rows,
+    await Effect.runPromise(pool.unsafe("SELECT * FROM person_profiles ORDER BY person_id")),
   );
 
   const facts = async () =>
     digest(
-      (
-        await pool!.query(
+      await Effect.runPromise(
+        pool!.unsafe(
           `SELECT jsonb_build_object('users',(SELECT jsonb_agg(u ORDER BY id) FROM auth."user" u),'accounts',(SELECT jsonb_agg(a ORDER BY id) FROM auth."account" a),'snapshots',(SELECT jsonb_agg(s ORDER BY snapshot_key) FROM auth.credential_cohort_snapshots s),'occurrences',(SELECT jsonb_agg(o ORDER BY snapshot_key,occurrence_id) FROM auth.credential_cohort_occurrences o),'imports',(SELECT jsonb_agg(i ORDER BY source_repository,source_user_id) FROM auth.account_cohort_imports i)) AS facts`,
-        )
-      ).rows,
+        ),
+      ),
     );
 
   const report = await importIdentityCohort(pool, snapshot);
+
   assert.equal(report.accepted, 3);
+
   assert.equal(report.input, occurrences.length);
+
   assert.equal(report.quarantined, occurrences.length - 3);
+
   assert.deepEqual(
     report.occurrences.find((entry) => entry.occurrenceId === "occ-person-missing"),
     {
@@ -359,27 +391,36 @@ try {
       reason: "PersonReconciliationMissing",
     },
   );
+
   assert.equal(
     report.occurrences.find((entry) => entry.occurrenceId === "occ-target-conflict")?.reason,
     "TargetConflict",
   );
+
   assert.equal(
     report.occurrences.find((entry) => entry.occurrenceId === "occ-email-conflict")?.reason,
     "EmailConflict",
   );
+
   assert.deepEqual(
-    (await pool.query('SELECT "userId" FROM auth."account" ORDER BY "userId"')).rows.map(
-      (r) => r.userId,
-    ),
+    (
+      await Effect.runPromise(pool.unsafe('SELECT "userId" FROM auth."account" ORDER BY "userId"'))
+    ).map((r) => r.userId),
     ["person-accepted-0", "person-accepted-1", "person-accepted-2"],
     "quarantined occurrences create no credential",
   );
+
   assert.equal(
-    digest((await pool.query("SELECT * FROM person_profiles ORDER BY person_id")).rows),
+    digest(
+      await Effect.runPromise(pool.unsafe("SELECT * FROM person_profiles ORDER BY person_id")),
+    ),
     profilesBefore,
   );
+
   const initialFacts = await facts();
+
   assert.deepEqual(await importIdentityCohort(pool, snapshot), report);
+
   assert.equal(await facts(), initialFacts);
 
   const concurrent = await Promise.all([
@@ -388,11 +429,14 @@ try {
   ]);
 
   assert.deepEqual(concurrent, [report, report]);
+
   assert.equal(await facts(), initialFacts);
+
   await assert.rejects(
     importIdentityCohort(pool, { ...snapshot, sourceRevision: "changed" }),
     (e) => e instanceof IdentityCohortFailure && e.code === "SnapshotConflict",
   );
+
   const changed = structuredClone(snapshot);
   changed.snapshotId = "changed-source";
   changed.occurrences[0]!.row = {
@@ -401,10 +445,12 @@ try {
     ),
     active: false,
   };
+
   await assert.rejects(
     importIdentityCohort(pool, changed),
     (e) => e instanceof IdentityCohortFailure && e.code === "SourceIdentityConflict",
   );
+
   assert.equal(await facts(), initialFacts);
 
   const failedRow: Row = {
@@ -438,21 +484,34 @@ try {
     ],
   };
 
-  await pool.query(
-    "CREATE FUNCTION auth.fail_cohort_0107() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Synthetic failure'; END $$; CREATE TRIGGER fail_cohort_0107 BEFORE INSERT ON auth.account_cohort_imports FOR EACH ROW EXECUTE FUNCTION auth.fail_cohort_0107()",
+  await Effect.runPromise(
+    executePostgresMigration(
+      "CREATE FUNCTION auth.fail_cohort_0107() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Synthetic failure'; END $$; CREATE TRIGGER fail_cohort_0107 BEFORE INSERT ON auth.account_cohort_imports FOR EACH ROW EXECUTE FUNCTION auth.fail_cohort_0107()",
+    ).pipe(Effect.provideService(SqlClient.SqlClient, pool)),
   );
+
   await assert.rejects(importIdentityCohort(pool, failedSnapshot));
+
   assert.equal(
-    (await pool.query("SELECT 1 FROM auth.\"user\" WHERE id='person-failure'")).rowCount,
+    (await Effect.runPromise(pool.unsafe("SELECT 1 FROM auth.\"user\" WHERE id='person-failure'")))
+      .length,
     0,
   );
+
   assert.equal(await facts(), initialFacts);
-  await pool.query(
-    "DROP TRIGGER fail_cohort_0107 ON auth.account_cohort_imports; DROP FUNCTION auth.fail_cohort_0107()",
+
+  await Effect.runPromise(
+    executePostgresMigration(
+      "DROP TRIGGER fail_cohort_0107 ON auth.account_cohort_imports; DROP FUNCTION auth.fail_cohort_0107()",
+    ).pipe(Effect.provideService(SqlClient.SqlClient, pool)),
   );
+
   await assert.rejects(
-    pool.query("UPDATE auth.account_cohort_imports SET source_digest=repeat('f',64)"),
+    Effect.runPromise(
+      pool.unsafe("UPDATE auth.account_cohort_imports SET source_digest=repeat('f',64)"),
+    ),
   );
+
   await writeFile(inputFile, JSON.stringify(snapshot), { mode: 0o600 });
 
   const cli = spawn("bun", ["run", "packages/database/runtime/identity-cohort-main.ts"], {
@@ -468,7 +527,9 @@ try {
   });
 
   children.push(cli);
+
   assert.equal(await new Promise<number | null>((r) => cli.once("exit", r)), 0);
+
   assert.equal(await facts(), initialFacts);
 
   const concurrentRow: Row = {
@@ -506,20 +567,23 @@ try {
   ]);
 
   assert.deepEqual(concurrentInitial, [concurrentInitial[0], concurrentInitial[0]]);
+
   assert.equal(concurrentInitial[0]!.accepted, 1);
+
   assert.deepEqual(
     (
-      await pool.query(
-        `SELECT
-           (SELECT count(*)::int FROM auth."user" WHERE id='person-concurrent-initial') AS users,
-           (SELECT count(*)::int FROM auth."account" WHERE "userId"='person-concurrent-initial') AS accounts,
-           (SELECT count(*)::int FROM auth.account_cohort_imports WHERE source_user_id='concurrent-initial') AS imports`,
+      await Effect.runPromise(
+        pool.unsafe(`SELECT
+         (SELECT count(*)::int FROM auth."user" WHERE id='person-concurrent-initial') AS users,
+         (SELECT count(*)::int FROM auth."account" WHERE "userId"='person-concurrent-initial') AS accounts,
+         (SELECT count(*)::int FROM auth.account_cohort_imports WHERE source_user_id='concurrent-initial') AS imports`),
       )
-    ).rows[0],
+    )[0],
     { users: 1, accounts: 1, imports: 1 },
   );
 
   // Synthetic source facts exercise the LegacyBackup path without reading a private backup.
+
   const backupRow: Row = {
     sourceUserId: "backup-accepted",
     active: true,
@@ -556,6 +620,7 @@ try {
   };
 
   const backupTargetConflictRow: Row = { ...targetConflictRow, passwordHash: null };
+
   const backupEmailConflictRow: Row = { ...emailConflictRow, passwordHash: null };
 
   for (const row of [
@@ -568,10 +633,13 @@ try {
     backupEmailConflictRow,
   ])
     await reconcilePerson(row);
-  await pool.query("UPDATE public.person_contact_profiles SET email=$1 WHERE person_id=$2", [
-    "different@example.invalid",
-    "person-backup-contact-mismatch",
-  ]);
+
+  await Effect.runPromise(
+    pool.unsafe("UPDATE public.person_contact_profiles SET email=$1 WHERE person_id=$2", [
+      "different@example.invalid",
+      "person-backup-contact-mismatch",
+    ]),
+  );
 
   const backupSnapshot = {
     ...snapshot,
@@ -644,38 +712,54 @@ try {
       'occurrences',(SELECT count(*) FROM auth.credential_cohort_occurrences),
       'imports',(SELECT count(*) FROM auth.account_cohort_imports)) AS facts`;
 
-  const rollbackFacts = await pool.query(rollbackFactsQuery);
-  await pool.query(
-    "CREATE FUNCTION auth.fail_recovery_cohort() RETURNS trigger LANGUAGE plpgsql AS $rollback$ BEGIN RAISE EXCEPTION 'Forced recovery rollback'; END $rollback$; CREATE TRIGGER fail_recovery_cohort BEFORE INSERT ON auth.account_cohort_imports FOR EACH ROW EXECUTE FUNCTION auth.fail_recovery_cohort()",
+  const rollbackFacts = await Effect.runPromise(pool.unsafe(rollbackFactsQuery));
+
+  await Effect.runPromise(
+    executePostgresMigration(
+      "CREATE FUNCTION auth.fail_recovery_cohort() RETURNS trigger LANGUAGE plpgsql AS $rollback$ BEGIN RAISE EXCEPTION 'Forced recovery rollback'; END $rollback$; CREATE TRIGGER fail_recovery_cohort BEFORE INSERT ON auth.account_cohort_imports FOR EACH ROW EXECUTE FUNCTION auth.fail_recovery_cohort()",
+    ).pipe(Effect.provideService(SqlClient.SqlClient, pool)),
   );
-  const rollbackClient = await pool.connect();
 
-  try {
-    await rollbackClient.query("BEGIN");
-    await reconcilePerson(failedRecoveryRow, "create", "person-backup-rollback", rollbackClient);
-    await assert.rejects(importIdentityCohort(pool, rollbackSnapshot, rollbackClient));
-    await rollbackClient.query("ROLLBACK");
-  } finally {
-    rollbackClient.release();
-  }
+  await assert.rejects(
+    Effect.runPromise(
+      pool.withTransaction(
+        Effect.gen(function* () {
+          yield* reconcilePersonEffect(failedRecoveryRow, "create", "person-backup-rollback");
 
-  assert.deepEqual((await pool.query(rollbackFactsQuery)).rows, rollbackFacts.rows);
-  await pool.query(
-    "DROP TRIGGER fail_recovery_cohort ON auth.account_cohort_imports; DROP FUNCTION auth.fail_recovery_cohort()",
+          yield* importIdentityCohortEffect(pool, rollbackSnapshot);
+        }),
+      ),
+    ),
   );
-  const shared = await pool.connect();
 
-  try {
-    await shared.query("BEGIN");
-    assert.equal((await importIdentityCohort(pool, backupSnapshot, shared)).accepted, 3);
-    await shared.query("ROLLBACK");
-  } finally {
-    shared.release();
-  }
+  assert.deepEqual(await Effect.runPromise(pool.unsafe(rollbackFactsQuery)), rollbackFacts);
+
+  await Effect.runPromise(
+    executePostgresMigration(
+      "DROP TRIGGER fail_recovery_cohort ON auth.account_cohort_imports; DROP FUNCTION auth.fail_recovery_cohort()",
+    ).pipe(Effect.provideService(SqlClient.SqlClient, pool)),
+  );
+
+  const sharedRollback = await Effect.runPromise(
+    Effect.flip(
+      pool.withTransaction(
+        Effect.gen(function* () {
+          assert.equal((yield* importIdentityCohortEffect(pool, backupSnapshot)).accepted, 3);
+
+          return yield* new IdentityCohortFailure({ code: "InvalidSnapshot" });
+        }),
+      ),
+    ),
+  );
+
+  assert.ok(Predicate.isTagged(sharedRollback, "IdentityCohortFailure"));
 
   assert.equal(
-    (await pool.query('SELECT 1 FROM auth."user" WHERE id=$1', ["person-backup-accepted"]))
-      .rowCount,
+    (
+      await Effect.runPromise(
+        pool.unsafe('SELECT 1 FROM auth."user" WHERE id=$1', ["person-backup-accepted"]),
+      )
+    ).length,
     0,
   );
 
@@ -685,67 +769,86 @@ try {
   ]);
 
   assert.deepEqual(concurrentRecovery[0], concurrentRecovery[1]);
+
   const backupReport = concurrentRecovery[0]!;
+
   assert.equal(backupReport.accepted, 3);
+
   assert.equal(
     backupReport.occurrences.find((r) => r.occurrenceId === "backup-backup-passwordless")?.reason,
     "RecoveryPending",
   );
+
   assert.equal(
     backupReport.occurrences.find((r) => r.occurrenceId === "backup-backup-empty-password")?.reason,
     "RecoveryPending",
   );
+
   assert.equal(
     backupReport.occurrences.find((r) => r.occurrenceId === "backup-backup-unsupported")?.reason,
     "UnsupportedHash",
   );
+
   assert.equal(
     backupReport.occurrences.find((r) => r.occurrenceId === "backup-target-conflict")?.reason,
     "TargetConflict",
   );
+
   assert.equal(
     backupReport.occurrences.find((r) => r.occurrenceId === "backup-email-conflict")?.reason,
     "EmailConflict",
   );
+
   assert.equal(
     backupReport.occurrences.find((r) => r.occurrenceId === "backup-backup-contact-mismatch")
       ?.reason,
     "EmailConflict",
   );
+
   assert.equal(await readPassword(pool, "person-backup-accepted"), hashes[0]);
+
   assert.equal(
     (
-      await pool.query('SELECT 1 FROM auth."account" WHERE "userId"=$1', [
-        "person-backup-passwordless",
-      ])
-    ).rowCount,
+      await Effect.runPromise(
+        pool.unsafe('SELECT 1 FROM auth."account" WHERE "userId"=$1', [
+          "person-backup-passwordless",
+        ]),
+      )
+    ).length,
     0,
   );
+
   assert.equal(
     (
-      await pool.query(
-        "SELECT source_kind FROM auth.credential_cohort_snapshots WHERE snapshot_key=$1",
-        [backupReport.snapshotKey],
+      await Effect.runPromise(
+        pool.unsafe(
+          "SELECT source_kind FROM auth.credential_cohort_snapshots WHERE snapshot_key=$1",
+          [backupReport.snapshotKey],
+        ),
       )
-    ).rows[0].source_kind,
+    )[0].source_kind,
     "LegacyBackup",
   );
+
   assert.equal(
     (
-      await pool.query(
-        "SELECT actor_principal FROM auth.identity_security_audit WHERE subject_person_id=$1 AND event_kind=$2",
-        ["person-backup-accepted", "account-provisioned-administratively"],
+      await Effect.runPromise(
+        pool.unsafe(
+          "SELECT actor_principal FROM auth.identity_security_audit WHERE subject_person_id=$1 AND event_kind=$2",
+          ["person-backup-accepted", "account-provisioned-administratively"],
+        ),
       )
-    ).rows[0].actor_principal,
+    )[0].actor_principal,
     "administrative:legacy-backup-cohort",
   );
+
   assert.deepEqual(
-    (
-      await pool.query(
+    await Effect.runPromise(
+      pool.unsafe(
         "SELECT event_kind,actor_principal,details->>'outcomeCode' AS outcome FROM auth.identity_security_audit WHERE subject_person_id=$1",
         ["person-backup-passwordless"],
-      )
-    ).rows,
+      ),
+    ),
     [
       {
         event_kind: "recovery-identity-provisioned-administratively",
@@ -754,13 +857,15 @@ try {
       },
     ],
   );
+
   assert.deepEqual(await importIdentityCohort(pool, backupSnapshot), backupReport);
+
   assert.deepEqual(
-    (
-      await pool.query(
+    await Effect.runPromise(
+      pool.unsafe(
         "SELECT source_user_id,import_mode,account_id IS NULL AS passwordless FROM auth.account_cohort_imports WHERE source_user_id LIKE 'backup-%' ORDER BY source_user_id",
-      )
-    ).rows,
+      ),
+    ),
     [
       { source_user_id: "backup-accepted", import_mode: "CredentialImported", passwordless: false },
       {
@@ -771,12 +876,25 @@ try {
       { source_user_id: "backup-passwordless", import_mode: "RecoveryPending", passwordless: true },
     ],
   );
-  assert.equal((await pool.query("SELECT count(*)::int n FROM auth.verification")).rows[0].n, 0);
+
   assert.equal(
-    (await pool.query("SELECT count(*)::int n FROM auth.password_reset_email_outbox")).rows[0].n,
+    (await Effect.runPromise(pool.unsafe("SELECT count(*)::int n FROM auth.verification")))[0].n,
     0,
   );
-  assert.equal((await pool.query("SELECT count(*)::int n FROM auth.session")).rows[0].n, 0);
+
+  assert.equal(
+    (
+      await Effect.runPromise(
+        pool.unsafe("SELECT count(*)::int n FROM auth.password_reset_email_outbox"),
+      )
+    )[0].n,
+    0,
+  );
+
+  assert.equal(
+    (await Effect.runPromise(pool.unsafe("SELECT count(*)::int n FROM auth.session")))[0].n,
+    0,
+  );
 
   const [authPort = 0] = await reserveLoopbackPorts(1),
     origin = `http://127.0.0.1:${authPort}`;
@@ -797,12 +915,28 @@ try {
 
   const startEngine = async (selected: AuthEngineConfig) => {
     const runtime = ManagedRuntime.make(
-      NativeAuthEngineLive(selected).pipe(Layer.provideMerge(AuthPoolLive(selected))),
+      NativeAuthEngineLive(selected).pipe(
+        Layer.provideMerge(
+          AuthPoolLive(selected, {
+            maxConnections: 4,
+            applicationName: "identity-cohort-auth",
+            pipeline: false,
+            startupOptions: "-c search_path=auth",
+          }),
+        ),
+        Layer.provideMerge(
+          selected.postgresUrl === databaseUrl
+            ? Layer.succeed(Database, pool)
+            : DatabaseRuntimeLive({ url: Redacted.make(selected.postgresUrl), maxConnections: 4 }),
+        ),
+      ),
     );
 
     disposeAuth = () => runtime.dispose();
-    authPool = await runtime.runPromise(DatabasePgPool);
+    authPool = await runtime.runPromise(Database);
+
     const recovery = await runtime.runPromise(PasswordRecovery);
+
     const engine = await runtime.runPromise(NativeAuthEngine);
     server = Bun.serve({
       hostname: "127.0.0.1",
@@ -827,6 +961,7 @@ try {
       });
 
       if (response.status !== 429) return response;
+
       const retryAfter = Number(response.headers.get("retry-after"));
 
       const waitMs =
@@ -835,6 +970,7 @@ try {
           : 10_100;
 
       await response.body?.cancel();
+
       await pause(waitMs);
     }
 
@@ -848,6 +984,7 @@ try {
 
   for (let i = 0; i < 3; i++) {
     const response = await login(`cohort-accepted-${i}@example.invalid`, values[i]!);
+
     assert.equal(response.status, 200, "accepted cohort sign-in");
 
     if (i === 0) {
@@ -862,78 +999,106 @@ try {
   const upgradedBeforeReplay = await readPassword(pool, "person-accepted-1");
 
   secrets.push(upgradedBeforeReplay);
+
   assert.ok(
     isNativePasswordHash(upgradedBeforeReplay),
     "successful legacy sign-in upgrades to Argon2id",
   );
+
   await importIdentityCohort(pool, snapshot);
+
   assert.ok(
     (await readPassword(pool, "person-accepted-1")) === upgradedBeforeReplay,
     "replay cannot restore a legacy hash",
   );
+
   assert.equal(
     (await login("backup-accepted@example.invalid", values[0]!)).status,
     200,
     "LegacyBackup cohort credential signs in through Better Auth",
   );
+
   assert.equal(
-    (await pool.query('SELECT name FROM auth."user" WHERE id=$1', ["person-accepted-0"])).rows[0]
-      ?.name,
+    (
+      await Effect.runPromise(
+        pool.unsafe('SELECT name FROM auth."user" WHERE id=$1', ["person-accepted-0"]),
+      )
+    )[0]?.name,
     "Synthetic Cohort",
     "Account name is projected from the reconciled Person profile",
   );
+
   assert.equal((await login("cohort-accepted-0@example.invalid", "wrong-password")).status, 401);
+
   assert.equal((await login("cohort-inactive@example.invalid", values[0]!)).status, 401);
+
   assert.equal(
     (await login("legacy-accepted-0", values[0]!)).status,
     400,
     "username alias remains unsupported",
   );
+
   assert.equal(
     (await login("accepted-0@vektorprogrammet.invalid", values[0]!)).status,
     401,
     "company-email alias remains unsupported",
   );
+
   assert.equal(
     (
-      await pool.query(
-        'SELECT count(*)::int n FROM auth."user" WHERE id LIKE \'person-accepted-%\' AND "emailVerified"',
+      await Effect.runPromise(
+        pool.unsafe(
+          'SELECT count(*)::int n FROM auth."user" WHERE id LIKE \'person-accepted-%\' AND "emailVerified"',
+        ),
       )
-    ).rows[0].n,
+    )[0].n,
     0,
     "attestation must not invent verification flag",
   );
+
   const claimEmail = "backup-passwordless@example.invalid";
+
   assert.equal(
     (await login(claimEmail, values[0]!)).status,
     401,
     "unclaimed identity cannot sign in",
   );
+
   assert.equal((await login("backup-unsupported@example.invalid", values[0]!)).status, 401);
+
   assert.equal(
     (
-      await pool.query('SELECT "emailVerified" FROM auth."user" WHERE id=$1', [
-        "person-backup-passwordless",
-      ])
-    ).rows[0].emailVerified,
+      await Effect.runPromise(
+        pool.unsafe('SELECT "emailVerified" FROM auth."user" WHERE id=$1', [
+          "person-backup-passwordless",
+        ]),
+      )
+    )[0].emailVerified,
     false,
   );
+
   assert.equal(
     (
-      await pool.query('SELECT count(*)::int n FROM auth."account" WHERE "userId"=$1', [
-        "person-backup-passwordless",
-      ])
-    ).rows[0].n,
+      await Effect.runPromise(
+        pool.unsafe('SELECT count(*)::int n FROM auth."account" WHERE "userId"=$1', [
+          "person-backup-passwordless",
+        ]),
+      )
+    )[0].n,
     0,
   );
+
   assert.equal(
     (
-      await pool.query('SELECT count(*)::int n FROM auth.session WHERE "userId"=$1', [
-        "person-backup-passwordless",
-      ])
-    ).rows[0].n,
+      await Effect.runPromise(
+        pool.unsafe('SELECT count(*)::int n FROM auth.session WHERE "userId"=$1', [
+          "person-backup-passwordless",
+        ]),
+      )
+    )[0].n,
     0,
   );
+
   const deliveryToken = randomBytes(24).toString("hex");
   secrets.push(deliveryToken);
 
@@ -952,6 +1117,7 @@ try {
       let body = "";
 
       for await (const chunk of req) body += chunk;
+
       const value = JSON.parse(body);
       deliveryAttempts++;
 
@@ -976,9 +1142,13 @@ try {
       res.writeHead(400).end();
     }
   });
+
   await new Promise<void>((r) => sink!.listen(0, "127.0.0.1", r));
+
   const address = sink.address();
+
   assert.ok(address !== null && !Predicate.isString(address));
+
   const sinkPort = address.port;
 
   const requestReset = await post("/api/auth/request-password-reset", {
@@ -1008,18 +1178,26 @@ try {
     ),
     "Delivered",
   );
+
   assert.equal(deliveryAttempts, 1);
+
   const redirect = await fetch(deliveredUrl, { redirect: "manual" });
+
   assert.equal(redirect.status, 302);
+
   const resetToken = new URL(redirect.headers.get("location")!).searchParams.get("token")!;
   secrets.push(resetToken);
+
   const newPassword = "Native-Account-Cohort-Reset-0107-Å";
   secrets.push(newPassword);
+
   assert.equal(
     (await post("/api/auth/reset-password", { token: resetToken, newPassword })).status,
     200,
   );
+
   assert.equal((await login("cohort-accepted-0@example.invalid", values[0]!)).status, 401);
+
   assert.equal((await login("cohort-accepted-0@example.invalid", newPassword)).status, 200);
 
   const oldSession = await fetch(origin + "/api/auth/get-session", {
@@ -1031,11 +1209,15 @@ try {
   const stored = await readPassword(pool, "person-accepted-0");
 
   secrets.push(stored);
+
   assert.ok(isNativePasswordHash(stored));
+
   await importIdentityCohort(pool, snapshot);
+
   assert.equal(await readPassword(pool, "person-accepted-0"), stored, "replay must not undo reset");
   expectedRecipient = claimEmail;
   deliveredUrl = "";
+
   assert.equal(
     (
       await post("/api/auth/request-password-reset", {
@@ -1045,10 +1227,16 @@ try {
     ).status,
     200,
   );
+
   assert.equal(
-    (await pool.query("SELECT count(*)::int n FROM auth.password_reset_email_outbox")).rows[0].n,
+    (
+      await Effect.runPromise(
+        pool.unsafe("SELECT count(*)::int n FROM auth.password_reset_email_outbox"),
+      )
+    )[0].n,
     1,
   );
+
   assert.equal(
     (
       await post("/api/auth/request-password-reset", {
@@ -1058,34 +1246,46 @@ try {
     ).status,
     200,
   );
+
   assert.equal(
     (
-      await pool.query(
-        "SELECT count(*)::int n FROM auth.password_reset_email_outbox WHERE subject_person_id=$1 AND status='Pending'",
-        ["person-backup-passwordless"],
+      await Effect.runPromise(
+        pool.unsafe(
+          "SELECT count(*)::int n FROM auth.password_reset_email_outbox WHERE subject_person_id=$1 AND status='Pending'",
+          ["person-backup-passwordless"],
+        ),
       )
-    ).rows[0].n,
+    )[0].n,
     1,
   );
+
   assert.equal(
     await Effect.runPromise(
       drainPasswordResetMail(authPool!, config, delivery, "recovery@example.invalid"),
     ),
     "Delivered",
   );
+
   assert.equal(deliveryAttempts, 2);
+
   const claimRedirect = await fetch(deliveredUrl, { redirect: "manual" });
+
   assert.equal(claimRedirect.status, 302);
+
   const claimToken = new URL(claimRedirect.headers.get("location")!).searchParams.get("token")!;
   secrets.push(claimToken);
+
   const firstPassword = "Native-First-Password-Claim-0107-Å";
   secrets.push(firstPassword);
+
   assert.equal(
     (await post("/api/auth/reset-password", { token: claimToken, newPassword: firstPassword }))
       .status,
     200,
   );
+
   assert.equal((await login(claimEmail, firstPassword)).status, 200);
+
   assert.equal(
     (
       await post("/api/auth/reset-password", {
@@ -1095,74 +1295,111 @@ try {
     ).status,
     400,
   );
+
   assert.equal((await login(claimEmail, "Second-Password-Must-Not-Work")).status, 401);
 
   const claimedHash = await readPassword(pool, "person-backup-passwordless");
 
   secrets.push(claimedHash);
+
   assert.ok(isNativePasswordHash(claimedHash));
+
   assert.equal(
     (
-      await pool.query('SELECT "emailVerified" FROM auth."user" WHERE id=$1', [
-        "person-backup-passwordless",
-      ])
-    ).rows[0].emailVerified,
+      await Effect.runPromise(
+        pool.unsafe('SELECT "emailVerified" FROM auth."user" WHERE id=$1', [
+          "person-backup-passwordless",
+        ]),
+      )
+    )[0].emailVerified,
     false,
   );
+
   assert.deepEqual(await importIdentityCohort(pool, backupSnapshot), backupReport);
+
   const claimedReplay = { ...backupSnapshot, snapshotId: "legacy-backup-claimed-replay" };
+
   const claimedReplayReport = await importIdentityCohort(pool, claimedReplay);
+
   assert.equal(claimedReplayReport.accepted, 3);
+
   assert.equal(
     claimedReplayReport.occurrences.find((r) => r.occurrenceId === "backup-backup-passwordless")
       ?.reason,
     "ExactReplay",
   );
+
   const changedClaimSource = structuredClone(backupSnapshot);
   changedClaimSource.snapshotId = "legacy-backup-changed-claim-source";
   changedClaimSource.occurrences[1]!.row.passwordHash = "";
+
   await assert.rejects(
     importIdentityCohort(pool, changedClaimSource),
     (error) => error instanceof IdentityCohortFailure && error.code === "SourceIdentityConflict",
   );
+
   assert.equal(await readPassword(pool, "person-backup-passwordless"), claimedHash);
-  await proveCredentialResetRace({
-    engine: initialEngine,
-    pool,
-    legacyHash: hashes[0]!,
-    password: values[0]!,
-    resetPassword: newPassword,
-    origin: config.oauth.dashboardOrigin,
-    reset: async (email) => {
-      expectedRecipient = email;
-      assert.equal(
-        (
-          await post("/api/auth/request-password-reset", {
-            email,
-            redirectTo: `${config.oauth.dashboardOrigin}/tilbakestill-passord`,
-          })
-        ).status,
-        200,
-      );
-      assert.equal(
-        await Effect.runPromise(
-          drainPasswordResetMail(authPool!, config, delivery, "recovery@example.invalid"),
+
+  const resetRequest = <A>(operation: () => Promise<A>) =>
+    Effect.tryPromise({
+      try: operation,
+      catch: (cause) => new CredentialRaceBoundaryFailure({ operation: "Reset", cause }),
+    });
+
+  await Effect.runPromise(
+    proveCredentialResetRace({
+      engine: initialEngine,
+      sql: pool,
+      legacyHash: hashes[0]!,
+      password: values[0]!,
+      resetPassword: newPassword,
+      origin: config.oauth.dashboardOrigin,
+      reset: (email) =>
+        Effect.gen(function* () {
+          expectedRecipient = email;
+
+          const requested = yield* resetRequest(() =>
+            post("/api/auth/request-password-reset", {
+              email,
+              redirectTo: `${config.oauth.dashboardOrigin}/tilbakestill-passord`,
+            }),
+          );
+
+          assert.equal(requested.status, 200);
+
+          assert.equal(
+            yield* drainPasswordResetMail(authPool!, config, delivery, "recovery@example.invalid"),
+            "Delivered",
+          );
+
+          const redirect = yield* resetRequest(() => fetch(deliveredUrl, { redirect: "manual" }));
+
+          assert.equal(redirect.status, 302);
+
+          const token = new URL(redirect.headers.get("location")!).searchParams.get("token")!;
+          secrets.push(token);
+
+          assert.equal(
+            (yield* resetRequest(() => post("/api/auth/reset-password", { token, newPassword })))
+              .status,
+            200,
+          );
+        }).pipe(
+          Effect.mapError(
+            (cause) => new CredentialRaceBoundaryFailure({ operation: "Reset", cause }),
+          ),
         ),
-        "Delivered",
-      );
-      const redirect = await fetch(deliveredUrl, { redirect: "manual" });
-      assert.equal(redirect.status, 302);
-      const token = new URL(redirect.headers.get("location")!).searchParams.get("token")!;
-      secrets.push(token);
-      assert.equal((await post("/api/auth/reset-password", { token, newPassword })).status, 200);
-    },
-  });
+    }),
+  );
+
   await server!.stop(true);
   server = undefined;
+
   await disposeAuth?.();
   disposeAuth = undefined;
   authPool = undefined;
   command(postgresProgram("pg_dump"), ["--format=custom", "--file", backup, databaseUrl]);
+
   await chmod(backup, 0o600);
 
   const backupDigest = createHash("sha256")
@@ -1171,25 +1408,41 @@ try {
 
   const restoredUrl = await postgres.createDatabase("identity_cohort_restored");
   command(postgresProgram("pg_restore"), ["--exit-on-error", "--dbname", restoredUrl, backup]);
+
   await startEngine({ ...config, postgresUrl: restoredUrl });
+
   assert.equal(
     (await login("cohort-accepted-0@example.invalid", newPassword)).status,
     200,
     "actual restored native hash login",
   );
+
   assert.equal(
     (await login("cohort-accepted-1@example.invalid", values[1]!)).status,
     200,
     "actual restored upgraded hash login",
   );
+
   assert.equal(
     (await login(claimEmail, firstPassword)).status,
     200,
     "restored first credential signs in",
   );
-  const restoredPool = new Pool({ connectionString: restoredUrl });
+
+  const restoredScope = await Effect.runPromise(Scope.make());
 
   try {
+    const restoredContext = await Effect.runPromise(
+      Layer.buildWithScope(
+        DatabaseLive({ url: Redacted.make(restoredUrl), maxConnections: 4 }).pipe(
+          Layer.provide(BunServices.layer),
+        ),
+        restoredScope,
+      ),
+    );
+
+    const restoredPool = Context.get(restoredContext, Database);
+
     assert.deepEqual(await importIdentityCohort(restoredPool, backupSnapshot), backupReport);
 
     const restoredReplay = await importIdentityCohort(restoredPool, {
@@ -1202,17 +1455,20 @@ try {
         ?.reason,
       "ExactReplay",
     );
+
     assert.equal(
       (
-        await restoredPool.query('SELECT password FROM auth."account" WHERE "userId"=$1', [
-          "person-backup-passwordless",
-        ])
-      ).rows[0].password,
+        await Effect.runPromise(
+          restoredPool.unsafe('SELECT password FROM auth."account" WHERE "userId"=$1', [
+            "person-backup-passwordless",
+          ]),
+        )
+      )[0].password,
       claimedHash,
       "restored replay must preserve claimed password",
     );
   } finally {
-    await restoredPool.end();
+    await Effect.runPromise(Scope.close(restoredScope, Exit.void));
   }
 
   evidence = {
@@ -1289,18 +1545,23 @@ try {
   throw new Error(`Synthetic cohort failed; safe evidence: ${artifacts}/failure.json`);
 } finally {
   await server?.stop(true);
+
   await disposeAuth?.();
 
   if (sink) {
     sink.closeAllConnections();
+
     await new Promise<void>((r) => sink!.close(() => r()));
   }
 
-  await pool?.end();
+  if (databaseScope) await Effect.runPromise(Scope.close(databaseScope, Exit.void));
 
   for (const child of children.toReversed()) await stop(child);
+
   await postgres?.stop();
+
   await rm(backup, { force: true });
+
   await rm(inputFile, { force: true });
 }
 

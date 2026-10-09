@@ -3,6 +3,7 @@
  * @effect-diagnostics unstableApiUsage:off
  */
 import { Database } from "./service.js";
+import { AdvisoryLockKey, lockAdvisory } from "./advisory-lock.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
@@ -35,23 +36,40 @@ interface Coordination {
   subject: string | null;
 }
 
-/** The inbound host owns cancellation; late foreign callbacks cannot revive its request. */
-const withRequestCancellation =
+/**
+ * Keeps an identity request's cancellation signal attached to its native Effect fiber.
+ *
+ * @remarks An already-aborted request interrupts before work starts. Aborting during work
+ * interrupts the work and awaits its finalizers. Completion removes the abort listener.
+ * The success, failure, and requirement channels are unchanged; cancellation never becomes success.
+ * @param request The inbound host request, which owns its AbortSignal.
+ * @returns A lazy combinator preserving the operation's A/E/R channels.
+ * @sideEffects Registers one abort listener only while the operation runs, removing it on exit.
+ * @example
+ * ```ts
+ * handle(request).pipe(withIdentityRequestCancellation(request));
+ * ```
+ * @avoid Running a runtime inside the operation or recovering interruption as an HTTP response.
+ * @construct runtime-bridge
+ */
+export const withIdentityRequestCancellation =
   (request: Request) =>
   <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
-    request.signal.aborted
-      ? Effect.interrupt
-      : Effect.raceFirst(
-          effect,
-          Effect.callback<never>((resume) => {
-            const abort = () => resume(Effect.interrupt);
-            request.signal.addEventListener("abort", abort, { once: true });
+    Effect.suspend(() =>
+      request.signal.aborted
+        ? Effect.interrupt
+        : Effect.raceFirst(
+            effect,
+            Effect.callback<never>((resume) => {
+              const abort = () => resume(Effect.interrupt);
+              request.signal.addEventListener("abort", abort, { once: true });
 
-            if (request.signal.aborted) abort();
+              if (request.signal.aborted) abort();
 
-            return Effect.sync(() => request.signal.removeEventListener("abort", abort));
-          }),
-        );
+              return Effect.sync(() => request.signal.removeEventListener("abort", abort));
+            }),
+          ),
+    );
 
 const unavailable = () =>
   Response.json(
@@ -173,9 +191,7 @@ export const makePasswordRecovery = (
       return yield* pool.withTransaction(
         Effect.gen(function* () {
           const client = pool;
-          yield* client.unsafe(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, [
-            `vektorprogrammet:person-authorization:v1:${user.id}`,
-          ]);
+          yield* lockAdvisory(client, AdvisoryLockKey.personAuthorization(user.id));
 
           const usable = yield* client.unsafe(
             `SELECT 1 FROM auth."user" WHERE id=$1 AND NOT access_disabled`,
@@ -305,7 +321,7 @@ export const makePasswordRecovery = (
               operation: "handler",
               message: cause instanceof Error ? cause.message : "identity engine failure",
             }),
-        }).pipe(withRequestCancellation(request));
+        }).pipe(withIdentityRequestCancellation(request));
       }
 
       const state: Coordination = {
@@ -434,7 +450,7 @@ export const makePasswordRecovery = (
             : Effect.void
           ).pipe(Effect.as(unavailable())),
         ),
-        withRequestCancellation(request),
+        withIdentityRequestCancellation(request),
         Effect.ensuring(
           Effect.sync(() => {
             state.closed = true;

@@ -1,5 +1,11 @@
-import { NativeAuthEngineLive, NativeAuthEngine, AuthPoolLive } from "../src/auth-engine.js";
-import { DatabasePgPool, pgQuery, pgTransaction } from "../src/pg-pool.js";
+/**
+ * EX-0021: native stable SQL carries upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import * as SqlClient from "effect/sql/SqlClient";
+import { AuthPoolLive, nativePgLayer } from "../src/pg-pool.js";
+import { DatabaseRuntimeLive } from "../src/runtime-layer.js";
+import { NativeAuthEngineLive, NativeAuthEngine } from "../src/auth-engine.js";
 import assert from "node:assert/strict";
 import { Database } from "../src/service.js";
 import {
@@ -9,7 +15,6 @@ import {
 } from "@vektorprogrammet/domain/shared-kernel";
 import { createLocalAccountIssuer } from "better-auth";
 import { Cause, Config, Context, Effect, Exit, Layer, Predicate, Redacted } from "effect";
-import { Pool } from "pg";
 import { type AuthEngine, type AuthEngineConfig } from "../src/auth-engine.js";
 import { DatabaseLive } from "../src/layers.js";
 import { TestPlatform } from "../src/test-support/platform.js";
@@ -54,31 +59,29 @@ const assertDisposableDatabaseUrl = (postgresUrl: string) => {
   );
 };
 
-const resetIdentityCohort = (pool: Pool, migrationId: number) =>
-  pgTransaction(pool, (client) =>
+const resetIdentityCohort = (pool: SqlClient.SqlClient, migrationId: number) =>
+  pool.withTransaction(
     Effect.gen(function* () {
-      yield* pgQuery(client, "DROP SCHEMA IF EXISTS auth CASCADE");
+      const client = pool;
+      yield* client.unsafe("DROP SCHEMA IF EXISTS auth CASCADE");
 
-      const profileTable = yield* pgQuery<{ readonly tableName: string | null }>(
-        client,
+      const profileTable = yield* client.unsafe<{ readonly tableName: string | null }>(
         `SELECT to_regclass('public.person_profiles')::text AS "tableName"`,
       );
 
-      if (profileTable.rows[0]?.tableName !== null) {
-        yield* pgQuery(client, `DELETE FROM public.person_profiles WHERE person_id IN ($1, $2)`, [
+      if (profileTable[0]?.tableName !== null) {
+        yield* client.unsafe(`DELETE FROM public.person_profiles WHERE person_id IN ($1, $2)`, [
           proofCohort.personId,
           proofCohort.orphanPersonId,
         ]);
       }
 
-      const migrationTable = yield* pgQuery<{ readonly tableName: string | null }>(
-        client,
+      const migrationTable = yield* client.unsafe<{ readonly tableName: string | null }>(
         `SELECT to_regclass('public.vektorprogrammet_schema_migrations')::text AS "tableName"`,
       );
 
-      if (migrationTable.rows[0]?.tableName !== null) {
-        yield* pgQuery(
-          client,
+      if (migrationTable[0]?.tableName !== null) {
+        yield* client.unsafe(
           `DELETE FROM public.vektorprogrammet_schema_migrations WHERE migration_id >= ${migrationId}`,
         );
       }
@@ -104,81 +107,73 @@ const applyIdentityMigration = (postgresUrl: string) => {
   );
 };
 
-const inspectIdentitySchema = (pool: Pool) =>
+const inspectIdentitySchema = (pool: SqlClient.SqlClient) =>
   Effect.gen(function* () {
-    const migration = yield* pgQuery<{
+    const migration = yield* pool.unsafe<{
       readonly migrationId: number;
       readonly name: string;
-    }>(
-      pool,
-      `SELECT migration_id AS "migrationId", name
-       FROM public.vektorprogrammet_schema_migrations
-       WHERE migration_id = 15`,
-    );
+    }>(`SELECT migration_id AS "migrationId", name
+     FROM public.vektorprogrammet_schema_migrations
+     WHERE migration_id = 15`);
 
-    assert.deepEqual(migration.rows, [{ migrationId: 15, name: "native-identity-better-auth" }]);
+    assert.deepEqual(migration, [{ migrationId: 15, name: "native-identity-better-auth" }]);
 
-    const authSchemaTables = yield* pgQuery<{ readonly tableName: string }>(
-      pool,
+    const authSchemaTables = yield* pool.unsafe<{ readonly tableName: string }>(
       `SELECT table_name AS "tableName"
-       FROM information_schema.tables
-       WHERE table_schema = 'auth'
-         AND table_name = ANY($1::text[])
-       ORDER BY table_name`,
+     FROM information_schema.tables
+     WHERE table_schema = 'auth'
+       AND table_name = ANY($1::text[])
+     ORDER BY table_name`,
       [[...authTables]],
     );
 
     assert.deepEqual(
-      authSchemaTables.rows.map(({ tableName }) => tableName),
+      authSchemaTables.map(({ tableName }) => tableName),
       [...authTables],
     );
 
-    const publicSchemaTables = yield* pgQuery<{ readonly tableName: string }>(
-      pool,
+    const publicSchemaTables = yield* pool.unsafe<{ readonly tableName: string }>(
       `SELECT table_name AS "tableName"
-       FROM information_schema.tables
-       WHERE table_schema = 'public'
-         AND table_name = ANY($1::text[])
-       ORDER BY table_name`,
+     FROM information_schema.tables
+     WHERE table_schema = 'public'
+       AND table_name = ANY($1::text[])
+     ORDER BY table_name`,
       [[...authTables]],
     );
 
-    assert.deepEqual(publicSchemaTables.rows, []);
+    assert.deepEqual(publicSchemaTables, []);
 
-    const identityForeignKeys = yield* pgQuery<{
+    const identityForeignKeys = yield* pool.unsafe<{
       readonly sourceColumn: string;
       readonly targetSchema: string;
       readonly targetTable: string;
       readonly targetColumn: string;
-    }>(
-      pool,
-      `SELECT DISTINCT
-         source_attribute.attname AS "sourceColumn",
-         target_namespace.nspname AS "targetSchema",
-         target_table.relname AS "targetTable",
-         target_attribute.attname AS "targetColumn"
-       FROM pg_constraint AS constraint_row
-       INNER JOIN pg_class AS source_table
-         ON source_table.oid = constraint_row.conrelid
-       INNER JOIN pg_namespace AS source_namespace
-         ON source_namespace.oid = source_table.relnamespace
-       INNER JOIN pg_class AS target_table
-         ON target_table.oid = constraint_row.confrelid
-       INNER JOIN pg_namespace AS target_namespace
-         ON target_namespace.oid = target_table.relnamespace
-       INNER JOIN pg_attribute AS source_attribute
-         ON source_attribute.attrelid = constraint_row.conrelid
-         AND source_attribute.attnum = ANY(constraint_row.conkey)
-       INNER JOIN pg_attribute AS target_attribute
-         ON target_attribute.attrelid = constraint_row.confrelid
-         AND target_attribute.attnum = ANY(constraint_row.confkey)
-       WHERE constraint_row.contype = 'f'
-         AND source_namespace.nspname = 'auth'
-         AND source_table.relname = 'user'`,
-    );
+    }>(`SELECT DISTINCT
+       source_attribute.attname AS "sourceColumn",
+       target_namespace.nspname AS "targetSchema",
+       target_table.relname AS "targetTable",
+       target_attribute.attname AS "targetColumn"
+     FROM pg_constraint AS constraint_row
+     INNER JOIN pg_class AS source_table
+       ON source_table.oid = constraint_row.conrelid
+     INNER JOIN pg_namespace AS source_namespace
+       ON source_namespace.oid = source_table.relnamespace
+     INNER JOIN pg_class AS target_table
+       ON target_table.oid = constraint_row.confrelid
+     INNER JOIN pg_namespace AS target_namespace
+       ON target_namespace.oid = target_table.relnamespace
+     INNER JOIN pg_attribute AS source_attribute
+       ON source_attribute.attrelid = constraint_row.conrelid
+       AND source_attribute.attnum = ANY(constraint_row.conkey)
+     INNER JOIN pg_attribute AS target_attribute
+       ON target_attribute.attrelid = constraint_row.confrelid
+       AND target_attribute.attnum = ANY(constraint_row.confkey)
+     WHERE constraint_row.contype = 'f'
+       AND source_namespace.nspname = 'auth'
+       AND source_table.relname = 'user'`);
 
     assert.ok(
-      identityForeignKeys.rows.some(
+      identityForeignKeys.some(
         (row) =>
           row.sourceColumn === "id" &&
           row.targetSchema === "public" &&
@@ -190,8 +185,8 @@ const inspectIdentitySchema = (pool: Pool) =>
 
     return {
       recorded: true as const,
-      coreTablesInAuth: authSchemaTables.rowCount,
-      coreTablesInPublic: publicSchemaTables.rowCount,
+      coreTablesInAuth: authSchemaTables.length,
+      coreTablesInPublic: publicSchemaTables.length,
       personIdForeignKey: true as const,
     };
   });
@@ -218,12 +213,11 @@ const postgresErrorCode = (cause: unknown): string | undefined => {
   return undefined;
 };
 
-const seedCallerSuppliedIdentity = (engine: AuthEngine, observer: Pool) =>
+const seedCallerSuppliedIdentity = (engine: AuthEngine, observer: SqlClient.SqlClient) =>
   Effect.gen(function* () {
-    yield* pgQuery(
-      observer,
+    yield* observer.unsafe(
       `INSERT INTO public.person_profiles (person_id, first_name, last_name)
-       VALUES ($1, 'Ida', 'Identity Proof')`,
+     VALUES ($1, 'Ida', 'Identity Proof')`,
       [proofCohort.personId],
     );
 
@@ -250,13 +244,12 @@ const seedCallerSuppliedIdentity = (engine: AuthEngine, observer: Pool) =>
       "the orphan rejection must be PostgreSQL foreign-key enforcement",
     );
 
-    const orphanRows = yield* pgQuery<{ readonly count: string }>(
-      observer,
+    const orphanRows = yield* observer.unsafe<{ readonly count: string }>(
       `SELECT count(*)::text AS count FROM auth."user" WHERE id = $1`,
       [proofCohort.orphanPersonId],
     );
 
-    assert.equal(orphanRows.rows[0]?.count, "0");
+    assert.equal(orphanRows[0]?.count, "0");
 
     const passwordHash = yield* Effect.tryPromise(() =>
       context.password.hash(proofCohort.password),
@@ -288,7 +281,7 @@ const seedCallerSuppliedIdentity = (engine: AuthEngine, observer: Pool) =>
 
     assert.equal(account.userId, proofCohort.personId);
 
-    const persisted = yield* pgQuery<{
+    const persisted = yield* observer.unsafe<{
       readonly userId: string;
       readonly accountUserId: string;
       readonly accountId: string;
@@ -296,28 +289,27 @@ const seedCallerSuppliedIdentity = (engine: AuthEngine, observer: Pool) =>
       readonly issuer: string;
       readonly password: string;
     }>(
-      observer,
       `SELECT
-         auth_user.id AS "userId",
-         account."userId" AS "accountUserId",
-         account."accountId" AS "accountId",
-         account."providerId" AS "providerId",
-         account.issuer,
-         account.password
-       FROM auth."user" AS auth_user
-       INNER JOIN auth.account AS account ON account."userId" = auth_user.id
-       WHERE auth_user.id = $1`,
+       auth_user.id AS "userId",
+       account."userId" AS "accountUserId",
+       account."accountId" AS "accountId",
+       account."providerId" AS "providerId",
+       account.issuer,
+       account.password
+     FROM auth."user" AS auth_user
+     INNER JOIN auth.account AS account ON account."userId" = auth_user.id
+     WHERE auth_user.id = $1`,
       [proofCohort.personId],
     );
 
-    assert.equal(persisted.rowCount, 1);
+    assert.equal(persisted.length, 1);
     assert.deepEqual(
       {
-        userId: persisted.rows[0]?.userId,
-        accountUserId: persisted.rows[0]?.accountUserId,
-        accountId: persisted.rows[0]?.accountId,
-        providerId: persisted.rows[0]?.providerId,
-        issuer: persisted.rows[0]?.issuer,
+        userId: persisted[0]?.userId,
+        accountUserId: persisted[0]?.accountUserId,
+        accountId: persisted[0]?.accountId,
+        providerId: persisted[0]?.providerId,
+        issuer: persisted[0]?.issuer,
       },
       {
         userId: proofCohort.personId,
@@ -327,8 +319,8 @@ const seedCallerSuppliedIdentity = (engine: AuthEngine, observer: Pool) =>
         issuer: createLocalAccountIssuer("credential"),
       },
     );
-    assert.notEqual(persisted.rows[0]?.password, proofCohort.password);
-    assert.ok((persisted.rows[0]?.password.length ?? 0) > 0);
+    assert.notEqual(persisted[0]?.password, proofCohort.password);
+    assert.ok((persisted[0]?.password.length ?? 0) > 0);
 
     return {
       orphanRejectedByForeignKey: true as const,
@@ -361,46 +353,46 @@ const sessionCookieFrom = (response: Response) => {
 
 const cookieHeaders = (cookiePair: string) => new Headers({ cookie: cookiePair });
 
-const persistedSessions = (pool: Pool) =>
-  pgQuery<{
-    readonly total: string;
-    readonly live: string;
-  }>(
-    pool,
-    `SELECT
-       count(*)::text AS total,
-       count(*) FILTER (WHERE "expiresAt" > now())::text AS live
-     FROM auth.session
-     WHERE "userId" = $1`,
-    [proofCohort.personId],
-  ).pipe(
-    Effect.map((sessions) => ({
-      total: Number(sessions.rows[0]?.total ?? "-1"),
-      live: Number(sessions.rows[0]?.live ?? "-1"),
-    })),
-  );
+const persistedSessions = (pool: SqlClient.SqlClient) =>
+  pool
+    .unsafe<{
+      readonly total: string;
+      readonly live: string;
+    }>(
+      `SELECT
+     count(*)::text AS total,
+     count(*) FILTER (WHERE "expiresAt" > now())::text AS live
+   FROM auth.session
+   WHERE "userId" = $1`,
+      [proofCohort.personId],
+    )
+    .pipe(
+      Effect.map((sessions) => ({
+        total: Number(sessions[0]?.total ?? "-1"),
+        live: Number(sessions[0]?.live ?? "-1"),
+      })),
+    );
 
-const assertAuthSearchPath = (pool: Pool) =>
-  pgQuery<{
-    readonly currentSchema: string;
-    readonly searchPath: string;
-  }>(
-    pool,
-    `SELECT
-       current_schema() AS "currentSchema",
-       current_setting('search_path') AS "searchPath"`,
-  ).pipe(
-    Effect.map((searchPath) => {
-      assert.deepEqual(searchPath.rows, [{ currentSchema: "auth", searchPath: "auth" }]);
+const assertAuthSearchPath = (pool: SqlClient.SqlClient) =>
+  pool
+    .unsafe<{
+      readonly currentSchema: string;
+      readonly searchPath: string;
+    }>(`SELECT
+     current_schema() AS "currentSchema",
+     current_setting('search_path') AS "searchPath"`)
+    .pipe(
+      Effect.map((searchPath) => {
+        assert.deepEqual(searchPath, [{ currentSchema: "auth", searchPath: "auth,public" }]);
 
-      return searchPath.rows[0]?.searchPath;
-    }),
-  );
+        return searchPath[0]?.searchPath;
+      }),
+    );
 
 const exerciseCredentialsAndSessions = (
   engine: AuthEngine,
   independentlyConstructedEngine: AuthEngine,
-  observer: Pool,
+  observer: SqlClient.SqlClient,
 ) =>
   Effect.gen(function* () {
     const invalidPasswordResponse = yield* Effect.tryPromise(() =>
@@ -495,17 +487,16 @@ const runIdentityPostgresProof = (postgresUrl: string) =>
   Effect.gen(function* () {
     assertDisposableDatabaseUrl(postgresUrl);
 
-    const observer = yield* Effect.acquireRelease(
-      Effect.sync(
-        () =>
-          new Pool({
-            connectionString: postgresUrl,
-            options: "-c search_path=public",
-            max: 1,
-            application_name: "identity-postgres-proof-observer",
-          }),
+    const observer = yield* Effect.map(
+      Layer.build(
+        nativePgLayer({
+          url: Redacted.make(postgresUrl),
+          startupOptions: "-c search_path=public",
+          maxConnections: 1,
+          applicationName: "identity-postgres-proof-observer",
+        }),
       ),
-      (pool) => Effect.promise(() => pool.end()),
+      Context.get(SqlClient.SqlClient),
     );
 
     yield* resetIdentityCohort(observer, identityMigrationId);
@@ -526,7 +517,22 @@ const runIdentityPostgresProof = (postgresUrl: string) =>
     };
 
     const nativeAuthLayer = NativeAuthEngineLive(authConfig).pipe(
-      Layer.provideMerge(AuthPoolLive(authConfig)),
+      Layer.provideMerge(
+        Layer.mergeAll(
+          AuthPoolLive(authConfig, {
+            maxConnections: 4,
+            applicationName: "stable-auth-proof",
+            pipeline: true,
+            startupOptions: "-c search_path=auth",
+          }),
+          DatabaseRuntimeLive({
+            url: Redacted.make(postgresUrl),
+            maxConnections: 1,
+            startupOptions: "-c search_path=auth,public",
+            applicationName: "identity-proof-sql",
+          }),
+        ),
+      ),
     );
 
     // Two constructions of one layer: each has its own engine and pool.
@@ -534,8 +540,8 @@ const runIdentityPostgresProof = (postgresUrl: string) =>
     const independent = yield* Layer.build(Layer.fresh(nativeAuthLayer));
     const engine = Context.get(auth, NativeAuthEngine);
     const independentlyConstructedEngine = Context.get(independent, NativeAuthEngine);
-    const searchPath = yield* assertAuthSearchPath(Context.get(auth, DatabasePgPool));
-    yield* assertAuthSearchPath(Context.get(independent, DatabasePgPool));
+    const searchPath = yield* assertAuthSearchPath(Context.get(auth, Database));
+    yield* assertAuthSearchPath(Context.get(independent, Database));
     const identity = yield* seedCallerSuppliedIdentity(engine, observer);
 
     const authentication = yield* exerciseCredentialsAndSessions(

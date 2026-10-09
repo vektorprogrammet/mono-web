@@ -1,11 +1,14 @@
-import { createHash } from "node:crypto";
+/**
+ * EX-0021: required public native APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { createLocalAccountIssuer } from "better-auth";
 import { Data, Effect, flow, Option, Schema } from "effect";
-import type { Pool, PoolClient } from "pg";
+import type { SqlClient } from "effect/sql";
+import { withTypedTransactionFailures } from "./service.js";
 import { ContactEmail } from "@vektorprogrammet/domain/contact";
-import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { isSupportedLegacyPasswordHash } from "./password-codec.js";
-import { pgQuery, pgTransaction } from "./pg-pool.js";
 
 const Id = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9._:-]{1,128}$/)));
 
@@ -22,6 +25,8 @@ const LegacyRow = Schema.Struct({
   username: Schema.optional(Schema.NullOr(Label)),
   companyEmail: Schema.optional(Schema.NullOr(Label)),
 });
+
+const decodeLegacyRow = Schema.decodeUnknownOption(LegacyRow, { onExcessProperty: "error" });
 
 export const IdentityCohortSnapshot = Schema.Struct({
   sourceRepository: Label,
@@ -61,24 +66,27 @@ export class IdentityCohortFailure extends Data.TaggedError("IdentityCohortFailu
   }
 }
 
-export type CohortReason =
-  | "Imported"
-  | "RecoveryPending"
-  | "ExactReplay"
-  | "InvalidRow"
-  | "Inactive"
-  | "MissingPassword"
-  | "UnsupportedHash"
-  | "MappingMissing"
-  | "MappingAmbiguous"
-  | "EmailUnattested"
-  | "DuplicateSource"
-  | "DuplicateEmail"
-  | "DuplicateTarget"
-  | "PersonMissing"
-  | "PersonReconciliationMissing"
-  | "TargetConflict"
-  | "EmailConflict";
+const CohortReasonSchema = Schema.Literals([
+  "Imported",
+  "RecoveryPending",
+  "ExactReplay",
+  "InvalidRow",
+  "Inactive",
+  "MissingPassword",
+  "UnsupportedHash",
+  "MappingMissing",
+  "MappingAmbiguous",
+  "EmailUnattested",
+  "DuplicateSource",
+  "DuplicateEmail",
+  "DuplicateTarget",
+  "PersonMissing",
+  "PersonReconciliationMissing",
+  "TargetConflict",
+  "EmailConflict",
+]);
+
+export type CohortReason = typeof CohortReasonSchema.Type;
 
 export interface CohortOccurrence {
   occurrenceId: string;
@@ -91,11 +99,11 @@ export interface CohortReport {
   input: number;
   accepted: number;
   quarantined: number;
-  occurrences: CohortOccurrence[];
+  occurrences: ReadonlyArray<CohortOccurrence>;
   aliases: "LegacyUsernameAndCompanyEmailUnsupported";
 }
 
-const digest = flow(canonicalJson, (json) => createHash("sha256").update(json).digest("hex"));
+const digest = flow(canonicalJsonBytes, sha256Hex);
 
 const encodeAuditDetails = Schema.encodeEffect(
   Schema.fromJsonString(
@@ -127,52 +135,89 @@ export const decodeIdentityCohort = flow(
   },
 );
 
-const report = (tx: PoolClient, key: string) =>
-  pgQuery<CohortOccurrence>(
-    tx,
-    `SELECT occurrence_id AS "occurrenceId",disposition,reason FROM auth.credential_cohort_occurrences WHERE snapshot_key=$1 ORDER BY occurrence_id`,
-    [key],
-  ).pipe(
-    Effect.map((rows): CohortReport => {
-      const accepted = rows.rows.filter((r) => r.disposition === "Accepted").length;
+const decodeSnapshotDigests = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ snapshot_digest: Schema.String })),
+);
 
-      return {
-        snapshotKey: key,
-        input: rows.rows.length,
-        accepted,
-        quarantined: rows.rows.length - accepted,
-        occurrences: rows.rows,
-        aliases: "LegacyUsernameAndCompanyEmailUnsupported",
-      };
+const decodeSourceDigests = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ source_digest: Schema.String })),
+);
+
+const decodeImportedIdentities = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      source_digest: Schema.String,
+      person_id: Schema.String,
+      account_id: Schema.NullOr(Schema.String),
+      import_mode: Schema.Literals(["CredentialImported", "RecoveryPending"]),
     }),
-  );
+  ),
+);
 
-/** Source occurrences and identity writes share the caller's transaction. */
+const decodePersonEvidence = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      first_name: Schema.String,
+      last_name: Schema.String,
+      contact_email: Schema.NullOr(Schema.String),
+    }),
+  ),
+);
+
+const decodeOccurrences = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      occurrenceId: Schema.String,
+      disposition: Schema.Literals(["Accepted", "Quarantined"]),
+      reason: CohortReasonSchema,
+    }),
+  ),
+);
+
+const report = (tx: SqlClient.SqlClient, key: string) =>
+  tx
+    .unsafe(
+      `SELECT occurrence_id AS "occurrenceId",disposition,reason FROM auth.credential_cohort_occurrences WHERE snapshot_key=$1 ORDER BY occurrence_id`,
+      [key],
+    )
+    .pipe(
+      Effect.flatMap(decodeOccurrences),
+      Effect.map((rows): CohortReport => {
+        const accepted = rows.filter((r) => r.disposition === "Accepted").length;
+
+        return {
+          snapshotKey: key,
+          input: rows.length,
+          accepted,
+          quarantined: rows.length - accepted,
+          occurrences: rows,
+          aliases: "LegacyUsernameAndCompanyEmailUnsupported",
+        };
+      }),
+    );
+
+/** Commits source occurrences and identity writes atomically; nested callers use the same client's savepoint. */
+
 export const importIdentityCohort = Effect.fn("importIdentityCohort")(function* (
-  pool: Pool,
+  sql: SqlClient.SqlClient,
   input: typeof IdentityCohortSnapshot.Encoded,
-  client?: PoolClient,
-) {
+): Effect.fn.Return<CohortReport, IdentityCohortFailure> {
   const snapshot = yield* Effect.try({
     try: () => decodeIdentityCohort(input),
     catch: () => new IdentityCohortFailure({ code: "InvalidSnapshot" }),
   });
 
   const key = digest([snapshot.sourceRepository, snapshot.snapshotId]);
+
   const snapshotDigest = digest(snapshot);
 
-  const decoded = snapshot.occurrences.map((occurrence) => {
-    try {
-      return {
-        ...occurrence,
-        value: Schema.decodeUnknownSync(LegacyRow)(occurrence.row, { onExcessProperty: "error" }),
-      };
-    } catch {
-      return { ...occurrence, value: undefined };
-    }
-  });
+  const decoded = snapshot.occurrences.map((occurrence) => ({
+    ...occurrence,
+    value: Option.getOrUndefined(decodeLegacyRow(occurrence.row)),
+  }));
 
   const mappingsBySource = new Map<string, (typeof snapshot.mappings)[number][]>();
+
   const targetCounts = new Map<string, number>();
 
   for (const mapping of snapshot.mappings) {
@@ -183,6 +228,7 @@ export const importIdentityCohort = Effect.fn("importIdentityCohort")(function* 
   }
 
   const sourceCounts = new Map<string, number>();
+
   const emailCounts = new Map<string, number>();
 
   for (const occurrence of decoded) {
@@ -196,28 +242,28 @@ export const importIdentityCohort = Effect.fn("importIdentityCohort")(function* 
     }
   }
 
-  const importInTransaction = Effect.fnUntraced(function* (tx: PoolClient) {
+  const importInTransaction = Effect.fnUntraced(function* (tx: SqlClient.SqlClient) {
     // One import boundary owns writes; Read Committed takes fresh snapshots after this lock.
-    yield* pgQuery(
-      tx,
+
+    yield* tx.unsafe(
       "SELECT pg_advisory_xact_lock(hashtextextended('native-credential-cohort-import',0))",
     );
 
-    const prior = yield* pgQuery<{ snapshot_digest: string }>(
-      tx,
-      "SELECT snapshot_digest FROM auth.credential_cohort_snapshots WHERE snapshot_key=$1",
-      [key],
-    );
+    const prior = yield* tx
+      .unsafe(
+        "SELECT snapshot_digest FROM auth.credential_cohort_snapshots WHERE snapshot_key=$1",
+        [key],
+      )
+      .pipe(Effect.flatMap(decodeSnapshotDigests));
 
-    if (prior.rows[0]) {
-      if (prior.rows[0].snapshot_digest !== snapshotDigest)
+    if (prior[0]) {
+      if (prior[0].snapshot_digest !== snapshotDigest)
         return yield* new IdentityCohortFailure({ code: "SnapshotConflict" });
 
       return yield* report(tx, key);
     }
 
-    yield* pgQuery(
-      tx,
+    yield* tx.unsafe(
       `INSERT INTO auth.credential_cohort_snapshots(snapshot_key,source_repository,snapshot_id,source_revision,transformation_revision,snapshot_digest,occurrence_count,source_kind) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
       [
         key,
@@ -233,21 +279,26 @@ export const importIdentityCohort = Effect.fn("importIdentityCohort")(function* 
 
     for (const occurrence of decoded) {
       const row = occurrence.value;
+
       let reason: CohortReason | undefined;
+
       const mappings = row ? (mappingsBySource.get(row.sourceUserId) ?? []) : [];
+
       const mapping = mappings.length === 1 ? mappings[0] : undefined;
+
       const sourceId = sourceIdOf(occurrence.row);
 
       if (sourceId) {
-        const previousSource = yield* pgQuery<{ source_digest: string }>(
-          tx,
-          "SELECT source_digest FROM auth.account_cohort_imports WHERE source_repository=$1 AND source_user_id=$2",
-          [snapshot.sourceRepository, sourceId],
-        );
+        const previousSource = yield* tx
+          .unsafe(
+            "SELECT source_digest FROM auth.account_cohort_imports WHERE source_repository=$1 AND source_user_id=$2",
+            [snapshot.sourceRepository, sourceId],
+          )
+          .pipe(Effect.flatMap(decodeSourceDigests));
 
         if (
-          previousSource.rows[0] &&
-          (!row || !mapping || previousSource.rows[0].source_digest !== digest({ row, mapping }))
+          previousSource[0] &&
+          (!row || !mapping || previousSource[0].source_digest !== digest({ row, mapping }))
         )
           return yield* new IdentityCohortFailure({ code: "SourceIdentityConflict" });
       }
@@ -272,9 +323,13 @@ export const importIdentityCohort = Effect.fn("importIdentityCohort")(function* 
       else if (mapping!.emailOwnership.email.toLowerCase() !== row.email.toLowerCase())
         reason = "EmailUnattested";
       else if ((targetCounts.get(mapping!.personId) ?? 0) > 1) reason = "DuplicateTarget";
+
       let sourceDigest: string | undefined;
+
       let accountId: string | null | undefined;
+
       const passwordless = row?.passwordHash === null || row?.passwordHash === "";
+
       const importMode = passwordless ? "RecoveryPending" : "CredentialImported";
 
       let person:
@@ -287,56 +342,48 @@ export const importIdentityCohort = Effect.fn("importIdentityCohort")(function* 
           ? null
           : `cohort-${digest([snapshot.sourceRepository, row.sourceUserId])}`;
 
-        const imported = yield* pgQuery<{
-          source_digest: string;
-          person_id: string;
-          account_id: string | null;
-          import_mode: "CredentialImported" | "RecoveryPending";
-        }>(
-          tx,
-          "SELECT source_digest,person_id,account_id,import_mode FROM auth.account_cohort_imports WHERE source_repository=$1 AND source_user_id=$2",
-          [snapshot.sourceRepository, row.sourceUserId],
-        );
+        const imported = yield* tx
+          .unsafe(
+            "SELECT source_digest,person_id,account_id,import_mode FROM auth.account_cohort_imports WHERE source_repository=$1 AND source_user_id=$2",
+            [snapshot.sourceRepository, row.sourceUserId],
+          )
+          .pipe(Effect.flatMap(decodeImportedIdentities));
 
-        if (imported.rows[0]) {
+        if (imported[0]) {
           if (
-            imported.rows[0].source_digest !== sourceDigest ||
-            imported.rows[0].person_id !== mapping.personId ||
-            imported.rows[0].import_mode !== importMode ||
-            imported.rows[0].account_id !== accountId
+            imported[0].source_digest !== sourceDigest ||
+            imported[0].person_id !== mapping.personId ||
+            imported[0].import_mode !== importMode ||
+            imported[0].account_id !== accountId
           )
             return yield* new IdentityCohortFailure({ code: "SourceIdentityConflict" });
           reason = "ExactReplay";
         } else {
-          person = (yield* pgQuery<{
-            first_name: string;
-            last_name: string;
-            contact_email: string | null;
-          }>(
-            tx,
-            `SELECT p.first_name, p.last_name, c.email AS contact_email
-                 FROM public.person_cohort_imports i
-                 JOIN public.person_profiles p ON p.person_id = i.person_id
-                 JOIN public.person_contact_profiles c ON c.person_id = i.person_id
-                WHERE i.source_repository = $1
-                  AND i.source_user_id = $2
-                  AND i.person_id = $3
-                  FOR SHARE OF i, p, c`,
-            [snapshot.sourceRepository, row.sourceUserId, mapping.personId],
-          )).rows[0];
+          person = (yield* tx
+            .unsafe(
+              `SELECT p.first_name, p.last_name, c.email AS contact_email
+               FROM public.person_cohort_imports i
+               JOIN public.person_profiles p ON p.person_id = i.person_id
+               JOIN public.person_contact_profiles c ON c.person_id = i.person_id
+              WHERE i.source_repository = $1
+                AND i.source_user_id = $2
+                AND i.person_id = $3
+                FOR SHARE OF i, p, c`,
+              [snapshot.sourceRepository, row.sourceUserId, mapping.personId],
+            )
+            .pipe(Effect.flatMap(decodePersonEvidence)))[0];
 
           if (!person) reason = "PersonReconciliationMissing";
           else if (person.contact_email?.toLowerCase() !== row.email.toLowerCase())
             reason = "EmailConflict";
           else if (
-            (yield* pgQuery(tx, 'SELECT 1 FROM auth."user" WHERE id=$1', [mapping.personId]))
-              .rowCount
+            (yield* tx.unsafe('SELECT 1 FROM auth."user" WHERE id=$1', [mapping.personId])).length
           )
             reason = "TargetConflict";
           else if (
-            (yield* pgQuery(tx, 'SELECT 1 FROM auth."user" WHERE lower(email)=$1', [
+            (yield* tx.unsafe('SELECT 1 FROM auth."user" WHERE lower(email)=$1', [
               row.email.toLowerCase(),
-            ])).rowCount
+            ])).length
           )
             reason = "EmailConflict";
           else reason = passwordless ? "RecoveryPending" : "Imported";
@@ -348,8 +395,7 @@ export const importIdentityCohort = Effect.fn("importIdentityCohort")(function* 
       const accepted =
         reason === "Imported" || reason === "RecoveryPending" || reason === "ExactReplay";
 
-      yield* pgQuery(
-        tx,
+      yield* tx.unsafe(
         "INSERT INTO auth.credential_cohort_occurrences(snapshot_key,occurrence_id,disposition,reason) VALUES($1,$2,$3,$4)",
         [key, occurrence.occurrenceId, accepted ? "Accepted" : "Quarantined", reason],
       );
@@ -362,20 +408,18 @@ export const importIdentityCohort = Effect.fn("importIdentityCohort")(function* 
         accountId !== undefined &&
         sourceDigest
       ) {
-        yield* pgQuery(
-          tx,
+        yield* tx.unsafe(
           'INSERT INTO auth."user"(id,name,email,"emailVerified") VALUES($1,$2,$3,false)',
           [mapping.personId, `${person.first_name} ${person.last_name}`, row.email.toLowerCase()],
         );
 
         if (accountId !== null)
-          yield* pgQuery(
-            tx,
+          yield* tx.unsafe(
             'INSERT INTO auth."account"(id,"accountId","providerId",issuer,"userId",password,"updatedAt") VALUES($1,$2,\'credential\',$3,$2,$4,date_trunc(\'milliseconds\',now(),\'UTC\'))',
             [accountId, mapping.personId, createLocalAccountIssuer("credential"), row.passwordHash],
           );
-        yield* pgQuery(
-          tx,
+
+        yield* tx.unsafe(
           "INSERT INTO auth.account_cohort_imports(source_repository,source_user_id,person_id,account_id,import_mode,source_digest,snapshot_key,occurrence_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
           [
             snapshot.sourceRepository,
@@ -394,8 +438,7 @@ export const importIdentityCohort = Effect.fn("importIdentityCohort")(function* 
           affectedSessionCount: 0,
         });
 
-        yield* pgQuery(
-          tx,
+        yield* tx.unsafe(
           `INSERT INTO auth.identity_security_audit(event_id,event_kind,subject_person_id,actor_principal,details) VALUES($1,$5,$2,$3,$4::jsonb)`,
           [
             `cohort-${sourceDigest}`,
@@ -420,11 +463,9 @@ export const importIdentityCohort = Effect.fn("importIdentityCohort")(function* 
     return result;
   });
 
-  return yield* (
-    client === undefined ? pgTransaction(pool, importInTransaction) : importInTransaction(client)
-  ).pipe(
+  return yield* withTypedTransactionFailures(sql.withTransaction)(importInTransaction(sql)).pipe(
     Effect.catchTags({
-      PgQueryError: () => Effect.fail(new IdentityCohortFailure({ code: "PersistenceFailure" })),
+      SqlError: () => Effect.fail(new IdentityCohortFailure({ code: "PersistenceFailure" })),
       SchemaError: () => Effect.fail(new IdentityCohortFailure({ code: "PersistenceFailure" })),
     }),
   );

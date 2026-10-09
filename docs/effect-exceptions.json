@@ -480,6 +480,11 @@
       "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
       "scope": {
         "files": [
+          "tools/e2e/run-legacy-current-assignment-rehearsal.ts",
+          "tools/e2e/run-legacy-organization-rehearsal.ts",
+          "tools/e2e/legacy-cutover-references.ts",
+          "tools/e2e/legacy-organization-rehearsal-runtime.ts",
+          "tools/e2e/run-legacy-service-cutover.ts",
           "tools/e2e/golden-harness-self-test.ts",
           "tools/e2e/golden-harness.ts",
           "tools/e2e/golden-team-application.ts",
@@ -523,6 +528,8 @@
       "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
       "scope": {
         "files": [
+          "tools/verification/current-assignment-cohort-rehearsal.ts",
+          "tools/verification/credential-race.ts",
           "tools/verification/completion-receipt-postgres-proof-main.ts",
           "tools/verification/identity-cohort-rehearsal.ts",
           "tools/verification/onboarding-delivery.test.ts",
@@ -598,20 +605,43 @@
       "rules": ["FX001", "FX002", "FX012", "effecttsgo/unstable-api-usage"],
       "scope": {
         "files": [
-          "packages/database/src/person-cohort.ts",
-          "packages/database/src/person-cohort.test.ts",
+          "packages/database/runtime/historical-service-cohort-rehearsal.ts",
+          "packages/database/runtime/identity-browser-proof-main.ts",
+          "packages/database/runtime/identity-postgres-proof-main.ts",
+          "packages/database/runtime/identity-seed-main.ts",
+          "packages/database/runtime/oauth-dashboard-fixture-main.ts",
+          "packages/database/runtime/oauth-postgres-tracer-main.ts",
           "packages/database/runtime/person-cohort-rehearsal.ts",
+          "packages/database/runtime/service-principal-grants-postgres-tracer-main.ts",
           "packages/database/src/advisory-lock.ts",
           "packages/database/src/auth-engine.ts",
+          "packages/database/src/auth-live.test.ts",
+          "packages/database/src/auth-live.ts",
           "packages/database/src/database-construction.ts",
+          "packages/database/src/historical-service-cohort.test.ts",
+          "packages/database/src/historical-service-cohort.ts",
+          "packages/database/src/identity-cohort.ts",
           "packages/database/src/layers.ts",
           "packages/database/src/migrations.ts",
+          "packages/database/src/oauth-config.test.ts",
+          "packages/database/src/oauth-live.ts",
+          "packages/database/src/oauth-refresh-window.test.ts",
+          "packages/database/src/organization/reviewed-cohort.ts",
+          "packages/database/src/password-recovery-disabled.test.ts",
+          "packages/database/src/password-recovery.test.ts",
           "packages/database/src/password-recovery.ts",
+          "packages/database/src/person-cohort.test.ts",
+          "packages/database/src/person-cohort.ts",
           "packages/database/src/pg-pool.ts",
+          "packages/database/src/placements/current-assignment-cohort.ts",
+          "packages/database/src/placements/current-assignment-import.test.ts",
           "packages/database/src/postgres-migration-statements.test.ts",
           "packages/database/src/postgres-migration-statements.ts",
           "packages/database/src/runtime-layer.ts",
+          "packages/database/src/service-principal-grants-live.test.ts",
+          "packages/database/src/service-principal-grants-live.ts",
           "packages/database/src/service.ts",
+          "packages/database/src/test-support/pglite-layer.ts",
           "packages/database/src/test-support/postgres.ts"
         ],
         "symbols": ["PgClient", "SqlClient", "SqlError", "Statement", "Migrator", "SqlSchema"]
@@ -657,6 +687,36 @@
         "@effect/tsgo": "0.48.0"
       },
       "retirementTrigger": "When the installed native declarations no longer carry unstable annotations, remove the matching file acknowledgements and scope entries after the retained native behavior and negative-control diagnostics pass. Reopen this record on any examined-version change."
+    },
+    {
+      "id": "EX-0033",
+      "rules": ["FX002", "FX012", "effecttsgo/node-builtin-import"],
+      "scope": {
+        "files": ["packages/database/src/auth-live.ts", "packages/database/src/oauth-live.ts"],
+        "symbols": ["verifiedBetterAuthSessionToken", "constantDigestEqual", "verifyJwtSignature"]
+      },
+      "reason": "Preserve the supported Better Auth signed-cookie HMAC and timing-safe equality, and the OAuth ES256 JWT signature verification boundary. The only foreign crypto imports are createHmac/timingSafeEqual and timingSafeEqual/webcrypto; randomness and UUIDs use native Crypto or PostgreSQL, and SHA fingerprints/ETags use the established pure shared digest.",
+      "missingCapability": "Installed Effect 4.0.0 Crypto exposes random bytes, UUIDs and SHA digests but no HMAC, timing-safe byte comparison, or ECDSA JWK import and verification.",
+      "nativeAlternatives": [
+        "Crypto.Crypto.randomBytes/randomUUIDv4: used for OAuth confidential secrets and refresh-family identifiers, not exempted",
+        "Crypto.Crypto.digest: insufficient for HMAC or ECDSA verification; existing sha256Hex handles deterministic SHA transformations",
+        "Crypto.Crypto interface and make source: contain no public HMAC/ECDSA/constant-time equality operation"
+      ],
+      "verification": [
+        "packages/database/src/auth-live.test.ts: signed-cookie acceptance, persisted revocation, audit rollback and wrong credentials",
+        "packages/database/runtime/identity-postgres-proof-main.ts: real Better Auth credentials and session revocation",
+        "packages/database/runtime/oauth-postgres-tracer-main.ts: real supported Better Auth OAuth issuance, signature acceptance, replay and revocation",
+        "packages/database/src/password-recovery.test.ts: actual request signal propagation and host-callback cleanup",
+        "Exact committed B source must pass lead-admitted real PostgreSQL proofs and native type-aware lint before acceptance; no such execution claimed by this record"
+      ],
+      "owner": "packages/database",
+      "examinedWith": {
+        "effect": "4.0.0",
+        "@effect/platform-bun": "4.0.0",
+        "@effect/tsgo": "0.48.0",
+        "better-auth": "1.7.1"
+      },
+      "retirementTrigger": "A compatible public Effect Crypto API supplies HMAC, timing-safe comparison, and ECDSA JWK verification. Run the signed-cookie, persisted revocation, OAuth signature/replay and cancellation regressions against it, replace these three local functions, and remove the two import-site suppressions and this record."
     }
   ]
 }

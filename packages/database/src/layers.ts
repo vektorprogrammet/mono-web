@@ -4,15 +4,12 @@
  */
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { Effect, Layer } from "effect";
-import * as SqlClient from "effect/sql/SqlClient";
+import { executePostgresMigration } from "./postgres-migration-statements.js";
 import { databaseWithMigrations, type DatabaseLayerObserver } from "./database-construction.js";
 import { nativePgLayer, type NativePgPoolConfig } from "./pg-pool.js";
 import { Database } from "./service.js";
 
 export type { DatabaseLayerObserver } from "./database-construction.js";
-
-const executeWithSql = (source: string) =>
-  SqlClient.SqlClient.use((sql) => sql.unsafe(source).pipe(Effect.asVoid));
 
 const DatabaseFromPg = (observer?: DatabaseLayerObserver) =>
   Layer.effect(
@@ -21,7 +18,7 @@ const DatabaseFromPg = (observer?: DatabaseLayerObserver) =>
       const client = yield* PgClient.PgClient;
       const json = client.json;
 
-      return yield* databaseWithMigrations(executeWithSql, json, observer);
+      return yield* databaseWithMigrations(executePostgresMigration, json, observer);
     }),
   );
 

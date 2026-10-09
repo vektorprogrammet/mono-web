@@ -1,7 +1,6 @@
 import process from "node:process";
 import * as BunServices from "@effect/platform-bun/BunServices";
-import { Effect, Layer, Redacted } from "effect";
-import { Pool } from "pg";
+import { Effect, Layer, Redacted, Result } from "effect";
 import {
   parseDisposableCohortDatabaseUrl,
   readPrivateCohortJson,
@@ -12,7 +11,7 @@ import {
   importCurrentAssignmentCohort,
 } from "@vektorprogrammet/database/placements";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
-import { databaseHealth } from "@vektorprogrammet/database";
+import { Database } from "@vektorprogrammet/database";
 
 const invalidSnapshot = () => new CurrentAssignmentFailure({ code: "InvalidSnapshot" });
 
@@ -75,22 +74,23 @@ export const runCurrentAssignmentCohortCli = async (): Promise<void> => {
   );
 
   const url = disposableCurrentAssignmentDatabaseUrl(process.env.CURRENT_ASSIGNMENT_PG_URL);
-  await Effect.runPromise(
-    databaseHealth.pipe(
-      Effect.provide(
-        DatabaseLive({ url: Redacted.make(url), maxConnections: 1 }).pipe(
-          Layer.provide(BunServices.layer),
+
+  const report = await Effect.runPromise(
+    Effect.result(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        yield* sql.health;
+
+        return yield* importCurrentAssignmentCohort(sql, input);
+      }).pipe(
+        Effect.provide(
+          DatabaseLive({ url: Redacted.make(url), maxConnections: 1 }).pipe(
+            Layer.provide(BunServices.layer),
+          ),
         ),
       ),
     ),
-  );
-  const pool = new Pool({ connectionString: url, max: 2 });
+  ).then(Result.getOrThrow);
 
-  try {
-    process.stdout.write(
-      JSON.stringify(await Effect.runPromise(importCurrentAssignmentCohort(pool, input))) + "\n",
-    );
-  } finally {
-    await pool.end();
-  }
+  process.stdout.write(JSON.stringify(report) + "\n");
 };

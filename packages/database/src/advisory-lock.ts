@@ -88,6 +88,10 @@ export interface AdvisoryLockKeys {
   readonly reviewedReceiptImport: AdvisoryLockKey;
   /** The reviewed Person cohort import, with its existing lock bytes. */
   readonly reviewedPersonImport: AdvisoryLockKey;
+  /** The current assignment import, with its existing lock bytes. */
+  readonly currentAssignmentImport: AdvisoryLockKey;
+  /** The reviewed organization import, with its existing lock bytes. */
+  readonly reviewedOrganizationImport: AdvisoryLockKey;
   /** Schedule, conduct, response, and staffing writers of one interview; migration 0039. Bare. */
   readonly recruitmentInterview: (interviewId: string) => AdvisoryLockKey;
   /** Recruitment scheduling, conduct, and assignment command receipt. Bare. */
@@ -168,6 +172,8 @@ export const AdvisoryLockKey: AdvisoryLockKeys = {
   importedReceiptVisual: (visualId) => advisoryLockKey(`visual:${visualId}`),
   reviewedReceiptImport: advisoryLockKey("native-reviewed-receipt-import"),
   reviewedPersonImport: advisoryLockKey("native-person-cohort-import"),
+  currentAssignmentImport: advisoryLockKey("native-current-assignment-import"),
+  reviewedOrganizationImport: advisoryLockKey("native-reviewed-organization-import"),
   recruitmentInterview: (interviewId) => advisoryLockKey(interviewId),
   recruitmentCommand: (commandId) => advisoryLockKey(commandId),
   recruitmentApplication: (applicationId) => advisoryLockKey(applicationId),

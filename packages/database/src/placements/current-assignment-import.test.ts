@@ -1,14 +1,15 @@
-import { createHash } from "node:crypto";
-import { PGlite } from "@electric-sql/pglite";
-import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
-import { databaseHealth } from "../service.js";
+/**
+ * EX-0021: required public native SQL APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { Database } from "../service.js";
 import { DatabaseTestLive } from "../test-support/platform.js";
 import { importPersonCohort, PersonMapping } from "../person-cohort.js";
-import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { PersonId } from "@vektorprogrammet/domain/organization";
-import { Effect, flow, Layer, Schema } from "effect";
-import { Pool, type PoolClient } from "pg";
-import { expect, it, vi } from "@effect/vitest";
+import { Cause, Context, Deferred, Effect, Exit, Fiber, flow, Layer, Schema } from "effect";
+import type * as SqlClient from "effect/sql/SqlClient";
+import { expect, it } from "@effect/vitest";
 import {
   importCurrentAssignmentCohort,
   importReconciledCurrentAssignmentCohort,
@@ -16,64 +17,37 @@ import {
 
 const jsonText = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
-const digest = flow(Schema.decodeUnknownSync(Schema.Json), (value) =>
-  createHash("sha256").update(canonicalJson(value)).digest("hex"),
-);
+const digest = flow(canonicalJsonBytes, sha256Hex);
 
-/**
- * Runs `action` on a migrated PGlite behind a pg Pool whose clients query it. The pool ends,
- * then the database capability is released, then the PGlite closes.
- */
-const withAssignmentDatabase = <A, E>(
-  action: (database: PGlite, pool: Pool) => Effect.Effect<A, E>,
+/** One migrated native client owns each test; its layer closes on every exit. */
+const withAssignmentDatabase = <A, E, R>(
+  action: (database: SqlClient.SqlClient) => Effect.Effect<A, E, R>,
 ) =>
-  Effect.gen(function* () {
-    const database = yield* Effect.acquireRelease(
-      Effect.promise(() => PGlite.create({ extensions: { btree_gist } })),
-      (database) => Effect.promise(() => database.close()),
-    );
+  Effect.scoped(
+    Effect.gen(function* () {
+      const services = yield* Layer.build(DatabaseTestLive());
+      const database = Context.get(services, Database);
+      yield* database.health;
+      yield* database.unsafe(`INSERT INTO organization_departments(department_id,name,short_name,email,city)
+    VALUES('department','Department','D','d@example.invalid','Trondheim')`);
+      yield* database.unsafe(`INSERT INTO admission_period_semesters(semester_id,start_at,end_at)
+    VALUES('semester','2026-08-01T00:00:00Z','2026-12-31T00:00:00Z')`);
+      yield* database.unsafe(`INSERT INTO schools_directory_schools(school_id,name,contact_person,email,phone,language,active)
+    OVERRIDING SYSTEM VALUE VALUES(1,'School','Contact','school@example.invalid','12345678','Norwegian',true)`);
+      yield* database.unsafe(
+        `INSERT INTO schools_directory_departments(school_id,department_id) VALUES(1,'department')`,
+      );
 
-    const services = yield* Layer.build(DatabaseTestLive({ liveClient: database }));
-
-    const client = {
-      query: (text: string, values?: unknown[]) =>
-        database.query(text, values).then((result) => ({
-          rows: result.rows,
-          rowCount: result.rows.length || result.affectedRows,
-        })),
-      release: () => {},
-    };
-
-    const pool = yield* Effect.acquireRelease(
-      Effect.sync(() => new Pool()),
-      (pool) => Effect.promise(() => pool.end()),
-    );
-
-    // SAFETY: The import boundary uses query and release only; queries execute against the migrated PGlite database.
-    vi.spyOn(pool, "connect").mockImplementation(() => Promise.resolve(client as PoolClient));
-
-    yield* Effect.provideContext(databaseHealth, services);
-    yield* Effect.promise(() =>
-      database.exec(`
-      INSERT INTO organization_departments(department_id,name,short_name,email,city)
-        VALUES('department','Department','D','d@example.invalid','Trondheim');
-      INSERT INTO admission_period_semesters(semester_id,start_at,end_at)
-        VALUES('semester','2026-08-01T00:00:00Z','2026-12-31T00:00:00Z');
-      INSERT INTO schools_directory_schools(school_id,name,contact_person,email,phone,language,active)
-        OVERRIDING SYSTEM VALUE VALUES(1,'School','Contact','school@example.invalid','12345678','Norwegian',true);
-      INSERT INTO schools_directory_departments(school_id,department_id) VALUES(1,'department');
-    `),
-    );
-
-    return yield* action(database, pool);
-  });
+      return yield* action(database);
+    }),
+  );
 
 it.live(
   "imports the active candidate when inactive and invalid-digest rows name the same target",
   () =>
-    withAssignmentDatabase((database, pool) =>
+    withAssignmentDatabase((database) =>
       Effect.gen(function* () {
-        yield* importPersonCohort(pool, {
+        yield* importPersonCohort(database, {
           sourceRepository: "synthetic",
           sourceRevision: "revision",
           snapshotId: "people",
@@ -147,7 +121,7 @@ it.live(
           })),
         };
 
-        const report = yield* importCurrentAssignmentCohort(pool, {
+        const report = yield* importCurrentAssignmentCohort(database, {
           ...snapshot,
           snapshotDigest: digest(snapshot),
         });
@@ -158,9 +132,7 @@ it.live(
           { occurrenceId: "invalid", disposition: "Quarantined", reason: "InvalidRow" },
         ]);
         expect(
-          (yield* Effect.promise(() =>
-            database.query("SELECT person_id, active, day, block FROM assistant_placements"),
-          )).rows,
+          yield* database.unsafe("SELECT person_id, active, day, block FROM assistant_placements"),
         ).toEqual([{ person_id: "person", active: true, day: "Monday", block: "1" }]);
       }),
     ),
@@ -210,7 +182,7 @@ interface ReviewedFixtureRow {
 }
 
 const reviewedSnapshot = (
-  database: PGlite,
+  database: SqlClient.SqlClient,
   snapshotId: string,
   personSnapshotKey: string,
   assignments: ReadonlyArray<ReviewedFixtureRow>,
@@ -235,13 +207,11 @@ const reviewedSnapshot = (
 
     const referenceDigest = digest(referenceMappings);
     const referenceMappingsJson = yield* jsonText(referenceMappings);
-    yield* Effect.promise(() =>
-      database.query(
-        `INSERT INTO historical_service_reference_provenance
-         (source_repository, source_revision, snapshot_id, reference_digest, source_id_mappings)
-       VALUES ('review-source',$1,$1,$2,$3::jsonb)`,
-        [snapshotId, referenceDigest, referenceMappingsJson],
-      ),
+    yield* database.unsafe(
+      `INSERT INTO historical_service_reference_provenance
+     (source_repository, source_revision, snapshot_id, reference_digest, source_id_mappings)
+           VALUES ('review-source',$1,$1,$2,$3::jsonb)`,
+      [snapshotId, referenceDigest, referenceMappingsJson],
     );
 
     const rows = assignments.map(({ id, user, school, active, day }) => ({
@@ -309,15 +279,15 @@ const reviewedSnapshot = (
 it.live(
   "binds each accepted Person to its own snapshot and supports later-snapshot exact replay",
   () =>
-    withAssignmentDatabase((database, pool) =>
+    withAssignmentDatabase((database) =>
       Effect.gen(function* () {
         yield* importPersonCohort(
-          pool,
+          database,
           personSnapshot("old", [{ user: "user-a", occurrence: "row-1" }]),
         );
 
         const currentPeople = yield* importPersonCohort(
-          pool,
+          database,
           personSnapshot("current", [{ user: "user-b", occurrence: "row-1" }]),
         );
 
@@ -326,22 +296,22 @@ it.live(
           { id: "assignment-b", user: "user-b", school: 1, active: true, day: "Monday" },
         ]);
 
-        expect((yield* importReconciledCurrentAssignmentCohort(pool, current)).occurrences).toEqual(
-          [
-            {
-              occurrenceId: "assignment-a",
-              disposition: "Quarantined",
-              reason: "PersonReconciliationMissing",
-            },
-            { occurrenceId: "assignment-b", disposition: "Accepted", reason: "Imported" },
-          ],
-        );
+        expect(
+          (yield* importReconciledCurrentAssignmentCohort(database, current)).occurrences,
+        ).toEqual([
+          {
+            occurrenceId: "assignment-a",
+            disposition: "Quarantined",
+            reason: "PersonReconciliationMissing",
+          },
+          { occurrenceId: "assignment-b", disposition: "Accepted", reason: "Imported" },
+        ]);
 
         const laterPeopleSnapshot = personSnapshot("later", [
           { user: "user-a", occurrence: "row-2" },
         ]);
 
-        const laterPeople = yield* importPersonCohort(pool, laterPeopleSnapshot);
+        const laterPeople = yield* importPersonCohort(database, laterPeopleSnapshot);
         expect(laterPeople.occurrences).toEqual([
           { occurrenceId: "row-2", disposition: "Accepted", reason: "ExactReplay" },
         ]);
@@ -350,22 +320,18 @@ it.live(
           { id: "assignment-a", user: "user-a", school: 1, active: true, day: "Monday" },
         ]);
 
-        expect((yield* importReconciledCurrentAssignmentCohort(pool, later)).occurrences).toEqual([
-          { occurrenceId: "assignment-a", disposition: "Accepted", reason: "Imported" },
-        ]);
-        yield* Effect.promise(() =>
-          database.query(
-            "UPDATE assistant_placements SET active=false WHERE person_id='person-user-a'",
-          ),
-        );
-        yield* importPersonCohort(pool, laterPeopleSnapshot);
-        yield* importReconciledCurrentAssignmentCohort(pool, later);
         expect(
-          (yield* Effect.promise(() =>
-            database.query(
-              "SELECT active FROM assistant_placements WHERE person_id='person-user-a'",
-            ),
-          )).rows,
+          (yield* importReconciledCurrentAssignmentCohort(database, later)).occurrences,
+        ).toEqual([{ occurrenceId: "assignment-a", disposition: "Accepted", reason: "Imported" }]);
+        yield* database.unsafe(
+          "UPDATE assistant_placements SET active=false WHERE person_id='person-user-a'",
+        );
+        yield* importPersonCohort(database, laterPeopleSnapshot);
+        yield* importReconciledCurrentAssignmentCohort(database, later);
+        expect(
+          yield* database.unsafe(
+            "SELECT active FROM assistant_placements WHERE person_id='person-user-a'",
+          ),
         ).toEqual([{ active: false }]);
       }),
     ),
@@ -375,18 +341,16 @@ it.live(
 it.live(
   "quarantines missing source associations per row even when a stale native association exists",
   () =>
-    withAssignmentDatabase((database, pool) =>
+    withAssignmentDatabase((database) =>
       Effect.gen(function* () {
-        yield* Effect.promise(() =>
-          database.exec(`
-      INSERT INTO schools_directory_schools(school_id,name,contact_person,email,phone,language,active)
-        OVERRIDING SYSTEM VALUE VALUES(2,'Stale school','Contact','school2@example.invalid','12345678','Norwegian',true);
-      INSERT INTO schools_directory_departments(school_id,department_id) VALUES(2,'department');
-    `),
+        yield* database.unsafe(`INSERT INTO schools_directory_schools(school_id,name,contact_person,email,phone,language,active)
+          OVERRIDING SYSTEM VALUE VALUES(2,'Stale school','Contact','school2@example.invalid','12345678','Norwegian',true)`);
+        yield* database.unsafe(
+          `INSERT INTO schools_directory_departments(school_id,department_id) VALUES(2,'department')`,
         );
 
         const people = yield* importPersonCohort(
-          pool,
+          database,
           personSnapshot("associations", [{ user: "user-a", occurrence: "row-1" }]),
         );
 
@@ -398,7 +362,7 @@ it.live(
         ]);
 
         expect(
-          (yield* importReconciledCurrentAssignmentCohort(pool, snapshot)).occurrences,
+          (yield* importReconciledCurrentAssignmentCohort(database, snapshot)).occurrences,
         ).toEqual([
           {
             occurrenceId: "active-missing",
@@ -410,10 +374,132 @@ it.live(
           { occurrenceId: "valid", disposition: "Accepted", reason: "Imported" },
         ]);
         expect(
-          (yield* Effect.promise(() =>
-            database.query("SELECT school_id::integer AS school FROM assistant_placements"),
-          )).rows,
+          yield* database.unsafe("SELECT school_id::integer AS school FROM assistant_placements"),
         ).toEqual([{ school: 1 }]);
+      }),
+    ),
+  15_000,
+);
+
+class AssignmentTestRollback extends Schema.TaggedError<AssignmentTestRollback>()(
+  "AssignmentTestRollback",
+  {},
+) {}
+
+const snapshotWithoutMappings = (snapshotId: string) => {
+  const row = {
+    sourceAssignmentId: snapshotId,
+    sourceUserId: "user",
+    sourceDepartmentId: "source-department",
+    sourceSemesterId: "source-semester",
+    sourceSchoolId: "source-school",
+    affiliationEvidenceRef: "affiliation",
+    placementEvidenceRef: "placement",
+    day: "Monday",
+    workdays: 4,
+    block: "1",
+    active: true,
+  };
+
+  const snapshot = {
+    sourceRepository: "synthetic",
+    sourceRevision: "revision",
+    snapshotId,
+    sourceWatermark: "watermark",
+    transformationRevision: "test",
+    synthetic: true as const,
+    occurrences: [{ occurrenceId: "row", row: { ...row, sourceRowDigest: digest(row) } }],
+    mappings: [],
+  };
+
+  return { ...snapshot, snapshotDigest: digest(snapshot) };
+};
+
+it.live(
+  "empty mappings import and replay without binding an empty PostgreSQL array",
+  () =>
+    withAssignmentDatabase((database) =>
+      Effect.gen(function* () {
+        const snapshot = snapshotWithoutMappings("empty");
+        const first = yield* importCurrentAssignmentCohort(database, snapshot);
+        expect(first.input).toBe(1);
+        expect(first.accepted).toBe(0);
+        expect(first.occurrences).toEqual([
+          { occurrenceId: "row", disposition: "Quarantined", reason: "MappingMissing" },
+        ]);
+        expect(yield* importCurrentAssignmentCohort(database, snapshot)).toEqual(first);
+      }),
+    ),
+  15_000,
+);
+
+it.live(
+  "a caller failure rolls back a completed nested import and leaves its client reusable",
+  () =>
+    withAssignmentDatabase((database) =>
+      Effect.gen(function* () {
+        const outcome = yield* Effect.flip(
+          database.withTransaction(
+            Effect.gen(function* () {
+              yield* importCurrentAssignmentCohort(database, snapshotWithoutMappings("failed"));
+
+              return yield* new AssignmentTestRollback();
+            }),
+          ),
+        );
+
+        expect(Schema.is(AssignmentTestRollback)(outcome)).toBe(true);
+
+        const rows = yield* database.unsafe(
+          "SELECT snapshot_key FROM current_assignment_snapshots WHERE snapshot_id='failed'",
+        );
+
+        expect(rows).toEqual([]);
+        expect(
+          (yield* importCurrentAssignmentCohort(database, snapshotWithoutMappings("after-failure")))
+            .input,
+        ).toBe(1);
+      }),
+    ),
+  15_000,
+);
+
+it.live(
+  "interrupting a caller rolls back nested provenance before releasing the native client",
+  () =>
+    withAssignmentDatabase((database) =>
+      Effect.gen(function* () {
+        const imported = yield* Deferred.make<void>();
+
+        const fiber = yield* Effect.forkChild(
+          database.withTransaction(
+            Effect.gen(function* () {
+              yield* importCurrentAssignmentCohort(
+                database,
+                snapshotWithoutMappings("interrupted"),
+              );
+              yield* Deferred.succeed(imported, undefined);
+
+              return yield* Effect.never;
+            }),
+          ),
+        );
+
+        yield* Deferred.await(imported);
+        yield* Fiber.interrupt(fiber);
+        const outcome = yield* Fiber.await(fiber);
+        expect(Exit.isFailure(outcome) && Cause.hasInterrupts(outcome.cause)).toBe(true);
+        expect(
+          yield* database.unsafe(
+            "SELECT snapshot_key FROM current_assignment_snapshots WHERE snapshot_id='interrupted'",
+          ),
+        ).toEqual([]);
+        expect(
+          (yield* importCurrentAssignmentCohort(
+            database,
+            snapshotWithoutMappings("after-interruption"),
+          )).input,
+        ).toBe(1);
       }),
     ),
   15_000,

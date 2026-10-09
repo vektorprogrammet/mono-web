@@ -1,3 +1,7 @@
+/**
+ * EX-0029: required public native SQL APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 /** Owned synthetic PostgreSQL current assistant assignment reconciliation journey. */
 import * as BunServices from "@effect/platform-bun/BunServices";
 import assert from "node:assert/strict";
@@ -7,15 +11,15 @@ import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import process from "node:process";
-import { Schema, flow, Match, Effect, Layer, Redacted } from "effect";
-import { Pool } from "pg";
+import { Schema, flow, Match, Effect, ManagedRuntime, Layer, Redacted, Result } from "effect";
+import * as SqlClient from "effect/sql/SqlClient";
 import {
   type DisposablePostgres,
   postgresProgram,
   startDisposablePostgres,
 } from "@monoweb/postgres";
 import { CurrentAssignmentSnapshot } from "@vektorprogrammet/domain/placements";
-import { databaseHealth } from "@vektorprogrammet/database";
+import { databaseHealth, Database } from "@vektorprogrammet/database";
 import {
   canonicalJsonBytes,
   canonicalJsonValue,
@@ -30,10 +34,41 @@ import { currentAssignmentForbiddenAmbientConfigurationKeys } from "./current-as
 import { journeyClock } from "../e2e/journey-clock.js";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { importPersonCohort as importPersonCohortEffect } from "@vektorprogrammet/database/person-cohort";
+import { executePostgresMigration } from "@vektorprogrammet/database/postgres-migration-statements";
 
-const importPersonCohort = flow(importPersonCohortEffect, Effect.runPromise);
+const decodeJsonRows = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Record(Schema.String, Schema.Json)),
+);
 
-const importCurrentAssignmentCohort = flow(importCurrentAssignmentCohortEffect, Effect.runPromise);
+const decodeCanonicalRows = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      facts: Schema.Struct({
+        canonicalAffiliations: Schema.Json,
+        canonicalPlacements: Schema.Json,
+        snapshots: Schema.Json,
+        occurrences: Schema.Json,
+        imports: Schema.Json,
+        affiliationImports: Schema.Json,
+      }),
+    }),
+  ),
+);
+
+/** Promise host boundary: retain typed cohort errors without recovering defects or interruption. */
+const runCohort = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
+  Effect.runPromise(Effect.result(effect)).then(Result.getOrThrow);
+
+const executeFixture = (sql: SqlClient.SqlClient, source: string) =>
+  Effect.runPromise(
+    sql.withTransaction(
+      executePostgresMigration(source).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+    ),
+  );
+
+const importPersonCohort = flow(importPersonCohortEffect, runCohort);
+
+const importCurrentAssignmentCohort = flow(importCurrentAssignmentCohortEffect, runCohort);
 
 const root = resolve(import.meta.dirname, "../..");
 
@@ -81,7 +116,14 @@ const backup = join(artifacts, "current-assignment.dump");
 
 let postgres: DisposablePostgres | undefined;
 
-let pool: Pool | undefined;
+const makeRuntime = (url: string, maxConnections: number) =>
+  ManagedRuntime.make(
+    DatabaseLive({ url: Redacted.make(url), maxConnections }).pipe(
+      Layer.provide(BunServices.layer),
+    ),
+  );
+
+let runtime: ReturnType<typeof makeRuntime> | undefined;
 
 let evidence: Record<string, Schema.Json> | undefined;
 
@@ -89,17 +131,12 @@ try {
   postgres = await startDisposablePostgres({ database: "current_assignment_rehearsal" });
 
   const databaseUrl = postgres.url;
-  pool = new Pool({ connectionString: databaseUrl, max: 4 });
-  await Effect.runPromise(
-    databaseHealth.pipe(
-      Effect.provide(
-        DatabaseLive({ url: Redacted.make(databaseUrl), maxConnections: 1 }).pipe(
-          Layer.provide(BunServices.layer),
-        ),
-      ),
-    ),
-  );
-  await pool.query(`
+  runtime = makeRuntime(databaseUrl, 4);
+  const sql = await runtime.runPromise(Database);
+  await runtime.runPromise(databaseHealth);
+  await executeFixture(
+    sql,
+    `
     INSERT INTO public.organization_departments
       (department_id, name, short_name, email, city)
     VALUES
@@ -118,13 +155,14 @@ try {
     VALUES ('person-missing-evidence', 'Unreconciled', 'Volunteer');
     INSERT INTO public.person_contact_profiles (person_id, email, phone)
     VALUES ('person-missing-evidence', 'missing-evidence@example.invalid', '+47 900 20 001')
-  `);
+  `,
+  );
 
-  const schools = (
-    await pool.query<{ school_id: string; name: string }>(
+  const schools = await Effect.runPromise(
+    sql.unsafe<{ school_id: string; name: string }>(
       `SELECT school_id::text, name FROM public.schools_directory_schools ORDER BY school_id`,
-    )
-  ).rows;
+    ),
+  );
 
   const schoolA = Number(schools[0]!.school_id);
   const schoolB = Number(schools[1]!.school_id);
@@ -144,7 +182,7 @@ try {
     "colon-right",
   ];
 
-  const personReport = await importPersonCohort(pool, {
+  const personReport = await importPersonCohort(sql, {
     sourceRepository: "synthetic-legacy",
     sourceRevision: "synthetic-person-source-0109",
     snapshotId: "person-cohort-0109",
@@ -178,11 +216,15 @@ try {
   });
 
   assert.equal(personReport.accepted, reconciledSources.length);
-  await pool.query(`
+  await Effect.runPromise(
+    sql
+      .unsafe(`
     INSERT INTO public.organization_volunteer_affiliations
       (person_id, department_id, status, revision)
     VALUES ('person-unowned', 'department-a', 'Active', 1)
-  `);
+  `)
+      .pipe(Effect.flatMap(decodeJsonRows)),
+  );
 
   type SourceRow = {
     sourceAssignmentId: string;
@@ -326,16 +368,16 @@ try {
     input: Omit<typeof CurrentAssignmentSnapshot.Encoded, "snapshotDigest"> & {
       readonly snapshotDigest?: string;
     },
-  ) => importCurrentAssignmentCohort(pool!, snapshotWithDigest(input));
+  ) => importCurrentAssignmentCohort(sql!, snapshotWithDigest(input));
 
   await writeFile(inputFile, JSON.stringify(snapshot), { mode: 0o600 });
   await chmod(inputFile, 0o600);
 
   const excludedAuthorityFacts = async (
-    databasePool: Pool,
+    databasePool: SqlClient.SqlClient,
   ): Promise<Record<string, Schema.Json>> => {
-    const tables = (
-      await databasePool.query<{ table_name: string }>(
+    const tables = await Effect.runPromise(
+      databasePool.unsafe<{ table_name: string }>(
         `SELECT format('%I.%I', schemaname, tablename) AS table_name
            FROM pg_tables
           WHERE schemaname IN ('public', 'auth')
@@ -351,27 +393,31 @@ try {
               )
             )
           ORDER BY schemaname, tablename`,
-      )
-    ).rows;
+      ),
+    );
 
     const allFacts: Record<string, Schema.Json> = {};
 
     for (const { table_name: tableName } of tables) {
-      const rows = await databasePool.query<{ rows: unknown }>(
-        `SELECT COALESCE(jsonb_agg(to_jsonb(value) ORDER BY to_jsonb(value)::text), '[]'::jsonb) AS rows
+      const rows = await Effect.runPromise(
+        databasePool.unsafe<{ rows: unknown }>(
+          `SELECT COALESCE(jsonb_agg(to_jsonb(value) ORDER BY to_jsonb(value)::text), '[]'::jsonb) AS rows
            FROM ${tableName} value`,
+        ),
       );
 
-      allFacts[tableName] = Schema.decodeUnknownSync(Schema.Json)(rows.rows[0]!.rows);
+      allFacts[tableName] = Schema.decodeUnknownSync(Schema.Json)(rows[0]!.rows);
     }
 
     return allFacts;
   };
 
-  const facts = async (databasePool: Pool) => {
+  const facts = async (databasePool: SqlClient.SqlClient) => {
     const canonical = (
-      await databasePool.query<{ facts: Record<string, Schema.Json> }>(
-        `SELECT jsonb_build_object(
+      await Effect.runPromise(
+        databasePool
+          .unsafe(
+            `SELECT jsonb_build_object(
           'canonicalAffiliations', (SELECT jsonb_agg(a ORDER BY person_id, department_id) FROM public.organization_volunteer_affiliations a),
           'canonicalPlacements', (SELECT jsonb_agg(p ORDER BY placement_id) FROM public.assistant_placements p),
           'snapshots', (SELECT jsonb_agg(s ORDER BY snapshot_key) FROM public.current_assignment_snapshots s),
@@ -379,13 +425,15 @@ try {
           'imports', (SELECT jsonb_agg(i ORDER BY source_repository, source_assignment_id) FROM public.current_assignment_imports i),
           'affiliationImports', (SELECT jsonb_agg(i ORDER BY source_repository, person_id, department_id) FROM public.current_assignment_affiliation_imports i)
         ) AS facts`,
+          )
+          .pipe(Effect.flatMap(decodeCanonicalRows)),
       )
-    ).rows[0]!.facts;
+    )[0]!.facts;
 
     return { ...canonical, excluded: await excludedAuthorityFacts(databasePool) };
   };
 
-  const excludedBefore = digest((await facts(pool)).excluded);
+  const excludedBefore = digest((await facts(sql)).excluded);
 
   const runCli = (): Schema.Json =>
     Schema.decodeSync(Schema.fromJsonString(Schema.Json))(
@@ -416,23 +464,23 @@ try {
   assert.equal(report.audit, "ImportProvenanceOnly");
   assert.deepEqual(runCli(), report, "exact CLI replay is byte-equivalent");
   assert.deepEqual(
-    (
-      await pool.query(
-        `SELECT person_id, department_id, status, revision
-           FROM public.organization_volunteer_affiliations
-          WHERE person_id = 'person-valid'`,
-      )
-    ).rows,
+    await Effect.runPromise(
+      sql
+        .unsafe(`SELECT person_id, department_id, status, revision
+       FROM public.organization_volunteer_affiliations
+      WHERE person_id = 'person-valid'`)
+        .pipe(Effect.flatMap(decodeJsonRows)),
+    ),
     [{ person_id: "person-valid", department_id: "department-a", status: "Active", revision: 1 }],
   );
   assert.deepEqual(
-    (
-      await pool.query(
-        `SELECT placement_id, day, workdays, block, active, revision
-           FROM public.assistant_placements
-          WHERE person_id = 'person-valid' ORDER BY placement_id`,
-      )
-    ).rows,
+    await Effect.runPromise(
+      sql
+        .unsafe(`SELECT placement_id, day, workdays, block, active, revision
+       FROM public.assistant_placements
+      WHERE person_id = 'person-valid' ORDER BY placement_id`)
+        .pipe(Effect.flatMap(decodeJsonRows)),
+    ),
     [
       {
         placement_id: currentAssignmentPlacementId("synthetic-legacy", "assignment-one"),
@@ -454,39 +502,58 @@ try {
   );
   assert.equal(
     Number(
-      (await pool.query(`SELECT count(*) FROM public.organization_volunteer_affiliation_audit`))
-        .rows[0].count,
+      (
+        await Effect.runPromise(
+          sql
+            .unsafe(`SELECT count(*)::text FROM public.organization_volunteer_affiliation_audit`)
+            .pipe(Effect.flatMap(decodeJsonRows)),
+        )
+      )[0]!.count,
     ),
     0,
     "import fabricated a human affiliation audit action",
   );
   assert.equal(
     Number(
-      (await pool.query(`SELECT count(*) FROM public.assistant_placement_audit`)).rows[0].count,
+      (
+        await Effect.runPromise(
+          sql
+            .unsafe(`SELECT count(*)::text FROM public.assistant_placement_audit`)
+            .pipe(Effect.flatMap(decodeJsonRows)),
+        )
+      )[0]!.count,
     ),
     0,
     "import fabricated a human placement audit action",
   );
   assert.equal(
-    digest((await facts(pool)).excluded),
+    digest((await facts(sql)).excluded),
     excludedBefore,
     "import changed excluded authority",
   );
   assert.equal(
     Number(
       (
-        await pool.query(
-          `SELECT count(*) FROM public.current_assignment_affiliation_imports WHERE person_id = 'person-unowned'`,
+        await Effect.runPromise(
+          sql
+            .unsafe(
+              `SELECT count(*)::text FROM public.current_assignment_affiliation_imports WHERE person_id = 'person-unowned'`,
+            )
+            .pipe(Effect.flatMap(decodeJsonRows)),
         )
-      ).rows[0].count,
+      )[0]!.count,
     ),
     0,
     "unowned canonical affiliation was adopted",
   );
   assert.deepEqual(
     (
-      await pool.query(`SELECT reason FROM public.current_assignment_occurrences ORDER BY reason`)
-    ).rows.map(({ reason }) => reason),
+      await Effect.runPromise(
+        sql
+          .unsafe(`SELECT reason FROM public.current_assignment_occurrences ORDER BY reason`)
+          .pipe(Effect.flatMap(decodeJsonRows)),
+      )
+    ).map(({ reason }) => reason),
     [
       "DuplicateSource",
       "DuplicateSource",
@@ -508,11 +575,15 @@ try {
 
   const collisionSemester = "semester-collision";
   const colonCollisionSemester = `${schoolA}:${collisionSemester}`;
-  await pool.query(
-    `INSERT INTO public.admission_period_semesters (semester_id, start_at, end_at)
-     VALUES ($1, '${autumnSemester.now}', '${autumnSemester.fromNow(152)}'),
-            ($2, '${autumnSemester.now}', '${autumnSemester.fromNow(152)}')`,
-    [collisionSemester, colonCollisionSemester],
+  await Effect.runPromise(
+    sql
+      .unsafe(
+        `INSERT INTO public.admission_period_semesters (semester_id, start_at, end_at)
+   VALUES ($1, '${autumnSemester.now}', '${autumnSemester.fromNow(152)}'),
+          ($2, '${autumnSemester.now}', '${autumnSemester.fromNow(152)}')`,
+        [collisionSemester, colonCollisionSemester],
+      )
+      .pipe(Effect.flatMap(decodeJsonRows)),
   );
   const collisionLeft = sourceRow("assignment-colon-left", "colon-left");
 
@@ -544,17 +615,21 @@ try {
   assert.equal(
     Number(
       (
-        await pool.query(
-          `SELECT count(*) FROM public.assistant_placements
-           WHERE person_id IN ($1, $2) AND semester_id IN ($3, $4)`,
-          [`person:${schoolB}`, "person", collisionSemester, colonCollisionSemester],
+        await Effect.runPromise(
+          sql
+            .unsafe(
+              `SELECT count(*)::text FROM public.assistant_placements
+       WHERE person_id IN ($1, $2) AND semester_id IN ($3, $4)`,
+              [`person:${schoolB}`, "person", collisionSemester, colonCollisionSemester],
+            )
+            .pipe(Effect.flatMap(decodeJsonRows)),
         )
-      ).rows[0].count,
+      )[0]!.count,
     ),
     2,
     "colon-containing target identities collapsed distinct placements",
   );
-  const factsBeforeConflict = digest(await facts(pool));
+  const factsBeforeConflict = digest(await facts(sql));
   await assert.rejects(
     importSnapshot({ ...snapshot, sourceRevision: "changed-source" }),
     (cause) => cause instanceof CurrentAssignmentFailure && cause.code === "SnapshotConflict",
@@ -570,7 +645,7 @@ try {
     (cause) => cause instanceof CurrentAssignmentFailure && cause.code === "SourceIdentityConflict",
   );
   assert.equal(
-    digest(await facts(pool)),
+    digest(await facts(sql)),
     factsBeforeConflict,
     "changed replay altered persisted facts",
   );
@@ -592,11 +667,15 @@ try {
     },
   ]);
 
-  await pool.query(
-    `INSERT INTO public.assistant_placements
-       (placement_id, person_id, department_id, semester_id, school_id, day, workdays, block, active, revision)
-     VALUES ($1, 'person-valid', 'department-a', 'semester-2026-autumn', $2, 'Monday', 1, 'Both', true, 1)`,
-    [`placement-${"d".repeat(64)}`, schoolB],
+  await Effect.runPromise(
+    sql
+      .unsafe(
+        `INSERT INTO public.assistant_placements
+     (placement_id, person_id, department_id, semester_id, school_id, day, workdays, block, active, revision)
+   VALUES ($1, 'person-valid', 'department-a', 'semester-2026-autumn', $2, 'Monday', 1, 'Both', true, 1)`,
+        [`placement-${"d".repeat(64)}`, schoolB],
+      )
+      .pipe(Effect.flatMap(decodeJsonRows)),
   );
 
   const reverseOverlapRow = sourceRow("assignment-reverse-overlap", "valid", {
@@ -636,23 +715,28 @@ try {
   assert.equal(concurrent[0].accepted, 1);
   assert.deepEqual(
     (
-      await pool.query(
-        `SELECT
-          (SELECT count(*) FROM public.organization_volunteer_affiliations WHERE person_id = 'person-concurrent') AS affiliations,
-          (SELECT count(*) FROM public.assistant_placements WHERE person_id = 'person-concurrent') AS placements,
-          (SELECT count(*) FROM public.current_assignment_imports WHERE source_assignment_id = 'assignment-concurrent') AS imports`,
+      await Effect.runPromise(
+        sql
+          .unsafe(`SELECT
+      (SELECT count(*)::text FROM public.organization_volunteer_affiliations WHERE person_id = 'person-concurrent') AS affiliations,
+      (SELECT count(*)::text FROM public.assistant_placements WHERE person_id = 'person-concurrent') AS placements,
+      (SELECT count(*)::text FROM public.current_assignment_imports WHERE source_assignment_id = 'assignment-concurrent') AS imports`)
+          .pipe(Effect.flatMap(decodeJsonRows)),
       )
-    ).rows[0],
+    )[0],
     { affiliations: "1", placements: "1", imports: "1" },
   );
 
-  await pool.query(`
+  await executeFixture(
+    sql,
+    `
     CREATE FUNCTION public.fail_current_assignment_import() RETURNS trigger
     LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic failure'; END $$;
     CREATE TRIGGER fail_current_assignment_import
     BEFORE INSERT ON public.current_assignment_imports
     FOR EACH ROW EXECUTE FUNCTION public.fail_current_assignment_import()
-  `);
+  `,
+  );
   const rollbackRow = sourceRow("assignment-rollback", "rollback", { block: "Both" });
   await assert.rejects(
     importSnapshot({
@@ -665,22 +749,31 @@ try {
   );
   assert.deepEqual(
     (
-      await pool.query(
-        `SELECT
-          (SELECT count(*) FROM public.current_assignment_snapshots WHERE snapshot_id = 'current-assignment-0109-rollback') AS snapshots,
-          (SELECT count(*) FROM public.organization_volunteer_affiliations WHERE person_id = 'person-rollback') AS affiliations,
-          (SELECT count(*) FROM public.assistant_placements WHERE person_id = 'person-rollback') AS placements,
-          (SELECT count(*) FROM public.current_assignment_imports WHERE source_assignment_id = 'assignment-rollback') AS imports`,
+      await Effect.runPromise(
+        sql
+          .unsafe(`SELECT
+      (SELECT count(*)::text FROM public.current_assignment_snapshots WHERE snapshot_id = 'current-assignment-0109-rollback') AS snapshots,
+      (SELECT count(*)::text FROM public.organization_volunteer_affiliations WHERE person_id = 'person-rollback') AS affiliations,
+      (SELECT count(*)::text FROM public.assistant_placements WHERE person_id = 'person-rollback') AS placements,
+      (SELECT count(*)::text FROM public.current_assignment_imports WHERE source_assignment_id = 'assignment-rollback') AS imports`)
+          .pipe(Effect.flatMap(decodeJsonRows)),
       )
-    ).rows[0],
+    )[0],
     { snapshots: "0", affiliations: "0", placements: "0", imports: "0" },
   );
-  await pool.query(`
+  await executeFixture(
+    sql,
+    `
     DROP TRIGGER fail_current_assignment_import ON public.current_assignment_imports;
     DROP FUNCTION public.fail_current_assignment_import()
-  `);
+  `,
+  );
   await assert.rejects(
-    pool.query(`UPDATE public.current_assignment_imports SET affiliation_evidence_ref = 'changed'`),
+    Effect.runPromise(
+      sql
+        .unsafe(`UPDATE public.current_assignment_imports SET affiliation_evidence_ref = 'changed'`)
+        .pipe(Effect.flatMap(decodeJsonRows)),
+    ),
     /append-only/,
   );
 
@@ -698,20 +791,62 @@ try {
     "current_assignment_affiliation_imports",
   ] as const;
 
-  const assertAppendOnlyProvenance = async (databasePool: Pool): Promise<void> => {
+  const assertAppendOnlyProvenance = async (databasePool: SqlClient.SqlClient): Promise<void> => {
     for (const statement of appendOnlyStatements)
-      await assert.rejects(databasePool.query(statement), /append-only/);
+      await assert.rejects(
+        Effect.runPromise(databasePool.unsafe(statement).pipe(Effect.flatMap(decodeJsonRows))),
+        /append-only/,
+      );
 
     for (const table of appendOnlyTables)
-      await assert.rejects(databasePool.query(`DELETE FROM public.${table}`), /append-only/);
+      await assert.rejects(
+        Effect.runPromise(
+          databasePool.unsafe(`DELETE FROM public.${table}`).pipe(Effect.flatMap(decodeJsonRows)),
+        ),
+        /append-only/,
+      );
 
     for (const table of appendOnlyTables)
-      await assert.rejects(databasePool.query(`TRUNCATE public.${table} CASCADE`), /append-only/);
+      await assert.rejects(
+        Effect.runPromise(
+          databasePool
+            .unsafe(`TRUNCATE public.${table} CASCADE`)
+            .pipe(Effect.flatMap(decodeJsonRows)),
+        ),
+        /append-only/,
+      );
   };
 
-  await assertAppendOnlyProvenance(pool);
+  await assertAppendOnlyProvenance(sql);
 
-  const restoredFactsExpected = await facts(pool);
+  const beforeEmptyMapping = await facts(sql);
+  const missingMappingRow = sourceRow("assignment-empty-mappings", "valid");
+
+  const missingMappingSnapshot = {
+    ...snapshot,
+    snapshotId: "current-assignment-0109-empty-mappings",
+    occurrences: [{ occurrenceId: "occ-assignment-empty-mappings", row: missingMappingRow }],
+    mappings: [],
+  };
+
+  const emptyMappingReport = await importSnapshot(missingMappingSnapshot);
+  assert.deepEqual(emptyMappingReport.occurrences, [
+    {
+      occurrenceId: "occ-assignment-empty-mappings",
+      disposition: "Quarantined",
+      reason: "MappingMissing",
+    },
+  ]);
+  assert.equal(emptyMappingReport.accepted, 0);
+  assert.deepEqual(await importSnapshot(missingMappingSnapshot), emptyMappingReport);
+  const afterEmptyMapping = await facts(sql);
+  assert.deepEqual(
+    afterEmptyMapping.canonicalAffiliations,
+    beforeEmptyMapping.canonicalAffiliations,
+  );
+  assert.deepEqual(afterEmptyMapping.canonicalPlacements, beforeEmptyMapping.canonicalPlacements);
+
+  const restoredFactsExpected = await facts(sql);
   command(postgresProgram("pg_dump"), [
     "--dbname",
     databaseUrl,
@@ -727,10 +862,20 @@ try {
 
   const restoredUrl = await postgres.createDatabase("current_assignment_restored");
   command(postgresProgram("pg_restore"), ["--dbname", restoredUrl, backup]);
-  const restored = new Pool({ connectionString: restoredUrl });
-  assert.deepEqual(await facts(restored), restoredFactsExpected);
-  await assertAppendOnlyProvenance(restored);
-  await restored.end();
+
+  const restoredRuntime = ManagedRuntime.make(
+    DatabaseLive({ url: Redacted.make(restoredUrl), maxConnections: 1 }).pipe(
+      Layer.provide(BunServices.layer),
+    ),
+  );
+
+  try {
+    const restored = await restoredRuntime.runPromise(Database);
+    assert.deepEqual(await facts(restored), restoredFactsExpected);
+    await assertAppendOnlyProvenance(restored);
+  } finally {
+    await restoredRuntime.dispose();
+  }
 
   assert.equal(
     command("git", ["rev-parse", "HEAD"]).trim(),
@@ -745,6 +890,7 @@ try {
     report: canonicalJsonValue(report),
     oneAffiliationForTwoPlacements: true,
     deterministicPlacementIdentity: true,
+    emptyMappingsNativeSafe: true,
     colonDelimitedTargetsIndependent: true,
     quarantinesPreserveCanonicalState: true,
     unownedCanonicalTargetNotAdopted: true,
@@ -760,7 +906,7 @@ try {
     productionEffects: "none",
   };
 } finally {
-  if (pool) await pool.end().catch(() => undefined);
+  await runtime?.dispose();
 
   await postgres?.stop().catch(() => undefined);
   await rm(artifacts, { recursive: true, force: true });

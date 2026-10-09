@@ -1,11 +1,29 @@
+/**
+ * EX-0021: native stable SQL carries upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { startDisposablePostgres } from "@monoweb/postgres";
+import { createLocalAccountIssuer } from "better-auth";
+import { Context, Layer, Redacted } from "effect";
+import { Database } from "./service.js";
+import { DatabaseLive } from "./layers.js";
+import { AuthPoolLive } from "./pg-pool.js";
+import { NativeAuthEngine, NativeAuthEngineLive } from "./auth-engine.js";
+import { PasswordRecovery } from "./password-recovery.js";
 import { expect, layer } from "@effect/vitest";
-import { Effect, Schema } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, FiberSet, Schema } from "effect";
+import { MailDeliveryError } from "@vektorprogrammet/domain/mail";
 import { IdentityRequestContext } from "@vektorprogrammet/domain/identity";
 import { withPostgresTestDatabase } from "./test-support/postgres.js";
 import { TestPlatform } from "./test-support/platform.js";
 import type { AuthEngineConfig } from "./auth-engine.js";
-import { makePasswordRecovery } from "./password-recovery.js";
-import { pgQuery } from "./pg-pool.js";
+import {
+  drainPasswordResetMail,
+  makePasswordRecovery,
+  withIdentityRequestCancellation,
+} from "./password-recovery.js";
+import * as SqlClient from "effect/sql/SqlClient";
+import { executePostgresMigration } from "./postgres-migration-statements.js";
 
 const config: AuthEngineConfig = {
   postgresUrl: "",
@@ -28,7 +46,447 @@ const context = new IdentityRequestContext({
 /** The bytes that `JSON.stringify` writes for `value`. */
 const jsonText = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
+const seedRecoveryDelivery = (sql: SqlClient.SqlClient) =>
+  executePostgresMigration(`
+  INSERT INTO public.person_profiles(person_id, first_name, last_name) VALUES ('recovery-delivery-person', 'Recovery', 'Delivery');
+  INSERT INTO auth."user"(id, name, email, "emailVerified") VALUES ('recovery-delivery-person', 'Recovery Delivery', 'recovery-delivery@example.invalid', TRUE);
+  INSERT INTO auth.verification(id, identifier, value, "expiresAt", "createdAt", "updatedAt")
+  VALUES ('recovery-delivery-verification', 'reset-password:synthetic-delivery-token', 'recovery-delivery-person', CURRENT_TIMESTAMP + INTERVAL '1 hour', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+  INSERT INTO auth.password_reset_email_outbox(effect_id, verification_id, subject_person_id, status)
+  VALUES ('password-reset:recovery-delivery-verification', 'recovery-delivery-verification', 'recovery-delivery-person', 'Pending');
+`).pipe(Effect.provideService(SqlClient.SqlClient, sql));
+
+const decodeDeliveryStates = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      status: Schema.String,
+      attempts: Schema.Int,
+      claim_id: Schema.NullOr(Schema.String),
+      last_failure_code: Schema.NullOr(Schema.String),
+      payload_sha256: Schema.NullOr(Schema.String),
+      provider_reference: Schema.NullOr(Schema.String),
+    }),
+  ),
+);
+
+const deliveryStates = (sql: SqlClient.SqlClient) =>
+  sql
+    .unsafe(
+      "SELECT status, attempts, claim_id, last_failure_code, payload_sha256, provider_reference FROM auth.password_reset_email_outbox",
+    )
+    .pipe(Effect.flatMap(decodeDeliveryStates));
+
 layer(TestPlatform, { excludeTestServices: true })("owned recovery boundary", (it) => {
+  it.effect(
+    "runs supported Better Auth reset and session revocation against real native PostgreSQL",
+    () =>
+      Effect.gen(function* () {
+        const cluster = yield* Effect.acquireRelease(
+          Effect.promise(() => startDisposablePostgres({ listen: "tcp", maxConnections: 8 })),
+          (cluster) => Effect.promise(() => cluster.stop()),
+        );
+
+        const liveConfig = {
+          ...config,
+          postgresUrl: cluster.url,
+          secret: "native-recovery-proof-secret-at-least-thirty-two-characters",
+        };
+
+        const services = yield* Layer.build(
+          NativeAuthEngineLive(liveConfig).pipe(
+            Layer.provideMerge(
+              Layer.mergeAll(
+                DatabaseLive({
+                  url: Redacted.make(cluster.url),
+                  maxConnections: 1,
+                  applicationName: "native-recovery-proof-sql",
+                }),
+                AuthPoolLive(liveConfig, {
+                  maxConnections: 1,
+                  applicationName: "native-recovery-proof-auth",
+                  pipeline: true,
+                  startupOptions: "-c search_path=auth",
+                }),
+              ),
+            ),
+          ),
+        );
+
+        const sql = Context.get(services, Database);
+        const engine = Context.get(services, NativeAuthEngine);
+        const recovery = Context.get(services, PasswordRecovery);
+        yield* sql.unsafe(
+          "INSERT INTO public.person_profiles(person_id, first_name, last_name) VALUES ('real-recovery-person', 'Real', 'Recovery')",
+        );
+        const engineContext = yield* Effect.promise(() => engine.$context);
+        yield* Effect.tryPromise(() =>
+          engineContext.internalAdapter.createUser(
+            {
+              id: "real-recovery-person",
+              name: "Real Recovery",
+              email: "real-recovery@example.invalid",
+              emailVerified: true,
+            },
+            { method: "email-password" },
+          ),
+        );
+        const oldPassword = "OriginalRecoveryPassword!2032";
+        const password = yield* Effect.tryPromise(() => engineContext.password.hash(oldPassword));
+        yield* Effect.tryPromise(() =>
+          engineContext.internalAdapter.linkAccount({
+            accountId: "real-recovery-person",
+            providerId: "credential",
+            issuer: createLocalAccountIssuer("credential"),
+            userId: "real-recovery-person",
+            password,
+          }),
+        );
+
+        const signedIn = yield* Effect.tryPromise(() =>
+          engine.api.signInEmail({
+            body: { email: "real-recovery@example.invalid", password: oldPassword },
+            asResponse: true,
+          }),
+        );
+
+        expect(signedIn.status).toBe(200);
+        expect(
+          (yield* sql.unsafe('SELECT id FROM auth."session" WHERE "userId"=$1', [
+            "real-recovery-person",
+          ])).length,
+        ).toBe(1);
+
+        const accepted = yield* recovery.handler(
+          engine.handler,
+          new Request(config.oauth.canonicalOrigin + "/api/auth/request-password-reset", {
+            method: "POST",
+            headers: { origin: config.oauth.dashboardOrigin, "content-type": "application/json" },
+            body: yield* jsonText({
+              email: "real-recovery@example.invalid",
+              redirectTo: config.oauth.dashboardOrigin + "/tilbakestill-passord",
+            }),
+          }),
+          context,
+        );
+
+        expect(accepted.status).toBe(200);
+        expect(yield* deliveryStates(sql)).toMatchObject([{ status: "Pending", attempts: 0 }]);
+
+        const delivered = yield* drainPasswordResetMail(
+          sql,
+          liveConfig,
+          {
+            deliver: () =>
+              sql
+                .unsafe("SELECT 1 AS provider_can_use_sql")
+                .pipe(
+                  Effect.orDie,
+                  Effect.as({ providerReference: "real-pg-test-provider-receipt" }),
+                ),
+          },
+          "recovery-sender@example.invalid",
+        );
+
+        expect(delivered).toBe("Delivered");
+
+        const verification = yield* sql
+          .unsafe("SELECT identifier FROM auth.verification WHERE value=$1", [
+            "real-recovery-person",
+          ])
+          .pipe(
+            Effect.flatMap(
+              Schema.decodeUnknownEffect(
+                Schema.Array(Schema.Struct({ identifier: Schema.String })),
+              ),
+            ),
+          );
+
+        const token = verification[0]?.identifier.slice("reset-password:".length);
+        expect(token).toBeDefined();
+        const newPassword = "RecoveredNativePassword!2032";
+
+        const reset = yield* recovery.handler(
+          engine.handler,
+          new Request(config.oauth.canonicalOrigin + "/api/auth/reset-password", {
+            method: "POST",
+            headers: { origin: config.oauth.dashboardOrigin, "content-type": "application/json" },
+            body: yield* jsonText({ token, newPassword }),
+          }),
+          context,
+        );
+
+        expect(reset.status).toBe(200);
+        expect(
+          yield* sql.unsafe('SELECT id FROM auth."session" WHERE "userId"=$1', [
+            "real-recovery-person",
+          ]),
+        ).toEqual([]);
+
+        const rejectedBody = yield* jsonText({
+          email: "real-recovery@example.invalid",
+          password: oldPassword,
+        });
+
+        const rejectedOldPassword = yield* Effect.tryPromise(() =>
+          engine.handler(
+            new Request(config.oauth.canonicalOrigin + "/api/auth/sign-in/email", {
+              method: "POST",
+              headers: { origin: config.oauth.dashboardOrigin, "content-type": "application/json" },
+              body: rejectedBody,
+            }),
+          ),
+        );
+
+        expect(rejectedOldPassword.status).toBe(401);
+
+        const recovered = yield* Effect.tryPromise(() =>
+          engine.api.signInEmail({
+            body: { email: "real-recovery@example.invalid", password: newPassword },
+            asResponse: true,
+          }),
+        );
+
+        expect(recovered.status).toBe(200);
+        expect(yield* deliveryStates(sql)).toMatchObject([
+          { status: "Delivered", claim_id: null, attempts: 1 },
+        ]);
+      }),
+    120_000,
+  );
+
+  it.effect(
+    "commits a provider receipt without retaining a claim-owned SQL connection",
+    () =>
+      withPostgresTestDatabase((sql) =>
+        Effect.gen(function* () {
+          yield* seedRecoveryDelivery(sql);
+
+          const result = yield* drainPasswordResetMail(
+            sql,
+            config,
+            {
+              deliver: () =>
+                sql
+                  .unsafe("SELECT 1 AS provider_can_use_sql")
+                  .pipe(
+                    Effect.orDie,
+                    Effect.as({ providerReference: "recovery-provider-receipt" }),
+                  ),
+            },
+            "recovery-sender@example.invalid",
+          );
+
+          expect(result).toBe("Delivered");
+          expect(yield* deliveryStates(sql)).toMatchObject([
+            {
+              status: "Delivered",
+              attempts: 1,
+              claim_id: null,
+              provider_reference: "recovery-provider-receipt",
+            },
+          ]);
+          expect((yield* deliveryStates(sql))[0]?.payload_sha256).toMatch(/^[a-f0-9]{64}$/);
+          expect(
+            yield* drainPasswordResetMail(
+              sql,
+              config,
+              { deliver: () => Effect.die("completed delivery must not replay") },
+              "recovery-sender@example.invalid",
+            ),
+          ).toBe("Empty");
+        }),
+      ),
+    15_000,
+  );
+
+  it.effect(
+    "quarantines bounded temporary provider failures at the third attempted delivery",
+    () =>
+      withPostgresTestDatabase((sql) =>
+        Effect.gen(function* () {
+          yield* seedRecoveryDelivery(sql);
+
+          const mail = {
+            deliver: () => Effect.fail(new MailDeliveryError({ kind: "temporary-unavailability" })),
+          };
+
+          expect(
+            yield* drainPasswordResetMail(sql, config, mail, "recovery-sender@example.invalid"),
+          ).toBe("Failed");
+          expect(
+            yield* drainPasswordResetMail(sql, config, mail, "recovery-sender@example.invalid"),
+          ).toBe("Failed");
+          expect(
+            yield* drainPasswordResetMail(sql, config, mail, "recovery-sender@example.invalid"),
+          ).toBe("Quarantined");
+          expect(yield* deliveryStates(sql)).toMatchObject([
+            {
+              status: "Quarantined",
+              attempts: 3,
+              claim_id: null,
+              last_failure_code: "provider-unavailable",
+            },
+          ]);
+        }),
+      ),
+    15_000,
+  );
+
+  it.effect(
+    "persists ambiguous-delivery quarantine before interruption propagates",
+    () =>
+      withPostgresTestDatabase((sql) =>
+        Effect.gen(function* () {
+          yield* seedRecoveryDelivery(sql);
+          const acquired = yield* Deferred.make<void>();
+          const released = yield* Deferred.make<void>();
+
+          const fiber = yield* Effect.forkChild(
+            drainPasswordResetMail(
+              sql,
+              config,
+              {
+                deliver: () =>
+                  Deferred.succeed(acquired, undefined).pipe(
+                    Effect.andThen(Effect.never),
+                    Effect.ensuring(Deferred.succeed(released, undefined)),
+                  ),
+              },
+              "recovery-sender@example.invalid",
+            ),
+          );
+
+          yield* Deferred.await(acquired);
+          yield* Fiber.interrupt(fiber);
+          yield* Deferred.await(released);
+          const exit = yield* Fiber.await(fiber);
+          expect(Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)).toBe(true);
+          expect(yield* deliveryStates(sql)).toMatchObject([
+            {
+              status: "Quarantined",
+              attempts: 1,
+              claim_id: null,
+              last_failure_code: "delivery-timeout",
+            },
+          ]);
+        }),
+      ),
+    15_000,
+  );
+
+  it.effect(
+    "refuses a provider receipt after the persisted claim fence changes",
+    () =>
+      withPostgresTestDatabase((sql) =>
+        Effect.gen(function* () {
+          yield* seedRecoveryDelivery(sql);
+
+          const result = yield* drainPasswordResetMail(
+            sql,
+            config,
+            {
+              deliver: () =>
+                sql
+                  .unsafe(
+                    "UPDATE auth.password_reset_email_outbox SET claim_id=gen_random_uuid() WHERE status='Processing'",
+                  )
+                  .pipe(
+                    Effect.orDie,
+                    Effect.as({ providerReference: "lost-claim-provider-receipt" }),
+                  ),
+            },
+            "recovery-sender@example.invalid",
+          );
+
+          expect(result).toBe("LostClaim");
+          expect(yield* deliveryStates(sql)).toMatchObject([
+            { status: "Processing", attempts: 1, provider_reference: null },
+          ]);
+          expect(
+            yield* sql.unsafe(
+              "SELECT event_id FROM auth.identity_security_audit WHERE event_kind='password-reset-mail-delivered'",
+            ),
+          ).toEqual([]);
+        }),
+      ),
+    15_000,
+  );
+
+  it.effect("interrupts an already-aborted request before starting work", () => {
+    const controller = new AbortController();
+
+    const request = new Request("http://127.0.0.1:8790/api/auth/get-session", {
+      signal: controller.signal,
+    });
+
+    let invoked = false;
+
+    const program = Effect.sync(() => {
+      invoked = true;
+    }).pipe(withIdentityRequestCancellation(request));
+
+    controller.abort();
+
+    return Effect.gen(function* () {
+      const exit = yield* Effect.exit(program);
+      expect(Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)).toBe(true);
+      expect(invoked).toBe(false);
+    });
+  });
+
+  it.effect(
+    "propagates actual request abortion through the host callback and awaits cleanup",
+    () => {
+      const controller = new AbortController();
+
+      return withPostgresTestDatabase((sql) =>
+        Effect.gen(function* () {
+          const acquired = yield* Deferred.make<void>();
+          const released = yield* Deferred.make<void>();
+          const run = yield* FiberSet.makeRuntimePromise();
+
+          const request = new Request("http://127.0.0.1:8790/api/auth/request-password-reset", {
+            method: "POST",
+            signal: controller.signal,
+            headers: { origin: config.oauth.dashboardOrigin, "content-type": "application/json" },
+            body: yield* jsonText({
+              email: "cancel@example.invalid",
+              redirectTo: config.oauth.dashboardOrigin + "/tilbakestill-passord",
+            }),
+          });
+
+          const recovery = makePasswordRecovery(sql, config);
+
+          const fiber = yield* Effect.forkChild(
+            recovery.handler(
+              (incoming) =>
+                run(
+                  Deferred.succeed(acquired, undefined).pipe(
+                    Effect.andThen(Effect.never),
+                    Effect.ensuring(Deferred.succeed(released, undefined)),
+                  ),
+                  { signal: incoming.signal },
+                ),
+              request,
+              context,
+            ),
+          );
+
+          yield* Deferred.await(acquired);
+          controller.abort();
+          const exit = yield* Fiber.await(fiber);
+          yield* Deferred.await(released);
+          expect(Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)).toBe(true);
+          expect(controller.signal.aborted).toBe(true);
+          expect(
+            yield* sql.unsafe("SELECT effect_id FROM auth.password_reset_email_outbox"),
+          ).toEqual([]);
+        }),
+      );
+    },
+    15_000,
+  );
+
   it.effect(
     "rejects a trusted-origin different callback path before invoking credential engine",
     () =>
@@ -56,8 +514,8 @@ layer(TestPlatform, { excludeTestServices: true })("owned recovery boundary", (i
 
           expect(r.status).toBe(403);
           expect(called).toBe(false);
-          const audit = yield* pgQuery(pool, `SELECT details FROM auth.identity_security_audit`);
-          const auditText = yield* jsonText(audit.rows);
+          const audit = yield* pool.unsafe(`SELECT details FROM auth.identity_security_audit`);
+          const auditText = yield* jsonText(audit);
           expect(auditText).toContain("redirect-not-allowed");
           expect(auditText).not.toContain("synthetic@example.invalid");
         }),
@@ -117,10 +575,9 @@ layer(TestPlatform, { excludeTestServices: true })("owned recovery boundary", (i
     () =>
       withPostgresTestDatabase((pool) =>
         Effect.gen(function* () {
-          yield* pgQuery(
-            pool,
+          yield* executePostgresMigration(
             `CREATE FUNCTION auth.reject_recovery_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END $$; CREATE TRIGGER reject_recovery_audit BEFORE INSERT ON auth.identity_security_audit FOR EACH ROW EXECUTE FUNCTION auth.reject_recovery_audit()`,
-          );
+          ).pipe(Effect.provideService(SqlClient.SqlClient, pool));
           const recovery = makePasswordRecovery(pool, config);
 
           const r = yield* recovery.handler(

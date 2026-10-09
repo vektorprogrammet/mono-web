@@ -1,3 +1,7 @@
+/**
+ * EX-0028: required public native APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import * as BunServices from "@effect/platform-bun/BunServices";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -9,11 +13,11 @@ import { fileURLToPath } from "node:url";
 import { Buffer } from "node:buffer";
 import process from "node:process";
 import { type DisposablePostgres, startDisposablePostgres } from "@monoweb/postgres";
-import { databaseHealth } from "@vektorprogrammet/database";
+import { Database, type DatabaseOperations } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
-import { Effect, flow, Layer, Predicate, Redacted, Schema } from "effect";
-import { Pool } from "pg";
+import { Context, Effect, Exit, flow, Layer, Predicate, Redacted, Schema, Scope } from "effect";
+import type { SqlClient } from "effect/sql";
 
 export const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -39,14 +43,17 @@ export const runLocalResult = async (
   });
 
   const chunks: Buffer[] = [];
+
   const errors: Buffer[] = [];
   child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
   child.stderr.on("data", (chunk: Buffer) => errors.push(chunk));
   child.stdin.on("error", () => undefined);
   child.stdin.end(stdin);
+
   const { promise, resolve: resolveExit, reject } = Promise.withResolvers<number>();
   child.once("error", () => reject(new Error("Local command unavailable; details redacted")));
   child.once("close", (status) => resolveExit(status ?? 1));
+
   const code = await promise;
 
   return {
@@ -80,6 +87,7 @@ const waitForExit = (child: ChildProcess, milliseconds: number): Promise<boolean
   };
 
   const exited = () => finish(true);
+
   const timeout = setTimeout(() => finish(false), milliseconds);
   child.once("exit", exited);
 
@@ -99,30 +107,43 @@ const stop = async (child: ChildProcess): Promise<void> => {
   throw new Error("Disposable MariaDB process remains");
 };
 
-export const targetFingerprint = async (pool: Pool): Promise<string> => {
-  const tables = (
-    await pool.query<{ name: string }>(`
-    SELECT format('%I.%I',schemaname,tablename) AS name FROM pg_tables
-    WHERE schemaname IN ('public','auth') ORDER BY schemaname,tablename
-  `)
-  ).rows;
+const decodeFingerprintTables = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ name: Schema.String })),
+);
 
-  const facts: Record<string, Schema.Json> = {};
+const decodeFingerprintRow = Schema.decodeUnknownEffect(Schema.Struct({ rows: Schema.Json }));
 
-  for (const { name } of tables) {
-    const result = await pool.query<{ rows: unknown }>(`
-      SELECT COALESCE(jsonb_agg(to_jsonb(value) ORDER BY to_jsonb(value)::text),'[]'::jsonb) AS rows
-      FROM ${name} value
-    `);
+/** Coherent read-only target fingerprint; the native transaction owns its snapshot and connection. */
+export const targetFingerprint = (sql: SqlClient.SqlClient): Promise<string> =>
+  Effect.runPromise(
+    sql.withTransaction(
+      Effect.gen(function* () {
+        yield* sql.unsafe("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
 
-    facts[name] = Schema.decodeUnknownSync(Schema.Json)(result.rows[0]!.rows);
-  }
+        const tables = yield* sql
+          .unsafe(
+            `SELECT format('%I.%I',schemaname,tablename) AS name FROM pg_tables WHERE schemaname IN ('public','auth') ORDER BY schemaname,tablename`,
+          )
+          .pipe(Effect.flatMap(decodeFingerprintTables));
 
-  return digest(facts);
-};
+        const facts: Record<string, Schema.Json> = {};
+
+        for (const { name } of tables) {
+          const rows = yield* sql.unsafe(
+            `SELECT COALESCE(jsonb_agg(to_jsonb(value) ORDER BY to_jsonb(value)::text),'[]'::jsonb) AS rows FROM ${name} value`,
+          );
+
+          const result = yield* decodeFingerprintRow(rows[0]);
+          facts[name] = result.rows;
+        }
+
+        return digest(facts);
+      }),
+    ),
+  );
 
 export interface RehearsalTarget {
-  readonly pool: Pool;
+  readonly sql: DatabaseOperations;
   readonly url: string;
   readonly database: string;
 }
@@ -140,14 +161,19 @@ export const withOrganizationDatabases = async <A>(
 ): Promise<A> => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "vektor-org-"));
   await chmod(temporaryRoot, 0o700);
+
   const mysqlRoot = join(temporaryRoot, "mysql");
+
   const postgresRoot = join(temporaryRoot, "postgres");
+
   const mysqlData = join(mysqlRoot, "data");
+
   const mysqlSocket = join(mysqlRoot, "mysql.sock");
   let mysqlProcess: ChildProcess | undefined;
   let postgres: DisposablePostgres | undefined;
   let stopped = true;
-  const pools: Pool[] = [];
+
+  const databaseScopes: Scope.Closeable[] = [];
 
   const mysql = (sql: string) =>
     runLocal(
@@ -166,22 +192,29 @@ export const withOrganizationDatabases = async <A>(
 
   const target = async (database: string): Promise<RehearsalTarget> => {
     assert.ok(postgres, "Disposable PostgreSQL is not running");
+
     const url = await postgres.createDatabase(database);
-    await Effect.runPromise(
-      databaseHealth.pipe(
-        Effect.provide(
-          DatabaseLive({
-            url: Redacted.make(url),
-            applicationName: "synthetic-organization-rehearsal",
-            maxConnections: 2,
-          }).pipe(Layer.provide(BunServices.layer)),
-        ),
+
+    const scope = await Effect.runPromise(Scope.make());
+
+    databaseScopes.push(scope);
+
+    const context = await Effect.runPromise(
+      Layer.buildWithScope(
+        DatabaseLive({
+          url: Redacted.make(url),
+          applicationName: "synthetic-organization-rehearsal",
+          maxConnections: 3,
+        }).pipe(Layer.provide(BunServices.layer)),
+        scope,
       ),
     );
-    const pool = new Pool({ connectionString: url, max: 3 });
-    pools.push(pool);
 
-    return { pool, url, database };
+    const sql = Context.get(context, Database);
+
+    await Effect.runPromise(sql.health);
+
+    return { sql, url, database };
   };
 
   const outcome = await (async () => {
@@ -207,6 +240,7 @@ export const withOrganizationDatabases = async <A>(
       { cwd: repositoryRoot, stdio: "ignore" },
     );
     mysqlProcess.once("error", () => undefined);
+
     const deadline = Date.now() + 30_000;
 
     while (true) {
@@ -225,6 +259,7 @@ export const withOrganizationDatabases = async <A>(
       port: 5432,
       directory: postgresRoot,
     });
+
     const sourceUrl = new URL("mysql://legacy_organization_reader@localhost/vektor");
     sourceUrl.searchParams.set("socketPath", mysqlSocket);
 
@@ -236,9 +271,10 @@ export const withOrganizationDatabases = async <A>(
 
   const cleanupErrors: Error[] = [];
 
-  for (const pool of pools)
-    await pool.end().catch((cause) => {
-      cleanupErrors.push(new Error("Disposable pool cleanup failed", { cause }));
+  for (const scope of databaseScopes.toReversed())
+    await Effect.runPromise(Scope.close(scope, Exit.void)).catch((cause) => {
+      stopped = false;
+      cleanupErrors.push(new Error("Disposable native database cleanup failed", { cause }));
     });
 
   if (postgres)

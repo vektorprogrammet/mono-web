@@ -1,3 +1,9 @@
+/**
+ * EX-0021: native stable SQL carries upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import type * as SqlClient from "effect/sql/SqlClient";
+import { AuthPoolLive } from "./pg-pool.js";
 import { betterAuth, createLocalAccountIssuer } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { getCookies } from "better-auth/cookies";
@@ -32,9 +38,8 @@ import {
   IdentitySnapshot,
   makeIdentitySnapshotService,
 } from "./auth-live.js";
-import { makeAuthEngineOptions } from "./auth-engine.js";
+import { makeAuthEngineOptions, makeBetterAuthCallbackRunner } from "./auth-engine.js";
 import { DatabaseLive } from "./layers.js";
-import { pgQuery } from "./pg-pool.js";
 import { DatabaseTestLive, TestPlatform } from "./test-support/platform.js";
 
 /**
@@ -131,12 +136,12 @@ const seedCredentialIdentity = (
     );
   });
 
-const resetAuthData = (pool: Pool) =>
+const resetAuthData = (pool: SqlClient.SqlClient) =>
   Effect.gen(function* () {
-    yield* pgQuery(pool, `TRUNCATE auth.identity_security_audit`);
-    yield* pgQuery(pool, `DELETE FROM auth."session"`);
-    yield* pgQuery(pool, `DELETE FROM auth."account"`);
-    yield* pgQuery(pool, `DELETE FROM auth."user"`);
+    yield* pool.unsafe(`TRUNCATE auth.identity_security_audit`);
+    yield* pool.unsafe(`DELETE FROM auth."session"`);
+    yield* pool.unsafe(`DELETE FROM auth."account"`);
+    yield* pool.unsafe(`DELETE FROM auth."user"`);
   });
 
 const dsl = Option.isSome(authTestUrl) ? describe : describe.skip;
@@ -153,8 +158,19 @@ const disposableCluster = Layer.effectDiscard(
 );
 
 const authLayer = AuthLive(config).pipe(
-  Layer.provideMerge(databaseLayer),
+  Layer.provideMerge(
+    Layer.mergeAll(
+      databaseLayer,
+      AuthPoolLive(config, {
+        maxConnections: 4,
+        applicationName: "auth-live-test-adapter",
+        pipeline: true,
+        startupOptions: "-c search_path=auth",
+      }),
+    ),
+  ),
   Layer.provide(disposableCluster),
+  Layer.provide(TestPlatform),
 );
 
 layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
@@ -164,40 +180,59 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
 
     afterAll(() => optionsPool.end());
 
-    const localOptions = makeAuthEngineOptions(config, optionsPool, Effect.runPromise);
+    const diagnostics: string[] = [];
 
-    const previewOptions = makeAuthEngineOptions(
-      {
-        ...config,
-        oauth: {
-          canonicalOrigin: "https://preview.example.invalid",
-          dashboardOrigin: "https://preview.example.invalid",
-          nativeApiResource: "urn:vektorprogrammet:native-api",
+    const diagnostic = () => {
+      diagnostics.push("auth diagnostic");
+    };
+
+    const localOptions = (
+      sql: SqlClient.SqlClient,
+      run: Effect.Success<typeof makeBetterAuthCallbackRunner>,
+    ) => makeAuthEngineOptions(config, optionsPool, sql, run, diagnostic);
+
+    const previewOptions = (
+      sql: SqlClient.SqlClient,
+      run: Effect.Success<typeof makeBetterAuthCallbackRunner>,
+    ) =>
+      makeAuthEngineOptions(
+        {
+          ...config,
+          oauth: {
+            canonicalOrigin: "https://preview.example.invalid",
+            dashboardOrigin: "https://preview.example.invalid",
+            nativeApiResource: "urn:vektorprogrammet:native-api",
+          },
+          trustedOrigins: ["https://preview.example.invalid"],
+          secureCookies: true,
         },
-        trustedOrigins: ["https://preview.example.invalid"],
-        secureCookies: true,
-      },
-      optionsPool,
-      Effect.runPromise,
-    );
+        optionsPool,
+        sql,
+        run,
+        diagnostic,
+      );
 
-    it("selects exact local and secure-prefixed cookie attributes", () => {
-      const local = getCookies(localOptions).sessionToken;
-      const preview = getCookies(previewOptions).sessionToken;
-      expect(local).toMatchObject({
-        name: "better-auth.session_token",
-        attributes: { httpOnly: true, sameSite: "lax", path: "/", secure: false },
-      });
-      expect(preview).toMatchObject({
-        name: "__Secure-better-auth.session_token",
-        attributes: { httpOnly: true, sameSite: "lax", path: "/", secure: true },
-      });
-    });
+    it.effect("selects exact local and secure-prefixed cookie attributes", () =>
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        const run = yield* makeBetterAuthCallbackRunner;
+        const local = getCookies(localOptions(sql, run)).sessionToken;
+        const preview = getCookies(previewOptions(sql, run)).sessionToken;
+        expect(local).toMatchObject({
+          name: "better-auth.session_token",
+          attributes: { httpOnly: true, sameSite: "lax", path: "/", secure: false },
+        });
+        expect(preview).toMatchObject({
+          name: "__Secure-better-auth.session_token",
+          attributes: { httpOnly: true, sameSite: "lax", path: "/", secure: true },
+        });
+      }),
+    );
 
     it.effect("rejects the public sign-up route before creating identity state", () =>
       Effect.gen(function* () {
         const engine = betterAuth({
-          ...makeAuthEngineOptions(config, optionsPool, Effect.runPromise),
+          ...localOptions(yield* Database, yield* makeBetterAuthCallbackRunner),
           database: memoryAdapter({ ...oauthMemoryModels }),
         });
 
@@ -438,23 +473,20 @@ describe("audited Better Auth response ordering", () => {
 });
 
 dsl("AuthLive (spec 0054)", () => {
-  const observer = new Pool({ connectionString: config.postgresUrl });
-
-  afterAll(() => observer.end());
-
   layer(authLayer, { excludeTestServices: true, timeout: "120 seconds" })((it) => {
     it.effect(
       "signs in against real credentials, resolves the cookie to the seeded PersonId, and fails closed after sign-out",
       () =>
         Effect.gen(function* () {
           yield* Database.use((database) => database.health);
-          yield* resetAuthData(observer);
-          yield* pgQuery(
-            observer,
-            `INSERT INTO public.person_profiles (person_id, first_name, last_name)
-               VALUES ($1, 'Auth', 'Live Test')
-               ON CONFLICT DO NOTHING`,
-            [cohort.personId],
+          yield* Database.use(resetAuthData);
+          yield* Database.use((observer) =>
+            observer.unsafe(
+              `INSERT INTO public.person_profiles (person_id, first_name, last_name)
+             VALUES ($1, 'Auth', 'Live Test')
+             ON CONFLICT DO NOTHING`,
+              [cohort.personId],
+            ),
           );
           yield* seedCredentialIdentity();
 
@@ -530,15 +562,16 @@ dsl("AuthLive (spec 0054)", () => {
       () =>
         Effect.gen(function* () {
           assertDisposable(config.postgresUrl);
-          yield* resetAuthData(observer);
-          yield* pgQuery(
-            observer,
-            `INSERT INTO public.person_profiles (person_id, first_name, last_name)
-             VALUES
-               ($1, 'Auth', 'Live Test'),
-               ($2, 'Other', 'Live Test')
-             ON CONFLICT DO NOTHING`,
-            [cohort.personId, otherCohort.personId],
+          yield* Database.use(resetAuthData);
+          yield* Database.use((observer) =>
+            observer.unsafe(
+              `INSERT INTO public.person_profiles (person_id, first_name, last_name)
+           VALUES
+             ($1, 'Auth', 'Live Test'),
+             ($2, 'Other', 'Live Test')
+           ON CONFLICT DO NOTHING`,
+              [cohort.personId, otherCohort.personId],
+            ),
           );
           yield* seedCredentialIdentity();
           yield* seedCredentialIdentity(otherCohort);
@@ -582,27 +615,25 @@ dsl("AuthLive (spec 0054)", () => {
 
           expect(missingOutcomes.every(Schema.is(IdentityOwnedSessionNotFound))).toBe(true);
 
-          yield* pgQuery(
-            observer,
-            `
-            CREATE OR REPLACE FUNCTION auth.fail_identity_security_audit_test()
-            RETURNS trigger AS $$
-            BEGIN
-              IF NEW.request_correlation = 'auth-live-rollback' THEN
-                RAISE EXCEPTION 'injected identity audit failure';
-              END IF;
-              RETURN NEW;
-            END;
-            $$ LANGUAGE plpgsql
-          `,
+          yield* Database.use((observer) =>
+            observer.unsafe(`
+          CREATE OR REPLACE FUNCTION auth.fail_identity_security_audit_test()
+          RETURNS trigger AS $$
+          BEGIN
+            IF NEW.request_correlation = 'auth-live-rollback' THEN
+              RAISE EXCEPTION 'injected identity audit failure';
+            END IF;
+            RETURN NEW;
+          END;
+          $$ LANGUAGE plpgsql
+                    `),
           );
-          yield* pgQuery(
-            observer,
-            `
-            CREATE TRIGGER fail_identity_security_audit_test
-            BEFORE INSERT ON auth.identity_security_audit
-            FOR EACH ROW EXECUTE FUNCTION auth.fail_identity_security_audit_test()
-          `,
+          yield* Database.use((observer) =>
+            observer.unsafe(`
+          CREATE TRIGGER fail_identity_security_audit_test
+          BEFORE INSERT ON auth.identity_security_audit
+          FOR EACH ROW EXECUTE FUNCTION auth.fail_identity_security_audit_test()
+                    `),
           );
           expect(
             yield* Effect.flip(
@@ -616,11 +647,14 @@ dsl("AuthLive (spec 0054)", () => {
           expect(yield* identity.resolveSession(owned.cookie)).toMatchObject({
             sessionId: owned.sessionId,
           });
-          yield* pgQuery(
-            observer,
-            `DROP TRIGGER fail_identity_security_audit_test ON auth.identity_security_audit`,
+          yield* Database.use((observer) =>
+            observer.unsafe(
+              `DROP TRIGGER fail_identity_security_audit_test ON auth.identity_security_audit`,
+            ),
           );
-          yield* pgQuery(observer, `DROP FUNCTION auth.fail_identity_security_audit_test()`);
+          yield* Database.use((observer) =>
+            observer.unsafe(`DROP FUNCTION auth.fail_identity_security_audit_test()`),
+          );
 
           yield* identity.revokeSession(
             current.cookie,
@@ -670,22 +704,21 @@ dsl("AuthLive (spec 0054)", () => {
             ),
           ).toBe(true);
 
-          const audit = yield* pgQuery<{
-            eventKind: string;
-            requestCorrelation: string;
-            details: { readonly affectedSessionCount: number; readonly outcomeCode: string };
-          }>(
-            observer,
-            `SELECT
-               event_kind AS "eventKind",
-               request_correlation AS "requestCorrelation",
-               details
-             FROM auth.identity_security_audit
-             ORDER BY occurred_at, event_id`,
+          const audit = yield* Database.use((observer) =>
+            observer.unsafe<{
+              eventKind: string;
+              requestCorrelation: string;
+              details: { readonly affectedSessionCount: number; readonly outcomeCode: string };
+            }>(`SELECT
+             event_kind AS "eventKind",
+             request_correlation AS "requestCorrelation",
+             details
+           FROM auth.identity_security_audit
+           ORDER BY occurred_at, event_id`),
           );
 
           expect(
-            audit.rows.map(({ eventKind, requestCorrelation }) => ({
+            audit.map(({ eventKind, requestCorrelation }) => ({
               eventKind,
               requestCorrelation,
             })),
@@ -708,7 +741,7 @@ dsl("AuthLive (spec 0054)", () => {
             },
           ]);
           expect(
-            audit.rows.every(
+            audit.every(
               ({ details }) =>
                 Object.keys(details).sort().join(",") === "affectedSessionCount,outcomeCode" &&
                 Number.isSafeInteger(details.affectedSessionCount),
@@ -728,7 +761,7 @@ dsl("AuthLive (spec 0054)", () => {
         Effect.gen(function* () {
           assertDisposable(config.postgresUrl);
 
-          yield* resetAuthData(observer);
+          yield* Database.use(resetAuthData);
           yield* seedCredentialIdentity();
 
           const engine = yield* AuthEngine;

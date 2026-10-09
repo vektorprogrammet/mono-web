@@ -1,7 +1,11 @@
+/**
+ * EX-0021: required stable native SQL APIs retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import * as PgliteClient from "@effect/sql-pglite/PgliteClient";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { Effect, Layer } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { databaseWithMigrations, type DatabaseLayerObserver } from "../database-construction.js";
 import { DatabaseMigrationExecutionError, type ExecuteMigration } from "../migrations.js";
 import { Database } from "../service.js";

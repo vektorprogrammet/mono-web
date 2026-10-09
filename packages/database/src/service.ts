@@ -36,11 +36,11 @@ export type SqlParameter =
   | ReadonlyArray<SqlParameter>;
 
 /**
- * SqlClient whose tagged template accepts only bindable parameters, fragments, and helpers.
- * The mapped base drops SqlClient's template signature, which accepts any argument; the
- * narrower signature still lets a DatabaseOperations stand in wherever a SqlClient is expected.
+ * The native SqlClient capability with bindable domain parameters and database operations.
+ * Inheriting SqlClient preserves its runtime identity, reservations, transforms, and channels.
+ * The domain overload documents encoded SQL inputs without erasing the native capability.
  */
-export interface DatabaseOperations extends Omit<SqlClient.SqlClient, never> {
+export interface DatabaseOperations extends SqlClient.SqlClient {
   <A extends object = Row>(
     strings: TemplateStringsArray,
     ...args: ReadonlyArray<SqlParameter | Statement.Fragment | Statement.Helper>

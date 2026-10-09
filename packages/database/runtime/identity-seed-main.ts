@@ -1,19 +1,22 @@
+/**
+ * EX-0021: native stable SQL carries upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import * as SqlClient from "effect/sql/SqlClient";
+import { AuthPoolLive, nativePgLayer } from "../src/pg-pool.js";
+import { DatabaseRuntimeLive } from "../src/runtime-layer.js";
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
 import { Database } from "../src/service.js";
 import { createLocalAccountIssuer } from "better-auth";
 import { Config, ConfigProvider, Effect, Redacted, Schema } from "effect";
-import { Pool } from "pg";
 import {
   NativeAuthEngine,
   NativeAuthEngineLive,
-  AuthPoolLive,
   type AuthEngine,
   type AuthEngineConfig,
 } from "../src/auth-engine.js";
-import { Layer } from "effect";
+import { Context, Layer } from "effect";
 import { DatabaseLive } from "../src/layers.js";
-import { pgQuery } from "../src/pg-pool.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 
 /**
@@ -78,23 +81,21 @@ const applyMigrations = (postgresUrl: string) =>
     ),
   );
 
-const seedPerson = (engine: AuthEngine, observer: Pool, person: SeedPerson) =>
+const seedPerson = (engine: AuthEngine, observer: SqlClient.SqlClient, person: SeedPerson) =>
   Effect.gen(function* () {
-    yield* pgQuery(
-      observer,
+    yield* observer.unsafe(
       `INSERT INTO public.person_profiles (person_id, first_name, last_name)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (person_id) DO NOTHING`,
+     VALUES ($1, $2, $3)
+     ON CONFLICT (person_id) DO NOTHING`,
       [person.personId, person.firstName, person.lastName],
     );
 
-    const existing = yield* pgQuery<{ readonly count: string }>(
-      observer,
+    const existing = yield* observer.unsafe<{ readonly count: string }>(
       `SELECT count(*)::text AS count FROM auth."user" WHERE id = $1 OR email = $2`,
       [person.personId, person.email],
     );
 
-    if (existing.rows[0]?.count !== "0") {
+    if (existing[0]?.count !== "0") {
       return { personId: person.personId, action: "skipped" as const };
     }
 
@@ -129,14 +130,13 @@ const seedPerson = (engine: AuthEngine, observer: Pool, person: SeedPerson) =>
       affectedSessionCount: 0,
     });
 
-    yield* pgQuery(
-      observer,
+    yield* observer.unsafe(
       `INSERT INTO auth.identity_security_audit (
-         event_id, event_kind, subject_person_id, session_id, actor_principal,
-         request_correlation, source_ip, user_agent, details
-       ) VALUES ($1, 'account-provisioned-administratively', $2, NULL,
-         'administrative:identity-seed', NULL, NULL, NULL, $3::jsonb)`,
-      [randomUUID(), person.personId, details],
+       event_id, event_kind, subject_person_id, session_id, actor_principal,
+       request_correlation, source_ip, user_agent, details
+     ) VALUES (gen_random_uuid()::text, 'account-provisioned-administratively', $1, NULL,
+       'administrative:identity-seed', NULL, NULL, NULL, $2::jsonb)`,
+      [person.personId, details],
     );
 
     return { personId: person.personId, action: "created" as const };
@@ -180,24 +180,46 @@ const program = Effect.gen(function* () {
     secureCookies: deployment !== "local",
   };
 
-  const outcomes = yield* Effect.acquireUseRelease(
-    Effect.sync(
-      () =>
-        new Pool({
-          connectionString: postgresUrl,
-          options: "-c search_path=public",
-          max: 1,
-          application_name: "identity-seed-observer",
-        }),
-    ),
-    (observer) =>
-      NativeAuthEngine.pipe(
-        Effect.flatMap((engine) =>
-          Effect.forEach(persons, (person) => seedPerson(engine, observer, person)),
+  const outcomes = yield* Effect.scoped(
+    Effect.flatMap(
+      Effect.map(
+        Layer.build(
+          nativePgLayer({
+            url: Redacted.make(postgresUrl),
+            startupOptions: "-c search_path=public",
+            maxConnections: 1,
+            applicationName: "identity-seed-observer",
+          }),
         ),
-        Effect.provide(NativeAuthEngineLive(config).pipe(Layer.provide(AuthPoolLive(config)))),
+        Context.get(SqlClient.SqlClient),
       ),
-    (observer) => Effect.promise(() => observer.end()),
+      (observer) =>
+        NativeAuthEngine.pipe(
+          Effect.flatMap((engine) =>
+            Effect.forEach(persons, (person) => seedPerson(engine, observer, person)),
+          ),
+          Effect.provide(
+            NativeAuthEngineLive(config).pipe(
+              Layer.provide(
+                Layer.mergeAll(
+                  AuthPoolLive(config, {
+                    maxConnections: 4,
+                    applicationName: "stable-auth-proof",
+                    pipeline: true,
+                    startupOptions: "-c search_path=auth",
+                  }),
+                  DatabaseRuntimeLive({
+                    url: Redacted.make(postgresUrl),
+                    maxConnections: 1,
+                    startupOptions: "-c search_path=auth,public",
+                    applicationName: "identity-seed-sql",
+                  }),
+                ),
+              ),
+            ),
+          ),
+        ),
+    ),
   );
 
   const summary = yield* jsonText({ schemaRevision, seeded: persons.length, outcomes });

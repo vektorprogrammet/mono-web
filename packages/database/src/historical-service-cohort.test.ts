@@ -1,8 +1,12 @@
+/**
+ * EX-0021: required public native APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { withPostgresTestDatabase } from "./test-support/postgres.js";
 import { TestPlatform } from "./test-support/platform.js";
 import { PersonMapping, importPersonCohort } from "./person-cohort.js";
 import { PersonId } from "@vektorprogrammet/domain/organization";
-import { Effect } from "effect";
+import { Deferred, Exit, Fiber, Effect } from "effect";
 import { expect, layer } from "@effect/vitest";
 import { disposableHistoricalServiceDatabaseUrl } from "./historical-service-cohort-cli.js";
 import {
@@ -11,7 +15,8 @@ import {
   historicalServiceSourceRowDigest,
   importHistoricalServiceCohort,
 } from "./historical-service-cohort.js";
-import { pgQuery } from "./pg-pool.js";
+import { executePostgresMigration } from "./postgres-migration-statements.js";
+import { SqlClient } from "effect/sql";
 
 layer(TestPlatform, { excludeTestServices: true })("historical service boundary", (it) => {
   const fixture = {
@@ -26,12 +31,14 @@ layer(TestPlatform, { excludeTestServices: true })("historical service boundary"
 
   it("retains invalid rows for quarantine but rejects ambiguous occurrence identities", () => {
     expect(decodeHistoricalServiceSnapshot(fixture).occurrences).toHaveLength(1);
+
     expect(() =>
       decodeHistoricalServiceSnapshot({
         ...fixture,
         occurrences: [...fixture.occurrences, ...fixture.occurrences],
       }),
     ).toThrow("InvalidSnapshot");
+
     expect(() =>
       decodeHistoricalServiceSnapshot({ ...fixture, sourceKind: "unsupported" }),
     ).toThrow("InvalidSnapshot");
@@ -54,6 +61,84 @@ layer(TestPlatform, { excludeTestServices: true })("historical service boundary"
     ])
       expect(() => disposableHistoricalServiceDatabaseUrl(value)).toThrow("InvalidSnapshot");
   });
+  it.effect(
+    "rolls back a completed nested cohort on outer failure, then commits a fresh retry",
+    () =>
+      withPostgresTestDatabase((sql) =>
+        Effect.gen(function* () {
+          const failure = new HistoricalServiceFailure({ code: "SourceIdentityConflict" });
+
+          const result = yield* Effect.flip(
+            sql.withTransaction(
+              Effect.gen(function* () {
+                const report = yield* importHistoricalServiceCohort(sql, fixture);
+
+                expect(report.input).toBe(1);
+
+                expect(report.quarantined).toBe(1);
+
+                return yield* failure;
+              }),
+            ),
+          );
+
+          expect(result).toEqual(failure);
+
+          expect(yield* sql.unsafe("SELECT 1 FROM public.historical_service_snapshots")).toEqual(
+            [],
+          );
+
+          expect(yield* sql.unsafe("SELECT 1 FROM public.historical_service_occurrences")).toEqual(
+            [],
+          );
+
+          const retried = yield* importHistoricalServiceCohort(sql, fixture);
+
+          expect(retried.input).toBe(1);
+
+          expect(yield* importHistoricalServiceCohort(sql, fixture)).toEqual(retried);
+        }),
+      ),
+  );
+
+  it.effect(
+    "interrupts an outer transaction after nested writes and releases the connection without committed facts",
+    () =>
+      withPostgresTestDatabase((sql) =>
+        Effect.gen(function* () {
+          const written = yield* Deferred.make<void>();
+
+          const fiber = yield* Effect.forkChild(
+            sql.withTransaction(
+              Effect.gen(function* () {
+                yield* importHistoricalServiceCohort(sql, fixture);
+
+                yield* Deferred.succeed(written, undefined);
+
+                return yield* Effect.never;
+              }),
+            ),
+          );
+
+          yield* Deferred.await(written);
+
+          yield* Fiber.interrupt(fiber);
+
+          expect(Exit.hasInterrupts(yield* Fiber.await(fiber))).toBe(true);
+
+          expect(yield* sql.unsafe("SELECT 1 FROM public.historical_service_snapshots")).toEqual(
+            [],
+          );
+
+          expect(yield* sql.unsafe("SELECT 1 FROM public.historical_service_occurrences")).toEqual(
+            [],
+          );
+
+          expect((yield* importHistoricalServiceCohort(sql, fixture)).input).toBe(1);
+        }),
+      ),
+  );
+
   it.effect(
     "quarantines missing, mismatched, and malformed backup rows without discarding the cohort",
     () =>
@@ -136,16 +221,16 @@ layer(TestPlatform, { excludeTestServices: true })("historical service boundary"
           expect(() =>
             decodeHistoricalServiceSnapshot({ ...snapshot, referenceDigest: undefined }),
           ).toThrow("InvalidSnapshot");
+
           expect(yield* Effect.flip(importHistoricalServiceCohort(pool, snapshot))).toMatchObject({
             code: "ReferenceProvenanceMissing",
           });
 
           const recordReferences = (snapshotId: string, evidence = referenceEvidence) =>
-            pgQuery(
-              pool,
+            pool.unsafe(
               `INSERT INTO public.historical_service_reference_provenance
-          (source_repository, snapshot_id, source_revision, reference_digest, source_id_mappings)
-          VALUES ($1, $2, $3, $4, $5::jsonb)`,
+                      (source_repository, snapshot_id, source_revision, reference_digest, source_id_mappings)
+                      VALUES ($1, $2, $3, $4, $5::jsonb)`,
               [
                 fixture.sourceRepository,
                 snapshotId,
@@ -155,15 +240,12 @@ layer(TestPlatform, { excludeTestServices: true })("historical service boundary"
               ],
             );
 
-          yield* pgQuery(
-            pool,
-            `
-      INSERT INTO public.organization_departments (department_id,name,short_name,email,city) VALUES ('department','Department','D','department@example.invalid','Trondheim');
-      INSERT INTO public.admission_period_semesters (semester_id,start_at,end_at) VALUES ('semester','2026-08-01','2027-01-01');
-      INSERT INTO public.schools_directory_schools (name,contact_person,email,phone,language,active) VALUES ('School','Contact','school@example.invalid','90000000','Norwegian',true);
-      INSERT INTO public.schools_directory_departments (school_id,department_id) VALUES (1,'department');
-    `,
-          );
+          yield* executePostgresMigration(`
+                INSERT INTO public.organization_departments (department_id,name,short_name,email,city) VALUES ('department','Department','D','department@example.invalid','Trondheim');
+                INSERT INTO public.admission_period_semesters (semester_id,start_at,end_at) VALUES ('semester','2026-08-01','2027-01-01');
+                INSERT INTO public.schools_directory_schools (name,contact_person,email,phone,language,active) VALUES ('School','Contact','school@example.invalid','90000000','Norwegian',true);
+                INSERT INTO public.schools_directory_departments (school_id,department_id) VALUES (1,'department');
+              `).pipe(Effect.provideService(SqlClient.SqlClient, pool));
 
           const personRow = {
             sourceUserId: "user",
@@ -191,9 +273,13 @@ layer(TestPlatform, { excludeTestServices: true })("historical service boundary"
               }),
             ],
           });
+
           yield* recordReferences(snapshot.snapshotId);
+
           const first = yield* importHistoricalServiceCohort(pool, snapshot);
+
           expect(first.accepted).toBe(0);
+
           expect(
             Object.fromEntries(
               first.occurrences.map(({ occurrenceId, reason }) => [occurrenceId, reason]),
@@ -204,6 +290,7 @@ layer(TestPlatform, { excludeTestServices: true })("historical service boundary"
             missing: "InvalidRow",
             "bad-shape": "InvalidRow",
           });
+
           expect(yield* importHistoricalServiceCohort(pool, snapshot)).toEqual(first);
 
           expect(
@@ -249,7 +336,9 @@ layer(TestPlatform, { excludeTestServices: true })("historical service boundary"
 
           for (const [index, evidence] of conflictingEvidence.entries()) {
             const rejectedSnapshot = { ...mappedSnapshot, snapshotId: "conflict-" + index };
+
             yield* recordReferences(rejectedSnapshot.snapshotId, evidence);
+
             expect(
               yield* Effect.flip(importHistoricalServiceCohort(pool, rejectedSnapshot)),
             ).toMatchObject({ code: "ReferenceProvenanceConflict" });
@@ -258,9 +347,11 @@ layer(TestPlatform, { excludeTestServices: true })("historical service boundary"
           yield* recordReferences(mappedSnapshot.snapshotId);
 
           const imported = yield* importHistoricalServiceCohort(pool, mappedSnapshot);
+
           expect(imported.occurrences).toEqual([
             { occurrenceId: "valid", disposition: "Accepted", reason: "Imported" },
           ]);
+
           expect(yield* importHistoricalServiceCohort(pool, mappedSnapshot)).toEqual(imported);
 
           const staleRow = { ...raw, sourceHistoryId: "stale" };
@@ -282,6 +373,7 @@ layer(TestPlatform, { excludeTestServices: true })("historical service boundary"
             ...referenceEvidence,
             source_id_mappings: { ...referenceMappings, relationships: [] },
           });
+
           expect((yield* importHistoricalServiceCohort(pool, staleSnapshot)).occurrences).toEqual([
             {
               occurrenceId: "stale",
@@ -305,6 +397,7 @@ layer(TestPlatform, { excludeTestServices: true })("historical service boundary"
           };
 
           yield* recordReferences(anotherSnapshot.snapshotId);
+
           expect(
             yield* Effect.flip(importHistoricalServiceCohort(pool, anotherSnapshot)),
           ).toMatchObject({
@@ -330,6 +423,7 @@ layer(TestPlatform, { excludeTestServices: true })("historical service boundary"
         occurrences,
       }).occurrences,
     ).toHaveLength(1_815);
+
     expect(() =>
       decodeHistoricalServiceSnapshot({
         ...fixture,

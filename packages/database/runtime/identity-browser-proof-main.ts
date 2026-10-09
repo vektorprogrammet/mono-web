@@ -1,9 +1,14 @@
+/**
+ * EX-0021: native stable SQL carries upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import * as SqlClient from "effect/sql/SqlClient";
+import { nativePgLayer } from "../src/pg-pool.js";
+import { Context } from "effect";
 import assert from "node:assert/strict";
-import { Config, ConfigProvider, Effect, Layer, Redacted, Schema, flow } from "effect";
-import { Pool } from "pg";
+import { Config, ConfigProvider, Effect, Layer, Redacted, Schema } from "effect";
 import { Database } from "../src/service.js";
 import { DatabaseLive } from "../src/layers.js";
-import { pgQuery } from "../src/pg-pool.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 
 const personId = "journey-0065-admin";
@@ -34,7 +39,9 @@ const jsonText = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 const SqlEvidenceRow = Schema.Record(Schema.String, Schema.Union([Schema.Json, Schema.Date]));
 
-const normalizeRows = flow(Schema.decodeUnknownSync(Schema.Array(SqlEvidenceRow)), (rows) =>
+const decodeSqlEvidenceRows = Schema.decodeUnknownEffect(Schema.Array(SqlEvidenceRow));
+
+const normalizeRows = (rows: ReadonlyArray<typeof SqlEvidenceRow.Type>) =>
   rows.map((row) =>
     Object.fromEntries(
       Object.entries(row).map(([key, value]) => [
@@ -42,78 +49,71 @@ const normalizeRows = flow(Schema.decodeUnknownSync(Schema.Array(SqlEvidenceRow)
         value instanceof Date ? value.toISOString() : value,
       ]),
     ),
-  ),
-);
+  );
 
-const readAuthSchemaState = (observer: Pool) =>
+const readAuthSchemaState = (observer: SqlClient.SqlClient) =>
   Effect.gen(function* () {
-    const users = yield* pgQuery<typeof SqlEvidenceRow.Type>(
-      observer,
-      `SELECT id, name, email, "emailVerified", image, "createdAt", "updatedAt"
-       FROM auth."user" ORDER BY id`,
-    );
+    const users = yield* observer.unsafe<
+      typeof SqlEvidenceRow.Type
+    >(`SELECT id, name, email, "emailVerified", image, "createdAt", "updatedAt"
+     FROM auth."user" ORDER BY id`);
 
-    const accounts = yield* pgQuery<typeof SqlEvidenceRow.Type>(
-      observer,
-      `SELECT id, "accountId", "providerId", "userId", issuer, "createdAt", "updatedAt",
-         ("password" IS NOT NULL) AS "passwordPresent",
-         ("accessToken" IS NOT NULL OR "refreshToken" IS NOT NULL OR "idToken" IS NOT NULL)
-           AS "providerSecretPresent"
-       FROM auth.account ORDER BY id`,
-    );
+    const accounts = yield* observer.unsafe<
+      typeof SqlEvidenceRow.Type
+    >(`SELECT id, "accountId", "providerId", "userId", issuer, "createdAt", "updatedAt",
+       ("password" IS NOT NULL) AS "passwordPresent",
+       ("accessToken" IS NOT NULL OR "refreshToken" IS NOT NULL OR "idToken" IS NOT NULL)
+         AS "providerSecretPresent"
+     FROM auth.account ORDER BY id`);
 
-    const sessions = yield* pgQuery<{ readonly total: number; readonly live: number }>(
-      observer,
-      `SELECT count(*)::integer AS total,
-         count(*) FILTER (WHERE "expiresAt" > now())::integer AS live
-       FROM auth.session`,
-    );
+    const sessions = yield* observer.unsafe<{
+      readonly total: number;
+      readonly live: number;
+    }>(`SELECT count(*)::integer AS total,
+       count(*) FILTER (WHERE "expiresAt" > now())::integer AS live
+     FROM auth.session`);
 
-    const verification = yield* pgQuery<{ readonly total: number }>(
-      observer,
+    const verification = yield* observer.unsafe<{ readonly total: number }>(
       `SELECT count(*)::integer AS total FROM auth.verification`,
     );
 
     return {
-      users: normalizeRows(users.rows),
-      accounts: normalizeRows(accounts.rows),
+      users: normalizeRows(yield* decodeSqlEvidenceRows(users)),
+      accounts: normalizeRows(yield* decodeSqlEvidenceRows(accounts)),
       sessions: {
-        total: Number(sessions.rows[0]?.total),
-        live: Number(sessions.rows[0]?.live),
+        total: Number(sessions[0]?.total),
+        live: Number(sessions[0]?.live),
       },
-      verification: { total: Number(verification.rows[0]?.total) },
+      verification: { total: Number(verification[0]?.total) },
     };
   });
 
-const readPublicAuthzState = (observer: Pool) =>
+const readPublicAuthzState = (observer: SqlClient.SqlClient) =>
   Effect.gen(function* () {
-    const tags = yield* pgQuery<typeof SqlEvidenceRow.Type>(
-      observer,
-      `SELECT tag_id AS "tagId", name, revision
-       FROM public.authz_tags ORDER BY tag_id`,
-    );
+    const tags = yield* observer.unsafe<
+      typeof SqlEvidenceRow.Type
+    >(`SELECT tag_id AS "tagId", name, revision
+     FROM public.authz_tags ORDER BY tag_id`);
 
-    const assignments = yield* pgQuery<typeof SqlEvidenceRow.Type>(
-      observer,
-      `SELECT assignment_id AS "assignmentId", tag_id AS "tagId", person_id AS "personId",
-         start_at AS "startAt", end_at AS "endAt", revision
-       FROM public.authz_tag_assignments ORDER BY assignment_id`,
-    );
+    const assignments = yield* observer.unsafe<
+      typeof SqlEvidenceRow.Type
+    >(`SELECT assignment_id AS "assignmentId", tag_id AS "tagId", person_id AS "personId",
+       start_at AS "startAt", end_at AS "endAt", revision
+     FROM public.authz_tag_assignments ORDER BY assignment_id`);
 
-    const rules = yield* pgQuery<typeof SqlEvidenceRow.Type>(
-      observer,
-      `SELECT rule_id AS "ruleId", capability_id AS "capabilityId",
-         effect_kind AS "effectKind", subject_kind AS "subjectKind",
-         subject_person_id AS "subjectPersonId", subject_tag_id AS "subjectTagId",
-         scope, department_id AS "departmentId", params,
-         start_at AS "startAt", end_at AS "endAt", revision
-       FROM public.authz_rules ORDER BY rule_id`,
-    );
+    const rules = yield* observer.unsafe<
+      typeof SqlEvidenceRow.Type
+    >(`SELECT rule_id AS "ruleId", capability_id AS "capabilityId",
+       effect_kind AS "effectKind", subject_kind AS "subjectKind",
+       subject_person_id AS "subjectPersonId", subject_tag_id AS "subjectTagId",
+       scope, department_id AS "departmentId", params,
+       start_at AS "startAt", end_at AS "endAt", revision
+     FROM public.authz_rules ORDER BY rule_id`);
 
     return {
-      tags: normalizeRows(tags.rows),
-      assignments: normalizeRows(assignments.rows),
-      rules: normalizeRows(rules.rows),
+      tags: normalizeRows(yield* decodeSqlEvidenceRows(tags)),
+      assignments: normalizeRows(yield* decodeSqlEvidenceRows(assignments)),
+      rules: normalizeRows(yield* decodeSqlEvidenceRows(rules)),
     };
   });
 
@@ -166,120 +166,104 @@ const program = Effect.scoped(
     loopbackDatabase(url);
     const schemaRevision = yield* runMigrations(url);
 
-    const observer = yield* Effect.acquireRelease(
-      Effect.sync(
-        () =>
-          new Pool({
-            connectionString: url,
-            options: "-c search_path=public",
-            max: 1,
-            application_name: "identity-browser-0056-proof-observer",
-          }),
+    const observer = yield* Effect.map(
+      Layer.build(
+        nativePgLayer({
+          url: Redacted.make(url),
+          startupOptions: "-c search_path=public",
+          maxConnections: 1,
+          applicationName: "identity-browser-0056-proof-observer",
+        }),
       ),
-      (pool) => Effect.promise(() => pool.end()),
+      Context.get(SqlClient.SqlClient),
     );
 
-    const migration = yield* pgQuery(
-      observer,
+    const migration = yield* observer.unsafe(
       `SELECT migration_id AS "migrationId", name
-       FROM public.vektorprogrammet_schema_migrations
-       WHERE migration_id = $1`,
+     FROM public.vektorprogrammet_schema_migrations
+     WHERE migration_id = $1`,
       [identityMigrationId],
     );
 
-    assert.deepEqual(migration.rows, [{ migrationId: 15, name: "native-identity-better-auth" }]);
+    assert.deepEqual(migration, [{ migrationId: 15, name: "native-identity-better-auth" }]);
 
-    const authzMigration = yield* pgQuery(
-      observer,
-      `SELECT migration_id AS "migrationId", name
-       FROM public.vektorprogrammet_schema_migrations
-       WHERE migration_id = 23`,
-    );
+    const authzMigration = yield* observer.unsafe(`SELECT migration_id AS "migrationId", name
+     FROM public.vektorprogrammet_schema_migrations
+     WHERE migration_id = 23`);
 
-    assert.deepEqual(authzMigration.rows, [
+    assert.deepEqual(authzMigration, [
       { migrationId: 23, name: "declarative-authorization-rules" },
     ]);
 
-    const auditMigration = yield* pgQuery(
-      observer,
-      `SELECT migration_id AS "migrationId", name
-       FROM public.vektorprogrammet_schema_migrations
-       WHERE migration_id = 24`,
-    );
+    const auditMigration = yield* observer.unsafe(`SELECT migration_id AS "migrationId", name
+     FROM public.vektorprogrammet_schema_migrations
+     WHERE migration_id = 24`);
 
-    assert.deepEqual(auditMigration.rows, [{ migrationId: 24, name: "identity-security-audit" }]);
+    assert.deepEqual(auditMigration, [{ migrationId: 24, name: "identity-security-audit" }]);
 
-    const tables = yield* pgQuery<{ readonly tableName: string }>(
-      observer,
+    const tables = yield* observer.unsafe<{ readonly tableName: string }>(
       `SELECT table_name AS "tableName" FROM information_schema.tables
-       WHERE table_schema = 'auth' AND table_name = ANY($1::text[]) ORDER BY table_name`,
+     WHERE table_schema = 'auth' AND table_name = ANY($1::text[]) ORDER BY table_name`,
       [[...authTables]],
     );
 
     assert.deepEqual(
-      tables.rows.map((row) => row.tableName),
+      tables.map((row) => row.tableName),
       [...authTables],
     );
 
-    const publicTables = yield* pgQuery<{ readonly tableName: string }>(
-      observer,
+    const publicTables = yield* observer.unsafe<{ readonly tableName: string }>(
       `SELECT table_name AS "tableName" FROM information_schema.tables
-       WHERE table_schema = 'public' AND table_name = ANY($1::text[]) ORDER BY table_name`,
+     WHERE table_schema = 'public' AND table_name = ANY($1::text[]) ORDER BY table_name`,
       [[...authTables]],
     );
 
-    assert.deepEqual(publicTables.rows, []);
+    assert.deepEqual(publicTables, []);
 
-    const publicAuthzTables = yield* pgQuery<{ readonly tableName: string }>(
-      observer,
+    const publicAuthzTables = yield* observer.unsafe<{ readonly tableName: string }>(
       `SELECT table_name AS "tableName" FROM information_schema.tables
-       WHERE table_schema = 'public' AND table_name = ANY($1::text[]) ORDER BY table_name`,
+     WHERE table_schema = 'public' AND table_name = ANY($1::text[]) ORDER BY table_name`,
       [[...authzTables]],
     );
 
     assert.deepEqual(
-      publicAuthzTables.rows.map((row) => row.tableName),
+      publicAuthzTables.map((row) => row.tableName),
       [...authzTables],
     );
 
-    const authAuthzTables = yield* pgQuery<{ readonly tableName: string }>(
-      observer,
+    const authAuthzTables = yield* observer.unsafe<{ readonly tableName: string }>(
       `SELECT table_name AS "tableName" FROM information_schema.tables
-       WHERE table_schema = 'auth' AND table_name = ANY($1::text[]) ORDER BY table_name`,
+     WHERE table_schema = 'auth' AND table_name = ANY($1::text[]) ORDER BY table_name`,
       [[...authzTables]],
     );
 
-    assert.deepEqual(authAuthzTables.rows, []);
+    assert.deepEqual(authAuthzTables, []);
 
-    const identityForeignKey = yield* pgQuery(
-      observer,
-      `SELECT 1 FROM pg_constraint c
-       JOIN pg_class source ON source.oid = c.conrelid
-       JOIN pg_namespace source_schema ON source_schema.oid = source.relnamespace
-       JOIN pg_class target ON target.oid = c.confrelid
-       JOIN pg_namespace target_schema ON target_schema.oid = target.relnamespace
-       WHERE c.contype = 'f' AND source_schema.nspname = 'auth' AND source.relname = 'user'
-         AND target_schema.nspname = 'public' AND target.relname = 'person_profiles'
-         AND c.conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = source.oid AND attname = 'id')]::smallint[]`,
-    );
+    const identityForeignKey = yield* observer.unsafe(`SELECT 1 FROM pg_constraint c
+     JOIN pg_class source ON source.oid = c.conrelid
+     JOIN pg_namespace source_schema ON source_schema.oid = source.relnamespace
+     JOIN pg_class target ON target.oid = c.confrelid
+     JOIN pg_namespace target_schema ON target_schema.oid = target.relnamespace
+     WHERE c.contype = 'f' AND source_schema.nspname = 'auth' AND source.relname = 'user'
+       AND target_schema.nspname = 'public' AND target.relname = 'person_profiles'
+       AND c.conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = source.oid AND attname = 'id')]::smallint[]`);
 
-    assert.equal(identityForeignKey.rowCount, 1);
+    assert.equal(identityForeignKey.length, 1);
 
-    const facts = yield* pgQuery(
-      observer,
+    const facts = yield* observer.unsafe(
       `SELECT
-         (SELECT count(*) FROM public.person_profiles WHERE person_id = $1) AS profiles,
-         (SELECT count(*) FROM public.person_contact_profiles WHERE person_id = $1) AS contacts,
-         (SELECT count(*) FROM public.organization_global_administrator_grants
-           WHERE person_id = $1 AND start_at <= now() AND (end_at IS NULL OR now() < end_at)) AS grants,
-         (SELECT count(*) FROM auth."user" WHERE id = $1) AS users,
-         (SELECT count(*) FROM auth.account WHERE "userId" = $1 AND "providerId" = 'credential') AS accounts,
-         (SELECT count(*) FROM auth.session WHERE "userId" = $1) AS "sessionsTotal",
-         (SELECT count(*) FROM auth.session WHERE "userId" = $1 AND "expiresAt" > now()) AS "sessionsLive"`,
+       (SELECT count(*) FROM public.person_profiles WHERE person_id = $1) AS profiles,
+       (SELECT count(*) FROM public.person_contact_profiles WHERE person_id = $1) AS contacts,
+       (SELECT count(*) FROM public.organization_global_administrator_grants
+         WHERE person_id = $1 AND start_at <= now() AND (end_at IS NULL OR now() < end_at)) AS grants,
+       (SELECT count(*) FROM auth."user" WHERE id = $1) AS users,
+       (SELECT count(*) FROM auth.account WHERE "userId" = $1 AND "providerId" = 'credential') AS accounts,
+       (SELECT count(*) FROM auth.session WHERE "userId" = $1) AS "sessionsTotal",
+       (SELECT count(*) FROM auth.session WHERE "userId" = $1 AND "expiresAt" > now()) AS "sessionsLive"`,
       [personId],
     );
 
-    const row = facts.rows[0];
+    const row = facts[0];
     assert.ok(row !== undefined);
 
     const counts = Object.fromEntries(
@@ -300,45 +284,42 @@ const program = Effect.scoped(
     const publicAuthz = yield* readPublicAuthzState(observer);
     assert.deepEqual(publicAuthz, publicAuthzBaseline);
 
-    const auditRows = yield* pgQuery<{
+    const auditRows = yield* observer.unsafe<{
       readonly eventKind: string;
       readonly eventCount: string;
       readonly requestBindingValid: boolean;
       readonly detailsClosed: boolean;
       readonly subjectsLinked: boolean;
-    }>(
-      observer,
-      `SELECT
-         event_kind AS "eventKind",
-         count(*)::text AS "eventCount",
-         bool_and(
-           CASE
-             WHEN event_kind IN (
-               'account-provisioned-administratively',
-               'session-provisioned-administratively'
-             ) THEN request_correlation IS NULL
-             ELSE request_correlation IS NOT NULL
-           END
-         ) AS "requestBindingValid",
-         bool_and(
-           details ? 'outcomeCode'
-           AND details ? 'affectedSessionCount'
-           AND details - 'outcomeCode' - 'affectedSessionCount' = '{}'::jsonb
-         ) AS "detailsClosed",
-         bool_and(
-           subject_person_id IS NULL
-           OR EXISTS (
-             SELECT 1 FROM public.person_profiles
-             WHERE person_id = subject_person_id
-           )
-         ) AS "subjectsLinked"
-       FROM auth.identity_security_audit
-       GROUP BY event_kind
-       ORDER BY event_kind`,
-    );
+    }>(`SELECT
+       event_kind AS "eventKind",
+       count(*)::text AS "eventCount",
+       bool_and(
+         CASE
+           WHEN event_kind IN (
+             'account-provisioned-administratively',
+             'session-provisioned-administratively'
+           ) THEN request_correlation IS NULL
+           ELSE request_correlation IS NOT NULL
+         END
+       ) AS "requestBindingValid",
+       bool_and(
+         details ? 'outcomeCode'
+         AND details ? 'affectedSessionCount'
+         AND details - 'outcomeCode' - 'affectedSessionCount' = '{}'::jsonb
+       ) AS "detailsClosed",
+       bool_and(
+         subject_person_id IS NULL
+         OR EXISTS (
+           SELECT 1 FROM public.person_profiles
+           WHERE person_id = subject_person_id
+         )
+       ) AS "subjectsLinked"
+     FROM auth.identity_security_audit
+     GROUP BY event_kind
+     ORDER BY event_kind`);
 
     const auditCounts = Object.fromEntries(
-      auditRows.rows.map((event) => [event.eventKind, Number(event.eventCount)]),
+      auditRows.map((event) => [event.eventKind, Number(event.eventCount)]),
     );
 
     assert.deepEqual(auditCounts, {
@@ -353,39 +334,36 @@ const program = Effect.scoped(
       "trusted-origin-csrf-rejected": 1,
     });
     assert.ok(
-      auditRows.rows.every(
+      auditRows.every(
         ({ requestBindingValid, detailsClosed, subjectsLinked }) =>
           requestBindingValid && detailsClosed && subjectsLinked,
       ),
     );
 
-    const firstAuditEvent = yield* pgQuery<{ readonly eventId: string }>(
-      observer,
-      `SELECT event_id AS "eventId"
-       FROM auth.identity_security_audit
-       ORDER BY occurred_at, event_id
-       LIMIT 1`,
-    );
+    const firstAuditEvent = yield* observer.unsafe<{
+      readonly eventId: string;
+    }>(`SELECT event_id AS "eventId"
+     FROM auth.identity_security_audit
+     ORDER BY occurred_at, event_id
+     LIMIT 1`);
 
-    const eventId = firstAuditEvent.rows[0]?.eventId;
+    const eventId = firstAuditEvent[0]?.eventId;
     assert.ok(eventId !== undefined);
 
-    const updateRejected = yield* pgQuery(
-      observer,
-      `UPDATE auth.identity_security_audit SET details = details WHERE event_id = $1`,
-      [eventId],
-    ).pipe(Effect.match({ onFailure: () => true, onSuccess: () => false }));
+    const updateRejected = yield* observer
+      .unsafe(`UPDATE auth.identity_security_audit SET details = details WHERE event_id = $1`, [
+        eventId,
+      ])
+      .pipe(Effect.match({ onFailure: () => true, onSuccess: () => false }));
 
-    const deleteRejected = yield* pgQuery(
-      observer,
-      `DELETE FROM auth.identity_security_audit WHERE event_id = $1`,
-      [eventId],
-    ).pipe(Effect.match({ onFailure: () => true, onSuccess: () => false }));
+    const deleteRejected = yield* observer
+      .unsafe(`DELETE FROM auth.identity_security_audit WHERE event_id = $1`, [eventId])
+      .pipe(Effect.match({ onFailure: () => true, onSuccess: () => false }));
 
     assert.equal(updateRejected, true);
     assert.equal(deleteRejected, true);
 
-    const activityResult = yield* pgQuery<{
+    const activityResult = yield* observer.unsafe<{
       readonly observedAt: Date;
       readonly activeAssignments: string;
       readonly activeRules: string;
@@ -393,35 +371,34 @@ const program = Effect.scoped(
       readonly activeOtherPersonRules: string;
       readonly expiredJourneyPersonRules: string;
     }>(
-      observer,
       `SELECT now() AS "observedAt",
-         (SELECT count(*) FROM public.authz_tag_assignments
-           WHERE start_at <= now() AND (end_at IS NULL OR now() < end_at))
-           AS "activeAssignments",
-         (SELECT count(*) FROM public.authz_rules
-           WHERE start_at <= now() AND (end_at IS NULL OR now() < end_at))
-           AS "activeRules",
-         (SELECT count(*) FROM public.authz_rules
-           WHERE end_at IS NOT NULL AND end_at <= now())
-           AS "expiredRules",
-         (SELECT count(*) FROM public.authz_rules AS rule
-           JOIN public.authz_tag_assignments AS assignment
-             ON rule.subject_kind = 'Tag' AND assignment.tag_id = rule.subject_tag_id
-           WHERE rule.rule_id = $2 AND rule.capability_id = 'approveReceipt'
-             AND assignment.person_id = $3
-             AND rule.start_at <= now() AND (rule.end_at IS NULL OR now() < rule.end_at)
-             AND assignment.start_at <= now()
-             AND (assignment.end_at IS NULL OR now() < assignment.end_at))
-           AS "activeOtherPersonRules",
-         (SELECT count(*) FROM public.authz_rules
-           WHERE rule_id = $4 AND capability_id = 'submitReceipt'
-             AND subject_kind = 'Person' AND subject_person_id = $1
-             AND end_at IS NOT NULL AND end_at <= now())
-           AS "expiredJourneyPersonRules"`,
+       (SELECT count(*) FROM public.authz_tag_assignments
+         WHERE start_at <= now() AND (end_at IS NULL OR now() < end_at))
+         AS "activeAssignments",
+       (SELECT count(*) FROM public.authz_rules
+         WHERE start_at <= now() AND (end_at IS NULL OR now() < end_at))
+         AS "activeRules",
+       (SELECT count(*) FROM public.authz_rules
+         WHERE end_at IS NOT NULL AND end_at <= now())
+         AS "expiredRules",
+       (SELECT count(*) FROM public.authz_rules AS rule
+         JOIN public.authz_tag_assignments AS assignment
+           ON rule.subject_kind = 'Tag' AND assignment.tag_id = rule.subject_tag_id
+         WHERE rule.rule_id = $2 AND rule.capability_id = 'approveReceipt'
+           AND assignment.person_id = $3
+           AND rule.start_at <= now() AND (rule.end_at IS NULL OR now() < rule.end_at)
+           AND assignment.start_at <= now()
+           AND (assignment.end_at IS NULL OR now() < assignment.end_at))
+         AS "activeOtherPersonRules",
+       (SELECT count(*) FROM public.authz_rules
+         WHERE rule_id = $4 AND capability_id = 'submitReceipt'
+           AND subject_kind = 'Person' AND subject_person_id = $1
+           AND end_at IS NOT NULL AND end_at <= now())
+         AS "expiredJourneyPersonRules"`,
       [personId, activeRuleId, orthogonalPersonId, expiredRuleId],
     );
 
-    const activityRow = activityResult.rows[0];
+    const activityRow = activityResult[0];
     assert.ok(activityRow !== undefined);
 
     const authzActivity = {

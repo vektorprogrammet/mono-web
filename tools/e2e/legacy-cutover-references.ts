@@ -1,12 +1,17 @@
+/**
+ * EX-0028: required public native APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import {
   canonicalJson,
   canonicalJsonBytes,
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
 import { schemaBookkeepingTables } from "@vektorprogrammet/database/schema-bookkeeping";
-import type { Pool, PoolClient } from "pg";
+import type { SqlClient, SqlError } from "effect/sql";
+import { withTypedTransactionFailures } from "@vektorprogrammet/database";
 import type { LegacySourceSnapshot } from "./legacy-source-snapshot";
-import { flow } from "effect";
+import { Effect, Schema, flow } from "effect";
 
 const digest = flow(canonicalJsonBytes, sha256Hex);
 
@@ -67,7 +72,9 @@ export const buildLegacyReferences = (source: LegacySourceSnapshot) => {
     source.semesters.map((row) => {
       if (!/^[0-9]{4}$/.test(row.year) || !["Vår", "Høst"].includes(row.semesterTime))
         throw new Error("Source semester is not recognized");
+
       const year = Number(row.year);
+
       const spring = row.semesterTime === "Vår";
 
       return {
@@ -113,7 +120,9 @@ export const buildLegacyReferences = (source: LegacySourceSnapshot) => {
 
   if (departments.length === 0 || semesters.length === 0 || schools.length === 0)
     throw new Error("Source references are empty");
+
   const departmentIds = new Set(departments.map((row) => row.department_id));
+
   const schoolIds = new Set(schools.map((row) => row.school_id));
 
   if (
@@ -230,214 +239,295 @@ export interface LegacyReferences {
   readonly referenceDigest: string;
 }
 
-const targetRows = async (tx: PoolClient): Promise<ReferenceRows> => {
-  const departments = (
-    await tx.query<ReferenceRows["departments"][number]>(
-      `SELECT department_id, name, short_name, email, address, city, latitude, longitude,
-            slack_channel, logo_path, active, revision
-       FROM public.organization_departments ORDER BY department_id`,
-    )
-  ).rows;
+const DepartmentReferenceRow = Schema.Struct({
+  department_id: Schema.String,
+  name: Schema.String,
+  short_name: Schema.String,
+  email: Schema.String,
+  address: Schema.NullOr(Schema.String),
+  city: Schema.String,
+  latitude: Schema.NullOr(Schema.String),
+  longitude: Schema.NullOr(Schema.String),
+  slack_channel: Schema.NullOr(Schema.String),
+  logo_path: Schema.NullOr(Schema.String),
+  active: Schema.Boolean,
+  revision: Schema.Int,
+});
 
-  const admissionDepartments = (
-    await tx.query<ReferenceRows["admissionDepartments"][number]>(
-      "SELECT department_id FROM public.admission_period_departments ORDER BY department_id",
-    )
-  ).rows;
+const SemesterReferenceRow = Schema.Struct({
+  semester_id: Schema.String,
+  start_at: Schema.String,
+  end_at: Schema.String,
+});
 
-  const semesters = (
-    await tx.query<{ semester_id: string; start_at: Date; end_at: Date }>(
-      "SELECT semester_id, start_at, end_at FROM public.admission_period_semesters ORDER BY semester_id",
-    )
-  ).rows.map(({ semester_id, start_at, end_at }) => ({
-    semester_id,
-    start_at: start_at.toISOString(),
-    end_at: end_at.toISOString(),
-  }));
+const SchoolReferenceRow = Schema.Struct({
+  school_id: Schema.String,
+  name: Schema.String,
+  contact_person: Schema.String,
+  email: Schema.String,
+  phone: Schema.String,
+  language: Schema.String,
+  active: Schema.Boolean,
+  revision: Schema.Int,
+});
 
-  const schools = (
-    await tx.query<ReferenceRows["schools"][number]>(
-      `SELECT school_id::text AS school_id, name, contact_person, email, phone, language, active, revision
-       FROM public.schools_directory_schools ORDER BY school_id::text`,
-    )
-  ).rows;
+const RelationshipReferenceRow = Schema.Struct({
+  school_id: Schema.String,
+  department_id: Schema.String,
+  revision: Schema.Int,
+});
 
-  const relationships = (
-    await tx.query<ReferenceRows["relationships"][number]>(
-      `SELECT school_id::text AS school_id, department_id, revision
-       FROM public.schools_directory_departments ORDER BY department_id, school_id::text`,
+const decodeDepartments = Schema.decodeUnknownEffect(Schema.Array(DepartmentReferenceRow));
+
+const decodeAdmissionDepartments = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ department_id: Schema.String })),
+);
+
+const decodeSemesters = Schema.decodeUnknownEffect(Schema.Array(SemesterReferenceRow));
+
+const decodeSchools = Schema.decodeUnknownEffect(Schema.Array(SchoolReferenceRow));
+
+const decodeRelationships = Schema.decodeUnknownEffect(Schema.Array(RelationshipReferenceRow));
+
+const decodeMarker = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ exists: Schema.Boolean })),
+);
+
+const decodePrior = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      source_revision: Schema.String,
+      reference_digest: Schema.String,
+      source_id_mappings: Schema.Json,
+    }),
+  ),
+);
+
+const decodeTables = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ schemaname: Schema.String, tablename: Schema.String })),
+);
+
+const decodeOccupied = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ occupied: Schema.Boolean })),
+);
+
+export class LegacyReferenceSeedFailure extends Schema.TaggedError<LegacyReferenceSeedFailure>()(
+  "LegacyReferenceSeedFailure",
+  {
+    reason: Schema.Literals([
+      "UnmigratedTarget",
+      "SourceIdentityConflict",
+      "UnexpectedSchema",
+      "OccupiedTarget",
+      "InvalidSchoolId",
+      "TargetMismatch",
+      "PersistenceFailure",
+    ]),
+  },
+) {
+  override get message() {
+    return "Native reference seeding rejected; details redacted";
+  }
+}
+
+const targetRows = Effect.fnUntraced(function* (
+  tx: SqlClient.SqlClient,
+): Effect.fn.Return<ReferenceRows, SqlError.SqlError | Schema.SchemaError> {
+  const departments = yield* tx
+    .unsafe(
+      `SELECT department_id,name,short_name,email,address,city,latitude::text,longitude::text,slack_channel,logo_path,active,revision FROM public.organization_departments ORDER BY department_id`,
     )
-  ).rows;
+    .pipe(Effect.flatMap(decodeDepartments));
+
+  const admissionDepartments = yield* tx
+    .unsafe("SELECT department_id FROM public.admission_period_departments ORDER BY department_id")
+    .pipe(Effect.flatMap(decodeAdmissionDepartments));
+
+  const semesters = yield* tx
+    .unsafe(
+      `SELECT semester_id, to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS start_at, to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS end_at FROM public.admission_period_semesters ORDER BY semester_id`,
+    )
+    .pipe(Effect.flatMap(decodeSemesters));
+
+  const schools = yield* tx
+    .unsafe(
+      `SELECT school_id::text AS school_id,name,contact_person,email,phone,language,active,revision FROM public.schools_directory_schools ORDER BY school_id::text`,
+    )
+    .pipe(Effect.flatMap(decodeSchools));
+
+  const relationships = yield* tx
+    .unsafe(
+      `SELECT school_id::text AS school_id,department_id,revision FROM public.schools_directory_departments ORDER BY department_id,school_id::text`,
+    )
+    .pipe(Effect.flatMap(decodeRelationships));
 
   return { departments, admissionDepartments, semesters, schools, relationships };
-};
+});
 
-const seedRows = async (tx: PoolClient, rows: ReferenceRows): Promise<void> => {
+const seedRows = Effect.fnUntraced(function* (tx: SqlClient.SqlClient, rows: ReferenceRows) {
   for (const row of rows.departments)
-    await tx.query(
-      `INSERT INTO public.organization_departments
-       (department_id,name,short_name,email,address,city,latitude,longitude,
-        slack_channel,logo_path,active,revision)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      Object.values(row),
+    yield* tx.unsafe(
+      `INSERT INTO public.organization_departments (department_id,name,short_name,email,address,city,latitude,longitude,slack_channel,logo_path,active,revision) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [
+        row.department_id,
+        row.name,
+        row.short_name,
+        row.email,
+        row.address,
+        row.city,
+        row.latitude,
+        row.longitude,
+        row.slack_channel,
+        row.logo_path,
+        row.active,
+        row.revision,
+      ],
     );
 
   for (const row of rows.admissionDepartments)
-    await tx.query("INSERT INTO public.admission_period_departments (department_id) VALUES ($1)", [
-      row.department_id,
-    ]);
+    yield* tx.unsafe(
+      "INSERT INTO public.admission_period_departments (department_id) VALUES ($1)",
+      [row.department_id],
+    );
 
   for (const row of rows.semesters)
-    await tx.query(
+    yield* tx.unsafe(
       "INSERT INTO public.admission_period_semesters (semester_id,start_at,end_at) VALUES ($1,$2,$3)",
       [row.semester_id, row.start_at, row.end_at],
     );
 
   for (const row of rows.schools)
-    await tx.query(
-      `INSERT INTO public.schools_directory_schools
-       (school_id,name,contact_person,email,phone,language,active,revision)
-       OVERRIDING SYSTEM VALUE VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      Object.values(row),
+    yield* tx.unsafe(
+      `INSERT INTO public.schools_directory_schools (school_id,name,contact_person,email,phone,language,active,revision) OVERRIDING SYSTEM VALUE VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        row.school_id,
+        row.name,
+        row.contact_person,
+        row.email,
+        row.phone,
+        row.language,
+        row.active,
+        row.revision,
+      ],
     );
 
   for (const row of rows.relationships)
-    await tx.query(
-      `INSERT INTO public.schools_directory_departments (school_id,department_id,revision)
-     VALUES ($1,$2,$3)`,
+    yield* tx.unsafe(
+      "INSERT INTO public.schools_directory_departments (school_id,department_id,revision) VALUES ($1,$2,$3)",
       [row.school_id, row.department_id, row.revision],
     );
-  // Identity restart is transactional, unlike setval, so failed provenance writes leave no residue.
+  // RESTART, unlike setval, rolls back with the reference rows and provenance.
+
   const nextSchoolId = Math.max(...rows.schools.map((school) => Number(school.school_id))) + 1;
 
   if (!Number.isSafeInteger(nextSchoolId))
-    throw new Error("Source school IDs exhaust target ID range");
-  await tx.query(
+    return yield* new LegacyReferenceSeedFailure({ reason: "InvalidSchoolId" });
+
+  yield* tx.unsafe(
     `ALTER TABLE public.schools_directory_schools ALTER COLUMN school_id RESTART WITH ${nextSchoolId}`,
   );
-};
+});
 
-/** Never modifies existing references; replay verifies every target value and the source-ID ledger. */
-export const seedLegacyReferences = async (
-  pool: Pool,
+/** Commits source references and their ledger atomically; replay checks every target value and source identity.
+ * A parent transaction uses this same native client and a savepoint, never a separately reserved connection.
+ * No application fact is created on an occupied or divergent target; success means committed at the outermost boundary.
+ */
+
+export const seedLegacyReferences = Effect.fn("seedLegacyReferences")(function* (
+  sql: SqlClient.SqlClient,
   identity: {
     readonly sourceRepository: string;
     readonly sourceRevision: string;
     readonly snapshotId: string;
   },
   references: LegacyReferences,
-  client?: PoolClient,
-): Promise<"Seeded" | "ExactReplay"> => {
-  const tx = client ?? (await pool.connect());
-
-  try {
-    if (!client) await tx.query("BEGIN");
-    await tx.query(
-      "SELECT pg_advisory_xact_lock(hashtextextended('legacy-cutover-reference-seed',0))",
-    );
-
-    const marker = (
-      await tx.query<{ exists: boolean }>(
-        `SELECT to_regclass('public.vektorprogrammet_schema_migrations') IS NOT NULL
-              AND to_regclass('public.historical_service_reference_provenance') IS NOT NULL AS exists`,
-      )
-    ).rows[0]?.exists;
-
-    if (!marker) throw new Error("Native target schema is not migrated for cutover");
-
-    const migrations = await tx.query(
-      "SELECT 1 FROM public.vektorprogrammet_schema_migrations LIMIT 1",
-    );
-
-    if (!migrations.rowCount) throw new Error("Native target has no migration marker");
-
-    const prior = (
-      await tx.query<{
-        source_revision: string;
-        reference_digest: string;
-        source_id_mappings: unknown;
-      }>(
-        `SELECT source_revision, reference_digest, source_id_mappings
-          FROM public.historical_service_reference_provenance
-         WHERE source_repository=$1 AND snapshot_id=$2`,
-        [identity.sourceRepository, identity.snapshotId],
-      )
-    ).rows[0];
-
-    let outcome: "Seeded" | "ExactReplay";
-
-    if (prior) {
-      if (
-        prior.source_revision !== identity.sourceRevision ||
-        prior.reference_digest !== references.referenceDigest ||
-        canonicalJson(prior.source_id_mappings) !== canonicalJson(references.mappings)
-      )
-        throw new Error("Reference source identity differs from prior import");
-      outcome = "ExactReplay";
-    } else {
-      const extraSchemas = await tx.query(`
-        SELECT 1 FROM pg_catalog.pg_namespace
-         WHERE nspname NOT IN ('public', 'auth', 'information_schema')
-           AND left(nspname, 3) <> 'pg_'
-         LIMIT 1
-      `);
-
-      if (extraSchemas.rowCount)
-        throw new Error("Native target contains an unexpected application schema");
-
-      const tables = await tx.query<{ schemaname: string; tablename: string }>(
-        `
-        SELECT schemaname, tablename FROM pg_catalog.pg_tables
-         WHERE schemaname IN ('public', 'auth')
-           AND (schemaname, tablename) NOT IN (
-             SELECT schema, "table" FROM unnest($1::text[], $2::text[]) AS bookkeeping(schema, "table")
-           )
-         ORDER BY schemaname, tablename
-      `,
-        [
-          schemaBookkeepingTables.map(({ schema }) => schema),
-          schemaBookkeepingTables.map(({ table }) => table),
-        ],
+): Effect.fn.Return<"Seeded" | "ExactReplay", LegacyReferenceSeedFailure> {
+  return yield* withTypedTransactionFailures(sql.withTransaction)(
+    Effect.gen(function* () {
+      yield* sql.unsafe(
+        "SELECT pg_advisory_xact_lock(hashtextextended('legacy-cutover-reference-seed',0))",
       );
 
-      for (const { schemaname, tablename } of tables.rows) {
-        const schema = '"' + schemaname.replaceAll('"', '""') + '"';
-        const table = '"' + tablename.replaceAll('"', '""') + '"';
+      const marker = yield* sql
+        .unsafe(
+          "SELECT to_regclass('public.vektorprogrammet_schema_migrations') IS NOT NULL AND to_regclass('public.historical_service_reference_provenance') IS NOT NULL AS exists",
+        )
+        .pipe(Effect.flatMap(decodeMarker));
 
-        const occupied = await tx.query<{ occupied: boolean }>(
-          "SELECT EXISTS(SELECT 1 FROM " + schema + "." + table + ") AS occupied",
+      if (!marker[0]?.exists)
+        return yield* new LegacyReferenceSeedFailure({ reason: "UnmigratedTarget" });
+
+      const migrations = yield* sql.unsafe(
+        "SELECT 1 FROM public.vektorprogrammet_schema_migrations LIMIT 1",
+      );
+
+      if (migrations.length === 0)
+        return yield* new LegacyReferenceSeedFailure({ reason: "UnmigratedTarget" });
+
+      const priorRows = yield* sql
+        .unsafe(
+          "SELECT source_revision, reference_digest, source_id_mappings FROM public.historical_service_reference_provenance WHERE source_repository=$1 AND snapshot_id=$2",
+          [identity.sourceRepository, identity.snapshotId],
+        )
+        .pipe(Effect.flatMap(decodePrior));
+
+      const prior = priorRows[0];
+      let outcome: "Seeded" | "ExactReplay";
+
+      if (prior) {
+        if (
+          prior.source_revision !== identity.sourceRevision ||
+          prior.reference_digest !== references.referenceDigest ||
+          canonicalJson(prior.source_id_mappings) !== canonicalJson(references.mappings)
+        )
+          return yield* new LegacyReferenceSeedFailure({ reason: "SourceIdentityConflict" });
+        outcome = "ExactReplay";
+      } else {
+        const extraSchemas = yield* sql.unsafe(
+          "SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('public', 'auth', 'information_schema') AND left(nspname,3) <> 'pg_' LIMIT 1",
         );
 
-        if (occupied.rows[0]?.occupied)
-          throw new Error("Native target contains preexisting application state");
+        if (extraSchemas.length !== 0)
+          return yield* new LegacyReferenceSeedFailure({ reason: "UnexpectedSchema" });
+
+        const tables =
+          yield* sql`SELECT schemaname,tablename FROM pg_catalog.pg_tables WHERE schemaname IN ('public','auth') AND ${sql.and(schemaBookkeepingTables.map(({ schema, table }) => sql`NOT (schemaname=${schema} AND tablename=${table})`))} ORDER BY schemaname,tablename`.pipe(
+            Effect.flatMap(decodeTables),
+          );
+
+        for (const { schemaname, tablename } of tables) {
+          const occupied =
+            yield* sql`SELECT EXISTS(SELECT 1 FROM ${sql(schemaname)}.${sql(tablename)}) AS occupied`.pipe(
+              Effect.flatMap(decodeOccupied),
+            );
+
+          if (occupied[0]?.occupied)
+            return yield* new LegacyReferenceSeedFailure({ reason: "OccupiedTarget" });
+        }
+
+        yield* seedRows(sql, references.rows);
+
+        yield* sql.unsafe(
+          "INSERT INTO public.historical_service_reference_provenance (source_repository,snapshot_id,source_revision,reference_digest,source_id_mappings) VALUES ($1,$2,$3,$4,$5::jsonb)",
+          [
+            identity.sourceRepository,
+            identity.snapshotId,
+            identity.sourceRevision,
+            references.referenceDigest,
+            canonicalJson(references.mappings),
+          ],
+        );
+        outcome = "Seeded";
       }
 
-      await seedRows(tx, references.rows);
-      await tx.query(
-        `INSERT INTO public.historical_service_reference_provenance
-          (source_repository,snapshot_id,source_revision,reference_digest,source_id_mappings)
-          VALUES ($1,$2,$3,$4,$5::jsonb)`,
-        [
-          identity.sourceRepository,
-          identity.snapshotId,
-          identity.sourceRevision,
-          references.referenceDigest,
-          canonicalJson(references.mappings),
-        ],
-      );
-      outcome = "Seeded";
-    }
+      if (canonicalJson(yield* targetRows(sql)) !== canonicalJson(references.rows))
+        return yield* new LegacyReferenceSeedFailure({ reason: "TargetMismatch" });
 
-    if (canonicalJson(await targetRows(tx)) !== canonicalJson(references.rows))
-      throw new Error("Native reference values differ from source snapshot");
-
-    if (!client) await tx.query("COMMIT");
-
-    return outcome;
-  } catch {
-    if (!client) await tx.query("ROLLBACK");
-    throw new Error("Native reference seeding rejected; details redacted");
-  } finally {
-    if (!client) tx.release();
-  }
-};
+      return outcome;
+    }),
+  ).pipe(
+    Effect.catchTag(["SqlError", "SchemaError"], () =>
+      Effect.fail(new LegacyReferenceSeedFailure({ reason: "PersistenceFailure" })),
+    ),
+  );
+});

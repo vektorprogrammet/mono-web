@@ -1,15 +1,17 @@
-import { Config, Effect, FileSystem, Layer, Path, Redacted, Schema } from "effect";
+/**
+ * EX-0021: native stable SQL carries upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { AuthPoolLive } from "../src/pg-pool.js";
+import { DatabaseLive } from "../src/layers.js";
+import { Database } from "../src/service.js";
+import { Config, Effect, Layer, Redacted, Schema } from "effect";
 import { AuthLive, AuthEngine } from "../src/auth-live.js";
-import { AuthPoolLive } from "../src/auth-engine.js";
-import { DatabasePgPool, pgQuery } from "../src/pg-pool.js";
 import { OAuthClientOperator } from "../src/oauth-live.js";
 import assert from "node:assert/strict";
 import { createLocalAccountIssuer } from "better-auth";
-import { Pool } from "pg";
 import { type AuthEngineConfig } from "../src/auth-engine.js";
 import { TestPlatform } from "../src/test-support/platform.js";
-
-import { databaseMigrationDefinitions } from "../src/migrations.js";
 
 /** The bytes that `JSON.stringify` writes for `value`. */
 const jsonText = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
@@ -34,42 +36,6 @@ const program = Effect.gen(function* () {
 
   assert.ok(Redacted.value(password).length >= 12);
 
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-
-  yield* Effect.acquireUseRelease(
-    Effect.sync(() => new Pool({ connectionString: databaseUrl, max: 1 })),
-    (migrationPool) =>
-      Effect.gen(function* () {
-        for (const migration of databaseMigrationDefinitions) {
-          const source = yield* path
-            .fromFileUrl(migration.url)
-            .pipe(Effect.flatMap((file) => fs.readFileString(file)));
-
-          yield* pgQuery(migrationPool, source);
-        }
-
-        yield* pgQuery(
-          migrationPool,
-          `CREATE TABLE IF NOT EXISTS auth.vektorprogrammet_schema_migrations (
-             migration_id integer PRIMARY KEY,
-             created_at timestamptz NOT NULL DEFAULT now(),
-             name text NOT NULL
-           )`,
-        );
-
-        for (const migration of databaseMigrationDefinitions) {
-          yield* pgQuery(
-            migrationPool,
-            `INSERT INTO auth.vektorprogrammet_schema_migrations (migration_id, name)
-             VALUES ($1, $2) ON CONFLICT (migration_id) DO NOTHING`,
-            [Number.parseInt(migration.id, 10), migration.name],
-          );
-        }
-      }),
-    (migrationPool) => Effect.promise(() => migrationPool.end()),
-  );
-
   const config: AuthEngineConfig = {
     postgresUrl: databaseUrl,
     secret: "oauth-dashboard-disposable-secret-at-least-32-characters",
@@ -83,15 +49,12 @@ const program = Effect.gen(function* () {
   };
 
   yield* Effect.gen(function* () {
-    const pool = yield* DatabasePgPool;
+    const pool = yield* Database;
     const { engine } = yield* AuthEngine;
     const context = yield* Effect.promise(() => engine.$context);
 
-    yield* pgQuery(
-      pool,
-      `INSERT INTO public.person_profiles (person_id, first_name, last_name)
-       VALUES ('oauth-dashboard-person', 'OAuth', 'Dashboard')`,
-    );
+    yield* pool.unsafe(`INSERT INTO public.person_profiles (person_id, first_name, last_name)
+     VALUES ('oauth-dashboard-person', 'OAuth', 'Dashboard')`);
 
     const passwordHash = yield* Effect.tryPromise(() =>
       context.password.hash(Redacted.value(password)),
@@ -149,7 +112,27 @@ const program = Effect.gen(function* () {
     });
 
     yield* Effect.sync(() => process.stdout.write(`${fixture}\n`));
-  }).pipe(Effect.provide(AuthLive(config).pipe(Layer.provideMerge(AuthPoolLive(config)))));
+  }).pipe(
+    Effect.provide(
+      AuthLive(config).pipe(
+        Layer.provideMerge(
+          Layer.mergeAll(
+            AuthPoolLive(config, {
+              maxConnections: 4,
+              applicationName: "stable-auth-proof",
+              pipeline: true,
+              startupOptions: "-c search_path=auth",
+            }),
+            DatabaseLive({
+              url: Redacted.make(config.postgresUrl),
+              maxConnections: 4,
+              applicationName: "stable-auth-proof-sql",
+            }),
+          ),
+        ),
+      ),
+    ),
+  );
 });
 
 void Effect.runPromise(program.pipe(Effect.provide(TestPlatform))).catch((cause: unknown) => {

@@ -1,3 +1,11 @@
+/**
+ * EX-0021: native stable SQL carries upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { AuthPoolLive } from "../src/pg-pool.js";
+import { DatabaseLive } from "../src/layers.js";
+import { Database } from "../src/service.js";
+import { Redacted } from "effect";
 import { ReceiptId } from "@vektorprogrammet/domain/receipt";
 import {
   Config,
@@ -6,16 +14,12 @@ import {
   Duration,
   Effect,
   Fiber,
-  FileSystem,
   Layer,
-  Path,
   Predicate,
   Ref,
   Schema,
 } from "effect";
 import { AuthEngine, AuthLive } from "../src/auth-live.js";
-import { AuthPoolLive } from "../src/auth-engine.js";
-import { DatabasePgPool, pgQuery, pgTransaction } from "../src/pg-pool.js";
 import { OAuthClientOperator, OAuthCredentialAuthority } from "../src/oauth-live.js";
 import {
   GrantId,
@@ -39,14 +43,13 @@ import {
   evaluateServicePrincipalReceiptApprovalAccess,
 } from "@vektorprogrammet/domain/authz";
 import { IdentityRequestContext } from "@vektorprogrammet/domain/identity";
-import { Pool } from "pg";
 import { type AuthEngineConfig } from "../src/auth-engine.js";
-import { databaseMigrationDefinitions, databaseSchemaRevision } from "../src/migrations.js";
+import { databaseSchemaRevision } from "../src/migrations.js";
 import { TestPlatform } from "../src/test-support/platform.js";
 
 const trace = (target: string) =>
   Effect.gen(function* () {
-    const pool = yield* DatabasePgPool;
+    const pool = yield* Database;
     const operator = yield* OAuthClientOperator;
 
     const execution = {
@@ -84,52 +87,43 @@ const trace = (target: string) =>
       execution,
     );
 
-    yield* pgQuery(
-      pool,
-      `INSERT INTO public.person_profiles (person_id, first_name, last_name)
-       VALUES ('service-receipt-owner', 'Service receipt', 'Owner')`,
-    );
+    yield* pool.unsafe(`INSERT INTO public.person_profiles (person_id, first_name, last_name)
+     VALUES ('service-receipt-owner', 'Service receipt', 'Owner')`);
 
-    yield* pgQuery(
-      pool,
-      `INSERT INTO public.organization_departments (
-         department_id, name, short_name, email, city
-       ) VALUES (
-         'service-receipt-department', 'Service receipt department', 'SRD',
-         'service-receipt-department@example.invalid', 'Oslo'
-       )`,
-    );
+    yield* pool.unsafe(`INSERT INTO public.organization_departments (
+       department_id, name, short_name, email, city
+     ) VALUES (
+       'service-receipt-department', 'Service receipt department', 'SRD',
+       'service-receipt-department@example.invalid', 'Oslo'
+     )`);
 
-    yield* pgQuery(
-      pool,
-      `INSERT INTO public.economy_receipts (
-         receipt_id, visual_id, owner_person_id, department_id, amount_ore,
-         currency, description, receipt_date, submitted_at, status, approved_at,
-         payment_account_ciphertext, file_ref, file_object_key, file_content_type,
-         file_byte_length, file_sha256, revision
-       ) VALUES
-       (
-         'service-receipt-approval-pending', 'SERVICE-PENDING', 'service-receipt-owner',
-         'service-receipt-department', 1000, 'NOK', 'Pending service receipt', CURRENT_DATE,
-         date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), 'Pending', NULL, 'ciphertext:service:pending',
-         'service-file-pending', 'service-object-pending', 'application/pdf', 100,
-         repeat('a', 64), 0
-       ),
-       (
-         'service-receipt-approval-nonpending', 'SERVICE-NONPENDING', 'service-receipt-owner',
-         'service-receipt-department', 2000, 'NOK', 'Nonpending service receipt', CURRENT_DATE,
-         date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), 'Rejected', NULL, 'ciphertext:service:nonpending',
-         'service-file-nonpending', 'service-object-nonpending', 'application/pdf', 200,
-         repeat('b', 64), 0
-       ),
-       (
-         'service-receipt-approval-foreign', 'SERVICE-FOREIGN', 'service-receipt-owner',
-         'service-receipt-department', 3000, 'NOK', 'Foreign service receipt', CURRENT_DATE,
-         date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), 'Pending', NULL, 'ciphertext:service:foreign',
-         'service-file-foreign', 'service-object-foreign', 'application/pdf', 300,
-         repeat('c', 64), 0
-       )`,
-    );
+    yield* pool.unsafe(`INSERT INTO public.economy_receipts (
+       receipt_id, visual_id, owner_person_id, department_id, amount_ore,
+       currency, description, receipt_date, submitted_at, status, approved_at,
+       payment_account_ciphertext, file_ref, file_object_key, file_content_type,
+       file_byte_length, file_sha256, revision
+     ) VALUES
+     (
+       'service-receipt-approval-pending', 'SERVICE-PENDING', 'service-receipt-owner',
+       'service-receipt-department', 1000, 'NOK', 'Pending service receipt', CURRENT_DATE,
+       date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), 'Pending', NULL, 'ciphertext:service:pending',
+       'service-file-pending', 'service-object-pending', 'application/pdf', 100,
+       repeat('a', 64), 0
+     ),
+     (
+       'service-receipt-approval-nonpending', 'SERVICE-NONPENDING', 'service-receipt-owner',
+       'service-receipt-department', 2000, 'NOK', 'Nonpending service receipt', CURRENT_DATE,
+       date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), 'Rejected', NULL, 'ciphertext:service:nonpending',
+       'service-file-nonpending', 'service-object-nonpending', 'application/pdf', 200,
+       repeat('b', 64), 0
+     ),
+     (
+       'service-receipt-approval-foreign', 'SERVICE-FOREIGN', 'service-receipt-owner',
+       'service-receipt-department', 3000, 'NOK', 'Foreign service receipt', CURRENT_DATE,
+       date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), 'Pending', NULL, 'ciphertext:service:foreign',
+       'service-file-foreign', 'service-object-foreign', 'application/pdf', 300,
+       repeat('c', 64), 0
+     )`);
 
     const requestContext = new IdentityRequestContext({
       requestCorrelation: "service-principal-grants-token-request",
@@ -211,48 +205,47 @@ const trace = (target: string) =>
 
     const grantAuthority = yield* ServicePrincipalGrantAuthority;
 
-    yield* pgTransaction(pool, (ruleFixtureClient) =>
+    yield* pool.withTransaction(
       Effect.gen(function* () {
-        yield* pgQuery(
-          ruleFixtureClient,
+        const ruleFixtureClient = pool;
+        yield* ruleFixtureClient.unsafe(
           `SELECT pg_catalog.pg_advisory_xact_lock(
-             pg_catalog.hashtextextended($1, 0)
-           )`,
+       pg_catalog.hashtextextended($1, 0)
+     )`,
           [AUTHZ_LOCK_PROTOCOL.advisoryKey],
         );
-        yield* pgQuery(
-          ruleFixtureClient,
+        yield* ruleFixtureClient.unsafe(
           `INSERT INTO public.authz_rules (
-             rule_id, capability_id, effect_kind, subject_kind,
-             subject_service_principal_id, scope, resource_kind, resource_id,
-             params, start_at, end_at, revision
-           ) VALUES (
-             'service-receipt-pending-requirement',
-             'approveReceipt',
-             'requirement',
-             'ServicePrincipal',
-             $1,
-             'Resource',
-             'receipt',
-             'service-receipt-approval-pending',
-             '{"requirementId":"receipts.pending","parameters":{}}'::jsonb,
-             $2::timestamptz,
-             NULL,
-             0
-           )`,
+       rule_id, capability_id, effect_kind, subject_kind,
+       subject_service_principal_id, scope, resource_kind, resource_id,
+       params, start_at, end_at, revision
+     ) VALUES (
+       'service-receipt-pending-requirement',
+       'approveReceipt',
+       'requirement',
+       'ServicePrincipal',
+       $1,
+       'Resource',
+       'receipt',
+       'service-receipt-approval-pending',
+       '{"requirementId":"receipts.pending","parameters":{}}'::jsonb,
+       $2::timestamptz,
+       NULL,
+       0
+     )`,
           [credential.principal.servicePrincipalId, authorizationInstant],
         );
       }),
     );
 
     // The read waits for the authorization lock that the blocker holds until it commits.
-    const blocked = yield* pgTransaction(pool, (blocker) =>
+    const blocked = yield* pool.withTransaction(
       Effect.gen(function* () {
-        yield* pgQuery(
-          blocker,
+        const blocker = pool;
+        yield* blocker.unsafe(
           `SELECT pg_catalog.pg_advisory_xact_lock(
-             pg_catalog.hashtextextended($1, 0)
-           )`,
+       pg_catalog.hashtextextended($1, 0)
+     )`,
           [AUTHZ_LOCK_PROTOCOL.advisoryKey],
         );
 
@@ -389,17 +382,14 @@ const trace = (target: string) =>
 
     assert.deepEqual(disabled, CredentialOutcomeSchema.cases.Rejected.make({ reason: "Revoked" }));
 
-    const auditRows = yield* pgQuery<{
+    const auditRows = yield* pool.unsafe<{
       readonly event_kind: string;
       readonly grant_id: string;
-    }>(
-      pool,
-      `SELECT event_kind, grant_id
-         FROM public.service_principal_grant_audit
-        ORDER BY occurred_at ASC, event_id ASC`,
-    );
+    }>(`SELECT event_kind, grant_id
+       FROM public.service_principal_grant_audit
+      ORDER BY occurred_at ASC, event_id ASC`);
 
-    assert.deepEqual(auditRows.rows, [
+    assert.deepEqual(auditRows, [
       {
         event_kind: "service-principal-grant-created",
         grant_id: "service-receipt-approval-grant",
@@ -427,14 +417,11 @@ const trace = (target: string) =>
         afterRevocation: afterRevocation.candidates.length,
       },
       auditCounts: {
-        created: auditRows.rows.filter(
-          (row) => row.event_kind === "service-principal-grant-created",
-        ).length,
-        ended: auditRows.rows.filter((row) => row.event_kind === "service-principal-grant-ended")
+        created: auditRows.filter((row) => row.event_kind === "service-principal-grant-created")
           .length,
-        revoked: auditRows.rows.filter(
-          (row) => row.event_kind === "service-principal-grant-revoked",
-        ).length,
+        ended: auditRows.filter((row) => row.event_kind === "service-principal-grant-ended").length,
+        revoked: auditRows.filter((row) => row.event_kind === "service-principal-grant-revoked")
+          .length,
       },
     };
 
@@ -467,24 +454,6 @@ const program = Effect.gen(function* () {
     "Service-principal grant proof database name must be disposable",
   );
 
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-
-  yield* Effect.acquireUseRelease(
-    Effect.sync(() => new Pool({ connectionString: databaseUrl, max: 1 })),
-    (migrationPool) =>
-      Effect.forEach(
-        databaseMigrationDefinitions,
-        (migration) =>
-          path.fromFileUrl(migration.url).pipe(
-            Effect.flatMap((file) => fs.readFileString(file)),
-            Effect.flatMap((source) => pgQuery(migrationPool, source)),
-          ),
-        { discard: true },
-      ),
-    (migrationPool) => Effect.promise(() => migrationPool.end()),
-  );
-
   const config: AuthEngineConfig = {
     postgresUrl: databaseUrl,
     secret: "service-principal-grants-disposable-proof-secret-32-characters",
@@ -498,7 +467,25 @@ const program = Effect.gen(function* () {
   };
 
   yield* trace(parsedDatabaseUrl.pathname.slice(1)).pipe(
-    Effect.provide(AuthLive(config).pipe(Layer.provideMerge(AuthPoolLive(config)))),
+    Effect.provide(
+      AuthLive(config).pipe(
+        Layer.provideMerge(
+          Layer.mergeAll(
+            AuthPoolLive(config, {
+              maxConnections: 4,
+              applicationName: "stable-auth-proof",
+              pipeline: true,
+              startupOptions: "-c search_path=auth",
+            }),
+            DatabaseLive({
+              url: Redacted.make(config.postgresUrl),
+              maxConnections: 4,
+              applicationName: "stable-auth-proof-sql",
+            }),
+          ),
+        ),
+      ),
+    ),
   );
 });
 
@@ -506,7 +493,7 @@ const program = Effect.gen(function* () {
 void Effect.runPromise(
   program.pipe(
     Effect.provide(
-      Layer.merge(
+      Layer.mergeAll(
         TestPlatform,
         ConfigProvider.layer(ConfigProvider.fromEnv({ preserveEmptyStrings: true })),
       ),

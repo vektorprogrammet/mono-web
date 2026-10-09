@@ -1,3 +1,7 @@
+/**
+ * EX-0028: required public native SQL APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import * as BunServices from "@effect/platform-bun/BunServices";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -9,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { Buffer } from "node:buffer";
 import process from "node:process";
 import { type DisposablePostgres, startDisposablePostgres } from "@monoweb/postgres";
-import { databaseHealth } from "@vektorprogrammet/database";
+import { databaseHealth, Database } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
 import {
@@ -25,22 +29,51 @@ import {
   decodeReconciledCurrentAssignmentSnapshot,
   importReconciledCurrentAssignmentCohort as importReconciledCurrentAssignmentCohortEffect,
 } from "@vektorprogrammet/database/placements";
-import { Console, Effect, flow, Layer, Predicate, Redacted, Schema } from "effect";
-import { Pool } from "pg";
+import {
+  Console,
+  Effect,
+  flow,
+  ManagedRuntime,
+  Layer,
+  Predicate,
+  Redacted,
+  Result,
+  Schema,
+} from "effect";
+import * as SqlClient from "effect/sql/SqlClient";
 import { buildLegacyReferences, seedLegacyReferences } from "./legacy-cutover-references";
 import { buildLegacyCurrentAssignmentSnapshot } from "./legacy-current-assignment-snapshot";
 import { buildLegacyPersonSnapshot } from "./legacy-person-snapshot";
 import { readLegacySourceSnapshot, type LegacySourceSnapshot } from "./legacy-source-snapshot";
 import { CutoverStageFailure, runLegacyServiceCutover } from "./run-legacy-service-cutover";
+import { executePostgresMigration } from "@vektorprogrammet/database/postgres-migration-statements";
+import { targetFingerprint } from "./legacy-organization-rehearsal-runtime";
 
-const importPersonCohort = flow(importPersonCohortEffect, Effect.runPromise);
+const decodeJsonRows = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Record(Schema.String, Schema.Json)),
+);
+
+/** Promise host boundary: retain typed cohort errors without recovering defects or interruption. */
+const runCohort = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
+  Effect.runPromise(Effect.result(effect)).then(Result.getOrThrow);
+
+const executeFixture = (sql: SqlClient.SqlClient, source: string) =>
+  Effect.runPromise(
+    sql.withTransaction(
+      executePostgresMigration(source).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+    ),
+  );
+
+const importPersonCohort = flow(importPersonCohortEffect, runCohort);
 
 const importReconciledCurrentAssignmentCohort = flow(
   importReconciledCurrentAssignmentCohortEffect,
-  Effect.runPromise,
+  runCohort,
 );
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+
+class RehearsalRollback extends Schema.TaggedError<RehearsalRollback>()("RehearsalRollback", {}) {}
 
 let stage = "Options";
 
@@ -218,33 +251,9 @@ const reviewFor = (source: LegacySourceSnapshot): CurrentAssignmentReview => {
   });
 };
 
-// Full persisted target rows, not selected counts, establish refusal/rollback/replay stability.
-// PostgreSQL formats identifiers from its own catalog, as in the existing assignment rehearsal.
-const targetFingerprint = async (pool: Pool): Promise<string> => {
-  const tables = (
-    await pool.query<{ table_name: string }>(`
-    SELECT format('%I.%I', schemaname, tablename) AS table_name FROM pg_tables
-    WHERE schemaname IN ('public','auth') ORDER BY schemaname, tablename
-  `)
-  ).rows;
-
-  const facts: Record<string, Schema.Json> = {};
-
-  for (const { table_name: table } of tables) {
-    const result = await pool.query<{ rows: unknown }>(`
-      SELECT COALESCE(jsonb_agg(to_jsonb(value) ORDER BY to_jsonb(value)::text), '[]'::jsonb) AS rows
-      FROM ${table} value
-    `);
-
-    facts[table] = Schema.decodeUnknownSync(Schema.Json)(result.rows[0]!.rows);
-  }
-
-  return digest(facts);
-};
-
-const forbiddenFacts = async (pool: Pool): Promise<Record<string, number>> => {
-  const tables = (
-    await pool.query<{ table_name: string }>(`
+const forbiddenFacts = async (sql: SqlClient.SqlClient): Promise<Record<string, number>> => {
+  const tables = await Effect.runPromise(
+    sql.unsafe<{ table_name: string }>(`
     SELECT format('%I.%I', schemaname, tablename) AS table_name FROM pg_tables
     WHERE schemaname IN ('public','auth')
       AND (tablename LIKE '%audit%' OR tablename LIKE '%outbox%' OR tablename LIKE '%grant%'
@@ -253,15 +262,18 @@ const forbiddenFacts = async (pool: Pool): Promise<Record<string, number>> => {
           'service_principals'))
       AND NOT (schemaname = 'auth' AND tablename = 'identity_security_audit')
     ORDER BY schemaname, tablename
-  `)
-  ).rows;
+  `),
+  );
 
   const counts: Record<string, number> = {};
 
   for (const { table_name: table } of tables) {
     counts[table] = Number(
-      (await pool.query<{ count: string }>(`SELECT count(*)::text AS count FROM ${table}`)).rows[0]!
-        .count,
+      (
+        await Effect.runPromise(
+          sql.unsafe<{ count: string }>(`SELECT count(*)::text AS count FROM ${table}`),
+        )
+      )[0]!.count,
     );
     assert.equal(counts[table], 0, `Import fabricated facts in ${table}`);
   }
@@ -269,19 +281,21 @@ const forbiddenFacts = async (pool: Pool): Promise<Record<string, number>> => {
   // Account import security evidence is expected; it is not a human placement decision.
   assert.equal(
     (
-      await pool.query<{ count: string }>(`
+      await Effect.runPromise(
+        sql.unsafe<{ count: string }>(`
     SELECT count(*)::text AS count FROM auth.identity_security_audit
-  `)
-    ).rows[0]!.count,
+  `),
+      )
+    )[0]!.count,
     "5",
   );
 
   return counts;
 };
 
-const canonicalPlacements = async (pool: Pool) =>
-  (
-    await pool.query<{
+const canonicalPlacements = async (sql: SqlClient.SqlClient) =>
+  await Effect.runPromise(
+    sql.unsafe<{
       person_id: string;
       day: string;
       workdays: number;
@@ -291,11 +305,11 @@ const canonicalPlacements = async (pool: Pool) =>
     }>(`
   SELECT person_id,day,workdays,block,active,revision FROM public.assistant_placements
   ORDER BY person_id,block
-`)
-  ).rows;
+`),
+  );
 
-const assertCanonical = async (pool: Pool): Promise<void> => {
-  assert.deepEqual(await canonicalPlacements(pool), [
+const assertCanonical = async (sql: SqlClient.SqlClient): Promise<void> => {
+  assert.deepEqual(await canonicalPlacements(sql), [
     {
       person_id: "legacy-person-1",
       day: "Monday",
@@ -322,12 +336,14 @@ const assertCanonical = async (pool: Pool): Promise<void> => {
     },
   ]);
   assert.deepEqual(
-    (
-      await pool.query(`
-    SELECT person_id,department_id,status,revision FROM public.organization_volunteer_affiliations
-    ORDER BY person_id
-  `)
-    ).rows,
+    await Effect.runPromise(
+      sql
+        .unsafe(`
+        SELECT person_id,department_id,status,revision FROM public.organization_volunteer_affiliations
+        ORDER BY person_id
+      `)
+        .pipe(Effect.flatMap(decodeJsonRows)),
+    ),
     [
       {
         person_id: "legacy-person-1",
@@ -345,16 +361,20 @@ const assertCanonical = async (pool: Pool): Promise<void> => {
   );
   assert.equal(
     (
-      await pool.query(`
-    SELECT count(*)::text AS count FROM public.assistant_placements
-    WHERE semester_id <> 'legacy-semester:2'
-  `)
-    ).rows[0].count,
+      await Effect.runPromise(
+        sql
+          .unsafe(`
+        SELECT count(*)::text AS count FROM public.assistant_placements
+        WHERE semester_id <> 'legacy-semester:2'
+      `)
+          .pipe(Effect.flatMap(decodeJsonRows)),
+      )
+    )[0].count,
     "0",
   );
 };
 
-const assertAppendOnly = async (pool: Pool): Promise<void> => {
+const assertAppendOnly = async (sql: SqlClient.SqlClient): Promise<void> => {
   const columns = {
     current_assignment_snapshots: "source_revision",
     current_assignment_occurrences: "reason",
@@ -363,18 +383,32 @@ const assertAppendOnly = async (pool: Pool): Promise<void> => {
     current_assignment_reviews: "review",
   };
 
-  const before = await targetFingerprint(pool);
+  const before = await targetFingerprint(sql);
 
   for (const [table, column] of Object.entries(columns)) {
     await assert.rejects(
-      pool.query(`UPDATE public.${table} SET ${column} = ${column}`),
+      Effect.runPromise(
+        sql
+          .unsafe(`UPDATE public.${table} SET ${column} = ${column}`)
+          .pipe(Effect.flatMap(decodeJsonRows)),
+      ),
       /append-only/,
     );
-    await assert.rejects(pool.query(`DELETE FROM public.${table}`), /append-only/);
-    await assert.rejects(pool.query(`TRUNCATE public.${table} CASCADE`), /append-only/);
+    await assert.rejects(
+      Effect.runPromise(
+        sql.unsafe(`DELETE FROM public.${table}`).pipe(Effect.flatMap(decodeJsonRows)),
+      ),
+      /append-only/,
+    );
+    await assert.rejects(
+      Effect.runPromise(
+        sql.unsafe(`TRUNCATE public.${table} CASCADE`).pipe(Effect.flatMap(decodeJsonRows)),
+      ),
+      /append-only/,
+    );
   }
 
-  assert.equal(await targetFingerprint(pool), before, "Append-only refusal changed target facts");
+  assert.equal(await targetFingerprint(sql), before, "Append-only refusal changed target facts");
 };
 
 const runRehearsal = async (temporaryRoot: string) => {
@@ -385,7 +419,17 @@ const runRehearsal = async (temporaryRoot: string) => {
   let mysqlProcess: ChildProcess | undefined;
   let postgres: DisposablePostgres | undefined;
   let processesStopped = true;
-  const pools: Pool[] = [];
+
+  const makeRuntime = (url: string) =>
+    ManagedRuntime.make(
+      DatabaseLive({
+        url: Redacted.make(url),
+        applicationName: "synthetic-current-assignment-rehearsal",
+        maxConnections: 3,
+      }).pipe(Layer.provide(BunServices.layer)),
+    );
+
+  const runtimes: ReturnType<typeof makeRuntime>[] = [];
 
   const mysql = (sql: string) =>
     run(
@@ -405,21 +449,12 @@ const runRehearsal = async (temporaryRoot: string) => {
   const target = async (database: string) => {
     assert.ok(postgres, "Disposable PostgreSQL is not running");
     const url = await postgres.createDatabase(database);
-    await Effect.runPromise(
-      databaseHealth.pipe(
-        Effect.provide(
-          DatabaseLive({
-            url: Redacted.make(url),
-            applicationName: "synthetic-current-assignment-rehearsal",
-            maxConnections: 2,
-          }).pipe(Layer.provide(BunServices.layer)),
-        ),
-      ),
-    );
-    const pool = new Pool({ connectionString: url, max: 3 });
-    pools.push(pool);
+    const runtime = makeRuntime(url);
+    runtimes.push(runtime);
+    const sql = await runtime.runPromise(Database);
+    await runtime.runPromise(databaseHealth);
 
-    return { pool, url, database };
+    return { sql, url, database };
   };
 
   const outcome = await (async () => {
@@ -502,17 +537,13 @@ const runRehearsal = async (temporaryRoot: string) => {
       organization: "NotRequested" as const,
     };
 
-    const untouched = await targetFingerprint(primary.pool);
+    const untouched = await targetFingerprint(primary.sql);
     const refusals: string[] = [];
 
     const refuseReview = async (name: string, altered: CurrentAssignmentReview) => {
       stage = name;
       await assert.rejects(runLegacyServiceCutover({ ...options, currentAssignments: altered }));
-      assert.equal(
-        await targetFingerprint(primary.pool),
-        untouched,
-        `${name} changed target facts`,
-      );
+      assert.equal(await targetFingerprint(primary.sql), untouched, `${name} changed target facts`);
       refusals.push(name);
     };
 
@@ -565,12 +596,12 @@ const runRehearsal = async (temporaryRoot: string) => {
         },
       }),
       (cause: unknown) =>
-        cause instanceof CutoverStageFailure &&
+        Schema.is(CutoverStageFailure)(cause) &&
         cause.stage === "CurrentAssignmentImport" &&
         cause.detail === "NoAcceptedAssignments",
     );
     assert.equal(
-      await targetFingerprint(primary.pool),
+      await targetFingerprint(primary.sql),
       untouched,
       "All-inactive review left partial cutover facts",
     );
@@ -578,25 +609,31 @@ const runRehearsal = async (temporaryRoot: string) => {
     stage = "WholeCutoverRollback";
 
     // A last-stage account failure must roll back references, People, history AND current assignments.
-    await primary.pool.query(`
+    await executeFixture(
+      primary.sql,
+      `
       CREATE FUNCTION auth.fail_assignment_rehearsal() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN RAISE EXCEPTION 'synthetic account-stage failure'; END; $$;
       CREATE TRIGGER fail_assignment_rehearsal BEFORE INSERT ON auth.account_cohort_imports
       FOR EACH ROW EXECUTE FUNCTION auth.fail_assignment_rehearsal();
-    `);
+    `,
+    );
     await assert.rejects(
       runLegacyServiceCutover(options),
-      (cause: unknown) => cause instanceof CutoverStageFailure && cause.stage === "AccountImport",
+      (cause: unknown) => Schema.is(CutoverStageFailure)(cause) && cause.stage === "AccountImport",
     );
     assert.equal(
-      await targetFingerprint(primary.pool),
+      await targetFingerprint(primary.sql),
       untouched,
       "Whole cutover did not roll back",
     );
-    await primary.pool.query(`
+    await executeFixture(
+      primary.sql,
+      `
       DROP TRIGGER fail_assignment_rehearsal ON auth.account_cohort_imports;
       DROP FUNCTION auth.fail_assignment_rehearsal();
-    `);
+    `,
+    );
     stage = "CutoverCLI";
     const reviewFile = join(temporaryRoot, "assignment review.json");
     await writeFile(reviewFile, JSON.stringify(review), { mode: 0o600, flag: "wx" });
@@ -622,13 +659,13 @@ const runRehearsal = async (temporaryRoot: string) => {
 
     await assert.rejects(run(cliCommand.slice(0, -1), undefined, cliEnvironment));
     assert.equal(
-      await targetFingerprint(primary.pool),
+      await targetFingerprint(primary.sql),
       untouched,
       "Missing CLI assignment choice changed target",
     );
     await assert.rejects(run([...cliCommand, cliCommand.at(-1)!], undefined, cliEnvironment));
     assert.equal(
-      await targetFingerprint(primary.pool),
+      await targetFingerprint(primary.sql),
       untouched,
       "Duplicate CLI assignment choice changed target",
     );
@@ -671,13 +708,13 @@ const runRehearsal = async (temporaryRoot: string) => {
       },
       { input: 9, accepted: 3, quarantined: 6 },
     );
-    await assertCanonical(primary.pool);
+    await assertCanonical(primary.sql);
 
-    const dispositions = (
-      await primary.pool.query<{ occurrence_id: string; disposition: string; reason: string }>(`
+    const dispositions = await Effect.runPromise(
+      primary.sql.unsafe<{ occurrence_id: string; disposition: string; reason: string }>(`
       SELECT occurrence_id,disposition,reason FROM public.current_assignment_occurrences ORDER BY occurrence_id
-    `)
-    ).rows;
+    `),
+    );
 
     assert.deepEqual(
       dispositions.filter((row) => row.reason === "Imported").map((row) => row.occurrence_id),
@@ -696,16 +733,16 @@ const runRehearsal = async (temporaryRoot: string) => {
       );
     }
 
-    const ledger = (
-      await primary.pool.query<{
+    const ledger = await Effect.runPromise(
+      primary.sql.unsafe<{
         review: unknown;
         source_kind: string;
         source_semester_id: string;
         as_of: string;
       }>(`
       SELECT review,source_kind,source_semester_id,as_of::text FROM public.current_assignment_reviews
-    `)
-    ).rows;
+    `),
+    );
 
     assert.deepEqual(ledger, [
       {
@@ -717,25 +754,29 @@ const runRehearsal = async (temporaryRoot: string) => {
     ]);
     assert.equal(
       (
-        await primary.pool.query(`
-      SELECT count(*)::text AS count FROM public.current_assignment_reviews r
-      JOIN public.current_assignment_snapshots a ON a.snapshot_key = r.snapshot_key
-      JOIN public.historical_service_reference_provenance p
-        ON p.source_repository = a.source_repository AND p.snapshot_id = a.snapshot_id
-        AND p.source_revision = a.source_revision AND p.reference_digest = r.reference_digest
-      JOIN public.person_cohort_snapshots s ON s.snapshot_key = r.person_snapshot_key
-        AND s.source_revision = a.source_revision AND s.snapshot_id = a.snapshot_id
-    `)
-      ).rows[0].count,
+        await Effect.runPromise(
+          primary.sql
+            .unsafe(`
+            SELECT count(*)::text AS count FROM public.current_assignment_reviews r
+            JOIN public.current_assignment_snapshots a ON a.snapshot_key = r.snapshot_key
+            JOIN public.historical_service_reference_provenance p
+      ON p.source_repository = a.source_repository AND p.snapshot_id = a.snapshot_id
+      AND p.source_revision = a.source_revision AND p.reference_digest = r.reference_digest
+            JOIN public.person_cohort_snapshots s ON s.snapshot_key = r.person_snapshot_key
+      AND s.source_revision = a.source_revision AND s.snapshot_id = a.snapshot_id
+          `)
+            .pipe(Effect.flatMap(decodeJsonRows)),
+        )
+      )[0].count,
       "1",
     );
     stage = "AppendOnlyAndExcludedFacts";
-    const noFabricatedFacts = await forbiddenFacts(primary.pool);
-    await assertAppendOnly(primary.pool);
-    const committed = await targetFingerprint(primary.pool);
+    const noFabricatedFacts = await forbiddenFacts(primary.sql);
+    await assertAppendOnly(primary.sql);
+    const committed = await targetFingerprint(primary.sql);
     await runLegacyServiceCutover(options);
     assert.equal(
-      await targetFingerprint(primary.pool),
+      await targetFingerprint(primary.sql),
       committed,
       "Exact replay changed imported facts",
     );
@@ -746,7 +787,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       }),
     );
     assert.equal(
-      await targetFingerprint(primary.pool),
+      await targetFingerprint(primary.sql),
       committed,
       "Changed review changed committed facts",
     );
@@ -760,7 +801,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       snapshotId: options.snapshotId,
     };
 
-    await seedLegacyReferences(provenance.pool, provenanceIdentity, references);
+    await Effect.runPromise(seedLegacyReferences(provenance.sql, provenanceIdentity, references));
 
     const personSnapshot = buildLegacyPersonSnapshot(source.users, {
       sourceRevision: review.sourceRevision,
@@ -769,7 +810,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       attestedBy: options.attestedBy,
     });
 
-    const personReport = await importPersonCohort(provenance.pool, personSnapshot);
+    const personReport = await importPersonCohort(provenance.sql, personSnapshot);
 
     const projected = buildLegacyCurrentAssignmentSnapshot(
       source,
@@ -792,7 +833,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       });
     };
 
-    const provenanceBefore = await targetFingerprint(provenance.pool);
+    const provenanceBefore = await targetFingerprint(provenance.sql);
 
     for (const [name, candidate] of [
       ["wrong-reference-digest", { ...projected, referenceDigest: "0".repeat(64) }],
@@ -807,9 +848,9 @@ const runRehearsal = async (temporaryRoot: string) => {
       ],
     ] as const) {
       await assert.rejects(
-        importReconciledCurrentAssignmentCohort(provenance.pool, rehash(candidate)),
+        importReconciledCurrentAssignmentCohort(provenance.sql, rehash(candidate)),
       );
-      assert.equal(await targetFingerprint(provenance.pool), provenanceBefore, name);
+      assert.equal(await targetFingerprint(provenance.sql), provenanceBefore, name);
       refusals.push(name);
     }
 
@@ -827,40 +868,39 @@ const runRehearsal = async (temporaryRoot: string) => {
       ),
     });
 
-    const client = await provenance.pool.connect();
+    await Effect.runPromise(
+      provenance.sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const mismapped = yield* importReconciledCurrentAssignmentCohortEffect(
+              provenance.sql,
+              wrongPersonMapping,
+            );
 
-    try {
-      await client.query("BEGIN");
+            assert.equal(mismapped.accepted, 2);
+            assert.equal(
+              mismapped.occurrences.find((row) => row.occurrenceId === "legacy-history-row-101")
+                ?.reason,
+              "PersonReconciliationMissing",
+            );
 
-      const mismapped = await importReconciledCurrentAssignmentCohort(
-        provenance.pool,
-        wrongPersonMapping,
-        client,
-      );
+            const rows = yield* provenance.sql.unsafe<{ count: string }>(
+              "SELECT count(*)::text AS count FROM public.assistant_placements WHERE person_id = $1",
+              [otherPerson.personId],
+            );
 
-      assert.equal(mismapped.accepted, 2);
-      assert.equal(
-        mismapped.occurrences.find((row) => row.occurrenceId === "legacy-history-row-101")?.reason,
-        "PersonReconciliationMissing",
-      );
-      assert.equal(
-        (
-          await client.query(
-            "SELECT count(*)::text AS count FROM public.assistant_placements WHERE person_id = $1",
-            [otherPerson.personId],
-          )
-        ).rows[0].count,
-        "0",
-      );
-    } finally {
-      await client.query("ROLLBACK");
-      client.release();
-    }
+            assert.equal(rows[0]!.count, "0");
 
-    assert.equal(await targetFingerprint(provenance.pool), provenanceBefore);
+            return yield* new RehearsalRollback();
+          }),
+        )
+        .pipe(Effect.catchTag("RehearsalRollback", () => Effect.void)),
+    );
+
+    assert.equal(await targetFingerprint(provenance.sql), provenanceBefore);
     stage = "PersonOccurrenceIdentityCollision";
     const collision = await target("assignment_person_collision");
-    await seedLegacyReferences(collision.pool, provenanceIdentity, references);
+    await Effect.runPromise(seedLegacyReferences(collision.sql, provenanceIdentity, references));
 
     const priorPerson = decodePersonCohort({
       ...personSnapshot,
@@ -873,7 +913,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       ),
     });
 
-    assert.equal((await importPersonCohort(collision.pool, priorPerson)).accepted, 1);
+    assert.equal((await importPersonCohort(collision.sql, priorPerson)).accepted, 1);
 
     // Occurrence IDs are snapshot-local labels, not portable evidence of a source-user identity.
     const collidingPerson = decodePersonCohort({
@@ -886,7 +926,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       ),
     });
 
-    const collidingPersonReport = await importPersonCohort(collision.pool, collidingPerson);
+    const collidingPersonReport = await importPersonCohort(collision.sql, collidingPerson);
     assert.equal(collidingPersonReport.accepted, 1);
 
     const collidingAssignments = buildLegacyCurrentAssignmentSnapshot(
@@ -906,7 +946,7 @@ const runRehearsal = async (temporaryRoot: string) => {
     )!;
 
     const collisionReport = await importReconciledCurrentAssignmentCohort(
-      collision.pool,
+      collision.sql,
       rehash({
         ...collidingAssignments,
         mappings: [...collidingAssignments.mappings, staleMapping],
@@ -919,7 +959,7 @@ const runRehearsal = async (temporaryRoot: string) => {
         ?.reason,
       "PersonReconciliationMissing",
     );
-    assert.deepEqual(await canonicalPlacements(collision.pool), [
+    assert.deepEqual(await canonicalPlacements(collision.sql), [
       {
         person_id: "legacy-person-2",
         day: "Wednesday",
@@ -930,25 +970,27 @@ const runRehearsal = async (temporaryRoot: string) => {
       },
     ]);
     assert.deepEqual(
-      (
-        await collision.pool.query(
-          "SELECT person_id FROM public.organization_volunteer_affiliations ORDER BY person_id",
-        )
-      ).rows,
+      await Effect.runPromise(
+        collision.sql
+          .unsafe(
+            "SELECT person_id FROM public.organization_volunteer_affiliations ORDER BY person_id",
+          )
+          .pipe(Effect.flatMap(decodeJsonRows)),
+      ),
       [{ person_id: "legacy-person-2" }],
     );
     refusals.push("snapshot-local-person-occurrence-collision");
 
     stage = "PersonCrossSnapshotExactReplay";
     const personReplay = await target("assignment_person_replay");
-    await seedLegacyReferences(personReplay.pool, provenanceIdentity, references);
+    await Effect.runPromise(seedLegacyReferences(personReplay.sql, provenanceIdentity, references));
 
     const earlierPeople = decodePersonCohort({
       ...personSnapshot,
       snapshotId: "before-person-exact-replay",
     });
 
-    assert.equal((await importPersonCohort(personReplay.pool, earlierPeople)).accepted, 5);
+    assert.equal((await importPersonCohort(personReplay.sql, earlierPeople)).accepted, 5);
 
     const laterPeople = decodePersonCohort({
       ...personSnapshot,
@@ -958,7 +1000,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       })),
     });
 
-    const laterPeopleReport = await importPersonCohort(personReplay.pool, laterPeople);
+    const laterPeopleReport = await importPersonCohort(personReplay.sql, laterPeople);
     assert.equal(laterPeopleReport.accepted, 5);
     assert.deepEqual(
       laterPeopleReport.occurrences
@@ -980,17 +1022,17 @@ const runRehearsal = async (temporaryRoot: string) => {
     );
 
     const laterAssignmentReport = await importReconciledCurrentAssignmentCohort(
-      personReplay.pool,
+      personReplay.sql,
       laterAssignments,
     );
 
     assert.equal(laterAssignmentReport.accepted, 3);
-    await assertCanonical(personReplay.pool);
-    const replayedPeopleState = await targetFingerprint(personReplay.pool);
-    await importPersonCohort(personReplay.pool, laterPeople);
-    await importReconciledCurrentAssignmentCohort(personReplay.pool, laterAssignments);
+    await assertCanonical(personReplay.sql);
+    const replayedPeopleState = await targetFingerprint(personReplay.sql);
+    await importPersonCohort(personReplay.sql, laterPeople);
+    await importReconciledCurrentAssignmentCohort(personReplay.sql, laterAssignments);
     assert.equal(
-      await targetFingerprint(personReplay.pool),
+      await targetFingerprint(personReplay.sql),
       replayedPeopleState,
       "Cross-snapshot accepted Person replay changed canonical facts",
     );
@@ -1004,7 +1046,7 @@ const runRehearsal = async (temporaryRoot: string) => {
 
     await assert.rejects(runLegacyServiceCutover({ ...options, currentAssignments: repointed }));
     assert.equal(
-      await targetFingerprint(primary.pool),
+      await targetFingerprint(primary.sql),
       committed,
       "Changed accepted source identity changed target",
     );
@@ -1013,16 +1055,19 @@ const runRehearsal = async (temporaryRoot: string) => {
 
     stage = "ReplayAfterNativeEdits";
     // These are deliberate native-state edits, not fabricated human command/audit events.
-    await primary.pool.query(`
+    await executeFixture(
+      primary.sql,
+      `
       UPDATE public.assistant_placements SET day = 'Friday',workdays = 3,active = false,revision = revision + 1
       WHERE person_id = 'legacy-person-1' AND block = '1';
       UPDATE public.organization_volunteer_affiliations SET status = 'Inactive',revision = revision + 1
       WHERE person_id = 'legacy-person-2';
-    `);
-    const edited = await targetFingerprint(primary.pool);
+    `,
+    );
+    const edited = await targetFingerprint(primary.sql);
     await runLegacyServiceCutover(options);
     await Promise.all([runLegacyServiceCutover(options), runLegacyServiceCutover(options)]);
-    assert.equal(await targetFingerprint(primary.pool), edited, "Replay overwrote native changes");
+    assert.equal(await targetFingerprint(primary.sql), edited, "Replay overwrote native changes");
 
     stage = "ConcurrentFirstImport";
     const concurrent = await target("assignment_concurrent");
@@ -1042,19 +1087,23 @@ const runRehearsal = async (temporaryRoot: string) => {
       concurrentReports[0]!.currentAssignments,
       concurrentReports[1]!.currentAssignments,
     );
-    await assertCanonical(concurrent.pool);
+    await assertCanonical(concurrent.sql);
     assert.deepEqual(
       (
-        await concurrent.pool.query(`SELECT
-      (SELECT count(*) FROM public.current_assignment_snapshots)::text AS snapshots,
-      (SELECT count(*) FROM public.current_assignment_reviews)::text AS reviews,
-      (SELECT count(*) FROM public.current_assignment_imports)::text AS imports,
-      (SELECT count(*) FROM public.current_assignment_occurrences)::text AS occurrences
-    `)
-      ).rows[0],
+        await Effect.runPromise(
+          concurrent.sql
+            .unsafe(`SELECT
+            (SELECT count(*)::text FROM public.current_assignment_snapshots)::text AS snapshots,
+            (SELECT count(*)::text FROM public.current_assignment_reviews)::text AS reviews,
+            (SELECT count(*)::text FROM public.current_assignment_imports)::text AS imports,
+            (SELECT count(*)::text FROM public.current_assignment_occurrences)::text AS occurrences
+          `)
+            .pipe(Effect.flatMap(decodeJsonRows)),
+        )
+      )[0],
       { snapshots: "1", reviews: "1", imports: "3", occurrences: "9" },
     );
-    await forbiddenFacts(concurrent.pool);
+    await forbiddenFacts(concurrent.sql);
 
     stage = "ExplicitHistoricalOnly";
     const historicalOnly = await target("assignment_historical_only");
@@ -1070,16 +1119,20 @@ const runRehearsal = async (temporaryRoot: string) => {
     assert.equal(historicalOnlyResult.historicalService.input, source.history.length);
     assert.deepEqual(
       (
-        await historicalOnly.pool.query(`SELECT
-        (SELECT count(*) FROM public.assistant_placements)::text AS placements,
-        (SELECT count(*) FROM public.organization_volunteer_affiliations)::text AS affiliations,
-        (SELECT count(*) FROM public.current_assignment_snapshots)::text AS snapshots,
-        (SELECT count(*) FROM public.current_assignment_reviews)::text AS reviews
-      `)
-      ).rows[0],
+        await Effect.runPromise(
+          historicalOnly.sql
+            .unsafe(`SELECT
+      (SELECT count(*)::text FROM public.assistant_placements)::text AS placements,
+      (SELECT count(*)::text FROM public.organization_volunteer_affiliations)::text AS affiliations,
+      (SELECT count(*)::text FROM public.current_assignment_snapshots)::text AS snapshots,
+      (SELECT count(*)::text FROM public.current_assignment_reviews)::text AS reviews
+            `)
+            .pipe(Effect.flatMap(decodeJsonRows)),
+        )
+      )[0],
       { placements: "0", affiliations: "0", snapshots: "0", reviews: "0" },
     );
-    await forbiddenFacts(historicalOnly.pool);
+    await forbiddenFacts(historicalOnly.sql);
     stage = "MissingSourceSchoolDepartmentAssociation";
     await mysql(`
       INSERT INTO vektor.school VALUES
@@ -1112,18 +1165,20 @@ const runRehearsal = async (temporaryRoot: string) => {
       { accepted: 2, quarantined: 7 },
     );
     assert.deepEqual(
-      (
-        await unassociated.pool.query(`
-      SELECT occurrence_id,reason FROM public.current_assignment_occurrences
-      WHERE occurrence_id IN ('legacy-history-row-101','legacy-history-row-109') ORDER BY occurrence_id
-    `)
-      ).rows,
+      await Effect.runPromise(
+        unassociated.sql
+          .unsafe(`
+            SELECT occurrence_id,reason FROM public.current_assignment_occurrences
+            WHERE occurrence_id IN ('legacy-history-row-101','legacy-history-row-109') ORDER BY occurrence_id
+          `)
+          .pipe(Effect.flatMap(decodeJsonRows)),
+      ),
       [
         { occurrence_id: "legacy-history-row-101", reason: "SchoolDepartmentMismatch" },
         { occurrence_id: "legacy-history-row-109", reason: "Inactive" },
       ],
     );
-    assert.deepEqual(await canonicalPlacements(unassociated.pool), [
+    assert.deepEqual(await canonicalPlacements(unassociated.sql), [
       {
         person_id: "legacy-person-1",
         day: "Tuesday",
@@ -1141,7 +1196,7 @@ const runRehearsal = async (temporaryRoot: string) => {
         revision: 1,
       },
     ]);
-    await forbiddenFacts(unassociated.pool);
+    await forbiddenFacts(unassociated.sql);
     await mysql(`
       UPDATE vektor.assistant_history SET school_id = 1 WHERE id IN (101,109);
       DELETE FROM vektor.school WHERE id = 2;
@@ -1169,19 +1224,23 @@ const runRehearsal = async (temporaryRoot: string) => {
 
     assert.equal(currentOnlyResult.historicalService.stage, "NotImported");
     assert.equal(currentOnlyResult.historicalService.input, 0);
-    await assertCanonical(currentOnly.pool);
+    await assertCanonical(currentOnly.sql);
     assert.deepEqual(
       (
-        await currentOnly.pool.query(`SELECT
-      (SELECT count(*) FROM public.assistant_service_history)::text AS history,
-      (SELECT count(*) FROM public.assistant_affiliation_history)::text AS affiliations,
-      (SELECT count(*) FROM public.historical_service_snapshots)::text AS snapshots,
-      (SELECT count(*) FROM public.historical_service_occurrences)::text AS occurrences
-    `)
-      ).rows[0],
+        await Effect.runPromise(
+          currentOnly.sql
+            .unsafe(`SELECT
+            (SELECT count(*)::text FROM public.assistant_service_history)::text AS history,
+            (SELECT count(*)::text FROM public.assistant_affiliation_history)::text AS affiliations,
+            (SELECT count(*)::text FROM public.historical_service_snapshots)::text AS snapshots,
+            (SELECT count(*)::text FROM public.historical_service_occurrences)::text AS occurrences
+          `)
+            .pipe(Effect.flatMap(decodeJsonRows)),
+        )
+      )[0],
       { history: "0", affiliations: "0", snapshots: "0", occurrences: "0" },
     );
-    await forbiddenFacts(currentOnly.pool);
+    await forbiddenFacts(currentOnly.sql);
 
     return {
       scope: "FaithfulSyntheticSixTableMariaDBToDisposablePostgreSQL",
@@ -1252,9 +1311,9 @@ const runRehearsal = async (temporaryRoot: string) => {
 
   const cleanupErrors: Error[] = [];
 
-  for (const pool of pools)
-    await pool.end().catch((cause) => {
-      cleanupErrors.push(new Error("Disposable pool cleanup failed", { cause }));
+  for (const runtime of runtimes)
+    await runtime.dispose().catch((cause) => {
+      cleanupErrors.push(new Error("Disposable native runtime cleanup failed", { cause }));
     });
 
   if (postgres)
