@@ -1,7 +1,11 @@
+/**
+ * EX-0021: required public native SQL APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { Schema, Data, Effect, Layer } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { sharedPgLayer } from "./pg-pool.js";
+import * as SqlClient from "effect/sql/SqlClient";
+import { nativePgLayer, type NativePgPoolConfig } from "./pg-pool.js";
 import {
   Database,
   DatabaseMigrationExternallyManaged,
@@ -18,7 +22,7 @@ export class DatabaseExternalSchemaUnavailable extends Data.TaggedError(
  * Acquisition verifies and reports the schema revision already present in the
  * database; application processes cannot mutate it through Database.migrate.
  */
-export const DatabaseRuntimeLive = (config: Parameters<typeof PgClient.layer>[0]) =>
+export const DatabaseRuntimeLive = (config: NativePgPoolConfig) =>
   Layer.effect(
     Database,
     Effect.gen(function* () {
@@ -43,7 +47,7 @@ export const DatabaseRuntimeLive = (config: Parameters<typeof PgClient.layer>[0]
       return Database.of(
         Object.assign(sql, {
           withTransaction: withTypedTransactionFailures(sql.withTransaction),
-          json: (value: Schema.Json) => json(JSON.stringify(value)),
+          json: (value: Schema.Json) => json(value),
           migrate: Effect.fail(new DatabaseMigrationExternallyManaged()),
           schemaRevision: `${revision.migrationId}_${revision.name}`.replaceAll("-", "_"),
           health: sql`SELECT 1 AS ready`.pipe(
@@ -55,4 +59,4 @@ export const DatabaseRuntimeLive = (config: Parameters<typeof PgClient.layer>[0]
         }),
       );
     }),
-  ).pipe(Layer.provideMerge(sharedPgLayer(config)));
+  ).pipe(Layer.provideMerge(nativePgLayer(config)));

@@ -1,4 +1,8 @@
-import { DatabasePgPool, pgQuery } from "./pg-pool.js";
+/**
+ * EX-0021: required public native SQL APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+import { AuthPgPool } from "./pg-pool.js";
 import {
   isNativePasswordHash,
   nativePasswordHash,
@@ -11,7 +15,9 @@ import { APIError, createAuthMiddleware } from "better-auth/api";
 import { deleteSessionCookie, getSessionCookie } from "better-auth/cookies";
 import { PasswordRecovery, PasswordRecoveryLive } from "./password-recovery.js";
 import type { GenericEndpointContext } from "better-auth";
-import { Pool } from "pg";
+import type { Pool } from "pg";
+import type { SqlClient } from "effect/sql/SqlClient";
+import { Database } from "./service.js";
 import { oauthPlugins, type OAuthProviderRuntimeConfig } from "./oauth-config.js";
 import {
   flow,
@@ -27,7 +33,10 @@ import {
 } from "effect";
 
 /** Runs the Effect program behind one Better Auth callback as the Promise Better Auth awaits. */
-export type BetterAuthCallbackRunner = <A, E>(program: Effect.Effect<A, E>) => Promise<A>;
+export type BetterAuthCallbackRunner = <A, E>(
+  program: Effect.Effect<A, E>,
+  options?: Pick<Effect.RunOptions, "signal">,
+) => Promise<A>;
 
 /**
  * Creates the runner for Better Auth's Promise callbacks: it forks each program into a fiber set
@@ -49,14 +58,6 @@ export interface AuthEngineConfig {
   readonly trustedOrigins: ReadonlyArray<string>;
   readonly secureCookies: boolean;
 }
-
-export const makeAuthPool = (config: AuthEngineConfig) =>
-  new Pool({
-    connectionString: config.postgresUrl,
-    options: "-c search_path=auth",
-    max: 4,
-    application_name: "vektorprogrammet-auth",
-  });
 
 /** The password codec's capacity and input limits, as the API errors Better Auth answers with. */
 const passwordUnavailable = Match.type<
@@ -94,7 +95,7 @@ interface VerifiedCredentialEvidence {
   hash?: string;
 }
 
-const makeCredentialLifecycleHooks = (database: Pool, run: BetterAuthCallbackRunner) => {
+const makeCredentialLifecycleHooks = (database: SqlClient, run: BetterAuthCallbackRunner) => {
   const verified = new WeakMap<PasswordVerifier, VerifiedCredentialEvidence>();
 
   return {
@@ -104,11 +105,10 @@ const makeCredentialLifecycleHooks = (database: Pool, run: BetterAuthCallbackRun
           let access: { personId: string; revision: number } | undefined;
 
           if (ctx.path === "/reset-password") {
-            access = (yield* pgQuery<{ personId: string; revision: number }>(
-              database,
+            access = (yield* database.unsafe<{ personId: string; revision: number }>(
               'SELECT u.id AS "personId",u.access_revision AS revision FROM auth.verification v JOIN auth."user" u ON u.id=v.value WHERE v.identifier=$1 AND NOT u.access_disabled',
               ["reset-password:" + (ctx.body?.token ?? "")],
-            )).rows[0];
+            ))[0];
 
             if (!access) {
               return yield* Effect.fail(
@@ -116,11 +116,10 @@ const makeCredentialLifecycleHooks = (database: Pool, run: BetterAuthCallbackRun
               );
             }
           } else if (ctx.path === "/sign-in/email") {
-            access = (yield* pgQuery<{ personId: string; revision: number }>(
-              database,
+            access = (yield* database.unsafe<{ personId: string; revision: number }>(
               'SELECT id AS "personId",access_revision AS revision FROM auth."user" WHERE lower(email)=lower($1) AND NOT access_disabled',
               [ctx.body?.email ?? ""],
-            )).rows[0];
+            ))[0];
 
             if (!access) {
               return yield* Effect.fail(
@@ -135,11 +134,10 @@ const makeCredentialLifecycleHooks = (database: Pool, run: BetterAuthCallbackRun
 
             if (cookie !== null) {
               const token = cookie.slice(0, cookie.lastIndexOf("."));
-              access = (yield* pgQuery<{ personId: string; revision: number }>(
-                database,
+              access = (yield* database.unsafe<{ personId: string; revision: number }>(
                 'SELECT "userId" AS "personId",access_revision AS revision FROM auth.usable_human_sessions WHERE token=$1',
                 [token],
-              )).rows[0];
+              ))[0];
 
               // Sign-out must clear the cookies of a revoked or expired session, never refuse them.
               if (!access && ctx.path !== "/request-password-reset" && ctx.path !== "/sign-out") {
@@ -171,6 +169,7 @@ const makeCredentialLifecycleHooks = (database: Pool, run: BetterAuthCallbackRun
                   }),
                 ),
               ),
+              { signal: ctx.request?.signal },
             );
 
           verified.set(verify, evidence);
@@ -184,6 +183,7 @@ const makeCredentialLifecycleHooks = (database: Pool, run: BetterAuthCallbackRun
             },
           };
         }),
+        { signal: ctx.request?.signal },
       ),
     ),
     after: createAuthMiddleware((ctx) =>
@@ -200,13 +200,12 @@ const makeCredentialLifecycleHooks = (database: Pool, run: BetterAuthCallbackRun
               (result.session === null || Predicate.isObjectOrArray(result.session)) &&
               "id" in result.session
             ) {
-              const usable = yield* pgQuery(
-                database,
+              const usable = yield* database.unsafe(
                 `SELECT 1 FROM auth.usable_human_sessions WHERE id=$1`,
                 [result.session.id],
               );
 
-              if (usable.rowCount !== 1) {
+              if (usable.length !== 1) {
                 deleteSessionCookie(ctx);
 
                 // better-call's `json` answers synchronously, although its type is a Promise.
@@ -239,13 +238,12 @@ const makeCredentialLifecycleHooks = (database: Pool, run: BetterAuthCallbackRun
           const verifiedHash = evidence.hash;
 
           yield* Effect.gen(function* () {
-            const usable = yield* pgQuery(
-              database,
+            const usable = yield* database.unsafe(
               `SELECT 1 FROM auth.usable_human_sessions WHERE id=$1`,
               [session.session.id],
             );
 
-            if (usable.rowCount !== 1) {
+            if (usable.length !== 1) {
               return yield* Effect.fail(
                 new APIError("UNAUTHORIZED", {
                   code: "INVALID_EMAIL_OR_PASSWORD",
@@ -262,8 +260,7 @@ const makeCredentialLifecycleHooks = (database: Pool, run: BetterAuthCallbackRun
 
             // A later reset revokes the session, which already exists. An earlier reset
             // loses this exact-hash predicate; remove its stale session in the same statement.
-            const result = yield* pgQuery<{ accepted: boolean }>(
-              database,
+            const result = yield* database.unsafe<{ accepted: boolean }>(
               `WITH matched AS (
             ${
               current
@@ -289,7 +286,7 @@ const makeCredentialLifecycleHooks = (database: Pool, run: BetterAuthCallbackRun
                   ],
             );
 
-            if (!result.rows[0]?.accepted) {
+            if (!result[0]?.accepted) {
               return yield* Effect.fail(
                 new APIError("UNAUTHORIZED", {
                   code: "INVALID_EMAIL_OR_PASSWORD",
@@ -313,6 +310,7 @@ const makeCredentialLifecycleHooks = (database: Pool, run: BetterAuthCallbackRun
             ),
           );
         }),
+        { signal: ctx.request?.signal },
       ),
     ),
   };
@@ -331,7 +329,7 @@ const decodeNativeAccessEvidence = flow(
 );
 
 const makeAccessDatabaseHooks = (
-  database: Pool,
+  database: SqlClient,
   run: BetterAuthCallbackRunner,
 ): NonNullable<BetterAuthOptions["databaseHooks"]> => {
   const accessRevision = (context: GenericEndpointContext | null, personId?: string) =>
@@ -344,11 +342,10 @@ const makeAccessDatabaseHooks = (
       // Internal adapter provisioning has no endpoint context. HTTP and direct API
       // password changes must carry the revision captured before credential work.
       if (context == null && personId !== undefined) {
-        const row = (yield* pgQuery<{ revision: number }>(
-          database,
+        const row = (yield* database.unsafe<{ revision: number }>(
           'SELECT access_revision AS revision FROM auth."user" WHERE id=$1 AND NOT access_disabled',
           [personId],
-        )).rows[0];
+        ))[0];
 
         if (row) return row.revision;
       }
@@ -369,6 +366,7 @@ const makeAccessDatabaseHooks = (
             Effect.map(accessRevision(ctx, data.userId), (revision) => ({
               data: { ...data, accessRevision: revision },
             })),
+            { signal: ctx?.request?.signal },
           ),
       },
       update: {
@@ -379,6 +377,7 @@ const makeAccessDatabaseHooks = (
                   data: { ...data, accessRevision: revision },
                 }))
               : Effect.succeed({ data }),
+            { signal: ctx?.request?.signal },
           ),
       },
     },
@@ -392,11 +391,10 @@ const makeAccessDatabaseHooks = (
               const revision =
                 evidence?.personId === data.userId
                   ? evidence.revision
-                  : (yield* pgQuery<{ revision: number }>(
-                      database,
+                  : (yield* database.unsafe<{ revision: number }>(
                       'SELECT access_revision AS revision FROM auth."user" WHERE id=$1 AND NOT access_disabled',
                       [data.userId],
-                    )).rows[0]?.revision;
+                    ))[0]?.revision;
 
               if (revision === undefined) {
                 return yield* Effect.fail(
@@ -409,6 +407,7 @@ const makeAccessDatabaseHooks = (
 
               return { data: { ...data, accessRevision: revision } };
             }),
+            { signal: ctx?.request?.signal },
           ),
       },
     },
@@ -418,7 +417,9 @@ const makeAccessDatabaseHooks = (
 export const makeAuthEngineOptions = (
   config: AuthEngineConfig,
   database: Pool,
+  nativeSql: SqlClient,
   run: BetterAuthCallbackRunner,
+  diagnostic: () => void,
   recovery?: PasswordRecovery["Service"],
 ) => {
   const emailAndPassword: NonNullable<BetterAuthOptions["emailAndPassword"]> = {
@@ -440,18 +441,14 @@ export const makeAuthEngineOptions = (
 
   return {
     secret: config.secret,
-    logger: {
-      log: () => {
-        process.stderr.write("Identity engine diagnostic\n");
-      },
-    },
+    logger: { log: diagnostic },
     baseURL: config.oauth.canonicalOrigin,
     basePath: "/api/auth",
     database,
     trustedOrigins: [...config.trustedOrigins],
     plugins: [...oauthPlugins(config.oauth)],
-    hooks: makeCredentialLifecycleHooks(database, run),
-    databaseHooks: makeAccessDatabaseHooks(database, run),
+    hooks: makeCredentialLifecycleHooks(nativeSql, run),
+    databaseHooks: makeAccessDatabaseHooks(nativeSql, run),
     account: {
       additionalFields: {
         accessRevision: {
@@ -499,9 +496,11 @@ export const makeAuthEngineOptions = (
 export const makeAuthEngine = (
   config: AuthEngineConfig,
   database: Pool,
+  nativeSql: SqlClient,
   run: BetterAuthCallbackRunner,
+  diagnostic: () => void,
   recovery?: PasswordRecovery["Service"],
-) => betterAuth(makeAuthEngineOptions(config, database, run, recovery));
+) => betterAuth(makeAuthEngineOptions(config, database, nativeSql, run, diagnostic, recovery));
 
 export type AuthEngine = ReturnType<typeof makeAuthEngine>;
 
@@ -513,19 +512,16 @@ export const NativeAuthEngineLive = (config: AuthEngineConfig) =>
   Layer.effect(
     NativeAuthEngine,
     Effect.gen(function* () {
-      const pool = yield* DatabasePgPool;
+      const pool = yield* AuthPgPool;
+      const database = yield* Database;
       const recovery = yield* PasswordRecovery;
       const run = yield* makeBetterAuthCallbackRunner;
+      const runDiagnostic = yield* FiberSet.makeRuntime<never, void, never>();
 
-      return makeAuthEngine(config, pool, run, recovery);
+      const diagnostic = () => {
+        runDiagnostic(Effect.logWarning("Identity engine diagnostic"));
+      };
+
+      return makeAuthEngine(config, pool, database, run, diagnostic, recovery);
     }),
   ).pipe(Layer.provideMerge(PasswordRecoveryLive(config)));
-
-export const AuthPoolLive = (config: AuthEngineConfig) =>
-  Layer.effect(
-    DatabasePgPool,
-    Effect.acquireRelease(
-      Effect.sync(() => makeAuthPool(config)),
-      (pool) => Effect.promise(() => pool.end()),
-    ),
-  );

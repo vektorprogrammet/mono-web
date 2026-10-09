@@ -1,114 +1,152 @@
+/**
+ * EX-0021: required public native SQL APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { Context, Data, Duration, Effect, Layer, Redacted } from "effect";
-import { Pool, type PoolClient, type PoolConfig, type QueryResult, type QueryResultRow } from "pg";
+import { Context, Effect, FiberSet, Layer, Schema } from "effect";
+import { Pool } from "pg";
+import type * as SqlClient from "effect/sql/SqlClient";
+import type { SqlError } from "effect/sql/SqlError";
 
-/** The one native PostgreSQL pool shared by Database and Better Auth. */
-export class DatabasePgPool extends Context.Service<DatabasePgPool, Pool>()(
-  "@vektorprogrammet/database/DatabasePgPool",
+/** The supported node-postgres pool owned only by the Better Auth layer. */
+export class AuthPgPool extends Context.Service<AuthPgPool, Pool>()(
+  "@vektorprogrammet/database/pg-pool/AuthPgPool",
 ) {}
 
-/** A node-postgres connection or statement failure, carrying the driver's message. */
-export class PgQueryError extends Data.TaggedError("PgQueryError")<{
-  readonly message: string;
-  readonly cause: unknown;
-}> {}
+const positiveMilliseconds = Schema.Int.check(Schema.isGreaterThan(0));
 
-const pgFailure = (cause: unknown): PgQueryError =>
-  new PgQueryError({
-    message: cause instanceof Error ? cause.message : "PostgreSQL statement failed",
-    cause,
-  });
+/** Host-supplied limits for the supported Better Auth driver, separate from native Effect SQL. */
+export const AuthPoolOptions = Schema.Struct({
+  maxConnections: Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(4)),
+  applicationName: Schema.NonEmptyString,
+  pipeline: Schema.Boolean,
+  connectTimeoutMilliseconds: Schema.optionalKey(positiveMilliseconds),
+  queryTimeoutMilliseconds: Schema.optionalKey(positiveMilliseconds),
+  startupOptions: Schema.optionalKey(Schema.String),
+});
 
-/** Runs one parameterized statement on a node-postgres pool or on a client it lent. */
-export const pgQuery = <R extends QueryResultRow = QueryResultRow>(
-  database: Pool | PoolClient,
-  text: string,
-  values: ReadonlyArray<unknown> = [],
-): Effect.Effect<QueryResult<R>, PgQueryError> =>
-  Effect.tryPromise({ try: () => database.query<R>(text, [...values]), catch: pgFailure });
+export type AuthPoolOptions = typeof AuthPoolOptions.Type;
 
-/** Runs `use` on one client lent by `pool`; the client returns to the pool when `use` ends. */
-export const pgWithClient = <A, E, R>(
-  pool: Pool,
-  use: (client: PoolClient) => Effect.Effect<A, E, R>,
-): Effect.Effect<A, E | PgQueryError, R> =>
-  Effect.acquireUseRelease(
-    Effect.tryPromise({ try: () => pool.connect(), catch: pgFailure }),
-    use,
-    (client) => Effect.sync(() => client.release()),
-  );
+/** A native SQL pool limit is explicit at each host composition, never the driver default. */
+export interface NativePgPoolConfig extends Omit<
+  PgClient.PgPoolConfig,
+  "multiplex" | "multiplexConcurrency"
+> {
+  readonly maxConnections: number;
+}
+
+/** The approved backend cap. Smaller host-owned pools use the same limit decoder. */
+export const NativePgPoolLimit = Schema.Int.check(
+  Schema.isGreaterThan(0),
+  Schema.isLessThanOrEqualTo(8),
+);
+
+const decodeNativePgPoolLimit = Schema.decodeEffect(NativePgPoolLimit);
 
 /**
- * Runs `use` in one transaction on a client lent by `pool`: BEGIN, then COMMIT when `use`
- * succeeds, or ROLLBACK when it fails or is interrupted. The client returns to the pool either way.
+ * Builds the native SQL layer with an explicit host-owned connection limit.
+ *
+ * @remarks
+ * The caller owns the layer scope. The native driver owns acquisition, transaction reservation,
+ * cancellation, and release. Each checkout is exclusive. The driver can queue waiting fibers,
+ * so this limit bounds connections, not admitted work. Prepared statements require an explicit
+ * choice for a compatible pooler. An absent connectionTTL preserves unlimited connection reuse.
+ * Building the layer performs no work. Its scope closes its native pool on every exit.
+ *
+ * @param config Native connection configuration with the host limit.
+ * @returns The native PgClient and SqlClient layer, with configuration or SQL failures.
+ * @sideEffects Opens native PostgreSQL sessions only after the layer runs.
+ * @example
+ * ```ts
+ * const sql = nativePgLayer({ url, maxConnections: 2, prepare: false });
+ * ```
+ * @avoid Providing a new layer for each service or enabling multiplexing on a cancellable path.
+ * @construct sql-lifecycle
  */
-export const pgTransaction = <A, E, R>(
-  pool: Pool,
-  use: (client: PoolClient) => Effect.Effect<A, E, R>,
-): Effect.Effect<A, E | PgQueryError, R> =>
-  pgWithClient<A, E | PgQueryError, R>(pool, (client) =>
-    pgQuery(client, "BEGIN").pipe(
-      Effect.andThen(use(client)),
-      Effect.tap(() => pgQuery(client, "COMMIT")),
-      Effect.onError(() => Effect.ignore(pgQuery(client, "ROLLBACK"))),
+export const nativePgLayer = (
+  config: NativePgPoolConfig,
+): Layer.Layer<PgClient.PgClient | SqlClient.SqlClient, Schema.SchemaError | SqlError> =>
+  Layer.unwrap(
+    Effect.suspend(() =>
+      decodeNativePgPoolLimit(config.maxConnections).pipe(
+        Effect.map((maxConnections) =>
+          PgClient.layer({
+            ...config,
+            maxConnections,
+            minConnections: config.minConnections ?? 0,
+            idleTimeout: config.idleTimeout ?? "10 seconds",
+            connectionTTL: config.connectionTTL,
+            prepare: config.prepare ?? false,
+            multiplex: false,
+            multiplexConcurrency: 1,
+          }),
+        ),
+      ),
     ),
   );
 
-const makeSharedPgPool = (config: Parameters<typeof PgClient.layer>[0]) =>
-  Effect.acquireRelease(
-    Effect.sync(() => {
-      const options: PoolConfig = {
-        connectionString: config.url === undefined ? undefined : Redacted.value(config.url),
-        user: config.username,
-        host: config.host,
-        database: config.database,
-        password: config.password === undefined ? undefined : Redacted.value(config.password),
-        ssl: config.ssl,
-        port: config.port,
-        connectionTimeoutMillis:
-          config.connectTimeout === undefined
-            ? undefined
-            : Duration.toMillis(Duration.fromInputUnsafe(config.connectTimeout)),
-        idleTimeoutMillis:
-          config.idleTimeout === undefined
-            ? undefined
-            : Duration.toMillis(Duration.fromInputUnsafe(config.idleTimeout)),
-        max: config.maxConnections,
-        min: config.minConnections,
-        maxLifetimeSeconds:
-          config.connectionTTL === undefined
-            ? undefined
-            : Duration.toSeconds(Duration.fromInputUnsafe(config.connectionTTL)),
-        application_name: config.applicationName ?? "@effect/sql-pg",
-        options: "-c search_path=auth,public",
-        types: config.types,
+const decodeAuthPoolOptions = Schema.decodeEffect(AuthPoolOptions);
+
+/**
+ * Builds the supported Better Auth pool with its own host-supplied capacity.
+ *
+ * @remarks
+ * This layer owns only the node-postgres pool. It never provides native SqlClient.
+ * The host provides it separately from Database. Native callback fibers close before
+ * the pool, and pool diagnostic fibers remain owned until the pool closes.
+ * A client deadline does not prove PostgreSQL cancellation or a committed outcome.
+ *
+ * @param config The same PostgreSQL URL as the native Database, supplied by the host.
+ * @param options The explicit auth capacity, transport policy, and startup configuration.
+ * @returns The scoped AuthPgPool layer, with invalid configuration in the error channel.
+ * @sideEffects Opens supported pg sessions only when the auth adapter uses the layer.
+ * @example
+ * ```ts
+ * const authPool = AuthPoolLive(config, {
+ *   maxConnections: 2,
+ *   applicationName: "vektorprogrammet-worker-auth",
+ *   pipeline: true,
+ *   connectTimeoutMilliseconds: 2_000,
+ *   queryTimeoutMilliseconds: 1_000,
+ * });
+ * ```
+ * @avoid Providing this layer to a delivery-only event or sharing it with native Effect SQL.
+ * @construct sql-lifecycle
+ */
+export const AuthPoolLive = (
+  config: { readonly postgresUrl: string },
+  options: AuthPoolOptions,
+): Layer.Layer<AuthPgPool, Schema.SchemaError> =>
+  Layer.effect(
+    AuthPgPool,
+    Effect.gen(function* () {
+      const decoded = yield* decodeAuthPoolOptions(options);
+      const runPoolCallback = yield* FiberSet.makeRuntime();
+
+      const onIdleError = () => {
+        runPoolCallback(Effect.logWarning("Better Auth idle PostgreSQL connection failed"));
       };
 
-      if (config.stream !== undefined) options.stream = config.stream;
+      return yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          const pool = new Pool({
+            connectionString: config.postgresUrl,
+            max: decoded.maxConnections,
+            application_name: decoded.applicationName,
+            pipeline: decoded.pipeline,
+            connectionTimeoutMillis: decoded.connectTimeoutMilliseconds,
+            query_timeout: decoded.queryTimeoutMilliseconds,
+            options: decoded.startupOptions,
+          });
 
-      const pool = new Pool(options);
+          pool.on("error", onIdleError);
 
-      pool.on("error", () => {});
-
-      return pool;
-    }),
-    (pool) =>
-      Effect.promise(() => pool.end()).pipe(
-        Effect.timeoutOption(Duration.seconds(1)),
-        Effect.ignore,
-      ),
-  );
-
-export const sharedPgLayer = (config: Parameters<typeof PgClient.layer>[0]) => {
-  const poolLayer = Layer.effect(DatabasePgPool, makeSharedPgPool(config));
-
-  const clientLayer = PgClient.layerFrom(
-    Effect.gen(function* () {
-      const pool = yield* DatabasePgPool;
-
-      return yield* PgClient.fromPool({ ...config, acquire: Effect.succeed(pool) });
+          return pool;
+        }),
+        (pool) =>
+          Effect.promise(() => pool.end()).pipe(
+            Effect.ensuring(Effect.sync(() => pool.off("error", onIdleError))),
+          ),
+      );
     }),
   );
-
-  return clientLayer.pipe(Layer.provideMerge(poolLayer));
-};

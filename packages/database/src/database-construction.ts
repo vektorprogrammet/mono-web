@@ -1,5 +1,9 @@
+/**
+ * EX-0021: required public native SQL APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Effect, FileSystem, Path } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import {
   databaseSchemaRevision,
   type ExecuteMigration,

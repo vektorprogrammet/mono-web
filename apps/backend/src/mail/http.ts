@@ -1,5 +1,9 @@
+/**
+ * EX-0024: required stable native HTTP transport retains upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
 import { Effect, Layer } from "effect";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 import { Mail, MailDeliveryError, type MailOperations } from "@vektorprogrammet/domain/mail";
 import { deliverJson, type HttpDeliveryConfig } from "../delivery/http.js";
 

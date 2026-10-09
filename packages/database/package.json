@@ -23,6 +23,7 @@
     "./outbox-lifecycle": "./src/outbox-lifecycle.ts",
     "./live": "./src/layers.ts",
     "./migrations": "./src/migrations.ts",
+    "./postgres-migration-statements": "./src/postgres-migration-statements.ts",
     "./password-recovery": "./src/password-recovery.ts",
     "./person-cohort": "./src/person-cohort.ts",
     "./placements": "./src/placements/index.ts",

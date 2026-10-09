@@ -1,4 +1,8 @@
 /**
+ * EX-0021: required public native SQL APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * The ordered registry of PostgreSQL migrations and the Migrator that applies it.
  *
  * Use `runDatabaseMigrations` to bring a database to the head revision. Tests, proofs, and
@@ -11,9 +15,9 @@
  * records the digest of every registered file; `just migration-hashes` checks both.
  */
 import { Data, Effect, FileSystem, Path } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import * as Migrator from "effect/unstable/sql/Migrator";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import * as SqlClient from "effect/sql/SqlClient";
+import * as Migrator from "effect/sql/Migrator";
+import type { SqlError } from "effect/sql/SqlError";
 import { schemaMigrationLedger } from "./schema-bookkeeping.js";
 
 export class DatabaseMigrationReadError extends Data.TaggedError("DatabaseMigrationReadError")<{

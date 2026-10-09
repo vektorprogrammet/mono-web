@@ -1,4 +1,8 @@
 /**
+ * EX-0021: required public native SQL APIs in exact stable Effect 4 retain upstream unstable annotations.
+ * @effect-diagnostics unstableApiUsage:off
+ */
+/**
  * Transaction-scoped PostgreSQL advisory locks under registered keys.
  *
  * PostgreSQL identifies an advisory lock by `hashtextextended(key, 0)`, so every writer that
@@ -21,11 +25,11 @@
  * space. Adding a prefix to one of them is a lock migration, not a rename.
  */
 import { Brand, Effect } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { SqlError } from "effect/sql/SqlError";
 import { AUTHZ_LOCK_PROTOCOL } from "@vektorprogrammet/domain/authz";
 import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import type { ReceiptImportResult } from "@vektorprogrammet/domain/receipt";
-import type { DatabaseOperations } from "./service.js";
+import type { SqlClient } from "effect/sql/SqlClient";
 
 /** Text that PostgreSQL hashes into one advisory lock; only `AdvisoryLockKey` produces it. */
 export type AdvisoryLockKey = Brand.Branded<string, "AdvisoryLockKey">;
@@ -82,6 +86,8 @@ export interface AdvisoryLockKeys {
   readonly importedReceiptVisual: (visualId: string) => AdvisoryLockKey;
   /** The reviewed receipt cohort import. */
   readonly reviewedReceiptImport: AdvisoryLockKey;
+  /** The reviewed Person cohort import, with its existing lock bytes. */
+  readonly reviewedPersonImport: AdvisoryLockKey;
   /** Schedule, conduct, response, and staffing writers of one interview; migration 0039. Bare. */
   readonly recruitmentInterview: (interviewId: string) => AdvisoryLockKey;
   /** Recruitment scheduling, conduct, and assignment command receipt. Bare. */
@@ -161,6 +167,7 @@ export const AdvisoryLockKey: AdvisoryLockKeys = {
   importedReceipt: (receiptId) => advisoryLockKey(`receipt:${receiptId}`),
   importedReceiptVisual: (visualId) => advisoryLockKey(`visual:${visualId}`),
   reviewedReceiptImport: advisoryLockKey("native-reviewed-receipt-import"),
+  reviewedPersonImport: advisoryLockKey("native-person-cohort-import"),
   recruitmentInterview: (interviewId) => advisoryLockKey(interviewId),
   recruitmentCommand: (commandId) => advisoryLockKey(commandId),
   recruitmentApplication: (applicationId) => advisoryLockKey(applicationId),
@@ -201,7 +208,7 @@ export type AdvisoryLockMode = "exclusive" | "shared";
  * @construct sql-lock
  */
 export const lockAdvisory = (
-  sql: DatabaseOperations,
+  sql: SqlClient,
   key: AdvisoryLockKey,
   mode: AdvisoryLockMode = "exclusive",
 ): Effect.Effect<void, SqlError> =>
@@ -215,7 +222,7 @@ export const lockAdvisory = (
  * transaction holds it. Answers false instead of waiting.
  */
 export const tryLockAdvisory = (
-  sql: DatabaseOperations,
+  sql: SqlClient,
   key: AdvisoryLockKey,
 ): Effect.Effect<boolean, SqlError> =>
   sql<{ readonly acquired: boolean }>`
