@@ -1,0 +1,202 @@
+diff --git a/dist/http-api/HttpApiEndpoint.d.ts b/dist/http-api/HttpApiEndpoint.d.ts
+--- a/dist/http-api/HttpApiEndpoint.d.ts
++++ b/dist/http-api/HttpApiEndpoint.d.ts
+@@ -308,12 +308,8 @@ export type ClientRequest<Params extends Schema.Constraint, Query extends Schema
+     readonly query: Query["Type"];
+ }) & ([Headers["Type"]] extends [never] ? {} : {
+     readonly headers: Headers["Type"];
+-}) & ([Payload["Type"]] extends [never] ? {} : Payload["Type"] extends infer P ? P extends Brand<HttpApiSchema.MultipartTypeId> | Brand<HttpApiSchema.MultipartStreamTypeId> ? {
+-    readonly payload: FormData;
+-} : {
+-    readonly payload: Payload["Type"];
+-} : {
+-    readonly payload: Payload["Type"];
++}) & ([Payload["Type"]] extends [never] ? {} : {
++    readonly payload: Payload["Type"] extends infer P ? P extends Brand<HttpApiSchema.MultipartTypeId> | Brand<HttpApiSchema.MultipartStreamTypeId> ? FormData : P : Payload["Type"];
+ })) extends infer Req ? keyof Req extends never ? (void | {
+     readonly responseMode?: ResponseMode;
+     readonly sseOptions?: Sse.DecodeOptions | undefined;
+diff --git a/dist/persistence/PersistedQueue.d.ts b/dist/persistence/PersistedQueue.d.ts
+--- a/dist/persistence/PersistedQueue.d.ts
++++ b/dist/persistence/PersistedQueue.d.ts
+@@ -25,1 +25,2 @@
+-import * as SqlClient from "../sql/SqlClient.ts";
++import type * as Migrator from "../sql/Migrator.ts";
++import * as SqlClient from "../sql/SqlClient.ts";
+@@ -373,4 +374,8 @@
+-    readonly pollInterval?: Duration.Input | undefined;
+-    readonly lockRefreshInterval?: Duration.Input | undefined;
+-    readonly lockExpiration?: Duration.Input | undefined;
+-} | undefined) => Effect.Effect<PersistedQueueStore["Service"], SqlError, SqlClient.SqlClient | Scope.Scope>;
++    readonly pollInterval?: Duration.Input | undefined;
++    readonly lockRefreshInterval?: Duration.Input | undefined;
++    readonly lockExpiration?: Duration.Input | undefined;
++    /** Retry window for acknowledgements, not an individual SQL deadline. Defaults to lockExpiration. */
++    readonly ackRetryDuration?: Duration.Input | undefined;
++    /** Verify externally provisioned schema without migrations, DDL or migration locks. Omission runs migrations. */
++    readonly migrations?: "verify" | undefined;
++} | undefined) => Effect.Effect<PersistedQueueStore["Service"], SqlError | Migrator.MigrationError, SqlClient.SqlClient | Scope.Scope>;
+@@ -386,4 +391,8 @@
+-    readonly pollInterval?: Duration.Input | undefined;
+-    readonly lockRefreshInterval?: Duration.Input | undefined;
+-    readonly lockExpiration?: Duration.Input | undefined;
+-} | undefined) => Layer.Layer<PersistedQueueStore, SqlError, SqlClient.SqlClient>;
++    readonly pollInterval?: Duration.Input | undefined;
++    readonly lockRefreshInterval?: Duration.Input | undefined;
++    readonly lockExpiration?: Duration.Input | undefined;
++    /** Retry window for acknowledgements, not an individual SQL deadline. Defaults to lockExpiration. */
++    readonly ackRetryDuration?: Duration.Input | undefined;
++    /** Verify externally provisioned schema without migrations, DDL or migration locks. Omission runs migrations. */
++    readonly migrations?: "verify" | undefined;
++} | undefined) => Layer.Layer<PersistedQueueStore, SqlError | Migrator.MigrationError, SqlClient.SqlClient>;
+diff --git a/dist/persistence/PersistedQueue.js b/dist/persistence/PersistedQueue.js
+--- a/dist/persistence/PersistedQueue.js
++++ b/dist/persistence/PersistedQueue.js
+@@ -825,1 +825,4 @@
+-/**
++const decodeSqlMigrationVersion = Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({
++  migration_id: Schema.NullOr(Schema.Int)
++})));
++/**
+@@ -845,6 +848,25 @@
+-  const workerId = crypto.randomUUID();
+-  const ackRetrySchedule = makeAckRetrySchedule(lockExpiration);
+-  yield* Effect.orDie(Migrator.make({})({
+-    loader: sqlMigrations(tableName),
+-    table: `${tableName}_migrations`
+-  }));
++  const workerId = crypto.randomUUID();
++  const ackRetrySchedule = makeAckRetrySchedule(options?.ackRetryDuration ?? lockExpiration);
++  if (options?.migrations === "verify") {
++    const current = yield* sqlMigrations(tableName);
++    const expected = current.reduce((max, [id]) => Math.max(max, id), 0);
++    const rows = yield* sql`SELECT MAX(migration_id) AS migration_id FROM ${sql(`${tableName}_migrations`)}`;
++    const versions = yield* decodeSqlMigrationVersion(rows).pipe(Effect.mapError(cause => new Migrator.MigrationError({
++      kind: "BadState", cause, message: "Invalid persisted queue migration ledger"
++    })));
++    const actual = versions[0]?.migration_id;
++    if (versions.length !== 1 || actual === null || actual === undefined || actual < expected) {
++      return yield* new Migrator.MigrationError({
++        kind: "BadState", message: "Persisted queue schema requires operator migrations"
++      });
++    }
++    // Column availability only: the operator remains responsible for types, indexes and constraints.
++    yield* sql`SELECT sequence, id, queue_name, element, state, attempts, last_failure,
++      visible_at, acquired_at, acquired_by, created_at, updated_at
++      FROM ${tableNameSql} WHERE 1 = 0`;
++  } else {
++    yield* Effect.orDie(Migrator.make({})({
++      loader: sqlMigrations(tableName),
++      table: `${tableName}_migrations`
++    }));
++  }
+diff --git a/src/http-api/HttpApiEndpoint.ts b/src/http-api/HttpApiEndpoint.ts
+--- a/src/http-api/HttpApiEndpoint.ts
++++ b/src/http-api/HttpApiEndpoint.ts
+@@ -535,11 +535,11 @@ export type ClientRequest<
+   & ([Query["Type"]] extends [never] ? {} : { readonly query: Query["Type"] })
+   & ([Headers["Type"]] extends [never] ? {} : { readonly headers: Headers["Type"] })
+   & ([Payload["Type"]] extends [never] ? {}
+-    : Payload["Type"] extends infer P ?
+-      P extends Brand<HttpApiSchema.MultipartTypeId> | Brand<HttpApiSchema.MultipartStreamTypeId>
+-        ? { readonly payload: FormData }
+-      : { readonly payload: Payload["Type"] }
+-    : { readonly payload: Payload["Type"] })
++    : { readonly payload: Payload["Type"] extends infer P
++      ? P extends Brand<HttpApiSchema.MultipartTypeId> | Brand<HttpApiSchema.MultipartStreamTypeId>
++        ? FormData
++        : P
++      : Payload["Type"] })
+ ) extends infer Req ? keyof Req extends never ? (void | {
+       readonly responseMode?: ResponseMode
+       readonly sseOptions?: Sse.DecodeOptions | undefined
+diff --git a/src/persistence/PersistedQueue.ts b/src/persistence/PersistedQueue.ts
+--- a/src/persistence/PersistedQueue.ts
++++ b/src/persistence/PersistedQueue.ts
+@@ -1290,1 +1290,5 @@
+-/**
++const decodeSqlMigrationVersion = Schema.decodeUnknownEffect(
++  Schema.Array(Schema.Struct({ migration_id: Schema.NullOr(Schema.Int) }))
++)
++
++/**
+@@ -1306,8 +1310,12 @@
+-    readonly pollInterval?: Duration.Input | undefined
+-    readonly lockRefreshInterval?: Duration.Input | undefined
+-    readonly lockExpiration?: Duration.Input | undefined
+-  } | undefined
+-) => Effect.Effect<
+-  PersistedQueueStore["Service"],
+-  SqlError,
+-  SqlClient.SqlClient | Scope.Scope
++    readonly pollInterval?: Duration.Input | undefined
++    readonly lockRefreshInterval?: Duration.Input | undefined
++    readonly lockExpiration?: Duration.Input | undefined
++    /** Retry window for acknowledgements, not an individual SQL deadline. Defaults to lockExpiration. */
++    readonly ackRetryDuration?: Duration.Input | undefined
++    /** Verify externally provisioned schema without migrations, DDL or migration locks. Omission runs migrations. */
++    readonly migrations?: "verify" | undefined
++  } | undefined
++) => Effect.Effect<
++  PersistedQueueStore["Service"],
++  SqlError | Migrator.MigrationError,
++  SqlClient.SqlClient | Scope.Scope
+@@ -1332,8 +1340,29 @@
+-  const ackRetrySchedule = makeAckRetrySchedule(lockExpiration)
+-
+-  yield* Effect.orDie(
+-    Migrator.make({})({
+-      loader: sqlMigrations(tableName),
+-      table: `${tableName}_migrations`
+-    })
+-  )
++  const ackRetrySchedule = makeAckRetrySchedule(options?.ackRetryDuration ?? lockExpiration)
++
++  if (options?.migrations === "verify") {
++    const current = yield* sqlMigrations(tableName)
++    const expected = current.reduce((max, [id]) => Math.max(max, id), 0)
++    const rows = yield* sql`SELECT MAX(migration_id) AS migration_id FROM ${sql(`${tableName}_migrations`)}`
++    const versions = yield* decodeSqlMigrationVersion(rows).pipe(
++      Effect.mapError((cause) => new Migrator.MigrationError({
++        kind: "BadState", cause, message: "Invalid persisted queue migration ledger"
++      }))
++    )
++    const actual = versions[0]?.migration_id
++    if (versions.length !== 1 || actual === null || actual === undefined || actual < expected) {
++      return yield* new Migrator.MigrationError({
++        kind: "BadState", message: "Persisted queue schema requires operator migrations"
++      })
++    }
++    // Column availability only: the operator remains responsible for types, indexes and constraints.
++    yield* sql`SELECT sequence, id, queue_name, element, state, attempts, last_failure,
++      visible_at, acquired_at, acquired_by, created_at, updated_at
++      FROM ${tableNameSql} WHERE 1 = 0`
++  } else {
++    yield* Effect.orDie(
++      Migrator.make({})({
++        loader: sqlMigrations(tableName),
++        table: `${tableName}_migrations`
++      })
++    )
++  }
+@@ -2043,8 +2072,12 @@
+-    readonly pollInterval?: Duration.Input | undefined
+-    readonly lockRefreshInterval?: Duration.Input | undefined
+-    readonly lockExpiration?: Duration.Input | undefined
+-  } | undefined
+-) => Layer.Layer<
+-  PersistedQueueStore,
+-  SqlError,
+-  SqlClient.SqlClient
++    readonly pollInterval?: Duration.Input | undefined
++    readonly lockRefreshInterval?: Duration.Input | undefined
++    readonly lockExpiration?: Duration.Input | undefined
++    /** Retry window for acknowledgements, not an individual SQL deadline. Defaults to lockExpiration. */
++    readonly ackRetryDuration?: Duration.Input | undefined
++    /** Verify externally provisioned schema without migrations, DDL or migration locks. Omission runs migrations. */
++    readonly migrations?: "verify" | undefined
++  } | undefined
++) => Layer.Layer<
++  PersistedQueueStore,
++  SqlError | Migrator.MigrationError,
++  SqlClient.SqlClient

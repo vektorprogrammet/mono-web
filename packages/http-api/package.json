@@ -9,14 +9,14 @@
     "./http-semantics": "./src/http-semantics.ts"
   },
   "scripts": {
-    "generate": "bun x effx build --project tsconfig.effx.json --strict-access --emit=contract && bun run scripts/generate-openapi.ts",
+    "generate": "bun ../../node_modules/@effx/cli/dist/effx.js build --project tsconfig.effx.json --strict-access --emit=contract && bun run scripts/generate-openapi.ts",
     "check-types": "tsc --noEmit",
     "build": "tsc --noEmit",
     "lint": "oxlint",
     "test": "vitest run"
   },
   "dependencies": {
-    "@effx/runtime": "file:../../tools/effx-dist/effx-runtime-0.1.0-7290ea543a3eb1e3175fd4b53ef27c71978ab7be.tgz",
+    "@effx/runtime": "0.1.0",
     "@vektorprogrammet/domain": "workspace:*",
     "effect": "catalog:effect-v4"
   },

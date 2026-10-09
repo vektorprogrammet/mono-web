@@ -205,22 +205,21 @@
         ],
         "symbols": ["EffectSdk"]
       },
-      "reason": "Command endpoints of the contract, such as placements.commandBoard, take a union of commands as their payload, and the dashboard sends a command that it has not narrowed to one member. patches/effect@4.0.0-rc.116.patch changes the declaration type HttpApiEndpoint.ClientRequest so that a generated client method takes the whole payload type. The client runtime is unchanged.",
-      "missingCapability": "HttpApiEndpoint.ClientRequest of effect 4.0.0-rc.116, unchanged in 4.0.0-rc.117 and on the main branch of effect-smol on 2026-09-27, distributes a union payload over its members: a method takes { payload: A } | { payload: B }, not { payload: A | B }, so a payload typed as the union fails with TS2345. Its conditional P extends Brand<…> names Payload[\"Type\"] in the false branch, and TypeScript narrows that to the member P inside the true branch of Payload[\"Type\"] extends infer P. A program with one union endpoint reproduces it with TypeScript 7.0.2 and 5.9.3.",
+      "reason": "Command endpoints accept a whole union payload through one generated client call. patches/effect@4.0.0.patch ports the HttpApiEndpoint.ClientRequest source/declaration repair to stable http-api paths; the client runtime is unchanged. Native SQL queue extensions in the same patch are independently owned.",
+      "missingCapability": "The exact public stable Effect 4.0.0 HttpApiEndpoint.ClientRequest still distributes a union payload into separate request objects, rejecting a caller whose payload is the complete union. The multipart conditional must distribute only the payload value, not the surrounding request object. Stable source was inspected directly; renaming the patch is not retirement. The retained type regression must run against the committed stable graph before acceptance.",
       "nativeAlternatives": [
-        "Narrowing each command with Match and calling the method once per member: every caller of a union endpoint then repeats one identical call per command.",
-        "Asserting the request type at each call site: the assertion removes the check of the request against the contract.",
-        "One endpoint per command, or a struct that wraps the union: both change the HTTP contract and the wire format of every command endpoint.",
-        "Deriving the SDK client type again with a corrected request type: it copies HttpApiClient.Client.Method and its unexported MethodReturn from the Effect source, and the copy drifts with each release."
+        "Narrowing each command with Match repeats one identical client call per command member.",
+        "Asserting the request type removes the check against the HTTP contract.",
+        "One endpoint per command or a wrapper struct changes the HTTP contract and command wire format.",
+        "Re-deriving the SDK client copies native HttpApiClient method internals and drifts with each release."
       ],
       "verification": [
-        "`bun run --cwd packages/sdk check-types` checks the type test \"accepts the complete command union through one Promise endpoint\" in packages/sdk/src/__tests__/generated-native-client.test.ts, which fails with TS2344 without the patch.",
-        "`just check-types` checks the dashboard callers that send an unnarrowed command union: apps/dashboard/app/foldkit/recruitment-maintenance/command.ts, apps/dashboard/app/foldkit/schools/browser-client.ts, and apps/dashboard/app/routes/dashboard.assistenter._index.tsx. Without the patch each fails with TS2345.",
-        "The patch changes only dist/unstable/httpapi/HttpApiEndpoint.d.ts and its source. The contract tests of the same test file run the unchanged client runtime."
+        "Required before stable acceptance: packages/sdk check-types checks the retained complete-union Promise endpoint type regression and full check-types checks unnarrowed dashboard callers.",
+        "The HTTP repair changes only dist/http-api/HttpApiEndpoint.d.ts and its source. SDK contract tests exercise the unchanged client runtime; bootstrap patch applicability is not runtime/type acceptance."
       ],
       "owner": "packages/sdk",
-      "examinedWith": { "effect": "4.0.0-rc.116", "typescript": "7.0.2" },
-      "retirementTrigger": "An Effect release whose HttpApiEndpoint.ClientRequest takes the whole union as the payload of a union endpoint. Then remove the patch and its patchedDependencies entry, delete this entry and the comments that name it, and keep the type test, which then checks the release."
+      "examinedWith": { "effect": "4.0.0", "typescript": "7.0.2" },
+      "retirementTrigger": "When the installed native ClientRequest accepts the complete union, remove only the HTTP hunks and this record after the retained type/runtime regressions pass. Keep the patch descriptor while an independent native queue hunk remains necessary."
     }
   ]
 }

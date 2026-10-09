@@ -10,6 +10,13 @@ Production uses the legacy PHP application. Production replacement is not author
 The legacy source is in the [vektorprogrammet](https://github.com/vektorprogrammet/vektorprogrammet) repository; the former `apps/server` continues there as branch `modernize/mono-web-server` (`908368a8`), with the same tree (`023b85bd`) as mono-web `b6438cb2`. The removal commit is `ea124143`; its parent `1277be8b` still contains `apps/server`.
 Local implementation and acceptance do not authorize production, provider, or source-data actions.
 
+The stable Effect upgrade follows [its frozen contract](docs/specs/effect-stable-v4.md). Local acceptance remains pending.
+The canonical worktree excludes unpublished dashboard Root and Worker feature sources. Historical RC proof results do not establish stable acceptance.
+The HTTP union patch and native queue extensions remain necessary. Their stable ports are not retirements.
+The approved native SQL change uses separate scoped Database and Better Auth pools. SQL migration, cancellation, and cleanup proofs remain gates.
+The compiler artifact manifest records the actual consumed source and archive hashes. A package build does not establish installed-consumer acceptance.
+Fresh committed-source checks, generated contracts, native UI/API/PostgreSQL journeys, and the immutable lift snapshot remain required.
+
 Recruitment migration 0029 has operator approval reported by the director; exact words not
 preserved. This is not verified direct operator approval. Effx commit `b88523d2a8ffcbde5c19008d649da653c26ee475` records the report under `docs/specs/0029-recruitment-migration.md`.
 The current phase is LOCAL implemented, not accepted. The source descends from the accepted Admissions integration `815a28f8`.

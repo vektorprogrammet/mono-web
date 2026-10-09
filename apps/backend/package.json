@@ -20,7 +20,7 @@
   "scripts": {
     "start": "bun run src/main.ts",
     "dev": "bun run --watch src/main.ts",
-    "generate": "bun x effx build --project tsconfig.effx.json --strict-access --emit=handlers",
+    "generate": "bun ../../node_modules/@effx/cli/dist/effx.js build --project tsconfig.effx.json --strict-access --emit=handlers",
     "check-types": "tsc --noEmit",
     "build": "tsc --noEmit",
     "lint": "oxlint",

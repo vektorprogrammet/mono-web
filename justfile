@@ -29,8 +29,8 @@ docs script="dev":
 # Generate Profile, Directory, SocialEvents, Content, TeamApplications, Organization, and Contact contracts and raw bindings from one project IR.
 [group('develop')]
 effx-native:
-    bun x effx build --project packages/http-api/tsconfig.effx.json --strict-access --emit=contract
-    bun x effx build --project apps/backend/tsconfig.effx.json --strict-access --emit=handlers
+    bun node_modules/@effx/cli/dist/effx.js build --project packages/http-api/tsconfig.effx.json --strict-access --emit=contract
+    bun node_modules/@effx/cli/dist/effx.js build --project apps/backend/tsconfig.effx.json --strict-access --emit=handlers
 
 # Build every package through Turbo. Arguments go to Turbo.
 [group('develop')]

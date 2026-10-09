@@ -44,9 +44,9 @@ Check peer compatibility before adopting reference dependencies, including XStat
 Reference examples do not authorize production actions or replace the active journey contract.
 
 The root catalog and lockfile own dependency versions. Do not copy version pins into instructions.
-The PostgreSQL adapter pin preserves `PgClient.fromPool` and the pool shared by Database and Better Auth.
-Before changing it, inspect the candidate adapter source.
-Verify pool ownership, transaction behavior, and shutdown against PostgreSQL.
+The native PostgreSQL driver contract defines separate scoped Database and Better Auth pools.
+Before changing an adapter, inspect its exact installed source and the active driver contract.
+Check pool ownership, transaction behavior, cancellation, and shutdown against PostgreSQL.
 Keep infrastructure dependencies separate from the application catalog.
 
 ## Effect first

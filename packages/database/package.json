@@ -76,6 +76,7 @@
     "bcryptjs": "3.0.3",
     "better-auth": "1.7.1",
     "effect": "catalog:effect-v4",
+    "libpg-query": "catalog:sql-parser",
     "pg": "8"
   },
   "devDependencies": {

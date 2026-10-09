@@ -2,9 +2,9 @@ import { correctness, effectNative, recommended } from "@effect/tsgo/oxlint-pres
 import { defineConfig, type OxlintConfig } from "oxlint";
 import {
   DEFAULT_PLUGIN_NAME,
-  expandDomains,
+  effect,
   RULE_NAMES,
-  type ExpandInput,
+  type EffectConfigInput,
   type OxlintConfigFragment,
 } from "@phibkro/oxlint-effect-plugin";
 
@@ -53,7 +53,6 @@ const bunNodeModules = {
 // Groups therefore use plain globs, ordered from broad sources to narrow exceptions:
 // the last matching group decides every Effect rule for a file (see `totalOverrides`).
 const effectConfig = {
-  technology: "effect-v4",
   groups: [
     {
       files: ["packages/domain/src/**/*.ts"],
@@ -188,9 +187,9 @@ const effectConfig = {
       ruleOptions: bunNodeModules,
     },
   ],
-} satisfies ExpandInput;
+} satisfies EffectConfigInput;
 
-// `expandDomains` lists only the rules that apply to a group, so a rule enabled by an earlier,
+// `effect` lists only the rules that apply to a group, so a rule enabled by an earlier,
 // broader group would stay on for files of a later group where it does not apply.
 // Turning every other plugin rule off in each override makes the last matching group total.
 const totalOverrides = (fragment: OxlintConfigFragment): OxlintConfigFragment => ({
@@ -234,12 +233,12 @@ const productImportPatterns = [
 
 const browserImportPatterns = [
   {
-    regex: "(^|/)(database|pg|postgres)(/|$)|^@effect/sql-pg($|/)|^effect/unstable/sql($|/)",
+    regex: "(^|/)(database|pg|postgres)(/|$)|^@effect/sql-pg($|/)|^effect/sql($|/)",
     message: "Browser-safe modules must not import PostgreSQL adapters.",
   },
 ];
 
-const expandedEffectConfig = totalOverrides(expandDomains(effectConfig));
+const expandedEffectConfig = totalOverrides(effect(effectConfig));
 
 export default defineConfig({
   ...expandedEffectConfig,
